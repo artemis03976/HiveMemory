@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Qdrant 向量数据库
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: hivememory_qdrant
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    networks:
+      - hivememory_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis 消息队列与缓存
+  redis:
+    image: redis:7-alpine
+    container_name: hivememory_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass hivememory_redis_pass
+    restart: unless-stopped
+    networks:
+      - hivememory_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Qdrant Web UI (可选 - 用于可视化调试)
+  qdrant-web-ui:
+    image: qdrant/qdrant-web-ui:latest
+    container_name: hivememory_qdrant_ui
+    ports:
+      - "6335:80"
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+    networks:
+      - hivememory_network
+    profiles:
+      - debug  # 仅在 debug 模式下启动
+
+volumes:
+  qdrant_storage:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  hivememory_network:
+    driver: bridge

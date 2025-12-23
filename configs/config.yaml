@@ -1,0 +1,91 @@
+# HiveMemory 主配置文件
+
+system:
+  name: "HiveMemory"
+  version: "0.1.0"
+  debug: true
+
+# LLM 模型配置
+llm:
+  worker:
+    provider: "litellm"
+    model: "${WORKER_LLM_MODEL}"
+    api_key: "${WORKER_LLM_API_KEY}"
+    api_base: "${WORKER_LLM_API_BASE}"
+    temperature: 0.7
+    max_tokens: 4096
+
+  librarian:
+    provider: "litellm"
+    model: "${LIBRARIAN_LLM_MODEL}"
+    api_key: "${LIBRARIAN_LLM_API_KEY}"
+    api_base: "${LIBRARIAN_LLM_API_BASE}"
+    temperature: 0.3  # 更保守,用于结构化提取
+    max_tokens: 8192  # 支持长对话分析
+
+# Embedding 模型配置
+embedding:
+  model_name: "${EMBEDDING_MODEL}"
+  device: "${EMBEDDING_DEVICE}"
+  batch_size: 32
+  normalize_embeddings: true
+  dimension: 1024
+
+# 向量数据库配置
+qdrant:
+  host: "${QDRANT_HOST}"
+  port: 6333
+  grpc_port: 6334
+  api_key: "${QDRANT_API_KEY}"
+  collection_name: "${QDRANT_COLLECTION_NAME}"
+  vector_dimension: 1024
+  distance_metric: "Cosine"
+  on_disk_payload: false  # 小规模数据可全内存
+
+# Redis 配置
+redis:
+  host: "${REDIS_HOST}"
+  port: 6379
+  password: "${REDIS_PASSWORD}"
+  db: 0
+  decode_responses: true
+
+# SQLite 配置
+sqlite:
+  db_path: "${SQLITE_DB_PATH}"
+
+# 记忆管理配置
+memory:
+  buffer:
+    max_messages: 5  # 累积5条消息触发处理
+    timeout_seconds: 900  # 15分钟无活动触发
+
+  lifecycle:
+    high_watermark: 80  # 活跃记忆分数阈值
+    low_watermark: 20   # 归档记忆分数阈值
+    decay_lambda: 0.01  # 时间衰减系数
+
+  extraction:
+    min_confidence: 0.4  # 最低置信度阈值
+    max_tags: 5          # 每个记忆最多标签数
+
+# 检索配置
+retrieval:
+  top_k: 5
+  score_threshold: 0.75
+  rerank_model: null  # 暂不启用reranker
+  enable_hybrid_search: true
+
+# API 服务配置
+api:
+  host: "${API_HOST}"
+  port: 8000
+  reload: true
+  workers: 1
+
+# 日志配置
+logging:
+  level: "${LOG_LEVEL}"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_path: "${LOG_FILE_PATH}"
+  console_output: true
