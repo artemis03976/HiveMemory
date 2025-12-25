@@ -31,19 +31,23 @@ class MessageCountTrigger(TriggerStrategy):
 
     当缓冲区消息数达到阈值时触发。
 
+    注意:
+        建议使用偶数阈值以确保处理完整的 user-assistant 对话对。
+
     Examples:
-        >>> trigger = MessageCountTrigger(threshold=5)
+        >>> trigger = MessageCountTrigger(threshold=6)
         >>> should, reason = trigger.should_trigger(messages, {})
         >>> if should:
         ...     print(f"触发原因: {reason.value}")
     """
 
-    def __init__(self, threshold: int = 5):
+    def __init__(self, threshold: int = 6):
         """
         初始化消息数触发器
 
         Args:
-            threshold: 消息数阈值，默认 5
+            threshold: 消息数阈值，默认 6
+                建议使用偶数以确保完整对话对被处理
         """
         self.threshold = threshold
 
@@ -261,7 +265,7 @@ def create_default_trigger_manager() -> TriggerManager:
     创建默认触发管理器
 
     配置:
-        - 消息数: 5 条
+        - 消息数: 6 条 (偶数，确保完整对话对)
         - 超时: 900 秒 (15 分钟)
         - 语义边界: 启用
 
@@ -270,7 +274,7 @@ def create_default_trigger_manager() -> TriggerManager:
     """
     return TriggerManager(
         strategies=[
-            MessageCountTrigger(threshold=5),
+            MessageCountTrigger(threshold=6),
             IdleTimeoutTrigger(timeout=900),
             SemanticBoundaryTrigger(),
         ]

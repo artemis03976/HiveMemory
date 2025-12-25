@@ -37,7 +37,6 @@ from rich.markdown import Markdown
 from hivememory.core.models import ConversationMessage
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.generation.buffer import ConversationBuffer
 from hivememory.generation.triggers import TriggerManager, MessageCountTrigger
 
 # 配置日志
@@ -174,10 +173,11 @@ def run_scenario(scenario: dict, patchouli: PatchouliAgent):
         MessageCountTrigger(threshold=20)
     ])
 
-    buffer = ConversationBuffer(
-        orchestrator=patchouli.orchestrator,
+    # 使用 PatchouliAgent 的 Buffer 管理（全局单例复用）
+    buffer = patchouli.get_or_create_buffer(
         user_id="test_user",
         agent_id="test_agent",
+        session_id=f"test_scenario_{scenario['name']}",
         trigger_manager=trigger_manager,
         on_flush_callback=on_flush,
     )

@@ -76,7 +76,7 @@ class ConversationBuffer:
 
         # 消息缓冲区
         self.messages: List[ConversationMessage] = []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # 使用可重入锁避免死锁
 
         # 触发管理
         self.trigger_manager = trigger_manager or create_default_trigger_manager()
