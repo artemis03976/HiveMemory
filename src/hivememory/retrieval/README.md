@@ -8,62 +8,66 @@ MemoryRetrieval 模块负责智能检索相关记忆并注入到对话上下文�
 
 ---
 
-## ⚠️ 当前状态
+## ✅ 当前状态
 
-**🚧 骨架接口 - 待 Stage 2 实现**
+**🎉 Stage 2 实现完成**
 
-本模块目前仅包含接口定义，核心功能将在 Stage 2 开发中完成。
-
----
-
-## 🎯 核心职责 (计划)
-
-1. **检索路由 (Router)** - 判断查询是否需要记忆
-2. **查询预处理** - Query Rewriting，补全上下文
-3. **混合检索** - 向量 + BM25 + 结构化过滤
-4. **重排序 (Reranking)** - Cross-Encoder 精排
-5. **上下文注入** - 渲染为 Markdown 供 LLM 使用
-6. **权限控制** - 基于 Visibility 过滤
+本模块已完成核心功能开发，包括：
+- 查询预处理（时间解析、类型识别）
+- 检索路由（规则 + LLM 两种模式）
+- 混合检索（向量 + 元数据过滤）
+- 上下文渲染（XML / Markdown 格式）
+- 统一检索引擎门面
 
 ---
 
-## 📦 预定义接口
+## 🎯 核心组件
 
-### `interfaces.py`
+### 1. 查询预处理 (`query.py`)
+- `QueryProcessor` - 查询预处理器
+- `ProcessedQuery` - 结构化查询对象
+- `TimeExpressionParser` - 时间表达式解析
+- `MemoryTypeDetector` - 记忆类型识别
+
+### 2. 检索路由 (`router.py`)
+- `SimpleRouter` - 基于规则的路由器
+- `LLMRouter` - 基于 LLM 的智能路由器
+
+### 3. 混合检索 (`searcher.py`)
+- `HybridSearcher` - 混合检索引擎
+- `SearchResult` / `SearchResults` - 检索结果封装
+- `CachedSearcher` - 带缓存的检索器
+
+### 4. 上下文渲染 (`renderer.py`)
+- `ContextRenderer` - 上下文渲染器（XML/Markdown）
+- `MinimalRenderer` - 极简渲染器
+
+### 5. 统一引擎 (`engine.py`)
+- `RetrievalEngine` - 统一检索入口
+- `RetrievalResult` - 检索结果封装
+
+---
+
+## 🚀 快速使用
 
 ```python
-from abc import ABC, abstractmethod
+from hivememory.memory.storage import QdrantMemoryStore
+from hivememory.retrieval import create_retrieval_engine
 
-class RetrievalRouter(ABC):
-    """检索路由器 - 判断是否需要记忆"""
-    @abstractmethod
-    def should_retrieve(self, query: str, context: List[Message]) -> bool:
-        pass
+# 创建检索引擎
+storage = QdrantMemoryStore()
+engine = create_retrieval_engine(storage)
 
-class QueryProcessor(ABC):
-    """查询预处理器 - 重写和扩展查询"""
-    @abstractmethod
-    def process(self, query: str) -> ProcessedQuery:
-        pass
+# 检索记忆
+result = engine.retrieve_context(
+    query="我之前设置的 API Key 是什么？",
+    user_id="user_123"
+)
 
-class MemorySearcher(ABC):
-    """记忆检索器 - 混合检索"""
-    @abstractmethod
-    def search(self, query: ProcessedQuery) -> List[MemoryAtom]:
-        pass
+# 获取渲染后的上下文
+if not result.is_empty():
+    print(result.rendered_context)
 ```
-
----
-
-## 🛣️ 开发计划
-
-**Stage 2 任务清单**:
-- [ ] 实现 RetrievalRouter (轻量级分类器)
-- [ ] 实现 QueryProcessor (Query Rewriting)
-- [ ] 实现 HybridSearcher (Vector + BM25 + Filters)
-- [ ] 实现 Reranker (Cross-Encoder)
-- [ ] 实现 ContextRenderer (Markdown 渲染)
-- [ ] 集成权限控制 (Visibility Scopes)
 
 ---
 
@@ -74,6 +78,6 @@ class MemorySearcher(ABC):
 
 ---
 
-**维护者**: HiveMemory Team
-**最后更新**: 2025-12-23
-**版本**: 0.1.0 (骨架)
+**维护者**: HiveMemory Team  
+**最后更新**: 2025-12-25  
+**版本**: 0.2.0

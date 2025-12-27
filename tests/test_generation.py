@@ -126,8 +126,13 @@ def setup_environment():
     console.print("\n[bold cyan]🛠️  环境准备...[/bold cyan]")
 
     try:
+        config = get_config()
+        
         # 创建存储实例
-        storage = QdrantMemoryStore()
+        storage = QdrantMemoryStore(
+            qdrant_config=config.qdrant,
+            embedding_config=config.embedding
+        )
 
         # 创建集合
         console.print("  创建 Qdrant 集合...")

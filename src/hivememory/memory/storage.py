@@ -333,6 +333,48 @@ class QdrantMemoryStore:
             logger.error(f"统计记忆数量失败: {e}")
             return 0
 
+    def get_all_memories(
+        self,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 100
+    ) -> List[MemoryAtom]:
+        """
+        获取所有记忆（不分相似度排序）
+
+        使用 Qdrant scroll API 获取所有满足条件的记忆，不进行向量检索。
+
+        Args:
+            filters: 过滤条件，如 {"meta.user_id": "123"}
+            limit: 最多返回多少条（默认100）
+
+        Returns:
+            MemoryAtom 列表
+        """
+        try:
+            filter_obj = self._build_filter(filters) if filters else None
+
+            # 使用 scroll API 获取所有点
+            scroll_result = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=filter_obj,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,  # 不需要向量
+            )
+
+            # 解析结果
+            memories = []
+            for point in scroll_result[0]:  # scroll_result = (points, next_page_offset)
+                memory = self._payload_to_memory(point.payload)
+                memories.append(memory)
+
+            logger.debug(f"✓ 获取到 {len(memories)} 条记忆")
+            return memories
+
+        except Exception as e:
+            logger.error(f"获取所有记忆失败: {e}")
+            return []
+
     # ========== 内部辅助方法 ==========
 
     def _build_filter(self, filters: Dict[str, Any]) -> Filter:
@@ -340,7 +382,7 @@ class QdrantMemoryStore:
         构建 Qdrant 过滤条件
 
         Args:
-            filters: 字典格式的过滤条件
+            filters: 字典格式的过滤条件，如 {"meta.user_id": "123"}
 
         Returns:
             Qdrant Filter 对象
@@ -348,14 +390,15 @@ class QdrantMemoryStore:
         must_conditions = []
 
         for key, value in filters.items():
-            # 处理嵌套字段 (如 "meta.user_id")
-            field_path = f"payload.{key}" if "." not in key else f"payload.{key}"
+            # Qdrant payload 字段直接使用 key，不需要 "payload." 前缀
+            # 例如: "meta.user_id" 直接对应 payload 中的 meta.user_id
+            field_path = key
 
             if isinstance(value, (str, int, bool)):
                 must_conditions.append(
                     FieldCondition(key=field_path, match=MatchValue(value=value))
                 )
-            elif isinstance(value, dict) and "gte" in value or "lte" in value:
+            elif isinstance(value, dict) and ("gte" in value or "lte" in value):
                 # 范围查询 (如 confidence_score >= 0.8)
                 must_conditions.append(
                     FieldCondition(

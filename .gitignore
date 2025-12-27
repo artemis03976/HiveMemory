@@ -73,3 +73,6 @@ huggingface/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+.claude
+.trae
