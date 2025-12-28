@@ -2,105 +2,173 @@
 
 ## 📖 概述
 
-MemoryLifeCycleManagement 模块负责记忆的动态演化、垃圾回收和冷热数据管理。
+MemoryLifeCycleManagement 模块负责记忆的动态演化、垃圾回收和冷热数据管理。通过生命力分数（Vitality Score）机制，系统能够自动识别高价值记忆并维持其活跃状态，同时将低价值记忆自动归档，确保系统的高效运行。
 
 对应设计文档: **PROJECT.md 第 6 章**
 
 ---
 
-## ⚠️ 当前状态
+## ✅ 当前状态
 
-**🚧 骨架接口 - 待 Stage 3 实现**
+**🎉 Stage 3 实现完成**
 
-本模块目前仅包含接口定义，核心功能将在 Stage 3 开发中完成。
-
----
-
-## 🎯 核心职责 (计划)
-
-1. **访问统计** - 记录 Hit Counter
-2. **生命力分数计算** - Vitality Score 公式实现
-3. **动态强化** - Hit/Citation 事件驱动加分
-4. **时间衰减** - 指数衰减函数
-5. **垃圾回收** - 低价值记忆归档
-6. **冷热分离** - L1 (Context) → L2 (Qdrant) → L3 (Cold Storage)
+本模块已完成核心功能开发，包括：
+- **生命力计算体系**: 基于置信度、固有价值、时间衰减和访问加成的综合评分模型
+- **动态强化引擎**: 支持 HIT、CITATION、FEEDBACK 等事件驱动的分数调整
+- **垃圾回收机制**: 支持周期性和定时触发的低价值记忆清理
+- **冷热分级存储**: 实现基于文件系统的冷存储归档与唤醒机制
+- **统一生命周期管理**: 提供 `MemoryLifecycleManager` 协调各组件工作
 
 ---
 
-## 📦 预定义接口
+## 🎯 核心组件
 
-### `interfaces.py`
+### 1. `vitality.py` - 生命力计算器
+
+**职责**: 计算记忆的生命力分数，决定记忆的存留。
+
+**核心类**:
+- `StandardVitalityCalculator`: 标准计算器，实现 $V = (C \times I) \times D(t) + A$ 公式
+- `DecayResetVitalityCalculator`: 支持引用（Citation）重置衰减的高级计算器
+
+**评分模型**:
+- **固有价值 (I)**: 代码片段 (1.0) > 事实 (0.9) > URL资源 (0.8) > 反思 (0.7)
+- **时间衰减 D(t)**: $e^{-\lambda \times days}$，随时间指数衰减
+- **访问加成 (A)**: 每次访问 +2.0，封顶 20.0
+
+### 2. `reinforcement.py` - 动态强化引擎
+
+**职责**: 处理记忆交互事件，动态调整生命力。
+
+**核心类**:
+- `DynamicReinforcementEngine`: 处理事件并更新分数
+
+**支持事件**:
+- `HIT` (检索命中): +5 生命力
+- `CITATION` (主动引用): +20 生命力，并重置时间衰减
+- `FEEDBACK_POSITIVE` (正面反馈): +50 生命力
+- `FEEDBACK_NEGATIVE` (负面反馈): -50 生命力，置信度减半
+
+### 3. `garbage_collector.py` - 垃圾回收器
+
+**职责**: 扫描低生命力记忆并触发归档。
+
+**核心类**:
+- `PeriodicGarbageCollector`: 基础周期性 GC
+- `ScheduledGarbageCollector`: 基于 APScheduler 的定时 GC (默认 24h)
+
+**策略**:
+- **低水位线**: 生命力 < 20.0 的记忆将被标记为归档候选
+- **批量处理**: 每次 GC 限制处理数量，避免阻塞
+
+### 4. `archiver.py` - 冷存储归档器
+
+**职责**: 管理记忆在热存储（Qdrant）和冷存储（文件系统）间的迁移。
+
+**核心类**:
+- `FileBasedMemoryArchiver`: 本地文件系统归档 (JSON + GZIP)
+- `S3MemoryArchiver`: (TODO) S3 对象存储归档
+
+**目录结构**:
+```text
+data/archived/
+├── archive_index.json      # 归档索引
+└── 2025-01/                # 按月份组织
+    ├── {uuid}.json.gz
+```
+
+### 5. `orchestrator.py` - 生命周期管理器
+
+**职责**: 统一门面，协调所有组件。
+
+**核心类**:
+- `MemoryLifecycleManager`: 提供 `record_event`, `run_garbage_collection` 等统一接口
+
+---
+
+## 🚀 快速使用
+
+### 初始化管理器
 
 ```python
-from abc import ABC, abstractmethod
+from hivememory.memory.storage import QdrantMemoryStore
+from hivememory.lifecycle import create_default_lifecycle_manager
 
-class VitalityCalculator(ABC):
-    """生命力分数计算器"""
-    @abstractmethod
-    def calculate(self, memory: MemoryAtom) -> float:
-        """
-        计算公式:
-        V = (Confidence × Intrinsic_Value) × Decay(time) + Access_Boost
-        """
-        pass
+# 1. 初始化存储
+storage = QdrantMemoryStore()
 
-class ReinforcementEngine(ABC):
-    """动态强化引擎"""
-    @abstractmethod
-    def reinforce(self, memory_id: UUID, event: Event) -> None:
-        """处理 Hit/Citation 事件"""
-        pass
+# 2. 创建生命周期管理器
+# 启用定时 GC (每 24 小时运行一次)
+lifecycle_manager = create_default_lifecycle_manager(
+    storage=storage,
+    enable_scheduled_gc=True,
+    gc_interval_hours=24
+)
+```
 
-class MemoryArchiver(ABC):
-    """冷存储管理器"""
-    @abstractmethod
-    def archive(self, memory_id: UUID) -> None:
-        """归档到冷存储 (PostgreSQL/S3)"""
-        pass
+### 记录事件
 
-    @abstractmethod
-    def resurrect(self, memory_id: UUID) -> MemoryAtom:
-        """从冷存储唤醒"""
-        pass
+```python
+from hivememory.lifecycle.types import EventType
+
+# 场景 1: 检索命中 (被动)
+lifecycle_manager.record_hit(memory_id="uuid...", source="system")
+
+# 场景 2: 记忆引用 (主动) -> 将重置时间衰减
+lifecycle_manager.record_citation(memory_id="uuid...", source="agent_worker")
+
+# 场景 3: 用户反馈
+lifecycle_manager.record_feedback(
+    memory_id="uuid...", 
+    positive=True, 
+    source="user"
+)
+```
+
+### 手动触发垃圾回收
+
+```python
+# 强制运行 GC，归档生命力 < 20 的记忆
+archived_count = lifecycle_manager.run_garbage_collection(force=True)
+print(f"Archived {archived_count} memories")
+```
+
+### 记忆唤醒
+
+```python
+# 当检索不到时，尝试从冷存储唤醒
+try:
+    memory = lifecycle_manager.resurrect_memory(memory_id="uuid...")
+    print("Memory resurrected from archive")
+except ValueError:
+    print("Memory not found in archive")
 ```
 
 ---
 
-## 🛣️ 开发计划
+## 🔧 配置参数
 
-**Stage 3 任务清单**:
-- [ ] 实现 VitalityCalculator (生命力分数公式)
-- [ ] 实现 ReinforcementEngine (事件驱动强化)
-- [ ] 实现 DecayFunction (时间衰减)
-- [ ] 实现 GarbageCollector (后台 GC 任务)
-- [ ] 实现 MemoryArchiver (冷存储机制)
-- [ ] 集成 PostgreSQL/SQLite 作为冷存储
+可以通过 `config.yaml` 或初始化参数进行配置：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `decay_lambda` | 0.01 | 时间衰减系数 |
+| `low_watermark` | 20.0 | GC 触发阈值 (生命力 < 20) |
+| `gc_batch_size` | 10 | 单次 GC 最大处理数量 |
+| `archive_dir` | `data/archived` | 冷存储路径 |
+| `compress` | `True` | 是否启用 GZIP 压缩 |
 
 ---
 
-## 📊 生命力分数模型 (设计)
+## 🛣️ 未来路线图
 
-```python
-# 分数公式
-V = (C × I) × D(t) + A
-
-# 参数说明:
-# C = Confidence Score (置信度, 0.0-1.0)
-# I = Intrinsic Value (固有价值, 类型相关)
-#     CODE_SNIPPET: 1.2
-#     FACT: 1.0
-#     REFLECTION: 0.9
-# D(t) = Decay Function (时间衰减)
-#     D(t) = exp(-λ × days)
-#     λ = 0.01 (衰减系数)
-# A = Access Boost (访问加成)
-#     A = access_count × 5
-
-# 三级阈值:
-# V > 80: L2 Active Memory (Qdrant Hot Storage)
-# 20 < V < 80: L2 可能被 GC
-# V < 20: L3 Cold Storage (PostgreSQL/S3)
-```
+- [x] 实现 VitalityCalculator (生命力分数公式)
+- [x] 实现 ReinforcementEngine (事件驱动强化)
+- [x] 实现 GarbageCollector (后台 GC 任务)
+- [x] 实现 MemoryArchiver (文件系统冷存储)
+- [ ] 实现 S3MemoryArchiver (S3 云存储支持)
+- [ ] 增加生命力可视化面板
+- [ ] 支持自定义衰减策略插件
 
 ---
 
@@ -112,5 +180,5 @@ V = (C × I) × D(t) + A
 ---
 
 **维护者**: HiveMemory Team
-**最后更新**: 2025-12-23
-**版本**: 0.1.0 (骨架)
+**最后更新**: 2025-12-28
+**版本**: 0.2.0 (Stage 3 完成)

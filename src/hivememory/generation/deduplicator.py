@@ -57,6 +57,7 @@ class MemoryDeduplicator(Deduplicator):
         high_similarity_threshold: float = 0.95,
         low_similarity_threshold: float = 0.75,
         content_similarity_threshold: float = 0.9,
+        lifecycle_manager=None,  # Optional[LifecycleManager]
     ):
         """
         初始化查重管理器
@@ -66,11 +67,13 @@ class MemoryDeduplicator(Deduplicator):
             high_similarity_threshold: 高相似度阈值，默认 0.95
             low_similarity_threshold: 低相似度阈值，默认 0.75
             content_similarity_threshold: 内容相似度阈值，默认 0.9
+            lifecycle_manager: 生命周期管理器 (可选，用于记录命中事件)
         """
         self.storage = storage
         self.high_threshold = high_similarity_threshold
         self.low_threshold = low_similarity_threshold
         self.content_threshold = content_similarity_threshold
+        self.lifecycle_manager = lifecycle_manager
 
     def check_duplicate(
         self,
@@ -132,6 +135,17 @@ class MemoryDeduplicator(Deduplicator):
             )
 
             logger.info(f"查重决策: {decision.value}")
+
+            # 记录生命周期事件 - TOUCH 决策表示记忆被再次命中
+            if decision == DuplicateDecision.TOUCH and self.lifecycle_manager:
+                try:
+                    self.lifecycle_manager.record_hit(
+                        existing_memory.id,
+                        source="deduplicator"
+                    )
+                except Exception as e:
+                    logger.warning(f"记录生命周期事件失败: {e}")
+
             return decision, existing_memory
 
         except Exception as e:

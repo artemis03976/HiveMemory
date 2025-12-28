@@ -74,9 +74,30 @@ class BufferConfig(BaseSettings):
 
 class LifecycleConfig(BaseSettings):
     """记忆生命周期配置"""
-    high_watermark: float = Field(default=80.0, ge=0.0, le=100.0)
-    low_watermark: float = Field(default=20.0, ge=0.0, le=100.0)
-    decay_lambda: float = Field(default=0.01, gt=0.0)
+    # 基础阈值
+    high_watermark: float = Field(default=80.0, ge=0.0, le=100.0, description="高水位阈值")
+    low_watermark: float = Field(default=20.0, ge=0.0, le=100.0, description="低水位阈值")
+    decay_lambda: float = Field(default=0.01, gt=0.0, description="时间衰减系数")
+
+    # 归档配置
+    archive_dir: str = Field(default="data/archived", description="归档存储目录")
+    archive_compression: bool = Field(default=True, description="是否压缩归档文件")
+
+    # 垃圾回收配置
+    gc_batch_size: int = Field(default=10, gt=0, description="每次GC最多归档数量")
+    gc_interval_hours: int = Field(default=24, gt=0, description="GC执行间隔(小时)")
+    gc_enable_schedule: bool = Field(default=False, description="是否启用定时GC")
+
+    # 事件历史配置
+    enable_event_history: bool = Field(default=True, description="是否记录事件历史")
+    event_history_limit: int = Field(default=10000, gt=0, description="事件历史最大条数")
+
+    # 生命力加成配置
+    hit_boost: float = Field(default=5.0, description="HIT事件生命力加成")
+    citation_boost: float = Field(default=20.0, description="CITATION事件生命力加成")
+    positive_feedback_boost: float = Field(default=50.0, description="正面反馈生命力加成")
+    negative_feedback_penalty: float = Field(default=-50.0, description="负面反馈生命力惩罚")
+    negative_confidence_multiplier: float = Field(default=0.5, ge=0.0, le=1.0, description="负面反馈置信度衰减系数")
 
     model_config = SettingsConfigDict(extra="allow")
 

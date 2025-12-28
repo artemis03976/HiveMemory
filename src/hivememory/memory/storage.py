@@ -375,6 +375,86 @@ class QdrantMemoryStore:
             logger.error(f"获取所有记忆失败: {e}")
             return []
 
+    def get_memories_by_vitality_range(
+        self,
+        min_vitality: float = 0.0,
+        max_vitality: float = 1.0,
+        limit: int = 100
+    ) -> List[MemoryAtom]:
+        """
+        获取指定生命力范围的记忆
+
+        用于垃圾回收器扫描低生命力记忆。
+
+        Args:
+            min_vitality: 最小生命力 (0-1)
+            max_vitality: 最大生命力 (0-1)
+            limit: 最大返回数量
+
+        Returns:
+            MemoryAtom 列表
+        """
+        try:
+            # 构建生命力范围过滤条件
+            filters = {
+                "meta.vitality_score": {"gte": min_vitality, "lte": max_vitality}
+            }
+
+            filter_obj = self._build_filter(filters)
+
+            # 使用 scroll API 获取记忆
+            scroll_result = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=filter_obj,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            # 解析结果
+            memories = []
+            for point in scroll_result[0]:
+                memory = self._payload_to_memory(point.payload)
+                memories.append(memory)
+
+            logger.debug(f"✓ 获取到 {len(memories)} 条记忆 (vitality: {min_vitality}-{max_vitality})")
+            return memories
+
+        except Exception as e:
+            logger.error(f"按生命力范围获取记忆失败: {e}")
+            return []
+
+    def batch_delete_memories(self, memory_ids: List[UUID]) -> int:
+        """
+        批量删除记忆
+
+        用于垃圾回收器批量归档后删除。
+
+        Args:
+            memory_ids: 记忆ID列表
+
+        Returns:
+            成功删除的数量
+        """
+        if not memory_ids:
+            return 0
+
+        try:
+            # 转换为字符串ID列表
+            str_ids = [str(mid) for mid in memory_ids]
+
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=str_ids,
+            )
+
+            logger.info(f"✓ 批量删除 {len(memory_ids)} 条记忆")
+            return len(memory_ids)
+
+        except Exception as e:
+            logger.error(f"批量删除记忆失败: {e}")
+            return 0
+
     # ========== 内部辅助方法 ==========
 
     def _build_filter(self, filters: Dict[str, Any]) -> Filter:

@@ -43,6 +43,7 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+data/
 
 # Qdrant Data
 qdrant_data/
