@@ -44,7 +44,8 @@ class ChatBotAgent:
         llm_config: Optional[Dict[str, Any]] = None,
         system_prompt: Optional[str] = None,
         retrieval_engine: Optional[Any] = None,  # RetrievalEngine
-        enable_memory_retrieval: bool = True
+        enable_memory_retrieval: bool = True,
+        lifecycle_manager: Optional[Any] = None,  # LifecycleManager (Stage 3)
     ):
         """
         Args:
@@ -56,6 +57,7 @@ class ChatBotAgent:
             system_prompt: 系统提示词（可选）
             retrieval_engine: 记忆检索引擎（可选）
             enable_memory_retrieval: 是否启用记忆检索，默认 True
+            lifecycle_manager: 生命周期管理器（可选，Stage 3）
         """
         self.patchouli = patchouli
         self.session_manager = session_manager
@@ -65,15 +67,21 @@ class ChatBotAgent:
 
         # 默认系统提示词
         self.system_prompt = system_prompt or CHATBOT_SYSTEM_PROMPT
-        
+
         # 记忆检索相关
         self.retrieval_engine = retrieval_engine
         self.enable_memory_retrieval = enable_memory_retrieval
-        
+
+        # 生命周期管理器 (Stage 3)
+        self.lifecycle_manager = lifecycle_manager
+
         # 上一次检索的结果（用于调试/显示）
         self._last_retrieval_result = None
 
-        logger.info(f"ChatBotAgent initialized for user={user_id}, agent={agent_id}, memory_retrieval={enable_memory_retrieval}")
+        logger.info(
+            f"ChatBotAgent initialized for user={user_id}, agent={agent_id}, "
+            f"memory_retrieval={enable_memory_retrieval}, lifecycle={lifecycle_manager is not None}"
+        )
 
     def _retrieve_memory_context(
         self,
@@ -308,6 +316,15 @@ class ChatBotAgent:
             except Exception as e:
                 logger.debug(f"Failed to update access stats: {e}")
 
+            # 7. 记录生命周期 HIT 事件 (Stage 3)
+            if self.lifecycle_manager:
+                try:
+                    for memory in self._last_retrieval_result.memories:
+                        self.lifecycle_manager.record_hit(memory.id, source="chatbot")
+                    logger.debug(f"Recorded {len(self._last_retrieval_result.memories)} HIT events")
+                except Exception as e:
+                    logger.debug(f"Failed to record HIT events: {e}")
+
         logger.info(f"Chat completed for session={session_id}")
         return assistant_reply
 
@@ -352,13 +369,13 @@ class ChatBotAgent:
     def get_last_retrieval_info(self) -> Optional[Dict[str, Any]]:
         """
         获取上一次记忆检索的信息（用于调试）
-        
+
         Returns:
             检索信息字典，包含检索到的记忆数量和延迟
         """
         if not self._last_retrieval_result:
             return None
-        
+
         result = self._last_retrieval_result
         return {
             "should_retrieve": result.should_retrieve,
@@ -374,3 +391,27 @@ class ChatBotAgent:
                 for m in result.memories[:5]  # 最多显示 5 条
             ]
         }
+
+    def record_feedback(self, memory_id, positive: bool = True):
+        """
+        记录用户反馈到生命周期管理器 (Stage 3)
+
+        Args:
+            memory_id: 记忆 ID
+            positive: 是否正面反馈，默认 True
+
+        Returns:
+            ReinforcementResult 如果成功，None 如果未配置 lifecycle_manager
+        """
+        if self.lifecycle_manager:
+            return self.lifecycle_manager.record_feedback(memory_id, positive)
+        return None
+
+    def get_lifecycle_manager(self):
+        """
+        获取生命周期管理器 (Stage 3)
+
+        Returns:
+            LifecycleManager 实例，如果未配置则返回 None
+        """
+        return self.lifecycle_manager
