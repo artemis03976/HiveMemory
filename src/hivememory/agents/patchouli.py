@@ -1,34 +1,32 @@
 """
 Patchouli - Librarian Agent (图书管理员智能体)
 
-这是模块化重构后的高层 API，保持向后兼容。
-
 职责:
     1. 监听对话流
     2. 价值评估 (过滤无用信息)
     3. 提取结构化记忆原子
     4. 存储到向量数据库
-    5. 管理对话 Buffer（Stage 1）
+    5. 管理感知层（统一接口）
     6. 记忆检索（Stage 2 - 待实现）
     7. 生命周期管理（Stage 3 - 待实现）
 
-内部实现:
-    使用 hivememory.generation 模块的编排器和缓冲器。
+架构:
+    - SimplePerceptionLayer: 简单缓冲策略（三重触发）
+    - SemanticFlowPerceptionLayer: 语义流策略（统一语义流）
 
 参考: PROJECT.md 4.0 - 4.2 节
 
 作者: HiveMemory Team
-版本: 0.3.0 (添加 Buffer 管理)
+版本: 0.4.0 (感知层重构)
 """
 
 import logging
-import threading
 from typing import List, Optional, Dict, Any
 
-from hivememory.core.models import MemoryAtom, ConversationMessage
+from hivememory.core.models import MemoryAtom, ConversationMessage, FlushReason
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.generation.orchestrator import MemoryOrchestrator
-from hivememory.generation.buffer import ConversationBuffer
+from hivememory.perception.interfaces import BasePerceptionLayer
 
 logger = logging.getLogger(__name__)
 
@@ -45,167 +43,209 @@ class PatchouliAgent:
     使用示例:
         >>> from hivememory.memory.storage import QdrantMemoryStore
         >>> storage = QdrantMemoryStore()
+        >>>
+        >>> # 使用简单感知层
         >>> patchouli = PatchouliAgent(storage=storage)
         >>>
-        >>> memories = patchouli.process_transcript(
-        ...     messages=[
-        ...         ConversationMessage(role="user", content="写快排"),
-        ...         ConversationMessage(role="assistant", content="代码...")
-        ...     ],
-        ...     user_id="user123",
-        ...     agent_id="agent456"
-        ... )
-        >>> print(f"提取了 {len(memories)} 条记忆")
-
-    注意:
-        该类现在是对 hivememory.generation.MemoryOrchestrator 的薄封装。
+        >>> # 使用语义流感知层（默认）
+        >>> patchouli = PatchouliAgent(storage=storage, enable_semantic_flow=True)
+        >>>
+        >>> # 添加消息
+        >>> patchouli.add_message("user", "帮我写贪吃蛇游戏", "user123", "agent1")
+        >>> patchouli.add_message("assistant", "好的，我来实现...", "user123", "agent1")
     """
 
-    def __init__(self, storage: Optional[QdrantMemoryStore] = None):
+    def __init__(
+        self,
+        storage: Optional[QdrantMemoryStore] = None,
+        enable_semantic_flow: bool = True,
+    ):
         """
         初始化 Patchouli Agent
 
         Args:
             storage: Qdrant 存储实例（可选，自动创建）
+            enable_semantic_flow: 是否使用语义流感知层（默认 True）
 
         Examples:
-            >>> # 使用默认存储
+            >>> # 使用简单感知层
             >>> patchouli = PatchouliAgent()
             >>>
-            >>> # 使用自定义存储
-            >>> custom_storage = QdrantMemoryStore()
-            >>> patchouli = PatchouliAgent(storage=custom_storage)
+            >>> # 使用语义流感知层（默认）
+            >>> patchouli = PatchouliAgent(enable_semantic_flow=True)
         """
         self.storage = storage or QdrantMemoryStore()
 
-        # 初始化编排器（Stage 1: 记忆生成核心逻辑）
+        # 感知层配置
+        self.enable_semantic_flow = enable_semantic_flow
+        self.perception_layer: Optional[BasePerceptionLayer] = None
+
+        # 初始化感知层
+        self._init_perception_layer()
+
+        # 初始化记忆生成编排器（Stage 1: 记忆生成核心逻辑）
         self.orchestrator = MemoryOrchestrator(storage=self.storage)
 
-        # Buffer 池管理（全局单例，避免重复创建）
-        self._buffers: Dict[str, ConversationBuffer] = {}
-        self._buffer_lock = threading.Lock()
-
-        logger.info("Patchouli Agent 初始化完成")
-
-    def process_transcript(
-        self,
-        messages: List[ConversationMessage],
-        user_id: str,
-        agent_id: str = "default_agent",
-    ) -> List[MemoryAtom]:
+        logger.info(
+            f"Patchouli Agent 初始化完成 "
+            f"(perception_layer_mode={'semantic_flow' if enable_semantic_flow else 'simple'})"
+        )
+    
+    def _init_perception_layer(self) -> None:
         """
-        处理对话片段,提取记忆原子
+        初始化感知层
 
-        该方法保持与原版本完全兼容的接口。
+        架构模式:
+            - SimplePerceptionLayer: 简单缓冲策略（三重触发）
+            - SemanticFlowPerceptionLayer: 语义流策略（统一语义流）
+        
+        """
+        try:
+            if self.enable_semantic_flow:
+                from hivememory.perception import SemanticFlowPerceptionLayer
 
-        工作流程:
-            1. 价值评估 (Gating) → 过滤无价值对话
-            2. LLM 提取 → 生成结构化草稿
-            3. 查重检测 → CREATE/UPDATE/TOUCH
-            4. 记忆构建 → MemoryAtom
-            5. 持久化 → Qdrant
+                self.perception_layer = SemanticFlowPerceptionLayer(
+                    on_flush_callback=self._on_perception_flush
+                )
+                logger.debug("语义流感知层已初始化")
+
+            else:
+                from hivememory.perception import SimplePerceptionLayer
+
+                self.perception_layer = SimplePerceptionLayer(
+                    on_flush_callback=self._on_perception_flush
+                )
+                logger.debug("简单感知层已初始化")
+
+        except ImportError as e:
+            logger.error(f"无法导入感知层: {e}")
+            raise
+
+    # ========== 感知层 API ==========
+
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        user_id: str,
+        agent_id: str = "default",
+        session_id: Optional[str] = None,
+    ) -> None:
+        """
+        添加消息到感知层
 
         Args:
-            messages: 对话消息列表
+            role: 角色 (user/assistant/system)
+            content: 消息内容
             user_id: 用户ID
-            agent_id: Agent ID（默认 "default_agent"）
-
-        Returns:
-            List[MemoryAtom]: 提取的记忆原子列表
+            agent_id: Agent ID
+            session_id: 会话ID（可选）
 
         Examples:
-            >>> messages = [
-            ...     ConversationMessage(
-            ...         role="user",
-            ...         content="帮我写一个Python快排算法",
-            ...         user_id="user123",
-            ...         session_id="sess456"
-            ...     ),
-            ...     ConversationMessage(
-            ...         role="assistant",
-            ...         content="好的，这是快排实现：\n```python\n...\n```",
-            ...         user_id="user123",
-            ...         session_id="sess456"
-            ...     )
-            ... ]
-            >>>
-            >>> memories = patchouli.process_transcript(
-            ...     messages=messages,
-            ...     user_id="user123",
-            ...     agent_id="worker_agent"
-            ... )
-            >>>
-            >>> for memory in memories:
-            ...     print(f"✓ {memory.index.title}")
+            >>> patchouli.add_message("user", "你好", "user123", "chatbot")
+            >>> patchouli.add_message("assistant", "你好！有什么可以帮你的吗？", "user123", "chatbot")
         """
-        if not messages:
-            logger.warning("空消息列表，跳过处理")
-            return []
+        if not self.perception_layer:
+            raise RuntimeError("感知层未初始化")
 
-        logger.info(f"Patchouli 开始处理 {len(messages)} 条消息...")
-
-        # 调用编排器处理
-        memories = self.orchestrator.process(
-            messages=messages,
+        self.perception_layer.add_message(
+            role=role,
+            content=content,
             user_id=user_id,
             agent_id=agent_id,
+            session_id=session_id or f"{user_id}_{agent_id}",
         )
 
-        if memories:
-            logger.info(f"✓ 成功提取 {len(memories)} 条记忆")
-        else:
-            logger.info("未提取到记忆（对话可能无价值或被过滤）")
+        logger.debug(f"向感知层添加消息: {role} - {content[:50]}...")
 
-        return memories
-
-    def get_or_create_buffer(
+    def flush_perception(
         self,
         user_id: str,
         agent_id: str,
         session_id: str,
-        **buffer_kwargs
-    ) -> ConversationBuffer:
+    ) -> None:
         """
-        获取或创建 ConversationBuffer（全局单例复用）
+        手动触发感知层 Flush
 
-        该方法确保同一 (user_id, agent_id, session_id) 组合只创建一个 Buffer 实例，
-        避免重复创建导致的性能浪费。
+        Args:
+            user_id: 用户ID
+            agent_id: Agent ID
+            session_id: 会话ID
+
+        Examples:
+            >>> patchouli.flush_perception("user123", "chatbot", "session_456")
+        """
+        if not self.perception_layer:
+            raise RuntimeError("感知层未初始化")
+
+        self.perception_layer.flush_buffer(
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            reason=FlushReason.MANUAL,
+        )
+
+    def _on_perception_flush(
+        self,
+        messages: List[ConversationMessage],
+        reason: FlushReason,
+    ) -> None:
+        """
+        感知层 Flush 回调（统一接口）
+        将感知层生成的消息传递给编排器处理
+
+        Args:
+            messages: ConversationMessage 列表
+            reason: Flush 原因
+        """
+        try:
+            # 从消息中提取上下文
+            if not messages:
+                logger.warning("空消息列表，跳过处理")
+                return
+
+            # TODO: 获取正确的 user_id 和 agent_id
+            first_msg = messages[0]
+            user_id = getattr(first_msg, "user_id", "unknown")
+            agent_id = "perception_layer"
+
+            logger.info(f"Patchouli 开始处理 {len(messages)} 条消息...")
+
+            # 调用编排器处理
+            memories = self.orchestrator.process(
+                messages=messages,
+            )
+            
+            logger.info(f"Patchouli 处理完成")
+            if memories:
+                logger.info(f"✓ 成功提取 {len(memories)} 条记忆")
+            else:
+                logger.info("未提取到记忆（对话可能无价值或被过滤）")   
+
+        except Exception as e:
+            logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
+
+    def get_buffer(
+        self,
+        user_id: str,
+        agent_id: str,
+        session_id: str,
+    ) -> Optional[Any]:
+        """
+        获取缓冲区对象
 
         Args:
             user_id: 用户 ID
             agent_id: Agent ID
             session_id: 会话 ID
-            **buffer_kwargs: 额外的 Buffer 配置参数（如 trigger_manager, on_flush_callback）
 
         Returns:
-            ConversationBuffer: Buffer 实例（复用已有或创建新的）
-
-        Examples:
-            >>> patchouli = PatchouliAgent()
-            >>> buffer = patchouli.get_or_create_buffer(
-            ...     user_id="user123",
-            ...     agent_id="chatbot",
-            ...     session_id="session_456"
-            ... )
-            >>> buffer.add_message("user", "你好")
-            >>> buffer.add_message("assistant", "你好！有什么可以帮你的？")
+            Buffer 实例（SimpleBuffer 或 SemanticBuffer）
         """
-        buffer_key = f"{user_id}:{agent_id}:{session_id}"
+        if not self.perception_layer:
+            return None
 
-        with self._buffer_lock:
-            if buffer_key not in self._buffers:
-                logger.info(f"创建新 Buffer: {buffer_key}")
-                self._buffers[buffer_key] = ConversationBuffer(
-                    orchestrator=self.orchestrator,
-                    user_id=user_id,
-                    agent_id=agent_id,
-                    session_id=session_id,
-                    **buffer_kwargs
-                )
-            else:
-                logger.debug(f"复用已有 Buffer: {buffer_key}")
-
-            return self._buffers[buffer_key]
+        return self.perception_layer.get_buffer(user_id, agent_id, session_id)
 
     def clear_buffer(self, user_id: str, agent_id: str, session_id: str) -> bool:
         """
@@ -217,54 +257,20 @@ class PatchouliAgent:
             session_id: 会话 ID
 
         Returns:
-            bool: 是否成功清理（True=存在并已清理，False=不存在）
+            bool: 是否成功清理
 
         Examples:
             >>> patchouli.clear_buffer("user123", "chatbot", "session_456")
             True
         """
-        buffer_key = f"{user_id}:{agent_id}:{session_id}"
+        if not self.perception_layer:
+            return False
 
-        with self._buffer_lock:
-            if buffer_key in self._buffers:
-                del self._buffers[buffer_key]
-                logger.info(f"清理 Buffer: {buffer_key}")
-                return True
-            else:
-                logger.debug(f"Buffer 不存在，无需清理: {buffer_key}")
-                return False
-
-    def flush_buffer(self, user_id: str, agent_id: str, session_id: str) -> List[MemoryAtom]:
-        """
-        手动触发 Buffer 刷新（提取记忆）
-
-        Args:
-            user_id: 用户 ID
-            agent_id: Agent ID
-            session_id: 会话 ID
-
-        Returns:
-            List[MemoryAtom]: 提取的记忆列表
-
-        Examples:
-            >>> # 手动触发记忆提取
-            >>> memories = patchouli.flush_buffer("user123", "chatbot", "session_456")
-            >>> print(f"提取了 {len(memories)} 条记忆")
-        """
-        buffer_key = f"{user_id}:{agent_id}:{session_id}"
-
-        with self._buffer_lock:
-            if buffer_key in self._buffers:
-                buffer = self._buffers[buffer_key]
-                logger.info(f"手动触发 Buffer 刷新: {buffer_key}")
-                return buffer.flush()
-            else:
-                logger.warning(f"Buffer 不存在，无法刷新: {buffer_key}")
-                return []
+        return self.perception_layer.clear_buffer(user_id, agent_id, session_id)
 
     def get_buffer_info(self, user_id: str, agent_id: str, session_id: str) -> Dict[str, Any]:
         """
-        获取 Buffer 信息
+        获取 Buffer 信息（统一接口）
 
         Args:
             user_id: 用户 ID
@@ -276,28 +282,12 @@ class PatchouliAgent:
 
         Examples:
             >>> info = patchouli.get_buffer_info("user123", "chatbot", "session_456")
-            >>> print(f"消息数量: {info['message_count']}")
+            >>> print(f"消息数量: {info.get('block_count', info.get('message_count', 0))}")
         """
-        buffer_key = f"{user_id}:{agent_id}:{session_id}"
+        if not self.perception_layer:
+            return {"exists": False, "mode": "none"}
 
-        with self._buffer_lock:
-            if buffer_key in self._buffers:
-                buffer = self._buffers[buffer_key]
-                return {
-                    "exists": True,
-                    "message_count": len(buffer.messages),
-                    "user_id": user_id,
-                    "agent_id": agent_id,
-                    "session_id": session_id
-                }
-            else:
-                return {
-                    "exists": False,
-                    "message_count": 0,
-                    "user_id": user_id,
-                    "agent_id": agent_id,
-                    "session_id": session_id
-                }
+        return self.perception_layer.get_buffer_info(user_id, agent_id, session_id)
 
     def list_active_buffers(self) -> List[str]:
         """
@@ -310,25 +300,38 @@ class PatchouliAgent:
             >>> buffers = patchouli.list_active_buffers()
             >>> print(f"当前有 {len(buffers)} 个活跃 Buffer")
         """
-        with self._buffer_lock:
-            return list(self._buffers.keys())
+        if not self.perception_layer:
+            return []
+
+        return self.perception_layer.list_active_buffers()
 
 
 # 便捷函数
-def create_patchouli_agent(storage: Optional[QdrantMemoryStore] = None) -> PatchouliAgent:
+def create_patchouli_agent(
+    storage: Optional[QdrantMemoryStore] = None,
+    enable_semantic_flow: bool = True,
+) -> PatchouliAgent:
     """
     创建 Patchouli Agent 实例
 
     Args:
         storage: Qdrant 存储实例（可选）
+        enable_semantic_flow: 是否使用语义流感知层（默认 True）
 
     Returns:
         PatchouliAgent: Agent 实例
 
     Examples:
+        >>> # 使用简单感知层（默认）
         >>> patchouli = create_patchouli_agent()
+        >>>
+        >>> # 使用语义流感知层
+        >>> patchouli = create_patchouli_agent(enable_semantic_flow=True)
     """
-    return PatchouliAgent(storage=storage)
+    return PatchouliAgent(
+        storage=storage,
+        enable_semantic_flow=enable_semantic_flow,
+    )
 
 
 __all__ = [

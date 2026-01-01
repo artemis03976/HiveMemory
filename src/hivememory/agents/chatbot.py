@@ -4,7 +4,7 @@ ChatBot Worker Agent - 与用户对话并将对话流推送给帕秋莉
 职责：
 1. 接收用户消息，调用 LLM 生成回复
 2. 管理对话历史（通过 SessionManager）
-3. 将对话推送到 ConversationBuffer，触发帕秋莉的记忆生成
+3. 将对话推送到感知层（Perception Layer），触发帕秋莉的记忆生成
 4. 支持可配置的 LLM 模型切换
 5. **[NEW]** 检索历史记忆并注入到对话上下文中
 
@@ -230,7 +230,7 @@ class ChatBotAgent:
         content: str
     ) -> None:
         """
-        将消息记录到 ConversationBuffer（触发帕秋莉）
+        将消息记录到感知层（触发帕秋莉）
 
         Args:
             session_id: 会话 ID
@@ -238,16 +238,18 @@ class ChatBotAgent:
             content: 消息内容
         """
         try:
-            # 通过 PatchouliAgent 获取或创建 Buffer（全局复用）
-            buffer = self.patchouli.get_or_create_buffer(
+            # 使用新的感知层 API
+            # PatchouliAgent 会自动管理 Buffer，无需手动获取
+            self.patchouli.add_message(
+                role=role,
+                content=content,
                 user_id=self.user_id,
                 agent_id=self.agent_id,
                 session_id=session_id
             )
-            buffer.add_message(role=role, content=content)
-            logger.debug(f"Recorded {role} message to buffer (session={session_id})")
+            logger.debug(f"Recorded {role} message to perception layer (session={session_id})")
         except Exception as e:
-            logger.error(f"Failed to record message to buffer: {e}")
+            logger.error(f"Failed to record message to perception layer: {e}")
             # 不抛出异常，避免影响对话流
 
     def chat(
@@ -266,7 +268,7 @@ class ChatBotAgent:
         3. 构建包含记忆上下文的 Prompt
         4. 调用 LLM 生成回复
         5. 将对话保存到 SessionManager
-        6. （可选）将对话推送到 ConversationBuffer（触发帕秋莉）
+        6. （可选）将对话推送到感知层（触发帕秋莉）
 
         Args:
             session_id: 会话 ID

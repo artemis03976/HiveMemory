@@ -128,11 +128,12 @@ graph TD
 
 ## 2.3 模块划分 (Module Breakdown)：
 
-### 2.3.1 感知层 (Interaction Layer)
-- 职责：作为系统的出入口，负责流量分发和“旁路监听”。
-- 关键机制 - 影子复写 (Shadowing)：
-    - 当 User 发送消息或 Worker 返回消息时，感知层不仅将消息传递给对方，同时生成一个 InteractionEvent 事件，包含 session_id, content, timestamp, agent_type。
-    - 该事件被异步推送到 消息队列，作为触发 Librarian Agent 的信号。
+### 2.3.1 感知层：统一语义流 (Interaction Layer: Unified Semantic Stream)
+*   **职责**：作为系统的流量入口与预处理器，负责将非结构化的原始消息流（Raw Stream）转化为语义连贯的**逻辑原子块 (Logical Blocks)**，并决定何时唤醒 Librarian Agent。
+*   **核心组件**：
+    *   **流式解析器 (Stream Parser)**：抹平 1:1 对话（Bot）与 1:N 执行（Agent）的格式差异，将其封装为标准化的 Logical Block。
+    *   **语义吸附器 (Semantic Adsorber)**：基于轻量级本地 Embedding 模型，实时计算新消息与当前 Buffer 内的 Logical Block 的语义相似度，决定是“吸附”还是“切分”。
+    *   **接力控制器 (Relay Controller)**：处理 Token 溢出情况，生成“中间态摘要”以维持跨 Block 的上下文连贯性。
 
 ### 2.3.2 决策层 (Orchestration Layer - The Librarian)
 - 职责：Librarian Agent 的“大脑”。它与用户没有对话的沟通，而是不断审视对话日志。
@@ -488,53 +489,107 @@ Patchouli 的决策逻辑应遵循以下“性格特征”，这将体现在她�
 2.  **结构化强迫症 (Structure Obsessive)**：她厌恶非结构化数据。她致力于将模糊的自然语言转化为标准化的 JSON Schema (Title/Tags/Summary)。
 3.  **客观中立 (Objective Observer)**：她不带有 Worker Agent 的上下文情绪，而是以第三人称视角客观记录事实（Fact）和代码（Code）。
 
-## 4.1 触发机制 (Triggering Mechanisms)：帕秋莉何时苏醒？
+## 4.1 流式处理与触发机制 (Stream Processing & Triggering)
 
-帕秋莉是 System 2 的慢思考者，不应介入用户的实时对话流（以免增加延迟）。我们需要定义她何时介入分析。
+为了应对生产环境中多变的消息流形态（如 Bot 的闲聊跳转、Agent 的长链条执行、Bugfix 的短文本修正等等），系统不单单将消息同步给帕秋莉，而是采用 **“统一语义流 (Unified Semantic Stream)”** 感知层架构。这一方式不再区分 Agent 的对话模式，而是统一基于**逻辑原子块**作为最小的语义单元进行处理。
 
-### 4.1.1 核心策略：寻找“语义休止符”
-既然无法精准定义“任务何时结束”，我们将目标转向捕捉 **“语义爆发后的休止符”**。
-我们不再试图一次性记录整个宏大任务，而是接受**“增量记忆 (Incremental Memory)”**——即记录“任务在这一时刻的状态”。
+### 4.1.1 基础单元：逻辑原子块 (Logical Block)
+帕秋莉处理的最小单位不再是单条从LLM接收的Message，而是**不可分割的语义单元**。在消息进入 Buffer 之前，先通过一个**预处理器**，将其封装为标准化的**逻辑原子块**。
 
-### 4.1.2 混合触发器设计 (The Hybrid Triggers)
+*   **定义**：一个不可分割的最小语义单元。
+*   **结构示例**：
+    ```python
+    class LogicalBlock:
+        def __init__(self):
+            # 1. 必须部分：用户意图
+            self.user_block: Message = None 
+            
+            # 2. 可选部分：执行链 (Execution Chain)
+            # 必须满足三元组约束: (Thought -> Tool Call -> Observation)
+            # 如果中间断了（比如只有 Thought 没有 Tool），则视为不完整的 Block，等待流继续
+            self.execution_chain: List[Triplet] = [] 
+            
+            # 3. 必须部分：最终响应
+            self.response_block: Message = None
+            
+            # 辅助信息
+            self.total_tokens: int = 0
+            self.timestamp: float = time.time()
 
-系统同时运行三套触发逻辑，任意一个条件满足即唤醒 Patchouli：
+            # 2. 语义锚点 (Semantic Anchor) - 用于语义吸附与漂移
+            # 仅包含 User Query (以及可能的少量上下文补充)
+            self.anchor_text: str = self.user_block.content if self.user_block else ""
 
-#### A. 闲置超时触发 (Idle Timeout Trigger) —— 解决“跨越数天”的问题
-*   **逻辑**：**Debounce（防抖）机制**。
-*   **设定**：当监测到用户在 $T$ 分钟内无新输入（例如 $T=15$ 分钟）。
-*   **场景**：用户写了一半代码，去吃饭了，或者直接下班了。
-*   **Patchouli 的行为**：
-    *   她会认为“当前会话暂时告一段落”。
-    *   她会打包刚才的对话缓冲区。
-    *   **关键处理**：如果任务未完成，她会生成一个类型为 `WORK_IN_PROGRESS` 或 `TODO` 的记忆原子，记录：“用户正在编写 X 功能，目前进度停留在函数 Y，尚未测试。”
-    *   **价值**：当用户三天后回来，Patchouli 能立即提示：“上次我们停在函数 Y，要继续吗？”
+        @property
+        def is_complete(self):
+            """只有当 User 和 Final Response 都存在时，Block 才算闭合"""
+            return self.user_block is not None and self.response_block is not None
+    ```
 
-#### B. 语义边界触发 (Semantic Boundary Trigger) —— 解决“任务切换”的问题
-*   **逻辑**：**Worker Agent 的隐式信号**。
-*   **设定**：利用 Worker Agent 的输出特征作为信号。
-*   **信号源**：
-    1.  **工具调用结束**：当 Worker 执行完 `Code Interpreter` 并输出“代码已运行成功”时。这通常标志着一个小的语义闭环（Semantic Unit）。
-    2.  **明确的结束语**：当 Worker 输出“希望这对您有帮助”、“还有其他问题吗”等结束语模式时。
-*   **场景**：用户在一个会话中先问了代码，又问了法律条款。中间没有长时间停顿，但话题切换了。
-*   **Patchouli 的行为**：在话题切换点进行切割，分别生成关于代码和法律的两个独立记忆原子。
+**处理消息流的状态机逻辑：**
 
-#### C. 缓冲区溢出触发 (Buffer Overflow Trigger) —— 解决“超长对话”的问题
-*   **逻辑**：**容量兜底**。
-*   **设定**：当缓冲区内的 Tokens 数量累计达到 $N$（例如 2000 tokens）。
-*   **场景**：用户正在进行一场极长的头脑风暴或 Debug 过程，没有停顿。
-*   **Patchouli 的行为**：强制触发一次“阶段性总结（Checkpointing）”，防止 Context 过长导致后续记忆丢失细节。
+1.  **State: IDLE**
+    *   收到 `User Message` -> 创建新 LogicalBlock，填入 `user_block`。
+    *   转入 **State: PROCESSING**。
+2.  **State: PROCESSING**
+    *   收到 `Thought/Tool Call` -> 暂存入 `execution_chain`。
+    *   收到 `Tool Output` -> 匹配并闭合上一个 Triplet。
+    *   收到 `Assistant Message` (不带 Tool Call) -> 填入 `response_block`。
+    *   **Block 闭合 (Sealed)** -> 推入 Buffer 进行语义判定。
+    *   转入 **State: IDLE**。
 
-### 4.1.3 用户可配置选项 (User Preferences)
 
-虽然系统有默认策略，但也应尊重用户的不同工作流习惯，在设置页提供选项：
+### 4.1.2 核心算法：语义吸附与漂移 (Semantic Adsorption & Drift)
 
-| 模式名称 | 触发逻辑 | 适用人群 |
-| :--- | :--- | :--- |
-| **Auto (默认)** | 综合上述 A+B+C 策略，智能判断。 | 大多数用户 |
-| **Lazy (懒惰模式)** | 仅在 Session 彻底关闭或闲置 > 固定时长（1小时）后触发。 | 喜欢长时间连贯思考，不希望后台频繁消耗 Token 的用户 |
-| **Agile (敏捷模式)** | 每轮对话结束后立即触发（Debounce = 10秒）。 | 极客，希望刚说的话立刻就能被另一个 Agent 检索到 |
-| **Manual (手动模式)** | 仅当用户点击“Save to Hive”或输入 `/save` 指令时触发。 | 强控制欲用户，只希望保存金科玉律 |
+现在，Buffer 不再是一个“消息队列”，而是一个“**Logical Block 容器**”。我们使用“**语义吸附 (Semantic Adsorption)**” 算法来决定新来的 Block 是放入当前容器，还是触发切割。
+
+由于 LLM 的生成内容（AI Response）通常很长且包含大量解释性废话，拼接后会稀释 User Query 的核心意图。显然话题的转移 90% 是由用户发起的，因此采用“**锚点对齐**”策略，不再计算整个 Buffer 的平均向量，而是维护一个 “**当前话题核心 (Current Topic Kernel)**”。变量定义：
+
+- **Topic_Kernel_Vec**: 当前 Buffer 中所有 anchor_text 的指数移动平均向量（或者仅使用第一条 User Query 作为基准，视策略而定）。
+
+帕秋莉的感知引擎维护一个动态的 Buffer，对新进入的 Block 执行以下判定流程：
+
+1.  **Step 1: Anchor 文本提取与增强**：
+    *   短文本强吸附/极短文本补全：若新 Block Token 数极少（如 < 50，典型如“继续”、“报错了”），**强制吸附**进当前 Buffer，或引入上一个block的user query作为Anchor Text。
+    *   *目的*：防止因 Embedding 不准导致对上一轮的修正指令被错误切分为新话题。
+
+2.  **Step 2: 计算向量距离与语义判定 (Embedding Similarity)**
+    *   使用本地轻量模型（如 `all-MiniLM-L6-v2`）计算 `New_Block` 的 `anchor_text` 与 `Topic_Kernel_Vec` 的余弦相似度。
+    *   **吸附 (Adsorb)**：相似度 > 阈值（如 0.6）。加入 Buffer，更新 Buffer 平均向量，让 Topic Kernel 缓慢向新的 User Query 移动
+    *   **漂移 (Drift)**：相似度 < 阈值。判定为话题切换（语义休止符）。
+        *   *Action*：触发 **Flush**（唤醒帕秋莉处理旧 Buffer），以 New_Block 开启新 Buffer并建立新的 Topic Kernel。
+
+3.  **闲置超时 (Idle Timeout)**：
+    *   若 Buffer 超过 T 分钟无新 Block 进入，视为自然休止，触发 **Flush**。
+
+4. **用户手动触发（Flush）**：
+    *   用户在任何对话结束时，都可以通过发送 `/save` 指令，强制触发当前 Buffer 的处理，即绕过语义吸附，直接发送给帕秋莉。
+    *   *目的*：尊重用户的不同工作流习惯，给出人为介入的接口。
+
+### 4.1.3 接力棒机制 (State Relay Mechanism)：处理“上下文割裂问题”
+解决“长任务导致的 Token 溢出割裂”问题。
+
+*   **触发条件**：在吸附之前，检查 Current_Buffer_Tokens + New_Block_Tokens 是否超过 Max_Processing_Tokens（如 8k）。
+*   **执行流程**：
+    1.  **强制切分**：将 `Current_Buffer` 发送给 帕秋莉。
+    2.  **摘要生成**： 帕秋莉 在处理该 Batch 时，额外产出一个 **Running Summary**（如“已完成 A 模块代码，正在调试 B 模块”）。
+    3.  **状态注入**：系统将该 Summary 自动插入到下一个新 Buffer 的头部（作为虚拟的 Context）。
+*   **效果**：即使物理上切分了，帕秋莉在处理下一段时依然拥有前文的“上帝视角”，保证生成的记忆原子不丢失上下文。
+
+#### 场景演示：大执行 + 小 Bugfix
+
+1.  **Block A (大执行)**：用户让写贪吃蛇游戏。Agent 写了 50 轮，Tokens = 6k。
+    *   *判定*：Token 即将溢出。
+    *   *动作*：**强制切分**。
+    *   *接力*：帕秋莉生成摘要 `Summary_A`: "已完成贪吃蛇核心逻辑，包含类 Snake 和 Game。" -> **传入下一个 Buffer**。
+
+2.  **Block B (小 Bugfix)**：用户说：“蛇撞墙没死”。
+    *   *判定*：
+        *   虽然 Block A 已经被切走了（不在 Buffer 里了），但 Buffer 头部有 `Summary_A`。
+        *   计算 `Block B` 与 `Summary_A` 的相似度 -> **高**（都包含 Snake/Game 关键词）。
+        *   **吸附成功**。
+    *   *结果*：Block B 单独（或与后续对话一起）生成记忆。
+    *   *帕秋莉视角*：当她处理 Block B 时，她看到的 Input 是 `[Summary_A, Block_B]`。她能完美理解“蛇撞墙”是指什么，生成的记忆原子会是：“修复了贪吃蛇撞墙判定的 Bug”。
 
 ## 4.2 认知流程：帕秋莉的思考链 (Patchouli's Cognitive Chain)
 
@@ -1110,6 +1165,12 @@ $$V = (C \times I) \times D(t) + A$$
     *   *支持*:
         *   **Cloud**: OpenAI `text-embedding-3`, Cohere (支持多语言)。
         *   **Local**: HuggingFace `SentenceTransformers` (如 `BGE-M3`, `E5`)，支持私有化部署。
+
+*   **感知层 Embedding (Perception Layer)**:
+    *   *用途*: 用于 4.1 节的流式语义吸附与漂移检测。
+    *   *选型*: **Sentence-Transformers** (本地运行)。
+    *   *模型*: `all-MiniLM-L6-v2` 或 `bge-small-en-v1.5`。
+    *   *理由*: 极轻量（< 100MB），CPU 推理仅需毫秒级，无需消耗昂贵的 LLM Token，适合高频实时计算。
 
 ## 8.4 接口与交互 (API & Interface)
 

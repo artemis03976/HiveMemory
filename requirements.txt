@@ -6,7 +6,7 @@ litellm>=1.30.0
 
 # Vector Database & Embeddings
 qdrant-client>=1.7.0
-sentence-transformers>=2.5.0
+sentence-transformers>=2.5.0  # Perception Layer (semantic adsorber)
 torch>=2.6.0
 transformers>=4.49.0
 

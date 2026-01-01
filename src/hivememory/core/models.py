@@ -43,6 +43,16 @@ class VerificationStatus(str, Enum):
     HALLUCINATION = "HALLUCINATION"  # 确认为幻觉
 
 
+class FlushReason(str, Enum):
+    """缓冲区刷新原因枚举"""
+    SEMANTIC_DRIFT = "semantic_drift"  # 语义漂移（话题切换）
+    TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
+    IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
+    MANUAL = "manual"  # 手动触发
+    SHORT_TEXT_ADSORB = "short_text_adsorb"  # 短文本强吸附
+    MESSAGE_COUNT = "message_count"  # 消息数量达到阈值（兼容旧版本）
+
+
 # ============ Layer 1: Meta (元数据层) ============
 
 class MetaData(BaseModel):
@@ -333,9 +343,12 @@ class ConversationMessage(BaseModel):
     """
     role: str = Field(..., description="角色: user/assistant/system")
     content: str = Field(..., description="消息内容")
-    timestamp: datetime = Field(default_factory=datetime.now)
-    session_id: str = Field(..., description="会话ID")
+    
     user_id: str = Field(default="unknown", description="用户ID")
+    agent_id: str = Field(default="unknown", description="Agent ID")
+    session_id: str = Field(..., description="会话ID")
+
+    timestamp: datetime = Field(default_factory=datetime.now)
 
     def to_langchain_message(self) -> Dict[str, str]:
         """转换为 LangChain 消息格式"""

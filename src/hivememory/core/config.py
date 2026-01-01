@@ -72,6 +72,102 @@ class BufferConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="allow")
 
 
+class PerceptionConfig(BaseSettings):
+    """
+    感知层配置
+
+    用于统一语义���架构的配置管理。
+    参考: PROJECT.md 2.3.1 节
+    """
+    # 启用开关
+    enable: bool = Field(
+        default=False,
+        description="是否启用感知层（False 时使用原有触发机制）"
+    )
+
+    # Embedding 配置
+    embedding_model: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        description="Embedding 模型名称（HuggingFace 模型 ID）"
+    )
+    embedding_device: str = Field(
+        default="cpu",
+        description="运行设备：cpu 或 cuda"
+    )
+    embedding_cache_dir: Optional[str] = Field(
+        default=None,
+        description="模型缓存目录（默认使用系统缓存）"
+    )
+
+    # 语义吸附配置
+    semantic_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="语义相似度阈值，超过此值认为是同一话题"
+    )
+    short_text_threshold: int = Field(
+        default=50,
+        gt=0,
+        description="短文本强吸附阈值（tokens），少于此值强制吸附"
+    )
+
+    # Token 限制
+    max_processing_tokens: int = Field(
+        default=8192,
+        gt=0,
+        description="单次处理的最大 Token 数"
+    )
+    max_buffer_tokens: int = Field(
+        default=16384,
+        gt=0,
+        description="Buffer 的最大 Token 数"
+    )
+
+    # 超时配置
+    idle_timeout_seconds: int = Field(
+        default=900,
+        gt=0,
+        description="空闲超时时间（秒），默认 15 分钟"
+    )
+
+    # EMA 配置
+    ema_alpha: float = Field(
+        default=0.3,
+        gt=0.0,
+        le=1.0,
+        description="指数移动平均系数，用于更新话题核心向量"
+    )
+
+    model_config = SettingsConfigDict(extra="allow")
+
+    @classmethod
+    def from_env(cls) -> "PerceptionConfig":
+        """从环境变量加载感知层配置"""
+        config = cls()
+
+        env_mapping = {
+            "HIVEMEMORY_PERCEPTION_ENABLE": ("enable", lambda x: x.lower() in ("true", "1", "yes")),
+            "HIVEMEMORY_PERCEPTION_EMBEDDING_MODEL": ("embedding_model", str),
+            "HIVEMEMORY_PERCEPTION_EMBEDDING_DEVICE": ("embedding_device", str),
+            "HIVEMEMORY_PERCEPTION_EMBEDDING_CACHE_DIR": ("embedding_cache_dir", str),
+            "HIVEMEMORY_PERCEPTION_SEMANTIC_THRESHOLD": ("semantic_threshold", float),
+            "HIVEMEMORY_PERCEPTION_SHORT_TEXT_THRESHOLD": ("short_text_threshold", int),
+            "HIVEMEMORY_PERCEPTION_MAX_TOKENS": ("max_processing_tokens", int),
+            "HIVEMEMORY_PERCEPTION_IDLE_TIMEOUT": ("idle_timeout_seconds", int),
+            "HIVEMEMORY_PERCEPTION_EMA_ALPHA": ("ema_alpha", float),
+        }
+
+        for env_key, (field_name, converter) in env_mapping.items():
+            if env_key in os.environ:
+                try:
+                    setattr(config, field_name, converter(os.environ[env_key]))
+                except (ValueError, TypeError):
+                    pass
+
+        return config
+
+
 class LifecycleConfig(BaseSettings):
     """记忆生命周期配置"""
     # 基础阈值
@@ -113,6 +209,7 @@ class ExtractionConfig(BaseSettings):
 class MemoryConfig(BaseSettings):
     """记忆管理总配置"""
     buffer: BufferConfig = Field(default_factory=BufferConfig)
+    perception: PerceptionConfig = Field(default_factory=PerceptionConfig)
     lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
 
@@ -301,6 +398,8 @@ __all__ = [
     "EmbeddingConfig",
     "QdrantConfig",
     "RedisConfig",
+    "BufferConfig",
+    "PerceptionConfig",
     "MemoryConfig",
     "RetrievalConfig",
     "APIConfig",

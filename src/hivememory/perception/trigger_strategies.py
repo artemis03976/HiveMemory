@@ -1,5 +1,5 @@
 """
-HiveMemory - 对话触发策略 (Trigger Strategies)
+HiveMemory - 感知层触发策略 (Trigger Strategies)
 
 职责:
     判断何时触发记忆处理。
@@ -11,7 +11,7 @@ HiveMemory - 对话触发策略 (Trigger Strategies)
     - ManualTrigger: 手动触发
 
 作者: HiveMemory Team
-版本: 0.1.0
+版本: 0.2.0
 """
 
 import logging
@@ -19,8 +19,8 @@ import time
 import re
 from typing import List, Dict, Any, Optional
 
-from hivememory.core.models import ConversationMessage
-from hivememory.generation.interfaces import TriggerStrategy, TriggerReason
+from hivememory.core.models import ConversationMessage, FlushReason
+from hivememory.perception.interfaces import TriggerStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class MessageCountTrigger(TriggerStrategy):
         self,
         messages: List[ConversationMessage],
         context: Dict[str, Any]
-    ) -> tuple[bool, Optional[TriggerReason]]:
+    ) -> tuple[bool, Optional[FlushReason]]:
         """
         检查消息数是否达到阈值
 
@@ -64,11 +64,11 @@ class MessageCountTrigger(TriggerStrategy):
             context: 上下文（未使用）
 
         Returns:
-            tuple[bool, TriggerReason]: (是否触发, 原因)
+            tuple[bool, FlushReason]: (是否触发, 原因)
         """
         if len(messages) >= self.threshold:
             logger.debug(f"消息数达到阈值: {len(messages)} >= {self.threshold}")
-            return True, TriggerReason.MESSAGE_COUNT
+            return True, FlushReason.MESSAGE_COUNT
 
         return False, None
 
@@ -101,7 +101,7 @@ class IdleTimeoutTrigger(TriggerStrategy):
         self,
         messages: List[ConversationMessage],
         context: Dict[str, Any]
-    ) -> tuple[bool, Optional[TriggerReason]]:
+    ) -> tuple[bool, Optional[FlushReason]]:
         """
         检查是否超时
 
@@ -112,7 +112,7 @@ class IdleTimeoutTrigger(TriggerStrategy):
                 - last_message_time: 最后一条消息时间
 
         Returns:
-            tuple[bool, TriggerReason]: (是否触发, 原因)
+            tuple[bool, FlushReason]: (是否触发, 原因)
         """
         if not messages:
             return False, None
@@ -124,7 +124,7 @@ class IdleTimeoutTrigger(TriggerStrategy):
 
         if idle_duration >= self.timeout:
             logger.debug(f"空闲超时: {idle_duration:.1f}s >= {self.timeout}s")
-            return True, TriggerReason.IDLE_TIMEOUT
+            return True, FlushReason.IDLE_TIMEOUT
 
         return False, None
 
@@ -169,7 +169,7 @@ class SemanticBoundaryTrigger(TriggerStrategy):
         self,
         messages: List[ConversationMessage],
         context: Dict[str, Any]
-    ) -> tuple[bool, Optional[TriggerReason]]:
+    ) -> tuple[bool, Optional[FlushReason]]:
         """
         检测语义边界
 
@@ -178,7 +178,7 @@ class SemanticBoundaryTrigger(TriggerStrategy):
             context: 上下文（未使用）
 
         Returns:
-            tuple[bool, TriggerReason]: (是否触发, 原因)
+            tuple[bool, FlushReason]: (是否触发, 原因)
         """
         if not messages:
             return False, None
@@ -198,7 +198,7 @@ class SemanticBoundaryTrigger(TriggerStrategy):
         for regex in self.ending_regex:
             if regex.search(content):
                 logger.debug(f"检测到语义边界: {regex.pattern}")
-                return True, TriggerReason.SEMANTIC_BOUNDARY
+                return True, FlushReason.SEMANTIC_DRIFT
 
         return False, None
 
@@ -236,7 +236,7 @@ class TriggerManager:
         self,
         messages: List[ConversationMessage],
         context: Dict[str, Any]
-    ) -> tuple[bool, Optional[TriggerReason]]:
+    ) -> tuple[bool, Optional[FlushReason]]:
         """
         综合判断是否触发
 
@@ -248,7 +248,7 @@ class TriggerManager:
             context: 上下文信息
 
         Returns:
-            tuple[bool, TriggerReason]: (是否触发, 触发原因)
+            tuple[bool, FlushReason]: (是否触发, 触发原因)
         """
         for strategy in self.strategies:
             should, reason = strategy.should_trigger(messages, context)

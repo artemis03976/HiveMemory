@@ -38,24 +38,6 @@ class DuplicateDecision(str, Enum):
     DISCARD = "discard"
 
 
-class TriggerReason(str, Enum):
-    """
-    触发原因类型
-
-    Attributes:
-        MESSAGE_COUNT: 消息数量达到阈值
-        IDLE_TIMEOUT: 空闲超时
-        SEMANTIC_BOUNDARY: 语义边界（话题切换）
-        MANUAL: 手动触发
-        BUFFER_OVERFLOW: 缓冲区溢出
-    """
-    MESSAGE_COUNT = "message_count"
-    IDLE_TIMEOUT = "idle_timeout"
-    SEMANTIC_BOUNDARY = "semantic_boundary"
-    MANUAL = "manual"
-    BUFFER_OVERFLOW = "buffer_overflow"
-
-
 # ========== 接口定义 ==========
 
 class ValueGater(ABC):
@@ -200,45 +182,6 @@ class Deduplicator(ABC):
             "旧内容...\n\n## 更新 (2025-12-23)\n新内容..."
         """
         pass
-
-
-class TriggerStrategy(ABC):
-    """
-    触发策略接口
-
-    职责:
-        判断是否应该触发记忆处理。
-
-    实现策略:
-        - MessageCountTrigger: 消息数阈值
-        - IdleTimeoutTrigger: 超时触发
-        - SemanticBoundaryTrigger: 语义边界检测
-    """
-
-    @abstractmethod
-    def should_trigger(
-        self,
-        messages: List[ConversationMessage],
-        context: Dict[str, Any]
-    ) -> tuple[bool, Optional[TriggerReason]]:
-        """
-        判断是否应该触发
-
-        Args:
-            messages: 当前缓冲区的消息列表
-            context: 上下文信息 (last_trigger_time, buffer_size 等)
-
-        Returns:
-            tuple[bool, TriggerReason]: (是否触发, 触发原因)
-
-        Examples:
-            >>> trigger = MessageCountTrigger(threshold=5)
-            >>> should, reason = trigger.should_trigger(messages, {})
-            >>> if should:
-            ...     print(f"触发原因: {reason.value}")
-        """
-        pass
-
 
 # ========== 辅助数据类 ==========
 

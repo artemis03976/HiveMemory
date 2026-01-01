@@ -74,8 +74,6 @@ class MemoryOrchestrator:
     def process(
         self,
         messages: List[ConversationMessage],
-        user_id: str,
-        agent_id: str = "default_agent",
     ) -> List[MemoryAtom]:
         """
         处理对话片段，提取记忆原子
@@ -89,8 +87,6 @@ class MemoryOrchestrator:
 
         Args:
             messages: 对话消息列表
-            user_id: 用户ID
-            agent_id: Agent ID
 
         Returns:
             List[MemoryAtom]: 提取的记忆原子列表
@@ -101,8 +97,6 @@ class MemoryOrchestrator:
             ...         ConversationMessage(role="user", content="写快排"),
             ...         ConversationMessage(role="assistant", content="代码...")
             ...     ],
-            ...     user_id="user123",
-            ...     agent_id="agent456"
             ... )
             >>> len(memories)
             1
@@ -110,6 +104,10 @@ class MemoryOrchestrator:
         if not messages:
             logger.debug("空消息列表，跳过处理")
             return []
+        
+        user_id = messages[0].user_id
+        agent_id = messages[0].agent_id
+        session_id = messages[0].session_id
 
         logger.info(f"开始处理 {len(messages)} 条消息...")
 
@@ -126,15 +124,14 @@ class MemoryOrchestrator:
 
         # 格式化对话
         transcript = self._format_transcript(messages)
-        session_id = messages[0].session_id if messages else "unknown"
 
         # 调用提取器
         draft = self.extractor.extract(
             transcript=transcript,
             metadata={
-                "session_id": session_id,
                 "user_id": user_id,
                 "agent_id": agent_id,
+                "session_id": session_id,
                 "timestamp": datetime.now().isoformat(),
             }
         )

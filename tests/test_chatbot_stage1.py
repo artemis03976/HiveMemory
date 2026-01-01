@@ -3,7 +3,7 @@ ChatBot Agent Stage 1 测试: 记忆生成与写入
 
 测试内容:
 1. ChatBot 对话功能（LLM调用与回复）
-2. 对话推送到 ConversationBuffer（触发Patchouli）
+2. 对话推送到感知层（触发Patchouli）
 3. Patchouli 自动提取并写入记忆到 Qdrant
 4. 多样化的记忆提取场景测试
 
@@ -133,7 +133,7 @@ def wait_for_patchouli_processing(seconds=3):
         TextColumn("[progress.description]{task.description}"),
         console=console
     ) as progress:
-        task = progress.add_task("等待 Patchouli 处理对话（Buffer 触发条件: 6条消息）...", total=None)
+        task = progress.add_task("等待 Patchouli 处理对话（感知层触发条件: 6条消息）...", total=None)
         time.sleep(seconds)
         progress.update(task, completed=True)
 
@@ -245,9 +245,9 @@ def test_basic_profile_extraction(chatbot, session_id, storage):
 
     # 验证记忆提取
     if success_count == len(test_messages):
-        # 手动触发 buffer 刷新
+        # 手动触发感知层 Flush
         try:
-            chatbot.patchouli.flush_buffer(chatbot.user_id, chatbot.agent_id, session_id)
+            chatbot.patchouli.flush_perception(chatbot.user_id, chatbot.agent_id, session_id)
         except:
             pass
 
@@ -289,7 +289,7 @@ def test_code_snippet_extraction(chatbot, session_id, storage):
     # 验证记忆提取
     if success_count == len(test_messages):
         try:
-            chatbot.patchouli.flush_buffer(chatbot.user_id, chatbot.agent_id, session_id)
+            chatbot.patchouli.flush_perception(chatbot.user_id, chatbot.agent_id, session_id)
         except:
             pass
 
@@ -334,7 +334,7 @@ def test_project_architecture_extraction(chatbot, session_id, storage):
     # 验证记忆提取
     if success_count == len(test_messages):
         try:
-            chatbot.patchouli.flush_buffer(chatbot.user_id, chatbot.agent_id, session_id)
+            chatbot.patchouli.flush_perception(chatbot.user_id, chatbot.agent_id, session_id)
         except:
             pass
 
@@ -376,7 +376,7 @@ def test_work_preferences_extraction(chatbot, session_id, storage):
     # 验证记忆提取
     if success_count == len(test_messages):
         try:
-            chatbot.patchouli.flush_buffer(chatbot.user_id, chatbot.agent_id, session_id)
+            chatbot.patchouli.flush_perception(chatbot.user_id, chatbot.agent_id, session_id)
         except:
             pass
 
@@ -419,7 +419,7 @@ def test_low_value_filtering(chatbot, session_id, storage):
     # 验证：低价值对话不应该生成记忆，或记忆极少
     if success_count == len(test_messages):
         try:
-            chatbot.patchouli.flush_buffer(chatbot.user_id, chatbot.agent_id, session_id)
+            chatbot.patchouli.flush_perception(chatbot.user_id, chatbot.agent_id, session_id)
         except:
             pass
 
@@ -463,7 +463,7 @@ def test_multi_memory_extraction(chatbot, session_id, storage):
     # 验证记忆提取（期望多条）
     if success_count == len(test_messages):
         try:
-            chatbot.patchouli.flush_buffer(chatbot.user_id, chatbot.agent_id, session_id)
+            chatbot.patchouli.flush_perception(chatbot.user_id, chatbot.agent_id, session_id)
         except:
             pass
 
@@ -522,7 +522,7 @@ def test_buffer_accumulation_trigger(chatbot, session_id, storage):
         else:
             console.print("[yellow]⚠️  Buffer 可能未自动触发，尝试手动刷新[/yellow]")
             try:
-                chatbot.patchouli.flush_buffer(chatbot.user_id, chatbot.agent_id, session_id)
+                chatbot.patchouli.flush_perception(chatbot.user_id, chatbot.agent_id, session_id)
                 success, memories = verify_memory_extraction(storage, chatbot.user_id, expected_min_count=1, wait_seconds=2)
             except:
                 pass
@@ -558,7 +558,7 @@ def test_reflection_extraction(chatbot, session_id, storage):
     # 验证记忆提取
     if success_count == len(test_messages):
         try:
-            chatbot.patchouli.flush_buffer(chatbot.user_id, chatbot.agent_id, session_id)
+            chatbot.patchouli.flush_perception(chatbot.user_id, chatbot.agent_id, session_id)
         except:
             pass
 
