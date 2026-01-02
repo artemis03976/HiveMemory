@@ -23,10 +23,10 @@ from qdrant_client.models import (
     Range,
     SearchRequest,
 )
-from sentence_transformers import SentenceTransformer
 
 from hivememory.core.models import MemoryAtom, IndexLayer
 from hivememory.core.config import QdrantConfig, EmbeddingConfig, get_config
+from hivememory.core.embedding import get_embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +76,12 @@ class QdrantMemoryStore:
 
         self.client = QdrantClient(**client_kwargs)
 
-        # 初始化 Embedding 模型
-        logger.info(f"加载 Embedding 模型: {embedding_config.model_name}")
-        self.embedding_model = SentenceTransformer(
-            embedding_config.model_name,
-            device=embedding_config.device
+        # 初始化 Embedding 服务
+        logger.info(f"加载 Embedding 服务: {embedding_config.model_name}")
+        self.embedding_service = get_embedding_service(
+            model_name=embedding_config.model_name,
+            device=embedding_config.device,
+            cache_dir=embedding_config.cache_dir
         )
 
         self.collection_name = qdrant_config.collection_name
@@ -137,12 +138,12 @@ class QdrantMemoryStore:
         Returns:
             向量列表
         """
-        embedding = self.embedding_model.encode(
+        embedding = self.embedding_service.encode(
             text,
-            normalize_embeddings=self.embedding_config.normalize_embeddings,
-            show_progress_bar=False,
+            normalize=self.embedding_config.normalize_embeddings,
+            show_progress=False,
         )
-        return embedding.tolist()
+        return embedding
 
     def upsert_memory(self, memory: MemoryAtom) -> None:
         """

@@ -34,7 +34,7 @@ from hivememory.perception.interfaces import (
     RelayController,
     BasePerceptionLayer,
 )
-from hivememory.perception.embedding_service import (
+from hivememory.core.embedding import (
     LocalEmbeddingService,
     get_embedding_service,
 )
@@ -51,10 +51,27 @@ from hivememory.perception.trigger_strategies import (
     TriggerManager,
     create_default_trigger_manager,
 )
-from hivememory.perception.config import PerceptionConfig, create_default_perception_config
+from hivememory.core.config import PerceptionConfig
 
-# 向后兼容别名
-PerceptionLayer = SemanticFlowPerceptionLayer
+def create_default_perception_config(**kwargs) -> PerceptionConfig:
+    """
+    创建默认配置的感知层配置对象
+    
+    Args:
+        **kwargs: 覆盖默认配置的参数
+        
+    Returns:
+        PerceptionConfig: 配置对象
+    """
+    config = PerceptionConfig.from_env()
+    
+    # 应用覆盖
+    for key, value in kwargs.items():
+        if hasattr(config, key):
+            setattr(config, key, value)
+            
+    return config
+
 
 __all__ = [
     # 数据模型
@@ -115,7 +132,6 @@ def create_default_perception_layer(on_flush_callback=None, config=None):
         semantic_threshold=config.semantic_threshold,
         short_text_threshold=config.short_text_threshold,
         idle_timeout_seconds=config.idle_timeout_seconds,
-        embedding_model=config.embedding_model,
     )
     relay_controller = TokenOverflowRelayController(
         max_processing_tokens=config.max_processing_tokens,

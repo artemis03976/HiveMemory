@@ -2,18 +2,20 @@
 HiveMemory 本地 Embedding 服务
 
 使用 sentence-transformers 库加载轻量级模型，
-用于感知层的语义吸附与漂移检测。
+用于感知层的语义吸附、漂移检测以及存储层的向量生成。
 
 参考: PROJECT.md 8.3 节
 
 作者: HiveMemory Team
-版本: 1.0.0
+版本: 1.1.0
 """
 
 import logging
 import threading
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 from functools import lru_cache
+
+from hivememory.core.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +122,10 @@ class LocalEmbeddingService:
 
     def encode(
         self,
-        texts: str | List[str],
+        texts: Union[str, List[str]],
         normalize: bool = True,
         show_progress: bool = False
-    ) -> List[float] | List[List[float]]:
+    ) -> Union[List[float], List[List[float]]]:
         """
         编码文本为向量
 
@@ -166,8 +168,8 @@ class LocalEmbeddingService:
     def compute_similarity(
         self,
         text1: str,
-        text2: str | List[str]
-    ) -> float | List[float]:
+        text2: Union[str, List[str]]
+    ) -> Union[float, List[float]]:
         """
         计算余弦相似度
 
@@ -248,28 +250,42 @@ class LocalEmbeddingService:
 
 @lru_cache(maxsize=1)
 def get_embedding_service(
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-    device: str = "cpu",
+    model_name: Optional[str] = None,
+    device: Optional[str] = None,
     cache_dir: Optional[str] = None
 ) -> LocalEmbeddingService:
     """
     获取全局 Embedding 服务实例（单例）
 
+    如果未指定参数，则使用 hivememory.core.config 中的全局配置。
+
     Args:
-        model_name: 模型名称
-        device: 运行设备
-        cache_dir: 模型缓存目录
+        model_name: 模型名称 (可选)
+        device: 运行设备 (可选)
+        cache_dir: 模型缓存目录 (可选)
 
     Returns:
         LocalEmbeddingService: 全局单例实例
 
     Examples:
-        >>> from hivememory.perception.embedding_service import get_embedding_service
+        >>> from hivememory.core.embedding import get_embedding_service
         >>> service = get_embedding_service()
         >>> vector = service.encode("hello")
     """
+    if model_name is None:
+        config = get_config().embedding
+        model_name = config.model_name
+        # 仅在参数未提供时使用配置中的默认值
+        if device is None:
+            device = config.device
+        if cache_dir is None:
+            cache_dir = config.cache_dir
+    
+    # 确保有默认值
+    if device is None:
+        device = "cpu"
+
     # 使用 hashable 的参数组合来支持缓存
-    cache_key = (model_name, device, cache_dir)
     return LocalEmbeddingService(
         model_name=model_name,
         device=device,
@@ -296,7 +312,7 @@ def create_embedding_service(
         LocalEmbeddingService: 新的服务实例
 
     Examples:
-        >>> from hivememory.perception.embedding_service import create_embedding_service
+        >>> from hivememory.core.embedding import create_embedding_service
         >>> service = create_embedding_service(model_name="bge-small-en-v1.5")
     """
     # 重置单例标记以创建新实例

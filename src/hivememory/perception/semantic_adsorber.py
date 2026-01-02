@@ -96,10 +96,8 @@ class SemanticBoundaryAdsorber(SemanticAdsorber):
     def embedding_service(self):
         """延迟加载 Embedding 服务"""
         if self._embedding_service is None:
-            from hivememory.perception.embedding_service import get_embedding_service
-            self._embedding_service = get_embedding_service(
-                model_name=self._embedding_model_name
-            )
+            from hivememory.core.embedding import get_embedding_service
+            self._embedding_service = get_embedding_service()
         return self._embedding_service
 
     def compute_similarity(

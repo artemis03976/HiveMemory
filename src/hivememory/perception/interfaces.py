@@ -58,7 +58,6 @@ class TriggerStrategy(ABC):
         pass
 
 
-
 class StreamParser(ABC):
     """
     流式解析器接口

@@ -30,11 +30,12 @@ class LLMConfig(BaseSettings):
 
 class EmbeddingConfig(BaseSettings):
     """Embedding 模型配置"""
-    model_name: str = Field(default="BAAI/bge-m3", description="Embedding模型名称")
+    model_name: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", description="Embedding模型名称")
     device: str = Field(default="cpu", description="运行设备: cpu/cuda/mps")
+    cache_dir: Optional[str] = Field(default=None, description="模型缓存目录")
     batch_size: int = Field(default=32, gt=0)
     normalize_embeddings: bool = Field(default=True)
-    dimension: int = Field(default=1024, gt=0, description="向量维度")
+    dimension: int = Field(default=384, gt=0, description="向量维度")
 
     model_config = SettingsConfigDict(extra="allow")
 
@@ -76,7 +77,7 @@ class PerceptionConfig(BaseSettings):
     """
     感知层配置
 
-    用于统一语义���架构的配置管理。
+    用于感知层架构的配置管理。
     参考: PROJECT.md 2.3.1 节
     """
     # 启用开关
@@ -148,9 +149,6 @@ class PerceptionConfig(BaseSettings):
 
         env_mapping = {
             "HIVEMEMORY_PERCEPTION_ENABLE": ("enable", lambda x: x.lower() in ("true", "1", "yes")),
-            "HIVEMEMORY_PERCEPTION_EMBEDDING_MODEL": ("embedding_model", str),
-            "HIVEMEMORY_PERCEPTION_EMBEDDING_DEVICE": ("embedding_device", str),
-            "HIVEMEMORY_PERCEPTION_EMBEDDING_CACHE_DIR": ("embedding_cache_dir", str),
             "HIVEMEMORY_PERCEPTION_SEMANTIC_THRESHOLD": ("semantic_threshold", float),
             "HIVEMEMORY_PERCEPTION_SHORT_TEXT_THRESHOLD": ("short_text_threshold", int),
             "HIVEMEMORY_PERCEPTION_MAX_TOKENS": ("max_processing_tokens", int),
