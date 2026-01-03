@@ -9,6 +9,7 @@ HiveMemory - 帕秋莉感知层 (Perception Layer)
     - StreamParser: 流式解析器，抹平不同 Agent 框架的消息格式差异
     - SemanticAdsorber: 语义吸附器，基于 Embedding 实时计算语义相似度
     - RelayController: 接力控制器，处理 Token 溢出并生成中间态摘要
+    - IdleTimeoutMonitor: 空闲超时监控器，异步监控 Buffer 空闲状态
     - SimplePerceptionLayer: 简单感知层（三重触发机制）
     - SemanticFlowPerceptionLayer: 语义流感知层（统一语义流架构）
 
@@ -32,6 +33,7 @@ from hivememory.perception.interfaces import (
     StreamParser,
     SemanticAdsorber,
     RelayController,
+    IdleTimeoutMonitor as IdleTimeoutMonitorInterface,
     BasePerceptionLayer,
 )
 from hivememory.core.embedding import (
@@ -41,6 +43,7 @@ from hivememory.core.embedding import (
 from hivememory.perception.stream_parser import UnifiedStreamParser
 from hivememory.perception.semantic_adsorber import SemanticBoundaryAdsorber
 from hivememory.perception.relay_controller import TokenOverflowRelayController
+from hivememory.perception.idle_timeout_monitor import IdleTimeoutMonitor
 from hivememory.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
@@ -87,13 +90,16 @@ __all__ = [
     "StreamParser",
     "SemanticAdsorber",
     "RelayController",
-    "BasePerceptionLayer", 
+    "IdleTimeoutMonitorInterface",
+    "BasePerceptionLayer",
     # 感知层实现
-    "SimplePerceptionLayer",  # 新增
-    "SemanticFlowPerceptionLayer",  # 新增
+    "SimplePerceptionLayer",
+    "SemanticFlowPerceptionLayer",
+    # 空闲超时监控
+    "IdleTimeoutMonitor",
     # 触发策略
-    "TriggerManager",  # 新增
-    "create_default_trigger_manager",  # 新增
+    "TriggerManager",
+    "create_default_trigger_manager",
     # 具体实现
     "LocalEmbeddingService",
     "get_embedding_service",
@@ -131,7 +137,6 @@ def create_default_perception_layer(on_flush_callback=None, config=None):
     adsorber = SemanticBoundaryAdsorber(
         semantic_threshold=config.semantic_threshold,
         short_text_threshold=config.short_text_threshold,
-        idle_timeout_seconds=config.idle_timeout_seconds,
     )
     relay_controller = TokenOverflowRelayController(
         max_processing_tokens=config.max_processing_tokens,
@@ -142,4 +147,5 @@ def create_default_perception_layer(on_flush_callback=None, config=None):
         adsorber=adsorber,
         relay_controller=relay_controller,
         on_flush_callback=on_flush_callback,
+        idle_timeout_seconds=config.idle_timeout_seconds,
     )

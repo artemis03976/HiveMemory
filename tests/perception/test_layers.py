@@ -67,11 +67,13 @@ class TestSimplePerceptionLayer:
         """测试手动 Flush"""
         # Mock trigger for add_message
         self.mock_trigger_manager.should_trigger.return_value = (False, None)
-        
+
         self.layer.add_message("user", "msg1", "u1", "a1", "s1")
-        
-        self.layer.flush_buffer("u1", "a1", "s1", reason=FlushReason.MANUAL)
-        
+
+        # SimplePerceptionLayer.flush_buffer 不接受 reason 参数
+        # 它内部会使用 FlushReason.MANUAL
+        self.layer.flush_buffer("u1", "a1", "s1")
+
         self.mock_callback.assert_called_once()
         args, _ = self.mock_callback.call_args
         messages, reason = args
@@ -154,40 +156,12 @@ class TestSemanticFlowPerceptionLayer:
         
         # Verify Flush called for OLD blocks
         self.mock_callback.assert_called()
-        
+
         # Verify Buffer has NEW block only (after flush)
-        # Note: Flush clears buffer.blocks. The NEW message creates a NEW current_block.
-        # But wait, since we added msg3, the NEW block is now complete.
-        # Did it get flushed too?
-        # If should_adsorb returns False, _flush is called on buffer.
-        # buffer.blocks contained the OLD block (if I didn't flush it? No, wait)
-        
-        # Scenario:
-        # 1. Old block in buffer.blocks.
-        # 2. New block created (User).
-        # 3. New block completed (Assistant).
-        # 4. _check_and_flush called.
-        # 5. should_adsorb(new_block, buffer) -> False.
-        # 6. _flush(buffer) called.
-        #    This flushes buffer.blocks (the OLD blocks).
-        #    Wait, does it flush buffer.blocks? YES.
-        #    Does it flush the new block?
-        #    The new block is NOT in buffer.blocks yet! It's in buffer.current_block.
-        #    It is added to buffer.blocks ONLY IF _check_and_flush returns None?
-        #    No, let's check add_message logic.
-        
-        #    if buffer.current_block and buffer.current_block.is_complete:
-        #        buffer.add_block(buffer.current_block)  <-- ADDED HERE!
-        #        buffer.current_block = None
-        #        self._check_and_flush(buffer)
-        
-        # So the NEW block IS in buffer.blocks when _check_and_flush is called.
-        # So _flush(buffer) will flush ALL blocks, including the new one.
-        
-        # So buffer.blocks should be EMPTY.
-        assert len(buffer.blocks) == 0
-        
-        # And we asserted flush was called.
+        # 新逻辑：先 flush 旧 buffer，然后新 block 加入
+        # 所以 buffer.blocks 应该只有新 block
+        assert len(buffer.blocks) == 1
+        assert buffer.blocks[0].user_block.content == "new"
 
     def test_token_overflow_relay(self):
         """测试 Token 溢出接力"""

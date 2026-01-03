@@ -62,8 +62,3 @@ class TestTokenOverflowRelayController:
         context = self.controller.create_relay_context(summary)
         assert "[接力摘要]" in context
         assert "Test Summary" in context
-        
-    def test_estimate_tokens(self):
-        """测试 Token 估算"""
-        text = "12345678" # 8 chars -> 2 tokens
-        assert self.controller.estimate_tokens(text) == 2

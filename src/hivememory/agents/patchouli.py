@@ -182,7 +182,6 @@ class PatchouliAgent:
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
-            reason=FlushReason.MANUAL,
         )
 
     def _on_perception_flush(

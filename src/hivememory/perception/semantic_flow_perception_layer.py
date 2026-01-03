@@ -8,6 +8,7 @@ HiveMemory - 语义流感知层 (Semantic Flow Perception Layer)
     - LogicalBlock 作为处理单元
     - 语义吸附判定
     - Token 溢出检测与接力
+    - 异步空闲超时监控
     - 多框架支持（LangChain、OpenAI、简单文本）
 
 参考: PROJECT.md 2.3.1 节
@@ -18,7 +19,7 @@ HiveMemory - 语义流感知层 (Semantic Flow Perception Layer)
 
 import logging
 import threading
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 
 from hivememory.core.models import ConversationMessage, FlushReason
 from hivememory.perception.interfaces import (
@@ -37,6 +38,9 @@ from hivememory.perception.stream_parser import UnifiedStreamParser
 from hivememory.perception.semantic_adsorber import SemanticBoundaryAdsorber
 from hivememory.perception.relay_controller import TokenOverflowRelayController
 
+if TYPE_CHECKING:
+    from hivememory.perception.idle_timeout_monitor import IdleTimeoutMonitor
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,10 +52,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         - LogicalBlock 作为处理单元
         - 语义吸附判定
         - Token 溢出检测与接力
+        - 异步空闲超时监控
 
     职责：
         - 管理所有 SemanticBuffer（按 user_id:agent_id:session_id 组织）
-        - 协调 Parser、Adsorber、Relay
+        - 协调 Parser、Adsorber、Relay、IdleTimeoutMonitor
         - 处理消息流并触发 Flush
         - 提供 Buffer 查询和管理接口
 
@@ -60,9 +65,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         ...     print(f"Flush: {reason}, Blocks: {len(blocks)}")
         >>>
         >>> perception = SemanticFlowPerceptionLayer(on_flush_callback=on_flush)
+        >>> perception.start_idle_monitor()  # 启动异步空闲监控
         >>>
         >>> # 添加消息（使用 BasePerceptionLayer 接口）
         >>> perception.add_message("user", "hello", "user1", "agent1", "sess1")
+        >>>
+        >>> perception.stop_idle_monitor()  # 停止监控
     """
 
     def __init__(
@@ -73,6 +81,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         on_flush_callback: Optional[
             Callable[[List[ConversationMessage], FlushReason], None]
         ] = None,
+        idle_timeout_seconds: int = 900,
+        scan_interval_seconds: int = 30,
     ):
         """
         初始化语义流感知层
@@ -83,12 +93,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             relay_controller: 接力控制器（可选，使用默认）
             on_flush_callback: Flush 回调函数（统一接口）
                 参数: (messages: List[ConversationMessage], reason: FlushReason)
+            idle_timeout_seconds: 空闲超时时间（秒），默认 900（15 分钟）
+            scan_interval_seconds: 扫描间隔（秒），默认 30
         """
 
         self.parser = parser or UnifiedStreamParser()
         self.adsorber = adsorber or SemanticBoundaryAdsorber()
         self.relay_controller = relay_controller or TokenOverflowRelayController()
         self.on_flush_callback = on_flush_callback
+
+        # 空闲超时监控器配置
+        self._idle_timeout_seconds = idle_timeout_seconds
+        self._scan_interval_seconds = scan_interval_seconds
+        self._idle_monitor: Optional["IdleTimeoutMonitor"] = None
 
         # Buffer 池管理
         self._buffers: Dict[str, SemanticBuffer] = {}
@@ -150,11 +167,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
             # 3. 判断是否需要创建新 Block
             if self.parser.should_create_new_block(stream_message):
-                # 保存上一个 Block（如果存在且完整）
-                if buffer.current_block and buffer.current_block.is_complete:
-                    buffer.add_block(buffer.current_block)
-
-                # 创建新 Block
                 buffer.current_block = LogicalBlock()
                 buffer.state = BufferState.PROCESSING
                 logger.debug(f"创建新 LogicalBlock: {buffer.current_block.block_id}")
@@ -165,20 +177,28 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
             # 5. 检查是否完成
             if buffer.current_block and buffer.current_block.is_complete:
-                # 将完整 Block 加入缓冲区
-                buffer.add_block(buffer.current_block)
+                completed_block = buffer.current_block
                 buffer.current_block = None
                 buffer.state = BufferState.IDLE
 
-                # 6. 语义吸附判定
-                self._check_and_flush(buffer)
+                # 6. 多方面检测（Token溢出、语义漂移等），如有需要则先 Flush 旧 Buffer
+                # 注意：此时新 Block 尚未加入 Buffer
+                self._check_and_flush(buffer, completed_block)
+
+                # 7. 将完整 Block 加入缓冲区（此时 Buffer 可能已被清空）
+                buffer.add_block(completed_block)
+
+                # 8. 更新话题核心
+                try:
+                    self.adsorber.update_topic_kernel(buffer, completed_block)
+                except Exception as e:
+                    logger.warning(f"更新话题核心失败: {e}")
 
     def flush_buffer(
         self,
         user_id: str,
         agent_id: str,
         session_id: str,
-        reason: FlushReason = FlushReason.MANUAL,
     ) -> None:
         """
         手动刷新 Buffer
@@ -187,7 +207,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             user_id: 用户ID
             agent_id: Agent ID
             session_id: 会话ID
-            reason: 刷新原因
         """
         with self._lock:
             buffer = self.get_buffer(user_id, agent_id, session_id)
@@ -203,7 +222,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             if not buffer.blocks:
                 return
 
-            blocks = self._flush(buffer, reason)
+            blocks = self._flush(buffer, FlushReason.MANUAL)
 
     def get_buffer(
         self,
@@ -324,26 +343,49 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     # ========== 内部方法 ==========
 
-    def _check_and_flush(self, buffer: SemanticBuffer) -> Optional[List[LogicalBlock]]:
-        """检查并触发 Flush"""
-        if not buffer.blocks:
-            return None
+    def _check_and_flush(
+        self,
+        buffer: SemanticBuffer,
+        new_block: LogicalBlock
+    ) -> Optional[List[LogicalBlock]]:
+        """
+        检查是否需要 Flush（在新 Block 加入 Buffer 之前调用）
 
-        latest_block = buffer.blocks[-1]
+        检测顺序：
+            1. 语义吸附判定（Adsorber：语义漂移）
+            2. Token 溢出检测（RelayController）
 
-        # 检查是否需要 Flush
-        should_adsorb, flush_reason = self.adsorber.should_adsorb(latest_block, buffer)
+        空闲超时检测由 IdleTimeoutMonitor 异步处理。
+
+        如果需要 Flush，先清空旧 Buffer，新 Block 将作为新 Buffer 的第一个元素。
+
+        Args:
+            buffer: 当前语义缓冲区
+            new_block: 即将加入的新 Block（尚未加入 buffer.blocks）
+
+        Returns:
+            Optional[List[LogicalBlock]]: Flush 的 Block 列表，如果未触发则返回 None
+        """
+
+        # 1. 语义吸附判定（语义漂移）
+        should_adsorb, flush_reason = self.adsorber.should_adsorb(new_block, buffer)
 
         if not should_adsorb:
-            # 触发 Flush
-            return self._flush(buffer, flush_reason)
+            # 语义吸附判定未通过，触发 Flush
+            result = self._flush(buffer, flush_reason)
+            # 重置话题核心，新 Block 将开启新话题
+            self.adsorber.reset_topic_kernel(buffer)
+            return result
 
-        # 更新话题核心
-        try:
-            self.adsorber.update_topic_kernel(buffer, latest_block)
-        except Exception as e:
-            logger.warning(f"更新话题核心失败: {e}")
+        # 2. 通过语义吸附判定后，进行 Token 溢出检测
+        if self.relay_controller.should_trigger_relay(buffer, new_block):
+            # 触发 Token 溢出接力
+            result = self._flush(buffer, FlushReason.TOKEN_OVERFLOW)
+            # 重置话题核心，新 Block 将开启新话题，但保有上一次的话题摘要
+            self.adsorber.reset_topic_kernel(buffer)
+            return result
 
+        # 默认吸附，不触发 Flush
         return None
 
     def _flush(
@@ -352,14 +394,20 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         reason: FlushReason,
     ) -> List[LogicalBlock]:
         """
-        执行 Flush
-
+        执行 Flush，清空 Buffer
         内部将 LogicalBlock 转换为 ConversationMessage 后调用回调函数
+
+        Args:
+            buffer: 当前语义缓冲区
+            reason: Flush 原因
+
+        Returns:
+            List[LogicalBlock]: Flush 的 Block 列表
         """
         blocks_to_process = buffer.blocks.copy()
 
         logger.info(
-            f"感知层触发 Flush: {buffer.buffer_id}, "
+            f"感知层触发 Flush，Buffer ID={buffer.buffer_id}, "
             f"原因: {reason.value}, "
             f"Block 数量: {len(blocks_to_process)}"
         )
@@ -395,6 +443,57 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 logger.error(f"Flush 回调执行失败: {e}")
 
         return blocks_to_process
+
+    # ========== 空闲超时监控 ==========
+
+    def start_idle_monitor(self) -> None:
+        """
+        启动空闲超时监控器
+
+        使用 APScheduler 后台定时扫描所有 Buffer，
+        对超时的 Buffer 自动触发 Flush。
+
+        Examples:
+            >>> perception = SemanticFlowPerceptionLayer()
+            >>> perception.start_idle_monitor()
+            >>> # 后台自动监控空闲 Buffer
+        """
+        if self._idle_monitor is not None:
+            logger.warning("空闲超时监控器已在运行中")
+            return
+
+        from hivememory.perception.idle_timeout_monitor import IdleTimeoutMonitor
+
+        self._idle_monitor = IdleTimeoutMonitor(
+            perception_layer=self,
+            idle_timeout_seconds=self._idle_timeout_seconds,
+            scan_interval_seconds=self._scan_interval_seconds,
+            enable_schedule=True,
+        )
+        self._idle_monitor.start()
+        logger.info("空闲超时监控器已启动")
+
+    def stop_idle_monitor(self) -> None:
+        """
+        停止空闲超时监控器
+
+        Examples:
+            >>> perception.stop_idle_monitor()
+        """
+        if self._idle_monitor is not None:
+            self._idle_monitor.stop()
+            self._idle_monitor = None
+            logger.info("空闲超时监控器已停止")
+
+    @property
+    def idle_monitor(self) -> Optional["IdleTimeoutMonitor"]:
+        """
+        获取空闲超时监控器实例
+
+        Returns:
+            Optional[IdleTimeoutMonitor]: 监控器实例，未启动则返回 None
+        """
+        return self._idle_monitor
 
 
 __all__ = [

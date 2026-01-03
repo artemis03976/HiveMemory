@@ -5,9 +5,11 @@ HiveMemory 语义边界吸附器
 
 核心算法：
     1. 短文本强吸附（< 阈值 tokens）
-    2. Token 溢出检测
-    3. 空闲超时检测
-    4. 语义相似度判定（余弦相似度）
+    2. 语义相似度判定（余弦相似度）
+
+注意：
+    - Token 溢出检测由 RelayController 负责
+    - 空闲超时检测由 IdleTimeoutMonitor 负责
 
 参考: PROJECT.md 4.1.2 节
 
@@ -16,7 +18,6 @@ HiveMemory 语义边界吸附器
 """
 
 import logging
-import time
 from typing import List, Optional, Tuple
 
 from hivememory.core.models import FlushReason
@@ -50,7 +51,6 @@ class SemanticBoundaryAdsorber(SemanticAdsorber):
         self,
         semantic_threshold: float = 0.6,
         short_text_threshold: int = 50,  # tokens
-        idle_timeout_seconds: int = 900,
         embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         ema_alpha: float = 0.3,
     ):
@@ -62,8 +62,6 @@ class SemanticBoundaryAdsorber(SemanticAdsorber):
                 超过此值认为是同一话题，低于此值触发 Flush
             short_text_threshold: 短文本强吸附阈值（tokens）
                 少于此值的文本强制吸附，防止错误切分
-            idle_timeout_seconds: 空闲超时时间（秒）
-                超过此时间无新消息触发 Flush
             embedding_model: Embedding 模型名称
             ema_alpha: 指数移动平均系数
                 用于更新话题核心向量
@@ -75,7 +73,6 @@ class SemanticBoundaryAdsorber(SemanticAdsorber):
 
         self.semantic_threshold = semantic_threshold
         self.short_text_threshold = short_text_threshold
-        self.idle_timeout_seconds = idle_timeout_seconds
         self.ema_alpha = ema_alpha
 
         # 初始化 Embedding 服务（延迟加载）
@@ -88,8 +85,7 @@ class SemanticBoundaryAdsorber(SemanticAdsorber):
         logger.info(
             f"SemanticBoundaryAdsorber 初始化: "
             f"threshold={semantic_threshold}, "
-            f"short_text={short_text_threshold}, "
-            f"timeout={idle_timeout_seconds}s"
+            f"short_text={short_text_threshold}"
         )
 
     @property
@@ -154,9 +150,7 @@ class SemanticBoundaryAdsorber(SemanticAdsorber):
         判定流程：
             1. 检查 Block 是否完整
             2. 短文本强吸附
-            3. Token 溢出检测
-            4. 空闲超时检测
-            5. 语义相似度判定
+            3. 语义相似度判定
 
         Args:
             new_block: 新的 LogicalBlock
@@ -179,22 +173,7 @@ class SemanticBoundaryAdsorber(SemanticAdsorber):
             )
             return True, FlushReason.SHORT_TEXT_ADSORB
 
-        # 2. Token 溢出检测
-        projected_tokens = buffer.total_tokens + new_block.total_tokens
-        if projected_tokens > buffer.max_tokens:
-            logger.debug(
-                f"Token 溢出: {buffer.total_tokens} + {new_block.total_tokens} > {buffer.max_tokens}"
-            )
-            return False, FlushReason.TOKEN_OVERFLOW
-
-        # 3. 空闲超时检测
-        current_time = time.time()
-        if buffer.is_idle(self.idle_timeout_seconds):
-            idle_duration = current_time - buffer.last_update
-            logger.debug(f"空闲超时: {idle_duration:.1f}s")
-            return False, FlushReason.IDLE_TIMEOUT
-
-        # 4. 语义相似度判定
+        # 2. 语义相似度判定
         if buffer.topic_kernel_vector is not None:
             similarity = self.compute_similarity(
                 new_block.anchor_text,

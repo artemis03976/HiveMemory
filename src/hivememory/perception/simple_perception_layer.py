@@ -237,7 +237,6 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         user_id: str,
         agent_id: str,
         session_id: str,
-        reason: FlushReason = FlushReason.MANUAL,
     ) -> None:
         """
         手动刷新 Buffer
@@ -246,7 +245,6 @@ class SimplePerceptionLayer(BasePerceptionLayer):
             user_id: 用户ID
             agent_id: Agent ID
             session_id: 会话ID
-            reason: 刷新原因
 
         Returns:
             None
@@ -258,7 +256,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
                 return
 
             buffer_key = self._get_buffer_key(user_id, agent_id, session_id)
-            self._flush(buffer, buffer_key, reason)
+            self._flush(buffer, buffer_key, FlushReason.MANUAL)
 
     def get_buffer(
         self,

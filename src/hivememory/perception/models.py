@@ -22,6 +22,21 @@ from pydantic import BaseModel, Field
 
 from hivememory.core.models import FlushReason, ConversationMessage
 
+
+def estimate_tokens(text: str) -> int:
+    """
+    估算文本的 Token 数量
+
+    规则：
+    - 中文 1 token ≈ 2 字符
+    - 英文 1 token ≈ 4 字符
+    - 这是一个粗略估算，仅供测试使用
+    """
+    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    other_chars = len(text) - chinese_chars
+    return (chinese_chars // 2) + (other_chars // 4)
+
+
 # ============ 枚举定义 ============
 
 class StreamMessageType(str, Enum):
@@ -103,8 +118,8 @@ class StreamMessage(BaseModel):
 
     @property
     def token_count(self) -> int:
-        """估算消息的 Token 数量（粗略估算：1 token ≈ 4 字符）"""
-        return max(1, len(self.content) // 4)
+        """估算消息的 Token 数量"""
+        return estimate_tokens(self.content)
 
     class Config:
         use_enum_values = True
@@ -154,13 +169,13 @@ class Triplet(BaseModel):
         """估算三元组的 Token 数量"""
         tokens = 0
         if self.thought:
-            tokens += len(self.thought) // 4
+            tokens += estimate_tokens(self.thought)
         if self.tool_name:
-            tokens += len(self.tool_name) // 4
+            tokens += estimate_tokens(self.tool_name)
         if self.tool_args:
-            tokens += len(str(self.tool_args)) // 4
+            tokens += estimate_tokens(str(self.tool_args))
         if self.observation:
-            tokens += len(self.observation) // 4
+            tokens += estimate_tokens(self.observation)
         return tokens
 
     def add_thought(self, thought: str) -> None:
@@ -432,9 +447,6 @@ class SemanticBuffer(BaseModel):
 
     # 接力摘要（处理 Token 溢出时生成）
     relay_summary: Optional[str] = None
-
-    # 配置
-    max_tokens: int = 8192
 
     class Config:
         arbitrary_types_allowed = True

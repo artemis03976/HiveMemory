@@ -120,9 +120,11 @@ class SemanticAdsorber(ABC):
 
     判定流程：
         1. 短文本强吸附（< 50 tokens）
-        2. Token 溢出检测
-        3. 空闲超时检测
-        4. 语义相似度判定（阈值 0.6）
+        2. 语义相似度判定（阈值 0.6）
+
+    注意：
+        - Token 溢出检测由 RelayController 负责
+        - 空闲超时检测由 IdleTimeoutMonitor 负责（异步）
 
     Examples:
         >>> adsorber = SemanticBoundaryAdsorber()
@@ -356,9 +358,47 @@ class BasePerceptionLayer(ABC):
         pass
 
 
+class IdleTimeoutMonitor(ABC):
+    """
+    空闲超时监控器接口
+
+    职责：
+        - 异步监控所有 Buffer 的空闲状态
+        - 对超时的 Buffer 触发 Flush
+        - 管理后台调度任务
+
+    Examples:
+        >>> monitor = IdleTimeoutMonitor(perception_layer)
+        >>> monitor.start()  # 启动后台监控
+        >>> monitor.stop()   # 停止监控
+    """
+
+    @abstractmethod
+    def start(self) -> None:
+        """启动监控器"""
+        pass
+
+    @abstractmethod
+    def stop(self) -> None:
+        """停止监控器"""
+        pass
+
+    @abstractmethod
+    def scan_now(self) -> List[str]:
+        """
+        立即执行一次扫描
+
+        Returns:
+            List[str]: 被刷新的 Buffer key 列表
+        """
+        pass
+
+
 __all__ = [
+    "TriggerStrategy",
     "StreamParser",
     "SemanticAdsorber",
     "RelayController",
-    "BasePerceptionLayer",  # 新增
+    "IdleTimeoutMonitor",
+    "BasePerceptionLayer",
 ]

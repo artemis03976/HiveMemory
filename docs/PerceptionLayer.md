@@ -109,9 +109,9 @@
     *   *目的*：尊重用户的不同工作流习惯，给出人为介入的接口。
 
 ### 4.1.3 接力棒机制 (State Relay Mechanism)：处理“上下文割裂问题”
-解决“长任务导致的 Token 溢出割裂”问题。
+解决“长任务导致的 Token 溢出割裂”问题。若在上面的语义吸附与漂移中判定需要吸附，即新 Block 与当前 Buffer 的 anchor_text 相似度较高，且当前 Buffer 中的 Token 数在加入了新 Block 后超过了 Max_Processing_Tokens，则触发强制切分。
 
-*   **触发条件**：在吸附之前，检查 Current_Buffer_Tokens + New_Block_Tokens 是否超过 Max_Processing_Tokens（如 8k）。
+*   **触发条件**：在吸附之后，检查 Current_Buffer_Tokens + New_Block_Tokens 是否超过 Max_Processing_Tokens（如 8k）。
 *   **执行流程**：
     1.  **强制切分**：将 `Current_Buffer` 发送给 帕秋莉。
     2.  **摘要生成**： 帕秋莉 在处理该 Batch 时，额外产出一个 **Running Summary**（如“已完成 A 模块代码，正在调试 B 模块”）。
