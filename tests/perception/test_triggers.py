@@ -13,7 +13,8 @@ import time
 from unittest.mock import Mock, patch
 from typing import List
 
-from hivememory.core.models import ConversationMessage, FlushReason
+from hivememory.core.models import FlushReason
+from hivememory.generation.models import ConversationMessage
 from hivememory.perception.trigger_strategies import (
     MessageCountTrigger,
     IdleTimeoutTrigger,

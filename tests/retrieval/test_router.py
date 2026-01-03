@@ -10,7 +10,7 @@ import pytest
 import sys
 from unittest.mock import Mock, patch, MagicMock
 
-from hivememory.core.models import ConversationMessage
+from hivememory.generation.models import ConversationMessage
 from hivememory.retrieval.router import SimpleRouter, LLMRouter, AlwaysRetrieveRouter, NeverRetrieveRouter
 
 class TestSimpleRouter:

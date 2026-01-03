@@ -103,7 +103,7 @@ class ChatBotAgent:
         
         try:
             # 获取最近的对话历史作为上下文
-            from hivememory.core.models import ConversationMessage
+            from hivememory.generation.models import ConversationMessage
             
             history = self.session_manager.get_history(session_id, limit=3)
             context = [

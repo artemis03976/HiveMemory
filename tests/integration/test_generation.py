@@ -34,7 +34,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.markdown import Markdown
 
-from hivememory.core.models import ConversationMessage
+from hivememory.generation.models import ConversationMessage
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.generation.triggers import TriggerManager, MessageCountTrigger

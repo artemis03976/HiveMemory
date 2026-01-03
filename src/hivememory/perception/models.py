@@ -20,7 +20,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import FlushReason, ConversationMessage
+from hivememory.core.models import FlushReason
+from hivememory.generation.models import ConversationMessage
 
 
 def estimate_tokens(text: str) -> int:
@@ -93,7 +94,8 @@ class StreamMessage(BaseModel):
         Returns:
             ConversationMessage: 转换后的消息对象
         """
-        from hivememory.core.models import ConversationMessage
+        # from hivememory.generation.models import ConversationMessage (removed local import)
+
 
         return ConversationMessage(
             role=self._get_role(),
@@ -343,7 +345,7 @@ class LogicalBlock(BaseModel):
         Returns:
             List[ConversationMessage]: 转换后的消息列表
         """
-        from hivememory.core.models import ConversationMessage
+        from hivememory.generation.models import ConversationMessage
 
         messages = []
 

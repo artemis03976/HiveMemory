@@ -12,7 +12,8 @@ HiveMemory 感知层抽象接口
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple, Any, Dict
 
-from hivememory.core.models import FlushReason, ConversationMessage
+from hivememory.core.models import FlushReason
+from hivememory.generation.models import ConversationMessage
 from hivememory.perception.models import (
     StreamMessage,
     LogicalBlock,

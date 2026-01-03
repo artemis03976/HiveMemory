@@ -19,8 +19,8 @@ from datetime import datetime
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.generation.interfaces import Deduplicator, DuplicateDecision
-from hivememory.generation.extractor import ExtractedMemoryDraft
+from hivememory.generation.models import DuplicateDecision, ExtractedMemoryDraft
+from hivememory.generation.interfaces import Deduplicator
 
 logger = logging.getLogger(__name__)
 

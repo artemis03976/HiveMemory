@@ -16,7 +16,8 @@ from enum import Enum
 import re
 import logging
 
-from hivememory.core.models import MemoryType, ConversationMessage
+from hivememory.core.models import MemoryType
+from hivememory.generation.models import ConversationMessage
 from hivememory.retrieval.interfaces import QueryProcessor as QueryProcessorInterface
 
 logger = logging.getLogger(__name__)

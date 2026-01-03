@@ -16,7 +16,8 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from hivememory.core.models import FlushReason, ConversationMessage
+from hivememory.core.models import FlushReason
+from hivememory.generation.models import ConversationMessage
 from hivememory.perception.simple_perception_layer import SimplePerceptionLayer
 from hivememory.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.perception.models import SimpleBuffer, SemanticBuffer, LogicalBlock, StreamMessage, StreamMessageType

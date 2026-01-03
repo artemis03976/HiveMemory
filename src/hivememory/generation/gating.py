@@ -17,7 +17,7 @@ import logging
 from typing import List, Set
 import re
 
-from hivememory.core.models import ConversationMessage
+from hivememory.generation.models import ConversationMessage
 from hivememory.generation.interfaces import ValueGater
 
 logger = logging.getLogger(__name__)

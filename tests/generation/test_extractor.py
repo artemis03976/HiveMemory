@@ -13,9 +13,11 @@ from unittest.mock import Mock, MagicMock, patch
 import json
 from datetime import datetime
 
-from hivememory.core.models import ConversationMessage
+from hivememory.generation.models import ConversationMessage
 from hivememory.core.config import LLMConfig
-from hivememory.generation.extractor import LLMMemoryExtractor, ExtractedMemoryDraft, ExtractionError
+from hivememory.generation.extractor import LLMMemoryExtractor
+from hivememory.generation.models import ExtractedMemoryDraft
+from hivememory.generation.interfaces import ExtractionError
 
 
 class TestLLMMemoryExtractor:

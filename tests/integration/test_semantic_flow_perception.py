@@ -42,7 +42,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from hivememory.core.models import ConversationMessage, FlushReason
+from hivememory.core.models import FlushReason
+from hivememory.generation.models import ConversationMessage
 from hivememory.perception import (
     SemanticFlowPerceptionLayer,
     UnifiedStreamParser,

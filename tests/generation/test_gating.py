@@ -10,7 +10,7 @@
 """
 
 import pytest
-from hivememory.core.models import ConversationMessage
+from hivememory.generation.models import ConversationMessage
 from hivememory.generation.gating import RuleBasedGater
 
 

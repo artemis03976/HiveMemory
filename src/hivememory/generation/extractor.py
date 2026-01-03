@@ -27,37 +27,10 @@ from pydantic import BaseModel, Field
 
 from hivememory.core.config import LLMConfig, get_librarian_llm_config
 from hivememory.generation.interfaces import MemoryExtractor, ExtractionError
+from hivememory.generation.models import ExtractedMemoryDraft
 from hivememory.agents.prompts.patchouli import PATCHOULI_SYSTEM_PROMPT, PATCHOULI_USER_PROMPT
 
 logger = logging.getLogger(__name__)
-
-
-# ========== 输出 Schema 定义 ==========
-
-class ExtractedMemoryDraft(BaseModel):
-    """
-    提取的记忆草稿 - LLM 输出格式
-
-    Attributes:
-        title: 简洁明确的标题 (不超过100字)
-        summary: 一句话摘要 (不超过200字)
-        tags: 3-5个语义标签
-        memory_type: 记忆类型 (CODE_SNIPPET/FACT/...)
-        content: 清洗后的 Markdown 内容
-        confidence_score: 置信度 (0.0-1.0)
-        has_value: 是否有长期价值
-    """
-    title: str = Field(..., description="简洁明确的标题 (不超过100字)")
-    summary: str = Field(..., description="一句话摘要 (不超过200字)")
-    tags: list[str] = Field(..., description="3-5个语义标签")
-    memory_type: str = Field(
-        ...,
-        description="记忆类型: CODE_SNIPPET/FACT/URL_RESOURCE/REFLECTION/USER_PROFILE/WORK_IN_PROGRESS"
-    )
-    content: str = Field(..., description="清洗后的Markdown内容")
-    confidence_score: float = Field(..., description="置信度 (0.0-1.0)", ge=0.0, le=1.0)
-    has_value: bool = Field(..., description="是否有长期价值 (true/false)")
-
 
 # ========== 实现类 ==========
 

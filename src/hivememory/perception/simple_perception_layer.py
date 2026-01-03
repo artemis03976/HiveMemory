@@ -21,7 +21,8 @@ import threading
 import time
 from typing import List, Optional, Dict, Any, Callable
 
-from hivememory.core.models import ConversationMessage, FlushReason
+from hivememory.core.models import FlushReason
+from hivememory.generation.models import ConversationMessage
 from hivememory.perception.interfaces import BasePerceptionLayer
 from hivememory.perception.models import SimpleBuffer  # 从 models.py 导入
 from hivememory.perception.trigger_strategies import (

@@ -18,7 +18,8 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
-from hivememory.core.models import MemoryAtom, ConversationMessage
+from hivememory.core.models import MemoryAtom
+from hivememory.generation.models import ConversationMessage
 
 
 # ========== 接口定义 ==========

@@ -12,7 +12,8 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
-from hivememory.core.models import MemoryType, ConversationMessage
+from hivememory.core.models import MemoryType
+from hivememory.generation.models import ConversationMessage
 from hivememory.retrieval.query import (
     TimeExpressionParser,
     MemoryTypeDetector,

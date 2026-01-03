@@ -21,7 +21,8 @@ import logging
 import threading
 from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 
-from hivememory.core.models import ConversationMessage, FlushReason
+from hivememory.core.models import FlushReason
+from hivememory.generation.models import ConversationMessage
 from hivememory.perception.interfaces import (
     BasePerceptionLayer,
     StreamParser,

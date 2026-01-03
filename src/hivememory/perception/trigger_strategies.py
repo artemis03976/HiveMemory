@@ -19,7 +19,8 @@ import time
 import re
 from typing import List, Dict, Any, Optional
 
-from hivememory.core.models import ConversationMessage, FlushReason
+from hivememory.core.models import FlushReason
+from hivememory.generation.models import ConversationMessage
 from hivememory.perception.interfaces import TriggerStrategy
 
 logger = logging.getLogger(__name__)

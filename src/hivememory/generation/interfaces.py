@@ -17,26 +17,8 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
-from hivememory.core.models import ConversationMessage, MemoryAtom
-
-
-# ========== 枚举定义 ==========
-
-class DuplicateDecision(str, Enum):
-    """
-    查重决策类型
-
-    Attributes:
-        CREATE: 创建新记忆
-        UPDATE: 更新现有记忆（知识演化）
-        TOUCH: 仅更新访问时间（完全重复）
-        DISCARD: 丢弃（低质量重复）
-    """
-    CREATE = "create"
-    UPDATE = "update"
-    TOUCH = "touch"
-    DISCARD = "discard"
-
+from hivememory.core.models import MemoryAtom
+from hivememory.generation.models import ConversationMessage, DuplicateDecision, ExtractedMemoryDraft
 
 # ========== 接口定义 ==========
 
@@ -183,25 +165,7 @@ class Deduplicator(ABC):
         """
         pass
 
-# ========== 辅助数据类 ==========
 
-class ExtractedMemoryDraft:
-    """
-    提取的记忆草稿 - 用于 LLM 输出解析
-
-    注意: 该类在 generation/extractor.py 中使用 Pydantic 重新定义，
-    这里仅作为类型提示占位符。
-
-    Attributes:
-        title: 简洁标题
-        summary: 一句话摘要
-        tags: 语义标签列表
-        memory_type: 记忆类型 (CODE_SNIPPET/FACT/...)
-        content: Markdown 内容
-        confidence_score: 置信度 (0.0-1.0)
-        has_value: 是否有长期价值
-    """
-    pass
 
 
 # ========== 异常定义 ==========

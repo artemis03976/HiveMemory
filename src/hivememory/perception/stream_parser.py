@@ -255,7 +255,7 @@ class UnifiedStreamParser(StreamParser):
         Returns:
             List[ConversationMessage]: 转换后的消息列表
         """
-        from hivememory.core.models import ConversationMessage
+        from hivememory.generation.models import ConversationMessage
 
         result = []
         for msg in messages:

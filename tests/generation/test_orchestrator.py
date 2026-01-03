@@ -11,10 +11,10 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch
 from typing import List
 
-from hivememory.core.models import ConversationMessage, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.generation.orchestrator import MemoryOrchestrator
-from hivememory.generation.interfaces import ValueGater, MemoryExtractor, Deduplicator, DuplicateDecision
-from hivememory.generation.extractor import ExtractedMemoryDraft
+from hivememory.generation.interfaces import ValueGater, MemoryExtractor, Deduplicator
+from hivememory.generation.models import ConversationMessage, DuplicateDecision, ExtractedMemoryDraft
 from hivememory.memory.storage import QdrantMemoryStore
 
 

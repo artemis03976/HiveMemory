@@ -19,7 +19,8 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 
-from hivememory.core.models import ConversationMessage, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.generation.models import ConversationMessage, ExtractedMemoryDraft
 from hivememory.generation.interfaces import (
     ValueGater,
     MemoryExtractor,
@@ -27,7 +28,7 @@ from hivememory.generation.interfaces import (
     DuplicateDecision,
 )
 from hivememory.generation.gating import create_default_gater
-from hivememory.generation.extractor import create_default_extractor, ExtractedMemoryDraft
+from hivememory.generation.extractor import create_default_extractor
 from hivememory.generation.deduplicator import create_default_deduplicator
 
 logger = logging.getLogger(__name__)

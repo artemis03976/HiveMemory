@@ -16,7 +16,7 @@ from typing import List, Optional, Dict, Any
 import re
 import logging
 
-from hivememory.core.models import ConversationMessage
+from hivememory.generation.models import ConversationMessage
 from hivememory.retrieval.interfaces import RetrievalRouter
 
 logger = logging.getLogger(__name__)

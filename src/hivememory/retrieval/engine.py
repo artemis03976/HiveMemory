@@ -19,7 +19,8 @@ from datetime import datetime
 import time
 import logging
 
-from hivememory.core.models import ConversationMessage, MemoryAtom
+from hivememory.core.models import MemoryAtom
+from hivememory.generation.models import ConversationMessage
 from hivememory.retrieval.query import ProcessedQuery, QueryProcessor
 from hivememory.retrieval.router import SimpleRouter, RetrievalRouter
 from hivememory.retrieval.searcher import HybridSearcher, SearchResults

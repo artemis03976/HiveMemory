@@ -21,14 +21,41 @@ Patchouli - Librarian Agent (图书管理员智能体)
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+import time
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any, Callable, TYPE_CHECKING
 
-from hivememory.core.models import MemoryAtom, ConversationMessage, FlushReason
+from hivememory.core.models import MemoryAtom, FlushReason
+from hivememory.generation.models import ConversationMessage
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.generation.orchestrator import MemoryOrchestrator
 from hivememory.perception.interfaces import BasePerceptionLayer
 
+if TYPE_CHECKING:
+    from hivememory.core.config import PerceptionConfig
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FlushEvent:
+    """
+    Flush 事件数据，用于外部观察
+
+    Attributes:
+        messages: 被 Flush 的消息列表
+        reason: Flush 触发原因
+        memories: 生成的记忆原子列表（可能为空）
+        timestamp: 事件发生时间戳
+    """
+    messages: List[ConversationMessage]
+    reason: FlushReason
+    memories: List[MemoryAtom]
+    timestamp: float = field(default_factory=time.time)
+
+
+# 观察者类型别名
+FlushObserver = Callable[[FlushEvent], None]
 
 
 class PatchouliAgent:
@@ -59,6 +86,7 @@ class PatchouliAgent:
         self,
         storage: Optional[QdrantMemoryStore] = None,
         enable_semantic_flow: bool = True,
+        perception_config: Optional["PerceptionConfig"] = None,
     ):
         """
         初始化 Patchouli Agent
@@ -66,6 +94,7 @@ class PatchouliAgent:
         Args:
             storage: Qdrant 存储实例（可选，自动创建）
             enable_semantic_flow: 是否使用语义流感知层（默认 True）
+            perception_config: 感知层配置（可选，用于自定义阈值等参数）
 
         Examples:
             >>> # 使用简单感知层
@@ -73,12 +102,21 @@ class PatchouliAgent:
             >>>
             >>> # 使用语义流感知层（默认）
             >>> patchouli = PatchouliAgent(enable_semantic_flow=True)
+            >>>
+            >>> # 使用自定义配置
+            >>> from hivememory.core.config import PerceptionConfig
+            >>> config = PerceptionConfig(max_processing_tokens=2048)
+            >>> patchouli = PatchouliAgent(perception_config=config)
         """
         self.storage = storage or QdrantMemoryStore()
 
         # 感知层配置
         self.enable_semantic_flow = enable_semantic_flow
+        self.perception_config = perception_config
         self.perception_layer: Optional[BasePerceptionLayer] = None
+
+        # Flush 事件观察者列表
+        self._flush_observers: List[FlushObserver] = []
 
         # 初始化感知层
         self._init_perception_layer()
@@ -98,16 +136,27 @@ class PatchouliAgent:
         架构模式:
             - SimplePerceptionLayer: 简单缓冲策略（三重触发）
             - SemanticFlowPerceptionLayer: 语义流策略（统一语义流）
-        
+
         """
         try:
             if self.enable_semantic_flow:
-                from hivememory.perception import SemanticFlowPerceptionLayer
-
-                self.perception_layer = SemanticFlowPerceptionLayer(
-                    on_flush_callback=self._on_perception_flush
+                from hivememory.perception import (
+                    SemanticFlowPerceptionLayer,
+                    create_default_perception_layer,
                 )
-                logger.debug("语义流感知层已初始化")
+
+                if self.perception_config:
+                    # 使用自定义配置创建感知层
+                    self.perception_layer = create_default_perception_layer(
+                        on_flush_callback=self._on_perception_flush,
+                        config=self.perception_config,
+                    )
+                    logger.debug("语义流感知层已初始化（自定义配置）")
+                else:
+                    self.perception_layer = SemanticFlowPerceptionLayer(
+                        on_flush_callback=self._on_perception_flush
+                    )
+                    logger.debug("语义流感知层已初始化")
 
             else:
                 from hivememory.perception import SimplePerceptionLayer
@@ -214,15 +263,74 @@ class PatchouliAgent:
             memories = self.orchestrator.process(
                 messages=messages,
             )
-            
+
+            # 创建 Flush 事件并通知观察者
+            event = FlushEvent(
+                messages=messages,
+                reason=reason,
+                memories=memories or [],
+            )
+            self._notify_flush_observers(event)
+
             logger.info(f"Patchouli 处理完成")
             if memories:
                 logger.info(f"✓ 成功提取 {len(memories)} 条记忆")
             else:
-                logger.info("未提取到记忆（对话可能无价值或被过滤）")   
+                logger.info("未提取到记忆（对话可能无价值或被过滤）")
 
         except Exception as e:
             logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
+
+    # ========== 观察者模式 API ==========
+
+    def add_flush_observer(self, observer: FlushObserver) -> None:
+        """
+        添加 Flush 事件观察者
+
+        观察者会在每次 Flush 事件发生后被调用，可用于：
+        - 测试时捕获 Flush 事件和生成的记忆
+        - 监控和日志记录
+        - 与其他系统集成
+
+        Args:
+            observer: 回调函数，签名为 Callable[[FlushEvent], None]
+
+        Examples:
+            >>> def my_observer(event: FlushEvent):
+            ...     print(f"Flush: {event.reason}, Memories: {len(event.memories)}")
+            >>> patchouli.add_flush_observer(my_observer)
+        """
+        self._flush_observers.append(observer)
+        logger.debug(f"添加 Flush 观察者，当前共 {len(self._flush_observers)} 个")
+
+    def remove_flush_observer(self, observer: FlushObserver) -> None:
+        """
+        移除 Flush 事件观察者
+
+        Args:
+            observer: 要移除的回调函数
+
+        Examples:
+            >>> patchouli.remove_flush_observer(my_observer)
+        """
+        if observer in self._flush_observers:
+            self._flush_observers.remove(observer)
+            logger.debug(f"移除 Flush 观察者，当前共 {len(self._flush_observers)} 个")
+
+    def _notify_flush_observers(self, event: FlushEvent) -> None:
+        """
+        通知所有观察者
+
+        Args:
+            event: Flush 事件数据
+        """
+        for observer in self._flush_observers:
+            try:
+                observer(event)
+            except Exception as e:
+                logger.warning(f"Flush 观察者执行失败: {e}")
+
+    # ========== Buffer 管理 API ==========
 
     def get_buffer(
         self,
@@ -335,5 +443,7 @@ def create_patchouli_agent(
 
 __all__ = [
     "PatchouliAgent",
+    "FlushEvent",
+    "FlushObserver",
     "create_patchouli_agent",
 ]
