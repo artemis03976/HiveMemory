@@ -111,7 +111,9 @@ def create_chatbot(config, patchouli, session_manager):
             session_manager=session_manager,
             user_id="test_user",
             agent_id="test_chatbot",
-            llm_config=worker_llm_config
+            llm_config=worker_llm_config,
+            enable_memory_retrieval=False,     # Stage 1 测试禁用记忆检索
+            enable_lifecycle_management=False  # Stage 1 测试禁用生命周期管理
         )
 
         console.print(f"  ✓ ChatBot 创建成功")

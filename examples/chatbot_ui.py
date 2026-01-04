@@ -15,10 +15,20 @@ HiveMemory ChatBot Streamlit Web UI
 
 import sys
 from pathlib import Path
+import logging
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
+
+# 配置日志 - 确保在导入 hivememory 之前或尽早配置
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+# 显式设置 hivememory 的日志级别
+logging.getLogger("hivememory").setLevel(logging.INFO)
 
 import streamlit as st
 import uuid
@@ -95,13 +105,9 @@ def init_session_state():
             session_manager=session_manager,
             user_id=st.session_state.user_id,
             agent_id="streamlit_chatbot",
-            llm_config={
-                "model": worker_llm_config.model,
-                "api_key": worker_llm_config.api_key,
-                "api_base": worker_llm_config.api_base,
-                "temperature": worker_llm_config.temperature,
-                "max_tokens": worker_llm_config.max_tokens
-            }
+            llm_config=worker_llm_config,  # 直接传递配置对象
+            enable_memory_retrieval=False,  # 默认关闭，后续由侧边栏控制
+            enable_lifecycle_management=False  # 示例中暂不启用生命周期管理
         )
 
 
@@ -118,64 +124,155 @@ def load_session_history():
     ]
 
 
+def render_memory_inspector(storage, user_id):
+    """渲染记忆库检查器"""
+    st.subheader("🧠 记忆原子流")
+    st.caption("实时展示生成的记忆原子 (Top 50)")
+
+    try:
+        # 获取所有记忆
+        memories = storage.get_all_memories(
+            filters={"meta.user_id": user_id},
+            limit=50
+        )
+
+        if not memories:
+            st.info("暂无记忆生成。尝试与 ChatBot 多聊聊！")
+            return
+
+        # 按创建时间倒序排列 (最新的在最前)
+        # 注意：这里假设 meta.created_at 是 datetime 对象或可比较的字符串
+        memories.sort(key=lambda x: x.meta.created_at, reverse=True)
+
+        st.metric("记忆总数", len(memories))
+
+        # 遍历展示
+        for mem in memories:
+            # 确定图标
+            icon = "📝"
+            mem_type = str(mem.index.memory_type)
+            if "CODE" in mem_type:
+                icon = "💻"
+            elif "FACT" in mem_type:
+                icon = "💡"
+            elif "URL" in mem_type:
+                icon = "🔗"
+            elif "REFLECTION" in mem_type:
+                icon = "🤔"
+
+            # 格式化时间
+            created_at = mem.meta.created_at
+            if isinstance(created_at, str):
+                try:
+                    # 尝试解析 ISO 格式
+                    dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except:
+                    time_str = created_at
+            elif isinstance(created_at, datetime):
+                time_str = created_at.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                time_str = str(created_at)
+
+            # 展开器标题
+            title = f"{icon} {mem.index.title}"
+            
+            with st.expander(title):
+                st.caption(f"🕒 {time_str}")
+                
+                # 标签
+                if mem.index.tags:
+                    st.markdown(f"🏷️ **Tags**: `{'`, `'.join(mem.index.tags)}`")
+                
+                # 摘要
+                st.markdown(f"**摘要**: {mem.index.summary}")
+                
+                # 类型
+                st.caption(f"类型: {mem_type}")
+
+    except Exception as e:
+        st.error(f"加载记忆失败: {e}")
+
+
 def render_sidebar():
     """渲染侧边栏"""
     with st.sidebar:
-        st.title("⚙️ 系统设置")
+        st.title("HiveMemory")
+        
+        # 使用 Tabs 分离设置和记忆查看
+        tab_settings, tab_memories = st.tabs(["⚙️ 设置", "🧠 记忆库"])
+        
+        with tab_settings:
+            st.subheader("📋 当前会话")
+            st.text(f"Session ID: {st.session_state.session_id}")
+            st.text(f"User ID: {st.session_state.user_id}")
 
-        # 会话信息
-        st.subheader("📋 当前会话")
-        st.text(f"Session ID: {st.session_state.session_id}")
-        st.text(f"User ID: {st.session_state.user_id}")
+            # 会话统计
+            agent: ChatBotAgent = st.session_state.chatbot_agent
+            session_info = agent.get_session_info(st.session_state.session_id)
+            st.metric("消息数量", session_info["message_count"])
 
-        # 会话统计
-        agent: ChatBotAgent = st.session_state.chatbot_agent
-        session_info = agent.get_session_info(st.session_state.session_id)
-        st.metric("消息数量", session_info["message_count"])
+            st.divider()
 
-        # 清空会话按钮
-        if st.button("🗑️ 清空会话", use_container_width=True):
-            agent.clear_session(st.session_state.session_id)
-            st.session_state.messages_displayed = []
-            st.rerun()
+            # 功能控制
+            st.subheader("🎛️ 功能控制")
+            enable_retrieval = st.toggle(
+                "启用记忆检索",
+                value=agent.enable_memory_retrieval,
+                help="开启后，ChatBot 会在回答前检索相关的历史记忆作为上下文。"
+            )
+            # 更新 Agent 状态
+            if enable_retrieval != agent.enable_memory_retrieval:
+                agent.enable_memory_retrieval = enable_retrieval
+                st.rerun()
 
-        # 新建会话按钮
-        if st.button("➕ 新建会话", use_container_width=True):
-            st.session_state.session_id = str(uuid.uuid4())[:8]
-            st.session_state.messages_displayed = []
-            st.rerun()
+            # 清空会话按钮
+            if st.button("🗑️ 清空会话", use_container_width=True):
+                agent.clear_session(st.session_state.session_id)
+                st.session_state.messages_displayed = []
+                st.rerun()
 
-        st.divider()
+            # 新建会话按钮
+            if st.button("➕ 新建会话", use_container_width=True):
+                st.session_state.session_id = str(uuid.uuid4())[:8]
+                st.session_state.messages_displayed = []
+                st.rerun()
 
-        # LLM 配置信息
-        st.subheader("🤖 LLM 配置")
-        config, _, _, _ = initialize_system()
-        worker_llm = config.get_worker_llm_config()
+            st.divider()
 
-        st.text(f"模型: {worker_llm.model}")
-        st.text(f"温度: {worker_llm.temperature}")
-        st.text(f"最大 Tokens: {worker_llm.max_tokens}")
+            # LLM 配置信息
+            st.subheader("🤖 LLM 配置")
+            config, _, _, _ = initialize_system()
+            worker_llm = config.get_worker_llm_config()
 
-        st.divider()
+            st.text(f"模型: {worker_llm.model}")
+            st.text(f"温度: {worker_llm.temperature}")
+            st.text(f"最大 Tokens: {worker_llm.max_tokens}")
 
-        # 帕秋莉配置
-        st.subheader("📚 帕秋莉配置")
-        st.text(f"触发阈值: {config.memory.buffer.max_messages} 条消息")
-        st.text(f"空闲触发: {config.memory.buffer.timeout_seconds // 60} 分钟")
-        st.text(f"最低置信度: {config.memory.extraction.min_confidence}")
+            st.divider()
 
-        st.divider()
+            # 帕秋莉配置
+            st.subheader("📚 帕秋莉配置")
+            st.text(f"触发阈值: {config.memory.buffer.max_messages} 条消息")
+            st.text(f"空闲触发: {config.memory.buffer.timeout_seconds // 60} 分钟")
+            st.text(f"最低置信度: {config.memory.extraction.min_confidence}")
 
-        # 说明
-        st.caption("""
-        **💡 使用说明**
+            st.divider()
 
-        1. 在下方输入框发送消息
-        2. ChatBot 会自动回复
-        3. 对话会被推送给帕秋莉
-        4. 每 5 条消息或 15 分钟空闲后，帕秋莉会自动提取记忆
-        5. 记忆将存储到 Qdrant 数据库
-        """)
+            # 说明
+            st.caption("""
+            **💡 使用说明**
+
+            1. 在下方输入框发送消息
+            2. ChatBot 会自动回复
+            3. 对话会被推送给帕秋莉
+            4. 每 5 条消息或 15 分钟空闲后，帕秋莉会自动提取记忆
+            5. 记忆将存储到 Qdrant 数据库
+            """)
+            
+        with tab_memories:
+            config, _, _, storage = initialize_system()
+            render_memory_inspector(storage, st.session_state.user_id)
 
 
 def render_chat_interface():

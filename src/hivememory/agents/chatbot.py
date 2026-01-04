@@ -6,7 +6,7 @@ ChatBot Worker Agent - 与用户对话并将对话流推送给帕秋莉
 2. 管理对话历史（通过 SessionManager）
 3. 将对话推送到感知层（Perception Layer），触发帕秋莉的记忆生成
 4. 支持可配置的 LLM 模型切换
-5. **[NEW]** 检索历史记忆并注入到对话上下文中
+5. 检索历史记忆并注入到对话上下文中
 
 """
 
@@ -29,10 +29,6 @@ class ChatBotAgent:
 
     支持记忆检索的对话机器人
     
-    新增功能 (Stage 2):
-    - 自动检索相关历史记忆
-    - 将记忆上下文注入 System Prompt
-    - 支持启用/禁用记忆检索
     """
 
     def __init__(
@@ -45,7 +41,8 @@ class ChatBotAgent:
         system_prompt: Optional[str] = None,
         retrieval_engine: Optional[Any] = None,  # RetrievalEngine
         enable_memory_retrieval: bool = True,
-        lifecycle_manager: Optional[Any] = None,  # LifecycleManager (Stage 3)
+        lifecycle_manager: Optional[Any] = None,  # LifecycleManager 
+        enable_lifecycle_management: bool = True,
     ):
         """
         Args:
@@ -58,6 +55,7 @@ class ChatBotAgent:
             retrieval_engine: 记忆检索引擎（可选）
             enable_memory_retrieval: 是否启用记忆检索，默认 True
             lifecycle_manager: 生命周期管理器（可选，Stage 3）
+            enable_lifecycle_management: 是否启用生命周期管理，默认 True
         """
         self.patchouli = patchouli
         self.session_manager = session_manager
@@ -74,13 +72,15 @@ class ChatBotAgent:
 
         # 生命周期管理器 (Stage 3)
         self.lifecycle_manager = lifecycle_manager
+        self.enable_lifecycle_management = enable_lifecycle_management
 
         # 上一次检索的结果（用于调试/显示）
         self._last_retrieval_result = None
 
         logger.info(
             f"ChatBotAgent initialized for user={user_id}, agent={agent_id}, "
-            f"memory_retrieval={enable_memory_retrieval}, lifecycle={lifecycle_manager is not None}"
+            f"memory_retrieval={enable_memory_retrieval}, "
+            f"lifecycle={lifecycle_manager is not None} (enabled={enable_lifecycle_management})"
         )
 
     def _retrieve_memory_context(
@@ -319,7 +319,7 @@ class ChatBotAgent:
                 logger.debug(f"Failed to update access stats: {e}")
 
             # 7. 记录生命周期 HIT 事件 (Stage 3)
-            if self.lifecycle_manager:
+            if self.lifecycle_manager and self.enable_lifecycle_management:
                 try:
                     for memory in self._last_retrieval_result.memories:
                         self.lifecycle_manager.record_hit(memory.id, source="chatbot")
@@ -403,9 +403,9 @@ class ChatBotAgent:
             positive: 是否正面反馈，默认 True
 
         Returns:
-            ReinforcementResult 如果成功，None 如果未配置 lifecycle_manager
+            ReinforcementResult 如果成功，None 如果未配置 lifecycle_manager 或已禁用
         """
-        if self.lifecycle_manager:
+        if self.lifecycle_manager and self.enable_lifecycle_management:
             return self.lifecycle_manager.record_feedback(memory_id, positive)
         return None
 
