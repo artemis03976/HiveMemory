@@ -220,6 +220,67 @@ class RetrievalConfig(BaseSettings):
     score_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
     rerank_model: Optional[str] = Field(default=None)
     enable_hybrid_search: bool = Field(default=True)
+    enable_parallel: bool = Field(default=True, description="是否启用并行召回")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+# ========== 混合检索配置 ==========
+
+class DenseRetrieverConfig(BaseSettings):
+    """稠密检索配置"""
+    enabled: bool = Field(default=True)
+    top_k: int = Field(default=50, gt=0, description="RRF融合前的召回数量")
+    score_threshold: float = Field(default=0.0, ge=0.0, le=1.0, description="相似度阈值")
+    enable_time_decay: bool = Field(default=True)
+    time_decay_days: int = Field(default=30, gt=0)
+    enable_confidence_boost: bool = Field(default=True, description="是否启用置信度加权")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class SparseRetrieverConfig(BaseSettings):
+    """稀疏检索配置"""
+    enabled: bool = Field(default=True)
+    top_k: int = Field(default=50, gt=0, description="RRF融合前的召回数量")
+    score_threshold: float = Field(default=0.0, ge=0.0, le=1.0, description="相似度阈值")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class FusionConfig(BaseSettings):
+    """RRF 融合配置"""
+    rrf_k: int = Field(default=60, gt=0, description="RRF常数")
+    dense_weight: float = Field(default=1.0, ge=0.0, description="稠密检索权重")
+    sparse_weight: float = Field(default=1.0, ge=0.0, description="稀疏检索权重")
+    final_top_k: int = Field(default=5, gt=0, description="最终返回数量")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class RerankerConfig(BaseSettings):
+    """重排序器配置"""
+    enabled: bool = Field(default=True, description="是否启用重排序")
+    type: str = Field(default="cross_encoder", description="noop 或 cross_encoder")
+    model_name: str = Field(default="BAAI/bge-reranker-v2-m3", description="Reranker 模型名称")
+
+    # BGE-Reranker 专用配置
+    device: str = Field(default="cpu", description="运行设备: cpu/cuda")
+    use_fp16: bool = Field(default=True, description="是否使用 FP16 精度")
+    batch_size: int = Field(default=32, gt=0, description="批处理大小")
+    top_k: int = Field(default=20, gt=0, description="仅重排序前N个结果")
+    normalize_scores: bool = Field(default=True, description="是否标准化分数到 0-1")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class HybridSearchConfig(BaseSettings):
+    """混合搜索完整配置"""
+    enable_parallel: bool = Field(default=True)
+    dense: DenseRetrieverConfig = Field(default_factory=DenseRetrieverConfig)
+    sparse: SparseRetrieverConfig = Field(default_factory=SparseRetrieverConfig)
+    fusion: FusionConfig = Field(default_factory=FusionConfig)
+    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
 
     model_config = SettingsConfigDict(extra="allow")
 
@@ -402,6 +463,13 @@ __all__ = [
     "RetrievalConfig",
     "APIConfig",
     "LoggingConfig",
+    # 混合检索配置
+    "DenseRetrievalConfig",
+    "SparseRetrievalConfig",
+    "FusionConfig",
+    "RerankerConfig",
+    "HybridSearchConfig",
+    # 便捷函数
     "get_config",
     "get_worker_llm_config",
     "get_librarian_llm_config",

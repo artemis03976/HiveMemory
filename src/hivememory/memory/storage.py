@@ -11,6 +11,9 @@ Qdrant 向量存储层封装
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 import logging
+import requests
+import json
+from datetime import datetime
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -22,11 +25,17 @@ from qdrant_client.models import (
     MatchValue,
     Range,
     SearchRequest,
+    SparseVectorParams,
+    SparseVectorsConfig,
+    SparseVector,
+    NamedSparseVector,
+    NamedVector,
+    SearchParams,
 )
 
 from hivememory.core.models import MemoryAtom, IndexLayer
 from hivememory.core.config import QdrantConfig, EmbeddingConfig, get_config
-from hivememory.core.embedding import get_embedding_service
+from hivememory.core.embedding import get_bge_m3_service
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +85,9 @@ class QdrantMemoryStore:
 
         self.client = QdrantClient(**client_kwargs)
 
-        # 初始化 Embedding 服务
-        logger.info(f"加载 Embedding 服务: {embedding_config.model_name}")
-        self.embedding_service = get_embedding_service(
-            model_name=embedding_config.model_name,
+        # 初始化 BGE-M3 Embedding 服务 (支持 Dense + Sparse)
+        logger.info(f"加载 BGE-M3 Embedding 服务")
+        self.embedding_service = get_bge_m3_service(
             device=embedding_config.device,
             cache_dir=embedding_config.cache_dir
         )
@@ -89,7 +97,7 @@ class QdrantMemoryStore:
 
     def create_collection(self, recreate: bool = False) -> None:
         """
-        创建向量集合
+        创建向量集合 (包含稠密和稀疏向量配置)
 
         Args:
             recreate: 如果集合已存在，是否删除并重建
@@ -109,75 +117,106 @@ class QdrantMemoryStore:
                     logger.warning(f"删除已存在的集合: {self.collection_name}")
                     self.client.delete_collection(self.collection_name)
                 else:
-                    logger.info(f"集合已存在: {self.collection_name}")
+                    logger.info(f"集合已存在且有稀疏向量配置: {self.collection_name}")
                     return
 
-            # 创建新集合
+            # 创建新集合 (支持稠密和稀疏向量)
             self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=self.vector_dimension,
-                    distance=getattr(Distance, self.qdrant_config.distance_metric.upper()),
-                ),
+                vectors_config={
+                    "dense_text": VectorParams(
+                        size=self.vector_dimension,
+                        distance=getattr(Distance, self.qdrant_config.distance_metric.upper()),
+                    ),
+                },
+                sparse_vectors_config={
+                    "sparse_text": SparseVectorParams()
+                },
                 on_disk_payload=self.qdrant_config.on_disk_payload,
             )
 
-            logger.info(f"✓ 成功创建集合: {self.collection_name}")
+            logger.info(f"✓ 成功创建集合: {self.collection_name} (Dense + Sparse)")
 
         except Exception as e:
             logger.error(f"创建集合失败: {e}")
             raise
 
-    def generate_embedding(self, text: str) -> List[float]:
-        """
-        生成文本的 Embedding 向量
-
-        Args:
-            text: 待编码文本
-
-        Returns:
-            向量列表
-        """
-        embedding = self.embedding_service.encode(
-            text,
-            normalize=self.embedding_config.normalize_embeddings,
-            show_progress=False,
-        )
-        return embedding
-
-    def upsert_memory(self, memory: MemoryAtom) -> None:
+    def upsert_memory(
+        self,
+        memory: MemoryAtom,
+        use_sparse: bool = True,
+        force_regenerate: bool = False
+    ) -> None:
         """
         插入或更新记忆原子
 
         Args:
             memory: 记忆原子对象
+            use_sparse: 是否同时存储稀疏向量
+            force_regenerate: 是否强制重新生成向量
 
         Raises:
             Exception: 操作失败时抛出
         """
         try:
-            # 1. 生成 Embedding 向量
-            if memory.index.embedding is None:
-                embedding_text = memory.index.get_embedding_text()
-                embedding = self.generate_embedding(embedding_text)
-                memory.index.embedding = embedding
+            if use_sparse:
+                # 生成混合向量 (稠密 + 稀疏)，使用不同的输入文本
+                dense_text = memory.index.get_embedding_text()
+                sparse_context = memory.index.get_sparse_context()
+                vectors = self.embedding_service.encode(
+                    dense_texts=dense_text,
+                    sparse_texts=sparse_context
+                )
+
+                # 存储稠密向量到 memory.index.embedding
+                dense_vector = vectors["dense"]
+                memory.index.embedding = dense_vector
+
+                # 构造稀疏向量 (字典转 indices/values 格式)
+                sparse_dict = vectors["sparse"]
+                sparse_vector = SparseVector(
+                    indices=list(sparse_dict.keys()),
+                    values=list(sparse_dict.values())
+                )
+
+                # 构建 Qdrant Point - 同时包含稠密和稀疏向量
+                point = PointStruct(
+                    id=str(memory.id),
+                    vector={
+                        # 命名稠密向量 (用于 mode="dense" 检索)
+                        "dense_text": dense_vector,
+                        # 命名稀疏向量 (用于 mode="sparse" 检索)
+                        "sparse_text": sparse_vector,
+                    },
+                    payload=memory.to_qdrant_payload(),
+                )
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    points=[point],
+                )
+                logger.debug(f"✓ 成功存储记忆 (Dense+Sparse): {memory.id} - {memory.index.title}")
             else:
-                embedding = memory.index.embedding
+                # 仅使用稠密向量
+                if memory.index.embedding is None or force_regenerate:
+                    embedding_text = memory.index.get_embedding_text()
+                    embedding = self.embedding_service.encode(dense_texts=embedding_text)
+                    memory.index.embedding = embedding
+                else:
+                    embedding = memory.index.embedding
 
-            # 2. 构建 Qdrant Point
-            point = PointStruct(
-                id=str(memory.id),
-                vector=embedding,
-                payload=memory.to_qdrant_payload(),
-            )
-
-            # 3. 插入数据库
-            self.client.upsert(
-                collection_name=self.collection_name,
-                points=[point],
-            )
-
-            logger.debug(f"✓ 成功存储记忆: {memory.id} - {memory.index.title}")
+                # 构建 Qdrant Point - 使用命名向量格式以保持一致性
+                point = PointStruct(
+                    id=str(memory.id),
+                    vector={
+                        "dense_text": embedding,  # 命名稠密向量
+                    },
+                    payload=memory.to_qdrant_payload(),
+                )
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    points=[point],
+                )
+                logger.debug(f"✓ 成功存储记忆 (Dense): {memory.id} - {memory.index.title}")
 
         except Exception as e:
             logger.error(f"存储记忆失败: {e}")
@@ -218,37 +257,71 @@ class QdrantMemoryStore:
         top_k: int = 5,
         score_threshold: float = 0.0,
         filters: Optional[Dict[str, Any]] = None,
+        mode: str = "dense",
     ) -> List[Dict[str, Any]]:
         """
-        语义检索记忆
+        语义检索记忆 (支持稠密和稀疏向量检索)
 
         Args:
             query_text: 查询文本
             top_k: 返回Top K结果
             score_threshold: 最低相似度阈值
             filters: 元数据过滤条件, 如 {"memory_type": "CODE_SNIPPET", "user_id": "123"}
+            mode: 检索模式，"dense" 使用稠密向量，"sparse" 使用稀疏向量
 
         Returns:
             检索结果列表: [{"memory": MemoryAtom, "score": float}, ...]
         """
         try:
-            # 1. 生成查询向量
-            query_vector = self.generate_embedding(query_text)
-
-            # 2. 构建过滤条件
+            # 构建过滤条件
             filter_obj = self._build_filter(filters) if filters else None
 
-            # 3. 执行检索 (使用新版 Qdrant API)
-            search_result = self.client.query_points(
-                collection_name=self.collection_name,
-                query=query_vector,
-                limit=top_k,
-                query_filter=filter_obj,
-                score_threshold=score_threshold,
-                with_payload=True,
-            ).points
+            if mode == "sparse":
+                # 稀疏向量检索 - 使用 query_points API
+                sparse_vector = self.embedding_service.encode(sparse_texts=query_text)
+                if not sparse_vector:
+                    logger.warning(f"稀疏向量为空 (text='{query_text[:50]}...')，返回空结果")
+                    return []
+                logger.debug(f"稀疏向量非零维度: {len(sparse_vector)} (keys={list(sparse_vector.keys())[:10]}...)")
 
-            # 4. 解析结果
+                # 构造稀疏向量查询
+                query_sparse = SparseVector(
+                    indices=list(sparse_vector.keys()),
+                    values=list(sparse_vector.values())
+                )
+
+                # 使用 query_points 进行稀疏向量检索
+                search_result = self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=query_sparse,
+                    using="sparse_text",  # 指定使用稀疏向量配置
+                    query_filter=filter_obj,
+                    limit=top_k,
+                    # score_threshold=score_threshold,
+                    with_payload=True,
+                )
+                search_result = search_result.points  # 提取 points 列表
+                logger.debug(f"✓ 稀疏检索到 {len(search_result)} 条记忆")
+                if len(search_result) == 0:
+                    logger.warning("稀疏检索返回 0 条结果。")
+            else:
+                # 稠密向量检索 - 使用 query_points API
+                query_vector = self.embedding_service.encode(dense_texts=query_text)
+                search_result = self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=query_vector,
+                    using="dense_text",  # 指定使用稠密向量配置
+                    query_filter=filter_obj,
+                    limit=top_k,
+                    score_threshold=score_threshold,
+                    with_payload=True,
+                )
+                search_result = search_result.points  # 提取 points 列表
+                logger.debug(f"✓ 稠密检索到 {len(search_result)} 条记忆")
+                if len(search_result) == 0:
+                    logger.warning("稠密检索返回 0 条结果。")
+
+            # 解析结果
             results = []
             for hit in search_result:
                 memory = self._payload_to_memory(hit.payload)
@@ -258,7 +331,6 @@ class QdrantMemoryStore:
                     "id": hit.id,
                 })
 
-            logger.debug(f"✓ 检索到 {len(results)} 条记忆")
             return results
 
         except Exception as e:

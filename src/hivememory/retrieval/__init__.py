@@ -6,15 +6,18 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 核心组件:
 - RetrievalRouter: 判断查询是否需要记忆
 - QueryProcessor: 查询预处理与重写
-- HybridSearcher: 混合检索引擎 (向量 + 结构化过滤)
+- DenseRetriever: 稠密向量检索器 (语义匹配)
+- SparseRetriever: 稀疏向量检索器 (BGE-M3/BM25, 精准实体匹配)
+- HybridSearcher: 混合检索引擎 (稠密 + 稀疏 + RRF 融合)
+- ReciprocalRankFusion: RRF 结果融合
 - ContextRenderer: 上下文渲染器
 - RetrievalEngine: 统一入口门面
 
 对应设计文档: PROJECT.md 第 5 章
 
-状态: Stage 2 实现完成
+状态: Stage 2 改进中 (混合检索)
 作者: HiveMemory Team
-版本: 0.2.0
+版本: 0.3.0
 """
 
 # 接口定义
@@ -24,13 +27,11 @@ from hivememory.retrieval.interfaces import (
     MemorySearcher,
     ContextRenderer as ContextRendererInterface,
     RetrievalEngine as RetrievalEngineInterface,
-    RenderFormat,
+    BaseReranker
 )
 
 # 查询处理
 from hivememory.retrieval.query import (
-    QueryFilters,
-    ProcessedQuery,
     QueryProcessor,
     TimeExpressionParser,
     MemoryTypeDetector,
@@ -44,12 +45,33 @@ from hivememory.retrieval.router import (
     NeverRetrieveRouter,
 )
 
-# 检索器
-from hivememory.retrieval.searcher import (
+# 数据模型 (统一从 models.py 导入)
+from hivememory.retrieval.models import (
+    QueryFilters,
+    ProcessedQuery,
     SearchResult,
     SearchResults,
+    RenderFormat,
+)
+
+# 检索器
+from hivememory.retrieval.searcher import (
     HybridSearcher,
-    CachedSearcher,
+)
+
+# 混合检索组件
+from hivememory.retrieval.dense_retriever import (
+    DenseRetriever,
+)
+from hivememory.retrieval.sparse_retriever import (
+    SparseRetriever,
+)
+from hivememory.retrieval.fusion import (
+    ReciprocalRankFusion,
+)
+from hivememory.retrieval.reranker import (
+    NoopReranker,
+    CrossEncoderReranker,
 )
 
 # 渲染器
@@ -75,11 +97,16 @@ __all__ = [
     "MemorySearcher",
     "ContextRendererInterface",
     "RetrievalEngineInterface",
+    "BaseReranker",
+
+    # 数据模型
+    "QueryFilters",
+    "ProcessedQuery",
+    "SearchResult",
+    "SearchResults",
     "RenderFormat",
 
     # 查询
-    "QueryFilters",
-    "ProcessedQuery",
     "QueryProcessor",
     "TimeExpressionParser",
     "MemoryTypeDetector",
@@ -91,10 +118,19 @@ __all__ = [
     "NeverRetrieveRouter",
 
     # 检索
-    "SearchResult",
-    "SearchResults",
+    "DenseRetriever",
+    "SparseRetriever",
+    "ReciprocalRankFusion",
+    "NoopReranker",
     "HybridSearcher",
-    "CachedSearcher",
+
+    # 混合检索组件
+    "DenseRetriever",
+    "SparseRetriever",
+    "ReciprocalRankFusion",
+    "BaseReranker",
+    "NoopReranker",
+    "CrossEncoderReranker",
 
     # 渲染
     "ContextRenderer",

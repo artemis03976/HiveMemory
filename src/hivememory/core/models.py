@@ -136,6 +136,35 @@ class IndexLayer(BaseModel):
             f"Summary: {self.summary}"
         )
 
+    def get_sparse_context(self) -> str:
+        """
+        构建用于稀疏向量生成的上下文
+
+        格式: "{title} {title} {tags_string} {tags_string} {summary}"
+
+        Title 和 tags 重复出现以增加其在稀疏向量中的权重。
+        这用于 BGE-M3 的稀疏向量生成，捕获精准实体匹配。
+
+        Returns:
+            str: 稀疏向量上下文
+
+        Examples:
+            >>> index = IndexLayer(
+            ...     title="Python parse_date 函数",
+            ...     summary="基于 datetime 库的日期解析工具",
+            ...     tags=["python", "datetime", "utils"],
+            ...     memory_type=MemoryType.CODE_SNIPPET
+            ... )
+            >>> index.get_sparse_context()
+            "Python parse_date 函数 Python parse_date 函数 python datetime utils python datetime utils 基于 datetime 库的日期解析工具"
+        """
+        tags_string = " ".join(self.tags)
+        return (
+            f"{self.title} {self.title} "
+            f"{tags_string} {tags_string} "
+            f"{self.summary}"
+        )
+
     class Config:
         json_schema_extra = {
             "example": {

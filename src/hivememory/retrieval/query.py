@@ -20,94 +20,9 @@ from hivememory.core.models import MemoryType
 from hivememory.generation.models import ConversationMessage
 from hivememory.retrieval.interfaces import QueryProcessor as QueryProcessorInterface
 
+from hivememory.retrieval.models import QueryFilters, ProcessedQuery
+
 logger = logging.getLogger(__name__)
-
-
-# ========== 数据模型 ==========
-
-@dataclass
-class QueryFilters:
-    """
-    结构化过滤条件
-    
-    用于混合检索时的元数据过滤
-    """
-    memory_type: Optional[MemoryType] = None
-    time_range: Optional[Tuple[datetime, datetime]] = None
-    tags: List[str] = field(default_factory=list)
-    source_agent_id: Optional[str] = None
-    user_id: Optional[str] = None
-    min_confidence: float = 0.0
-    visibility: Optional[str] = None
-    
-    def to_qdrant_filter(self) -> Dict[str, Any]:
-        """
-        转换为 Qdrant 过滤条件格式
-        
-        Returns:
-            字典格式的过滤条件
-        """
-        filters = {}
-        
-        if self.memory_type:
-            filters["index.memory_type"] = self.memory_type.value
-            
-        if self.user_id:
-            filters["meta.user_id"] = self.user_id
-            
-        if self.source_agent_id:
-            filters["meta.source_agent_id"] = self.source_agent_id
-            
-        if self.min_confidence > 0:
-            filters["meta.confidence_score"] = {"gte": self.min_confidence}
-            
-        if self.visibility:
-            filters["meta.visibility"] = self.visibility
-            
-        # 注意: 时间范围和标签需要特殊处理，这里暂不支持
-        # Qdrant 的时间过滤需要存储为数字时间戳
-        
-        return filters
-    
-    def is_empty(self) -> bool:
-        """检查过滤条件是否为空"""
-        return (
-            self.memory_type is None
-            and self.time_range is None
-            and len(self.tags) == 0
-            and self.source_agent_id is None
-            and self.user_id is None
-            and self.min_confidence == 0.0
-            and self.visibility is None
-        )
-
-
-@dataclass
-class ProcessedQuery:
-    """
-    处理后的结构化查询
-    
-    包含:
-    - 语义查询文本（用于向量检索）
-    - 提取的关键词
-    - 结构化过滤条件
-    """
-    semantic_query: str  # 用于向量检索的语义查询
-    original_query: str  # 原始查询
-    keywords: List[str] = field(default_factory=list)  # 提取的关键词
-    filters: QueryFilters = field(default_factory=QueryFilters)  # 过滤条件
-    rewritten: bool = False  # 是否经过改写
-    
-    def get_search_text(self) -> str:
-        """
-        获取用于检索的完整文本
-        
-        如果有关键词，将其附加到语义查询后面
-        """
-        if self.keywords:
-            return f"{self.semantic_query} {' '.join(self.keywords)}"
-        return self.semantic_query
-
 
 # ========== 时间表达式解析 ==========
 

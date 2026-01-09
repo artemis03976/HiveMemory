@@ -20,6 +20,7 @@ from enum import Enum
 
 from hivememory.core.models import MemoryAtom
 from hivememory.generation.models import ConversationMessage
+from hivememory.retrieval.models import ProcessedQuery, SearchResults, RenderFormat
 
 
 # ========== 接口定义 ==========
@@ -155,16 +156,30 @@ class MemorySearcher(ABC):
         pass
 
 
-class RenderFormat(str, Enum):
+class BaseReranker(ABC):
     """
-    渲染格式枚举
+    重排序器抽象接口
 
-    Attributes:
-        XML: XML 标签格式
-        MARKDOWN: Markdown 格式
+    用于在 RRF 融合后对结果进行精排。
     """
-    XML = "xml"
-    MARKDOWN = "markdown"
+
+    @abstractmethod
+    def rerank(
+        self,
+        results: SearchResults,
+        query: ProcessedQuery
+    ) -> SearchResults:
+        """
+        对检索结果进行重排序
+
+        Args:
+            results: RRF 融合后的检索结果
+            query: 原始查询
+
+        Returns:
+            重排序后的结果
+        """
+        pass
 
 
 class ContextRenderer(ABC):
@@ -276,29 +291,6 @@ class RetrievalEngine(ABC):
         """
         pass
 
-
-# ========== 异常定义 ==========
-
-class RetrievalError(Exception):
-    """检索异常基类"""
-    pass
-
-
-class QueryProcessingError(RetrievalError):
-    """查询处理失败异常"""
-    pass
-
-
-class SearchError(RetrievalError):
-    """检索失败异常"""
-    pass
-
-
-class RenderError(RetrievalError):
-    """渲染失败异常"""
-    pass
-
-
 # ========== 导出列表 ==========
 
 __all__ = [
@@ -308,13 +300,5 @@ __all__ = [
     "MemorySearcher",
     "ContextRenderer",
     "RetrievalEngine",
-
-    # 枚举
-    "RenderFormat",
-
-    # 异常
-    "RetrievalError",
-    "QueryProcessingError",
-    "SearchError",
-    "RenderError",
+    "BaseReranker",
 ]

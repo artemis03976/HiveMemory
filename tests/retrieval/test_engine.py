@@ -113,13 +113,16 @@ class TestRetrievalEngine:
 
     def test_search_memories_simple(self):
         """测试简化搜索接口"""
-        self.mock_searcher.search_by_text.return_value = self.search_results
+        # Mock processor return value
+        self.mock_processor.process.return_value = ProcessedQuery(semantic_query="test", original_query="test")
+        self.mock_searcher.search.return_value = self.search_results
         
         memories = self.engine.search_memories("test", "u1")
         
         assert len(memories) == 1
         assert memories[0].index.title == "M1"
-        self.mock_searcher.search_by_text.assert_called_once()
+        self.mock_processor.process.assert_called()
+        self.mock_searcher.search.assert_called_once()
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

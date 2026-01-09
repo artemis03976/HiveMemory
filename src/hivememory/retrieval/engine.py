@@ -21,10 +21,11 @@ import logging
 
 from hivememory.core.models import MemoryAtom
 from hivememory.generation.models import ConversationMessage
-from hivememory.retrieval.query import ProcessedQuery, QueryProcessor
+from hivememory.retrieval.models import ProcessedQuery, SearchResults, RenderFormat
+from hivememory.retrieval.query import QueryProcessor
 from hivememory.retrieval.router import SimpleRouter, RetrievalRouter
-from hivememory.retrieval.searcher import HybridSearcher, SearchResults
-from hivememory.retrieval.renderer import ContextRenderer, RenderFormat
+from hivememory.retrieval.searcher import HybridSearcher
+from hivememory.retrieval.renderer import ContextRenderer
 from hivememory.retrieval.interfaces import RetrievalEngine as RetrievalEngineInterface
 
 logger = logging.getLogger(__name__)
@@ -120,8 +121,8 @@ class RetrievalEngine(RetrievalEngineInterface):
         self.processor = processor or QueryProcessor()
         self.searcher = searcher or HybridSearcher(
             storage=storage,
-            default_top_k=default_top_k,
-            default_threshold=default_threshold
+            enable_parallel=True,
+            enable_hybrid_search=True,
         )
         self.renderer = renderer or ContextRenderer(
             render_format=render_format,
@@ -236,11 +237,24 @@ class RetrievalEngine(RetrievalEngineInterface):
         Returns:
             MemoryAtom 列表
         """
-        results = self.searcher.search_by_text(
-            query_text=query_text,
-            user_id=user_id,
-            top_k=top_k,
-            memory_type=memory_type
+        # 使用处理器处理查询
+        processed_query = self.processor.process(
+            query=query_text,
+            user_id=user_id
+        )
+        
+        # 如果有记忆类型，覆盖过滤条件
+        if memory_type:
+            try:
+                from hivememory.core.models import MemoryType
+                processed_query.filters.memory_type = MemoryType(memory_type)
+            except ValueError:
+                logger.warning(f"无效的记忆类型: {memory_type}")
+        
+        # 执行搜索
+        results = self.searcher.search(
+            query=processed_query,
+            top_k=top_k
         )
         return results.get_memories()
     
