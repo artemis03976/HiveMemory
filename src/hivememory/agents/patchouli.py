@@ -2,13 +2,10 @@
 Patchouli - Librarian Agent (图书管理员智能体)
 
 职责:
-    1. 监听对话流
-    2. 价值评估 (过滤无用信息)
-    3. 提取结构化记忆原子
-    4. 存储到向量数据库
-    5. 管理感知层（统一接口）
-    6. 记忆检索（Stage 2 - 待实现）
-    7. 生命周期管理（Stage 3 - 待实现）
+    1. 记忆感知
+    2. 记忆生成与写入记忆库
+    3. 记忆检索与上下文注入
+    4. 生命周期管理（Stage 3 - 待实现）
 
 架构:
     - SimplePerceptionLayer: 简单缓冲策略（三重触发）
@@ -32,7 +29,7 @@ from hivememory.generation.orchestrator import MemoryOrchestrator
 from hivememory.perception.interfaces import BasePerceptionLayer
 
 if TYPE_CHECKING:
-    from hivememory.core.config import PerceptionConfig
+    from hivememory.core.config import MemoryPerceptionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +68,13 @@ class PatchouliAgent:
         >>> from hivememory.memory.storage import QdrantMemoryStore
         >>> storage = QdrantMemoryStore()
         >>>
-        >>> # 使用简单感知层
+        >>> # 使用默认配置（语义流感知层）
         >>> patchouli = PatchouliAgent(storage=storage)
         >>>
-        >>> # 使用语义流感知层（默认）
-        >>> patchouli = PatchouliAgent(storage=storage, enable_semantic_flow=True)
+        >>> # 使用简单感知层
+        >>> from hivememory.core.config import MemoryPerceptionConfig
+        >>> config = MemoryPerceptionConfig(layer_type="simple")
+        >>> patchouli = PatchouliAgent(storage=storage, perception_config=config)
         >>>
         >>> # 添加消息
         >>> patchouli.add_message("user", "帮我写贪吃蛇游戏", "user123", "agent1")
@@ -85,38 +84,32 @@ class PatchouliAgent:
     def __init__(
         self,
         storage: Optional[QdrantMemoryStore] = None,
-        enable_semantic_flow: bool = True,
-        perception_config: Optional["PerceptionConfig"] = None,
+        perception_config: Optional["MemoryPerceptionConfig"] = None,
     ):
         """
         初始化 Patchouli Agent
 
         Args:
             storage: Qdrant 存储实例（可选，自动创建）
-            enable_semantic_flow: 是否使用语义流感知层（默认 True）
-            perception_config: 感知层配置（可选，用于自定义阈值等参数）
+            perception_config: 感知层配置（可选，使用默认配置）
 
         Examples:
-            >>> # 使用简单感知层
+            >>> # 使用默认配置（语义流感知层）
             >>> patchouli = PatchouliAgent()
             >>>
-            >>> # 使用语义流感知层（默认）
-            >>> patchouli = PatchouliAgent(enable_semantic_flow=True)
+            >>> # 使用简单感知层
+            >>> from hivememory.core.config import MemoryPerceptionConfig
+            >>> config = MemoryPerceptionConfig(layer_type="simple")
+            >>> patchouli = PatchouliAgent(perception_config=config)
             >>>
-            >>> # 使用自定义配置
-            >>> from hivememory.core.config import PerceptionConfig
-            >>> config = PerceptionConfig(max_processing_tokens=2048)
+            >>> # 使用自定义语义阈值
+            >>> config = MemoryPerceptionConfig()
+            >>> config.semantic_flow.semantic_threshold = 0.8
             >>> patchouli = PatchouliAgent(perception_config=config)
         """
         self.storage = storage or QdrantMemoryStore()
-
-        # 感知层配置
-        self.enable_semantic_flow = enable_semantic_flow
         self.perception_config = perception_config
         self.perception_layer: Optional[BasePerceptionLayer] = None
-
-        # Flush 事件观察者列表
-        self._flush_observers: List[FlushObserver] = []
 
         # 初始化感知层
         self._init_perception_layer()
@@ -124,47 +117,38 @@ class PatchouliAgent:
         # 初始化记忆生成编排器（Stage 1: 记忆生成核心逻辑）
         self.orchestrator = MemoryOrchestrator(storage=self.storage)
 
-        logger.info(
-            f"Patchouli Agent 初始化完成 "
-            f"(perception_layer_mode={'semantic_flow' if enable_semantic_flow else 'simple'})"
-        )
-    
+        # Flush 事件观察者列表
+        self._flush_observers: List[FlushObserver] = []
+
+        # 记录实际使用的感知层类型
+        layer_type = getattr(self.perception_config, "layer_type", "semantic_flow") if self.perception_config else "semantic_flow"
+        logger.info(f"Patchouli Agent 初始化完成 (perception_layer_type={layer_type})")
+
     def _init_perception_layer(self) -> None:
         """
         初始化感知层
 
-        架构模式:
-            - SimplePerceptionLayer: 简单缓冲策略（三重触发）
-            - SemanticFlowPerceptionLayer: 语义流策略（统一语义流）
+        使用统一的工厂函数创建感知层，根据配置的 layer_type 自动选择：
+        - "semantic_flow": SemanticFlowPerceptionLayer（语义流策略）
+        - "simple": SimplePerceptionLayer（简单触发策略）
 
+        工厂函数会从 config.yaml 加载默认配置，或使用传入的自定义配置。
         """
         try:
-            if self.enable_semantic_flow:
-                from hivememory.perception import (
-                    SemanticFlowPerceptionLayer,
-                    create_default_perception_layer,
-                )
+            from hivememory.perception import create_default_perception_layer
 
-                if self.perception_config:
-                    # 使用自定义配置创建感知层
-                    self.perception_layer = create_default_perception_layer(
-                        on_flush_callback=self._on_perception_flush,
-                        config=self.perception_config,
-                    )
-                    logger.debug("语义流感知层已初始化（自定义配置）")
-                else:
-                    self.perception_layer = SemanticFlowPerceptionLayer(
-                        on_flush_callback=self._on_perception_flush
-                    )
-                    logger.debug("语义流感知层已初始化")
+            # 使用工厂函数创建感知层
+            # 如果未提供配置，工厂函数会从 config.yaml 加载默认配置
+            self.perception_layer = create_default_perception_layer(
+                on_flush_callback=self._on_perception_flush,
+                config=self.perception_config,
+            )
 
+            if self.perception_layer:
+                layer_name = type(self.perception_layer).__name__
+                logger.debug(f"{layer_name} 已初始化")
             else:
-                from hivememory.perception import SimplePerceptionLayer
-
-                self.perception_layer = SimplePerceptionLayer(
-                    on_flush_callback=self._on_perception_flush
-                )
-                logger.debug("简单感知层已初始化")
+                logger.warning("感知层未启用 (config.enable=False)")
 
         except ImportError as e:
             logger.error(f"无法导入感知层: {e}")
@@ -416,29 +400,29 @@ class PatchouliAgent:
 # 便捷函数
 def create_patchouli_agent(
     storage: Optional[QdrantMemoryStore] = None,
-    enable_semantic_flow: bool = True,
+    layer_type: str = "semantic_flow",
 ) -> PatchouliAgent:
     """
     创建 Patchouli Agent 实例
 
     Args:
         storage: Qdrant 存储实例（可选）
-        enable_semantic_flow: 是否使用语义流感知层（默认 True）
+        layer_type: 感知层类型，"semantic_flow" 或 "simple"（默认 "semantic_flow"）
 
     Returns:
         PatchouliAgent: Agent 实例
 
     Examples:
-        >>> # 使用简单感知层（默认）
+        >>> # 使用语义流感知层（默认）
         >>> patchouli = create_patchouli_agent()
         >>>
-        >>> # 使用语义流感知层
-        >>> patchouli = create_patchouli_agent(enable_semantic_flow=True)
+        >>> # 使用简单感知层
+        >>> patchouli = create_patchouli_agent(layer_type="simple")
     """
-    return PatchouliAgent(
-        storage=storage,
-        enable_semantic_flow=enable_semantic_flow,
-    )
+    from hivememory.core.config import MemoryPerceptionConfig
+
+    config = MemoryPerceptionConfig(layer_type=layer_type)
+    return PatchouliAgent(storage=storage, perception_config=config)
 
 
 __all__ = [

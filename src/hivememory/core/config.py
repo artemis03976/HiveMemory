@@ -16,6 +16,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
+# ========== 基础设施服务配置 ==========
+
 class LLMConfig(BaseSettings):
     """LLM 模型配置"""
     provider: str = "litellm"
@@ -65,39 +67,41 @@ class RedisConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="allow")
 
 
-class BufferConfig(BaseSettings):
-    """对话缓冲配置"""
-    max_messages: int = Field(default=5, gt=0, description="最大消息数")
-    timeout_seconds: int = Field(default=900, gt=0, description="超时时间(秒)")
+# ========== 感知层配置 ==========
+
+class SimplePerceptionConfig(BaseSettings):
+    """SimplePerceptionLayer 配置
+
+    简单感知层使用三重触发机制：
+    - 消息数阈值触发
+    - 空闲超时触发
+    - 语义边界触发（可选）
+    """
+    message_threshold: int = Field(default=6, gt=0, description="消息数触发阈值")
+    timeout_seconds: int = Field(default=900, gt=0, description="超时触发时间（秒）")
+    enable_semantic_trigger: bool = Field(default=True, description="是否启用语义边界触发")
 
     model_config = SettingsConfigDict(extra="allow")
 
 
-class PerceptionConfig(BaseSettings):
-    """
-    感知层配置
+class SemanticFlowPerceptionConfig(BaseSettings):
+    """SemanticFlowPerceptionLayer 配置
 
-    用于感知层架构的配置管理。
-    参考: PROJECT.md 2.3.1 节
+    语义流感知层使用统一语义流架构：
+    - 语义吸附判定
+    - Token 溢出检测与接力
+    - 异步空闲超时监控
     """
-    # 启用开关
-    enable: bool = Field(
-        default=False,
-        description="是否启用感知层（False 时使用原有触发机制）"
+    # 空闲监控配置
+    idle_timeout_seconds: int = Field(
+        default=900,
+        gt=0,
+        description="空闲超时时间（秒），默认 15 分钟"
     )
-
-    # Embedding 配置
-    embedding_model: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
-        description="Embedding 模型名称（HuggingFace 模型 ID）"
-    )
-    embedding_device: str = Field(
-        default="cpu",
-        description="运行设备：cpu 或 cuda"
-    )
-    embedding_cache_dir: Optional[str] = Field(
-        default=None,
-        description="模型缓存目录（默认使用系统缓存）"
+    scan_interval_seconds: int = Field(
+        default=30,
+        gt=0,
+        description="空闲监控扫描间隔（秒）"
     )
 
     # 语义吸附配置
@@ -112,27 +116,6 @@ class PerceptionConfig(BaseSettings):
         gt=0,
         description="短文本强吸附阈值（tokens），少于此值强制吸附"
     )
-
-    # Token 限制
-    max_processing_tokens: int = Field(
-        default=8192,
-        gt=0,
-        description="单次处理的最大 Token 数"
-    )
-    max_buffer_tokens: int = Field(
-        default=16384,
-        gt=0,
-        description="Buffer 的最大 Token 数"
-    )
-
-    # 超时配置
-    idle_timeout_seconds: int = Field(
-        default=900,
-        gt=0,
-        description="空闲超时时间（秒），默认 15 分钟"
-    )
-
-    # EMA 配置
     ema_alpha: float = Field(
         default=0.3,
         gt=0.0,
@@ -140,61 +123,118 @@ class PerceptionConfig(BaseSettings):
         description="指数移动平均系数，用于更新话题核心向量"
     )
 
+    # Token 限制
+    max_processing_tokens: int = Field(
+        default=8192,
+        gt=0,
+        description="单次处理的最大 Token 数"
+    )
+
+    # 高级配置
+    enable_smart_summary: bool = Field(
+        default=False,
+        description="是否启用智能摘要（使用 LLM 生成接力摘要）"
+    )
+
+    # Embedding 配置（可选，覆盖全局 EmbeddingConfig）
+    embedding_model: Optional[str] = Field(
+        default=None,
+        description="Embedding 模型（None 则复用全局配置）"
+    )
+    embedding_device: Optional[str] = Field(
+        default=None,
+        description="运行设备：cpu 或 cuda（None 则复用全局配置）"
+    )
+    embedding_cache_dir: Optional[str] = Field(
+        default=None,
+        description="模型缓存目录（None 则复用全局配置）"
+    )
+    embedding_batch_size: Optional[int] = Field(
+        default=None,
+        description="批处理大小（None 则复用全局配置）"
+    )
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class MemoryPerceptionConfig(BaseSettings):
+    """
+    感知层统一入口配置
+
+    根据 layer_type 选择对应的感知层配置：
+    - "semantic_flow": 使用 semantic_flow 子配置
+    - "simple": 使用 simple 子配置
+
+    参考: PROJECT.md 2.3.1 节
+    """
+    # 感知层类型选择
+    layer_type: str = Field(
+        default="semantic_flow",
+        description="感知层类型: semantic_flow 或 simple"
+    )
+
+    # 启用开关
+    enable: bool = Field(
+        default=True,
+        description="是否启用感知层"
+    )
+
+    # 子配置（根据 layer_type 选择使用哪一个）
+    semantic_flow: SemanticFlowPerceptionConfig = Field(
+        default_factory=SemanticFlowPerceptionConfig,
+        description="语义流感知层配置"
+    )
+    simple: SimplePerceptionConfig = Field(
+        default_factory=SimplePerceptionConfig,
+        description="简单感知层配置"
+    )
+
     model_config = SettingsConfigDict(extra="allow")
 
     @classmethod
-    def from_env(cls) -> "PerceptionConfig":
+    def from_env(cls) -> "MemoryPerceptionConfig":
         """从环境变量加载感知层配置"""
         config = cls()
 
         env_mapping = {
-            "HIVEMEMORY_PERCEPTION_ENABLE": ("enable", lambda x: x.lower() in ("true", "1", "yes")),
-            "HIVEMEMORY_PERCEPTION_SEMANTIC_THRESHOLD": ("semantic_threshold", float),
-            "HIVEMEMORY_PERCEPTION_SHORT_TEXT_THRESHOLD": ("short_text_threshold", int),
-            "HIVEMEMORY_PERCEPTION_MAX_TOKENS": ("max_processing_tokens", int),
-            "HIVEMEMORY_PERCEPTION_IDLE_TIMEOUT": ("idle_timeout_seconds", int),
-            "HIVEMEMORY_PERCEPTION_EMA_ALPHA": ("ema_alpha", float),
+            # 感知层类型
+            "PERCEPTION_LAYER_TYPE": ("layer_type", str),
+            # SemanticFlowPerceptionLayer 配置
+            "PERCEPTION_IDLE_TIMEOUT": ("semantic_flow__idle_timeout_seconds", int),
+            "PERCEPTION_SCAN_INTERVAL": ("semantic_flow__scan_interval_seconds", int),
+            "PERCEPTION_SEMANTIC_THRESHOLD": ("semantic_flow__semantic_threshold", float),
+            "PERCEPTION_SHORT_TEXT_THRESHOLD": ("semantic_flow__short_text_threshold", int),
+            "PERCEPTION_EMA_ALPHA": ("semantic_flow__ema_alpha", float),
+            "PERCEPTION_MAX_TOKENS": ("semantic_flow__max_processing_tokens", int),
+            "PERCEPTION_ENABLE_SMART_SUMMARY": ("semantic_flow__enable_smart_summary", lambda x: x.lower() in ("true", "1", "yes")),
+            "PERCEPTION_EMBEDDING_MODEL": ("semantic_flow__embedding_model", str),
+            "PERCEPTION_EMBEDDING_DEVICE": ("semantic_flow__embedding_device", str),
+            "PERCEPTION_EMBEDDING_CACHE_DIR": ("semantic_flow__embedding_cache_dir", str),
+            # SimplePerceptionLayer 配置
+            "PERCEPTION_SIMPLE_MESSAGE_THRESHOLD": ("simple__message_threshold", int),
+            "PERCEPTION_SIMPLE_TIMEOUT": ("simple__timeout_seconds", int),
+            "PERCEPTION_SIMPLE_SEMANTIC_TRIGGER": ("simple__enable_semantic_trigger", lambda x: x.lower() in ("true", "1", "yes")),
         }
 
         for env_key, (field_name, converter) in env_mapping.items():
             if env_key in os.environ:
                 try:
-                    setattr(config, field_name, converter(os.environ[env_key]))
+                    value = converter(os.environ[env_key])
+                    # 处理嵌套配置 sub_config__field
+                    if "__" in field_name:
+                        sub_field, attr_name = field_name.split("__", 1)
+                        if hasattr(config, sub_field):
+                            sub_config = getattr(config, sub_field)
+                            setattr(sub_config, attr_name, value)
+                    else:
+                        setattr(config, field_name, value)
                 except (ValueError, TypeError):
                     pass
 
         return config
 
 
-class LifecycleConfig(BaseSettings):
-    """记忆生命周期配置"""
-    # 基础阈值
-    high_watermark: float = Field(default=80.0, ge=0.0, le=100.0, description="高水位阈值")
-    low_watermark: float = Field(default=20.0, ge=0.0, le=100.0, description="低水位阈值")
-    decay_lambda: float = Field(default=0.01, gt=0.0, description="时间衰减系数")
-
-    # 归档配置
-    archive_dir: str = Field(default="data/archived", description="归档存储目录")
-    archive_compression: bool = Field(default=True, description="是否压缩归档文件")
-
-    # 垃圾回收配置
-    gc_batch_size: int = Field(default=10, gt=0, description="每次GC最多归档数量")
-    gc_interval_hours: int = Field(default=24, gt=0, description="GC执行间隔(小时)")
-    gc_enable_schedule: bool = Field(default=False, description="是否启用定时GC")
-
-    # 事件历史配置
-    enable_event_history: bool = Field(default=True, description="是否记录事件历史")
-    event_history_limit: int = Field(default=10000, gt=0, description="事件历史最大条数")
-
-    # 生命力加成配置
-    hit_boost: float = Field(default=5.0, description="HIT事件生命力加成")
-    citation_boost: float = Field(default=20.0, description="CITATION事件生命力加成")
-    positive_feedback_boost: float = Field(default=50.0, description="正面反馈生命力加成")
-    negative_feedback_penalty: float = Field(default=-50.0, description="负面反馈生命力惩罚")
-    negative_confidence_multiplier: float = Field(default=0.5, ge=0.0, le=1.0, description="负面反馈置信度衰减系数")
-
-    model_config = SettingsConfigDict(extra="allow")
-
+# ========== 记忆生成配置 ==========
 
 class ExtractionConfig(BaseSettings):
     """记忆提取配置"""
@@ -204,15 +244,7 @@ class ExtractionConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="allow")
 
 
-class MemoryConfig(BaseSettings):
-    """记忆管理总配置"""
-    buffer: BufferConfig = Field(default_factory=BufferConfig)
-    perception: PerceptionConfig = Field(default_factory=PerceptionConfig)
-    lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
-    extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
-
-    model_config = SettingsConfigDict(extra="allow")
-
+# ========== 记忆检索配置 ==========
 
 class RetrievalConfig(BaseSettings):
     """检索配置"""
@@ -224,8 +256,6 @@ class RetrievalConfig(BaseSettings):
 
     model_config = SettingsConfigDict(extra="allow")
 
-
-# ========== 混合检索配置 ==========
 
 class DenseRetrieverConfig(BaseSettings):
     """稠密检索配置"""
@@ -285,15 +315,50 @@ class HybridSearchConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="allow")
 
 
-class APIConfig(BaseSettings):
-    """API 服务配置"""
-    host: str = Field(default="0.0.0.0")
-    port: int = Field(default=8000, gt=0, lt=65536)
-    reload: bool = Field(default=True)
-    workers: int = Field(default=1, gt=0)
+# ========== 记忆生命周期配置 ==========
+
+class LifecycleConfig(BaseSettings):
+    """记忆生命周期配置"""
+    # 基础阈值
+    high_watermark: float = Field(default=80.0, ge=0.0, le=100.0, description="高水位阈值")
+    low_watermark: float = Field(default=20.0, ge=0.0, le=100.0, description="低水位阈值")
+    decay_lambda: float = Field(default=0.01, gt=0.0, description="时间衰减系数")
+
+    # 归档配置
+    archive_dir: str = Field(default="data/archived", description="归档存储目录")
+    archive_compression: bool = Field(default=True, description="是否压缩归档文件")
+
+    # 垃圾回收配置
+    gc_batch_size: int = Field(default=10, gt=0, description="每次GC最多归档数量")
+    gc_interval_hours: int = Field(default=24, gt=0, description="GC执行间隔(小时)")
+    gc_enable_schedule: bool = Field(default=False, description="是否启用定时GC")
+
+    # 事件历史配置
+    enable_event_history: bool = Field(default=True, description="是否记录事件历史")
+    event_history_limit: int = Field(default=10000, gt=0, description="事件历史最大条数")
+
+    # 生命力加成配置
+    hit_boost: float = Field(default=5.0, description="HIT事件生命力加成")
+    citation_boost: float = Field(default=20.0, description="CITATION事件生命力加成")
+    positive_feedback_boost: float = Field(default=50.0, description="正面反馈生命力加成")
+    negative_feedback_penalty: float = Field(default=-50.0, description="负面反馈生命力惩罚")
+    negative_confidence_multiplier: float = Field(default=0.5, ge=0.0, le=1.0, description="负面反馈置信度衰减系数")
 
     model_config = SettingsConfigDict(extra="allow")
 
+
+# ========== 记忆总配置配置 ==========
+
+class MemoryConfig(BaseSettings):
+    """记忆管理总配置"""
+    perception: MemoryPerceptionConfig = Field(default_factory=MemoryPerceptionConfig)
+    lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
+    extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+# ========== 工具类配置 ==========
 
 class LoggingConfig(BaseSettings):
     """日志配置"""
@@ -314,6 +379,8 @@ class SystemConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="allow")
 
 
+# ========== 主配置类 ==========
+
 class HiveMemoryConfig(BaseSettings):
     """
     HiveMemory 主配置类
@@ -324,14 +391,17 @@ class HiveMemoryConfig(BaseSettings):
     3. 默认值
     """
     system: SystemConfig = Field(default_factory=SystemConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+
+    # 外部服务
     llm: Dict[str, LLMConfig] = Field(default_factory=dict)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
+
+    perception: MemoryPerceptionConfig = Field(default_factory=MemoryPerceptionConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
-    api: APIConfig = Field(default_factory=APIConfig)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -453,22 +523,25 @@ def get_librarian_llm_config() -> LLMConfig:
 # 便于外部导入
 __all__ = [
     "HiveMemoryConfig",
+    # 外部服务
     "LLMConfig",
     "EmbeddingConfig",
     "QdrantConfig",
     "RedisConfig",
-    "BufferConfig",
-    "PerceptionConfig",
+    # 感知层配置
+    "SimplePerceptionConfig",
+    "SemanticFlowPerceptionConfig",
+    "MemoryPerceptionConfig", 
     "MemoryConfig",
+    # 记忆检索配置
     "RetrievalConfig",
-    "APIConfig",
-    "LoggingConfig",
-    # 混合检索配置
-    "DenseRetrievalConfig",
-    "SparseRetrievalConfig",
+    "DenseRetrieverConfig",
+    "SparseRetrieverConfig",
     "FusionConfig",
     "RerankerConfig",
     "HybridSearchConfig",
+    # 工具类配置
+    "LoggingConfig",
     # 便捷函数
     "get_config",
     "get_worker_llm_config",

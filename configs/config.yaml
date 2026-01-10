@@ -50,10 +50,6 @@ redis:
   db: 0
   decode_responses: true
 
-# SQLite 配置
-sqlite:
-  db_path: "${SQLITE_DB_PATH}"
-
 # 记忆管理配置
 memory:
   buffer:
@@ -76,12 +72,40 @@ retrieval:
   rerank_model: null  # 暂不启用reranker
   enable_hybrid_search: true
 
-# API 服务配置
-api:
-  host: "${API_HOST}"
-  port: 8000
-  reload: true
-  workers: 1
+# 感知层配置
+perception:
+  # 感知层类型选择
+  layer_type: "semantic_flow"  # 可选: semantic_flow, simple
+  enable: true  # 是否启用感知层
+
+  # SemanticFlowPerceptionLayer 配置
+  semantic_flow:
+    # 空闲监控
+    idle_timeout_seconds: 900  # 15分钟
+    scan_interval_seconds: 30   # 扫描间隔
+
+    # 语义吸附
+    semantic_threshold: 0.6     # 语义相似度阈值
+    short_text_threshold: 50    # 短文本强吸附阈值
+    ema_alpha: 0.3              # EMA 系数
+
+    # Token 限制
+    max_processing_tokens: 8192
+
+    # 高级配置
+    enable_smart_summary: false  # 智能摘要（预留）
+
+    # Embedding 配置（可选，覆盖全局配置）
+    # embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+    # embedding_device: "cpu"
+    # embedding_cache_dir: null
+    # embedding_batch_size: 32
+
+  # SimplePerceptionLayer 配置
+  simple:
+    message_threshold: 6
+    timeout_seconds: 900
+    enable_semantic_trigger: true
 
 # 日志配置
 logging:

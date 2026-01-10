@@ -53,10 +53,18 @@ from hivememory.perception.simple_perception_layer import (
 from hivememory.perception.trigger_strategies import (
     TriggerManager,
     create_default_trigger_manager,
+    MessageCountTrigger,
+    IdleTimeoutTrigger,
+    SemanticBoundaryTrigger,
 )
-from hivememory.core.config import PerceptionConfig
+from hivememory.core.config import MemoryPerceptionConfig
+from typing import Optional, Union
+import logging
 
-def create_default_perception_config(**kwargs) -> PerceptionConfig:
+logger = logging.getLogger(__name__)
+
+
+def create_default_perception_config(**kwargs) -> MemoryPerceptionConfig:
     """
     创建默认配置的感知层配置对象
     
@@ -64,9 +72,9 @@ def create_default_perception_config(**kwargs) -> PerceptionConfig:
         **kwargs: 覆盖默认配置的参数
         
     Returns:
-        PerceptionConfig: 配置对象
+        MemoryPerceptionConfig: 配置对象
     """
-    config = PerceptionConfig.from_env()
+    config = MemoryPerceptionConfig.from_env()
     
     # 应用覆盖
     for key, value in kwargs.items():
@@ -107,22 +115,29 @@ __all__ = [
     "SemanticBoundaryAdsorber",
     "TokenOverflowRelayController",
     # 配置
-    "PerceptionConfig",
+    "MemoryPerceptionConfig",
     "create_default_perception_config",
     "create_default_perception_layer",
 ]
 
 
-def create_default_perception_layer(on_flush_callback=None, config=None):
+def create_default_perception_layer(
+    config: Optional[MemoryPerceptionConfig] = None,
+    on_flush_callback=None,
+) -> Union[SemanticFlowPerceptionLayer, SimplePerceptionLayer]:
     """
-    创建默认配置的语义流感知层实例
+    创建默认配置的感知层实例
+
+    根据 config.layer_type 自动选择：
+    - "semantic_flow": SemanticFlowPerceptionLayer（默认）
+    - "simple": SimplePerceptionLayer
 
     Args:
         on_flush_callback: Flush 回调函数
-        config: 感知层配置（可选，使用默认配置）
+        config: 感知层配置（MemoryPerceptionConfig，可选，使用默认配置）
 
     Returns:
-        SemanticFlowPerceptionLayer: 语义流感知层实例
+        SemanticFlowPerceptionLayer 或 SimplePerceptionLayer 实例
 
     Examples:
         >>> from hivememory.perception import create_default_perception_layer
@@ -133,19 +148,59 @@ def create_default_perception_layer(on_flush_callback=None, config=None):
     if config is None:
         config = create_default_perception_config()
 
-    parser = UnifiedStreamParser()
-    adsorber = SemanticBoundaryAdsorber(
-        semantic_threshold=config.semantic_threshold,
-        short_text_threshold=config.short_text_threshold,
-    )
-    relay_controller = TokenOverflowRelayController(
-        max_processing_tokens=config.max_processing_tokens,
-    )
+    if not config.enable:
+        logger.warning("感知层未启用 (config.enable=False)")
+        return None
 
-    return SemanticFlowPerceptionLayer(
-        parser=parser,
-        adsorber=adsorber,
-        relay_controller=relay_controller,
-        on_flush_callback=on_flush_callback,
-        idle_timeout_seconds=config.idle_timeout_seconds,
-    )
+    if config.layer_type == "simple":
+        # 创建 SimplePerceptionLayer
+        logger.info("创建 SimplePerceptionLayer")
+
+        # 读取 simple 子配置
+        simple_config = config.simple
+
+        # 创建可配置的 TriggerManager
+        strategies = [
+            MessageCountTrigger(threshold=simple_config.message_threshold),
+            IdleTimeoutTrigger(timeout=simple_config.timeout_seconds),
+        ]
+        if simple_config.enable_semantic_trigger:
+            strategies.append(SemanticBoundaryTrigger())
+
+        trigger_manager = TriggerManager(strategies=strategies)
+
+        return SimplePerceptionLayer(
+            trigger_manager=trigger_manager,
+            on_flush_callback=on_flush_callback,
+        )
+
+    else:  # semantic_flow
+        # 创建 SemanticFlowPerceptionLayer
+        logger.info("创建 SemanticFlowPerceptionLayer")
+
+        # 读取 semantic_flow 子配置
+        sf_config = config.semantic_flow
+
+        # SemanticBoundaryAdsorber 的 embedding 模型参数
+        embedding_model = sf_config.embedding_model or "sentence-transformers/all-MiniLM-L6-v2"
+
+        parser = UnifiedStreamParser()
+        adsorber = SemanticBoundaryAdsorber(
+            semantic_threshold=sf_config.semantic_threshold,
+            short_text_threshold=sf_config.short_text_threshold,
+            embedding_model=embedding_model,
+            ema_alpha=sf_config.ema_alpha,
+        )
+        relay_controller = TokenOverflowRelayController(
+            max_processing_tokens=sf_config.max_processing_tokens,
+            enable_smart_summary=sf_config.enable_smart_summary,
+        )
+
+        return SemanticFlowPerceptionLayer(
+            parser=parser,
+            adsorber=adsorber,
+            relay_controller=relay_controller,
+            on_flush_callback=on_flush_callback,
+            idle_timeout_seconds=sf_config.idle_timeout_seconds,
+            scan_interval_seconds=sf_config.scan_interval_seconds,
+        )
