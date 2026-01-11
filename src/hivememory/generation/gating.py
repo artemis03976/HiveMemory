@@ -14,7 +14,7 @@ HiveMemory - 价值评估器 (Value Gater)
 """
 
 import logging
-from typing import List, Set
+from typing import List, Set, Optional
 import re
 
 from hivememory.generation.models import ConversationMessage
@@ -342,14 +342,65 @@ class HybridGater(ValueGater):
 
 
 # 便捷函数
-def create_default_gater() -> ValueGater:
+def create_default_gater(
+    config: Optional["GaterConfig"] = None,
+) -> ValueGater:
     """
-    创建默认评估器
+    创建默认评估器（支持配置）
+
+    Args:
+        config: 评估器配置（可选，使用默认配置）
 
     Returns:
         ValueGater: 规则引擎实例
+
+    Examples:
+        >>> # 使用默认配置
+        >>> gater = create_default_gater()
+        >>>
+        >>> # 使用自定义配置
+        >>> from hivememory.core.config import GaterConfig
+        >>> config = GaterConfig(min_total_length=30)
+        >>> gater = create_default_gater(config)
     """
-    return RuleBasedGater()
+    if config is None:
+        from hivememory.core.config import MemoryConfig
+        memory_config = MemoryConfig()
+        config = memory_config.extraction.gater
+
+    gater_type = config.gater_type
+
+    if gater_type == "llm":
+        # LLM 辅助评估器
+        return LLMAssistedGater(llm_config=config.llm_config)
+
+    elif gater_type == "hybrid":
+        # 混合评估器
+        rule_gater = RuleBasedGater(
+            min_total_length=config.min_total_length,
+            min_substantive_length=config.min_substantive_length,
+        )
+        # 支持自定义黑白名单
+        if config.trivial_patterns:
+            rule_gater.TRIVIAL_PATTERNS = set(config.trivial_patterns)
+        if config.valuable_patterns:
+            rule_gater.VALUABLE_PATTERNS = set(config.valuable_patterns)
+
+        llm_gater = LLMAssistedGater(llm_config=config.llm_config)
+        return HybridGater(rule_gater=rule_gater, llm_gater=llm_gater)
+
+    else:  # rule (默认)
+        # 规则引擎评估器
+        gater = RuleBasedGater(
+            min_total_length=config.min_total_length,
+            min_substantive_length=config.min_substantive_length,
+        )
+        # 支持自定义黑白名单
+        if config.trivial_patterns:
+            gater.TRIVIAL_PATTERNS = set(config.trivial_patterns)
+        if config.valuable_patterns:
+            gater.VALUABLE_PATTERNS = set(config.valuable_patterns)
+        return gater
 
 
 __all__ = [

@@ -9,7 +9,7 @@ HiveMemory 配置管理系统
 
 import os
 from pathlib import Path
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -236,23 +236,164 @@ class MemoryPerceptionConfig(BaseSettings):
 
 # ========== 记忆生成配置 ==========
 
-class ExtractionConfig(BaseSettings):
-    """记忆提取配置"""
-    min_confidence: float = Field(default=0.4, ge=0.0, le=1.0)
-    max_tags: int = Field(default=5, gt=0)
+class ExtractorConfig(BaseSettings):
+    """LLMMemoryExtractor 配置"""
+    # LLM 配置（可选，覆盖全局 Librarian LLM 配置）
+    llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 配置（None 则复用全局）")
+
+    # 提示词配置（可选）
+    system_prompt: Optional[str] = Field(default=None, description="自定义系统提示词")
+    user_prompt: Optional[str] = Field(default=None, description="自定义用户提示词")
+
+    # 重试策略
+    max_retries: int = Field(default=2, gt=0, le=5, description="最大重试次数")
+
+    # 温度和 Token（覆盖 LLM 配置时使用）
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0, description="LLM 温度参数（None 则使用全局）")
+    max_tokens: Optional[int] = Field(default=None, gt=0, description="LLM 最大 Token 数（None 则使用全局）")
 
     model_config = SettingsConfigDict(extra="allow")
 
 
+class GaterConfig(BaseSettings):
+    """价值评估器配置"""
+    # 评估器类型选择
+    gater_type: str = Field(default="rule", description="评估器类型: rule/llm/hybrid")
+
+    # RuleBasedGater 配置
+    min_total_length: int = Field(default=20, gt=0, description="对话总长度最小值（字符数）")
+    min_substantive_length: int = Field(default=10, gt=0, description="实质内容最小长度")
+
+    # 自定义黑白名单（可选）
+    trivial_patterns: List[str] = Field(default_factory=list, description="黑名单关键词（覆盖默认）")
+    valuable_patterns: List[str] = Field(default_factory=list, description="白名单关键词（补充默认）")
+
+    # LLMAssistedGater 配置（预留）
+    llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 评估器配置")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class DeduplicatorConfig(BaseSettings):
+    """查重器配置"""
+    high_similarity_threshold: float = Field(default=0.95, ge=0.0, le=1.0, description="高相似度阈值（TOUCH/UPDATE 分界）")
+    low_similarity_threshold: float = Field(default=0.75, ge=0.0, le=1.0, description="低相似度阈值（UPDATE/CREATE 分界）")
+    content_similarity_threshold: float = Field(default=0.9, ge=0.0, le=1.0, description="内容相似度阈值")
+    enable_vitality_tracking: bool = Field(default=True, description="是否启用生命周期追踪")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class MemoryGenerationConfig(BaseSettings):
+    """记忆提取统一配置（Generation 模块）
+
+    包含三个子模块的配置：
+    - extractor: LLM 记忆提取器
+    - gater: 价值评估器
+    - deduplicator: 查重器
+    """
+    # 子配置
+    extractor: ExtractorConfig = Field(default_factory=ExtractorConfig, description="LLM 提取器配置")
+    gater: GaterConfig = Field(default_factory=GaterConfig, description="价值评估器配置")
+    deduplicator: DeduplicatorConfig = Field(default_factory=DeduplicatorConfig, description="查重器配置")
+
+    # 兼容性：保留旧字段（已废弃，未使用）
+    min_confidence: float = Field(default=0.4, ge=0.0, le=1.0, description="最低置信度阈值（废弃，未使用）")
+    max_tags: int = Field(default=5, gt=0, description="最多标签数（废弃，未使用）")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+    @classmethod
+    def from_env(cls) -> "MemoryGenerationConfig":
+        """从环境变量加载配置"""
+        config = cls()
+
+        env_mapping = {
+            # Extractor 配置
+            "GENERATION_EXTRACTION_MAX_RETRIES": ("extractor__max_retries", int),
+            "GENERATION_EXTRACTION_TEMPERATURE": ("extractor__temperature", float),
+            "GENERATION_EXTRACTION_MAX_TOKENS": ("extractor__max_tokens", int),
+            # Gater 配置
+            "GENERATION_GATER_TYPE": ("gater__gater_type", str),
+            "GENERATION_GATER_MIN_TOTAL_LENGTH": ("gater__min_total_length", int),
+            "GENERATION_GATER_MIN_SUBSTANTIVE_LENGTH": ("gater__min_substantive_length", int),
+            # Deduplicator 配置
+            "GENERATION_DEDUPLICATOR_HIGH_THRESHOLD": ("deduplicator__high_similarity_threshold", float),
+            "GENERATION_DEDUPLICATOR_LOW_THRESHOLD": ("deduplicator__low_similarity_threshold", float),
+            "GENERATION_DEDUPLICATOR_CONTENT_THRESHOLD": ("deduplicator__content_similarity_threshold", float),
+        }
+
+        for env_key, (field_name, converter) in env_mapping.items():
+            if env_key in os.environ:
+                try:
+                    value = converter(os.environ[env_key])
+                    if "__" in field_name:
+                        sub_field, attr_name = field_name.split("__", 1)
+                        if hasattr(config, sub_field):
+                            sub_config = getattr(config, sub_field)
+                            setattr(sub_config, attr_name, value)
+                    else:
+                        setattr(config, field_name, value)
+                except (ValueError, TypeError):
+                    pass
+
+        return config
+
+
 # ========== 记忆检索配置 ==========
 
-class RetrievalConfig(BaseSettings):
-    """检索配置"""
-    top_k: int = Field(default=5, gt=0)
-    score_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
-    rerank_model: Optional[str] = Field(default=None)
-    enable_hybrid_search: bool = Field(default=True)
-    enable_parallel: bool = Field(default=True, description="是否启用并行召回")
+class RouterConfig(BaseSettings):
+    """检索路由器配置"""
+    router_type: str = Field(default="simple", description="路由器类型: simple/llm/always/never")
+
+    # SimpleRouter 配置
+    min_query_length: int = Field(default=3, gt=0, description="查询最小长度")
+    min_keyword_count: int = Field(default=1, gt=0, description="最小关键词数量")
+    additional_keywords: List[str] = Field(default_factory=list, description="额外的检索触发关键词")
+
+    # LLMRouter 配置（预留）
+    llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 路由器配置")
+    system_prompt: Optional[str] = Field(default=None, description="自定义系统提示词")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class QueryProcessorConfig(BaseSettings):
+    """查询处理器配置"""
+    # 查询预处理
+    enable_time_parsing: bool = Field(default=True, description="是否启用时间表达式解析")
+    enable_type_detection: bool = Field(default=True, description="是否启用记忆类型检测")
+    enable_query_expansion: bool = Field(default=True, description="是否启用查询扩展")
+
+    # 查询扩展
+    expansion_keywords: List[str] = Field(default_factory=list, description="扩展关键词列表")
+
+    # LLM 扩展（预留）
+    enable_llm_rewrite: bool = Field(default=False, description="是否启用 LLM 查询重写")
+    llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 配置")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+
+class ContextRendererConfig(BaseSettings):
+    """上下文渲染器配置"""
+    # 渲染格式
+    render_format: str = Field(default="xml", description="渲染格式: xml/markdown/plain")
+    max_tokens: int = Field(default=2000, gt=0, description="最大 Token 数")
+    max_content_length: int = Field(default=500, gt=0, description="单条记忆最大内容长度")
+
+    # 显示选项
+    include_metadata: bool = Field(default=True, description="是否包含元数据")
+    include_confidence: bool = Field(default=True, description="是否包含置信度分数")
+    include_timestamp: bool = Field(default=True, description="是否包含时间戳")
+    include_artifact: bool = Field(default=False, description="是否包含记忆内容")
+
+    # 格式化选项
+    title_template: str = Field(default="📝 {title}", description="标题模板")
+    confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="置信度阈值显示")
+
+    # 时间阈值（用于标记"陈旧"记忆）
+    old_memory_days: int = Field(default=90, gt=0, description="记忆被视为陈旧的天数")
 
     model_config = SettingsConfigDict(extra="allow")
 
@@ -305,14 +446,148 @@ class RerankerConfig(BaseSettings):
 
 
 class HybridSearchConfig(BaseSettings):
-    """混合搜索完整配置"""
-    enable_parallel: bool = Field(default=True)
+    """混合搜索完整配置
+
+    包含顶层字段（兼容旧配置）和子配置：
+    - dense: 稠密检索配置
+    - sparse: 稀疏检索配置
+    - fusion: RRF 融合配置
+    - reranker: 重排序配置
+    """
+    # 顶层字段（兼容旧 config.yaml 结构）
+    top_k: int = Field(default=5, gt=0, description="最终返回数量")
+    score_threshold: float = Field(default=0.75, ge=0.0, le=1.0, description="相似度阈值")
+    rerank_model: Optional[str] = Field(default=None, description="重排序模型（废弃，使用 reranker.model_name）")
+    enable_hybrid_search: bool = Field(default=True, description="是否启用混合检索")
+    enable_parallel: bool = Field(default=True, description="是否启用并行召回")
+
+    # 子配置
     dense: DenseRetrieverConfig = Field(default_factory=DenseRetrieverConfig)
     sparse: SparseRetrieverConfig = Field(default_factory=SparseRetrieverConfig)
     fusion: FusionConfig = Field(default_factory=FusionConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
 
     model_config = SettingsConfigDict(extra="allow")
+
+    @classmethod
+    def from_env(cls) -> "HybridSearchConfig":
+        """从环境变量加载检索配置"""
+        config = cls()
+
+        env_mapping = {
+            # 顶层配置
+            "RETRIEVAL_TOP_K": ("top_k", int),
+            "RETRIEVAL_SCORE_THRESHOLD": ("score_threshold", float),
+            "RETRIEVAL_ENABLE_HYBRID": ("enable_hybrid_search", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_ENABLE_PARALLEL": ("enable_parallel", lambda x: x.lower() in ("true", "1", "yes")),
+            # Dense 配置
+            "RETRIEVAL_DENSE_TOP_K": ("dense__top_k", int),
+            "RETRIEVAL_DENSE_THRESHOLD": ("dense__score_threshold", float),
+            "RETRIEVAL_DENSE_ENABLE_TIME_DECAY": ("dense__enable_time_decay", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_DENSE_TIME_DECAY_DAYS": ("dense__time_decay_days", int),
+            "RETRIEVAL_DENSE_ENABLE_CONFIDENCE_BOOST": ("dense__enable_confidence_boost", lambda x: x.lower() in ("true", "1", "yes")),
+            # Sparse 配置
+            "RETRIEVAL_SPARSE_TOP_K": ("sparse__top_k", int),
+            "RETRIEVAL_SPARSE_THRESHOLD": ("sparse__score_threshold", float),
+            # Fusion 配置
+            "RETRIEVAL_RRF_K": ("fusion__rrf_k", int),
+            "RETRIEVAL_DENSE_WEIGHT": ("fusion__dense_weight", float),
+            "RETRIEVAL_SPARSE_WEIGHT": ("fusion__sparse_weight", float),
+            "RETRIEVAL_FINAL_TOP_K": ("fusion__final_top_k", int),
+            # Reranker 配置
+            "RETRIEVAL_RERANKER_ENABLED": ("reranker__enabled", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_RERANKER_MODEL": ("reranker__model_name", str),
+            "RETRIEVAL_RERANKER_DEVICE": ("reranker__device", str),
+            "RETRIEVAL_RERANKER_TOP_K": ("reranker__top_k", int),
+            "RETRIEVAL_RERANKER_USE_FP16": ("reranker__use_fp16", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_RERANKER_BATCH_SIZE": ("reranker__batch_size", int),
+            "RETRIEVAL_RERANKER_NORMALIZE_SCORES": ("reranker__normalize_scores", lambda x: x.lower() in ("true", "1", "yes")),
+        }
+
+        for env_key, (field_name, converter) in env_mapping.items():
+            if env_key in os.environ:
+                try:
+                    value = converter(os.environ[env_key])
+                    if "__" in field_name:
+                        sub_field, attr_name = field_name.split("__", 1)
+                        if hasattr(config, sub_field):
+                            sub_config = getattr(config, sub_field)
+                            setattr(sub_config, attr_name, value)
+                    else:
+                        setattr(config, field_name, value)
+                except (ValueError, TypeError):
+                    pass
+
+        return config
+
+
+class MemoryRetrievalConfig(BaseSettings):
+    """记忆检索统一配置
+
+    包含四个子模块的配置：
+    - router: 检索路由器
+    - processor: 查询处理器
+    - hybrid_search: 混合搜索配置
+    - renderer: 上下文渲染器
+    """
+    # 子配置
+    router: RouterConfig = Field(default_factory=RouterConfig)
+    processor: QueryProcessorConfig = Field(default_factory=QueryProcessorConfig)
+    renderer: ContextRendererConfig = Field(default_factory=ContextRendererConfig)
+    hybrid_search: HybridSearchConfig = Field(default_factory=HybridSearchConfig)
+
+    # 顶层配置（兼容旧版）
+    enable_routing: bool = Field(default=True, description="是否启用路由判断")
+    default_top_k: int = Field(default=5, gt=0, description="默认返回数量")
+    default_threshold: float = Field(default=0.75, ge=0.0, le=1.0, description="默认相似度阈值")
+
+    model_config = SettingsConfigDict(extra="allow")
+
+    @classmethod
+    def from_env(cls) -> "MemoryRetrievalConfig":
+        """从环境变量加载配置"""
+        config = cls()
+
+        env_mapping = {
+            # 顶层配置
+            "RETRIEVAL_ENABLE_ROUTING": ("enable_routing", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_DEFAULT_TOP_K": ("default_top_k", int),
+            "RETRIEVAL_DEFAULT_THRESHOLD": ("default_threshold", float),
+            # Router 配置
+            "RETRIEVAL_ROUTER_TYPE": ("router__router_type", str),
+            "RETRIEVAL_MIN_QUERY_LENGTH": ("router__min_query_length", int),
+            "RETRIEVAL_MIN_KEYWORD_COUNT": ("router__min_keyword_count", int),
+            # Processor 配置
+            "RETRIEVAL_ENABLE_TIME_PARSING": ("processor__enable_time_parsing", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_ENABLE_TYPE_DETECTION": ("processor__enable_type_detection", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_ENABLE_QUERY_EXPANSION": ("processor__enable_query_expansion", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_ENABLE_LLM_REWRITE": ("processor__enable_llm_rewrite", lambda x: x.lower() in ("true", "1", "yes")),
+            # Renderer 配置
+            "RETRIEVAL_RENDER_FORMAT": ("renderer__render_format", str),
+            "RETRIEVAL_MAX_TOKENS": ("renderer__max_tokens", int),
+            "RETRIEVAL_MAX_CONTENT_LENGTH": ("renderer__max_content_length", int),
+            "RETRIEVAL_INCLUDE_METADATA": ("renderer__include_metadata", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_INCLUDE_CONFIDENCE": ("renderer__include_confidence", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_INCLUDE_TIMESTAMP": ("renderer__include_timestamp", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_INCLUDE_ARTIFACT": ("renderer__include_artifact", lambda x: x.lower() in ("true", "1", "yes")),
+            "RETRIEVAL_OLD_MEMORY_DAYS": ("renderer__old_memory_days", int),
+        }
+
+        for env_key, (field_name, converter) in env_mapping.items():
+            if env_key in os.environ:
+                try:
+                    value = converter(os.environ[env_key])
+                    if "__" in field_name:
+                        sub_field, attr_name = field_name.split("__", 1)
+                        if hasattr(config, sub_field):
+                            sub_config = getattr(config, sub_field)
+                            setattr(sub_config, attr_name, value)
+                    else:
+                        setattr(config, field_name, value)
+                except (ValueError, TypeError):
+                    pass
+
+        return config
 
 
 # ========== 记忆生命周期配置 ==========
@@ -353,7 +628,7 @@ class MemoryConfig(BaseSettings):
     """记忆管理总配置"""
     perception: MemoryPerceptionConfig = Field(default_factory=MemoryPerceptionConfig)
     lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
-    extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
+    generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
 
     model_config = SettingsConfigDict(extra="allow")
 
@@ -400,8 +675,8 @@ class HiveMemoryConfig(BaseSettings):
     redis: RedisConfig = Field(default_factory=RedisConfig)
 
     perception: MemoryPerceptionConfig = Field(default_factory=MemoryPerceptionConfig)
-    memory: MemoryConfig = Field(default_factory=MemoryConfig)
-    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
+    retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -523,6 +798,7 @@ def get_librarian_llm_config() -> LLMConfig:
 # 便于外部导入
 __all__ = [
     "HiveMemoryConfig",
+    "SystemConfig",
     # 外部服务
     "LLMConfig",
     "EmbeddingConfig",
@@ -531,15 +807,25 @@ __all__ = [
     # 感知层配置
     "SimplePerceptionConfig",
     "SemanticFlowPerceptionConfig",
-    "MemoryPerceptionConfig", 
-    "MemoryConfig",
+    "MemoryPerceptionConfig",
+    # 记忆生成配置
+    "ExtractorConfig",
+    "GaterConfig",
+    "DeduplicatorConfig",
+    "MemoryGenerationConfig",
     # 记忆检索配置
-    "RetrievalConfig",
+    "MemoryConfig",
+    "RouterConfig",
+    "QueryProcessorConfig",
+    "ContextRendererConfig",
     "DenseRetrieverConfig",
     "SparseRetrieverConfig",
     "FusionConfig",
     "RerankerConfig",
     "HybridSearchConfig",
+    "MemoryRetrievalConfig",
+    # 记忆生命周期管理配置
+    "LifecycleConfig",
     # 工具类配置
     "LoggingConfig",
     # 便捷函数

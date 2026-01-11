@@ -14,7 +14,7 @@ Patchouli - Librarian Agent (图书管理员智能体)
 参考: PROJECT.md 4.0 - 4.2 节
 
 作者: HiveMemory Team
-版本: 0.4.0 (感知层重构)
+版本: 0.5.0 (统一工厂模式)
 """
 
 import logging
@@ -25,11 +25,9 @@ from typing import List, Optional, Dict, Any, Callable, TYPE_CHECKING
 from hivememory.core.models import MemoryAtom, FlushReason
 from hivememory.generation.models import ConversationMessage
 from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.generation.orchestrator import MemoryOrchestrator
-from hivememory.perception.interfaces import BasePerceptionLayer
 
 if TYPE_CHECKING:
-    from hivememory.core.config import MemoryPerceptionConfig
+    from hivememory.core.config import MemoryPerceptionConfig, MemoryGenerationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +74,12 @@ class PatchouliAgent:
         >>> config = MemoryPerceptionConfig(layer_type="simple")
         >>> patchouli = PatchouliAgent(storage=storage, perception_config=config)
         >>>
+        >>> # 使用自定义生成配置
+        >>> from hivememory.core.config import MemoryGenerationConfig
+        >>> gen_config = MemoryGenerationConfig()
+        >>> gen_config.extractor.max_retries = 3
+        >>> patchouli = PatchouliAgent(storage=storage, generation_config=gen_config)
+        >>>
         >>> # 添加消息
         >>> patchouli.add_message("user", "帮我写贪吃蛇游戏", "user123", "agent1")
         >>> patchouli.add_message("assistant", "好的，我来实现...", "user123", "agent1")
@@ -85,6 +89,7 @@ class PatchouliAgent:
         self,
         storage: Optional[QdrantMemoryStore] = None,
         perception_config: Optional["MemoryPerceptionConfig"] = None,
+        generation_config: Optional["MemoryGenerationConfig"] = None,
     ):
         """
         初始化 Patchouli Agent
@@ -92,6 +97,7 @@ class PatchouliAgent:
         Args:
             storage: Qdrant 存储实例（可选，自动创建）
             perception_config: 感知层配置（可选，使用默认配置）
+            generation_config: 记忆生成配置（可选，使用默认配置）
 
         Examples:
             >>> # 使用默认配置（语义流感知层）
@@ -102,20 +108,20 @@ class PatchouliAgent:
             >>> config = MemoryPerceptionConfig(layer_type="simple")
             >>> patchouli = PatchouliAgent(perception_config=config)
             >>>
-            >>> # 使用自定义语义阈值
-            >>> config = MemoryPerceptionConfig()
-            >>> config.semantic_flow.semantic_threshold = 0.8
-            >>> patchouli = PatchouliAgent(perception_config=config)
+            >>> # 使用自定义生成配置
+            >>> from hivememory.core.config import MemoryGenerationConfig
+            >>> gen_config = MemoryGenerationConfig()
+            >>> gen_config.extractor.max_retries = 3
+            >>> patchouli = PatchouliAgent(generation_config=gen_config)
         """
         self.storage = storage or QdrantMemoryStore()
         self.perception_config = perception_config
+        self.generation_config = generation_config
         self.perception_layer: Optional[BasePerceptionLayer] = None
+        self.generation_orchestrator: Optional[MemoryGenerationOrchestrator] = None
 
-        # 初始化感知层
-        self._init_perception_layer()
-
-        # 初始化记忆生成编排器（Stage 1: 记忆生成核心逻辑）
-        self.orchestrator = MemoryOrchestrator(storage=self.storage)
+        # 统一使用工厂函数初始化各模块
+        self._init_modules()
 
         # Flush 事件观察者列表
         self._flush_observers: List[FlushObserver] = []
@@ -124,35 +130,50 @@ class PatchouliAgent:
         layer_type = getattr(self.perception_config, "layer_type", "semantic_flow") if self.perception_config else "semantic_flow"
         logger.info(f"Patchouli Agent 初始化完成 (perception_layer_type={layer_type})")
 
-    def _init_perception_layer(self) -> None:
+    def _init_modules(self) -> None:
         """
-        初始化感知层
+        统一初始化所有子模块
 
-        使用统一的工厂函数创建感知层，根据配置的 layer_type 自动选择：
-        - "semantic_flow": SemanticFlowPerceptionLayer（语义流策略）
-        - "simple": SimplePerceptionLayer（简单触发策略）
+        使用工厂函数创建各模块，确保初始化模式一致：
+        - perception: create_default_perception_layer()
+        - generation: create_default_generation_orchestrator()
 
-        工厂函数会从 config.yaml 加载默认配置，或使用传入的自定义配置。
+        未来可扩展：
+        - retrieval: create_default_retrieval_engine()
+        - lifecycle: create_lifecycle_manager_from_config()
         """
-        try:
-            from hivememory.perception import create_default_perception_layer
+        # 初始化感知层
+        from hivememory.perception import create_default_perception_layer
 
-            # 使用工厂函数创建感知层
-            # 如果未提供配置，工厂函数会从 config.yaml 加载默认配置
-            self.perception_layer = create_default_perception_layer(
-                on_flush_callback=self._on_perception_flush,
-                config=self.perception_config,
-            )
+        self.perception_layer = create_default_perception_layer(
+            config=self.perception_config,
+            on_flush_callback=self._on_perception_flush,
+        )
+        logger.debug(f"{type(self.perception_layer).__name__} 已初始化")
 
-            if self.perception_layer:
-                layer_name = type(self.perception_layer).__name__
-                logger.debug(f"{layer_name} 已初始化")
-            else:
-                logger.warning("感知层未启用 (config.enable=False)")
+        # 初始化记忆生成编排器
+        from hivememory.generation import create_default_generation_orchestrator
 
-        except ImportError as e:
-            logger.error(f"无法导入感知层: {e}")
-            raise
+        self.generation_orchestrator = create_default_generation_orchestrator(
+            storage=self.storage,
+            config=self.generation_config,
+        )
+        logger.debug("MemoryGenerationOrchestrator 已初始化")
+
+        # 预留：未来可添加其他模块
+        # if retrieval_config is not None:
+        #     from hivememory.retrieval import create_default_retrieval_engine
+        #     self.retrieval = create_default_retrieval_engine(
+        #         storage=self.storage,
+        #         config=retrieval_config,
+        #     )
+        #
+        # if lifecycle_config is not None:
+        #     from hivememory.lifecycle import create_lifecycle_manager_from_config
+        #     self.lifecycle = create_lifecycle_manager_from_config(
+        #         storage=self.storage,
+        #         config=lifecycle_config,
+        #     )
 
     # ========== 感知层 API ==========
 
@@ -244,7 +265,7 @@ class PatchouliAgent:
             logger.info(f"Patchouli 开始处理 {len(messages)} 条消息...")
 
             # 调用编排器处理
-            memories = self.orchestrator.process(
+            memories = self.generation_orchestrator.process(
                 messages=messages,
             )
 

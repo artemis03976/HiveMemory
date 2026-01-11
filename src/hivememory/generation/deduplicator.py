@@ -365,17 +365,42 @@ class MemoryDeduplicator(Deduplicator):
 
 
 # 便捷函数
-def create_default_deduplicator(storage) -> Deduplicator:
+def create_default_deduplicator(
+    storage,
+    config: Optional["DeduplicatorConfig"] = None,
+) -> Deduplicator:
     """
-    创建默认查重器
+    创建默认查重器（支持配置）
 
     Args:
         storage: QdrantMemoryStore 实例
+        config: 查重器配置（可选，使用默认配置）
 
     Returns:
         Deduplicator: 查重器实例
+
+    Examples:
+        >>> # 使用默认配置
+        >>> dedup = create_default_deduplicator(storage)
+        >>>
+        >>> # 使用自定义配置
+        >>> from hivememory.core.config import DeduplicatorConfig
+        >>> config = DeduplicatorConfig(high_similarity_threshold=0.9)
+        >>> dedup = create_default_deduplicator(storage, config)
     """
-    return MemoryDeduplicator(storage)
+    if config is None:
+        from hivememory.core.config import MemoryGenerationConfig
+        memory_config = MemoryGenerationConfig()
+        config = memory_config.deduplicator
+
+    return MemoryDeduplicator(
+        storage=storage,
+        high_similarity_threshold=config.high_similarity_threshold,
+        low_similarity_threshold=config.low_similarity_threshold,
+        content_similarity_threshold=config.content_similarity_threshold,
+        # lifecycle_manager 暂保持 None，后续可从 config 读取
+        lifecycle_manager=None,
+    )
 
 
 __all__ = [

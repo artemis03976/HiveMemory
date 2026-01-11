@@ -296,29 +296,32 @@ class MinimalRenderer(ContextRendererInterface):
         return "\n".join(lines)
 
 
-def render_memories_for_context(
-    memories: List[MemoryAtom],
-    render_format: str = "xml",
-    max_tokens: int = 2000
-) -> str:
+def create_default_renderer(config: Optional["ContextRendererConfig"] = None) -> ContextRenderer:
     """
-    便捷函数：渲染记忆列表为上下文
-    
+    创建默认渲染器
+
     Args:
-        memories: MemoryAtom 列表
-        render_format: 输出格式（"xml" 或 "markdown"）
-        max_tokens: 最大长度
-        
+        config: 上下文渲染配置
+
     Returns:
-        渲染后的字符串
+        ContextRenderer 实例
     """
-    fmt = RenderFormat.XML if render_format.lower() == "xml" else RenderFormat.MARKDOWN
-    renderer = ContextRenderer(render_format=fmt, max_tokens=max_tokens)
-    return renderer.render(memories)
+    if config is None:
+        from hivememory.core.config import ContextRendererConfig
+        config = ContextRendererConfig()
+
+    fmt = RenderFormat.XML if config.render_format.lower() == "xml" else RenderFormat.MARKDOWN
+
+    return ContextRenderer(
+        render_format=fmt,
+        max_tokens=config.max_tokens,
+        max_content_length=config.max_content_length,
+        show_artifacts=config.include_artifact
+    )
 
 
 __all__ = [
     "ContextRenderer",
     "MinimalRenderer",
-    "render_memories_for_context",
+    "create_default_renderer",
 ]

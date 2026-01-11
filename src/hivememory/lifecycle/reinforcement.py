@@ -20,7 +20,7 @@ from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
 from hivememory.lifecycle.interfaces import ReinforcementEngine, VitalityCalculator
-from hivememory.lifecycle.types import (
+from hivememory.lifecycle.models import (
     MemoryEvent,
     EventType,
     ReinforcementResult,

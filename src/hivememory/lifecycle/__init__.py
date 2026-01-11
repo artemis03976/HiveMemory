@@ -14,8 +14,11 @@ HiveMemory - 记忆生命周期管理模块 (MemoryLifeCycleManagement)
 
 状态: Stage 3 实现
 作者: HiveMemory Team
-版本: 0.1.0
+版本: 0.2.0
 """
+
+import logging
+from typing import Optional, TYPE_CHECKING
 
 # 接口
 from hivememory.lifecycle.interfaces import (
@@ -27,7 +30,7 @@ from hivememory.lifecycle.interfaces import (
 )
 
 # 类型定义
-from hivememory.lifecycle.types import (
+from hivememory.lifecycle.models import (
     EventType,
     ReinforcementResult,
     MemoryEvent,
@@ -70,6 +73,65 @@ from hivememory.lifecycle.orchestrator import (
     create_default_lifecycle_manager,
 )
 
+if TYPE_CHECKING:
+    from hivememory.core.config import LifecycleConfig
+
+logger = logging.getLogger(__name__)
+
+
+def create_lifecycle_manager_from_config(
+    storage,
+    config: Optional["LifecycleConfig"] = None,
+) -> LifecycleManager:
+    """
+    根据配置创建记忆生命周期管理器
+
+    根据 config 自动创建并配置所有子组件：
+    - VitalityCalculator: 生命力计算器
+    - ReinforcementEngine: 强化引擎
+    - MemoryArchiver: 归档器
+    - GarbageCollector: 垃圾回收器
+
+    Args:
+        storage: QdrantMemoryStore 实例
+        config: 生命周期配置（可选，使用默认配置）
+
+    Returns:
+        LifecycleManager: 生命周期管理器实例
+
+    Examples:
+        >>> from hivememory.lifecycle import create_lifecycle_manager_from_config
+        >>> from hivememory.memory.storage import QdrantMemoryStore
+        >>> storage = QdrantMemoryStore()
+        >>> manager = create_lifecycle_manager_from_config(storage=storage)
+        >>>
+        >>> # 使用自定义配置
+        >>> from hivememory.core.config import LifecycleConfig
+        >>> config = LifecycleConfig()
+        >>> config.gc_enable_schedule = True
+        >>> config.gc_interval_hours = 12
+        >>> manager = create_lifecycle_manager_from_config(storage=storage, config=config)
+
+    Note:
+        这是一个与 create_default_lifecycle_manager 并存的工厂函数。
+        create_default_lifecycle_manager 接受具体的参数，而此函数接受配置对象。
+        未来版本可能会合并这两个函数。
+    """
+    if config is None:
+        from hivememory.core.config import LifecycleConfig
+        config = LifecycleConfig()
+
+    # 使用现有工厂函数创建管理器
+    manager = create_default_lifecycle_manager(
+        storage=storage,
+        enable_scheduled_gc=config.gc_enable_schedule,
+        gc_interval_hours=config.gc_interval_hours,
+    )
+
+    logger.info("LifecycleManager created from config")
+    return manager
+
+
 __all__ = [
     # === 接口 ===
     "VitalityCalculator",
@@ -109,4 +171,5 @@ __all__ = [
     # === 生命周期管理器 ===
     "MemoryLifecycleManager",
     "create_default_lifecycle_manager",
+    "create_lifecycle_manager_from_config",
 ]

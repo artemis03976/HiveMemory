@@ -52,25 +52,110 @@ redis:
 
 # 记忆管理配置
 memory:
-  buffer:
-    max_messages: 5  # 累积5条消息触发处理
-    timeout_seconds: 900  # 15分钟无活动触发
-
   lifecycle:
     high_watermark: 80  # 活跃记忆分数阈值
     low_watermark: 20   # 归档记忆分数阈值
     decay_lambda: 0.01  # 时间衰减系数
 
   extraction:
-    min_confidence: 0.4  # 最低置信度阈值
-    max_tags: 5          # 每个记忆最多标签数
+    # LLM 提取器配置
+    extractor:
+      max_retries: 2
+      # temperature: 0.3  # 覆盖全局 Librarian LLM 配置
+      # max_tokens: 8192
+      # system_prompt: null  # 自定义系统提示词
+      # user_prompt: null    # 自定义用户提示词
+
+    # 价值评估器配置
+    gater:
+      gater_type: "rule"  # rule/llm/hybrid
+      min_total_length: 20
+      min_substantive_length: 10
+      # trivial_patterns: []  # 自定义黑名单关键词（覆盖默认）
+      # valuable_patterns: []  # 自定义白名单关键词（补充默认）
+
+    # 查重器配置
+    deduplicator:
+      high_similarity_threshold: 0.95
+      low_similarity_threshold: 0.75
+      content_similarity_threshold: 0.9
+      enable_vitality_tracking: true
+
+    # 兼容性：保留旧字段（已废弃，未使用）
+    min_confidence: 0.4
+    max_tags: 5
 
 # 检索配置
 retrieval:
-  top_k: 5
-  score_threshold: 0.75
-  rerank_model: null  # 暂不启用reranker
-  enable_hybrid_search: true
+  # 顶层配置
+  enable_routing: true
+  default_top_k: 5
+  default_threshold: 0.75
+
+  # 路由器配置
+  router:
+    router_type: "simple"  # simple/llm/always/never
+    min_query_length: 3
+    min_keyword_count: 1
+    additional_keywords: []
+
+  # 查询处理器配置
+  processor:
+    enable_time_parsing: true
+    enable_type_detection: true
+    enable_query_expansion: true
+    expansion_keywords: []
+    enable_llm_rewrite: false
+
+  # 渲染器配置
+  renderer:
+    render_format: "xml"
+    max_tokens: 2000
+    max_content_length: 500
+    include_metadata: true
+    include_confidence: true
+    include_timestamp: true
+    include_artifact: false
+    old_memory_days: 90
+
+  # 混合搜索配置
+  hybrid_search:
+    # 顶层配置（兼容旧版）
+    top_k: 5
+    score_threshold: 0.75
+    rerank_model: null  # 废弃，使用 reranker.model_name
+    enable_hybrid_search: true
+    enable_parallel: true
+
+    # 混合检索详细配置
+    dense:
+      enabled: true
+      top_k: 50  # RRF 融合前的召回数量
+      score_threshold: 0.0  # 相似度阈值
+      enable_time_decay: true
+      time_decay_days: 30
+      enable_confidence_boost: true
+
+    sparse:
+      enabled: true
+      top_k: 50
+      score_threshold: 0.0
+
+    fusion:
+      rrf_k: 60  # RRF 常数
+      dense_weight: 1.0
+      sparse_weight: 1.0
+      final_top_k: 5  # 最终返回数量
+
+    reranker:
+      enabled: true
+      type: "cross_encoder"  # noop 或 cross_encoder
+      model_name: "BAAI/bge-reranker-v2-m3"
+      device: "cpu"
+      use_fp16: true
+      batch_size: 32
+      top_k: 20
+      normalize_scores: true
 
 # 感知层配置
 perception:

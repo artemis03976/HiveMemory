@@ -14,10 +14,13 @@
 对应设计文档: PROJECT.md 5.1 节
 """
 
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+
+if TYPE_CHECKING:
+    from hivememory.core.config import HybridSearchConfig
 
 from hivememory.core.models import MemoryAtom
 from hivememory.core.config import (
@@ -26,8 +29,7 @@ from hivememory.core.config import (
     FusionConfig,
 )
 from hivememory.retrieval.interfaces import MemorySearcher
-from hivememory.retrieval.dense_retriever import DenseRetriever
-from hivememory.retrieval.sparse_retriever import SparseRetriever
+from hivememory.retrieval.retriever import DenseRetriever, SparseRetriever
 from hivememory.retrieval.fusion import ReciprocalRankFusion
 from hivememory.retrieval.reranker import NoopReranker, CrossEncoderReranker
 from hivememory.retrieval.models import (
@@ -56,7 +58,9 @@ class HybridSearcher(MemorySearcher):
     def __init__(
         self,
         storage,  # QdrantMemoryStore
-        # 新式混合搜索配置
+        # 统一配置（优先）
+        config: Optional["HybridSearchConfig"] = None,
+        # 新式混合搜索配置（单独指定，向后兼容）
         dense_config: Optional["DenseRetrieverConfig"] = None,
         sparse_config: Optional["SparseRetrieverConfig"] = None,
         fusion_config: Optional["FusionConfig"] = None,
@@ -70,34 +74,84 @@ class HybridSearcher(MemorySearcher):
 
         Args:
             storage: QdrantMemoryStore 实例
-            dense_config: 稠密检索器配置
-            sparse_config: 稀疏检索器配置
-            fusion_config: RRF 融合配置
+            config: 统一混合检索配置（HybridSearchConfig，优先使用）
+            dense_config: 稠密检索器配置（当 config=None 时使用）
+            sparse_config: 稀疏检索器配置（当 config=None 时使用）
+            fusion_config: RRF 融合配置（当 config=None 时使用）
             reranker: 重排序器 (可选)
-            enable_parallel: 是否启用并行召回
-            enable_hybrid_search: 启用混合搜索模式 (稠密+稀疏+RRF)
+            enable_parallel: 是否启用并行召回（当 config=None 时使用）
+            enable_hybrid_search: 启用混合搜索模式 (稠密+稀疏+RRF)（当 config=None 时使用）
+
+        Examples:
+            >>> # 使用统一配置
+            >>> from hivememory.core.config import HybridSearchConfig
+            >>> config = HybridSearchConfig()
+            >>> searcher = HybridSearcher(storage, config=config)
+            >>>
+            >>> # 使用单独配置（向后兼容）
+            >>> searcher = HybridSearcher(storage, enable_hybrid_search=True)
         """
         self.storage = storage
-        self.enable_parallel = enable_parallel
-        self.enable_hybrid_search = enable_hybrid_search
 
-        # 初始化稠密检索器
-        dense_config = dense_config or DenseRetrieverConfig(top_k=50)
-        self.dense_retriever = DenseRetriever(storage, dense_config)
-        # 初始化稀疏检索器
-        sparse_config = sparse_config or SparseRetrieverConfig(top_k=50)
-        self.sparse_retriever = SparseRetriever(storage, sparse_config)
+        # 如果提供了统一配置，使用它
+        if config is not None:
+            self.enable_parallel = config.enable_parallel
+            self.enable_hybrid_search = config.enable_hybrid_search
 
-        # 初始化融合器
-        fusion_config = fusion_config or FusionConfig()
-        self.fusion = ReciprocalRankFusion(fusion_config)
+            # 初始化稠密检索器
+            if config.dense.enabled:
+                self.dense_retriever = DenseRetriever(storage, config.dense)
+            else:
+                self.dense_retriever = None
 
-        # 初始化重排序器
-        self.reranker = reranker or CrossEncoderReranker()
-        
-        # 默认参数
-        self.default_top_k = 5
-        self.default_threshold = 0.0
+            # 初始化稀疏检索器
+            if config.sparse.enabled:
+                self.sparse_retriever = SparseRetriever(storage, config.sparse)
+            else:
+                self.sparse_retriever = None
+
+            # 初始化融合器
+            self.fusion = ReciprocalRankFusion(config.fusion)
+
+            # 初始化重排序器
+            if config.reranker.enabled:
+                self.reranker = CrossEncoderReranker(
+                    model_name=config.reranker.model_name,
+                    device=config.reranker.device,
+                    use_fp16=config.reranker.use_fp16,
+                    batch_size=config.reranker.batch_size,
+                    top_k=config.reranker.top_k,
+                    normalize_scores=config.reranker.normalize_scores,
+                )
+            else:
+                self.reranker = None
+
+            # 默认参数
+            self.default_top_k = config.fusion.final_top_k
+            self.default_threshold = config.score_threshold
+        else:
+            # 向后兼容：使用单独的参数
+            self.enable_parallel = enable_parallel
+            self.enable_hybrid_search = enable_hybrid_search
+
+            # 初始化稠密检索器
+            dense_config = dense_config or DenseRetrieverConfig(top_k=50)
+            self.dense_retriever = DenseRetriever(storage, dense_config)
+
+            # 初始化稀疏检索器
+            sparse_config = sparse_config or SparseRetrieverConfig(top_k=50)
+            self.sparse_retriever = SparseRetriever(storage, sparse_config)
+
+            # 初始化融合器
+            fusion_config = fusion_config or FusionConfig()
+            self.fusion = ReciprocalRankFusion(fusion_config)
+
+            # 初始化重排序器
+            self.reranker = reranker or CrossEncoderReranker()
+
+            # 默认参数
+            self.default_top_k = 5
+            self.default_threshold = 0.0
 
     def search(
         self,
@@ -332,7 +386,26 @@ class CachedSearcher(MemorySearcher):
         return result
 
 
+def create_default_searcher(storage, config: Optional["HybridSearchConfig"] = None) -> HybridSearcher:
+    """
+    创建默认混合检索器
+
+    Args:
+        storage: QdrantMemoryStore 实例
+        config: 混合检索配置
+
+    Returns:
+        HybridSearcher 实例
+    """
+    if config is None:
+        from hivememory.core.config import HybridSearchConfig
+        config = HybridSearchConfig()
+    
+    return HybridSearcher(storage=storage, config=config)
+
+
 __all__ = [
     "HybridSearcher",
     "CachedSearcher",
+    "create_default_searcher",
 ]

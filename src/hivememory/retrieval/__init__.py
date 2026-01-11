@@ -17,8 +17,11 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 
 状态: Stage 2 改进中 (混合检索)
 作者: HiveMemory Team
-版本: 0.3.0
+版本: 0.4.0
 """
+
+import logging
+from typing import Optional, TYPE_CHECKING, Union
 
 # 接口定义
 from hivememory.retrieval.interfaces import (
@@ -30,11 +33,17 @@ from hivememory.retrieval.interfaces import (
     BaseReranker
 )
 
+if TYPE_CHECKING:
+    from hivememory.core.config import MemoryRetrievalConfig
+
+logger = logging.getLogger(__name__)
+
 # 查询处理
 from hivememory.retrieval.query import (
     QueryProcessor,
     TimeExpressionParser,
     MemoryTypeDetector,
+    create_default_processor,
 )
 
 # 路由器
@@ -43,6 +52,7 @@ from hivememory.retrieval.router import (
     LLMRouter,
     AlwaysRetrieveRouter,
     NeverRetrieveRouter,
+    create_default_router,
 )
 
 # 数据模型 (统一从 models.py 导入)
@@ -60,10 +70,8 @@ from hivememory.retrieval.searcher import (
 )
 
 # 混合检索组件
-from hivememory.retrieval.dense_retriever import (
+from hivememory.retrieval.retriever import (
     DenseRetriever,
-)
-from hivememory.retrieval.sparse_retriever import (
     SparseRetriever,
 )
 from hivememory.retrieval.fusion import (
@@ -76,10 +84,9 @@ from hivememory.retrieval.reranker import (
 
 # 渲染器
 from hivememory.retrieval.renderer import (
-    RenderFormat,
     ContextRenderer,
     MinimalRenderer,
-    render_memories_for_context,
+    create_default_renderer,
 )
 
 # 引擎门面
@@ -88,6 +95,60 @@ from hivememory.retrieval.engine import (
     RetrievalEngine,
     create_retrieval_engine,
 )
+
+
+def create_default_retrieval_engine(
+    storage,
+    config: Optional["MemoryRetrievalConfig"] = None,
+) -> RetrievalEngine:
+    """
+    创建默认配置的记忆检索引擎
+
+    根据配置自动创建并配置所有子组件：
+    - RetrievalRouter: 检索路由器
+    - QueryProcessor: 查询处理器
+    - HybridSearcher: 混合检索器
+    - ContextRenderer: 上下文渲染器
+
+    Args:
+        storage: QdrantMemoryStore 实例
+        config: 检索配置（可选，使用默认配置）
+
+    Returns:
+        RetrievalEngine: 检索引擎实例
+
+    Examples:
+        >>> from hivememory.retrieval import create_default_retrieval_engine
+        >>> from hivememory.memory.storage import QdrantMemoryStore
+        >>> storage = QdrantMemoryStore()
+        >>> engine = create_default_retrieval_engine(storage=storage)
+        >>>
+        >>> # 使用自定义配置
+        >>> from hivememory.core.config import MemoryRetrievalConfig
+        >>> config = MemoryRetrievalConfig()
+        >>> config.router.router_type = "llm"
+        >>> engine = create_default_retrieval_engine(storage=storage, config=config)
+    """
+    if config is None:
+        from hivememory.core.config import MemoryRetrievalConfig
+        config = MemoryRetrievalConfig()
+
+    # 使用工厂函数创建各组件
+    router = create_default_router(config.router)
+    processor = create_default_processor(config.processor)
+    renderer = create_default_renderer(config.renderer)
+
+    # 创建引擎
+    engine = RetrievalEngine(
+        storage=storage,
+        router=router,
+        processor=processor,
+        renderer=renderer,
+        config=config,
+    )
+
+    logger.info("RetrievalEngine created with default config")
+    return engine
 
 
 __all__ = [
@@ -135,10 +196,15 @@ __all__ = [
     # 渲染
     "ContextRenderer",
     "MinimalRenderer",
-    "render_memories_for_context",
 
     # 引擎
     "RetrievalResult",
     "RetrievalEngine",
     "create_retrieval_engine",
+    "create_default_retrieval_engine",
+
+    # 工厂函数
+    "create_default_router",
+    "create_default_processor",
+    "create_default_renderer",
 ]

@@ -1,5 +1,5 @@
 """
-HiveMemory - 记忆生成编排器 (Memory Orchestrator)
+HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 
 职责:
     协调所有组件，执行完整的记忆生成流程。
@@ -16,8 +16,11 @@ HiveMemory - 记忆生成编排器 (Memory Orchestrator)
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from hivememory.core.config import MemoryGenerationConfig
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.generation.models import ConversationMessage, ExtractedMemoryDraft
@@ -34,7 +37,7 @@ from hivememory.generation.deduplicator import create_default_deduplicator
 logger = logging.getLogger(__name__)
 
 
-class MemoryOrchestrator:
+class MemoryGenerationOrchestrator:
     """
     记忆生成编排器
 
@@ -43,7 +46,7 @@ class MemoryOrchestrator:
     Examples:
         >>> from hivememory.memory.storage import QdrantMemoryStore
         >>> storage = QdrantMemoryStore()
-        >>> orchestrator = MemoryOrchestrator(storage=storage)
+        >>> orchestrator = MemoryGenerationOrchestrator(storage=storage)
         >>> memories = orchestrator.process(messages, user_id="u1", agent_id="a1")
     """
 
@@ -53,24 +56,53 @@ class MemoryOrchestrator:
         gater: Optional[ValueGater] = None,
         extractor: Optional[MemoryExtractor] = None,
         deduplicator: Optional[Deduplicator] = None,
+        config: Optional["MemoryGenerationConfig"] = None,
     ):
         """
         初始化编排器
 
         Args:
             storage: 向量存储实例
-            gater: 价值评估器（可选，使用默认）
-            extractor: 记忆提取器（可选，使用默认）
-            deduplicator: 查重器（可选，使用默认）
+            gater: 价值评估器（可选，使用配置）
+            extractor: 记忆提取器（可选，使用配置）
+            deduplicator: 查重器（可选，使用配置）
+            config: 记忆配置（可选，用于创建组件）
+
+        Examples:
+            >>> # 使用默认配置
+            >>> orchestrator = MemoryGenerationOrchestrator(storage=storage)
+            >>>
+            >>> # 使用自定义配置
+            >>> from hivememory.core.config import MemoryGenerationConfig
+            >>> config = MemoryGenerationConfig()
+            >>> orchestrator = MemoryGenerationOrchestrator(storage=storage, config=config)
         """
         self.storage = storage
 
-        # 初始化组件（支持依赖注入）
-        self.gater = gater or create_default_gater()
-        self.extractor = extractor or create_default_extractor()
-        self.deduplicator = deduplicator or create_default_deduplicator(storage)
+        # 使用传入的配置或加载默认配置
+        if config is None:
+            from hivememory.core.config import MemoryGenerationConfig
+            config = MemoryGenerationConfig()
 
-        logger.info("MemoryOrchestrator 初始化完成")
+        # 如果组件未提供，使用配置创建
+        if gater is None:
+            self.gater = create_default_gater(config.gater)
+        else:
+            self.gater = gater
+
+        if extractor is None:
+            self.extractor = create_default_extractor(config.extractor)
+        else:
+            self.extractor = extractor
+
+        if deduplicator is None:
+            self.deduplicator = create_default_deduplicator(
+                storage, config.deduplicator
+            )
+        else:
+            self.deduplicator = deduplicator
+
+        logger.info("MemoryGenerationOrchestrator 初始化完成")
 
     def process(
         self,

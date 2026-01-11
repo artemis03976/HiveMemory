@@ -272,9 +272,41 @@ class NeverRetrieveRouter(RetrievalRouter):
         return False
 
 
+def create_default_router(config: Optional["RouterConfig"] = None) -> RetrievalRouter:
+    """
+    创建默认路由器
+
+    Args:
+        config: 检索路由配置
+
+    Returns:
+        RetrievalRouter 实例
+    """
+    if config is None:
+        from hivememory.core.config import RouterConfig
+        config = RouterConfig()
+    
+    if config.router_type == "llm":
+        # 如果启用了 LLM 路由
+        return LLMRouter(
+            llm_config=config.llm_config.model_dump() if config.llm_config else None,
+            fallback_router=SimpleRouter(
+                additional_keywords=config.additional_keywords,
+                min_query_length=config.min_query_length
+            )
+        )
+    else:
+        # 默认使用简单路由
+        return SimpleRouter(
+            additional_keywords=config.additional_keywords,
+            min_query_length=config.min_query_length
+        )
+
+
 __all__ = [
     "SimpleRouter",
     "LLMRouter",
     "AlwaysRetrieveRouter",
     "NeverRetrieveRouter",
+    "create_default_router",
 ]

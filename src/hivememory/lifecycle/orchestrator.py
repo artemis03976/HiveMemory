@@ -19,7 +19,7 @@ from hivememory.lifecycle.interfaces import (
     MemoryArchiver,
     GarbageCollector,
 )
-from hivememory.lifecycle.types import (
+from hivememory.lifecycle.models import (
     MemoryEvent,
     EventType,
     ReinforcementResult,

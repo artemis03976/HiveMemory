@@ -13,7 +13,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
-from hivememory.lifecycle.types import MemoryEvent, ReinforcementResult
+from hivememory.lifecycle.models import MemoryEvent, ReinforcementResult
 
 
 class VitalityCalculator(ABC):

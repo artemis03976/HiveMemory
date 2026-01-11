@@ -287,14 +287,50 @@ class LLMMemoryExtractor(MemoryExtractor):
 
 
 # 便捷函数
-def create_default_extractor() -> MemoryExtractor:
+def create_default_extractor(
+    config: Optional["ExtractorConfig"] = None,
+) -> MemoryExtractor:
     """
-    创建默认提取器
+    创建默认提取器（支持配置）
+
+    Args:
+        config: 提取器配置（可选，使用默认配置）
 
     Returns:
         MemoryExtractor: LLM 提取器实例
+
+    Examples:
+        >>> # 使用默认配置
+        >>> extractor = create_default_extractor()
+        >>>
+        >>> # 使用自定义配置
+        >>> from hivememory.core.config import ExtractorConfig
+        >>> config = ExtractorConfig(max_retries=3)
+        >>> extractor = create_default_extractor(config)
     """
-    return LLMMemoryExtractor()
+    if config is None:
+        from hivememory.core.config import MemoryConfig
+        # 从全局配置获取
+        memory_config = MemoryConfig()
+        config = memory_config.extraction.extractor
+
+    # 准备 LLM 配置
+    llm_config = config.llm_config
+    if llm_config is None:
+        llm_config = get_librarian_llm_config()
+
+    # 覆盖 temperature 和 max_tokens
+    if config.temperature is not None:
+        llm_config = llm_config.model_copy(update={"temperature": config.temperature})
+    if config.max_tokens is not None:
+        llm_config = llm_config.model_copy(update={"max_tokens": config.max_tokens})
+
+    return LLMMemoryExtractor(
+        llm_config=llm_config,
+        system_prompt=config.system_prompt,
+        user_prompt=config.user_prompt,
+        max_retries=config.max_retries,
+    )
 
 
 __all__ = [

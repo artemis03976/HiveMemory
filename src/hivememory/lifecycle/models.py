@@ -1,5 +1,5 @@
 """
-HiveMemory - Lifecycle 模块类型定义
+HiveMemory - Lifecycle 模块数据模型定义
 
 定义了生命周期管理模块的核心数据类型：
 - EventType: 生命周期事件类型枚举

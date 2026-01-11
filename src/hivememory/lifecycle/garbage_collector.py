@@ -15,7 +15,7 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 
 from hivememory.lifecycle.interfaces import GarbageCollector, VitalityCalculator, MemoryArchiver
-from hivememory.lifecycle.types import ArchiveStatus
+from hivememory.lifecycle.models import ArchiveStatus
 
 logger = logging.getLogger(__name__)
 

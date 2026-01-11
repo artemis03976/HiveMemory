@@ -30,7 +30,7 @@ from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
 from hivememory.lifecycle.interfaces import MemoryArchiver
-from hivememory.lifecycle.types import ArchiveRecord, ArchiveStatus
+from hivememory.lifecycle.models import ArchiveRecord, ArchiveStatus
 
 logger = logging.getLogger(__name__)
 

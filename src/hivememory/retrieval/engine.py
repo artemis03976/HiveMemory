@@ -1,5 +1,5 @@
 """
-检索引擎门面
+记忆检索引擎门面
 
 职责:
     整合所有检索组件，提供统一的检索入口
@@ -14,18 +14,21 @@
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from datetime import datetime
 import time
 import logging
 
+if TYPE_CHECKING:
+    from hivememory.core.config import MemoryRetrievalConfig
+
 from hivememory.core.models import MemoryAtom
 from hivememory.generation.models import ConversationMessage
 from hivememory.retrieval.models import ProcessedQuery, SearchResults, RenderFormat
-from hivememory.retrieval.query import QueryProcessor
-from hivememory.retrieval.router import SimpleRouter, RetrievalRouter
+from hivememory.retrieval.query import QueryProcessor, create_default_processor
+from hivememory.retrieval.router import SimpleRouter, RetrievalRouter, create_default_router
 from hivememory.retrieval.searcher import HybridSearcher
-from hivememory.retrieval.renderer import ContextRenderer
+from hivememory.retrieval.renderer import ContextRenderer, create_default_renderer
 from hivememory.retrieval.interfaces import RetrievalEngine as RetrievalEngineInterface
 
 logger = logging.getLogger(__name__)
@@ -63,7 +66,7 @@ class RetrievalResult:
         return self.rendered_context
 
 
-class RetrievalEngine(RetrievalEngineInterface):
+class MemoryRetrievalEngine(RetrievalEngineInterface):
     """
     记忆检索引擎
 
@@ -71,7 +74,7 @@ class RetrievalEngine(RetrievalEngineInterface):
 
     使用示例:
         ```python
-        engine = RetrievalEngine(storage=my_storage)
+        engine = MemoryRetrievalEngine(storage=my_storage)
         result = engine.retrieve_context(
             query="我之前设置的 API Key 是什么？",
             user_id="user_123"
@@ -89,46 +92,83 @@ class RetrievalEngine(RetrievalEngineInterface):
         processor: Optional[QueryProcessor] = None,
         searcher: Optional[HybridSearcher] = None,
         renderer: Optional[ContextRenderer] = None,
-        # 默认配置
+        config: Optional["MemoryRetrievalConfig"] = None,
+        # 兼容旧参数
         enable_routing: bool = True,
         default_top_k: int = 5,
         default_threshold: float = 0.3,
         render_format: RenderFormat = RenderFormat.XML,
-        max_context_tokens: int = 2000
+        max_context_tokens: int = 2000,
+        hybrid_search_config: Optional["HybridSearchConfig"] = None,
     ):
         """
         初始化检索引擎
-        
+
         Args:
             storage: QdrantMemoryStore 实例
-            router: 检索路由器（可选，默认 SimpleRouter）
-            processor: 查询处理器（可选，默认 QueryProcessor）
-            searcher: 混合检索器（可选，自动创建）
-            renderer: 上下文渲染器（可选，自动创建）
-            enable_routing: 是否启用路由判断
-            default_top_k: 默认返回数量
-            default_threshold: 默认相似度阈值
-            render_format: 渲染格式
-            max_context_tokens: 最大上下文长度
+            router: 检索路由器（可选，使用配置）
+            processor: 查询处理器（可选，使用配置）
+            searcher: 混合检索器（可选，使用配置）
+            renderer: 上下文渲染器（可选，使用配置）
+            config: 记忆检索配置（可选，用于创建组件）
+            enable_routing: 是否启用路由判断（兼容旧参数）
+            default_top_k: 默认返回数量（兼容旧参数）
+            default_threshold: 默认相似度阈值（兼容旧参数）
+            render_format: 渲染格式（兼容旧参数）
+            max_context_tokens: 最大上下文长度（兼容旧参数）
+            hybrid_search_config: 混合检索配置（兼容旧参数，优先使用 config.hybrid_search）
+
+        Examples:
+            >>> # 使用默认配置
+            >>> engine = MemoryRetrievalEngine(storage=storage)
+            >>>
+            >>> # 使用自定义配置
+            >>> from hivememory.core.config import MemoryRetrievalConfig
+            >>> config = MemoryRetrievalConfig()
+            >>> engine = MemoryRetrievalEngine(storage=storage, config=config)
         """
         self.storage = storage
-        self.enable_routing = enable_routing
-        self.default_top_k = default_top_k
-        self.default_threshold = default_threshold
-        
-        # 初始化组件
-        self.router = router or SimpleRouter()
-        self.processor = processor or QueryProcessor()
-        self.searcher = searcher or HybridSearcher(
-            storage=storage,
-            enable_parallel=True,
-            enable_hybrid_search=True,
-        )
-        self.renderer = renderer or ContextRenderer(
-            render_format=render_format,
-            max_tokens=max_context_tokens
-        )
-        
+
+        # 使用传入的配置或加载默认配置
+        if config is None:
+            from hivememory.core.config import MemoryRetrievalConfig
+            config = MemoryRetrievalConfig()
+
+        # 如果组件未提供，使用配置创建
+        if router is None:
+            self.router = create_default_router(config.router)
+        else:
+            self.router = router
+
+        if processor is None:
+            self.processor = create_default_processor(config.processor)
+        else:
+            self.processor = processor
+
+        # 混合检索器：优先使用传入的 searcher，其次使用 config.hybrid_search
+        if searcher:
+            self.searcher = searcher
+        elif hybrid_search_config:
+            self.searcher = HybridSearcher(
+                storage=storage,
+                config=hybrid_search_config,
+            )
+        else:
+            self.searcher = HybridSearcher(
+                storage=storage,
+                config=config.hybrid_search,
+            )
+
+        if renderer is None:
+            self.renderer = create_default_renderer(config.renderer)
+        else:
+            self.renderer = renderer
+
+        # 兼容旧参数（优先使用 config 的值）
+        self.enable_routing = enable_routing if enable_routing != True else config.enable_routing
+        self.default_top_k = default_top_k if default_top_k != 5 else config.default_top_k
+        self.default_threshold = default_threshold if default_threshold != 0.3 else config.default_threshold
+
         logger.info("RetrievalEngine 初始化完成")
     
     def retrieve_context(
@@ -275,37 +315,28 @@ class RetrievalEngine(RetrievalEngineInterface):
 
 def create_retrieval_engine(
     storage,
-    enable_routing: bool = True,
-    top_k: int = 5,
-    threshold: float = 0.6,
-    render_format: str = "xml"
-) -> RetrievalEngine:
+    config: Optional["MemoryRetrievalConfig"] = None,
+) -> MemoryRetrievalEngine:
     """
     创建检索引擎的便捷函数
-    
+
     Args:
         storage: QdrantMemoryStore 实例
-        enable_routing: 是否启用路由判断
-        top_k: 默认返回数量
-        threshold: 默认相似度阈值
-        render_format: 渲染格式（"xml" 或 "markdown"）
-        
+        config: 记忆检索配置
+
     Returns:
-        RetrievalEngine 实例
+        MemoryRetrievalEngine 实例
     """
-    fmt = RenderFormat.XML if render_format.lower() == "xml" else RenderFormat.MARKDOWN
-    
-    return RetrievalEngine(
-        storage=storage,
-        enable_routing=enable_routing,
-        default_top_k=top_k,
-        default_threshold=threshold,
-        render_format=fmt
-    )
+    return MemoryRetrievalEngine(storage=storage, config=config)
+
+
+# 向后兼容别名
+RetrievalEngine = MemoryRetrievalEngine
 
 
 __all__ = [
     "RetrievalResult",
+    "MemoryRetrievalEngine",
     "RetrievalEngine",
     "create_retrieval_engine",
 ]

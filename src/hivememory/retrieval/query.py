@@ -374,10 +374,31 @@ class QueryProcessor(QueryProcessorInterface):
         return any(kw in query_lower for kw in self.CONTEXT_KEYWORDS)
 
 
+def create_default_processor(config: Optional["QueryProcessorConfig"] = None) -> QueryProcessor:
+    """
+    创建默认查询处理器
+
+    Args:
+        config: 查询处理配置
+
+    Returns:
+        QueryProcessor 实例
+    """
+    if config is None:
+        from hivememory.core.config import QueryProcessorConfig
+        config = QueryProcessorConfig()
+    
+    return QueryProcessor(
+        enable_llm_rewrite=config.enable_llm_rewrite,
+        llm_config=config.llm_config.model_dump() if config.llm_config else None
+    )
+
+
 __all__ = [
     "QueryFilters",
     "ProcessedQuery",
     "QueryProcessor",
     "TimeExpressionParser",
     "MemoryTypeDetector",
+    "create_default_processor",
 ]
