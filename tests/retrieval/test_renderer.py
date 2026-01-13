@@ -97,12 +97,32 @@ class TestContextRenderer:
 
     def test_time_formatting(self):
         """测试时间格式化"""
+        # 使用渲染输出检查时间格式化
         # 2小时前
-        assert "小时前" in self.renderer._format_time_ago(datetime.now() - timedelta(hours=2))
+        output = self.renderer.render([self.memory1], render_format=RenderFormat.XML)
+        assert "小时前" in output
+
         # 5天前
-        assert "天前" in self.renderer._format_time_ago(datetime.now() - timedelta(days=5))
-        # 40天前
-        assert "个月前" in self.renderer._format_time_ago(datetime.now() - timedelta(days=40))
+        output = self.renderer.render([self.memory2], render_format=RenderFormat.XML)
+        assert "天前" in output
+
+        # 测试更早的时间（40天 = 1个月）
+        old_memory = MemoryAtom(
+            index=IndexLayer(
+                title="Old Memory",
+                summary="Old memory summary.",
+                memory_type=MemoryType.FACT,
+                tags=["old"]
+            ),
+            payload=PayloadLayer(content="Old content"),
+            meta=MetaData(
+                source_agent_id="test",
+                user_id="u1",
+                updated_at=datetime.now() - timedelta(days=40)
+            )
+        )
+        output = self.renderer.render([old_memory], render_format=RenderFormat.XML)
+        assert "个月前" in output
 
     def test_confidence_formatting(self):
         """测试置信度格式化"""

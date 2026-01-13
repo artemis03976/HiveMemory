@@ -17,7 +17,7 @@ import re
 import logging
 
 from hivememory.core.models import MemoryType
-from hivememory.generation.models import ConversationMessage
+from hivememory.generation import ConversationMessage
 from hivememory.retrieval.interfaces import QueryProcessor as QueryProcessorInterface
 
 from hivememory.retrieval.models import QueryFilters, ProcessedQuery

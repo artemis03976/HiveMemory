@@ -35,7 +35,7 @@ import uuid
 import redis
 from datetime import datetime
 
-from hivememory.core.config import get_config
+from hivememory.core.config import load_app_config
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.agents.chatbot import ChatBotAgent
@@ -54,8 +54,8 @@ st.set_page_config(
 @st.cache_resource
 def initialize_system():
     """初始化系统组件（缓存，避免重复初始化）"""
-    # 加载配置
-    config = get_config()
+    # 加载配置 (使用工厂函数)
+    config = load_app_config()
 
     # 初始化 Redis
     redis_client = redis.Redis(
@@ -70,7 +70,12 @@ def initialize_system():
     )
 
     # 初始化 Patchouli Agent（图书管理员）
-    patchouli = PatchouliAgent(storage=storage)
+    # 使用依赖注入传入配置
+    patchouli = PatchouliAgent(
+        storage=storage,
+        perception_config=config.perception,
+        generation_config=config.generation
+    )
 
     # 初始化 Session Manager
     session_manager = SessionManager(
@@ -96,16 +101,13 @@ def init_session_state():
     if "chatbot_agent" not in st.session_state:
         config, patchouli, session_manager, _ = initialize_system()
 
-        # 获取 Worker LLM 配置
-        worker_llm_config = config.get_worker_llm_config()
-
         # 创建 ChatBot Agent
         st.session_state.chatbot_agent = ChatBotAgent(
             patchouli=patchouli,
             session_manager=session_manager,
             user_id=st.session_state.user_id,
             agent_id="streamlit_chatbot",
-            llm_config=worker_llm_config,  # 直接传递配置对象
+            config=config,  # 依赖注入：传递全局配置
             enable_memory_retrieval=False,  # 默认关闭，后续由侧边栏控制
             enable_lifecycle_management=False  # 示例中暂不启用生命周期管理
         )
@@ -253,9 +255,15 @@ def render_sidebar():
 
             # 帕秋莉配置
             st.subheader("📚 帕秋莉配置")
-            st.text(f"触发阈值: {config.memory.buffer.max_messages} 条消息")
-            st.text(f"空闲触发: {config.memory.buffer.timeout_seconds // 60} 分钟")
-            st.text(f"最低置信度: {config.memory.extraction.min_confidence}")
+            st.text(f"感知层类型: {config.perception.layer_type}")
+            if config.perception.layer_type == "semantic_flow":
+                st.text(f"空闲超时: {config.perception.semantic_flow.idle_timeout_seconds // 60} 分钟")
+                st.text(f"语义阈值: {config.perception.semantic_flow.semantic_threshold}")
+            else:
+                st.text(f"消息阈值: {config.perception.simple.message_threshold} 条")
+                st.text(f"空闲超时: {config.perception.simple.timeout_seconds // 60} 分钟")
+            st.text(f"高相似阈值: {config.generation.deduplicator.high_similarity_threshold}")
+            st.text(f"低相似阈值: {config.generation.deduplicator.low_similarity_threshold}")
 
             st.divider()
 

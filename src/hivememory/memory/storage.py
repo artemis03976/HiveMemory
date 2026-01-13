@@ -11,9 +11,6 @@ Qdrant 向量存储层封装
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 import logging
-import requests
-import json
-from datetime import datetime
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -24,13 +21,8 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue,
     Range,
-    SearchRequest,
     SparseVectorParams,
-    SparseVectorsConfig,
     SparseVector,
-    NamedSparseVector,
-    NamedVector,
-    SearchParams,
 )
 
 from hivememory.core.models import MemoryAtom, IndexLayer
@@ -168,9 +160,8 @@ class QdrantMemoryStore:
                     sparse_texts=sparse_context
                 )
 
-                # 存储稠密向量到 memory.index.embedding
+                # 获取稠密向量
                 dense_vector = vectors["dense"]
-                memory.index.embedding = dense_vector
 
                 # 构造稀疏向量 (字典转 indices/values 格式)
                 sparse_dict = vectors["sparse"]
@@ -197,12 +188,8 @@ class QdrantMemoryStore:
                 logger.debug(f"✓ 成功存储记忆 (Dense+Sparse): {memory.id} - {memory.index.title}")
             else:
                 # 仅使用稠密向量
-                if memory.index.embedding is None or force_regenerate:
-                    embedding_text = memory.index.get_embedding_text()
-                    embedding = self.embedding_service.encode(dense_texts=embedding_text)
-                    memory.index.embedding = embedding
-                else:
-                    embedding = memory.index.embedding
+                embedding_text = memory.index.get_embedding_text()
+                embedding = self.embedding_service.encode(dense_texts=embedding_text)
 
                 # 构建 Qdrant Point - 使用命名向量格式以保持一致性
                 point = PointStruct(

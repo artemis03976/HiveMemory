@@ -12,10 +12,10 @@ from unittest.mock import Mock, MagicMock
 from datetime import datetime
 
 from hivememory.core.models import MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
-from hivememory.retrieval.engine import RetrievalEngine, RetrievalResult
+from hivememory.retrieval.engine import MemoryRetrievalEngine, RetrievalResult
 from hivememory.retrieval.router import RetrievalRouter
 from hivememory.retrieval.query import QueryProcessor, ProcessedQuery
-from hivememory.retrieval.searcher import HybridSearcher, SearchResults, SearchResult
+from hivememory.retrieval.memory_retriever import HybridRetriever, SearchResults, SearchResult
 from hivememory.retrieval.renderer import ContextRenderer
 
 class TestRetrievalEngine:
@@ -26,10 +26,10 @@ class TestRetrievalEngine:
         self.mock_storage = Mock()
         self.mock_router = Mock(spec=RetrievalRouter)
         self.mock_processor = Mock(spec=QueryProcessor)
-        self.mock_searcher = Mock(spec=HybridSearcher)
+        self.mock_searcher = Mock(spec=HybridRetriever)
         self.mock_renderer = Mock(spec=ContextRenderer)
         
-        self.engine = RetrievalEngine(
+        self.engine = MemoryRetrievalEngine(
             storage=self.mock_storage,
             router=self.mock_router,
             processor=self.mock_processor,
@@ -49,7 +49,7 @@ class TestRetrievalEngine:
         self.search_results = SearchResults(
             results=[SearchResult(memory=self.memory, score=0.9)]
         )
-        self.mock_searcher.search.return_value = self.search_results
+        self.mock_retriever.retrieve.return_value = self.search_results
         self.mock_renderer.render.return_value = "<context>C1</context>"
 
     def test_retrieve_context_full_flow(self):
@@ -66,7 +66,7 @@ class TestRetrievalEngine:
         # 验证调用顺序
         self.mock_router.should_retrieve.assert_called_once()
         self.mock_processor.process.assert_called_once()
-        self.mock_searcher.search.assert_called_once()
+        self.mock_retriever.retrieve.assert_called_once()
         self.mock_renderer.render.assert_called_once()
 
     def test_retrieve_context_skipped(self):
@@ -96,11 +96,11 @@ class TestRetrievalEngine:
         
         # 即使路由说不，也应该检索
         assert result.should_retrieve is True  # 注意：这里 Result 里的 should_retrieve 还是 True，因为逻辑被绕过了
-        self.mock_searcher.search.assert_called_once()
+        self.mock_retriever.retrieve.assert_called_once()
 
     def test_search_error_handling(self):
         """测试检索错误处理"""
-        self.mock_searcher.search.side_effect = Exception("Search failed")
+        self.mock_retriever.retrieve.side_effect = Exception("Search failed")
         
         # 不应抛出异常，而是返回空结果
         result = self.engine.retrieve_context(
@@ -115,14 +115,14 @@ class TestRetrievalEngine:
         """测试简化搜索接口"""
         # Mock processor return value
         self.mock_processor.process.return_value = ProcessedQuery(semantic_query="test", original_query="test")
-        self.mock_searcher.search.return_value = self.search_results
+        self.mock_retriever.retrieve.return_value = self.search_results
         
         memories = self.engine.search_memories("test", "u1")
         
         assert len(memories) == 1
         assert memories[0].index.title == "M1"
         self.mock_processor.process.assert_called()
-        self.mock_searcher.search.assert_called_once()
+        self.mock_retriever.retrieve.assert_called_once()
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

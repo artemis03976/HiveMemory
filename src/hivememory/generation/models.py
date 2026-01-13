@@ -6,7 +6,8 @@ from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
-# ============ 基础模型: 对话消息 ============
+
+# ============ 对话消息模型 ============
 
 class ConversationMessage(BaseModel):
     """
@@ -71,3 +72,10 @@ class DuplicateDecision(str, Enum):
     UPDATE = "update"
     TOUCH = "touch"
     DISCARD = "discard"
+
+
+__all__ = [
+    "ConversationMessage",
+    "ExtractedMemoryDraft",
+    "DuplicateDecision",
+]

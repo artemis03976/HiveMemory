@@ -17,22 +17,23 @@ HiveMemory - 记忆提取器 (Memory Extractor)
 import json
 import logging
 import re
+import ast
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 import litellm
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
-from pydantic import BaseModel, Field
 
 from hivememory.core.config import LLMConfig, get_librarian_llm_config
-from hivememory.generation.interfaces import MemoryExtractor, ExtractionError
+from hivememory.generation.interfaces import MemoryExtractor
 from hivememory.generation.models import ExtractedMemoryDraft
 from hivememory.agents.prompts.patchouli import PATCHOULI_SYSTEM_PROMPT, PATCHOULI_USER_PROMPT
 
 logger = logging.getLogger(__name__)
 
-# ========== 实现类 ==========
+
+ROLE_MAPPING = {"human": "user", "ai": "assistant", "system": "system"}
 
 class LLMMemoryExtractor(MemoryExtractor):
     """
@@ -170,19 +171,10 @@ class LLMMemoryExtractor(MemoryExtractor):
         Returns:
             list[Dict]: LiteLLM 格式的消息列表
         """
-        messages = []
-        for msg in langchain_messages:
-            role = msg.type
-
-            # 映射角色名
-            if role == "human":
-                role = "user"
-            elif role == "ai":
-                role = "assistant"
-
-            messages.append({"role": role, "content": msg.content})
-
-        return messages
+        return [
+            {"role": ROLE_MAPPING.get(msg.type, msg.type), "content": msg.content}
+            for msg in langchain_messages
+        ]
 
     def _call_llm_with_retry(self, messages: list[Dict[str, str]]) -> Optional[str]:
         """
@@ -224,66 +216,96 @@ class LLMMemoryExtractor(MemoryExtractor):
 
                 # 最后一次尝试失败时才抛出异常
                 if attempt == self.max_retries - 1:
-                    raise ExtractionError(f"LLM 调用失败，重试耗尽: {e}") from e
+                    logger.warning(f"LLM 调用失败，重试耗尽: {e}")
 
         return None
 
     def _parse_json_output(self, raw_output: str) -> Optional[ExtractedMemoryDraft]:
         """
-        解析 LLM 输出的 JSON (容错版本)
+        解析 LLM 输出的 JSON (增强容错版本)
 
         解析策略:
-            1. 尝试直接解析 (纯 JSON)
-            2. 提取 ```json 代码块
-            3. 正则提取第一个 JSON 对象 {...}
+            1. 尝试 Markdown 代码块提取 (支持 json/JSON 或无标识)
+            2. 尝试直接解析
+            3. 尝试智能提取第一个 JSON 对象 (基于括号计数)
+            4. 容错处理: 支持单引号、尾部逗号 (通过 ast.literal_eval)
 
         Args:
             raw_output: LLM 原始输出
 
         Returns:
             ExtractedMemoryDraft: 解析后的草稿，失败时返回 None
-
-        Examples:
-            >>> extractor = LLMMemoryExtractor()
-            >>> draft = extractor._parse_json_output('{"title": "测试", ...}')
-            >>> draft.title
-            "测试"
         """
-        try:
-            # 策略 1: 直接解析
-            data = json.loads(raw_output)
-            return ExtractedMemoryDraft(**data)
+        # 1. 预处理：移除可能的 BOM 头
+        raw_output = raw_output.strip()
+        if raw_output.startswith('\ufeff'):
+            raw_output = raw_output[1:]
 
-        except json.JSONDecodeError:
-            logger.debug("直接解析失败，尝试提取 JSON 代码块...")
-
-            # 策略 2: 提取 ```json 代码块
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_output, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
+        # 定义尝试解析的候选字符串生成器
+        def get_candidates(text):
+            # 策略 A: Markdown 代码块 (增强版正则)
+            # 匹配 ```json, ```JSON, ``` (无语言)
+            code_block_pattern = r'```(?:[a-zA-Z]+)?\s*(\{.*?\})\s*```'
+            matches = list(re.finditer(code_block_pattern, text, re.DOTALL))
+            if matches:
+                for match in matches:
+                    yield match.group(1)
+            
+            # 策略 B: 原文 (如果原文本身就是 JSON)
+            yield text
+            
+            # 策略 C: 智能提取第一个 JSON 对象 (基于括号计数)
+            start_idx = text.find('{')
+            if start_idx != -1:
+                brace_count = 0
+                in_string = False
+                escape = False
+                for i, char in enumerate(text[start_idx:], start=start_idx):
+                    if char == '"' and not escape:
+                        in_string = not in_string
+                    
+                    if not in_string:
+                        if char == '{':
+                            brace_count += 1
+                        elif char == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                # 找到一个完整的对象
+                                candidate = text[start_idx:i+1]
+                                if candidate != text: 
+                                    yield candidate
+                                break
+                    
+                    if char == '\\':
+                        escape = not escape
+                    else:
+                        escape = False
+        
+        # 定义解析函数
+        def try_parse(json_str):
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                # 尝试修复常见错误
                 try:
-                    data = json.loads(json_str)
+                    # 尝试 ast.literal_eval 处理 Python 风格字典 (单引号, True/False)
+                    return ast.literal_eval(json_str)
+                except (ValueError, SyntaxError):
+                    pass
+                return None
+
+        # 遍历候选并解析
+        for json_str in get_candidates(raw_output):
+            data = try_parse(json_str)
+            if data is not None and isinstance(data, dict):
+                try:
                     return ExtractedMemoryDraft(**data)
                 except Exception as e:
-                    logger.warning(f"代码块解析失败: {e}")
+                    logger.warning(f"Schema 验证失败: {e}")
+                    continue
 
-            # 策略 3: 正则提取纯 JSON
-            json_match = re.search(r'(\{.*\})', raw_output, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-                try:
-                    data = json.loads(json_str)
-                    return ExtractedMemoryDraft(**data)
-                except Exception as e:
-                    logger.warning(f"正则提取解析失败: {e}")
-
-            # 所有策略失败
-            logger.error(f"无法解析 JSON 输出: {raw_output[:200]}...")
-            return None
-
-        except Exception as e:
-            logger.error(f"解析 JSON 失败: {e}")
-            return None
+        logger.error(f"无法解析 JSON 输出: {raw_output[:200]}...")
+        return None
 
 
 # 便捷函数
@@ -309,10 +331,8 @@ def create_default_extractor(
         >>> extractor = create_default_extractor(config)
     """
     if config is None:
-        from hivememory.core.config import MemoryConfig
-        # 从全局配置获取
-        memory_config = MemoryConfig()
-        config = memory_config.extraction.extractor
+        from hivememory.core.config import ExtractorConfig
+        config = ExtractorConfig()
 
     # 准备 LLM 配置
     llm_config = config.llm_config
@@ -334,7 +354,6 @@ def create_default_extractor(
 
 
 __all__ = [
-    "ExtractedMemoryDraft",
     "LLMMemoryExtractor",
     "create_default_extractor",
 ]

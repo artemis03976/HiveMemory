@@ -12,10 +12,11 @@ ChatBot Worker Agent - 与用户对话并将对话流推送给帕秋莉
 
 import logging
 import uuid
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 import litellm
 
+from hivememory.core.config import HiveMemoryConfig, LLMConfig
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.agents.session_manager import SessionManager, ChatMessage
 from hivememory.agents.prompts.chatbot import CHATBOT_SYSTEM_PROMPT
@@ -37,7 +38,8 @@ class ChatBotAgent:
         session_manager: SessionManager,
         user_id: str,
         agent_id: str = "chatbot_worker",
-        llm_config: Optional[Dict[str, Any]] = None,
+        config: Optional[HiveMemoryConfig] = None,
+        llm_config: Optional[Union[LLMConfig, Dict[str, Any]]] = None,
         system_prompt: Optional[str] = None,
         retrieval_engine: Optional[Any] = None,  # RetrievalEngine
         enable_memory_retrieval: bool = True,
@@ -50,7 +52,8 @@ class ChatBotAgent:
             session_manager: 会话管理器
             user_id: 用户 ID
             agent_id: Agent ID
-            llm_config: LLM 配置（model, temperature, max_tokens 等）
+            config: 全局配置对象 (Dependency Injection)
+            llm_config: LLM 配置（model, temperature, max_tokens 等）。如果未提供，尝试从 config 获取。
             system_prompt: 系统提示词（可选）
             retrieval_engine: 记忆检索引擎（可选）
             enable_memory_retrieval: 是否启用记忆检索，默认 True
@@ -61,7 +64,20 @@ class ChatBotAgent:
         self.session_manager = session_manager
         self.user_id = user_id
         self.agent_id = agent_id
-        self.llm_config = llm_config or {}
+        self.config = config
+
+        # 解析 LLM 配置
+        if llm_config:
+            self.llm_config = llm_config
+        elif config:
+            self.llm_config = config.get_worker_llm_config()
+        else:
+            # Fallback default
+            self.llm_config = LLMConfig()
+
+        # 确保 llm_config 是对象 (如果是 dict 则转换)
+        if isinstance(self.llm_config, dict):
+            self.llm_config = LLMConfig(**self.llm_config)
 
         # 默认系统提示词
         self.system_prompt = system_prompt or CHATBOT_SYSTEM_PROMPT

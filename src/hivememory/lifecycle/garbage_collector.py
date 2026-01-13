@@ -3,19 +3,24 @@ HiveMemory - 垃圾回收器
 
 定期扫描低生命力记忆并触发归档。
 
-支持手动触发和定时触发。
-
-作者: HiveMemory Team
-版本: 0.1.0
 """
 
-import logging
-from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from uuid import UUID
+from datetime import datetime
+import logging
 
-from hivememory.lifecycle.interfaces import GarbageCollector, VitalityCalculator, MemoryArchiver
+from hivememory.lifecycle.interfaces import (
+    GarbageCollector,
+    LifecycleManager,
+    VitalityCalculator,
+    MemoryArchiver
+)
 from hivememory.lifecycle.models import ArchiveStatus
+from hivememory.memory.storage import QdrantMemoryStore
+
+if TYPE_CHECKING:
+    from hivememory.core.config import GarbageCollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ class PeriodicGarbageCollector(GarbageCollector):
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         archiver: MemoryArchiver,
         vitality_calculator: VitalityCalculator,
         low_watermark: float = 20.0,
@@ -190,36 +195,6 @@ class PeriodicGarbageCollector(GarbageCollector):
         }
         logger.info("Statistics reset")
 
-    def _get_all_memories(self) -> List:
-        """
-        获取所有记忆
-
-        Returns:
-            List[MemoryAtom]: 所有记忆列表
-        """
-        # 尝试使用批量方法
-        if hasattr(self.storage, "get_all_memories"):
-            return self.storage.get_all_memories(limit=10000)
-
-        # 回退到滚动查询
-        memories = []
-        try:
-            from qdrant_client.models import ScrollRequest, Filter
-
-            scroll_result = self.storage.client.scroll(
-                collection_name=self.storage.collection_name,
-                limit=10000,
-                with_payload=True,
-                with_vectors=False,
-            )
-            for point in scroll_result[0]:
-                memory = self.storage._payload_to_memory(point.payload)
-                memories.append(memory)
-        except Exception as e:
-            logger.error(f"Failed to get all memories: {e}")
-
-        return memories
-
     def _update_stats(
         self,
         scanned: int,
@@ -324,7 +299,8 @@ class ScheduledGarbageCollector(PeriodicGarbageCollector):
 def create_default_garbage_collector(
     storage,
     archiver: MemoryArchiver,
-    vitality_calculator: VitalityCalculator
+    vitality_calculator: VitalityCalculator,
+    config: Optional["GarbageCollectorConfig"] = None,
 ) -> GarbageCollector:
     """
     创建默认垃圾回收器
@@ -333,11 +309,22 @@ def create_default_garbage_collector(
         storage: 向量存储实例
         archiver: 归档器实例
         vitality_calculator: 生命力计算器实例
+        config: 垃圾回收器配置 (可选)
 
     Returns:
         GarbageCollector: 垃圾回收器实例
     """
-    return PeriodicGarbageCollector(storage, archiver, vitality_calculator)
+    if config is None:
+        from hivememory.core.config import GarbageCollectorConfig
+        config = GarbageCollectorConfig()
+
+    return PeriodicGarbageCollector(
+        storage=storage,
+        archiver=archiver,
+        vitality_calculator=vitality_calculator,
+        low_watermark=config.low_watermark,
+        batch_size=config.batch_size,
+    )
 
 
 __all__ = [

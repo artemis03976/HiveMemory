@@ -16,6 +16,8 @@ from typing import List, Optional, Tuple, Union, Dict, Any
 from functools import lru_cache
 from abc import ABC, abstractmethod
 
+import numpy as np
+
 from hivememory.core.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -206,7 +208,7 @@ class LocalEmbeddingService(BaseEmbeddingService):
         except Exception as e:
             logger.warning(f"Encoding 失败，使用零向量: {e}")
             dim = self.model.get_sentence_embedding_dimension()
-            embeddings = __import__("numpy").zeros((len(texts), dim))
+            embeddings = np.zeros((len(texts), dim))
 
         if single_input:
             return embeddings[0].tolist()
@@ -243,10 +245,8 @@ class LocalEmbeddingService(BaseEmbeddingService):
 
         vecs2 = self.encode(text2, normalize=True)
 
-        import numpy as np
-
-        vec1_array = __import__("numpy").array(vec1)
-        vecs2_array = __import__("numpy").array(vecs2)
+        vec1_array = np.array(vec1)
+        vecs2_array = np.array(vecs2)
 
         similarities = np.dot(vecs2_array, vec1_array)
 
@@ -374,7 +374,6 @@ def create_embedding_service(
 
 
 # ========== BGE-M3 Hybrid Embedding 服务 ==========
-
 
 class BGEM3EmbeddingService(BaseEmbeddingService):
     """
@@ -508,8 +507,6 @@ class BGEM3EmbeddingService(BaseEmbeddingService):
             >>> dense = result["dense"]
             >>> sparse = result["sparse"]
         """
-        import numpy as np
-
         # 至少需要一种输入
         if dense_texts is None and sparse_texts is None:
             raise ValueError("至少需要提供 dense_texts 或 sparse_texts 参数")

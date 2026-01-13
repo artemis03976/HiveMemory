@@ -15,10 +15,10 @@ HiveMemory - Generation 模块接口抽象层
 
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
-from enum import Enum
 
 from hivememory.core.models import MemoryAtom
 from hivememory.generation.models import ConversationMessage, DuplicateDecision, ExtractedMemoryDraft
+
 
 # ========== 接口定义 ==========
 
@@ -166,37 +166,10 @@ class Deduplicator(ABC):
         pass
 
 
-
-
-# ========== 异常定义 ==========
-
-class ExtractionError(Exception):
-    """记忆提取失败异常"""
-    pass
-
-
-class DeduplicationError(Exception):
-    """查重处理失败异常"""
-    pass
-
-
 # ========== 导出列表 ==========
 
 __all__ = [
-    # 枚举
-    "DuplicateDecision",
-    "TriggerReason",
-
-    # 接口
     "ValueGater",
     "MemoryExtractor",
     "Deduplicator",
-    "TriggerStrategy",
-
-    # 数据类
-    "ExtractedMemoryDraft",
-
-    # 异常
-    "ExtractionError",
-    "DeduplicationError",
 ]

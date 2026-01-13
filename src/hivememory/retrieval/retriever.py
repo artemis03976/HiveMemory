@@ -1,27 +1,43 @@
 """
-基础检索器模块 (Base Retrievers)
+记忆检索器模块 (MemoryRetrievers)
 
-包含基本的稠密和稀疏向量检索器实现。
+包含各类记忆检索器的实现：
+1. DenseRetriever: 稠密向量检索
+2. SparseRetriever: 稀疏向量检索
+3. HybridRetriever: 混合检索 (Dense + Sparse + RRF)
+4. CachedRetriever: 带缓存的检索装饰器
 """
 
 import logging
 import math
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Tuple, TYPE_CHECKING
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from hivememory.core.config import DenseRetrieverConfig, SparseRetrieverConfig
-from hivememory.retrieval.interfaces import MemorySearcher
+from hivememory.core.config import (
+    DenseRetrieverConfig,
+    SparseRetrieverConfig,
+    FusionConfig,
+)
+from hivememory.retrieval.interfaces import MemoryRetriever
 from hivememory.retrieval.models import (
     ProcessedQuery,
     SearchResult,
     SearchResults,
+    QueryFilters,
 )
+from hivememory.retrieval.fusion import ReciprocalRankFusion
+from hivememory.retrieval.reranker import NoopReranker, CrossEncoderReranker, BaseReranker
+from hivememory.memory.storage import QdrantMemoryStore
+
+if TYPE_CHECKING:
+    from hivememory.core.config import HybridRetrieverConfig
 
 logger = logging.getLogger(__name__)
 
 
-class DenseRetriever(MemorySearcher):
+class DenseRetriever(MemoryRetriever):
     """
     稠密向量检索器
 
@@ -30,7 +46,7 @@ class DenseRetriever(MemorySearcher):
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         config: Optional[DenseRetrieverConfig] = None
     ):
         """
@@ -123,25 +139,6 @@ class DenseRetriever(MemorySearcher):
             latency_ms=latency
         )
 
-    def search(
-        self,
-        query: ProcessedQuery,
-        top_k: int = 5,
-        score_threshold: float = 0.75
-    ) -> SearchResults:
-        """
-        MemorySearcher 接口实现
-
-        Args:
-            query: 处理后的查询
-            top_k: 返回数量
-            score_threshold: 相似度阈值
-
-        Returns:
-            检索结果集合
-        """
-        return self.retrieve(query, top_k, score_threshold)
-
     def _calculate_time_decay(self, updated_at: datetime) -> float:
         """
         计算时间衰减系数
@@ -166,7 +163,7 @@ class DenseRetriever(MemorySearcher):
         return decay
 
 
-class SparseRetriever(MemorySearcher):
+class SparseRetriever(MemoryRetriever):
     """
     稀疏向量检索器
 
@@ -176,7 +173,7 @@ class SparseRetriever(MemorySearcher):
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         config: Optional[SparseRetrieverConfig] = None
     ):
         """
@@ -253,14 +250,122 @@ class SparseRetriever(MemorySearcher):
             latency_ms=latency
         )
 
-    def search(
+
+class HybridRetriever(MemoryRetriever):
+    """
+    混合检索器
+
+    结合稠密向量检索、稀疏向量检索和 RRF 融合，提供高质量的检索结果。
+
+    架构:
+        1. Parallel Recall: DenseRetriever || SparseRetriever
+        2. Fusion: RRF 合并结果
+        3. Rerank: 可选的重排序
+        4. Return: Top-K 最终结果
+    """
+
+    def __init__(
+        self,
+        storage: QdrantMemoryStore,
+        # 统一配置（优先）
+        config: Optional["HybridRetrieverConfig"] = None,
+        # 新式混合搜索配置（单独指定，向后兼容）
+        dense_config: Optional["DenseRetrieverConfig"] = None,
+        sparse_config: Optional["SparseRetrieverConfig"] = None,
+        fusion_config: Optional["FusionConfig"] = None,
+        reranker: Optional["BaseReranker"] = None,
+        enable_parallel: bool = True,
+        # 启用混合搜索模式
+        enable_hybrid_search: bool = False,
+    ):
+        """
+        初始化混合检索器
+
+        Args:
+            storage: QdrantMemoryStore 实例
+            config: 统一混合检索配置（HybridRetrieverConfig，优先使用）
+            dense_config: 稠密检索器配置（当 config=None 时使用）
+            sparse_config: 稀疏检索器配置（当 config=None 时使用）
+            fusion_config: RRF 融合配置（当 config=None 时使用）
+            reranker: 重排序器 (可选)
+            enable_parallel: 是否启用并行召回（当 config=None 时使用）
+            enable_hybrid_search: 启用混合搜索模式 (稠密+稀疏+RRF)（当 config=None 时使用）
+        """
+        self.storage = storage
+
+        if config is None:
+            from hivememory.core.config import HybridRetrieverConfig
+            config = HybridRetrieverConfig()
+
+        self.enable_parallel = config.enable_parallel
+        self.enable_hybrid_search = config.enable_hybrid_search
+        self.default_top_k = config.top_k
+        self.default_threshold = config.score_threshold
+
+        # 初始化稠密检索器
+        if config.dense.enabled:
+            self.dense_retriever = DenseRetriever(storage, config.dense)
+        else:
+            self.dense_retriever = None
+
+        # 初始化稀疏检索器
+        if config.sparse.enabled:
+            self.sparse_retriever = SparseRetriever(storage, config.sparse)
+        else:
+            self.sparse_retriever = None
+
+        # 初始化融合器
+        self.fusion = ReciprocalRankFusion(config.fusion)
+
+        # 初始化重排序器
+        if config.reranker.enabled:
+            self.reranker = CrossEncoderReranker(
+                model_name=config.reranker.model_name,
+                device=config.reranker.device,
+                use_fp16=config.reranker.use_fp16,
+                batch_size=config.reranker.batch_size,
+                top_k=config.reranker.top_k,
+                normalize_scores=config.reranker.normalize_scores,
+            )
+        else:
+            self.reranker = None
+
+    def retrieve(
         self,
         query: ProcessedQuery,
-        top_k: int = 5,
-        score_threshold: float = 0.0
+        top_k: Optional[int] = None,
+        score_threshold: Optional[float] = None
     ) -> SearchResults:
         """
-        MemorySearcher 接口实现
+        执行混合检索
+
+        如果 enable_hybrid_search=True，执行稠密+稀疏并行召回和 RRF 融合。
+        否则，仅执行稠密向量检索。
+
+        Args:
+            query: 处理后的查询
+            top_k: 返回数量（可选）
+            score_threshold: 相似度阈值（可选）
+
+        Returns:
+            检索结果集合
+        """
+        top_k = top_k or self.default_top_k
+        score_threshold = score_threshold or self.default_threshold
+
+        if self.enable_hybrid_search:
+            return self._search_hybrid(query, top_k, score_threshold)
+        else:
+            return self._search_dense(query, top_k, score_threshold)
+
+    def _search_hybrid(
+        self,
+        query: ProcessedQuery,
+        top_k: int,
+        score_threshold: float
+    ) -> SearchResults:
+        """
+        执行混合检索 (稠密 + 稀疏 + RRF)
 
         Args:
             query: 处理后的查询
@@ -270,4 +375,189 @@ class SparseRetriever(MemorySearcher):
         Returns:
             检索结果集合
         """
-        return self.retrieve(query, top_k, score_threshold)
+        start_time = time.time()
+
+        # 并行召回
+        if self.enable_parallel:
+            dense_results, sparse_results = self._parallel_recall(query)
+        else:
+            dense_results, sparse_results = self._sequential_recall(query)
+
+        # RRF 融合
+        fused_results = self.fusion.fuse(dense_results, sparse_results)
+
+        # 可选重排序
+        if self.reranker:
+            fused_results = self.reranker.rerank(fused_results, query)
+
+        # 应用分数阈值
+        # 注意: 仅当使用了非 NoopReranker (即提供了有意义的绝对分数) 时才应用阈值
+        if score_threshold > 0:
+            if isinstance(self.reranker, NoopReranker):
+                fused_results.results = [
+                    r for r in fused_results.results
+                    if r.score >= score_threshold
+                ]
+            else:
+                logger.debug(f"跳过阈值过滤 (threshold={score_threshold}): 当前使用的是 RRF 分数，不适用 Cosine 阈值")
+
+        # 截取 top_k
+        fused_results.results = fused_results.results[:top_k]
+
+        latency = (time.time() - start_time) * 1000
+        logger.info(
+            f"混合检索完成: 返回 {len(fused_results)} 条结果, "
+            f"耗时 {latency:.1f}ms"
+        )
+
+        return fused_results
+
+    def _parallel_recall(
+        self,
+        query: ProcessedQuery
+    ) -> Tuple[SearchResults, SearchResults]:
+        """并行执行稠密和稀疏检索"""
+        dense_results = None
+        sparse_results = None
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {
+                executor.submit(self.dense_retriever.retrieve, query): "dense",
+                executor.submit(self.sparse_retriever.retrieve, query): "sparse"
+            }
+
+            for future in as_completed(futures):
+                result_type = futures[future]
+                try:
+                    if result_type == "dense":
+                        dense_results = future.result()
+                    else:
+                        sparse_results = future.result()
+                except Exception as e:
+                    logger.error(f"{result_type.capitalize()} 检索失败: {e}")
+
+        # 返回空结果作为 fallback
+        if dense_results is None:
+            dense_results = SearchResults()
+        if sparse_results is None:
+            sparse_results = SearchResults()
+
+        return dense_results, sparse_results
+
+    def _sequential_recall(
+        self,
+        query: ProcessedQuery
+    ) -> Tuple[SearchResults, SearchResults]:
+        """顺序执行稠密和稀疏检索"""
+        dense_results = self.dense_retriever.retrieve(query)
+        sparse_results = self.sparse_retriever.retrieve(query)
+        return dense_results, sparse_results
+
+    def _search_dense(
+        self,
+        query: ProcessedQuery,
+        top_k: int,
+        score_threshold: float
+    ) -> SearchResults:
+        """
+        仅执行稠密向量检索
+
+        Args:
+            query: 处理后的查询
+            top_k: 返回数量
+            score_threshold: 相似度阈值
+
+        Returns:
+            检索结果集合
+        """
+        return self.dense_retriever.retrieve(query, top_k, score_threshold)
+
+
+class CachedRetriever(MemoryRetriever):
+    """
+    带缓存的检索器
+    
+    简单的内存缓存装饰器，用于减少重复检索的开销。
+    """
+    
+    def __init__(
+        self,
+        retriever: MemoryRetriever,
+        cache_ttl_seconds: int = 60,
+        max_cache_size: int = 100
+    ):
+        """
+        初始化缓存检索器
+        
+        Args:
+            retriever: 被装饰的检索器
+            cache_ttl_seconds: 缓存过期时间 (秒)
+            max_cache_size: 最大缓存条目数
+        """
+        self.retriever = retriever
+        self.ttl = cache_ttl_seconds
+        self.max_size = max_cache_size
+        self._cache: Dict[str, Tuple[float, SearchResults]] = {}
+        
+    def retrieve(
+        self,
+        query: ProcessedQuery,
+        top_k: Optional[int] = None,
+        score_threshold: Optional[float] = None
+    ) -> SearchResults:
+        """
+        执行检索 (带缓存)
+        """
+        # 生成缓存键
+        cache_key = f"{query.original_query}_{top_k}_{score_threshold}"
+        
+        now = time.time()
+        
+        # 检查缓存
+        if cache_key in self._cache:
+            timestamp, result = self._cache[cache_key]
+            if now - timestamp < self.ttl:
+                logger.debug(f"缓存命中: {cache_key}")
+                return result
+            else:
+                del self._cache[cache_key]
+        
+        # 执行检索
+        result = self.retriever.retrieve(query, top_k, score_threshold)
+        
+        # 更新缓存
+        if len(self._cache) >= self.max_size:
+            # 简单清理: FIFO
+            first_key = next(iter(self._cache))
+            del self._cache[first_key]
+            
+        self._cache[cache_key] = (now, result)
+        
+        return result
+
+
+def create_default_retriever(storage: QdrantMemoryStore, config: Optional["HybridRetrieverConfig"] = None) -> HybridRetriever:
+    """
+    创建默认混合检索器
+
+    Args:
+        storage: QdrantMemoryStore 实例
+        config: 混合检索配置
+
+    Returns:
+        HybridRetriever 实例
+    """
+    if config is None:
+        from hivememory.core.config import HybridRetrieverConfig
+        config = HybridRetrieverConfig()
+    
+    return HybridRetriever(storage=storage, config=config)
+
+
+__all__ = [
+    "DenseRetriever",
+    "SparseRetriever",
+    "HybridRetriever",
+    "CachedRetriever",
+    "create_default_retriever",
+]

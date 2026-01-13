@@ -15,7 +15,7 @@ HiveMemory - 动态强化引擎
 
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
@@ -25,6 +25,10 @@ from hivememory.lifecycle.models import (
     EventType,
     ReinforcementResult,
 )
+from hivememory.memory.storage import QdrantMemoryStore
+
+if TYPE_CHECKING:
+    from hivememory.core.config import ReinforcementEngineConfig
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,7 @@ class DynamicReinforcementEngine(ReinforcementEngine):
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         vitality_calculator: Optional[VitalityCalculator] = None,
         enable_event_history: bool = True,
         event_history_limit: int = 10000,
@@ -281,8 +285,9 @@ class DynamicReinforcementEngine(ReinforcementEngine):
 
 
 def create_default_reinforcement_engine(
-    storage,
-    vitality_calculator: Optional[VitalityCalculator] = None
+    storage: QdrantMemoryStore,
+    vitality_calculator: Optional[VitalityCalculator] = None,
+    config: Optional["ReinforcementEngineConfig"] = None,
 ) -> ReinforcementEngine:
     """
     创建默认强化引擎
@@ -290,11 +295,32 @@ def create_default_reinforcement_engine(
     Args:
         storage: 向量存储实例
         vitality_calculator: 生命力计算器 (可选)
+        config: 强化引擎配置 (可选)
 
     Returns:
         ReinforcementEngine: 强化引擎实例
     """
-    return DynamicReinforcementEngine(storage, vitality_calculator)
+    if config is None:
+        from hivememory.core.config import ReinforcementEngineConfig
+        config = ReinforcementEngineConfig()
+
+    # 从 config 构建 vitality_adjustments
+    from hivememory.lifecycle.models import EventType
+    vitality_adjustments = {
+        EventType.HIT: config.hit_boost,
+        EventType.CITATION: config.citation_boost,
+        EventType.FEEDBACK_POSITIVE: config.positive_feedback_boost,
+        EventType.FEEDBACK_NEGATIVE: config.negative_feedback_penalty,
+    }
+
+    return DynamicReinforcementEngine(
+        storage=storage,
+        vitality_calculator=vitality_calculator,
+        enable_event_history=config.enable_event_history,
+        event_history_limit=config.event_history_limit,
+        vitality_adjustments=vitality_adjustments,
+        negative_confidence_multiplier=config.negative_confidence_multiplier,
+    )
 
 
 __all__ = [

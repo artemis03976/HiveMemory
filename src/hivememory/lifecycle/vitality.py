@@ -16,15 +16,18 @@ HiveMemory - 生命力分数计算器
 import logging
 import math
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
 
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.lifecycle.interfaces import VitalityCalculator
 
+if TYPE_CHECKING:
+    from hivememory.core.config import VitalityCalculatorConfig
+
 logger = logging.getLogger(__name__)
 
 
-# 固有价值权重 - 基于记忆类型
+# 固有价值权重 - 基于记忆类型 (默认值，可被配置覆盖)
 # 代码片段 > 事实 > URL资源 > 反思 > 用户画像 > 进行中
 INTRINSIC_VALUE_WEIGHTS: Dict[MemoryType, float] = {
     MemoryType.CODE_SNIPPET: 1.0,
@@ -34,12 +37,6 @@ INTRINSIC_VALUE_WEIGHTS: Dict[MemoryType, float] = {
     MemoryType.USER_PROFILE: 0.6,
     MemoryType.WORK_IN_PROGRESS: 0.5,
 }
-
-# 最大访问加成 (封顶值)
-_MAX_ACCESS_BOOST = 20.0
-
-# 每次访问的加成分数
-_POINTS_PER_ACCESS = 2.0
 
 
 class StandardVitalityCalculator(VitalityCalculator):
@@ -52,28 +49,36 @@ class StandardVitalityCalculator(VitalityCalculator):
         1. 获取置信度 C (0-1)
         2. 获取固有价值 I (0-1, 基于记忆类型)
         3. 计算时间衰减 D(t) = exp(-λ × days_since_update)
-        4. 计算访问加成 A = min(20, access_count × 2)
+        4. 计算访问加成 A = min(max_boost, access_count × points_per_access)
         5. 计算最终分数 V = (C × I) × D(t) × 100 + A
 
     Examples:
-        >>> from hivememory.core.config import get_config
-        >>> config = get_config().memory.lifecycle
-        >>> calculator = StandardVitalityCalculator(config)
+        >>> from hivememory.lifecycle.vitality import create_default_vitality_calculator
+        >>> calculator = create_default_vitality_calculator()
         >>> score = calculator.calculate(memory)
     """
 
-    def __init__(self, config: Optional["LifecycleConfig"] = None):
+    def __init__(self, config: Optional["VitalityCalculatorConfig"] = None):
         """
         初始化计算器
 
         Args:
-            config: 生命周期配置对象 (可选，使用默认配置如果未提供)
+            config: 生命力计算器配置对象 (可选，使用默认配置如果未提供)
         """
         self.config = config
         if config is None:
-            # 延迟导入避免循环依赖
-            from hivememory.core.config import get_config
-            self.config = get_config().memory.lifecycle
+            from hivememory.core.config import VitalityCalculatorConfig
+            self.config = VitalityCalculatorConfig()
+
+        # 构建固有价值权重字典
+        self._intrinsic_weights = {
+            MemoryType.CODE_SNIPPET: self.config.code_snippet_weight,
+            MemoryType.FACT: self.config.fact_weight,
+            MemoryType.URL_RESOURCE: self.config.url_resource_weight,
+            MemoryType.REFLECTION: self.config.reflection_weight,
+            MemoryType.USER_PROFILE: self.config.user_profile_weight,
+            MemoryType.WORK_IN_PROGRESS: self.config.work_in_progress_weight,
+        }
 
     def calculate(self, memory: MemoryAtom) -> float:
         """
@@ -89,9 +94,9 @@ class StandardVitalityCalculator(VitalityCalculator):
         confidence = memory.meta.confidence_score
 
         # 组件 I: 固有价值 (0-1, 基于记忆类型)
-        intrinsic_value = INTRINSIC_VALUE_WEIGHTS.get(
+        intrinsic_value = self._intrinsic_weights.get(
             memory.index.memory_type,
-            0.5  # 未知类型默认值
+            self.config.default_weight
         )
 
         # 基础分数: C × I (0-1 范围)
@@ -140,23 +145,23 @@ class StandardVitalityCalculator(VitalityCalculator):
             float: 衰减因子 (0-1)
         """
         # 使用配置中的衰减系数
-        decay_lambda = getattr(self.config, "decay_lambda", 0.01)
+        decay_lambda = self.config.decay_lambda
         return math.exp(-decay_lambda * days)
 
     def _calculate_access_boost(self, access_count: int) -> float:
         """
         计算访问加成
 
-        公式: A = min(20, access_count × 2)
+        公式: A = min(max_boost, access_count × points_per_access)
 
         Args:
             access_count: 访问次数
 
         Returns:
-            float: 访问加成分数 (0-20)
+            float: 访问加成分数 (0-max_boost)
         """
-        raw_boost = access_count * _POINTS_PER_ACCESS
-        return min(_MAX_ACCESS_BOOST, raw_boost)
+        raw_boost = access_count * self.config.points_per_access
+        return min(self.config.max_access_boost, raw_boost)
 
 
 class DecayResetVitalityCalculator(StandardVitalityCalculator):
@@ -172,7 +177,7 @@ class DecayResetVitalityCalculator(StandardVitalityCalculator):
     # 引用后重置的天数
     _CITATION_RESET_DAYS = 30
 
-    def __init__(self, config: Optional["LifecycleConfig"] = None):
+    def __init__(self, config: Optional["VitalityCalculatorConfig"] = None):
         """
         初始化计算器
 
@@ -227,7 +232,7 @@ class DecayResetVitalityCalculator(StandardVitalityCalculator):
 
 
 def create_default_vitality_calculator(
-    config: Optional["LifecycleConfig"] = None
+    config: Optional["VitalityCalculatorConfig"] = None
 ) -> VitalityCalculator:
     """
     创建默认生命力计算器

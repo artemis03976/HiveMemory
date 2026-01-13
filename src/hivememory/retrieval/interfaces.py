@@ -19,8 +19,8 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 
 from hivememory.core.models import MemoryAtom
-from hivememory.generation.models import ConversationMessage
-from hivememory.retrieval.models import ProcessedQuery, SearchResults, RenderFormat
+from hivememory.generation import ConversationMessage
+from hivememory.retrieval.models import ProcessedQuery, SearchResults, RenderFormat, RetrievalResult
 
 
 # ========== 接口定义 ==========
@@ -115,7 +115,7 @@ class QueryProcessor(ABC):
         pass
 
 
-class MemorySearcher(ABC):
+class MemoryRetriever(ABC):
     """
     记忆检索器接口
 
@@ -130,7 +130,7 @@ class MemorySearcher(ABC):
     """
 
     @abstractmethod
-    def search(
+    def retrieve(
         self,
         query: "ProcessedQuery",
         top_k: int = 5,
@@ -148,8 +148,8 @@ class MemorySearcher(ABC):
             SearchResults: 检索结果集合
 
         Examples:
-            >>> searcher = HybridSearcher(storage)
-            >>> results = searcher.search(processed_query, top_k=5)
+            >>> searcher = HybridRetriever(storage)
+            >>> results = searcher.retrieve(processed_query, top_k=5)
             >>> for result in results:
             ...     print(result.memory.index.title)
         """
@@ -243,7 +243,7 @@ class RetrievalEngine(ABC):
         top_k: Optional[int] = None,
         score_threshold: Optional[float] = None,
         force_retrieve: bool = False
-    ) -> "RetrievalResult":
+    ) -> RetrievalResult:
         """
         检索相关记忆并渲染上下文
 
@@ -270,7 +270,7 @@ class RetrievalEngine(ABC):
         pass
 
     @abstractmethod
-    def search_memories(
+    def retrieve_memories(
         self,
         query_text: str,
         user_id: str,
@@ -297,7 +297,7 @@ __all__ = [
     # 接口
     "RetrievalRouter",
     "QueryProcessor",
-    "MemorySearcher",
+    "MemoryRetriever",
     "ContextRenderer",
     "RetrievalEngine",
     "BaseReranker",

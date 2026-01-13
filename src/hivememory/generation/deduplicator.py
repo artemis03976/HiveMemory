@@ -14,13 +14,18 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
 """
 
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.generation.models import DuplicateDecision, ExtractedMemoryDraft
 from hivememory.generation.interfaces import Deduplicator
+from hivememory.memory.storage import QdrantMemoryStore
+
+if TYPE_CHECKING:
+    from hivememory.lifecycle.orchestrator import MemoryLifecycleManager
+    from hivememory.core.config import DeduplicatorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +58,11 @@ class MemoryDeduplicator(Deduplicator):
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         high_similarity_threshold: float = 0.95,
         low_similarity_threshold: float = 0.75,
         content_similarity_threshold: float = 0.9,
-        lifecycle_manager=None,  # Optional[LifecycleManager]
+        lifecycle_manager: Optional["MemoryLifecycleManager"] = None,
     ):
         """
         初始化查重管理器
@@ -233,21 +238,15 @@ class MemoryDeduplicator(Deduplicator):
         Returns:
             float: 相似度 (0.0-1.0)
         """
-        if not text1 or not text2:
+        words1 = set(re.findall(r'\w+', text1.lower()))
+        words2 = set(re.findall(r'\w+', text2.lower()))
+        
+        if not words1 or not words2:
             return 0.0
-
-        # 转换为字符集
-        set1 = set(text1)
-        set2 = set(text2)
-
-        # Jaccard 相似度
-        intersection = len(set1 & set2)
-        union = len(set1 | set2)
-
-        if union == 0:
-            return 0.0
-
-        return intersection / union
+        
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+        return intersection / union if union > 0 else 0.0
 
     def merge_memory(
         self,
@@ -310,7 +309,7 @@ class MemoryDeduplicator(Deduplicator):
                 user_id=existing.meta.user_id,
                 session_id=existing.meta.session_id,
                 created_at=existing.meta.created_at,  # 保留创建时间
-                updated_at=datetime.utcnow(),  # 更新修改时间
+                updated_at=datetime.now(),  # 更新修改时间
                 confidence_score=merged_confidence,
                 access_count=existing.meta.access_count,  # 保留访问计数
                 vitality_score=existing.meta.vitality_score,  # 保留生命力
@@ -320,7 +319,6 @@ class MemoryDeduplicator(Deduplicator):
                 summary=merged_summary,
                 tags=merged_tags,
                 memory_type=existing.index.memory_type,  # 保留类型
-                embedding=existing.index.embedding,  # 保留原向量（稍后重新生成）
             ),
             payload=PayloadLayer(
                 content=merged_content,
@@ -366,7 +364,7 @@ class MemoryDeduplicator(Deduplicator):
 
 # 便捷函数
 def create_default_deduplicator(
-    storage,
+    storage: QdrantMemoryStore,
     config: Optional["DeduplicatorConfig"] = None,
 ) -> Deduplicator:
     """

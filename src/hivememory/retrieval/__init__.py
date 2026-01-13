@@ -8,7 +8,7 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 - QueryProcessor: 查询预处理与重写
 - DenseRetriever: 稠密向量检索器 (语义匹配)
 - SparseRetriever: 稀疏向量检索器 (BGE-M3/BM25, 精准实体匹配)
-- HybridSearcher: 混合检索引擎 (稠密 + 稀疏 + RRF 融合)
+- HybridRetriever: 混合检索引擎 (稠密 + 稀疏 + RRF 融合)
 - ReciprocalRankFusion: RRF 结果融合
 - ContextRenderer: 上下文渲染器
 - RetrievalEngine: 统一入口门面
@@ -22,21 +22,33 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 
 import logging
 from typing import Optional, TYPE_CHECKING, Union
-
-# 接口定义
-from hivememory.retrieval.interfaces import (
-    RetrievalRouter,
-    QueryProcessor as QueryProcessorInterface,
-    MemorySearcher,
-    ContextRenderer as ContextRendererInterface,
-    RetrievalEngine as RetrievalEngineInterface,
-    BaseReranker
-)
+from hivememory.memory.storage import QdrantMemoryStore
 
 if TYPE_CHECKING:
     from hivememory.core.config import MemoryRetrievalConfig
 
 logger = logging.getLogger(__name__)
+
+
+# 接口定义
+from hivememory.retrieval.interfaces import (
+    RetrievalRouter,
+    QueryProcessor as QueryProcessorInterface,
+    MemoryRetriever,
+    ContextRenderer as ContextRendererInterface,
+    RetrievalEngine,
+    BaseReranker
+)
+
+# 数据模型
+from hivememory.retrieval.models import (
+    QueryFilters,
+    ProcessedQuery,
+    SearchResult,
+    SearchResults,
+    RenderFormat,
+    RetrievalResult,
+)
 
 # 查询处理
 from hivememory.retrieval.query import (
@@ -55,24 +67,13 @@ from hivememory.retrieval.router import (
     create_default_router,
 )
 
-# 数据模型 (统一从 models.py 导入)
-from hivememory.retrieval.models import (
-    QueryFilters,
-    ProcessedQuery,
-    SearchResult,
-    SearchResults,
-    RenderFormat,
-)
-
-# 检索器
-from hivememory.retrieval.searcher import (
-    HybridSearcher,
-)
-
 # 混合检索组件
 from hivememory.retrieval.retriever import (
     DenseRetriever,
     SparseRetriever,
+    HybridRetriever,
+    CachedRetriever,
+    create_default_retriever,
 )
 from hivememory.retrieval.fusion import (
     ReciprocalRankFusion,
@@ -91,23 +92,21 @@ from hivememory.retrieval.renderer import (
 
 # 引擎门面
 from hivememory.retrieval.engine import (
-    RetrievalResult,
-    RetrievalEngine,
-    create_retrieval_engine,
+    MemoryRetrievalEngine,
 )
 
 
 def create_default_retrieval_engine(
-    storage,
+    storage: QdrantMemoryStore,
     config: Optional["MemoryRetrievalConfig"] = None,
-) -> RetrievalEngine:
+) -> MemoryRetrievalEngine:
     """
     创建默认配置的记忆检索引擎
 
     根据配置自动创建并配置所有子组件：
     - RetrievalRouter: 检索路由器
     - QueryProcessor: 查询处理器
-    - HybridSearcher: 混合检索器
+    - HybridRetriever: 混合检索器
     - ContextRenderer: 上下文渲染器
 
     Args:
@@ -139,7 +138,7 @@ def create_default_retrieval_engine(
     renderer = create_default_renderer(config.renderer)
 
     # 创建引擎
-    engine = RetrievalEngine(
+    engine = MemoryRetrievalEngine(
         storage=storage,
         router=router,
         processor=processor,
@@ -147,7 +146,7 @@ def create_default_retrieval_engine(
         config=config,
     )
 
-    logger.info("RetrievalEngine created with default config")
+    logger.info("MemoryRetrievalEngine created with default config")
     return engine
 
 
@@ -155,9 +154,9 @@ __all__ = [
     # 接口
     "RetrievalRouter",
     "QueryProcessorInterface",
-    "MemorySearcher",
+    "MemoryRetriever",
     "ContextRendererInterface",
-    "RetrievalEngineInterface",
+    "RetrievalEngine",
     "BaseReranker",
 
     # 数据模型
@@ -167,23 +166,18 @@ __all__ = [
     "SearchResults",
     "RenderFormat",
 
-    # 查询
+    # 查询处理
     "QueryProcessor",
     "TimeExpressionParser",
     "MemoryTypeDetector",
+    "create_default_processor",
 
     # 路由
     "SimpleRouter",
     "LLMRouter",
     "AlwaysRetrieveRouter",
     "NeverRetrieveRouter",
-
-    # 检索
-    "DenseRetriever",
-    "SparseRetriever",
-    "ReciprocalRankFusion",
-    "NoopReranker",
-    "HybridSearcher",
+    "create_default_router",
 
     # 混合检索组件
     "DenseRetriever",
@@ -192,19 +186,17 @@ __all__ = [
     "BaseReranker",
     "NoopReranker",
     "CrossEncoderReranker",
+    "HybridRetriever",
+    "CachedRetriever",
+    "create_default_retriever",
 
     # 渲染
     "ContextRenderer",
     "MinimalRenderer",
+    "create_default_renderer",
 
     # 引擎
     "RetrievalResult",
-    "RetrievalEngine",
-    "create_retrieval_engine",
+    "MemoryRetrievalEngine",
     "create_default_retrieval_engine",
-
-    # 工厂函数
-    "create_default_router",
-    "create_default_processor",
-    "create_default_renderer",
 ]

@@ -1,9 +1,9 @@
 """
-MemorySearcher 单元测试
+MemoryRetriever 单元测试
 
 测试覆盖:
-- HybridSearcher (混合检索)
-- CachedSearcher (缓存检索)
+- HybridRetriever (混合检索)
+- CachedRetriever (缓存检索)
 - 结果排序和打分
 - 时间衰减逻辑
 """
@@ -15,16 +15,16 @@ import time
 
 from hivememory.core.models import MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
 from hivememory.core.config import DenseRetrieverConfig, SparseRetrieverConfig, FusionConfig
-from hivememory.retrieval.searcher import HybridSearcher, CachedSearcher, SearchResult, SearchResults
+from hivememory.retrieval.memory_retriever import HybridRetriever, CachedRetriever, SearchResult, SearchResults
 from hivememory.retrieval.query import ProcessedQuery, QueryFilters
 
-class TestHybridSearcher:
+class TestHybridRetriever:
     """测试混合检索器"""
 
     def setup_method(self):
         self.mock_storage = Mock()
         # 默认禁用混合搜索，只使用 Dense
-        self.searcher = HybridSearcher(storage=self.mock_storage, enable_hybrid_search=False)
+        self.searcher = HybridRetriever(storage=self.mock_storage, enable_hybrid_search=False)
         
         # 准备一些测试记忆
         self.memory1 = MemoryAtom(
@@ -47,7 +47,7 @@ class TestHybridSearcher:
         ]
 
         query = ProcessedQuery(semantic_query="test", original_query="test")
-        results = self.searcher.search(query, top_k=2)
+        results = self.searcher.retrieve(query, top_k=2)
 
         assert len(results) == 2
         assert results.results[0].memory.index.title == "M1"
@@ -56,7 +56,7 @@ class TestHybridSearcher:
     def test_search_hybrid(self):
         """测试混合检索 (Dense + Sparse + RRF)"""
         # 启用混合搜索
-        hybrid_searcher = HybridSearcher(
+        hybrid_retriever = HybridRetriever(
             storage=self.mock_storage,
             enable_hybrid_search=True,
             enable_parallel=False  # 禁用并行以便于测试
@@ -73,7 +73,7 @@ class TestHybridSearcher:
         self.mock_storage.search_memories.side_effect = mock_search_side_effect
 
         query = ProcessedQuery(semantic_query="test", original_query="test")
-        results = hybrid_searcher.search(query, top_k=2)
+        results = hybrid_retriever.retrieve(query, top_k=2)
 
         # RRF 融合后应该包含 M1 和 M2
         assert len(results) == 2
@@ -99,7 +99,7 @@ class TestHybridSearcher:
         filters = QueryFilters(memory_type=MemoryType.FACT, user_id="u1")
         query = ProcessedQuery(semantic_query="test", original_query="test", filters=filters)
         
-        self.searcher.search(query)
+        self.searcher.retrieve(query)
         
         # 验证过滤条件传递
         call_args = self.mock_storage.search_memories.call_args
@@ -143,55 +143,55 @@ class TestHybridSearcher:
         assert "Dense" in results.results[0].match_reason
 
 
-class TestCachedSearcher:
+class TestCachedRetriever:
     """测试带缓存的检索器"""
 
     def setup_method(self):
-        self.mock_searcher = Mock(spec=HybridSearcher)
-        self.cached_searcher = CachedSearcher(searcher=self.mock_searcher, cache_ttl_seconds=1)
+        self.mock_retriever = Mock(spec=HybridRetriever)
+        self.cached_retriever = CachedRetriever(retriever=self.mock_retriever, cache_ttl_seconds=1)
         
         self.query = ProcessedQuery(semantic_query="test", original_query="test")
         self.results = SearchResults(results=[])
 
     def test_cache_hit(self):
         """测试缓存命中"""
-        self.mock_searcher.search.return_value = self.results
+        self.mock_retriever.retrieve.return_value = self.results
         
         # 第一次调用
-        self.cached_searcher.search(self.query)
-        self.mock_searcher.search.assert_called_once()
+        self.cached_retriever.retrieve(self.query)
+        self.mock_retriever.retrieve.assert_called_once()
         
         # 第二次调用（应该命中缓存）
-        self.cached_searcher.search(self.query)
-        self.mock_searcher.search.assert_called_once()  # 调用次数不变
+        self.cached_retriever.retrieve(self.query)
+        self.mock_retriever.retrieve.assert_called_once()  # 调用次数不变
 
     def test_cache_expiration(self):
         """测试缓存过期"""
-        self.mock_searcher.search.return_value = self.results
+        self.mock_retriever.retrieve.return_value = self.results
         
         # 第一次调用
-        self.cached_searcher.search(self.query)
+        self.cached_retriever.retrieve(self.query)
         
         # 等待过期
         time.sleep(1.1)
         
         # 第二次调用（应该重新检索）
-        self.cached_searcher.search(self.query)
-        assert self.mock_searcher.search.call_count == 2
+        self.cached_retriever.retrieve(self.query)
+        assert self.mock_retriever.retrieve.call_count == 2
 
     def test_cache_eviction(self):
         """测试缓存清理"""
-        searcher = CachedSearcher(self.mock_searcher, max_cache_size=1)
+        retriever = CachedRetriever(self.mock_retriever, max_cache_size=1)
         
         q1 = ProcessedQuery(semantic_query="q1", original_query="q1")
         q2 = ProcessedQuery(semantic_query="q2", original_query="q2")
         
-        searcher.search(q1)
-        searcher.search(q2)  # 这应该触发清理 q1
+        retriever.retrieve(q1)
+        retriever.retrieve(q2)  # 这应该触发清理 q1
         
         # 再次搜索 q1，应该重新调用底层
-        searcher.search(q1)
-        assert self.mock_searcher.search.call_count == 3
+        retriever.retrieve(q1)
+        assert self.mock_retriever.retrieve.call_count == 3
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

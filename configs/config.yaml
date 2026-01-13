@@ -1,137 +1,158 @@
 # HiveMemory 主配置文件
+#
+# 环境变量覆盖说明:
+# 所有配置项都可以通过环境变量覆盖，格式为 HIVEMEMORY__<SECTION>__<FIELD>
+# 例如: HIVEMEMORY__QDRANT__HOST=localhost
+# 嵌套配置使用双下划线: HIVEMEMORY__PERCEPTION__SEMANTIC_FLOW__IDLE_TIMEOUT_SECONDS=900
 
+# ========== 系统配置 ==========
 system:
   name: "HiveMemory"
   version: "0.1.0"
   debug: true
 
-# LLM 模型配置
+# ========== 日志配置 ==========
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_path: null  # 设置为路径以启用文件日志
+  console_output: true
+
+# ========== LLM 模型配置 ==========
 llm:
   worker:
     provider: "litellm"
-    model: "${WORKER_LLM_MODEL}"
-    api_key: "${WORKER_LLM_API_KEY}"
-    api_base: "${WORKER_LLM_API_BASE}"
+    model: "gpt-4o"
+    api_key: null  # 通过环境变量 HIVEMEMORY__LLM__WORKER__API_KEY 设置
+    api_base: null
     temperature: 0.7
     max_tokens: 4096
 
   librarian:
     provider: "litellm"
-    model: "${LIBRARIAN_LLM_MODEL}"
-    api_key: "${LIBRARIAN_LLM_API_KEY}"
-    api_base: "${LIBRARIAN_LLM_API_BASE}"
-    temperature: 0.3  # 更保守,用于结构化提取
-    max_tokens: 8192  # 支持长对话分析
+    model: "deepseek/deepseek-chat"
+    api_key: null  # 通过环境变量 HIVEMEMORY__LLM__LIBRARIAN__API_KEY 设置
+    api_base: null
+    temperature: 0.3
+    max_tokens: 8192
 
-# Embedding 模型配置
+# ========== Embedding 模型配置 ==========
 embedding:
-  model_name: "${EMBEDDING_MODEL}"
-  device: "${EMBEDDING_DEVICE}"
+  model_name: "BAAI/bge-m3"
+  device: "cpu"  # 可选: cpu, cuda, mps
+  cache_dir: null
   batch_size: 32
   normalize_embeddings: true
   dimension: 1024
 
-# 向量数据库配置
+# ========== 向量数据库配置 ==========
 qdrant:
-  host: "${QDRANT_HOST}"
+  host: "localhost"
   port: 6333
   grpc_port: 6334
-  api_key: "${QDRANT_API_KEY}"
-  collection_name: "${QDRANT_COLLECTION_NAME}"
+  api_key: null  # 通过环境变量 HIVEMEMORY__QDRANT__API_KEY 设置
+  collection_name: "hivememory_main"
   vector_dimension: 1024
   distance_metric: "Cosine"
-  on_disk_payload: false  # 小规模数据可全内存
+  on_disk_payload: false
 
-# Redis 配置
+# ========== Redis 配置 ==========
 redis:
-  host: "${REDIS_HOST}"
+  host: "localhost"
   port: 6379
-  password: "${REDIS_PASSWORD}"
+  password: null  # 通过环境变量 HIVEMEMORY__REDIS__PASSWORD 设置
   db: 0
   decode_responses: true
 
-# 记忆管理配置
-memory:
-  lifecycle:
-    high_watermark: 80  # 活跃记忆分数阈值
-    low_watermark: 20   # 归档记忆分数阈值
-    decay_lambda: 0.01  # 时间衰减系数
+# ========== 感知层配置 ==========
+perception:
+  layer_type: "semantic_flow"  # 可选: semantic_flow, simple
+  enable: true
 
-  extraction:
-    # LLM 提取器配置
-    extractor:
-      max_retries: 2
-      # temperature: 0.3  # 覆盖全局 Librarian LLM 配置
-      # max_tokens: 8192
-      # system_prompt: null  # 自定义系统提示词
-      # user_prompt: null    # 自定义用户提示词
+  semantic_flow:
+    idle_timeout_seconds: 900  # 15分钟
+    scan_interval_seconds: 30
+    semantic_threshold: 0.6
+    short_text_threshold: 50
+    ema_alpha: 0.3
+    max_processing_tokens: 8192
+    enable_smart_summary: false
+    embedding_model: null  # null 则复用全局 embedding 配置
+    embedding_device: null
+    embedding_cache_dir: null
+    embedding_batch_size: null
 
-    # 价值评估器配置
-    gater:
-      gater_type: "rule"  # rule/llm/hybrid
-      min_total_length: 20
-      min_substantive_length: 10
-      # trivial_patterns: []  # 自定义黑名单关键词（覆盖默认）
-      # valuable_patterns: []  # 自定义白名单关键词（补充默认）
+  simple:
+    message_threshold: 6
+    timeout_seconds: 900
+    enable_semantic_trigger: true
 
-    # 查重器配置
-    deduplicator:
-      high_similarity_threshold: 0.95
-      low_similarity_threshold: 0.75
-      content_similarity_threshold: 0.9
-      enable_vitality_tracking: true
+# ========== 记忆生成配置 ==========
+generation:
+  extractor:
+    max_retries: 2
+    temperature: null  # null 则使用 LLM 默认值
+    max_tokens: null
+    system_prompt: null
+    user_prompt: null
+    llm_config: null  # 使用全局 librarian 配置
 
-    # 兼容性：保留旧字段（已废弃，未使用）
-    min_confidence: 0.4
-    max_tags: 5
+  gater:
+    gater_type: "rule"  # rule/llm/hybrid
+    min_total_length: 20
+    min_substantive_length: 10
+    trivial_patterns: []
+    valuable_patterns: []
+    llm_config: null
 
-# 检索配置
+  deduplicator:
+    high_similarity_threshold: 0.95  # TOUCH/UPDATE 分界
+    low_similarity_threshold: 0.75   # UPDATE/CREATE 分界
+    content_similarity_threshold: 0.9
+    enable_vitality_tracking: true
+
+# ========== 记忆检索配置 ==========
 retrieval:
-  # 顶层配置
   enable_routing: true
-  default_top_k: 5
-  default_threshold: 0.75
 
-  # 路由器配置
   router:
     router_type: "simple"  # simple/llm/always/never
     min_query_length: 3
     min_keyword_count: 1
     additional_keywords: []
+    llm_config: null
+    system_prompt: null
 
-  # 查询处理器配置
   processor:
     enable_time_parsing: true
     enable_type_detection: true
     enable_query_expansion: true
     expansion_keywords: []
     enable_llm_rewrite: false
+    llm_config: null
 
-  # 渲染器配置
   renderer:
-    render_format: "xml"
+    render_format: "xml"  # xml/markdown/plain
     max_tokens: 2000
     max_content_length: 500
     include_metadata: true
     include_confidence: true
     include_timestamp: true
     include_artifact: false
+    title_template: "📝 {title}"
+    confidence_threshold: 0.5
     old_memory_days: 90
 
-  # 混合搜索配置
-  hybrid_search:
-    # 顶层配置（兼容旧版）
+  retriever:
     top_k: 5
     score_threshold: 0.75
-    rerank_model: null  # 废弃，使用 reranker.model_name
     enable_hybrid_search: true
     enable_parallel: true
 
-    # 混合检索详细配置
     dense:
       enabled: true
-      top_k: 50  # RRF 融合前的召回数量
-      score_threshold: 0.0  # 相似度阈值
+      top_k: 50
+      score_threshold: 0.0
       enable_time_decay: true
       time_decay_days: 30
       enable_confidence_boost: true
@@ -142,10 +163,10 @@ retrieval:
       score_threshold: 0.0
 
     fusion:
-      rrf_k: 60  # RRF 常数
+      rrf_k: 60
       dense_weight: 1.0
       sparse_weight: 1.0
-      final_top_k: 5  # 最终返回数量
+      final_top_k: 5
 
     reranker:
       enabled: true
@@ -157,44 +178,37 @@ retrieval:
       top_k: 20
       normalize_scores: true
 
-# 感知层配置
-perception:
-  # 感知层类型选择
-  layer_type: "semantic_flow"  # 可选: semantic_flow, simple
-  enable: true  # 是否启用感知层
+# ========== 记忆生命周期配置 ==========
+lifecycle:
+  vitality_calculator:
+    code_snippet_weight: 1.0
+    fact_weight: 0.9
+    url_resource_weight: 0.8
+    reflection_weight: 0.7
+    user_profile_weight: 0.6
+    work_in_progress_weight: 0.5
+    default_weight: 0.5
+    max_access_boost: 20.0
+    points_per_access: 2.0
+    decay_lambda: 0.01
 
-  # SemanticFlowPerceptionLayer 配置
-  semantic_flow:
-    # 空闲监控
-    idle_timeout_seconds: 900  # 15分钟
-    scan_interval_seconds: 30   # 扫描间隔
+  reinforcement_engine:
+    enable_event_history: true
+    event_history_limit: 10000
+    hit_boost: 5.0
+    citation_boost: 20.0
+    positive_feedback_boost: 50.0
+    negative_feedback_penalty: -50.0
+    negative_confidence_multiplier: 0.5
 
-    # 语义吸附
-    semantic_threshold: 0.6     # 语义相似度阈值
-    short_text_threshold: 50    # 短文本强吸附阈值
-    ema_alpha: 0.3              # EMA 系数
+  archiver:
+    archive_dir: "data/archived"
+    compression: true
 
-    # Token 限制
-    max_processing_tokens: 8192
+  garbage_collector:
+    low_watermark: 20.0
+    batch_size: 10
+    enable_schedule: false
+    interval_hours: 24
 
-    # 高级配置
-    enable_smart_summary: false  # 智能摘要（预留）
-
-    # Embedding 配置（可选，覆盖全局配置）
-    # embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
-    # embedding_device: "cpu"
-    # embedding_cache_dir: null
-    # embedding_batch_size: 32
-
-  # SimplePerceptionLayer 配置
-  simple:
-    message_threshold: 6
-    timeout_seconds: 900
-    enable_semantic_trigger: true
-
-# 日志配置
-logging:
-  level: "${LOG_LEVEL}"
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  file_path: "${LOG_FILE_PATH}"
-  console_output: true
+  high_watermark: 80.0

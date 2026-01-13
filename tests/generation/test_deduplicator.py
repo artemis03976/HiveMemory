@@ -51,7 +51,6 @@ class TestMemoryDeduplicator:
                 summary="Old summary",
                 tags=["python", "sort"],
                 memory_type=MemoryType.CODE_SNIPPET,
-                embedding=[0.1] * 1536
             ),
             payload=PayloadLayer(
                 content="def quicksort(): pass"

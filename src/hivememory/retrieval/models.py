@@ -172,15 +172,44 @@ class RenderFormat(str, Enum):
     MARKDOWN = "markdown"
 
 
+class RetrievalResult(BaseModel):
+    """
+    检索结果封装
+    
+    包含完整的检索信息和渲染后的上下文
+    """
+    should_retrieve: bool = True  # 路由器判断结果
+    memories: List[MemoryAtom] = Field(default_factory=list)  # 检索到的记忆
+    rendered_context: str = ""  # 渲染后的上下文字符串
+    
+    # 元信息
+    latency_ms: float = 0.0  # 总耗时
+    query_used: str = ""  # 实际使用的查询
+    memories_count: int = 0  # 检索到的数量
+    
+    # 调试信息
+    router_decision: bool = False
+    processor_output: Optional[ProcessedQuery] = None
+    search_results: Optional[SearchResults] = None
+    
+    def is_empty(self) -> bool:
+        """检查是否没有检索到任何记忆"""
+        return len(self.memories) == 0
+    
+    def get_context_for_prompt(self) -> str:
+        """获取可直接注入 System Prompt 的上下文"""
+        if self.is_empty():
+            return ""
+        return self.rendered_context
+
+
 # ========== 导出列表 ==========
 
 __all__ = [
-    # 数据模型
     "QueryFilters",
     "ProcessedQuery",
     "SearchResult",
     "SearchResults",
-
-    # 枚举
     "RenderFormat",
+    "RetrievalResult",
 ]

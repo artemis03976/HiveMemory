@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
+from hivememory.utils import TimeFormatter, Language
+
 
 # ============ 枚举类型定义 ============
 
@@ -111,9 +113,6 @@ class IndexLayer(BaseModel):
     summary: str = Field(..., min_length=10, max_length=500, description="一句话摘要")
     tags: List[str] = Field(default_factory=list, description="动态语义标签")
     memory_type: MemoryType = Field(..., description="记忆类型")
-
-    # 向量嵌入 (由Embedding模型生成,不由用户提供)
-    embedding: Optional[List[float]] = Field(default=None, description="向量表示")
 
     @field_validator("tags")
     @classmethod
@@ -275,28 +274,30 @@ class MemoryAtom(BaseModel):
             "id": str(self.id),
             "meta": self.meta.model_dump(),
             "index": {
-                **self.index.model_dump(exclude={"embedding"}),  # 排除embedding,单独处理
+                **self.index.model_dump(),
             },
             "payload": self.payload.model_dump(),
             "relations": self.relations.model_dump(),
         }
 
-    def render_for_context(self, show_artifacts: bool = False) -> str:
+    def render_for_context(self, show_artifacts: bool = False, language: Language = Language.ENGLISH) -> str:
         """
         渲染为适合注入 LLM Context 的 Markdown 格式
 
         Args:
             show_artifacts: 是否显示原始数据信息
+            language: 时间格式化语言 (默认英文)
 
         Returns:
             格式化的 Markdown 文本
         """
+        formatter = TimeFormatter(language=language)
         # 基础信息块
         lines = [
             f"**[{self.index.title}]**",
             f"*Type*: `{self.index.memory_type.value}`",
             f"*Tags*: {', '.join(f'#{tag}' for tag in self.index.tags)}",
-            f"*Updated*: {self._format_time_ago(self.meta.updated_at)}",
+            f"*Updated*: {formatter.format(self.meta.updated_at)}",
             f"*Confidence*: {self._format_confidence()}",
             "",
             "---",
@@ -320,18 +321,6 @@ class MemoryAtom(BaseModel):
             ])
 
         return "\n".join(lines)
-
-    def _format_time_ago(self, dt: datetime) -> str:
-        """格式化时间为相对时间"""
-        delta = datetime.now() - dt
-        if delta.days > 30:
-            return f"{delta.days // 30} months ago"
-        elif delta.days > 0:
-            return f"{delta.days} days ago"
-        elif delta.seconds > 3600:
-            return f"{delta.seconds // 3600} hours ago"
-        else:
-            return "recently"
 
     def _format_confidence(self) -> str:
         """格式化置信度"""

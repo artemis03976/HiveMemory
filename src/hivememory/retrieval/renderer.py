@@ -16,7 +16,9 @@ from datetime import datetime
 import logging
 
 from hivememory.core.models import MemoryAtom, VerificationStatus
-from hivememory.retrieval.interfaces import ContextRenderer as ContextRendererInterface, RenderFormat
+from hivememory.retrieval.models import RenderFormat
+from hivememory.retrieval.interfaces import ContextRenderer as ContextRendererInterface
+from hivememory.utils import TimeFormatter, Language
 
 logger = logging.getLogger(__name__)
 
@@ -83,21 +85,26 @@ class ContextRenderer(ContextRendererInterface):
         render_format: RenderFormat = RenderFormat.XML,
         max_tokens: int = 2000,
         max_content_length: int = 500,
-        show_artifacts: bool = False
+        show_artifacts: bool = False,
+        language: Language = Language.CHINESE,
+        stale_days: int = 90,
     ):
         """
         初始化渲染器
-        
+
         Args:
             render_format: 输出格式（XML 或 Markdown）
             max_tokens: 最大输出长度（字符数估算）
             max_content_length: 单条记忆的最大内容长度
             show_artifacts: 是否显示原始数据链接
+            language: 时间格式化语言（默认中文）
+            stale_days: 超过此天数显示陈旧警告（默认90天）
         """
         self.render_format = render_format
         self.max_tokens = max_tokens
         self.max_content_length = max_content_length
         self.show_artifacts = show_artifacts
+        self._time_formatter = TimeFormatter(language=language, stale_days=stale_days)
     
     def render(
         self,
@@ -181,13 +188,15 @@ class ContextRenderer(ContextRendererInterface):
             memory: 记忆原子
             index: 索引编号（XML格式需要，Markdown为None）
         """
+        # 使用 TimeFormatter 格式化时间
+        time_str = self._time_formatter.format(memory.meta.updated_at)
+        confidence_str = self._format_confidence(memory)
+        content = self._truncate_content(memory.payload.content)
+
         # 根据格式确定模板和参数
         if index is not None:  # XML 格式
             tags = ", ".join(f"#{tag}" for tag in memory.index.tags)
             tags_empty = "(无标签)"
-            time_str = self._format_time_ago(memory.meta.updated_at)
-            confidence_str = self._format_confidence(memory)
-            content = self._truncate_content(memory.payload.content)
 
             return self.XML_MEMORY_TEMPLATE.format(
                 id=index,
@@ -200,9 +209,6 @@ class ContextRenderer(ContextRendererInterface):
         else:  # Markdown 格式
             tags = ", ".join(f"`{tag}`" for tag in memory.index.tags)
             tags_empty = "(无标签)"
-            time_str = self._format_time_ago(memory.meta.updated_at)
-            confidence_str = self._format_confidence(memory)
-            content = self._truncate_content(memory.payload.content)
 
             return self.MD_MEMORY_TEMPLATE.format(
                 title=memory.index.title,
@@ -212,25 +218,7 @@ class ContextRenderer(ContextRendererInterface):
                 confidence=confidence_str,
                 content=content
             )
-    
-    def _format_time_ago(self, dt: datetime) -> str:
-        """格式化相对时间"""
-        delta = datetime.now() - dt
 
-        if delta.days > 30:
-            months = delta.days // 30
-            result = f"{months} 个月前"
-            if delta.days > 90:
-                result += " (警告：陈旧)"
-            return result
-        elif delta.days > 0:
-            return f"{delta.days} 天前"
-        elif delta.seconds > 3600:
-            hours = delta.seconds // 3600
-            return f"{hours} 小时前"
-        else:
-            return "最近"
-    
     def _format_confidence(self, memory: MemoryAtom) -> str:
         """格式化置信度"""
         score = memory.meta.confidence_score

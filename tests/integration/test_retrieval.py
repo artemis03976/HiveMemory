@@ -41,10 +41,10 @@ from hivememory.retrieval import (
     QueryProcessor,
     ProcessedQuery,
     SimpleRouter,
-    HybridSearcher,
+    HybridRetriever,
     ContextRenderer,
     RetrievalEngine,
-    create_retrieval_engine,
+    create_default_retrieval_engine,
     RenderFormat,
 )
 from hivememory.retrieval.models import QueryFilters
@@ -262,12 +262,12 @@ def test_router():
     return results
 
 
-def test_hybrid_searcher(storage: QdrantMemoryStore):
+def test_hybrid_retriever(storage: QdrantMemoryStore):
     """测试混合检索器 (Dense + Sparse)"""
-    console.print("\n[bold magenta]🔍 测试 HybridSearcher[/bold magenta]")
+    console.print("\n[bold magenta]🔍 测试 HybridRetriever[/bold magenta]")
     
     # 确保启用混合搜索
-    searcher = HybridSearcher(storage=storage, enable_hybrid_search=True)
+    retriever = HybridRetriever(storage=storage, enable_hybrid_search=True)
     
     # 场景 1: 语义优先 (Dense)
     query_text = "如何处理时间"
@@ -277,7 +277,7 @@ def test_hybrid_searcher(storage: QdrantMemoryStore):
         original_query=query_text
     )
 
-    results = searcher.search(processed_query, top_k=3)
+    results = retriever.retrieve(processed_query, top_k=3)
     
     for i, r in enumerate(results.results, 1):
         console.print(f"    {i}. {r.memory.index.title} (score: {r.score:.3f}) - {r.match_reason}")
@@ -290,12 +290,12 @@ def test_hybrid_searcher(storage: QdrantMemoryStore):
         original_query=query_text,
         keywords=["parse_date"]  # 模拟提取到的关键词
     )
-    results = searcher.search(processed_query, top_k=3)
+    results = searcher.retrieve(processed_query, top_k=3)
     
     for i, r in enumerate(results.results, 1):
         console.print(f"    {i}. {r.memory.index.title} (score: {r.score:.3f}) - {r.match_reason}")
     
-    console.print("\n[green]✓ HybridSearcher 测试完成[/green]")
+    console.print("\n[green]✓ HybridRetriever 测试完成[/green]")
 
 
 def test_context_renderer(storage: QdrantMemoryStore):
@@ -303,9 +303,9 @@ def test_context_renderer(storage: QdrantMemoryStore):
     console.print("\n[bold magenta]📄 测试 ContextRenderer[/bold magenta]")
     
     # 先检索一些记忆
-    searcher = HybridSearcher(storage=storage, enable_hybrid_search=True)
+    retriever = HybridRetriever(storage=storage, enable_hybrid_search=True)
     query = ProcessedQuery(semantic_query="API Key", original_query="API Key")
-    results = searcher.search(query, top_k=2)
+    results = retriever.retrieve(query, top_k=2)
     
     # 测试 XML 渲染
     renderer_xml = ContextRenderer(render_format=RenderFormat.XML, max_tokens=1000)
@@ -330,7 +330,8 @@ def test_retrieval_engine(storage: QdrantMemoryStore):
     """测试完整检索引擎 (Engine Flow)"""
     console.print("\n[bold magenta]🚀 测试 RetrievalEngine (完整流程)[/bold magenta]")
     
-    engine = create_retrieval_engine(
+    # 创建默认检索引擎
+    engine = create_default_retrieval_engine(
         storage=storage,
         enable_routing=True,
         top_k=3,
@@ -405,19 +406,19 @@ def run_acceptance_test(storage: QdrantMemoryStore):
                     filters=filters
                 )
                 
-                # 直接调用 search 获取带分数的 SearchResults
-                search_results = engine.searcher.search(p_query, top_k=5)
+                # 直接调用 retrieve 获取带分数的 SearchResults
+                search_results = engine.searcher.retrieve(p_query, top_k=5)
                 result_list = search_results.results
             else:
                 # 正常流程，也需要获取 SearchResults 对象而非仅仅 memories
                 # retrieve_context 返回的是 Context 对象，我们需要其原始 search_results
-                # 但 engine.retrieve_context 内部封装了 search，我们可以通过 retrieve_context 返回的 metadata 获取分数
+                # 但 engine.retrieve_context 内部封装了 retrieve，我们可以通过 retrieve_context 返回的 metadata 获取分数
                 # 或者更简单，直接再次调用 searcher 用于展示
                 
                 # 为了不破坏原有流程，我们这里模拟调用 searcher
                 # 注意：这里需要确保使用与 engine 相同的 query processor
                 p_query = engine.processor.process(query=query_text, user_id=user_id)
-                search_results = engine.searcher.search(p_query, top_k=5)
+                search_results = engine.searcher.retrieve(p_query, top_k=5)
                 result_list = search_results.results
             
             # 检查结果
@@ -463,7 +464,7 @@ def main():
     # 运行各模块测试
     test_query_processor()
     test_router()
-    test_hybrid_searcher(storage)
+    test_hybrid_retriever(storage)
     test_context_renderer(storage)
     test_retrieval_engine(storage)
     

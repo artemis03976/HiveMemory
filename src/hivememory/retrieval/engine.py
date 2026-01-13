@@ -7,7 +7,7 @@
 组件集成:
     - RetrievalRouter: 判断是否需要检索
     - QueryProcessor: 查询预处理
-    - HybridSearcher: 混合检索
+    - HybridRetriever: 混合检索
     - ContextRenderer: 上下文渲染
 
 对应设计文档: PROJECT.md 第 5 章
@@ -23,50 +23,19 @@ if TYPE_CHECKING:
     from hivememory.core.config import MemoryRetrievalConfig
 
 from hivememory.core.models import MemoryAtom
-from hivememory.generation.models import ConversationMessage
-from hivememory.retrieval.models import ProcessedQuery, SearchResults, RenderFormat
+from hivememory.generation import ConversationMessage
+from hivememory.retrieval.models import RetrievalResult, ProcessedQuery, SearchResults, RenderFormat
 from hivememory.retrieval.query import QueryProcessor, create_default_processor
-from hivememory.retrieval.router import SimpleRouter, RetrievalRouter, create_default_router
-from hivememory.retrieval.searcher import HybridSearcher
+from hivememory.retrieval.router import RetrievalRouter, create_default_router
+from hivememory.retrieval.retriever import HybridRetriever, create_default_retriever
 from hivememory.retrieval.renderer import ContextRenderer, create_default_renderer
-from hivememory.retrieval.interfaces import RetrievalEngine as RetrievalEngineInterface
+from hivememory.retrieval.interfaces import RetrievalEngine
+from hivememory.memory.storage import QdrantMemoryStore
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class RetrievalResult:
-    """
-    检索结果封装
-    
-    包含完整的检索信息和渲染后的上下文
-    """
-    should_retrieve: bool = True  # 路由器判断结果
-    memories: List[MemoryAtom] = field(default_factory=list)  # 检索到的记忆
-    rendered_context: str = ""  # 渲染后的上下文字符串
-    
-    # 元信息
-    latency_ms: float = 0.0  # 总耗时
-    query_used: str = ""  # 实际使用的查询
-    memories_count: int = 0  # 检索到的数量
-    
-    # 调试信息
-    router_decision: bool = False
-    processor_output: Optional[ProcessedQuery] = None
-    search_results: Optional[SearchResults] = None
-    
-    def is_empty(self) -> bool:
-        """检查是否没有检索到任何记忆"""
-        return len(self.memories) == 0
-    
-    def get_context_for_prompt(self) -> str:
-        """获取可直接注入 System Prompt 的上下文"""
-        if self.is_empty():
-            return ""
-        return self.rendered_context
-
-
-class MemoryRetrievalEngine(RetrievalEngineInterface):
+class MemoryRetrievalEngine(RetrievalEngine):
     """
     记忆检索引擎
 
@@ -87,19 +56,12 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
     
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         router: Optional[RetrievalRouter] = None,
         processor: Optional[QueryProcessor] = None,
-        searcher: Optional[HybridSearcher] = None,
+        retriever: Optional[HybridRetriever] = None,
         renderer: Optional[ContextRenderer] = None,
         config: Optional["MemoryRetrievalConfig"] = None,
-        # 兼容旧参数
-        enable_routing: bool = True,
-        default_top_k: int = 5,
-        default_threshold: float = 0.3,
-        render_format: RenderFormat = RenderFormat.XML,
-        max_context_tokens: int = 2000,
-        hybrid_search_config: Optional["HybridSearchConfig"] = None,
     ):
         """
         初始化检索引擎
@@ -108,15 +70,9 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
             storage: QdrantMemoryStore 实例
             router: 检索路由器（可选，使用配置）
             processor: 查询处理器（可选，使用配置）
-            searcher: 混合检索器（可选，使用配置）
+            retriever: 混合检索器（可选，使用配置）
             renderer: 上下文渲染器（可选，使用配置）
             config: 记忆检索配置（可选，用于创建组件）
-            enable_routing: 是否启用路由判断（兼容旧参数）
-            default_top_k: 默认返回数量（兼容旧参数）
-            default_threshold: 默认相似度阈值（兼容旧参数）
-            render_format: 渲染格式（兼容旧参数）
-            max_context_tokens: 最大上下文长度（兼容旧参数）
-            hybrid_search_config: 混合检索配置（兼容旧参数，优先使用 config.hybrid_search）
 
         Examples:
             >>> # 使用默认配置
@@ -134,7 +90,8 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
             from hivememory.core.config import MemoryRetrievalConfig
             config = MemoryRetrievalConfig()
 
-        # 如果组件未提供，使用配置创建
+        self.enable_routing = config.enable_routing
+
         if router is None:
             self.router = create_default_router(config.router)
         else:
@@ -145,31 +102,17 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
         else:
             self.processor = processor
 
-        # 混合检索器：优先使用传入的 searcher，其次使用 config.hybrid_search
-        if searcher:
-            self.searcher = searcher
-        elif hybrid_search_config:
-            self.searcher = HybridSearcher(
-                storage=storage,
-                config=hybrid_search_config,
-            )
+        if retriever is None:
+            self.retriever = create_default_retriever(storage, config.retriever)
         else:
-            self.searcher = HybridSearcher(
-                storage=storage,
-                config=config.hybrid_search,
-            )
+            self.retriever = retriever
 
         if renderer is None:
             self.renderer = create_default_renderer(config.renderer)
         else:
             self.renderer = renderer
 
-        # 兼容旧参数（优先使用 config 的值）
-        self.enable_routing = enable_routing if enable_routing != True else config.enable_routing
-        self.default_top_k = default_top_k if default_top_k != 5 else config.default_top_k
-        self.default_threshold = default_threshold if default_threshold != 0.3 else config.default_threshold
-
-        logger.info("RetrievalEngine 初始化完成")
+        logger.info("MemoryRetrievalEngine 初始化完成")
     
     def retrieve_context(
         self,
@@ -201,10 +144,7 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
             RetrievalResult 对象
         """
         start_time = time.time()
-        
-        top_k = top_k or self.default_top_k
-        score_threshold = score_threshold or self.default_threshold
-        
+
         result = RetrievalResult()
         
         try:
@@ -229,18 +169,18 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
             result.query_used = processed_query.semantic_query
             
             # Step 3: 执行检索
-            search_results = self.searcher.search(
+            retriever_results = self.retriever.retrieve(
                 query=processed_query,
                 top_k=top_k,
                 score_threshold=score_threshold
             )
-            result.search_results = search_results
-            result.memories = search_results.get_memories()
+            result.retriever_results = retriever_results
+            result.memories = retriever_results.get_memories()
             result.memories_count = len(result.memories)
             
             # Step 4: 渲染上下文
-            if not search_results.is_empty():
-                result.rendered_context = self.renderer.render(search_results.results)
+            if not retriever_results.is_empty():
+                result.rendered_context = self.renderer.render(retriever_results.results)
             
             result.latency_ms = (time.time() - start_time) * 1000
             
@@ -256,7 +196,7 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
         
         return result
     
-    def search_memories(
+    def retrieve_memories(
         self,
         query_text: str,
         user_id: str,
@@ -292,7 +232,7 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
                 logger.warning(f"无效的记忆类型: {memory_type}")
         
         # 执行搜索
-        results = self.searcher.search(
+        results = self.retriever.retrieve(
             query=processed_query,
             top_k=top_k
         )
@@ -311,32 +251,6 @@ class MemoryRetrievalEngine(RetrievalEngineInterface):
                 logger.warning(f"更新访问统计失败: {memory.id} - {e}")
 
 
-# 便捷函数
-
-def create_retrieval_engine(
-    storage,
-    config: Optional["MemoryRetrievalConfig"] = None,
-) -> MemoryRetrievalEngine:
-    """
-    创建检索引擎的便捷函数
-
-    Args:
-        storage: QdrantMemoryStore 实例
-        config: 记忆检索配置
-
-    Returns:
-        MemoryRetrievalEngine 实例
-    """
-    return MemoryRetrievalEngine(storage=storage, config=config)
-
-
-# 向后兼容别名
-RetrievalEngine = MemoryRetrievalEngine
-
-
 __all__ = [
-    "RetrievalResult",
     "MemoryRetrievalEngine",
-    "RetrievalEngine",
-    "create_retrieval_engine",
 ]

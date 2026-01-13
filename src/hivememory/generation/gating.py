@@ -364,9 +364,8 @@ def create_default_gater(
         >>> gater = create_default_gater(config)
     """
     if config is None:
-        from hivememory.core.config import MemoryConfig
-        memory_config = MemoryConfig()
-        config = memory_config.extraction.gater
+        from hivememory.core.config import GaterConfig
+        config = GaterConfig()
 
     gater_type = config.gater_type
 

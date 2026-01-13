@@ -25,12 +25,16 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
 from hivememory.lifecycle.interfaces import MemoryArchiver
 from hivememory.lifecycle.models import ArchiveRecord, ArchiveStatus
+from hivememory.memory.storage import QdrantMemoryStore
+
+if TYPE_CHECKING:
+    from hivememory.core.config import ArchiverConfig
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +60,7 @@ class FileBasedMemoryArchiver(MemoryArchiver):
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         archive_dir: str = "data/archived",
         compress: bool = True,
     ):
@@ -311,7 +315,7 @@ class S3MemoryArchiver(MemoryArchiver):
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         bucket: str,
         prefix: str = "archived/",
     ):
@@ -346,22 +350,28 @@ class S3MemoryArchiver(MemoryArchiver):
 
 
 def create_default_archiver(
-    storage,
-    archive_dir: str = "data/archived",
-    compress: bool = True
+    storage: QdrantMemoryStore,
+    config: Optional["ArchiverConfig"] = None,
 ) -> MemoryArchiver:
     """
     创建默认归档器
 
     Args:
         storage: 向量存储实例
-        archive_dir: 归档目录
-        compress: 是否压缩
+        config: 归档器配置 (可选)
 
     Returns:
         MemoryArchiver: 归档器实例
     """
-    return FileBasedMemoryArchiver(storage, archive_dir, compress)
+    if config is None:
+        from hivememory.core.config import ArchiverConfig
+        config = ArchiverConfig()
+
+    return FileBasedMemoryArchiver(
+        storage=storage,
+        archive_dir=config.archive_dir,
+        compress=config.compression,
+    )
 
 
 __all__ = [

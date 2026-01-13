@@ -19,6 +19,8 @@ import logging
 from typing import List, Optional, TYPE_CHECKING
 from datetime import datetime
 
+from hivememory.memory.storage import QdrantMemoryStore
+
 if TYPE_CHECKING:
     from hivememory.core.config import MemoryGenerationConfig
 
@@ -52,7 +54,7 @@ class MemoryGenerationOrchestrator:
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         gater: Optional[ValueGater] = None,
         extractor: Optional[MemoryExtractor] = None,
         deduplicator: Optional[Deduplicator] = None,
@@ -307,5 +309,5 @@ class MemoryGenerationOrchestrator:
 
 
 __all__ = [
-    "MemoryOrchestrator",
+    "MemoryGenerationOrchestrator",
 ]

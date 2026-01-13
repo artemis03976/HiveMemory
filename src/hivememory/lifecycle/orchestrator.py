@@ -8,10 +8,11 @@ HiveMemory - 生命周期管理器
 """
 
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
+from hivememory.core.config import MemoryLifecycleConfig
 from hivememory.lifecycle.interfaces import (
     LifecycleManager,
     VitalityCalculator,
@@ -24,6 +25,10 @@ from hivememory.lifecycle.models import (
     EventType,
     ReinforcementResult,
 )
+from hivememory.memory.storage import QdrantMemoryStore
+
+if TYPE_CHECKING:
+    from hivememory.core.config import LifecycleConfig
 
 logger = logging.getLogger(__name__)
 
@@ -59,53 +64,73 @@ class MemoryLifecycleManager(LifecycleManager):
 
     def __init__(
         self,
-        storage,  # QdrantMemoryStore
+        storage: QdrantMemoryStore,
         vitality_calculator: Optional[VitalityCalculator] = None,
         reinforcement_engine: Optional[ReinforcementEngine] = None,
         archiver: Optional[MemoryArchiver] = None,
         garbage_collector: Optional[GarbageCollector] = None,
+        config: Optional["MemoryLifecycleConfig"] = None,
     ):
         """
-        初始化生命周期管理器
+        初始化记忆生命周期管理器
 
         Args:
             storage: 向量存储实例 (QdrantMemoryStore)
-            vitality_calculator: 生命力计算器 (可选，自动创建)
-            reinforcement_engine: 强化引擎 (可选，自动创建)
-            archiver: 归档器 (可选，自动创建)
-            garbage_collector: 垃圾回收器 (可选，自动创建)
+            vitality_calculator: 生命力计算器 (可选，使用配置)
+            reinforcement_engine: 强化引擎 (可选，使用配置)
+            archiver: 归档器 (可选，使用配置)
+            garbage_collector: 垃圾回收器 (可选，使用配置)
+            config: 生命周期配置 (可选，用于创建组件)
+
+        Examples:
+            >>> # 使用默认配置
+            >>> manager = MemoryLifecycleManager(storage=storage)
+            >>>
+            >>> # 使用自定义配置
+            >>> from hivememory.core.config import MemoryLifecycleConfig
+            >>> config = MemoryLifecycleConfig()
+            >>> manager = MemoryLifecycleManager(storage=storage, config=config)
         """
         self.storage = storage
 
-        # 初始化组件
-        self.vitality_calculator = vitality_calculator
-        self.reinforcement_engine = reinforcement_engine
-        self.archiver = archiver
-        self.garbage_collector = garbage_collector
+        # 使用传入的配置或加载默认配置
+        if config is None:
+            from hivememory.core.config import MemoryLifecycleConfig
+            config = MemoryLifecycleConfig()
 
-        # 创建默认组件 (如果未提供)
-        if self.vitality_calculator is None:
+        # 如果组件未提供，使用配置创建
+        if vitality_calculator is None:
             from hivememory.lifecycle.vitality import create_default_vitality_calculator
-            self.vitality_calculator = create_default_vitality_calculator()
+            self.vitality_calculator = create_default_vitality_calculator(config.vitality_calculator)
+        else:
+            self.vitality_calculator = vitality_calculator
 
-        if self.reinforcement_engine is None:
+        if reinforcement_engine is None:
             from hivememory.lifecycle.reinforcement import create_default_reinforcement_engine
             self.reinforcement_engine = create_default_reinforcement_engine(
                 storage,
-                self.vitality_calculator
+                self.vitality_calculator,
+                config.reinforcement_engine
             )
+        else:
+            self.reinforcement_engine = reinforcement_engine
 
-        if self.archiver is None:
+        if archiver is None:
             from hivememory.lifecycle.archiver import create_default_archiver
-            self.archiver = create_default_archiver(storage)
+            self.archiver = create_default_archiver(storage, config.archiver)
+        else:
+            self.archiver = archiver
 
-        if self.garbage_collector is None:
+        if garbage_collector is None:
             from hivememory.lifecycle.garbage_collector import create_default_garbage_collector
             self.garbage_collector = create_default_garbage_collector(
                 storage,
                 self.archiver,
-                self.vitality_calculator
+                self.vitality_calculator,
+                config.garbage_collector
             )
+        else:
+            self.garbage_collector = garbage_collector
 
         logger.info("MemoryLifecycleManager initialized with all components")
 
@@ -276,7 +301,7 @@ class MemoryLifecycleManager(LifecycleManager):
             List[Tuple[UUID, float]]: (memory_id, vitality) 列表，按生命力升序
         """
         # 获取所有记忆
-        all_memories = self._get_all_memories()
+        all_memories = self.storage.get_all_memories(limit=10000)
 
         results = []
         for memory in all_memories:
@@ -349,82 +374,36 @@ class MemoryLifecycleManager(LifecycleManager):
 
         return stats
 
-    def _get_all_memories(self) -> List[MemoryAtom]:
-        """
-        获取所有记忆
-
-        Returns:
-            List[MemoryAtom]: 所有记忆列表
-        """
-        if hasattr(self.storage, "get_all_memories"):
-            return self.storage.get_all_memories(limit=10000)
-
-        # 回退方法
-        memories = []
-        try:
-            from qdrant_client.models import ScrollRequest
-
-            scroll_result = self.storage.client.scroll(
-                collection_name=self.storage.collection_name,
-                limit=10000,
-                with_payload=True,
-                with_vectors=False,
-            )
-            for point in scroll_result[0]:
-                memory = self.storage._payload_to_memory(point.payload)
-                memories.append(memory)
-        except Exception as e:
-            logger.error(f"Failed to get all memories: {e}")
-
-        return memories
-
 
 def create_default_lifecycle_manager(
-    storage,
+    storage: QdrantMemoryStore,
+    config: Optional["LifecycleConfig"] = None,
     enable_scheduled_gc: bool = False,
     gc_interval_hours: int = 24
-) -> LifecycleManager:
+) -> MemoryLifecycleManager:
     """
-    创建默认生命周期管理器
+    创建默认记忆生命周期管理器
 
     Args:
         storage: 向量存储实例
-        enable_scheduled_gc: 是否启用定时垃圾回收
-        gc_interval_hours: 垃圾回收间隔 (小时)
+        config: 记忆生命周期配置 (可选，使用默认配置)
+        enable_scheduled_gc: 是否启用定时垃圾回收 (兼容旧参数)
+        gc_interval_hours: 垃圾回收间隔 (小时) (兼容旧参数)
 
     Returns:
-        LifecycleManager: 生命周期管理器实例
+        MemoryLifecycleManager: 记忆生命周期管理器实例
     """
-    # 创建组件
-    from hivememory.lifecycle.vitality import create_default_vitality_calculator
-    from hivememory.lifecycle.reinforcement import create_default_reinforcement_engine
-    from hivememory.lifecycle.archiver import create_default_archiver
+    # 使用传入的配置或加载默认配置
+    if config is None:
+        from hivememory.core.config import MemoryLifecycleConfig
+        config = MemoryLifecycleConfig()
 
-    vitality_calc = create_default_vitality_calculator()
-    reinforcement = create_default_reinforcement_engine(storage, vitality_calc)
-    archiver = create_default_archiver(storage)
-
-    # 创建垃圾回收器
+    # 如果启用了定时回收，覆盖配置中的设置
     if enable_scheduled_gc:
-        from hivememory.lifecycle.garbage_collector import ScheduledGarbageCollector
-        gc = ScheduledGarbageCollector(
-            storage=storage,
-            archiver=archiver,
-            vitality_calculator=vitality_calc,
-            enable_schedule=True,
-            interval_hours=gc_interval_hours,
-        )
-    else:
-        from hivememory.lifecycle.garbage_collector import create_default_garbage_collector
-        gc = create_default_garbage_collector(storage, archiver, vitality_calc)
+        config.garbage_collector.enable_schedule = True
+        config.garbage_collector.interval_hours = gc_interval_hours
 
-    return MemoryLifecycleManager(
-        storage=storage,
-        vitality_calculator=vitality_calc,
-        reinforcement_engine=reinforcement,
-        archiver=archiver,
-        garbage_collector=gc,
-    )
+    return MemoryLifecycleManager(storage=storage, config=config)
 
 
 __all__ = [

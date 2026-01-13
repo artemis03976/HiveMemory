@@ -141,7 +141,7 @@ def setup_environment():
 
         # 清理归档目录
         import shutil
-        archive_dir = Path(config.memory.lifecycle.archive_dir)
+        archive_dir = Path(config.lifecycle.archiver.archive_dir)
         if archive_dir.exists():
             shutil.rmtree(archive_dir)
         archive_dir.mkdir(parents=True, exist_ok=True)

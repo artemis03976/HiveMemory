@@ -17,6 +17,7 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 
 import logging
 from typing import Optional, TYPE_CHECKING
+from hivememory.memory.storage import QdrantMemoryStore
 
 from hivememory.generation.orchestrator import MemoryGenerationOrchestrator
 from hivememory.generation.interfaces import (
@@ -24,9 +25,29 @@ from hivememory.generation.interfaces import (
     MemoryExtractor,
     Deduplicator,
 )
-from hivememory.generation.gating import create_default_gater
-from hivememory.generation.extractor import create_default_extractor
-from hivememory.generation.deduplicator import create_default_deduplicator
+
+from hivememory.generation.models import (
+    ConversationMessage,
+    ExtractedMemoryDraft,
+    DuplicateDecision,
+)
+
+from hivememory.generation.gating import (
+    RuleBasedGater,
+    LLMAssistedGater,
+    HybridGater,
+    create_default_gater,
+)
+
+from hivememory.generation.extractor import (
+    LLMMemoryExtractor,
+    create_default_extractor,
+)
+
+from hivememory.generation.deduplicator import (
+    MemoryDeduplicator,
+    create_default_deduplicator,
+)
 
 if TYPE_CHECKING:
     from hivememory.core.config import MemoryGenerationConfig
@@ -35,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_default_generation_orchestrator(
-    storage,
+    storage: QdrantMemoryStore,
     config: Optional["MemoryGenerationConfig"] = None,
 ) -> MemoryGenerationOrchestrator:
     """
@@ -86,9 +107,30 @@ def create_default_generation_orchestrator(
 
 
 __all__ = [
-    "MemoryGenerationOrchestrator",
+    # 接口
     "ValueGater",
     "MemoryExtractor",
     "Deduplicator",
-    "create_default_generation_orchestrator",
+
+    # 数据模型
+    "ConversationMessage",
+    "ExtractedMemoryDraft",
+    "DuplicateDecision",
+
+    # 价值评估
+    "RuleBasedGater",
+    "LLMAssistedGater",
+    "HybridGater",
+    "create_default_gater",
+
+    # 记忆提取
+    "LLMMemoryExtractor",
+    "create_default_extractor",
+
+    # 查重与演化
+    "MemoryDeduplicator",
+    "create_default_deduplicator",
+
+    # 编排器
+    "MemoryGenerationOrchestrator",
 ]
