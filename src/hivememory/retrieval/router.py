@@ -182,17 +182,22 @@ Say NO if the query:
     
     def __init__(
         self,
-        llm_config: Optional[Dict[str, Any]] = None,
+        llm_config: Optional[Any] = None,
         fallback_router: Optional[RetrievalRouter] = None
     ):
         """
         初始化 LLM 路由器
         
         Args:
-            llm_config: LLM 配置（model, api_key 等）
+            llm_config: LLM 配置（Config 对象或字典）
             fallback_router: 备用路由器（LLM 失败时使用）
         """
-        self.llm_config = llm_config or {}
+        # 兼容 Pydantic 模型和字典
+        if hasattr(llm_config, "model_dump"):
+            self.llm_config = llm_config.model_dump()
+        else:
+            self.llm_config = llm_config or {}
+            
         self.fallback_router = fallback_router or SimpleRouter()
         self._client = None
     

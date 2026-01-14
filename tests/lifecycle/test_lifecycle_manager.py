@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.lifecycle.orchestrator import MemoryLifecycleManager, create_default_lifecycle_manager
-from hivememory.lifecycle.types import MemoryEvent, EventType
+from hivememory.lifecycle.models import MemoryEvent, EventType
 
 
 class TestMemoryLifecycleManager:
@@ -248,12 +248,14 @@ class TestCreateDefaultLifecycleManager:
     @patch('hivememory.lifecycle.archiver.create_default_archiver')
     @patch('hivememory.lifecycle.reinforcement.create_default_reinforcement_engine')
     @patch('hivememory.lifecycle.vitality.create_default_vitality_calculator')
+    @patch('hivememory.core.config.MemoryLifecycleConfig')
     def test_create_default_manager(
         self,
-        mock_gc,
-        mock_archiver,
+        mock_config_class,
+        mock_vitality,
         mock_reinforcement,
-        mock_vitality
+        mock_archiver,
+        mock_gc
     ):
         """测试创建默认管理器"""
         mock_storage = Mock()
@@ -261,6 +263,10 @@ class TestCreateDefaultLifecycleManager:
         mock_reinforcement.return_value = Mock()
         mock_archiver.return_value = Mock()
         mock_gc.return_value = Mock()
+        
+        # 模拟配置实例
+        mock_config_instance = Mock()
+        mock_config_class.return_value = mock_config_instance
 
         manager = create_default_lifecycle_manager(mock_storage)
 

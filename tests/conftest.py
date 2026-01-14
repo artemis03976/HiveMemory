@@ -9,6 +9,7 @@ HiveMemory 测试共享 Fixtures
 
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import os
 
 import pytest
 from rich.console import Console
@@ -22,6 +23,8 @@ sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import FlushReason
 from hivememory.generation.models import ConversationMessage
+from hivememory.core.config import HiveMemoryConfig
+from unittest.mock import patch
 
 
 # ========== FlushRecorder 类 ==========
@@ -96,6 +99,29 @@ class FlushRecorder:
 
 
 # ========== Pytest Fixtures ==========
+
+@pytest.fixture
+def mock_env():
+    """
+    提供一个干净的环境变量上下文
+    
+    使用 patch.dict 确保测试期间的环境变量更改不会影响其他测试或系统。
+    """
+    with patch.dict(os.environ):
+        yield os.environ
+
+
+@pytest.fixture
+def test_config(mock_env):
+    """
+    提供测试用的 HiveMemoryConfig 实例
+    
+    强制忽略本地配置文件，使用默认值。
+    """
+    # 指向不存在的配置文件路径，确保只使用默认值和环境变量
+    mock_env["HIVEMEMORY_CONFIG_PATH"] = "non_existent_config_for_test.yaml"
+    return HiveMemoryConfig()
+
 
 @pytest.fixture
 def flush_recorder() -> FlushRecorder:

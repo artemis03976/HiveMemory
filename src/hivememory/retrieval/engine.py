@@ -174,7 +174,7 @@ class MemoryRetrievalEngine(RetrievalEngine):
                 top_k=top_k,
                 score_threshold=score_threshold
             )
-            result.retriever_results = retriever_results
+            result.search_results = retriever_results
             result.memories = retriever_results.get_memories()
             result.memories_count = len(result.memories)
             

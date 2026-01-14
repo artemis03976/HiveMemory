@@ -9,9 +9,11 @@ RetrievalRouter 单元测试
 import pytest
 import sys
 from unittest.mock import Mock, patch, MagicMock
+from datetime import datetime
 
 from hivememory.generation.models import ConversationMessage
 from hivememory.retrieval.router import SimpleRouter, LLMRouter, AlwaysRetrieveRouter, NeverRetrieveRouter
+from hivememory.core.config import LLMConfig
 
 class TestSimpleRouter:
     """测试简单路由器"""
@@ -52,39 +54,50 @@ class TestLLMRouter:
     """测试 LLM 路由器"""
 
     def setup_method(self):
-        self.mock_config = {"model": "gpt-4o-mini", "api_key": "test"}
+        # 使用 LLMConfig 对象而非字典
+        self.mock_config = LLMConfig(model="gpt-4o-mini", api_key="test")
         self.router = LLMRouter(llm_config=self.mock_config)
 
-    def test_should_retrieve_yes(self):
+    def test_should_retrieve_yes(self, mock_env):
         """测试 LLM 返回 YES"""
         mock_litellm = MagicMock()
         mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "YES"
+        # 修正：根据 litellm 或 openai 的结构，choices[0].message.content
+        mock_message = Mock()
+        mock_message.content = "YES"
+        mock_choice = Mock()
+        mock_choice.message = mock_message
+        mock_response.choices = [mock_choice]
+        
         mock_litellm.completion.return_value = mock_response
 
+        # 由于 LLMRouter 内部是动态导入 litellm (import litellm)
+        # 我们需要 mock sys.modules['litellm']
         with patch.dict(sys.modules, {'litellm': mock_litellm}):
-            assert self.router.should_retrieve("What did we discuss yesterday?") is True
+             assert self.router.should_retrieve("What did we discuss yesterday?") is True
 
-    def test_should_retrieve_no(self):
+    def test_should_retrieve_no(self, mock_env):
         """测试 LLM 返回 NO"""
         mock_litellm = MagicMock()
         mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "NO"
+        mock_message = Mock()
+        mock_message.content = "NO"
+        mock_choice = Mock()
+        mock_choice.message = mock_message
+        mock_response.choices = [mock_choice]
+        
         mock_litellm.completion.return_value = mock_response
 
         with patch.dict(sys.modules, {'litellm': mock_litellm}):
-            assert self.router.should_retrieve("Write a poem about spring") is False
+            assert self.router.should_retrieve("Hello") is False
 
-    def test_llm_failure_fallback(self):
+    def test_llm_failure_fallback(self, mock_env):
         """测试 LLM 失败时回退到 SimpleRouter"""
         mock_litellm = MagicMock()
         mock_litellm.completion.side_effect = Exception("API Error")
-        
+
         with patch.dict(sys.modules, {'litellm': mock_litellm}):
-            # SimpleRouter 应该能识别这个关键词
-            assert self.router.should_retrieve("记得之前") is True
+            assert self.router.should_retrieve("What happened yesterday?") is True
 
 
 class TestUtilityRouters:

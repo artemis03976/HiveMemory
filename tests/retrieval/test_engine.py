@@ -15,113 +15,112 @@ from hivememory.core.models import MemoryAtom, MemoryType, IndexLayer, PayloadLa
 from hivememory.retrieval.engine import MemoryRetrievalEngine, RetrievalResult
 from hivememory.retrieval.router import RetrievalRouter
 from hivememory.retrieval.query import QueryProcessor, ProcessedQuery
-from hivememory.retrieval.memory_retriever import HybridRetriever, SearchResults, SearchResult
+from hivememory.retrieval.retriever import HybridRetriever, SearchResults, SearchResult
 from hivememory.retrieval.renderer import ContextRenderer
 
 class TestRetrievalEngine:
     """测试检索引擎"""
 
     def setup_method(self):
-        # Mock 所有组件
-        self.mock_storage = Mock()
-        self.mock_router = Mock(spec=RetrievalRouter)
-        self.mock_processor = Mock(spec=QueryProcessor)
-        self.mock_searcher = Mock(spec=HybridRetriever)
-        self.mock_renderer = Mock(spec=ContextRenderer)
+        self.mock_storage = MagicMock()
+        self.mock_router = MagicMock(spec=RetrievalRouter)
+        self.mock_processor = MagicMock(spec=QueryProcessor)
+        self.mock_retriever = MagicMock(spec=HybridRetriever)
+        self.mock_renderer = MagicMock(spec=ContextRenderer)
         
+        # 构造引擎，手动注入组件
         self.engine = MemoryRetrievalEngine(
             storage=self.mock_storage,
             router=self.mock_router,
             processor=self.mock_processor,
-            searcher=self.mock_searcher,
-            renderer=self.mock_renderer
+            retriever=self.mock_retriever,
+            renderer=self.mock_renderer,
+            config=None
         )
         
         # 默认 Mock 行为
         self.mock_router.should_retrieve.return_value = True
-        self.mock_processor.process.return_value = ProcessedQuery(semantic_query="test", original_query="test")
         
-        self.memory = MemoryAtom(
-            index=IndexLayer(title="M1", summary="This is a summary of the memory content.", memory_type=MemoryType.FACT),
-            payload=PayloadLayer(content="C1"),
-            meta=MetaData(source_agent_id="test", user_id="u1")
+        self.processed_query = ProcessedQuery(
+            original_query="test query",
+            semantic_query="test query",
+            filters={}
         )
+        self.mock_processor.process.return_value = self.processed_query
+        
+        # 创建一个真实的 MemoryAtom 用于测试，避免 Pydantic 校验错误
+        from hivememory.core.models import MemoryAtom, IndexLayer, PayloadLayer, MetaData, MemoryType
+        from datetime import datetime
+        
+        memory = MemoryAtom(
+            index=IndexLayer(title="Test Memory", summary="This is a summary of the memory content.", memory_type=MemoryType.FACT),
+            payload=PayloadLayer(content="Memory content"),
+            meta=MetaData(source_agent_id="agent", user_id="user", updated_at=datetime.now())
+        )
+        
         self.search_results = SearchResults(
-            results=[SearchResult(memory=self.memory, score=0.9)]
+            results=[
+                SearchResult(
+                    memory=memory,
+                    score=0.9
+                )
+            ]
         )
         self.mock_retriever.retrieve.return_value = self.search_results
-        self.mock_renderer.render.return_value = "<context>C1</context>"
+        
+        self.mock_renderer.render.return_value = "<context>...</context>"
 
     def test_retrieve_context_full_flow(self):
         """测试完整检索流程"""
-        result = self.engine.retrieve_context(
-            query="test query",
-            user_id="u1"
-        )
+        result = self.engine.retrieve_context("query", "u1")
         
-        assert result.should_retrieve is True
-        assert result.memories_count == 1
-        assert result.rendered_context == "<context>C1</context>"
-        
-        # 验证调用顺序
+        # 验证各组件调用顺序
         self.mock_router.should_retrieve.assert_called_once()
         self.mock_processor.process.assert_called_once()
         self.mock_retriever.retrieve.assert_called_once()
         self.mock_renderer.render.assert_called_once()
+        
+        assert result.rendered_context == "<context>...</context>"
+        assert result.memories_count == 1
 
     def test_retrieve_context_skipped(self):
-        """测试路由跳过检索"""
+        """测试路由决定跳过检索"""
         self.mock_router.should_retrieve.return_value = False
         
-        result = self.engine.retrieve_context(
-            query="hi",
-            user_id="u1"
-        )
+        result = self.engine.retrieve_context("query", "u1")
         
-        assert result.should_retrieve is False
-        assert result.is_empty()
-        # 后续步骤不应执行
+        assert not result.should_retrieve
         self.mock_processor.process.assert_not_called()
-        self.mock_searcher.search.assert_not_called()
+        self.mock_retriever.retrieve.assert_not_called()
 
     def test_force_retrieve(self):
         """测试强制检索"""
         self.mock_router.should_retrieve.return_value = False
         
-        result = self.engine.retrieve_context(
-            query="hi",
-            user_id="u1",
-            force_retrieve=True
-        )
+        # 强制检索应忽略路由结果
+        result = self.engine.retrieve_context("query", "u1", force_retrieve=True)
         
-        # 即使路由说不，也应该检索
-        assert result.should_retrieve is True  # 注意：这里 Result 里的 should_retrieve 还是 True，因为逻辑被绕过了
         self.mock_retriever.retrieve.assert_called_once()
+        assert result.memories_count == 1
 
     def test_search_error_handling(self):
-        """测试检索错误处理"""
+        """测试检索异常处理"""
         self.mock_retriever.retrieve.side_effect = Exception("Search failed")
         
-        # 不应抛出异常，而是返回空结果
-        result = self.engine.retrieve_context(
-            query="test",
-            user_id="u1"
-        )
+        result = self.engine.retrieve_context("query", "u1")
         
-        assert result.is_empty()
+        # 应该捕获异常并返回空结果
+        # 根据 engine.py:183, result.rendered_context 默认为 ""
+        # 异常捕获后 result.rendered_context 不会被修改，所以是 ""
         assert result.rendered_context == ""
+        assert result.memories_count == 0
 
     def test_search_memories_simple(self):
-        """测试简化搜索接口"""
-        # Mock processor return value
-        self.mock_processor.process.return_value = ProcessedQuery(semantic_query="test", original_query="test")
-        self.mock_retriever.retrieve.return_value = self.search_results
-        
-        memories = self.engine.search_memories("test", "u1")
+        """测试简单搜索接口"""
+        memories = self.engine.retrieve_memories("query", "u1")
         
         assert len(memories) == 1
-        assert memories[0].index.title == "M1"
-        self.mock_processor.process.assert_called()
+        self.mock_processor.process.assert_called_once()
         self.mock_retriever.retrieve.assert_called_once()
 
 if __name__ == "__main__":

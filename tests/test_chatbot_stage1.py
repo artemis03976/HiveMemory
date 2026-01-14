@@ -59,7 +59,7 @@ def setup_system():
 
     try:
         # 加载配置
-    config = load_app_config()
+        config = load_app_config()
         console.print("  ✓ 配置加载成功")
 
         # 初始化 Redis

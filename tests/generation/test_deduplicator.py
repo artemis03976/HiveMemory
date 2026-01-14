@@ -67,8 +67,21 @@ class TestMemoryDeduplicator:
         
         # 部分相同 (Jaccard)
         # "apple" -> {a,p,l,e}, "pear" -> {p,e,a,r}
-        # intersection={p,e,a} (3), union={a,p,l,e,r} (5) -> 0.6
-        assert 0.5 < self.deduplicator._calculate_text_similarity("apple", "pear") < 0.7
+        # intersection={p,e,a} (3), union={a,p,l,e,r} (5) -> 3/5 = 0.6
+        # 但是代码中使用了 re.findall(r'\w+', text.lower())，这会把 "apple" 当作一个词 "apple"
+        # 而不是字符集合。
+        # 如果要测试字符级相似度，输入应该是空格分隔的词，或者修改测试用例
+        
+        # 测试用例修正：基于词的 Jaccard 相似度
+        text1 = "apple banana orange"
+        text2 = "apple banana pear"
+        # words1 = {apple, banana, orange} (3)
+        # words2 = {apple, banana, pear} (3)
+        # intersection = {apple, banana} (2)
+        # union = {apple, banana, orange, pear} (4)
+        # similarity = 2/4 = 0.5
+        
+        assert self.deduplicator._calculate_text_similarity(text1, text2) == 0.5
 
     def test_check_duplicate_create(self):
         """测试判定为 CREATE (无相似记忆)"""

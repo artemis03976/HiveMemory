@@ -31,6 +31,7 @@ sys.path.insert(0, str(project_root / "src"))
 import time
 import logging
 from typing import List
+from unittest.mock import MagicMock, patch
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -46,7 +47,6 @@ from hivememory.perception.trigger_strategies import (
 )
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.core.config import load_app_config
 
 # 配置日志
 logging.basicConfig(
@@ -252,20 +252,19 @@ def test_patchouli_integration():
     console.print("\n[bold cyan]测试 4: 与 PatchouliAgent 集成[/bold cyan]")
 
     try:
-        # 创建存储实例
-        config = load_app_config()
-        storage = QdrantMemoryStore(
-            qdrant_config=config.qdrant,
-            embedding_config=config.embedding
-        )
-
-        # 创建集合
-        console.print("  创建 Qdrant 集合...")
-        storage.create_collection(recreate=True)
+        # 使用 Mock 存储，避免连接真实 Qdrant
+        storage = MagicMock(spec=QdrantMemoryStore)
 
         # 创建使用简单感知层的 PatchouliAgent
+        # 使用 MemoryPerceptionConfig 替代过时的 enable_semantic_flow 参数
+        from hivememory.core.config import MemoryPerceptionConfig
+        perception_config = MemoryPerceptionConfig(layer_type="simple")
+
         console.print("\n  [yellow]创建 PatchouliAgent (SimplePerceptionLayer)...[/yellow]")
-        patchouli = PatchouliAgent(storage=storage, enable_semantic_flow=False)
+        patchouli = PatchouliAgent(
+            storage=storage,
+            perception_config=perception_config
+        )
         console.print("  ✓ PatchouliAgent 创建成功")
 
         # 测试添加消息
@@ -286,9 +285,26 @@ def test_patchouli_integration():
         console.print(f"  消息数: {info['message_count']}")
         console.print("  ✓ Buffer 信息获取成功")
 
+        # Mock 生成编排器，避免调用真实 LLM
+        patchouli.generation_orchestrator = MagicMock()
+        # 模拟返回一条记忆
+        mock_memory = MagicMock()
+        mock_memory.content = "Mock Memory"
+        patchouli.generation_orchestrator.process.return_value = [mock_memory]
+
         # 手动触发 Flush
         console.print("\n  [yellow]手动触发 Flush...[/yellow]")
-        memories = patchouli.flush_buffer(user_id, agent_id, session_id)
+        
+        # 注册观察者捕获结果
+        results = []
+        def observer(event):
+            results.extend(event.memories)
+        patchouli.add_flush_observer(observer)
+
+        # 使用 flush_perception
+        patchouli.flush_perception(user_id, agent_id, session_id)
+        
+        memories = results
         console.print(f"  ✓ Flush 完成, 提取了 {len(memories)} 条记忆")
 
         # 列出活跃 Buffer

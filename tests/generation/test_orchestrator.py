@@ -1,5 +1,5 @@
 """
-记忆生成编排器 (MemoryOrchestrator) 单元测试
+记忆生成编排器 (MemoryGenerationOrchestrator) 单元测试
 
 测试覆盖:
 - 完整处理流程 (Gating -> Extractor -> Deduplicator -> Storage)
@@ -12,13 +12,13 @@ from unittest.mock import Mock, MagicMock, patch
 from typing import List
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.generation.orchestrator import MemoryOrchestrator
+from hivememory.generation.orchestrator import MemoryGenerationOrchestrator
 from hivememory.generation.interfaces import ValueGater, MemoryExtractor, Deduplicator
 from hivememory.generation.models import ConversationMessage, DuplicateDecision, ExtractedMemoryDraft
 from hivememory.memory.storage import QdrantMemoryStore
 
 
-class TestMemoryOrchestrator:
+class TestMemoryGenerationOrchestrator:
     """测试记忆编排器"""
 
     def setup_method(self):
@@ -28,7 +28,7 @@ class TestMemoryOrchestrator:
         self.mock_extractor = Mock(spec=MemoryExtractor)
         self.mock_deduplicator = Mock(spec=Deduplicator)
         
-        self.orchestrator = MemoryOrchestrator(
+        self.orchestrator = MemoryGenerationOrchestrator(
             storage=self.mock_storage,
             gater=self.mock_gater,
             extractor=self.mock_extractor,
@@ -58,7 +58,7 @@ class TestMemoryOrchestrator:
 
     def test_process_empty_messages(self):
         """测试空消息列表"""
-        result = self.orchestrator.process([], "u1")
+        result = self.orchestrator.process([])
         assert result == []
         self.mock_gater.evaluate.assert_not_called()
 
@@ -66,7 +66,7 @@ class TestMemoryOrchestrator:
         """测试价值评估拒绝"""
         self.mock_gater.evaluate.return_value = False
         
-        result = self.orchestrator.process(self.messages, "u1")
+        result = self.orchestrator.process(self.messages)
         
         assert result == []
         self.mock_extractor.extract.assert_not_called()
@@ -76,7 +76,7 @@ class TestMemoryOrchestrator:
         self.mock_gater.evaluate.return_value = True
         self.mock_extractor.extract.return_value = None
         
-        result = self.orchestrator.process(self.messages, "u1")
+        result = self.orchestrator.process(self.messages)
         
         assert result == []
         self.mock_deduplicator.check_duplicate.assert_not_called()
@@ -87,7 +87,7 @@ class TestMemoryOrchestrator:
         self.mock_extractor.extract.return_value = self.draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         
-        result = self.orchestrator.process(self.messages, "u1")
+        result = self.orchestrator.process(self.messages)
         
         assert len(result) == 1
         assert result[0].index.title == "Test"
@@ -101,7 +101,7 @@ class TestMemoryOrchestrator:
         self.mock_extractor.extract.return_value = self.draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.TOUCH, self.memory_atom)
         
-        result = self.orchestrator.process(self.messages, "u1")
+        result = self.orchestrator.process(self.messages)
         
         assert len(result) == 1
         assert result[0] == self.memory_atom
@@ -121,7 +121,7 @@ class TestMemoryOrchestrator:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, self.memory_atom)
         self.mock_deduplicator.merge_memory.return_value = merged_memory
         
-        result = self.orchestrator.process(self.messages, "u1")
+        result = self.orchestrator.process(self.messages)
         
         assert len(result) == 1
         assert result[0].index.title == "Merged Title"
@@ -134,27 +134,10 @@ class TestMemoryOrchestrator:
         """测试 DISCARD 记忆"""
         self.mock_gater.evaluate.return_value = True
         self.mock_extractor.extract.return_value = self.draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None) # 假设有 DISCARD 状态
-        # 注意: 实际代码中没有 DISCARD 枚举，但逻辑中有 else 分支。这里用 None 模拟。
-        # 修改测试以匹配实际逻辑：代码中没有 DISCARD 枚举值，但 check_duplicate 返回 (decision, existing)。
-        # 假设我们扩展了 DuplicateDecision 或 mock 返回了一个未处理的值。
-        # 不过看代码逻辑:
-        # if decision == TOUCH: ...
-        # elif decision == UPDATE: ...
-        # elif decision == CREATE: ...
-        # else: ... (DISCARD)
+        # 模拟返回一个不在 (TOUCH, UPDATE, CREATE) 中的决策值，触发 else 分支 (DISCARD)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None)
         
-        # 我们需要 mock 一个不在上述枚举中的值，或者假设 DuplicateDecision 有 DISCARD
-        # 查看源码，DuplicateDecision 在 interfaces.py 中。
-        # 假设我们 mock 一个未知值
-        
-        # 让我们检查 interfaces.py 中的 DuplicateDecision 定义。
-        # 之前 search output 没显示 interfaces.py 的全部。
-        # 假设我们 mock 一个不一样的值。
-        
-        self.mock_deduplicator.check_duplicate.return_value = (MagicMock(), None)
-        
-        result = self.orchestrator.process(self.messages, "u1")
+        result = self.orchestrator.process(self.messages)
         assert result == []
         self.mock_storage.upsert_memory.assert_not_called()
 

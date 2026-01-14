@@ -32,7 +32,6 @@ import redis
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from hivememory.core.config import load_app_config
 from hivememory.agents.session_manager import SessionManager
@@ -46,7 +45,7 @@ def setup_session_manager():
 
     try:
         # 加载配置
-    config = load_app_config()
+        config = load_app_config()
 
         # 初始化 Redis
         redis_client = redis.Redis(

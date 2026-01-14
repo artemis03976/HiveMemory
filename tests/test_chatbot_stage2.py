@@ -57,7 +57,7 @@ def setup_system():
 
     try:
         # 加载配置
-    config = load_app_config()
+        config = load_app_config()
         
         # 初始化 Redis
         redis_client = redis.Redis(

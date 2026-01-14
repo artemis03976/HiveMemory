@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.lifecycle.reinforcement import DynamicReinforcementEngine, DEFAULT_VITALITY_ADJUSTMENTS
-from hivememory.lifecycle.types import MemoryEvent, EventType
+from hivememory.lifecycle.models import MemoryEvent, EventType
 
 
 class TestDynamicReinforcementEngine:

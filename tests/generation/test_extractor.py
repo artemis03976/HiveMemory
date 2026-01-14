@@ -17,7 +17,6 @@ from hivememory.generation.models import ConversationMessage
 from hivememory.core.config import LLMConfig
 from hivememory.generation.extractor import LLMMemoryExtractor
 from hivememory.generation.models import ExtractedMemoryDraft
-from hivememory.generation.interfaces import ExtractionError
 
 
 class TestLLMMemoryExtractor:
@@ -25,16 +24,18 @@ class TestLLMMemoryExtractor:
 
     def setup_method(self):
         """每个测试方法前执行"""
-        self.mock_config = Mock(spec=LLMConfig)
-        self.mock_config.model = "test-model"
-        self.mock_config.api_key = "test-key"
-        self.mock_config.api_base = "https://api.test.com"
-        self.mock_config.temperature = 0.0
-        self.mock_config.max_tokens = 1000
+        # 使用真实的 Pydantic 模型作为基础，并进行 Mock
+        self.mock_config = LLMConfig(
+            model="test-model",
+            api_key="test-key",
+            api_base="https://api.test.com",
+            temperature=0.0,
+            max_tokens=1000
+        )
         
         self.extractor = LLMMemoryExtractor(llm_config=self.mock_config)
 
-    def test_convert_to_litellm_messages(self):
+    def test_convert_to_litellm_messages(self, mock_env):
         """测试 LangChain 消息转 LiteLLM 格式"""
         from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
         

@@ -238,7 +238,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         user_id: str,
         agent_id: str,
         session_id: str,
-    ) -> None:
+    ) -> List[ConversationMessage]:
         """
         手动刷新 Buffer
 
@@ -248,16 +248,16 @@ class SimplePerceptionLayer(BasePerceptionLayer):
             session_id: 会话ID
 
         Returns:
-            None
+            List[ConversationMessage]: 被 Flush 的消息列表，如果 Buffer 不存在或为空则返回空列表
         """
         with self._lock:
             buffer = self.get_buffer(user_id, agent_id, session_id)
             if not buffer:
                 logger.debug(f"Buffer 不存在: {user_id}:{agent_id}:{session_id}")
-                return
+                return []
 
             buffer_key = self._get_buffer_key(user_id, agent_id, session_id)
-            self._flush(buffer, buffer_key, FlushReason.MANUAL)
+            return self._flush(buffer, buffer_key, FlushReason.MANUAL)
 
     def get_buffer(
         self,

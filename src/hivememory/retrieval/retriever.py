@@ -18,7 +18,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from hivememory.core.config import (
     DenseRetrieverConfig,
     SparseRetrieverConfig,
-    FusionConfig,
 )
 from hivememory.retrieval.interfaces import MemoryRetriever
 from hivememory.retrieval.models import (
@@ -28,7 +27,7 @@ from hivememory.retrieval.models import (
     QueryFilters,
 )
 from hivememory.retrieval.fusion import ReciprocalRankFusion
-from hivememory.retrieval.reranker import NoopReranker, CrossEncoderReranker, BaseReranker
+from hivememory.retrieval.reranker import NoopReranker, CrossEncoderReranker
 from hivememory.memory.storage import QdrantMemoryStore
 
 if TYPE_CHECKING:
@@ -267,29 +266,14 @@ class HybridRetriever(MemoryRetriever):
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        # 统一配置（优先）
         config: Optional["HybridRetrieverConfig"] = None,
-        # 新式混合搜索配置（单独指定，向后兼容）
-        dense_config: Optional["DenseRetrieverConfig"] = None,
-        sparse_config: Optional["SparseRetrieverConfig"] = None,
-        fusion_config: Optional["FusionConfig"] = None,
-        reranker: Optional["BaseReranker"] = None,
-        enable_parallel: bool = True,
-        # 启用混合搜索模式
-        enable_hybrid_search: bool = False,
     ):
         """
         初始化混合检索器
 
         Args:
             storage: QdrantMemoryStore 实例
-            config: 统一混合检索配置（HybridRetrieverConfig，优先使用）
-            dense_config: 稠密检索器配置（当 config=None 时使用）
-            sparse_config: 稀疏检索器配置（当 config=None 时使用）
-            fusion_config: RRF 融合配置（当 config=None 时使用）
-            reranker: 重排序器 (可选)
-            enable_parallel: 是否启用并行召回（当 config=None 时使用）
-            enable_hybrid_search: 启用混合搜索模式 (稠密+稀疏+RRF)（当 config=None 时使用）
+            config: 统一混合检索配置（HybridRetrieverConfig）
         """
         self.storage = storage
 
@@ -319,14 +303,7 @@ class HybridRetriever(MemoryRetriever):
 
         # 初始化重排序器
         if config.reranker.enabled:
-            self.reranker = CrossEncoderReranker(
-                model_name=config.reranker.model_name,
-                device=config.reranker.device,
-                use_fp16=config.reranker.use_fp16,
-                batch_size=config.reranker.batch_size,
-                top_k=config.reranker.top_k,
-                normalize_scores=config.reranker.normalize_scores,
-            )
+            self.reranker = CrossEncoderReranker(config=config.reranker)
         else:
             self.reranker = None
 

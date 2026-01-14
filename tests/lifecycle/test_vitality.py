@@ -27,6 +27,15 @@ class TestVitalityCalculator:
         """测试初始化"""
         self.config = Mock()
         self.config.decay_lambda = 0.01
+        self.config.code_snippet_weight = 1.0
+        self.config.fact_weight = 0.9
+        self.config.url_resource_weight = 0.8
+        self.config.reflection_weight = 0.7
+        self.config.user_profile_weight = 0.6
+        self.config.work_in_progress_weight = 0.5
+        self.config.default_weight = 0.5
+        self.config.points_per_access = 2.0
+        self.config.max_access_boost = 20.0
         self.calculator = StandardVitalityCalculator(self.config)
 
     def test_intrinsic_value_weights(self):
@@ -196,6 +205,15 @@ class TestDecayResetVitalityCalculator:
         """测试初始化"""
         self.config = Mock()
         self.config.decay_lambda = 0.01
+        self.config.code_snippet_weight = 1.0
+        self.config.fact_weight = 0.9
+        self.config.url_resource_weight = 0.8
+        self.config.reflection_weight = 0.7
+        self.config.user_profile_weight = 0.6
+        self.config.work_in_progress_weight = 0.5
+        self.config.default_weight = 0.5
+        self.config.points_per_access = 2.0
+        self.config.max_access_boost = 20.0
         from hivememory.lifecycle.vitality import DecayResetVitalityCalculator
         self.calculator = DecayResetVitalityCalculator(self.config)
 

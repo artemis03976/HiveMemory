@@ -96,7 +96,7 @@ class PeriodicGarbageCollector(GarbageCollector):
         logger.info(f"Scanning for memories with vitality <= {threshold}...")
 
         # 获取所有记忆
-        all_memories = self._get_all_memories()
+        all_memories = self.storage.get_all_memories()
 
         candidates = []
         for memory in all_memories:
