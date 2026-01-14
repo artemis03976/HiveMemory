@@ -339,12 +339,6 @@ def create_default_extractor(
     if llm_config is None:
         llm_config = get_librarian_llm_config()
 
-    # 覆盖 temperature 和 max_tokens
-    if config.temperature is not None:
-        llm_config = llm_config.model_copy(update={"temperature": config.temperature})
-    if config.max_tokens is not None:
-        llm_config = llm_config.model_copy(update={"max_tokens": config.max_tokens})
-
     return LLMMemoryExtractor(
         llm_config=llm_config,
         system_prompt=config.system_prompt,

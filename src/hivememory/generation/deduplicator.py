@@ -13,12 +13,12 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
 版本: 0.1.0
 """
 
+import re
 import logging
 from typing import Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
-from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer
 from hivememory.generation.models import DuplicateDecision, ExtractedMemoryDraft
 from hivememory.generation.interfaces import Deduplicator
 from hivememory.memory.storage import QdrantMemoryStore

@@ -12,13 +12,13 @@ HiveMemory 本地 Embedding 服务
 
 import logging
 import threading
-from typing import List, Optional, Tuple, Union, Dict, Any
+from typing import List, Optional, Union, Dict, Any
 from functools import lru_cache
 from abc import ABC, abstractmethod
 
 import numpy as np
 
-from hivememory.core.config import get_config
+from hivememory.core.config import load_app_config
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,6 @@ class BaseEmbeddingService(ABC):
 
 
 # ========== SentenceTransformers Embedding 服务 ==========
-
 
 class LocalEmbeddingService(BaseEmbeddingService):
     """
@@ -320,7 +319,7 @@ def get_embedding_service(
         >>> vector = service.encode("hello")
     """
     if model_name is None:
-        config = get_config().embedding
+        config = load_app_config().embedding
         model_name = config.model_name
         # 仅在参数未提供时使用配置中的默认值
         if device is None:

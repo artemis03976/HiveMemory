@@ -38,6 +38,7 @@ from hivememory.generation.models import ConversationMessage
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.generation.triggers import TriggerManager, MessageCountTrigger
+from hivememory.core.config import load_app_config
 
 # 配置日志
 logging.basicConfig(
@@ -126,7 +127,7 @@ def setup_environment():
     console.print("\n[bold cyan]🛠️  环境准备...[/bold cyan]")
 
     try:
-        config = get_config()
+        config = load_app_config()
         
         # 创建存储实例
         storage = QdrantMemoryStore(

@@ -42,7 +42,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from hivememory.core.config import get_config
+from hivememory.core.config import load_app_config
 from hivememory.core.models import MemoryType
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.agents.patchouli import PatchouliAgent
@@ -59,7 +59,7 @@ def setup_system():
 
     try:
         # 加载配置
-        config = get_config()
+    config = load_app_config()
         console.print("  ✓ 配置加载成功")
 
         # 初始化 Redis

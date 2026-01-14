@@ -19,6 +19,8 @@ from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
+HIVEMEMORY_ENV_PREFIX = "HIVEMEMORY__"
+
 # ========== YAML Source Helper ==========
 
 def yaml_config_settings_source() -> Dict[str, Any]:
@@ -60,7 +62,15 @@ class LLMConfig(BaseSettings):
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=4096)
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix="HIVEMEMORY_")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
+
+
+class LLMGlobalConfig(BaseSettings):
+    """LLM 全局配置集合"""
+    worker: LLMConfig = Field(default_factory=lambda: LLMConfig(model="gpt-4o"))
+    librarian: LLMConfig = Field(default_factory=lambda: LLMConfig(model="deepseek/deepseek-chat", temperature=0.3, max_tokens=8192))
+
+    model_config = SettingsConfigDict(extra="allow", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class EmbeddingConfig(BaseSettings):
@@ -72,7 +82,7 @@ class EmbeddingConfig(BaseSettings):
     normalize_embeddings: bool = Field(default=True, description="是否归一化向量")
     dimension: int = Field(default=384, description="向量维度")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class QdrantConfig(BaseSettings):
@@ -86,7 +96,7 @@ class QdrantConfig(BaseSettings):
     distance_metric: str = Field(default="Cosine", description="距离度量方式")
     on_disk_payload: bool = Field(default=False, description="是否将 Payload 存储在磁盘")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class RedisConfig(BaseSettings):
@@ -97,7 +107,7 @@ class RedisConfig(BaseSettings):
     db: int = Field(default=0, description="数据库索引")
     decode_responses: bool = Field(default=True, description="是否自动解码响应")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 # ========== 感知层配置 ==========
@@ -108,7 +118,7 @@ class SimplePerceptionConfig(BaseSettings):
     timeout_seconds: int = Field(default=900, description="超时触发时间（秒）")
     enable_semantic_trigger: bool = Field(default=True, description="是否启用语义边界触发")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class SemanticFlowPerceptionConfig(BaseSettings):
@@ -125,7 +135,7 @@ class SemanticFlowPerceptionConfig(BaseSettings):
     embedding_cache_dir: Optional[str] = Field(default=None, description="模型缓存目录")
     embedding_batch_size: Optional[int] = Field(default=None, description="批处理大小")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class MemoryPerceptionConfig(BaseSettings):
@@ -135,7 +145,7 @@ class MemoryPerceptionConfig(BaseSettings):
     semantic_flow: SemanticFlowPerceptionConfig = Field(default_factory=SemanticFlowPerceptionConfig, description="语义流感知层配置")
     simple: SimplePerceptionConfig = Field(default_factory=SimplePerceptionConfig, description="简单感知层配置")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 # ========== 记忆生成配置 ==========
@@ -149,7 +159,7 @@ class ExtractorConfig(BaseSettings):
     temperature: Optional[float] = Field(default=None, description="LLM 温度参数")
     max_tokens: Optional[int] = Field(default=None, description="LLM 最大 Token 数")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class GaterConfig(BaseSettings):
@@ -161,7 +171,7 @@ class GaterConfig(BaseSettings):
     valuable_patterns: List[str] = Field(default_factory=list, description="白名单关键词")
     llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 评估器配置")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class DeduplicatorConfig(BaseSettings):
@@ -171,7 +181,7 @@ class DeduplicatorConfig(BaseSettings):
     content_similarity_threshold: float = Field(default=0.9, description="内容相似度阈值")
     enable_vitality_tracking: bool = Field(default=True, description="是否启用生命周期追踪")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class MemoryGenerationConfig(BaseSettings):
@@ -180,7 +190,7 @@ class MemoryGenerationConfig(BaseSettings):
     gater: GaterConfig = Field(default_factory=GaterConfig, description="价值评估器配置")
     deduplicator: DeduplicatorConfig = Field(default_factory=DeduplicatorConfig, description="查重器配置")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 # ========== 记忆检索配置 ==========
@@ -194,7 +204,7 @@ class RouterConfig(BaseSettings):
     llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 路由器配置")
     system_prompt: Optional[str] = Field(default=None, description="自定义系统提示词")
     
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class QueryProcessorConfig(BaseSettings):
@@ -206,7 +216,7 @@ class QueryProcessorConfig(BaseSettings):
     enable_llm_rewrite: bool = Field(default=False, description="是否启用 LLM 查询重写")
     llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 配置")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class ContextRendererConfig(BaseSettings):
@@ -222,7 +232,7 @@ class ContextRendererConfig(BaseSettings):
     confidence_threshold: float = Field(default=0.5, description="置信度阈值显示")
     old_memory_days: int = Field(default=90, description="记忆被视为陈旧的天数")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class DenseRetrieverConfig(BaseSettings):
@@ -234,7 +244,7 @@ class DenseRetrieverConfig(BaseSettings):
     time_decay_days: int = Field(default=30, description="时间衰减半衰期(天)")
     enable_confidence_boost: bool = Field(default=True, description="是否启用置信度加权")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class SparseRetrieverConfig(BaseSettings):
@@ -243,7 +253,7 @@ class SparseRetrieverConfig(BaseSettings):
     top_k: int = Field(default=50, description="RRF融合前的召回数量")
     score_threshold: float = Field(default=0.0, description="相似度阈值")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class FusionConfig(BaseSettings):
@@ -253,7 +263,7 @@ class FusionConfig(BaseSettings):
     sparse_weight: float = Field(default=1.0, description="稀疏检索权重")
     final_top_k: int = Field(default=5, description="最终返回数量")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class RerankerConfig(BaseSettings):
@@ -267,7 +277,7 @@ class RerankerConfig(BaseSettings):
     top_k: int = Field(default=20, description="仅重排序前N个结果")
     normalize_scores: bool = Field(default=True, description="是否标准化分数到 0-1")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class HybridRetrieverConfig(BaseSettings):
@@ -282,7 +292,7 @@ class HybridRetrieverConfig(BaseSettings):
     fusion: FusionConfig = Field(default_factory=FusionConfig, description="RRF 融合配置")
     reranker: RerankerConfig = Field(default_factory=RerankerConfig, description="重排序配置")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class MemoryRetrievalConfig(BaseSettings):
@@ -293,7 +303,7 @@ class MemoryRetrievalConfig(BaseSettings):
     retriever: HybridRetrieverConfig = Field(default_factory=HybridRetrieverConfig, description="混合检索配置")
     enable_routing: bool = Field(default=True, description="是否启用路由判断")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 # ========== 记忆生命周期配置 ==========
@@ -311,7 +321,7 @@ class VitalityCalculatorConfig(BaseSettings):
     points_per_access: float = Field(default=2.0, description="每次访问的加成分数")
     decay_lambda: float = Field(default=0.01, description="时间衰减系数")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class ReinforcementEngineConfig(BaseSettings):
@@ -324,7 +334,7 @@ class ReinforcementEngineConfig(BaseSettings):
     negative_feedback_penalty: float = Field(default=-50.0, description="负面反馈惩罚")
     negative_confidence_multiplier: float = Field(default=0.5, description="负面反馈置信度衰减系数")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class ArchiverConfig(BaseSettings):
@@ -332,7 +342,7 @@ class ArchiverConfig(BaseSettings):
     archive_dir: str = Field(default="data/archived", description="归档目录路径")
     compression: bool = Field(default=True, description="是否使用 GZIP 压缩")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class GarbageCollectorConfig(BaseSettings):
@@ -342,7 +352,7 @@ class GarbageCollectorConfig(BaseSettings):
     enable_schedule: bool = Field(default=False, description="是否启用定时垃圾回收")
     interval_hours: int = Field(default=24, description="执行间隔(小时)")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class MemoryLifecycleConfig(BaseSettings):
@@ -353,7 +363,7 @@ class MemoryLifecycleConfig(BaseSettings):
     garbage_collector: GarbageCollectorConfig = Field(default_factory=GarbageCollectorConfig, description="垃圾回收器配置")
     high_watermark: float = Field(default=80.0, description="高水位阈值")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 # ========== 系统与日志 ==========
@@ -365,7 +375,7 @@ class LoggingConfig(BaseSettings):
     file_path: Optional[str] = Field(default=None, description="日志文件路径")
     console_output: bool = Field(default=True, description="是否输出到控制台")
 
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class SystemConfig(BaseSettings):
@@ -374,7 +384,7 @@ class SystemConfig(BaseSettings):
     version: str = Field(default="0.1.0", description="系统版本")
     debug: bool = Field(default=False, description="调试模式")
     
-    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 # ========== 主配置类 ==========
@@ -392,7 +402,7 @@ class HiveMemoryConfig(BaseSettings):
     system: SystemConfig = Field(default_factory=SystemConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
-    llm: Dict[str, LLMConfig] = Field(default_factory=dict)
+    llm: LLMGlobalConfig = Field(default_factory=LLMGlobalConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
@@ -403,12 +413,12 @@ class HiveMemoryConfig(BaseSettings):
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "configs/.env", "configs\\.env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
         env_nested_delimiter="__",
-        env_prefix="HIVEMEMORY_"
+        env_prefix=HIVEMEMORY_ENV_PREFIX
     )
 
     @classmethod
@@ -439,8 +449,7 @@ class HiveMemoryConfig(BaseSettings):
 
         环境变量覆盖: HIVEMEMORY__LLM__WORKER__MODEL, HIVEMEMORY__LLM__WORKER__API_KEY 等
         """
-        config = self.llm.get("worker", LLMConfig(model="gpt-4o"))
-        return config
+        return self.llm.worker
 
     def get_librarian_llm_config(self) -> LLMConfig:
         """
@@ -448,12 +457,7 @@ class HiveMemoryConfig(BaseSettings):
 
         环境变量覆盖: HIVEMEMORY__LLM__LIBRARIAN__MODEL, HIVEMEMORY__LLM__LIBRARIAN__API_KEY 等
         """
-        config = self.llm.get("librarian", LLMConfig(
-            model="deepseek/deepseek-chat",
-            temperature=0.3,
-            max_tokens=8192
-        ))
-        return config
+        return self.llm.librarian
 
 
 # ========== 工厂函数 (Factory) ==========
@@ -477,19 +481,17 @@ def load_app_config(config_path: Optional[str] = None) -> HiveMemoryConfig:
     return HiveMemoryConfig()
 
 
-@lru_cache()
-def get_config(config_path: Optional[str] = None) -> HiveMemoryConfig:
-    """
-    [已废弃] 获取全局配置实例 (单例模式)
-    建议在代码中使用依赖注入，通过 load_app_config 获取配置后传递给组件。
-    """
-    logger.warning("Calling deprecated function get_config(). Please use load_app_config() and dependency injection instead.")
-    return load_app_config(config_path)
-
-
-# 导出便捷函数 (Delegates to get_config for backward compatibility)
 def get_worker_llm_config() -> LLMConfig:
-    return get_config().get_worker_llm_config()
+    """
+    便捷函数: 获取 Worker LLM 配置
+    自动加载全局配置并返回 worker 部分
+    """
+    return load_app_config().get_worker_llm_config()
+
 
 def get_librarian_llm_config() -> LLMConfig:
-    return get_config().get_librarian_llm_config()
+    """
+    便捷函数: 获取 Librarian LLM 配置
+    自动加载全局配置并返回 librarian 部分
+    """
+    return load_app_config().get_librarian_llm_config()

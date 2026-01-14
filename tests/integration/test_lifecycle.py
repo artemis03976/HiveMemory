@@ -38,7 +38,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 )
-from hivememory.core.config import get_config
+from hivememory.core.config import load_app_config
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.lifecycle import (
     create_default_lifecycle_manager,
@@ -127,7 +127,7 @@ def setup_environment():
     console.print("\n[bold cyan]🛠️  环境准备...[/bold cyan]")
 
     try:
-        config = get_config()
+        config = load_app_config()
 
         # 创建存储实例
         storage = QdrantMemoryStore(

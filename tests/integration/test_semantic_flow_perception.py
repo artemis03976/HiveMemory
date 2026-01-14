@@ -61,7 +61,7 @@ from hivememory.perception.models import (
 )
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.core.config import get_config
+from hivememory.core.config import load_app_config
 
 # 导入测试数据 fixtures
 from tests.fixtures.perception_test_data import (
@@ -1166,7 +1166,7 @@ def test_patchouli_integration_enhanced():
         # ========== 13.1 创建存储和 Agent ==========
         console.print("\n  [yellow]13.1 创建存储和 Agent...[/yellow]")
 
-        config = get_config()
+        config = load_app_config()
         storage = QdrantMemoryStore(
             qdrant_config=config.qdrant,
             embedding_config=config.embedding

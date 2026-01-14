@@ -88,6 +88,7 @@ class PatchouliAgent:
     def __init__(
         self,
         storage: Optional[QdrantMemoryStore] = None,
+        config: Optional["HiveMemoryConfig"] = None,
         perception_config: Optional["MemoryPerceptionConfig"] = None,
         generation_config: Optional["MemoryGenerationConfig"] = None,
     ):
@@ -96,24 +97,43 @@ class PatchouliAgent:
 
         Args:
             storage: Qdrant 存储实例（可选，自动创建）
-            perception_config: 感知层配置（可选，使用默认配置）
-            generation_config: 记忆生成配置（可选，使用默认配置）
+            config: 完整的 HiveMemory 配置（推荐使用此方式传入配置）
+            perception_config: 感知层配置（可选，当不传 config 时使用）
+            generation_config: 记忆生成配置（可选，当不传 config 时使用）
 
         Examples:
-            >>> # 使用默认配置（语义流感知层）
+            >>> # 使用完整配置（推荐）
+            >>> from hivememory.core.config import load_app_config
+            >>> config = load_app_config()
+            >>> patchouli = PatchouliAgent(config=config)
+            >>>
+            >>> # 使用环境变量默认配置
             >>> patchouli = PatchouliAgent()
             >>>
-            >>> # 使用简单感知层
+            >>> # 使用简单感知层（覆盖配置）
             >>> from hivememory.core.config import MemoryPerceptionConfig
-            >>> config = MemoryPerceptionConfig(layer_type="simple")
-            >>> patchouli = PatchouliAgent(perception_config=config)
-            >>>
-            >>> # 使用自定义生成配置
-            >>> from hivememory.core.config import MemoryGenerationConfig
-            >>> gen_config = MemoryGenerationConfig()
-            >>> gen_config.extractor.max_retries = 3
-            >>> patchouli = PatchouliAgent(generation_config=gen_config)
+            >>> perception_config = MemoryPerceptionConfig(layer_type="simple")
+            >>> patchouli = PatchouliAgent(perception_config=perception_config)
         """
+        # 优先使用完整配置
+        if config is not None:
+            from hivememory.core.config import HiveMemoryConfig, QdrantConfig, EmbeddingConfig
+
+            perception_config = perception_config or config.perception
+            generation_config = generation_config or config.generation
+            storage = storage or QdrantMemoryStore(
+                qdrant_config=config.qdrant,
+                embedding_config=config.embedding,
+            )
+        else:
+            # 使用默认配置（直接实例化会读取环境变量）
+            if perception_config is None:
+                from hivememory.core.config import MemoryPerceptionConfig
+                perception_config = MemoryPerceptionConfig()
+            if generation_config is None:
+                from hivememory.core.config import MemoryGenerationConfig
+                generation_config = MemoryGenerationConfig()
+
         self.storage = storage or QdrantMemoryStore()
         self.perception_config = perception_config
         self.generation_config = generation_config

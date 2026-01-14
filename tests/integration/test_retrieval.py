@@ -35,7 +35,7 @@ from rich.table import Table
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 )
-from hivememory.core.config import get_config
+from hivememory.core.config import load_app_config
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.retrieval import (
     QueryProcessor,
@@ -155,7 +155,7 @@ def setup_environment():
     console.print("\n[bold cyan]🛠️  环境准备...[/bold cyan]")
     
     try:
-        config = get_config()
+        config = load_app_config()
 
         # 创建存储实例
         storage = QdrantMemoryStore(

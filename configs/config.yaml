@@ -1,9 +1,13 @@
 # HiveMemory 主配置文件
 #
-# 环境变量覆盖说明:
-# 所有配置项都可以通过环境变量覆盖，格式为 HIVEMEMORY__<SECTION>__<FIELD>
-# 例如: HIVEMEMORY__QDRANT__HOST=localhost
-# 嵌套配置使用双下划线: HIVEMEMORY__PERCEPTION__SEMANTIC_FLOW__IDLE_TIMEOUT_SECONDS=900
+# 配置分层原则:
+# 1. 环境变量 (.env): 仅用于敏感信息 (API Keys)、基础设施地址 (Host/Port) 和环境切换 (Debug/Model)。
+# 2. 此文件 (config.yaml): 用于定义所有业务逻辑参数、算法阈值、默认配置等。
+#
+# 环境变量覆盖机制:
+# 尽管建议遵循上述分层，但所有配置项技术上都支持通过环境变量覆盖。
+# 格式: HIVEMEMORY__<SECTION>__<FIELD> (双下划线分隔)
+# 示例: HIVEMEMORY__PERCEPTION__SEMANTIC_FLOW__IDLE_TIMEOUT_SECONDS=900
 
 # ========== 系统配置 ==========
 system:
@@ -34,7 +38,7 @@ llm:
     api_key: null  # 通过环境变量 HIVEMEMORY__LLM__LIBRARIAN__API_KEY 设置
     api_base: null
     temperature: 0.3
-    max_tokens: 8192
+    max_tokens: 4096
 
 # ========== Embedding 模型配置 ==========
 embedding:

@@ -37,9 +37,9 @@ def test_qdrant_connection():
 
     try:
         from qdrant_client import QdrantClient
-        from hivememory.core.config import get_config
+        from hivememory.core.config import load_app_config
 
-        config = get_config()
+        config = load_app_config()
         client = QdrantClient(
             host=config.qdrant.host,
             port=config.qdrant.port,
@@ -66,10 +66,10 @@ def test_redis_connection():
     console.print("\n[bold cyan]2. 测试 Redis 连接...[/bold cyan]")
 
     try:
-        import redis
-        from hivememory.core.config import get_config
+        from redis import Redis
+        from hivememory.core.config import load_app_config
 
-        config = get_config()
+        config = load_app_config()
         client = redis.Redis(
             host=config.redis.host,
             port=config.redis.port,
@@ -104,9 +104,9 @@ def test_embedding_model():
 
     try:
         from sentence_transformers import SentenceTransformer
-        from hivememory.core.config import get_config
+        from hivememory.core.config import load_app_config
 
-        config = get_config()
+        config = load_app_config()  
         console.print(f"  加载模型: {config.embedding.model_name}")
         console.print(f"  设备: {config.embedding.device}")
 

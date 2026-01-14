@@ -64,63 +64,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_default_perception_config(**kwargs) -> MemoryPerceptionConfig:
-    """
-    创建默认配置的感知层配置对象
-    
-    Args:
-        **kwargs: 覆盖默认配置的参数
-        
-    Returns:
-        MemoryPerceptionConfig: 配置对象
-    """
-    config = MemoryPerceptionConfig.from_env()
-    
-    # 应用覆盖
-    for key, value in kwargs.items():
-        if hasattr(config, key):
-            setattr(config, key, value)
-            
-    return config
-
-
-__all__ = [
-    # 数据模型
-    "StreamMessageType",
-    "StreamMessage",
-    "Triplet",
-    "LogicalBlock",
-    "BufferState",
-    "SemanticBuffer",
-    "SimpleBuffer",
-    "FlushReason",  # 从 core.models 导入
-    # 接口
-    "StreamParser",
-    "SemanticAdsorber",
-    "RelayController",
-    "IdleTimeoutMonitorInterface",
-    "BasePerceptionLayer",
-    # 感知层实现
-    "SimplePerceptionLayer",
-    "SemanticFlowPerceptionLayer",
-    # 空闲超时监控
-    "IdleTimeoutMonitor",
-    # 触发策略
-    "TriggerManager",
-    "create_default_trigger_manager",
-    # 具体实现
-    "LocalEmbeddingService",
-    "get_embedding_service",
-    "UnifiedStreamParser",
-    "SemanticBoundaryAdsorber",
-    "TokenOverflowRelayController",
-    # 配置
-    "MemoryPerceptionConfig",
-    "create_default_perception_config",
-    "create_default_perception_layer",
-]
-
-
 def create_default_perception_layer(
     config: Optional[MemoryPerceptionConfig] = None,
     on_flush_callback=None,
@@ -146,7 +89,8 @@ def create_default_perception_layer(
         >>> perception = create_default_perception_layer(on_flush_callback=on_flush)
     """
     if config is None:
-        config = create_default_perception_config()
+        from hivememory.core.config import MemoryPerceptionConfig
+        config = MemoryPerceptionConfig()
 
     if not config.enable:
         logger.warning("感知层未启用 (config.enable=False)")
@@ -204,3 +148,40 @@ def create_default_perception_layer(
             idle_timeout_seconds=sf_config.idle_timeout_seconds,
             scan_interval_seconds=sf_config.scan_interval_seconds,
         )
+
+
+__all__ = [
+    # 数据模型
+    "StreamMessageType",
+    "StreamMessage",
+    "Triplet",
+    "LogicalBlock",
+    "BufferState",
+    "SemanticBuffer",
+    "SimpleBuffer",
+    "FlushReason",  # 从 core.models 导入
+    # 接口
+    "StreamParser",
+    "SemanticAdsorber",
+    "RelayController",
+    "IdleTimeoutMonitorInterface",
+    "BasePerceptionLayer",
+    # 感知层实现
+    "SimplePerceptionLayer",
+    "SemanticFlowPerceptionLayer",
+    # 空闲超时监控
+    "IdleTimeoutMonitor",
+    # 触发策略
+    "TriggerManager",
+    "create_default_trigger_manager",
+    # 具体实现
+    "LocalEmbeddingService",
+    "get_embedding_service",
+    "UnifiedStreamParser",
+    "SemanticBoundaryAdsorber",
+    "TokenOverflowRelayController",
+    # 配置
+    "MemoryPerceptionConfig",
+    "create_default_perception_config",
+    "create_default_perception_layer",
+]

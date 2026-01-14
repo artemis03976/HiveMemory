@@ -63,7 +63,6 @@ for logger_name, level in _log_levels_to_disable.items():
 
 import time
 from typing import List, Dict, Any, Optional
-from unittest.mock import MagicMock
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent
@@ -71,12 +70,15 @@ sys.path.insert(0, str(project_root / "src"))
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
-from hivememory.agents.patchouli import PatchouliAgent, FlushEvent, FlushObserver
+from hivememory.agents.patchouli import PatchouliAgent, FlushEvent
 from hivememory.core.models import FlushReason
 from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.core.config import get_config, PerceptionConfig
+from hivememory.core.config import (
+    load_app_config,
+    MemoryPerceptionConfig,
+    SemanticFlowPerceptionConfig,
+)
 
 # 导入测试数据
 from tests.fixtures.patchouli_test_data import (
@@ -174,20 +176,26 @@ def setup_test_env(max_tokens: int = 2048) -> None:
 
     console.print("\n[dim]正在初始化测试环境...[/dim]")
 
-    config = get_config()
+    config = load_app_config()
     _shared_storage = QdrantMemoryStore(
         qdrant_config=config.qdrant,
         embedding_config=config.embedding
     )
     _shared_storage.create_collection(recreate=True)
 
-    perception_config = PerceptionConfig(max_processing_tokens=max_tokens)
+    # 配置语义流感知层
+    perception_config = MemoryPerceptionConfig(
+        layer_type="semantic_flow",
+        enable=True,
+        semantic_flow=SemanticFlowPerceptionConfig(
+            max_processing_tokens=max_tokens,
+        ),
+    )
 
     _shared_observer = PatchouliTestObserver()
     _shared_patchouli = PatchouliAgent(
         storage=_shared_storage,
-        enable_semantic_flow=True,
-        perception_config=perception_config
+        perception_config=perception_config,
     )
     _shared_patchouli.add_flush_observer(_shared_observer)
 
@@ -262,7 +270,8 @@ def test_01_initialization():
 
     # 验证感知层已初始化
     assert patchouli.perception_layer is not None, "感知层应该已初始化"
-    assert patchouli.enable_semantic_flow is True, "应启用语义流模式"
+    # 验证配置的 layer_type
+    assert patchouli.perception_config.layer_type == "semantic_flow", "应启用语义流模式"
 
     # 验证初始无活跃 Buffer
     active_buffers = patchouli.list_active_buffers()

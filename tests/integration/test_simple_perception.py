@@ -46,7 +46,7 @@ from hivememory.perception.trigger_strategies import (
 )
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.core.config import get_config
+from hivememory.core.config import load_app_config
 
 # 配置日志
 logging.basicConfig(
@@ -253,7 +253,7 @@ def test_patchouli_integration():
 
     try:
         # 创建存储实例
-        config = get_config()
+        config = load_app_config()
         storage = QdrantMemoryStore(
             qdrant_config=config.qdrant,
             embedding_config=config.embedding

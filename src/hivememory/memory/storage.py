@@ -26,7 +26,7 @@ from qdrant_client.models import (
 )
 
 from hivememory.core.models import MemoryAtom, IndexLayer
-from hivememory.core.config import QdrantConfig, EmbeddingConfig, get_config
+from hivememory.core.config import QdrantConfig, EmbeddingConfig
 from hivememory.core.embedding import get_bge_m3_service
 
 logger = logging.getLogger(__name__)
@@ -51,17 +51,14 @@ class QdrantMemoryStore:
         初始化存储管理器
 
         Args:
-            qdrant_config: Qdrant 配置
-            embedding_config: Embedding 配置
-        """
-        # 加载配置
-        if qdrant_config is None or embedding_config is None:
-            global_config = get_config()
-            qdrant_config = qdrant_config or global_config.qdrant
-            embedding_config = embedding_config or global_config.embedding
+            qdrant_config: Qdrant 配置（可选，默认从环境变量读取）
+            embedding_config: Embedding 配置（可选，默认从环境变量读取）
 
-        self.qdrant_config = qdrant_config
-        self.embedding_config = embedding_config
+        注意: 直接实例化配置类会自动从环境变量读取值
+        """
+        # 使用默认配置（直接实例化会读取环境变量）
+        self.qdrant_config = qdrant_config or QdrantConfig()
+        self.embedding_config = embedding_config or EmbeddingConfig()
 
         # 初始化 Qdrant 客户端
         # 本地部署时 api_key 为 None，不传递给客户端
@@ -578,7 +575,11 @@ _global_store: Optional[QdrantMemoryStore] = None
 
 
 def get_memory_store() -> QdrantMemoryStore:
-    """获取全局 QdrantMemoryStore 实例 (单例模式)"""
+    """
+    获取全局 QdrantMemoryStore 实例 (单例模式)
+
+    [已废弃] 建议直接创建实例或使用依赖注入
+    """
     global _global_store
     if _global_store is None:
         _global_store = QdrantMemoryStore()
