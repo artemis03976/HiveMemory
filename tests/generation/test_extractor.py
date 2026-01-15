@@ -116,7 +116,7 @@ class TestLLMMemoryExtractor:
         draft = self.extractor._parse_json_output("Not a JSON string")
         assert draft is None
 
-    @patch("hivememory.generation.extractor.litellm.completion")
+    @patch("hivememory.core.llm.litellm_service.litellm.completion")
     def test_extract_success(self, mock_completion):
         """测试成功提取流程"""
         # 模拟 LLM 响应
@@ -132,17 +132,17 @@ class TestLLMMemoryExtractor:
             "has_value": True
         })
         mock_completion.return_value = mock_response
-        
+
         transcript = "User: Hi\nAssistant: Hello"
         metadata = {"user_id": "u1", "session_id": "s1"}
-        
+
         draft = self.extractor.extract(transcript, metadata)
-        
+
         assert draft is not None
         assert draft.title == "Extracted"
         mock_completion.assert_called_once()
 
-    @patch("hivememory.generation.extractor.litellm.completion")
+    @patch("hivememory.core.llm.litellm_service.litellm.completion")
     def test_extract_retry_logic(self, mock_completion):
         """测试重试逻辑"""
         # 前几次抛出异常，最后一次成功
@@ -157,29 +157,29 @@ class TestLLMMemoryExtractor:
             "confidence_score": 0.9,
             "has_value": True
         })
-        
+
         mock_completion.side_effect = [Exception("Fail 1"), mock_response]
-        
+
         transcript = "User: Hi"
         metadata = {}
-        
+
         draft = self.extractor.extract(transcript, metadata)
-        
+
         assert draft is not None
         assert draft.title == "Retry Success"
         assert mock_completion.call_count == 2
 
-    @patch("hivememory.generation.extractor.litellm.completion")
+    @patch("hivememory.core.llm.litellm_service.litellm.completion")
     def test_extract_all_retries_fail(self, mock_completion):
         """测试所有重试均失败"""
         mock_completion.side_effect = Exception("Always Fail")
-        
+
         transcript = "User: Hi"
         metadata = {}
-        
+
         # 应该返回 None，并记录错误
         draft = self.extractor.extract(transcript, metadata)
-        
+
         assert draft is None
         assert mock_completion.call_count == self.extractor.max_retries
 

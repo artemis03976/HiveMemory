@@ -1166,7 +1166,7 @@ $$V = (C \times I) \times D(t) + A$$
         *   *Librarian*: 指向高性价比/长窗口模型 (DeepSeek-V3, GPT-4o-mini)。
 
 *   **Embedding 接入标准**:
-    *   *设计*: 定义 `BaseEmbedder` 接口，输入 `text`，输出 `List[float]`。
+    *   *设计*: 定义 `BaseEmbeddingService` 接口，输入 `text`，输出 `List[float]`。
     *   *支持*:
         *   **Cloud**: OpenAI `text-embedding-3`, Cohere (支持多语言)。
         *   **Local**: HuggingFace `SentenceTransformers` (如 `BGE-M3`, `E5`)，支持私有化部署。

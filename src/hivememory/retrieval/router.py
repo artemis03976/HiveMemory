@@ -18,6 +18,7 @@ import logging
 
 from hivememory.generation import ConversationMessage
 from hivememory.retrieval.interfaces import RetrievalRouter
+from hivememory.core.llm import BaseLLMService, get_worker_llm_service
 
 if TYPE_CHECKING:
     from hivememory.core.config import RouterConfig
@@ -162,10 +163,10 @@ class SimpleRouter(RetrievalRouter):
 class LLMRouter(RetrievalRouter):
     """
     基于 LLM 的智能路由器
-    
+
     使用轻量级 LLM（如 GPT-4o-mini）判断是否需要检索
     """
-    
+
     SYSTEM_PROMPT = """You are a routing classifier for a memory retrieval system.
 Your job is to determine if a user query requires searching historical memory.
 
@@ -183,17 +184,19 @@ Say NO if the query:
 - Is a general knowledge question
 - Is self-contained and doesn't need historical context
 """
-    
+
     def __init__(
         self,
         llm_config: Optional[Any] = None,
+        llm_service: Optional[BaseLLMService] = None,
         fallback_router: Optional[RetrievalRouter] = None
     ):
         """
         初始化 LLM 路由器
-        
+
         Args:
             llm_config: LLM 配置（Config 对象或字典）
+            llm_service: LLM 服务实例（可选，支持依赖注入）
             fallback_router: 备用路由器（LLM 失败时使用）
         """
         # 兼容 Pydantic 模型和字典
@@ -201,10 +204,16 @@ Say NO if the query:
             self.llm_config = llm_config.model_dump()
         else:
             self.llm_config = llm_config or {}
-            
+
         self.fallback_router = fallback_router or SimpleRouter()
-        self._client = None
-    
+
+        # 支持直接注入 llm_service
+        if llm_service is not None:
+            self.llm_service = llm_service
+        else:
+            # 使用工厂函数创建服务实例
+            self.llm_service = get_worker_llm_service()
+
     def should_retrieve(
         self,
         query: str,
@@ -214,14 +223,12 @@ Say NO if the query:
         使用 LLM 判断是否需要检索
         """
         try:
-            import litellm
-            
             # 构建消息
             messages = [
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": f"Query: {query}"}
             ]
-            
+
             # 如果有上下文，添加最近几条
             if context and len(context) > 0:
                 context_str = "\n".join([
@@ -229,23 +236,20 @@ Say NO if the query:
                     for m in context[-3:]
                 ])
                 messages[1]["content"] += f"\n\nRecent context:\n{context_str}"
-            
-            # 调用 LLM
-            response = litellm.completion(
-                model=self.llm_config.get("model", "gpt-4o-mini"),
+
+            # 调用 LLM 服务
+            response = self.llm_service.complete(
                 messages=messages,
-                api_key=self.llm_config.get("api_key"),
-                api_base=self.llm_config.get("api_base"),
                 max_tokens=5,
                 temperature=0,
             )
-            
-            answer = response.choices[0].message.content.strip().upper()
+
+            answer = response.strip().upper()
             result = answer.startswith("YES")
-            
+
             logger.debug(f"LLM Router 判断: '{query[:30]}...' -> {result}")
             return result
-            
+
         except Exception as e:
             logger.warning(f"LLM Router 失败，使用备用路由器: {e}")
             return self.fallback_router.should_retrieve(query, context)

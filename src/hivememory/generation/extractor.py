@@ -21,11 +21,11 @@ import ast
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-import litellm
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 
 from hivememory.core.config import LLMConfig, get_librarian_llm_config
+from hivememory.core.llm import get_librarian_llm_service, BaseLLMService
 from hivememory.generation.interfaces import MemoryExtractor
 from hivememory.generation.models import ExtractedMemoryDraft
 from hivememory.agents.prompts.patchouli import PATCHOULI_SYSTEM_PROMPT, PATCHOULI_USER_PROMPT
@@ -60,6 +60,7 @@ class LLMMemoryExtractor(MemoryExtractor):
     def __init__(
         self,
         llm_config: Optional[LLMConfig] = None,
+        llm_service: Optional[BaseLLMService] = None,
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         max_retries: int = 2,
@@ -69,11 +70,26 @@ class LLMMemoryExtractor(MemoryExtractor):
 
         Args:
             llm_config: LLM 配置（默认使用全局 Librarian 配置）
+            llm_service: LLM 服务实例（可选，支持依赖注入）
             system_prompt: 自定义系统提示词
             user_prompt: 自定义用户提示词
             max_retries: 最大重试次数
         """
         self.llm_config = llm_config or get_librarian_llm_config()
+
+        # 支持直接传入 llm_service（便于测试）
+        if llm_service is not None:
+            self.llm_service = llm_service
+        else:
+            # 使用工厂函数创建服务实例
+            self.llm_service = get_librarian_llm_service(
+                model=self.llm_config.model,
+                api_key=self.llm_config.api_key,
+                api_base=self.llm_config.api_base,
+                temperature=self.llm_config.temperature,
+                max_tokens=self.llm_config.max_tokens,
+            )
+
         self.max_retries = max_retries
 
         # 初始化输出解析器
@@ -139,7 +155,10 @@ class LLMMemoryExtractor(MemoryExtractor):
             messages = self._convert_to_litellm_messages(prompt_messages)
 
             # Step 2: 调用 LLM (带重试)
-            raw_output = self._call_llm_with_retry(messages)
+            raw_output = self.llm_service.complete_with_retry(
+                messages=messages,
+                max_retries=self.max_retries
+            )
 
             if not raw_output:
                 logger.error("LLM 返回空响应")
@@ -175,50 +194,6 @@ class LLMMemoryExtractor(MemoryExtractor):
             {"role": ROLE_MAPPING.get(msg.type, msg.type), "content": msg.content}
             for msg in langchain_messages
         ]
-
-    def _call_llm_with_retry(self, messages: list[Dict[str, str]]) -> Optional[str]:
-        """
-        调用 LLM API (带重试机制)
-
-        Args:
-            messages: LiteLLM 格式的消息列表
-
-        Returns:
-            str: LLM 响应内容，失败时返回 None
-
-        Raises:
-            ExtractionError: 重试耗尽后仍失败
-        """
-        last_error = None
-
-        for attempt in range(self.max_retries):
-            try:
-                logger.debug(f"调用 LLM (尝试 {attempt + 1}/{self.max_retries})...")
-
-                response = litellm.completion(
-                    model=self.llm_config.model,
-                    messages=messages,
-                    api_key=self.llm_config.api_key,
-                    api_base=self.llm_config.api_base,
-                    temperature=self.llm_config.temperature,
-                    max_tokens=self.llm_config.max_tokens,
-                )
-
-                # 提取响应
-                raw_output = response.choices[0].message.content
-                logger.debug(f"LLM 响应长度: {len(raw_output)} 字符")
-
-                return raw_output
-
-            except Exception as e:
-                last_error = e
-                logger.warning(f"LLM 调用失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
-
-                # 最后一次尝试失败时才抛出异常
-                if attempt == self.max_retries - 1:
-                    logger.warning(f"LLM 调用失败，重试耗尽: {e}")
-
-        return None
 
     def _parse_json_output(self, raw_output: str) -> Optional[ExtractedMemoryDraft]:
         """
@@ -285,13 +260,13 @@ class LLMMemoryExtractor(MemoryExtractor):
         def try_parse(json_str):
             try:
                 return json.loads(json_str)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 # 尝试修复常见错误
                 try:
                     # 尝试 ast.literal_eval 处理 Python 风格字典 (单引号, True/False)
                     return ast.literal_eval(json_str)
-                except (ValueError, SyntaxError):
-                    logger.debug(f"JSON 解析策略尝试失败: {str(e)}")
+                except (ValueError, SyntaxError) as e2:
+                    logger.debug(f"JSON 解析策略尝试失败: {str(e)}, {str(e2)}")
                 return None
 
         # 遍历候选并解析

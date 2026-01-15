@@ -14,9 +14,8 @@ import logging
 import uuid
 from typing import List, Optional, Dict, Any, Union
 
-import litellm
-
 from hivememory.core.config import HiveMemoryConfig, LLMConfig
+from hivememory.core.llm import get_worker_llm_service, BaseLLMService
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.agents.session_manager import SessionManager, ChatMessage
 from hivememory.agents.prompts.chatbot import CHATBOT_SYSTEM_PROMPT
@@ -40,10 +39,11 @@ class ChatBotAgent:
         agent_id: str = "chatbot_worker",
         config: Optional[HiveMemoryConfig] = None,
         llm_config: Optional[Union[LLMConfig, Dict[str, Any]]] = None,
+        llm_service: Optional[BaseLLMService] = None,
         system_prompt: Optional[str] = None,
         retrieval_engine: Optional[Any] = None,  # RetrievalEngine
         enable_memory_retrieval: bool = True,
-        lifecycle_manager: Optional[Any] = None,  # LifecycleManager 
+        lifecycle_manager: Optional[Any] = None,  # LifecycleManager
         enable_lifecycle_management: bool = True,
     ):
         """
@@ -54,6 +54,7 @@ class ChatBotAgent:
             agent_id: Agent ID
             config: 全局配置对象 (Dependency Injection)
             llm_config: LLM 配置（model, temperature, max_tokens 等）。如果未提供，尝试从 config 获取。
+            llm_service: LLM 服务实例（可选，支持依赖注入）
             system_prompt: 系统提示词（可选）
             retrieval_engine: 记忆检索引擎（可选）
             enable_memory_retrieval: 是否启用记忆检索，默认 True
@@ -66,18 +67,41 @@ class ChatBotAgent:
         self.agent_id = agent_id
         self.config = config
 
-        # 解析 LLM 配置
-        if llm_config:
-            self.llm_config = llm_config
+        # 解析 LLM 配置和服务
+        if llm_service is not None:
+            # 优先使用注入的服务
+            self.llm_service = llm_service
+            if isinstance(llm_config, LLMConfig):
+                self.llm_config = llm_config
+            else:
+                self.llm_config = None
         elif config:
             self.llm_config = config.get_worker_llm_config()
+            self.llm_service = get_worker_llm_service(
+                model=self.llm_config.model,
+                api_key=self.llm_config.api_key,
+                api_base=self.llm_config.api_base,
+                temperature=self.llm_config.temperature,
+                max_tokens=self.llm_config.max_tokens,
+            )
+        elif llm_config:
+            # 确保 llm_config 是对象 (如果是 dict 则转换)
+            if isinstance(llm_config, dict):
+                self.llm_config = LLMConfig(**llm_config)
+            else:
+                self.llm_config = llm_config
+            self.llm_service = get_worker_llm_service(
+                model=self.llm_config.model,
+                api_key=self.llm_config.api_key,
+                api_base=self.llm_config.api_base,
+                temperature=self.llm_config.temperature,
+                max_tokens=self.llm_config.max_tokens,
+            )
         else:
             # Fallback default
-            self.llm_config = LLMConfig()
-
-        # 确保 llm_config 是对象 (如果是 dict 则转换)
-        if isinstance(self.llm_config, dict):
-            self.llm_config = LLMConfig(**self.llm_config)
+            from hivememory.core.config import get_worker_llm_config
+            self.llm_config = get_worker_llm_config()
+            self.llm_service = get_worker_llm_service()
 
         # 默认系统提示词
         self.system_prompt = system_prompt or CHATBOT_SYSTEM_PROMPT
@@ -219,25 +243,29 @@ class ChatBotAgent:
             Exception: LLM 调用失败
         """
         try:
-            # 调用 LiteLLM
-            response = litellm.completion(
-                model=self.llm_config.model,
-                messages=messages,
-                api_key=self.llm_config.api_key,
-                api_base=self.llm_config.api_base,
-                temperature=self.llm_config.temperature,
-                max_tokens=self.llm_config.max_tokens
-            )
-
-            # 提取内容
-            content = response.choices[0].message.content
-
-            logger.info(f"LLM call successful (tokens={response.usage.total_tokens})")
+            content = self.llm_service.complete(messages)
+            logger.info("LLM call successful")
             return content
-
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
             raise
+
+    def _call_llm_with_retry(
+        self,
+        messages: List[Dict[str, str]],
+        max_retries: int = 2
+    ) -> Optional[str]:
+        """
+        调用 LLM 生成回复（带重试）
+
+        Args:
+            messages: LLM 消息列表
+            max_retries: 最大重试次数
+
+        Returns:
+            LLM 生成的回复内容，失败时返回 None
+        """
+        return self.llm_service.complete_with_retry(messages, max_retries=max_retries)
 
     def _record_to_buffer(
         self,
