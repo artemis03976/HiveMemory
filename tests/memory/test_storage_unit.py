@@ -67,7 +67,7 @@ class TestQdrantMemoryStore:
     def test_upsert_memory_hybrid(self, storage):
         memory = MemoryAtom(
             meta=MetaData(source_agent_id="agent1", user_id="user1"),
-            index=IndexLayer(title="Test", summary="Summary", tags=["tag"], memory_type=MemoryType.FACT),
+            index=IndexLayer(title="Test", summary="Summary must be longer than 10 chars", tags=["tag"], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="Content")
         )
         

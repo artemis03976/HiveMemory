@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 def create_default_perception_layer(
     config: Optional[MemoryPerceptionConfig] = None,
     on_flush_callback=None,
-) -> Union[SemanticFlowPerceptionLayer, SimplePerceptionLayer]:
+) -> Optional[Union[SemanticFlowPerceptionLayer, SimplePerceptionLayer]]:
     """
     创建默认配置的感知层实例
 
@@ -182,6 +182,5 @@ __all__ = [
     "TokenOverflowRelayController",
     # 配置
     "MemoryPerceptionConfig",
-    "create_default_perception_config",
     "create_default_perception_layer",
 ]

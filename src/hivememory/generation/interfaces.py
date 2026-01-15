@@ -7,7 +7,6 @@ HiveMemory - Generation 模块接口抽象层
 - ValueGater: 价值评估器接口
 - MemoryExtractor: 记忆提取器接口
 - Deduplicator: 查重与演化器接口
-- TriggerStrategy: 触发策略接口
 
 作者: HiveMemory Team
 版本: 0.1.0

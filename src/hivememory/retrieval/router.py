@@ -12,12 +12,15 @@
 """
 
 from abc import abstractmethod
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 import re
 import logging
 
 from hivememory.generation import ConversationMessage
 from hivememory.retrieval.interfaces import RetrievalRouter
+
+if TYPE_CHECKING:
+    from hivememory.core.config import RouterConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,8 @@ class SimpleRouter(RetrievalRouter):
     RETRIEVAL_KEYWORDS = [
         # 时间引用
         "之前", "刚才", "上次", "昨天", "前面", "earlier", "before",
-        "previous", "last time", "上周", "last week",
+        "previous", "last time", "上周", "last week", "yesterday", "today",
+        "last month", "this month",
         
         # 上下文引用
         "那个", "那段", "那个代码", "那个函数", "the code", "the function",

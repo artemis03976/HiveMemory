@@ -364,7 +364,8 @@ def run_acceptance_test(storage: QdrantMemoryStore):
     """验收测试：模拟完整的记忆召回场景"""
     console.print("\n[bold magenta]🏆 验收测试：记忆召回场景[/bold magenta]")
     
-    engine = create_retrieval_engine(storage=storage, render_format="xml", threshold=0.1)
+    # 创建默认检索引擎
+    engine = create_default_retrieval_engine(storage=storage, render_format="xml", threshold=0.1)
     
     scenarios = [SCENARIO_1, SCENARIO_2, SCENARIO_3]
     passed_count = 0

@@ -63,26 +63,26 @@ class QdrantMemoryStore:
         # 初始化 Qdrant 客户端
         # 本地部署时 api_key 为 None，不传递给客户端
         client_kwargs = {
-            "host": qdrant_config.host,
-            "port": qdrant_config.port,
+            "host": self.qdrant_config.host,
+            "port": self.qdrant_config.port,
             "timeout": 60,
         }
 
         # 只有在 api_key 有值时才添加
-        if qdrant_config.api_key and qdrant_config.api_key.strip():
-            client_kwargs["api_key"] = qdrant_config.api_key
+        if self.qdrant_config.api_key and self.qdrant_config.api_key.strip():
+            client_kwargs["api_key"] = self.qdrant_config.api_key
 
         self.client = QdrantClient(**client_kwargs)
 
         # 初始化 BGE-M3 Embedding 服务 (支持 Dense + Sparse)
         logger.info(f"加载 BGE-M3 Embedding 服务")
         self.embedding_service = get_bge_m3_service(
-            device=embedding_config.device,
-            cache_dir=embedding_config.cache_dir
+            device=self.embedding_config.device,
+            cache_dir=self.embedding_config.cache_dir
         )
 
-        self.collection_name = qdrant_config.collection_name
-        self.vector_dimension = qdrant_config.vector_dimension
+        self.collection_name = self.qdrant_config.collection_name
+        self.vector_dimension = self.qdrant_config.vector_dimension
 
     def create_collection(self, recreate: bool = False) -> None:
         """

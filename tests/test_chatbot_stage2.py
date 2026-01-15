@@ -46,7 +46,7 @@ from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.agents.patchouli import PatchouliAgent
 from hivememory.agents.chatbot import ChatBotAgent
 from hivememory.agents.session_manager import SessionManager
-from hivememory.retrieval import create_retrieval_engine, RetrievalEngine
+from hivememory.retrieval import create_default_retrieval_engine, RetrievalEngine
 
 console = Console(force_terminal=True, legacy_windows=False)
 
@@ -88,12 +88,9 @@ def setup_system():
         console.print("  ✓ SessionManager 初始化成功")
         
         # 初始化 Retrieval Engine (Stage 2 新增)
-        retrieval_engine = create_retrieval_engine(
+        retrieval_engine = create_default_retrieval_engine(
             storage=storage,
-            enable_routing=True,  # 启用路由
-            top_k=3,
-            threshold=0.6,
-            render_format="xml"
+            config=config.retrieval,
         )
         console.print("  ✓ RetrievalEngine 初始化成功")
 

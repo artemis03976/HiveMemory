@@ -150,6 +150,13 @@ def create_default_retrieval_engine(
     return engine
 
 
+def create_retrieval_engine(
+    storage: QdrantMemoryStore,
+    config: Optional["MemoryRetrievalConfig"] = None,
+) -> MemoryRetrievalEngine:
+    return create_default_retrieval_engine(storage=storage, config=config)
+
+
 __all__ = [
     # 接口
     "RetrievalRouter",
@@ -199,4 +206,5 @@ __all__ = [
     "RetrievalResult",
     "MemoryRetrievalEngine",
     "create_default_retrieval_engine",
+    "create_retrieval_engine",
 ]

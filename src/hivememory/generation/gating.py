@@ -265,14 +265,16 @@ class LLMAssistedGater(ValueGater):
 请回答: 有价值 或 无价值
 """
 
-    def __init__(self, llm_client=None):
+    def __init__(self, llm_client=None, llm_config: Optional[object] = None):
         """
         初始化 LLM 评估器
 
         Args:
             llm_client: LLM 客户端（可选）
+            llm_config: LLM 配置（可选，预留）
         """
         self.llm_client = llm_client
+        self.llm_config = llm_config
 
     def evaluate(self, messages: List[ConversationMessage]) -> bool:
         """

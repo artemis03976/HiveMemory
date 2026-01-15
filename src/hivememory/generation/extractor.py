@@ -291,7 +291,7 @@ class LLMMemoryExtractor(MemoryExtractor):
                     # 尝试 ast.literal_eval 处理 Python 风格字典 (单引号, True/False)
                     return ast.literal_eval(json_str)
                 except (ValueError, SyntaxError):
-                    pass
+                    logger.debug(f"JSON 解析策略尝试失败: {str(e)}")
                 return None
 
         # 遍历候选并解析
