@@ -1,26 +1,5 @@
 # HiveMemory 待办事项
 
-## Patchouli Stage 1 集成测试相关
-
-### 测试文件创建
-
-- [x] 创建 `tests/test_patchouli_stage1.py` - 主测试文件
-- [x] 创建 `tests/fixtures/patchouli_test_data.py` - 测试数据 fixtures
-
-### 测试环境依赖
-
-测试需要 Qdrant 服务器运行才能正常执行。启动 Qdrant：
-
-```bash
-# Docker 方式
-docker run -p 6333:6333 -v $(pwd)/qdrant_storage:/qdrant/storage qdrant/qdrant
-
-# 或本地安装方式
-qdrant run
-```
-
----
-
 ## API 限制与改进建议
 
 ### 1. 工具调用消息传递限制
@@ -103,26 +82,3 @@ class FlushEvent:
 **影响**：测试时需要通过复杂的 role/content 组装来模拟工具调用。
 
 **建议改进**：添加直接接收 StreamMessage 的接口
-
----
-
-## 已知 Bug
-
-### Qdrant Sparse Vector 存储问题
-
-**问题**：稀疏向量检索返回 0 结果
-
-**临时方案**：
-- 测试中使用 `use_sparse=False`
-- 仅使用 dense vector 进行存储和检索
-
-**长期方案**：修复稀疏向量生成和检索逻辑
-
----
-
-## 其他待办事项
-
-- [ ] 修复 Qdrant sparse vector bug
-- [ ] 扩展 PatchouliAgent.add_message() 支持工具调用参数
-- [ ] 添加 get_current_block() 调试接口
-- [ ] 在 FlushEvent 中添加 similarity 字段
