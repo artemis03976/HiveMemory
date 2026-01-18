@@ -34,8 +34,8 @@
 *   **机制**：调用高响应速度的通用 LLM（Gateway Model）。
 *   **任务**：在一个 Prompt 中同时完成以下三个子任务：
     1.  **意图分类 (Intent Classification)**：RAG / CHAT / TOOL。
-    2.  **指代消解与重写 (Coreference Resolution)**：生成 `standalone_query`。
-    3.  **元数据提取 (Extraction)**：生成检索关键词 (`keywords`) 和 记忆价值信号 (`save_signal`)。
+    2.  **指代消解与重写 (Coreference Resolution)**：生成 `rewritten_query`（也可称 standalone query）。
+    3.  **元数据提取 (Extraction)**：生成检索关键词 (`search_keywords`) 和 记忆价值信号 (`memory_signal`)。
 
 ## 3. 统一输出协议 (Unified Output Schema)
 
@@ -43,6 +43,7 @@ Gateway 不再输出简单的文本，而是输出一个**结构化指令包**�
 
 ```json
 {
+  "schema_version": "2.0",
   "intent": "RAG" | "CHAT" | "TOOL",
   
   // 用于检索层 (Retrieval) 和 感知层 (Perception)
@@ -59,6 +60,18 @@ Gateway 不再输出简单的文本，而是输出一个**结构化指令包**�
   }
 }
 ```
+
+> 统一协议建议以 [InternalProtocol_v2.0.md](file:///c:/Users/29305/Projects/HiveMemory/docs/mod/InternalProtocol_v2.0.md) 为准；本章示例仅用于说明字段含义。
+
+### 3.1 解析失败回退
+
+由于网关位于阻塞链路，必须定义“输出不可解析/字段缺失”的保守回退策略，避免把格式风险扩散到下游模块：
+
+- intent 回退为 `CHAT`
+- rewritten_query 回退为原始 query
+- search_keywords 回退为空数组
+- worth_saving 回退为 false
+
 
 ## 4. 数据流转与复用 (Data Flow & Reuse)
 

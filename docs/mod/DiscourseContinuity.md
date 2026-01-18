@@ -104,3 +104,17 @@ graph TD
 2.  **实现 Context Bridge**：编写简单的逻辑，从 Buffer 中提取上一轮 Assistant 回复的前 100 个字符作为 Context。
 3.  **接入 Reranker/SLM**：在本地环境部署一个小型的 Cross-Encoder 模型，写一个简单的 Python 函数 `check_coherence(text_a, text_b)`。
 4.  **集成测试**：使用“贪吃蛇 -> 部署”这类跨域对话用例进行测试，验证是否不再发生错误切分。
+
+---
+
+## 7. 现状落地对照
+
+当前代码库已具备“语义流感知层 + 漂移检测”的基础实现，但与本文的 v2.0 升级方案存在差距，建议在文档中显式标注，便于后续迭代对齐：
+
+- **已实现（Baseline）**
+  - 语义流感知层：`SemanticFlowPerceptionLayer`，[semantic_flow_perception_layer.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/perception/semantic_flow_perception_layer.py)
+  - 漂移判定：`SemanticBoundaryAdsorber.should_adsorb()`（短文本强吸附 + embedding 相似度阈值），[semantic_adsorber.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/perception/semantic_adsorber.py)
+  - 锚点文本：当前为 `LogicalBlock.user_block.content`，[models.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/perception/models.py)
+- **尚未实现（本文重点）**
+  - 依赖网关的 `rewritten_query` 作为语义锚点（见 [InternalProtocol_v2.0.md](file:///c:/Users/29305/Projects/HiveMemory/docs/mod/InternalProtocol_v2.0.md)）
+  - Context Bridge 公式（Context + Query）与双阈值 Grey Area 仲裁（Step 3 Arbiter）

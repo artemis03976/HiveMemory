@@ -90,7 +90,7 @@ graph TD
 
 ## 4. 开发计划与分阶段实施
 
-由于本模块仅影响到Renderer的行为，与其余模块没有交互逻辑，因此在 Renderer 已有完善逻辑的情况下即可进一步实现。
+本模块主要影响 Renderer 的输出形态与 token 预算策略，不需要新增 LLM 调用；但它会改变 Worker 侧看到的 prompt 结构与可用工具协议，因此仍需要与 Agent/工具层做契约对齐（建议参考 [InternalProtocol_v2.0.md](file:///c:/Users/29305/Projects/HiveMemory/docs/mod/InternalProtocol_v2.0.md)）。
 
 ### 实现计划
 *   **任务 1**: 在 Qdrant Client 中启用 MMR 搜索模式。
@@ -100,8 +100,15 @@ graph TD
 *   **任务 3**: 实现 **策略 C (懒加载)**。
     *   *Action*:
         1.  修改 Prompt 模板，支持仅渲染列表模式。
-        2.  在 Worker Agent 的工具集中注册 `read_memory_artifact` 函数。
+        2.  在 Worker Agent 的工具集中注册 `read_memory` 函数（建议统一工具名，避免文档与实现不一致）。
         3.  调试 Agent 的 System Prompt，教会它：“看到 Summary 觉得不够时，不要瞎编，去调用 `read_memory`”。
+
+---
+
+## 6. 现状落地对照（建议补充）
+
+- 当前已存在基础版渲染器 `ContextRenderer`（XML/Markdown + 截断预算），见 [renderer.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/retrieval/renderer.py)
+- 文档中的 MMR、多级渲染（Index vs Payload）与懒加载工具协议目前仍为规划项，建议在实现前先固定工具契约与预算断言用例
 
 ---
 

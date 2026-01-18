@@ -1,6 +1,13 @@
 --------------------
-此文档已合并至项目开发规划文档PROJECT.md，仅做原内容参考
+此模块已实现，文档已合并至项目开发规划文档PROJECT.md，仅做原内容参考
 --------------------
+
+现状实现入口：
+
+- 语义流感知层：`SemanticFlowPerceptionLayer`，[semantic_flow_perception_layer.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/perception/semantic_flow_perception_layer.py)
+- 逻辑块结构：`LogicalBlock`，[models.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/perception/models.py)
+
+v2.0 如果引入 Global Gateway，建议把 `rewritten_query` 作为语义锚点字段并按 [InternalProtocol_v2.0.md](file:///c:/Users/29305/Projects/HiveMemory/docs/mod/InternalProtocol_v2.0.md) 统一协议更新本文相关表述。
 
 这份文档更新方案旨在将“**统一语义流 (Unified Semantic Stream)**”架构正式纳入项目规划。这将显著提升系统在生产环境中处理复杂消息流（如长执行链、话题快速切换）的鲁棒性。
 

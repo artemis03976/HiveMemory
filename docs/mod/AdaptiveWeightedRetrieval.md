@@ -111,3 +111,17 @@ $$ \mathcal{M}(C, V) = \text{Factor}_{conf}(C) \times \text{Factor}_{vit}(V) $$
 
 *   **图谱检索接入 ($S_{graph}$)**: 当知识图谱模块上线后，将其作为第四个加项引入公式。
 *   **可学习的 MoE (Trainable MoE)**: 如果积累了足够的用户反馈数据（用户点击了哪条记忆），可以使用机器学习模型（如 XGBoost 或 MLP）来进行意图权重生成，从用户 query 中自动生成动态权重 $\mathbf{w}$。
+
+---
+
+## 7. 现状落地对照（建议补充）
+
+当前代码库已实现“混合检索 + 融合 + 可选精排”的基础版
+
+- **已实现（Baseline）**
+  - 混合检索：`HybridRetriever`（dense/sparse 召回 + 配置化开关），见 [retriever.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/retrieval/retriever.py)
+  - 融合：RRF，见 [fusion.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/retrieval/fusion.py)
+  - 精排：Cross-Encoder reranker（可选启用），见 [reranker.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/retrieval/reranker.py)
+- **尚未实现（本文重点）**
+  - 基于 intent 的动态权重生成器（MoE 路由）
+  - “相关性 × 质量（Confidence/Vitality）”的完整乘法质量因子闭环
