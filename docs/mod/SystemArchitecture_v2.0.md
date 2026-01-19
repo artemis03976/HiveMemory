@@ -12,8 +12,8 @@
 | 分身名称 | 对应模块实现 | 所在层级 | 核心职责 | 特性 |
 | :--- | :--- | :--- | :--- | :--- |
 | **真理之眼 (The Eye)** | **Global Gateway** | **交互层 (Interaction)** | 意图识别、查询重写、流量分发 | **同步阻塞**、极低延迟、小模型驱动 |
-| **检索使魔 (The Familiar)** | **Retrieval Engine** | **热处理层 (Hot Path)** | 混合检索、重排序、上下文渲染 | **同步阻塞**、高并发、本地计算密集 |
-| **大图书馆本体 (The Core)** | **Perception Layer + Memory Generation + Lifecycle** | **冷处理层 (Cold Path)** | 话题感知、记忆生成、生命周期管理 | **异步非阻塞**、高智商、SOTA 模型驱动 |
+| **检索使魔 (Retrieval Familiar)** | **Retrieval Engine** | **热处理层 (Hot Path)** | 混合检索、重排序、上下文渲染 | **同步阻塞**、高并发、本地计算密集 |
+| **大图书馆本体 (Librarian Core)** | **Perception Layer + Memory Generation + Lifecycle** | **冷处理层 (Cold Path)** | 话题感知、记忆生成、生命周期管理 | **异步非阻塞**、高智商、SOTA 模型驱动 |
 
 ### 1.2 顶层数据流架构
 
@@ -31,7 +31,7 @@ graph TD
     
     %% 帕秋莉本体 - 对记忆管理
     subgraph "Librarian Core (System 2)"
-        Core -->|话题漂移检测| Buffer[逻辑块缓冲]
+        Perception -->|话题漂移检测| Buffer[逻辑块缓冲]
         Buffer -->|提取与摘要| Generator[记忆生成]
         Generator -->|写入| DB
         Lifecycle[生命周期 Gardener] -->|维护| DB
@@ -59,7 +59,7 @@ graph TD
         *   **关键词提取**：提取用于稀疏检索的 Tokens。
 *   **输出**：结构化 JSON，同时供给检索层和感知层。
 
-### 2.2 帕秋莉·检索使魔 (The Familiar of Patchouli) —— 对应 Retrieval Engine
+### 2.2 帕秋莉·检索使魔 (The Retrieval Familiar of Patchouli) —— 对应 Retrieval Engine
 > **定位**：**服务员与执行者**。解决“非对称检索”问题，确保高精度召回。
 
 *   **设定**：当“真理之眼”确认需要查书时，帕秋莉会召唤使魔去书架取书。
@@ -109,7 +109,7 @@ graph TD
 
 ### Phase 2: 项目模块目录重构
 
-！注意，项目目录重构是一次破坏性更新，可能导致大量文件导入与部分集成测试文件失效。并且，新目录结构依赖于 Global Gateway 的实现。
+！注意，项目目录重构是一次破坏性更新，可能导致大量文件导入与部分集成测试文件失效。并且，新目录结构依赖于 Global Gateway 的实现。因此请在重构后，及时更新所有相关的导入路径与测试用例，保证系统仍能正常运行后再规划后续开发
 
 *   **目标**：让帕秋莉的执行链路更加清晰，同时明确其作为HiveMemory系统的总管理者这一角色。
 *   **任务**：在实现 Global Gateway 之后，将项目模块目录结构按照以上新的帕秋莉体系进行重构，详见下文
@@ -142,35 +142,37 @@ graph TD
 
 建议废弃 src 内部的 `agents` 目录（因为帕秋莉不仅仅是一个 agent，她现在是整个 HiveMemory 系统的管理者与代行者），将其提升为顶级的 `patchouli` 包，并在其中定义她的三个分身。原 `agents/chatbot.py` 以及 `agents/session_manager.py` 需要移出 `src/hivememory` 目录，因为本质上他们属于前台 Worker Agent 的 demo 实现，而不是 HiveMemory 系统的核心组件。这两个文件可以与 `chatbot_ui.py` 共同放在一个目录下管理，但目录名不能是现在的 `examples`，不然与实际用处不符。
 
+为了避免模块的过度封装，eye.py 应由原来的 `gateway/gateway.py` 改造而来，familiar.py 则由原来的 `retrieval/engine.py` 改造而来。核心原则是自此以后帕秋莉将是所有业务逻辑的编排者。她负责实例化这些工具，并定义数据如何在工具间流动。而 `engines` 中的模块作为纯粹的工具类，仅实现对应的业务逻辑
+
 ```text
 src/hivememory
 │  __init__.py
-│  client.py            # [NEW] 统一入口 (HiveMemoryClient)
+│  client.py                   # [NEW] 统一入口 (HiveMemoryClient)
 │
-├─patchouli             # [NEW] 人格层：帕秋莉的三位一体分身
-│  │  __init__.py       # 导出 Eye, Familiar, Core
-│  │  eye.py            # [NEW] 真理之眼 (GlobalGateway/Router) - 同步阻塞
-│  │  familiar.py       # [NEW] 检索使魔 (Retrieval Engine) - 同步阻塞
-│  │  core.py           # [REFACTOR] 馆长本体 (原 agents/patchouli.py) - 异步后台
-│  │  config.py         # 帕秋莉的统一配置
+├─patchouli                    # [NEW] 人格层：帕秋莉的三位一体分身
+│  │  __init__.py              # 导出 Eye, Familiar, Core
+│  │  eye.py                   # [REFACTOR] 真理之眼 (GlobalGateway/Router, 原 gateway/gateway.py) - 同步阻塞
+│  │  retrieval_familiar.py    # [REFACTOR] 检索使魔 (Retrieval Engine, 原 retrieval/engine.py) - 同步阻塞
+│  │  librarian_core.py        # [REFACTOR] 馆长本体 (原 agents/patchouli.py) - 异步后台
+│  │  config.py                # [REFACTOR] 帕秋莉的统一配置 (原 config.py)
 │
-├─engines               # [RENAME] 能力层 (原各功能模块归档于此，更清晰)
+├─engines                      # [RENAME] 能力层 (原各功能模块归档于此，更清晰)
 │  │  __init__.py
 │  │
-│  ├─gateway            # [NEW] 具体的 Router/Rewriter 实现
+│  ├─gateway                   # [NEW] 具体的 Router/Rewriter 实现
 │  │
-│  ├─perception         # [EXISTING] 话题感知与缓冲区管理
+│  ├─perception                # [EXISTING] 话题感知与缓冲区管理
 │  │
-│  ├─generation         # [EXISTING] 记忆提取与生成
+│  ├─generation                # [EXISTING] 记忆提取与生
 │  │
-│  ├─retrieval          # [EXISTING] 向量检索与上下文渲染
+│  ├─retrieval                 # [EXISTING] 向量检索与上下文渲染
 │  │
-│  └─lifecycle          # [EXISTING] 生命周期
+│  └─lifecycle                 # [EXISTING] 生命周期
 │
-├─infrastructure        # [NEW] 基础设施层 (数据与底层模型)
-│  │  storage           # 数据库服务统一接口
-│  │  llm               # LLM服务统一接口
-│  │  embedding         # 嵌入模型服务统一接口
+├─infrastructure               # [NEW] 基础设施层 (数据与底层模型)
+│  │  storage                  # 数据库服务统一接口
+│  │  llm                      # LLM服务统一接口
+│  │  embedding                # 嵌入模型服务统一接口
 │
 └─utils
 ```
@@ -190,8 +192,8 @@ class PatchouliSystem:
     
     Attributes:
         eye (TheEye): 真理之眼，负责流量入口和意图判断 (Hot)
-        familiar (TheFamiliar): 检索使魔，负责上下文检索 (Hot)
-        core (TheCore): 馆长本体，负责后台记忆维护 (Cold)
+        retrieval_familiar (RetrievalFamiliar): 检索使魔，负责上下文检索 (Hot)
+        core (LibrarianCore): 馆长本体，负责后台记忆维护 (Cold)
     """
     def __init__(self, config: HiveMemoryConfig):
         # 初始化基础设施
@@ -201,22 +203,22 @@ class PatchouliSystem:
         self.eye = TheEye(config=config.gateway)
         
         # 2. 实例化检索使魔 (Retrieval)
-        self.familiar = TheFamiliar(storage=self.storage, config=config.retrieval)
+        self.retrieval_familiar = RetrievalFamiliar(storage=self.storage, config=config.retrieval)
         
         # 3. 实例化馆长本体 (Librarian)
         # 注意：Core 需要引用 Eye 的重写结果，通过队列或回调连接
-        self.core = TheCore(storage=self.storage, config=config.perception)
+        self.librarian_core = LibrarianCore(storage=self.storage, config=config.librarian)
         
     async def process_user_query(self, query: str, context: list):
         """
-        标准 Hot Path 流程： Eye -> Familiar -> Worker
+        标准 Hot Path 流程： Eye -> RetrievalFamiliar -> Worker
         """
         # Step 1: Eye 判断与重写
         gateway_result = await self.eye.gaze(query, context)
         
-        # Step 2: 异步通知 Core (作为 Anchor 进行感知)
-        # 这是一个关键的连接点：Eye 的产出喂给了 Core
-        self.core.perceive_async(
+        # Step 2: 异步通知 LibrarianCore (作为 Anchor 进行感知)
+        # 这是一个关键的连接点：Eye 的产出喂给了 LibrarianCore
+        self.librarian_core.perceive_async(
             anchor=gateway_result.rewritten_query, 
             raw_message=query
         )
@@ -224,7 +226,7 @@ class PatchouliSystem:
         # Step 3: 根据 Eye 的判断决定是否检索
         retrieved_context = None
         if gateway_result.intent == "RAG":
-            retrieved_context = await self.familiar.retrieve(
+            retrieved_context = await self.retrieval_familiar.retrieve(
                 query=gateway_result.content_payload.rewritten_query,
                 keywords=gateway_result.content_payload.search_keywords,
                 filters=gateway_result.content_payload.target_filters
@@ -237,14 +239,14 @@ class PatchouliSystem:
         }
 ```
 
-#### B. 馆长本体 (The Core) 的重构
+#### B. 馆长本体 (The Librarian Core) 的重构
 
-将你当前的 `patchouli.py` 瘦身，重命名为 `core.py`，专注做 **Cold Path** 的工作。
+将当前的 `patchouli.py` 瘦身，重命名为 `librarian_core.py`，专注做 **Cold Path** 的工作。
 
 ```python
-# src/hivememory/patchouli/core.py
+# src/hivememory/patchouli/librarian_core.py
 
-class TheCore:
+class LibrarianCore:
     """
     帕秋莉·馆长本体 (Librarian Agent)
     
@@ -255,9 +257,9 @@ class TheCore:
         - 调用 Lifecycle 引擎修书
     """
     def __init__(self, storage, config):
-        self.perception_layer = create_perception_layer(config)
-        self.generation_orchestrator = create_generation_orchestrator(storage)
-        self.gardener = create_lifecycle_manager(storage)
+        self.perception_layer = create_perception_layer(config.perception)
+        self.generation_orchestrator = create_generation_orchestrator(storage, config.generation)
+        self.lifecycle_manager = create_lifecycle_manager(storage, config.lifecycle)
 
     def perceive_async(self, anchor: str, raw_message: str):
         """接收真理之眼的投喂"""
@@ -266,8 +268,8 @@ class TheCore:
         pass
         
     def start_gardening(self):
-        """开启夜间维护模式"""
-        self.gardener.run_maintenance()
+        """开启定时维护模式"""
+        self.lifecycle_manager.run_maintenance()
 ```
 
 ---
@@ -276,13 +278,13 @@ class TheCore:
 
 1.  **移动与重命名**：
     *   将 `core/embedding`, `core/llm`, `memory/storage` 移动到 `infrastructure/`。这会让根目录更干净。
-    *   将 `perception`, `generation`, `retrieval`, `lifecycle` 移动到 `engines/`。这代表它们是底层的“发动机”。
+    *   将 `gateway`, `perception`, `generation`, `retrieval`, `lifecycle` 移动到 `engines/`。这代表它们是底层的“发动机”。
     *   将 `agents/patchouli.py` 移动到 `patchouli/core.py` 并进行删减（移除还没有做的 retrieval 占位符）。
 
 3.  **构建人格层**：
     *   创建 `patchouli/eye.py`: 封装 Gateway 引擎，提供 `gaze()` 方法。
-    *   创建 `patchouli/familiar.py`: 封装 Retrieval 引擎，提供 `retrieve()` 方法。
-    *   修改 `patchouli/core.py`: 封装 Perception & Generation & Lifecycle 引擎，提供对记忆"CRUD"的所有操作
+    *   创建 `patchouli/retrieval_familiar.py`: 封装 Retrieval 引擎，提供 `retrieve()` 方法。
+    *   修改 `patchouli/librarian_core.py`: 封装 Perception & Generation & Lifecycle 引擎，提供对记忆"CRUD"的所有操作
 
 4.  **连接**：
     *   编写 `patchouli/system.py`，这是用户（开发者）唯一需要 import 的东西。今后所有 Worker Agent 都将通过这个 System 类获得 HiveMemory系统的所有功能

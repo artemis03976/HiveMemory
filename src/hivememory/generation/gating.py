@@ -1,6 +1,12 @@
 """
 HiveMemory - 价值评估器 (Value Gater)
 
+.. deprecated::
+    v2.0: 此模块的功能已被 Global Gateway 的 memory_signal 替代。
+
+    使用 `hivememory.gateway.GlobalGateway` 获取 worth_saving 信号。
+    此模块保留作为备用或二次验证，将在未来版本中移除。
+
 职责:
     判断对话片段是否有长期记忆价值，过滤无价值的闲聊和噪音。
 
@@ -12,6 +18,17 @@ HiveMemory - 价值评估器 (Value Gater)
 作者: HiveMemory Team
 版本: 0.1.0
 """
+
+import warnings
+
+# 发出废弃警告
+warnings.warn(
+    "generation/gating.py is deprecated since v2.0. "
+    "Use hivememory.gateway.GlobalGateway.memory_signal.worth_saving instead. "
+    "This module is kept as a backup and will be removed in v2.1.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import logging
 from typing import List, Set, Optional

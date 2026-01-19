@@ -1,6 +1,12 @@
 """
 检索路由模块
 
+.. deprecated::
+    v2.0: 此模块已被 Global Gateway 替代。
+
+    使用 `hivememory.gateway.GlobalGateway` 替代。
+    此模块保留用于向后兼容，将在未来版本中移除。
+
 职责:
     判断用户查询是否需要检索记忆。
 
@@ -10,6 +16,17 @@
 
 对应设计文档: PROJECT.md 5.0.2 节
 """
+
+import warnings
+
+# 发出废弃警告
+warnings.warn(
+    "retrieval/router.py is deprecated since v2.0. "
+    "Use hivememory.gateway.GlobalGateway instead. "
+    "This module will be removed in v2.1.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from abc import abstractmethod
 from typing import List, Optional, Dict, Any, TYPE_CHECKING

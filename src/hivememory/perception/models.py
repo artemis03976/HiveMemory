@@ -228,6 +228,34 @@ class LogicalBlock(BaseModel):
     total_tokens: int = 0
     block_id: str = Field(default_factory=lambda: str(uuid4()))
 
+    # ========== v2.0 新增字段 (Gateway 集成) ==========
+
+    #: Gateway 重写后的查询（指代消解后的完整查询）
+    #: 这是 Gateway 的核心输出之一，用于替代 raw query 做语义锚点
+    rewritten_query: Optional[str] = Field(
+        default=None,
+        description="Gateway 重写后的查询（指代消解）"
+    )
+
+    #: 会话轮次 ID，用于去重与幂等
+    #: 格式: conversation_id:turn_index 或单独的 turn_id
+    turn_id: Optional[str] = Field(
+        default=None,
+        description="会话轮次 ID（用于去重与幂等）"
+    )
+
+    #: Gateway 意图分类结果
+    gateway_intent: Optional[str] = Field(
+        default=None,
+        description="Gateway 意图分类 (RAG/CHAT/TOOL/SYSTEM)"
+    )
+
+    #: Gateway 记忆价值信号
+    worth_saving: Optional[bool] = Field(
+        default=None,
+        description="Gateway 记忆价值判断"
+    )
+
     @property
     def is_complete(self) -> bool:
         """
@@ -245,12 +273,16 @@ class LogicalBlock(BaseModel):
     @property
     def anchor_text(self) -> str:
         """
-        获取语义锚点文本（User Query）
+        获取语义锚点文本
 
-        锚点对齐策略：
-            仅使用 User Query 作为语义锚点，
-            因为话题的转移 90% 是由用户发起的。
+        锚点对齐策略 (v2.0 更新):
+            1. 优先使用 rewritten_query（Gateway 指代消解后的查询）
+            2. 回退到 user_block.content（原始查询）
+
+        这样确保感知层获得最准确的语义表示。
         """
+        if self.rewritten_query:
+            return self.rewritten_query
         if self.user_block:
             return self.user_block.content
         return ""

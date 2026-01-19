@@ -306,6 +306,41 @@ class MemoryRetrievalConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
+# ========== Global Gateway 配置 (v2.0) ==========
+
+class GatewayConfig(BaseSettings):
+    """
+    Global Gateway 配置
+
+    对应 GlobalGateway 类的初始化参数
+    负责意图分类、查询重写、元数据提取
+    """
+    #: 是否启用 L1 规则拦截器
+    enable_l1_interceptor: bool = Field(default=True, description="是否启用 L1 规则拦截器")
+    #: 是否启用 L2 语义分析
+    enable_l2_semantic: bool = Field(default=True, description="是否启用 L2 语义分析")
+    #: 上下文窗口大小（最近N条消息）
+    context_window: int = Field(default=3, description="上下文窗口大小（最近N条消息）")
+    #: LLM 模型配置（None 则复用 worker）
+    llm_model: Optional[str] = Field(default=None, description="Gateway 专用 LLM 模型（None 则复用 worker）")
+    #: LLM 温度参数
+    llm_temperature: float = Field(default=0.0, description="LLM 温度参数（0.0 确保输出稳定）")
+    #: LLM 最大 Token 数
+    llm_max_tokens: int = Field(default=512, description="LLM 最大 Token 数")
+    #: 自定义系统指令模式（正则列表）
+    custom_system_patterns: List[str] = Field(default_factory=list, description="自定义系统指令模式")
+    #: 自定义闲聊模式（正则列表）
+    custom_chat_patterns: List[str] = Field(default_factory=list, description="自定义闲聊模式")
+    #: 是否启用记忆类型过滤
+    enable_memory_type_filter: bool = Field(default=True, description="是否启用记忆类型过滤")
+    #: Prompt 变体 ("default", "simple")
+    prompt_variant: str = Field(default="default", description="System Prompt 变体")
+    #: Prompt 语言 ("zh", "en")
+    prompt_language: str = Field(default="zh", description="System Prompt 语言")
+
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
+
+
 # ========== 记忆生命周期配置 ==========
 
 class VitalityCalculatorConfig(BaseSettings):
@@ -411,6 +446,14 @@ class HiveMemoryConfig(BaseSettings):
     generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
+
+    # Global Gateway 配置 (v2.0)
+    # 注意: 使用字符串类型注解避免循环导入
+    # GatewayConfig 在 hivememory.gateway.config 中定义
+    gateway: Optional[Any] = Field(
+        default=None,
+        description="Global Gateway 配置 (可选，默认使用内置默认值)"
+    )
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),

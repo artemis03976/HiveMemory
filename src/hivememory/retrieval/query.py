@@ -1,13 +1,30 @@
 """
 查询预处理模块
 
+.. deprecated::
+    v2.0: LLM 查询重写功能已被 Global Gateway 替代。
+
+    使用 `hivememory.gateway.GlobalGateway` 进行查询重写。
+    时间解析和类型检测功能仍可正常使用。
+
 职责:
 1. 解析用户查询，提取语义查询文本
 2. 识别结构化过滤条件（时间、类型、Agent等）
-3. 可选的 LLM 驱动查询改写
+3. ~~可选的 LLM 驱动查询改写~~ (已废弃，使用 Gateway 替代)
 
 对应设计文档: PROJECT.md 5.1 节
 """
+
+import warnings
+
+# 发出部分废弃警告
+warnings.warn(
+    "retrieval/query.py: LLM query rewriting is deprecated since v2.0. "
+    "Use hivememory.gateway.GlobalGateway for query rewriting. "
+    "Time parsing and type detection are still supported.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta

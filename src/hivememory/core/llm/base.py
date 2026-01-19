@@ -41,6 +41,36 @@ class BaseLLMService(ABC):
         """
         pass
 
+    def complete_with_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Dict[str, Any]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> Any:
+        """
+        生成聊天补全（支持 Function Calling）
+
+        用于需要返回完整响应对象的场景（如 Function Calling）。
+
+        Args:
+            messages: 消息列表
+            tools: Function Calling 工具定义列表
+            tool_choice: 工具选择策略
+            temperature: 温度参数
+            max_tokens: 最大 token 数
+            **kwargs: 其他参数
+
+        Returns:
+            Any: 完整的 LLM 响应对象（包含 tool_calls 等信息）
+
+        Raises:
+            NotImplementedError: 子类未实现此方法时抛出
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support complete_with_tools")
+
     def complete_with_retry(
         self,
         messages: List[Dict[str, str]],

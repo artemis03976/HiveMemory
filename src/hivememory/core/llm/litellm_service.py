@@ -77,6 +77,83 @@ class LiteLLMService(SingletonLLMService):
 
         return content
 
+    def complete_with_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Dict[str, Any]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> Any:
+        """
+        生成聊天补全（支持 Function Calling）
+
+        用于 Global Gateway 等需要使用 Function Calling 的场景。
+        返回完整的响应对象，包含 tool_calls 等信息。
+
+        Args:
+            messages: 消息列表
+            tools: Function Calling 工具定义列表
+            tool_choice: 工具选择策略 (如 {"type": "function", "function": {"name": "..."}})
+            temperature: 温度参数（None 则使用实例默认值）
+            max_tokens: 最大 token 数（None 则使用实例默认值）
+            **kwargs: 其他传递给 litellm.completion 的参数
+
+        Returns:
+            Any: 完整的 litellm 响应对象
+
+        Raises:
+            Exception: LLM 调用失败时抛出
+
+        Examples:
+            >>> response = service.complete_with_tools(
+            ...     messages=[{"role": "user", "content": "What's the weather?"}],
+            ...     tools=[{"type": "function", "function": {...}}],
+            ...     tool_choice={"type": "function", "function": {"name": "get_weather"}},
+            ... )
+            >>> if response.choices[0].message.tool_calls:
+            ...     tool_call = response.choices[0].message.tool_calls[0]
+            ...     args = json.loads(tool_call.function.arguments)
+        """
+        logger.debug(
+            f"调用 LLM (with tools): {self.model}, "
+            f"消息数: {len(messages)}, 工具数: {len(tools) if tools else 0}"
+        )
+
+        # 构建 litellm 参数
+        llm_params = {
+            "model": self.model,
+            "messages": messages,
+            "api_key": self.api_key,
+            "api_base": self.api_base,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+        }
+
+        # 添加 Function Calling 参数
+        if tools:
+            llm_params["tools"] = tools
+        if tool_choice:
+            llm_params["tool_choice"] = tool_choice
+
+        # 添加额外的 kwargs
+        llm_params.update(kwargs)
+
+        response = litellm.completion(**llm_params)
+
+        # 记录 token 使用情况
+        if hasattr(response, 'usage') and response.usage:
+            logger.info(
+                f"LLM 调用成功 (model={self.model}, "
+                f"tokens={response.usage.total_tokens}, "
+                f"tool_calls={bool(response.choices[0].message.tool_calls) if response.choices else False})"
+            )
+        else:
+            logger.info(f"LLM 调用成功 (model={self.model})")
+
+        return response
+
     def complete_with_retry(
         self,
         messages: List[Dict[str, str]],

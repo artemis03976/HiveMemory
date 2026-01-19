@@ -110,12 +110,30 @@ class ChatBotAgent:
         self.retrieval_engine = retrieval_engine
         self.enable_memory_retrieval = enable_memory_retrieval
 
+        # ========== v2.0 新增: Global Gateway ==========
+        self.gateway = None
+        try:
+            from hivememory.gateway import create_default_gateway
+            # 如果 config 有 gateway 配置，传递它
+            gateway_config = config.gateway if config and hasattr(config, 'gateway') else None
+            self.gateway = create_default_gateway(
+                llm_service=self.llm_service,
+                config=gateway_config
+            )
+            logger.info(f"GlobalGateway initialized successfully")
+        except ImportError as e:
+            logger.warning(f"GlobalGateway not available: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize GlobalGateway: {e}")
+
         # 生命周期管理器 (Stage 3)
         self.lifecycle_manager = lifecycle_manager
         self.enable_lifecycle_management = enable_lifecycle_management
 
         # 上一次检索的结果（用于调试/显示）
         self._last_retrieval_result = None
+        # 上一次 Gateway 处理结果（用于感知层）
+        self._last_gateway_result = None
 
         logger.info(
             f"ChatBotAgent initialized for user={user_id}, agent={agent_id}, "
@@ -130,21 +148,28 @@ class ChatBotAgent:
     ) -> str:
         """
         检索相关记忆并返回渲染后的上下文
-        
+
+        v2.0 更新：集成 Global Gateway
+            1. 先调用 Gateway 进行意图分类和查询重写
+            2. 只有当 intent == RAG 时才进行检索
+            3. 使用 rewritten_query 和 keywords 进行检索
+
         Args:
             user_message: 用户当前消息
             session_id: 会话 ID
-            
+
         Returns:
             渲染后的记忆上下文字符串，如果无相关记忆则返回空字符串
         """
         if not self.retrieval_engine or not self.enable_memory_retrieval:
             return ""
-        
+
         try:
-            # 获取最近的对话历史作为上下文
+            # ========== v2.0: 先调用 Gateway ==========
             from hivememory.generation.models import ConversationMessage
-            
+            from hivememory.gateway.models import GatewayIntent
+
+            # 获取最近的对话历史作为上下文
             history = self.session_manager.get_history(session_id, limit=3)
             context = [
                 ConversationMessage(
@@ -155,28 +180,63 @@ class ChatBotAgent:
                 )
                 for msg in history
             ]
-            
+
+            # 调用 Gateway 进行意图分类和查询重写
+            gateway_result = None
+            if self.gateway:
+                gateway_result = self.gateway.process(
+                    query=user_message,
+                    context=context
+                )
+                # 保存结果供后续使用（如 _record_to_buffer）
+                self._last_gateway_result = gateway_result
+
+                # 只有当 intent == RAG 时才检索
+                if gateway_result.intent != GatewayIntent.RAG:
+                    logger.debug(
+                        f"Gateway intent={gateway_result.intent.value}, "
+                        f"skipping memory retrieval"
+                    )
+                    return ""
+
+                # 使用 Gateway 重写后的查询和关键词
+                query_to_use = gateway_result.content_payload.rewritten_query
+                keywords = gateway_result.content_payload.search_keywords
+                filters = gateway_result.content_payload.target_filters
+
+                logger.debug(
+                    f"Gateway rewrote query: '{user_message[:30]}...' -> "
+                    f"'{query_to_use[:30]}...', keywords={keywords}"
+                )
+            else:
+                # 回退到原始行为（没有 Gateway 时）
+                query_to_use = user_message
+                keywords = None
+                filters = None
+
             # 调用检索引擎
             result = self.retrieval_engine.retrieve_context(
-                query=user_message,
+                query=query_to_use,
                 user_id=self.user_id,
-                context=context
+                context=context,
+                keywords=keywords,
+                filters=filters,
             )
-            
+
             # 保存结果用于调试
             self._last_retrieval_result = result
-            
+
             if result.is_empty():
-                logger.debug(f"No relevant memories found for query: '{user_message[:30]}...'")
+                logger.debug(f"No relevant memories found for query: '{query_to_use[:30]}...'")
                 return ""
-            
+
             logger.info(
                 f"Retrieved {result.memories_count} memories for query "
                 f"(latency={result.latency_ms:.1f}ms)"
             )
-            
+
             return result.rendered_context
-            
+
         except Exception as e:
             logger.warning(f"Memory retrieval failed: {e}")
             self._last_retrieval_result = None
@@ -276,6 +336,8 @@ class ChatBotAgent:
         """
         将消息记录到感知层（触发帕秋莉）
 
+        v2.0 更新：传递 Gateway 的 rewritten_query 到感知层
+
         Args:
             session_id: 会话 ID
             role: "user" 或 "assistant"
@@ -284,12 +346,25 @@ class ChatBotAgent:
         try:
             # 使用新的感知层 API
             # PatchouliAgent 会自动管理 Buffer，无需手动获取
+
+            # ========== v2.0: 传递 Gateway 输出 ==========
+            # 准备额外的参数
+            extra_kwargs = {
+                "user_id": self.user_id,
+                "agent_id": self.agent_id,
+                "session_id": session_id
+            }
+
+            # 如果有 Gateway 结果且是用户消息，传递 rewritten_query
+            if self._last_gateway_result and role == "user":
+                extra_kwargs["rewritten_query"] = self._last_gateway_result.content_payload.rewritten_query
+                extra_kwargs["gateway_intent"] = self._last_gateway_result.intent.value
+                extra_kwargs["worth_saving"] = self._last_gateway_result.memory_signal.worth_saving
+
             self.patchouli.add_message(
                 role=role,
                 content=content,
-                user_id=self.user_id,
-                agent_id=self.agent_id,
-                session_id=session_id
+                **extra_kwargs
             )
             logger.debug(f"Recorded {role} message to perception layer (session={session_id})")
         except Exception as e:
