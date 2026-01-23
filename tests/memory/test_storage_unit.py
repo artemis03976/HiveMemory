@@ -3,18 +3,18 @@ from unittest.mock import Mock, MagicMock, patch
 from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.core.config import QdrantConfig, EmbeddingConfig
+from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.patchouli.config import QdrantConfig, EmbeddingConfig
 
 class TestQdrantMemoryStore:
     @pytest.fixture
     def mock_qdrant_client(self):
-        with patch('hivememory.memory.storage.QdrantClient') as mock:
+        with patch('hivememory.infrastructure.storage.vector_store.QdrantClient') as mock:
             yield mock
 
     @pytest.fixture
     def mock_embedding_service(self):
-        with patch('hivememory.memory.storage.get_bge_m3_service') as mock:
+        with patch('hivememory.infrastructure.storage.vector_store.get_bge_m3_service') as mock:
             yield mock
 
     @pytest.fixture

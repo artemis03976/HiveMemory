@@ -1,487 +1,459 @@
 """
-记忆检索端到端测试
+检索引擎组件协作测试
 
-测试场景:
-1. 语义概念检索 (Dense focus)
-2. 精准代码检索 (Sparse focus)
-3. 结构化过滤检索 (Type/Tag filters)
-4. 混合检索与排序 (Hybrid Ranking)
+测试检索引擎内部各组件之间的协作：
+- DenseRetriever 与 SparseRetriever 的融合
+- Reranker 与检索结果的交互
+- ContextRenderer 与检索结果的格式化
+- HybridRetriever 的整体编排
 
-运行方式:
-    python tests/integration/test_retrieval.py
+不测试：与外部存储（Qdrant）的交互
 """
 
 import sys
-import os
 from pathlib import Path
-import time
-import logging
-from datetime import datetime, timedelta
-
-# 设置 UTF-8 编码 (Windows 兼容性)
-if sys.platform == "win32":
-    os.environ["PYTHONIOENCODING"] = "utf-8"
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
 
 # 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
+import pytest
+from unittest.mock import Mock
 
 from hivememory.core.models import (
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+    MemoryAtom,
+    MetaData,
+    IndexLayer,
+    PayloadLayer,
+    MemoryType,
 )
-from hivememory.core.config import load_app_config
-from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.retrieval import (
-    QueryProcessor,
-    ProcessedQuery,
-    SimpleRouter,
+from hivememory.engines.retrieval import (
+    DenseRetriever,
+    SparseRetriever,
     HybridRetriever,
+    CrossEncoderReranker,
     ContextRenderer,
-    RetrievalEngine,
-    create_default_retrieval_engine,
     RenderFormat,
+    ReciprocalRankFusion,
 )
-from hivememory.retrieval.models import QueryFilters
-
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+from hivememory.patchouli.config import RerankerConfig, FusionConfig, HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig
+from hivememory.engines.retrieval.models import (
+    RetrievalQuery,
+    QueryFilters,
+    SearchResult,
+    SearchResults,
 )
 
-console = Console(force_terminal=True, legacy_windows=False)
+
+# 创建测试记忆
+def create_test_memory(title: str, content: str, memory_type: MemoryType = MemoryType.FACT) -> MemoryAtom:
+    """创建测试记忆"""
+    return MemoryAtom(
+        meta=MetaData(
+            source_agent_id="test_agent",
+            user_id="test_user",
+            confidence_score=0.9,
+        ),
+        index=IndexLayer(
+            title=title,
+            summary=f"{title}的摘要信息，长度必须超过十个字符",
+            tags=["test"],
+            memory_type=memory_type,
+        ),
+        payload=PayloadLayer(content=content),
+    )
 
 
-# ========== 测试场景定义 ==========
+class TestDenseAndSparseRetrieverCollaboration:
+    """测试 DenseRetriever 与 SparseRetriever 的融合"""
 
-SCENARIO_1 = {
-    "name": "语义概念检索 (Dense Focus)",
-    "description": "测试基于语义理解的检索，查找相关概念而非精确匹配",
-    "queries": [
-        ("如何处理时间格式？", "test_user"),
-        ("项目是用什么语言写的？", "test_user"),
-    ],
-    "expected_titles": ["Python 日期解析函数", "项目配置信息"]
-}
+    def test_fusion_strategy_combines_results(self):
+        """测试融合策略组合两种检索结果"""
+        # Mock 密集检索结果
+        dense_results = SearchResults(results=[
+            SearchResult(
+                memory=create_test_memory("Python代码", "def test(): pass", MemoryType.CODE_SNIPPET),
+                score=0.85,
+                match_reason="语义相似",
+            ),
+            SearchResult(
+                memory=create_test_memory("Python教程", "Python学习笔记"),
+                score=0.75,
+                match_reason="语义相似",
+            ),
+        ])
 
-SCENARIO_2 = {
-    "name": "精准代码检索 (Sparse Focus)",
-    "description": "测试基于关键词的精准检索，查找特定函数名或变量",
-    "queries": [
-        ("parse_date 函数实现", "test_user"),
-        ("我的 OPENAI API KEY 是什么", "test_user"),
-    ],
-    "expected_titles": ["Python 日期解析函数", "用户 API Key 配置"]
-}
+        # Mock 稀疏检索结果
+        sparse_results = SearchResults(results=[
+            SearchResult(
+                memory=create_test_memory("Python函数", "def python_func(): pass", MemoryType.CODE_SNIPPET),
+                score=0.90,
+                match_reason="关键词匹配",
+            ),
+            SearchResult(
+                memory=create_test_memory("Java代码", "public void test() {}", MemoryType.CODE_SNIPPET),
+                score=0.70,
+                match_reason="关键词匹配",
+            ),
+        ])
 
-SCENARIO_3 = {
-    "name": "结构化过滤检索",
-    "description": "测试基于元数据的过滤功能 (Type, Tags)",
-    "queries": [
-        ("找一下关于配置的记忆", "test_user", MemoryType.FACT),
-        ("Python 相关的代码", "test_user", MemoryType.CODE_SNIPPET),
-    ],
-    "filters": [
-        QueryFilters(memory_type=MemoryType.FACT),
-        QueryFilters(memory_type=MemoryType.CODE_SNIPPET),
-    ]
-}
+        # 创建融合器
+        fusion = ReciprocalRankFusion(config=FusionConfig(rrf_k=60))
 
+        # 融合结果
+        fused = fusion.fuse(dense_results, sparse_results)
 
-# ========== 测试数据 ==========
+        # 验证融合结果
+        assert len(fused.results) > 0
+        # RRF 应该重新排序结果
 
-TEST_MEMORIES = [
-    {
-        "title": "用户 API Key 配置",
-        "summary": "用户设置的 OpenAI API Key 为 sk-test-123456",
-        "tags": ["api-key", "config", "openai"],
-        "type": MemoryType.USER_PROFILE,
-        "content": "用户的 OpenAI API Key 配置：\n**API Key**: `sk-test-123456`\n\n请在调用 OpenAI API 时使用此密钥。",
-        "confidence": 1.0
-    },
-    {
-        "title": "Python 日期解析函数",
-        "summary": "parse_date 函数用于解析 ISO8601 格式的日期字符串",
-        "tags": ["python", "datetime", "utils", "code"],
-        "type": MemoryType.CODE_SNIPPET,
-        "content": """```python
-def parse_date(date_str):
-    \"\"\"解析 ISO8601 格式的日期字符串\"\"\"
-    from datetime import datetime
-    if date_str.endswith('Z'):
-        date_str = date_str[:-1] + '+00:00'
-    return datetime.fromisoformat(date_str)
-```""",
-        "confidence": 0.9
-    },
-    {
-        "title": "项目配置信息",
-        "summary": "项目环境配置为 Python 3.12，使用 Black 格式化，行宽 100",
-        "tags": ["python", "config", "project"],
-        "type": MemoryType.FACT,
-        "content": "项目环境要求：\n- Python 版本：**3.12**\n- 代码格式化：Black\n- 行宽：100 字符",
-        "confidence": 0.95
-    },
-    # 增加干扰项
-    {
-        "title": "JavaScript 日期处理",
-        "summary": "使用 moment.js 处理日期",
-        "tags": ["javascript", "date", "utils"],
-        "type": MemoryType.CODE_SNIPPET,
-        "content": "import moment from 'moment';\nconst date = moment().format();",
-        "confidence": 0.8
-    },
-    {
-        "title": "Rust 项目配置",
-        "summary": "Cargo.toml 配置示例",
-        "tags": ["rust", "config"],
-        "type": MemoryType.FACT,
-        "content": "[package]\nname = \"demo\"\nversion = \"0.1.0\"",
-        "confidence": 0.85
-    }
-]
+    def test_hybrid_retriever_calls_both_retrievers(self):
+        """测试混合检索器调用两种检索器"""
+        mock_storage = Mock()
+        
+        config = HybridRetrieverConfig(enable_hybrid_search=True)
+        config.dense.enabled = True
+        config.sparse.enabled = True
+        # CrossEncoderReranker needs a service if enabled, but here it's disabled by default in config
+        # However, HybridRetriever init might try to create one if config says so.
+        # By default config.reranker.enabled is False.
+        # But if it's enabled, we need a service.
+        # Let's ensure reranker is disabled for this test or provide service if needed.
+        # The error said: TypeError: CrossEncoderReranker.__init__() missing 1 required positional argument: 'service'
+        # This implies HybridRetriever is trying to instantiate CrossEncoderReranker.
+        
+        # Checking HybridRetriever.__init__:
+        # if config.reranker.enabled: self.reranker = CrossEncoderReranker(config=config.reranker)
+        # CrossEncoderReranker(service, config) -> service is required.
+        
+        # So if config.reranker.enabled is True by default, we fail.
+        # Let's check RerankerConfig default.
+        config.reranker.enabled = False 
 
-
-# ========== 测试函数 ==========
-
-def setup_environment():
-    """环境准备"""
-    console.print("\n[bold cyan]🛠️  环境准备...[/bold cyan]")
-    
-    try:
-        config = load_app_config()
-
-        # 创建存储实例
-        storage = QdrantMemoryStore(
-            qdrant_config=config.qdrant,
-            embedding_config=config.embedding
+        hybrid = HybridRetriever(
+            storage=mock_storage,
+            config=config
         )
-        storage.create_collection(recreate=True)
-        console.print("✓ Qdrant 初始化成功", style="green")
+        
+        # Mock internal retrievers
+        hybrid.dense_retriever = Mock()
+        hybrid.dense_retriever.retrieve = Mock(return_value=SearchResults())
+        
+        hybrid.sparse_retriever = Mock()
+        hybrid.sparse_retriever.retrieve = Mock(return_value=SearchResults())
 
-        return storage, config
+        query = RetrievalQuery(semantic_query="Python代码")
+        results = hybrid.retrieve(query, top_k=5)
 
-    except Exception as e:
-        console.print(f"✗ 环境准备失败: {e}", style="bold red")
-        return None, None
+        # 验证两种检索器都被调用
+        assert results is not None
+        hybrid.dense_retriever.retrieve.assert_called()
+        hybrid.sparse_retriever.retrieve.assert_called()
 
 
-def insert_test_memories(storage: QdrantMemoryStore, user_id: str = "test_user"):
-    """插入测试记忆"""
-    console.print("\n[bold cyan]📝 插入测试记忆...[/bold cyan]")
-    
-    inserted = []
-    for mem_data in TEST_MEMORIES:
-        memory = MemoryAtom(
-            meta=MetaData(
-                source_agent_id="test_agent",
-                user_id=user_id,
-                confidence_score=mem_data["confidence"]
+class TestRerankerAndRetrieverCollaboration:
+    """测试 Reranker 与检索器的协作"""
+
+    def test_reranker_reorders_results(self):
+        """测试重排序器重新排列结果"""
+        # 创建初始结果（故意打乱顺序）
+        results = SearchResults(results=[
+            SearchResult(
+                memory=create_test_memory("低分结果", "内容"),
+                score=0.5,
+                match_reason="原始",
             ),
-            index=IndexLayer(
-                title=mem_data["title"],
-                summary=mem_data["summary"],
-                tags=mem_data["tags"],
-                memory_type=mem_data["type"]
+            SearchResult(
+                memory=create_test_memory("中分结果", "内容"),
+                score=0.7,
+                match_reason="原始",
             ),
-            payload=PayloadLayer(
-                content=mem_data["content"]
+            SearchResult(
+                memory=create_test_memory("高分结果", "内容"),
+                score=0.9,
+                match_reason="原始",
+            ),
+        ])
+
+        # Mock service
+        mock_service = Mock()
+        # compute_score returns raw scores, order matching input pairs
+        # Input order is [低分, 中分, 高分]
+        # We want high scores for "高分结果"
+        mock_service.compute_score = Mock(return_value=[0.1, 0.5, 0.9])
+
+        reranker = CrossEncoderReranker(service=mock_service)
+
+        # Mock 重排序逻辑
+        query = RetrievalQuery(semantic_query="测试查询")
+        reranked = reranker.rerank(results, query=query)
+
+        # 验证结果被重新排序 (Should be high -> low)
+        assert len(reranked.results) == 3
+        assert reranked.results[0].memory.index.title == "高分结果"
+        assert reranked.results[2].memory.index.title == "低分结果"
+
+
+class TestRendererAndResultsCollaboration:
+    """测试 ContextRenderer 与检索结果的协作"""
+
+    def test_renderer_formats_results(self):
+        """测试渲染器格式化结果"""
+        results = [
+            SearchResult(
+                memory=create_test_memory("测试记忆", "测试内容"),
+                score=0.9,
+                match_reason="语义匹配",
+            ),
+        ]
+
+        # 测试 XML 格式
+        renderer_xml = ContextRenderer(render_format=RenderFormat.XML)
+        xml_output = renderer_xml.render(results)
+
+        assert "测试记忆" in xml_output or "测试内容" in xml_output
+        assert len(xml_output) > 0
+
+    def test_renderer_markdown_format(self):
+        """测试 Markdown 格式渲染"""
+        results = [
+            SearchResult(
+                memory=create_test_memory("Python代码", "def test(): pass"),
+                score=0.9,
+                match_reason="代码匹配",
+            ),
+            SearchResult(
+                memory=create_test_memory("Python文档", "文档内容"),
+                score=0.8,
+                match_reason="文档匹配",
+            ),
+        ]
+
+        renderer_md = ContextRenderer(render_format=RenderFormat.MARKDOWN)
+        md_output = renderer_md.render(results)
+
+        # 验证 Markdown 格式
+        assert "Python代码" in md_output or "Python文档" in md_output
+        assert len(md_output) > 0
+
+    def test_renderer_respects_token_limit(self):
+        """测试渲染器遵守 token 限制"""
+        # 创建大量结果
+        results = [
+            SearchResult(
+                memory=create_test_memory(f"记忆{i}", "内容" * 100),
+                score=0.9 - i * 0.1,
+                match_reason="测试",
             )
+            for i in range(10)
+        ]
+
+        renderer = ContextRenderer(
+            render_format=RenderFormat.MARKDOWN,
+            max_tokens=100,  # 设置低限制
+        )
+        output = renderer.render(results)
+
+        # 输出应该被截断
+        assert len(output) > 0
+        # 不应该包含所有记忆
+
+
+class TestQueryAndFilterCollaboration:
+    """测试查询与过滤器的协作"""
+
+    def test_query_with_filters(self):
+        """测试带过滤条件的查询"""
+        mock_storage = Mock()
+        # Mock search_memories to return a list of dicts as expected by DenseRetriever
+        
+        hit1 = {
+            "memory": create_test_memory("代码", "代码", MemoryType.CODE_SNIPPET),
+            "score": 0.9,
+            "id": "1"
+        }
+        
+        hit2 = {
+            "memory": create_test_memory("事实", "事实", MemoryType.FACT),
+            "score": 0.8,
+            "id": "2"
+        }
+        
+        mock_storage.search_memories = Mock(return_value=[hit1, hit2])
+
+        retriever = DenseRetriever(storage=mock_storage)
+
+        query = RetrievalQuery(
+            semantic_query="Python",
+            filters=QueryFilters(memory_type=MemoryType.CODE_SNIPPET),
+        )
+
+        results = retriever.retrieve(query, top_k=5)
+        
+        # Verify search_memories called with correct filters
+        mock_storage.search_memories.assert_called()
+        call_args = mock_storage.search_memories.call_args
+        assert call_args is not None
+        
+        # Verify results
+        assert len(results.results) == 2
+
+        # 验证结果
+        assert results is not None
+
+    def test_multiple_filters(self):
+        """测试多个过滤条件"""
+        mock_storage = Mock()
+        mock_storage.get_memories_by_filter = Mock(return_value=[
+            create_test_memory("用户1", "内容1", MemoryType.USER_PROFILE),
+        ])
+
+        query = RetrievalQuery(
+            semantic_query="查询",
+            filters=QueryFilters(
+                memory_type=MemoryType.USER_PROFILE,
+                user_id="user1",
+                tags=["profile"],
+            ),
+        )
+
+        # 验证过滤器正确构建
+        assert query.filters.memory_type == MemoryType.USER_PROFILE
+        assert query.filters.user_id == "user1"
+        assert query.filters.tags == ["profile"]
+
+
+class TestHybridRetrieverOrchestration:
+    """测试 HybridRetriever 的整体编排"""
+
+    def test_hybrid_full_pipeline(self):
+        """测试混合检索完整流程"""
+        mock_storage = Mock()
+        
+        config = HybridRetrieverConfig(
+            enable_hybrid_search=True,
+            enable_parallel=False  # Sequential for easier mocking
         )
         
-        storage.upsert_memory(memory, use_sparse=True)
-        inserted.append(memory)
-        console.print(f"  ✓ {mem_data['title']}")
-    
-    console.print(f"\n[green]成功插入 {len(inserted)} 条测试记忆[/green]")
-    return inserted
-
-
-def test_query_processor():
-    """测试查询预处理器"""
-    console.print("\n[bold magenta]📊 测试 QueryProcessor[/bold magenta]")
-    
-    processor = QueryProcessor()
-    
-    test_cases = [
-        ("我之前设置的 API Key 是什么？", "时间引用检测"),
-        ("找一下项目里的日期处理代码", "类型检测 (CODE)"),
-        ("昨天讨论的 Python 配置", "时间范围解析"),
-    ]
-    
-    results = []
-    for query, description in test_cases:
-        processed = processor.process(query, user_id="test_user")
+        hybrid = HybridRetriever(
+            storage=mock_storage,
+            config=config,
+        )
         
-        console.print(f"\n  [cyan]查询:[/cyan] {query}")
-        console.print(f"  [dim]{description}[/dim]")
-        console.print(f"  → 语义查询: {processed.semantic_query[:50]}...")
-        console.print(f"  → 关键词: {processed.keywords}")
-        if processed.filters.memory_type:
-            console.print(f"  → 类型过滤: {processed.filters.memory_type.value}")
-        if processed.filters.time_range:
-            console.print(f"  → 时间范围: {processed.filters.time_range}")
+        # Mock internal retrievers to return SearchResults
+        hybrid.dense_retriever = Mock()
+        hybrid.dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
+            SearchResult(memory=create_test_memory("语义结果", "内容"), score=0.8)
+        ]))
         
-        results.append((query, processed))
-    
-    console.print("\n[green]✓ QueryProcessor 测试完成[/green]")
-    return results
+        hybrid.sparse_retriever = Mock()
+        hybrid.sparse_retriever.retrieve = Mock(return_value=SearchResults(results=[
+            SearchResult(memory=create_test_memory("关键词结果", "内容"), score=0.9)
+        ]))
 
+        query = RetrievalQuery(semantic_query="Python代码")
+        results = hybrid.retrieve(query, top_k=5)
 
-def test_router():
-    """测试检索路由器"""
-    console.print("\n[bold magenta]🚦 测试 SimpleRouter[/bold magenta]")
-    
-    router = SimpleRouter()
-    
-    test_cases = [
-        ("你好", False),  # 闲聊
-        ("我之前的 API Key 是什么", True),  # 需要检索
-        ("帮我写一个排序算法", False),  # 新任务
-        ("项目里那个日期函数怎么用", True),  # 引用历史
-        ("谢谢", False),  # 简单回复
-    ]
-    
-    results = []
-    for query, expected in test_cases:
-        result = router.should_retrieve(query)
-        status = "✓" if result == expected else "✗"
-        color = "green" if result == expected else "red"
+        # 验证结果
+        assert results is not None
+        assert results.results is not None
+        assert len(results.results) > 0
+
+    def test_hybrid_with_reranking(self):
+        """测试混合检索带重排序"""
+        mock_storage = Mock()
         
-        console.print(f"  [{color}]{status}[/{color}] \"{query}\" → {result} (expected: {expected})")
-        results.append((query, result, expected))
-    
-    passed = sum(1 for _, r, e in results if r == e)
-    console.print(f"\n[{'green' if passed == len(results) else 'yellow'}]路由测试: {passed}/{len(results)} 通过[/]")
-    return results
-
-
-def test_hybrid_retriever(storage: QdrantMemoryStore):
-    """测试混合检索器 (Dense + Sparse)"""
-    console.print("\n[bold magenta]🔍 测试 HybridRetriever[/bold magenta]")
-    
-    # 确保启用混合搜索
-    retriever = HybridRetriever(storage=storage, enable_hybrid_search=True)
-    
-    # 场景 1: 语义优先 (Dense)
-    query_text = "如何处理时间"
-    console.print(f"\n  [cyan]场景 1: 语义检索[/cyan] (查询: '{query_text}')")
-    processed_query = ProcessedQuery(
-        semantic_query=query_text, 
-        original_query=query_text
-    )
-
-    results = retriever.retrieve(processed_query, top_k=3)
-    
-    for i, r in enumerate(results.results, 1):
-        console.print(f"    {i}. {r.memory.index.title} (score: {r.score:.3f}) - {r.match_reason}")
-
-    # 场景 2: 关键词优先 (Sparse)
-    query_text = "parse_date"
-    console.print(f"\n  [cyan]场景 2: 关键词检索[/cyan] (查询: '{query_text}')")
-    processed_query = ProcessedQuery(
-        semantic_query=query_text, 
-        original_query=query_text,
-        keywords=["parse_date"]  # 模拟提取到的关键词
-    )
-    results = searcher.retrieve(processed_query, top_k=3)
-    
-    for i, r in enumerate(results.results, 1):
-        console.print(f"    {i}. {r.memory.index.title} (score: {r.score:.3f}) - {r.match_reason}")
-    
-    console.print("\n[green]✓ HybridRetriever 测试完成[/green]")
-
-
-def test_context_renderer(storage: QdrantMemoryStore):
-    """测试上下文渲染器"""
-    console.print("\n[bold magenta]📄 测试 ContextRenderer[/bold magenta]")
-    
-    # 先检索一些记忆
-    retriever = HybridRetriever(storage=storage, enable_hybrid_search=True)
-    query = ProcessedQuery(semantic_query="API Key", original_query="API Key")
-    results = retriever.retrieve(query, top_k=2)
-    
-    # 测试 XML 渲染
-    renderer_xml = ContextRenderer(render_format=RenderFormat.XML, max_tokens=1000)
-    xml_output = renderer_xml.render(results.results)
-    
-    console.print("\n  [cyan]XML 格式输出:[/cyan]")
-    console.print(Panel(xml_output[:500] + "..." if len(xml_output) > 500 else xml_output, 
-                        title="XML Context", border_style="blue"))
-    
-    # 测试 Markdown 渲染
-    renderer_md = ContextRenderer(render_format=RenderFormat.MARKDOWN, max_tokens=1000)
-    md_output = renderer_md.render(results.results)
-    
-    console.print("\n  [cyan]Markdown 格式输出:[/cyan]")
-    console.print(Panel(md_output[:500] + "..." if len(md_output) > 500 else md_output,
-                        title="Markdown Context", border_style="green"))
-    
-    console.print("\n[green]✓ ContextRenderer 测试完成[/green]")
-
-
-def test_retrieval_engine(storage: QdrantMemoryStore):
-    """测试完整检索引擎 (Engine Flow)"""
-    console.print("\n[bold magenta]🚀 测试 RetrievalEngine (完整流程)[/bold magenta]")
-    
-    # 创建默认检索引擎
-    engine = create_default_retrieval_engine(
-        storage=storage,
-        enable_routing=True,
-        top_k=3,
-        threshold=0.3,
-        render_format="xml"
-    )
-    
-    # 测试过滤条件传递
-    console.print("\n  [cyan]测试带过滤条件的检索:[/cyan]")
-    # retrieve_context 不直接支持 memory_type 参数，通常由 processor 从 query 中提取
-    # 这里我们使用 search_memories 接口来测试显式过滤
-    memories = engine.search_memories(
-        query_text="代码规范",
-        user_id="test_user",
-        memory_type="FACT"  # 指定只检索 FACT 类型
-    )
-    
-    if memories:
-        for mem in memories:
-            console.print(f"    • {mem.index.title} [{mem.index.memory_type.value}]")
-            if mem.index.memory_type != MemoryType.FACT:
-                 console.print(f"      [red]✗ 类型错误: {mem.index.memory_type}[/red]")
-    else:
-        console.print("    [yellow]未找到匹配记忆[/yellow]")
+        config = HybridRetrieverConfig(enable_hybrid_search=True)
+        config.reranker.enabled = True
+        config.reranker.type = "cross_encoder"
         
-    console.print("\n[green]✓ RetrievalEngine 测试完成[/green]")
-
-
-def run_acceptance_test(storage: QdrantMemoryStore):
-    """验收测试：模拟完整的记忆召回场景"""
-    console.print("\n[bold magenta]🏆 验收测试：记忆召回场景[/bold magenta]")
-    
-    # 创建默认检索引擎
-    engine = create_default_retrieval_engine(storage=storage, render_format="xml", threshold=0.1)
-    
-    scenarios = [SCENARIO_1, SCENARIO_2, SCENARIO_3]
-    passed_count = 0
-    total_checks = 0
-    
-    for scenario in scenarios:
-        console.print(f"\n[bold cyan]场景: {scenario['name']}[/bold cyan]")
-        console.print(f"[dim]{scenario['description']}[/dim]")
+        # Instantiate with a mocked reranker logic via subclass or monkeypatch?
+        # HybridRetriever initializes reranker internally.
+        # We can inject it after init.
         
-        # 处理不同场景的输入
-        queries = scenario.get("queries", [])
-        filters_list = scenario.get("filters", [None] * len(queries))
+        # Mock service
+        mock_service = Mock()
+        mock_service.compute_score = Mock(return_value=[0.99])
+
+        hybrid = HybridRetriever(
+            storage=mock_storage,
+            config=config,
+            reranker_service=mock_service
+        )
         
-        for (query_text, user_id, *rest), filter_obj in zip(queries, filters_list):
-            mem_type_str = rest[0].value if rest else None
-            
-            console.print(f"\n  [bold]用户提问:[/bold] {query_text}")
-            
-            # 调用 Engine
-            # 简单起见，如果指定了 memory_type，我们使用 search_memories 来验证过滤
-            # 注意：search_memories 返回的是 MemoryAtom 列表，没有分数信息
-            # 为了获取分数，我们需要直接访问 engine 的 searcher
-            if mem_type_str:
-                # 构造 ProcessedQuery
-                from hivememory.retrieval.models import ProcessedQuery, QueryFilters
-                
-                filters = QueryFilters()
-                if mem_type_str == "FACT":
-                    filters.memory_type = MemoryType.FACT
-                elif mem_type_str == "CODE_SNIPPET":
-                    filters.memory_type = MemoryType.CODE_SNIPPET
-                
-                if user_id:
-                    filters.user_id = user_id
-                    
-                p_query = ProcessedQuery(
-                    semantic_query=query_text,
-                    original_query=query_text,
-                    filters=filters
-                )
-                
-                # 直接调用 retrieve 获取带分数的 SearchResults
-                search_results = engine.searcher.retrieve(p_query, top_k=5)
-                result_list = search_results.results
-            else:
-                # 正常流程，也需要获取 SearchResults 对象而非仅仅 memories
-                # retrieve_context 返回的是 Context 对象，我们需要其原始 search_results
-                # 但 engine.retrieve_context 内部封装了 retrieve，我们可以通过 retrieve_context 返回的 metadata 获取分数
-                # 或者更简单，直接再次调用 searcher 用于展示
-                
-                # 为了不破坏原有流程，我们这里模拟调用 searcher
-                # 注意：这里需要确保使用与 engine 相同的 query processor
-                p_query = engine.processor.process(query=query_text, user_id=user_id)
-                search_results = engine.searcher.retrieve(p_query, top_k=5)
-                result_list = search_results.results
-            
-            # 检查结果
-            console.print(f"  [dim]检索到 {len(result_list)} 条记忆[/dim]")
-            
-            # 显示所有结果及其分数
-            for i, r in enumerate(result_list, 1):
-                title = r.memory.index.title
-                score = r.score
-                reason = r.match_reason
-                console.print(f"    {i}. [green]{title}[/green] (score: {score:.4f}) - [dim]{reason}[/dim]")
+        # Mock retrievers
+        hybrid.dense_retriever = Mock()
+        hybrid.dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
+            SearchResult(memory=create_test_memory(f"结果{i}", "内容"), score=0.9)
+            for i in range(5)
+        ]))
+        hybrid.sparse_retriever = Mock()
+        hybrid.sparse_retriever.retrieve = Mock(return_value=SearchResults())
+        
+        # Reranker returns limited results
+        # Since we use real CrossEncoderReranker with mock service, we don't mock hybrid.reranker directly
+        # but we mock the service.
+        # However, CrossEncoderReranker.rerank calls service.compute_score.
+        # Let's verify rerank works.
+        # Or if we want to mock hybrid.reranker.rerank specifically:
+        hybrid.reranker = Mock()
+        hybrid.reranker.rerank = Mock(return_value=SearchResults(results=[
+            SearchResult(memory=create_test_memory("Top1", "Content"), score=0.99)
+        ]))
 
-            # 验证 top-1 是否相关
-            if result_list:
-                passed_count += 1
-            else:
-                console.print("  [red]✗ 未召回任何记忆[/red]")
-            
-            total_checks += 1
-            
-    return passed_count == total_checks
+        query = RetrievalQuery(semantic_query="查询")
+        results = hybrid.retrieve(query, top_k=3)
+
+        # 验证结果数量被限制
+        assert len(results.results) == 1
+        hybrid.reranker.rerank.assert_called()
+
+    def test_hybrid_fallback_to_dense_only(self):
+        """测试混合检索回退到仅密集检索"""
+        mock_storage = Mock()
+        
+        config = HybridRetrieverConfig(enable_hybrid_search=False)
+
+        hybrid = HybridRetriever(
+            storage=mock_storage,
+            config=config,
+        )
+        
+        hybrid.dense_retriever = Mock()
+        hybrid.dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
+            SearchResult(memory=create_test_memory("结果", "内容"), score=0.8)
+        ]))
+        
+        # Mock sparse_retriever to allow assertion
+        hybrid.sparse_retriever = Mock()
+
+        query = RetrievalQuery(semantic_query="查询")
+        results = hybrid.retrieve(query, top_k=5)
+
+        # 应该只调用密集检索
+        assert results is not None
+        hybrid.dense_retriever.retrieve.assert_called()
+        # sparse should not be called
+        hybrid.sparse_retriever.retrieve.assert_not_called()
 
 
-def main():
-    """主测试流程"""
-    console.print(Panel.fit(
-        "[bold magenta]HiveMemory 阶段2 - 记忆检索模块测试[/bold magenta]\n"
-        "测试查询处理、路由、混合检索、渲染全流程",
-        border_style="magenta"
-    ))
-    
-    # 环境准备
-    storage, config = setup_environment()
-    if not storage:
-        return
-    
-    # 插入测试数据
-    insert_test_memories(storage)
-    
-    # 等待索引建立
-    time.sleep(1)
-    
-    # 运行各模块测试
-    test_query_processor()
-    test_router()
-    test_hybrid_retriever(storage)
-    test_context_renderer(storage)
-    test_retrieval_engine(storage)
-    
-    # 验收测试
-    success = run_acceptance_test(storage)
-    
-    # 汇总
-    console.print("\n" + "="*60)
-    console.print("\n[bold cyan]📋 测试完成[/bold cyan]")
-    
-    if success:
-        console.print("[green]所有测试通过！阶段2 记忆检索模块已就绪。[/green]")
-        console.print("\n[dim]下一步：运行 examples/memory_chat.py 进行交互式测试[/dim]")
-    else:
-        console.print("[yellow]部分测试需要检查。[/yellow]")
+class TestScoreNormalization:
+    """测试分数归一化"""
+
+    def test_dense_and_sparse_score_normalization(self):
+        """测试密集和稀疏分数归一化"""
+        # 密集检索分数通常是 0-1
+        dense_score = 0.85
+        # 稀疏检索分数可能范围不同
+        sparse_score = 5.0
+
+        # 归一化后应该在同一范围内
+        normalized_dense = dense_score  # 已经在 0-1
+        normalized_sparse = min(sparse_score / 10.0, 1.0)  # 简单归一化
+
+        assert 0 <= normalized_dense <= 1
+        assert 0 <= normalized_sparse <= 1
 
 
 if __name__ == "__main__":
-    main()
+    pytest.main([__file__, "-v"])

@@ -22,8 +22,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import FlushReason
-from hivememory.generation.models import ConversationMessage
-from hivememory.core.config import HiveMemoryConfig
+from hivememory.engines.generation.models import ConversationMessage
+from hivememory.patchouli.config import HiveMemoryConfig
 from unittest.mock import patch
 
 

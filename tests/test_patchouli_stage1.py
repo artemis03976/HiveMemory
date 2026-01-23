@@ -1,7 +1,7 @@
 """
 HiveMemory Patchouli Stage 1 集成测试
 
-测试帕秋莉（PatchouliAgent）的一阶段集成功能，包括：
+测试帕秋莉（LibrarianCore）的一阶段集成功能，包括：
 - 语义吸附与漂移检测
 - Token 溢出接力机制
 - 自动 Flush 触发
@@ -71,10 +71,10 @@ sys.path.insert(0, str(project_root / "src"))
 from rich.console import Console
 from rich.panel import Panel
 
-from hivememory.agents.patchouli import PatchouliAgent, FlushEvent
-from hivememory.core.models import FlushReason
-from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.core.config import (
+from hivememory.patchouli.librarian_core import LibrarianCore, FlushEvent
+from hivememory.core.models import FlushReason, Identity
+from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.patchouli.config import (
     load_app_config,
     MemoryPerceptionConfig,
     SemanticFlowPerceptionConfig,
@@ -144,12 +144,12 @@ class PatchouliTestObserver:
 # ========== 全局测试状态 ==========
 
 # 全局共享的 Patchouli 实例
-_shared_patchouli: Optional[PatchouliAgent] = None
+_shared_patchouli: Optional[LibrarianCore] = None
 _shared_observer: Optional[PatchouliTestObserver] = None
 _shared_storage: Optional[QdrantMemoryStore] = None
 
 
-def get_shared_patchouli() -> PatchouliAgent:
+def get_shared_patchouli() -> LibrarianCore:
     """获取共享的 Patchouli 实例"""
     global _shared_patchouli
     if _shared_patchouli is None:
@@ -193,7 +193,7 @@ def setup_test_env(max_tokens: int = 2048) -> None:
     )
 
     _shared_observer = PatchouliTestObserver()
-    _shared_patchouli = PatchouliAgent(
+    _shared_patchouli = LibrarianCore(
         storage=_shared_storage,
         perception_config=perception_config,
     )
@@ -219,7 +219,8 @@ def reset_test_env() -> None:
         for buffer_key in active_buffers:
             parts = buffer_key.split(":")
             if len(parts) == 3:
-                _shared_patchouli.clear_buffer(parts[0], parts[1], parts[2])
+                identity = Identity(user_id=parts[0], agent_id=parts[1], session_id=parts[2])
+                _shared_patchouli.clear_buffer(identity)
 
     # 清空记忆库（使用 recreate 来清空集合）
     if _shared_storage is not None:
@@ -259,7 +260,7 @@ def run_test(test_func) -> bool:
 
 def test_01_initialization():
     """
-    测试场景 1: PatchouliAgent 初始化
+    测试场景 1: LibrarianCore 初始化
 
     验证点：
     - Agent 正确初始化
@@ -295,18 +296,17 @@ def test_02_add_message():
     user_id = "test_user"
     agent_id = "test_agent"
     session_id = "test_session"
+    identity = Identity(user_id=user_id, agent_id=agent_id, session_id=session_id)
 
     # 添加一条消息
     patchouli.add_message(
         role="user",
         content="测试消息",
-        user_id=user_id,
-        agent_id=agent_id,
-        session_id=session_id
+        identity=identity
     )
 
     # 验证 Buffer 已创建
-    buffer_info = patchouli.get_buffer_info(user_id, agent_id, session_id)
+    buffer_info = patchouli.get_buffer_info(identity)
     assert buffer_info["exists"] is True, "Buffer 应该存在"
     assert buffer_info["mode"] == "semantic_flow", "应该是语义流模式"
 
@@ -331,15 +331,17 @@ def test_03_get_buffer_info():
 
     # 注意：由于 get_buffer 采用 Lazy Create 模式，
     # 调用 get_buffer_info 会自动创建 Buffer，所以 exists 总是 True
-    info = patchouli.get_buffer_info("nonexistent", "agent", "session")
+    identity = Identity(user_id="nonexistent", agent_id="agent", session_id="session")
+    info = patchouli.get_buffer_info(identity)
     assert info["exists"] is True, "get_buffer_info 采用 Lazy Create 模式，会自动创建 Buffer"
     assert info["mode"] == "semantic_flow"
 
     # 创建一个有内容的 Buffer
-    patchouli.add_message("user", "hello", "user1", "agent1", "session1")
-    patchouli.add_message("assistant", "hi there", "user1", "agent1", "session1")
+    identity = Identity(user_id="user1", agent_id="agent1", session_id="session1")
+    patchouli.add_message("user", "hello", identity)
+    patchouli.add_message("assistant", "hi there", identity)
 
-    info_existing = patchouli.get_buffer_info("user1", "agent1", "session1")
+    info_existing = patchouli.get_buffer_info(identity)
     assert info_existing["exists"] is True, "Buffer 应该存在"
     assert info_existing["block_count"] >= 1, f"应该至少有 1 个 Block，实际 {info_existing['block_count']}"
     assert info_existing["total_tokens"] > 0, f"Token 数应该大于 0，实际 {info_existing['total_tokens']}"
@@ -365,30 +367,31 @@ def test_04_same_topic_adsorption():
     user_id = "test_chatbot_same"
     agent_id = "chatbot"
     session_id = "session"
+    identity = Identity(user_id=user_id, agent_id=agent_id, session_id=session_id)
 
     # 添加数据科学对话（前两轮）
     for i in range(0, 4, 2):
         patchouli.add_message(
             "user",
             DATA_SCIENCE_CONVERSATION[i]["content"],
-            user_id, agent_id, session_id
+            identity
         )
         patchouli.add_message(
             "assistant",
             DATA_SCIENCE_CONVERSATION[i+1]["content"],
-            user_id, agent_id, session_id
+            identity
         )
 
     # 添加相同话题的后续对话
     patchouli.add_message(
         "user",
         DATA_SCIENCE_CONVERSATION[2]["content"],
-        user_id, agent_id, session_id
+        identity
     )
     patchouli.add_message(
         "assistant",
         DATA_SCIENCE_CONVERSATION[3]["content"],
-        user_id, agent_id, session_id
+        identity
     )
 
     # 验证：不应触发语义漂移
@@ -396,7 +399,7 @@ def test_04_same_topic_adsorption():
     assert len(drift_flushes) == 0, f"相同话题不应触发语义漂移，实际触发 {len(drift_flushes)} 次"
 
     # 验证：Buffer 应该有多个 Block
-    buffer_info = patchouli.get_buffer_info(user_id, agent_id, session_id)
+    buffer_info = patchouli.get_buffer_info(identity)
     assert buffer_info["block_count"] >= 2, f"应该至少有 2 个 Block，实际 {buffer_info['block_count']}"
 
     console.print(f"    - 语义漂移触发次数: {len(drift_flushes)} (预期: 0)")
@@ -417,13 +420,14 @@ def test_05_semantic_drift_far():
     user_id = "test_drift_far"
     agent_id = "chatbot"
     session_id = "session"
+    identity = Identity(user_id=user_id, agent_id=agent_id, session_id=session_id)
 
     # 建立数据科学话题基线
     for i in range(2):
         patchouli.add_message(
             DATA_SCIENCE_CONVERSATION[i]["role"],
             DATA_SCIENCE_CONVERSATION[i]["content"],
-            user_id, agent_id, session_id
+            identity
         )
 
     get_shared_observer().clear()
@@ -432,7 +436,7 @@ def test_05_semantic_drift_far():
     for msg in COOKING_RECIPE_CONVERSATION:
         patchouli.add_message(
             msg["role"], msg["content"],
-            user_id, agent_id, session_id
+            identity
         )
 
     # 验证：应触发语义漂移

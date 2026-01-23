@@ -15,8 +15,6 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
-from hivememory.utils import TimeFormatter, Language
-
 
 # ============ 枚举类型定义 ============
 
@@ -43,6 +41,56 @@ class VerificationStatus(str, Enum):
     UNVERIFIED = "UNVERIFIED"  # 未验证(LLM推理)
     DEPRECATED = "DEPRECATED"  # 已过时
     HALLUCINATION = "HALLUCINATION"  # 确认为幻觉
+
+
+class Identity(BaseModel):
+    """
+    身份标识组合 - 统一管理用户、Agent、会话三个核心ID
+
+    用于替代散落的 user_id, agent_id, session_id 参数，
+    提供统一的身份标识和便捷的操作方法。
+
+    Attributes:
+        user_id: 用户标识符
+        agent_id: Agent 标识符
+        session_id: 会话标识符（可选）
+
+    Examples:
+        >>> identity = Identity(
+        ...     user_id="user123",
+        ...     agent_id="chatbot",
+        ...     session_id="sess_456"
+        ... )
+        >>> identity.buffer_key  # "user123:chatbot:sess_456"
+        >>> identity.is_valid   # True
+    """
+    user_id: str = Field(default="default", description="用户 ID")
+    agent_id: str = Field(default="default", description="Agent ID")
+    session_id: Optional[str] = Field(default=None, description="会话 ID")
+
+    @property
+    def buffer_key(self) -> str:
+        """生成用于缓冲区的唯一键"""
+        sess = self.session_id or f"{self.user_id}_{self.agent_id}"
+        return f"{self.user_id}:{self.agent_id}:{sess}"
+
+    @property
+    def is_valid(self) -> bool:
+        """检查身份标识是否有效"""
+        return bool(self.user_id and self.agent_id)
+
+    def with_session(self, session_id: str) -> "Identity":
+        """返回带有新 session_id 的副本"""
+        return self.model_copy(update={"session_id": session_id})
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "user_id": "user123",
+                "agent_id": "chatbot",
+                "session_id": "sess_456"
+            }
+        }
 
 
 class FlushReason(str, Enum):
@@ -279,58 +327,6 @@ class MemoryAtom(BaseModel):
             "payload": self.payload.model_dump(),
             "relations": self.relations.model_dump(),
         }
-
-    def render_for_context(self, show_artifacts: bool = False, language: Language = Language.ENGLISH) -> str:
-        """
-        渲染为适合注入 LLM Context 的 Markdown 格式
-
-        Args:
-            show_artifacts: 是否显示原始数据信息
-            language: 时间格式化语言 (默认英文)
-
-        Returns:
-            格式化的 Markdown 文本
-        """
-        formatter = TimeFormatter(language=language)
-        # 基础信息块
-        lines = [
-            f"**[{self.index.title}]**",
-            f"*Type*: `{self.index.memory_type.value}`",
-            f"*Tags*: {', '.join(f'#{tag}' for tag in self.index.tags)}",
-            f"*Updated*: {formatter.format(self.meta.updated_at)}",
-            f"*Confidence*: {self._format_confidence()}",
-            "",
-            "---",
-            "",
-            self.payload.content
-        ]
-
-        # 版本历史 (如果存在)
-        if self.payload.history_summary:
-            lines.extend([
-                "",
-                "**Change Log:**",
-                *[f"- {item}" for item in self.payload.history_summary]
-            ])
-
-        # 原始数据引用 (可选)
-        if show_artifacts and self.payload.artifacts.raw_source_url:
-            lines.extend([
-                "",
-                f"*Source*: {self.payload.artifacts.raw_source_url}"
-            ])
-
-        return "\n".join(lines)
-
-    def _format_confidence(self) -> str:
-        """格式化置信度"""
-        score = self.meta.confidence_score
-        if score >= 0.9:
-            return f"✓ {score:.1%} (High)"
-        elif score >= 0.7:
-            return f"~ {score:.1%} (Medium)"
-        else:
-            return f"? {score:.1%} (Low - Verify)"
 
     class Config:
         json_schema_extra = {

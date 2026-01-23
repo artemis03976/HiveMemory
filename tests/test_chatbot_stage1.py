@@ -42,12 +42,12 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from hivememory.core.config import load_app_config
+from hivememory.patchouli.config import load_app_config
 from hivememory.core.models import MemoryType
-from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.agents.patchouli import PatchouliAgent
-from hivememory.agents.chatbot import ChatBotAgent
-from hivememory.agents.session_manager import SessionManager
+from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.patchouli.librarian_core import PatchouliAgent
+# Note: ChatBotAgent and SessionManager moved to demos/chatbot/
+# This test file needs to be updated or removed
 
 
 console = Console(force_terminal=True, legacy_windows=False)
