@@ -16,6 +16,10 @@ from hivememory.utils.json_parser import (
     parse_llm_json_many,
     safe_parse_llm_json,
 )
+from hivememory.utils.memory_atom_renderer import (
+    MemoryAtomRenderer,
+    RenderFormat,
+)
 
 __all__ = [
     "TimeFormatter",
@@ -26,4 +30,6 @@ __all__ = [
     "parse_llm_json",
     "parse_llm_json_many",
     "safe_parse_llm_json",
+    "MemoryAtomRenderer",
+    "RenderFormat",
 ]

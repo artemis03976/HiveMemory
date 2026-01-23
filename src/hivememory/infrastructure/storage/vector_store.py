@@ -28,6 +28,7 @@ from qdrant_client.models import (
 from hivememory.core.models import MemoryAtom, IndexLayer
 from hivememory.patchouli.config import QdrantConfig, EmbeddingConfig
 from hivememory.infrastructure.embedding import get_bge_m3_service
+from hivememory.utils import MemoryAtomRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -154,8 +155,8 @@ class QdrantMemoryStore:
         try:
             if use_sparse:
                 # 生成混合向量 (稠密 + 稀疏)，使用不同的输入文本
-                dense_text = memory.index.get_embedding_text()
-                sparse_context = memory.index.get_sparse_context()
+                dense_text = MemoryAtomRenderer.for_dense_embedding(memory)
+                sparse_context = MemoryAtomRenderer.for_sparse_embedding(memory)
                 vectors = self.embedding_service.encode(
                     dense_texts=dense_text,
                     sparse_texts=sparse_context
@@ -189,7 +190,7 @@ class QdrantMemoryStore:
                 logger.debug(f"✓ 成功存储记忆 (Dense+Sparse): {memory.id} - {memory.index.title}")
             else:
                 # 仅使用稠密向量
-                embedding_text = memory.index.get_embedding_text()
+                embedding_text = MemoryAtomRenderer.for_dense_embedding(memory)
                 embedding = self.embedding_service.encode(dense_texts=embedding_text)
 
                 # 构建 Qdrant Point - 使用命名向量格式以保持一致性

@@ -41,7 +41,6 @@ from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
     SearchResults,
-    RenderFormat,
 )
 
 # 过滤器适配器
@@ -86,7 +85,6 @@ __all__ = [
     "RetrievalQuery",
     "SearchResult",
     "SearchResults",
-    "RenderFormat",
 
     # 过滤器适配器
     "FilterConverter",

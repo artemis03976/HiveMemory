@@ -12,13 +12,12 @@
 """
 
 from typing import List, Optional
-from datetime import datetime
 import logging
 
-from hivememory.core.models import MemoryAtom, VerificationStatus
+from hivememory.core.models import MemoryAtom
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer as ContextRendererInterface
-from hivememory.utils import TimeFormatter, Language
+from hivememory.utils import TimeFormatter, Language, MemoryAtomRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +44,6 @@ class ContextRenderer(ContextRendererInterface):
 如果需要更多关于某条记忆的详细信息，请向用户询问。
 </instruction>"""
 
-    XML_MEMORY_TEMPLATE = """
-<memory_block id="{id}" type="{type}">
-    [标签]: {tags}
-    (时间): {time}
-    [置信度]: {confidence}
-    [内容]:
-    {content}
-</memory_block>"""
-    
     # Markdown 模板
     MD_HEADER = """## 相关记忆上下文
 
@@ -67,21 +57,7 @@ class ContextRenderer(ContextRendererInterface):
 
 > 如果某条记忆标记为 (Warning: Old) 或 [Unverified]，请在使用前验证。
 """
-    
-    MD_MEMORY_TEMPLATE = """
-### 📌 {title}
 
-- **类型**: `{type}`
-- **标签**: {tags}
-- **时间**: {time}
-- **置信度**: {confidence}
-
-{content}
-{history}
-{source}
-
----"""
-    
     def __init__(
         self,
         render_format: RenderFormat = RenderFormat.XML,
@@ -192,89 +168,17 @@ class ContextRenderer(ContextRendererInterface):
         """
         # 使用 TimeFormatter 格式化时间
         time_str = self._time_formatter.format(memory.meta.updated_at)
-        confidence_str = self._format_confidence(memory)
-        content = self._truncate_content(memory.payload.content)
 
-        # 根据格式确定模板和参数
-        if index is not None:  # XML 格式
-            tags = ", ".join(f"#{tag}" for tag in memory.index.tags)
-            tags_empty = "(无标签)"
-
-            return self.XML_MEMORY_TEMPLATE.format(
-                id=index,
-                type=memory.index.memory_type.value,
-                tags=tags if tags else tags_empty,
-                time=time_str,
-                confidence=confidence_str,
-                content=content
-            )
-        else:  # Markdown 格式
-            tags = ", ".join(f"`{tag}`" for tag in memory.index.tags)
-            tags_empty = "(无标签)"
-            
-            # 构建版本历史
-            history = ""
-            if memory.payload.history_summary:
-                history_lines = ["", "**Change Log:**"]
-                history_lines.extend([f"- {item}" for item in memory.payload.history_summary])
-                history = "\n".join(history_lines)
-            
-            # 构建原始数据引用
-            source = ""
-            if self.show_artifacts and memory.payload.artifacts.raw_source_url:
-                source = f"\n\n**Source**: {memory.payload.artifacts.raw_source_url}"
-
-            return self.MD_MEMORY_TEMPLATE.format(
-                title=memory.index.title,
-                type=memory.index.memory_type.value,
-                tags=tags if tags else tags_empty,
-                time=time_str,
-                confidence=confidence_str,
-                content=content,
-                history=history,
-                source=source
-            )
-
-    def _format_confidence(self, memory: MemoryAtom) -> str:
-        """格式化置信度"""
-        score = memory.meta.confidence_score
-        status = memory.meta.verification_status
-
-        # 验证状态标记
-        status_str = ""
-        if status == VerificationStatus.VERIFIED:
-            status_str = " [已验证]"
-        elif status == VerificationStatus.DEPRECATED:
-            status_str = " [已废弃]"
-        elif status == VerificationStatus.HALLUCINATION:
-            status_str = " [警告：幻觉]"
-        elif score < 0.7:
-            status_str = " [未验证]"
-
-        # 分数格式化
-        if score >= 0.9:
-            return f"✓ {score:.0%} (高){status_str}"
-        elif score >= 0.7:
-            return f"~ {score:.0%} (中){status_str}"
-        else:
-            return f"? {score:.0%} (低-需验证){status_str}"
-    
-    def _truncate_content(self, content: str) -> str:
-        """截断过长的内容"""
-        if len(content) <= self.max_content_length:
-            return content
-
-        # 智能截断：尝试在句子边界截断
-        truncated = content[:self.max_content_length]
-
-        # 尝试找到最后一个完整句子
-        for sep in ["\n\n", "\n", "。", ".", "！", "!", "？", "?"]:
-            last_sep = truncated.rfind(sep)
-            if last_sep > self.max_content_length // 2:
-                truncated = truncated[:last_sep + len(sep)]
-                break
-
-        return truncated + "\n\n[内容已截断。如需完整内容请询问。]"
+        # 使用 MemoryAtomRenderer 进行渲染
+        format_type = "xml" if index is not None else "markdown"
+        return MemoryAtomRenderer.for_llm_context(
+            memory=memory,
+            format=format_type,
+            index=index,
+            max_content_length=self.max_content_length,
+            show_artifacts=self.show_artifacts,
+            formatted_time=time_str,
+        )
 
 
 class MinimalRenderer(ContextRendererInterface):

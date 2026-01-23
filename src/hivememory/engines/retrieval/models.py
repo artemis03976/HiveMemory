@@ -92,18 +92,6 @@ class SearchResults(BaseModel):
         return len(self.results) == 0
 
 
-class RenderFormat(str, Enum):
-    """
-    渲染格式枚举
-
-    Attributes:
-        XML: XML 标签格式
-        MARKDOWN: Markdown 格式
-    """
-    XML = "xml"
-    MARKDOWN = "markdown"
-
-
 # ========== 导出列表 ==========
 
 __all__ = [
@@ -111,5 +99,4 @@ __all__ = [
     "RetrievalQuery",
     "SearchResult",
     "SearchResults",
-    "RenderFormat",
 ]
