@@ -9,9 +9,21 @@ from hivememory.utils.time_formatter import (
     Language,
     format_time_ago,
 )
+from hivememory.utils.json_parser import (
+    LLMJSONParser,
+    JSONParseError,
+    parse_llm_json,
+    parse_llm_json_many,
+    safe_parse_llm_json,
+)
 
 __all__ = [
     "TimeFormatter",
     "Language",
     "format_time_ago",
+    "LLMJSONParser",
+    "JSONParseError",
+    "parse_llm_json",
+    "parse_llm_json_many",
+    "safe_parse_llm_json",
 ]
