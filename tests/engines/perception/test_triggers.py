@@ -13,11 +13,9 @@ import time
 from unittest.mock import Mock, patch
 from typing import List
 
-from hivememory.core.models import FlushReason
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import FlushReason, StreamMessage
 from hivememory.engines.perception.trigger_strategies import (
     MessageCountTrigger,
-    IdleTimeoutTrigger,
     SemanticBoundaryTrigger,
     TriggerManager,
 )
@@ -30,48 +28,20 @@ class TestMessageCountTrigger:
         trigger = MessageCountTrigger(threshold=3)
         
         messages = [
-            ConversationMessage(role="user", content="1", user_id="u", session_id="s"),
-            ConversationMessage(role="assistant", content="2", user_id="u", session_id="s"),
+            StreamMessage(message_type="user", content="1"),
+            StreamMessage(message_type="assistant", content="2"),
         ]
-        
+
         # 未达到阈值
         should, reason = trigger.should_trigger(messages, {})
         assert should is False
         assert reason is None
-        
+
         # 达到阈值
-        messages.append(ConversationMessage(role="user", content="3", user_id="u", session_id="s"))
+        messages.append(StreamMessage(message_type="user", content="3"))
         should, reason = trigger.should_trigger(messages, {})
         assert should is True
         assert reason == FlushReason.MESSAGE_COUNT
-
-class TestIdleTimeoutTrigger:
-    """测试空闲超时触发器"""
-
-    def test_should_trigger(self):
-        """测试超时逻辑"""
-        trigger = IdleTimeoutTrigger(timeout=60)
-        
-        messages = [ConversationMessage(role="user", content="hi", user_id="u", session_id="s")]
-        context = {"last_message_time": 1000.0}
-        
-        # 未超时
-        with patch("time.time", return_value=1050.0):
-            should, reason = trigger.should_trigger(messages, context)
-            assert should is False
-            assert reason is None
-            
-        # 超时
-        with patch("time.time", return_value=1061.0):
-            should, reason = trigger.should_trigger(messages, context)
-            assert should is True
-            assert reason == FlushReason.IDLE_TIMEOUT
-
-    def test_empty_messages(self):
-        """测试无消息时不触发"""
-        trigger = IdleTimeoutTrigger(timeout=60)
-        should, reason = trigger.should_trigger([], {})
-        assert should is False
 
 class TestSemanticBoundaryTrigger:
     """测试语义边界触发器"""
@@ -91,7 +61,7 @@ class TestSemanticBoundaryTrigger:
         
         for content in positive_cases:
             messages = [
-                ConversationMessage(role="assistant", content=content, user_id="u", session_id="s")
+                StreamMessage(message_type="assistant", content=content)
             ]
             should, reason = self.trigger.should_trigger(messages, {})
             assert should is True, f"Failed to match: {content}"
@@ -100,7 +70,7 @@ class TestSemanticBoundaryTrigger:
     def test_ignore_user_messages(self):
         """测试忽略用户消息中的关键词"""
         messages = [
-            ConversationMessage(role="user", content="希望这对您有帮助", user_id="u", session_id="s")
+            StreamMessage(message_type="user", content="希望这对您有帮助")
         ]
         should, reason = self.trigger.should_trigger(messages, {})
         assert should is False
@@ -108,7 +78,7 @@ class TestSemanticBoundaryTrigger:
     def test_no_match(self):
         """测试不匹配的情况"""
         messages = [
-            ConversationMessage(role="assistant", content="这是正常的回复内容", user_id="u", session_id="s")
+            StreamMessage(message_type="assistant", content="这是正常的回复内容")
         ]
         should, reason = self.trigger.should_trigger(messages, {})
         assert should is False

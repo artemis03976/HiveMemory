@@ -14,7 +14,7 @@ from typing import Any, List, Optional
 from hivememory.patchouli.config import GatewayConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.gateway.interfaces import BaseSemanticAnalyzer
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import StreamMessage
 from hivememory.engines.gateway.models import (
     GatewayIntent,
     SemanticAnalysisResult,
@@ -111,7 +111,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
     def analyze(
         self,
         query: str,
-        context: List[ConversationMessage],
+        context: List[StreamMessage],
     ) -> SemanticAnalysisResult:
         """
         执行语义分析
@@ -163,7 +163,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
             logger.error(f"LLM 语义分析失败: {e}", exc_info=True)
             raise e
 
-    def _format_context(self, messages: List[ConversationMessage]) -> str:
+    def _format_context(self, messages: List[StreamMessage]) -> str:
         """
         格式化上下文为字符串
 

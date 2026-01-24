@@ -53,11 +53,11 @@ class TestContextBridge:
         # 创建有完整 block 的 LogicalBlock（但没有 response_block 内容）
         block = LogicalBlock()
         block.user_block = StreamMessage(
-            message_type=StreamMessageType.USER_QUERY,
+            message_type=StreamMessageType.USER,
             content="帮我部署服务器"
         )
         block.response_block = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT_MESSAGE,
+            message_type=StreamMessageType.ASSISTANT,
             content=""  # 空回复
         )
         buffer.add_block(block)
@@ -79,11 +79,11 @@ class TestContextBridge:
         # 添加一个 block，但 response 和 user 都是空的
         block = LogicalBlock()
         block.user_block = StreamMessage(
-            message_type=StreamMessageType.USER_QUERY,
+            message_type=StreamMessageType.USER,
             content=""
         )
         block.response_block = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT_MESSAGE,
+            message_type=StreamMessageType.ASSISTANT,
             content=""
         )
         buffer.add_block(block)
@@ -212,11 +212,11 @@ class TestContextBridge:
         # 创建 LogicalBlock
         block = LogicalBlock()
         block.user_block = StreamMessage(
-            message_type=StreamMessageType.USER_QUERY,
+            message_type=StreamMessageType.USER,
             content=user_content
         )
         block.response_block = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT_MESSAGE,
+            message_type=StreamMessageType.ASSISTANT,
             content=response_content
         )
 

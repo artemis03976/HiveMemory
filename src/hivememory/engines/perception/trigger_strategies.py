@@ -20,8 +20,7 @@ import logging
 import re
 from typing import List, Dict, Any, Optional
 
-from hivememory.core.models import FlushReason
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import FlushReason, StreamMessage
 from hivememory.engines.perception.interfaces import TriggerStrategy
 
 logger = logging.getLogger(__name__)
@@ -55,7 +54,7 @@ class MessageCountTrigger(TriggerStrategy):
 
     def should_trigger(
         self,
-        messages: List[ConversationMessage],
+        messages: List[StreamMessage],
         context: Dict[str, Any]
     ) -> tuple[bool, Optional[FlushReason]]:
         """
@@ -113,7 +112,7 @@ class SemanticBoundaryTrigger(TriggerStrategy):
 
     def should_trigger(
         self,
-        messages: List[ConversationMessage],
+        messages: List[StreamMessage],
         context: Dict[str, Any]
     ) -> tuple[bool, Optional[FlushReason]]:
         """
@@ -180,7 +179,7 @@ class TriggerManager:
 
     def should_trigger(
         self,
-        messages: List[ConversationMessage],
+        messages: List[StreamMessage],
         context: Dict[str, Any]
     ) -> tuple[bool, Optional[FlushReason]]:
         """

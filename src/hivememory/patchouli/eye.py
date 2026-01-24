@@ -16,11 +16,10 @@ import logging
 import time
 from typing import List, Optional, Tuple
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, StreamMessage
 from hivememory.patchouli.config import GatewayConfig
 from hivememory.infrastructure.llm import BaseLLMService
 from hivememory.engines.gateway.interfaces import BaseInterceptor, BaseSemanticAnalyzer
-from hivememory.engines.generation.models import ConversationMessage
 from hivememory.engines.gateway.interceptors import RuleInterceptor
 from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer
 from hivememory.engines.gateway.models import (
@@ -121,7 +120,7 @@ class TheEye:
     def gaze(
         self,
         query: str,
-        context: Optional[List[ConversationMessage]] = None,
+        context: Optional[List[StreamMessage]] = None,
         identity: Optional[Identity] = None,
     ) -> Tuple[Optional[RetrievalRequest], Observation]:
         """

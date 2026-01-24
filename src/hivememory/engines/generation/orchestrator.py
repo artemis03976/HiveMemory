@@ -24,8 +24,8 @@ from hivememory.infrastructure.storage import QdrantMemoryStore
 if TYPE_CHECKING:
     from hivememory.patchouli.config import MemoryGenerationConfig
 
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.engines.generation.models import ConversationMessage, ExtractedMemoryDraft
+from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, StreamMessage, Identity
+from hivememory.engines.generation.models import ExtractedMemoryDraft
 from hivememory.engines.generation.interfaces import (
     ValueGater,
     MemoryExtractor,
@@ -108,7 +108,7 @@ class MemoryGenerationOrchestrator:
 
     def process(
         self,
-        messages: List[ConversationMessage],
+        messages: List[StreamMessage],
     ) -> List[MemoryAtom]:
         """
         处理对话片段，提取记忆原子
@@ -129,8 +129,8 @@ class MemoryGenerationOrchestrator:
         Examples:
             >>> memories = orchestrator.process(
             ...     messages=[
-            ...         ConversationMessage(role="user", content="写快排"),
-            ...         ConversationMessage(role="assistant", content="代码...")
+            ...         StreamMessage(role="user", content="写快排"),
+            ...         StreamMessage(role="assistant", content="代码...")
             ...     ],
             ... )
             >>> len(memories)
@@ -140,9 +140,10 @@ class MemoryGenerationOrchestrator:
             logger.debug("空消息列表，跳过处理")
             return []
         
-        user_id = messages[0].user_id
-        agent_id = messages[0].agent_id
-        session_id = messages[0].session_id
+        identity = messages[0].identity
+        user_id = identity.user_id
+        agent_id = identity.agent_id
+        session_id = identity.session_id
 
         logger.info(f"开始处理 {len(messages)} 条消息...")
 
@@ -199,7 +200,7 @@ class MemoryGenerationOrchestrator:
         elif decision == DuplicateDecision.CREATE:
             # 创建新记忆
             logger.info("创建新记忆")
-            memory = self._draft_to_memory(draft, user_id, agent_id, session_id)
+            memory = self._draft_to_memory(draft, identity)
 
             # 持久化
             self._save_memory(memory)
@@ -209,7 +210,7 @@ class MemoryGenerationOrchestrator:
             logger.info("低质量重复，丢弃")
             return []
 
-    def _format_transcript(self, messages: List[ConversationMessage]) -> str:
+    def _format_transcript(self, messages: List[StreamMessage]) -> str:
         """
         格式化对话为文本
 
@@ -240,24 +241,21 @@ class MemoryGenerationOrchestrator:
     def _draft_to_memory(
         self,
         draft: ExtractedMemoryDraft,
-        user_id: str,
-        agent_id: str,
-        session_id: str,
+        identity: Identity,
     ) -> MemoryAtom:
         """
         将草稿转换为完整的 MemoryAtom
 
         Args:
             draft: 提取的草稿
-            user_id: 用户ID
-            agent_id: Agent ID
-            session_id: 会话ID
+            identity: 身份标识
 
         Returns:
             MemoryAtom: 记忆原子对象
 
         Examples:
-            >>> memory = orchestrator._draft_to_memory(draft, "u1", "a1", "s1")
+            >>> identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
+            >>> memory = orchestrator._draft_to_memory(draft, identity)
             >>> memory.index.title
             "Python 快排算法"
         """
@@ -270,9 +268,9 @@ class MemoryGenerationOrchestrator:
 
         return MemoryAtom(
             meta=MetaData(
-                source_agent_id=agent_id,
-                user_id=user_id,
-                session_id=session_id,
+                source_agent_id=identity.agent_id,
+                user_id=identity.user_id,
+                session_id=identity.session_id,
                 confidence_score=draft.confidence_score,
             ),
             index=IndexLayer(

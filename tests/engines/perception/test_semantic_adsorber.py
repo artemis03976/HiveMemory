@@ -311,11 +311,11 @@ class TestSemanticBoundaryAdsorberV2:
         # 添加一个 block（ContextBridge 需要）
         block = LogicalBlock()
         block.user_block = StreamMessage(
-            message_type=StreamMessageType.USER_QUERY,
+            message_type=StreamMessageType.USER,
             content="初始话题"
         )
         block.response_block = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT_MESSAGE,
+            message_type=StreamMessageType.ASSISTANT,
             content="这是对初始话题的回复"
         )
         buffer.add_block(block)
@@ -332,11 +332,11 @@ class TestSemanticBoundaryAdsorberV2:
         block = LogicalBlock()
         # 设置 user_block 和 response_block 使其成为 complete
         block.user_block = StreamMessage(
-            message_type=StreamMessageType.USER_QUERY,
+            message_type=StreamMessageType.USER,
             content=anchor_text
         )
         block.response_block = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT_MESSAGE,
+            message_type=StreamMessageType.ASSISTANT,
             content="回复内容"
         )
         # is_complete 是一个 property，由 user_block 和 response_block 决定

@@ -11,13 +11,10 @@ HiveMemory 感知层抽象接口
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
 from typing import List, Optional, Tuple, Any, Dict, TYPE_CHECKING
 
-from hivememory.core.models import FlushReason, Identity
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import FlushReason, Identity, StreamMessage, StreamMessageType
 from hivememory.engines.perception.models import (
-    StreamMessage,
     LogicalBlock,
     SemanticBuffer,
 )
@@ -44,7 +41,7 @@ class TriggerStrategy(ABC):
     @abstractmethod
     def should_trigger(
         self,
-        messages: List[ConversationMessage],
+        messages: List[StreamMessage],
         context: Dict[str, Any]
     ) -> tuple[bool, Optional[FlushReason]]:
         """
@@ -78,7 +75,7 @@ class StreamParser(ABC):
     Examples:
         >>> parser = UnifiedStreamParser()
         >>> message = parser.parse_message({"role": "user", "content": "hello"})
-        >>> print(message.message_type)  # StreamMessageType.USER_QUERY
+        >>> print(message.message_type)  # StreamMessageType.USER
     """
 
     @abstractmethod
@@ -252,7 +249,7 @@ class BasePerceptionLayer(ABC):
     定义所有类型的 PerceptionLayer 的统一接口，并提供空闲超时监控的默认实现。
 
     两种策略实现：
-        - SimplePerceptionLayer: 简单缓冲策略（ConversationMessage + 三重触发）
+        - SimplePerceptionLayer: 简单缓冲策略（StreamMessage + 三重触发）
         - SemanticFlowPerceptionLayer: 语义流策略（LogicalBlock + 语义吸附）
 
     空闲超时监控：
@@ -496,7 +493,7 @@ class BasePerceptionLayer(ABC):
         self,
         identity: Identity,
         reason: FlushReason = FlushReason.MANUAL,
-    ) -> List["ConversationMessage"]:
+    ) -> List[StreamMessage]:
         """
         手动刷新缓冲区，返回消息列表
 
@@ -507,7 +504,7 @@ class BasePerceptionLayer(ABC):
             reason: 刷新原因
 
         Returns:
-            List[ConversationMessage]: 缓冲区的消息列表
+            List[StreamMessage]: 缓冲区的消息列表
         """
         pass
 

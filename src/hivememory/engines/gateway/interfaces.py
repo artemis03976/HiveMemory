@@ -10,7 +10,7 @@ Global Gateway 接口定义
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import StreamMessage
 from hivememory.engines.gateway.models import (
     GatewayIntent,
     GatewayResult,
@@ -89,7 +89,7 @@ class BaseSemanticAnalyzer(ABC):
     def analyze(
         self,
         query: str,
-        context: List[ConversationMessage],
+        context: List[StreamMessage],
     ) -> SemanticAnalysisResult:
         """
         执行语义分析

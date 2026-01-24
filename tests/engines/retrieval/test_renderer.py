@@ -126,10 +126,12 @@ class TestContextRenderer:
 
     def test_confidence_formatting(self):
         """测试置信度格式化"""
+        from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
+        
         # 高置信度
-        assert "✓" in self.renderer._format_confidence(self.memory1)
+        assert "✓" in MemoryAtomRenderer._format_confidence(self.memory1)
         # 中置信度
-        assert "~" in self.renderer._format_confidence(self.memory2)
+        assert "~" in MemoryAtomRenderer._format_confidence(self.memory2)
 
 
 class TestMinimalRenderer:

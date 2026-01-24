@@ -21,8 +21,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from hivememory.core.models import FlushReason
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import FlushReason, StreamMessage
 from hivememory.patchouli.config import HiveMemoryConfig
 from unittest.mock import patch
 
@@ -41,7 +40,7 @@ class FlushRecorder:
 
     def __call__(
         self,
-        messages: List[ConversationMessage],
+        messages: List[StreamMessage],
         reason: FlushReason
     ) -> None:
         """

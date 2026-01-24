@@ -15,9 +15,10 @@ HiveMemory 统一流式解析器
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List
 
 from hivememory.engines.perception.interfaces import StreamParser
+from hivememory.core.models import Identity
 from hivememory.engines.perception.models import (
     StreamMessage,
     StreamMessageType,
@@ -41,11 +42,11 @@ class UnifiedStreamParser(StreamParser):
         >>>
         >>> # 解析简单文本
         >>> msg = parser.parse_message("你好")
-        >>> print(msg.message_type)  # StreamMessageType.USER_QUERY
+        >>> print(msg.message_type)  # StreamMessageType.USER
         >>>
         >>> # 解析 OpenAI 格式
         >>> msg = parser.parse_message({"role": "user", "content": "hello"})
-        >>> print(msg.message_type)  # StreamMessageType.USER_QUERY
+        >>> print(msg.message_type)  # StreamMessageType.USER
     """
 
     def __init__(self, enable_thought_extraction: bool = False):
@@ -84,7 +85,7 @@ class UnifiedStreamParser(StreamParser):
         # 简单文本（默认为用户消息）
         elif isinstance(raw_message, str):
             return StreamMessage(
-                message_type=StreamMessageType.USER_QUERY,
+                message_type=StreamMessageType.USER,
                 content=raw_message
             )
 
@@ -108,7 +109,7 @@ class UnifiedStreamParser(StreamParser):
         Returns:
             bool: 是否需要创建新 Block
         """
-        return message.message_type == StreamMessageType.USER_QUERY
+        return message.message_type == StreamMessageType.USER
 
     def _is_langchain_message(self, message: Any) -> bool:
         """检查是否为 LangChain 消息"""
@@ -135,7 +136,7 @@ class UnifiedStreamParser(StreamParser):
 
         if isinstance(message, HumanMessage):
             return StreamMessage(
-                message_type=StreamMessageType.USER_QUERY,
+                message_type=StreamMessageType.USER,
                 content=message.content
             )
 
@@ -144,21 +145,21 @@ class UnifiedStreamParser(StreamParser):
 
         elif isinstance(message, ToolMessage):
             return StreamMessage(
-                message_type=StreamMessageType.TOOL_OUTPUT,
+                message_type=StreamMessageType.TOOL,
                 content=message.content,
                 tool_result=message.content
             )
 
         elif isinstance(message, SystemMessage):
             return StreamMessage(
-                message_type=StreamMessageType.SYSTEM_MESSAGE,
+                message_type=StreamMessageType.SYSTEM,
                 content=message.content
             )
 
         else:
             # 默认作为 assistant 消息处理
             return StreamMessage(
-                message_type=StreamMessageType.ASSISTANT_MESSAGE,
+                message_type=StreamMessageType.ASSISTANT,
                 content=str(message.content) if hasattr(message, 'content') else str(message)
             )
 
@@ -178,7 +179,7 @@ class UnifiedStreamParser(StreamParser):
 
         # 普通 AI 响应
         return StreamMessage(
-            message_type=StreamMessageType.ASSISTANT_MESSAGE,
+            message_type=StreamMessageType.ASSISTANT,
             content=ai_message.content or ""
         )
 
@@ -189,7 +190,7 @@ class UnifiedStreamParser(StreamParser):
 
         if role == "user":
             return StreamMessage(
-                message_type=StreamMessageType.USER_QUERY,
+                message_type=StreamMessageType.USER,
                 content=content
             )
 
@@ -214,27 +215,27 @@ class UnifiedStreamParser(StreamParser):
                 )
 
             return StreamMessage(
-                message_type=StreamMessageType.ASSISTANT_MESSAGE,
+                message_type=StreamMessageType.ASSISTANT,
                 content=content or ""
             )
 
         elif role == "tool":
             return StreamMessage(
-                message_type=StreamMessageType.TOOL_OUTPUT,
+                message_type=StreamMessageType.TOOL,
                 content=content,
                 tool_result=content
             )
 
         elif role == "system":
             return StreamMessage(
-                message_type=StreamMessageType.SYSTEM_MESSAGE,
+                message_type=StreamMessageType.SYSTEM,
                 content=content
             )
 
         else:
             # 默认作为 assistant 消息处理
             return StreamMessage(
-                message_type=StreamMessageType.ASSISTANT_MESSAGE,
+                message_type=StreamMessageType.ASSISTANT,
                 content=content
             )
 
@@ -243,7 +244,7 @@ class UnifiedStreamParser(StreamParser):
         messages: list,
         session_id: str,
         user_id: str
-    ) -> list:
+    ) -> List[StreamMessage]:
         """
         批量解析对话消息列表
 
@@ -253,14 +254,14 @@ class UnifiedStreamParser(StreamParser):
             user_id: 用户ID
 
         Returns:
-            List[ConversationMessage]: 转换后的消息列表
+            List[StreamMessage]: 转换后的消息列表
         """
-        from hivememory.engines.generation.models import ConversationMessage
-
         result = []
         for msg in messages:
             stream_msg = self.parse_message(msg)
-            result.append(stream_msg.to_conversation_message(session_id, user_id))
+            # 填充身份信息
+            stream_msg.identity = Identity(user_id=user_id, agent_id="unknown", session_id=session_id)
+            result.append(stream_msg)
         return result
 
 

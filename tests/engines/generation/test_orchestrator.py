@@ -11,10 +11,10 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch
 from typing import List
 
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, StreamMessage, Identity
 from hivememory.engines.generation.orchestrator import MemoryGenerationOrchestrator
 from hivememory.engines.generation.interfaces import ValueGater, MemoryExtractor, Deduplicator
-from hivememory.engines.generation.models import ConversationMessage, DuplicateDecision, ExtractedMemoryDraft
+from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
 
@@ -37,7 +37,7 @@ class TestMemoryGenerationOrchestrator:
         
         # 基础测试数据
         self.messages = [
-            ConversationMessage(role="user", content="Hi", user_id="u1", session_id="s1")
+            StreamMessage(message_type="user", content="Hi")
         ]
         
         self.draft = ExtractedMemoryDraft(
@@ -143,7 +143,8 @@ class TestMemoryGenerationOrchestrator:
 
     def test_draft_to_memory_conversion(self):
         """测试草稿转 MemoryAtom"""
-        memory = self.orchestrator._draft_to_memory(self.draft, "u1", "a1", "s1")
+        identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
+        memory = self.orchestrator._draft_to_memory(self.draft, identity)
         
         assert memory.index.title == "Test"
         assert memory.meta.user_id == "u1"
@@ -153,12 +154,12 @@ class TestMemoryGenerationOrchestrator:
     def test_format_transcript(self):
         """测试对话格式化"""
         msgs = [
-            ConversationMessage(role="user", content="Hi", user_id="u1", session_id="s1"),
-            ConversationMessage(role="assistant", content="Hello", user_id="u1", session_id="s1")
+            StreamMessage(message_type="user", content="Hi"),
+            StreamMessage(message_type="assistant", content="Hello")
         ]
-        
+
         text = self.orchestrator._format_transcript(msgs)
-        
+
         assert "👤 User: Hi" in text
         assert "🤖 Assistant: Hello" in text
 

@@ -26,9 +26,10 @@ from hivememory.core.models import (
     IndexLayer,
     PayloadLayer,
     MemoryType,
+    StreamMessage,
+    Identity
 )
 from hivememory.engines.generation.models import (
-    ConversationMessage,
     ExtractedMemoryDraft,
 )
 from hivememory.engines.generation import (
@@ -63,8 +64,8 @@ class TestExtractorAndDeduplicatorCollaboration:
         deduplicator = MemoryDeduplicator(storage=Mock())
 
         messages = [
-            ConversationMessage(role="user", content="写一个Python函数"),
-            ConversationMessage(role="assistant", content="```python\ndef test(): pass\n```"),
+            StreamMessage(message_type="user", content="写一个Python函数"),
+            StreamMessage(message_type="assistant", content="```python\ndef test(): pass\n```"),
         ]
 
         # 提取记忆
@@ -104,8 +105,8 @@ class TestGatingAndExtractorCollaboration:
         )
 
         messages = [
-            ConversationMessage(role="user", content="你好"),
-            ConversationMessage(role="assistant", content="你好！"),
+            StreamMessage(message_type="user", content="你好"),
+            StreamMessage(message_type="assistant", content="你好！"),
         ]
 
         result = orchestrator.process(messages)
@@ -154,8 +155,8 @@ class TestOrchestratorComponentCoordination:
         # _draft_to_memory uses MemoryType(draft.memory_type)
 
         messages = [
-            ConversationMessage(role="user", content="测试内容"),
-            ConversationMessage(role="assistant", content="测试回复"),
+            StreamMessage(message_type="user", content="测试内容"),
+            StreamMessage(message_type="assistant", content="测试回复"),
         ]
 
         result = orchestrator.process(messages)
@@ -202,11 +203,10 @@ class TestMemoryConversion:
         # 转换为 MemoryAtom
         # We can use the orchestrator's helper method or replicate the logic
         orchestrator = MemoryGenerationOrchestrator(storage=Mock())
+        identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
         atom = orchestrator._draft_to_memory(
             draft=extracted,
-            user_id="test_user",
-            agent_id="test_agent",
-            session_id="test_session"
+            identity=identity
         )
 
         assert atom.index.title == "测试记忆"

@@ -21,8 +21,7 @@ import logging
 import threading
 from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 
-from hivememory.core.models import FlushReason, Identity
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import FlushReason, Identity, StreamMessage, StreamMessageType
 from hivememory.engines.perception.interfaces import (
     BasePerceptionLayer,
     StreamParser,
@@ -30,7 +29,6 @@ from hivememory.engines.perception.interfaces import (
     RelayController,
 )
 from hivememory.engines.perception.models import (
-    StreamMessage,
     LogicalBlock,
     SemanticBuffer,
     BufferState,
@@ -66,7 +64,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         >>> perception.start_idle_monitor()  # 启动异步空闲监控
         >>>
         >>> # 添加消息（使用 BasePerceptionLayer 接口）
-        >>> perception.add_message("user", "hello", "user1", "agent1", "sess1")
+        >>> perception.add_message("user", "hello", identity)
         >>>
         >>> perception.stop_idle_monitor()  # 停止监控
     """
@@ -77,7 +75,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         adsorber: Optional[SemanticAdsorber] = None,
         relay_controller: Optional[RelayController] = None,
         on_flush_callback: Optional[
-            Callable[[List[ConversationMessage], FlushReason], None]
+            Callable[[List[StreamMessage], FlushReason], None]
         ] = None,
         idle_timeout_seconds: int = 900,
         scan_interval_seconds: int = 30,
@@ -90,7 +88,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             adsorber: 语义吸附器（可选，使用默认）
             relay_controller: 接力控制器（可选，使用默认）
             on_flush_callback: Flush 回调函数（统一接口）
-                参数: (messages: List[ConversationMessage], reason: FlushReason)
+                参数: (messages: List[StreamMessage], reason: FlushReason)
             idle_timeout_seconds: 空闲超时时间（秒），默认 900（15 分钟）
             scan_interval_seconds: 扫描间隔（秒），默认 30
         """
@@ -151,6 +149,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             try:
                 raw_message = {"role": role, "content": content}
                 stream_message = self.parser.parse_message(raw_message)
+                # 更新身份信息
+                stream_message.identity = Identity(
+                    user_id=identity.user_id,
+                    agent_id=identity.agent_id,
+                    session_id=identity.session_id or ""
+                )
+                # 更新 Gateway 信息
+                stream_message.rewritten_query = rewritten_query
+                stream_message.gateway_intent = gateway_intent
+                stream_message.worth_saving = worth_saving
             except Exception as e:
                 logger.error(f"消息解析失败: {e}")
                 return
@@ -196,7 +204,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         identity: Identity,
         reason: FlushReason = FlushReason.MANUAL,
-    ) -> List[ConversationMessage]:
+    ) -> List[StreamMessage]:
         """
         手动刷新 Buffer
 
@@ -205,7 +213,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             reason: 刷新原因
 
         Returns:
-            List[ConversationMessage]: 被 Flush 的消息列表
+            List[StreamMessage]: 被 Flush 的消息列表
         """
         with self._lock:
             buffer_key = identity.buffer_key
@@ -223,14 +231,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 return []
 
             blocks = self._flush(buffer, reason)
-            # 转换为 ConversationMessage
+            # 转换为 StreamMessage
             messages = []
             for block in blocks:
                 messages.extend(
-                    block.to_conversation_messages(
-                        user_id=buffer.user_id,
-                        agent_id=buffer.agent_id,
-                        session_id=buffer.session_id,
+                    block.to_stream_messages(
+                        identity=Identity(
+                            user_id=buffer.user_id,
+                            agent_id=buffer.agent_id,
+                            session_id=buffer.session_id,
+                        )
                     )
                 )
             return messages
@@ -269,7 +279,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         清理指定的 Buffer
 
         Args:
-            identity: 身��标识对象
+            identity: 身份标识对象
 
         Returns:
             bool: 是否成功清理
@@ -397,7 +407,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     ) -> List[LogicalBlock]:
         """
         执行 Flush，清空 Buffer
-        内部将 LogicalBlock 转换为 ConversationMessage 后调用回调函数
+        内部将 LogicalBlock 转换为 StreamMessage 后调用回调函数
 
         Args:
             buffer: 当前语义缓冲区
@@ -427,17 +437,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             except Exception as e:
                 logger.warning(f"生成接力摘要失败: {e}")
 
-        # 调用回调（转换为 ConversationMessage）
+        # 调用回调（转换为 StreamMessage）
         if self.on_flush_callback:
             try:
-                # 转换 LogicalBlock -> ConversationMessage
+                # 转换 LogicalBlock -> StreamMessage
                 messages = []
                 for block in blocks_to_process:
                     messages.extend(
-                        block.to_conversation_messages(
-                            user_id=buffer.user_id,
-                            agent_id=buffer.agent_id,
-                            session_id=buffer.session_id,
+                        block.to_stream_messages(
+                            identity=Identity(
+                                user_id=buffer.user_id,
+                                agent_id=buffer.agent_id,
+                                session_id=buffer.session_id,
+                            )
                         )
                     )
                 self.on_flush_callback(messages, reason)

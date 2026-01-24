@@ -8,7 +8,7 @@ from hivememory.patchouli.config import GatewayConfig, LLMConfig
 from hivememory.patchouli.protocol.models import QueryFilters
 from hivememory.engines.gateway.models import GatewayIntent, SemanticAnalysisResult
 from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer, GATEWAY_FUNCTION_SCHEMA
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import StreamMessage
 from hivememory.engines.gateway.prompts import get_system_prompt
 
 
@@ -105,8 +105,8 @@ class TestLLMAnalyzer:
         mock_llm_service.complete_with_tools.return_value = mock_response
 
         context = [
-            ConversationMessage(role="user", content="Hi"),
-            ConversationMessage(role="assistant", content="Hello")
+            StreamMessage(message_type="user", content="Hi"),
+            StreamMessage(message_type="assistant", content="Hello")
         ]
         
         analyzer.analyze("Query", context)

@@ -6,7 +6,7 @@ HiveMemory - 简单感知层 (Simple Perception Layer)
 
 特性:
     - 三重触发机制（消息数、超时、语义边界）
-    - 使用 ConversationMessage 数据结构
+    - 使用 StreamMessage 数据结构
     - 简单直接的消息累积
     - 线程安全
 
@@ -21,8 +21,7 @@ import threading
 import time
 from typing import List, Optional, Dict, Any, Callable
 
-from hivememory.core.models import FlushReason, Identity
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import FlushReason, Identity, StreamMessage, StreamMessageType
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import SimpleBuffer  # 从 models.py 导入
 from hivememory.engines.perception.trigger_strategies import (
@@ -39,7 +38,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
 
     整合原有的 ConversationBuffer 与 TriggerManager 逻辑：
         - 三重触发机制（消息数、超时、语义边界）
-        - 使用 ConversationMessage 数据结构
+        - 使用 StreamMessage 数据结构
         - 简单直接的消息累积，复写消息流
 
     Examples:
@@ -48,15 +47,15 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         >>>
         >>> perception = SimplePerceptionLayer(on_flush_callback=on_flush)
         >>>
-        >>> perception.add_message("user", "hello", "user1", "agent1", "sess1")
-        >>> messages = perception.flush_buffer("user1", "agent1", "sess1")
+        >>> perception.add_message("user", "hello", identity)
+        >>> messages = perception.flush_buffer(identity)
     """
 
     def __init__(
         self,
         trigger_manager: Optional[TriggerManager] = None,
         on_flush_callback: Optional[
-            Callable[[List[ConversationMessage], FlushReason], None]
+            Callable[[List[StreamMessage], FlushReason], None]
         ] = None,
     ):
         """
@@ -108,7 +107,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         self,
         buffer: SimpleBuffer,
         buffer_key: str
-    ) -> Optional[List[ConversationMessage]]:
+    ) -> Optional[List[StreamMessage]]:
         """
         检查并触发 Flush
 
@@ -117,7 +116,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
             buffer_key: Buffer 唯一键
 
         Returns:
-            Optional[List[ConversationMessage]]: Flush 的消息列表，未触发返回 None
+            Optional[List[StreamMessage]]: Flush 的消息列表，未触发返回 None
         """
         if not buffer.messages:
             return None
@@ -142,7 +141,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         buffer: SimpleBuffer,
         buffer_key: str,
         reason: FlushReason,
-    ) -> List[ConversationMessage]:
+    ) -> List[StreamMessage]:
         """
         执行 Flush
 
@@ -152,7 +151,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
             reason: Flush 原因
 
         Returns:
-            List[ConversationMessage]: Flush 的消息列表
+            List[StreamMessage]: Flush 的消息列表
         """
         messages_to_process = buffer.messages.copy()
 
@@ -217,16 +216,24 @@ class SimplePerceptionLayer(BasePerceptionLayer):
                 return
 
             # 2. 创建消息并添加
-            message = ConversationMessage(
-                role=role,
+            try:
+                msg_type = StreamMessageType(role)
+            except ValueError:
+                msg_type = StreamMessageType.ASSISTANT
+            
+            message = StreamMessage(
+                message_type=msg_type,
                 content=content,
-                user_id=identity.user_id,
-                agent_id=identity.agent_id,
-                session_id=identity.session_id or buffer_key.split(":")[-1],
+                identity=Identity(
+                    user_id=identity.user_id,
+                    agent_id=identity.agent_id,
+                    session_id=identity.session_id or buffer_key.split(":")[-1]
+                ),
                 rewritten_query=rewritten_query,
                 gateway_intent=gateway_intent,
                 worth_saving=worth_saving,
             )
+            
             buffer.add_message(message)
 
             logger.debug(f"添加消息: {role} - {content[:50]}...")
@@ -242,7 +249,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         self,
         identity: Identity,
         reason: FlushReason = FlushReason.MANUAL,
-    ) -> List[ConversationMessage]:
+    ) -> List[StreamMessage]:
         """
         手动刷新 Buffer
 
@@ -251,7 +258,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
             reason: 刷新原因
 
         Returns:
-            List[ConversationMessage]: 被 Flush 的消息列表，如果 Buffer 不存在或为空则返回空列表
+            List[StreamMessage]: 被 Flush 的消息列表，如果 Buffer 不存在或为空则返回空列表
         """
         with self._lock:
             buffer_key = identity.buffer_key
@@ -301,12 +308,6 @@ class SimplePerceptionLayer(BasePerceptionLayer):
 
         Returns:
             bool: 是否成功清理
-
-        Examples:
-            >>> from hivememory.core.models import Identity
-            >>> identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
-            >>> success = perception.clear_buffer(identity)
-            >>> print(f"清理{'成功' if success else '失败'}")
         """
         with self._lock:
             buffer_key = identity.buffer_key

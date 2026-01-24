@@ -24,7 +24,7 @@ class TestUnifiedStreamParser:
     def test_parse_simple_text(self):
         """测试简单文本解析"""
         msg = self.parser.parse_message("hello")
-        assert msg.message_type == StreamMessageType.USER_QUERY
+        assert msg.message_type == StreamMessageType.USER
         assert msg.content == "hello"
 
     def test_parse_openai_format(self):
@@ -32,13 +32,13 @@ class TestUnifiedStreamParser:
         # User
         user_msg = {"role": "user", "content": "hi"}
         parsed = self.parser.parse_message(user_msg)
-        assert parsed.message_type == StreamMessageType.USER_QUERY
+        assert parsed.message_type == StreamMessageType.USER
         assert parsed.content == "hi"
 
         # Assistant
         ai_msg = {"role": "assistant", "content": "response"}
         parsed = self.parser.parse_message(ai_msg)
-        assert parsed.message_type == StreamMessageType.ASSISTANT_MESSAGE
+        assert parsed.message_type == StreamMessageType.ASSISTANT
         assert parsed.content == "response"
 
         # Tool Call
@@ -75,12 +75,12 @@ class TestUnifiedStreamParser:
             # Human
             msg = HumanMessage(content="hi")
             parsed = self.parser.parse_message(msg)
-            assert parsed.message_type == StreamMessageType.USER_QUERY
+            assert parsed.message_type == StreamMessageType.USER
             
             # AI
             msg = AIMessage(content="response")
             parsed = self.parser.parse_message(msg)
-            assert parsed.message_type == StreamMessageType.ASSISTANT_MESSAGE
+            assert parsed.message_type == StreamMessageType.ASSISTANT
             
         except ImportError:
             # 如果没有 langchain，跳过此测试或仅测试 mock 路径
@@ -90,9 +90,9 @@ class TestUnifiedStreamParser:
         """测试 Block 创建判定"""
         # User Query 应该创建新 Block
         msg = Mock()
-        msg.message_type = StreamMessageType.USER_QUERY
+        msg.message_type = StreamMessageType.USER
         assert self.parser.should_create_new_block(msg) is True
         
         # 其他类型不应该创建
-        msg.message_type = StreamMessageType.ASSISTANT_MESSAGE
+        msg.message_type = StreamMessageType.ASSISTANT
         assert self.parser.should_create_new_block(msg) is False

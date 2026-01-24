@@ -7,28 +7,6 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
-# ============ 对话消息模型 ============
-
-class ConversationMessage(BaseModel):
-    """
-    对话消息 - 用于缓冲区暂存原始对话
-    """
-    role: str = Field(..., description="角色: user/assistant/system")
-    content: str = Field(..., description="消息内容")
-    
-    user_id: str = Field(default="unknown", description="用户ID")
-    agent_id: str = Field(default="unknown", description="Agent ID")
-    session_id: str = Field(default="unknown", description="会话ID")
-
-    timestamp: datetime = Field(default_factory=datetime.now)
-
-    def to_langchain_message(self) -> Dict[str, str]:
-        """转换为 LangChain 消息格式"""
-        return {
-            "role": self.role,
-            "content": self.content
-        }
-
 # ============ 提取结果模型 ============
 
 class ExtractedMemoryDraft(BaseModel):
@@ -75,7 +53,6 @@ class DuplicateDecision(str, Enum):
 
 
 __all__ = [
-    "ConversationMessage",
     "ExtractedMemoryDraft",
     "DuplicateDecision",
 ]

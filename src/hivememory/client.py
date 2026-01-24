@@ -10,8 +10,7 @@ HiveMemory 统一客户端入口
 import logging
 from typing import List, Optional, Dict, Any
 
-from hivememory.core.models import MemoryAtom
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import MemoryAtom, StreamMessage
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.system import PatchouliSystem
@@ -118,7 +117,7 @@ class HiveMemoryClient:
     def process_query(
         self,
         query: str,
-        context: Optional[List[ConversationMessage]] = None,
+        context: Optional[List[StreamMessage]] = None,
         user_id: str = "default",
         agent_id: str = "default",
     ) -> Dict[str, Any]:
@@ -136,7 +135,13 @@ class HiveMemoryClient:
         Returns:
             Dict: 包含 intent, rewritten, memory 等字段
         """
-        return self.system.process_user_query(query, context or [], user_id, agent_id)
+        return self.system.process_interaction(
+            role="user",
+            content=query,
+            user_id=user_id,
+            agent_id=agent_id,
+            context=context,
+        )
 
     def add_conversation(
         self,
@@ -156,13 +161,19 @@ class HiveMemoryClient:
             agent_id: Agent ID
             session_id: 会话ID（可选）
         """
-        self.system.perceive(role, content, user_id, agent_id, session_id)
+        self.system.process_interaction(
+            role=role,
+            content=content,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
 
     def retrieve_memory(
         self,
         query: str,
         user_id: str,
-        context: Optional[List[ConversationMessage]] = None,
+        context: Optional[List[StreamMessage]] = None,
         **kwargs
     ) -> str:
         """

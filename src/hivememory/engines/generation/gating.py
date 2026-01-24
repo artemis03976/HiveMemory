@@ -34,7 +34,7 @@ import logging
 from typing import List, Set, Optional
 import re
 
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import StreamMessage
 from hivememory.engines.generation.interfaces import ValueGater
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ class RuleBasedGater(ValueGater):
         self.min_total_length = min_total_length
         self.min_substantive_length = min_substantive_length
 
-    def evaluate(self, messages: List[ConversationMessage]) -> bool:
+    def evaluate(self, messages: List[StreamMessage]) -> bool:
         """
         评估对话是否有价值
 
@@ -135,15 +135,15 @@ class RuleBasedGater(ValueGater):
         Examples:
             >>> gater = RuleBasedGater()
             >>> messages = [
-            ...     ConversationMessage(role="user", content="你好"),
-            ...     ConversationMessage(role="assistant", content="你好！有什么可以帮助你的吗？")
+            ...     StreamMessage(role="user", content="你好"),
+            ...     StreamMessage(role="assistant", content="你好！有什么可以帮助你的吗？")
             ... ]
             >>> gater.evaluate(messages)
             False
 
             >>> messages = [
-            ...     ConversationMessage(role="user", content="帮我写个快排算法"),
-            ...     ConversationMessage(role="assistant", content="好的，这是代码...")
+            ...     StreamMessage(role="user", content="帮我写个快排算法"),
+            ...     StreamMessage(role="assistant", content="好的，这是代码...")
             ... ]
             >>> gater.evaluate(messages)
             True
@@ -293,7 +293,7 @@ class LLMAssistedGater(ValueGater):
         self.llm_client = llm_client
         self.llm_config = llm_config
 
-    def evaluate(self, messages: List[ConversationMessage]) -> bool:
+    def evaluate(self, messages: List[StreamMessage]) -> bool:
         """
         使用 LLM 评估对话价值
 
@@ -338,7 +338,7 @@ class HybridGater(ValueGater):
         self.rule_gater = rule_gater
         self.llm_gater = llm_gater
 
-    def evaluate(self, messages: List[ConversationMessage]) -> bool:
+    def evaluate(self, messages: List[StreamMessage]) -> bool:
         """
         混合评估
 

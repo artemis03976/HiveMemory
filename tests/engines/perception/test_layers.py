@@ -17,7 +17,6 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 
 from hivememory.core.models import FlushReason, Identity
-from hivememory.engines.generation.models import ConversationMessage
 from hivememory.engines.perception.simple_perception_layer import SimplePerceptionLayer
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.engines.perception.models import SimpleBuffer, SemanticBuffer, LogicalBlock, StreamMessage, StreamMessageType
@@ -105,7 +104,7 @@ class TestSemanticFlowPerceptionLayer:
     def test_process_new_block_flow(self):
         """测试新 Block 处理流程"""
         # 1. Mock Parser
-        stream_msg = StreamMessage(message_type=StreamMessageType.USER_QUERY, content="hi")
+        stream_msg = StreamMessage(message_type=StreamMessageType.USER, content="hi")
         self.mock_parser.parse_message.return_value = stream_msg
         self.mock_parser.should_create_new_block.return_value = True
 
@@ -128,10 +127,10 @@ class TestSemanticFlowPerceptionLayer:
     def test_semantic_drift_flush(self):
         """测试语义漂移触发 Flush"""
         # Setup mock for FIRST message
-        msg1 = StreamMessage(message_type=StreamMessageType.USER_QUERY, content="old")
+        msg1 = StreamMessage(message_type=StreamMessageType.USER, content="old")
 
         # Setup mock for SECOND message
-        msg2 = StreamMessage(message_type=StreamMessageType.USER_QUERY, content="new")
+        msg2 = StreamMessage(message_type=StreamMessageType.USER, content="new")
 
         self.mock_parser.parse_message.side_effect = [msg1, msg2]
         self.mock_parser.should_create_new_block.return_value = True
@@ -144,8 +143,8 @@ class TestSemanticFlowPerceptionLayer:
         # 强制闭合 Block
         if buffer.current_block:
             # Set user_block and response_block to make is_complete True
-            buffer.current_block.user_block = StreamMessage(message_type=StreamMessageType.USER_QUERY, content="old")
-            buffer.current_block.response_block = StreamMessage(message_type=StreamMessageType.ASSISTANT_MESSAGE, content="resp")
+            buffer.current_block.user_block = StreamMessage(message_type=StreamMessageType.USER, content="old")
+            buffer.current_block.response_block = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="resp")
             buffer.add_block(buffer.current_block)
             buffer.current_block = None
 
@@ -156,7 +155,7 @@ class TestSemanticFlowPerceptionLayer:
         self.layer.add_message("user", "new", identity)
 
         # Add Assistant Message to COMPLETE the new block and trigger flush check
-        msg3 = StreamMessage(message_type=StreamMessageType.ASSISTANT_MESSAGE, content="resp_new")
+        msg3 = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="resp_new")
         self.mock_parser.parse_message.side_effect = [msg3] # Next call returns msg3
         self.mock_parser.should_create_new_block.return_value = False
 
@@ -174,10 +173,10 @@ class TestSemanticFlowPerceptionLayer:
     def test_token_overflow_relay(self):
         """测试 Token 溢出接力"""
         # Setup mocks
-        msg1 = StreamMessage(message_type=StreamMessageType.USER_QUERY, content="old")
-        msg2 = StreamMessage(message_type=StreamMessageType.USER_QUERY, content="new")
+        msg1 = StreamMessage(message_type=StreamMessageType.USER, content="old")
+        msg2 = StreamMessage(message_type=StreamMessageType.USER, content="new")
         # Need msg3 for assistant response to close the block
-        msg3 = StreamMessage(message_type=StreamMessageType.ASSISTANT_MESSAGE, content="resp_new")
+        msg3 = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="resp_new")
 
         self.mock_parser.parse_message.side_effect = [msg1, msg2, msg3]
         # should_create_new_block: True for msg1, True for msg2, False for msg3
@@ -190,8 +189,8 @@ class TestSemanticFlowPerceptionLayer:
         buffer = self.layer.get_buffer(identity)
         if buffer.current_block:
             # Set user_block and response_block to make is_complete True
-            buffer.current_block.user_block = StreamMessage(message_type=StreamMessageType.USER_QUERY, content="old")
-            buffer.current_block.response_block = StreamMessage(message_type=StreamMessageType.ASSISTANT_MESSAGE, content="resp")
+            buffer.current_block.user_block = StreamMessage(message_type=StreamMessageType.USER, content="old")
+            buffer.current_block.response_block = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="resp")
             buffer.add_block(buffer.current_block)
             buffer.current_block = None
 

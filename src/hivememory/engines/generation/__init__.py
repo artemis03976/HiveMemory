@@ -27,7 +27,6 @@ from hivememory.engines.generation.interfaces import (
 )
 
 from hivememory.engines.generation.models import (
-    ConversationMessage,
     ExtractedMemoryDraft,
     DuplicateDecision,
 )
@@ -117,7 +116,6 @@ __all__ = [
     "Deduplicator",
 
     # 数据模型
-    "ConversationMessage",
     "ExtractedMemoryDraft",
     "DuplicateDecision",
 

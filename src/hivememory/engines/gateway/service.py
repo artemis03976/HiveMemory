@@ -12,7 +12,7 @@ Gateway Service - 纯数据操作层
 
 from typing import List, Optional
 
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import StreamMessage
 from hivememory.engines.gateway.interfaces import BaseInterceptor, BaseSemanticAnalyzer
 from hivememory.engines.gateway.models import (
     GatewayIntent,
@@ -88,7 +88,7 @@ class GatewayService:
     def execute_l2(
         self,
         query: str,
-        context: List[ConversationMessage],
+        context: List[StreamMessage],
     ) -> Optional[SemanticAnalysisResult]:
         """
         执行 L2 语义分析器
@@ -107,7 +107,7 @@ class GatewayService:
     def process(
         self,
         query: str,
-        context: Optional[List[ConversationMessage]] = None,
+        context: Optional[List[StreamMessage]] = None,
     ) -> GatewayResult:
         """
         执行完整的 Gateway 处理流程

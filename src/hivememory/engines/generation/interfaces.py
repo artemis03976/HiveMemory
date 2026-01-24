@@ -15,8 +15,8 @@ HiveMemory - Generation 模块接口抽象层
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 
-from hivememory.core.models import MemoryAtom
-from hivememory.engines.generation.models import ConversationMessage, DuplicateDecision, ExtractedMemoryDraft
+from hivememory.core.models import MemoryAtom, StreamMessage
+from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
 
 
 # ========== 接口定义 ==========
@@ -35,7 +35,7 @@ class ValueGater(ABC):
     """
 
     @abstractmethod
-    def evaluate(self, messages: List[ConversationMessage]) -> bool:
+    def evaluate(self, messages: List[StreamMessage]) -> bool:
         """
         评估对话是否有价值
 
@@ -47,7 +47,7 @@ class ValueGater(ABC):
 
         Examples:
             >>> gater = RuleBasedGater()
-            >>> messages = [ConversationMessage(role="user", content="你好")]
+            >>> messages = [StreamMessage(message_type=StreamMessageType.USER, content="你好")]
             >>> gater.evaluate(messages)
             False
         """

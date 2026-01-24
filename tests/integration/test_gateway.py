@@ -14,8 +14,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch
 
 from hivememory.patchouli.config import GatewayConfig
-from hivememory.engines.generation.models import ConversationMessage
-from hivememory.core.models import MemoryType
+from hivememory.core.models import MemoryType, StreamMessage
 from hivememory.engines.gateway.models import (
     GatewayIntent,
     GatewayResult,
@@ -200,8 +199,8 @@ class TestGatewayService:
 
         # L1 不会拦截这个查询，会走 L2
         result = service.process("怎么部署它？", context=[
-            ConversationMessage(role="user", content="我有一个 Python 项目"),
-            ConversationMessage(role="assistant", content="好的，告诉我更多")
+            StreamMessage(message_type="user", content="我有一个 Python 项目"),
+            StreamMessage(message_type="assistant", content="好的，告诉我更多")
         ])
 
         assert result.intent == GatewayIntent.RAG

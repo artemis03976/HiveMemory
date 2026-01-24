@@ -83,7 +83,8 @@ class LLMMemoryExtractor(MemoryExtractor):
             ("user", user_prompt or PATCHOULI_USER_PROMPT),
         ])
 
-        logger.info(f"LLMMemoryExtractor 初始化完成 (模型: {self.llm_config.model})")
+        model_name = self.llm_service.config.model if self.llm_service and hasattr(self.llm_service, 'config') else "unknown"
+        logger.info(f"LLMMemoryExtractor 初始化完成 (模型: {model_name})")
 
     def extract(
         self,

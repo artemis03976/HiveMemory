@@ -19,8 +19,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Callable, TYPE_CHECKING
  
-from hivememory.core.models import MemoryAtom, FlushReason, Identity
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import MemoryAtom, FlushReason, Identity, StreamMessage
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.infrastructure.embedding.base import BaseEmbeddingService
@@ -43,7 +42,7 @@ class FlushEvent:
         memories: 生成的记忆原子列表（可能为空）
         timestamp: 事件发生时间戳
     """
-    messages: List[ConversationMessage]
+    messages: List[StreamMessage]
     reason: FlushReason
     memories: List[MemoryAtom]
     timestamp: float = field(default_factory=time.time)
@@ -258,7 +257,7 @@ class LibrarianCore:
 
     def _on_perception_flush(
         self,
-        messages: List[ConversationMessage],
+        messages: List[StreamMessage],
         reason: FlushReason,
     ) -> None:
         """
@@ -266,7 +265,7 @@ class LibrarianCore:
         将感知层生成的消息传递给编排器处理
 
         Args:
-            messages: ConversationMessage 列表
+            messages: StreamMessage 列表
             reason: Flush 原因
         """
         try:

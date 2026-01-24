@@ -11,8 +11,7 @@
 import logging
 from typing import List, Optional, Dict, Any
 
-from hivememory.core.models import Identity
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import Identity, StreamMessage
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.retrieval_familiar import RetrievalFamiliar
@@ -136,7 +135,7 @@ class PatchouliSystem:
         user_id: str,
         agent_id: str = "default",
         session_id: Optional[str] = None,
-        context: Optional[List[ConversationMessage]] = None,
+        context: Optional[List[StreamMessage]] = None,
     ) -> Dict[str, Any]:
         """
         统一交互入口 (Unified Interaction Entry)
@@ -184,7 +183,7 @@ class PatchouliSystem:
     def _process_hot(
         self,
         query: str,
-        context: List[ConversationMessage],
+        context: List[StreamMessage],
         identity: Identity,
     ) -> Dict[str, Any]:
         """

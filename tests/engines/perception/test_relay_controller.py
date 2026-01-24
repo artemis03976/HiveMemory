@@ -39,7 +39,7 @@ class TestTokenOverflowRelayController:
         # 构造 Block 链
         block1 = LogicalBlock()
         block1.add_stream_message(StreamMessage(
-            message_type=StreamMessageType.USER_QUERY,
+            message_type=StreamMessageType.USER,
             content="查询天气"
         ))
         

@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from hivememory.patchouli.config import MemoryRetrievalConfig
 
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.generation.models import ConversationMessage
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
 from hivememory.engines.retrieval.retriever import create_default_retriever
 from hivememory.engines.retrieval.renderer import create_default_renderer

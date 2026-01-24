@@ -10,7 +10,7 @@
 """
 
 import pytest
-from hivememory.engines.generation.models import ConversationMessage
+from hivememory.core.models import StreamMessage
 from hivememory.engines.generation.gating import RuleBasedGater
 
 
@@ -29,17 +29,13 @@ class TestRuleBasedGater:
     def test_valuable_code_snippet(self):
         """测试代码片段被判定为有价值"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="帮我写一个快排算法",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="帮我写一个快排算法"
             ),
-            ConversationMessage(
-                role="assistant",
-                content="好的，这是 Python 实现：\n```python\ndef quicksort(arr): ...\n```",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="assistant",
+                content="好的，这是 Python 实现：\n```python\ndef quicksort(arr): ...\n```"
             )
         ]
 
@@ -48,17 +44,13 @@ class TestRuleBasedGater:
     def test_valuable_configuration(self):
         """测试配置相关内容被判定为有价值"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="如何配置环境变量？",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="如何配置环境变量？"
             ),
-            ConversationMessage(
-                role="assistant",
-                content="在 .env 文件中添加 API_KEY=xxx",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="assistant",
+                content="在 .env 文件中添加 API_KEY=xxx"
             )
         ]
 
@@ -67,17 +59,13 @@ class TestRuleBasedGater:
     def test_valuable_error_fixing(self):
         """测试错误修复内容被判定为有价值"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="遇到 TypeError 错误，如何修复？",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="遇到 TypeError 错误，如何修复？"
             ),
-            ConversationMessage(
-                role="assistant",
-                content="这个 bug 可以通过类型检查解决",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="assistant",
+                content="这个 bug 可以通过类型检查解决"
             )
         ]
 
@@ -88,17 +76,13 @@ class TestRuleBasedGater:
     def test_trivial_greeting(self):
         """测试简单寒暄被过滤"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="你好",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="你好"
             ),
-            ConversationMessage(
-                role="assistant",
-                content="你好！有什么可以帮助你的吗？",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="assistant",
+                content="你好！有什么可以帮助你的吗？"
             )
         ]
 
@@ -107,17 +91,13 @@ class TestRuleBasedGater:
     def test_trivial_thanks(self):
         """测试简单感谢被过滤"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="谢谢",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="谢谢"
             ),
-            ConversationMessage(
-                role="assistant",
-                content="不客气！",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="assistant",
+                content="不客气！"
             )
         ]
 
@@ -126,11 +106,9 @@ class TestRuleBasedGater:
     def test_trivial_confirmation(self):
         """测试简单确认被过滤"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="好的，明白了",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="好的，明白了"
             )
         ]
 
@@ -141,11 +119,9 @@ class TestRuleBasedGater:
     def test_too_short_conversation(self):
         """测试过短对话被过滤"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="嗯",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="嗯"
             )
         ]
 
@@ -154,11 +130,9 @@ class TestRuleBasedGater:
     def test_sufficient_length(self):
         """测试足够长度的对话通过"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="我想了解一下 Python 中的装饰器是如何工作的",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="我想了解一下 Python 中的装饰器是如何工作的"
             )
         ]
 
@@ -173,17 +147,13 @@ class TestRuleBasedGater:
     def test_mixed_content(self):
         """测试混合内容（寒暄 + 实质内容）"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="你好，帮我写一个函数",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="你好，帮我写一个函数"
             ),
-            ConversationMessage(
-                role="assistant",
-                content="好的，这是函数实现...",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="assistant",
+                content="好的，这是函数实现..."
             )
         ]
 
@@ -243,14 +213,12 @@ class TestGaterIntegration:
     def test_real_code_conversation(self):
         """真实代码对话场景"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="帮我写一个 Python 函数来解析 ISO8601 日期",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="帮我写一个 Python 函数来解析 ISO8601 日期"
             ),
-            ConversationMessage(
-                role="assistant",
+            StreamMessage(
+                message_type="assistant",
                 content="""好的，这是实现：
 ```python
 from datetime import datetime
@@ -258,15 +226,11 @@ from datetime import datetime
 def parse_iso8601(date_str):
     return datetime.fromisoformat(date_str)
 ```
-""",
-                user_id="test_user",
-                session_id="test_session"
+"""
             ),
-            ConversationMessage(
-                role="user",
-                content="太好了，谢谢！",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="太好了，谢谢！"
             )
         ]
 
@@ -276,29 +240,21 @@ def parse_iso8601(date_str):
     def test_real_idle_chat(self):
         """真实闲聊场景"""
         messages = [
-            ConversationMessage(
-                role="user",
-                content="你好",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="你好"
             ),
-            ConversationMessage(
-                role="assistant",
-                content="你好！有什么可以帮助你的吗？",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="assistant",
+                content="你好！有什么可以帮助你的吗？"
             ),
-            ConversationMessage(
-                role="user",
-                content="没事，随便聊聊",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="user",
+                content="没事，随便聊聊"
             ),
-            ConversationMessage(
-                role="assistant",
-                content="好的，很高兴和你聊天！",
-                user_id="test_user",
-                session_id="test_session"
+            StreamMessage(
+                message_type="assistant",
+                content="好的，很高兴和你聊天！"
             )
         ]
 
@@ -318,8 +274,8 @@ def parse_iso8601(date_str):
         # 如果目的是测试"无价值"，我们应该减少内容长度。
         
         messages_short = [
-             ConversationMessage(role="user", content="你好", user_id="u", session_id="s"),
-             ConversationMessage(role="assistant", content="你好", user_id="u", session_id="s")
+             StreamMessage(message_type="user", content="你好"),
+             StreamMessage(message_type="assistant", content="你好")
         ]
         assert self.gater.evaluate(messages_short) is False
         
