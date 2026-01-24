@@ -6,16 +6,17 @@ HiveMemory - 感知层触发策略 (Trigger Strategies)
 
 支持的触发器:
     - MessageCountTrigger: 消息数阈值
-    - IdleTimeoutTrigger: 超时触发（带 Debounce）
     - SemanticBoundaryTrigger: 语义边界检测
-    - ManualTrigger: 手动触发
+
+注意:
+    空闲超时监控已移至 BasePerceptionLayer.start_idle_monitor()，
+    不再需要 IdleTimeoutTrigger。
 
 作者: HiveMemory Team
-版本: 0.2.0
+版本: 0.3.0
 """
 
 import logging
-import time
 import re
 from typing import List, Dict, Any, Optional
 
@@ -70,62 +71,6 @@ class MessageCountTrigger(TriggerStrategy):
         if len(messages) >= self.threshold:
             logger.debug(f"消息数达到阈值: {len(messages)} >= {self.threshold}")
             return True, FlushReason.MESSAGE_COUNT
-
-        return False, None
-
-
-class IdleTimeoutTrigger(TriggerStrategy):
-    """
-    空闲超时触发器
-
-    当距离上次消息超过指定时间时触发。
-
-    特性:
-        - Debounce 机制：避免频繁触发
-        - 自动重置计时器
-
-    Examples:
-        >>> trigger = IdleTimeoutTrigger(timeout=900)  # 15分钟
-        >>> should, reason = trigger.should_trigger(messages, context)
-    """
-
-    def __init__(self, timeout: int = 900):
-        """
-        初始化超时触发器
-
-        Args:
-            timeout: 超时时间（秒），默认 900（15分钟）
-        """
-        self.timeout = timeout
-
-    def should_trigger(
-        self,
-        messages: List[ConversationMessage],
-        context: Dict[str, Any]
-    ) -> tuple[bool, Optional[FlushReason]]:
-        """
-        检查是否超时
-
-        Args:
-            messages: 当前消息列表
-            context: 上下文，包含:
-                - last_trigger_time: 上次触发时间
-                - last_message_time: 最后一条消息时间
-
-        Returns:
-            tuple[bool, FlushReason]: (是否触发, 原因)
-        """
-        if not messages:
-            return False, None
-
-        current_time = time.time()
-        last_message_time = context.get("last_message_time", current_time)
-
-        idle_duration = current_time - last_message_time
-
-        if idle_duration >= self.timeout:
-            logger.debug(f"空闲超时: {idle_duration:.1f}s >= {self.timeout}s")
-            return True, FlushReason.IDLE_TIMEOUT
 
         return False, None
 
@@ -218,7 +163,7 @@ class TriggerManager:
         >>> manager = TriggerManager(
         ...     strategies=[
         ...         MessageCountTrigger(threshold=5),
-        ...         IdleTimeoutTrigger(timeout=900),
+        ...         SemanticBoundaryTrigger(),
         ...     ]
         ... )
         >>> should, reason = manager.should_trigger(messages, context)
@@ -267,8 +212,10 @@ def create_default_trigger_manager() -> TriggerManager:
 
     配置:
         - 消息数: 6 条 (偶数，确保完整对话对)
-        - 超时: 900 秒 (15 分钟)
         - 语义边界: 启用
+
+    注意:
+        空闲超时监控请使用 BasePerceptionLayer.start_idle_monitor()
 
     Returns:
         TriggerManager: 管理器实例
@@ -276,7 +223,6 @@ def create_default_trigger_manager() -> TriggerManager:
     return TriggerManager(
         strategies=[
             MessageCountTrigger(threshold=6),
-            IdleTimeoutTrigger(timeout=900),
             SemanticBoundaryTrigger(),
         ]
     )
@@ -284,7 +230,6 @@ def create_default_trigger_manager() -> TriggerManager:
 
 __all__ = [
     "MessageCountTrigger",
-    "IdleTimeoutTrigger",
     "SemanticBoundaryTrigger",
     "TriggerManager",
     "create_default_trigger_manager",

@@ -599,6 +599,19 @@ class SimpleBuffer(BaseModel):
         """获取消息数量"""
         return len(self.messages)
 
+    def is_idle(self, timeout_seconds: int = 900) -> bool:
+        """
+        检查缓冲区是否空闲
+
+        Args:
+            timeout_seconds: 超时时间（秒）
+
+        Returns:
+            bool: 是否空闲
+        """
+        current_time = datetime.now().timestamp()
+        return (current_time - self.last_update) > timeout_seconds
+
 
 __all__ = [
     # 枚举

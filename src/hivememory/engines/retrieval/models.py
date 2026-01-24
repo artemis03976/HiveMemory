@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from hivememory.core.models import MemoryAtom
 from hivememory.patchouli.protocol.models import QueryFilters
+from hivememory.utils.memory_atom_renderer import RenderFormat
 
 
 # ========== 数据模型 ==========
@@ -96,6 +97,7 @@ class SearchResults(BaseModel):
 
 __all__ = [
     "QueryFilters",
+    "RenderFormat",
     "RetrievalQuery",
     "SearchResult",
     "SearchResults",

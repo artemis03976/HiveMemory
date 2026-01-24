@@ -11,9 +11,9 @@ HiveMemory 配置管理系统
 import os
 import logging
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Tuple, Type
+from typing import Optional, Any, Dict, List, Tuple, Type, Set
 import yaml
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 from functools import lru_cache
 
@@ -86,6 +86,14 @@ class EmbeddingConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
+class EmbeddingGlobalConfig(BaseSettings):
+    """Embedding 全局配置集合"""
+    default: EmbeddingConfig = Field(default_factory=EmbeddingConfig, description="默认/存储层 Embedding 配置")
+    perception: EmbeddingConfig = Field(default_factory=EmbeddingConfig, description="感知层 Embedding 配置")
+
+    model_config = SettingsConfigDict(extra="allow", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
+
+
 class QdrantConfig(BaseSettings):
     """Qdrant 向量数据库配置"""
     host: str = Field(default="localhost", description="Qdrant 主机地址")
@@ -116,33 +124,51 @@ class RedisConfig(BaseSettings):
 class SimplePerceptionConfig(BaseSettings):
     """SimplePerceptionLayer 配置"""
     message_threshold: int = Field(default=6, description="消息数触发阈值")
-    timeout_seconds: int = Field(default=900, description="超时触发时间（秒）")
     enable_semantic_trigger: bool = Field(default=True, description="是否启用语义边界触发")
 
     model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
+class SemanticAdsorberConfig(BaseSettings):
+    """
+    SemanticBoundaryAdsorber 配置
+    """
+    semantic_threshold_high: float = Field(default=0.75, description="高相似度阈值（强吸附）")
+    semantic_threshold_low: float = Field(default=0.40, description="低相似度阈值（强制切分）")
+    short_text_threshold: int = Field(default=10, description="短文本强吸附阈值（tokens）")
+    ema_alpha: float = Field(default=0.3, description="指数移动平均系数")
+    enable_arbiter: bool = Field(default=True, description="是否启用灰度仲裁器")
+    stop_words: Optional[Set[str]] = Field(default=None, description="自定义停用词集合")
+
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
+
+    @model_validator(mode='after')
+    def validate_thresholds(self) -> 'SemanticAdsorberConfig':
+        if self.semantic_threshold_low > self.semantic_threshold_high:
+            raise ValueError("semantic_threshold_low 必须小于或等于 semantic_threshold_high")
+        if not 0 < self.ema_alpha <= 1:
+            raise ValueError("ema_alpha 必须在 (0, 1] 范围内")
+        return self
+
+
 class SemanticFlowPerceptionConfig(BaseSettings):
     """SemanticFlowPerceptionLayer 配置"""
-    idle_timeout_seconds: int = Field(default=900, description="空闲超时时间（秒）")
-    scan_interval_seconds: int = Field(default=30, description="空闲监控扫描间隔（秒）")
-    semantic_threshold: float = Field(default=0.6, description="语义相似度阈值")
-    short_text_threshold: int = Field(default=50, description="短文本强吸附阈值（tokens）")
-    ema_alpha: float = Field(default=0.3, description="指数移动平均系数")
     max_processing_tokens: int = Field(default=8192, description="单次处理的最大 Token 数")
     enable_smart_summary: bool = Field(default=False, description="是否启用智能摘要")
-    embedding_model: Optional[str] = Field(default=None, description="Embedding 模型（None 则复用全局配置）")
-    embedding_device: Optional[str] = Field(default=None, description="运行设备（None 则复用全局配置）")
-    embedding_cache_dir: Optional[str] = Field(default=None, description="模型缓存目录")
-    embedding_batch_size: Optional[int] = Field(default=None, description="批处理大小")
+    
+    adsorber: SemanticAdsorberConfig = Field(default_factory=SemanticAdsorberConfig, description="语义吸附器配置")
 
     model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
 class MemoryPerceptionConfig(BaseSettings):
     """感知层统一配置"""
-    layer_type: str = Field(default="semantic_flow", description="感知层类型: semantic_flow 或 simple")
     enable: bool = Field(default=True, description="是否启用感知层")
+    layer_type: str = Field(default="semantic_flow", description="感知层类型: semantic_flow 或 simple")
+
+    idle_timeout_seconds: int = Field(default=900, description="空闲超时时间（秒）")
+    scan_interval_seconds: int = Field(default=30, description="空闲监控扫描间隔（秒）")
+
     semantic_flow: SemanticFlowPerceptionConfig = Field(default_factory=SemanticFlowPerceptionConfig, description="语义流感知层配置")
     simple: SimplePerceptionConfig = Field(default_factory=SimplePerceptionConfig, description="简单感知层配置")
 
@@ -153,12 +179,8 @@ class MemoryPerceptionConfig(BaseSettings):
 
 class ExtractorConfig(BaseSettings):
     """LLMMemoryExtractor 配置"""
-    llm_config: Optional[LLMConfig] = Field(default=None, description="LLM 配置（None 则复用全局）")
     system_prompt: Optional[str] = Field(default=None, description="自定义系统提示词")
     user_prompt: Optional[str] = Field(default=None, description="自定义用户提示词")
-    max_retries: int = Field(default=2, description="最大重试次数")
-    temperature: Optional[float] = Field(default=None, description="LLM 温度参数")
-    max_tokens: Optional[int] = Field(default=None, description="LLM 最大 Token 数")
 
     model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
@@ -406,7 +428,7 @@ class HiveMemoryConfig(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     llm: LLMGlobalConfig = Field(default_factory=LLMGlobalConfig)
-    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    embedding: EmbeddingGlobalConfig = Field(default_factory=EmbeddingGlobalConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
 

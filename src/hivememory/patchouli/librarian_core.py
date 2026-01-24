@@ -23,6 +23,7 @@ from hivememory.core.models import MemoryAtom, FlushReason, Identity
 from hivememory.engines.generation.models import ConversationMessage
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.infrastructure.llm.base import BaseLLMService
+from hivememory.infrastructure.embedding.base import BaseEmbeddingService
 from hivememory.patchouli.protocol.models import Observation
 
 if TYPE_CHECKING:
@@ -90,6 +91,7 @@ class LibrarianCore:
         self,
         storage: QdrantMemoryStore = None,
         llm_service: BaseLLMService = None,
+        embedding_service: Optional[BaseEmbeddingService] = None,
         perception_config: Optional["MemoryPerceptionConfig"] = None,
         generation_config: Optional["MemoryGenerationConfig"] = None,
         lifecycle_config: Optional["MemoryLifecycleConfig"] = None,
@@ -100,6 +102,7 @@ class LibrarianCore:
         Args:
             storage: Qdrant 存储实例
             llm_service: LLM 服务实例
+            embedding_service: Embedding 服务实例（用于感知层语义相似度计算）
             perception_config: 感知层配置
             generation_config: 记忆生成配置
             lifecycle_config: 记忆生命周期配置
@@ -130,6 +133,7 @@ class LibrarianCore:
 
         self.storage = storage
         self.llm_service = llm_service
+        self.embedding_service = embedding_service
 
         self.perception_config = perception_config
         self.generation_config = generation_config
@@ -162,6 +166,7 @@ class LibrarianCore:
         from hivememory.engines.perception import create_default_perception_layer
         self.perception_layer = create_default_perception_layer(
             config=self.perception_config,
+            embedding_service=self.embedding_service,
             on_flush_callback=self._on_perception_flush,
         )
         logger.debug(f"{type(self.perception_layer).__name__} 已初始化")

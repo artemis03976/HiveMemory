@@ -39,9 +39,6 @@ from hivememory.engines.perception.stream_parser import UnifiedStreamParser
 from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber
 from hivememory.engines.perception.relay_controller import TokenOverflowRelayController
 
-if TYPE_CHECKING:
-    from hivememory.engines.perception.idle_timeout_monitor import IdleTimeoutMonitor
-
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +54,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     职责：
         - 管理所有 SemanticBuffer（按 user_id:agent_id:session_id 组织）
-        - 协调 Parser、Adsorber、Relay、IdleTimeoutMonitor
+        - 协调 Parser、Adsorber、Relay
         - 处理消息流并触发 Flush
         - 提供 Buffer 查询和管理接口
 
@@ -97,16 +94,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             idle_timeout_seconds: 空闲超时时间（秒），默认 900（15 分钟）
             scan_interval_seconds: 扫描间隔（秒），默认 30
         """
+        super().__init__()
 
         self.parser = parser or UnifiedStreamParser()
         self.adsorber = adsorber or SemanticBoundaryAdsorber()
         self.relay_controller = relay_controller or TokenOverflowRelayController()
         self.on_flush_callback = on_flush_callback
 
-        # 空闲超时监控器配置
+        # 空闲超时监控器配置（由基类管理）
         self._idle_timeout_seconds = idle_timeout_seconds
         self._scan_interval_seconds = scan_interval_seconds
-        self._idle_monitor: Optional["IdleTimeoutMonitor"] = None
 
         # Buffer 池管理
         self._buffers: Dict[str, SemanticBuffer] = {}
@@ -360,7 +357,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             1. 语义吸附判定（Adsorber：语义漂移）
             2. Token 溢出检测（RelayController）
 
-        空闲超时检测由 IdleTimeoutMonitor 异步处理。
+        空闲超时检测由 BasePerceptionLayer.start_idle_monitor() 异步处理。
 
         如果需要 Flush，先清空旧 Buffer，新 Block 将作为新 Buffer 的第一个元素。
 
@@ -448,57 +445,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 logger.error(f"Flush 回调执行失败: {e}")
 
         return blocks_to_process
-
-    # ========== 空闲超时监控 ==========
-
-    def start_idle_monitor(self) -> None:
-        """
-        启动空闲超时监控器
-
-        使用 APScheduler 后台定时扫描所有 Buffer，
-        对超时的 Buffer 自动触发 Flush。
-
-        Examples:
-            >>> perception = SemanticFlowPerceptionLayer()
-            >>> perception.start_idle_monitor()
-            >>> # 后台自动监控空闲 Buffer
-        """
-        if self._idle_monitor is not None:
-            logger.warning("空闲超时监控器已在运行中")
-            return
-
-        from hivememory.engines.perception.idle_timeout_monitor import IdleTimeoutMonitor
-
-        self._idle_monitor = IdleTimeoutMonitor(
-            perception_layer=self,
-            idle_timeout_seconds=self._idle_timeout_seconds,
-            scan_interval_seconds=self._scan_interval_seconds,
-            enable_schedule=True,
-        )
-        self._idle_monitor.start()
-        logger.info("空闲超时监控器已启动")
-
-    def stop_idle_monitor(self) -> None:
-        """
-        停止空闲超时监控器
-
-        Examples:
-            >>> perception.stop_idle_monitor()
-        """
-        if self._idle_monitor is not None:
-            self._idle_monitor.stop()
-            self._idle_monitor = None
-            logger.info("空闲超时监控器已停止")
-
-    @property
-    def idle_monitor(self) -> Optional["IdleTimeoutMonitor"]:
-        """
-        获取空闲超时监控器实例
-
-        Returns:
-            Optional[IdleTimeoutMonitor]: 监控器实例，未启动则返回 None
-        """
-        return self._idle_monitor
 
 
 __all__ = [

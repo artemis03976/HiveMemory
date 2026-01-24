@@ -38,6 +38,7 @@ from hivememory.engines.retrieval.interfaces import (
 # 数据模型
 from hivememory.engines.retrieval.models import (
     QueryFilters,
+    RenderFormat,
     RetrievalQuery,
     SearchResult,
     SearchResults,
@@ -82,6 +83,7 @@ __all__ = [
 
     # 数据模型
     "QueryFilters",
+    "RenderFormat",
     "RetrievalQuery",
     "SearchResult",
     "SearchResults",

@@ -66,6 +66,8 @@ class SimplePerceptionLayer(BasePerceptionLayer):
             trigger_manager: 触发管理器
             on_flush_callback: Flush 回调函数
         """
+        super().__init__()
+
         self.trigger_manager = trigger_manager or create_default_trigger_manager()
         self.on_flush_callback = on_flush_callback
 
@@ -367,6 +369,5 @@ class SimplePerceptionLayer(BasePerceptionLayer):
 
 
 __all__ = [
-    "SimpleBuffer",
     "SimplePerceptionLayer",
 ]

@@ -573,19 +573,3 @@ class QdrantMemoryStore:
             payload=PayloadLayer(**payload["payload"]),
             relations=RelationLayer(**payload.get("relations", {})),
         )
-
-
-# 便捷函数: 获取全局单例
-_global_store: Optional[QdrantMemoryStore] = None
-
-
-def get_memory_store() -> QdrantMemoryStore:
-    """
-    获取全局 QdrantMemoryStore 实例 (单例模式)
-
-    [已废弃] 建议直接创建实例或使用依赖注入
-    """
-    global _global_store
-    if _global_store is None:
-        _global_store = QdrantMemoryStore()
-    return _global_store

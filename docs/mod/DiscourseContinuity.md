@@ -9,7 +9,7 @@
 *   **False Merge (错误合并)**：单纯基于关键词或短文本的匹配，容易将无关的短语（如“好的”、“继续”）错误吸附到当前话题，引入噪音。
 
 ### 1.2 升级目标
-构建一套**“基于意图与指代 (Intent & Reference based)”** 的检测机制，取代单纯的文本相似度计算。目标是实现像人类一样理解“任务流”的连续性，而非“词汇”的相似性。
+构建一套**“基于意图与指代 (Intent & Reference based)”** 的检测机制，作为单纯的文本相似度计算的增强附属模块。目标是实现像人类一样理解“任务流”的连续性，而非“词汇”的相似性。
 
 ## 2. 核心架构变动 (Core Architecture Changes)
 
@@ -19,7 +19,7 @@
 不再使用整个 Block 的 `content_text`（包含冗长的 LLM 回复）进行 Embedding，而是构建精简的锚点。
 
 *   **输入依赖**：依赖上游（Global Gateway）传入的 `Rewritten_Query`（已完成指代消解）。
-*   **上下文桥接 (Context Bridge)**：为了解决跨域任务（Dev -> Ops）的连接问题，Anchor 需包含上一轮的上下文摘要。
+*   **上下文桥接 (Context Bridge)**：为了解决跨域任务（Dev -> Ops）的连接问题，Anchor 可选包含上一轮的上下文摘要。
 *   **构建公式**：
     ```python
     # Buffer 中上一轮 Agent 回复的简短摘要 (由 Extractor 或 简单截断生成)
@@ -55,7 +55,7 @@
 
 ### Step 3: 智能仲裁 (Intelligent Arbitration)
 *   **触发条件**：仅在 Step 2 命中 Grey Area 时触发。
-*   **执行者**：**Local SLM (本地小模型)** 或 **Cross-Encoder**。
+*   **执行者**：**Local SLM (本地小模型)** 或 **Cross-Encoder**（优先）。
 *   **任务**：二分类逻辑判断。
 *   **Prompt / Input 逻辑**：
     > "判断以下两个意图是否属于同一个任务流？
@@ -75,7 +75,7 @@
 | :--- | :--- | :--- |
 | **Embedding 模型** | **BGE-M3** (Local) | 继续复用现有本地模型，开销极低。 |
 | **仲裁官 (Arbiter)** | **BGE-Reranker-v2-m3** <br> 或 **Qwen2.5-1.5B** | **新增组件**。推荐优先尝试 Reranker，它本质是计算句子对分数的 Cross-Encoder，比 LLM 更快更准，完全不需要生成能力。 |
-| **输入源** | 依赖 Global Gateway | 必须确保上游传入的 Query 已经过重写，否则本层效果大打折扣。 |
+| **输入源** | 依赖 Gateway | 必须确保上游传入的 Query 已经过重写，否则本层效果大打折扣。 |
 
 ## 5. 数据流图 (Data Flow)
 

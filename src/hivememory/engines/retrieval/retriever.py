@@ -85,7 +85,7 @@ class DenseRetriever(BaseMemoryRetriever):
         top_k = top_k or self.config.top_k
         score_threshold = score_threshold or self.config.score_threshold
 
-        # 构建��滤条件
+        # 构建过滤条件
         filters = _qdrant_filter_converter.convert(query.filters) if query.filters else None
 
         # 获取搜索文本

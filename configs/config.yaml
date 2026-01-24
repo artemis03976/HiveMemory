@@ -24,7 +24,7 @@ logging:
 
 # ========== LLM 模型配置 ==========
 llm:
-  worker:
+  gateway:
     provider: "litellm"
     model: "gpt-4o"
     api_key: null  # 通过环境变量 HIVEMEMORY__LLM__WORKER__API_KEY 设置
@@ -42,12 +42,21 @@ llm:
 
 # ========== Embedding 模型配置 ==========
 embedding:
-  model_name: "BAAI/bge-m3"
-  device: "cpu"  # 可选: cpu, cuda, mps
-  cache_dir: null
-  batch_size: 32
-  normalize_embeddings: true
-  dimension: 1024
+  default:
+    model_name: "BAAI/bge-m3"
+    device: "cpu"  # 可选: cpu, cuda, mps
+    cache_dir: null
+    batch_size: 32
+    normalize_embeddings: true
+    dimension: 1024
+
+  perception:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    device: "cpu"
+    cache_dir: null
+    batch_size: 32
+    normalize_embeddings: true
+    dimension: 384
 
 # ========== 向量数据库配置 ==========
 qdrant:
@@ -81,10 +90,6 @@ perception:
     ema_alpha: 0.3
     max_processing_tokens: 8192
     enable_smart_summary: false
-    embedding_model: null  # null 则复用全局 embedding 配置
-    embedding_device: null
-    embedding_cache_dir: null
-    embedding_batch_size: null
 
   simple:
     message_threshold: 6

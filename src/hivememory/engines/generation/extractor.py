@@ -58,32 +58,21 @@ class LLMMemoryExtractor(MemoryExtractor):
 
     def __init__(
         self,
-        llm_config: Optional[LLMConfig] = None,
-        llm_service: Optional[BaseLLMService] = None,
+        llm_service: BaseLLMService = None,
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
-        max_retries: int = 2,
     ):
         """
         初始化 LLM 提取器
 
         Args:
-            llm_config: LLM 配置（默认使用全局 Librarian 配置）
-            llm_service: LLM 服务实例（可选，支持依赖注入）
+            llm_service: LLM 服务实例（依赖注入）
             system_prompt: 自定义系统提示词
             user_prompt: 自定义用户提示词
             max_retries: 最大重试次数
         """
-        self.llm_config = llm_config or get_librarian_llm_config()
 
-        # 支持直接传入 llm_service（便于测试）
-        if llm_service is not None:
-            self.llm_service = llm_service
-        else:
-            # 使用工厂函数创建服务实例
-            self.llm_service = get_librarian_llm_service(config=self.llm_config)
-
-        self.max_retries = max_retries
+        self.llm_service = llm_service
 
         # 初始化输出解析器
         self.output_parser = PydanticOutputParser(pydantic_object=ExtractedMemoryDraft)
@@ -150,7 +139,6 @@ class LLMMemoryExtractor(MemoryExtractor):
             # Step 2: 调用 LLM (带重试)
             raw_output = self.llm_service.complete_with_retry(
                 messages=messages,
-                max_retries=self.max_retries
             )
 
             if not raw_output:
@@ -158,7 +146,11 @@ class LLMMemoryExtractor(MemoryExtractor):
                 return None
 
             # Step 3: 解析 JSON
-            draft = self._parse_json_output(raw_output)
+            draft = parse_llm_json(
+                raw_output,
+                as_model=ExtractedMemoryDraft,
+                default=None
+            )
 
             if draft:
                 logger.info(f"成功提取记忆草稿: '{draft.title}' (has_value={draft.has_value})")
@@ -187,33 +179,6 @@ class LLMMemoryExtractor(MemoryExtractor):
             {"role": ROLE_MAPPING.get(msg.type, msg.type), "content": msg.content}
             for msg in langchain_messages
         ]
-
-    def _parse_json_output(self, raw_output: str) -> Optional[ExtractedMemoryDraft]:
-        """
-        解析 LLM 输出的 JSON (使用统一的 JSON 解析工具)
-
-        解析策略 (参见 LLMJSONParser):
-            1. Markdown 代码块提取 (支持 json/JSON 或无标识)
-            2. 直接解析全文
-            3. 智能提取第一个 JSON 对象 (基于括号计数)
-            4. 容错处理: 支持单引号、尾部逗号 (通过 ast.literal_eval)
-
-        Args:
-            raw_output: LLM 原始输出
-
-        Returns:
-            ExtractedMemoryDraft: 解析后的草稿，失败时返回 None
-        """
-        draft = parse_llm_json(
-            raw_output,
-            as_model=ExtractedMemoryDraft,
-            default=None
-        )
-
-        if draft is None:
-            logger.error(f"无法解析 JSON 输出: {raw_output[:200]}...")
-
-        return draft
 
 
 # 便捷函数
@@ -244,17 +209,11 @@ def create_default_extractor(
         from hivememory.patchouli.config import ExtractorConfig
         config = ExtractorConfig()
 
-    # 准备 LLM 配置
-    llm_config = config.llm_config
-    if llm_config is None:
-        llm_config = get_librarian_llm_config()
 
     return LLMMemoryExtractor(
-        llm_config=llm_config,
         llm_service=llm_service,
         system_prompt=config.system_prompt,
         user_prompt=config.user_prompt,
-        max_retries=config.max_retries,
     )
 
 

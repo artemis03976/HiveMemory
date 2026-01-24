@@ -296,16 +296,3 @@ class LibrarianCore:
 *   **认知分离**：
     *   代码逻辑上，你很清楚：`engines` 目录是**干活的工具**（怎么算 Embedding，怎么存 Qdrant）。
     *   `patchouli` 目录是**业务逻辑**（什么时候切分，什么时候归档，怎么重写）。
-
-
-## 6. v2.0 协议与落地对照（建议补充）
-
-为了避免各模块对字段/语义的理解不一致，建议把系统内部协议固定为一份最小闭环规范，并在各模块文档中引用同一份协议。
-
-- **内部协议**：[InternalProtocol_v2.0.md](file:///c:/Users/29305/Projects/HiveMemory/docs/mod/InternalProtocol_v2.0.md)
-- **现状落地（代码）**：
-  - Retrieval Router：已有（规则 + LLM），见 [router.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/retrieval/router.py)
-  - Retrieval Engine（Hybrid + RRF + 可选 Rerank）：已有，见 [retriever.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/retrieval/retriever.py)
-  - Context Renderer：已有基础版，见 [renderer.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/retrieval/renderer.py)
-  - Perception Layer（语义流）：已实现，见 [semantic_flow_perception_layer.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/perception/semantic_flow_perception_layer.py)
-  - Global Gateway（统一网关）：尚未落地（当前仍由 Router/QueryProcessor/Gating 分散承担）

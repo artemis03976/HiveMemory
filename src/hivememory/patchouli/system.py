@@ -92,6 +92,7 @@ class PatchouliSystem:
         self.librarian_core = LibrarianCore(
             storage=self.storage,
             llm_service=self.librarian_llm_service,
+            embedding_service=self.perception_embedding_service,
             perception_config=self.config.perception,
             generation_config=self.config.generation,
             lifecycle_config=self.config.lifecycle,
@@ -107,16 +108,26 @@ class PatchouliSystem:
         from hivememory.infrastructure.storage import QdrantMemoryStore
         self.storage = QdrantMemoryStore(
             qdrant_config=self.config.qdrant,
-            embedding_config=self.config.embedding,
+            embedding_config=self.config.embedding.default,
         )
-        
+
+        # 初始化感知层 Embedding 服务（用于语义相似度计算）
+        from hivememory.infrastructure.embedding import get_perception_embedding_service
+        self.perception_embedding_service = get_perception_embedding_service(
+            config=self.config.embedding.perception
+        )
+
         # 初始化 Gateway LLM 服务
         from hivememory.infrastructure.llm import get_gateway_llm_service
-        self.gateway_llm_service = get_gateway_llm_service(config=self.config.llm.gateway)
+        self.gateway_llm_service = get_gateway_llm_service(
+            config=self.config.llm.gateway
+        )
 
         # 初始化 Librarian LLM 服务
         from hivememory.infrastructure.llm import get_librarian_llm_service
-        self.librarian_llm_service = get_librarian_llm_service(config=self.config.llm.librarian)
+        self.librarian_llm_service = get_librarian_llm_service(
+            config=self.config.llm.librarian
+        )
         
     def process_interaction(
         self,
