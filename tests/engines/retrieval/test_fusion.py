@@ -2,6 +2,7 @@
 Fusion 模块单元测试
 
 测试 ReciprocalRankFusion (RRF) 算法的正确性
+测试 AdaptiveWeightedFusion 自适应加权融合算法
 """
 
 import pytest
@@ -10,8 +11,8 @@ from datetime import datetime
 
 from hivememory.core.models import MemoryAtom, IndexLayer, MetaData, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
-from hivememory.patchouli.config import FusionConfig
-from hivememory.engines.retrieval.fusion import ReciprocalRankFusion
+from hivememory.patchouli.config import FusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
+from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, AdaptiveWeightedFusion
 
 class TestReciprocalRankFusion:
     
@@ -170,7 +171,233 @@ class TestReciprocalRankFusion:
         """测试延迟时间累加"""
         r1 = SearchResults(latency_ms=10.0)
         r2 = SearchResults(latency_ms=20.0)
-        
+
         fused = fusion.fuse(r1, r2)
         assert fused.latency_ms == 30.0
 
+
+class TestAdaptiveWeightedFusion:
+    """测试自适应加权融合器"""
+
+    @pytest.fixture
+    def fusion(self):
+        """创建默认配置的融合器"""
+        return AdaptiveWeightedFusion()
+
+    def create_result(
+        self,
+        memory_id: UUID,
+        score: float,
+        match_reason: str,
+        confidence: float = 0.8,
+        vitality: float = 50.0
+    ) -> SearchResult:
+        """创建测试用的 SearchResult"""
+        memory = MemoryAtom(
+            id=memory_id,
+            index=IndexLayer(
+                title=f"Mem {memory_id}",
+                summary="summary must be long enough for validation",
+                memory_type=MemoryType.FACT
+            ),
+            meta=MetaData(
+                source_agent_id="test",
+                user_id="user",
+                confidence_score=confidence,
+                vitality_score=vitality
+            ),
+            payload=PayloadLayer(content="content")
+        )
+        return SearchResult(
+            memory=memory,
+            score=score,
+            match_reason=match_reason
+        )
+
+    def test_fuse_with_quality_multiplier(self, fusion):
+        """测试质量乘数正确应用"""
+        id1 = uuid4()
+        id2 = uuid4()
+
+        # id1: 高分数，低置信度 -> 应被惩罚
+        # id2: 低分数，高置信度 -> 不被惩罚
+        dense_results = SearchResults(results=[
+            self.create_result(id1, 0.9, "dense", confidence=0.4, vitality=50.0),
+            self.create_result(id2, 0.7, "dense", confidence=0.95, vitality=50.0),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        # 使用 debug 模式 (强惩罚)
+        fused = fusion.fuse(dense_results, sparse_results, mode="debug")
+
+        # 验证低置信度的记忆被降权
+        assert len(fused.results) == 2
+        # id1 原始分数高但被惩罚，id2 原始分数低但不被惩罚
+        # 在 debug 模式下，confidence < 0.6 会被乘以 0.5
+        # id1: 0.9 * 0.5 = 0.45 (被惩罚)
+        # id2: 0.7 * 1.0 = 0.7 (不被惩罚)
+        # 所以 id2 应该排在前面
+        assert fused.results[0].memory.id == id2
+
+    def test_debug_mode_penalizes_low_confidence(self):
+        """测试 Debug 模式下低置信度被降权"""
+        fusion = AdaptiveWeightedFusion()
+
+        id_low_conf = uuid4()
+        id_high_conf = uuid4()
+
+        dense_results = SearchResults(results=[
+            self.create_result(id_low_conf, 0.95, "dense", confidence=0.3, vitality=50.0),
+            self.create_result(id_high_conf, 0.85, "dense", confidence=0.95, vitality=50.0),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        # Debug 模式: 强惩罚低置信度
+        fused = fusion.fuse(dense_results, sparse_results, mode="debug")
+
+        # 高置信度应排第一
+        assert fused.results[0].memory.id == id_high_conf
+        assert fused.results[0].memory.meta.confidence_score > 0.9
+
+    def test_concept_mode_weights(self):
+        """测试 Concept 模式权重分配正确"""
+        fusion = AdaptiveWeightedFusion()
+
+        id1 = uuid4()
+
+        # 只有 dense 结果
+        dense_results = SearchResults(results=[
+            self.create_result(id1, 0.9, "dense", confidence=0.8, vitality=50.0),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        # Concept 模式: 高 dense 权重 (0.8)
+        fused = fusion.fuse(dense_results, sparse_results, mode="concept")
+
+        assert len(fused.results) == 1
+        # 验证分数被正确计算
+        # dense_weight=0.8, sparse_weight=0.2, total=1.0
+        # score = (0.8/1.0) * 0.9 = 0.72
+        # 无惩罚 (confidence=0.8 > 0.5)
+        assert fused.results[0].score == pytest.approx(0.72, rel=0.01)
+
+    def test_vitality_boost(self):
+        """测试高生命力记忆被提权"""
+        fusion = AdaptiveWeightedFusion()
+
+        id_high_vit = uuid4()
+        id_low_vit = uuid4()
+
+        dense_results = SearchResults(results=[
+            self.create_result(id_low_vit, 0.9, "dense", confidence=0.8, vitality=20.0),
+            self.create_result(id_high_vit, 0.85, "dense", confidence=0.8, vitality=90.0),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        # Concept 模式: 启用生命力加成
+        fused = fusion.fuse(dense_results, sparse_results, mode="concept")
+
+        # 高生命力应该被提权
+        # id_low_vit: 0.9 * 0.8 (vitality_low_factor)
+        # id_high_vit: 0.85 * 1.2 (vitality_high_factor)
+        assert fused.results[0].memory.id == id_high_vit
+
+    def test_mode_switching(self, fusion):
+        """测试模式切换正确"""
+        id1 = uuid4()
+
+        dense_results = SearchResults(results=[
+            self.create_result(id1, 0.9, "dense", confidence=0.4, vitality=50.0),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        # Debug 模式: 低置信度被惩罚
+        fused_debug = fusion.fuse(dense_results, sparse_results, mode="debug")
+
+        # Brainstorm 模式: 无惩罚
+        fused_brainstorm = fusion.fuse(dense_results, sparse_results, mode="brainstorm")
+
+        # Debug 模式分数应该更低 (被惩罚)
+        assert fused_debug.results[0].score < fused_brainstorm.results[0].score
+
+    def test_default_mode_fallback(self, fusion):
+        """测试未指定模式时使用默认模式"""
+        id1 = uuid4()
+
+        dense_results = SearchResults(results=[
+            self.create_result(id1, 0.9, "dense"),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        # 不指定模式，应使用默认模式 (concept)
+        fused = fusion.fuse(dense_results, sparse_results)
+
+        assert len(fused.results) == 1
+        # 默认模式是 concept，dense_weight=0.8
+        # score = (0.8/1.0) * 0.9 = 0.72
+        assert fused.results[0].score == pytest.approx(0.72, rel=0.01)
+
+    def test_fuse_empty(self, fusion):
+        """测试空结果处理"""
+        empty = SearchResults()
+        fused = fusion.fuse(empty, empty)
+
+        assert len(fused.results) == 0
+        assert fused.is_empty()
+
+    def test_fuse_with_intent(self, fusion):
+        """测试基于意图的模式推断"""
+        id1 = uuid4()
+
+        dense_results = SearchResults(results=[
+            self.create_result(id1, 0.9, "dense", confidence=0.4),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        # 使用 "fix error" 意图，应推断为 debug 模式
+        fused = fusion.fuse_with_intent(dense_results, sparse_results, "fix error in code")
+
+        # Debug 模式会惩罚低置信度
+        # 验证分数被惩罚
+        assert fused.results[0].score < 0.9
+
+    def test_top_k_truncation(self):
+        """测试结果截断"""
+        config = AdaptiveWeightedFusionConfig(final_top_k=2)
+        fusion = AdaptiveWeightedFusion(config)
+
+        # 创建 3 个结果
+        dense_results = SearchResults(results=[
+            self.create_result(uuid4(), 0.9, "r1"),
+            self.create_result(uuid4(), 0.8, "r2"),
+            self.create_result(uuid4(), 0.7, "r3"),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        fused = fusion.fuse(dense_results, sparse_results)
+
+        assert len(fused.results) == 2
+        assert fused.total_candidates == 3
+
+    def test_latency_aggregation(self, fusion):
+        """测试延迟时间累加"""
+        r1 = SearchResults(latency_ms=10.0)
+        r2 = SearchResults(latency_ms=20.0)
+
+        fused = fusion.fuse(r1, r2)
+        assert fused.latency_ms == 30.0
+
+    def test_unknown_mode_fallback(self, fusion):
+        """测试未知模式回退到默认模式"""
+        id1 = uuid4()
+
+        dense_results = SearchResults(results=[
+            self.create_result(id1, 0.9, "dense"),
+        ])
+        sparse_results = SearchResults(results=[])
+
+        # 使用未知模式
+        fused = fusion.fuse(dense_results, sparse_results, mode="unknown_mode")
+
+        # 应该回退到默认模式 (concept)
+        assert len(fused.results) == 1

@@ -265,6 +265,129 @@ class FusionConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
 
 
+class RetrievalModeConfig(BaseSettings):
+    """
+    预设检索模式配置
+
+    用于 AdaptiveWeightedFusion 的各检索模式参数配置。
+    包含权重分配和质量乘数计算参数。
+    """
+    # 权重分配
+    dense_weight: float = Field(default=0.6, description="稠密检索权重")
+    sparse_weight: float = Field(default=0.4, description="稀疏检索权重")
+    time_weight: float = Field(default=0.0, description="时间权重 (预留)")
+
+    # 置信度惩罚
+    confidence_penalty_enabled: bool = Field(default=True, description="是否启用置信度惩罚")
+    confidence_penalty_threshold: float = Field(default=0.6, description="低于此值触发惩罚")
+    confidence_penalty_factor: float = Field(default=0.5, description="惩罚系数 (乘以此值)")
+
+    # 生命力加成
+    vitality_boost_enabled: bool = Field(default=True, description="是否启用生命力加成")
+    vitality_high_threshold: float = Field(default=80.0, description="高生命力阈值")
+    vitality_high_factor: float = Field(default=1.2, description="高生命力加成系数")
+    vitality_low_threshold: float = Field(default=30.0, description="低生命力阈值")
+    vitality_low_factor: float = Field(default=0.8, description="低生命力惩罚系数")
+
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
+
+
+class AdaptiveWeightedFusionConfig(BaseSettings):
+    """
+    自适应加权融合配置
+
+    支持多种预设检索模式:
+    - debug: 高 sparse 权重，强置信度惩罚 (精确匹配场景)
+    - concept: 高 dense 权重，弱惩罚 (概念理解场景)
+    - timeline: 高 time 权重，中等惩罚 (时间相关场景)
+    - brainstorm: 高 dense 权重，无惩罚 (发散思维场景)
+    """
+    final_top_k: int = Field(default=5, description="最终返回数量")
+    default_mode: str = Field(default="concept", description="默认检索模式")
+
+    # 预设模式配置
+    debug_mode: RetrievalModeConfig = Field(
+        default_factory=lambda: RetrievalModeConfig(
+            dense_weight=0.3,
+            sparse_weight=0.9,
+            time_weight=0.1,
+            confidence_penalty_enabled=True,
+            confidence_penalty_threshold=0.6,
+            confidence_penalty_factor=0.5,
+            vitality_boost_enabled=True,
+        ),
+        description="Debug 模式: 高 sparse, 强惩罚"
+    )
+
+    concept_mode: RetrievalModeConfig = Field(
+        default_factory=lambda: RetrievalModeConfig(
+            dense_weight=0.8,
+            sparse_weight=0.2,
+            time_weight=0.1,
+            confidence_penalty_enabled=True,
+            confidence_penalty_threshold=0.5,
+            confidence_penalty_factor=0.7,
+            vitality_boost_enabled=True,
+        ),
+        description="Concept 模式: 高 dense, 弱惩罚"
+    )
+
+    timeline_mode: RetrievalModeConfig = Field(
+        default_factory=lambda: RetrievalModeConfig(
+            dense_weight=0.4,
+            sparse_weight=0.3,
+            time_weight=0.8,
+            confidence_penalty_enabled=True,
+            confidence_penalty_threshold=0.6,
+            confidence_penalty_factor=0.6,
+            vitality_boost_enabled=True,
+        ),
+        description="Timeline 模式: 高 time, 中等惩罚"
+    )
+
+    brainstorm_mode: RetrievalModeConfig = Field(
+        default_factory=lambda: RetrievalModeConfig(
+            dense_weight=0.6,
+            sparse_weight=0.1,
+            time_weight=0.0,
+            confidence_penalty_enabled=False,
+            vitality_boost_enabled=False,
+        ),
+        description="Brainstorm 模式: 高 dense, 无惩罚"
+    )
+
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
+
+
+class CompactRendererConfig(BaseSettings):
+    """
+    紧凑上下文渲染器配置
+
+    实现 Token 预算管理和分级渲染:
+    - Top-N 记忆强制完整渲染
+    - 其余按预算瀑布式降级为 Index 视图
+    """
+    # Token 预算
+    max_memory_tokens: int = Field(default=2000, description="最大记忆 Token 预算")
+
+    # 分级渲染
+    enable_tiered_rendering: bool = Field(default=True, description="是否启用分级渲染")
+    full_payload_count: int = Field(default=1, description="强制完整渲染的数量 (Top-N)")
+
+    # 渲染格式
+    render_format: str = Field(default="xml", description="渲染格式: xml/markdown")
+
+    # Index 视图配置
+    index_max_summary_length: int = Field(default=100, description="Index 视图摘要最大长度")
+
+    # 懒加载 (可选)
+    enable_lazy_loading: bool = Field(default=False, description="是否启用懒加载提示")
+    lazy_load_tool_name: str = Field(default="read_memory", description="懒加载工具名称")
+    lazy_load_hint: str = Field(default="如需完整内容，请使用 read_memory(id) 工具", description="懒加载提示文本")
+
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__", env_prefix=HIVEMEMORY_ENV_PREFIX)
+
+
 class RerankerConfig(BaseSettings):
     """重排序器配置"""
     enabled: bool = Field(default=True, description="是否启用重排序")

@@ -8,14 +8,16 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 - SparseRetriever: 稀疏向量检索器 (BGE-M3/BM25, 精准实体匹配)
 - HybridRetriever: 混合检索引擎 (稠密 + 稀疏 + RRF 融合)
 - ReciprocalRankFusion: RRF 结果融合
+- AdaptiveWeightedFusion: 自适应加权融合 (Phase 4)
 - ContextRenderer: 上下文渲染器
+- CompactContextRenderer: 紧凑上下文渲染器 (Phase 4)
 - RetrievalEngine: 统一入口门面 (接口)
 
 对应设计文档: PROJECT.md 第 5 章
 
 状态: Stage 2 改进中 (混合检索)
 作者: HiveMemory Team
-版本: 0.5.0
+版本: 0.6.0
 """
 
 import logging
@@ -60,6 +62,7 @@ from hivememory.engines.retrieval.retriever import (
 )
 from hivememory.engines.retrieval.fusion import (
     ReciprocalRankFusion,
+    AdaptiveWeightedFusion,
 )
 from hivememory.engines.retrieval.reranker import (
     NoopReranker,
@@ -70,7 +73,9 @@ from hivememory.engines.retrieval.reranker import (
 from hivememory.engines.retrieval.renderer import (
     ContextRenderer,
     MinimalRenderer,
+    CompactContextRenderer,
     create_default_renderer,
+    create_compact_renderer,
 )
 
 
@@ -98,6 +103,7 @@ __all__ = [
     "HybridRetriever",
     "CachedRetriever",
     "ReciprocalRankFusion",
+    "AdaptiveWeightedFusion",
     "NoopReranker",
     "CrossEncoderReranker",
     "create_default_retriever",
@@ -105,5 +111,7 @@ __all__ = [
     # 渲染
     "ContextRenderer",
     "MinimalRenderer",
+    "CompactContextRenderer",
     "create_default_renderer",
+    "create_compact_renderer",
 ]
