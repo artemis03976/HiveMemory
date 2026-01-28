@@ -14,7 +14,7 @@
 版本: 2.1
 """
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 import time
 import logging
 
@@ -22,15 +22,12 @@ if TYPE_CHECKING:
     from hivememory.patchouli.config import MemoryRetrievalConfig
 
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
-from hivememory.engines.retrieval.retriever import create_default_retriever
-from hivememory.engines.retrieval.renderer import create_default_renderer
+from hivememory.engines.retrieval.engine import RetrievalEngine
+from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.infrastructure.rerank import BaseRerankService
-from hivememory.patchouli.protocol.models import RetrievalRequest, RetrievalResult
+from hivememory.patchouli.protocol.models import RetrievalRequest, RetrievalResponse
 
 logger = logging.getLogger(__name__)
-
 
 class RetrievalFamiliar:
     """
@@ -45,95 +42,57 @@ class RetrievalFamiliar:
         - 本地计算密集
 
     职责：
-        1. 并行召回 (Parallel Recall)：
-           - Dense: 使用 Rewritten Query 进行向量检索
-           - Sparse: 使用 Keywords 进行 BM25 检索
-           - Filter: 应用 Type 或 Source 过滤
-        2. 融合 (Fusion)：使用 RRF (Reciprocal Rank Fusion) 合并多路结果
-        3. 精排 (Reranking)：引入 Cross-Encoder Reranker 对 Top-N 结果进行语义重打分
-        4. 上下文渲染：将 JSON 转换为 XML/Markdown 格式
+        1. 接收业务请求 (RetrievalRequest)
+        2. 调用 RetrievalEngine 进行数据检索
+        3. 处理副作用 (如统计更新)
 
     使用示例:
         ```python
         from hivememory.patchouli.retrieval_familiar import RetrievalFamiliar
-        from hivememory.infrastructure.storage import QdrantMemoryStore
-        from hivememory.patchouli.protocol.models import RetrievalRequest
-
-        storage = QdrantMemoryStore()
-        familiar = RetrievalFamiliar(storage=storage)
-
-        request = RetrievalRequest(
-            semantic_query="我之前设置的 API Key 是什么？",
-            user_id="user_123"
-        )
+        from hivememory.engines.retrieval.engine import RetrievalEngine
+        # ...
+        engine = RetrievalEngine(retriever=..., renderer=...)
+        familiar = RetrievalFamiliar(engine=engine, storage=...)
+        
         result = familiar.retrieve(request)
-
-        if not result.is_empty():
-            print(result.rendered_context)
         ```
     """
 
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        reranker_service: Optional[BaseRerankService] = None,
-        config: Optional["MemoryRetrievalConfig"] = None,
+        engine: RetrievalEngine,
     ):
         """
         初始化检索使魔
 
         Args:
-            storage: QdrantMemoryStore 实例
-            reranker_service: Rerank 服务实例
-            config: 记忆检索配置（可选，用于创建组件）
-
-        Examples:
-            >>> # 使用默认配置
-            >>> familiar = RetrievalFamiliar(storage=storage)
-            >>>
-            >>> # 使用自定义配置
-            >>> from hivememory.patchouli.config import MemoryRetrievalConfig
-            >>> config = MemoryRetrievalConfig()
-            >>> familiar = RetrievalFamiliar(storage=storage, config=config)
+            storage: QdrantMemoryStore 实例 (用于更新统计)
+            engine: 检索引擎实例
         """
         self.storage = storage
+        self.engine = engine
 
-        # 使用传入的配置或加载默认配置
-        if config:
-            self.config = config
-        else:
-            from hivememory.patchouli.config import MemoryRetrievalConfig
-            self.config = MemoryRetrievalConfig()
+        logger.info("RetrievalFamiliar (检索使魔) 初始化完成")
 
-        # 初始化检索器和渲染器
-        # 注意: 路由器和查询处理器已废弃，由 GlobalGateway 接管
-        self.retriever = create_default_retriever(
-            storage, 
-            self.config.retriever, 
-            reranker_service=reranker_service
-        )
-        self.renderer = create_default_renderer(self.config.renderer)
-
-        logger.info("RetrievalFamiliar 初始化完成")
-
-    def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
+    def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
         """
         检索相关记忆
 
         完整流程:
         1. 构建查询对象 (RetrievalQuery)
-        2. 混合检索（向量 + 元数据）
-        3. 上下文渲染（XML/Markdown）
+        2. 调用 Engine 执行检索
+        3. Engine 内部完成上下文渲染
 
         Args:
             request: 检索请求协议消息
 
         Returns:
-            RetrievalResult 对象
+            RetrievalResponse 对象
         """
         start_time = time.time()
 
-        result = RetrievalResult()
+        response = RetrievalResponse()
 
         try:
             # Step 1: 构建查询对象
@@ -148,31 +107,24 @@ class RetrievalFamiliar:
                 filters=query_filters,
             )
 
-            # Step 2: 执行检索
-            retriever_results = self.retriever.retrieve(
-                query=query,
-            )
-  
-            result.memories = retriever_results.get_memories()
-            result.memories_count = len(result.memories)
+            engine_result = self.engine.retrieve(query=query)
 
-            # Step 3: 渲染上下文
-            if not retriever_results.is_empty():
-                result.rendered_context = self.renderer.render(retriever_results.results)
-
-            result.latency_ms = (time.time() - start_time) * 1000
+            response.memories = engine_result.memories
+            response.memories_count = engine_result.memories_count
+            response.rendered_context = engine_result.rendered_context
+            response.latency_ms = engine_result.latency_ms
 
             logger.info(
                 f"检索完成: query='{request.semantic_query[:20]}...', "
-                f"使魔取回了 {result.memories_count} 条记忆, "
-                f"latency={result.latency_ms:.1f}ms"
+                f"使魔取回了 {response.memories_count} 条记忆, "
+                f"latency={response.latency_ms:.1f}ms"
             )
 
         except Exception as e:
             logger.error(f"检索失败: {e}", exc_info=True)
-            result.latency_ms = (time.time() - start_time) * 1000
+            response.latency_ms = (time.time() - start_time) * 1000
 
-        return result
+        return response
 
     def update_access_stats(self, memories: List[MemoryAtom]) -> None:
         """

@@ -134,7 +134,9 @@ class BGEM3EmbeddingService(SingletonModelService):
         return 1024
 
 
-@lru_cache(maxsize=1)
+_bge_m3_instance = None
+_bge_m3_lock = threading.Lock()
+
 def get_bge_m3_service(
     config: Optional["EmbeddingConfig"] = None
 ) -> BGEM3EmbeddingService:
@@ -144,9 +146,19 @@ def get_bge_m3_service(
     Args:
         config: Embedding 配置对象。如果为 None，则使用全局配置（强制模型名为 BAAI/bge-m3）。
     """
-    if config is None:
-        base_config = load_app_config().embedding
-        # 强制使用 BGE-M3 模型名称，保留其他配置（如 device, cache_dir）
-        config = base_config.model_copy(update={"model_name": "BAAI/bge-m3"})
-
-    return BGEM3EmbeddingService(config=config)
+    global _bge_m3_instance
+    
+    if _bge_m3_instance is None:
+        with _bge_m3_lock:
+            if _bge_m3_instance is None:
+                if config is None:
+                    # 注意：这里假设 load_app_config().embedding 返回的是 EmbeddingGlobalConfig
+                    # 我们取 default 配置作为基础
+                    global_embedding_config = load_app_config().embedding
+                    base_config = global_embedding_config.default
+                    # 强制使用 BGE-M3 模型名称，保留其他配置（如 device, cache_dir）
+                    config = base_config.model_copy(update={"model_name": "BAAI/bge-m3"})
+                
+                _bge_m3_instance = BGEM3EmbeddingService(config=config)
+                
+    return _bge_m3_instance

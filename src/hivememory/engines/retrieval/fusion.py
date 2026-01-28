@@ -1,30 +1,21 @@
 """
 结果融合模块 (Fusion)
 
-使用 RRF (Reciprocal Rank Fusion) 算法合并多路检索结果。
-
-RRF 公式:
-    score(d) = sum(w_i / (k + rank_i(d)))
-
-其中:
-    d: 文档
-    w_i: 结果列表 i 的权重
-    rank_i(d): 文档 d 在列表 i 中的排名
-    k: 常数 (通常为 60)
-
-参考: "Reciprocal Rank Fusion outperforms Condorcet and individual Rank Learning Methods"
-https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf
+合并多路检索结果。
 
 对应设计文档: PROJECT.md 5.1.5 节
 """
 
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Union, TYPE_CHECKING
 from collections import defaultdict
 import logging
 
-from hivememory.patchouli.config import FusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
+from hivememory.patchouli.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
 from hivememory.engines.retrieval.interfaces import BaseFusion
+
+if TYPE_CHECKING:
+    from hivememory.engines.lifecycle.vitality import VitalityCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +26,28 @@ class ReciprocalRankFusion(BaseFusion):
 
     用于合并稠密和稀疏两路检索结果。
     RRF 对分数分布不敏感，能很好地融合不同检索方式的结果。
+    
+    RRF 公式:
+        score(d) = sum(w_i / (k + rank_i(d)))
+
+    其中:
+        d: 文档
+        w_i: 结果列表 i 的权重
+        rank_i(d): 文档 d 在列表 i 中的排名
+        k: 常数 (通常为 60)
+
+    参考: "Reciprocal Rank Fusion outperforms Condorcet and individual Rank Learning Methods"
+    https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf
     """
 
-    def __init__(self, config: Optional[FusionConfig] = None):
+    def __init__(self, config: ReciprocalRankFusionConfig):
         """
         初始化 RRF 融合器
 
         Args:
             config: 融合配置
         """
-        self.config = config or FusionConfig()
+        self.config = config
 
     def fuse(
         self,
@@ -181,14 +184,20 @@ class AdaptiveWeightedFusion(BaseFusion):
         - brainstorm: 高 dense 权重，无惩罚 (发散思维场景)
     """
 
-    def __init__(self, config: Optional[AdaptiveWeightedFusionConfig] = None):
+    def __init__(
+        self,
+        config: Optional[AdaptiveWeightedFusionConfig] = None,
+        vitality_calculator: Optional["VitalityCalculator"] = None
+    ):
         """
         初始化自适应加权融合器
 
         Args:
             config: 融合配置，包含各模式的权重和质量乘数参数
+            vitality_calculator: 生命力计算器 (可选)，用于按需刷新生命力分数
         """
         self.config = config or AdaptiveWeightedFusionConfig()
+        self.vitality_calculator = vitality_calculator
 
     def fuse(
         self,
@@ -247,7 +256,14 @@ class AdaptiveWeightedFusion(BaseFusion):
         for memory_id in scores:
             result = result_map[memory_id]
             confidence = result.memory.meta.confidence_score
+
+            # 获取生命力分数 (已统一为 0-100)
             vitality = result.memory.meta.vitality_score
+
+            # 如果提供了计算器，实时刷新生命力
+            if self.vitality_calculator is not None:
+                vitality = self.vitality_calculator.calculate(result.memory)
+                result.memory.meta.vitality_score = vitality
 
             quality_multiplier = self._calculate_quality_multiplier(
                 confidence, vitality, mode_config
@@ -390,7 +406,31 @@ class AdaptiveWeightedFusion(BaseFusion):
         return conf_factor * vit_factor
 
 
+def create_fusion(config: Union[ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig]) -> BaseFusion:
+    """
+    创建融合器工厂
+
+    支持多态配置:
+    - ReciprocalRankFusionConfig -> ReciprocalRankFusion
+    - AdaptiveWeightedFusionConfig -> AdaptiveWeightedFusion
+
+    Args:
+        config: 融合配置
+
+    Returns:
+        BaseFusion 实例
+    """
+    if isinstance(config, ReciprocalRankFusionConfig):
+        return ReciprocalRankFusion(config)
+    
+    if isinstance(config, AdaptiveWeightedFusionConfig):
+        return AdaptiveWeightedFusion(config)
+
+    raise ValueError(f"未知的 fusion 类型: {type(config)}")
+
+
 __all__ = [
     "ReciprocalRankFusion",
     "AdaptiveWeightedFusion",
+    "create_fusion",
 ]

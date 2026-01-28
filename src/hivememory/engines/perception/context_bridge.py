@@ -17,6 +17,7 @@ HiveMemory 上下文桥接器 (Context Bridge)
 import logging
 from typing import Optional
 
+from hivememory.patchouli.config import ContextBridgeConfig
 from hivememory.engines.perception.models import SemanticBuffer
 
 logger = logging.getLogger(__name__)
@@ -58,8 +59,7 @@ class ContextBridge:
 
     def __init__(
         self,
-        context_max_length: int = 200,
-        context_source: str = "response",
+        config: ContextBridgeConfig,
     ):
         """
         初始化上下文桥接器
@@ -71,18 +71,14 @@ class ContextBridge:
                 - "user": 使用用户查询作为上下文
                 - "auto": 自动选择（优先 response，回退 user）
         """
-        if context_max_length <= 0:
-            raise ValueError("context_max_length 必须大于 0")
+        self.config = config
 
-        if context_source not in ("response", "user", "auto"):
-            raise ValueError("context_source 必须是 'response', 'user' 或 'auto'")
-
-        self.context_max_length = context_max_length
-        self.context_source = context_source
+        self.context_max_length = config.context_max_length
+        self.context_source = config.context_source
 
         logger.debug(
-            f"ContextBridge 初始化: max_length={context_max_length}, "
-            f"source={context_source}"
+            f"ContextBridge 初始化: max_length={config.context_max_length}, "
+            f"source={config.context_source}"
         )
 
     def extract_last_context(self, buffer: SemanticBuffer) -> str:
@@ -225,5 +221,4 @@ class ContextBridge:
 
 __all__ = [
     "ContextBridge",
-    "DEFAULT_STOP_WORDS",
 ]

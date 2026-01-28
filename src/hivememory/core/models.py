@@ -13,7 +13,7 @@ from enum import Enum
 from typing import List, Optional, Dict, Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 # ============ 工具函数 ============
@@ -101,14 +101,15 @@ class Identity(BaseModel):
         """返回带有新 session_id 的副本"""
         return self.model_copy(update={"session_id": session_id})
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "user_id": "user123",
                 "agent_id": "chatbot",
                 "session_id": "sess_456"
             }
         }
+    )
   
 
 class StreamMessageType(str, Enum):
@@ -138,11 +139,6 @@ class StreamMessage(BaseModel):
     tool_name: Optional[str] = None
     tool_args: Optional[Dict[str, Any]] = None
     tool_result: Optional[str] = None
-
-    # Gateway/Perception metadata (Optional)
-    rewritten_query: Optional[str] = Field(default=None, description="Gateway 重写后的查询")
-    gateway_intent: Optional[str] = Field(default=None, description="Gateway 意图分类")
-    worth_saving: Optional[bool] = Field(default=None, description="Gateway 记忆价值判断")
 
     @property
     def user_id(self) -> str:
@@ -184,18 +180,7 @@ class StreamMessage(BaseModel):
             "content": self.content
         }
 
-    class Config:
-        use_enum_values = True
-
-
-class FlushReason(str, Enum):
-    """缓冲区刷新原因枚举"""
-    SEMANTIC_DRIFT = "semantic_drift"  # 语义漂移（话题切换）
-    TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
-    IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
-    MANUAL = "manual"  # 手动触发
-    SHORT_TEXT_ADSORB = "short_text_adsorb"  # 短文本强吸附
-    MESSAGE_COUNT = "message_count"  # 消息数量达到阈值（兼容旧版本）
+    model_config = ConfigDict(use_enum_values=True)
 
 
 # ============ Layer 1: Meta (元数据层) ============
@@ -220,7 +205,7 @@ class MetaData(BaseModel):
 
     # 生命周期管理
     access_count: int = Field(default=0, description="被引用次数")
-    vitality_score: float = Field(default=1.0, description="生命力分数 (0-1), 用于GC")
+    vitality_score: float = Field(default=100.0, ge=0.0, le=100.0, description="生命力分数 (0-100)")
 
     # 置信度与验证
     confidence_score: float = Field(
@@ -234,8 +219,8 @@ class MetaData(BaseModel):
         description="验证状态"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "source_agent_id": "coder_agent_01",
                 "user_id": "user_123",
@@ -243,6 +228,7 @@ class MetaData(BaseModel):
                 "verification_status": "VERIFIED"
             }
         }
+    )
 
 
 # ============ Layer 2: Index (索引层 - 用于向量化) ============
@@ -265,8 +251,8 @@ class IndexLayer(BaseModel):
         unique_tags = list(set(tag.lower().strip() for tag in v if tag.strip()))
         return unique_tags
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "title": "Python utils: parse_date 函数实现",
                 "summary": "基于 datetime 库实现的日期解析工具，支持 ISO8601 及多种自定义格式。",
@@ -274,6 +260,7 @@ class IndexLayer(BaseModel):
                 "memory_type": "CODE_SNIPPET"
             }
         }
+    )
 
 
 # ============ Layer 3: Payload (负载层 - 注入Context) ============
@@ -296,8 +283,8 @@ class Artifacts(BaseModel):
         description="完整版本历史 (Git-like)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "raw_source_url": "https://docs.python.org/3/library/datetime.html",
                 "file_path": "/project/utils/date_helper.py",
@@ -306,6 +293,7 @@ class Artifacts(BaseModel):
                 ]
             }
         }
+    )
 
 
 class PayloadLayer(BaseModel):
@@ -325,8 +313,8 @@ class PayloadLayer(BaseModel):
         description="原始数据存根"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "content": "```python\ndef parse_date(date_str):\n    ...\n```\n\n**使用注意**：处理UTC时间时需确保...",
                 "history_summary": [
@@ -335,6 +323,7 @@ class PayloadLayer(BaseModel):
                 ]
             }
         }
+    )
 
 
 # ============ Layer 4: Relations (关系层 - 预留) ============
@@ -381,8 +370,8 @@ class MemoryAtom(BaseModel):
             "relations": self.relations.model_dump(),
         }
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "meta": {
                     "source_agent_id": "coder_01",
@@ -400,3 +389,4 @@ class MemoryAtom(BaseModel):
                 }
             }
         }
+    )

@@ -12,28 +12,30 @@ import logging
 import math
 import time
 from datetime import datetime
-from typing import Optional, Dict, Tuple, TYPE_CHECKING
+from typing import Optional, Dict, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from hivememory.patchouli.config import (
     DenseRetrieverConfig,
     SparseRetrieverConfig,
+    HybridRetrieverConfig,
 )
-from hivememory.engines.retrieval.interfaces import BaseMemoryRetriever
+from hivememory.engines.retrieval.interfaces import (
+    BaseMemoryRetriever, 
+    BaseFusion, 
+    BaseReranker
+)
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
     SearchResults,
-    QueryFilters,
 )
-from hivememory.engines.retrieval.fusion import ReciprocalRankFusion
+from hivememory.engines.retrieval.fusion import create_fusion
+from hivememory.engines.retrieval.reranker import NoopReranker, create_reranker
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
-from hivememory.engines.retrieval.reranker import NoopReranker, CrossEncoderReranker, create_reranker
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.infrastructure.rerank.base import BaseRerankService
 
-if TYPE_CHECKING:
-    from hivememory.patchouli.config import HybridRetrieverConfig
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ class DenseRetriever(BaseMemoryRetriever):
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        config: Optional[DenseRetrieverConfig] = None
+        config: DenseRetrieverConfig
     ):
         """
         初始化稠密检索器
@@ -61,7 +63,7 @@ class DenseRetriever(BaseMemoryRetriever):
             config: 检索器配置
         """
         self.storage = storage
-        self.config = config or DenseRetrieverConfig()
+        self.config = config
 
     def retrieve(
         self,
@@ -178,7 +180,7 @@ class SparseRetriever(BaseMemoryRetriever):
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        config: Optional[SparseRetrieverConfig] = None
+        config: SparseRetrieverConfig
     ):
         """
         初始化稀疏检索器
@@ -188,7 +190,7 @@ class SparseRetriever(BaseMemoryRetriever):
             config: 检索器配置
         """
         self.storage = storage
-        self.config = config or SparseRetrieverConfig()
+        self.config = config
 
     def retrieve(
         self,
@@ -212,7 +214,7 @@ class SparseRetriever(BaseMemoryRetriever):
         top_k = top_k or self.config.top_k
         score_threshold = score_threshold or self.config.score_threshold
 
-        # 构建��滤条件
+        # 构建过滤条件
         filters = _qdrant_filter_converter.convert(query.filters) if query.filters else None
 
         # 获取搜索文本
@@ -270,53 +272,30 @@ class HybridRetriever(BaseMemoryRetriever):
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
-        config: Optional["HybridRetrieverConfig"] = None,
-        reranker_service: Optional[BaseRerankService] = None,
+        config: HybridRetrieverConfig,
+        dense_retriever: BaseMemoryRetriever,
+        sparse_retriever: BaseMemoryRetriever,
+        fusion: BaseFusion,
+        reranker: BaseReranker = None,
     ):
         """
         初始化混合检索器
 
         Args:
-            storage: QdrantMemoryStore 实例
-            config: 统一混合检索配置（HybridRetrieverConfig）
-            reranker_service: 重排序服务实例 (可选)
+            config: 混合检索配置
+            dense_retriever: 稠密检索器实例
+            sparse_retriever: 稀疏检索器实例
+            fusion: 融合器实例
+            reranker: 重排序器实例
         """
-        self.storage = storage
-
-        if config is None:
-            from hivememory.patchouli.config import HybridRetrieverConfig
-            config = HybridRetrieverConfig()
-
+        self.config = config
         self.enable_parallel = config.enable_parallel
-        self.enable_hybrid_search = config.enable_hybrid_search
-        self.default_top_k = config.top_k
-        self.default_threshold = config.score_threshold
 
-        # 初始化稠密检索器
-        if config.dense.enabled:
-            self.dense_retriever = DenseRetriever(storage, config.dense)
-        else:
-            self.dense_retriever = None
-
-        # 初始化稀疏检索器
-        if config.sparse.enabled:
-            self.sparse_retriever = SparseRetriever(storage, config.sparse)
-        else:
-            self.sparse_retriever = None
-
-        # 初始化融合器
-        self.fusion = ReciprocalRankFusion(config.fusion)
-
-        # 初始化重排序器
-        if config.reranker.enabled:
-            if reranker_service is None:
-                logger.warning("HybridRetriever: Reranker enabled but no service provided. Disabling reranker.")
-                self.reranker = None
-            else:
-                self.reranker = CrossEncoderReranker(service=reranker_service, config=config.reranker)
-        else:
-            self.reranker = None
+        self.dense_retriever = dense_retriever
+        self.sparse_retriever = sparse_retriever
+        
+        self.fusion = fusion
+        self.reranker = reranker
 
     def retrieve(
         self,
@@ -327,8 +306,7 @@ class HybridRetriever(BaseMemoryRetriever):
         """
         执行混合检索
 
-        如果 enable_hybrid_search=True，执行稠密+稀疏并行召回和 RRF 融合。
-        否则，仅执行稠密向量检索。
+        执行稠密+稀疏并行召回和 RRF 融合。
 
         Args:
             query: 处理后的查询
@@ -338,31 +316,9 @@ class HybridRetriever(BaseMemoryRetriever):
         Returns:
             检索结果集合
         """
-        top_k = top_k or self.default_top_k
-        score_threshold = score_threshold or self.default_threshold
+        top_k = top_k or self.config.top_k
+        score_threshold = score_threshold or self.config.score_threshold
 
-        if self.enable_hybrid_search:
-            return self._search_hybrid(query, top_k, score_threshold)
-        else:
-            return self._search_dense(query, top_k, score_threshold)
-
-    def _search_hybrid(
-        self,
-        query: RetrievalQuery,
-        top_k: int,
-        score_threshold: float
-    ) -> SearchResults:
-        """
-        执行混合检索 (稠密 + 稀疏 + RRF)
-
-        Args:
-            query: 处理后的查询
-            top_k: 返回数量
-            score_threshold: 相似度阈值
-
-        Returns:
-            检索结果集合
-        """
         start_time = time.time()
 
         # 并行召回
@@ -379,7 +335,7 @@ class HybridRetriever(BaseMemoryRetriever):
             fused_results = self.reranker.rerank(fused_results, query)
 
         # 应用分数阈值
-        # 注意: 仅当使用了非 NoopReranker (即提供了有意义的绝对分数) 时才应用阈值
+        # 注意: 仅当使用了非 NoopReranker 时才应用阈值
         if score_threshold > 0:
             if isinstance(self.reranker, NoopReranker):
                 fused_results.results = [
@@ -440,25 +396,6 @@ class HybridRetriever(BaseMemoryRetriever):
         dense_results = self.dense_retriever.retrieve(query)
         sparse_results = self.sparse_retriever.retrieve(query)
         return dense_results, sparse_results
-
-    def _search_dense(
-        self,
-        query: RetrievalQuery,
-        top_k: int,
-        score_threshold: float
-    ) -> SearchResults:
-        """
-        仅执行稠密向量检索
-
-        Args:
-            query: 处理后的查询
-            top_k: 返回数量
-            score_threshold: 相似度阈值
-
-        Returns:
-            检索结果集合
-        """
-        return self.dense_retriever.retrieve(query, top_k, score_threshold)
 
 
 class CachedRetriever(BaseMemoryRetriever):
@@ -524,27 +461,64 @@ class CachedRetriever(BaseMemoryRetriever):
         return result
 
 
-def create_default_retriever(
+def create_retriever(
     storage: QdrantMemoryStore, 
-    config: Optional["HybridRetrieverConfig"] = None,
-    reranker_service: Optional[BaseRerankService] = None
+    config: Union[HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig],
+    reranker_service: BaseRerankService = None
 ) -> BaseMemoryRetriever:
     """
-    创建默认混合检索器
+    创建检索器工厂
+
+    支持多态配置:
+    - DenseRetrieverConfig -> DenseRetriever
+    - SparseRetrieverConfig -> SparseRetriever
+    - HybridRetrieverConfig -> HybridRetriever
 
     Args:
         storage: QdrantMemoryStore 实例
-        config: 混合检索配置
+        config: 检索器配置
         reranker_service: Rerank 服务实例
 
     Returns:
-        HybridRetriever 实例
+        BaseMemoryRetriever 实例
     """
-    if config is None:
-        from hivememory.patchouli.config import HybridRetrieverConfig
-        config = HybridRetrieverConfig()
+    # 多态分发
+    if isinstance(config, DenseRetrieverConfig):
+        return DenseRetriever(storage, config)
+
+    if isinstance(config, SparseRetrieverConfig):
+        return SparseRetriever(storage, config)
     
-    return HybridRetriever(storage=storage, config=config, reranker_service=reranker_service)
+    if isinstance(config, HybridRetrieverConfig):
+        # 1. 创建子检索器
+        dense_retriever = None
+        if config.dense.enabled:
+            dense_retriever = DenseRetriever(storage, config.dense)
+            
+        sparse_retriever = None
+        if config.sparse.enabled:
+            sparse_retriever = SparseRetriever(storage, config.sparse)
+            
+        # 2. 创建 Fusion
+        fusion = create_fusion(config.fusion)
+        
+        # 3. 创建 Reranker
+        reranker = None
+        if config.reranker.enabled:
+            if reranker_service is None:
+                logger.warning("HybridRetriever: Reranker enabled but no service provided. Disabling reranker.")
+            else:
+                reranker = create_reranker(config=config.reranker, service=reranker_service)
+        
+        return HybridRetriever(
+            dense_retriever=dense_retriever,
+            sparse_retriever=sparse_retriever,
+            fusion=fusion,
+            reranker=reranker,
+            config=config
+        )
+
+    raise ValueError(f"未知的 Retriever 类型: {type(config)}")
 
 
 __all__ = [
@@ -552,5 +526,5 @@ __all__ = [
     "SparseRetriever",
     "HybridRetriever",
     "CachedRetriever",
-    "create_default_retriever",
+    "create_retriever",
 ]

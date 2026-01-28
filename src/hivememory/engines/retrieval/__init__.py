@@ -9,8 +9,9 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 - HybridRetriever: 混合检索引擎 (稠密 + 稀疏 + RRF 融合)
 - ReciprocalRankFusion: RRF 结果融合
 - AdaptiveWeightedFusion: 自适应加权融合 (Phase 4)
-- ContextRenderer: 上下文渲染器
-- CompactContextRenderer: 紧凑上下文渲染器 (Phase 4)
+- FullContextRenderer: 完整上下文渲染器
+- CascadeContextRenderer: 瀑布式上下文渲染器
+- CompactContextRenderer: 紧凑上下文渲染器
 - RetrievalEngine: 统一入口门面 (接口)
 
 对应设计文档: PROJECT.md 第 5 章
@@ -20,8 +21,10 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 版本: 0.6.0
 """
 
+from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from hivememory.patchouli.config import MemoryRetrievalConfig
@@ -39,12 +42,15 @@ from hivememory.engines.retrieval.interfaces import (
 
 # 数据模型
 from hivememory.engines.retrieval.models import (
-    QueryFilters,
-    RenderFormat,
     RetrievalQuery,
+    RetrievalResult,
     SearchResult,
     SearchResults,
+    RenderFormat,
 )
+
+# Engine
+from hivememory.engines.retrieval.engine import RetrievalEngine
 
 # 过滤器适配器
 from hivememory.engines.retrieval.filter_adapter import (
@@ -58,7 +64,7 @@ from hivememory.engines.retrieval.retriever import (
     SparseRetriever,
     HybridRetriever,
     CachedRetriever,
-    create_default_retriever,
+    create_retriever,
 )
 from hivememory.engines.retrieval.fusion import (
     ReciprocalRankFusion,
@@ -71,32 +77,33 @@ from hivememory.engines.retrieval.reranker import (
 
 # 渲染器
 from hivememory.engines.retrieval.renderer import (
-    ContextRenderer,
-    MinimalRenderer,
+    FullContextRenderer,
+    CascadeContextRenderer,
     CompactContextRenderer,
-    create_default_renderer,
-    create_compact_renderer,
+    create_renderer,
 )
+
+if TYPE_CHECKING:
+    from hivememory.patchouli.config import MemoryRetrievalConfig
 
 
 __all__ = [
+    # 主类
+    "RetrievalEngine",
+    # 数据模型
+    "RetrievalQuery",
+    "RetrievalResult",
+    "SearchResult",
+    "SearchResults",
+    "RenderFormat",
     # 接口
     "BaseMemoryRetriever",
     "BaseContextRenderer",
     "BaseReranker",
     "BaseFusion",
-
-    # 数据模型
-    "QueryFilters",
-    "RenderFormat",
-    "RetrievalQuery",
-    "SearchResult",
-    "SearchResults",
-
     # 过滤器适配器
     "FilterConverter",
     "QdrantFilterConverter",
-
     # 混合检索组件
     "DenseRetriever",
     "SparseRetriever",
@@ -106,12 +113,10 @@ __all__ = [
     "AdaptiveWeightedFusion",
     "NoopReranker",
     "CrossEncoderReranker",
-    "create_default_retriever",
-
+    "create_retriever",
     # 渲染
-    "ContextRenderer",
-    "MinimalRenderer",
+    "FullContextRenderer",
+    "CascadeContextRenderer",
     "CompactContextRenderer",
-    "create_default_renderer",
-    "create_compact_renderer",
+    "create_renderer",
 ]

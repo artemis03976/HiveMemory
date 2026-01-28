@@ -47,6 +47,41 @@ class BaseEmbeddingService(ABC):
         """获取向量维度"""
         pass
 
+    def compute_cosine_similarity(
+        self,
+        vector_a: List[float],
+        vector_b: List[float]
+    ) -> float:
+        """
+        计算两个向量的余弦相似度
+        
+        Args:
+            vector_a: 向量 A
+            vector_b: 向量 B
+            
+        Returns:
+            float: 余弦相似度 (-1.0 ~ 1.0)
+        """
+        import numpy as np
+        
+        if not vector_a or not vector_b:
+            return 0.0
+            
+        try:
+            array_a = np.array(vector_a)
+            array_b = np.array(vector_b)
+            
+            norm_a = np.linalg.norm(array_a)
+            norm_b = np.linalg.norm(array_b)
+            
+            if norm_a == 0 or norm_b == 0:
+                return 0.0
+                
+            return float(np.dot(array_a, array_b) / (norm_a * norm_b))
+        except Exception as e:
+            logger.warning(f"相似度计算失败: {e}")
+            return 0.0
+
     def is_loaded(self) -> bool:
         """检查模型是否已加载"""
         return True

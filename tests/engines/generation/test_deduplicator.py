@@ -14,6 +14,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.patchouli.config import DeduplicatorConfig
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator, DuplicateDecision
 from hivememory.engines.generation.extractor import ExtractedMemoryDraft
 from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -25,7 +26,11 @@ class TestMemoryDeduplicator:
     def setup_method(self):
         """每个测试方法前执行"""
         self.mock_storage = Mock(spec=QdrantMemoryStore)
-        self.deduplicator = MemoryDeduplicator(storage=self.mock_storage)
+        self.config = DeduplicatorConfig()
+        self.deduplicator = MemoryDeduplicator(
+            storage=self.mock_storage,
+            config=self.config
+        )
         
         # 构造基础数据
         self.draft = ExtractedMemoryDraft(

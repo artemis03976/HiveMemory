@@ -11,12 +11,18 @@ GreyAreaArbiter 单元测试
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 
+from hivememory.engines.perception.interfaces import BaseArbiter
+from hivememory.patchouli.config import (
+    ArbiterConfig,
+    RerankerArbiterConfig,
+    SLMArbiterConfig,
+)
 from hivememory.engines.perception.grey_area_arbiter import (
-    GreyAreaArbiter,
     RerankerArbiter,
     SLMArbiter,
     NoOpArbiter,
     DEFAULT_ARBITER_PROMPT,
+    create_arbiter,
 )
 
 
@@ -47,11 +53,6 @@ class TestNoOpArbiter:
 
         assert result is False
 
-    def test_is_available(self):
-        """测试 is_available 始终返回 True"""
-        arbiter = NoOpArbiter()
-        assert arbiter.is_available() is True
-
 
 class TestRerankerArbiter:
     """测试 RerankerArbiter"""
@@ -60,10 +61,10 @@ class TestRerankerArbiter:
         """每个测试前的设置"""
         self.mock_reranker = Mock()
         self.mock_reranker.is_loaded.return_value = True
+        self.config = RerankerArbiterConfig(threshold=0.5)
         self.arbiter = RerankerArbiter(
+            config=self.config,
             reranker_service=self.mock_reranker,
-            arbiter_threshold=0.5,
-            verbose=True
         )
 
     def test_should_continue_above_threshold(self):
@@ -152,31 +153,22 @@ class TestRerankerArbiter:
 
         assert result is True
 
-    def test_is_available(self):
-        """测试 is_available"""
-        # 可用状态
-        assert self.arbiter.is_available() is True
-
-        # 不可用状态
-        self.mock_reranker.is_loaded.return_value = False
-        assert self.arbiter.is_available() is False
-
 
 class TestSLMArbiter:
     """测试 SLMArbiter"""
 
     def setup_method(self):
         """每个测试前的设置"""
-        # 使用一个简单的可调用对象来模拟 LLM
+        # 使用一个 Mock 对象来模拟 LLM
         self.llm_response = "YES"  # 默认返回 YES
 
-        def mock_llm_func(prompt: str) -> str:
-            return self.llm_response
+        self.mock_llm = Mock()
+        self.mock_llm.complete.side_effect = lambda messages: self.llm_response
 
-        self.mock_llm = mock_llm_func
+        self.config = SLMArbiterConfig()
         self.arbiter = SLMArbiter(
+            config=self.config,
             llm_service=self.mock_llm,
-            verbose=True
         )
 
     def test_should_continue_yes_response(self):
@@ -239,7 +231,7 @@ class TestSLMArbiter:
 
     def test_should_continue_llm_none(self):
         """测试 LLM 为 None 时默认继续"""
-        arbiter = SLMArbiter(llm_service=None)
+        arbiter = SLMArbiter(config=SLMArbiterConfig(), llm_service=None)
 
         result = arbiter.should_continue_topic(
             previous_context="写代码",
@@ -251,11 +243,11 @@ class TestSLMArbiter:
 
     def test_should_continue_llm_error(self):
         """测试 LLM 调用出错时默认继续"""
-        # 创建一个会抛出异常的可调用对象
-        def error_llm(prompt: str) -> str:
-            raise Exception("LLM error")
+        # 创建一个会抛出异常的 Mock 对象
+        error_llm = Mock()
+        error_llm.complete.side_effect = Exception("LLM error")
 
-        arbiter = SLMArbiter(llm_service=error_llm)
+        arbiter = SLMArbiter(config=SLMArbiterConfig(), llm_service=error_llm)
 
         result = arbiter.should_continue_topic(
             previous_context="写代码",
@@ -276,15 +268,6 @@ class TestSLMArbiter:
         )
 
         assert result is True
-
-    def test_is_available(self):
-        """测试 is_available"""
-        # 可用状态
-        assert self.arbiter.is_available() is True
-
-        # 不可用状态
-        arbiter = SLMArbiter(llm_service=None)
-        assert arbiter.is_available() is False
 
 
 class TestDEFAULT_ARBITER_PROMPT:
@@ -309,21 +292,71 @@ class TestDEFAULT_ARBITER_PROMPT:
 
 
 class TestGreyAreaArbiterInterface:
-    """测试 GreyAreaArbiter 抽象接口"""
+    """测试 BaseArbiter 抽象接口"""
 
     def test_cannot_instantiate_abstract(self):
         """测试不能直接实例化抽象类"""
         with pytest.raises(TypeError):
-            GreyAreaArbiter()
+            BaseArbiter()
 
     def test_concrete_implementation(self):
         """测试具体实现可以实例化"""
         # NoOpArbiter 是一个具体实现
         arbiter = NoOpArbiter()
-        assert isinstance(arbiter, GreyAreaArbiter)
+        assert isinstance(arbiter, BaseArbiter)
 
         # RerankerArbiter 需要参数
         mock_reranker = Mock()
         mock_reranker.is_loaded.return_value = True
-        arbiter = RerankerArbiter(mock_reranker)
-        assert isinstance(arbiter, GreyAreaArbiter)
+        config = RerankerArbiterConfig(threshold=0.5)
+        arbiter = RerankerArbiter(config=config, reranker_service=mock_reranker)
+        assert isinstance(arbiter, BaseArbiter)
+
+
+class TestCreateArbiter:
+    """测试工厂函数 create_arbiter"""
+
+    def test_disabled(self):
+        """测试禁用时返回 NoOpArbiter"""
+        config = ArbiterConfig(enabled=False)
+        arbiter = create_arbiter(config)
+        assert isinstance(arbiter, NoOpArbiter)
+        assert arbiter.default_action is True
+
+    def test_reranker_impl(self):
+        """测试创建 RerankerArbiter"""
+        config = ArbiterConfig(
+            enabled=True,
+            engine=RerankerArbiterConfig()
+        )
+        mock_reranker = Mock()
+        arbiter = create_arbiter(config, reranker_service=mock_reranker)
+        assert isinstance(arbiter, RerankerArbiter)
+
+    def test_slm_impl(self):
+        """测试创建 SLMArbiter"""
+        config = ArbiterConfig(
+            enabled=True,
+            engine=SLMArbiterConfig()
+        )
+        mock_llm = Mock()
+        arbiter = create_arbiter(config, llm_service=mock_llm)
+        assert isinstance(arbiter, SLMArbiter)
+
+    def test_reranker_missing_service(self):
+        """测试缺少 Reranker 服务时回退"""
+        config = ArbiterConfig(
+            enabled=True,
+            engine=RerankerArbiterConfig()
+        )
+        arbiter = create_arbiter(config, reranker_service=None)
+        assert isinstance(arbiter, NoOpArbiter)
+
+    def test_slm_missing_service(self):
+        """测试缺少 LLM 服务时回退"""
+        config = ArbiterConfig(
+            enabled=True,
+            engine=SLMArbiterConfig()
+        )
+        arbiter = create_arbiter(config, llm_service=None)
+        assert isinstance(arbiter, NoOpArbiter)

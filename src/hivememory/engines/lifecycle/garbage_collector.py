@@ -5,27 +5,23 @@ HiveMemory - 垃圾回收器
 
 """
 
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
 import logging
 
+from hivememory.patchouli.config import GarbageCollectorConfig
 from hivememory.engines.lifecycle.interfaces import (
-    GarbageCollector,
-    LifecycleManager,
-    VitalityCalculator,
-    MemoryArchiver
+    BaseGarbageCollector,
+    BaseMemoryArchiver
 )
-from hivememory.engines.lifecycle.models import ArchiveStatus
+from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.infrastructure.storage import QdrantMemoryStore
-
-if TYPE_CHECKING:
-    from hivememory.patchouli.config import GarbageCollectorConfig
 
 logger = logging.getLogger(__name__)
 
 
-class PeriodicGarbageCollector(GarbageCollector):
+class PeriodicGarbageCollector(BaseGarbageCollector):
     """
     周期性垃圾回收器
 
@@ -46,10 +42,9 @@ class PeriodicGarbageCollector(GarbageCollector):
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        archiver: MemoryArchiver,
+        archiver: BaseMemoryArchiver,
         vitality_calculator: VitalityCalculator,
-        low_watermark: float = 20.0,
-        batch_size: int = 10,
+        config: GarbageCollectorConfig
     ):
         """
         初始化垃圾回收器
@@ -58,14 +53,12 @@ class PeriodicGarbageCollector(GarbageCollector):
             storage: 向量存储实例 (QdrantMemoryStore)
             archiver: 归档器实例
             vitality_calculator: 生命力计算器实例
-            low_watermark: 低水位阈值 (0-100)
-            batch_size: 每次最多归档数量
+            config: 垃圾回收器配置
         """
         self.storage = storage
         self.archiver = archiver
         self.vitality_calculator = vitality_calculator
-        self.low_watermark = low_watermark
-        self.batch_size = batch_size
+        self.config = config
 
         # 统计信息
         self._stats: Dict[str, Any] = {
@@ -78,34 +71,40 @@ class PeriodicGarbageCollector(GarbageCollector):
 
         logger.info(
             f"PeriodicGarbageCollector initialized: "
-            f"threshold={low_watermark}, batch_size={batch_size}"
+            f"threshold={config.low_watermark}, batch_size={config.batch_size}"
         )
 
     def scan_candidates(self, vitality_threshold: Optional[float] = None) -> List[UUID]:
         """
         扫描低于生命力阈值的记忆
 
+        流程:
+            1. 获取所有记忆
+            2. 批量刷新 vitality_score
+            3. 筛选低于阈值的记忆
+
         Args:
-            vitality_threshold: 自定义阈值 (默认使用 low_watermark)
+            vitality_threshold: 自定义阈值 (默认使用配置中的 low_watermark)
 
         Returns:
             List[UUID]: 候选记忆ID列表
         """
-        threshold = vitality_threshold if vitality_threshold is not None else self.low_watermark
+        threshold = vitality_threshold if vitality_threshold is not None else self.config.low_watermark
 
         logger.info(f"Scanning for memories with vitality <= {threshold}...")
 
         # 获取所有记忆
         all_memories = self.storage.get_all_memories()
 
-        candidates = []
-        for memory in all_memories:
-            # 计算当前生命力
-            vitality = self.vitality_calculator.calculate(memory)
+        # 批量刷新生命力分数 (更新存储中的缓存值)
+        refreshed = self.vitality_calculator.refresh_batch(all_memories, self.storage)
 
-            # 归一化阈值比较 (配置是 0-100，计算结果也是 0-100)
-            if vitality <= threshold:
-                candidates.append((memory.id, vitality))
+        # 筛选低于阈值的记忆
+        candidates = [
+            (memory_id, vitality)
+            for memory_id, vitality in refreshed
+            if vitality <= threshold
+        ]
 
         # 按生命力排序 (最低的优先)
         candidates.sort(key=lambda x: x[1])
@@ -142,7 +141,7 @@ class PeriodicGarbageCollector(GarbageCollector):
             return 0
 
         # 限制批量大小
-        actual_batch_size = batch_size or self.batch_size
+        actual_batch_size = batch_size or self.config.batch_size
         candidate_ids = candidate_ids[:actual_batch_size]
 
         archived_count = 0
@@ -228,10 +227,9 @@ class ScheduledGarbageCollector(PeriodicGarbageCollector):
     def __init__(
         self,
         storage,
-        archiver: MemoryArchiver,
+        archiver: BaseMemoryArchiver,
         vitality_calculator: VitalityCalculator,
-        low_watermark: float = 20.0,
-        batch_size: int = 10,
+        config: GarbageCollectorConfig,
         enable_schedule: bool = False,
         interval_hours: int = 24,
     ):
@@ -242,8 +240,7 @@ class ScheduledGarbageCollector(PeriodicGarbageCollector):
             storage: 向量存储实例
             archiver: 归档器实例
             vitality_calculator: 生命力计算器实例
-            low_watermark: 低水位阈值
-            batch_size: 批量大小
+            config: 垃圾回收器配置
             enable_schedule: 是否启用定时执行
             interval_hours: 执行间隔 (小时)
         """
@@ -251,8 +248,7 @@ class ScheduledGarbageCollector(PeriodicGarbageCollector):
             storage=storage,
             archiver=archiver,
             vitality_calculator=vitality_calculator,
-            low_watermark=low_watermark,
-            batch_size=batch_size,
+            config=config,
         )
 
         self.enable_schedule = enable_schedule
@@ -296,12 +292,12 @@ class ScheduledGarbageCollector(PeriodicGarbageCollector):
             logger.info("Scheduler shutdown")
 
 
-def create_default_garbage_collector(
+def create_garbage_collector(
     storage,
-    archiver: MemoryArchiver,
+    archiver: BaseMemoryArchiver,
     vitality_calculator: VitalityCalculator,
-    config: Optional["GarbageCollectorConfig"] = None,
-) -> GarbageCollector:
+    config: GarbageCollectorConfig,
+) -> BaseGarbageCollector:
     """
     创建默认垃圾回收器
 
@@ -312,23 +308,18 @@ def create_default_garbage_collector(
         config: 垃圾回收器配置 (可选)
 
     Returns:
-        GarbageCollector: 垃圾回收器实例
+        BaseGarbageCollector: 垃圾回收器实例
     """
-    if config is None:
-        from hivememory.patchouli.config import GarbageCollectorConfig
-        config = GarbageCollectorConfig()
-
     return PeriodicGarbageCollector(
         storage=storage,
+        config=config,
         archiver=archiver,
         vitality_calculator=vitality_calculator,
-        low_watermark=config.low_watermark,
-        batch_size=config.batch_size,
     )
 
 
 __all__ = [
     "PeriodicGarbageCollector",
     "ScheduledGarbageCollector",
-    "create_default_garbage_collector",
+    "create_garbage_collector",
 ]

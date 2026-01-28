@@ -20,14 +20,13 @@ HiveMemory - 分布式记忆管理系统
 from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
-    FlushReason,
 )
 
 # ========== 配置 (无循环依赖) ==========
 from hivememory.patchouli.config import (
     load_app_config,
     HiveMemoryConfig,
-    GatewayConfig,
+    MemoryGatewayConfig,
     MemoryPerceptionConfig,
     MemoryGenerationConfig,
     MemoryRetrievalConfig,
@@ -94,7 +93,7 @@ __all__ = [
     # 配置
     "load_app_config",
     "HiveMemoryConfig",
-    "GatewayConfig",
+    "MemoryGatewayConfig",
     "MemoryPerceptionConfig",
     "MemoryGenerationConfig",
     "MemoryRetrievalConfig",

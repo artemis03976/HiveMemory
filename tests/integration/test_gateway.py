@@ -13,7 +13,11 @@ Gateway 单元测试
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 
-from hivememory.patchouli.config import GatewayConfig
+from hivememory.patchouli.config import (
+    MemoryGatewayConfig,
+    RuleInterceptorConfig,
+    LLMAnalyzerConfig,
+)
 from hivememory.core.models import MemoryType, StreamMessage
 from hivememory.engines.gateway.models import (
     GatewayIntent,
@@ -22,8 +26,9 @@ from hivememory.engines.gateway.models import (
     SemanticAnalysisResult,
 )
 from hivememory.patchouli.protocol.models import QueryFilters
-from hivememory.engines.gateway.interceptors import RuleInterceptor
-from hivememory.engines.gateway.service import GatewayService
+from hivememory.engines.gateway.interceptors import RuleInterceptor, NoOpInterceptor
+from hivememory.engines.gateway.semantic_analyzer import NoOpSemanticAnalyzer
+from hivememory.engines.gateway.engine import GatewayEngine
 from hivememory.engines.gateway.prompts import get_system_prompt
 
 
@@ -129,39 +134,31 @@ class TestGatewayModels:
         assert result_no_l1.is_l1_intercepted is False
 
 
-class TestGatewayService:
-    """测试 GatewayService"""
+class TestGatewayEngine:
+    """测试 GatewayEngine"""
 
     def test_init_with_interceptor(self):
         """测试使用拦截器初始化"""
-        interceptor = RuleInterceptor()
-        service = GatewayService(interceptor=interceptor)
+        config = RuleInterceptorConfig()
+        interceptor = RuleInterceptor(config=config)
+        engine = GatewayEngine(
+            interceptor=interceptor,
+            semantic_analyzer=NoOpSemanticAnalyzer()
+        )
 
-        assert service.interceptor is not None
-        assert service.semantic_analyzer is None
-
-    def test_execute_l1(self):
-        """测试 L1 拦截执行"""
-        interceptor = RuleInterceptor()
-        service = GatewayService(interceptor=interceptor)
-
-        result = service.execute_l1("/clear")
-        assert result is not None
-        assert result.intent == GatewayIntent.SYSTEM
-
-    def test_execute_l1_no_interceptor(self):
-        """测试无拦截器时返回 None"""
-        service = GatewayService(interceptor=None)
-
-        result = service.execute_l1("/clear")
-        assert result is None
+        assert engine.interceptor is not None
+        assert isinstance(engine.semantic_analyzer, NoOpSemanticAnalyzer)
 
     def test_process_l1_hit(self):
         """测试 L1 命中路径"""
-        interceptor = RuleInterceptor()
-        service = GatewayService(interceptor=interceptor)
+        config = RuleInterceptorConfig()
+        interceptor = RuleInterceptor(config=config)
+        engine = GatewayEngine(
+            interceptor=interceptor,
+            semantic_analyzer=NoOpSemanticAnalyzer()
+        )
 
-        result = service.process("你好")
+        result = engine.process("你好")
 
         assert result.intent == GatewayIntent.CHAT
         assert result.rewritten_query == "你好"
@@ -169,9 +166,12 @@ class TestGatewayService:
 
     def test_process_l1_no_hit_no_l2(self):
         """测试 L1 未命中且 L2 禁用"""
-        service = GatewayService(interceptor=None, semantic_analyzer=None)
+        engine = GatewayEngine(
+            interceptor=NoOpInterceptor(),
+            semantic_analyzer=NoOpSemanticAnalyzer()
+        )
 
-        result = service.process("如何部署项目？")
+        result = engine.process("如何部署项目？")
 
         assert result.intent == GatewayIntent.CHAT
         assert result.rewritten_query == "如何部署项目？"
@@ -179,7 +179,8 @@ class TestGatewayService:
 
     def test_process_with_mock_l2(self):
         """测试带 Mock L2 的完整流程"""
-        interceptor = RuleInterceptor()
+        config = RuleInterceptorConfig()
+        interceptor = RuleInterceptor(config=config)
 
         # Mock L2 分析器
         mock_analyzer = Mock()
@@ -187,18 +188,19 @@ class TestGatewayService:
             intent=GatewayIntent.RAG,
             rewritten_query="如何部署 Python 项目",
             search_keywords=["Python", "部署"],
-            target_filters={},
+            target_filters=QueryFilters(),
             worth_saving=True,
-            reason="技术问题"
+            reason="技术问题",
+            model="gpt-4o-mini"
         ))
 
-        service = GatewayService(
+        engine = GatewayEngine(
             interceptor=interceptor,
             semantic_analyzer=mock_analyzer
         )
 
         # L1 不会拦截这个查询，会走 L2
-        result = service.process("怎么部署它？", context=[
+        result = engine.process("怎么部署它？", context=[
             StreamMessage(message_type="user", content="我有一个 Python 项目"),
             StreamMessage(message_type="assistant", content="好的，告诉我更多")
         ])
@@ -210,28 +212,36 @@ class TestGatewayService:
         assert result.is_l1_intercepted is False
 
 
-class TestGatewayConfig:
+class TestMemoryGatewayConfig:
     """测试 Gateway 配置"""
 
     def test_default_config(self):
         """测试默认配置"""
-        config = GatewayConfig()
-        assert config.enable_l1_interceptor is True
-        assert config.enable_l2_semantic is True
-        assert config.context_window == 3
-        assert config.prompt_variant == "default"
-        assert config.prompt_language == "zh"
+        config = MemoryGatewayConfig()
+        assert config.interceptor.enabled is True
+        assert config.analyzer.enabled is True
+        
+        # 验证子配置
+        assert isinstance(config.interceptor, RuleInterceptorConfig)
+        assert config.interceptor.enable_system is True
+        assert config.interceptor.enable_chat is True
+        
+        assert isinstance(config.analyzer, LLMAnalyzerConfig)
+        assert config.analyzer.context_window == 3
+        assert config.analyzer.prompt_variant == "default"
 
     def test_custom_config(self):
         """测试自定义配置"""
-        config = GatewayConfig(
-            enable_l1_interceptor=False,
-            context_window=5,
-            prompt_variant="simple"
+        config = MemoryGatewayConfig(
+            interceptor=RuleInterceptorConfig(enabled=False),
+            analyzer=LLMAnalyzerConfig(
+                context_window=5,
+                prompt_variant="simple"
+            )
         )
-        assert config.enable_l1_interceptor is False
-        assert config.context_window == 5
-        assert config.prompt_variant == "simple"
+        assert config.interceptor.enabled is False
+        assert config.analyzer.context_window == 5
+        assert config.analyzer.prompt_variant == "simple"
 
 
 class TestSystemPrompts:

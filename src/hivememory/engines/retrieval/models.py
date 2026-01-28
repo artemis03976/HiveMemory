@@ -7,7 +7,7 @@ HiveMemory - Retrieval 模块数据模型
 版本: 0.1.0
 """
 
-from typing import List
+from typing import List, Optional
 from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
@@ -93,12 +93,35 @@ class SearchResults(BaseModel):
         return len(self.results) == 0
 
 
+class RetrievalResult(BaseModel):
+    """
+    RetrievalEngine 统一输出数据模型
+
+    面向上层业务（如 RetrievalFamiliar）的结构化返回：
+    - memories: 便于后续业务处理（访问统计、排序、二次过滤等）
+    - rendered_context: 可直接注入 prompt 的上下文
+    """
+
+    memories: List[MemoryAtom] = Field(default_factory=list)
+    rendered_context: str = ""
+    latency_ms: float = 0.0
+    memories_count: int = 0
+    search_results: Optional[SearchResults] = None
+
+    def is_empty(self) -> bool:
+        return len(self.memories) == 0
+
+    def get_context_for_prompt(self) -> str:
+        if self.is_empty():
+            return ""
+        return self.rendered_context
+
+
 # ========== 导出列表 ==========
 
 __all__ = [
-    "QueryFilters",
-    "RenderFormat",
     "RetrievalQuery",
     "SearchResult",
     "SearchResults",
+    "RetrievalResult",
 ]

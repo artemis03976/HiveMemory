@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.lifecycle.vitality import (
-    StandardVitalityCalculator,
+    VitalityCalculator,
     INTRINSIC_VALUE_WEIGHTS,
 )
 
@@ -36,7 +36,7 @@ class TestVitalityCalculator:
         self.config.default_weight = 0.5
         self.config.points_per_access = 2.0
         self.config.max_access_boost = 20.0
-        self.calculator = StandardVitalityCalculator(self.config)
+        self.calculator = VitalityCalculator(self.config)
 
     def test_intrinsic_value_weights(self):
         """测试固有价值权重"""
@@ -167,96 +167,6 @@ class TestVitalityCalculator:
 
         # CODE_SNIPPET 应该比 WORK_IN_PROGRESS 分数高
         assert score_code > score_wip
-
-    def _create_memory(
-        self,
-        confidence: float,
-        memory_type: MemoryType,
-        access_count: int,
-        days_ago: int
-    ) -> MemoryAtom:
-        """创建测试记忆"""
-        created_at = datetime.now() - timedelta(days=days_ago)
-
-        return MemoryAtom(
-            id=uuid4(),
-            meta=MetaData(
-                source_agent_id="test_agent",
-                user_id="test_user",
-                confidence_score=confidence,
-                access_count=access_count,
-                created_at=created_at,
-                updated_at=created_at,
-            ),
-            index=IndexLayer(
-                title="Test Memory",
-                summary="Test summary",
-                tags=["test"],
-                memory_type=memory_type,
-            ),
-            payload=PayloadLayer(content="Test content"),
-        )
-
-
-class TestDecayResetVitalityCalculator:
-    """测试支持衰减重置的生命力计算器"""
-
-    def setup_method(self):
-        """测试初始化"""
-        self.config = Mock()
-        self.config.decay_lambda = 0.01
-        self.config.code_snippet_weight = 1.0
-        self.config.fact_weight = 0.9
-        self.config.url_resource_weight = 0.8
-        self.config.reflection_weight = 0.7
-        self.config.user_profile_weight = 0.6
-        self.config.work_in_progress_weight = 0.5
-        self.config.default_weight = 0.5
-        self.config.points_per_access = 2.0
-        self.config.max_access_boost = 20.0
-        from hivememory.engines.lifecycle.vitality import DecayResetVitalityCalculator
-        self.calculator = DecayResetVitalityCalculator(self.config)
-
-    def test_citation_resets_decay(self):
-        """测试引用重置衰减"""
-        # 创建旧记忆
-        old_memory = self._create_memory(
-            confidence=0.9,
-            memory_type=MemoryType.FACT,
-            access_count=0,
-            days_ago=100
-        )
-
-        # 不标记引用时的分数
-        score_without_citation = self.calculator.calculate(old_memory)
-
-        # 标记为引用
-        self.calculator.mark_cited(old_memory.id)
-
-        # 标记引用后的分数应该更高
-        score_with_citation = self.calculator.calculate(old_memory)
-
-        assert score_with_citation > score_without_citation
-
-    def test_citation_mark_consumed(self):
-        """测试引用标记是一次性的"""
-        memory = self._create_memory(
-            confidence=0.9,
-            memory_type=MemoryType.FACT,
-            access_count=0,
-            days_ago=100
-        )
-
-        # 标记引用
-        self.calculator.mark_cited(memory.id)
-
-        # 第一次计算应该使用重置的衰减
-        score1 = self.calculator.calculate(memory)
-
-        # 第二次计算不再使用重置的衰减
-        score2 = self.calculator.calculate(memory)
-
-        assert score2 < score1  # 第二次没有重置效果
 
     def _create_memory(
         self,

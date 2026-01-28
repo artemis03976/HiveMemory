@@ -61,6 +61,7 @@ logs/
 .coverage
 htmlcov/
 .tox/
+tmp_test_archive/
 
 # Model Cache
 models/

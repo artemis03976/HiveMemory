@@ -4,39 +4,36 @@
 职责:
     将检索到的记忆原子渲染为适合注入 LLM Context 的格式
 
-输出格式:
-    - XML 标签格式（Claude/GPT-4 推荐）
-    - Markdown 格式（通用）
+渲染器类型:
+    - FullContextRenderer: 完整渲染，超过字符上限则截断
+    - CascadeContextRenderer: 瀑布式渲染，Top-N 完整 + 其余 Index
+    - CompactContextRenderer: 仅渲染 Index 层信息
 
 对应设计文档: PROJECT.md 5.2 节
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 import logging
 
+from hivememory.patchouli.config import FullRendererConfig, CascadeRendererConfig, CompactRendererConfig
 from hivememory.core.models import MemoryAtom, estimate_tokens
 from hivememory.engines.retrieval.models import RenderFormat
-from hivememory.engines.retrieval.interfaces import BaseContextRenderer as ContextRendererInterface
+from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.utils import TimeFormatter, Language, MemoryAtomRenderer
 
 logger = logging.getLogger(__name__)
 
 
-class ContextRenderer(ContextRendererInterface):
-    """
-    上下文渲染器
-    
-    将记忆原子列表渲染为 LLM 可读的格式
-    """
-    
-    # XML 模板
-    XML_HEADER = """<system_memory_context>
+# ========== 共享模板 ==========
+
+# XML 模板
+XML_HEADER = """<system_memory_context>
 以下是从历史交互中检索到的相关记忆。
 使用这些记忆来保持一致性并复用已有知识。
 请注意 [标签] 和 (时间)。
 """
 
-    XML_FOOTER = """
+XML_FOOTER = """
 </system_memory_context>
 
 <instruction>
@@ -44,85 +41,118 @@ class ContextRenderer(ContextRendererInterface):
 如果需要更多关于某条记忆的详细信息，请向用户询问。
 </instruction>"""
 
-    # Markdown 模板
-    MD_HEADER = """## 相关记忆上下文
+XML_FOOTER_SIMPLE = """
+</system_memory_context>
+"""
+
+# Markdown 模板
+MD_HEADER = """## 相关记忆上下文
 
 以下是与当前对话相关的历史记忆，可用于保持一致性和复用知识：
 
 ---
 """
-    
-    MD_FOOTER = """
+
+MD_FOOTER = """
 ---
 
 > 如果某条记忆标记为 (Warning: Old) 或 [Unverified]，请在使用前验证。
 """
 
-    def __init__(
-        self,
-        render_format: RenderFormat = RenderFormat.XML,
-        max_tokens: int = 2000,
-        max_content_length: int = 500,
-        show_artifacts: bool = False,
-        language: Language = Language.CHINESE,
-        stale_days: int = 90,
-    ):
+MD_FOOTER_SIMPLE = """
+---
+"""
+
+# Index 视图模板
+INDEX_XML_TEMPLATE = """
+<memory_ref id="{id}" type="{type}">
+    [标签]: {tags}
+    [摘要]: {summary}
+    [提示]: {hint}
+</memory_ref>"""
+
+INDEX_MD_TEMPLATE = """
+###  {title} (摘要)
+
+- **类型**: `{type}`
+- **标签**: {tags}
+- **摘要**: {summary}
+
+> {hint}
+
+---"""
+
+
+# ========== 辅助函数 ==========
+
+def _extract_memories(results: List) -> List[MemoryAtom]:
+    """从结果列表中提取 MemoryAtom"""
+    memories = []
+    for item in results:
+        if hasattr(item, 'memory'):
+            memories.append(item.memory)
+        elif isinstance(item, MemoryAtom):
+            memories.append(item)
+        else:
+            logger.warning(f"未知的结果类型: {type(item)}")
+    return memories
+
+
+class FullContextRenderer(BaseContextRenderer):
+    """
+    完整上下文渲染器
+
+    渲染所有 MemoryAtom 的完整内容，超过字符上限则直接截断。
+    """
+    def __init__(self, config: FullRendererConfig):
         """
         初始化渲染器
 
         Args:
-            render_format: 输出格式（XML 或 Markdown）
-            max_tokens: 最大输出长度（字符数估算）
-            max_content_length: 单条记忆的最大内容长度
-            show_artifacts: 是否显示原始数据链接
-            language: 时间格式化语言（默认中文）
-            stale_days: 超过此天数显示陈旧警告（默认90天）
+            config: 完整渲染器配置
         """
-        self.render_format = render_format
-        self.max_tokens = max_tokens
-        self.max_content_length = max_content_length
-        self.show_artifacts = show_artifacts
-        self._time_formatter = TimeFormatter(language=language, stale_days=stale_days)
-    
+        self.config = config
+
+        # 解析渲染格式
+        if isinstance(config.render_format, str):
+            self.render_format = RenderFormat.XML if config.render_format.lower() == "xml" else RenderFormat.MARKDOWN
+        else:
+            self.render_format = config.render_format
+
+        self.max_tokens = config.max_tokens
+        self.max_content_length = config.max_content_length
+        self.show_artifacts = config.show_artifacts
+        self._time_formatter = TimeFormatter(language=Language.CHINESE, stale_days=config.stale_days)
+
     def render(
         self,
-        results: List,  # SearchResult or MemoryAtom list
+        results: List,
         render_format: Optional[RenderFormat] = None
     ) -> str:
         """
         渲染记忆列表为上下文字符串
-        
+
         Args:
             results: SearchResult 列表或 MemoryAtom 列表
             render_format: 输出格式（可选，覆盖默认）
-            
+
         Returns:
             渲染后的上下文字符串
         """
-        render_format = render_format or self.render_format
-        
+        fmt = render_format or self.render_format
+
         if not results:
             return ""
-        
-        # 统一转换为 MemoryAtom 列表
-        memories = []
-        for item in results:
-            if hasattr(item, 'memory'):
-                memories.append(item.memory)
-            elif isinstance(item, MemoryAtom):
-                memories.append(item)
-            else:
-                logger.warning(f"未知的结果类型: {type(item)}")
-        
+
+        memories = _extract_memories(results)
         if not memories:
             return ""
-        
-        # 根据格式选择渲染方法
-        if render_format == RenderFormat.XML:
+
+        if fmt == RenderFormat.XML:
             return self._render_xml(memories)
         else:
             return self._render_markdown(memories)
-    
+
     def _render_format(self, memories: List[MemoryAtom], header: str, footer: str, use_index: bool) -> str:
         """
         通用渲染函数
@@ -139,7 +169,6 @@ class ContextRenderer(ContextRendererInterface):
         for i, memory in enumerate(memories, 1):
             block = self._render_memory(memory, i if use_index else None)
 
-            # 检查长度限制
             if total_length + len(block) > self.max_tokens:
                 logger.debug(f"达到长度限制，截断至 {i-1} 条记忆")
                 break
@@ -152,25 +181,23 @@ class ContextRenderer(ContextRendererInterface):
 
     def _render_xml(self, memories: List[MemoryAtom]) -> str:
         """渲染为 XML 格式"""
-        return self._render_format(memories, self.XML_HEADER, self.XML_FOOTER, use_index=True)
+        return self._render_format(memories, XML_HEADER, XML_FOOTER, use_index=True)
 
     def _render_markdown(self, memories: List[MemoryAtom]) -> str:
         """渲染为 Markdown 格式"""
-        return self._render_format(memories, self.MD_HEADER, self.MD_FOOTER, use_index=False)
-    
+        return self._render_format(memories, MD_HEADER, MD_FOOTER, use_index=False)
+
     def _render_memory(self, memory: MemoryAtom, index: Optional[int] = None) -> str:
         """
-        通用单条记忆渲染函数
+        渲染单条记忆
 
         Args:
             memory: 记忆原子
             index: 索引编号（XML格式需要，Markdown为None）
         """
-        # 使用 TimeFormatter 格式化时间
         time_str = self._time_formatter.format(memory.meta.updated_at)
-
-        # 使用 MemoryAtomRenderer 进行渲染
         format_type = "xml" if index is not None else "markdown"
+
         return MemoryAtomRenderer.for_llm_context(
             memory=memory,
             format=format_type,
@@ -181,119 +208,25 @@ class ContextRenderer(ContextRendererInterface):
         )
 
 
-class MinimalRenderer(ContextRendererInterface):
+class CascadeContextRenderer(BaseContextRenderer):
     """
-    极简渲染器
+    瀑布式上下文渲染器
 
-    仅输出核心信息，最小化 Token 消耗
-    """
-
-    def render(self, results: List, render_format: Optional[RenderFormat] = None) -> str:
-        """渲染为紧凑格式"""
-        if not results:
-            return ""
-
-        lines = ["[相关记忆]"]
-
-        for i, item in enumerate(results[:5], 1):
-            memory = item.memory if hasattr(item, 'memory') else item
-            tags = ",".join(memory.index.tags[:3])
-            preview = memory.payload.content[:100].replace("\n", " ")
-            lines.append(f"{i}. [{tags}] {memory.index.title}: {preview}...")
-
-        return "\n".join(lines)
-
-
-def create_default_renderer(config: Optional["ContextRendererConfig"] = None) -> ContextRenderer:
-    """
-    创建默认渲染器
-
-    Args:
-        config: 上下文渲染配置
-
-    Returns:
-        ContextRenderer 实例
-    """
-    if config is None:
-        from hivememory.patchouli.config import ContextRendererConfig
-        config = ContextRendererConfig()
-
-    fmt = RenderFormat.XML if config.render_format.lower() == "xml" else RenderFormat.MARKDOWN
-
-    return ContextRenderer(
-        render_format=fmt,
-        max_tokens=config.max_tokens,
-        max_content_length=config.max_content_length,
-        show_artifacts=config.include_artifact
-    )
-
-
-class CompactContextRenderer(ContextRendererInterface):
-    """
-    紧凑上下文渲染器
-
-    实现 Token 预算管理和分级渲染:
+    依次完整渲染 MemoryAtom，直到 Token 预算紧张时降级为 Index 层信息:
     1. Top-N 记忆强制完整渲染 (Payload)
     2. 其余按预算瀑布式降级为 Index 视图 (摘要+标签)
     3. 预算耗尽时停止渲染
 
-    与 ContextRenderer 的区别:
-    - ContextRenderer: 简单的字符数截断
-    - CompactContextRenderer: 智能的分级渲染，优先保证重要记忆的完整性
+    适用于需要平衡完整性和 Token 预算的场景。
     """
 
-    # Index 视图 XML 模板
-    INDEX_XML_TEMPLATE = """
-<memory_ref id="{id}" type="{type}">
-    [标签]: {tags}
-    [摘要]: {summary}
-    [提示]: {hint}
-</memory_ref>"""
-
-    # Index 视图 Markdown 模板
-    INDEX_MD_TEMPLATE = """
-### 📎 {title} (摘要)
-
-- **类型**: `{type}`
-- **标签**: {tags}
-- **摘要**: {summary}
-
-> {hint}
-
----"""
-
-    # 头部模板
-    XML_HEADER = """<system_memory_context>
-以下是从历史交互中检索到的相关记忆。
-使用这些记忆来保持一致性并复用已有知识。
-"""
-
-    XML_FOOTER = """
-</system_memory_context>
-"""
-
-    MD_HEADER = """## 相关记忆上下文
-
-以下是与当前对话相关的历史记忆：
-
----
-"""
-
-    MD_FOOTER = """
----
-"""
-
-    def __init__(self, config: Optional["CompactRendererConfig"] = None):
+    def __init__(self, config: CascadeRendererConfig):
         """
-        初始化紧凑渲染器
+        初始化瀑布式渲染器
 
         Args:
-            config: 紧凑渲染器配置
+            config: 瀑布式渲染器配置
         """
-        if config is None:
-            from hivememory.patchouli.config import CompactRendererConfig
-            config = CompactRendererConfig()
-
         self.config = config
         self._time_formatter = TimeFormatter(language=Language.CHINESE, stale_days=90)
 
@@ -322,50 +255,32 @@ class CompactContextRenderer(ContextRendererInterface):
         if not results:
             return ""
 
-        # 确定渲染格式
         fmt = render_format
         if fmt is None:
             fmt = RenderFormat.XML if self.config.render_format.lower() == "xml" else RenderFormat.MARKDOWN
 
-        # 统一转换为 MemoryAtom 列表
-        memories = self._extract_memories(results)
+        memories = _extract_memories(results)
         if not memories:
             return ""
 
-        # 选择头尾模板
         if fmt == RenderFormat.XML:
-            header, footer = self.XML_HEADER, self.XML_FOOTER
+            header, footer = XML_HEADER, XML_FOOTER_SIMPLE
         else:
-            header, footer = self.MD_HEADER, self.MD_FOOTER
+            header, footer = MD_HEADER, MD_FOOTER_SIMPLE
 
-        # 计算可用预算
-        header_footer_tokens = self._estimate_tokens(header) + self._estimate_tokens(footer)
+        header_footer_tokens = estimate_tokens(header) + estimate_tokens(footer)
         available_budget = self.config.max_memory_tokens - header_footer_tokens
 
         if available_budget <= 0:
             logger.warning("Token 预算不足以容纳头尾模板")
             return ""
 
-        # 执行分级渲染
         rendered_blocks, _ = self._render_with_budget(memories, available_budget, fmt)
 
         if not rendered_blocks:
             return ""
 
-        # 组装最终输出
         return header + "".join(rendered_blocks) + footer
-
-    def _extract_memories(self, results: List) -> List[MemoryAtom]:
-        """从结果列表中提取 MemoryAtom"""
-        memories = []
-        for item in results:
-            if hasattr(item, 'memory'):
-                memories.append(item.memory)
-            elif isinstance(item, MemoryAtom):
-                memories.append(item)
-            else:
-                logger.warning(f"未知的结果类型: {type(item)}")
-        return memories
 
     def _render_with_budget(
         self,
@@ -390,34 +305,25 @@ class CompactContextRenderer(ContextRendererInterface):
         for i, memory in enumerate(memories):
             index = i + 1
 
-            # 判断是否强制完整渲染
-            force_full = (i < self.config.full_payload_count) if self.config.enable_tiered_rendering else True
-
-            if force_full:
-                # 尝试完整渲染
+            # Top-N 强制完整渲染
+            if i < self.config.full_payload_count:
                 full_block = self._render_full_payload(memory, index, fmt)
-                full_tokens = self._estimate_tokens(full_block)
+                full_tokens = estimate_tokens(full_block)
 
                 if full_tokens <= remaining_budget:
                     rendered_blocks.append(full_block)
                     remaining_budget -= full_tokens
                     continue
-                else:
-                    # 预算不足，尝试降级为 Index
-                    if not self.config.enable_tiered_rendering:
-                        # 不启用分级渲染，直接停止
-                        logger.debug(f"预算不足，停止渲染 (已渲染 {len(rendered_blocks)} 条)")
-                        break
+                # 预算不足，降级为 Index
 
             # 尝试 Index 视图渲染
             index_block = self._render_index_only(memory, index, fmt)
-            index_tokens = self._estimate_tokens(index_block)
+            index_tokens = estimate_tokens(index_block)
 
             if index_tokens <= remaining_budget:
                 rendered_blocks.append(index_block)
                 remaining_budget -= index_tokens
             else:
-                # 预算耗尽，停止渲染
                 logger.debug(f"预算耗尽，停止渲染 (已渲染 {len(rendered_blocks)} 条)")
                 break
 
@@ -426,8 +332,6 @@ class CompactContextRenderer(ContextRendererInterface):
     def _render_full_payload(self, memory: MemoryAtom, index: int, fmt: RenderFormat) -> str:
         """
         渲染完整 Payload
-
-        复用 MemoryAtomRenderer 的渲染逻辑
 
         Args:
             memory: 记忆原子
@@ -438,24 +342,23 @@ class CompactContextRenderer(ContextRendererInterface):
             渲染后的文本
         """
         time_str = self._time_formatter.format(memory.meta.updated_at)
+        max_content_length = self.config.max_content_length
 
         if fmt == RenderFormat.XML:
-            # XML 格式使用 index
             return MemoryAtomRenderer.for_llm_context(
                 memory=memory,
                 format="xml",
                 index=index,
-                max_content_length=500,
+                max_content_length=max_content_length,
                 show_artifacts=False,
                 formatted_time=time_str,
             )
         else:
-            # Markdown 格式不使用 index (传 None)
             return MemoryAtomRenderer.for_llm_context(
                 memory=memory,
                 format="markdown",
                 index=None,
-                max_content_length=500,
+                max_content_length=max_content_length,
                 show_artifacts=False,
                 formatted_time=time_str,
             )
@@ -472,17 +375,15 @@ class CompactContextRenderer(ContextRendererInterface):
         Returns:
             渲染后的文本
         """
-        # 截断摘要
         summary = memory.index.summary
         if len(summary) > self.config.index_max_summary_length:
             summary = summary[:self.config.index_max_summary_length] + "..."
 
-        # 构建提示文本
         hint = self._render_lazy_load_hint(memory) if self.config.enable_lazy_loading else "如需详情请询问"
 
         if fmt == RenderFormat.XML:
             tags = ", ".join(f"#{tag}" for tag in memory.index.tags) or "(无标签)"
-            return self.INDEX_XML_TEMPLATE.format(
+            return INDEX_XML_TEMPLATE.format(
                 id=index,
                 type=memory.index.memory_type.value,
                 tags=tags,
@@ -491,7 +392,7 @@ class CompactContextRenderer(ContextRendererInterface):
             )
         else:
             tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or "(无标签)"
-            return self.INDEX_MD_TEMPLATE.format(
+            return INDEX_MD_TEMPLATE.format(
                 title=memory.index.title,
                 type=memory.index.memory_type.value,
                 tags=tags,
@@ -500,52 +401,169 @@ class CompactContextRenderer(ContextRendererInterface):
             )
 
     def _render_lazy_load_hint(self, memory: MemoryAtom) -> str:
-        """
-        渲染懒加载工具提示
-
-        Args:
-            memory: 记忆原子
-
-        Returns:
-            提示文本
-        """
+        """渲染懒加载工具提示"""
         if self.config.enable_lazy_loading:
             tool_name = self.config.lazy_load_tool_name
             return f'使用 {tool_name}("{memory.id}") 获取完整内容'
         return self.config.lazy_load_hint
 
-    def _estimate_tokens(self, text: str) -> int:
-        """
-        估算 Token 数量
 
-        复用 core/models.py 中的 estimate_tokens 函数
+class CompactContextRenderer(BaseContextRenderer):
+    """
+    紧凑上下文渲染器
+
+    仅渲染 Index 层信息 (摘要+标签)，不渲染完整 Payload。
+    适用于 Token 预算极为有限的场景，配合懒加载工具使用。
+    """
+
+    def __init__(self, config: CompactRendererConfig):
+        """
+        初始化紧凑渲染器
 
         Args:
-            text: 文本
+            config: 紧凑渲染器配置
+        """
+
+        self.config = config
+        self._time_formatter = TimeFormatter(language=Language.CHINESE, stale_days=90)
+
+    def render(
+        self,
+        results: List,
+        render_format: Optional[RenderFormat] = None
+    ) -> str:
+        """
+        渲染记忆列表 (仅 Index 层)
+
+        Args:
+            results: SearchResult 列表或 MemoryAtom 列表
+            render_format: 输出格式（可选，覆盖默认）
 
         Returns:
-            估算的 Token 数量
+            渲染后的上下文字符串
         """
-        return estimate_tokens(text)
+        if not results:
+            return ""
+
+        fmt = render_format
+        if fmt is None:
+            fmt = RenderFormat.XML if self.config.render_format.lower() == "xml" else RenderFormat.MARKDOWN
+
+        memories = _extract_memories(results)
+        if not memories:
+            return ""
+
+        if fmt == RenderFormat.XML:
+            header, footer = XML_HEADER, XML_FOOTER_SIMPLE
+        else:
+            header, footer = MD_HEADER, MD_FOOTER_SIMPLE
+
+        header_footer_tokens = estimate_tokens(header) + estimate_tokens(footer)
+        available_budget = self.config.max_memory_tokens - header_footer_tokens
+
+        if available_budget <= 0:
+            logger.warning("Token 预算不足以容纳头尾模板")
+            return ""
+
+        rendered_blocks = []
+        remaining_budget = available_budget
+
+        for i, memory in enumerate(memories):
+            index = i + 1
+            index_block = self._render_index_only(memory, index, fmt)
+            index_tokens = estimate_tokens(index_block)
+
+            if index_tokens <= remaining_budget:
+                rendered_blocks.append(index_block)
+                remaining_budget -= index_tokens
+            else:
+                logger.debug(f"预算耗尽，停止渲染 (已渲染 {len(rendered_blocks)} 条)")
+                break
+
+        if not rendered_blocks:
+            return ""
+
+        return header + "".join(rendered_blocks) + footer
+
+    def _render_index_only(self, memory: MemoryAtom, index: int, fmt: RenderFormat) -> str:
+        """
+        仅渲染 Index 层 (摘要视图)
+
+        Args:
+            memory: 记忆原子
+            index: 索引编号
+            fmt: 渲染格式
+
+        Returns:
+            渲染后的文本
+        """
+        summary = memory.index.summary
+        if len(summary) > self.config.index_max_summary_length:
+            summary = summary[:self.config.index_max_summary_length] + "..."
+
+        hint = self._render_lazy_load_hint(memory) if self.config.enable_lazy_loading else "如需详情请询问"
+
+        if fmt == RenderFormat.XML:
+            tags = ", ".join(f"#{tag}" for tag in memory.index.tags) or "(无标签)"
+            return INDEX_XML_TEMPLATE.format(
+                id=index,
+                type=memory.index.memory_type.value,
+                tags=tags,
+                summary=summary,
+                hint=hint,
+            )
+        else:
+            tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or "(无标签)"
+            return INDEX_MD_TEMPLATE.format(
+                title=memory.index.title,
+                type=memory.index.memory_type.value,
+                tags=tags,
+                summary=summary,
+                hint=hint,
+            )
+
+    def _render_lazy_load_hint(self, memory: MemoryAtom) -> str:
+        """渲染懒加载工具提示"""
+        if self.config.enable_lazy_loading:
+            tool_name = self.config.lazy_load_tool_name
+            return f'使用 {tool_name}("{memory.id}") 获取完整内容'
+        return self.config.lazy_load_hint
 
 
-def create_compact_renderer(config: Optional["CompactRendererConfig"] = None) -> CompactContextRenderer:
+# ========== 工厂函数 ==========
+
+def create_renderer(
+    config: Union[FullRendererConfig, CascadeRendererConfig, CompactRendererConfig]
+) -> BaseContextRenderer:
     """
-    创建紧凑渲染器
+    创建渲染器工厂
+
+    支持多态配置:
+    - FullRendererConfig -> FullContextRenderer
+    - CascadeRendererConfig -> CascadeContextRenderer
+    - CompactRendererConfig -> CompactContextRenderer
 
     Args:
-        config: 紧凑渲染器配置
+        config: 渲染器配置
 
     Returns:
-        CompactContextRenderer 实例
+        BaseContextRenderer 实例
     """
-    return CompactContextRenderer(config)
+    if isinstance(config, FullRendererConfig):
+        return FullContextRenderer(config)
+
+    if isinstance(config, CascadeRendererConfig):
+        return CascadeContextRenderer(config)
+
+    if isinstance(config, CompactRendererConfig):
+        return CompactContextRenderer(config)
+
+    raise ValueError(f"未知的渲染器配置类型: {type(config)}")
 
 
 __all__ = [
-    "ContextRenderer",
-    "MinimalRenderer",
+    "FullContextRenderer",
+    "CascadeContextRenderer",
     "CompactContextRenderer",
-    "create_default_renderer",
-    "create_compact_renderer",
+    "create_renderer",
 ]

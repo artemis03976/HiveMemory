@@ -21,40 +21,7 @@ from hivememory.engines.generation.models import DuplicateDecision, ExtractedMem
 
 # ========== 接口定义 ==========
 
-class ValueGater(ABC):
-    """
-    价值评估器接口
-
-    职责:
-        判断对话片段是否有长期记忆价值，过滤无用的闲聊和噪音。
-
-    实现策略:
-        - 规则引擎: 基于关键词黑名单
-        - LLM 辅助: 使用轻量级模型判断
-        - 混合策略: 规则 + LLM 结合
-    """
-
-    @abstractmethod
-    def evaluate(self, messages: List[StreamMessage]) -> bool:
-        """
-        评估对话是否有价值
-
-        Args:
-            messages: 对话消息列表
-
-        Returns:
-            bool: True 表示有价值，False 表示无价值
-
-        Examples:
-            >>> gater = RuleBasedGater()
-            >>> messages = [StreamMessage(message_type=StreamMessageType.USER, content="你好")]
-            >>> gater.evaluate(messages)
-            False
-        """
-        pass
-
-
-class MemoryExtractor(ABC):
+class BaseMemoryExtractor(ABC):
     """
     记忆提取器接口
 
@@ -98,7 +65,7 @@ class MemoryExtractor(ABC):
         pass
 
 
-class Deduplicator(ABC):
+class BaseDeduplicator(ABC):
     """
     查重与演化器接口
 
@@ -168,7 +135,6 @@ class Deduplicator(ABC):
 # ========== 导出列表 ==========
 
 __all__ = [
-    "ValueGater",
-    "MemoryExtractor",
-    "Deduplicator",
+    "BaseMemoryExtractor",
+    "BaseDeduplicator",
 ]

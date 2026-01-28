@@ -105,12 +105,12 @@ def setup_system():
         )
         console.print("  ✓ RetrievalEngine 初始化成功")
 
-        # 初始化 Lifecycle Manager (Stage 3 核心)
-        lifecycle_manager = create_default_lifecycle_manager(
+        # 初始化 Lifecycle Engine (Stage 3 核心)
+        lifecycle_manager = create_default_lifecycle_engine(
             storage=storage,
             enable_scheduled_gc=False,  # 测试时关闭定时GC
         )
-        console.print("  ✓ LifecycleManager 初始化成功")
+        console.print("  ✓ LifecycleEngine 初始化成功")
 
         return config, patchouli, session_manager, storage, retrieval_engine, lifecycle_manager
 

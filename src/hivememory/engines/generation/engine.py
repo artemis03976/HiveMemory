@@ -5,104 +5,72 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
     协调所有组件，执行完整的记忆生成流程。
 
 工作流程:
-    Step 1: 价值评估 (Gating) → Pass/Drop
-    Step 2: LLM 提取 → ExtractedMemoryDraft
-    Step 3: 查重检测 → CREATE/UPDATE/TOUCH
-    Step 4: 记忆原子构建 → MemoryAtom
-    Step 5: 持久化 → Qdrant
+    Step 1: LLM 提取 → ExtractedMemoryDraft
+    Step 2: 查重检测 → CREATE/UPDATE/TOUCH
+    Step 3: 记忆原子构建 → MemoryAtom
+    Step 4: 持久化 → Qdrant
 
 作者: HiveMemory Team
-版本: 0.1.0
+版本: 0.2.0
 """
 
 import logging
-from typing import List, Optional, TYPE_CHECKING
+from typing import List
 from datetime import datetime
 
 from hivememory.infrastructure.storage import QdrantMemoryStore
-
-if TYPE_CHECKING:
-    from hivememory.patchouli.config import MemoryGenerationConfig
-
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, StreamMessage, Identity
 from hivememory.engines.generation.models import ExtractedMemoryDraft
 from hivememory.engines.generation.interfaces import (
-    ValueGater,
-    MemoryExtractor,
-    Deduplicator,
+    BaseMemoryExtractor,
+    BaseDeduplicator,
     DuplicateDecision,
 )
-from hivememory.engines.generation.gating import create_default_gater
-from hivememory.engines.generation.extractor import create_default_extractor
-from hivememory.engines.generation.deduplicator import create_default_deduplicator
 
 logger = logging.getLogger(__name__)
 
 
-class MemoryGenerationOrchestrator:
+class MemoryGenerationEngine:
     """
-    记忆生成编排器
+    记忆生成引擎
 
-    协调价值评估、LLM 提取、查重、存储等所有步骤。
+    协调LLM 提取、查重、存储等所有步骤。
+
+    遵循显式依赖注入原则：所有子组件必须通过构造函数传入，
+    不在内部实例化依赖项。
 
     Examples:
-        >>> from hivememory.infrastructure.storage import QdrantMemoryStore
-        >>> storage = QdrantMemoryStore()
-        >>> orchestrator = MemoryGenerationOrchestrator(storage=storage)
-        >>> memories = orchestrator.process(messages, user_id="u1", agent_id="a1")
+        >>> from hivememory.engines.generation import create_default_generation_engine
+        >>> engine = create_default_generation_engine(storage=storage)
+        >>>
+        >>> # 高级：手动注入组件
+        >>> orchestrator = MemoryGenerationOrchestrator(
+        ...     storage=storage,
+        ...     extractor=my_extractor,
+        ...     deduplicator=my_deduplicator,
+        ... )
     """
 
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        gater: Optional[ValueGater] = None,
-        extractor: Optional[MemoryExtractor] = None,
-        deduplicator: Optional[Deduplicator] = None,
-        config: Optional["MemoryGenerationConfig"] = None,
+        extractor: BaseMemoryExtractor,
+        deduplicator: BaseDeduplicator,
     ):
         """
         初始化编排器
 
         Args:
             storage: 向量存储实例
-            gater: 价值评估器（可选，使用配置）
-            extractor: 记忆提取器（可选，使用配置）
-            deduplicator: 查重器（可选，使用配置）
-            config: 记忆配置（可选，用于创建组件）
+            extractor: 记忆提取器（必需）
+            deduplicator: 查重器（必需）
 
-        Examples:
-            >>> # 使用默认配置
-            >>> orchestrator = MemoryGenerationOrchestrator(storage=storage)
-            >>>
-            >>> # 使用自定义配置
-            >>> from hivememory.patchouli.config import MemoryGenerationConfig
-            >>> config = MemoryGenerationConfig()
-            >>> orchestrator = MemoryGenerationOrchestrator(storage=storage, config=config)
+        Note:
+            所有组件参数都是必需的。
         """
         self.storage = storage
-
-        # 使用传入的配置或加载默认配置
-        if config is None:
-            from hivememory.patchouli.config import MemoryGenerationConfig
-            config = MemoryGenerationConfig()
-
-        # 如果组件未提供，使用配置创建
-        if gater is None:
-            self.gater = create_default_gater(config.gater)
-        else:
-            self.gater = gater
-
-        if extractor is None:
-            self.extractor = create_default_extractor(config.extractor)
-        else:
-            self.extractor = extractor
-
-        if deduplicator is None:
-            self.deduplicator = create_default_deduplicator(
-                storage, config.deduplicator
-            )
-        else:
-            self.deduplicator = deduplicator
+        self.extractor = extractor
+        self.deduplicator = deduplicator
 
         logger.info("MemoryGenerationOrchestrator 初始化完成")
 
@@ -114,11 +82,10 @@ class MemoryGenerationOrchestrator:
         处理对话片段，提取记忆原子
 
         完整流程:
-            1. 价值评估 → 过滤无价值对话
-            2. LLM 提取 → 生成结构化草稿
-            3. 查重检测 → 判断 CREATE/UPDATE/TOUCH
-            4. 记忆构建 → MemoryAtom
-            5. 持久化 → Qdrant
+            1. LLM 提取 → 生成结构化草稿
+            2. 查重检测 → 判断 CREATE/UPDATE/TOUCH
+            3. 记忆构建 → MemoryAtom
+            4. 持久化 → Qdrant
 
         Args:
             messages: 对话消息列表
@@ -147,16 +114,8 @@ class MemoryGenerationOrchestrator:
 
         logger.info(f"开始处理 {len(messages)} 条消息...")
 
-        # ========== Step 1: 价值评估 ==========
-        logger.debug("Step 1: 价值评估...")
-        has_value = self.gater.evaluate(messages)
-
-        if not has_value:
-            logger.info("对话无长期价值，跳过提取")
-            return []
-
-        # ========== Step 2: LLM 提取 ==========
-        logger.debug("Step 2: LLM 提取...")
+        # ========== Step 1: LLM 提取 ==========
+        logger.debug("Step 1: LLM 提取...")
 
         # 格式化对话
         transcript = self._format_transcript(messages)
@@ -176,8 +135,8 @@ class MemoryGenerationOrchestrator:
             logger.info("LLM 判断对话无价值，跳过存储")
             return []
 
-        # ========== Step 3: 查重检测 ==========
-        logger.debug("Step 3: 查重检测...")
+        # ========== Step 2: 查重检测 ==========
+        logger.debug("Step 2: 查重检测...")
 
         decision, existing_memory = self.deduplicator.check_duplicate(draft)
 
@@ -307,5 +266,5 @@ class MemoryGenerationOrchestrator:
 
 
 __all__ = [
-    "MemoryGenerationOrchestrator",
+    "MemoryGenerationEngine",
 ]

@@ -3,13 +3,19 @@ HiveMemory - 语义流感知层 (Semantic Flow Perception Layer)
 
 职责:
     使用统一语义流架构的感知层实现。
+    负责编排 flush 逻辑，协调 BufferManager、Adsorber 和 Relay。
 
 特性:
     - LogicalBlock 作为处理单元
     - 语义吸附判定
     - Token 溢出检测与接力
     - 异步空闲超时监控
-    - 多框架支持（LangChain、OpenAI、简单文本）
+
+Note:
+    v3.0 重构：
+    - BufferManager 简化为纯状态管理器
+    - Adsorber 和 Relay 变为无状态服务
+    - Flush 编排逻辑移至 PerceptionLayer
 
 参考: PROJECT.md 2.3.1 节
 
@@ -18,31 +24,28 @@ HiveMemory - 语义流感知层 (Semantic Flow Perception Layer)
 """
 
 import logging
-import threading
-from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
-
-from hivememory.core.models import FlushReason, Identity, StreamMessage, StreamMessageType
-from hivememory.engines.perception.interfaces import (
-    BasePerceptionLayer,
-    StreamParser,
-    SemanticAdsorber,
-    RelayController,
-)
+from typing import Any, Callable, Dict, List, Optional
+from hivememory.core.models import Identity, StreamMessage
+from hivememory.engines.perception.buffer_manager import SemanticBufferManager
+from hivememory.engines.perception.interfaces import BasePerceptionLayer
+from hivememory.engines.perception.stream_parser import UnifiedStreamParser
+from hivememory.engines.perception.relay_controller import RelayController
+from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber
 from hivememory.engines.perception.models import (
+    BufferState,
+    FlushEvent,
+    FlushReason,
     LogicalBlock,
     SemanticBuffer,
-    BufferState,
 )
-from hivememory.engines.perception.stream_parser import UnifiedStreamParser
-from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber
-from hivememory.engines.perception.relay_controller import TokenOverflowRelayController
+from hivememory.patchouli.config import SemanticFlowPerceptionConfig
 
 logger = logging.getLogger(__name__)
 
 
 class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     """
-    语义流感知层
+    语义流感知层 (v3.0 重构版)
 
     使用统一的语义流架构：
         - LogicalBlock 作为处理单元
@@ -51,67 +54,75 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         - 异步空闲超时监控
 
     职责：
-        - 管理所有 SemanticBuffer（按 user_id:agent_id:session_id 组织）
-        - 协调 Parser、Adsorber、Relay
-        - 处理消息流并触发 Flush
-        - 提供 Buffer 查询和管理接口
+        - 解析消息
+        - 编排 flush 逻辑（协调 Adsorber 和 Relay）
+        - 管理话题核心向量更新
+        - 管理空闲超时监控
+
+    架构：
+        - BufferManager: 纯状态容器（CRUD 操作）
+        - Adsorber: 无状态服务（语义漂移检测）
+        - Relay: 无状态服务（Token 溢出检测）
+        - PerceptionLayer: 编排和协调
 
     Examples:
-        >>> def on_flush(blocks, reason):
-        ...     print(f"Flush: {reason}, Blocks: {len(blocks)}")
+        >>> def on_flush(messages, reason):
+        ...     print(f"Flush: {reason}, Messages: {len(messages)}")
         >>>
-        >>> perception = SemanticFlowPerceptionLayer(on_flush_callback=on_flush)
-        >>> perception.start_idle_monitor()  # 启动异步空闲监控
+        >>> config = SemanticFlowPerceptionConfig()
+        >>> perception = SemanticFlowPerceptionLayer(
+        ...     config=config,
+        ...     parser=parser,
+        ...     adsorber=adsorber,
+        ...     relay_controller=relay_controller,
+        ...     on_flush_callback=on_flush
+        ... )
+        >>> perception.start_idle_monitor()
         >>>
-        >>> # 添加消息（使用 BasePerceptionLayer 接口）
         >>> perception.add_message("user", "hello", identity)
         >>>
-        >>> perception.stop_idle_monitor()  # 停止监控
+        >>> perception.stop_idle_monitor()
     """
 
     def __init__(
         self,
-        parser: Optional[StreamParser] = None,
-        adsorber: Optional[SemanticAdsorber] = None,
-        relay_controller: Optional[RelayController] = None,
+        config: SemanticFlowPerceptionConfig,
+        parser: UnifiedStreamParser,
+        adsorber: SemanticBoundaryAdsorber,
+        relay_controller: RelayController,
         on_flush_callback: Optional[
             Callable[[List[StreamMessage], FlushReason], None]
         ] = None,
-        idle_timeout_seconds: int = 900,
-        scan_interval_seconds: int = 30,
     ):
         """
         初始化语义流感知层
 
         Args:
-            parser: 流式解析器（可选，使用默认）
-            adsorber: 语义吸附器（可选，使用默认）
-            relay_controller: 接力控制器（可选，使用默认）
-            on_flush_callback: Flush 回调函数（统一接口）
+            config: SemanticFlowPerceptionConfig 配置对象
+            parser: 流式解析器
+            adsorber: 语义吸附器（无状态服务）
+            relay_controller: 接力控制器（无状态服务）
+            on_flush_callback: Flush 回调函数
                 参数: (messages: List[StreamMessage], reason: FlushReason)
-            idle_timeout_seconds: 空闲超时时间（秒），默认 900（15 分钟）
-            scan_interval_seconds: 扫描间隔（秒），默认 30
         """
         super().__init__()
 
-        self.parser = parser or UnifiedStreamParser()
-        self.adsorber = adsorber or SemanticBoundaryAdsorber()
-        self.relay_controller = relay_controller or TokenOverflowRelayController()
+        self.config = config
+        self.parser = parser
+        self.adsorber = adsorber
+        self.relay_controller = relay_controller
         self.on_flush_callback = on_flush_callback
 
         # 空闲超时监控器配置（由基类管理）
-        self._idle_timeout_seconds = idle_timeout_seconds
-        self._scan_interval_seconds = scan_interval_seconds
+        self._idle_timeout_seconds = config.idle_timeout_seconds
+        self._scan_interval_seconds = config.scan_interval_seconds
 
-        # Buffer 池管理
-        self._buffers: Dict[str, SemanticBuffer] = {}
-        self._lock = threading.RLock()
+        # BufferManager 作为纯状态容器
+        self._buffer_manager = SemanticBufferManager()
 
         logger.info("SemanticFlowPerceptionLayer 初始化完成")
 
-    # ========== BasePerceptionLayer 接口实现 ==========
-
-    def add_message(
+    def perceive(
         self,
         role: str,
         content: str,
@@ -121,15 +132,20 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         worth_saving: Optional[bool] = None,
     ) -> None:
         """
-        添加消息到感知层（BasePerceptionLayer 统一接口）
+        添加消息到感知层
 
-        处理流程：
-            1. 解析原始消息为 StreamMessage
-            2. 获取或创建 SemanticBuffer
-            3. 判断是否需要创建 LogicalBlock
-            4. 添加消息到当前 Block
-            5. 检查 Block 是否闭合
-            6. 语义吸附判定（是否触发 Flush）
+        编排流程：
+            1. 解析消息
+            2. 获取 buffer 和 builder
+            3. 检查是否需要开始新 block
+            4. 添加消息到 builder
+            5. 如果 block 未完成，返回
+            6. Block 完成，构建它
+            7. 吸附判断：检查语义漂移
+            8. 容量判断：检查 Token 溢出
+            9. 将 block 添加到 buffer
+            10. 更新话题核心
+            11. 重置 builder 和状态
 
         Args:
             role: 角色 (user/assistant/system)
@@ -138,67 +154,126 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             rewritten_query: Gateway 重写后的查询（可选）
             gateway_intent: Gateway 意图分类结果（可选）
             worth_saving: Gateway 价值判断（可选）
-
-        Examples:
-            >>> from hivememory.core.models import Identity
-            >>> identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
-            >>> perception.add_message("user", "hello", identity)
         """
-        with self._lock:
-            # 1. 解析消息
-            try:
-                raw_message = {"role": role, "content": content}
-                stream_message = self.parser.parse_message(raw_message)
-                # 更新身份信息
-                stream_message.identity = Identity(
-                    user_id=identity.user_id,
-                    agent_id=identity.agent_id,
-                    session_id=identity.session_id or ""
-                )
-                # 更新 Gateway 信息
-                stream_message.rewritten_query = rewritten_query
-                stream_message.gateway_intent = gateway_intent
-                stream_message.worth_saving = worth_saving
-            except Exception as e:
-                logger.error(f"消息解析失败: {e}")
-                return
+        # 1. 解析消息
+        try:
+            raw_message = {"role": role, "content": content}
+            stream_message = self.parser.parse_message(raw_message)
+            stream_message.identity = identity
+        except Exception as e:
+            logger.error(f"消息解析失败: {e}")
+            return
 
-            logger.debug(
-                f"解析消息: {stream_message.message_type} - "
-                f"{stream_message.content[:50]}..."
+        # 2. 获取 buffer 和 builder
+        buffer = self._buffer_manager.get_buffer(identity)
+        builder = self._buffer_manager.get_builder(identity)
+
+        # 3. 检查是否需要开始新 block
+        if builder.should_create_new_block(stream_message):
+            builder.start(
+                rewritten_query=rewritten_query,
+                gateway_intent=gateway_intent,
+                worth_saving=worth_saving,
+            )
+            self._buffer_manager.update_buffer_metadata(
+                identity, state=BufferState.PROCESSING
+            )
+            logger.debug(f"为 {identity.buffer_key} 开始新 block")
+
+        # 4. 添加消息到 builder
+        builder.add_message(stream_message)
+
+        # 5. 如果 block 未完成，返回
+        if not builder.is_complete:
+            return
+
+        # 6. Block 完成，构建它
+        completed_block = builder.build()
+
+        # 7. 吸附判断：检查语义漂移
+        flush_event = self.adsorber.should_adsorb(buffer, completed_block)
+        if flush_event:
+            self._handle_flush_event(identity, flush_event)
+            # flush 后刷新 buffer 引用
+            buffer = self._buffer_manager.get_buffer(identity)
+        # 8. 容量判断：检查 Token 溢出（仅在未发生语义漂移 Flush 时）
+        else:
+            flush_event = self.relay_controller.should_relay(buffer, completed_block)
+            if flush_event:
+                self._handle_flush_event(identity, flush_event)
+                buffer = self._buffer_manager.get_buffer(identity)
+
+        # 9. 将 block 添加到 buffer
+        self._buffer_manager.add_block_to_buffer(identity, completed_block)
+
+        # 10. 更新话题核心
+        new_kernel = self.adsorber.compute_new_topic_kernel(buffer, completed_block)
+        if new_kernel:
+            self._buffer_manager.update_buffer_metadata(
+                identity, topic_kernel_vector=new_kernel
             )
 
-            # 2. 获取或创建 Buffer
-            buffer = self.get_buffer(identity)
+        # 11. 重置 builder 和状态
+        self._buffer_manager.reset_builder(identity)
+        self._buffer_manager.update_buffer_metadata(
+            identity, state=BufferState.IDLE
+        )
 
-            # 3. 判断是否需要创建新 Block
-            if self.parser.should_create_new_block(stream_message):
-                buffer.current_block = LogicalBlock()
-                buffer.state = BufferState.PROCESSING
-                logger.debug(f"创建新 LogicalBlock: {buffer.current_block.block_id}")
+    def _handle_flush_event(self, identity: Identity, event: FlushEvent) -> None:
+        """
+        处理 flush 事件
 
-            # 4. 添加到当前 Block
-            if buffer.current_block:
-                buffer.current_block.add_stream_message(stream_message)
+        Args:
+            identity: 身份标识
+            event: FlushEvent 包含 flush 详情
+        """
+        logger.info(
+            f"Flush buffer {identity.buffer_key}, "
+            f"原因: {event.flush_reason.value}, "
+            f"blocks: {len(event.blocks_to_flush)}"
+        )
 
-            # 5. 检查是否完成
-            if buffer.current_block and buffer.current_block.is_complete:
-                completed_block = buffer.current_block
-                buffer.current_block = None
-                buffer.state = BufferState.IDLE
+        # 1. 清空 buffer
+        self._buffer_manager.clear_buffer(identity)
 
-                # 6. 多方面检测（Token溢出、语义漂移等），如有需要则先 Flush 旧 Buffer
-                # 注意：此时新 Block 尚未加入 Buffer
-                self._check_and_flush(buffer, completed_block)
+        # 2. 更新 relay_summary（如果有）
+        if event.relay_summary:
+            self._buffer_manager.update_buffer_metadata(
+                identity, relay_summary=event.relay_summary
+            )
 
-                # 7. 将完整 Block 加入缓冲区（此时 Buffer 可能已被清空）
-                buffer.add_block(completed_block)
+        # 3. 重置话题核心
+        self._buffer_manager.update_buffer_metadata(
+            identity, reset_topic_kernel=True
+        )
 
-                # 8. 更新话题核心
-                try:
-                    self.adsorber.update_topic_kernel(buffer, completed_block)
-                except Exception as e:
-                    logger.warning(f"更新话题核心失败: {e}")
+        # 4. 调用回调
+        if self.on_flush_callback and event.blocks_to_flush:
+            try:
+                messages = self._blocks_to_messages(event.blocks_to_flush, identity)
+                self.on_flush_callback(messages, event.flush_reason)
+            except Exception as e:
+                logger.error(f"Flush 回调失败: {e}")
+
+    def _blocks_to_messages(
+        self,
+        blocks: List[LogicalBlock],
+        identity: Identity,
+    ) -> List[StreamMessage]:
+        """
+        将 blocks 转换为 stream messages
+
+        Args:
+            blocks: 要转换的 blocks
+            identity: 身份标识
+
+        Returns:
+            stream messages 列表
+        """
+        messages = []
+        for block in blocks:
+            messages.extend(block.to_stream_messages(identity))
+        return messages
 
     def flush_buffer(
         self,
@@ -215,35 +290,29 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             List[StreamMessage]: 被 Flush 的消息列表
         """
-        with self._lock:
-            buffer_key = identity.buffer_key
-            buffer = self.get_buffer(identity)
-            if not buffer:
-                logger.debug(f"Buffer 不存在: {buffer_key}")
-                return []
+        builder = self._buffer_manager.get_builder(identity)
 
-            # 将当前 Block 加入（如果存在且完整）
-            if buffer.current_block and buffer.current_block.is_complete:
-                buffer.add_block(buffer.current_block)
-                buffer.current_block = None
+        # 如果 builder 有完成的 block，先添加它
+        if builder.is_complete:
+            completed_block = builder.build()
+            self._buffer_manager.add_block_to_buffer(identity, completed_block)
+            self._buffer_manager.reset_builder(identity)
 
-            if not buffer.blocks:
-                return []
+        # 获取最新的 buffer 状态
+        buffer = self._buffer_manager.get_buffer(identity)
+        if not buffer.blocks:
+            return []
 
-            blocks = self._flush(buffer, reason)
-            # 转换为 StreamMessage
-            messages = []
-            for block in blocks:
-                messages.extend(
-                    block.to_stream_messages(
-                        identity=Identity(
-                            user_id=buffer.user_id,
-                            agent_id=buffer.agent_id,
-                            session_id=buffer.session_id,
-                        )
-                    )
-                )
-            return messages
+        # 创建 flush event
+        flush_event = FlushEvent(
+            flush_reason=reason,
+            blocks_to_flush=buffer.blocks.copy(),
+        )
+
+        # 处理 flush
+        self._handle_flush_event(identity, flush_event)
+
+        return self._blocks_to_messages(flush_event.blocks_to_flush, identity)
 
     def get_buffer(
         self,
@@ -256,20 +325,9 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             identity: 身份标识对象
 
         Returns:
-            SemanticBuffer: 缓冲区对象，不存在返回 None
+            SemanticBuffer: 缓冲区对象，不存在则创建
         """
-        key = identity.buffer_key
-
-        with self._lock:
-            if key not in self._buffers:
-                self._buffers[key] = SemanticBuffer(
-                    user_id=identity.user_id,
-                    agent_id=identity.agent_id,
-                    session_id=identity.session_id or key.split(":")[-1],
-                )
-                logger.debug(f"创建新 Buffer: {key}")
-
-            return self._buffers.get(key)
+        return self._buffer_manager.get_buffer(identity)
 
     def clear_buffer(
         self,
@@ -283,24 +341,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         Returns:
             bool: 是否成功清理
-
-        Examples:
-            >>> from hivememory.core.models import Identity
-            >>> identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
-            >>> success = perception.clear_buffer(identity)
-            >>> print(f"清理{'成功' if success else '失败'}")
         """
-        with self._lock:
-            buffer_key = identity.buffer_key
-            buffer = self.get_buffer(identity)
-            if buffer:
-                # 先处理未完成的 Block
-                buffer.clear()
-                logger.info(f"清理 Buffer: {buffer_key}")
-                return True
-            else:
-                logger.debug(f"Buffer 不存在，无需清理: {buffer_key}")
-                return False
+        cleared = self._buffer_manager.clear_buffer(identity)
+        self._buffer_manager.reset_builder(identity)
+        self._buffer_manager.update_buffer_metadata(
+            identity,
+            reset_topic_kernel=True,
+            reset_relay_summary=True,
+            state=BufferState.IDLE,
+        )
+        return len(cleared) > 0 or True  # 总是返回 True 表示操作成功
 
     def list_active_buffers(self) -> List[str]:
         """
@@ -308,20 +358,15 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         Returns:
             List[str]: Buffer key 列表
-
-        Examples:
-            >>> buffers = perception.list_active_buffers()
-            >>> print(f"当前有 {len(buffers)} 个活跃 Buffer")
         """
-        with self._lock:
-            return list(self._buffers.keys())
+        return self._buffer_manager.list_active_buffers()
 
     def get_buffer_info(
         self,
         identity: Identity,
     ) -> Dict[str, Any]:
         """
-        获取缓冲区信息（BasePerceptionLayer 统一接口）
+        获取缓冲区信息
 
         Args:
             identity: 身份标识对象
@@ -329,134 +374,10 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             Dict: 缓冲区信息字典
         """
-        buffer = self.get_buffer(identity)
-        if buffer:
-            return {
-                "exists": True,
-                "mode": "semantic_flow",
-                "buffer_id": buffer.buffer_id,
-                "user_id": buffer.user_id,
-                "agent_id": buffer.agent_id,
-                "session_id": buffer.session_id,
-                "block_count": len(buffer.blocks),
-                "total_tokens": buffer.total_tokens,
-                "state": buffer.state.value,
-                "has_current_block": buffer.current_block is not None,
-                "relay_summary": buffer.relay_summary,
-            }
-        else:
-            return {
-                "exists": False,
-                "mode": "semantic_flow",
-                "user_id": identity.user_id,
-                "agent_id": identity.agent_id,
-                "session_id": identity.session_id,
-            }
-
-    # ========== 内部方法 ==========
-
-    def _check_and_flush(
-        self,
-        buffer: SemanticBuffer,
-        new_block: LogicalBlock
-    ) -> Optional[List[LogicalBlock]]:
-        """
-        检查是否需要 Flush（在新 Block 加入 Buffer 之前调用）
-
-        检测顺序：
-            1. 语义吸附判定（Adsorber：语义漂移）
-            2. Token 溢出检测（RelayController）
-
-        空闲超时检测由 BasePerceptionLayer.start_idle_monitor() 异步处理。
-
-        如果需要 Flush，先清空旧 Buffer，新 Block 将作为新 Buffer 的第一个元素。
-
-        Args:
-            buffer: 当前语义缓冲区
-            new_block: 即将加入的新 Block（尚未加入 buffer.blocks）
-
-        Returns:
-            Optional[List[LogicalBlock]]: Flush 的 Block 列表，如果未触发则返回 None
-        """
-
-        # 1. 语义吸附判定（语义漂移）
-        should_adsorb, flush_reason = self.adsorber.should_adsorb(new_block, buffer)
-
-        if not should_adsorb:
-            # 语义吸附判定未通过，触发 Flush
-            result = self._flush(buffer, flush_reason)
-            # 重置话题核心，新 Block 将开启新话题
-            self.adsorber.reset_topic_kernel(buffer)
-            return result
-
-        # 2. 通过语义吸附判定后，进行 Token 溢出检测
-        if self.relay_controller.should_trigger_relay(buffer, new_block):
-            # 触发 Token 溢出接力
-            result = self._flush(buffer, FlushReason.TOKEN_OVERFLOW)
-            # 重置话题核心，新 Block 将开启新话题，但保有上一次的话题摘要
-            self.adsorber.reset_topic_kernel(buffer)
-            return result
-
-        # 默认吸附，不触发 Flush
-        return None
-
-    def _flush(
-        self,
-        buffer: SemanticBuffer,
-        reason: FlushReason,
-    ) -> List[LogicalBlock]:
-        """
-        执行 Flush，清空 Buffer
-        内部将 LogicalBlock 转换为 StreamMessage 后调用回调函数
-
-        Args:
-            buffer: 当前语义缓冲区
-            reason: Flush 原因
-
-        Returns:
-            List[LogicalBlock]: Flush 的 Block 列表
-        """
-        blocks_to_process = buffer.blocks.copy()
-
-        logger.info(
-            f"感知层触发 Flush，Buffer ID={buffer.buffer_id}, "
-            f"原因: {reason.value}, "
-            f"Block 数量: {len(blocks_to_process)}"
-        )
-
-        # 清空 Buffer
-        buffer.blocks.clear()
-        buffer.total_tokens = 0
-
-        # 如果是 Token 溢出，生成接力摘要
-        if reason == FlushReason.TOKEN_OVERFLOW:
-            try:
-                summary = self.relay_controller.generate_summary(blocks_to_process)
-                buffer.relay_summary = summary
-                logger.debug(f"接力摘要: {summary}")
-            except Exception as e:
-                logger.warning(f"生成接力摘要失败: {e}")
-
-        # 调用回调（转换为 StreamMessage）
-        if self.on_flush_callback:
-            try:
-                # 转换 LogicalBlock -> StreamMessage
-                messages = []
-                for block in blocks_to_process:
-                    messages.extend(
-                        block.to_stream_messages(
-                            identity=Identity(
-                                user_id=buffer.user_id,
-                                agent_id=buffer.agent_id,
-                                session_id=buffer.session_id,
-                            )
-                        )
-                    )
-                self.on_flush_callback(messages, reason)
-            except Exception as e:
-                logger.error(f"Flush 回调执行失败: {e}")
-
-        return blocks_to_process
+        info = self._buffer_manager.get_buffer_info(identity)
+        info["mode"] = "semantic_flow"
+        info["identity"] = identity
+        return info
 
 
 __all__ = [

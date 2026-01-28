@@ -20,13 +20,13 @@ import logging
 import threading
 import time
 from typing import List, Optional, Dict, Any, Callable
-
-from hivememory.core.models import FlushReason, Identity, StreamMessage, StreamMessageType
+from hivememory.core.models import Identity, StreamMessage, StreamMessageType
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
-from hivememory.engines.perception.models import SimpleBuffer  # 从 models.py 导入
+from hivememory.engines.perception.models import SimpleBuffer, FlushReason
+from hivememory.engines.perception.buffer_manager import SimpleBufferManager
+from hivememory.patchouli.config import SimplePerceptionConfig
 from hivememory.engines.perception.trigger_strategies import (
     TriggerManager,
-    create_default_trigger_manager,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,14 +38,14 @@ class SimplePerceptionLayer(BasePerceptionLayer):
 
     整合原有的 ConversationBuffer 与 TriggerManager 逻辑：
         - 三重触发机制（消息数、超时、语义边界）
-        - 使用 StreamMessage 数据结构
         - 简单直接的消息累积，复写消息流
 
     Examples:
         >>> def on_flush(messages, reason):
         ...     print(f"Flush: {reason}, Messages: {len(messages)}")
         >>>
-        >>> perception = SimplePerceptionLayer(on_flush_callback=on_flush)
+        >>> config = SimplePerceptionConfig(message_threshold=6)
+        >>> perception = SimplePerceptionLayer(config=config, on_flush_callback=on_flush)
         >>>
         >>> perception.add_message("user", "hello", identity)
         >>> messages = perception.flush_buffer(identity)
@@ -53,7 +53,8 @@ class SimplePerceptionLayer(BasePerceptionLayer):
 
     def __init__(
         self,
-        trigger_manager: Optional[TriggerManager] = None,
+        config: SimplePerceptionConfig,
+        trigger_manager: TriggerManager,
         on_flush_callback: Optional[
             Callable[[List[StreamMessage], FlushReason], None]
         ] = None,
@@ -62,46 +63,22 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         初始化简单感知层
 
         Args:
+            config: SimplePerceptionConfig 配置对象
             trigger_manager: 触发管理器
             on_flush_callback: Flush 回调函数
         """
         super().__init__()
-
-        self.trigger_manager = trigger_manager or create_default_trigger_manager()
+        
+        self.config = config
+        self.trigger_manager = trigger_manager
         self.on_flush_callback = on_flush_callback
 
-        # Buffer 池管理
-        self._buffers: Dict[str, SimpleBuffer] = {}
-        # 触发上下文追踪（每个 Buffer 独立的 timing state）
-        self._trigger_context: Dict[str, Dict[str, float]] = {}
-        self._lock = threading.RLock()
+        # BufferManager 管理
+        self._buffer_manager = SimpleBufferManager()
 
         logger.info("SimplePerceptionLayer 初始化完成")
 
     # ========== 内部方法 ==========
-
-    def _get_trigger_context(self, buffer_key: str) -> Dict[str, float]:
-        """
-        获取或创建触发上下文
-
-        Args:
-            buffer_key: Buffer 唯一键
-
-        Returns:
-            Dict: 触发上下文 {
-                "last_trigger_time": float,
-                "last_message_time": float
-            }
-        """
-        current_time = time.time()
-
-        if buffer_key not in self._trigger_context:
-            self._trigger_context[buffer_key] = {
-                "last_trigger_time": current_time,
-                "last_message_time": current_time,
-            }
-
-        return self._trigger_context[buffer_key]
 
     def _check_and_flush(
         self,
@@ -121,13 +98,9 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         if not buffer.messages:
             return None
 
-        # 获取触发上下文
-        trigger_context = self._get_trigger_context(buffer_key)
-
         # 检查是否触发
         should_trigger, flush_reason = self.trigger_manager.should_trigger(
             messages=buffer.messages,
-            context=trigger_context,
         )
 
         if should_trigger:
@@ -164,10 +137,6 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         # 清空 Buffer
         buffer.clear()
 
-        # 更新触发上下文
-        trigger_context = self._get_trigger_context(buffer_key)
-        trigger_context["last_trigger_time"] = time.time()
-
         # 调用回调
         if self.on_flush_callback:
             try:
@@ -179,7 +148,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
 
     # ========== BasePerceptionLayer 接口实现 ==========
 
-    def add_message(
+    def perceive(
         self,
         role: str,
         content: str,
@@ -192,11 +161,9 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         添加消息到感知层
 
         处理流程（匹配 SemanticFlowPerceptionLayer）：
-            1. 获取或创建 SimpleBuffer
-            2. 创建消息并添加到 Buffer
-            3. 更新触发上下文
-            4. 检查触发条件
-            5. 如果触发，执行 Flush
+            1. 创建消息并添加到 Buffer
+            2. 检查触发条件
+            3. 如果触发，执行 Flush
 
         Args:
             role: 角色 (user/assistant/system)
@@ -206,44 +173,33 @@ class SimplePerceptionLayer(BasePerceptionLayer):
             gateway_intent: Gateway 意图分类结果（可选）
             worth_saving: Gateway 价值判断（可选）
         """
-        with self._lock:
-            buffer_key = identity.buffer_key
+        buffer_key = identity.buffer_key
 
-            # 1. 获取或创建 Buffer
-            buffer = self.get_buffer(identity)
-            if not buffer:
-                logger.debug(f"Buffer 创建失败: {buffer_key}")
-                return
-
-            # 2. 创建消息并添加
-            try:
-                msg_type = StreamMessageType(role)
-            except ValueError:
-                msg_type = StreamMessageType.ASSISTANT
-            
-            message = StreamMessage(
-                message_type=msg_type,
-                content=content,
-                identity=Identity(
-                    user_id=identity.user_id,
-                    agent_id=identity.agent_id,
-                    session_id=identity.session_id or buffer_key.split(":")[-1]
-                ),
-                rewritten_query=rewritten_query,
-                gateway_intent=gateway_intent,
-                worth_saving=worth_saving,
+        # 1. 创建消息
+        try:
+            msg_type = StreamMessageType(role)
+        except ValueError:
+            msg_type = StreamMessageType.ASSISTANT
+        
+        message = StreamMessage(
+            message_type=msg_type,
+            content=content,
+            identity=Identity(
+                user_id=identity.user_id,
+                agent_id=identity.agent_id,
+                session_id=identity.session_id or buffer_key.split(":")[-1]
             )
-            
-            buffer.add_message(message)
+        )
+        
+        # 2. 添加到 Buffer (通过 Manager)
+        self._buffer_manager.add_message(identity, message)
 
-            logger.debug(f"添加消息: {role} - {content[:50]}...")
+        logger.debug(f"添加消息: {role} - {content[:50]}...")
 
-            # 3. 检查触发条件
-            self._check_and_flush(buffer, buffer_key)
-
-            # 4. 更新触发上下文（在检查之后更新时间）
-            trigger_context = self._get_trigger_context(buffer_key)
-            trigger_context["last_message_time"] = time.time()
+        # 3. 检查触发条件
+        # 获取 buffer 对象用于检查
+        buffer = self._buffer_manager.get_buffer(identity)
+        self._check_and_flush(buffer, buffer_key)
 
     def flush_buffer(
         self,
@@ -260,14 +216,13 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         Returns:
             List[StreamMessage]: 被 Flush 的消息列表，如果 Buffer 不存在或为空则返回空列表
         """
-        with self._lock:
-            buffer_key = identity.buffer_key
-            buffer = self.get_buffer(identity)
-            if not buffer:
-                logger.debug(f"Buffer 不存在: {buffer_key}")
-                return []
+        buffer_key = identity.buffer_key
+        buffer = self._buffer_manager.get_buffer(identity)
+        if not buffer:
+            logger.debug(f"Buffer 不存在: {buffer_key}")
+            return []
 
-            return self._flush(buffer, buffer_key, reason)
+        return self._flush(buffer, buffer_key, reason)
 
     def get_buffer(
         self,
@@ -282,19 +237,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         Returns:
             SimpleBuffer: 缓冲区对象，不存在返回 None
         """
-        key = identity.buffer_key
-
-        with self._lock:
-            if key not in self._buffers:
-                # 创建新 Buffer
-                self._buffers[key] = SimpleBuffer(
-                    user_id=identity.user_id,
-                    agent_id=identity.agent_id,
-                    session_id=identity.session_id or key.split(":")[-1],
-                )
-                logger.debug(f"创建新 Buffer: {key}")
-
-            return self._buffers.get(key)
+        return self._buffer_manager.get_buffer(identity)
 
     def clear_buffer(
         self,
@@ -309,21 +252,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         Returns:
             bool: 是否成功清理
         """
-        with self._lock:
-            buffer_key = identity.buffer_key
-            buffer = self.get_buffer(identity)
-            if buffer:
-                buffer.clear()
-
-                # 清理触发上下文
-                if buffer_key in self._trigger_context:
-                    del self._trigger_context[buffer_key]
-
-                logger.info(f"清理 Buffer: {buffer_key}")
-                return True
-            else:
-                logger.debug(f"Buffer 不存在，无需清理: {buffer_key}")
-                return False
+        return self._buffer_manager.clear_buffer(identity)
 
     def list_active_buffers(self) -> List[str]:
         """
@@ -332,8 +261,7 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         Returns:
             List[str]: Buffer key 列表
         """
-        with self._lock:
-            return list(self._buffers.keys())
+        return self._buffer_manager.list_active_buffers()
 
     def get_buffer_info(
         self,
@@ -348,25 +276,10 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         Returns:
             Dict: 缓冲区信息字典
         """
-        buffer = self.get_buffer(identity)
-        if buffer:
-            return {
-                "exists": True,
-                "mode": "simple",
-                "message_count": buffer.message_count,
-                "user_id": identity.user_id,
-                "agent_id": identity.agent_id,
-                "session_id": identity.session_id,
-            }
-        else:
-            return {
-                "exists": False,
-                "mode": "simple",
-                "message_count": 0,
-                "user_id": identity.user_id,
-                "agent_id": identity.agent_id,
-                "session_id": identity.session_id,
-            }
+        info = self._buffer_manager.get_buffer_info(identity)
+        info["mode"] = "simple"
+        info["identity"] = identity
+        return info
 
 
 __all__ = [

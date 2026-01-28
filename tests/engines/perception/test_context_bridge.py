@@ -6,10 +6,15 @@ ContextBridge 单元测试
 - 锚点文本构建
 - 上下文截断
 - 停用词检测
+
+Note:
+    v2.0 重构：SemanticBuffer.add_block() 已移除，
+    测试中直接操作 buffer.blocks 列表。
 """
 
 import pytest
 
+from hivememory.core.models import Identity
 from hivememory.engines.perception.context_bridge import (
     ContextBridge,
     DEFAULT_STOP_WORDS,
@@ -45,22 +50,21 @@ class TestContextBridge:
     def test_extract_last_context_from_user_fallback(self):
         """测试回退到用户查询提取上下文"""
         buffer = SemanticBuffer(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="sess1",
+            identity=Identity(user_id="user1", agent_id="agent1", session_id="sess1"),
         )
 
         # 创建有完整 block 的 LogicalBlock（但没有 response_block 内容）
-        block = LogicalBlock()
-        block.user_block = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="帮我部署服务器"
+        block = LogicalBlock(
+            user_block=StreamMessage(
+                message_type=StreamMessageType.USER,
+                content="帮我部署服务器"
+            ),
+            response_block=StreamMessage(
+                message_type=StreamMessageType.ASSISTANT,
+                content=""  # 空回复
+            )
         )
-        block.response_block = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT,
-            content=""  # 空回复
-        )
-        buffer.add_block(block)
+        buffer.blocks.append(block)
 
         # 使用 user 作为上下文源（会跳过空的 response）
         bridge = ContextBridge(context_source="user")
@@ -71,22 +75,21 @@ class TestContextBridge:
     def test_extract_last_context_from_relay_summary(self):
         """测试从 relay_summary 提取上下文（当 blocks 中 response 为空时）"""
         buffer = SemanticBuffer(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="sess1",
+            identity=Identity(user_id="user1", agent_id="agent1", session_id="sess1"),
         )
 
         # 添加一个 block，但 response 和 user 都是空的
-        block = LogicalBlock()
-        block.user_block = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content=""
+        block = LogicalBlock(
+            user_block=StreamMessage(
+                message_type=StreamMessageType.USER,
+                content=""
+            ),
+            response_block=StreamMessage(
+                message_type=StreamMessageType.ASSISTANT,
+                content=""
+            )
         )
-        block.response_block = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT,
-            content=""
-        )
-        buffer.add_block(block)
+        buffer.blocks.append(block)
 
         # 设置 relay_summary
         buffer.relay_summary = "之前的对话讨论了贪吃蛇游戏的开发。"
@@ -102,9 +105,7 @@ class TestContextBridge:
     def test_extract_last_context_from_empty_buffer(self):
         """测试空缓冲区返回空字符串"""
         buffer = SemanticBuffer(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="sess1",
+            identity=Identity(user_id="user1", agent_id="agent1", session_id="sess1"),
         )
 
         context = self.bridge.extract_last_context(buffer)
@@ -142,9 +143,7 @@ class TestContextBridge:
     def test_build_anchor_text_without_context(self):
         """测试无上下文时直接返回查询"""
         buffer = SemanticBuffer(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="sess1",
+            identity=Identity(user_id="user1", agent_id="agent1", session_id="sess1"),
         )
 
         anchor = self.bridge.build_anchor_text("部署服务器", buffer)
@@ -204,23 +203,23 @@ class TestContextBridge:
     def _create_buffer_with_block(self, user_content: str, response_content: str) -> SemanticBuffer:
         """辅助方法：创建包含完整 block 的 buffer"""
         buffer = SemanticBuffer(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="sess1",
+            identity=Identity(user_id="user1", agent_id="agent1", session_id="sess1"),
         )
 
-        # 创建 LogicalBlock
-        block = LogicalBlock()
-        block.user_block = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content=user_content
-        )
-        block.response_block = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT,
-            content=response_content
+        # 创建 LogicalBlock（直接通过构造函数设置字段）
+        block = LogicalBlock(
+            user_block=StreamMessage(
+                message_type=StreamMessageType.USER,
+                content=user_content
+            ),
+            response_block=StreamMessage(
+                message_type=StreamMessageType.ASSISTANT,
+                content=response_content
+            )
         )
 
-        buffer.add_block(block)
+        # v2.0: 直接操作 blocks 列表
+        buffer.blocks.append(block)
         return buffer
 
 

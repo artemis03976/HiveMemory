@@ -7,18 +7,17 @@ Fusion 模块单元测试
 
 import pytest
 from uuid import uuid4, UUID
-from datetime import datetime
 
 from hivememory.core.models import MemoryAtom, IndexLayer, MetaData, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
-from hivememory.patchouli.config import FusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
+from hivememory.patchouli.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
 from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, AdaptiveWeightedFusion
 
 class TestReciprocalRankFusion:
     
     @pytest.fixture
     def fusion(self):
-        config = FusionConfig(
+        config = ReciprocalRankFusionConfig(
             rrf_k=60,
             dense_weight=1.0,
             sparse_weight=1.0,
@@ -99,7 +98,7 @@ class TestReciprocalRankFusion:
         
     def test_fuse_weights(self):
         """测试不同权重的影响"""
-        config = FusionConfig(
+        config = ReciprocalRankFusionConfig(
             rrf_k=1, # Small k to make weight impact larger
             dense_weight=10.0,
             sparse_weight=1.0
@@ -154,7 +153,7 @@ class TestReciprocalRankFusion:
 
     def test_top_k_truncation(self):
         """测试结果截断"""
-        config = FusionConfig(final_top_k=2)
+        config = ReciprocalRankFusionConfig(final_top_k=2)
         fusion = ReciprocalRankFusion(config)
         
         # Create 3 distinct results

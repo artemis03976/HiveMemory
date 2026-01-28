@@ -1,181 +1,195 @@
 # 模块与组件初始化规范化方案建议
 
-采用 **“依赖注入 (DI) + 配置对象 (Configuration Object)”** 的标准范式。
+这份文档旨在解决当前项目中初始化方式不统一、参数传递混乱以及测试困难的问题。请以此作为后续重构和新模块开发的准则。
 
-以下是针对 HiveMemory 的具体规范建议：
+(**本文档中的代码均为示例，实际方法名与类名以项目中的实际实现为准**)
 
 ---
 
-### 1. 黄金法则：构造函数签名规范
+**版本**: 1.0
+**适用范围**: 所有后端 Python 模块 (`engines/*`, `patchouli/*`, `infrastructure/*`)
+**核心目标**: 消除配置漂移，统一生命周期，实现完全的可测试性（Testability）。
 
-所有的组件（Class）的 `__init__` 方法必须严格遵守以下两个原则：
+---
 
-1.  **依赖项（基础设施）必须显式注入**：不要在组件内部实例化 LLM 或 DB。
-2.  **配置项（超参数）必须通过 Pydantic Model 注入**：不要解包成零散的 `**kwargs`，也不要传巨大的 Global Config。
+## 1. 核心原则 (Core Principles)
 
-#### ❌ 错误的写法 (目前的混乱来源)
+### 1.1 显式依赖注入 (Explicit Dependency Injection)
+*   **原则**: 组件**不应**在内部实例化其依赖项（如 LLM Client, Database Connection）。所有依赖必须通过构造函数 `__init__` 传入。
+*   **目的**: 解耦组件与基础设施，方便单元测试时注入 Mock 对象。
+
+### 1.2 配置对象化 (Configuration as Objects)
+*   **原则**: 使用 Pydantic Model 传递配置。组件只接收属于自己的**特定配置对象**，严禁传递巨大的全局 `GlobalConfig`，严禁在 `__init__` 中解包 `**kwargs`。
+*   **目的**: 明确组件需要什么参数，利用 Pydantic 进行类型校验和默认值管理。
+
+### 1.3 自底向上装配 (Bottom-Up Assembly)
+*   **原则**: 先创建叶子节点（Leaf Components），再创建编排器（Orchestrator）。编排器接收的是**已初始化好的子组件实例**，而不是子组件的配置。
+*   **目的**: 降低编排器的复杂度，使其符合“开闭原则”（修改子组件构造逻辑不需要修改编排器）。
+
+### 1.4 统一组合根 (Composition Root)
+*   **原则**: `PatchouliSystem` 是全系统唯一的“装配车间”。除此类和测试代码外，业务逻辑中不应出现 `new Class(...)` 的实例化操作。
+
+---
+
+## 2. 详细实现规范
+
+### 2.1 配置层规范 (Configuration Layer)
+
+利用 Pydantic 的嵌套特性，构建与组件层级对应的配置树。
+
+由于重构后仅主配置类 HiveMemoryConfig 负责从环境变量和 config.yaml 中加载配置，因此**仅 HiveMemoryConfig 需要继承自 BaseSettings**，其余子配置类都继承 BaseModel 以避免不必要的开销
+
+**✅ 标准写法：**
 ```python
-# 情况 A: 散装参数（改配置累死人）
-class Extractor:
-    def __init__(self, model_name="gpt-4", temp=0.7, max_tokens=2000): ...
+from pydantic import BaseModel
 
-# 情况 B: 隐式依赖（无法 Mock，无法换模型）
-class Extractor:
-    def __init__(self, config: GlobalConfig):
-        self.llm = OpenAI(api_key=config.key) # 错误！自己在内部创建了连接
-        self.threshold = config.gen.threshold
-```
-
-#### ✅ 推荐的标准写法
-```python
-# 1. 定义专属的小配置对象
+# 1. 叶子配置
 class ExtractorConfig(BaseModel):
     model_name: str = "gpt-4o"
     temperature: float = 0.0
-    threshold: float = 0.7
 
-# 2. 构造函数：服务传实例，参数传对象
+# 2. 聚合配置
+class GenerationConfig(BaseModel):
+    # 嵌套子配置
+    extractor: ExtractorConfig
+    # 自身的配置
+    max_retries: int = 3
+```
+
+**❌ 禁止写法：**
+*   禁止传递 `Dict` 或 `Any` 作为配置。
+*   禁止组件读取 `os.getenv`（环境变量应在 Config 加载阶段处理）。
+
+### 2.2 组件层规范 (Component Layer)
+
+#### A. 基础组件 (Leaf Component)
+只接收**基础设施依赖**和**自身配置**。
+
+```python
 class Extractor:
     def __init__(
         self, 
-        llm_service: BaseLLMService,  # [依赖] 基础设施 (已初始化好的)
-        config: ExtractorConfig       # [配置] 纯数据对象
+        llm_service: BaseLLMService,  # [依赖] 基础设施
+        config: ExtractorConfig       # [配置] 专用配置对象
     ):
         self.llm = llm_service
-        self.config = config  # 直接存下来，以后加参数不用改 __init__
+        self.config = config
 
-    def run(self):
-        # 使用时直接调 config
-        if score > self.config.threshold: ...
+    def run(self, text: str):
+        # 使用配置
+        return self.llm.chat(model=self.config.model_name, ...)
 ```
 
-**针对你关于“测试方便性”的疑虑**：
-Pydantic 对象其实比散装参数更好 Mock。在测试里你只需要：
-`cfg = ExtractorConfig(threshold=0.9)`，不需要构造巨大的 GlobalConfig。
-
----
-
-### 2. 解决多态组件的配置：Pydantic 区分联合 (Discriminated Unions)
-
-Pydantic v2 支持 **Discriminated Unions**，可以根据 `type` 字段自动校验并选择正确的子配置。
-
-#### 配置层设计
-不要把所有参数平铺。
+#### B. 封装/编排类 (Orchestrator)
+只接收**已初始化的子组件实例**。
 
 ```python
-from typing import Literal, Union
-from pydantic import BaseModel, Field
+class GenerationOrchestrator:
+    def __init__(
+        self,
+        config: GenerationConfig,
+        extractor: BaseExtractor,      # [依赖] 已就绪的组件实例
+        deduplicator: BaseDeduplicator # [依赖] 已就绪的组件实例
+    ):
+        self.config = config
+        self.extractor = extractor     # 直接使用，无需创建
+        self.deduplicator = deduplicator
+```
 
-# 1. 定义具体实现的配置
+### 2.3 工厂模式使用规范 (Factory Guidelines)
+
+为了避免工厂泛滥，需严格遵守以下判定标准：
+
+| 组件类型 | 特征 | 初始化方式 | 示例 |
+| :--- | :--- | :--- | :--- |
+| **单态组件** | 全局只有一种实现，逻辑固定 | **直接实例化** | `Extractor`, `Deduplicator` |
+| **多态组件** | 有多种实现，需根据 Config 动态选择 | **工厂函数** | `BasePerceptionLayer` (Simple/Flow) |
+
+**多态组件的 Config 写法 (利用 Discriminated Unions):**
+```python
 class SimplePerceptionConfig(BaseModel):
-    type: Literal["simple"] = "simple"  # 鉴别器
-    buffer_size: int = 10
+    type: Literal["simple"] = "simple"
 
 class FlowPerceptionConfig(BaseModel):
-    type: Literal["semantic_flow"] = "semantic_flow" # 鉴别器
-    embedding_threshold: float = 0.75
-    relay_enabled: bool = True
+    type: Literal["flow"] = "flow"
 
-# 2. 定义多态父配置
 class PerceptionConfig(BaseModel):
-    # Pydantic 会自动根据 YAML 里的 type 字段决定实例化哪一个
-    driver: Union[SimplePerceptionConfig, FlowPerceptionConfig] = Field(
-        ..., discriminator="type"
-    )
-```
-
-#### 工厂层设计
-工厂函数不再负责解析参数，只负责**路由**。
-
-```python
-def create_perception_layer(
-    config: PerceptionConfig,    # 接收父配置
-    storage: QdrantMemoryStore,  # 接收依赖
-    llm: BaseLLMService          # 接收依赖
-) -> BasePerceptionLayer:
-    
-    # 这里的 config.driver 已经是具体的子类型了 (Simple 或 Flow)
-    if isinstance(config.driver, SimplePerceptionConfig):
-        return SimplePerceptionLayer(config=config.driver)
-        
-    elif isinstance(config.driver, FlowPerceptionConfig):
-        return SemanticFlowPerceptionLayer(
-            config=config.driver, 
-            storage=storage, 
-            llm=llm
-        )
+    # Pydantic v2 支持 Discriminated Unions，可以根据 type 字段自动校验并选择正确的子配置
+    engine: Union[SimplePerceptionConfig, FlowPerceptionConfig] = Field(..., discriminator="type")
 ```
 
 ---
 
-### 3. 统一装配：PatchouliSystem (Composition Root)
+## 3. 系统装配规范 (The Composition Root)
 
-所有的“布线”工作（Wiring）应该收敛到一个地方，即 **Composition Root (组合根)**。在这个项目中，就是 `PatchouliSystem`。
-
-**除此类之外，其他任何业务代码不应出现 `new Class(...)` 的操作。**
-除 HiveMemoryClient / PatchouliSystem 外，其他模块不得自行读取 YAML、不得自行 load_app_config() 、不得自行创建基础设施依赖
+`PatchouliSystem` 负责所有的“脏活累活”（Wiring）。为了保持代码整洁，建议使用 **私有构建方法 (`_build_*`)** 来组织逻辑。
 
 ```python
 # src/hivememory/patchouli/system.py
 
 class PatchouliSystem:
-    def __init__(self, config_path: str = "config.yaml"):
-        # 1. 加载配置树 (仅在此处加载一次)
+    def __init__(self, config_path: str):
+        # 1. 加载配置树
         self.cfg = load_config(config_path)
 
-        # 2. 初始化基础设施 (Infrastructure)
-        # 这些是单例，并在系统内共享
+        # 2. 初始化基础设施 (单例)
         self.storage = QdrantMemoryStore(self.cfg.qdrant)
-        self.llm_service = LiteLLMService(self.cfg.llm)
-        self.embed_service = LocalEmbeddingService(self.cfg.embedding)
+        self.llm = LiteLLMService(self.cfg.llm)
 
-        # 3. 初始化能力层 (Engines) - 使用工厂
-        # 注意：这里我们把 config 拆解了传进去，而不是传 self.cfg
+        # 3. 组装能力层 (Engines)
+        # 3.1 多态组件：使用外部工厂函数
         self.perception_engine = create_perception_layer(
-            config=self.cfg.perception, 
+            config=self.cfg.perception,
             storage=self.storage,
-            llm=self.llm_service
-        )
-        
-        self.retrieval_engine = RetrievalEngine(
-            config=self.cfg.retrieval, # 这是一个 RetrievalConfig 对象
-            storage=self.storage,
-            embedder=self.embed_service
+            llm=self.llm
         )
 
-        # 4. 初始化人格层 (Personas) - 注入 Engine
-        self.eye = TheEye(
-            engine=create_gateway_engine(self.cfg.gateway, self.llm_service)
-        )
-        self.phantom = ThePhantom(
-            engine=self.retrieval_engine
-        )
+        # 3.2 单态复杂组件：使用内部私有构建方法
+        self.generation_engine = self._build_generation_engine()
+        
+        # 3.3 简单组件：直接实例化
+        self.gateway_engine = GatewayService(self.cfg.gateway, self.llm)
+
+        # 4. 组装人格层 (Personas) - 注入组装好的 Engine
+        self.eye = TheEye(self.gateway_engine)
         self.core = TheCore(
             perception=self.perception_engine,
-            # ...
+            generation=self.generation_engine
+        )
+
+    def _build_generation_engine(self) -> GenerationOrchestrator:
+        """
+        [私有构建器] 负责 Generation 模块内部的复杂组装
+        """
+        # A. 先创建子组件 (传入对应的子配置)
+        extractor = Extractor(
+            llm=self.llm, 
+            config=self.cfg.generation.extractor
+        )
+        
+        deduplicator = Deduplicator(
+            storage=self.storage,
+            config=self.cfg.generation.deduplicator
+        )
+
+        # B. 注入到编排器
+        return GenerationOrchestrator(
+            config=self.cfg.generation,
+            extractor=extractor,          # 注入实例
+            deduplicator=deduplicator     # 注入实例
         )
 ```
 
 ---
 
-### 4. 总结：规范清单
+## 4. 迁移/重构清单 (Migration Checklist)
 
-为了解决你现在的痛点，请在接下来的重构中执行以下清单：
+在进行代码重构时，请按以下顺序检查：
 
-1.  **Config 原则**:
-    *   每个组件（如 `Extractor`）必须有对应的 `ExtractorConfig` Pydantic 类。
-    *   构造函数只接收 `(dependencies..., config: SpecificConfig)`。
-    *   **禁止**在构造函数中解包 `**kwargs`。
+1.  [ ] **Config Check**: 检查所有 Config 类是否继承自 `BaseModel`？是否正确嵌套？
+2.  [ ] **Init Check**: 检查所有类的 `__init__`，是否移除了 `**kwargs`？是否移除了内部的对象实例化（如 `self.llm = OpenAI(...)`）？
+3.  [ ] **Orchestrator Check**: 检查主要模块的封装类，是否改为接收 `Instance` 而非 `Config`？
+4.  [ ] **Factory Cleanup**: 删除只有一种实现的组件的 Factory 函数，改为在 `PatchouliSystem` 中直接构建。
+5.  [ ] **Wiring**: 在 `PatchouliSystem` 中实现各模块的 `_build_xxx` 方法，完成依赖注入链。
 
-2.  **Dependency 原则**:
-    *   所有“重量级”对象（DB, LLM Client, Redis）必须在外部初始化，通过参数传入。
-    *   **禁止**在组件内部读取 `os.getenv` 或创建新的连接。
-
-3.  **Factory 原则**:
-    *   工厂函数只用于处理**多态**（if type == A return ClassA）。
-    *   对于非多态组件，直接在 `PatchouliSystem` 里实例化，不需要写工厂。
-
-4.  **Configuration Structure**:
-    *   使用 Pydantic 的 `Union` + `discriminator` 来处理多态配置，避免 `config.type` 和参数不匹配的问题。
-
-通过这套方案，你的代码将变得极其**可测试**（Mock 依赖，构造 Config 对象）且**配置安全**（Pydantic 会在启动时拦截配置错误，而不是运行时报错）。这是 Python 后端项目的最佳实践。
+遵循此规范，你的系统将获得极佳的**一致性**，并且在未来添加新功能或切换底层模型时，只需修改配置或 `PatchouliSystem` 的装配逻辑，而无需侵入业务代码。

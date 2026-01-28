@@ -18,8 +18,14 @@ HiveMemory 灰度仲裁器 (Grey Area Arbiter)
 import logging
 from typing import Optional
 
+from hivememory.infrastructure.llm import BaseLLMService
 from hivememory.infrastructure.rerank.base import BaseRerankService
-from hivememory.engines.perception.interfaces import GreyAreaArbiter
+from hivememory.engines.perception.interfaces import BaseArbiter
+from hivememory.patchouli.config import (
+    ArbiterConfig,
+    RerankerArbiterConfig,
+    SLMArbiterConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +43,7 @@ DEFAULT_ARBITER_PROMPT = """判断以下两个意图是否属于同一个任务�
 只输出 YES 或 NO，不要输出其他内容。"""
 
 
-class RerankerArbiter(GreyAreaArbiter):
+class RerankerArbiter(BaseArbiter):
     """
     基于 Reranker 的灰度仲裁器
 
@@ -49,33 +55,28 @@ class RerankerArbiter(GreyAreaArbiter):
         - 计算成本低
 
     Args:
+        config: RerankerArbiterConfig 配置
         reranker_service: Reranker 服务实例
-        arbiter_threshold: 仲裁阈值（默认 0.5）
-        verbose: 是否输出详细日志
 
     Examples:
         >>> from hivememory.infrastructure.rerank import get_reranker_service
+        >>> from hivememory.patchouli.config import RerankerArbiterConfig
         >>> reranker = get_reranker_service()
-        >>> arbiter = RerankerArbiter(reranker)
-        >>> result = arbiter.should_continue_topic(
-        ...     "写代码",
-        ...     "部署服务器",
-        ...     0.55
-        ... )
+        >>> config = RerankerArbiterConfig(threshold=0.5)
+        >>> arbiter = RerankerArbiter(config, reranker)
     """
 
     def __init__(
         self,
+        config: RerankerArbiterConfig,
         reranker_service: BaseRerankService,
-        arbiter_threshold: float = 0.5,
-        verbose: bool = False,
     ):
+        self.config = config
         self.reranker = reranker_service
-        self.threshold = arbiter_threshold
-        self.verbose = verbose
+        self.threshold = config.threshold
 
         logger.info(
-            f"RerankerArbiter 初始化: threshold={arbiter_threshold}, "
+            f"RerankerArbiter 初始化: threshold={self.threshold}, "
             f"model={getattr(reranker_service, 'model_name', 'unknown')}"
         )
 
@@ -100,10 +101,6 @@ class RerankerArbiter(GreyAreaArbiter):
             logger.debug("上下文或查询为空，默认继续")
             return True
 
-        if not self.is_available():
-            logger.warning("Reranker 不可用，默认继续")
-            return True
-
         try:
             # 使用 Reranker 计算分数
             scores = self.reranker.compute_score(
@@ -118,13 +115,12 @@ class RerankerArbiter(GreyAreaArbiter):
             reranker_score = float(scores[0])
             should_continue = reranker_score >= self.threshold
 
-            if self.verbose:
-                logger.info(
-                    f"Reranker 仲裁: "
-                    f"similarity={similarity_score:.3f} -> "
-                    f"reranker={reranker_score:.3f} -> "
-                    f"{'ADSORB' if should_continue else 'SPLIT'}"
-                )
+            logger.debug(
+                f"Reranker 仲裁: "
+                f"similarity={similarity_score:.3f} -> "
+                f"reranker={reranker_score:.3f} -> "
+                f"{'ADSORB' if should_continue else 'SPLIT'}"
+            )
 
             return should_continue
 
@@ -132,15 +128,8 @@ class RerankerArbiter(GreyAreaArbiter):
             logger.error(f"Reranker 仲裁失败: {e}，默认继续")
             return True
 
-    def is_available(self) -> bool:
-        """检查 Reranker 是否可用"""
-        try:
-            return self.reranker.is_loaded()
-        except Exception:
-            return False
 
-
-class SLMArbiter(GreyAreaArbiter):
+class SLMArbiter(BaseArbiter):
     """
     基于小型语言模型（SLM）的灰度仲裁器
 
@@ -155,32 +144,26 @@ class SLMArbiter(GreyAreaArbiter):
         - 成本较高
 
     Args:
+        config: SLMArbiterConfig 配置
         llm_service: LLM 服务实例
-        arbiter_prompt: 自定义仲裁提示词（可选）
-        arbiter_threshold: 当 LLM 输出不确定时的阈值（暂未使用）
 
     Examples:
         >>> from hivememory.infrastructure.llm import get_llm_service
+        >>> from hivememory.patchouli.config import SLMArbiterConfig
         >>> llm = get_llm_service()
-        >>> arbiter = SLMArbiter(llm)
-        >>> result = arbiter.should_continue_topic(
-        ...     "写代码",
-        ...     "部署服务器",
-        ...     0.55
-        ... )
+        >>> config = SLMArbiterConfig()
+        >>> arbiter = SLMArbiter(config, llm)
     """
 
     def __init__(
         self,
-        llm_service: any,  # LLM 服务接口（避免循环导入）
-        arbiter_prompt: Optional[str] = None,
-        arbiter_threshold: float = 0.5,
-        verbose: bool = False,
+        config: SLMArbiterConfig,
+        llm_service: BaseLLMService,
     ):
+        self.config = config
         self.llm = llm_service
-        self.prompt_template = arbiter_prompt or DEFAULT_ARBITER_PROMPT
-        self.threshold = arbiter_threshold
-        self.verbose = verbose
+        self.prompt_template = config.prompt_template or DEFAULT_ARBITER_PROMPT
+        self.threshold = config.threshold
 
         logger.info("SLMArbiter 初始化")
 
@@ -205,10 +188,6 @@ class SLMArbiter(GreyAreaArbiter):
             logger.debug("上下文或查询为空，默认继续")
             return True
 
-        if not self.is_available():
-            logger.warning("LLM 不可用，默认继续")
-            return True
-
         try:
             # 构建提示词
             prompt = self.prompt_template.format(
@@ -222,13 +201,12 @@ class SLMArbiter(GreyAreaArbiter):
             # 解析响应
             should_continue = self._parse_response(response)
 
-            if self.verbose:
-                logger.info(
-                    f"SLM 仲裁: "
-                    f"similarity={similarity_score:.3f} -> "
-                    f"response={response.strip()} -> "
-                    f"{'ADSORB' if should_continue else 'SPLIT'}"
-                )
+            logger.debug(
+                f"SLM 仲裁: "
+                f"similarity={similarity_score:.3f} -> "
+                f"response={response.strip()} -> "
+                f"{'ADSORB' if should_continue else 'SPLIT'}"
+            )
 
             return should_continue
 
@@ -246,25 +224,8 @@ class SLMArbiter(GreyAreaArbiter):
         Returns:
             str: LLM 响应
         """
-        # 尝试不同的 LLM 接口
-        if hasattr(self.llm, "complete"):
-            # LangChain 风格
-            return self.llm.complete(prompt).text
-        elif hasattr(self.llm, "generate"):
-            # OpenAI 风格
-            response = self.llm.generate([prompt])
-            return response.generations[0][0].text
-        elif hasattr(self.llm, "chat"):
-            # Chat 接口
-            from hivememory.core.models import Message
-            messages = [Message(role="user", content=prompt)]
-            response = self.llm.chat(messages)
-            return response.content
-        elif callable(self.llm):
-            # 直接可调用
-            return self.llm(prompt)
-        else:
-            raise ValueError(f"不支持的 LLM 接口: {type(self.llm)}")
+        messages = [{"role": "user", "content": prompt}]
+        return self.llm.complete(messages)
 
     def _parse_response(self, response: str) -> bool:
         """
@@ -289,15 +250,8 @@ class SLMArbiter(GreyAreaArbiter):
             logger.warning(f"无法解析 LLM 响应: {response}，默认继续")
             return True
 
-    def is_available(self) -> bool:
-        """检查 LLM 是否可用"""
-        try:
-            return self.llm is not None
-        except Exception:
-            return False
 
-
-class NoOpArbiter(GreyAreaArbiter):
+class NoOpArbiter(BaseArbiter):
     """
     无操作仲裁器（用于测试或降级）
 
@@ -325,9 +279,45 @@ class NoOpArbiter(GreyAreaArbiter):
         return self.default_action
 
 
+def create_arbiter(
+    config: ArbiterConfig,
+    reranker_service: Optional[BaseRerankService] = None,
+    llm_service: Optional[BaseLLMService] = None,
+) -> BaseArbiter:
+    """
+    灰度仲裁器工厂函数
+
+    Args:
+        config: 仲裁器配置
+        reranker_service: Reranker 服务 (用于 RerankerArbiter)
+        llm_service: LLM 服务 (用于 SLMArbiter)
+
+    Returns:
+        BaseArbiter: 仲裁器实例
+    """
+    if not config.enabled:
+        return NoOpArbiter(default_action=True)
+
+    impl_config = config.engine
+
+    if isinstance(impl_config, RerankerArbiterConfig):
+        if not reranker_service:
+            logger.warning("启用 RerankerArbiter 但未提供服务，回退到 NoOpArbiter")
+            return NoOpArbiter()
+        return RerankerArbiter(config=impl_config, reranker_service=reranker_service)
+
+    elif isinstance(impl_config, SLMArbiterConfig):
+        if not llm_service:
+            logger.warning("启用 SLMArbiter 但未提供服务，回退到 NoOpArbiter")
+            return NoOpArbiter()
+        return SLMArbiter(config=impl_config, llm_service=llm_service)
+
+    return NoOpArbiter()
+
+
 __all__ = [
     "RerankerArbiter",
     "SLMArbiter",
     "NoOpArbiter",
-    "DEFAULT_ARBITER_PROMPT",
+    "create_arbiter",
 ]

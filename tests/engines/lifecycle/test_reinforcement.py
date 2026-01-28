@@ -15,8 +15,9 @@ from unittest.mock import Mock, MagicMock
 from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine, DEFAULT_VITALITY_ADJUSTMENTS
+from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 from hivememory.engines.lifecycle.models import MemoryEvent, EventType
+from hivememory.patchouli.config import ReinforcementEngineConfig
 
 
 class TestDynamicReinforcementEngine:
@@ -27,10 +28,14 @@ class TestDynamicReinforcementEngine:
         self.mock_storage = Mock()
         self.mock_vitality_calc = Mock()
 
+        self.config = ReinforcementEngineConfig(
+            enable_event_history=True,
+        )
+
         self.engine = DynamicReinforcementEngine(
             storage=self.mock_storage,
             vitality_calculator=self.mock_vitality_calc,
-            enable_event_history=True,
+            config=self.config,
         )
 
         # 创建测试记忆
@@ -40,7 +45,7 @@ class TestDynamicReinforcementEngine:
                 source_agent_id="agent1",
                 user_id="user1",
                 confidence_score=0.8,
-                vitality_score=0.5,  # 50/100
+                vitality_score=50.0,  # 50/100
                 access_count=5,
             ),
             index=IndexLayer(
@@ -205,7 +210,7 @@ class TestDynamicReinforcementEngine:
                 source_agent_id="agent1",
                 user_id="user1",
                 confidence_score=0.8,
-                vitality_score=0.5,
+                vitality_score=50.0,
             ),
             index=IndexLayer(
                 title="Test1",
@@ -222,7 +227,7 @@ class TestDynamicReinforcementEngine:
                 source_agent_id="agent1",
                 user_id="user1",
                 confidence_score=0.8,
-                vitality_score=0.5,
+                vitality_score=50.0,
             ),
             index=IndexLayer(
                 title="Test2",
@@ -283,20 +288,3 @@ class TestDynamicReinforcementEngine:
         assert stats["total_events"] == 3
         assert "event_counts" in stats
 
-
-class TestDefaultVitalityAdjustments:
-    """测试默认生命力调整值"""
-
-    def test_adjustments_defined(self):
-        """测试所有事件类型都有定义调整值"""
-        assert EventType.HIT in DEFAULT_VITALITY_ADJUSTMENTS
-        assert EventType.CITATION in DEFAULT_VITALITY_ADJUSTMENTS
-        assert EventType.FEEDBACK_POSITIVE in DEFAULT_VITALITY_ADJUSTMENTS
-        assert EventType.FEEDBACK_NEGATIVE in DEFAULT_VITALITY_ADJUSTMENTS
-
-    def test_adjustment_values(self):
-        """测试调整值符合预期"""
-        assert DEFAULT_VITALITY_ADJUSTMENTS[EventType.HIT] == 5.0
-        assert DEFAULT_VITALITY_ADJUSTMENTS[EventType.CITATION] == 20.0
-        assert DEFAULT_VITALITY_ADJUSTMENTS[EventType.FEEDBACK_POSITIVE] == 50.0
-        assert DEFAULT_VITALITY_ADJUSTMENTS[EventType.FEEDBACK_NEGATIVE] == -50.0

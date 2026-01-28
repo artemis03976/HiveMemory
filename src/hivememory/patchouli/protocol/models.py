@@ -21,7 +21,7 @@ __all__ = [
     "QueryFilters",
     "RetrievalRequest",
     "Observation",
-    "RetrievalResult",
+    "RetrievalResponse",
 ]
 
 
@@ -39,7 +39,7 @@ class MessageType(str, Enum):
     OBSERVATION = "observation"
 
     # 检索结果 - RetrievalFamiliar -> 外部Worker
-    RETRIEVAL_RESULT = "retrieval_result"
+    RETRIEVAL_RESPONSE = "retrieval_response"
 
 
 class ProtocolMessage(BaseModel):
@@ -192,14 +192,14 @@ class Observation(ProtocolMessage):
     )
 
 
-class RetrievalResult(ProtocolMessage):
+class RetrievalResponse(ProtocolMessage):
     """
     检索结果协议消息
     
     从 RetrievalFamiliar 返回的检索结果，供外部 Worker Agent 使用
     包含完整的检索信息和渲染后的上下文
     """
-    msg_type: MessageType = MessageType.RETRIEVAL_RESULT
+    msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
 
     # 检索到的记忆
     memories: List[MemoryAtom] = Field(default_factory=list)  
@@ -221,4 +221,3 @@ class RetrievalResult(ProtocolMessage):
         if self.is_empty():
             return ""
         return self.rendered_context
-

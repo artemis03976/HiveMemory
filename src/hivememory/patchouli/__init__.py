@@ -29,7 +29,7 @@ HiveMemory 的分布式智能架构。
 from hivememory.patchouli.config import (
     load_app_config,
     HiveMemoryConfig,
-    GatewayConfig,
+    MemoryGatewayConfig,
     MemoryPerceptionConfig,
     MemoryGenerationConfig,
     MemoryRetrievalConfig,
@@ -47,7 +47,6 @@ from hivememory.patchouli.librarian_core import (
     LibrarianCore,
     FlushEvent,
     FlushObserver,
-    create_librarian_core,
 )
 
 
@@ -69,7 +68,7 @@ __all__ = [
     # 配置
     "load_app_config",
     "HiveMemoryConfig",
-    "GatewayConfig",
+    "MemoryGatewayConfig",
     "MemoryPerceptionConfig",
     "MemoryGenerationConfig",
     "MemoryRetrievalConfig",
@@ -81,6 +80,4 @@ __all__ = [
     # 事件类型
     "FlushEvent",
     "FlushObserver",
-    # 工厂函数
-    "create_librarian_core",
 ]

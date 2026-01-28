@@ -72,7 +72,8 @@ from rich.console import Console
 from rich.panel import Panel
 
 from hivememory.patchouli.librarian_core import LibrarianCore, FlushEvent
-from hivememory.core.models import FlushReason, Identity
+from hivememory.core.models import Identity
+from hivememory.engines.perception.models import FlushReason
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.config import (
     load_app_config,

@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Dict, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class EventType(str, Enum):
@@ -132,8 +132,8 @@ class ArchiveRecord(BaseModel):
     storage_path: str
     compressed_size_bytes: Optional[int] = None
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "memory_id": "123e4567-e89b-12d3-a456-426614174000",
                 "original_vitality": 0.15,
@@ -142,6 +142,7 @@ class ArchiveRecord(BaseModel):
                 "compressed_size_bytes": 1024
             }
         }
+    )
 
 
 __all__ = [

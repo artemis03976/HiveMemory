@@ -1,38 +1,36 @@
 """
 HiveMemory Token 溢出接力控制器
 
-处理长任务导致的 Token 溢出问题，生成中间态摘要
-以维持跨 Block 的上下文连贯性。
+无状态服务，处理长任务导致的 Token 溢出问题，
+生成中间态摘要以维持跨 Block 的上下文连贯性。
 
 参考: PROJECT.md 4.1.3 节
 
 作者: HiveMemory Team
-版本: 1.0.0
+版本: 3.0.0
 """
 
 import logging
 from typing import List, Optional, Any
-
-from hivememory.engines.perception.interfaces import RelayController
-from hivememory.engines.perception.models import LogicalBlock, SemanticBuffer
+from hivememory.engines.perception.models import FlushEvent, LogicalBlock, SemanticBuffer, FlushReason
 
 logger = logging.getLogger(__name__)
 
 
-class TokenOverflowRelayController(RelayController):
+class RelayController:
     """
-    Token 溢出接力控制器
+    Token 溢出接力控制器 (v3.0 无状态版)
 
-    职责：
+    无状态服务，职责：
         - 检测即将溢出的 Buffer
         - 生成中间态摘要
-        - 维护跨 Block 的上下文连贯性
+        - 返回统一的 FlushEvent
 
     Examples:
-        >>> controller = TokenOverflowRelayController()
-        >>> if controller.should_trigger_relay(buffer, new_block):
-        ...     summary = controller.generate_summary(buffer.blocks)
-        ...     print(f"接力摘要: {summary}")
+        >>> controller = RelayController()
+        >>> flush_event = controller.should_relay(buffer, new_block)
+        >>> if flush_event:
+        ...     handle_flush(flush_event)
     """
 
     def __init__(
@@ -54,35 +52,44 @@ class TokenOverflowRelayController(RelayController):
         self.enable_smart_summary = enable_smart_summary
 
         logger.info(
-            f"TokenOverflowRelayController 初始化: "
+            f"RelayController 初始化: "
             f"max_tokens={max_processing_tokens}"
         )
 
-    def should_trigger_relay(
+    def should_relay(
         self,
         buffer: SemanticBuffer,
         new_block: LogicalBlock
-    ) -> bool:
+    ) -> Optional[FlushEvent]:
         """
         检测是否需要接力（Token 溢出）
 
         Args:
-            buffer: 当前语义缓冲区
+            buffer: 当前语义缓冲区（只读）
             new_block: 新的 LogicalBlock
 
         Returns:
-            bool: 是否需要触发接力
+            None: 不需要接力
+            FlushEvent: 需要接力，包含 flush 原因、blocks 和 relay_summary
         """
         projected_tokens = buffer.total_tokens + new_block.total_tokens
 
-        should_relay = projected_tokens > self.max_processing_tokens
+        if projected_tokens <= self.max_processing_tokens:
+            return None
 
-        if should_relay:
-            logger.debug(
-                f"Token 即将溢出: {projected_tokens} > {self.max_processing_tokens}"
-            )
+        logger.debug(
+            f"Token 即将溢出: {projected_tokens} > {self.max_processing_tokens}"
+        )
 
-        return should_relay
+        # 生成接力摘要
+        summary = self.generate_summary(buffer.blocks)
+
+        return FlushEvent(
+            flush_reason=FlushReason.TOKEN_OVERFLOW,
+            blocks_to_flush=buffer.blocks.copy(),
+            relay_summary=summary,
+            triggered_by_block=new_block,
+        )
 
     def generate_summary(self, blocks: List[LogicalBlock]) -> str:
         """
@@ -192,5 +199,5 @@ class TokenOverflowRelayController(RelayController):
 
 
 __all__ = [
-    "TokenOverflowRelayController",
+    "RelayController",
 ]

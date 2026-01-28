@@ -40,7 +40,7 @@ class GatewayResult(BaseModel):
     """
     Gateway 服务层统一输出数据模型
 
-    这是 GatewayService 对 TheEye 的输出，将被用于构建协议消息：
+    这是 GatewayEngine 对 TheEye 的输出，将被用于构建协议消息：
     - RetrievalRequest: 使用 rewritten_query + search_keywords + target_filters
     - Observation: 使用 rewritten_query + worth_saving + reason
     """

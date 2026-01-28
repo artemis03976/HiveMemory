@@ -24,65 +24,63 @@ HiveMemory - 帕秋莉感知层 (Perception Layer)
 作者: HiveMemory Team
 版本: 2.0.0
 """
+from hivememory.patchouli.config import (
+    MemoryPerceptionConfig,
+    SemanticFlowPerceptionConfig,
+    SimplePerceptionConfig,
+)
 
-from hivememory.core.models import FlushReason
+from hivememory.engines.perception.interfaces import (
+    TriggerStrategy,
+    BasePerceptionLayer,
+    BaseArbiter,
+)
 from hivememory.engines.perception.models import (
-    StreamMessageType,
-    StreamMessage,
     Triplet,
     LogicalBlock,
     BufferState,
     SemanticBuffer,
     SimpleBuffer,
-)
-from hivememory.engines.perception.interfaces import (
-    StreamParser,
-    SemanticAdsorber,
-    RelayController,
-    BasePerceptionLayer,
-)
-from hivememory.infrastructure.embedding import (
-    LocalEmbeddingService,
-    get_embedding_service,
-)
-from hivememory.engines.perception.stream_parser import UnifiedStreamParser
-from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber
-from hivememory.engines.perception.relay_controller import TokenOverflowRelayController
-from hivememory.engines.perception.semantic_flow_perception_layer import (
-    SemanticFlowPerceptionLayer,
-)
-from hivememory.engines.perception.simple_perception_layer import (
-    SimplePerceptionLayer,
+    FlushEvent,
+    FlushReason,
 )
 from hivememory.engines.perception.trigger_strategies import (
     TriggerManager,
-    create_default_trigger_manager,
     MessageCountTrigger,
     SemanticBoundaryTrigger,
 )
-from hivememory.engines.perception.context_bridge import (
-    ContextBridge,
-    DEFAULT_STOP_WORDS,
+from hivememory.engines.perception.stream_parser import UnifiedStreamParser
+from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber, create_adsorber
+from hivememory.engines.perception.relay_controller import RelayController
+from hivememory.engines.perception.block_builder import LogicalBlockBuilder
+from hivememory.engines.perception.buffer_manager import (
+    SemanticBufferManager,
+    SimpleBufferManager,
 )
+from hivememory.engines.perception.context_bridge import ContextBridge
 from hivememory.engines.perception.grey_area_arbiter import (
-    GreyAreaArbiter,
     RerankerArbiter,
     SLMArbiter,
     NoOpArbiter,
-    DEFAULT_ARBITER_PROMPT,
 )
-from hivememory.patchouli.config import MemoryPerceptionConfig
-from typing import Optional, Union
+from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
+from hivememory.engines.perception.simple_perception_layer import SimplePerceptionLayer
+
+from hivememory.infrastructure.embedding import BaseEmbeddingService
+from hivememory.infrastructure.rerank import BaseRerankService
+
+from typing import Union, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def create_default_perception_layer(
-    config: Optional[MemoryPerceptionConfig] = None,
-    embedding_service: Optional["BaseEmbeddingService"] = None,
+def create_perception_layer(
+    config: MemoryPerceptionConfig,
+    embedding_service: BaseEmbeddingService,
+    reranker_service: Optional[BaseRerankService] = None,
     on_flush_callback=None,
-) -> Optional[Union[SemanticFlowPerceptionLayer, SimplePerceptionLayer]]:
+) -> Union[SemanticFlowPerceptionLayer, SimplePerceptionLayer]:
     """
     创建默认配置的感知层实例
 
@@ -92,132 +90,114 @@ def create_default_perception_layer(
 
     Args:
         config: 感知层配置（MemoryPerceptionConfig，可选，使用默认配置）
-        embedding_service: Embedding 服务实例（推荐通过依赖注入传入）
+        embedding_service: Embedding 服务实例（必须传入）
         on_flush_callback: Flush 回调函数
 
     Returns:
         SemanticFlowPerceptionLayer 或 SimplePerceptionLayer 实例
 
     Examples:
-        >>> from hivememory.perception import create_default_perception_layer
+        >>> from hivememory.perception import create_perception_layer
         >>> def on_flush(blocks, reason):
         ...     print(f"Flush: {reason}, Blocks: {len(blocks)}")
-        >>> perception = create_default_perception_layer(on_flush_callback=on_flush)
+        >>> perception = create_perception_layer(config=config, embedding_service=svc, on_flush_callback=on_flush)
     """
-    if config is None:
-        from hivememory.patchouli.config import MemoryPerceptionConfig
-        config = MemoryPerceptionConfig()
 
-    if not config.enable:
-        logger.warning("感知层未启用 (config.enable=False)")
-        return None
+    impl_config = config.engine
 
-    if config.layer_type == "simple":
-        # 创建 SimplePerceptionLayer
-        logger.info("创建 SimplePerceptionLayer")
-
-        # 读取 simple 子配置
-        simple_config = config.simple
-
-        # 创建可配置的 TriggerManager（不包含 IdleTimeoutTrigger）
+    if isinstance(impl_config, SimplePerceptionConfig):
+        # 创建可配置的 TriggerManager
         strategies = [
-            MessageCountTrigger(threshold=simple_config.message_threshold),
+            MessageCountTrigger(threshold=impl_config.message_count_threshold),
         ]
-        if simple_config.enable_semantic_trigger:
+        if impl_config.enable_semantic_trigger:
             strategies.append(SemanticBoundaryTrigger())
 
         trigger_manager = TriggerManager(strategies=strategies)
 
         perception = SimplePerceptionLayer(
+            config=impl_config,
             trigger_manager=trigger_manager,
             on_flush_callback=on_flush_callback,
         )
 
-        # 启动空闲超时监控（替代 IdleTimeoutTrigger）
+        # 启动空闲超时监控
         perception.start_idle_monitor(
-            idle_timeout_seconds=simple_config.timeout_seconds,
-            scan_interval_seconds=30,
+            idle_timeout_seconds=impl_config.idle_timeout_seconds,
+            scan_interval_seconds=impl_config.scan_interval_seconds,
         )
 
         return perception
 
-    else:  # semantic_flow
-        # 创建 SemanticFlowPerceptionLayer
-        logger.info("创建 SemanticFlowPerceptionLayer")
-
-        # 读取 semantic_flow 子配置
-        sf_config = config.semantic_flow
-
+    elif isinstance(impl_config, SemanticFlowPerceptionConfig):
         parser = UnifiedStreamParser()
 
-        # 如果未传入 embedding_service，则创建（向后兼容）
-        if embedding_service is None:
-            embedding_model = sf_config.embedding_model or "sentence-transformers/all-MiniLM-L6-v2"
-            embedding_service = LocalEmbeddingService(
-                model_name=embedding_model,
-                device=sf_config.embedding_device or "cpu",
-                cache_dir=sf_config.embedding_cache_dir,
-                batch_size=sf_config.embedding_batch_size or 32,
-            )
-            logger.info("未传入 embedding_service，使用默认配置创建")
-
-        adsorber = SemanticBoundaryAdsorber(
-            config=sf_config.adsorber,
+        adsorber = create_adsorber(
+            config=impl_config.adsorber,
             embedding_service=embedding_service,
+            reranker_service=reranker_service,
         )
-        relay_controller = TokenOverflowRelayController(
-            max_processing_tokens=sf_config.max_processing_tokens,
-            enable_smart_summary=sf_config.enable_smart_summary,
+        relay_controller = RelayController(
+            max_processing_tokens=impl_config.max_processing_tokens,
+            enable_smart_summary=impl_config.enable_smart_summary,
         )
 
-        return SemanticFlowPerceptionLayer(
+        perception = SemanticFlowPerceptionLayer(
+            config=impl_config,
             parser=parser,
             adsorber=adsorber,
             relay_controller=relay_controller,
             on_flush_callback=on_flush_callback,
-            idle_timeout_seconds=sf_config.idle_timeout_seconds,
-            scan_interval_seconds=sf_config.scan_interval_seconds,
         )
+        
+        # 启动空闲超时监控
+        perception.start_idle_monitor(
+            idle_timeout_seconds=impl_config.idle_timeout_seconds,
+            scan_interval_seconds=impl_config.scan_interval_seconds,
+        )
+        
+        return perception
+    
+    else:
+        logger.error(f"未知的 layer 类型: {impl_config.layer_type}")
+        return None
+
 
 
 __all__ = [
+    # 感知层实现
+    "SimplePerceptionLayer",
+    "SemanticFlowPerceptionLayer",
+    # 接口
+    "TriggerStrategy",
+    "BaseArbiter",
+    "BasePerceptionLayer",
     # 数据模型
-    "StreamMessageType",
-    "StreamMessage",
     "Triplet",
     "LogicalBlock",
     "BufferState",
     "SemanticBuffer",
     "SimpleBuffer",
-    "FlushReason",  # 从 core.models 导入
-    # 接口
-    "StreamParser",
-    "SemanticAdsorber",
-    "RelayController",
-    "BasePerceptionLayer",
-    "GreyAreaArbiter",
-    # 感知层实现
-    "SimplePerceptionLayer",
-    "SemanticFlowPerceptionLayer",
+    "FlushEvent",
+    "FlushReason",
     # 触发策略
     "TriggerManager",
-    "create_default_trigger_manager",
     "MessageCountTrigger",
     "SemanticBoundaryTrigger",
-    # 具体实现
-    "LocalEmbeddingService",
-    "get_embedding_service",
+    # 缓冲区管理器
+    "LogicalBlockBuilder",
+    "SemanticBufferManager",
+    "SimpleBufferManager",
+    # 统一消息流分析
     "UnifiedStreamParser",
+    # 语义边界判定
     "SemanticBoundaryAdsorber",
-    "TokenOverflowRelayController",
-    # Phase 3 新增组件
-    "ContextBridge",
-    "DEFAULT_STOP_WORDS",
+    # 溢出接力控制
+    "RelayController",
+    # 灰度区仲裁器
     "RerankerArbiter",
     "SLMArbiter",
     "NoOpArbiter",
-    "DEFAULT_ARBITER_PROMPT",
-    # 配置
-    "MemoryPerceptionConfig",
-    "create_default_perception_layer",
+    "ContextBridge",
+    "create_perception_layer",
 ]

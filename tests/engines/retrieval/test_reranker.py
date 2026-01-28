@@ -90,7 +90,7 @@ class TestCrossEncoderReranker:
     def test_rerank_empty(self, sample_query):
         """测试空结果处理"""
         mock_service = Mock(spec=BaseRerankService)
-        reranker = CrossEncoderReranker(service=mock_service)
+        reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
         empty_results = SearchResults()
 
         result = reranker.rerank(empty_results, sample_query)
@@ -133,7 +133,7 @@ class TestCrossEncoderReranker:
         mock_service = Mock(spec=BaseRerankService)
         mock_service.compute_score.side_effect = Exception("CUDA OOM")
 
-        reranker = CrossEncoderReranker(service=mock_service)
+        reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
 
         result = reranker.rerank(sample_results, sample_query)
 
@@ -147,7 +147,7 @@ class TestCrossEncoderReranker:
     def test_normalize_score(self):
         """测试分数标准化函数"""
         mock_service = Mock(spec=BaseRerankService)
-        reranker = CrossEncoderReranker(service=mock_service)
+        reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
 
         # 测试 sigmoid 函数
         assert reranker._normalize_score(0) == pytest.approx(0.5, rel=0.01)
@@ -174,13 +174,14 @@ class TestCreateReranker:
     def test_create_noop_reranker_when_disabled(self):
         """测试 enabled=False 时创建 NoopReranker"""
         config = RerankerConfig(enabled=False)
-        reranker = create_reranker(config)
+        mock_service = Mock(spec=BaseRerankService)
+        reranker = create_reranker(config, service=mock_service)
         assert isinstance(reranker, NoopReranker)
 
     def test_create_cross_encoder_reranker(self):
         """测试创建 CrossEncoderReranker"""
         mock_service = Mock(spec=BaseRerankService)
-        config = RerankerConfig(enabled=True, type="cross_encoder")
+        config = RerankerConfig(enabled=True)
         
         # 必须提供 service
         reranker = create_reranker(config, service=mock_service)
@@ -188,17 +189,7 @@ class TestCreateReranker:
 
     def test_create_default_config(self):
         """测试默认配置创建 CrossEncoderReranker"""
-        # 如果不提供 service，应该降级为 NoopReranker (根据 create_reranker 逻辑)
-        reranker = create_reranker()
-        assert isinstance(reranker, NoopReranker)
-        
-        # 提供 service 则创建 CrossEncoderReranker
         mock_service = Mock(spec=BaseRerankService)
-        reranker = create_reranker(service=mock_service)
-        assert isinstance(reranker, CrossEncoderReranker)
-
-    def test_create_with_none_config(self):
-        """测试 None 配置使用默认值"""
-        mock_service = Mock(spec=BaseRerankService)
-        reranker = create_reranker(None, service=mock_service)
+        # 必须提供 config 和 service
+        reranker = create_reranker(config=RerankerConfig(), service=mock_service)
         assert isinstance(reranker, CrossEncoderReranker)

@@ -5,18 +5,19 @@
 这是用户（开发者）唯一需要 import 的东西。
 
 作者: HiveMemory Team
-版本: 2.0
+版本: 2.1
 """
 
 import logging
 from typing import List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
+from hivememory.patchouli.protocol.models import Observation
+
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.librarian_core import LibrarianCore
-from hivememory.patchouli.protocol.models import Observation
 
 logger = logging.getLogger(__name__)
 
@@ -71,37 +72,38 @@ class PatchouliSystem:
         # 加载配置
         self.config = config or load_app_config()
 
-        # 初始化基础设施
+        # 1. 初始化基础设施（单例服务）
         self._init_infrastructure()
 
-        # 1. 实例化真理之眼 (Gateway)
+        # 2. 构建引擎（使用私有构建方法，自底向上装配）
+        self._perception_layer = self._build_perception_layer()
+        self._generation_engine = self._build_generation_engine()
+        self._lifecycle_engine = self._build_lifecycle_engine()
+        self._gateway_engine = self._build_gateway_engine()
+        self._retrieval_engine = self._build_retrieval_engine()
+
+        # 3. 构建人格层（注入已构建的引擎）
         self.eye = TheEye(
-            llm_service=self.gateway_llm_service,
-            config=self.config.gateway,
+            engine=self._gateway_engine
         )
 
-        # 2. 实例化检索使魔 (Retrieval)
         self.retrieval_familiar = RetrievalFamiliar(
             storage=self.storage,
-            reranker_service=self.reranker_service,
-            config=self.config.retrieval,
-        )
-
-        # 3. 实例化馆长本体 (Librarian)
-        self.librarian_core = LibrarianCore(
-            storage=self.storage,
-            llm_service=self.librarian_llm_service,
-            embedding_service=self.perception_embedding_service,
-            perception_config=self.config.perception,
-            generation_config=self.config.generation,
-            lifecycle_config=self.config.lifecycle,
+            engine=self._retrieval_engine,
         )
         
+        self.librarian_core = LibrarianCore(
+            storage=self.storage,
+            perception_layer=self._perception_layer,
+            generation_engine=self._generation_engine,
+            lifecycle_engine=self._lifecycle_engine,
+        )
+
         logger.info("PatchouliSystem 帕秋莉初始化完成")
 
     def _init_infrastructure(self) -> None:
         """
-        初始化系统基础设施组件
+        初始化系统基础设施组件（单例服务）
         """
         # 初始化存储层
         from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -127,7 +129,154 @@ class PatchouliSystem:
         self.librarian_llm_service = get_librarian_llm_service(
             config=self.config.llm.librarian
         )
+
+        # 初始化 Reranker 服务
+        from hivememory.infrastructure.rerank import get_flag_reranker_service
+        reranker_config = self.config.retrieval.retriever.reranker
+        if reranker_config.enabled and reranker_config.type == "cross_encoder":
+            self.reranker_service = get_flag_reranker_service(
+                model_name=reranker_config.model_name,
+                device=reranker_config.device,
+                use_fp16=reranker_config.use_fp16,
+            )
+        else:
+            self.reranker_service = None
+
+    # ========== 私有构建方法 (Private Builders) ==========
+
+    def _build_gateway_engine(self):
+        """
+        [私有构建器] 构建 Gateway 引擎
+        """
+        from hivememory.engines.gateway import(
+            GatewayEngine,
+            BaseInterceptor, create_interceptor,
+            BaseSemanticAnalyzer, create_semantic_analyzer,
+        )
+
+        config = self.config.gateway
         
+        interceptor: BaseInterceptor = create_interceptor(config.interceptor)
+
+        semantic_analyzer: BaseSemanticAnalyzer = create_semantic_analyzer(
+            config.analyzer,
+            self.gateway_llm_service
+        )
+
+        return GatewayEngine(
+            interceptor=interceptor,
+            semantic_analyzer=semantic_analyzer,
+        )
+
+    def _build_retrieval_engine(self):
+        """
+        [私有构建器] 构建 Retrieval 引擎
+        """
+        from hivememory.engines.retrieval import (
+            RetrievalEngine,
+            BaseMemoryRetriever, create_retriever,
+            BaseContextRenderer, create_renderer,
+        )
+
+        config = self.config.retrieval
+        
+        retriever: BaseMemoryRetriever = create_retriever(
+            self.storage, 
+            config.retriever, 
+            self.reranker_service
+        )
+        
+        renderer: BaseContextRenderer = create_renderer(config.renderer)
+
+        return RetrievalEngine(
+            retriever=retriever,
+            renderer=renderer,
+        )
+
+    def _build_perception_layer(self):
+        """
+        [私有构建器] 组装 Perception 层
+
+        根据配置选择 SemanticFlowPerceptionLayer 或 SimplePerceptionLayer
+        """
+        from hivememory.engines.perception import create_perception_layer
+
+        return create_perception_layer(
+            config=self.config.perception,
+            embedding_service=self.perception_embedding_service,
+            reranker_service=self.reranker_service,
+        )
+
+    def _build_generation_engine(self):
+        """
+        [私有构建器] 组装 Generation 引擎
+        """
+        from hivememory.engines.generation import (
+            MemoryGenerationEngine,
+            BaseMemoryExtractor, create_extractor,
+            BaseDeduplicator, create_deduplicator,
+        )
+
+        config = self.config.generation
+
+        extractor: BaseMemoryExtractor = create_extractor(
+            config.extractor,
+            self.librarian_llm_service
+        )
+
+        deduplicator: BaseDeduplicator = create_deduplicator(
+            self.storage,
+            config.deduplicator
+        )
+
+        return MemoryGenerationEngine(
+            storage=self.storage,
+            extractor=extractor,
+            deduplicator=deduplicator,
+        )
+
+    def _build_lifecycle_engine(self):
+        """
+        [私有构建器] 组装 Lifecycle 模块
+
+        创建所有子组件并注入到管理器
+        """
+        from hivememory.engines.lifecycle import (
+            MemoryLifecycleEngine,
+            VitalityCalculator,
+            DynamicReinforcementEngine,
+            BaseMemoryArchiver, create_archiver,
+            BaseGarbageCollector, create_garbage_collector,
+        )
+
+        vitality_calculator = VitalityCalculator(self.config.lifecycle.vitality_calculator)
+
+        reinforcement_engine = DynamicReinforcementEngine(
+            self.storage,
+            vitality_calculator,
+            self.config.lifecycle.reinforcement
+        )
+
+        archiver: BaseMemoryArchiver = create_archiver(
+            self.storage,
+            self.config.lifecycle.archiver
+        )
+        
+        garbage_collector: BaseGarbageCollector = create_garbage_collector(
+            self.storage,
+            archiver,
+            vitality_calculator,
+            self.config.lifecycle.garbage_collector
+        )
+
+        return MemoryLifecycleEngine(
+            storage=self.storage,
+            vitality_calculator=vitality_calculator,
+            reinforcement_engine=reinforcement_engine,
+            archiver=archiver,
+            garbage_collector=garbage_collector,
+        )
+
     def process_interaction(
         self,
         role: str,

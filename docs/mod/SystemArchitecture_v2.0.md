@@ -258,7 +258,7 @@ class LibrarianCore:
     """
     def __init__(self, storage, config):
         self.perception_layer = create_perception_layer(config.perception)
-        self.generation_orchestrator = create_generation_orchestrator(storage, config.generation)
+        self.generation_orchestrator = create_generation_engine(storage, config.generation)
         self.lifecycle_manager = create_lifecycle_manager(storage, config.lifecycle)
 
     def perceive_async(self, anchor: str, raw_message: str):

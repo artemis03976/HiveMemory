@@ -106,14 +106,6 @@ generation:
     user_prompt: null
     llm_config: null  # 使用全局 librarian 配置
 
-  gater:
-    gater_type: "rule"  # rule/llm/hybrid
-    min_total_length: 20
-    min_substantive_length: 10
-    trivial_patterns: []
-    valuable_patterns: []
-    llm_config: null
-
   deduplicator:
     high_similarity_threshold: 0.95  # TOUCH/UPDATE 分界
     low_similarity_threshold: 0.75   # UPDATE/CREATE 分界
@@ -141,16 +133,12 @@ retrieval:
     llm_config: null
 
   renderer:
-    render_format: "xml"  # xml/markdown/plain
+    type: "full"  # 可选: full, cascade, compact
+    render_format: "xml"  # xml/markdown
     max_tokens: 2000
     max_content_length: 500
-    include_metadata: true
-    include_confidence: true
-    include_timestamp: true
-    include_artifact: false
-    title_template: "📝 {title}"
-    confidence_threshold: 0.5
-    old_memory_days: 90
+    show_artifacts: false
+    stale_days: 90
 
   retriever:
     top_k: 5

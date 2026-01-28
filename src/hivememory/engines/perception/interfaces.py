@@ -11,12 +11,10 @@ HiveMemory 感知层抽象接口
 
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple, Any, Dict, TYPE_CHECKING
-
-from hivememory.core.models import FlushReason, Identity, StreamMessage, StreamMessageType
+from typing import List, Optional, Any, Dict, TYPE_CHECKING
+from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import (
-    LogicalBlock,
-    SemanticBuffer,
+    FlushReason,
 )
 
 if TYPE_CHECKING:
@@ -63,181 +61,47 @@ class TriggerStrategy(ABC):
         pass
 
 
-class StreamParser(ABC):
+class BaseArbiter(ABC):
     """
-    流式解析器接口
+    灰度仲裁器接口
 
     职责：
-        - 将原始消息流转换为 StreamMessage
-        - 构建 LogicalBlock
-        - 判断是否需要创建新的 LogicalBlock
-
-    Examples:
-        >>> parser = UnifiedStreamParser()
-        >>> message = parser.parse_message({"role": "user", "content": "hello"})
-        >>> print(message.message_type)  # StreamMessageType.USER
-    """
-
-    @abstractmethod
-    def parse_message(self, raw_message: Any) -> StreamMessage:
-        """
-        解析原始消息为统一格式
-
-        支持的格式：
-            - LangChain: AIMessage, HumanMessage, ToolMessage
-            - OpenAI: {"role": "...", "content": "...", "tool_calls": ...}
-            - 简单文本: 默认为 user 消息
-
-        Args:
-            raw_message: 原始消息对象
-
-        Returns:
-            StreamMessage: 统一格式的流式消息
-        """
-        pass
-
-    @abstractmethod
-    def should_create_new_block(self, message: StreamMessage) -> bool:
-        """
-        判断是否需要创建新的 LogicalBlock
-
-        规则：
-            - User Query 永远开启新 Block
-            - 其他消息延续当前 Block
-
-        Args:
-            message: 流式消息
-
-        Returns:
-            bool: 是否需要创建新 Block
-        """
-        pass
-
-
-class SemanticAdsorber(ABC):
-    """
-    语义吸附器接口
-
-    职责：
-        - 计算语义相似度
-        - 判断是吸附还是漂移
-        - 更新话题核心向量
+        - 处理语义相似度处于灰度区间（0.40-0.75）的模糊情况
+        - 使用更精细的模型判断两个意图是否属于同一任务流
+        - 返回是否应该继续当前话题
 
     判定流程：
-        1. 短文本强吸附（< 50 tokens）
-        2. 语义相似度判定（阈值 0.6）
-
-    注意：
-        - Token 溢出检测由 RelayController 负责
-        - 空闲超时检测由 BasePerceptionLayer 的 start_idle_monitor() 处理（异步）
+        1. 接收上一轮上下文和当前查询
+        2. 使用 Reranker/SLM 等模型进行二分类
+        3. 返回 YES（继续）或 NO（切分）
 
     Examples:
-        >>> adsorber = SemanticBoundaryAdsorber()
-        >>> should_adsorb, reason = adsorber.should_adsorb(new_block, buffer)
-        >>> if not should_adsorb:
-        ...     print(f"触发 Flush: {reason}")
+        >>> arbiter = RerankerArbiter(reranker_service)
+        >>> result = arbiter.should_continue_topic(
+        ...     previous_context="写贪吃蛇游戏代码",
+        ...     current_query="部署到服务器",
+        ...     similarity_score=0.55
+        ... )
+        >>> # result = True (同一任务流的不同阶段)
     """
 
     @abstractmethod
-    def compute_similarity(
+    def should_continue_topic(
         self,
-        anchor_text: str,
-        topic_kernel: Optional[List[float]]
-    ) -> float:
-        """
-        计算语义相似度
-
-        Args:
-            anchor_text: 锚点文本（新 Block 的 User Query）
-            topic_kernel: 话题核心向量
-
-        Returns:
-            float: 相似度 (0-1)，如果 topic_kernel 为 None 返回 0
-        """
-        pass
-
-    @abstractmethod
-    def should_adsorb(
-        self,
-        new_block: LogicalBlock,
-        buffer: SemanticBuffer
-    ) -> Tuple[bool, Optional[FlushReason]]:
-        """
-        判断是否吸附
-
-        Args:
-            new_block: 新的 LogicalBlock
-            buffer: 当前语义缓冲区
-
-        Returns:
-            Tuple[bool, Optional[FlushReason]]:
-                - 是否吸附
-                - 漂移原因（如果不吸附）
-        """
-        pass
-
-    @abstractmethod
-    def update_topic_kernel(
-        self,
-        buffer: SemanticBuffer,
-        new_block: LogicalBlock
-    ) -> None:
-        """
-        更新话题核心向量
-
-        策略：指数移动平均 (EMA)
-            new_kernel = alpha * new_vector + (1 - alpha) * old_kernel
-
-        Args:
-            buffer: 当前语义缓冲区
-            new_block: 新的 LogicalBlock
-        """
-        pass
-
-
-class RelayController(ABC):
-    """
-    接力控制器接口
-
-    职责：
-        - 检测 Token 溢出
-        - 生成中间态摘要
-        - 维护跨 Block 的上下文连贯性
-
-    Examples:
-        >>> controller = TokenOverflowRelayController()
-        >>> if controller.should_trigger_relay(buffer, new_block):
-        ...     summary = controller.generate_summary(buffer.blocks)
-    """
-
-    @abstractmethod
-    def should_trigger_relay(
-        self,
-        buffer: SemanticBuffer,
-        new_block: LogicalBlock
+        previous_context: str,
+        current_query: str,
+        similarity_score: float,
     ) -> bool:
         """
-        检测是否需要接力（Token 溢出）
+        判断是否应该继续当前话题
 
         Args:
-            buffer: 当前语义缓冲区
-            new_block: 新的 LogicalBlock
+            previous_context: 上一轮对话的上下文摘要
+            current_query: 当前的用户查询（rewritten_query）
+            similarity_score: 语义相似度分数（可选，用于记录或调整决策）
 
         Returns:
-            bool: 是否需要触发接力
-        """
-        pass
-
-    @abstractmethod
-    def generate_summary(self, blocks: List[LogicalBlock]) -> str:
-        """
-        生成中间态摘要
-
-        Args:
-            blocks: LogicalBlock 列表
-
-        Returns:
-            str: 生成的摘要文本
+            bool: True 表示应该继续（吸附），False 表示应该切分
         """
         pass
 
@@ -466,7 +330,7 @@ class BasePerceptionLayer(ABC):
     # ========== 抽象接口 ==========
 
     @abstractmethod
-    def add_message(
+    def perceive(
         self,
         role: str,
         content: str,
@@ -558,65 +422,8 @@ class BasePerceptionLayer(ABC):
         pass
 
 
-class GreyAreaArbiter(ABC):
-    """
-    灰度仲裁器接口
-
-    职责：
-        - 处理语义相似度处于灰度区间（0.40-0.75）的模糊情况
-        - 使用更精细的模型判断两个意图是否属于同一任务流
-        - 返回是否应该继续当前话题
-
-    判定流程：
-        1. 接收上一轮上下文和当前查询
-        2. 使用 Reranker/SLM 等模型进行二分类
-        3. 返回 YES（继续）或 NO（切分）
-
-    Examples:
-        >>> arbiter = RerankerArbiter(reranker_service)
-        >>> result = arbiter.should_continue_topic(
-        ...     previous_context="写贪吃蛇游戏代码",
-        ...     current_query="部署到服务器",
-        ...     similarity_score=0.55
-        ... )
-        >>> # result = True (同一任务流的不同阶段)
-    """
-
-    @abstractmethod
-    def should_continue_topic(
-        self,
-        previous_context: str,
-        current_query: str,
-        similarity_score: float,
-    ) -> bool:
-        """
-        判断是否应该继续当前话题
-
-        Args:
-            previous_context: 上一轮对话的上下文摘要
-            current_query: 当前的用户查询（rewritten_query）
-            similarity_score: 语义相似度分数（可选，用于记录或调整决策）
-
-        Returns:
-            bool: True 表示应该继续（吸附），False 表示应该切分
-        """
-        pass
-
-    def is_available(self) -> bool:
-        """
-        检查仲裁器是否可用
-
-        Returns:
-            bool: 是否可用（模型是否已加载）
-        """
-        return True
-
-
 __all__ = [
     "TriggerStrategy",
-    "StreamParser",
-    "SemanticAdsorber",
-    "RelayController",
+    "BaseArbiter",
     "BasePerceptionLayer",
-    "GreyAreaArbiter",
 ]

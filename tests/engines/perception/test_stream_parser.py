@@ -5,7 +5,10 @@ UnifiedStreamParser 单元测试
 - OpenAI 格式消息解析
 - LangChain 格式消息解析 (Mock)
 - 简单文本解析
-- Block 创建判定逻辑
+
+Note:
+    v2.0 重构：移除 should_create_new_block 测试。
+    该逻辑已转移到 LogicalBlockBuilder。
 """
 
 import pytest
@@ -67,32 +70,21 @@ class TestUnifiedStreamParser:
         # 这里的 isinstance check 比较棘手，因为 parser 内部 import 了 langchain
         # 我们最好 mock parser._is_langchain_message 和 _parse_langchain_message
         # 或者安装了 langchain 的话直接用。
-        
+
         # 尝试 import langchain，如果失败则 mock
         try:
             from langchain_core.messages import HumanMessage, AIMessage
-            
+
             # Human
             msg = HumanMessage(content="hi")
             parsed = self.parser.parse_message(msg)
             assert parsed.message_type == StreamMessageType.USER
-            
+
             # AI
             msg = AIMessage(content="response")
             parsed = self.parser.parse_message(msg)
             assert parsed.message_type == StreamMessageType.ASSISTANT
-            
+
         except ImportError:
             # 如果没有 langchain，跳过此测试或仅测试 mock 路径
             pass
-
-    def test_should_create_new_block(self):
-        """测试 Block 创建判定"""
-        # User Query 应该创建新 Block
-        msg = Mock()
-        msg.message_type = StreamMessageType.USER
-        assert self.parser.should_create_new_block(msg) is True
-        
-        # 其他类型不应该创建
-        msg.message_type = StreamMessageType.ASSISTANT
-        assert self.parser.should_create_new_block(msg) is False

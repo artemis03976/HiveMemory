@@ -18,19 +18,19 @@ import logging
 from typing import Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
 
+from hivememory.patchouli.config import DeduplicatorConfig
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer
 from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
-from hivememory.engines.generation.interfaces import Deduplicator
+from hivememory.engines.generation.interfaces import BaseDeduplicator
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
 if TYPE_CHECKING:
-    from hivememory.engines.lifecycle.orchestrator import MemoryLifecycleManager
-    from hivememory.patchouli.config import DeduplicatorConfig
+    from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
 
 logger = logging.getLogger(__name__)
 
 
-class MemoryDeduplicator(Deduplicator):
+class MemoryDeduplicator(BaseDeduplicator):
     """
     记忆查重与演化管理器
 
@@ -59,9 +59,7 @@ class MemoryDeduplicator(Deduplicator):
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        high_similarity_threshold: float = 0.95,
-        low_similarity_threshold: float = 0.75,
-        content_similarity_threshold: float = 0.9,
+        config: DeduplicatorConfig,
         lifecycle_manager: Optional["MemoryLifecycleManager"] = None,
     ):
         """
@@ -69,15 +67,11 @@ class MemoryDeduplicator(Deduplicator):
 
         Args:
             storage: 向量存储实例 (QdrantMemoryStore)
-            high_similarity_threshold: 高相似度阈值，默认 0.95
-            low_similarity_threshold: 低相似度阈值，默认 0.75
-            content_similarity_threshold: 内容相似度阈值，默认 0.9
+            config: 查重器配置
             lifecycle_manager: 生命周期管理器 (可选，用于记录命中事件)
         """
         self.storage = storage
-        self.high_threshold = high_similarity_threshold
-        self.low_threshold = low_similarity_threshold
-        self.content_threshold = content_similarity_threshold
+        self.config = config
         self.lifecycle_manager = lifecycle_manager
 
     def check_duplicate(
@@ -176,7 +170,7 @@ class MemoryDeduplicator(Deduplicator):
             DuplicateDecision: 决策结果
         """
         # 情况 1: 高相似度 (> 0.95)
-        if similarity_score > self.high_threshold:
+        if similarity_score > self.config.high_similarity_threshold:
             # 检查内容是否完全一致
             if self._is_content_identical(draft, existing):
                 logger.debug("高相似度 + 内容一致 → TOUCH")
@@ -186,7 +180,7 @@ class MemoryDeduplicator(Deduplicator):
                 return DuplicateDecision.UPDATE
 
         # 情况 2: 中等相似度 (0.75 - 0.95)
-        elif similarity_score > self.low_threshold:
+        elif similarity_score > self.config.low_similarity_threshold:
             logger.debug("中等相似度 → UPDATE (知识合并)")
             return DuplicateDecision.UPDATE
 
@@ -225,7 +219,7 @@ class MemoryDeduplicator(Deduplicator):
         # 简单字符级相似度 (Jaccard)
         similarity = self._calculate_text_similarity(draft_content, existing_content)
 
-        return similarity > self.content_threshold
+        return similarity > self.config.content_similarity_threshold
 
     def _calculate_text_similarity(self, text1: str, text2: str) -> float:
         """
@@ -362,46 +356,88 @@ class MemoryDeduplicator(Deduplicator):
         return merged
 
 
-# 便捷函数
-def create_default_deduplicator(
-    storage: QdrantMemoryStore,
-    config: Optional["DeduplicatorConfig"] = None,
-) -> Deduplicator:
+class NoOpDeduplicator(BaseDeduplicator):
     """
-    创建默认查重器（支持配置）
+    No-Op 查重器
+
+    不执行查重操作，总是返回 CREATE (判定为新记忆)。
+    用于在配置未启用查重器时作为默认实现。
+    """
+
+    def check_duplicate(
+        self,
+        draft: ExtractedMemoryDraft,
+        threshold: float = 0.75
+    ) -> Tuple[DuplicateDecision, Optional[MemoryAtom]]:
+        """
+        检查重复 (No-Op)
+
+        Args:
+            draft: 记忆草稿
+            threshold: 阈值
+
+        Returns:
+            CREATE, None
+        """
+        return DuplicateDecision.CREATE, None
+
+    def merge_memory(
+        self,
+        existing: MemoryAtom,
+        new_draft: ExtractedMemoryDraft
+    ) -> MemoryAtom:
+        """
+        合并记忆 (No-Op)
+
+        Args:
+            existing: 现有记忆
+            new_draft: 新草稿
+
+        Returns:
+            existing (不做修改)
+        """
+        return existing
+
+
+# 便捷函数
+def create_deduplicator(
+    storage: QdrantMemoryStore,
+    config: DeduplicatorConfig,
+) -> BaseDeduplicator:
+    """
+    创建查重器
 
     Args:
         storage: QdrantMemoryStore 实例
-        config: 查重器配置（可选，使用默认配置）
+        config: 查重器配置
 
     Returns:
-        Deduplicator: 查重器实例
+        BaseDeduplicator: 查重器实例或 NoOp 实例
 
     Examples:
         >>> # 使用默认配置
-        >>> dedup = create_default_deduplicator(storage)
+        >>> dedup = create_deduplicator(storage)
         >>>
         >>> # 使用自定义配置
         >>> from hivememory.patchouli.config import DeduplicatorConfig
-        >>> config = DeduplicatorConfig(high_similarity_threshold=0.9)
-        >>> dedup = create_default_deduplicator(storage, config)
+        >>> config = DeduplicatorConfig(enabled=False)
+        >>> dedup = create_deduplicator(storage, config)
     """
-    if config is None:
-        from hivememory.patchouli.config import MemoryGenerationConfig
-        memory_config = MemoryGenerationConfig()
-        config = memory_config.deduplicator
+    if not config.enabled:
+        logger.info("Deduplicator 已禁用 (No-Op)")
+        return NoOpDeduplicator()
 
+    logger.info("Deduplicator 已启用")
     return MemoryDeduplicator(
         storage=storage,
-        high_similarity_threshold=config.high_similarity_threshold,
-        low_similarity_threshold=config.low_similarity_threshold,
-        content_similarity_threshold=config.content_similarity_threshold,
-        # lifecycle_manager 暂保持 None，后续可从 config 读取
-        lifecycle_manager=None,
+        config=config,
+        # lifecycle_engine 暂保持 None，后续可从 config 读取
+        lifecycle_engine=None,
     )
 
 
 __all__ = [
     "MemoryDeduplicator",
-    "create_default_deduplicator",
+    "NoOpDeduplicator",
+    "create_deduplicator",
 ]

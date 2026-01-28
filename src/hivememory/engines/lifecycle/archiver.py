@@ -25,21 +25,19 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.lifecycle.interfaces import MemoryArchiver
+from hivememory.patchouli.config import ArchiverConfig
+from hivememory.engines.lifecycle.interfaces import BaseMemoryArchiver
 from hivememory.engines.lifecycle.models import ArchiveRecord, ArchiveStatus
 from hivememory.infrastructure.storage import QdrantMemoryStore
-
-if TYPE_CHECKING:
-    from hivememory.patchouli.config import ArchiverConfig
 
 logger = logging.getLogger(__name__)
 
 
-class FileBasedMemoryArchiver(MemoryArchiver):
+class FileBasedArchiver(BaseMemoryArchiver):
     """
     基于文件系统的冷存储归档器
 
@@ -53,7 +51,7 @@ class FileBasedMemoryArchiver(MemoryArchiver):
             └── {uuid2}.json.gz
 
     Examples:
-        >>> archiver = FileBasedMemoryArchiver(storage, archive_dir="data/archived")
+        >>> archiver = FileBasedArchiver(storage, archive_dir="data/archived")
         >>> archiver.archive(memory_id)
         >>> memory = archiver.resurrect(memory_id)
     """
@@ -61,20 +59,18 @@ class FileBasedMemoryArchiver(MemoryArchiver):
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        archive_dir: str = "data/archived",
-        compress: bool = True,
+        config: ArchiverConfig,
     ):
         """
         初始化归档器
 
         Args:
             storage: 向量存储实例 (QdrantMemoryStore)
-            archive_dir: 归档目录路径
-            compress: 是否使用 GZIP 压缩
+            config: 归档器配置
         """
         self.storage = storage
-        self.archive_dir = Path(archive_dir)
-        self.compress = compress
+        self.archive_dir = Path(config.archive_dir)
+        self.compress = config.compression
 
         # 创建归档目录
         self.archive_dir.mkdir(parents=True, exist_ok=True)
@@ -86,7 +82,7 @@ class FileBasedMemoryArchiver(MemoryArchiver):
         self._index: Dict[str, ArchiveRecord] = self._load_index()
 
         logger.info(
-            f"FileBasedMemoryArchiver initialized: "
+            f"FileBasedArchiver initialized: "
             f"dir={self.archive_dir}, compress={self.compress}, "
             f"indexed={len(self._index)} memories"
         )
@@ -304,55 +300,12 @@ class FileBasedMemoryArchiver(MemoryArchiver):
             )
 
 
-class S3MemoryArchiver(MemoryArchiver):
-    """
-    基于 S3 的冷存储归档器 (预留接口)
+# TODO: DBBasedArchiver
 
-    使用 S3 存储归档记忆，适合大规模部署。
-
-    TODO: 实现 S3 集成
-    """
-
-    def __init__(
-        self,
-        storage: QdrantMemoryStore,
-        bucket: str,
-        prefix: str = "archived/",
-    ):
-        """
-        初始化 S3 归档器
-
-        Args:
-            storage: 向量存储实例
-            bucket: S3 bucket 名称
-            prefix: S3 key 前缀
-        """
-        raise NotImplementedError(
-            "S3 archiver not yet implemented. "
-            "Use FileBasedMemoryArchiver for local storage."
-        )
-
-    def archive(self, memory_id: UUID) -> None:
-        """归档到 S3"""
-        raise NotImplementedError
-
-    def resurrect(self, memory_id: UUID) -> MemoryAtom:
-        """从 S3 唤醒"""
-        raise NotImplementedError
-
-    def is_archived(self, memory_id: UUID) -> bool:
-        """检查是否在 S3 中"""
-        raise NotImplementedError
-
-    def list_archived(self, limit: int = 100) -> List[ArchiveRecord]:
-        """列出 S3 中的归档"""
-        raise NotImplementedError
-
-
-def create_default_archiver(
+def create_archiver(
     storage: QdrantMemoryStore,
-    config: Optional["ArchiverConfig"] = None,
-) -> MemoryArchiver:
+    config: ArchiverConfig,
+) -> BaseMemoryArchiver:
     """
     创建默认归档器
 
@@ -361,21 +314,15 @@ def create_default_archiver(
         config: 归档器配置 (可选)
 
     Returns:
-        MemoryArchiver: 归档器实例
+        BaseMemoryArchiver: 归档器实例
     """
-    if config is None:
-        from hivememory.patchouli.config import ArchiverConfig
-        config = ArchiverConfig()
-
-    return FileBasedMemoryArchiver(
+    return FileBasedArchiver(
         storage=storage,
-        archive_dir=config.archive_dir,
-        compress=config.compression,
+        config=config,
     )
 
 
 __all__ = [
-    "FileBasedMemoryArchiver",
-    "S3MemoryArchiver",
-    "create_default_archiver",
+    "FileBasedArchiver",
+    "create_archiver",
 ]

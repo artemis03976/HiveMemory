@@ -15,34 +15,23 @@ HiveMemory - 动态强化引擎
 
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.lifecycle.interfaces import ReinforcementEngine, VitalityCalculator
+from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.engines.lifecycle.models import (
     MemoryEvent,
     EventType,
     ReinforcementResult,
 )
 from hivememory.infrastructure.storage import QdrantMemoryStore
-
-if TYPE_CHECKING:
-    from hivememory.patchouli.config import ReinforcementEngineConfig
+from hivememory.patchouli.config import ReinforcementEngineConfig
 
 logger = logging.getLogger(__name__)
 
 
-# 默认的生命力调整值
-DEFAULT_VITALITY_ADJUSTMENTS: Dict[EventType, float] = {
-    EventType.HIT: 5.0,
-    EventType.CITATION: 20.0,
-    EventType.FEEDBACK_POSITIVE: 50.0,
-    EventType.FEEDBACK_NEGATIVE: -50.0,
-}
-
-
-class DynamicReinforcementEngine(ReinforcementEngine):
+class DynamicReinforcementEngine:
     """
     动态强化引擎
 
@@ -65,38 +54,31 @@ class DynamicReinforcementEngine(ReinforcementEngine):
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        vitality_calculator: Optional[VitalityCalculator] = None,
-        enable_event_history: bool = True,
-        event_history_limit: int = 10000,
-        vitality_adjustments: Optional[Dict[EventType, float]] = None,
-        negative_confidence_multiplier: float = 0.5,
+        config: ReinforcementEngineConfig,
+        vitality_calculator: VitalityCalculator,
     ):
         """
         初始化强化引擎
 
         Args:
             storage: 向量存储实例 (QdrantMemoryStore)
-            vitality_calculator: 生命力计算器 (可选，使用默认如果未提供)
-            enable_event_history: 是否记录事件历史
-            event_history_limit: 事件历史最大条数
-            vitality_adjustments: 自定义生命力调整值
-            negative_confidence_multiplier: 负面反馈的置信度衰减系数
+            config: 强化引擎配置
+            vitality_calculator: 生命力计算器
         """
         self.storage = storage
-        self.enable_event_history = enable_event_history
-        self.event_history_limit = event_history_limit
-        self.negative_confidence_multiplier = negative_confidence_multiplier
-        self._event_history: List[ReinforcementResult] = []
+        self.config = config
 
-        # 设置生命力计算器
-        if vitality_calculator is None:
-            from hivememory.engines.lifecycle.vitality import create_default_vitality_calculator
-            self.vitality_calculator = create_default_vitality_calculator()
-        else:
-            self.vitality_calculator = vitality_calculator
+        self._event_history: List[ReinforcementResult] = []
+        
+        self.vitality_calculator = vitality_calculator
 
         # 设置生命力调整值
-        self.vitality_adjustments = vitality_adjustments or DEFAULT_VITALITY_ADJUSTMENTS.copy()
+        self.vitality_adjustments = {
+            EventType.HIT: self.config.hit_boost,
+            EventType.CITATION: self.config.citation_boost,
+            EventType.FEEDBACK_POSITIVE: self.config.positive_feedback_boost,
+            EventType.FEEDBACK_NEGATIVE: self.config.negative_feedback_penalty,
+        }
 
     def reinforce(self, memory_id: UUID, event: MemoryEvent) -> ReinforcementResult:
         """
@@ -119,7 +101,7 @@ class DynamicReinforcementEngine(ReinforcementEngine):
             raise ValueError(f"Memory {memory_id} not found")
 
         # 记录当前状态
-        previous_vitality = memory.meta.vitality_score * 100  # 转换为 0-100 范围
+        previous_vitality = memory.meta.vitality_score  # 已经是 0-100 范围
         previous_confidence = memory.meta.confidence_score
 
         # 应用事件特定的调整
@@ -138,8 +120,8 @@ class DynamicReinforcementEngine(ReinforcementEngine):
         # 重新计算生命力分数（此时 access_count 已包含本次访问）
         new_vitality = self.vitality_calculator.calculate(memory)
 
-        # 更新生命力分数 (转换为 0-1 存储)
-        memory.meta.vitality_score = new_vitality / 100.0
+        # 更新生命力分数 (直接存储 0-100)
+        memory.meta.vitality_score = new_vitality
 
         # 持久化到存储
         self.storage.upsert_memory(memory)
@@ -156,7 +138,7 @@ class DynamicReinforcementEngine(ReinforcementEngine):
         )
 
         # 记录事件历史
-        if self.enable_event_history:
+        if self.config.enable_event_history:
             self._add_to_history(result)
 
         logger.info(
@@ -170,22 +152,17 @@ class DynamicReinforcementEngine(ReinforcementEngine):
 
     def _handle_citation(self, memory: MemoryAtom, event: MemoryEvent) -> None:
         """
-        处理引用事件
+        处理引用事件 - 重置时间衰减
 
-        引用会重置时间衰减，通过更新 updated_at 时间戳实现。
+        VitalityCalculator 的时间衰减基于 updated_at 计算，
+        因此更新时间戳即可实现衰减重置。
 
         Args:
             memory: 记忆对象
             event: 事件对象
         """
-        # 重置时间衰减 - 更新时间戳
         memory.meta.updated_at = datetime.now()
-
-        # 如果使用的是 DecayResetVitalityCalculator，标记为引用
-        if hasattr(self.vitality_calculator, "mark_cited"):
-            self.vitality_calculator.mark_cited(memory.id)
-
-        logger.debug(f"Citation handled for {memory.id}: decay reset")
+        logger.debug(f"Citation handled for {memory.id}: decay reset via updated_at")
 
     def _handle_negative_feedback(self, memory: MemoryAtom, event: MemoryEvent) -> None:
         """
@@ -200,7 +177,7 @@ class DynamicReinforcementEngine(ReinforcementEngine):
         old_confidence = memory.meta.confidence_score
         memory.meta.confidence_score = max(
             0.0,
-            memory.meta.confidence_score * self.negative_confidence_multiplier
+            memory.meta.confidence_score * self.config.negative_confidence_multiplier
         )
 
         logger.debug(
@@ -218,8 +195,8 @@ class DynamicReinforcementEngine(ReinforcementEngine):
         """
         boost = self.vitality_adjustments.get(event.event_type, 0.0)
         # 添加到当前生命力 (稍后会被重新计算覆盖，但可以作为一种瞬时影响)
-        current = memory.meta.vitality_score * 100
-        memory.meta.vitality_score = max(0.0, min(1.0, (current + boost) / 100))
+        current = memory.meta.vitality_score  # 已经是 0-100 范围
+        memory.meta.vitality_score = max(0.0, min(100.0, current + boost))
 
     def _add_to_history(self, result: ReinforcementResult) -> None:
         """
@@ -231,9 +208,9 @@ class DynamicReinforcementEngine(ReinforcementEngine):
         self._event_history.append(result)
 
         # 限制历史大小
-        if len(self._event_history) > self.event_history_limit:
+        if len(self._event_history) > self.config.event_history_limit:
             # 移除最旧的记录
-            self._event_history = self._event_history[-self.event_history_limit:]
+            self._event_history = self._event_history[-self.config.event_history_limit:]
 
     def get_event_history(
         self,
@@ -280,51 +257,10 @@ class DynamicReinforcementEngine(ReinforcementEngine):
         return {
             "total_events": len(self._event_history),
             "event_counts": event_counts,
-            "history_limit": self.event_history_limit,
+            "history_limit": self.config.event_history_limit,
         }
-
-
-def create_default_reinforcement_engine(
-    storage: QdrantMemoryStore,
-    vitality_calculator: Optional[VitalityCalculator] = None,
-    config: Optional["ReinforcementEngineConfig"] = None,
-) -> ReinforcementEngine:
-    """
-    创建默认强化引擎
-
-    Args:
-        storage: 向量存储实例
-        vitality_calculator: 生命力计算器 (可选)
-        config: 强化引擎配置 (可选)
-
-    Returns:
-        ReinforcementEngine: 强化引擎实例
-    """
-    if config is None:
-        from hivememory.patchouli.config import ReinforcementEngineConfig
-        config = ReinforcementEngineConfig()
-
-    # 从 config 构建 vitality_adjustments
-    from hivememory.engines.lifecycle.models import EventType
-    vitality_adjustments = {
-        EventType.HIT: config.hit_boost,
-        EventType.CITATION: config.citation_boost,
-        EventType.FEEDBACK_POSITIVE: config.positive_feedback_boost,
-        EventType.FEEDBACK_NEGATIVE: config.negative_feedback_penalty,
-    }
-
-    return DynamicReinforcementEngine(
-        storage=storage,
-        vitality_calculator=vitality_calculator,
-        enable_event_history=config.enable_event_history,
-        event_history_limit=config.event_history_limit,
-        vitality_adjustments=vitality_adjustments,
-        negative_confidence_multiplier=config.negative_confidence_multiplier,
-    )
 
 
 __all__ = [
     "DynamicReinforcementEngine",
-    "DEFAULT_VITALITY_ADJUSTMENTS",
-    "create_default_reinforcement_engine",
 ]

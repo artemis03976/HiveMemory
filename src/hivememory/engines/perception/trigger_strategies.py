@@ -19,8 +19,8 @@ HiveMemory - 感知层触发策略 (Trigger Strategies)
 import logging
 import re
 from typing import List, Dict, Any, Optional
-
-from hivememory.core.models import FlushReason, StreamMessage
+from hivememory.core.models import StreamMessage
+from hivememory.engines.perception.models import FlushReason
 from hivememory.engines.perception.interfaces import TriggerStrategy
 
 logger = logging.getLogger(__name__)
@@ -55,14 +55,12 @@ class MessageCountTrigger(TriggerStrategy):
     def should_trigger(
         self,
         messages: List[StreamMessage],
-        context: Dict[str, Any]
     ) -> tuple[bool, Optional[FlushReason]]:
         """
         检查消息数是否达到阈值
 
         Args:
             messages: 当前消息列表
-            context: 上下文（未使用）
 
         Returns:
             tuple[bool, FlushReason]: (是否触发, 原因)
@@ -113,14 +111,12 @@ class SemanticBoundaryTrigger(TriggerStrategy):
     def should_trigger(
         self,
         messages: List[StreamMessage],
-        context: Dict[str, Any]
     ) -> tuple[bool, Optional[FlushReason]]:
         """
         检测语义边界
 
         Args:
             messages: 当前消息列表
-            context: 上下文（未使用）
 
         Returns:
             tuple[bool, FlushReason]: (是否触发, 原因)
@@ -165,7 +161,7 @@ class TriggerManager:
         ...         SemanticBoundaryTrigger(),
         ...     ]
         ... )
-        >>> should, reason = manager.should_trigger(messages, context)
+        >>> should, reason = manager.should_trigger(messages)
     """
 
     def __init__(self, strategies: List[TriggerStrategy]):
@@ -180,7 +176,6 @@ class TriggerManager:
     def should_trigger(
         self,
         messages: List[StreamMessage],
-        context: Dict[str, Any]
     ) -> tuple[bool, Optional[FlushReason]]:
         """
         综合判断是否触发
@@ -190,13 +185,12 @@ class TriggerManager:
 
         Args:
             messages: 当前消息列表
-            context: 上下文信息
 
         Returns:
             tuple[bool, FlushReason]: (是否触发, 触发原因)
         """
         for strategy in self.strategies:
-            should, reason = strategy.should_trigger(messages, context)
+            should, reason = strategy.should_trigger(messages)
             if should:
                 logger.info(f"触发器激活: {reason.value}")
                 return True, reason
@@ -204,32 +198,8 @@ class TriggerManager:
         return False, None
 
 
-# 便捷函数
-def create_default_trigger_manager() -> TriggerManager:
-    """
-    创建默认触发管理器
-
-    配置:
-        - 消息数: 6 条 (偶数，确保完整对话对)
-        - 语义边界: 启用
-
-    注意:
-        空闲超时监控请使用 BasePerceptionLayer.start_idle_monitor()
-
-    Returns:
-        TriggerManager: 管理器实例
-    """
-    return TriggerManager(
-        strategies=[
-            MessageCountTrigger(threshold=6),
-            SemanticBoundaryTrigger(),
-        ]
-    )
-
-
 __all__ = [
     "MessageCountTrigger",
     "SemanticBoundaryTrigger",
     "TriggerManager",
-    "create_default_trigger_manager",
 ]

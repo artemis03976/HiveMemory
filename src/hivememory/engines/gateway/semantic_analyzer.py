@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, List, Optional
 
-from hivememory.patchouli.config import GatewayConfig
+from hivememory.patchouli.config import LLMAnalyzerConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.gateway.interfaces import BaseSemanticAnalyzer
 from hivememory.core.models import StreamMessage
@@ -89,20 +89,20 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
 
     def __init__(
         self,
+        config: LLMAnalyzerConfig,
         llm_service: BaseLLMService,
-        config: Optional[GatewayConfig] = None,
         system_prompt: Optional[str] = None,
     ):
         """
         初始化 LLMAnalyzer
 
         Args:
+            config: LLMAnalyzerConfig 配置对象
             llm_service: LLM 服务实例
-            config: Gateway 配置（可选，使用默认值）
             system_prompt: 自定义系统提示词（可选）
         """
+        self.config = config
         self.llm_service = llm_service
-        self.config = config or GatewayConfig()
         self.system_prompt = system_prompt or get_system_prompt(
             variant=self.config.prompt_variant,
             language=self.config.prompt_language,
@@ -126,7 +126,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
             SemanticAnalysisResult: L2 分析器的原始输出
 
         Raises:
-            Exception: LLM 调用失败时抛出异常，由 GatewayService 处理回退
+            Exception: LLM 调用失败时抛出异常，由 GatewayEngine 处理回退
         """
         # 构建消息
         messages = [{"role": "system", "content": self.system_prompt}]
@@ -251,3 +251,70 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         except (ValueError, TypeError):
             logger.warning(f"无效的 memory_type: {memory_type}, 返回空过滤条件")
             return QueryFilters()
+
+
+class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
+    """
+    No-Op 语义分析器
+
+    不执行任何分析操作，返回默认的保守结果。
+    用于在配置未启用 L2 分析时作为默认实现。
+    """
+
+    def analyze(
+        self,
+        query: str,
+        context: List[StreamMessage],
+    ) -> SemanticAnalysisResult:
+        """
+        执行语义分析 (No-Op)
+
+        Args:
+            query: 用户原始查询
+            context: 对话上下文
+
+        Returns:
+            SemanticAnalysisResult: 默认结果
+                - intent: CHAT
+                - rewritten_query: original query
+                - worth_saving: False
+                - reason: "L2 semantic analysis disabled"
+        """
+        return SemanticAnalysisResult(
+            intent=GatewayIntent.CHAT,
+            rewritten_query=query,
+            search_keywords=[],
+            target_filters=QueryFilters(),
+            worth_saving=False,
+            reason="L2 semantic analysis disabled",
+            model=None,
+        )
+
+
+def create_semantic_analyzer(
+    config: LLMAnalyzerConfig,
+    llm_service: BaseLLMService,
+) -> BaseSemanticAnalyzer:
+    """
+    创建 L2 语义分析器实例
+
+    Args:
+        config: L2 分析器配置
+        llm_service: LLM 服务实例
+
+    Returns:
+        BaseSemanticAnalyzer: LLMAnalyzer 或 NoOpSemanticAnalyzer
+    """
+    if config.enabled:
+        logger.info("Gateway L2 语义分析器已启用")
+        return LLMAnalyzer(config, llm_service)
+    else:
+        logger.info("Gateway L2 语义分析器已禁用 (No-Op)")
+        return NoOpSemanticAnalyzer()
+
+
+__all__ = [
+    "LLMAnalyzer",
+    "NoOpSemanticAnalyzer",
+    "create_semantic_analyzer",
+]

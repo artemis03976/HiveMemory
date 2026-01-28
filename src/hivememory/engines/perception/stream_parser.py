@@ -8,16 +8,19 @@ HiveMemory 统一流式解析器
     - OpenAI: {"role": "...", "content": "...", "tool_calls": ...}
     - 简单文本: 默认为 user 消息
 
+Note:
+    v2.0 重构：移除 should_create_new_block() 方法。
+    Block 边界判断逻辑由 LogicalBlockBuilder.should_create_new_block() 负责。
+
 参考: PROJECT.md 4.1.1 节
 
 作者: HiveMemory Team
-版本: 1.0.0
+版本: 2.0.0
 """
 
 import logging
 from typing import Any, Dict, List
 
-from hivememory.engines.perception.interfaces import StreamParser
 from hivememory.core.models import Identity
 from hivememory.engines.perception.models import (
     StreamMessage,
@@ -27,7 +30,7 @@ from hivememory.engines.perception.models import (
 logger = logging.getLogger(__name__)
 
 
-class UnifiedStreamParser(StreamParser):
+class UnifiedStreamParser:
     """
     统一流式解析器
 
@@ -35,7 +38,10 @@ class UnifiedStreamParser(StreamParser):
         - 解析 LangChain 消息格式
         - 解析 OpenAI 格式
         - 解析简单文本
-        - 构建 LogicalBlock
+
+    Note:
+        v2.0 重构：移除 should_create_new_block() 方法。
+        Block 边界判断逻辑由 LogicalBlockBuilder.should_create_new_block() 负责。
 
     Examples:
         >>> parser = UnifiedStreamParser()
@@ -94,22 +100,6 @@ class UnifiedStreamParser(StreamParser):
                 f"不支持的消息类型: {type(raw_message)}。"
                 f"支持的类型: LangChain Message, dict, str"
             )
-
-    def should_create_new_block(self, message: StreamMessage) -> bool:
-        """
-        判断是否需要创建新的 LogicalBlock
-
-        规则：
-            - User Query 永远开启新 Block
-            - 其他消息延续当前 Block
-
-        Args:
-            message: 流式消息
-
-        Returns:
-            bool: 是否需要创建新 Block
-        """
-        return message.message_type == StreamMessageType.USER
 
     def _is_langchain_message(self, message: Any) -> bool:
         """检查是否为 LangChain 消息"""
@@ -238,31 +228,6 @@ class UnifiedStreamParser(StreamParser):
                 message_type=StreamMessageType.ASSISTANT,
                 content=content
             )
-
-    def parse_conversation_messages(
-        self,
-        messages: list,
-        session_id: str,
-        user_id: str
-    ) -> List[StreamMessage]:
-        """
-        批量解析对话消息列表
-
-        Args:
-            messages: 原始消息列表
-            session_id: 会话ID
-            user_id: 用户ID
-
-        Returns:
-            List[StreamMessage]: 转换后的消息列表
-        """
-        result = []
-        for msg in messages:
-            stream_msg = self.parse_message(msg)
-            # 填充身份信息
-            stream_msg.identity = Identity(user_id=user_id, agent_id="unknown", session_id=session_id)
-            result.append(stream_msg)
-        return result
 
 
 __all__ = [

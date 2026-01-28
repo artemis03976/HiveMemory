@@ -17,7 +17,7 @@ MemoryLifeCycleManagement 模块负责记忆的动态演化、垃圾回收和冷
 - **动态强化引擎**: 支持 HIT、CITATION、FEEDBACK 等事件驱动的分数调整
 - **垃圾回收机制**: 支持周期性和定时触发的低价值记忆清理
 - **冷热分级存储**: 实现基于文件系统的冷存储归档与唤醒机制
-- **统一生命周期管理**: 提供 `MemoryLifecycleManager` 协调各组件工作
+- **统一生命周期管理**: 提供 `MemoryLifecycleEngine` 协调各组件工作
 
 ---
 
@@ -28,8 +28,7 @@ MemoryLifeCycleManagement 模块负责记忆的动态演化、垃圾回收和冷
 **职责**: 计算记忆的生命力分数，决定记忆的存留。
 
 **核心类**:
-- `StandardVitalityCalculator`: 标准计算器，实现 $V = (C \times I) \times D(t) + A$ 公式
-- `DecayResetVitalityCalculator`: 支持引用（Citation）重置衰减的高级计算器
+- `VitalityCalculator`: 标准计算器，实现 $V = (C \times I) \times D(t) + A$ 公式
 
 **评分模型**:
 - **固有价值 (I)**: 代码片段 (1.0) > 事实 (0.9) > URL资源 (0.8) > 反思 (0.7)
@@ -77,29 +76,29 @@ data/archived/
     ├── {uuid}.json.gz
 ```
 
-### 5. `orchestrator.py` - 生命周期管理器
+### 5. `engine.py` - 生命周期引擎
 
 **职责**: 统一门面，协调所有组件。
 
 **核心类**:
-- `MemoryLifecycleManager`: 提供 `record_event`, `run_garbage_collection` 等统一接口
+- `MemoryLifecycleEngine`: 提供 `record_event`, `run_garbage_collection` 等统一接口
 
 ---
 
 ## 🚀 快速使用
 
-### 初始化管理器
+### 初始化引擎
 
 ```python
 from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.lifecycle import create_default_lifecycle_manager
+from hivememory.lifecycle import create_default_lifecycle_engine
 
 # 1. 初始化存储
 storage = QdrantMemoryStore()
 
-# 2. 创建生命周期管理器
+# 2. 创建生命周期引擎
 # 启用定时 GC (每 24 小时运行一次)
-lifecycle_manager = create_default_lifecycle_manager(
+lifecycle_engine = create_default_lifecycle_engine(
     storage=storage,
     enable_scheduled_gc=True,
     gc_interval_hours=24
@@ -112,13 +111,13 @@ lifecycle_manager = create_default_lifecycle_manager(
 from hivememory.lifecycle.types import EventType
 
 # 场景 1: 检索命中 (被动)
-lifecycle_manager.record_hit(memory_id="uuid...", source="system")
+lifecycle_engine.record_hit(memory_id="uuid...", source="system")
 
 # 场景 2: 记忆引用 (主动) -> 将重置时间衰减
-lifecycle_manager.record_citation(memory_id="uuid...", source="agent_worker")
+lifecycle_engine.record_citation(memory_id="uuid...", source="agent_worker")
 
 # 场景 3: 用户反馈
-lifecycle_manager.record_feedback(
+lifecycle_engine.record_feedback(
     memory_id="uuid...", 
     positive=True, 
     source="user"
@@ -129,7 +128,7 @@ lifecycle_manager.record_feedback(
 
 ```python
 # 强制运行 GC，归档生命力 < 20 的记忆
-archived_count = lifecycle_manager.run_garbage_collection(force=True)
+archived_count = lifecycle_engine.run_garbage_collection(force=True)
 print(f"Archived {archived_count} memories")
 ```
 
@@ -138,7 +137,7 @@ print(f"Archived {archived_count} memories")
 ```python
 # 当检索不到时，尝试从冷存储唤醒
 try:
-    memory = lifecycle_manager.resurrect_memory(memory_id="uuid...")
+    memory = lifecycle_engine.resurrect_memory(memory_id="uuid...")
     print("Memory resurrected from archive")
 except ValueError:
     print("Memory not found in archive")

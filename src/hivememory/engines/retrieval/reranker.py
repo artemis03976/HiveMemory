@@ -30,14 +30,14 @@ class NoopReranker(BaseReranker):
     作为默认实现和占位符。
     """
 
-    def __init__(self, config: Optional[RerankerConfig] = None):
+    def __init__(self, config: RerankerConfig = None):
         """
         初始化 NoopReranker
 
         Args:
             config: 配置
         """
-        self.config = config or RerankerConfig()
+        self.config = config
 
     def rerank(
         self,
@@ -68,7 +68,7 @@ class CrossEncoderReranker(BaseReranker):
     def __init__(
         self,
         service: BaseRerankService,
-        config: Optional[RerankerConfig] = None,
+        config: RerankerConfig,
     ):
         """
         初始化 CrossEncoderReranker
@@ -78,7 +78,7 @@ class CrossEncoderReranker(BaseReranker):
             config: Reranker 配置
         """
         self.service = service
-        self.config = config or RerankerConfig()
+        self.config = config
         
         logger.info("CrossEncoderReranker 初始化完成")
 
@@ -175,8 +175,8 @@ class CrossEncoderReranker(BaseReranker):
 
 
 def create_reranker(
-    config: Optional[RerankerConfig] = None,
-    service: Optional[BaseRerankService] = None
+    config: RerankerConfig,
+    service: BaseRerankService
 ) -> BaseReranker:
     """
     创建 Reranker 实例的工厂函数
@@ -190,18 +190,10 @@ def create_reranker(
     Returns:
         NoopReranker 或 CrossEncoderReranker 实例
     """
-    config = config or RerankerConfig()
-
     if not config.enabled:
         return NoopReranker(config)
-
-    if config.type == "cross_encoder":
-        if service is None:
-            logger.warning("请求创建 CrossEncoderReranker 但未提供 service，降级为 NoopReranker")
-            return NoopReranker(config)
+    else:
         return CrossEncoderReranker(service, config)
-
-    return NoopReranker(config)
 
 
 __all__ = [

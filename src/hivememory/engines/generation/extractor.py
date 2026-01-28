@@ -21,10 +21,9 @@ from datetime import datetime
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 
-from hivememory.patchouli.config import LLMConfig, get_librarian_llm_config
+from hivememory.patchouli.config import ExtractorConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
-from hivememory.infrastructure.llm.litellm_service import get_librarian_llm_service
-from hivememory.engines.generation.interfaces import MemoryExtractor
+from hivememory.engines.generation.interfaces import BaseMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft
 from hivememory.engines.generation.prompts.patchouli import PATCHOULI_SYSTEM_PROMPT, PATCHOULI_USER_PROMPT
 from hivememory.utils.json_parser import parse_llm_json
@@ -34,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 ROLE_MAPPING = {"human": "user", "ai": "assistant", "system": "system"}
 
-class LLMMemoryExtractor(MemoryExtractor):
+class LLMMemoryExtractor(BaseMemoryExtractor):
     """
     基于 LLM 的记忆提取器
 
@@ -69,18 +68,19 @@ class LLMMemoryExtractor(MemoryExtractor):
             llm_service: LLM 服务实例（依赖注入）
             system_prompt: 自定义系统提示词
             user_prompt: 自定义用户提示词
-            max_retries: 最大重试次数
         """
 
         self.llm_service = llm_service
+        self.system_prompt = system_prompt
+        self.user_prompt = user_prompt
 
         # 初始化输出解析器
         self.output_parser = PydanticOutputParser(pydantic_object=ExtractedMemoryDraft)
 
         # 构建提示词模板
         self.prompt_template = ChatPromptTemplate.from_messages([
-            ("system", system_prompt or PATCHOULI_SYSTEM_PROMPT),
-            ("user", user_prompt or PATCHOULI_USER_PROMPT),
+            ("system", self.system_prompt or PATCHOULI_SYSTEM_PROMPT),
+            ("user", self.user_prompt or PATCHOULI_USER_PROMPT),
         ])
 
         model_name = self.llm_service.config.model if self.llm_service and hasattr(self.llm_service, 'config') else "unknown"
@@ -182,43 +182,69 @@ class LLMMemoryExtractor(MemoryExtractor):
         ]
 
 
-# 便捷函数
-def create_default_extractor(
-    config: Optional["ExtractorConfig"] = None,
-    llm_service: Optional[BaseLLMService] = None,
-) -> MemoryExtractor:
+class NoOpMemoryExtractor(BaseMemoryExtractor):
     """
-    创建默认提取器（支持配置）
+    No-Op 记忆提取器
+
+    不执行任何提取操作，总是返回 None。
+    用于在配置未启用提取器时作为默认实现。
+    """
+
+    def extract(
+        self,
+        transcript: str,
+        metadata: Dict[str, Any]
+    ) -> Optional[ExtractedMemoryDraft]:
+        """
+        提取记忆草稿 (No-Op)
+
+        Args:
+            transcript: 格式化的对话文本
+            metadata: 元信息
+
+        Returns:
+            None
+        """
+        return None
+
+
+# 便捷函数
+def create_extractor(
+    config: ExtractorConfig,
+    llm_service: BaseLLMService,
+) -> BaseMemoryExtractor:
+    """
+    创建记忆提取器（支持配置）
 
     Args:
         config: 提取器配置（可选，使用默认配置）
         llm_service: LLM 服务实例（可选，支持依赖注入）
 
     Returns:
-        MemoryExtractor: LLM 提取器实例
+        BaseMemoryExtractor: LLM 提取器实例或 NoOp 实例
 
     Examples:
         >>> # 使用默认配置
-        >>> extractor = create_default_extractor()
+        >>> extractor = create_extractor()
         >>>
         >>> # 使用自定义配置
         >>> from hivememory.patchouli.config import ExtractorConfig
-        >>> config = ExtractorConfig(max_retries=3)
-        >>> extractor = create_default_extractor(config)
+        >>> config = ExtractorConfig(enabled=False)
+        >>> extractor = create_extractor(config)
     """
-    if config is None:
-        from hivememory.patchouli.config import ExtractorConfig
-        config = ExtractorConfig()
+    if not config.enabled:
+        logger.info("MemoryExtractor 已禁用 (No-Op)")
+        return NoOpMemoryExtractor()
 
-
+    logger.info("MemoryExtractor 已启用")
     return LLMMemoryExtractor(
         llm_service=llm_service,
-        system_prompt=config.system_prompt,
-        user_prompt=config.user_prompt,
+        config=config,
     )
 
 
 __all__ = [
     "LLMMemoryExtractor",
-    "create_default_extractor",
+    "NoOpMemoryExtractor",
+    "create_extractor",
 ]

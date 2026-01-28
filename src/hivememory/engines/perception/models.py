@@ -17,10 +17,9 @@ from enum import Enum
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from hivememory.core.models import (
-    FlushReason,
     Identity,
     StreamMessage,
     StreamMessageType,
@@ -30,11 +29,58 @@ from hivememory.core.models import (
 
 # ============ 枚举定义 ============
 
+class FlushReason(str, Enum):
+    """缓冲区刷新原因枚举"""
+    SEMANTIC_DRIFT = "semantic_drift"  # 语义漂移（话题切换）
+    TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
+    IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
+    MANUAL = "manual"  # 手动触发
+    SHORT_TEXT_ADSORB = "short_text_adsorb"  # 短文本强吸附
+    MESSAGE_COUNT = "message_count"  # 消息数量达到阈值（兼容旧版本）
+
+
 class BufferState(str, Enum):
     """Buffer 状态枚举"""
     IDLE = "idle"  # 空闲，等待用户输入
     PROCESSING = "processing"  # 处理中，等待 Block 闭合
     FLUSHING = "flushing"  # 刷新中，触发记忆处理
+
+
+# ============ Flush 事件 ============
+
+class FlushEvent(BaseModel):
+    """
+    统一的 Flush 决策输出
+
+    由 Adsorber 或 Relay 产生，表示需要触发 buffer flush。
+    PerceptionLayer 根据此事件执行 flush 操作。
+
+    Attributes:
+        flush_reason: flush 原因
+        blocks_to_flush: 要刷出的 blocks（不包含触发 flush 的新 block）
+        relay_summary: 接力摘要（仅 TOKEN_OVERFLOW 时生成）
+        triggered_by_block: 触发此 flush 的新 block（将在 flush 后添加到 buffer）
+    """
+    flush_reason: FlushReason
+    blocks_to_flush: List["LogicalBlock"] = Field(
+        default_factory=list,
+        description="要刷出的 blocks（不包含触发 flush 的新 block）"
+    )
+    relay_summary: Optional[str] = Field(
+        default=None,
+        description="接力摘要（仅 TOKEN_OVERFLOW 时生成）"
+    )
+    triggered_by_block: Optional["LogicalBlock"] = Field(
+        default=None,
+        description="触发此 flush 的新 block"
+    )
+
+    @property
+    def has_blocks(self) -> bool:
+        """检查是否有 blocks 需要 flush"""
+        return len(self.blocks_to_flush) > 0
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 # ============ 执行链三元组 ============
@@ -90,19 +136,6 @@ class Triplet(BaseModel):
             tokens += estimate_tokens(self.observation)
         return tokens
 
-    def add_thought(self, thought: str) -> None:
-        """添加思考内容"""
-        self.thought = thought
-
-    def add_tool_call(self, tool_name: str, tool_args: Optional[Dict[str, Any]] = None) -> None:
-        """添加工具调用"""
-        self.tool_name = tool_name
-        self.tool_args = tool_args
-
-    def add_observation(self, observation: str) -> None:
-        """添加工具执行结果"""
-        self.observation = observation
-
 
 # ============ 逻辑原子块 ============
 
@@ -145,13 +178,6 @@ class LogicalBlock(BaseModel):
     rewritten_query: Optional[str] = Field(
         default=None,
         description="Gateway 重写后的查询（指代消解）"
-    )
-
-    #: 会话轮次 ID，用于去重与幂等
-    #: 格式: conversation_id:turn_index 或单独的 turn_id
-    turn_id: Optional[str] = Field(
-        default=None,
-        description="会话轮次 ID（用于去重与幂等）"
     )
 
     #: Gateway 意图分类结果
@@ -201,79 +227,6 @@ class LogicalBlock(BaseModel):
     def has_pending_triplet(self) -> bool:
         """检查是否有未完成的三元组"""
         return any(t.is_pending for t in self.execution_chain)
-
-    def add_stream_message(self, message: StreamMessage) -> None:
-        """
-        将流式消息添加到 Block
-
-        状态转换逻辑：
-            - User Query -> user_block
-            - Thought -> 开始新的三元组或添加到当前三元组
-            - Tool Call -> 附加到最新的三元组
-            - Tool Output -> 闭合最新三元组
-            - Assistant Message -> response_block
-
-        Args:
-            message: 流式消息
-        """
-        if message.message_type == StreamMessageType.USER:
-            # 新用户查询，重置 Block
-            self.user_block = message
-            self.execution_chain.clear()
-            self.response_block = None
-
-        elif message.message_type == StreamMessageType.THOUGHT:
-            # 添加思考到执行链
-            self._add_thought_to_chain(message.content)
-
-        elif message.message_type == StreamMessageType.TOOL_CALL:
-            # 添加工具调用
-            self._add_tool_call_to_chain(message.tool_name, message.tool_args)
-
-        elif message.message_type == StreamMessageType.TOOL:
-            # 添加工具输出，闭合三元组
-            self._add_observation_to_chain(message.content)
-
-        elif message.message_type == StreamMessageType.ASSISTANT:
-            # 最终响应
-            self.response_block = message
-
-        self._recalculate_tokens()
-
-    def _add_thought_to_chain(self, thought: str) -> None:
-        """添加思考到执行链"""
-        # 如果最后一个三元组已完成，创建新的
-        if not self.execution_chain or self.execution_chain[-1].is_complete:
-            self.execution_chain.append(Triplet(thought=thought))
-        else:
-            # 否则更新当前三元组的思考
-            self.execution_chain[-1].thought = thought
-
-    def _add_tool_call_to_chain(self, tool_name: str, tool_args: Optional[Dict[str, Any]]) -> None:
-        """添加工具调用"""
-        # 如果最后一个三元组已完成，创建新的
-        if not self.execution_chain or self.execution_chain[-1].is_complete:
-            self.execution_chain.append(Triplet(tool_name=tool_name, tool_args=tool_args))
-        else:
-            # 否则更新当前三元组的工具调用
-            self.execution_chain[-1].tool_name = tool_name
-            self.execution_chain[-1].tool_args = tool_args
-
-    def _add_observation_to_chain(self, observation: str) -> None:
-        """添加工具输出，闭合三元组"""
-        if self.execution_chain:
-            self.execution_chain[-1].observation = observation
-
-    def _recalculate_tokens(self) -> None:
-        """重新计算 Token 总数"""
-        tokens = 0
-        if self.user_block:
-            tokens += self.user_block.token_count
-        for triplet in self.execution_chain:
-            tokens += triplet.total_tokens
-        if self.response_block:
-            tokens += self.response_block.token_count
-        self.total_tokens = tokens
 
     def to_stream_messages(self, identity: Identity) -> List[StreamMessage]:
         """
@@ -325,28 +278,14 @@ class LogicalBlock(BaseModel):
 
         return messages
 
-    def get_summary(self) -> str:
-        """获取 Block 的简要摘要"""
-        parts = []
-        if self.user_block:
-            user_content = self.user_block.content[:50]
-            parts.append(f"User: {user_content}...")
-        if self.execution_chain:
-            parts.append(f"Tools: {len(self.execution_chain)} calls")
-        if self.response_block:
-            response_content = self.response_block.content[:50]
-            parts.append(f"Response: {response_content}...")
-        return " | ".join(parts)
-
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 # ============ 语义缓冲区 ============
 
 class SemanticBuffer(BaseModel):
     """
-    基于语义的对话流缓冲区
+    基于语义的对话流缓冲区 - 纯数据容器
 
     特性：
         - 存储 LogicalBlock 列表（非原始消息）
@@ -354,13 +293,17 @@ class SemanticBuffer(BaseModel):
         - 支持语义吸附判定
         - 支持接力摘要（处理 Token 溢出）
 
+    Note:
+        v2.0 重构：移除 current_block 字段和业务逻辑方法。
+        Block 构建逻辑由 LogicalBlockBuilder 管理。
+        Buffer 操作由 BufferManager 管理。
+
     Attributes:
         buffer_id: 缓冲区唯一标识
         user_id: 用户ID
         agent_id: Agent ID
         session_id: 会话ID
         blocks: 已闭合的 LogicalBlock 列表
-        current_block: 当前正在构建的 LogicalBlock
         topic_kernel_vector: 话题核心向量（用于语义吸附判定）
         state: 缓冲区状态
         last_update: 最后更新时间
@@ -368,12 +311,9 @@ class SemanticBuffer(BaseModel):
         relay_summary: 接力摘要（处理 Token 溢出时生成）
     """
     buffer_id: str = Field(default_factory=lambda: str(uuid4()))
-    user_id: str
-    agent_id: str
-    session_id: str
+    identity: Identity
 
     blocks: List[LogicalBlock] = Field(default_factory=list)
-    current_block: Optional[LogicalBlock] = None
 
     # 话题核心
     topic_kernel_vector: Optional[List[float]] = None
@@ -386,40 +326,11 @@ class SemanticBuffer(BaseModel):
     # 接力摘要（处理 Token 溢出时生成）
     relay_summary: Optional[str] = None
 
-    class Config:
-        arbitrary_types_allowed = True
-        use_enum_values = True
-
-    def add_block(self, block: LogicalBlock) -> None:
-        """
-        添加已闭合的 Block 到缓冲区
-
-        Args:
-            block: 已闭合的 LogicalBlock
-        """
-        if not block.is_complete:
-            raise ValueError("只能添加已闭合的 Block")
-
-        self.blocks.append(block)
-        self.total_tokens += block.total_tokens
-        self.last_update = datetime.now().timestamp()
-
-    def set_current_block(self, block: LogicalBlock) -> None:
-        """
-        设置当前正在构建的 Block
-
-        Args:
-            block: 正在构建的 LogicalBlock
-        """
-        self.current_block = block
-        if block.user_block:
-            self.state = BufferState.PROCESSING
-        self.last_update = datetime.now().timestamp()
+    model_config = ConfigDict(arbitrary_types_allowed=True, use_enum_values=True)
 
     def clear(self) -> None:
         """清空缓冲区"""
         self.blocks.clear()
-        self.current_block = None
         self.total_tokens = 0
         self.state = BufferState.IDLE
         self.last_update = datetime.now().timestamp()
@@ -484,8 +395,7 @@ class SimpleBuffer(BaseModel):
     messages: List[StreamMessage] = Field(default_factory=list)
     last_update: float = Field(default_factory=lambda: datetime.now().timestamp())
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def add_message(self, message: StreamMessage) -> None:
         """添加消息到缓冲区"""
@@ -517,10 +427,9 @@ class SimpleBuffer(BaseModel):
 
 
 __all__ = [
-    # 枚举
+    "FlushReason",
     "BufferState",
-    # FlushReason 从 core.models 导出
-    # 模型
+    "FlushEvent",
     "Triplet",
     "LogicalBlock",
     "SemanticBuffer",

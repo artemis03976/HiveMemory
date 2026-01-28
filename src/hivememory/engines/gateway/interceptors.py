@@ -13,6 +13,7 @@ from typing import List, Optional
 
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
+from hivememory.patchouli.config import RuleInterceptorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,8 @@ class RuleInterceptor(BaseInterceptor):
     - 其他 -> 不拦截，进入 L2 语义分析
 
     示例:
-        >>> interceptor = RuleInterceptor()
+        >>> config = RuleInterceptorConfig()
+        >>> interceptor = RuleInterceptor(config)
         >>> result = interceptor.intercept("/clear")
         >>> assert result.intent == GatewayIntent.SYSTEM
         >>> result = interceptor.intercept("你好")
@@ -68,26 +70,22 @@ class RuleInterceptor(BaseInterceptor):
 
     def __init__(
         self,
-        enable_system: bool = True,
-        enable_chat: bool = True,
-        custom_system_patterns: Optional[List[str]] = None,
-        custom_chat_patterns: Optional[List[str]] = None,
+        config: RuleInterceptorConfig,
     ):
         """
         初始化规则拦截器
 
         Args:
-            enable_system: 是否启用系统指令拦截
-            enable_chat: 是否启用闲聊拦截
-            custom_system_patterns: 自定义系统指令模式
-            custom_chat_patterns: 自定义闲聊模式
+            config: RuleInterceptorConfig 配置对象
         """
-        self.enable_system = enable_system
-        self.enable_chat = enable_chat
+        self.config = config
+        
+        self.enable_system = config.enable_system
+        self.enable_chat = config.enable_chat
 
         # 编译正则表达式
-        system_patterns = custom_system_patterns or self.SYSTEM_PATTERNS
-        chat_patterns = custom_chat_patterns or self.CHAT_PATTERNS
+        system_patterns = config.custom_system_patterns or self.SYSTEM_PATTERNS
+        chat_patterns = config.custom_chat_patterns or self.CHAT_PATTERNS
 
         self._system_regex = [re.compile(p, re.IGNORECASE) for p in system_patterns]
         self._chat_regex = [re.compile(p, re.IGNORECASE) for p in chat_patterns]
@@ -164,6 +162,47 @@ class RuleInterceptor(BaseInterceptor):
         logger.debug(f"Added system pattern: {pattern}")
 
 
+class NoOpInterceptor(BaseInterceptor):
+    """
+    No-Op 拦截器
+
+    不执行任何拦截操作，总是返回 None。
+    用于在配置未启用拦截器时作为默认实现。
+    """
+
+    def intercept(self, query: str) -> Optional[InterceptorResult]:
+        """
+        执行拦截 (No-Op)
+
+        Args:
+            query: 用户查询
+
+        Returns:
+            None
+        """
+        return None
+
+
+def create_interceptor(config: RuleInterceptorConfig) -> BaseInterceptor:
+    """
+    创建 L1 拦截器实例
+
+    Args:
+        config: L1 拦截器配置
+
+    Returns:
+        BaseInterceptor: RuleInterceptor 或 NoOpInterceptor
+    """
+    if config.enabled:
+        logger.info("Gateway L1 拦截器已启用")
+        return RuleInterceptor(config)
+    else:
+        logger.info("Gateway L1 拦截器已禁用 (No-Op)")
+        return NoOpInterceptor()
+
+
 __all__ = [
     "RuleInterceptor",
+    "NoOpInterceptor",
+    "create_interceptor",
 ]

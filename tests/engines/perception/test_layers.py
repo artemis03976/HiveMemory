@@ -11,15 +11,30 @@
     - Block 管理
     - 语义吸附流程
     - Flush 回调
+
+Note:
+    v3.0 重构：
+    - SemanticFlowPerceptionLayer 现在负责编排 flush 逻辑
+    - Adsorber.should_adsorb() 返回 Optional[FlushEvent]
+    - Relay.should_relay() 返回 Optional[FlushEvent]
 """
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from hivememory.core.models import FlushReason, Identity
+from hivememory.core.models import Identity
 from hivememory.engines.perception.simple_perception_layer import SimplePerceptionLayer
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
-from hivememory.engines.perception.models import SimpleBuffer, SemanticBuffer, LogicalBlock, StreamMessage, StreamMessageType
+from hivememory.engines.perception.models import (
+    FlushEvent,
+    SimpleBuffer,
+    SemanticBuffer,
+    LogicalBlock,
+    FlushReason,
+)
+from hivememory.core.models import StreamMessage, StreamMessageType
+from hivememory.patchouli.config import SimplePerceptionConfig, SemanticFlowPerceptionConfig
+
 
 class TestSimplePerceptionLayer:
     """测试简单感知层"""
@@ -27,7 +42,9 @@ class TestSimplePerceptionLayer:
     def setup_method(self):
         self.mock_trigger_manager = Mock()
         self.mock_callback = Mock()
+        self.config = SimplePerceptionConfig()
         self.layer = SimplePerceptionLayer(
+            config=self.config,
             trigger_manager=self.mock_trigger_manager,
             on_flush_callback=self.mock_callback
         )
@@ -40,11 +57,10 @@ class TestSimplePerceptionLayer:
             (True, FlushReason.MESSAGE_COUNT)
         ]
 
-        # 创建 Identity 对象
         identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
 
         # 1. 添加第一条消息
-        self.layer.add_message("user", "msg1", identity)
+        self.layer.perceive("user", "msg1", identity)
 
         # 验证 Buffer 状态
         buffer = self.layer.get_buffer(identity)
@@ -54,7 +70,7 @@ class TestSimplePerceptionLayer:
         self.mock_callback.assert_not_called()
 
         # 2. 添加第二条消息 (触发 Flush)
-        self.layer.add_message("assistant", "msg2", identity)
+        self.layer.perceive("assistant", "msg2", identity)
 
         # 验证 Flush 被调用
         self.mock_callback.assert_called_once()
@@ -68,14 +84,11 @@ class TestSimplePerceptionLayer:
 
     def test_flush_buffer_manual(self):
         """测试手动 Flush"""
-        # Mock trigger for add_message
         self.mock_trigger_manager.should_trigger.return_value = (False, None)
 
         identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
-        self.layer.add_message("user", "msg1", identity)
+        self.layer.perceive("user", "msg1", identity)
 
-        # SimplePerceptionLayer.flush_buffer 现在接受 Identity 对象
-        # 它内部会使用 FlushReason.MANUAL
         self.layer.flush_buffer(identity)
 
         self.mock_callback.assert_called_once()
@@ -94,7 +107,17 @@ class TestSemanticFlowPerceptionLayer:
         self.mock_relay = Mock()
         self.mock_callback = Mock()
 
+        self.config = SemanticFlowPerceptionConfig()
+
+        # v3.0: should_adsorb 返回 None 表示继续吸附
+        self.mock_adsorber.should_adsorb.return_value = None
+        self.mock_adsorber.compute_new_topic_kernel.return_value = [0.1, 0.2, 0.3]
+
+        # v3.0: should_relay 返回 None 表示不需要接力
+        self.mock_relay.should_relay.return_value = None
+
         self.layer = SemanticFlowPerceptionLayer(
+            config=self.config,
             parser=self.mock_parser,
             adsorber=self.mock_adsorber,
             relay_controller=self.mock_relay,
@@ -103,111 +126,147 @@ class TestSemanticFlowPerceptionLayer:
 
     def test_process_new_block_flow(self):
         """测试新 Block 处理流程"""
-        # 1. Mock Parser
-        stream_msg = StreamMessage(message_type=StreamMessageType.USER, content="hi")
-        self.mock_parser.parse_message.return_value = stream_msg
-        self.mock_parser.should_create_new_block.return_value = True
+        user_msg = StreamMessage(message_type=StreamMessageType.USER, content="hi")
+        assistant_msg = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="hello")
 
-        # 2. Mock Adsorber (Adsorb=True)
-        self.mock_adsorber.should_adsorb.return_value = (True, None)
+        self.mock_parser.parse_message.side_effect = [user_msg, assistant_msg]
 
-        # 3. 创建 Identity 并添加消息
         identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
-        self.layer.add_message("user", "hi", identity)
 
-        # Verify
+        # 添加用户消息
+        self.layer.perceive("user", "hi", identity)
+
+        # 添加助手消息完成 block
+        self.layer.perceive("assistant", "hello", identity)
+
+        # Verify: block 应该已完成并加入 buffer
         buffer = self.layer.get_buffer(identity)
-        assert len(buffer.blocks) == 0  # Still processing
-        assert buffer.current_block is not None
+        assert len(buffer.blocks) == 1
+        assert buffer.blocks[0].is_complete
 
-        # 验证调用了吸附器更新核心 (Wait, update_topic_kernel is called in _check_and_flush, which happens only if block is complete)
-        # Since block is not complete, it shouldn't be called yet.
-        # self.mock_adsorber.update_topic_kernel.assert_called()
+        # 验证调用了吸附器计算核心
+        self.mock_adsorber.compute_new_topic_kernel.assert_called()
 
     def test_semantic_drift_flush(self):
         """测试语义漂移触发 Flush"""
-        # Setup mock for FIRST message
-        msg1 = StreamMessage(message_type=StreamMessageType.USER, content="old")
-
-        # Setup mock for SECOND message
-        msg2 = StreamMessage(message_type=StreamMessageType.USER, content="new")
-
-        self.mock_parser.parse_message.side_effect = [msg1, msg2]
-        self.mock_parser.should_create_new_block.return_value = True
-
         identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
 
-        # Buffer 中已有 Block
-        self.layer.add_message("user", "old", identity)
+        # 第一轮对话
+        msg1_user = StreamMessage(message_type=StreamMessageType.USER, content="old topic")
+        msg1_assistant = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="old response")
+
+        # 第二轮对话
+        msg2_user = StreamMessage(message_type=StreamMessageType.USER, content="new topic")
+        msg2_assistant = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="new response")
+
+        self.mock_parser.parse_message.side_effect = [
+            msg1_user, msg1_assistant,
+            msg2_user, msg2_assistant
+        ]
+
+        # 第一轮：正常吸附 (返回 None)
+        self.mock_adsorber.should_adsorb.return_value = None
+
+        self.layer.perceive("user", "old topic", identity)
+        self.layer.perceive("assistant", "old response", identity)
+
+        # 验证第一个 block 已加入
         buffer = self.layer.get_buffer(identity)
-        # 强制闭合 Block
-        if buffer.current_block:
-            # Set user_block and response_block to make is_complete True
-            buffer.current_block.user_block = StreamMessage(message_type=StreamMessageType.USER, content="old")
-            buffer.current_block.response_block = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="resp")
-            buffer.add_block(buffer.current_block)
-            buffer.current_block = None
+        assert len(buffer.blocks) == 1
 
-        # Adsorber says NO (Drift)
-        self.mock_adsorber.should_adsorb.return_value = (False, FlushReason.SEMANTIC_DRIFT)
+        # 第二轮：语义漂移 (返回 FlushEvent)
+        # 创建一个包含第一个 block 的 FlushEvent
+        first_block = buffer.blocks[0]
+        flush_event = FlushEvent(
+            flush_reason=FlushReason.SEMANTIC_DRIFT,
+            blocks_to_flush=[first_block],
+        )
+        self.mock_adsorber.should_adsorb.return_value = flush_event
 
-        # Add new message (User Query)
-        self.layer.add_message("user", "new", identity)
+        self.layer.perceive("user", "new topic", identity)
+        self.layer.perceive("assistant", "new response", identity)
 
-        # Add Assistant Message to COMPLETE the new block and trigger flush check
-        msg3 = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="resp_new")
-        self.mock_parser.parse_message.side_effect = [msg3] # Next call returns msg3
-        self.mock_parser.should_create_new_block.return_value = False
-
-        self.layer.add_message("assistant", "resp_new", identity)
-
-        # Verify Flush called for OLD blocks
+        # 验证 Flush 被调用
         self.mock_callback.assert_called()
 
-        # Verify Buffer has NEW block only (after flush)
-        # 新逻辑：先 flush 旧 buffer，然后新 block 加入
-        # 所以 buffer.blocks 应该只有新 block
+        # 验证 Buffer 只有新 block（旧的已被 flush）
         assert len(buffer.blocks) == 1
-        assert buffer.blocks[0].user_block.content == "new"
+        assert buffer.blocks[0].user_block.content == "new topic"
 
     def test_token_overflow_relay(self):
         """测试 Token 溢出接力"""
-        # Setup mocks
-        msg1 = StreamMessage(message_type=StreamMessageType.USER, content="old")
-        msg2 = StreamMessage(message_type=StreamMessageType.USER, content="new")
-        # Need msg3 for assistant response to close the block
-        msg3 = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="resp_new")
+        identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
 
-        self.mock_parser.parse_message.side_effect = [msg1, msg2, msg3]
-        # should_create_new_block: True for msg1, True for msg2, False for msg3
-        self.mock_parser.should_create_new_block.side_effect = [True, True, False]
+        # 第一轮对话
+        msg1_user = StreamMessage(message_type=StreamMessageType.USER, content="first")
+        msg1_assistant = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="response1")
+
+        # 第二轮对话
+        msg2_user = StreamMessage(message_type=StreamMessageType.USER, content="second")
+        msg2_assistant = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="response2")
+
+        self.mock_parser.parse_message.side_effect = [
+            msg1_user, msg1_assistant,
+            msg2_user, msg2_assistant
+        ]
+
+        # 第一轮：正常吸附
+        self.mock_adsorber.should_adsorb.return_value = None
+        self.mock_relay.should_relay.return_value = None
+
+        self.layer.perceive("user", "first", identity)
+        self.layer.perceive("assistant", "response1", identity)
+
+        buffer = self.layer.get_buffer(identity)
+        assert len(buffer.blocks) == 1
+
+        # 第二轮：Token 溢出 (返回 FlushEvent)
+        first_block = buffer.blocks[0]
+        flush_event = FlushEvent(
+            flush_reason=FlushReason.TOKEN_OVERFLOW,
+            blocks_to_flush=[first_block],
+            relay_summary="Summary of previous conversation",
+        )
+        self.mock_relay.should_relay.return_value = flush_event
+
+        self.layer.perceive("user", "second", identity)
+        self.layer.perceive("assistant", "response2", identity)
+
+        # 验证 Flush 被调用
+        self.mock_callback.assert_called()
+
+        # 验证 Relay Summary 被设置
+        assert buffer.relay_summary == "Summary of previous conversation"
+
+    def test_no_flush_callback_when_no_blocks(self):
+        """测试无 blocks 时不调用回调"""
+        identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
+
+        # 手动 flush 空 buffer
+        result = self.layer.flush_buffer(identity)
+
+        assert result == []
+        self.mock_callback.assert_not_called()
+
+    def test_clear_buffer(self):
+        """测试清理 buffer"""
+        user_msg = StreamMessage(message_type=StreamMessageType.USER, content="hi")
+        assistant_msg = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="hello")
+
+        self.mock_parser.parse_message.side_effect = [user_msg, assistant_msg]
 
         identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
 
-        # Buffer 中已有 Block
-        self.layer.add_message("user", "old", identity)
+        self.layer.perceive("user", "hi", identity)
+        self.layer.perceive("assistant", "hello", identity)
+
         buffer = self.layer.get_buffer(identity)
-        if buffer.current_block:
-            # Set user_block and response_block to make is_complete True
-            buffer.current_block.user_block = StreamMessage(message_type=StreamMessageType.USER, content="old")
-            buffer.current_block.response_block = StreamMessage(message_type=StreamMessageType.ASSISTANT, content="resp")
-            buffer.add_block(buffer.current_block)
-            buffer.current_block = None
+        assert len(buffer.blocks) == 1
 
-        # Adsorber says NO (Overflow)
-        self.mock_adsorber.should_adsorb.return_value = (False, FlushReason.TOKEN_OVERFLOW)
+        # 清理
+        result = self.layer.clear_buffer(identity)
+        assert result is True
 
-        # Relay Controller generates summary
-        self.mock_relay.generate_summary.return_value = "Summary"
-        self.mock_relay.create_relay_context.return_value = "Context"
-
-        # Add new message (User)
-        self.layer.add_message("user", "new", identity)
-        # Add new message (Assistant) to close block and trigger check
-        self.layer.add_message("assistant", "resp_new", identity)
-
-        # Verify Flush called
-        self.mock_callback.assert_called()
-
-        # Verify Relay Summary is set in Buffer
-        assert buffer.relay_summary == "Summary"
+        # 验证 buffer 已清空
+        assert len(buffer.blocks) == 0
+        assert buffer.topic_kernel_vector is None

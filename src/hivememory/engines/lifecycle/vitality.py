@@ -16,30 +16,19 @@ HiveMemory - 生命力分数计算器
 import logging
 import math
 from datetime import datetime
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import List, Tuple, TYPE_CHECKING
+from uuid import UUID
 
+from hivememory.patchouli.config import VitalityCalculatorConfig
 from hivememory.core.models import MemoryAtom, MemoryType
-from hivememory.engines.lifecycle.interfaces import VitalityCalculator
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import VitalityCalculatorConfig
+    from hivememory.infrastructure.storage import QdrantMemoryStore
 
 logger = logging.getLogger(__name__)
 
 
-# 固有价值权重 - 基于记忆类型 (默认值，可被配置覆盖)
-# 代码片段 > 事实 > URL资源 > 反思 > 用户画像 > 进行中
-INTRINSIC_VALUE_WEIGHTS: Dict[MemoryType, float] = {
-    MemoryType.CODE_SNIPPET: 1.0,
-    MemoryType.FACT: 0.9,
-    MemoryType.URL_RESOURCE: 0.8,
-    MemoryType.REFLECTION: 0.7,
-    MemoryType.USER_PROFILE: 0.6,
-    MemoryType.WORK_IN_PROGRESS: 0.5,
-}
-
-
-class StandardVitalityCalculator(VitalityCalculator):
+class VitalityCalculator:
     """
     标准生命力分数计算器
 
@@ -58,17 +47,14 @@ class StandardVitalityCalculator(VitalityCalculator):
         >>> score = calculator.calculate(memory)
     """
 
-    def __init__(self, config: Optional["VitalityCalculatorConfig"] = None):
+    def __init__(self, config: VitalityCalculatorConfig):
         """
         初始化计算器
 
         Args:
-            config: 生命力计算器配置对象 (可选，使用默认配置如果未提供)
+            config: 生命力计算器配置对象
         """
         self.config = config
-        if config is None:
-            from hivememory.patchouli.config import VitalityCalculatorConfig
-            self.config = VitalityCalculatorConfig()
 
         # 构建固有价值权重字典
         self._intrinsic_weights = {
@@ -163,92 +149,47 @@ class StandardVitalityCalculator(VitalityCalculator):
         raw_boost = access_count * self.config.points_per_access
         return min(self.config.max_access_boost, raw_boost)
 
-
-class DecayResetVitalityCalculator(StandardVitalityCalculator):
-    """
-    支持衰减重置的生命力计算器
-
-    当记忆被引用 (CITATION) 时，将重置时间衰减，
-    给予记忆临时的生命力提升。
-
-    这种设计使得被引用的"旧知识"能够重新获得高生命力。
-    """
-
-    # 引用后重置的天数
-    _CITATION_RESET_DAYS = 30
-
-    def __init__(self, config: Optional["VitalityCalculatorConfig"] = None):
+    def refresh_batch(
+        self,
+        memories: List[MemoryAtom],
+        storage: "QdrantMemoryStore"
+    ) -> List[Tuple[UUID, float]]:
         """
-        初始化计算器
+        批量刷新记忆的生命力分数
+
+        计算每个记忆的当前生命力并更新存储中的缓存值。
 
         Args:
-            config: 生命周期配置对象
-        """
-        super().__init__(config)
-        self._citation_memory_ids = set()
-
-    def mark_cited(self, memory_id: "UUID") -> None:
-        """
-        标记记忆为已引用
-
-        下次计算时，该记忆的时间衰减将被重置。
-
-        Args:
-            memory_id: 记忆ID
-        """
-        self._citation_memory_ids.add(memory_id)
-        logger.debug(f"Marked memory {memory_id} as cited (decay reset pending)")
-
-    def calculate(self, memory: MemoryAtom) -> float:
-        """
-        计算生命力分数 (支持引用衰减重置)
-
-        Args:
-            memory: 记忆原子
+            memories: 待刷新的记忆列表
+            storage: 存储实例，用于持久化更新
 
         Returns:
-            float: 生命力分数 (0-100)
+            List[Tuple[UUID, float]]: (memory_id, new_vitality) 列表
         """
-        # 如果记忆被标记为引用，调整有效更新时间
-        if memory.id in self._citation_memory_ids:
-            # 创建修改后的记忆对象，使用当前时间作为更新时间
-            # 这将重置时间衰减
-            from copy import deepcopy
+        results = []
 
-            modified = deepcopy(memory)
-            modified.meta.updated_at = datetime.now()
+        for memory in memories:
+            new_vitality = self.calculate(memory)
+            memory.meta.vitality_score = new_vitality
+            storage.upsert_memory(memory)
+            results.append((memory.id, new_vitality))
 
-            result = super().calculate(modified)
-
-            # 移除标记 (一次性效果)
-            self._citation_memory_ids.discard(memory.id)
-
-            logger.debug(
-                f"Calculated vitality with citation reset for {memory.id}: {result:.1f}"
-            )
-            return result
-
-        return super().calculate(memory)
+        logger.info(f"Batch refreshed vitality for {len(memories)} memories")
+        return results
 
 
-def create_default_vitality_calculator(
-    config: Optional["VitalityCalculatorConfig"] = None
-) -> VitalityCalculator:
-    """
-    创建默认生命力计算器
-
-    Args:
-        config: 生命周期配置 (可选)
-
-    Returns:
-        VitalityCalculator: 计算器实例
-    """
-    return StandardVitalityCalculator(config)
+# 固有价值权重常量 (供测试使用)
+INTRINSIC_VALUE_WEIGHTS = {
+    MemoryType.CODE_SNIPPET: 1.0,
+    MemoryType.FACT: 0.9,
+    MemoryType.URL_RESOURCE: 0.8,
+    MemoryType.REFLECTION: 0.7,
+    MemoryType.USER_PROFILE: 0.6,
+    MemoryType.WORK_IN_PROGRESS: 0.5,
+}
 
 
 __all__ = [
-    "StandardVitalityCalculator",
-    "DecayResetVitalityCalculator",
+    "VitalityCalculator",
     "INTRINSIC_VALUE_WEIGHTS",
-    "create_default_vitality_calculator",
 ]

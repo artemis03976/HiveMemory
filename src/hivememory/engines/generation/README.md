@@ -28,13 +28,13 @@ MemoryGeneration 模块是 HiveMemory 系统的核心组件之一，负责从对
                      │ 触发处理
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  MemoryOrchestrator                         │
-│  (编排器 - 协调整个生成流程)                                 │
+│                  MemoryGenerationEngine                     │
+│  (引擎 - 协调整个生成流程)                                    │
 │                                                             │
-│   ┌─────────────┐   ┌─────────────┐   ┌──────────────┐    │
-│   │ ValueGater  │──>│  Extractor  │──>│ Deduplicator │    │
-│   │ (价值评估)  │   │ (LLM 提取)  │   │  (查重演化)  │    │
-│   └─────────────┘   └─────────────┘   └──────┬───────┘    │
+│   ┌─────────────┐   ┌──────────────┐                        │
+│   │  Extractor  │──>│ Deduplicator │                        │
+│   │ (LLM 提取)  │   │  (查重演化)  │                        │
+│   └─────────────┘   └──────┬───────┘                        │
 │                                               │             │
 │                                               ▼             │
 │                                        ┌──────────────┐     │
@@ -54,31 +54,13 @@ MemoryGeneration 模块是 HiveMemory 系统的核心组件之一，负责从对
 
 ```python
 from hivememory.generation.interfaces import (
-    ValueGater,           # 价值评估器接口
-    MemoryExtractor,      # 提取器接口
-    Deduplicator,         # 查重器接口
+    BaseMemoryExtractor,      # 提取器接口
+    BaseDeduplicator,         # 查重器接口
     TriggerStrategy,      # 触发策略接口
 )
 ```
 
-### 2. `gating.py` - 价值评估器
-
-**职责**: 判断对话是否有长期记忆价值
-
-**策略**:
-- **规则引擎**: 过滤寒暄、简单确认 ("你好"、"谢谢" 等)
-- **LLM 辅助**: 可选的 GPT-4o-mini 辅助判断
-- **白名单**: 强制保留特定类型 (代码片段、配置等)
-
-**用法**:
-```python
-from hivememory.generation.gating import RuleBasedGater
-
-gater = RuleBasedGater()
-has_value = gater.evaluate(messages)
-```
-
-### 3. `extractor.py` - LLM 记忆提取器
+### 2. `extractor.py` - LLM 记忆提取器
 
 **职责**: 调用 LLM 将对话转换为结构化记忆草稿
 
@@ -96,7 +78,7 @@ extractor = LLMMemoryExtractor(llm_config)
 draft = extractor.extract(transcript, metadata)
 ```
 
-### 4. `deduplicator.py` - 查重与演化管理器 ⭐
+### 3. `deduplicator.py` - 查重与演化管理器 ⭐
 
 **职责**: 检测重复记忆，支持知识更新
 
@@ -119,7 +101,7 @@ if decision == DuplicateDecision.UPDATE:
     merged = dedup.merge_memory(existing, draft)
 ```
 
-### 5. `triggers.py` - 触发策略管理
+### 4. `triggers.py` - 触发策略管理
 
 **职责**: 决定何时触发记忆处理
 
@@ -143,7 +125,7 @@ if trigger_mgr.should_trigger(buffer):
     buffer.flush()
 ```
 
-### 6. `buffer.py` - 对话缓冲器
+### 5. `buffer.py` - 对话缓冲器
 
 **职责**: 累积对话消息，管理刷新逻辑
 
@@ -157,7 +139,7 @@ if trigger_mgr.should_trigger(buffer):
 from hivememory.generation.buffer import ConversationBuffer
 
 buffer = ConversationBuffer(
-    orchestrator=orchestrator,
+    engine=engine,
     user_id="user123",
     agent_id="agent456",
     on_flush_callback=lambda msgs, mems: print(f"提取了 {len(mems)} 条记忆")
@@ -167,25 +149,24 @@ buffer.add_message("user", "如何解析 ISO8601 日期?")
 buffer.add_message("assistant", "使用 datetime.fromisoformat()...")
 ```
 
-### 7. `orchestrator.py` - 编排器
+### 6. `engine.py` - 引擎
 
 **职责**: 协调所有组件，执行完整的生成流程
 
 **流程**:
 ```python
-Step 1: 价值评估 (Gating) → Pass/Drop
-Step 2: LLM 提取 → ExtractedMemoryDraft
-Step 3: 查重检测 → CREATE/UPDATE/TOUCH
-Step 4: 记忆原子构建 → MemoryAtom
-Step 5: 持久化 → Qdrant
+Step 1: LLM 提取 → ExtractedMemoryDraft
+Step 2: 查重检测 → CREATE/UPDATE/TOUCH
+Step 3: 记忆原子构建 → MemoryAtom
+Step 4: 持久化 → Qdrant
 ```
 
 **用法**:
 ```python
-from hivememory.generation.orchestrator import MemoryOrchestrator
+from hivememory.generation.engine import MemoryGenerationEngine
 
-orchestrator = MemoryOrchestrator(storage=storage)
-memories = orchestrator.process(messages, user_id, agent_id)
+engine = MemoryGenerationEngine(storage=storage, extractor=extractor, deduplicator=deduplicator)
+memories = engine.process(messages, user_id, agent_id)
 ```
 
 ---
@@ -195,19 +176,19 @@ memories = orchestrator.process(messages, user_id, agent_id)
 ### 基本用法
 
 ```python
-from hivememory.generation import MemoryOrchestrator, ConversationBuffer
+from hivememory.generation import MemoryGenerationEngine, ConversationBuffer
 from hivememory.memory.storage import QdrantMemoryStore
 from hivememory.core.models import ConversationMessage
 
 # 1. 初始化存储
 storage = QdrantMemoryStore()
 
-# 2. 创建编排器
-orchestrator = MemoryOrchestrator(storage=storage)
+# 2. 创建引擎
+engine = MemoryGenerationEngine(storage=storage, ...)
 
 # 3. 创建缓冲器
 buffer = ConversationBuffer(
-    orchestrator=orchestrator,
+    engine=engine,
     user_id="user_123",
     agent_id="worker_agent",
 )
@@ -223,18 +204,12 @@ buffer.flush()
 ### 高级用法 - 自定义组件
 
 ```python
-from hivememory.generation.interfaces import ValueGater
-from hivememory.generation.orchestrator import MemoryOrchestrator
+from hivememory.generation.engine import MemoryGenerationEngine
 
-class CustomGater(ValueGater):
-    """自定义价值评估器"""
-    def evaluate(self, messages):
-        # 自定义逻辑
-        return any("代码" in msg.content for msg in messages)
-
-orchestrator = MemoryOrchestrator(
+engine = MemoryGenerationEngine(
     storage=storage,
-    gater=CustomGater(),  # 注入自定义组件
+    extractor=MyCustomExtractor(),
+    deduplicator=MyCustomDeduplicator(),
 )
 ```
 

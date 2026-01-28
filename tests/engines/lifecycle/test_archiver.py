@@ -17,10 +17,11 @@ from unittest.mock import Mock
 from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.engines.lifecycle.archiver import FileBasedMemoryArchiver
+from hivememory.engines.lifecycle.archiver import FileBasedArchiver
+from hivememory.patchouli.config import ArchiverConfig
 
 
-class TestFileBasedMemoryArchiver:
+class TestFileBasedArchiver:
     """测试文件系统归档器"""
 
     def setup_method(self):
@@ -30,10 +31,14 @@ class TestFileBasedMemoryArchiver:
 
         self.mock_storage = Mock()
 
-        self.archiver = FileBasedMemoryArchiver(
-            storage=self.mock_storage,
+        config = ArchiverConfig(
             archive_dir=self.temp_dir,
-            compress=False  # 测试时不压缩
+            compression=False  # 测试时不压缩
+        )
+
+        self.archiver = FileBasedArchiver(
+            storage=self.mock_storage,
+            config=config,
         )
 
         self.test_memory = MemoryAtom(
@@ -42,7 +47,7 @@ class TestFileBasedMemoryArchiver:
                 source_agent_id="agent1",
                 user_id="user1",
                 confidence_score=0.8,
-                vitality_score=0.15,  # 低生命力
+                vitality_score=15.0,  # 低生命力
             ),
             index=IndexLayer(
                 title="Test",
@@ -127,7 +132,7 @@ class TestFileBasedMemoryArchiver:
                     source_agent_id="agent1",
                     user_id="user1",
                     confidence_score=0.8,
-                    vitality_score=0.1 + (i * 0.05),
+                    vitality_score=10.0 + (i * 5.0),
                 ),
                 index=IndexLayer(
                     title=f"Test {i}",
@@ -160,7 +165,7 @@ class TestFileBasedMemoryArchiver:
                     source_agent_id="agent1",
                     user_id="user1",
                     confidence_score=0.8,
-                    vitality_score=0.1 + (i * 0.05),
+                    vitality_score=10.0 + (i * 5.0),
                 ),
                 index=IndexLayer(
                     title=f"Test {i}",
@@ -173,17 +178,20 @@ class TestFileBasedMemoryArchiver:
             self.mock_storage.get_memory.return_value = memory
             self.archiver.archive(memory.id)
 
-        # 按阈值过滤 (只返回 vitality <= 0.12)
-        filtered = self.archiver.list_archived(vitality_threshold=0.12)
+        # 按阈值过滤 (只返回 vitality <= 12.0)
+        filtered = self.archiver.list_archived(vitality_threshold=12.0)
         assert len(filtered) == 1
 
     def test_archive_with_compression(self):
         """测试压缩归档"""
         # 创建支持压缩的归档器
-        archiver = FileBasedMemoryArchiver(
-            storage=self.mock_storage,
+        config = ArchiverConfig(
             archive_dir=self.temp_dir,
-            compress=True
+            compression=True
+        )
+        archiver = FileBasedArchiver(
+            storage=self.mock_storage,
+            config=config,
         )
 
         self.mock_storage.get_memory.return_value = self.test_memory
@@ -203,10 +211,13 @@ class TestFileBasedMemoryArchiver:
         self.archiver.archive(self.test_memory.id)
 
         # 创建新的归档器 (模拟重启)
-        new_archiver = FileBasedMemoryArchiver(
-            storage=self.mock_storage,
+        config = ArchiverConfig(
             archive_dir=self.temp_dir,
-            compress=False
+            compression=False
+        )
+        new_archiver = FileBasedArchiver(
+            storage=self.mock_storage,
+            config=config,
         )
 
         # 验证索引被加载
@@ -225,7 +236,7 @@ class TestFileBasedMemoryArchiver:
 
         assert record is not None
         assert record.memory_id == self.test_memory.id
-        assert record.original_vitality == 0.15
+        assert record.original_vitality == 15.0
 
     def test_archive_memory_not_found(self):
         """测试归档不存在的记忆"""

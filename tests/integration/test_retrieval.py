@@ -32,11 +32,19 @@ from hivememory.engines.retrieval import (
     SparseRetriever,
     HybridRetriever,
     CrossEncoderReranker,
-    ContextRenderer,
+    FullContextRenderer,
     RenderFormat,
     ReciprocalRankFusion,
+    create_retriever,
 )
-from hivememory.patchouli.config import RerankerConfig, FusionConfig, HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig
+from hivememory.patchouli.config import (
+    RerankerConfig, 
+    ReciprocalRankFusionConfig, 
+    HybridRetrieverConfig, 
+    DenseRetrieverConfig, 
+    SparseRetrieverConfig,
+    FullRendererConfig,
+)
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     QueryFilters,
@@ -98,7 +106,7 @@ class TestDenseAndSparseRetrieverCollaboration:
         ])
 
         # 创建融合器
-        fusion = ReciprocalRankFusion(config=FusionConfig(rrf_k=60))
+        fusion = ReciprocalRankFusion(config=ReciprocalRankFusionConfig(rrf_k=60))
 
         # 融合结果
         fused = fusion.fuse(dense_results, sparse_results)
@@ -111,44 +119,32 @@ class TestDenseAndSparseRetrieverCollaboration:
         """测试混合检索器调用两种检索器"""
         mock_storage = Mock()
         
-        config = HybridRetrieverConfig(enable_hybrid_search=True)
-        config.dense.enabled = True
-        config.sparse.enabled = True
-        # CrossEncoderReranker needs a service if enabled, but here it's disabled by default in config
-        # However, HybridRetriever init might try to create one if config says so.
-        # By default config.reranker.enabled is False.
-        # But if it's enabled, we need a service.
-        # Let's ensure reranker is disabled for this test or provide service if needed.
-        # The error said: TypeError: CrossEncoderReranker.__init__() missing 1 required positional argument: 'service'
-        # This implies HybridRetriever is trying to instantiate CrossEncoderReranker.
-        
-        # Checking HybridRetriever.__init__:
-        # if config.reranker.enabled: self.reranker = CrossEncoderReranker(config=config.reranker)
-        # CrossEncoderReranker(service, config) -> service is required.
-        
-        # So if config.reranker.enabled is True by default, we fail.
-        # Let's check RerankerConfig default.
-        config.reranker.enabled = False 
-
-        hybrid = HybridRetriever(
-            storage=mock_storage,
-            config=config
-        )
+        config = HybridRetrieverConfig()
         
         # Mock internal retrievers
-        hybrid.dense_retriever = Mock()
-        hybrid.dense_retriever.retrieve = Mock(return_value=SearchResults())
+        dense_retriever = Mock()
+        dense_retriever.retrieve = Mock(return_value=SearchResults())
         
-        hybrid.sparse_retriever = Mock()
-        hybrid.sparse_retriever.retrieve = Mock(return_value=SearchResults())
+        sparse_retriever = Mock()
+        sparse_retriever.retrieve = Mock(return_value=SearchResults())
+        
+        fusion = Mock()
+        fusion.fuse = Mock(return_value=SearchResults())
+
+        hybrid = HybridRetriever(
+            config=config,
+            dense_retriever=dense_retriever,
+            sparse_retriever=sparse_retriever,
+            fusion=fusion,
+        )
 
         query = RetrievalQuery(semantic_query="Python代码")
         results = hybrid.retrieve(query, top_k=5)
 
         # 验证两种检索器都被调用
         assert results is not None
-        hybrid.dense_retriever.retrieve.assert_called()
-        hybrid.sparse_retriever.retrieve.assert_called()
+        dense_retriever.retrieve.assert_called()
+        sparse_retriever.retrieve.assert_called()
 
 
 class TestRerankerAndRetrieverCollaboration:
@@ -182,7 +178,7 @@ class TestRerankerAndRetrieverCollaboration:
         # We want high scores for "高分结果"
         mock_service.compute_score = Mock(return_value=[0.1, 0.5, 0.9])
 
-        reranker = CrossEncoderReranker(service=mock_service)
+        reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
 
         # Mock 重排序逻辑
         query = RetrievalQuery(semantic_query="测试查询")
@@ -208,7 +204,7 @@ class TestRendererAndResultsCollaboration:
         ]
 
         # 测试 XML 格式
-        renderer_xml = ContextRenderer(render_format=RenderFormat.XML)
+        renderer_xml = FullContextRenderer(FullRendererConfig())
         xml_output = renderer_xml.render(results)
 
         assert "测试记忆" in xml_output or "测试内容" in xml_output
@@ -229,8 +225,8 @@ class TestRendererAndResultsCollaboration:
             ),
         ]
 
-        renderer_md = ContextRenderer(render_format=RenderFormat.MARKDOWN)
-        md_output = renderer_md.render(results)
+        renderer_md = FullContextRenderer(FullRendererConfig())
+        md_output = renderer_md.render(results, render_format=RenderFormat.MARKDOWN)
 
         # 验证 Markdown 格式
         assert "Python代码" in md_output or "Python文档" in md_output
@@ -248,10 +244,9 @@ class TestRendererAndResultsCollaboration:
             for i in range(10)
         ]
 
-        renderer = ContextRenderer(
-            render_format=RenderFormat.MARKDOWN,
-            max_tokens=100,  # 设置低限制
-        )
+        from hivememory.patchouli.config import FullRendererConfig
+        config = FullRendererConfig(max_tokens=100)
+        renderer = FullContextRenderer(config)
         output = renderer.render(results)
 
         # 输出应该被截断
@@ -281,7 +276,7 @@ class TestQueryAndFilterCollaboration:
         
         mock_storage.search_memories = Mock(return_value=[hit1, hit2])
 
-        retriever = DenseRetriever(storage=mock_storage)
+        retriever = DenseRetriever(storage=mock_storage, config=DenseRetrieverConfig())
 
         query = RetrievalQuery(
             semantic_query="Python",
@@ -331,25 +326,28 @@ class TestHybridRetrieverOrchestration:
         mock_storage = Mock()
         
         config = HybridRetrieverConfig(
-            enable_hybrid_search=True,
             enable_parallel=False  # Sequential for easier mocking
         )
         
-        hybrid = HybridRetriever(
-            storage=mock_storage,
-            config=config,
-        )
-        
-        # Mock internal retrievers to return SearchResults
-        hybrid.dense_retriever = Mock()
-        hybrid.dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
+        # Mock internal retrievers
+        dense_retriever = Mock()
+        dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
             SearchResult(memory=create_test_memory("语义结果", "内容"), score=0.8)
         ]))
         
-        hybrid.sparse_retriever = Mock()
-        hybrid.sparse_retriever.retrieve = Mock(return_value=SearchResults(results=[
+        sparse_retriever = Mock()
+        sparse_retriever.retrieve = Mock(return_value=SearchResults(results=[
             SearchResult(memory=create_test_memory("关键词结果", "内容"), score=0.9)
         ]))
+
+        fusion = ReciprocalRankFusion(config=ReciprocalRankFusionConfig())
+
+        hybrid = HybridRetriever(
+            config=config,
+            dense_retriever=dense_retriever,
+            sparse_retriever=sparse_retriever,
+            fusion=fusion,
+        )
 
         query = RetrievalQuery(semantic_query="Python代码")
         results = hybrid.retrieve(query, top_k=5)
@@ -363,78 +361,49 @@ class TestHybridRetrieverOrchestration:
         """测试混合检索带重排序"""
         mock_storage = Mock()
         
-        config = HybridRetrieverConfig(enable_hybrid_search=True)
+        config = HybridRetrieverConfig()
         config.reranker.enabled = True
-        config.reranker.type = "cross_encoder"
-        
-        # Instantiate with a mocked reranker logic via subclass or monkeypatch?
-        # HybridRetriever initializes reranker internally.
-        # We can inject it after init.
-        
-        # Mock service
-        mock_service = Mock()
-        mock_service.compute_score = Mock(return_value=[0.99])
-
-        hybrid = HybridRetriever(
-            storage=mock_storage,
-            config=config,
-            reranker_service=mock_service
-        )
         
         # Mock retrievers
-        hybrid.dense_retriever = Mock()
-        hybrid.dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
+        dense_retriever = Mock()
+        dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
             SearchResult(memory=create_test_memory(f"结果{i}", "内容"), score=0.9)
             for i in range(5)
         ]))
-        hybrid.sparse_retriever = Mock()
-        hybrid.sparse_retriever.retrieve = Mock(return_value=SearchResults())
+        sparse_retriever = Mock()
+        sparse_retriever.retrieve = Mock(return_value=SearchResults())
         
-        # Reranker returns limited results
-        # Since we use real CrossEncoderReranker with mock service, we don't mock hybrid.reranker directly
-        # but we mock the service.
-        # However, CrossEncoderReranker.rerank calls service.compute_score.
-        # Let's verify rerank works.
-        # Or if we want to mock hybrid.reranker.rerank specifically:
-        hybrid.reranker = Mock()
-        hybrid.reranker.rerank = Mock(return_value=SearchResults(results=[
+        fusion = ReciprocalRankFusion(config=ReciprocalRankFusionConfig())
+
+        # Mock reranker
+        reranker = Mock()
+        reranker.rerank = Mock(return_value=SearchResults(results=[
             SearchResult(memory=create_test_memory("Top1", "Content"), score=0.99)
         ]))
+
+        hybrid = HybridRetriever(
+            config=config,
+            dense_retriever=dense_retriever,
+            sparse_retriever=sparse_retriever,
+            fusion=fusion,
+            reranker=reranker
+        )
 
         query = RetrievalQuery(semantic_query="查询")
         results = hybrid.retrieve(query, top_k=3)
 
         # 验证结果数量被限制
         assert len(results.results) == 1
-        hybrid.reranker.rerank.assert_called()
+        reranker.rerank.assert_called()
 
-    def test_hybrid_fallback_to_dense_only(self):
-        """测试混合检索回退到仅密集检索"""
+    def test_create_retriever_dense_only(self):
+        """测试创建 DenseRetriever"""
         mock_storage = Mock()
+        config = DenseRetrieverConfig()
         
-        config = HybridRetrieverConfig(enable_hybrid_search=False)
-
-        hybrid = HybridRetriever(
-            storage=mock_storage,
-            config=config,
-        )
+        retriever = create_retriever(storage=mock_storage, config=config)
         
-        hybrid.dense_retriever = Mock()
-        hybrid.dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
-            SearchResult(memory=create_test_memory("结果", "内容"), score=0.8)
-        ]))
-        
-        # Mock sparse_retriever to allow assertion
-        hybrid.sparse_retriever = Mock()
-
-        query = RetrievalQuery(semantic_query="查询")
-        results = hybrid.retrieve(query, top_k=5)
-
-        # 应该只调用密集检索
-        assert results is not None
-        hybrid.dense_retriever.retrieve.assert_called()
-        # sparse should not be called
-        hybrid.sparse_retriever.retrieve.assert_not_called()
+        assert isinstance(retriever, DenseRetriever)
 
 
 class TestScoreNormalization:

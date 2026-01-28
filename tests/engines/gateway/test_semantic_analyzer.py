@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, MagicMock
 
 from hivememory.core.models import MemoryType
-from hivememory.patchouli.config import GatewayConfig, LLMConfig
+from hivememory.patchouli.config import LLMAnalyzerConfig, LLMConfig
 from hivememory.patchouli.protocol.models import QueryFilters
 from hivememory.engines.gateway.models import GatewayIntent, SemanticAnalysisResult
 from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer, GATEWAY_FUNCTION_SCHEMA
@@ -28,12 +28,13 @@ class TestLLMAnalyzer:
 
     def test_init(self, mock_llm_service):
         """测试初始化"""
-        analyzer = LLMAnalyzer(llm_service=mock_llm_service)
+        config = LLMAnalyzerConfig()
+        analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
         assert analyzer.llm_service == mock_llm_service
         assert analyzer.config is not None
         assert analyzer.system_prompt is not None
 
-        custom_config = GatewayConfig(context_window=5)
+        custom_config = LLMAnalyzerConfig(context_window=5)
         analyzer_custom = LLMAnalyzer(
             llm_service=mock_llm_service,
             config=custom_config,
@@ -44,8 +45,10 @@ class TestLLMAnalyzer:
 
     def test_analyze_flow(self, mock_llm_service):
         """测试正常分析流程"""
+        config = LLMAnalyzerConfig()
         analyzer = LLMAnalyzer(
-            llm_service=mock_llm_service
+            llm_service=mock_llm_service,
+            config=config
         )
         
         # Mock LLM response
@@ -89,7 +92,8 @@ class TestLLMAnalyzer:
 
     def test_analyze_with_context(self, mock_llm_service):
         """测试带上下文的分析"""
-        analyzer = LLMAnalyzer(llm_service=mock_llm_service)
+        config = LLMAnalyzerConfig()
+        analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
         
         # Mock response (minimal valid)
         mock_response = MagicMock()
@@ -122,7 +126,8 @@ class TestLLMAnalyzer:
 
     def test_parse_response_invalid_structure(self, mock_llm_service):
         """测试无效响应结构"""
-        analyzer = LLMAnalyzer(llm_service=mock_llm_service)
+        config = LLMAnalyzerConfig()
+        analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
         
         # No choices
         mock_response = MagicMock()
@@ -134,7 +139,8 @@ class TestLLMAnalyzer:
 
     def test_parse_response_no_tool_calls(self, mock_llm_service):
         """测试无 tool calls"""
-        analyzer = LLMAnalyzer(llm_service=mock_llm_service)
+        config = LLMAnalyzerConfig()
+        analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
         
         mock_response = MagicMock()
         mock_response.choices[0].message.tool_calls = []
@@ -145,7 +151,8 @@ class TestLLMAnalyzer:
 
     def test_parse_response_invalid_json(self, mock_llm_service):
         """测试参数非 JSON"""
-        analyzer = LLMAnalyzer(llm_service=mock_llm_service)
+        config = LLMAnalyzerConfig()
+        analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
         
         mock_response = MagicMock()
         mock_tool_call = MagicMock()
@@ -158,7 +165,8 @@ class TestLLMAnalyzer:
             
     def test_build_filters(self, mock_llm_service):
         """测试过滤器构建"""
-        analyzer = LLMAnalyzer(llm_service=mock_llm_service)
+        config = LLMAnalyzerConfig()
+        analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
         
         # Private method test
         filters = analyzer._build_filters("CODE_SNIPPET")
