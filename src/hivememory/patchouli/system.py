@@ -133,11 +133,9 @@ class PatchouliSystem:
         # 初始化 Reranker 服务
         from hivememory.infrastructure.rerank import get_flag_reranker_service
         reranker_config = self.config.retrieval.retriever.reranker
-        if reranker_config.enabled and reranker_config.type == "cross_encoder":
+        if reranker_config.enabled:
             self.reranker_service = get_flag_reranker_service(
-                model_name=reranker_config.model_name,
-                device=reranker_config.device,
-                use_fp16=reranker_config.use_fp16,
+                config=reranker_config
             )
         else:
             self.reranker_service = None

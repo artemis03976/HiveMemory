@@ -70,180 +70,70 @@
 
 # 2 系统总体架构 (System Architecture)
 
-HiveMemory 采用 “旁路异步处理 + 混合检索增强” 的架构模式。系统设计遵循 关注点分离 (Separation of Concerns) 原则，将“业务对话执行”与“知识沉淀管理”解耦，确保用户体验的流畅性与记忆管理的深度。
+HiveMemory 的架构设计面临着一个核心矛盾：**记忆检索的实时性**与**记忆生成的复杂性**之间的冲突。用户希望在提问的瞬间获得记忆支持（毫秒级响应），但高质量的记忆整理往往需要深度的思考与去重（秒级甚至分钟级处理）。
 
-## 2.1 逻辑架构图 (Logical Architecture)
+为了解决这一矛盾，我们摒弃了早期的单体 Agent 设计，转而采用 **“帕秋莉体系 (The Patchouli System)”**。在这个分布式智能体系中，帕秋莉不再是一个单一的后台进程，而是化身为三位职能明确的“分身”。这三个分身分别坐镇于交互的最前线、检索的热通道以及深思熟虑的后台，共同构成了一个有机的整体。
+
+## 2.1 架构核心：三位一体 (The Trinity Aspect)
+
+我们通过三个核心分身来实现“关注点分离”，确保每个模块都能专注于其最擅长的领域：
+
+| 分身名称 | 对应模块实现 | 所在层级 | 核心职责 | 特性 |
+| :--- | :--- | :--- | :--- | :--- |
+| **真理之眼 (The Eye)** | `patchouli.eye` / `engines.gateway` | **交互层 (Interaction)** | 意图识别、查询重写、流量分发 | **同步阻塞**、极低延迟、小模型驱动 |
+| **检索使魔 (Retrieval Familiar)** | `patchouli.retrieval_familiar` / `engines.retrieval` | **热处理层 (Hot Path)** | 混合检索、重排序、上下文渲染 | **同步阻塞**、高并发、本地计算密集 |
+| **大图书馆本体 (Librarian Core)** | `patchouli.librarian_core` / `engines.perception`等 | **冷处理层 (Cold Path)** | 话题感知、记忆生成、生命周期管理 | **异步非阻塞**、高智商、SOTA 模型驱动 |
+
+## 2.2 顶层数据流架构 (Top-level Data Flow)
 
 ```mermaid
 graph TD
-    User[用户 User] <--> API_GW[API 网关 / 交互层]
+    User[用户输入] --> Eye[真理之眼 (Gateway)]
     
-    subgraph "System 1: Hot Path (实时交互)"
-        API_GW <--> Router[意图识别与路由]
-        Router <--> Retriever[检索层]
-        Retriever -->|Context 注入| Worker[Worker Agent (业务智能体)]
-        Worker <--> Tools[MCP 工具层 (Web Search / Code Exec)]
-    end
-
-    subgraph "System 2: Cold Path (异步记忆)"
-        MessageQueue[消息队列 (Event Bus)]
-        Librarian[Librarian Agent (图书管理员)]
-        
-        API_GW -.->|对话日志镜像| MessageQueue
-        MessageQueue --> Librarian
-        Librarian -->|提取 & 精炼| MemoryOps[记忆操作 (CRUD)]
-    end
-
-    subgraph "Memory Store (蜂巢存储)"
-        VectorDB[(向量数据库)]
-        MetaDB[(元数据/关系型数据库)]
-        
-        Retriever <--> VectorDB
-        Retriever <--> MetaDB
-        MemoryOps --> VectorDB
-        MemoryOps --> MetaDB
+    %% 真理之眼 - 分发
+    Eye -->|1. Hot Signal: Rewritten Query| Familiar[检索使魔 (Retrieval)]
+    Eye -->|2. Cold Signal: Query Anchor| Core[本体 (Perception)]
+    
+    %% 检索使魔 - 提供记忆服务
+    Familiar -->|读取索引| DB[(Memory Store)]
+    Familiar -->|注入 Context| Worker[Worker Agent]
+    
+    %% 帕秋莉本体 - 对记忆管理
+    subgraph "Librarian Core (System 2)"
+        Perception -->|话题漂移检测| Buffer[逻辑块缓冲]
+        Buffer -->|提取与摘要| Generator[记忆生成]
+        Generator -->|写入| DB
+        Lifecycle[生命周期 Gardener] -->|维护| DB
     end
 ```
 
-组件关系说明：
-- User：系统的发起者。
-- Worker Agents：前台服务员，专注于解决当前 User 的具体问题（如写代码、查资料），追求响应速度。
-- Librarian Agent：后台管理员，负责监听对话流，在不打扰用户的前提下，对信息进行清洗、摘要、打标并入库。
-- Memory Store：共享的知识底座，支持语义检索（Vector）和精确匹配（Keyword/Tag）。
+## 2.3 核心组件详解 (Component Detail)
 
-## 2.2 双进程机制 (Dual-Process Mechanism)
+### 2.3.1 帕秋莉·真理之眼 (The Eye / Global Gateway)
+真理之眼是系统的**守门人与感知者**，悬浮在交互层的最前端。所有进入图书馆的访客（用户消息）首先都要经过她的审视。真理之眼并不负责具体的搬运工作，而是专注于以极快的速度洞察意图：判断访客是来闲聊的，还是来查阅资料的？并将用户模糊的口语请求瞬间“翻译”为精准的检索咒语。
 
-#### System 1: The Hot Path (快思考 - 同步链路)
-- 定义：处理用户实时请求的主链路。
-- 特征：低延迟 (Low Latency)，只读 (Read-Only to Memory)，高吞吐。
-- 数据流：用户提问 -> 检索记忆 -> 生成 Prompt -> LLM 推理 -> 返回答案。
-- 约束：必须在 1-2 秒内完成记忆检索并开始流式输出，避免让用户等待后台繁重的处理逻辑。
+*   **工程实现**：对应 `engines.gateway`。
+*   **关键能力**：L1 规则拦截（过滤无效信息）、L2 智能意图识别与指代消解。
 
-#### System 2: The Cold Path (慢思考 - 异步链路)
-- 定义：负责记忆生成的后台链路。
-- 特征：高延迟容忍 (High Latency Tolerance)，计算密集型 (Compute Intensive)，写主导 (Write-Dominant)。
-- 数据流：对话结束/分段 -> 压入队列 -> Librarian 唤醒 -> 深度分析(提取/去重/打标) -> 写入数据库。
-- 优势：Librarian 可以使用更强大的模型（如 Thinking Model）花更多时间（几秒甚至几分钟）来仔细推敲如何归档这条信息，而不影响前台用户体验。
+### 2.3.2 帕秋莉·检索使魔 (The Retrieval Familiar)
+当真理之眼确认需要查阅资料时，会召唤**检索使魔**。作为忠实的**执行者**，使魔没有多余的思考，只追求速度与精准。它手持真理之眼赐予的咒语，在毫秒间穿梭于向量与关键词的索引之间，通过并行召回与精细排序，将最相关的“记忆书页”呈递给前台的工作人员（Worker Agent）。
 
-## 2.3 模块划分 (Module Breakdown)：
+*   **工程实现**：对应 `engines.retrieval`。
+*   **关键能力**：混合检索 (Dense + Sparse)、RRF 融合排序、上下文渲染。
 
-### 2.3.1 感知层：统一语义流 (Interaction Layer: Unified Semantic Stream)
-*   **职责**：作为系统的流量入口与预处理器，负责将非结构化的原始消息流（Raw Stream）转化为语义连贯的**逻辑原子块 (Logical Blocks)**，并决定何时唤醒 Librarian Agent。
-*   **核心组件**：
-    *   **流式解析器 (Stream Parser)**：抹平 1:1 对话（Bot）与 1:N 执行（Agent）的格式差异，将其封装为标准化的 Logical Block。
-    *   **语义吸附器 (Semantic Adsorber)**：基于轻量级本地 Embedding 模型，实时计算新消息与当前 Buffer 内的 Logical Block 的语义相似度，决定是“吸附”还是“切分”。
-    *   **接力控制器 (Relay Controller)**：处理 Token 溢出情况，生成“中间态摘要”以维持跨 Block 的上下文连贯性。
+### 2.3.3 帕秋莉·大图书馆本体 (Librarian Core)
+在喧嚣的前台之外，帕秋莉的**本体**静坐在大图书馆的深处。作为全知全能的**管理者**，她不参与实时的对话争锋，而是专注于“慢思考”。她负责在后台默默地阅读对话日志，感知话题的微妙漂移，将散乱的对话精炼为结构化的“记忆原子”，并定期清理陈旧的知识。
 
-### 2.3.2 决策层 (Orchestration Layer - The Librarian)
-- 职责：Librarian Agent 的“大脑”。它与用户没有对话的沟通，而是不断审视对话日志。
-- 核心逻辑：
-    - 价值评估：判断当前对话片段是否包含长期价值（过滤掉寒暄、简单的确认）。
-    - 信息提取：将非结构化对话转化为结构化的 MemoryAtom（记忆原子）。
-    - 动态标签生成：根据内容自动生成相关标签。
-    - 生命周期决策：决定是 INSERT（新知识）、UPDATE（补充旧知识）还是 IGNORE（无价值）。
+*   **工程实现**：聚合了 `engines.perception`、`generation` 和 `lifecycle`。
+*   **关键能力**：话题连续性检测、记忆提取与去重、生命周期管理。
 
-### 2.3.3 记忆层 (Memory Layer)
-- 职责：数据的物理存储与索引。
-- 架构设计：采用 混合存储 (Hybrid Storage) 方案。
-    - Vector Store (如 Qdrant/Weaviate)：存储 embedding 向量，用于模糊语义搜索（"怎么写那个日期函数？"）。
-    - Relational/Document Store (如 PostgreSQL/Mongo)：存储 JSON 元数据、标签、时间戳、访问计数，用于精确过滤（"查找标签为 #Legal 的文档"）。
+## 2.4 双进程机制 (Dual-Process Mechanism)
 
-### 2.3.4 使用层 (Retrieval Layer)
-- 职责：在 Hot Path 中为 Worker 提供“外挂大脑”。
-- 关键流程：
-    - Query Rewriting：将用户口语化的 "这个怎么改？" 改写为包含上下文的独立查询 "修改 utils.py 中的 parse_date 函数"。
-    - Hybrid Search：同时执行 Vector Search (语义相关) 和 Keyword Search (实体匹配)。
-    - Reranking：对检索回来的 Top-50 结果进行重排序，选出 Top-5 最相关的。
-    - Context Injection：将 Top-5 记忆块格式化并注入 System Prompt。
+这种“三位一体”的设计，在工程上完美映射了心理学中的 **双进程理论 (Dual-Process Theory)**：
 
-### 2.3.5 工具层 (Tooling Layer)
-- 职责：提供 Worker 和 Librarian 所需的外部能力。
-- 关键工具：
-    - Web Scraper：Worker 用于回答问题，Librarian 用于抓取网页快照以持久化。
-    - Code Interpreter：Worker 用于执行代码，Librarian 用于静态分析代码块以提取函数名作为标签。
+- **Hot Path (System 1 - 快思考)**：由 **Eye** 和 **Familiar** 组成。它们如同人的直觉反应，追求极低的延迟与高吞吐量，确保用户在对话时感觉不到停顿。
+- **Cold Path (System 2 - 慢思考)**：由 **Librarian Core** 承载。它如同人的深度逻辑推理，容忍较高的延迟，换取对知识的深度理解与高质量归档。
 
-## 2.4 工作流编排 (Workflow Orchestration)
-
-#### 场景 A：记忆的形成 (Write Path - 异步)
-
-背景：用户让 Agent 查找并总结了 "Python 3.12 的新特性"。
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant W as Worker Agent
-    participant Q as Message Queue
-    participant L as Librarian Agent
-    participant DB as Memory Store
-
-    U->>W: 查询 "Python 3.12 新特性"
-    W->>W: 调用 Web Search 工具
-    W->>U: 返回总结结果
-    
-    par Async Process (Cold Path)
-        W->>Q: 推送对话日志 (Event)
-    and User Interaction
-        U->>U: 阅读回答 (无感知后台处理)
-    end
-    
-    Q->>L: 触发 Librarian
-    L->>L: 分析: 发现有价值的技术事实
-    L->>L: 提取: 结构化为 "Fact" 类型
-    L->>L: 打标: Tags=["Python", "Update", "3.12"]
-    L->>DB: 向量化并存储 (Insert)
-```
-
-#### 场景 B：记忆的复用 (Read Path - 同步)
-背景：三天后，用户在新的 Session 中开始写代码，提到 "用 3.12 的那个新语法"。
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant R as Retrieval Layer
-    participant DB as Memory Store
-    participant W as Worker Agent
-
-    U->>R: 提问 "用 3.12 的那个新语法写个例子"
-    
-    rect rgb(240, 248, 255)
-        note right of R: System 1: Retrieval
-        R->>R: Rewrite Query -> "Python 3.12 new syntax example"
-        R->>DB: 混合检索 (Vector + Tag:Python)
-        DB-->>R: 返回场景 A 中存储的记忆块
-        R->>R: Rerank & Select Top-K
-    end
-    
-    R->>W: 注入 Prompt (包含记忆上下文)
-    W->>W: 结合记忆生成代码
-    W->>U: 返回准确的代码示例 (无需再次联网)
-```
-
-## 2.5 核心智能体：帕秋莉 (The Librarian Agent)
-
-为了实现“Agent 自行决策写入”，我们需要赋予 Librarian Agent 独立的人格与认知目标。在本项目中，该 Agent 命名为 **Patchouli**。
-
-### 2.5.1 核心职能 (Core Responsibilities)
-Patchouli 是 HiveMemory 系统的**最高管理员**和**知识守门人**。她作为 **System 2 (慢思考)** 的具象化身，统筹管理四大核心模块：
-
-1.  **感知 (Perception)**: 监听并切分对话流，识别有价值的信息片段。
-2.  **生成 (Generation)**: 将非结构化信息精炼为结构化的记忆原子。
-3.  **检索 (Retrieval)**: 未来将接管 Router，决定前台 Agent 应该看到什么知识。
-4.  **生命周期 (Lifecycle)**: 执行园艺工作，清理无效记忆，优化存储结构。
-
-*   **当前阶段 (Phase 1)**：专注于 **"Observer & Archivist" (观察者与归档员)**。
-*   **未来阶段 (Phase 2+)**：进化为 **"Grand Librarian" (大图书馆长)**。
-
-### 2.5.2 行为准则 (System Prompt Traits)
-Patchouli 的决策逻辑应遵循以下“性格特征”，这将体现在她的 System Prompt 中：
-1.  **极度挑剔 (Strict Curator)**：她的目标不是“记录一切”，而是“提炼精华”。对于闲聊 (`chit-chat`)、简单的确认 (`acknowledgement`) 或重复的废话，她应果断丢弃。
-2.  **结构化强迫症 (Structure Obsessive)**：她厌恶非结构化数据。她致力于将模糊的自然语言转化为标准化的 JSON Schema (Title/Tags/Summary)。
-3.  **客观中立 (Objective Observer)**：她不带有 Worker Agent 的上下文情绪，而是以第三人称视角客观记录事实（Fact）和代码（Code）。
-
-## 2.6 数据流向总结 (Data Flow Summary)
-- 输入流：用户 Query -> 路由层 -> 检索层（读取 Vector DB） -> 组装 Prompt -> Worker 执行。
-- 输出流：Worker 响应 -> 用户界面。
-- 记忆流：输入/输出日志 -> 消息队列 -> Librarian 提取 -> Embedding 模型 -> 写入/更新 Vector DB。
-- 反馈流（高级）：当 Worker 引用了某条记忆并得到用户“点赞”或“采用”时 -> 异步更新该记忆记录的权重（Score Boost），使其在未来更容易被检索。
 
 # 3 数据核心：记忆数据模型设计 (Data Model Design)
 
@@ -489,11 +379,59 @@ Summary: {index.summary}
     *   *场景*：用户可能发出指令“只在**代码库**里找关于**日期**的逻辑”。
     *   *操作*：先进行 `Filter(type='CODE_SNIPPET')`，再在结果集中进行 Vector Search。这种 **Pre-filtering** 策略能极大提高准确率。
 
-# 4 核心功能 I：记忆感知 (The Perception Layer)
+# 4 核心功能 I：全局智能网关 (Global Intelligent Gateway)
+> **[归属分身：真理之眼 (The Eye)]**
+
+本章定义了系统的统一入口与中枢神经。为了解决下游模块各自调用外部服务导致的“重复计算”与“延迟过高”的问题，我们引入了 **Global Gateway** 模块，实现了 **“一次计算，多处复用” (Compute Once, Use Everywhere)** 的设计理念。
+
+## 4.1 核心设计理念
+
+### 4.1.1 痛点解决
+在旧架构中，意图识别、Query 重写、记忆价值判断分散在 Retrieval、Generation 等多个环节，导致了多次冗余的 LLM 调用。Gateway 将这些前置计算统一收口，能够显著降低了 Token 消耗与响应延迟。并且，由 Gateway 产出的重写 Query 能够避免原先诸多的语义模糊问题，从而提高了检索与感知层语义分割的准确性。
+
+### 4.1.2 漏斗式架构 (The Funnel Architecture)
+Gateway 采用两级处理机制：
+
+1.  **L1: 规则拦截器 (The Fast Pass)**
+    *   **机制**：基于正则和字符串匹配。
+    *   **职责**：零延迟拦截 `/clear` 等系统指令及极短的无效文本（如“你好”），防止无意义的 LLM 调用。
+2.  **L2: 语义分析核心 (The Semantic Core)**
+    *   **机制**：调用高响应速度的通用 LLM (如 GPT-4o-mini / DeepSeek-V3)。
+    *   **职责**：在一个 Prompt 中同时完成 **意图分类**、**指代消解** 与 **元数据提取**。
+
+## 4.2 统一输出协议 (Unified Output Protocol)
+
+Gateway 不再输出简单的文本，而是输出一个结构化的指令包，驱动下游所有模块：
+
+```json
+{
+  "intent": "RAG" | "CHAT" | "TOOL",
+  "content_payload": {
+    "rewritten_query": "如何将贪吃蛇游戏部署到 Ubuntu 服务器", // 指代消解后的完整句
+    "search_keywords": ["贪吃蛇", "部署", "Ubuntu"], // 用于检索层的 Sparse Search
+    "target_filters": { "type": "CODE_SNIPPET" }
+  },
+  "memory_signal": {
+    "worth_saving": true, // 指导生成层是否需要提取记忆
+    "reason": "用户询问具体技术方案，具有长期价值"
+  }
+}
+```
+
+## 4.3 数据流转与复用
+
+Gateway 的输出被下游模块充分复用：
+
+1.  **Hot Path (检索复用)**：Retrieval Engine 直接使用 `rewritten_query` 和 `search_keywords` 进行查询，无需再次调用重写模型。
+2.  **Cold Path (感知复用)**：Perception Layer 使用 `rewritten_query` 作为 **Semantic Anchor** 进行话题漂移检测，解决了原始 Query 指代不明的问题。
+3.  **Cold Path (生成复用)**：Generation Layer 直接根据 `memory_signal.worth_saving` 决定是否启动昂贵的提取流程，避免了对闲聊内容的无效计算。
+
+# 5 核心功能 II：记忆感知 (The Perception Layer)
+> **[归属分身：大图书馆本体 (Librarian Core)]**
 
 本章定义系统如何作为“感官”实时监听、解析和组织来自不同来源的原始对话流。这是 HiveMemory 的第一道工序，负责将混沌的 Log 转化为有序的 Block，并决定何时唤醒 Patchouli。
 
-## 4.1 统一语义流 (Unified Semantic Stream)
+## 5.1 统一语义流 (Unified Semantic Stream)
 
 为了应对生产环境中多变的消息流形态（如 Bot 的闲聊跳转、Agent 的长链条执行、Bugfix 的短文本修正等等），系统不单单将消息同步给帕秋莉，而是采用 **“统一语义流”** 架构。
 
@@ -521,13 +459,9 @@ Summary: {index.summary}
             self.timestamp: float = time.time()
 
             # 2. 语义锚点 (Semantic Anchor) - 用于语义吸附与漂移
-            # 仅包含 User Query (以及可能的少量上下文补充)
-            self.anchor_text: str = self.user_block.content if self.user_block else ""
-
-        @property
-        def is_complete(self):
-            """只有当 User 和 Final Response 都存在时，Block 才算闭合"""
-            return self.user_block is not None and self.response_block is not None
+            # [Updated in v2.0]: 这里的 anchor_text 不再是原始的 User Query，
+            # 而是直接使用 Gateway 产出的 rewritten_query。
+            self.anchor_text: str = "" # Injected from Gateway
     ```
 
 **处理消息流的状态机逻辑：**
@@ -542,19 +476,18 @@ Summary: {index.summary}
     *   **Block 闭合 (Sealed)** -> 推入 Buffer 进行语义判定。
     *   转入 **State: IDLE**。
 
-## 4.2 语义吸附与漂移 (Semantic Adsorption & Drift)
+## 5.2 语义吸附与漂移 (Semantic Adsorption & Drift)
 
 现在，Buffer 不再是一个“消息队列”，而是一个“**Logical Block 容器**”。我们使用“**语义吸附 (Semantic Adsorption)**” 算法来决定新来的 Block 是放入当前容器，还是触发切割。
 
 由于 LLM 的生成内容（AI Response）通常很长且包含大量解释性废话，拼接后会稀释 User Query 的核心意图。显然话题的转移 90% 是由用户发起的，因此采用“**锚点对齐**”策略，不再计算整个 Buffer 的平均向量，而是维护一个 “**当前话题核心 (Current Topic Kernel)**”。变量定义：
 
-- **Topic_Kernel_Vec**: 当前 Buffer 中所有 anchor_text 的指数移动平均向量（或者仅使用第一条 User Query 作为基准，视策略而定）。
+- **Topic_Kernel_Vec**: 当前 Buffer 中所有 anchor_text 的指数移动平均向量。
 
 帕秋莉的感知引擎维护一个动态的 Buffer，对新进入的 Block 执行以下判定流程：
 
-1.  **Step 1: Anchor 文本提取与增强**：
-    *   短文本强吸附/极短文本补全：若新 Block Token 数极少（如 < 50，典型如“继续”、“报错了”），**强制吸附**进当前 Buffer，或引入上一个block的user query作为Anchor Text。
-    *   *目的*：防止因 Embedding 不准导致对上一轮的修正指令被错误切分为新话题。
+1.  **Step 1: Anchor 文本获取**：
+    *   Perception Layer 不再自行提取文本，而是直接从 Gateway 传入的 Metadata 中获取 `rewritten_query`。这保证了即使原始输入是“继续”，Anchor 也是完整的语义（如“继续生成贪吃蛇代码”）。
 
 2.  **Step 2: 计算向量距离与语义判定 (Embedding Similarity)**
     *   使用本地轻量模型（如 `all-MiniLM-L6-v2`）计算 `New_Block` 的 `anchor_text` 与 `Topic_Kernel_Vec` 的余弦相似度。
@@ -569,9 +502,9 @@ Summary: {index.summary}
     *   用户在任何对话结束时，都可以通过发送 `/save` 指令，强制触发当前 Buffer 的处理，即绕过语义吸附，直接发送给帕秋莉。
     *   *目的*：尊重用户的不同工作流习惯，给出人为介入的接口。
 
-## 4.3 上下文接力 (Context Relay)
+## 5.3 上下文接力 (Context Relay)
 
-解决“长任务导致的 Token 溢出割裂”问题。
+为了解决“长任务导致的 Token 溢出割裂”问题，我们引入了 **上下文接力 (Context Relay)** 机制。
 
 *   **触发条件**：在吸附之前，检查 Current_Buffer_Tokens + New_Block_Tokens 是否超过 Max_Processing_Tokens（如 8k）。
 *   **执行流程**：
@@ -595,22 +528,24 @@ Summary: {index.summary}
     *   *结果*：Block B 单独（或与后续对话一起）生成记忆。
     *   *帕秋莉视角*：当她处理 Block B 时，她看到的 Input 是 `[Summary_A, Block_B]`。她能完美理解“蛇撞墙”是指什么，生成的记忆原子会是：“修复了贪吃蛇撞墙判定的 Bug”。
 
-# 5 核心功能 II：记忆生成 (The Generation Layer)
+# 6 核心功能 III：记忆生成 (The Generation Layer)
+> **[归属分身：大图书馆本体 (Librarian Core)]**
 
 本章定义 Patchouli 在接收到感知层提交的 Block 后的处理逻辑。即如何将混沌的对话流转化为有序的记忆蜂巢。
 
-## 5.1 认知流程：帕秋莉的思考链 (Patchouli's Cognitive Chain)
+## 6.1 认知流程：帕秋莉的思考链 (Patchouli's Cognitive Chain)
 
 本节定义 Patchouli 接收到对话片段（Transcript Segment）后的内部处理逻辑。
 **设计原则**：采用 **"Search-before-Write" (写前查重)** 的严谨模式，确保记忆库的唯一性和时序演化能力，宁可消耗更多的推理 Token，也要保证知识库的纯净度。
 
-### Step 1: 价值评估 (Gating)
-*   **输入**：对话片段（JSON 格式）。
-*   **动作**：快速二分类判断。
+### Step 1: 价值校验 (Signal Check)
+*   **输入**：对话片段（Block）及其附带的 `memory_signal`。
+*   **动作**：快速布尔判断。
 *   **逻辑**：
-    *   过滤掉 `chit-chat` (闲聊)、`acknowledgement` (简单的确认)、`failed_attempts` (报错重试的中间过程)。
-    *   仅保留包含 **信息增量** 的片段。
-*   **输出**：`Pass` 或 `Drop` 的动作。
+    *   直接读取 Gateway 传入的 `memory_signal.worth_saving` 字段。
+    *   若为 `false`，直接丢弃（Drop），不进行任何 LLM 调用。
+    *   若为 `true`，进入 Step 2。
+*   **优势**：相较于旧版设计中在此处重新进行 Gating 判断，新流程完全避免了重复计算。
 
 ### Step 2: 记忆原子提取与精炼 (Extraction & Refinement)
 **目标**：将非结构化对话转化为结构化的 `MemoryAtom` 草稿。
@@ -684,69 +619,34 @@ Patchouli 根据检索结果的 **相似度分数 (Similarity Score)** 和 **内
 ### Step 4: 持久化 (Commit)
 *   **动作**：执行具体的数据库写操作。
 *   **事务性**：确保 Vector DB (索引) 和 Document DB (Payload) 的原子性写入。如果写入失败，回滚操作并记录 Error Log。
-# 6 核心功能 III：记忆检索与共享 (The Retrieval Engine)
 
-本章定义 Worker Agent 如何访问 HiveMemory。为了解决“长 Context 遗忘”和“跨 Agent 孤岛”问题，我们设计了一套**默认自省，按需查阅**的双重触发机制。在开发的第二或者第三阶段，这一核心功能权限将交还给记忆库管理员帕秋莉进行处理。
+# 7 核心功能 IV：记忆检索与共享 (The Retrieval Engine)
+> **[归属分身：检索使魔 (Retrieval Familiar)]**
 
-## 6.0 记忆检索的触发 (Retrieval Triggering)
+本章定义 Worker Agent 如何访问 HiveMemory。在 v2.0 架构中，Retrieval Engine 是一个纯粹的执行单元，它不再负责意图判断，而是专注于高效、精准的检索执行。
 
-### 6.0.1 核心哲学：自省与查阅 (Introspection vs. Consultation)
-我们不将“被动接受记忆”与“主动查询记忆”对立，而是将其视为两个阶段：
-1.  **Phase 1: 自省 (Introspection / Passive)** —— **系统级行为**。在 Worker Agent 收到用户 Prompt **之后**，回答**之前**发生。这就好比人在回答问题前，脑海里会自动浮现相关的背景知识。这由 **Retrieval Router** 决定。
-2.  **Phase 2: 查阅 (Consultation / Active)** —— **Agent 行为**。在 Worker Agent 思考或执行任务的**过程中**发生。这就好比人发现脑子里的知识不够用了，主动去翻书。这通过 **Function Calling** 实现。
+## 7.0 检索触发与输入 (Retrieval Trigger)
 
-> **为什么不完全依赖 Agent 主动调用？**
-> 现在的 LLM 有时会“过度自信”。如果用户问“修复昨天的代码”，Agent 可能直接开始胡编乱造，而不是去查库。**“Router + 强制注入”** 保证了 Agent 在回答前**被迫**看到正确的信息，这是解决“幻觉”的第一道防线。
+### 7.0.1 上游输入 (Input from Gateway)
+检索动作由 **Global Gateway** 触发。当 `Gateway` 输出 `intent: "RAG"` 时，Retrieval Engine 将会收到由 Gateway 发送的检索请求并启动，请求的基本输入如下：
+*   `rewritten_query`: 经过指代消解的完整查询语句。
+*   `search_keywords`: 用于稀疏检索的关键词列表。
+*   `filters`: (可选) 针对特定类型或来源的过滤条件。
 
-> **为什么不完全依赖 Router 预检索？**
-> Router 只能基于用户的 Query 做一次性猜测。如果用户的 Query 很模糊，Router 检索不到关键信息，Agent 就需要有“二次纠错”和“深入挖掘”的权力（即 Tool Call）。
-
-### 6.0.2 机制一：检索路由 (The Retrieval Router) - 解决“被动接收”的效率问题
-为了避免对每一句“你好”都进行数据库查询（造成延迟和成本浪费），引入一个极轻量级的 **Router (前置分类器)**。
-
-*   **角色**：这是 Patchouli 的分身，或者是专门训练的小模型 (如 BERT/GPT-4o-mini)。
-*   **输入**：当前 User Query + 最近 2 轮对话历史。
-*   **逻辑**：判断 User Query 是否需要历史上下文？
-    *   *Type A: 无需记忆* (如 "Hello", "帮我写个正则表达式", "你是谁") -> **直接透传给 Worker**。
-    *   *Type B: 需检索记忆* (如 "修复昨天的 bug", "用项目里的那个日期工具", "继续上次的话题") -> **触发 Phase 1 检索，将结果注入 System Prompt**。
-*   **优势**：将 90% 的闲聊和通用任务过滤掉，只在关键时刻消耗检索资源，平衡了 Latency 与 Context 质量。
-
-### 6.0.3 机制二：记忆工具化 (Memory as a Tool) - 解决“复杂任务”的深度需求
-有些复杂的任务，Router 可能无法一次性判断出所有需要的记忆。因此，必须赋予 Worker Agent 主动获取记忆的能力。
+### 7.0.2 记忆工具化 (Memory as a Tool) - 主动查阅
+除了响应 Gateway 的被动检索外，Worker Agent 在执行任务过程中，也可以**主动调用工具**来获取记忆。这适用于复杂的多步推理场景。
 
 *   **工具定义**：`search_memory(query: str, filters: dict)`。
 *   **场景**：
-    1.  User: "帮我重构一下登录模块。"
-    2.  Router: 检索 "登录模块" -> 注入 Context。
-    3.  Worker (思考): "我看到了登录代码，但我不知道密码加密用的是哪个库，Context 里没写。"
-    4.  Worker (Action): **主动调用 `search_memory(query="password encryption library", type="CODE_SNIPPET")`**。
-    5.  System: 返回加密相关的记忆原子。
-    6.  Worker: 完成重构。
+    1.  Worker 收到 Gateway 注入的上下文，发现缺少具体的密码加密库文档。
+    2.  Worker 主动调用 `search_memory(query="password encryption library")`。
+    3.  Retrieval Engine 响应请求，返回补充信息。
 
-### 6.0.4 触发流程图 (Trigger Workflow)
-
-```mermaid
-graph TD
-    UserInput[用户输入] --> Router{Retrieval Router (需不需要记忆?)}
-    
-    Router -- No (闲聊/通用) --> WorkerAgent
-    Router -- Yes (需上下文) --> PreRetrieval[前置检索 (自省)]
-    
-    PreRetrieval --> ContextInjection[注入 System Prompt]
-    ContextInjection --> WorkerAgent[Worker Agent (思考与生成)]
-    
-    WorkerAgent -- 觉得信息不够 --> ToolCall{调用 search_memory?}
-    ToolCall -- Yes --> ActiveRetrieval[主动检索 (查阅)]
-    ActiveRetrieval --> WorkerAgent
-    
-    ToolCall -- No (信息充足) --> FinalOutput[输出回答]
-```
-
-## 6.1 混合检索策略 (Hybrid Search Strategy)
+## 7.1 混合检索策略 (Hybrid Search Strategy)
 
 为了应对多维度的查询需求（语义、时间、精确实体），我们不能仅依赖单一的向量相似度。HiveMemory 采用 **“三路归并 + 动态重排序”** 的混合检索策略。
 
-### 6.1.0 查询预处理 (Query Understanding)
+### 7.1.0 查询预处理 (Query Understanding)
 在执行检索前，首先由 Router 或专门的提取器对用户的自然语言 Query 进行结构化解析。
 *   **输入**：“找一下上周 coder agent 写的关于日期处理的代码”
 *   **解析输出**：
@@ -756,7 +656,7 @@ graph TD
         *   `source_agent`: `coder_agent` (基于元数据)
         *   `type`: `CODE_SNIPPET` (推断类型)
 
-### 6.1.1 检索维度 I：语义向量检索 (Dense Retrieval)
+### 7.1.1 检索维度 I：语义向量检索 (Dense Retrieval)
 利用 3.1 节定义的 **Index Layer (Title/Tags/Summary)** 进行向量匹配。这是检索的“骨架”。
 *   **机制**：Cosine Similarity。
 *   **模式可调 (Mode Selection)**：
@@ -764,12 +664,12 @@ graph TD
     *   **发散模式 (Brainstorm Mode)**：阈值 `Threshold > 0.6` + **MMR (最大边界相关算法)**。
         *   *原理*：MMR 会刻意选择那些“既与 Query 相关，又彼此不相似”的结果，从而提供多样化的灵感（例如：同时返回日期处理的 Python 库、SQL 写法和相关的 Bug 记录）。
 
-### 6.1.2 检索维度 II：关键词检索 (Sparse Retrieval / BM25)
+### 7.1.2 检索维度 II：关键词检索 (Sparse Retrieval / BM25)
 解决“特定函数名”或“错误码”无法通过向量精准召回的问题。
 *   **机制**：BM25 算法或倒排索引。
 *   **场景**：用户查询 "Fix error 0x80040"。向量模型可能只关联到“错误修复”，而 BM25 能精准锁定包含 "0x80040" 字符串的记忆原子。
 
-### 6.1.3 检索维度 III：结构化过滤 (Structured Filtering)
+### 7.1.3 检索维度 III：结构化过滤 (Structured Filtering)
 解决你提到的 **“基于时间”** 和 **“元数据”** 检索。这通常作为向量检索的 **Pre-filter (前置过滤)** 步骤。
 *   **时间窗口 (Temporal Window)**：
     *   解析自然语言中的 "Recently" (近3天), "Last Project" (特定时间段)。
@@ -778,7 +678,7 @@ graph TD
     *   `WHERE source_agent_id = 'coder'`
     *   `WHERE type = 'URL_RESOURCE'`
 
-### 6.1.4 其他信息利用方案 (Advanced Utilization Schemes)
+### 7.1.4 其他信息利用方案 (Advanced Utilization Schemes)
 
 #### A. 关联图谱游走 (Graph Traversal Retrieval)
 *   **原理**：利用记忆原子中的 `relations` 字段（在 3.1 节定义）。
@@ -793,7 +693,7 @@ graph TD
 *   **公式**：$FinalScore = VectorScore \times (1 + \frac{1}{Age + 1})$。
 *   **效果**：如果两条记忆内容的相似度（Vector Score）一样，**创建时间越近（Age 越小）的那条，最终排名越高**。这天然实现了“优先使用最新知识”的效果，而不需要硬性删除旧记忆。
 
-### 6.1.5 融合算法 (The Fusion)
+### 7.1.5 融合算法 (The Fusion)
 如何将上述多路结果合并？采用 **RRF (Reciprocal Rank Fusion)**。
 
 1.  **List A (向量路)**：返回 Top 50。
@@ -802,83 +702,88 @@ graph TD
 4.  **RRF 合并**：根据在各列表中的排名计算综合得分。
 5.  **Re-rank Model**：(可选) 使用一个轻量级 Cross-Encoder 模型（如 `bge-reranker`）对最终合并的 Top 20 进行精细打分，选出 Top 5 给 Agent。
 
-## 6.2 上下文注入策略 (Context Injection Strategy)
+## 7.2 上下文注入策略 (Context Injection Strategy)
 
-### 6.2.1 核心原则：记忆渲染视图 (The Memory Rendering View)
+为了解决传统 RAG 系统中“冗余挤占”与“上下文溢出”的问题，HiveMemory 引入了 **自适应上下文渲染系统 (Adaptive Context Rendering System)**。
+
+### 7.2.1 核心原则：记忆渲染视图 (The Memory Rendering View)
 我们不直接将数据库取出的 JSON 对象 Dump 进 Prompt。相反，我们需要一个中间层（Renderer），将复杂的 `Memory Atom` 转换为 LLM 易读的、Token 经济的 **Markdown/XML 格式**。
 
-**渲染逻辑 (Transformation Logic)**：
-*   **丢弃**：所有的 ID (UUID)、Embedding 数组、无关的系统字段。
-*   **保留**：`payload.content` (核心)、`index.tags` (上下文线索)。
-*   **转化**：
-    *   将 `meta.confidence_score` 转化为自然语言警告（如 `[Unverified]`）。
-    *   将 `meta.updated_at` 转化为相对时间（如 `(3 days ago)`）。
-    *   将 `payload.artifacts` 转化为“引用链接”，引导 Agent 调用工具深挖。
+系统利用独特的 **“冰山模型 (Iceberg Model)”** 数据结构，支持分级渲染：
+*   **Index 视图 (水面之上)**：仅渲染 Title, Summary, Tags。轻量级，用于快速浏览。
+*   **Payload 视图 (水面之下)**：渲染完整的 Content 和 Code Snippets。重量级，用于深度参考。
 
-### 6.2.2 注入模板设计 (Injection Template)
-为了防止“上下文污染”（即 Agent 分不清哪些是当前用户的指令，哪些是历史记忆），我们使用 **明确的分隔符 (Explicit Delimiters)** 包裹记忆块。
+### 7.2.2 自适应渲染策略 (Adaptive Rendering Strategies)
+根据不同的任务需求与 Token 预算，系统实现了三种渲染策略（对应代码库 `src/hivememory/engines/retrieval/renderer.py`）：
 
-推荐使用 **XML Tags**（Claude/GPT-4 对此表现最佳），将记忆隔离在 System Prompt 的特定区域。
+#### 策略 A: 全量加载 (Full Context / MVP)
+*   **类名**: `FullContextRenderer`
+*   **机制**：简单粗暴。按相关性顺序，强制注入每一条检索结果的完整 Payload。
+*   **边界处理**：当总长度达到 `max_tokens` (如 2000) 时，直接硬截断后续内容。
+*   **适用场景**：Token 预算充足，或检索结果较少（< 3条）的简单场景。
 
-#### Template 示例：
-```markdown
+#### 策略 B: 动态预算截断 (Dynamic Budgeting / Waterfall)
+*   **类名**: `CascadeContextRenderer`
+*   **机制**：采用“瀑布式”降级逻辑，在信息密度与完整性之间取得平衡。
+    1.  **Top-N (如 Top-1)**：强制注入完整 `Payload`，确保最相关的信息不丢失。
+    2.  **其余结果**：尝试注入 Payload；如果 Token 预算紧张，自动**降级为 Index 视图**（仅保留摘要与标签）。
+    3.  **预算耗尽**：停止注入。
+*   **优势**：保证了 Agent 既能看到核心细节（Top-1），又能获得广阔的联想视野（Top-5 Index）。
+
+#### 策略 C: 懒加载与引用 (Lazy Loading / Skill-Style)
+*   **类名**: `CompactContextRenderer`
+*   **机制**：默认**仅渲染 Index 视图**，赋予 Agent 主动查阅的工具。
+    *   **Prompt 形态**：
+        ```markdown
+        <memory_index>
+        1. [ID: mem_01] "Python Date Utils" (Tags: #code) > Summary: ISO8601 parsing.
+        2. [ID: mem_05] "Auth Protocols" (Tags: #security) > Summary: OAuth2 flows.
+        (Hint: Use tool `read_memory(id)` to read full content)
+        </memory_index>
+        ```
+    *   **交互流**：Agent 浏览摘要 -> 发现 `mem_05` 很关键 -> 调用 `read_memory("mem_05")` -> 下一轮注入完整内容。
+*   **适用场景**：复杂推理任务、Token 极其昂贵的长上下文场景。
+
+### 7.2.3 注入模板设计 (Injection Template)
+为了防止“上下文污染”，我们使用 **明确的分隔符** 包裹记忆块。推荐使用 **XML Tags**（Claude/GPT-4 表现最佳）。
+
+#### Template 示例 (XML):
+```xml
 <system_memory_context>
-The following are RELEVANT MEMORIES retrieved from your past interactions. 
-Use them to maintain consistency and reuse code. 
-Pay attention to the [Tags] and (Time).
+The following are RELEVANT MEMORIES retrieved from your past interactions.
+Use them to maintain consistency.
 
+<!-- 完整视图示例 -->
 <memory_block id="1">
     [Tags]: #python #date-parsing #verified
     (Time): 2 days ago
     [Content]:
     Project uses Python 3.10. The `parse_date` function in `utils.py` handles ISO8601.
-    > Note: Do not implement `pytz` manually, use the project's built-in wrapper.
 </memory_block>
 
-<memory_block id="2">
+<!-- Index 视图示例 (懒加载) -->
+<memory_ref id="2" type="FACT">
     [Tags]: #legal #disclaimer
-    (Time): 1 month ago (Warning: Old)
-    [Content]:
-    Standard disclaimer text for EU clients.
-    [Reference]: Raw document available via ID `mem_legal_01`.
-</memory_block>
+    [Summary]: Standard disclaimer text for EU clients.
+    [Hint]: Use read_memory("mem_2") for details.
+</memory_ref>
 
 </system_memory_context>
-
-<instruction>
-Above is your memory. If a memory is marked (Warning: Old) or [Unverified], verify it before use.
-If you need the full content of a reference, call tool `read_memory_artifact(id)`.
-</instruction>
 ```
 
-### 6.2.3 元数据的“语义化翻译” (Semantic Translation of Metadata)
-我们在 3.2 和 3.3 节设计的复杂机制，在此处通过自然语言“翻译”给 Worker Agent：
+### 7.2.4 元数据的“语义化翻译” (Semantic Translation)
+我们将复杂的元数据逻辑翻译为自然语言提示：
+1.  **置信度翻译**：`confidence < 0.6` -> 渲染为 **"[Unverified] Suggestion"**。
+2.  **演化版本翻译**：若包含 `history`，渲染为 **"Current State (Upgraded from v1 on 2025-05-20)"**。
 
-1.  **置信度翻译 (Trust Translation)**
-    *   如果 `confidence > 0.9` (User Defined) -> 渲染为 **"User Constraint (MUST FOLLOW)"**。
-    *   如果 `confidence < 0.6` (LLM Inference) -> 渲染为 **"Suggestion (Verify before use)"**。
-    *   *目的*：直接告诉 Agent 听谁的，防止幻觉误导。
+### 7.2.5 多样性优化 (Diversity Optimization)
+在渲染之前，为了解决“检索结果同质化”（如检索出 3 个版本的相同代码）的问题，引入 **MMR (Maximal Marginal Relevance)** 算法。
+*   **机制**：在向量检索阶段，不再单纯依据“与 Query 的相似度”排序，而是综合考虑“与已选结果的差异性”。
+*   **效果**：确保 Top-5 结果覆盖了代码、文档、报错日志等不同维度，而不是重复的废话。
 
-2.  **演化/版本翻译 (Evolution Translation)**
-    *   如果检索到的是 Update 过的记忆（包含 `history_summary`）。
-    *   渲染格式：
-        > "Current State: Python 3.10. (Change Log: Upgraded from 3.8 on 2025-05-20)."
-    *   *目的*：让 Agent 理解“语境的变化”，防止它因为看到旧代码风格而困惑。
+## 7.3 权限与隔离 (Visibility & Scopes)
 
-### 6.2.4 "上帝视角"与懒加载 (God's Eye View & Lazy Loading)
-正如你所设想的，注入的内容应当是 **High-level Context (上帝视角)**，而非细节的堆砌。
-
-*   **策略**：对于 `CODE_SNIPPET` 或 `URL_RESOURCE` 类型的记忆，如果是超长内容（例如 > 500 tokens），Renderer 会自动执行 **Truncation (截断)**。
-*   **截断表现**：
-    > [Content]: Full documentation for library X. (Content truncated, 200 lines).
-    > [Action]: If you need to implement this specific library, call `search_memory(id="mem_123")` to retrieve full details.
-*   **价值**：
-    1.  **节省 Context**：让 128k 的窗口能装下更多个记忆摘要，而不是被一个巨大的文档塞满。
-    2.  **激发 Agent 主动性**：Agent 看到摘要后，如果觉得任务需要细节，会主动发起 Tool Call，这符合“慢思考”的逻辑。
-
-## 6.3 权限与隔离 (Visibility & Scopes)
-
-### 6.3.1 核心模型：同心圆作用域 (Concentric Scopes)
+### 7.3.1 核心模型：同心圆作用域 (Concentric Scopes)
 为了解决“前端与后端共享，但与写作 Agent 隔离”的需求，我们定义三个层级的 Visibility Scopes。所有记忆原子在写入时，由 Patchouli 自动打上 Scope 标签。
 
 1.  **L1: PRIVATE (私有层 - Agent Internal)**
@@ -897,7 +802,7 @@ If you need the full content of a reference, call tool `read_memory_artifact(id)
     *   **场景**：用户偏好（“我不喜欢用 docker”）、项目全局配置（“项目名叫 Prometheus”）、最终交付的高置信度成果。
     *   **目的**：建立跨职能的团队共识。
 
-### 6.3.2 检索时的“透视逻辑” (The Perspective Logic)
+### 7.3.2 检索时的“透视逻辑” (The Perspective Logic)
 Worker Agent 在检索时，并非只能看一个库，而是看到**多个作用域的并集 (Union)**。
 
 *   **检索过滤公式示例**：
@@ -913,7 +818,7 @@ Worker Agent 在检索时，并非只能看一个库，而是看到**多个作�
     *   **Backend Agent** 看到：全局配置 + 后端接口 + 自己的草稿。
     *   **Frontend Agent** 看到：全局配置 + 后端接口 + 自己的草稿。（**看不到** 后端的草稿）。
 
-### 6.3.3 知识“晋升”机制 (Knowledge Promotion)
+### 7.3.3 知识“晋升”机制 (Knowledge Promotion)
 这是解决你提到的“知识迁移”的关键策略。记忆的权限不是一成不变的，而是流动的。
 
 *   **默认策略**：所有新生成的记忆默认为 `PRIVATE` 或 `WORKSPACE`（取决于任务类型）。
@@ -922,7 +827,7 @@ Worker Agent 在检索时，并非只能看一个库，而是看到**多个作�
     *   **Patchouli 的决策**：自动将其 Visibility 升级为 `GLOBAL`。
     *   *隐喻*：个人的经验（Private）经过验证后，变成了团队的标准作业程序（Global）。
 
-### 6.3.4 MVP 阶段实施方案 (Phase 1 Strategy)
+### 7.3.4 MVP 阶段实施方案 (Phase 1 Strategy)
 为了降低初期开发难度，建议 **暂缓实现 L2 Workspace 层**，仅保留 L1 和 L3。
 
 *   **简化版策略**：
@@ -930,9 +835,10 @@ Worker Agent 在检索时，并非只能看一个库，而是看到**多个作�
     *   **Private for Noise (噪音私有)**：仅将“思考链（Thinking Process）”和“报错日志”设为 `PRIVATE`。
     *   **实现方式**：在 Qdrant/Weaviate 中增加一个 `visibility` 字段即可，无需建立多张表。
 
-# 7 核心功能 IV：记忆生命周期管理 (Lifecycle Management)
+# 8 核心功能 V：记忆生命周期管理 (Lifecycle Management)
+> **[归属分身：大图书馆本体 (Librarian Core)]**
 
-## 7.0 管理哲学：三级记忆流水线 (The Three-Tier Pipeline)
+## 8.0 管理哲学：三级记忆流水线 (The Three-Tier Pipeline)
 
 借鉴计算机存储架构（Register -> L1/L2 Cache -> RAM -> Disk），构建 HiveMemory 的三级流水线。帕秋莉（Librarian）将担任操作系统的 **Memory Management Unit (MMU)** 角色。
 
@@ -954,13 +860,13 @@ Worker Agent 在检索时，并非只能看一个库，而是看到**多个作�
     *   **容量**：无限。
     *   **策略**：仅存储，不参与常规向量检索。只有通过特定精确指令才能“唤醒”。
 
-## 7.1 记忆生命力模型 (Memory Vitality Model)
+## 8.1 记忆生命力模型 (Memory Vitality Model)
 
 为了量化“哪条记忆该留，哪条该走”，我们定义一个核心指标：**记忆生命力分数 (Vitality Score, $V$)**。
 
 帕秋莉每天（或每周期）运行一次计算任务，更新所有记忆的 $V$ 值。
 
-### 7.1.1 评分公式 (The Formula)
+### 8.1.1 评分公式 (The Formula)
 $$V = (C \times I) \times D(t) + A$$
 
 *   **$C$ (Confidence 置信度)**：来自 3.3 节。用户输入的 $C=1.0$，模型推理的 $C=0.6$。
@@ -974,11 +880,11 @@ $$V = (C \times I) \times D(t) + A$$
 *   **$A$ (Access Boost 访问增强)**：
     *   每次命中与引用带来的加分（见 6.2）。
 
-## 7.2 动态强化算法 (Reinforcement Algorithm)
+## 8.2 动态强化算法 (Reinforcement Algorithm)
 
 类似于 Cache 的 **"Hit"** 机制，但更复杂，因为我们要区分“检索到了”和“真的有帮助”。
 
-### 7.2.1 触发强化 (Hit & Boost)
+### 8.2.1 触发强化 (Hit & Boost)
 当 Worker Agent 在 `Retrieval Engine` 中成功调用了某条记忆（ID: `mem_123`），并将其注入 Context 后：
 
 1.  **被动命中 (Passive Hit)**：
@@ -997,7 +903,7 @@ $$V = (C \times I) \times D(t) + A$$
         *   Positive: $A = A + 50$ (锁定为长期记忆)。
         *   Negative: $C = C \times 0.5$ (置信度惩罚，加速淘汰)。
 
-## 7.3 垃圾回收与归档策略 (GC & Archiving Strategy)
+## 8.3 垃圾回收与归档策略 (GC & Archiving Strategy)
 
 帕秋莉运行一个异步的 **"Gardening Job" (园艺进程)**，根据 $V$ 分数执行分级处理。
 
@@ -1005,13 +911,13 @@ $$V = (C \times I) \times D(t) + A$$
 
 >   **减少幻觉**：过时的、低置信度的信息如果不清理，会成为检索时的“噪音”，误导 Agent。GC 机制本质上是一个**“主动遗忘”**过程，这对保持 Agent 的聪明程度至关重要。
 
-### 7.3.1 阈值定义 (Thresholds)
+### 8.3.1 阈值定义 (Thresholds)
 设定三个水位线：
 *   **High Watermark ($V > 80$)**: **L2 活跃区**。保留在向量索引中，随时可查。
 *   **Low Watermark ($20 < V \le 80$)**: **L2 边缘区**。保留索引，但在检索时优先级降低（Rerank 降权）。
 *   **Archive Line ($V \le 20$)**: **L3 归档区**。
 
-### 7.3.2 归档流程 (The Archiving Process)
+### 8.3.2 归档流程 (The Archiving Process)
 当记忆 $V$ 值跌破 20 分时，触发归档：
 
 1.  **动作**：
@@ -1021,7 +927,7 @@ $$V = (C \times I) \times D(t) + A$$
     *   普通的模糊语义检索（"找个关于日期的代码"）将不再返回这条记忆。
     *   数据库体积瘦身，查询速度保持高速。
 
-### 7.3.3 记忆唤醒 (Resurrection / Cache Miss Handling)
+### 8.3.3 记忆唤醒 (Resurrection / Cache Miss Handling)
 被归档的记忆并非永久死亡，它可以被“唤醒”（从 L3 搬回 L2）。
 
 *   **场景**：用户突然问起一年前的一个极冷门的项目代号 "Project Titan"。
@@ -1034,7 +940,7 @@ $$V = (C \times I) \times D(t) + A$$
         *   **动作**：帕秋莉重新计算 Embedding，将其重新插入 Vector DB。
         *   **重置**：$V$ 分数恢复到初始值，`last_accessed_at` 刷新。
 
-# 8. 用户体验与交互设计 (User Experience & Interaction)
+# 9. 用户体验与交互设计 (User Experience & Interaction)
 
 本章定义系统的非功能性指标及用户界面，旨在确保系统不仅“能跑”，而且“好用、透明、安全”。
 
@@ -1113,7 +1019,7 @@ $$V = (C \times I) \times D(t) + A$$
 *   **3. 知识图谱可视化 (可选)**：
     *   使用 2D 节点图展示 Tags 之间的关联，直观感受知识库的形状。
 
-### 8.3.3 开发工具 (DevTools / CLI)
+### 9.3.3 开发工具 (DevTools / CLI)
 *   **Trace Mode**：在终端输出完整的 Log：
     ```text
     [Router] Query: "fix bug" -> Intent: RETRIEVE
@@ -1123,100 +1029,48 @@ $$V = (C \times I) \times D(t) + A$$
     ```
 *   **Force Flush**：`hive-cli flush` 强制触发 Librarian 处理当前 Buffer。
 
-# 9. 技术栈选型 (Technology Stack Selection)
+# 10. 技术栈选型 (Technology Stack Selection)
 
-本章明确 HiveMemory 系统的工程实现基础。核心原则是**模块解耦，拥抱开源，平滑演进**。
+本系统采用 **Facade（外观模式）** + **Component（组件化）** 的架构。
 
-## 9.1 核心编程语言与编排框架 (Core & Orchestration)
+## 10.1 目录结构与模块划分 (Directory Structure)
+
+```text
+src/hivememory
+│  client.py                   # 统一入口 (HiveMemoryClient)
+│
+├─patchouli                    # [人格层] 帕秋莉的三位一体分身
+│  │  eye.py                   # 真理之眼 (Global Gateway)
+│  │  retrieval_familiar.py    # 检索使魔 (Retrieval Engine)
+│  │  librarian_core.py        # 馆长本体 (Perception/Generation/Lifecycle)
+│  │  system.py                # 系统总线 (System Facade)
+│
+├─engines                      # [能力层] 具体的业务逻辑引擎
+│  │  gateway/                 # 路由与重写
+│  │  perception/              # 话题感知
+│  │  generation/              # 记忆生成
+│  │  retrieval/               # 向量检索
+│  │  lifecycle/               # 生命周期
+│
+├─infrastructure               # [基础设施层]
+│  │  storage/                 # 数据库服务 (Qdrant/SQL)
+│  │  llm/                     # LLM 服务 (LiteLLM)
+│  │  embedding/               # 嵌入模型
+│
+└─utils                        # 通用工具
+```
+
+## 10.2 核心技术栈 (Core Stack)
 
 *   **编程语言**: **Python 3.10+**
-    *   *理由*: 拥有最完善的 AI/LLM 生态库，方便接入各类模型与数据处理工具。
-*   **编排框架演进策略**:
-    *   **MVP 阶段**: **LangChain (v0.2+)**
-        *   利用 `LCEL (LangChain Expression Language)` 快速构建线性的“检索-增强-生成”链路。
-        *   利用现成的 `OutputParsers` 快速处理 Librarian 的 JSON 输出。
-    *   **Growth 阶段**: **LangGraph**
-        *   随着 Librarian 逻辑变复杂（引入循环查重、多步推理），将核心逻辑迁移至 LangGraph 的 `StateGraph`。
-        *   *理由*: LangGraph 对循环（Cycles）和持久化状态（Persistence）的支持远强于基础 LangChain，适合构建有“长时记忆”的 Agent。
+*   **编排框架**: **LangChain** (MVP) -> **LangGraph** (Planned).
+*   **基础设施**:
+    *   **LLM**: **LiteLLM** (统一接口，支持 OpenAI/Claude/DeepSeek).
+    *   **Embedding**: **Sentence-Transformers** (Local `all-MiniLM-L6-v2` for Perception) / OpenAI (for Indexing).
+    *   **Vector DB**: **Qdrant** (Docker部署，高性能 Rust 内核).
+    *   **Meta DB**: **SQLite** (MVP) -> PostgreSQL (Prod).
 
-## 9.2 数据存储层 (Data Persistence)
+## 10.3 接口设计 (API Design)
 
-*   **向量数据库**: **Qdrant**
-    *   *部署方式*: Docker 容器 (本地/云端)。
-    *   *选型理由*:
-        *   **高性能 Rust 内核**: 毫秒级检索延迟。
-        *   **强大的 Payload Filtering**: 完美支持 3.4 节定义的“标签过滤”和“元数据查询”。
-        *   **混合检索支持**: 原生支持 Sparse Vector (BM25) 与 Dense Vector 的融合。
-        *   **易用性**: 提供极佳的 Python Client。
-*   **应用数据库 (可选)**: **SQLite (MVP) -> PostgreSQL (Prod)**
-    *   *用途*: 存储用户配置、原始对话日志（Log Buffer）、任务队列状态。
-*   **缓存/消息队列**: **Redis/Celery**
-    *   *用途*: 作为 Librarian 的 `Event Buffer`，暂存高并发下的对话流数据。
-
-## 9.3 模型服务抽象层 (Model Abstraction Layer)
-
-为了确保系统不被单一供应商锁定（Vendor Lock-in），并在未来能接入更强的模型，系统核心层必须实现**模型无关 (Model Agnostic)** 的接口设计。
-
-*   **LLM 接入标准**: **OpenAI-Compatible API Interface**
-    *   *设计*: 定义一个 `BaseLLMService` 抽象类。
-    *   *实现工具*: 推荐集成 **LiteLLM** 库。
-        *   *作用*: 它充当中间件，可以将 Claude, Gemini, DeepSeek, Ollama 等 100+ 种模型的 API 统一转化为标准的 OpenAI 格式（`messages=[...]`）。
-    *   *配置化*: 允许用户在 `config.yaml` 中分别为 Worker 和 Librarian 指定不同的模型。
-        *   *Worker*: 指向高智商模型 (GPT-4o, Claude 3.5 Sonnet)。
-        *   *Librarian*: 指向高性价比/长窗口模型 (DeepSeek-V3, GPT-4o-mini)。
-
-*   **Embedding 接入标准**:
-    *   *设计*: 定义 `BaseEmbeddingService` 接口，输入 `text`，输出 `List[float]`。
-    *   *支持*:
-        *   **Cloud**: OpenAI `text-embedding-3`, Cohere (支持多语言)。
-        *   **Local**: HuggingFace `SentenceTransformers` (如 `BGE-M3`, `E5`)，支持私有化部署。
-
-*   **感知层 Embedding (Perception Layer)**:
-    *   *用途*: 用于 4.1 节的流式语义吸附与漂移检测。
-    *   *选型*: **Sentence-Transformers** (本地运行)。
-    *   *模型*: `all-MiniLM-L6-v2` 或 `bge-small-en-v1.5`。
-    *   *理由*: 极轻量（< 100MB），CPU 推理仅需毫秒级，无需消耗昂贵的 LLM Token，适合高频实时计算。
-
-## 9.4 接口与交互 (API & Interface)
-
-*   **后端框架**: **FastAPI**
-    *   *理由*: 高性能异步处理（Async/Await），天然支持 OpenAPI (Swagger) 文档，方便生成前端 Client。
-*   **前端 MVP 快速验证**：**Streamlit** (Python)。
-    *   *理由*：几行代码就能搞定 Chat UI 和 DataFrame 表格展示，完美契合后端 Python 技术栈。
-*   **前端正式版**：**Next.js (React) + ShadcnUI**。
-    *   *理由*：响应式好，适合构建复杂的 Dashboard 和卡片交互。
-
-## 9.5 架构图示 (Architecture Stack)
-
-```mermaid
-graph TD
-    subgraph "Frontend / Client"
-        Streamlit[Streamlit UI]
-        CLI[Command Line Interface]
-    end
-
-    subgraph "Application Layer (FastAPI)"
-        Orchestrator[LangChain / LangGraph]
-        ModelProxy[LiteLLM Proxy]
-    end
-
-    subgraph "Model Layer (Pluggable)"
-        WorkerLLM[Worker LLM \n(e.g., GPT-4o)]
-        LibrarianLLM[Librarian LLM \n(e.g., DeepSeek)]
-        EmbedModel[Embedding Model \n(e.g., OpenAI/BGE)]
-    end
-
-    subgraph "Data Layer"
-        Qdrant[(Qdrant Vector DB)]
-        Redis[(Redis Buffer)]
-        SQLite[(SQLite Meta)]
-    end
-
-    Streamlit --> Orchestrator
-    Orchestrator --> ModelProxy
-    Orchestrator --> Redis
-    Orchestrator --> Qdrant
-    ModelProxy --> WorkerLLM
-    ModelProxy --> LibrarianLLM
-    ModelProxy --> EmbedModel
-```
+系统通过 `src/hivememory/client.py` 提供统一的 Python SDK。
+Worker Agent 不直接操作数据库，而是通过 `patchouli.system` 实例与 HiveMemory 交互。

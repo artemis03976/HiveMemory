@@ -69,24 +69,21 @@ class SingletonModelService(BaseRerankService):
 
     def __init__(
         self,
-        model_name: str,
-        device: str = "cpu",
-        use_fp16: bool = True
+        config: "RerankerConfig"
     ):
         """
         初始化服务配置
         
         Args:
-            model_name: 模型名称
-            device: 运行设备
-            use_fp16: 是否使用 FP16
+            config: Reranker 配置对象
         """
         if self._initialized:
             return
 
-        self.model_name = model_name
-        self.device = device
-        self.use_fp16 = use_fp16
+        self.config = config
+        self.model_name = config.model_name
+        self.device = config.device
+        self.use_fp16 = config.use_fp16
         self._model = None
         self._lazy_load_lock = threading.Lock()
         
@@ -94,7 +91,7 @@ class SingletonModelService(BaseRerankService):
         
         logger.info(
             f"{self.__class__.__name__} 配置: "
-            f"model={model_name}, device={device}"
+            f"model={self.model_name}, device={self.device}"
         )
 
     @property

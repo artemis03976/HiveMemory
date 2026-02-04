@@ -1,3 +1,7 @@
+--------------------
+此模块已实现，文档已合并至项目开发规划文档PROJECT.md，仅做原内容参考
+--------------------
+
 # 进阶模块开发计划：全局智能网关设计
 **Advanced Development: Global Intelligent Gateway Design**
 

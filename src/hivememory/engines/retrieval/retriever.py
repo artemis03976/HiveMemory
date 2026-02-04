@@ -92,7 +92,7 @@ class DenseRetriever(BaseMemoryRetriever):
 
         # 获取搜索文本
         search_text = query.get_search_text()
-        logger.debug(f"Dense检索: '{search_text[:50]}...', filters={filters}")
+        logger.info(f"Dense检索: '{search_text[:50]}...', filters={filters}")
 
         try:
             # 执行稠密向量检索
@@ -219,7 +219,7 @@ class SparseRetriever(BaseMemoryRetriever):
 
         # 获取搜索文本
         search_text = query.get_search_text()
-        logger.debug(f"Sparse检索: '{search_text[:50]}...', filters={filters}")
+        logger.info(f"Sparse检索: '{search_text[:50]}...', filters={filters}")
 
         try:
             # 执行稀疏向量检索

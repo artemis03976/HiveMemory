@@ -2,6 +2,9 @@
 HiveMemory Utility Modules.
 
 Common utility classes and functions used across the project.
+
+Note: MemoryAtomRenderer is not exported here to avoid circular imports.
+Import it directly: from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
 """
 
 from hivememory.utils.time_formatter import (
@@ -16,9 +19,10 @@ from hivememory.utils.json_parser import (
     parse_llm_json_many,
     safe_parse_llm_json,
 )
-from hivememory.utils.memory_atom_renderer import (
-    MemoryAtomRenderer,
-    RenderFormat,
+from hivememory.utils.token_estimator import (
+    TokenEstimator,
+    EstimationStrategy,
+    estimate_tokens,
 )
 
 __all__ = [
@@ -30,6 +34,7 @@ __all__ = [
     "parse_llm_json",
     "parse_llm_json_many",
     "safe_parse_llm_json",
-    "MemoryAtomRenderer",
-    "RenderFormat",
+    "TokenEstimator",
+    "EstimationStrategy",
+    "estimate_tokens",
 ]

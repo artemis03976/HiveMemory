@@ -57,7 +57,6 @@ from hivememory.engines.perception.buffer_manager import (
     SemanticBufferManager,
     SimpleBufferManager,
 )
-from hivememory.engines.perception.context_bridge import ContextBridge
 from hivememory.engines.perception.grey_area_arbiter import (
     RerankerArbiter,
     SLMArbiter,

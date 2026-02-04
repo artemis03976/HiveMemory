@@ -26,7 +26,7 @@ logging:
 llm:
   gateway:
     provider: "litellm"
-    model: "gpt-4o"
+    model: "deepseek/deepseek-chat"
     api_key: null  # 通过环境变量 HIVEMEMORY__LLM__WORKER__API_KEY 设置
     api_base: null
     temperature: 0.7
@@ -51,12 +51,12 @@ embedding:
     dimension: 1024
 
   perception:
-    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    model_name: "BAAI/bge-m3"
     device: "cpu"
     cache_dir: null
     batch_size: 32
     normalize_embeddings: true
-    dimension: 384
+    dimension: 1024
 
 # ========== 向量数据库配置 ==========
 qdrant:
@@ -77,36 +77,51 @@ redis:
   db: 0
   decode_responses: true
 
+# ========== Gateway 配置 ==========
+gateway:
+  interceptor:
+    enabled: true
+    enable_system: true  # 系统指令拦截
+    enable_chat: true    # 闲聊拦截
+    custom_system_patterns: []  # 自定义系统指令模式
+    custom_chat_patterns: []    # 自定义闲聊模式
+
+  analyzer:
+    enabled: true
+    context_window: 3       # 上下文窗口大小（最近N条消息）
+    prompt_variant: "default"
+    prompt_language: "zh"
+
 # ========== 感知层配置 ==========
 perception:
-  layer_type: "semantic_flow"  # 可选: semantic_flow, simple
-  enable: true
-
-  semantic_flow:
+  engine:
+    type: "semantic_flow"
     idle_timeout_seconds: 900  # 15分钟
     scan_interval_seconds: 30
-    semantic_threshold: 0.6
-    short_text_threshold: 50
-    ema_alpha: 0.3
     max_processing_tokens: 8192
     enable_smart_summary: false
 
-  simple:
-    message_threshold: 6
-    timeout_seconds: 900
-    enable_semantic_trigger: true
+    adsorber:
+      semantic_threshold_high: 0.55
+      semantic_threshold_low: 0.45
+      short_text_threshold: 10
+      ema_alpha: 0.3
+
+      arbiter:
+        enabled: true
+        engine:
+          type: "reranker"
+          threshold: -6
 
 # ========== 记忆生成配置 ==========
 generation:
   extractor:
-    max_retries: 2
-    temperature: null  # null 则使用 LLM 默认值
-    max_tokens: null
-    system_prompt: null
-    user_prompt: null
-    llm_config: null  # 使用全局 librarian 配置
+    enabled: true
+    system_prompt: null  # 自定义系统提示词
+    user_prompt: null    # 自定义用户提示词
 
   deduplicator:
+    enabled: true
     high_similarity_threshold: 0.95  # TOUCH/UPDATE 分界
     low_similarity_threshold: 0.75   # UPDATE/CREATE 分界
     content_similarity_threshold: 0.9
@@ -114,24 +129,6 @@ generation:
 
 # ========== 记忆检索配置 ==========
 retrieval:
-  enable_routing: true
-
-  router:
-    router_type: "simple"  # simple/llm/always/never
-    min_query_length: 3
-    min_keyword_count: 1
-    additional_keywords: []
-    llm_config: null
-    system_prompt: null
-
-  processor:
-    enable_time_parsing: true
-    enable_type_detection: true
-    enable_query_expansion: true
-    expansion_keywords: []
-    enable_llm_rewrite: false
-    llm_config: null
-
   renderer:
     type: "full"  # 可选: full, cascade, compact
     render_format: "xml"  # xml/markdown
@@ -141,12 +138,13 @@ retrieval:
     stale_days: 90
 
   retriever:
+    type: "hybrid"
     top_k: 5
-    score_threshold: 0.75
-    enable_hybrid_search: true
+    score_threshold: 0.0
     enable_parallel: true
 
     dense:
+      type: "dense"
       enabled: true
       top_k: 50
       score_threshold: 0.0
@@ -155,11 +153,13 @@ retrieval:
       enable_confidence_boost: true
 
     sparse:
+      type: "sparse"
       enabled: true
       top_k: 50
       score_threshold: 0.0
 
     fusion:
+      type: "rrf"  # 可选: rrf, adaptive
       rrf_k: 60
       dense_weight: 1.0
       sparse_weight: 1.0
@@ -167,7 +167,6 @@ retrieval:
 
     reranker:
       enabled: true
-      type: "cross_encoder"  # noop 或 cross_encoder
       model_name: "BAAI/bge-reranker-v2-m3"
       device: "cpu"
       use_fp16: true
@@ -189,7 +188,7 @@ lifecycle:
     points_per_access: 2.0
     decay_lambda: 0.01
 
-  reinforcement_engine:
+  reinforcement:
     enable_event_history: true
     event_history_limit: 10000
     hit_boost: 5.0

@@ -23,8 +23,8 @@ from hivememory.core.models import (
     Identity,
     StreamMessage,
     StreamMessageType,
-    estimate_tokens,
 )
+from hivememory.utils.token_estimator import estimate_tokens
 
 
 # ============ 枚举定义 ============
@@ -177,7 +177,7 @@ class LogicalBlock(BaseModel):
     #: 这是 Gateway 的核心输出之一，用于替代 raw query 做语义锚点
     rewritten_query: Optional[str] = Field(
         default=None,
-        description="Gateway 重写后的查询（指代消解）"
+        description="Gateway 重写后的查询（指代消解与上下文补全）"
     )
 
     #: Gateway 意图分类结果

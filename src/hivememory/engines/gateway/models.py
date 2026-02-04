@@ -4,7 +4,7 @@ Global Gateway 数据模型
 定义 Gateway 的输入输出协议
 
 作者: HiveMemory Team
-版本: 2.1
+版本: 2.2
 """
 
 import logging
@@ -12,8 +12,6 @@ from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
-
-from hivememory.patchouli.protocol.models import QueryFilters
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +27,6 @@ class GatewayIntent(str, Enum):
     #: 闲聊，无需检索
     CHAT = "CHAT"
 
-    #: 工具调用
-    TOOL = "TOOL"
-
     #: 系统指令 (如 /clear, /reset)
     SYSTEM = "SYSTEM"
 
@@ -41,23 +36,23 @@ class GatewayResult(BaseModel):
     Gateway 服务层统一输出数据模型
 
     这是 GatewayEngine 对 TheEye 的输出，将被用于构建协议消息：
-    - RetrievalRequest: 使用 rewritten_query + search_keywords + target_filters
+    - RetrievalRequest: 使用 rewritten_query + search_keywords
     - Observation: 使用 rewritten_query + worth_saving + reason
+
+    注意: 乐观检索策略下，不再由 Gateway 生成过滤条件，
+    过滤条件由 RetrievalFamiliar 根据 user_id 动态创建。
     """
 
     # ========== 核心输出字段 ==========
 
-    #: 意图分类
-    intent: GatewayIntent = Field(..., description="意图分类")
+    #: 意图分类 (乐观策略下默认为 RAG)
+    intent: GatewayIntent = Field(default=GatewayIntent.RAG, description="意图分类")
 
     #: 指代消解后的完整、独立的查询
     rewritten_query: str = Field(..., description="指代消解后的查询")
 
     #: 用于稀疏检索/BM25 的关键词数组
     search_keywords: List[str] = Field(default_factory=list, description="检索关键词")
-
-    #: 启发式过滤条件 (如 memory_type)
-    target_filters: QueryFilters = Field(default_factory=QueryFilters, description="过滤条件")
 
     #: 是否值得保存为长期记忆
     worth_saving: bool = Field(..., description="是否值得保存")
@@ -69,9 +64,6 @@ class GatewayResult(BaseModel):
 
     #: 处理耗时（毫秒），由 TheEye 填充
     processing_time_ms: float = Field(default=0.0, description="处理耗时")
-
-    #: 使用的模型，由 TheEye 填充
-    model_used: Optional[str] = Field(default=None, description="使用的模型")
 
     #: 网关解析失败标记
     gateway_parse_failed: bool = Field(default=False, description="解析失败标记")
@@ -90,7 +82,7 @@ class GatewayResult(BaseModel):
         创建回退结果
 
         当网关失败时的保守回退策略:
-        - intent -> "CHAT"
+        - intent -> "RAG" (乐观策略)
         - rewritten_query -> 原 query
         - search_keywords -> 空数组
         - worth_saving -> false
@@ -103,10 +95,9 @@ class GatewayResult(BaseModel):
             GatewayResult: 回退结果
         """
         return cls(
-            intent=GatewayIntent.CHAT,
+            intent=GatewayIntent.RAG,  # 乐观策略：即使失败也尝试检索
             rewritten_query=original_query,
             search_keywords=[],
-            target_filters=QueryFilters(),
             worth_saving=False,
             reason=reason,
             gateway_parse_failed=True,
@@ -136,19 +127,18 @@ class SemanticAnalysisResult(BaseModel):
 
     这是 L2 语义分析器的原始输出，不包含任何业务逻辑相关的字段。
     由 GatewayService 负责将其转换为 GatewayResult。
+
+    注意: 乐观检索策略下，不再包含 target_filters 字段。
     """
 
-    #: 意图分类
-    intent: GatewayIntent = Field(..., description="意图分类")
+    #: 意图分类 (乐观策略下默认为 RAG)
+    intent: GatewayIntent = Field(default=GatewayIntent.RAG, description="意图分类")
 
     #: 指代消解后的完整、独立的查询
     rewritten_query: str = Field(..., description="指代消解后的查询")
 
     #: 用于稀疏检索/BM25 的关键词数组
     search_keywords: List[str] = Field(default_factory=list, description="检索关键词")
-
-    #: 启发式过滤条件 (如 memory_type)
-    target_filters: QueryFilters = Field(default_factory=QueryFilters, description="过滤条件")
 
     #: 是否值得保存为长期记忆
     worth_saving: bool = Field(..., description="是否值得保存")

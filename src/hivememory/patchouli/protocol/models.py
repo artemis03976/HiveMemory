@@ -109,19 +109,20 @@ class RetrievalRequest(ProtocolMessage):
     从 Eye 发送到 RetrievalFamiliar 的检索请求。
     用于热路径 (Hot Path) 的实时记忆检索。
 
+    乐观检索策略：
+    - 不再包含 filters 字段
+    - 过滤条件由 RetrievalFamiliar 根据 user_id 动态创建
+
     Attributes:
         msg_type: 固定为 RETRIEVAL_REQUEST
         semantic_query: 指代消解后的完整查询，用于语义检索
         keywords: 稀疏检索关键词列表（BM25）
-        filters: 元数据过滤条件
         user_id: 用户标识符
 
     Examples:
-        >>> from hivememory.core.models import MemoryType
         >>> request = RetrievalRequest(
         ...     semantic_query="如何部署贪吃蛇游戏？",
         ...     keywords=["部署", "贪吃蛇", "游戏"],
-        ...     filters=QueryFilters(memory_type=MemoryType.FACT),
         ...     user_id="user123"
         ... )
     """
@@ -133,9 +134,6 @@ class RetrievalRequest(ProtocolMessage):
 
     # 稀疏检索关键词（用于 BM25）
     keywords: List[str] = Field(default_factory=list, description="检索关键词")
-
-    # 元数据过滤条件
-    filters: QueryFilters = Field(default_factory=QueryFilters, description="过滤条件")
 
     # 用户标识符
     user_id: str = Field(default="default", description="用户 ID")

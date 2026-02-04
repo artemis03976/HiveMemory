@@ -17,7 +17,7 @@ from hivememory.engines.retrieval.interfaces import BaseReranker
 from hivememory.engines.retrieval.models import SearchResults, RetrievalQuery
 from hivememory.patchouli.config import RerankerConfig
 from hivememory.infrastructure.rerank.base import BaseRerankService
-from hivememory.utils import MemoryAtomRenderer
+from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
 
 logger = logging.getLogger(__name__)
 

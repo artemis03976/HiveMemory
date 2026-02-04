@@ -16,10 +16,11 @@ from typing import List, Optional, Tuple, Union
 import logging
 
 from hivememory.patchouli.config import FullRendererConfig, CascadeRendererConfig, CompactRendererConfig
-from hivememory.core.models import MemoryAtom, estimate_tokens
+from hivememory.core.models import MemoryAtom
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
-from hivememory.utils import TimeFormatter, Language, MemoryAtomRenderer
+from hivememory.utils import TimeFormatter, Language, estimate_tokens
+from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
 
 logger = logging.getLogger(__name__)
 

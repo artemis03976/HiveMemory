@@ -28,7 +28,7 @@ from qdrant_client.models import (
 from hivememory.core.models import MemoryAtom, IndexLayer
 from hivememory.patchouli.config import QdrantConfig, EmbeddingConfig
 from hivememory.infrastructure.embedding import get_bge_m3_service
-from hivememory.utils import MemoryAtomRenderer
+from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -45,21 +45,21 @@ class QdrantMemoryStore:
 
     def __init__(
         self,
-        qdrant_config: Optional[QdrantConfig] = None,
-        embedding_config: Optional[EmbeddingConfig] = None,
+        qdrant_config: QdrantConfig,
+        embedding_config: EmbeddingConfig,
     ):
         """
         初始化存储管理器
 
         Args:
-            qdrant_config: Qdrant 配置（可选，默认从环境变量读取）
-            embedding_config: Embedding 配置（可选，默认从环境变量读取）
+            qdrant_config: Qdrant 配置
+            embedding_config: Embedding 配置
 
         注意: 直接实例化配置类会自动从环境变量读取值
         """
         # 使用默认配置（直接实例化会读取环境变量）
-        self.qdrant_config = qdrant_config or QdrantConfig()
-        self.embedding_config = embedding_config or EmbeddingConfig()
+        self.qdrant_config = qdrant_config
+        self.embedding_config = embedding_config
 
         # 初始化 Qdrant 客户端
         # 本地部署时 api_key 为 None，不传递给客户端

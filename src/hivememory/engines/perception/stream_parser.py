@@ -26,6 +26,7 @@ from hivememory.engines.perception.models import (
     StreamMessage,
     StreamMessageType,
 )
+from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -190,12 +191,12 @@ class UnifiedStreamParser:
             if tool_calls and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
                 function = tool_call.get("function", {})
-                import json
                 args = function.get("arguments", "{}")
-                try:
-                    args_dict = json.loads(args) if isinstance(args, str) else args
-                except json.JSONDecodeError:
-                    args_dict = {}
+                
+                if isinstance(args, str):
+                    args_dict = parse_llm_json(args, default={})
+                else:
+                    args_dict = args
 
                 return StreamMessage(
                     message_type=StreamMessageType.TOOL_CALL,

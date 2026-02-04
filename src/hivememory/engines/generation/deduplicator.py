@@ -24,9 +24,6 @@ from hivememory.engines.generation.models import DuplicateDecision, ExtractedMem
 from hivememory.engines.generation.interfaces import BaseDeduplicator
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
-if TYPE_CHECKING:
-    from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
-
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +57,6 @@ class MemoryDeduplicator(BaseDeduplicator):
         self,
         storage: QdrantMemoryStore,
         config: DeduplicatorConfig,
-        lifecycle_manager: Optional["MemoryLifecycleManager"] = None,
     ):
         """
         初始化查重管理器
@@ -68,11 +64,9 @@ class MemoryDeduplicator(BaseDeduplicator):
         Args:
             storage: 向量存储实例 (QdrantMemoryStore)
             config: 查重器配置
-            lifecycle_manager: 生命周期管理器 (可选，用于记录命中事件)
         """
         self.storage = storage
         self.config = config
-        self.lifecycle_manager = lifecycle_manager
 
     def check_duplicate(
         self,
@@ -136,14 +130,9 @@ class MemoryDeduplicator(BaseDeduplicator):
             logger.info(f"查重决策: {decision.value}")
 
             # 记录生命周期事件 - TOUCH 决策表示记忆被再次命中
-            if decision == DuplicateDecision.TOUCH and self.lifecycle_manager:
-                try:
-                    self.lifecycle_manager.record_hit(
-                        existing_memory.id,
-                        source="deduplicator"
-                    )
-                except Exception as e:
-                    logger.warning(f"记录生命周期事件失败: {e}")
+            if decision == DuplicateDecision.TOUCH:
+                # TODO: 实现生命周期事件记录
+                pass
 
             return decision, existing_memory
 
@@ -431,8 +420,6 @@ def create_deduplicator(
     return MemoryDeduplicator(
         storage=storage,
         config=config,
-        # lifecycle_engine 暂保持 None，后续可从 config 读取
-        lifecycle_engine=None,
     )
 
 

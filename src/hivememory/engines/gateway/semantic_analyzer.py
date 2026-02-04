@@ -4,10 +4,9 @@ L2 语义分析器实现
 提供基于 LLM + Function Calling 的语义分析实现。
 
 作者: HiveMemory Team
-版本: 2.0
+版本: 2.1 (乐观检索策略)
 """
 
-import json
 import logging
 from typing import Any, List, Optional
 
@@ -20,26 +19,20 @@ from hivememory.engines.gateway.models import (
     SemanticAnalysisResult,
 )
 from hivememory.engines.gateway.prompts import get_system_prompt
-from hivememory.patchouli.protocol.models import QueryFilters
-from hivememory.core.models import MemoryType
+from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
 
-# Function Calling Schema 定义
+# Function Calling Schema 定义 
 GATEWAY_FUNCTION_SCHEMA = {
     "type": "function",
     "function": {
         "name": "analyze_user_query",
-        "description": "分析用户查询的意图、重写查询并评估记忆价值",
+        "description": "分析用户查询，重写查询并评估记忆价值",
         "parameters": {
             "type": "object",
             "properties": {
-                "intent": {
-                    "type": "string",
-                    "enum": ["RAG", "CHAT", "TOOL", "SYSTEM"],
-                    "description": "用户意图分类",
-                },
                 "rewritten_query": {
                     "type": "string",
                     "description": "指代消解后的完整、独立的查询",
@@ -47,19 +40,7 @@ GATEWAY_FUNCTION_SCHEMA = {
                 "search_keywords": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "用于稀疏检索的关键词",
-                },
-                "memory_type": {
-                    "type": "string",
-                    "enum": [
-                        "CODE_SNIPPET",
-                        "FACT",
-                        "URL_RESOURCE",
-                        "REFLECTION",
-                        "USER_PROFILE",
-                        None,
-                    ],
-                    "description": "记忆类型过滤（可选）",
+                    "description": "用于稀疏检索的关键词（3-5个）",
                 },
                 "worth_saving": {
                     "type": "boolean",
@@ -71,7 +52,6 @@ GATEWAY_FUNCTION_SCHEMA = {
                 },
             },
             "required": [
-                "intent",
                 "rewritten_query",
                 "search_keywords",
                 "worth_saving",
@@ -216,41 +196,17 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         ):
             raise ValueError("Invalid tool_call structure")
 
-        arguments = tool_call.function.arguments
-        if isinstance(arguments, str):
-            arguments = json.loads(arguments)
+        arguments = parse_llm_json(tool_call.function.arguments)
 
-        # 构建 SemanticAnalysisResult
+        # 构建 SemanticAnalysisResult (乐观检索策略)
         return SemanticAnalysisResult(
-            intent=GatewayIntent(arguments["intent"]),
+            intent=GatewayIntent.RAG,  # 乐观策略：默认所有查询都可能需要检索
             rewritten_query=arguments["rewritten_query"],
             search_keywords=arguments.get("search_keywords", []),
-            target_filters=self._build_filters(arguments.get("memory_type")),
             worth_saving=arguments["worth_saving"],
             reason=arguments["reason"],
             model=self.llm_service.model,
         )
-
-    def _build_filters(self, memory_type: Optional[str]) -> QueryFilters:
-        """
-        构建过滤条件
-
-        Args:
-            memory_type: 记忆类型（可选）
-
-        Returns:
-            QueryFilters: 结构化过滤条件
-        """
-        if not memory_type or not self.config.enable_memory_type_filter:
-            return QueryFilters()
-
-        # 将字符串转换为 MemoryType 枚举
-        try:
-            mt = MemoryType(memory_type)
-            return QueryFilters(memory_type=mt)
-        except (ValueError, TypeError):
-            logger.warning(f"无效的 memory_type: {memory_type}, 返回空过滤条件")
-            return QueryFilters()
 
 
 class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
@@ -281,10 +237,9 @@ class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
                 - reason: "L2 semantic analysis disabled"
         """
         return SemanticAnalysisResult(
-            intent=GatewayIntent.CHAT,
+            intent=GatewayIntent.RAG,  # 乐观策略：即使禁用也默认 RAG
             rewritten_query=query,
             search_keywords=[],
-            target_filters=QueryFilters(),
             worth_saving=False,
             reason="L2 semantic analysis disabled",
             model=None,

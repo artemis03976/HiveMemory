@@ -7,7 +7,7 @@ Gateway 单元测试
 - GatewayService
 
 作者: HiveMemory Team
-版本: 2.1
+版本: 2.2 (乐观检索策略)
 """
 
 import pytest
@@ -25,7 +25,6 @@ from hivememory.engines.gateway.models import (
     InterceptorResult,
     SemanticAnalysisResult,
 )
-from hivememory.patchouli.protocol.models import QueryFilters
 from hivememory.engines.gateway.interceptors import RuleInterceptor, NoOpInterceptor
 from hivememory.engines.gateway.semantic_analyzer import NoOpSemanticAnalyzer
 from hivememory.engines.gateway.engine import GatewayEngine
@@ -33,13 +32,12 @@ from hivememory.engines.gateway.prompts import get_system_prompt
 
 
 class TestGatewayModels:
-    """测试 Gateway 数据模型"""
+    """测试 Gateway 数据模型 (乐观检索策略)"""
 
     def test_gateway_intent_enum(self):
-        """测试意图枚举"""
+        """测试意图枚举 (乐观策略下只保留 RAG/CHAT/SYSTEM)"""
         assert GatewayIntent.RAG.value == "RAG"
         assert GatewayIntent.CHAT.value == "CHAT"
-        assert GatewayIntent.TOOL.value == "TOOL"
         assert GatewayIntent.SYSTEM.value == "SYSTEM"
 
     def test_gateway_result(self):
@@ -58,24 +56,21 @@ class TestGatewayModels:
         assert result.gateway_parse_failed is False
 
     def test_gateway_result_defaults(self):
-        """测试 GatewayResult 默认值"""
+        """测试 GatewayResult 默认值 (乐观策略: 无 target_filters)"""
         result = GatewayResult(
-            intent=GatewayIntent.CHAT,
             rewritten_query="测试查询",
             worth_saving=False,
             reason="测试"
         )
         assert result.rewritten_query == "测试查询"
         assert result.search_keywords == []
-        assert isinstance(result.target_filters, QueryFilters)
-        assert result.target_filters.is_empty()
+        assert result.intent == GatewayIntent.RAG  # 乐观策略默认 RAG
         assert result.processing_time_ms == 0.0
-        assert result.model_used is None
 
     def test_gateway_result_fallback(self):
-        """测试 Gateway 结果回退"""
+        """测试 Gateway 结果回退 (乐观策略: 回退也是 RAG)"""
         result = GatewayResult.fallback("原始查询")
-        assert result.intent == GatewayIntent.CHAT
+        assert result.intent == GatewayIntent.RAG  # 乐观策略
         assert result.rewritten_query == "原始查询"
         assert result.search_keywords == []
         assert result.worth_saving is False
@@ -93,12 +88,11 @@ class TestGatewayModels:
         assert result.hit is True
 
     def test_semantic_analysis_result(self):
-        """测试 L2 语义分析结果模型"""
+        """测试 L2 语义分析结果模型 (乐观策略: 无 target_filters)"""
         result = SemanticAnalysisResult(
             intent=GatewayIntent.RAG,
             rewritten_query="如何部署 Python 项目",
             search_keywords=["Python", "部署"],
-            target_filters=QueryFilters(memory_type=MemoryType.CODE_SNIPPET),
             worth_saving=True,
             reason="技术问题具有长期参考价值",
             model="gpt-4o-mini"
@@ -106,7 +100,6 @@ class TestGatewayModels:
         assert result.intent == GatewayIntent.RAG
         assert result.rewritten_query == "如何部署 Python 项目"
         assert len(result.search_keywords) == 2
-        assert result.target_filters.memory_type == MemoryType.CODE_SNIPPET
         assert result.worth_saving is True
         assert result.model == "gpt-4o-mini"
 
@@ -126,7 +119,7 @@ class TestGatewayModels:
         assert result.is_l1_intercepted is True
 
         result_no_l1 = GatewayResult(
-            intent=GatewayIntent.CHAT,
+            intent=GatewayIntent.RAG,
             rewritten_query="你好",
             worth_saving=False,
             reason="闲聊"
@@ -135,7 +128,7 @@ class TestGatewayModels:
 
 
 class TestGatewayEngine:
-    """测试 GatewayEngine"""
+    """测试 GatewayEngine (乐观检索策略)"""
 
     def test_init_with_interceptor(self):
         """测试使用拦截器初始化"""
@@ -149,8 +142,8 @@ class TestGatewayEngine:
         assert engine.interceptor is not None
         assert isinstance(engine.semantic_analyzer, NoOpSemanticAnalyzer)
 
-    def test_process_l1_hit(self):
-        """测试 L1 命中路径"""
+    def test_process_l1_hit_chat(self):
+        """测试 L1 命中路径 (乐观策略: CHAT 拦截后也返回 RAG)"""
         config = RuleInterceptorConfig()
         interceptor = RuleInterceptor(config=config)
         engine = GatewayEngine(
@@ -160,12 +153,28 @@ class TestGatewayEngine:
 
         result = engine.process("你好")
 
-        assert result.intent == GatewayIntent.CHAT
+        # 乐观策略：即使 L1 拦截为 CHAT，也返回 RAG
+        assert result.intent == GatewayIntent.RAG
         assert result.rewritten_query == "你好"
         assert result.is_l1_intercepted is True
 
+    def test_process_l1_hit_system(self):
+        """测试 L1 命中 SYSTEM 指令 (保持 SYSTEM 意图)"""
+        config = RuleInterceptorConfig()
+        interceptor = RuleInterceptor(config=config)
+        engine = GatewayEngine(
+            interceptor=interceptor,
+            semantic_analyzer=NoOpSemanticAnalyzer()
+        )
+
+        result = engine.process("/clear")
+
+        # SYSTEM 指令保持原意图
+        assert result.intent == GatewayIntent.SYSTEM
+        assert result.is_l1_intercepted is True
+
     def test_process_l1_no_hit_no_l2(self):
-        """测试 L1 未命中且 L2 禁用"""
+        """测试 L1 未命中且 L2 禁用 (乐观策略: 默认 RAG)"""
         engine = GatewayEngine(
             interceptor=NoOpInterceptor(),
             semantic_analyzer=NoOpSemanticAnalyzer()
@@ -173,7 +182,8 @@ class TestGatewayEngine:
 
         result = engine.process("如何部署项目？")
 
-        assert result.intent == GatewayIntent.CHAT
+        # 乐观策略：NoOpSemanticAnalyzer 也返回 RAG
+        assert result.intent == GatewayIntent.RAG
         assert result.rewritten_query == "如何部署项目？"
         assert result.search_keywords == []
 
@@ -182,13 +192,12 @@ class TestGatewayEngine:
         config = RuleInterceptorConfig()
         interceptor = RuleInterceptor(config=config)
 
-        # Mock L2 分析器
+        # Mock L2 分析器 (乐观策略: 无 target_filters)
         mock_analyzer = Mock()
         mock_analyzer.analyze = Mock(return_value=SemanticAnalysisResult(
             intent=GatewayIntent.RAG,
             rewritten_query="如何部署 Python 项目",
             search_keywords=["Python", "部署"],
-            target_filters=QueryFilters(),
             worth_saving=True,
             reason="技术问题",
             model="gpt-4o-mini"
@@ -220,12 +229,12 @@ class TestMemoryGatewayConfig:
         config = MemoryGatewayConfig()
         assert config.interceptor.enabled is True
         assert config.analyzer.enabled is True
-        
+
         # 验证子配置
         assert isinstance(config.interceptor, RuleInterceptorConfig)
         assert config.interceptor.enable_system is True
         assert config.interceptor.enable_chat is True
-        
+
         assert isinstance(config.analyzer, LLMAnalyzerConfig)
         assert config.analyzer.context_window == 3
         assert config.analyzer.prompt_variant == "default"
@@ -245,14 +254,15 @@ class TestMemoryGatewayConfig:
 
 
 class TestSystemPrompts:
-    """测试 System Prompt"""
+    """测试 System Prompt (乐观检索策略)"""
 
     def test_get_default_prompt(self):
-        """测试获取默认 Prompt"""
+        """测试获取默认 Prompt (乐观策略: 无意图分类)"""
         prompt = get_system_prompt()
-        assert "意图分类" in prompt
         assert "指代消解" in prompt
         assert "元数据提取" in prompt
+        # 乐观策略下移除了意图分类
+        assert "意图分类" not in prompt
 
     def test_get_simple_prompt(self):
         """测试获取简化版 Prompt"""
@@ -260,9 +270,11 @@ class TestSystemPrompts:
         assert len(prompt) < len(get_system_prompt())  # 简化版更短
 
     def test_get_english_prompt(self):
-        """测试获取英文 Prompt"""
+        """测试获取英文 Prompt (乐观策略: 无 Intent Classification)"""
         prompt = get_system_prompt(language="en")
-        assert "Intent Classification" in prompt
+        assert "Coreference Resolution" in prompt
+        # 乐观策略下移除了意图分类
+        assert "Intent Classification" not in prompt
 
 
 if __name__ == "__main__":

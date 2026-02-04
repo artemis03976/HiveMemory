@@ -10,8 +10,9 @@ HiveMemory 感知层抽象接口
 """
 
 import logging
+import datetime
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any, Dict, TYPE_CHECKING
+from typing import List, Optional, Any, Dict, Callable, TYPE_CHECKING
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import (
     FlushReason,
@@ -105,6 +106,15 @@ class BaseArbiter(ABC):
         """
         pass
 
+    def is_available(self) -> bool:
+        """
+        检查仲裁器是否可用
+
+        Returns:
+            bool: 是否可用
+        """
+        return True
+
 
 class BasePerceptionLayer(ABC):
     """
@@ -140,6 +150,15 @@ class BasePerceptionLayer(ABC):
         self._scan_interval_seconds: int = 30  # 扫描间隔 30 秒
         self._idle_monitor_scheduler = None
         self._idle_monitor_running: bool = False
+
+    def set_flush_callback(self, callback: Callable[[List[StreamMessage], FlushReason], None]) -> None:
+        """
+        设置缓冲区刷新回调函数
+
+        Args:
+            callback: 刷新时调用的函数，接收 StreamMessage 列表和 FlushReason 参数
+        """
+        self.on_flush_callback = callback
 
     # ========== 空闲超时监控（默认实现）==========
 
@@ -238,7 +257,7 @@ class BasePerceptionLayer(ABC):
             List[str]: 被刷新的 Buffer key 列表
         """
         flushed_keys = []
-        current_time = datetime.now().timestamp()
+        current_time = datetime.datetime.now().timestamp()
 
         try:
             # 获取所有活跃 Buffer
@@ -269,14 +288,12 @@ class BasePerceptionLayer(ABC):
 
                     # 检查是否有内容需要 Flush
                     # SimpleBuffer: 检查 messages
-                    # SemanticBuffer: 检查 blocks 或 current_block
+                    # SemanticBuffer: 检查 blocks
                     has_content = False
                     if hasattr(buffer, "messages"):
                         has_content = len(buffer.messages) > 0
                     elif hasattr(buffer, "blocks"):
-                        has_content = (
-                            len(buffer.blocks) > 0 or buffer.current_block is not None
-                        )
+                        has_content = len(buffer.blocks) > 0
 
                     if not has_content:
                         continue

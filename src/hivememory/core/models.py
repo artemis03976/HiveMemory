@@ -15,23 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-
-# ============ 工具函数 ============
-
-def estimate_tokens(text: str) -> int:
-    """
-    估算文本的 Token 数量
-
-    规则：
-    - 中文 1 token ≈ 2 字符
-    - 英文 1 token ≈ 4 字符
-    - 这是一个粗略估算，仅供测试使用
-    """
-    if not text:
-        return 0
-    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
-    other_chars = len(text) - chinese_chars
-    return (chinese_chars // 2) + (other_chars // 4)
+from hivememory.utils.token_estimator import estimate_tokens
 
 
 # ============ 枚举类型定义 ============

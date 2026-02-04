@@ -134,7 +134,6 @@ class LLMAnalyzerConfig(BaseModel):
     """L2 语义分析器配置"""
     enabled: bool = Field(default=True, description="是否启用 L2 语义分析")
     context_window: int = Field(default=3, description="上下文窗口大小（最近N条消息）")
-    enable_memory_type_filter: bool = Field(default=True, description="是否启用记忆类型过滤")
     prompt_variant: str = Field(default="default", description="System Prompt 变体")
     prompt_language: str = Field(default="zh", description="System Prompt 语言")
 
@@ -158,7 +157,7 @@ class MemoryGatewayConfig(BaseModel):
 class RerankerArbiterConfig(BaseModel):
     """基于 Reranker 的仲裁器配置"""
     type: Literal["reranker"] = "reranker"
-    threshold: float = Field(default=0.5, description="仲裁阈值")
+    threshold: float = Field(default=-6, description="仲裁阈值")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -184,26 +183,17 @@ class ArbiterConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class ContextBridgeConfig(BaseModel):
-    """上下文桥接器配置"""
-    context_max_length: int = Field(default=200, description="上下文最大长度（tokens）")
-    context_source: str = Field(default="user", description="上下文来源（response/history）")
-
-    model_config = ConfigDict(extra="ignore")
-
-
 class SemanticAdsorberConfig(BaseModel):
     """
     SemanticBoundaryAdsorber 配置
     """
-    semantic_threshold_high: float = Field(default=0.75, description="高相似度阈值（强吸附）")
-    semantic_threshold_low: float = Field(default=0.40, description="低相似度阈值（强制切分）")
+    semantic_threshold_high: float = Field(default=0.55, description="高相似度阈值（强吸附）")
+    semantic_threshold_low: float = Field(default=0.45, description="低相似度阈值（强制切分）")
     short_text_threshold: int = Field(default=10, description="短文本强吸附阈值（tokens）")
     ema_alpha: float = Field(default=0.3, description="指数移动平均系数")
     
     arbiter: ArbiterConfig = Field(default_factory=ArbiterConfig, description="灰度仲裁器配置")
-    context_bridge: ContextBridgeConfig = Field(default_factory=ContextBridgeConfig, description="上下文桥接器配置")
-
+    
     stop_words: Optional[Set[str]] = Field(default=None, description="自定义停用词集合")
 
     model_config = ConfigDict(extra="ignore")
@@ -242,9 +232,10 @@ class SemanticFlowPerceptionConfig(BaseModel):
 
 class MemoryPerceptionConfig(BaseModel):
     """感知层统一配置"""
-    engine: Literal["semantic_flow", "simple"] = Field(
-        default="semantic_flow", 
-        description="感知层引擎: semantic_flow 或 simple"
+    engine: Union[SemanticFlowPerceptionConfig, SimplePerceptionConfig] = Field(
+        default_factory=SemanticFlowPerceptionConfig,
+        description="感知层引擎配置",
+        discriminator="type"
     )
 
     model_config = ConfigDict(extra="ignore")
@@ -428,7 +419,7 @@ class HybridRetrieverConfig(BaseModel):
     """混合检索完整配置"""
     type: Literal["hybrid"] = "hybrid"
     top_k: int = Field(default=5, description="最终返回数量")
-    score_threshold: float = Field(default=0.75, description="相似度阈值")
+    score_threshold: float = Field(default=0.0, description="相似度阈值")
     enable_parallel: bool = Field(default=True, description="是否启用并行召回")
 
     dense: DenseRetrieverConfig = Field(default_factory=DenseRetrieverConfig, description="稠密检索配置")

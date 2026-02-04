@@ -34,7 +34,7 @@ from hivememory.core.models import (
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
 )
-from hivememory.patchouli.config import DeduplicatorConfig
+from hivememory.patchouli.config import DeduplicatorConfig, ExtractorConfig
 from hivememory.engines.generation import (
     LLMMemoryExtractor,
     MemoryDeduplicator,
@@ -64,7 +64,7 @@ class TestExtractorAndDeduplicatorCollaboration:
             }
         ''')
 
-        extractor = LLMMemoryExtractor(llm_service=mock_llm)
+        extractor = LLMMemoryExtractor(llm_service=mock_llm, config=ExtractorConfig())
         deduplicator = MemoryDeduplicator(storage=Mock(), config=DeduplicatorConfig())
 
         # 提取记忆
@@ -235,7 +235,7 @@ class TestEngineComponentCoordination:
 
         engine = MemoryGenerationEngine(
             storage=Mock(),
-            extractor=LLMMemoryExtractor(llm_service=mock_llm),
+            extractor=LLMMemoryExtractor(llm_service=mock_llm, config=ExtractorConfig()),
             deduplicator=mock_deduplicator,
         )
 

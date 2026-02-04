@@ -7,14 +7,14 @@ Gateway Engine - 纯数据操作层
 - 不处理 fallback、日志、业务逻辑
 
 作者: HiveMemory Team
-版本: 2.0
+版本: 2.1 (乐观检索策略)
 """
 
 from typing import List, Optional
 
 from hivememory.core.models import StreamMessage
 from hivememory.engines.gateway.interfaces import BaseInterceptor, BaseSemanticAnalyzer
-from hivememory.engines.gateway.models import GatewayResult
+from hivememory.engines.gateway.models import GatewayResult, GatewayIntent
 
 
 class GatewayEngine:
@@ -30,6 +30,10 @@ class GatewayEngine:
     - 不处理 fallback（由上层 TheEye 处理）
     - 不记录日志（由上层 TheEye 处理）
     - 不添加处理时间（由上层 TheEye 处理）
+
+    乐观检索策略：
+    - 不再生成 target_filters，过滤条件由 RetrievalFamiliar 动态创建
+    - 默认意图为 RAG，让检索层决定是否有相关记忆
 
     Examples:
         >>> from hivememory.engines.gateway.interceptors import RuleInterceptor
@@ -89,12 +93,10 @@ class GatewayEngine:
         l1_result = self.interceptor.intercept(query)
 
         if l1_result is not None and l1_result.hit:
-            # L1 命中，转换为 GatewayResult
             return GatewayResult(
                 intent=l1_result.intent,
                 rewritten_query=query,
                 search_keywords=[],
-                target_filters={},
                 worth_saving=False,
                 reason=l1_result.reason,
                 l1_result=l1_result,
@@ -108,7 +110,6 @@ class GatewayEngine:
             intent=l2_result.intent,
             rewritten_query=l2_result.rewritten_query,
             search_keywords=l2_result.search_keywords,
-            target_filters=l2_result.target_filters,
             worth_saving=l2_result.worth_saving,
             reason=l2_result.reason,
             l1_result=l1_result,

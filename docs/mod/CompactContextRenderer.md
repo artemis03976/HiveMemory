@@ -1,3 +1,7 @@
+--------------------
+此模块已实现，文档已合并至项目开发规划文档PROJECT.md，仅做原内容参考
+--------------------
+
 # 进阶模块开发计划：自适应上下文注入与优化系统
 **Module Plan: Adaptive Context Injection & Optimization System**
 
@@ -18,17 +22,7 @@
 
 ## 2. 核心策略 (Core Strategies)
 
-### 2.1 策略 A: MMR 多样性重排 (Maximal Marginal Relevance)
-**目标**：解决“检索结果同质化”问题。
-**机制**：在向量检索阶段，不再单纯依据“与 Query 的相似度”排序，而是综合考虑“与 Query 的相似度”和“与已选结果的差异性”。
-
-*   **公式**：
-    $$ \text{Score} = \lambda \cdot \text{Sim}(Query, Doc) - (1-\lambda) \cdot \max \text{Sim}(Doc, SelectedDocs) $$
-*   **配置**：
-    *   推荐 $\lambda = 0.7$（兼顾相关性与多样性）。
-    *   **效果**：如果 Top-1 是 `parse_date_v2.py`，Top-2 绝不会是 `parse_date_v1.py`（因为太像了），而可能是 `legal_disclaimer.txt`（差异大）。
-
-### 2.2 策略 B: 动态预算截断 (Dynamic Budgeting)
+### 2.1 策略 A: 动态预算截断 (Dynamic Budgeting)
 **目标**：解决“上下文溢出”问题，适用于 MVP 阶段。
 **机制**：设定 Token 预算水位线，对记忆进行“瀑布式”降级渲染。
 
@@ -41,7 +35,7 @@
         *   如果超出预算 $\rightarrow$ **降级为注入 `Index` (Summary + Tags)**。
         *   如果连 Summary 都塞不下 $\rightarrow$ 停止注入。
 
-### 2.3 策略 C: 懒加载与引用 (Lazy Loading / Skill-Style)
+### 2.2 策略 B: 懒加载与引用 (Lazy Loading / Skill-Style)
 **目标**：解决“复杂任务的信息过载”问题，适用于高级 Agent。
 **机制**：默认仅提供“记忆索引视图”，赋予 Agent 主动查阅的工具。
 
@@ -60,6 +54,16 @@
     *   Agent 思考: *"用户想写鉴权代码，mem_01 没用，mem_05 看起来很关键，我要读一下。"*
     *   Action: `read_memory("mem_05")`
     *   System: 下一轮对话注入 `mem_05` 的完整 Payload。
+
+### 2.3 优化策略: MMR 多样性重排 (Maximal Marginal Relevance)
+**目标**：解决“检索结果同质化”问题。
+**机制**：在向量检索阶段，不再单纯依据“与 Query 的相似度”排序，而是综合考虑“与 Query 的相似度”和“与已选结果的差异性”。
+
+*   **公式**：
+    $$ \text{Score} = \lambda \cdot \text{Sim}(Query, Doc) - (1-\lambda) \cdot \max \text{Sim}(Doc, SelectedDocs) $$
+*   **配置**：
+    *   推荐 $\lambda = 0.7$（兼顾相关性与多样性）。
+    *   **效果**：如果 Top-1 是 `parse_date_v2.py`，Top-2 绝不会是 `parse_date_v1.py`（因为太像了），而可能是 `legal_disclaimer.txt`（差异大）。
 
 ---
 

@@ -11,7 +11,7 @@
 基于原 MemoryRetrievalEngine (engines/retrieval/engine.py) 改造
 
 作者: HiveMemory Team
-版本: 2.1
+版本: 2.2 (乐观检索策略)
 """
 
 from typing import List, TYPE_CHECKING
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.retrieval.engine import RetrievalEngine
-from hivememory.engines.retrieval.models import RetrievalQuery
+from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.protocol.models import RetrievalRequest, RetrievalResponse
 
@@ -43,8 +43,14 @@ class RetrievalFamiliar:
 
     职责：
         1. 接收业务请求 (RetrievalRequest)
-        2. 调用 RetrievalEngine 进行数据检索
-        3. 处理副作用 (如统计更新)
+        2. 根据 user_id 创建过滤条件 (乐观检索策略)
+        3. 调用 RetrievalEngine 进行数据检索
+        4. 处理副作用 (如统计更新)
+
+    乐观检索策略：
+        - 不再从 Gateway 接收 filters
+        - 仅根据 user_id 创建过滤条件
+        - 让 Reranker 来排序所有相关记忆
 
     使用示例:
         ```python
@@ -53,7 +59,7 @@ class RetrievalFamiliar:
         # ...
         engine = RetrievalEngine(retriever=..., renderer=...)
         familiar = RetrievalFamiliar(engine=engine, storage=...)
-        
+
         result = familiar.retrieve(request)
         ```
     """
@@ -80,9 +86,10 @@ class RetrievalFamiliar:
         检索相关记忆
 
         完整流程:
-        1. 构建查询对象 (RetrievalQuery)
-        2. 调用 Engine 执行检索
-        3. Engine 内部完成上下文渲染
+        1. 根据 user_id 创建过滤条件 (乐观检索策略)
+        2. 构建查询对象 (RetrievalQuery)
+        3. 调用 Engine 执行检索
+        4. Engine 内部完成上下文渲染
 
         Args:
             request: 检索请求协议消息
@@ -95,12 +102,10 @@ class RetrievalFamiliar:
         response = RetrievalResponse()
 
         try:
-            # Step 1: 构建查询对象
-            query_filters = request.filters.model_copy()
-            if request.user_id and not query_filters.user_id:
-                query_filters.user_id = request.user_id
+            # Step 1: 乐观检索策略 - 仅根据 user_id 创建过滤条件
+            query_filters = QueryFilters(user_id=request.user_id)
 
-            # 构建 RetrievalQuery
+            # Step 2: 构建 RetrievalQuery
             query = RetrievalQuery(
                 semantic_query=request.semantic_query,
                 keywords=request.keywords or [],

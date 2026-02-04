@@ -26,7 +26,6 @@ from hivememory.engines.perception.models import (
     SemanticBuffer,
 )
 from hivememory.engines.perception.interfaces import BaseArbiter
-from hivememory.engines.perception.context_bridge import ContextBridge
 from hivememory.infrastructure.embedding.base import BaseEmbeddingService
 from hivememory.infrastructure.rerank.base import BaseRerankService
 
@@ -62,7 +61,6 @@ class SemanticBoundaryAdsorber:
         >>> adsorber = SemanticBoundaryAdsorber(
         ...     config=SemanticAdsorberConfig(),
         ...     embedding_service=embedding_service,
-        ...     context_bridge=context_bridge,
         ...     arbiter=arbiter
         ... )
         >>> flush_event = adsorber.should_adsorb(buffer, new_block)
@@ -75,7 +73,6 @@ class SemanticBoundaryAdsorber:
         self,
         config: SemanticAdsorberConfig,
         embedding_service: BaseEmbeddingService = None,
-        context_bridge: Optional[ContextBridge] = None,
         arbiter: Optional[BaseArbiter] = None,
     ):
         """
@@ -84,12 +81,10 @@ class SemanticBoundaryAdsorber:
         Args:
             config: 配置对象
             embedding_service: Embedding 服务实例
-            context_bridge: 上下文桥接器
             arbiter: 灰度仲裁器
         """
-        self.config = config or SemanticAdsorberConfig()
+        self.config = config
         self.embedding_service = embedding_service
-        self.context_bridge = context_bridge
         self.arbiter = arbiter
 
         logger.info(
@@ -127,8 +122,7 @@ class SemanticBoundaryAdsorber:
 
         # ========== Step 2: 向量筛选（双阈值） ==========
         if buffer.topic_kernel_vector is not None:
-            # 使用 ContextBridge 构建增强的锚点文本
-            anchor_text = self._build_enhanced_anchor(new_block, buffer)
+            anchor_text = new_block.anchor_text
 
             if not anchor_text:
                 # 无法构建锚点，默认吸附
@@ -168,7 +162,7 @@ class SemanticBoundaryAdsorber:
 
             # ========== Step 3: 智能仲裁（灰度区间） ==========
             # low <= similarity < high
-            if self.config.arbiter.enabled and self.arbiter.is_available():
+            if self.config.arbiter.enabled:
                 return self._arbitrate_grey_area(buffer, new_block, similarity)
             else:
                 # 仲裁器不可用或未启用，使用保守策略：继续吸附
@@ -203,10 +197,8 @@ class SemanticBoundaryAdsorber:
             return None
 
         try:
-            # 使用增强的锚点文本进行编码
-            anchor_text = self._build_enhanced_anchor(new_block, buffer)
-            if not anchor_text:
-                anchor_text = new_block.anchor_text
+            # 使用锚点文本进行编码
+            anchor_text = new_block.anchor_text
 
             new_vector = self.embedding_service.encode(anchor_text, normalize=True)
 
@@ -222,7 +214,7 @@ class SemanticBoundaryAdsorber:
                 updated_kernel = (
                     self.config.ema_alpha * new_vec + (1 - self.config.ema_alpha) * old_vec
                 ).tolist()
-                logger.debug("话题核心向量已计算（EMA）")
+
                 return updated_kernel
 
         except Exception as e:
@@ -243,11 +235,14 @@ class SemanticBoundaryAdsorber:
         Returns:
             bool: 是否为非信息性短文本
         """
+        from hivememory.utils.token_estimator import estimate_tokens
+
         # 获取查询文本
         query_text = block.anchor_text or ""
 
-        # 检查 token 数
-        if block.total_tokens >= self.config.short_text_threshold:
+        # 检查 token 数（只检查用户查询文本，不是整个 block）
+        query_tokens = estimate_tokens(query_text)
+        if query_tokens >= self.config.short_text_threshold:
             return False
 
         # 检查是否为停用词
@@ -259,34 +254,6 @@ class SemanticBoundaryAdsorber:
             logger.debug(f"检测到停用词: {query_text}")
 
         return is_stop_word
-
-    def _build_enhanced_anchor(
-        self,
-        new_block: LogicalBlock,
-        buffer: SemanticBuffer
-    ) -> str:
-        """
-        构建增强的语义锚点文本
-
-        使用 ContextBridge 将上一轮上下文与当前查询组合。
-
-        Args:
-            new_block: 新的 LogicalBlock
-            buffer: 当前语义缓冲区
-
-        Returns:
-            str: 增强的锚点文本
-        """
-        # 获取 rewritten_query（优先）或原始查询
-        rewritten_query = new_block.rewritten_query or new_block.anchor_text
-
-        if not rewritten_query:
-            return ""
-
-        # 使用 ContextBridge 构建增强锚点
-        if self.context_bridge:
-            return self.context_bridge.build_anchor_text(rewritten_query, buffer)
-        return rewritten_query
 
     def _arbitrate_grey_area(
         self,
@@ -309,19 +276,17 @@ class SemanticBoundaryAdsorber:
             FlushEvent: 需要 flush
         """
         # 提取上下文和查询
-        previous_context = ""
-        if self.context_bridge:
-            previous_context = self.context_bridge.extract_last_context(buffer)
-        current_query = new_block.rewritten_query or new_block.anchor_text
-
-        if not current_query:
-            logger.debug("当前查询为空，默认吸附")
-            return None
+        current_query = new_block.anchor_text
 
         try:
+            # 获取上下文
+            last_context = ""
+            if buffer.blocks and buffer.blocks[-1].anchor_text:
+                last_context = buffer.blocks[-1].anchor_text
+
             # 调用仲裁器
             should_continue = self.arbiter.should_continue_topic(
-                previous_context=previous_context,
+                previous_context=last_context,
                 current_query=current_query,
                 similarity_score=similarity,
             )
@@ -367,16 +332,10 @@ def create_adsorber(
         reranker_service=reranker_service
     )
 
-    from hivememory.engines.perception.context_bridge import ContextBridge
-    context_bridge = ContextBridge(
-        config=config.context_bridge,
-    )
-
     return SemanticBoundaryAdsorber(
         config=config,
         embedding_service=embedding_service,
         arbiter=arbiter,
-        context_bridge=context_bridge,
     )
 
 

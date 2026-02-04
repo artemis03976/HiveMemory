@@ -77,13 +77,12 @@ class TheEye:
 
             # 业务逻辑：添加元信息
             result.processing_time_ms = (time.time() - start_time) * 1000
-            result.model_used = self._engine.llm_service.model
 
             # 业务逻辑：日志记录
             logger.info(
                 f"TheEye 处理完成: "
                 f"intent={result.intent.value}, "
-                f"worth_saving={result.memory_signal.worth_saving}, "
+                f"worth_saving={result.worth_saving}, "
                 f"latency={result.processing_time_ms:.1f}ms"
             )
 
@@ -115,7 +114,8 @@ class TheEye:
         """
         构建检索请求协议消息
 
-        只有 RAG 意图才返回检索请求。
+        乐观检索策略：只有 RAG 意图才返回检索请求。
+        不再传递 filters，由 RetrievalFamiliar 根据 user_id 动态创建。
 
         Args:
             gateway_result: Gateway 处理结果
@@ -130,7 +130,6 @@ class TheEye:
         return RetrievalRequest(
             semantic_query=gateway_result.rewritten_query,
             keywords=gateway_result.search_keywords,
-            filters=gateway_result.target_filters,
             user_id=identity.user_id,
         )
 

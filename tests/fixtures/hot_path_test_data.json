@@ -1,0 +1,515 @@
+{
+  "version": "1.0.0",
+  "created_at": "2026-02-01T00:00:00Z",
+  "updated_at": "2026-02-01T00:00:00Z",
+  "author": "HiveMemory Team",
+  "description": "热链路 (Hot Path) 端到端测试数据集",
+  "golden_memories_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "HP-GW-001-A",
+      "name": "L1系统指令拦截 - /clear",
+      "priority": "P0",
+      "category": "l1_system_interception",
+      "input": {
+        "query": "/clear",
+        "context": []
+      },
+      "expected": {
+        "intent": "SYSTEM",
+        "l1_intercepted": true,
+        "llm_called": false
+      }
+    },
+    {
+      "id": "HP-GW-001-B",
+      "name": "L1系统指令拦截 - /reset",
+      "priority": "P0",
+      "category": "l1_system_interception",
+      "input": {
+        "query": "/reset",
+        "context": []
+      },
+      "expected": {
+        "intent": "SYSTEM",
+        "l1_intercepted": true,
+        "llm_called": false
+      }
+    },
+    {
+      "id": "HP-GW-001-C",
+      "name": "L1系统指令拦截 - /help",
+      "priority": "P0",
+      "category": "l1_system_interception",
+      "input": {
+        "query": "/help",
+        "context": []
+      },
+      "expected": {
+        "intent": "SYSTEM",
+        "l1_intercepted": true,
+        "llm_called": false
+      }
+    },
+    {
+      "id": "HP-GW-002-A",
+      "name": "L1闲聊拦截 - 你好",
+      "priority": "P1",
+      "category": "l1_chat_interception",
+      "input": {
+        "query": "你好",
+        "context": []
+      },
+      "expected": {
+        "intent": "CHAT",
+        "l1_intercepted": true
+      }
+    },
+    {
+      "id": "HP-GW-002-B",
+      "name": "L1闲聊拦截 - hello",
+      "priority": "P1",
+      "category": "l1_chat_interception",
+      "input": {
+        "query": "hello",
+        "context": []
+      },
+      "expected": {
+        "intent": "CHAT",
+        "l1_intercepted": true
+      }
+    },
+    {
+      "id": "HP-GW-002-C",
+      "name": "L1闲聊拦截 - 谢谢",
+      "priority": "P1",
+      "category": "l1_chat_interception",
+      "input": {
+        "query": "谢谢",
+        "context": []
+      },
+      "expected": {
+        "intent": "CHAT",
+        "l1_intercepted": true
+      }
+    },
+    {
+      "id": "HP-GW-002-D",
+      "name": "L1闲聊拦截 - hi",
+      "priority": "P1",
+      "category": "l1_chat_interception",
+      "input": {
+        "query": "hi",
+        "context": []
+      },
+      "expected": {
+        "intent": "CHAT",
+        "l1_intercepted": true
+      }
+    },
+    {
+      "id": "HP-GW-003-A",
+      "name": "L2 RAG意图识别 - Rust所有权",
+      "priority": "P0",
+      "category": "l2_rag_intent",
+      "input": {
+        "query": "Rust 的所有权机制是什么？",
+        "context": []
+      },
+      "expected": {
+        "intent": "RAG",
+        "rewritten_contains": ["Rust", "所有权"],
+        "l1_intercepted": false
+      }
+    },
+    {
+      "id": "HP-GW-003-B",
+      "name": "L2 RAG意图识别 - Docker网络",
+      "priority": "P0",
+      "category": "l2_rag_intent",
+      "input": {
+        "query": "如何在 Docker 中配置网络？",
+        "context": []
+      },
+      "expected": {
+        "intent": "RAG",
+        "rewritten_contains": ["Docker", "网络"],
+        "l1_intercepted": false
+      }
+    },
+    {
+      "id": "HP-GW-003-C",
+      "name": "L2 RAG意图识别 - Python装饰器",
+      "priority": "P0",
+      "category": "l2_rag_intent",
+      "input": {
+        "query": "Python 装饰器怎么用？",
+        "context": []
+      },
+      "expected": {
+        "intent": "RAG",
+        "rewritten_contains": ["Python", "装饰器"],
+        "l1_intercepted": false
+      }
+    },
+    {
+      "id": "HP-GW-004-A",
+      "name": "指代消解 - Docker安装",
+      "priority": "P0",
+      "category": "coreference_resolution",
+      "input": {
+        "query": "它怎么安装？",
+        "context": [
+          {"role": "user", "content": "介绍下 Docker"},
+          {"role": "assistant", "content": "Docker 是一个开源的容器化平台，可以让开发者打包应用及其依赖到一个可移植的容器中..."}
+        ]
+      },
+      "expected": {
+        "intent": "RAG",
+        "rewritten_contains": ["Docker", "安装"]
+      }
+    },
+    {
+      "id": "HP-GW-004-B",
+      "name": "指代消解 - 装饰器例子",
+      "priority": "P0",
+      "category": "coreference_resolution",
+      "input": {
+        "query": "能给个例子吗？",
+        "context": [
+          {"role": "user", "content": "Python 的装饰器是什么？"},
+          {"role": "assistant", "content": "装饰器是一种设计模式，可以在不修改原函数的情况下添加功能..."}
+        ]
+      },
+      "expected": {
+        "intent": "RAG",
+        "rewritten_contains": ["装饰器", "例"]
+      }
+    },
+    {
+      "id": "HP-GW-004-C",
+      "name": "指代消解 - 贪吃蛇部署",
+      "priority": "P0",
+      "category": "coreference_resolution",
+      "input": {
+        "query": "怎么部署它？",
+        "context": [
+          {"role": "user", "content": "帮我写一个贪吃蛇游戏"},
+          {"role": "assistant", "content": "好的，我来帮你用 Python 实现一个贪吃蛇游戏..."}
+        ]
+      },
+      "expected": {
+        "intent": "RAG",
+        "rewritten_contains": ["部署", "贪吃蛇"]
+      }
+    },
+    {
+      "id": "HP-GW-005-A",
+      "name": "关键词提取 - FastAPI Pydantic",
+      "priority": "P1",
+      "category": "keyword_extraction",
+      "input": {
+        "query": "如何在 FastAPI 中使用 Pydantic？",
+        "context": []
+      },
+      "expected": {
+        "keywords_any": ["FastAPI", "Pydantic"]
+      }
+    },
+    {
+      "id": "HP-GW-005-B",
+      "name": "关键词提取 - 前端框架对比",
+      "priority": "P1",
+      "category": "keyword_extraction",
+      "input": {
+        "query": "比较 React、Vue 和 Angular 的优缺点",
+        "context": []
+      },
+      "expected": {
+        "keywords_any": ["React", "Vue", "Angular"]
+      }
+    },
+    {
+      "id": "HP-GW-005-C",
+      "name": "关键词提取 - TensorFlow CNN",
+      "priority": "P1",
+      "category": "keyword_extraction",
+      "input": {
+        "query": "TensorFlow 实现卷积神经网络",
+        "context": []
+      },
+      "expected": {
+        "keywords_any": ["TensorFlow", "卷积神经网络", "CNN"]
+      }
+    },
+    {
+      "id": "HP-GW-006-A",
+      "name": "Fallback处理 - LLM空响应",
+      "priority": "P1",
+      "category": "fallback_handling",
+      "input": {
+        "query": "测试查询",
+        "mock_llm_response": null
+      },
+      "expected": {
+        "intent": "CHAT",
+        "gateway_parse_failed": true,
+        "worth_saving": false
+      }
+    },
+    {
+      "id": "HP-GW-006-B",
+      "name": "Fallback处理 - LLM畸形JSON",
+      "priority": "P1",
+      "category": "fallback_handling",
+      "input": {
+        "query": "测试查询",
+        "mock_llm_response": "{invalid json"
+      },
+      "expected": {
+        "intent": "CHAT",
+        "gateway_parse_failed": true
+      }
+    },
+    {
+      "id": "HP-GW-006-C",
+      "name": "Fallback处理 - LLM超时",
+      "priority": "P1",
+      "category": "fallback_handling",
+      "input": {
+        "query": "测试查询",
+        "mock_llm_timeout": true
+      },
+      "expected": {
+        "intent": "CHAT",
+        "gateway_parse_failed": true
+      }
+    },
+    {
+      "id": "HP-RET-001-A",
+      "name": "纯语义召回 - 水果",
+      "priority": "P0",
+      "category": "semantic_recall",
+      "input": {
+        "query": "我想了解一下常见水果的营养成分和健康功效，能帮我整理一下相关信息吗？",
+        "top_k": 5
+      },
+      "expected": {
+        "recall_ids": [
+          "550e8400-e29b-41d4-a716-446655440101",
+          "550e8400-e29b-41d4-a716-446655440102",
+          "550e8400-e29b-41d4-a716-446655440103"
+        ],
+        "min_recall_count": 2
+      }
+    },
+    {
+      "id": "HP-RET-001-B",
+      "name": "纯语义召回 - 健康饮食",
+      "priority": "P0",
+      "category": "semantic_recall",
+      "input": {
+        "query": "请问有哪些食物对身体健康有益？我想改善一下日常饮食习惯",
+        "top_k": 5
+      },
+      "expected": {
+        "recall_ids": [
+          "550e8400-e29b-41d4-a716-446655440101",
+          "550e8400-e29b-41d4-a716-446655440102"
+        ],
+        "min_recall_count": 1
+      }
+    },
+    {
+      "id": "HP-RET-001-C",
+      "name": "纯语义召回 - 维生素补充",
+      "priority": "P0",
+      "category": "semantic_recall",
+      "input": {
+        "query": "最近感觉免疫力有点差，想通过食物补充维生素，有什么推荐吗？",
+        "top_k": 5
+      },
+      "expected": {
+        "recall_ids": [
+          "550e8400-e29b-41d4-a716-446655440103"
+        ],
+        "min_recall_count": 1
+      }
+    },
+    {
+      "id": "HP-RET-002-A",
+      "name": "纯关键词召回 - X-1024",
+      "priority": "P0",
+      "category": "keyword_recall",
+      "input": {
+        "query": "请帮我查一下 X-1024 服务器的配置参数，我需要确认一下硬件规格",
+        "keywords": ["X-1024"]
+      },
+      "expected": {
+        "top1_id": "550e8400-e29b-41d4-a716-446655440201"
+      }
+    },
+    {
+      "id": "HP-RET-002-B",
+      "name": "纯关键词召回 - X-1025",
+      "priority": "P0",
+      "category": "keyword_recall",
+      "input": {
+        "query": "X-1025 测试环境的配置信息在哪里？我需要部署一个新的测试实例",
+        "keywords": ["X-1025"]
+      },
+      "expected": {
+        "top1_id": "550e8400-e29b-41d4-a716-446655440202"
+      }
+    },
+    {
+      "id": "HP-RET-002-C",
+      "name": "纯关键词召回 - Python排序",
+      "priority": "P0",
+      "category": "keyword_recall",
+      "input": {
+        "query": "之前我们讨论过 Python 快速排序的实现，能帮我找一下那段代码吗？",
+        "keywords": ["Python", "排序"]
+      },
+      "expected": {
+        "top1_id": "550e8400-e29b-41d4-a716-446655440501"
+      }
+    },
+    {
+      "id": "HP-RET-003-A",
+      "name": "混合冲突处理 - 苹果公司股价",
+      "priority": "P1",
+      "category": "hybrid_conflict",
+      "input": {
+        "query": "我想了解一下苹果公司最近的股价走势和投资价值分析，有相关的记录吗？"
+      },
+      "expected": {
+        "top1_id": "550e8400-e29b-41d4-a716-446655440301",
+        "ranking_order": {
+          "higher": "550e8400-e29b-41d4-a716-446655440301",
+          "lower": "550e8400-e29b-41d4-a716-446655440302"
+        }
+      }
+    },
+    {
+      "id": "HP-RET-003-B",
+      "name": "混合冲突处理 - 苹果营养价值",
+      "priority": "P1",
+      "category": "hybrid_conflict",
+      "input": {
+        "query": "苹果这种水果有哪些营养价值？每天吃一个苹果对身体有什么好处？"
+      },
+      "expected": {
+        "top1_id": "550e8400-e29b-41d4-a716-446655440101",
+        "ranking_order": {
+          "higher": "550e8400-e29b-41d4-a716-446655440101",
+          "lower": "550e8400-e29b-41d4-a716-446655440301"
+        }
+      }
+    },
+    {
+      "id": "HP-RET-004-A",
+      "name": "Rerank精排优化 - Python排序算法",
+      "priority": "P0",
+      "category": "rerank_optimization",
+      "input": {
+        "query": "我需要用 Python 实现一个高效的排序算法，之前好像记录过快速排序的代码实现，能帮我找一下吗？"
+      },
+      "expected": {
+        "top1_after_rerank": "550e8400-e29b-41d4-a716-446655440501"
+      }
+    },
+    {
+      "id": "HP-RET-004-B",
+      "name": "Rerank精排优化 - 开发环境配置",
+      "priority": "P0",
+      "category": "rerank_optimization",
+      "input": {
+        "query": "我记得之前保存过用户的开发环境配置偏好，包括 IDE 设置和插件列表，能帮我查一下吗？"
+      },
+      "expected": {
+        "top1_after_rerank": "550e8400-e29b-41d4-a716-446655440601"
+      }
+    },
+    {
+      "id": "HP-RET-005-A",
+      "name": "阈值过滤 - 外星人电影",
+      "priority": "P1",
+      "category": "threshold_filtering",
+      "input": {
+        "query": "能推荐几部关于外星人入侵地球的科幻电影吗？最好是近几年上映的大制作",
+        "score_threshold": 0.5
+      },
+      "expected": {
+        "empty_or_below_threshold": true
+      }
+    },
+    {
+      "id": "HP-RET-005-B",
+      "name": "阈值过滤 - 量子纠缠哲学",
+      "priority": "P1",
+      "category": "threshold_filtering",
+      "input": {
+        "query": "从哲学角度来看，量子纠缠现象对我们理解因果关系和决定论有什么启示？",
+        "score_threshold": 0.5
+      },
+      "expected": {
+        "empty_or_below_threshold": true
+      }
+    },
+    {
+      "id": "HP-RET-006-A",
+      "name": "渲染格式验证 - XML",
+      "priority": "P1",
+      "category": "render_format",
+      "input": {
+        "format": "xml",
+        "memory_ids": [
+          "550e8400-e29b-41d4-a716-446655440101",
+          "550e8400-e29b-41d4-a716-446655440102"
+        ]
+      },
+      "expected": {
+        "contains": ["<system_memory_context>", "</system_memory_context>", "<memory_block"],
+        "not_contains": ["## 相关记忆上下文"]
+      }
+    },
+    {
+      "id": "HP-RET-006-B",
+      "name": "渲染格式验证 - Markdown",
+      "priority": "P1",
+      "category": "render_format",
+      "input": {
+        "format": "markdown",
+        "memory_ids": [
+          "550e8400-e29b-41d4-a716-446655440501"
+        ]
+      },
+      "expected": {
+        "contains": ["## 相关记忆上下文", "###"],
+        "not_contains": ["<system_memory_context>"]
+      }
+    },
+    {
+      "id": "HP-RET-006-C",
+      "name": "渲染格式验证 - Cascade XML",
+      "priority": "P1",
+      "category": "render_format",
+      "input": {
+        "format": "xml",
+        "renderer_type": "cascade",
+        "memory_ids": [
+          "550e8400-e29b-41d4-a716-446655440101",
+          "550e8400-e29b-41d4-a716-446655440102",
+          "550e8400-e29b-41d4-a716-446655440103"
+        ],
+        "full_payload_count": 1,
+        "max_memory_tokens": 500
+      },
+      "expected": {
+        "contains": ["<memory_block"],
+        "cascade_behavior": "first_full_rest_summary"
+      }
+    }
+  ]
+}

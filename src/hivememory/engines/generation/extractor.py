@@ -57,30 +57,28 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
 
     def __init__(
         self,
+        config: ExtractorConfig,
         llm_service: BaseLLMService = None,
-        system_prompt: Optional[str] = None,
-        user_prompt: Optional[str] = None,
     ):
         """
         初始化 LLM 提取器
 
         Args:
+            config: 提取器配置
             llm_service: LLM 服务实例（依赖注入）
-            system_prompt: 自定义系统提示词
-            user_prompt: 自定义用户提示词
         """
 
         self.llm_service = llm_service
-        self.system_prompt = system_prompt
-        self.user_prompt = user_prompt
+        self.system_prompt = config.system_prompt or PATCHOULI_SYSTEM_PROMPT
+        self.user_prompt = config.user_prompt or PATCHOULI_USER_PROMPT
 
         # 初始化输出解析器
         self.output_parser = PydanticOutputParser(pydantic_object=ExtractedMemoryDraft)
 
         # 构建提示词模板
         self.prompt_template = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt or PATCHOULI_SYSTEM_PROMPT),
-            ("user", self.user_prompt or PATCHOULI_USER_PROMPT),
+            ("system", self.system_prompt),
+            ("user", self.user_prompt),
         ])
 
         model_name = self.llm_service.config.model if self.llm_service and hasattr(self.llm_service, 'config') else "unknown"

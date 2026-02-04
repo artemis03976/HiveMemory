@@ -247,13 +247,33 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             identity, reset_topic_kernel=True
         )
 
-        # 4. 调用回调
-        if self.on_flush_callback and event.blocks_to_flush:
+        # 4. 过滤 worth_saving=False 的 block
+        # worth_saving=None 时保留（gateway 离线或异常时不影响冷链路）
+        original_count = len(event.blocks_to_flush)
+        blocks_to_process = [
+            block for block in event.blocks_to_flush
+            if block.worth_saving is not False
+        ]
+        filtered_count = original_count - len(blocks_to_process)
+
+        if filtered_count > 0:
+            logger.info(
+                f"worth_saving 过滤: 原始 {original_count} blocks, "
+                f"过滤 {filtered_count} blocks (worth_saving=False), "
+                f"保留 {len(blocks_to_process)} blocks"
+            )
+
+        # 5. 调用回调（仅当有 block 需要处理时）
+        if self.on_flush_callback and blocks_to_process:
             try:
-                messages = self._blocks_to_messages(event.blocks_to_flush, identity)
+                messages = self._blocks_to_messages(blocks_to_process, identity)
                 self.on_flush_callback(messages, event.flush_reason)
             except Exception as e:
                 logger.error(f"Flush 回调失败: {e}")
+        elif self.on_flush_callback and not blocks_to_process:
+            logger.debug(
+                f"所有 blocks 被 worth_saving 过滤，跳过 Generation 回调"
+            )
 
     def _blocks_to_messages(
         self,

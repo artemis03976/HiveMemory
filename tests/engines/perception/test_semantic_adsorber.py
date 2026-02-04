@@ -91,9 +91,12 @@ class TestSemanticBoundaryAdsorberBasic:
     def test_incomplete_block_returns_none(self):
         """测试未闭合的 Block 返回 None"""
         buffer = Mock(spec=SemanticBuffer)
+        buffer.topic_kernel_vector = None
 
         new_block = Mock(spec=LogicalBlock)
         new_block.is_complete = False
+        new_block.total_tokens = 100
+        new_block.anchor_text = "test query"
 
         result = self.adsorber.should_adsorb(buffer, new_block)
 

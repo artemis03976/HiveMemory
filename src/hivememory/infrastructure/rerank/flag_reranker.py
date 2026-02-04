@@ -60,17 +60,12 @@ class FlagRerankerService(SingletonModelService):
             raise
 
 
-@lru_cache(maxsize=1)
 def get_flag_reranker_service(
-    model_name: str = "BAAI/bge-reranker-v2-m3",
-    device: str = "cpu",
-    use_fp16: bool = True
+    config: "RerankerConfig"
 ) -> FlagRerankerService:
     """
     获取全局 FlagReranker 服务实例（单例）
     """
     return FlagRerankerService(
-        model_name=model_name,
-        device=device,
-        use_fp16=use_fp16
+        config=config
     )

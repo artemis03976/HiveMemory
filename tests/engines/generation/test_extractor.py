@@ -14,7 +14,7 @@ import json
 from datetime import datetime
 
 from hivememory.core.models import StreamMessage
-from hivememory.patchouli.config import LLMConfig
+from hivememory.patchouli.config import LLMConfig, ExtractorConfig
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft
 
@@ -25,7 +25,7 @@ class TestLLMMemoryExtractor:
     def setup_method(self):
         """每个测试方法前执行"""
         # 使用真实的 Pydantic 模型作为基础，并进行 Mock
-        self.mock_config = LLMConfig(
+        self.mock_llm_config = LLMConfig(
             model="test-model",
             api_key="test-key",
             api_base="https://api.test.com",
@@ -33,9 +33,13 @@ class TestLLMMemoryExtractor:
             max_tokens=1000
         )
         self.mock_service = Mock()
-        self.mock_service.config = self.mock_config
+        self.mock_service.config = self.mock_llm_config
         
-        self.extractor = LLMMemoryExtractor(llm_service=self.mock_service)
+        self.extractor_config = ExtractorConfig()
+        self.extractor = LLMMemoryExtractor(
+            config=self.extractor_config,
+            llm_service=self.mock_service
+        )
 
     def test_convert_to_litellm_messages(self, mock_env):
         """测试 LangChain 消息转 LiteLLM 格式"""

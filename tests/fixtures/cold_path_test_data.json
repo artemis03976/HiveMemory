@@ -1,0 +1,1275 @@
+{
+  "version": "2.0.0",
+  "created_at": "2026-02-01T00:00:00Z",
+  "updated_at": "2026-02-01T00:00:00Z",
+  "author": "HiveMemory Team",
+  "description": "冷链路 (Cold Path) 端到端测试数据集 - 完整对话序列格式，通过 PatchouliSystem.process_interaction() 输入",
+  "usage": "每个测试用例的 interactions 数组按顺序调用 process_interaction(role, content, user_id, agent_id, session_id)，观察 flush 事件和 Qdrant 数据",
+  "test_cases": [
+    {
+      "id": "CP-PER-001-A",
+      "name": "同话题连续问答 - 数据可视化",
+      "priority": "P0",
+      "category": "semantic_drift_high_threshold",
+      "description": "验证相似度 >= 0.55 时，新 Block 被吸附到当前 Buffer，不触发 flush",
+      "input": {
+        "identity": {"user_id": "test_user_001a", "agent_id": "test_agent", "session_id": "session_001a"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "我想学习数据可视化，你能介绍一下Python中常用的数据可视化库吗？包括Matplotlib、Seaborn、Plotly这些库的区别和使用场景，最好能有一些实际应用的例子。",
+            "rewritten_query": "介绍Python中常用的数据可视化库（Matplotlib、Seaborn、Plotly）的区别、使用场景和实际应用例子"
+          },
+          {
+            "role": "assistant",
+            "content": "Python数据可视化库主要有以下几个：\n\n1. Matplotlib - 基础可视化库，其他库的底层依赖，适合绘制静态图表\n2. Seaborn - 基于Matplotlib的高级API，专为统计绘图设计\n3. Plotly - 交互式可视化库，支持缩放、悬停等交互\n\n示例代码：\n```python\nimport seaborn as sns\nsns.violinplot(x='day', y='total_bill', data=tips)\n```"
+          },
+          {
+            "role": "user",
+            "content": "Matplotlib绑图的基本语法和参数设置是什么？我想了解如何自定义图表样式。",
+            "rewritten_query": "Matplotlib绑图的基本语法、参数设置和自定义图表样式方法"
+          },
+          {
+            "role": "assistant",
+            "content": "Matplotlib绑图基本语法：\n\n```python\nimport matplotlib.pyplot as plt\n\nfig, ax = plt.subplots(figsize=(10, 6))\nax.plot(x, y, color='blue', linewidth=2, label='数据')\nax.set_xlabel('X轴')\nax.set_ylabel('Y轴')\nax.set_title('图表标题')\nax.legend()\nplt.show()\n```\n\n常用参数：figsize控制大小，color控制颜色，linewidth控制线宽。"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "buffer_blocks_count": 2,
+        "similarity_range": ">= 0.55",
+        "qdrant_memory_count": 0
+      }
+    },
+    {
+      "id": "CP-PER-001-B",
+      "name": "同话题连续问答 - Docker",
+      "priority": "P0",
+      "category": "semantic_drift_high_threshold",
+      "description": "验证 Docker 相关连续问答被吸附到同一 Buffer",
+      "input": {
+        "identity": {"user_id": "test_user_001b", "agent_id": "test_agent", "session_id": "session_001b"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "Docker容器的基本概念和架构是什么？我想了解容器化技术的原理，以及它和虚拟机的区别。",
+            "rewritten_query": "Docker容器的基本概念、架构原理及与虚拟机的区别"
+          },
+          {
+            "role": "assistant",
+            "content": "Docker是一个开源的容器化平台：\n\n1. 基本概念：容器是轻量级的、可移植的运行环境\n2. 架构：Docker Engine包含守护进程、REST API和CLI\n3. 与虚拟机区别：容器共享宿主机内核，启动更快、资源占用更少\n\nDocker使用Linux的cgroups和namespaces实现资源隔离。"
+          },
+          {
+            "role": "user",
+            "content": "Docker镜像和容器的区别是什么？如何创建自己的镜像？",
+            "rewritten_query": "Docker镜像和容器的区别，以及如何创建自定义镜像"
+          },
+          {
+            "role": "assistant",
+            "content": "镜像和容器的区别：\n\n- 镜像(Image)：只读模板，包含运行应用所需的所有内容\n- 容器(Container)：镜像的运行实例，可读写\n\n创建自定义镜像：\n```dockerfile\nFROM python:3.9\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD [\"python\", \"app.py\"]\n```\n\n构建命令：`docker build -t myapp:v1 .`"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "buffer_blocks_count": 2,
+        "similarity_range": ">= 0.55",
+        "qdrant_memory_count": 0
+      }
+    },
+    {
+      "id": "CP-PER-001-C",
+      "name": "同话题连续问答 - 排序算法",
+      "priority": "P0",
+      "category": "semantic_drift_high_threshold",
+      "description": "验证排序算法相关连续问答被吸附",
+      "input": {
+        "identity": {"user_id": "test_user_001c", "agent_id": "test_agent", "session_id": "session_001c"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "帮我用Python实现一个快速排序算法，要求能处理重复元素。",
+            "rewritten_query": "Python实现快速排序算法，支持处理重复元素"
+          },
+          {
+            "role": "assistant",
+            "content": "这是一个处理重复元素的快速排序实现：\n\n```python\ndef quicksort(arr):\n    if len(arr) <= 1:\n        return arr\n    pivot = arr[len(arr) // 2]\n    left = [x for x in arr if x < pivot]\n    middle = [x for x in arr if x == pivot]\n    right = [x for x in arr if x > pivot]\n    return quicksort(left) + middle + quicksort(right)\n\n# 测试\nprint(quicksort([3, 1, 4, 1, 5, 9, 2, 6, 5, 3]))\n```\n\n这个实现使用三路划分，能正确处理重复元素。"
+          },
+          {
+            "role": "user",
+            "content": "这个排序算法的时间复杂度是多少？最坏情况下会怎样？",
+            "rewritten_query": "快速排序算法的时间复杂度分析，包括最坏情况"
+          },
+          {
+            "role": "assistant",
+            "content": "快速排序时间复杂度分析：\n\n- 平均情况：O(n log n)\n- 最好情况：O(n log n)，每次划分都均匀\n- 最坏情况：O(n²)，当数组已排序或所有元素相同时\n\n空间复杂度：O(log n)（递归栈）\n\n优化方法：\n1. 随机选择pivot\n2. 三数取中法\n3. 小数组使用插入排序"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "buffer_blocks_count": 2,
+        "similarity_range": ">= 0.55",
+        "qdrant_memory_count": 0
+      }
+    },
+    {
+      "id": "CP-PER-002-A",
+      "name": "话题跳转 - 技术到烹饪",
+      "priority": "P0",
+      "category": "semantic_drift_low_threshold",
+      "description": "验证相似度 < 0.45 时触发 SEMANTIC_DRIFT flush，技术话题突然切换到烹饪",
+      "input": {
+        "identity": {"user_id": "test_user_002a", "agent_id": "test_agent", "session_id": "session_002a"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "Python机器学习库scikit-learn的分类算法有哪些？如何选择合适的分类器？我需要处理一个二分类问题。",
+            "rewritten_query": "Python机器学习库scikit-learn的分类算法及二分类问题的分类器选择方法"
+          },
+          {
+            "role": "assistant",
+            "content": "scikit-learn提供多种分类算法：\n\n1. 逻辑回归(LogisticRegression) - 简单高效，适合线性可分数据\n2. 支持向量机(SVC) - 适合高维数据\n3. 随机森林(RandomForestClassifier) - 抗过拟合，特征重要性\n4. 梯度提升(GradientBoostingClassifier) - 高精度\n\n二分类选择建议：\n- 数据量小：SVC\n- 需要解释性：逻辑回归\n- 追求精度：梯度提升"
+          },
+          {
+            "role": "user",
+            "content": "红烧茄子的做法和调料配比是什么？我想做出软烂入味的效果。",
+            "rewritten_query": "红烧茄子的做法、调料配比及软烂入味的烹饪技巧"
+          },
+          {
+            "role": "assistant",
+            "content": "红烧茄子做法：\n\n食材：长茄子2根、蒜末、葱花、小米辣\n调料配比：生抽2勺、老抽半勺、蚝油1勺、糖1小勺\n\n步骤：\n1. 茄子切滚刀块，撒盐腌10分钟挤水\n2. 少油煎至金黄\n3. 爆香蒜末，加调料和少量水\n4. 茄子回锅焖2分钟，大火收汁\n\n秘诀：腌制挤水减少吸油，煎比蒸更香。"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": true,
+        "flush_reason": "SEMANTIC_DRIFT",
+        "similarity_range": "< 0.45",
+        "qdrant_memory_count_min": 1,
+        "flushed_blocks_topic": "机器学习分类算法"
+      }
+    },
+    {
+      "id": "CP-PER-002-B",
+      "name": "话题跳转 - 编程到旅游",
+      "priority": "P0",
+      "category": "semantic_drift_low_threshold",
+      "description": "验证 React 前端话题切换到旅游时触发 flush",
+      "input": {
+        "identity": {"user_id": "test_user_002b", "agent_id": "test_agent", "session_id": "session_002b"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "React前端框架的组件生命周期是怎样的？useEffect和useLayoutEffect有什么区别？",
+            "rewritten_query": "React组件生命周期及useEffect与useLayoutEffect的区别"
+          },
+          {
+            "role": "assistant",
+            "content": "React组件生命周期（函数组件）：\n\n1. 挂载阶段：组件首次渲染\n2. 更新阶段：props或state变化\n3. 卸载阶段：组件从DOM移除\n\nuseEffect vs useLayoutEffect：\n- useEffect：异步执行，不阻塞渲染，适合大多数副作用\n- useLayoutEffect：同步执行，在DOM更新后立即执行，适合需要读取DOM布局的场景\n\n```jsx\nuseEffect(() => {\n  // 异步副作用\n  return () => { /* 清理 */ };\n}, [deps]);\n```"
+          },
+          {
+            "role": "user",
+            "content": "北京故宫的门票价格和开放时间是什么？有什么参观建议吗？",
+            "rewritten_query": "北京故宫的门票价格、开放时间和参观建议"
+          },
+          {
+            "role": "assistant",
+            "content": "北京故宫参观信息：\n\n门票价格：\n- 旺季（4-10月）：60元\n- 淡季（11-3月）：40元\n- 珍宝馆、钟表馆另收费\n\n开放时间：\n- 8:30-17:00（旺季）\n- 8:30-16:30（淡季）\n- 周一闭馆\n\n参观建议：\n1. 提前网上预约\n2. 建议游览3-4小时\n3. 从午门进，神武门出\n4. 穿舒适的鞋子"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": true,
+        "flush_reason": "SEMANTIC_DRIFT",
+        "similarity_range": "< 0.45",
+        "qdrant_memory_count_min": 1,
+        "flushed_blocks_topic": "React生命周期"
+      }
+    },
+    {
+      "id": "CP-PER-002-C",
+      "name": "话题跳转 - 数据库到健身",
+      "priority": "P0",
+      "category": "semantic_drift_low_threshold",
+      "description": "验证 MySQL 数据库话题切换到健身时触发 flush",
+      "input": {
+        "identity": {"user_id": "test_user_002c", "agent_id": "test_agent", "session_id": "session_002c"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "MySQL索引优化和查询性能调优有哪些最佳实践？我的查询很慢。",
+            "rewritten_query": "MySQL索引优化和查询性能调优最佳实践"
+          },
+          {
+            "role": "assistant",
+            "content": "MySQL性能优化最佳实践：\n\n索引优化：\n1. 为WHERE、JOIN、ORDER BY列创建索引\n2. 使用复合索引遵循最左前缀原则\n3. 避免在索引列上使用函数\n\n查询优化：\n1. 使用EXPLAIN分析执行计划\n2. 避免SELECT *，只查询需要的列\n3. 使用LIMIT限制结果集\n4. 优化JOIN顺序，小表驱动大表\n\n```sql\nEXPLAIN SELECT * FROM users WHERE status = 1;\n```"
+          },
+          {
+            "role": "user",
+            "content": "健身房增肌训练计划和饮食建议有哪些？我是新手。",
+            "rewritten_query": "健身房新手增肌训练计划和饮食建议"
+          },
+          {
+            "role": "assistant",
+            "content": "新手增肌计划：\n\n训练安排（每周3-4次）：\n- 周一：胸+三头\n- 周三：背+二头\n- 周五：腿+肩\n\n基础动作：\n1. 卧推、深蹲、硬拉\n2. 每个动作3-4组，8-12次\n3. 组间休息60-90秒\n\n饮食建议：\n- 蛋白质：每公斤体重1.6-2g\n- 碳水：训练前后补充\n- 多吃鸡胸肉、鸡蛋、牛肉\n- 保证充足睡眠"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": true,
+        "flush_reason": "SEMANTIC_DRIFT",
+        "similarity_range": "< 0.45",
+        "qdrant_memory_count_min": 1,
+        "flushed_blocks_topic": "MySQL性能优化"
+      }
+    },
+    {
+      "id": "CP-PER-003-A",
+      "name": "灰度区间 - Python到JavaScript可视化",
+      "priority": "P1",
+      "category": "grey_area_arbitration",
+      "description": "验证 0.45 <= 相似度 < 0.55 时 Arbiter 介入决策，两者都是可视化库但语言不同",
+      "input": {
+        "identity": {"user_id": "test_user_003a", "agent_id": "test_agent", "session_id": "session_003a"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "Python数据可视化库Matplotlib的使用方法和bindbindbindbindbindbing技巧有哪些？我想做一些统计图表。",
+            "rewritten_query": "Python数据可视化库Matplotlib的使用方法和bindbindbing技巧"
+          },
+          {
+            "role": "assistant",
+            "content": "Matplotlib使用技巧：\n\n基础绑图：\n```python\nimport matplotlib.pyplot as plt\nfig, ax = plt.subplots()\nax.bindbindplot(x, y)\nplt.show()\n```\n\n高级技巧：\n1. 使用subplots创建多子图\n2. 自定义样式：plt.style.use('seaborn')\n3. 保存高清图：plt.savefig('bindplot.bindpng', dpi=300)"
+          },
+          {
+            "role": "user",
+            "content": "JavaScript前端图表库D3.bindjs的使用方法和数据绑定是怎样的？",
+            "rewritten_query": "JavaScript前端图表库D3.bindjs的使用方法和数据绑定"
+          },
+          {
+            "role": "assistant",
+            "content": "D3.bindjs数据绑定核心概念：\n\n```javascript\nconst binddata = [binddata10, binddata20, binddata30];\nd3.select bindsvg')\n  .selectAll bindcircle')\n  .binddata(binddata)\n  .bindenter()\n  .append bindcircle')\n  .bindattr bindcx', (d, i) => i * binddata50)\n  .bindattr bindr', d => d);\n```\n\n关键方法：\n1. binddata() - 绑定数据\n2. bindenter() - 处理新数据\n3. bindupdate - 更新现有元素\n4. bindexit() - 移除多余元素"
+          }
+        ]
+      },
+      "expected": {
+        "similarity_range": "0.45-0.55",
+        "arbiter_invoked": true,
+        "arbiter_context": "两者都是可视化库，但语言不同"
+      }
+    },
+    {
+      "id": "CP-PER-003-B",
+      "name": "灰度区间 - 前端到后端",
+      "priority": "P1",
+      "category": "grey_area_arbitration",
+      "description": "验证前端 Vue.js 切换到后端 Spring Boot 时 Arbiter 介入",
+      "input": {
+        "identity": {"user_id": "test_user_003b", "agent_id": "test_agent", "session_id": "session_003b"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "Vue.js组件通信和状态管理的最佳实践是什么？我在做一个中型项目。",
+            "rewritten_query": "Vue.js组件通信和状态管理最佳实践"
+          },
+          {
+            "role": "assistant",
+            "content": "Vue.js状态管理最佳实践：\n\n组件通信方式：\n1. Props/Emit - 父子组件\n2. Provide/Inject - 跨层级\n3. Pinia - 全局状态管理\n\n```javascript\n// Pinia store\nexport const useUserStore = defineStore binduser', {\n  state: () => ({ name: bindnull }),\n  actions: {\n    setName(name) { this.name = name }\n  }\n})\n```\n\n中型项目建议使用Pinia替代Vuex。"
+          },
+          {
+            "role": "user",
+            "content": "Spring Boot的RESTful API设计和实现有哪些最佳实践？",
+            "rewritten_query": "Spring Boot RESTful API设计和实现最佳实践"
+          },
+          {
+            "role": "assistant",
+            "content": "Spring Boot RESTful API最佳实践：\n\n1. URL设计：使用名词复数，如 /api/users\n2. HTTP方法：GET查询、POST创建、PUT更新、DELETE删除\n3. 状态码：200成功、201创建、400错误、404未找到\n\n```java\n@RestController\n@RequestMapping(\"/api/users\")\npublic class UserController {\n    @GetMapping(\"/{id}\")\n    public User getUser(@PathVariable Long id) {\n        return userService.findById(id);\n    }\n}\n```"
+          }
+        ]
+      },
+      "expected": {
+        "similarity_range": "0.45-0.55",
+        "arbiter_invoked": true,
+        "arbiter_context": "都是Web开发，但前后端不同"
+      }
+    },
+    {
+      "id": "CP-PER-004-A",
+      "name": "短文本强吸附 - 好的",
+      "priority": "P1",
+      "category": "short_text_adsorption",
+      "description": "验证停用词短文本绕过向量计算直接吸附，用户简单确认不触发 flush",
+      "input": {
+        "identity": {"user_id": "test_user_004a", "agent_id": "test_agent", "session_id": "session_004a"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "帮我解释一下Python的装饰器是什么？",
+            "rewritten_query": "Python装饰器的概念和用法"
+          },
+          {
+            "role": "assistant",
+            "content": "Python装饰器是一种设计模式，用于在不修改原函数的情况下添加功能：\n\n```python\ndef my_decorator(func):\n    def wrapper(*args, **kwargs):\n        print('函数执行前')\n        result = func(*args, **kwargs)\n        print('函数执行后')\n        return result\n    return wrapper\n\n@my_decorator\ndef say_hello():\n    print('Hello!')\n```"
+          },
+          {
+            "role": "user",
+            "content": "好的"
+          },
+          {
+            "role": "assistant",
+            "content": "如果你还有其他问题，随时可以问我。"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "skip_embedding": true,
+        "buffer_blocks_count": 2
+      }
+    },
+    {
+      "id": "CP-PER-004-B",
+      "name": "短文本强吸附 - 继续",
+      "priority": "P1",
+      "category": "short_text_adsorption",
+      "description": "验证'继续'等短文本直接吸附",
+      "input": {
+        "identity": {"user_id": "test_user_004b", "agent_id": "test_agent", "session_id": "session_004b"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "给我讲讲Git的基本工作流程",
+            "rewritten_query": "Git的基本工作流程"
+          },
+          {
+            "role": "assistant",
+            "content": "Git基本工作流程：\n\n1. 克隆仓库：git clone <url>\n2. 创建分支：git checkout -b feature\n3. 修改文件后暂存：git add .\n4. 提交更改：git commit -m 'message'\n5. 推送到远程：git push origin feature\n\n还有更多高级用法，需要我继续讲吗？"
+          },
+          {
+            "role": "user",
+            "content": "继续"
+          },
+          {
+            "role": "assistant",
+            "content": "Git高级用法：\n\n1. 交互式rebase：git rebase -i HEAD~3\n2. 暂存工作区：git stash\n3. 查看提交历史：git log --oneline --graph\n4. 撤销提交：git reset --soft HEAD~1"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "skip_embedding": true,
+        "buffer_blocks_count": 2
+      }
+    },
+    {
+      "id": "CP-PER-004-C",
+      "name": "短文本强吸附 - ok",
+      "priority": "P1",
+      "category": "short_text_adsorption",
+      "description": "验证英文短确认词直接吸附",
+      "input": {
+        "identity": {"user_id": "test_user_004c", "agent_id": "test_agent", "session_id": "session_004c"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "如何在Python中处理JSON数据？",
+            "rewritten_query": "Python处理JSON数据的方法"
+          },
+          {
+            "role": "assistant",
+            "content": "Python处理JSON：\n\n```python\nimport json\n\n# 解析JSON字符串\ndata = json.loads('{\"name\": \"test\"}')\n\n# 转换为JSON字符串\njson_str = json.dumps(data, indent=2)\n\n# 读写JSON文件\nwith open('data.json', 'r') as f:\n    data = json.load(f)\n```"
+          },
+          {
+            "role": "user",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": "好的，如果需要更多JSON处理技巧可以继续问我。"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "skip_embedding": true,
+        "buffer_blocks_count": 2
+      }
+    },
+    {
+      "id": "CP-PER-004-D",
+      "name": "短文本强吸附 - 然后呢",
+      "priority": "P1",
+      "category": "short_text_adsorption",
+      "description": "验证追问短文本直接吸附",
+      "input": {
+        "identity": {"user_id": "test_user_004d", "agent_id": "test_agent", "session_id": "session_004d"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "Docker Compose是什么？",
+            "rewritten_query": "Docker Compose的概念和用途"
+          },
+          {
+            "role": "assistant",
+            "content": "Docker Compose是用于定义和运行多容器Docker应用的工具。通过YAML文件配置服务，一条命令即可启动所有服务。"
+          },
+          {
+            "role": "user",
+            "content": "然后呢"
+          },
+          {
+            "role": "assistant",
+            "content": "Docker Compose的使用步骤：\n\n1. 创建docker-compose.yml文件\n2. 定义服务、网络、卷\n3. 运行：docker-compose up -d\n4. 停止：docker-compose down"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "skip_embedding": true,
+        "buffer_blocks_count": 2
+      }
+    },
+    {
+      "id": "CP-PER-004-E",
+      "name": "短文本强吸附 - 明白了",
+      "priority": "P1",
+      "category": "short_text_adsorption",
+      "description": "验证理解确认短文本直接吸附",
+      "input": {
+        "identity": {"user_id": "test_user_004e", "agent_id": "test_agent", "session_id": "session_004e"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "什么是RESTful API？",
+            "rewritten_query": "RESTful API的概念"
+          },
+          {
+            "role": "assistant",
+            "content": "RESTful API是一种基于HTTP协议的API设计风格：\n\n1. 使用HTTP方法表示操作（GET/POST/PUT/DELETE）\n2. 使用URL表示资源\n3. 无状态通信\n4. 返回JSON/XML格式数据"
+          },
+          {
+            "role": "user",
+            "content": "明白了"
+          },
+          {
+            "role": "assistant",
+            "content": "很好！如果你想了解更多API设计的最佳实践，可以继续问我。"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "skip_embedding": true,
+        "buffer_blocks_count": 2
+      }
+    },
+    {
+      "id": "CP-PER-005-A",
+      "name": "Token溢出 - 渐进式溢出",
+      "priority": "P0",
+      "category": "token_overflow",
+      "description": "验证 Buffer Token 累计超过 2048 时触发 TOKEN_OVERFLOW flush，多轮对话逐渐累积",
+      "input": {
+        "identity": {"user_id": "test_user_005a", "agent_id": "test_agent", "session_id": "session_005a"},
+        "max_processing_tokens": 2048,
+        "interactions": [
+          {
+            "role": "user",
+            "content": "请详细解释Python中的装饰器的工作原理，包括它的实现机制、使用场景和最佳实践。我需要深入理解这个概念以便在实际项目中正确使用。另外请给出多个实际应用的例子，包括日志记录、性能计时、权限验证、缓存、重试机制等各种场景的完整代码示例。",
+            "rewritten_query": "详细解释Python装饰器的工作原理、实现机制、使用场景、最佳实践和实际应用例子"
+          },
+          {
+            "role": "assistant",
+            "content": "Python装饰器详解：\n\n一、基本概念\n装饰器是一种设计模式，允许在不修改原函数代码的情况下，动态地添加功能。本质上是一个接受函数作为参数并返回新函数的高阶函数。装饰器的核心思想是函数是一等公民，可以作为参数传递、作为返回值返回。\n\n二、实现机制\n装饰器的实现依赖于Python的闭包特性。当我们使用@decorator语法时，Python会自动将被装饰的函数作为参数传递给装饰器函数。\n\n```python\ndef decorator(func):\n    def wrapper(*args, **kwargs):\n        print('Before function call')\n        result = func(*args, **kwargs)\n        print('After function call')\n        return result\n    return wrapper\n\n@decorator\ndef my_function():\n    print('Function body')\n\n# 等价于：my_function = decorator(my_function)\n```\n\n三、使用场景详解\n1. 日志记录：在函数执行前后记录日志信息\n2. 性能计时：测量函数执行时间\n3. 权限验证：检查用户是否有权限执行某个操作\n4. 缓存：缓存函数的返回结果，避免重复计算\n5. 重试机制：在函数执行失败时自动重试\n6. 参数验证：验证函数参数的类型和值\n7. 事务管理：在数据库操作中管理事务\n\n四、最佳实践\n1. 使用functools.wraps保留原函数元信息（__name__, __doc__等）\n2. 支持带参数的装饰器，使装饰器更加灵活\n3. 类装饰器的使用，适合需要维护状态的场景\n4. 装饰器的组合使用，多个装饰器可以叠加\n\n五、实际应用例子\n\n1. 计时装饰器：\n```python\nimport functools\nimport time\n\ndef timer(func):\n    @functools.wraps(func)\n    def wrapper(*args, **kwargs):\n        start = time.time()\n        result = func(*args, **kwargs)\n        end = time.time()\n        print(f'{func.__name__} took {end-start:.2f}s')\n        return result\n    return wrapper\n```\n\n2. 重试装饰器：\n```python\ndef retry(max_attempts=3, delay=1):\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            for attempt in range(max_attempts):\n                try:\n                    return func(*args, **kwargs)\n                except Exception as e:\n                    if attempt == max_attempts - 1:\n                        raise\n                    time.sleep(delay)\n        return wrapper\n    return decorator\n```\n\n3. 缓存装饰器：\n```python\ndef memoize(func):\n    cache = {}\n    @functools.wraps(func)\n    def wrapper(*args):\n        if args not in cache:\n            cache[args] = func(*args)\n        return cache[args]\n    return wrapper\n```\n\n4. 权限验证装饰器：\n```python\ndef require_auth(role='user'):\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            user = get_current_user()\n            if not user or user.role != role:\n                raise PermissionError('Access denied')\n            return func(*args, **kwargs)\n        return wrapper\n    return decorator\n```\n\n5. 日志装饰器：\n```python\nimport logging\n\ndef log_calls(logger=None):\n    if logger is None:\n        logger = logging.getLogger(__name__)\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            logger.info(f'Calling {func.__name__} with args={args}, kwargs={kwargs}')\n            result = func(*args, **kwargs)\n            logger.info(f'{func.__name__} returned {result}')\n            return result\n        return wrapper\n    return decorator\n```"
+          },
+          {
+            "role": "user",
+            "content": "请详细解释Python中的生成器的工作原理，包括yield关键字的机制、生成器表达式、send方法的使用，以及与迭代器的区别。请给出内存优化的实际案例，包括处理大文件、无限序列、数据流处理等场景的完整代码示例。",
+            "rewritten_query": "详细解释Python生成器的工作原理、yield机制、生成器表达式、send方法、与迭代器区别及内存优化案例"
+          },
+          {
+            "role": "assistant",
+            "content": "Python生成器详解：\n\n一、基本概念\n生成器是一种特殊的迭代器，使用yield关键字定义。它可以暂停执行并在需要时恢复，实现惰性求值。生成器的核心优势是内存效率，因为它不会一次性将所有数据加载到内存中。\n\n二、yield关键字机制\nyield关键字使函数变成生成器函数。当调用生成器函数时，它返回一个生成器对象，而不是立即执行函数体。每次调用next()时，函数执行到yield语句，返回yield后面的值，然后暂停。下次调用next()时，从暂停的地方继续执行。\n\n```python\ndef count_up_to(n):\n    count = 1\n    while count <= n:\n        yield count\n        count += 1\n\n# 使用\ngen = count_up_to(5)\nprint(next(gen))  # 1\nprint(next(gen))  # 2\n\n# 或者用for循环\nfor num in count_up_to(5):\n    print(num)\n```\n\n三、生成器表达式\n生成器表达式是创建生成器的简洁方式，语法类似列表推导式，但使用圆括号。\n\n```python\n# 列表推导式 - 立即计算，占用内存\nsquares_list = [x**2 for x in range(1000000)]  # 占用大量内存\n\n# 生成器表达式 - 惰性计算，节省内存\nsquares_gen = (x**2 for x in range(1000000))  # 几乎不占内存\n\n# 内存对比\nimport sys\nprint(sys.getsizeof(squares_list))  # 约8MB\nprint(sys.getsizeof(squares_gen))   # 约120字节\n```\n\n四、send方法详解\nsend方法允许向生成器发送值，这个值会成为yield表达式的结果。这使得生成器可以实现协程的功能。\n\n```python\ndef accumulator():\n    total = 0\n    while True:\n        value = yield total\n        if value is not None:\n            total += value\n\nacc = accumulator()\nnext(acc)  # 启动生成器，必须先调用next()或send(None)\nprint(acc.send(10))  # 10\nprint(acc.send(20))  # 30\nprint(acc.send(30))  # 60\n```\n\n五、与迭代器的区别\n- 迭代器：实现__iter__和__next__方法的对象，需要手动管理状态\n- 生成器：使用yield的函数，自动实现迭代器协议，代码更简洁\n\n```python\n# 迭代器实现\nclass CountUpTo:\n    def __init__(self, n):\n        self.n = n\n        self.count = 0\n    \n    def __iter__(self):\n        return self\n    \n    def __next__(self):\n        self.count += 1\n        if self.count > self.n:\n            raise StopIteration\n        return self.count\n\n# 生成器实现（更简洁）\ndef count_up_to(n):\n    count = 1\n    while count <= n:\n        yield count\n        count += 1\n```\n\n六、内存优化案例\n\n1. 处理大文件：\n```python\ndef read_large_file(file_path, chunk_size=8192):\n    with open(file_path, 'r', encoding='utf-8') as f:\n        while True:\n            chunk = f.read(chunk_size)\n            if not chunk:\n                break\n            yield chunk\n\n# 逐行读取\ndef read_lines(file_path):\n    with open(file_path, 'r', encoding='utf-8') as f:\n        for line in f:\n            yield line.strip()\n\n# 使用\nfor line in read_lines('huge_file.txt'):\n    process(line)\n```\n\n2. 无限序列：\n```python\ndef fibonacci():\n    a, b = 0, 1\n    while True:\n        yield a\n        a, b = b, a + b\n\ndef prime_numbers():\n    def is_prime(n):\n        if n < 2:\n            return False\n        for i in range(2, int(n**0.5) + 1):\n            if n % i == 0:\n                return False\n        return True\n    \n    n = 2\n    while True:\n        if is_prime(n):\n            yield n\n        n += 1\n\n# 取前10个斐波那契数\nfrom itertools import islice\nprint(list(islice(fibonacci(), 10)))\n```\n\n3. 数据流处理管道：\n```python\ndef read_data(source):\n    for item in source:\n        yield item\n\ndef filter_data(data, predicate):\n    for item in data:\n        if predicate(item):\n            yield item\n\ndef transform_data(data, func):\n    for item in data:\n        yield func(item)\n\n# 构建处理管道\ndata = read_data(range(100))\nfiltered = filter_data(data, lambda x: x % 2 == 0)\ntransformed = transform_data(filtered, lambda x: x ** 2)\n\nfor item in transformed:\n    print(item)\n```"
+          },
+          {
+            "role": "user",
+            "content": "请详细解释Python中的上下文管理器，包括with语句的原理、__enter__和__exit__方法、contextlib模块的使用，以及资源管理的最佳实践。请给出数据库连接、文件操作、锁管理等场景的完整代码示例。",
+            "rewritten_query": "详细解释Python上下文管理器、with语句原理、__enter__/__exit__方法、contextlib模块及资源管理最佳实践"
+          },
+          {
+            "role": "assistant",
+            "content": "Python上下文管理器详解：\n\n一、基本概念\n上下文管理器是实现了__enter__和__exit__方法的对象，用于管理资源的获取和释放。它确保资源在使用后被正确清理，即使发生异常也能保证资源释放。\n\n二、with语句原理\nwith语句的执行流程：\n1. 调用__enter__方法，返回值赋给as后面的变量\n2. 执行with块中的代码\n3. 无论是否发生异常，都调用__exit__方法\n\n```python\nwith open('file.txt', 'r') as f:\n    content = f.read()\n\n# 等价于\nf = open('file.txt', 'r')\ntry:\n    content = f.read()\nfinally:\n    f.close()\n```\n\n三、自定义上下文管理器\n\n1. 数据库连接管理器：\n```python\nclass DatabaseConnection:\n    def __init__(self, host, port, database):\n        self.host = host\n        self.port = port\n        self.database = database\n        self.connection = None\n    \n    def __enter__(self):\n        self.connection = create_connection(\n            host=self.host,\n            port=self.port,\n            database=self.database\n        )\n        return self.connection\n    \n    def __exit__(self, exc_type, exc_val, exc_tb):\n        if self.connection:\n            if exc_type is not None:\n                self.connection.rollback()\n            else:\n                self.connection.commit()\n            self.connection.close()\n        return False  # 不抑制异常\n\nwith DatabaseConnection('localhost', 5432, 'mydb') as conn:\n    cursor = conn.cursor()\n    cursor.execute('SELECT * FROM users')\n    results = cursor.fetchall()\n```\n\n2. 文件操作管理器：\n```python\nclass ManagedFile:\n    def __init__(self, filename, mode='r', encoding='utf-8'):\n        self.filename = filename\n        self.mode = mode\n        self.encoding = encoding\n        self.file = None\n    \n    def __enter__(self):\n        self.file = open(self.filename, self.mode, encoding=self.encoding)\n        return self.file\n    \n    def __exit__(self, exc_type, exc_val, exc_tb):\n        if self.file:\n            self.file.close()\n        return False\n\nwith ManagedFile('data.txt', 'w') as f:\n    f.write('Hello, World!')\n```\n\n四、contextlib模块\n\n1. @contextmanager装饰器：\n```python\nfrom contextlib import contextmanager\nimport time\n\n@contextmanager\ndef timer(name='Operation'):\n    start = time.time()\n    try:\n        yield\n    finally:\n        end = time.time()\n        print(f'{name} took {end-start:.2f}s')\n\nwith timer('Data processing'):\n    process_data()\n```\n\n2. 临时目录管理：\n```python\n@contextmanager\ndef temp_directory():\n    import tempfile\n    import shutil\n    \n    dirpath = tempfile.mkdtemp()\n    try:\n        yield dirpath\n    finally:\n        shutil.rmtree(dirpath)\n\nwith temp_directory() as tmpdir:\n    # 在临时目录中工作\n    pass\n```\n\n3. 锁管理：\n```python\nimport threading\n\n@contextmanager\ndef acquire_lock(lock, timeout=None):\n    acquired = lock.acquire(timeout=timeout)\n    try:\n        if not acquired:\n            raise TimeoutError('Could not acquire lock')\n        yield\n    finally:\n        if acquired:\n            lock.release()\n\nlock = threading.Lock()\nwith acquire_lock(lock, timeout=5):\n    # 临界区代码\n    pass\n```\n\n五、资源管理最佳实践\n1. 文件操作始终使用with语句\n2. 数据库连接使用上下文管理器，确保连接关闭和事务处理\n3. 锁的获取和释放使用上下文管理器，避免死锁\n4. 临时资源（文件、目录）使用上下文管理器自动清理\n5. 网络连接使用上下文管理器管理生命周期"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": true,
+        "flush_reason": "TOKEN_OVERFLOW",
+        "relay_summary_not_null": true,
+        "qdrant_memory_count_min": 1
+      }
+    },
+    {
+      "id": "CP-PER-005-B",
+      "name": "Token溢出 - 单次大块溢出",
+      "priority": "P0",
+      "category": "token_overflow",
+      "description": "验证单次大量 Token 输入导致溢出",
+      "input": {
+        "identity": {"user_id": "test_user_005b", "agent_id": "test_agent", "session_id": "session_005b"},
+        "max_processing_tokens": 2048,
+        "interactions": [
+          {
+            "role": "user",
+            "content": "请给我一份完整的Python项目结构模板，包括目录结构、配置文件、测试框架、CI/CD配置、Docker部署、文档结构等所有内容。我需要一个企业级的项目模板，包含完整的代码示例和详细的配置说明。",
+            "rewritten_query": "完整的Python项目结构模板，包括目录结构、配置、测试、CI/CD、Docker、文档"
+          },
+          {
+            "role": "assistant",
+            "content": "完整的Python项目结构模板：\n\n```\nmy_project/\n├── src/\n│   └── my_project/\n│       ├── __init__.py\n│       ├── main.py\n│       ├── config/\n│       │   ├── __init__.py\n│       │   └── settings.py\n│       ├── models/\n│       │   ├── __init__.py\n│       │   └── user.py\n│       ├── services/\n│       │   ├── __init__.py\n│       │   └── user_service.py\n│       ├── api/\n│       │   ├── __init__.py\n│       │   └── routes.py\n│       └── utils/\n│           ├── __init__.py\n│           └── helpers.py\n├── tests/\n│   ├── __init__.py\n│   ├── conftest.py\n│   ├── unit/\n│   │   └── test_user.py\n│   └── integration/\n│       └── test_api.py\n├── docs/\n│   ├── index.md\n│   └── api.md\n├── scripts/\n│   └── setup.sh\n├── .github/\n│   └── workflows/\n│       └── ci.yml\n├── docker/\n│   ├── Dockerfile\n│   └── docker-compose.yml\n├── pyproject.toml\n├── setup.py\n├── requirements.txt\n├── requirements-dev.txt\n├── .env.example\n├── .gitignore\n├── README.md\n└── LICENSE\n```\n\n配置文件详解：\n\n1. pyproject.toml\n```toml\n[build-system]\nrequires = [\"setuptools>=45\", \"wheel\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"my_project\"\nversion = \"0.1.0\"\ndescription = \"A sample project\"\nrequires-python = \">=3.9\"\ndependencies = [\n    \"fastapi>=0.100.0\",\n    \"uvicorn>=0.23.0\",\n    \"pydantic>=2.0.0\",\n]\n\n[project.optional-dependencies]\ndev = [\n    \"pytest>=7.0.0\",\n    \"pytest-cov>=4.0.0\",\n    \"black>=23.0.0\",\n    \"ruff>=0.1.0\",\n]\n\n[tool.black]\nline-length = 88\ntarget-version = ['py39']\n\n[tool.ruff]\nline-length = 88\nselect = [\"E\", \"F\", \"W\", \"I\"]\n\n[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\naddopts = \"-v --cov=src\"\n```\n\n2. CI/CD配置 (.github/workflows/ci.yml)\n```yaml\nname: CI\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v3\n      - name: Set up Python\n        uses: actions/setup-python@v4\n        with:\n          python-version: '3.11'\n      - name: Install dependencies\n        run: |\n          pip install -e \".[dev]\"\n      - name: Run tests\n        run: pytest --cov-report=xml\n      - name: Upload coverage\n        uses: codecov/codecov-action@v3\n```\n\n3. Dockerfile\n```dockerfile\nFROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY src/ ./src/\nEXPOSE 8000\nCMD [\"uvicorn\", \"src.my_project.main:app\", \"--host\", \"0.0.0.0\"]\n```\n\n4. docker-compose.yml\n```yaml\nversion: '3.8'\nservices:\n  app:\n    build: .\n    ports:\n      - \"8000:8000\"\n    environment:\n      - DATABASE_URL=postgresql://user:pass@db:5432/mydb\n    depends_on:\n      - db\n  db:\n    image: postgres:15\n    environment:\n      POSTGRES_USER: user\n      POSTGRES_PASSWORD: pass\n      POSTGRES_DB: mydb\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\nvolumes:\n  postgres_data:\n```"
+          },
+          {
+            "role": "user",
+            "content": "继续补充测试框架的详细配置和示例代码",
+            "rewritten_query": "Python项目测试框架的详细配置和示例代码"
+          },
+          {
+            "role": "assistant",
+            "content": "测试框架详细配置：\n\n一、conftest.py 完整配置\n```python\nimport pytest\nimport asyncio\nfrom typing import Generator, AsyncGenerator\nfrom fastapi.testclient import TestClient\nfrom httpx import AsyncClient\nfrom sqlalchemy import create_engine\nfrom sqlalchemy.orm import sessionmaker\nfrom src.my_project.main import app\nfrom src.my_project.config.settings import Settings\nfrom src.my_project.database import Base, get_db\n\n# 测试数据库配置\nTEST_DATABASE_URL = \"sqlite:///./test.db\"\nengine = create_engine(TEST_DATABASE_URL, connect_args={\"check_same_thread\": False})\nTestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)\n\n@pytest.fixture(scope=\"session\")\ndef event_loop():\n    loop = asyncio.get_event_loop_policy().new_event_loop()\n    yield loop\n    loop.close()\n\n@pytest.fixture(scope=\"session\")\ndef settings():\n    return Settings(_env_file=\".env.test\")\n\n@pytest.fixture(scope=\"function\")\ndef db_session() -> Generator:\n    Base.metadata.create_all(bind=engine)\n    session = TestingSessionLocal()\n    try:\n        yield session\n    finally:\n        session.close()\n        Base.metadata.drop_all(bind=engine)\n\n@pytest.fixture(scope=\"module\")\ndef client(db_session) -> Generator:\n    def override_get_db():\n        try:\n            yield db_session\n        finally:\n            pass\n    app.dependency_overrides[get_db] = override_get_db\n    with TestClient(app) as c:\n        yield c\n    app.dependency_overrides.clear()\n\n@pytest.fixture\nasync def async_client() -> AsyncGenerator:\n    async with AsyncClient(app=app, base_url=\"http://test\") as ac:\n        yield ac\n\n@pytest.fixture\ndef sample_user():\n    return {\n        \"name\": \"Test User\",\n        \"email\": \"test@example.com\",\n        \"password\": \"securepassword123\",\n        \"is_active\": True\n    }\n\n@pytest.fixture\ndef auth_headers(client, sample_user):\n    response = client.post(\"/api/auth/register\", json=sample_user)\n    token = response.json()[\"access_token\"]\n    return {\"Authorization\": f\"Bearer {token}\"}\n```\n\n二、单元测试完整示例\n```python\nimport pytest\nfrom unittest.mock import Mock, patch, MagicMock\nfrom datetime import datetime, timedelta\nfrom src.my_project.models.user import User\nfrom src.my_project.services.user_service import UserService\nfrom src.my_project.exceptions import UserNotFoundError, DuplicateEmailError\n\nclass TestUserModel:\n    def test_user_creation(self):\n        user = User(\n            id=1,\n            name=\"Test User\",\n            email=\"test@example.com\",\n            created_at=datetime.utcnow()\n        )\n        assert user.id == 1\n        assert user.name == \"Test User\"\n        assert user.email == \"test@example.com\"\n    \n    def test_user_password_hashing(self):\n        user = User(name=\"Test\", email=\"test@example.com\")\n        user.set_password(\"mypassword\")\n        assert user.password_hash != \"mypassword\"\n        assert user.verify_password(\"mypassword\") is True\n        assert user.verify_password(\"wrongpassword\") is False\n\nclass TestUserService:\n    @pytest.fixture\n    def mock_repository(self):\n        return Mock()\n    \n    @pytest.fixture\n    def user_service(self, mock_repository):\n        return UserService(repository=mock_repository)\n    \n    def test_create_user_success(self, user_service, mock_repository, sample_user):\n        mock_repository.get_by_email.return_value = None\n        mock_repository.create.return_value = User(**sample_user, id=1)\n        \n        result = user_service.create(sample_user)\n        \n        assert result.id == 1\n        assert result.name == sample_user[\"name\"]\n        mock_repository.create.assert_called_once()\n    \n    def test_create_user_duplicate_email(self, user_service, mock_repository, sample_user):\n        mock_repository.get_by_email.return_value = User(**sample_user, id=1)\n        \n        with pytest.raises(DuplicateEmailError):\n            user_service.create(sample_user)\n    \n    def test_get_user_by_id_success(self, user_service, mock_repository):\n        expected_user = User(id=1, name=\"Test\", email=\"test@example.com\")\n        mock_repository.get_by_id.return_value = expected_user\n        \n        result = user_service.get_by_id(1)\n        \n        assert result == expected_user\n        mock_repository.get_by_id.assert_called_once_with(1)\n    \n    def test_get_user_by_id_not_found(self, user_service, mock_repository):\n        mock_repository.get_by_id.return_value = None\n        \n        with pytest.raises(UserNotFoundError):\n            user_service.get_by_id(999)\n    \n    def test_update_user_success(self, user_service, mock_repository):\n        existing_user = User(id=1, name=\"Old Name\", email=\"test@example.com\")\n        mock_repository.get_by_id.return_value = existing_user\n        mock_repository.update.return_value = User(id=1, name=\"New Name\", email=\"test@example.com\")\n        \n        result = user_service.update(1, {\"name\": \"New Name\"})\n        \n        assert result.name == \"New Name\"\n    \n    def test_delete_user_success(self, user_service, mock_repository):\n        mock_repository.get_by_id.return_value = User(id=1, name=\"Test\", email=\"test@example.com\")\n        mock_repository.delete.return_value = True\n        \n        result = user_service.delete(1)\n        \n        assert result is True\n        mock_repository.delete.assert_called_once_with(1)\n```\n\n三、集成测试完整示例\n```python\nimport pytest\nfrom fastapi import status\n\nclass TestUserAPI:\n    def test_create_user_success(self, client, sample_user):\n        response = client.post(\"/api/users\", json=sample_user)\n        \n        assert response.status_code == status.HTTP_201_CREATED\n        data = response.json()\n        assert data[\"name\"] == sample_user[\"name\"]\n        assert data[\"email\"] == sample_user[\"email\"]\n        assert \"id\" in data\n        assert \"password\" not in data\n    \n    def test_create_user_invalid_email(self, client):\n        invalid_user = {\"name\": \"Test\", \"email\": \"invalid-email\", \"password\": \"test123\"}\n        response = client.post(\"/api/users\", json=invalid_user)\n        \n        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY\n    \n    def test_get_user_success(self, client, sample_user):\n        create_response = client.post(\"/api/users\", json=sample_user)\n        user_id = create_response.json()[\"id\"]\n        \n        response = client.get(f\"/api/users/{user_id}\")\n        \n        assert response.status_code == status.HTTP_200_OK\n        assert response.json()[\"id\"] == user_id\n    \n    def test_get_user_not_found(self, client):\n        response = client.get(\"/api/users/99999\")\n        \n        assert response.status_code == status.HTTP_404_NOT_FOUND\n    \n    def test_list_users_with_pagination(self, client, sample_user):\n        for i in range(15):\n            user = {**sample_user, \"email\": f\"user{i}@example.com\"}\n            client.post(\"/api/users\", json=user)\n        \n        response = client.get(\"/api/users?page=1&size=10\")\n        \n        assert response.status_code == status.HTTP_200_OK\n        data = response.json()\n        assert len(data[\"items\"]) == 10\n        assert data[\"total\"] >= 15\n        assert data[\"page\"] == 1\n    \n    def test_update_user_success(self, client, sample_user, auth_headers):\n        create_response = client.post(\"/api/users\", json=sample_user)\n        user_id = create_response.json()[\"id\"]\n        \n        update_data = {\"name\": \"Updated Name\"}\n        response = client.patch(f\"/api/users/{user_id}\", json=update_data, headers=auth_headers)\n        \n        assert response.status_code == status.HTTP_200_OK\n        assert response.json()[\"name\"] == \"Updated Name\"\n    \n    def test_delete_user_success(self, client, sample_user, auth_headers):\n        create_response = client.post(\"/api/users\", json=sample_user)\n        user_id = create_response.json()[\"id\"]\n        \n        response = client.delete(f\"/api/users/{user_id}\", headers=auth_headers)\n        \n        assert response.status_code == status.HTTP_204_NO_CONTENT\n        \n        get_response = client.get(f\"/api/users/{user_id}\")\n        assert get_response.status_code == status.HTTP_404_NOT_FOUND\n\nclass TestAuthAPI:\n    def test_login_success(self, client, sample_user):\n        client.post(\"/api/users\", json=sample_user)\n        \n        login_data = {\"email\": sample_user[\"email\"], \"password\": sample_user[\"password\"]}\n        response = client.post(\"/api/auth/login\", json=login_data)\n        \n        assert response.status_code == status.HTTP_200_OK\n        assert \"access_token\" in response.json()\n        assert \"refresh_token\" in response.json()\n    \n    def test_login_invalid_credentials(self, client):\n        login_data = {\"email\": \"nonexistent@example.com\", \"password\": \"wrongpassword\"}\n        response = client.post(\"/api/auth/login\", json=login_data)\n        \n        assert response.status_code == status.HTTP_401_UNAUTHORIZED\n```\n\n四、异步测试示例\n```python\nimport pytest\nfrom httpx import AsyncClient\n\n@pytest.mark.asyncio\nclass TestAsyncUserAPI:\n    async def test_create_user_async(self, async_client, sample_user):\n        response = await async_client.post(\"/api/users\", json=sample_user)\n        \n        assert response.status_code == 201\n        assert response.json()[\"email\"] == sample_user[\"email\"]\n    \n    async def test_concurrent_user_creation(self, async_client):\n        import asyncio\n        \n        async def create_user(email):\n            user = {\"name\": \"Test\", \"email\": email, \"password\": \"test123\"}\n            return await async_client.post(\"/api/users\", json=user)\n        \n        tasks = [create_user(f\"user{i}@example.com\") for i in range(10)]\n        responses = await asyncio.gather(*tasks)\n        \n        success_count = sum(1 for r in responses if r.status_code == 201)\n        assert success_count == 10\n```"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": true,
+        "flush_reason": "TOKEN_OVERFLOW",
+        "relay_summary_not_null": true,
+        "qdrant_memory_count_min": 1
+      }
+    },
+    {
+      "id": "CP-PER-005-C",
+      "name": "Token溢出 - 边界不触发",
+      "priority": "P1",
+      "category": "token_overflow",
+      "description": "验证 Token 接近但未超过阈值时不触发 flush",
+      "input": {
+        "identity": {"user_id": "test_user_005c", "agent_id": "test_agent", "session_id": "session_005c"},
+        "max_processing_tokens": 8192,
+        "interactions": [
+          {
+            "role": "user",
+            "content": "什么是Python的GIL？",
+            "rewritten_query": "Python GIL的概念"
+          },
+          {
+            "role": "assistant",
+            "content": "GIL（Global Interpreter Lock）是Python解释器中的全局锁，确保同一时刻只有一个线程执行Python字节码。这限制了多线程的并行性，但简化了内存管理。"
+          }
+        ]
+      },
+      "expected": {
+        "flush_triggered": false,
+        "buffer_blocks_count": 1
+      }
+    },
+    {
+      "id": "CP-PER-006-A",
+      "name": "空闲超时 - 刚好超时",
+      "priority": "P1",
+      "category": "idle_timeout",
+      "description": "验证 Buffer 空闲超过 900 秒时触发 IDLE_TIMEOUT flush，需要 Mock 时间",
+      "input": {
+        "identity": {"user_id": "test_user_006a", "agent_id": "test_agent", "session_id": "session_006a"},
+        "idle_seconds": 901,
+        "timeout_threshold": 900,
+        "interactions": [
+          {
+            "role": "user",
+            "content": "Python的asyncio库怎么使用？",
+            "rewritten_query": "Python asyncio库的使用方法"
+          },
+          {
+            "role": "assistant",
+            "content": "asyncio是Python的异步I/O库：\n\n```python\nimport asyncio\n\nasync def main():\n    await asyncio.sleep(1)\n    print('Hello')\n\nasyncio.run(main())\n```\n\n主要概念：协程、事件循环、任务。"
+          }
+        ],
+        "mock_time_advance": 901
+      },
+      "expected": {
+        "flush_triggered": true,
+        "flush_reason": "IDLE_TIMEOUT",
+        "qdrant_memory_count_min": 1
+      }
+    },
+    {
+      "id": "CP-PER-006-B",
+      "name": "空闲超时 - 未超时",
+      "priority": "P1",
+      "category": "idle_timeout",
+      "description": "验证空闲时间未达阈值时不触发 flush",
+      "input": {
+        "identity": {"user_id": "test_user_006b", "agent_id": "test_agent", "session_id": "session_006b"},
+        "idle_seconds": 899,
+        "timeout_threshold": 900,
+        "interactions": [
+          {
+            "role": "user",
+            "content": "什么是Python的类型提示？",
+            "rewritten_query": "Python类型提示的概念和用法"
+          },
+          {
+            "role": "assistant",
+            "content": "Python类型提示（Type Hints）用于标注变量和函数的类型：\n\n```python\ndef greet(name: str) -> str:\n    return f'Hello, {name}'\n\nage: int = 25\n```\n\n使用mypy进行静态类型检查。"
+          }
+        ],
+        "mock_time_advance": 899
+      },
+      "expected": {
+        "flush_triggered": false,
+        "buffer_blocks_count": 1
+      }
+    },
+    {
+      "id": "CP-PER-006-C",
+      "name": "空闲超时 - 长时间空闲",
+      "priority": "P1",
+      "category": "idle_timeout",
+      "description": "验证长时间空闲（30分钟）触发 flush",
+      "input": {
+        "identity": {"user_id": "test_user_006c", "agent_id": "test_agent", "session_id": "session_006c"},
+        "idle_seconds": 1800,
+        "timeout_threshold": 900,
+        "interactions": [
+          {
+            "role": "user",
+            "content": "如何在Python中使用正则表达式？",
+            "rewritten_query": "Python正则表达式的使用方法"
+          },
+          {
+            "role": "assistant",
+            "content": "Python正则表达式使用re模块：\n\n```python\nimport re\n\n# 匹配\npattern = r'\\d+'\nresult = re.findall(pattern, 'abc123def456')\n# ['123', '456']\n\n# 替换\nre.sub(r'\\d+', 'X', 'abc123')  # 'abcX'\n```"
+          }
+        ],
+        "mock_time_advance": 1800
+      },
+      "expected": {
+        "flush_triggered": true,
+        "flush_reason": "IDLE_TIMEOUT",
+        "qdrant_memory_count_min": 1
+      }
+    },
+    {
+      "id": "CP-PER-007-A",
+      "name": "Agent工具调用 - 单工具",
+      "priority": "P1",
+      "category": "agent_tool_call",
+      "description": "验证包含单个工具调用的 Agent 对话被正确解析为 Triplet",
+      "input": {
+        "identity": {"user_id": "test_user_007a", "agent_id": "test_agent", "session_id": "session_007a"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "帮我查询一下北京的天气，如果温度低于10度，推荐一些保暖的穿搭建议。",
+            "rewritten_query": "查询北京天气，若温度低于10度推荐保暖穿搭"
+          },
+          {
+            "role": "assistant",
+            "content": "我需要先查询北京的天气信息，然后根据温度推荐合适的穿搭。"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_weather_001",
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "arguments": "{\"location\": \"北京\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_weather_001",
+            "content": "{\"temperature\": 5, \"condition\": \"晴\", \"humidity\": 45, \"wind\": \"北风3级\"}"
+          },
+          {
+            "role": "assistant",
+            "content": "北京目前气温5度，天气晴朗，湿度45%，北风3级。由于温度较低，建议您：\n\n1. 上身：保暖内衣 + 毛衣/厚卫衣 + 羽绒服或厚棉衣\n2. 下身：保暖裤或加绒裤子\n3. 配件：帽子、手套、围巾\n4. 鞋子：保暖鞋或加绒运动鞋\n\n外出时注意防风保暖。"
+          }
+        ]
+      },
+      "expected": {
+        "triplet_count": 1,
+        "tool_names": ["get_weather"],
+        "block_is_complete": true,
+        "flush_on_topic_change": true
+      }
+    },
+    {
+      "id": "CP-PER-007-B",
+      "name": "Agent工具调用 - 多工具",
+      "priority": "P1",
+      "category": "agent_tool_call",
+      "description": "验证包含多个工具调用的 Agent 对话被正确解析为多个 Triplet",
+      "input": {
+        "identity": {"user_id": "test_user_007b", "agent_id": "test_agent", "session_id": "session_007b"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "帮我分析这段Python代码的时间复杂度，然后给出优化建议。代码是一个双重循环的列表查找函数。",
+            "rewritten_query": "分析双重循环列表查找Python代码的时间复杂度并给出优化建议"
+          },
+          {
+            "role": "assistant",
+            "content": "我需要先使用代码分析工具来计算时间复杂度。"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_analyze_001",
+                "type": "function",
+                "function": {
+                  "name": "analyze_complexity",
+                  "arguments": "{\"code\": \"def find_duplicates(lst):\\n    result = []\\n    for i in range(len(lst)):\\n        for j in range(i+1, len(lst)):\\n            if lst[i] == lst[j]:\\n                result.append(lst[i])\\n    return result\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_analyze_001",
+            "content": "{\"time_complexity\": \"O(n^2)\", \"space_complexity\": \"O(n)\", \"hotspots\": [\"nested_loop\"], \"analysis\": \"双重循环导致平方级复杂度\"}"
+          },
+          {
+            "role": "assistant",
+            "content": "根据分析，这段代码的时间复杂度是O(n²)，空间复杂度是O(n)，主要瓶颈在嵌套循环。现在让我获取优化建议。"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "id": "call_optimize_001",
+                "type": "function",
+                "function": {
+                  "name": "suggest_optimization",
+                  "arguments": "{\"time_complexity\": \"O(n^2)\", \"pattern\": \"nested_search\", \"language\": \"python\"}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_optimize_001",
+            "content": "{\"suggestion\": \"使用哈希表（集合）可以将查找复杂度从O(n)降低到O(1)\", \"optimized_complexity\": \"O(n)\", \"optimized_code\": \"def find_duplicates(lst):\\n    seen = set()\\n    duplicates = set()\\n    for x in lst:\\n        if x in seen:\\n            duplicates.add(x)\\n        seen.add(x)\\n    return list(duplicates)\"}"
+          },
+          {
+            "role": "assistant",
+            "content": "经过分析，这段代码的时间复杂度为O(n²)，空间复杂度为O(n)。主要性能瓶颈在于嵌套循环中的重复查找操作。\n\n**优化建议**：使用哈希表（集合）存储已见过的元素，可以将查找操作的复杂度从O(n)降低到O(1)，从而将整体时间复杂度优化到O(n)。\n\n**优化后的代码**：\n```python\ndef find_duplicates(lst):\n    seen = set()\n    duplicates = set()\n    for x in lst:\n        if x in seen:\n            duplicates.add(x)\n        seen.add(x)\n    return list(duplicates)\n```\n\n这样只需要遍历列表一次，效率大幅提升。"
+          }
+        ]
+      },
+      "expected": {
+        "triplet_count": 2,
+        "tool_names": ["analyze_complexity", "suggest_optimization"],
+        "block_is_complete": true
+      }
+    },
+    {
+      "id": "CP-GEN-001-A",
+      "name": "有价值记忆提取 - API配置",
+      "priority": "P0",
+      "category": "memory_extraction",
+      "description": "验证包含事实性信息（API配置）的对话被正确提取为 MemoryAtom，需要先触发 flush",
+      "input": {
+        "identity": {"user_id": "test_user_gen001a", "agent_id": "test_agent", "session_id": "session_gen001a"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "我的项目需要配置OpenAI API，Key是sk-proj-abc123xyz，请帮我设置环境变量。",
+            "rewritten_query": "配置OpenAI API Key sk-proj-abc123xyz到环境变量"
+          },
+          {
+            "role": "assistant",
+            "content": "好的，我帮你配置OpenAI API Key。你可以通过以下方式设置：\n\n1. 创建.env文件：\n```\nOPENAI_API_KEY=sk-proj-abc123xyz\n```\n\n2. 或者在终端设置：\n```bash\nexport OPENAI_API_KEY=sk-proj-abc123xyz\n```\n\n3. 在Python代码中加载：\n```python\nfrom dotenv import load_dotenv\nimport os\n\nload_dotenv()\napi_key = os.getenv('OPENAI_API_KEY')\n```\n\n记得将.env添加到.gitignore中，避免泄露密钥。"
+          },
+          {
+            "role": "user",
+            "content": "今天天气怎么样？",
+            "rewritten_query": "今天的天气情况"
+          },
+          {
+            "role": "assistant",
+            "content": "抱歉，我无法获取实时天气信息。建议你查看天气预报应用或网站。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "has_value": true,
+        "memory_type": "FACT",
+        "title_contains": ["API", "Key", "OpenAI"],
+        "qdrant_memory_count": 1
+      }
+    },
+    {
+      "id": "CP-GEN-001-B",
+      "name": "有价值记忆提取 - 代码片段",
+      "priority": "P0",
+      "category": "memory_extraction",
+      "description": "验证代码片段对话被提取为 CODE_SNIPPET 类型记忆",
+      "input": {
+        "identity": {"user_id": "test_user_gen001b", "agent_id": "test_agent", "session_id": "session_gen001b"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "帮我写一个Python快速排序算法，要求能处理重复元素并返回排序后的列表。",
+            "rewritten_query": "Python快速排序算法实现，支持重复元素"
+          },
+          {
+            "role": "assistant",
+            "content": "这是一个处理重复元素的Python快速排序实现：\n\n```python\ndef quicksort(arr):\n    \"\"\"快速排序算法，支持重复元素\"\"\"\n    if len(arr) <= 1:\n        return arr\n    \n    pivot = arr[len(arr) // 2]\n    left = [x for x in arr if x < pivot]\n    middle = [x for x in arr if x == pivot]\n    right = [x for x in arr if x > pivot]\n    \n    return quicksort(left) + middle + quicksort(right)\n\n# 测试\ntest_arr = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5]\nprint(quicksort(test_arr))\n# 输出: [1, 1, 2, 3, 3, 4, 5, 5, 5, 6, 9]\n```\n\n这个实现使用三路划分（left, middle, right），能正确处理重复元素。时间复杂度平均O(n log n)，最坏O(n²)。"
+          },
+          {
+            "role": "user",
+            "content": "北京有什么好玩的地方？",
+            "rewritten_query": "北京的旅游景点推荐"
+          },
+          {
+            "role": "assistant",
+            "content": "北京有很多著名景点：故宫、长城、颐和园、天坛等。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "has_value": true,
+        "memory_type": "CODE_SNIPPET",
+        "content_contains": ["quicksort", "pivot", "def"],
+        "qdrant_memory_count": 1
+      }
+    },
+    {
+      "id": "CP-GEN-001-C",
+      "name": "有价值记忆提取 - 用户偏好",
+      "priority": "P0",
+      "category": "memory_extraction",
+      "description": "验证用户偏好信息被提取为 USER_PROFILE 类型记忆",
+      "input": {
+        "identity": {"user_id": "test_user_gen001c", "agent_id": "test_agent", "session_id": "session_gen001c"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "我喜欢用VSCode配合Vim插件开发，主题用One Dark Pro，字体用Fira Code。这是我的开发环境偏好。",
+            "rewritten_query": "用户开发环境偏好：VSCode + Vim插件 + One Dark Pro主题 + Fira Code字体"
+          },
+          {
+            "role": "assistant",
+            "content": "好的，我记住了你的开发环境偏好：\n\n- **IDE**: VSCode\n- **编辑模式**: Vim插件\n- **主题**: One Dark Pro\n- **字体**: Fira Code（支持连字）\n\n这是一个很流行的配置组合。Vim插件可以让你在VSCode中使用Vim的高效编辑方式，One Dark Pro主题护眼且美观，Fira Code的连字特性让代码更易读。\n\n如果你需要，我可以帮你生成VSCode的settings.json配置。"
+          },
+          {
+            "role": "user",
+            "content": "红烧肉怎么做？",
+            "rewritten_query": "红烧肉的做法"
+          },
+          {
+            "role": "assistant",
+            "content": "红烧肉做法：五花肉切块焯水，炒糖色，加料酒、生抽、老抽，小火炖1小时。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "has_value": true,
+        "memory_type": "USER_PROFILE",
+        "title_contains": ["偏好", "开发环境"],
+        "content_contains": ["VSCode", "Vim", "One Dark Pro"],
+        "qdrant_memory_count": 1
+      }
+    },
+    {
+      "id": "CP-GEN-002-A",
+      "name": "噪音过滤 - 简单感谢",
+      "priority": "P0",
+      "category": "noise_filtering",
+      "description": "验证无营养的感谢对话被判定为无价值，不生成记忆",
+      "input": {
+        "identity": {"user_id": "test_user_gen002a", "agent_id": "test_agent", "session_id": "session_gen002a"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "好的，谢谢你的帮助！",
+            "rewritten_query": "感谢帮助"
+          },
+          {
+            "role": "assistant",
+            "content": "不客气！如果还有其他问题，随时可以问我。祝你工作顺利！"
+          },
+          {
+            "role": "user",
+            "content": "Python的列表推导式怎么用？",
+            "rewritten_query": "Python列表推导式的用法"
+          },
+          {
+            "role": "assistant",
+            "content": "列表推导式语法：[expression for item in iterable if condition]\n\n例如：squares = [x**2 for x in range(10)]"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "has_value": false,
+        "qdrant_memory_count": 0
+      }
+    },
+    {
+      "id": "CP-GEN-002-B",
+      "name": "噪音过滤 - 问候语",
+      "priority": "P0",
+      "category": "noise_filtering",
+      "description": "验证简单问候对话不生成记忆",
+      "input": {
+        "identity": {"user_id": "test_user_gen002b", "agent_id": "test_agent", "session_id": "session_gen002b"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "你好",
+            "rewritten_query": "问候"
+          },
+          {
+            "role": "assistant",
+            "content": "你好！有什么可以帮助你的吗？"
+          },
+          {
+            "role": "user",
+            "content": "如何安装Docker？",
+            "rewritten_query": "Docker的安装方法"
+          },
+          {
+            "role": "assistant",
+            "content": "Docker安装：访问docker.com下载安装包，或使用包管理器安装。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "has_value": false,
+        "qdrant_memory_count": 0
+      }
+    },
+    {
+      "id": "CP-GEN-002-C",
+      "name": "噪音过滤 - 确认词",
+      "priority": "P0",
+      "category": "noise_filtering",
+      "description": "验证简单确认对话不生成记忆",
+      "input": {
+        "identity": {"user_id": "test_user_gen002c", "agent_id": "test_agent", "session_id": "session_gen002c"},
+        "interactions": [
+          {
+            "role": "user",
+            "content": "明白了",
+            "rewritten_query": "确认理解"
+          },
+          {
+            "role": "assistant",
+            "content": "好的，如果还有问题随时问我。"
+          },
+          {
+            "role": "user",
+            "content": "Git怎么回滚提交？",
+            "rewritten_query": "Git回滚提交的方法"
+          },
+          {
+            "role": "assistant",
+            "content": "Git回滚：git reset --soft HEAD~1（保留更改）或 git reset --hard HEAD~1（丢弃更改）"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "has_value": false,
+        "qdrant_memory_count": 0
+      }
+    },
+    {
+      "id": "CP-GEN-003-A",
+      "name": "去重决策CREATE - 不同技术栈",
+      "priority": "P0",
+      "category": "deduplication_create",
+      "description": "验证与现有记忆相似度 < 0.75 时决策为 CREATE，PyTorch vs Rust 完全不同领域",
+      "input": {
+        "identity": {"user_id": "test_user_gen003a", "agent_id": "test_agent", "session_id": "session_gen003a"},
+        "pre_existing_memory": {
+          "id": "pre-memory-pytorch-001",
+          "title": "PyTorch 安装指南",
+          "summary": "使用pip安装PyTorch深度学习框架的方法",
+          "content": "PyTorch安装命令：pip install torch torchvision torchaudio\n\n验证安装：\n```python\nimport torch\nprint(torch.__version__)\nprint(torch.cuda.is_available())\n```"
+        },
+        "interactions": [
+          {
+            "role": "user",
+            "content": "介绍一下Rust语言的基础语法和所有权机制，我想学习这门系统编程语言。",
+            "rewritten_query": "Rust语言基础语法和所有权机制介绍"
+          },
+          {
+            "role": "assistant",
+            "content": "Rust语言基础：\n\n一、基础语法\n```rust\nfn main() {\n    let x = 5;  // 不可变绑定\n    let mut y = 10;  // 可变绑定\n    y += 1;\n    println!(\"x={}, y={}\", x, y);\n}\n```\n\n二、所有权机制\nRust的核心特性，确保内存安全：\n1. 每个值有且只有一个所有者\n2. 所有者离开作用域时值被释放\n3. 值可以被借用（引用）\n\n```rust\nlet s1 = String::from(\"hello\");\nlet s2 = s1;  // s1的所有权转移给s2\n// println!(\"{}\", s1);  // 错误！s1已无效\n```\n\n三、借用规则\n- 可以有多个不可变引用\n- 只能有一个可变引用\n- 不能同时有可变和不可变引用"
+          },
+          {
+            "role": "user",
+            "content": "今天吃什么？",
+            "rewritten_query": "今天的饮食建议"
+          },
+          {
+            "role": "assistant",
+            "content": "建议均衡饮食，多吃蔬菜水果。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "decision": "CREATE",
+        "similarity_range": "< 0.75",
+        "qdrant_memory_count_after": 2
+      }
+    },
+    {
+      "id": "CP-GEN-003-B",
+      "name": "去重决策CREATE - 前后端不同",
+      "priority": "P0",
+      "category": "deduplication_create",
+      "description": "验证 React 前端 vs Django 后端创建新记忆",
+      "input": {
+        "identity": {"user_id": "test_user_gen003b", "agent_id": "test_agent", "session_id": "session_gen003b"},
+        "pre_existing_memory": {
+          "id": "pre-memory-react-001",
+          "title": "React 组件开发",
+          "summary": "React函数组件和Hooks的使用方法",
+          "content": "React Hooks使用：useState, useEffect, useContext等"
+        },
+        "interactions": [
+          {
+            "role": "user",
+            "content": "如何使用Django REST Framework构建RESTful API？需要详细的步骤和代码示例。",
+            "rewritten_query": "Django REST Framework构建RESTful API的步骤和代码示例"
+          },
+          {
+            "role": "assistant",
+            "content": "Django REST Framework API构建：\n\n1. 安装\n```bash\npip install djangorestframework\n```\n\n2. 配置settings.py\n```python\nINSTALLED_APPS = [\n    ...\n    'rest_framework',\n]\n```\n\n3. 创建序列化器\n```python\nfrom rest_framework import serializers\nfrom .models import User\n\nclass UserSerializer(serializers.ModelSerializer):\n    class Meta:\n        model = User\n        fields = ['id', 'username', 'email']\n```\n\n4. 创建视图\n```python\nfrom rest_framework import viewsets\n\nclass UserViewSet(viewsets.ModelViewSet):\n    queryset = User.objects.all()\n    serializer_class = UserSerializer\n```\n\n5. 配置路由\n```python\nfrom rest_framework.routers import DefaultRouter\n\nrouter = DefaultRouter()\nrouter.register('users', UserViewSet)\n```"
+          },
+          {
+            "role": "user",
+            "content": "推荐一部电影",
+            "rewritten_query": "电影推荐"
+          },
+          {
+            "role": "assistant",
+            "content": "推荐《肖申克的救赎》，经典励志电影。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "decision": "CREATE",
+        "similarity_range": "< 0.75",
+        "qdrant_memory_count_after": 2
+      }
+    },
+    {
+      "id": "CP-GEN-004-A",
+      "name": "去重决策UPDATE - 信息更新",
+      "priority": "P0",
+      "category": "deduplication_update",
+      "description": "验证相似度 0.75-0.95 且内容有实质变化时决策为 UPDATE，周会时间调整场景",
+      "input": {
+        "identity": {"user_id": "test_user_gen004a", "agent_id": "test_agent", "session_id": "session_gen004a"},
+        "pre_existing_memory": {
+          "id": "pre-memory-meeting-001",
+          "title": "项目周会时间",
+          "summary": "团队周会安排在每周三下午2点",
+          "content": "项目周会时间：每周三下午2点，会议室A\n参会人员：全体开发团队\n会议内容：进度同步、问题讨论"
+        },
+        "interactions": [
+          {
+            "role": "user",
+            "content": "项目周会时间调整了，改为每周四下午3点，在会议室B开。请帮我记住这个变更。",
+            "rewritten_query": "项目周会时间调整为每周四下午3点，会议室B"
+          },
+          {
+            "role": "assistant",
+            "content": "好的，我已记录项目周会时间的变更：\n\n**原时间**：每周三下午2点，会议室A\n**新时间**：每周四下午3点，会议室B\n\n我会更新这个信息。下次你问起周会时间，我会告诉你最新的安排。"
+          },
+          {
+            "role": "user",
+            "content": "Python怎么读取Excel文件？",
+            "rewritten_query": "Python读取Excel文件的方法"
+          },
+          {
+            "role": "assistant",
+            "content": "使用pandas：pd.read_excel('file.xlsx') 或 openpyxl库。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "decision": "UPDATE",
+        "similarity_range": "0.75-0.95",
+        "merged_content_contains": ["周四", "3点", "会议室B"],
+        "qdrant_memory_count_after": 1,
+        "version_incremented": true
+      }
+    },
+    {
+      "id": "CP-GEN-004-B",
+      "name": "去重决策UPDATE - API版本升级",
+      "priority": "P0",
+      "category": "deduplication_update",
+      "description": "验证 API 端点版本升级触发 UPDATE 决策",
+      "input": {
+        "identity": {"user_id": "test_user_gen004b", "agent_id": "test_agent", "session_id": "session_gen004b"},
+        "pre_existing_memory": {
+          "id": "pre-memory-api-001",
+          "title": "用户API端点",
+          "summary": "用户管理API的端点地址",
+          "content": "用户API端点：\n- 获取用户列表：GET /api/v1/users\n- 获取单个用户：GET /api/v1/users/{id}\n- 创建用户：POST /api/v1/users"
+        },
+        "interactions": [
+          {
+            "role": "user",
+            "content": "用户API升级到v2版本了，新端点是/api/v2/users，增加了分页和过滤功能。",
+            "rewritten_query": "用户API升级到v2版本，新端点/api/v2/users，支持分页和过滤"
+          },
+          {
+            "role": "assistant",
+            "content": "好的，我记录了用户API的版本升级：\n\n**API版本升级**：v1 → v2\n\n**新端点**：\n- 获取用户列表：GET /api/v2/users?page=1&limit=10\n- 获取单个用户：GET /api/v2/users/{id}\n- 创建用户：POST /api/v2/users\n\n**新增功能**：\n- 分页支持：page, limit参数\n- 过滤功能：支持按字段过滤\n\n旧的v1端点将在3个月后废弃。"
+          },
+          {
+            "role": "user",
+            "content": "今天星期几？",
+            "rewritten_query": "今天是星期几"
+          },
+          {
+            "role": "assistant",
+            "content": "抱歉，我无法获取实时日期信息。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "decision": "UPDATE",
+        "similarity_range": "0.75-0.95",
+        "merged_content_contains": ["/api/v2/users", "分页"],
+        "qdrant_memory_count_after": 1
+      }
+    },
+    {
+      "id": "CP-GEN-005-A",
+      "name": "去重决策TOUCH - 内容一致",
+      "priority": "P1",
+      "category": "deduplication_touch",
+      "description": "验证相似度 > 0.95 且内容一致时仅更新访问时间，不修改内容",
+      "input": {
+        "identity": {"user_id": "test_user_gen005a", "agent_id": "test_agent", "session_id": "session_gen005a"},
+        "pre_existing_memory": {
+          "id": "pre-memory-pytorch-install-001",
+          "title": "PyTorch 安装方法",
+          "summary": "使用pip安装PyTorch深度学习框架",
+          "content": "PyTorch安装命令：pip install torch\n\n验证：import torch; print(torch.__version__)",
+          "access_count": 5
+        },
+        "interactions": [
+          {
+            "role": "user",
+            "content": "PyTorch怎么安装？用pip可以吗？",
+            "rewritten_query": "PyTorch的pip安装方法"
+          },
+          {
+            "role": "assistant",
+            "content": "是的，PyTorch可以用pip安装：\n\n```bash\npip install torch\n```\n\n安装后验证：\n```python\nimport torch\nprint(torch.__version__)\n```\n\n如果需要GPU支持，请访问pytorch.org选择对应CUDA版本的安装命令。"
+          },
+          {
+            "role": "user",
+            "content": "附近有什么好吃的餐厅？",
+            "rewritten_query": "附近餐厅推荐"
+          },
+          {
+            "role": "assistant",
+            "content": "抱歉，我无法获取你的位置信息，无法推荐附近餐厅。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "decision": "TOUCH",
+        "similarity_range": "> 0.95",
+        "access_count_after": 6,
+        "content_unchanged": true,
+        "qdrant_memory_count_after": 1
+      }
+    },
+    {
+      "id": "CP-GEN-005-B",
+      "name": "去重决策TOUCH - 表述略有不同",
+      "priority": "P1",
+      "category": "deduplication_touch",
+      "description": "验证语义相同但表述略有不同时决策为 TOUCH",
+      "input": {
+        "identity": {"user_id": "test_user_gen005b", "agent_id": "test_agent", "session_id": "session_gen005b"},
+        "pre_existing_memory": {
+          "id": "pre-memory-dev-env-001",
+          "title": "用户开发环境偏好",
+          "summary": "用户偏好使用VSCode配合Vim插件进行开发",
+          "content": "开发环境配置：\n- IDE: VSCode\n- 编辑模式: Vim插件\n- 主题: One Dark Pro",
+          "access_count": 3
+        },
+        "interactions": [
+          {
+            "role": "user",
+            "content": "我平时用VSCode写代码，装了Vim插件，主题是One Dark Pro。",
+            "rewritten_query": "用户使用VSCode + Vim插件 + One Dark Pro主题开发"
+          },
+          {
+            "role": "assistant",
+            "content": "好的，我知道你的开发环境配置了：\n\n- **编辑器**：VSCode\n- **编辑模式**：Vim插件（高效的键盘操作）\n- **主题**：One Dark Pro（护眼深色主题）\n\n这是一个很受欢迎的配置组合！"
+          },
+          {
+            "role": "user",
+            "content": "明天会下雨吗？",
+            "rewritten_query": "明天的天气预报"
+          },
+          {
+            "role": "assistant",
+            "content": "抱歉，我无法获取实时天气预报信息。"
+          }
+        ],
+        "trigger_flush_reason": "SEMANTIC_DRIFT"
+      },
+      "expected": {
+        "flush_triggered": true,
+        "decision": "TOUCH",
+        "similarity_range": "> 0.95",
+        "access_count_after": 4,
+        "qdrant_memory_count_after": 1
+      }
+    }
+  ]
+}

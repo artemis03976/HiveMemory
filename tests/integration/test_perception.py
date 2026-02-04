@@ -53,6 +53,7 @@ from hivememory.engines.perception.models import (
 from hivememory.patchouli.config import (
     SimplePerceptionConfig,
     SemanticFlowPerceptionConfig,
+    SemanticAdsorberConfig,
 )
 
 
@@ -93,7 +94,8 @@ class TestAdsorberAndBufferCollaboration:
         mock_embedding = Mock()
         mock_embedding.encode.return_value = [0.1, 0.2, 0.3]
 
-        adsorber = SemanticBoundaryAdsorber(embedding_service=mock_embedding)
+        config = SemanticAdsorberConfig()
+        adsorber = SemanticBoundaryAdsorber(config=config, embedding_service=mock_embedding)
         buffer = SemanticBuffer(
             identity=Identity(user_id="test_user", agent_id="test_agent", session_id="test_session"),
         )
@@ -124,7 +126,8 @@ class TestAdsorberAndBufferCollaboration:
         mock_embedding.encode.return_value = [0.1, 0.2, 0.3]
         mock_embedding.compute_cosine_similarity.return_value = 0.1  # 低相似度
 
-        adsorber = SemanticBoundaryAdsorber(embedding_service=mock_embedding)
+        config = SemanticAdsorberConfig()
+        adsorber = SemanticBoundaryAdsorber(config=config, embedding_service=mock_embedding)
         buffer = SemanticBuffer(
             identity=Identity(user_id="test_user", agent_id="test_agent", session_id="test_session"),
         )
@@ -190,9 +193,9 @@ class TestTriggerAndPerceptionCollaboration:
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
         # 添加消息直到触发
-        perception.add_message("user", "消息1", identity)
-        perception.add_message("assistant", "回复1", identity)
-        perception.add_message("user", "消息2", identity)
+        perception.perceive("user", "消息1", identity)
+        perception.perceive("assistant", "回复1", identity)
+        perception.perceive("user", "消息2", identity)
 
         # 应该触发 flush
         assert len(flush_called) >= 1
@@ -220,8 +223,8 @@ class TestSimplePerceptionLayerOrchestration:
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
         # 添加消息
-        perception.add_message("user", "消息1", identity)
-        perception.add_message("assistant", "回复1", identity)
+        perception.perceive("user", "消息1", identity)
+        perception.perceive("assistant", "回复1", identity)
 
         # 获取 Buffer 信息
         info = perception.get_buffer_info(identity)
@@ -240,8 +243,8 @@ class TestSimplePerceptionLayerOrchestration:
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        perception.add_message("user", "消息1", identity)
-        perception.add_message("assistant", "回复1", identity)
+        perception.perceive("user", "消息1", identity)
+        perception.perceive("assistant", "回复1", identity)
 
         # 手动 flush
         messages = perception.flush_buffer(identity)
@@ -256,8 +259,8 @@ class TestSimplePerceptionLayerOrchestration:
         identity1 = Identity(user_id="user1", agent_id="agent", session_id="session1")
         identity2 = Identity(user_id="user2", agent_id="agent", session_id="session2")
 
-        perception.add_message("user", "用户1的消息", identity1)
-        perception.add_message("user", "用户2的消息", identity2)
+        perception.perceive("user", "用户1的消息", identity1)
+        perception.perceive("user", "用户2的消息", identity2)
 
         info1 = perception.get_buffer_info(identity1)
         info2 = perception.get_buffer_info(identity2)
@@ -303,8 +306,8 @@ class TestSemanticFlowPerceptionLayerOrchestration:
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        perception.add_message("user", "测试消息", identity)
-        perception.add_message("assistant", "测试回复", identity)
+        perception.perceive("user", "测试消息", identity)
+        perception.perceive("assistant", "测试回复", identity)
 
         info = perception.get_buffer_info(identity)
 
@@ -321,8 +324,8 @@ class TestSemanticFlowPerceptionLayerOrchestration:
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        perception.add_message("user", "消息1", identity)
-        perception.add_message("assistant", "回复1", identity)
+        perception.perceive("user", "消息1", identity)
+        perception.perceive("assistant", "回复1", identity)
 
         messages = perception.flush_buffer(identity)
 
@@ -351,8 +354,8 @@ class TestPerceptionAndGenerationCollaboration:
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        perception.add_message("user", "用户消息", identity)
-        perception.add_message("assistant", "助手回复", identity)
+        perception.perceive("user", "用户消息", identity)
+        perception.perceive("assistant", "助手回复", identity)
 
         perception.flush_buffer(identity)
 
