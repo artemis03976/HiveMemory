@@ -1,3 +1,7 @@
+--------------------
+此模块已实现，文档已合并至项目开发规划文档PROJECT.md，仅做原内容参考
+--------------------
+
 # 进阶模块开发计划：感知层升级——增强型话题连续性检测
 **Advanced Perception Layer: Enhanced Topic Continuity Detection**
 
@@ -15,10 +19,9 @@
 
 本次升级不改变 `LogicalBlock` 的物理结构，而是改变计算相似度时的 **“输入特征”** 和 **“判定逻辑”** 。
 
-### 2.1 引入“语义锚点” (Semantic Anchor)
-不使用整个 Block 的 `content_text`（包含冗长的 LLM 回复）进行 Embedding，而是构建精简的锚点。
+### 2.1 更新“语义锚点”来源 (Semantic Anchor)
 
-*   **输入依赖**：依赖上游（Global Gateway）传入的 `Rewritten_Query`（已完成指代消解）。
+*   **输入依赖**：依赖上游（Global Gateway）传入的 `Rewritten_Query`（已完成指代消解），构建精简的锚点文本。
 
 ### 2.2 引入“灰度仲裁”机制 (The Grey Area Arbiter)
 摒弃单一的相似度阈值判定，采用 **“双阈值筛选 + 模型仲裁”** 的漏斗机制。利用 System 2 的异步特性，用少量的计算成本换取极高的切分准确率。

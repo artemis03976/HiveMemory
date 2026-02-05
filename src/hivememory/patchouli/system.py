@@ -250,9 +250,9 @@ class PatchouliSystem:
         vitality_calculator = VitalityCalculator(self.config.lifecycle.vitality_calculator)
 
         reinforcement_engine = DynamicReinforcementEngine(
-            self.storage,
-            vitality_calculator,
-            self.config.lifecycle.reinforcement
+            storage=self.storage,
+            config=self.config.lifecycle.reinforcement,
+            vitality_calculator=vitality_calculator
         )
 
         archiver: BaseMemoryArchiver = create_archiver(

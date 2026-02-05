@@ -14,9 +14,11 @@ import logging
 import uuid
 from typing import List, Optional, Dict, Any, Union
 
-from hivememory.core.config import HiveMemoryConfig, LLMConfig
-from hivememory.infrastructure.llm import get_worker_llm_service, BaseLLMService
-from hivememory.patchouli.librarian_core import PatchouliAgent
+from hivememory.patchouli.config import HiveMemoryConfig
+from hivememory.core.models import Identity, StreamMessage
+from hivememory.patchouli.config import LLMConfig
+from hivememory.infrastructure.llm import LiteLLMService
+from hivememory.patchouli import PatchouliSystem
 # SessionManager and ChatMessage are now local (moved to demos/chatbot/)
 from .session_manager import SessionManager, ChatMessage
 from .prompts.chatbot import CHATBOT_SYSTEM_PROMPT
@@ -30,104 +32,66 @@ class ChatBotAgent:
     ChatBot Worker Agent
 
     支持记忆检索的对话机器人
-    
+
     """
 
     def __init__(
         self,
-        patchouli: PatchouliAgent,
+        patchouli_system: PatchouliSystem,
         session_manager: SessionManager,
         user_id: str,
         agent_id: str = "chatbot_worker",
         config: Optional[HiveMemoryConfig] = None,
         chatbot_config: Optional[ChatBotConfig] = None,
         llm_config: Optional[Union[LLMConfig, Dict[str, Any]]] = None,
-        llm_service: Optional[BaseLLMService] = None,
         system_prompt: Optional[str] = None,
-        retrieval_engine: Optional[Any] = None,  # RetrievalEngine
         enable_memory_retrieval: bool = True,
-        lifecycle_manager: Optional[Any] = None,  # LifecycleManager
-        enable_lifecycle_management: bool = True,
     ):
         """
         Args:
-            patchouli: 帕秋莉 Agent（图书管理员）
+            patchouli_system: 帕秋莉系统（统一入口）
             session_manager: 会话管理器
             user_id: 用户 ID
             agent_id: Agent ID
             config: 全局配置对象 (Dependency Injection)
             chatbot_config: ChatBot 专用配置
             llm_config: LLM 配置（model, temperature, max_tokens 等）。如果未提供，尝试从 chatbot_config 获取。
-            llm_service: LLM 服务实例（可选，支持依赖注入）
             system_prompt: 系统提示词（可选）
-            retrieval_engine: 记忆检索引擎（可选）
             enable_memory_retrieval: 是否启用记忆检索，默认 True
-            lifecycle_manager: 生命周期管理器（可选，Stage 3）
-            enable_lifecycle_management: 是否启用生命周期管理，默认 True
         """
-        self.patchouli = patchouli
+        self.patchouli_system = patchouli_system
         self.session_manager = session_manager
         self.user_id = user_id
         self.agent_id = agent_id
         self.config = config
         self.chatbot_config = chatbot_config or load_chatbot_config()
 
-        # 解析 LLM 配置和服务
-        if llm_service is not None:
-            # 优先使用注入的服务
-            self.llm_service = llm_service
-            if isinstance(llm_config, LLMConfig):
-                self.llm_config = llm_config
-            else:
-                self.llm_config = None
-        elif llm_config:
+        # 解析 LLM 配置并初始化服务
+        if llm_config:
             # 确保 llm_config 是对象 (如果是 dict 则转换)
             if isinstance(llm_config, dict):
                 self.llm_config = LLMConfig(**llm_config)
             else:
                 self.llm_config = llm_config
-            self.llm_service = get_worker_llm_service(config=self.llm_config)
         else:
             # Fallback default: use ChatBotConfig
             self.llm_config = self.chatbot_config.llm
-            self.llm_service = get_worker_llm_service(config=self.llm_config)
+
+        # 初始化 LLM 服务
+        self.llm_service = LiteLLMService(config=self.llm_config)
 
         # 默认系统提示词
         self.system_prompt = system_prompt or CHATBOT_SYSTEM_PROMPT
 
         # 记忆检索相关
-        self.retrieval_engine = retrieval_engine
         self.enable_memory_retrieval = enable_memory_retrieval
 
-        # ========== v2.0 新增: Global Gateway ==========
-        self.gateway = None
-        try:
-            from hivememory.engines.gateway import create_default_gateway
-            # 如果 config 有 gateway 配置，传递它
-            gateway_config = config.gateway if config and hasattr(config, 'gateway') else None
-            self.gateway = create_default_gateway(
-                llm_service=self.llm_service,
-                config=gateway_config
-            )
-            logger.info(f"GlobalGateway initialized successfully")
-        except ImportError as e:
-            logger.warning(f"GlobalGateway not available: {e}")
-        except Exception as e:
-            logger.warning(f"Failed to initialize GlobalGateway: {e}")
-
-        # 生命周期管理器 (Stage 3)
-        self.lifecycle_manager = lifecycle_manager
-        self.enable_lifecycle_management = enable_lifecycle_management
-
-        # 上一次检索的结果（用于调试/显示）
-        self._last_retrieval_result = None
-        # 上一次 Gateway 处理结果（用于感知层）
-        self._last_gateway_result = None
+        # 上一次交互的结果（用于调试/显示）
+        self._last_interaction_result = None
 
         logger.info(
             f"ChatBotAgent initialized for user={user_id}, agent={agent_id}, "
-            f"memory_retrieval={enable_memory_retrieval}, "
-            f"lifecycle={lifecycle_manager is not None} (enabled={enable_lifecycle_management})"
+            f"memory_retrieval={enable_memory_retrieval}"
         )
 
     def _retrieve_memory_context(
@@ -138,10 +102,10 @@ class ChatBotAgent:
         """
         检索相关记忆并返回渲染后的上下文
 
-        v2.0 更新：集成 Global Gateway
-            1. 先调用 Gateway 进行意图分类和查询重写
+        使用 PatchouliSystem.process_interaction() 统一处理：
+            1. 自动进行意图分类和查询重写
             2. 只有当 intent == RAG 时才进行检索
-            3. 使用 rewritten_query 和 keywords 进行检索
+            3. 同时将消息记录到感知层
 
         Args:
             user_message: 用户当前消息
@@ -150,86 +114,59 @@ class ChatBotAgent:
         Returns:
             渲染后的记忆上下文字符串，如果无相关记忆则返回空字符串
         """
-        if not self.retrieval_engine or not self.enable_memory_retrieval:
+        if not self.enable_memory_retrieval:
             return ""
 
         try:
-            # ========== v2.0: 先调用 Gateway ==========
-            from hivememory.engines.generation.models import ConversationMessage
-            from hivememory.engines.gateway.models import GatewayIntent
-
             # 获取最近的对话历史作为上下文
             history = self.session_manager.get_history(session_id, limit=3)
             context = [
-                ConversationMessage(
-                    role=msg.role,
+                StreamMessage(
+                    message_type=msg.role,
                     content=msg.content,
-                    session_id=session_id,
-                    user_id=self.user_id
+                    identity=Identity(
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        session_id=session_id
+                    )
                 )
                 for msg in history
             ]
 
-            # 调用 Gateway 进行意图分类和查询重写
-            gateway_result = None
-            if self.gateway:
-                gateway_result = self.gateway.process(
-                    query=user_message,
-                    context=context
-                )
-                # 保存结果供后续使用（如 _record_to_buffer）
-                self._last_gateway_result = gateway_result
-
-                # 只有当 intent == RAG 时才检索
-                if gateway_result.intent != GatewayIntent.RAG:
-                    logger.debug(
-                        f"Gateway intent={gateway_result.intent.value}, "
-                        f"skipping memory retrieval"
-                    )
-                    return ""
-
-                # 使用 Gateway 重写后的查询和关键词
-                query_to_use = gateway_result.content_payload.rewritten_query
-                keywords = gateway_result.content_payload.search_keywords
-                filters = gateway_result.content_payload.target_filters
-
-                logger.debug(
-                    f"Gateway rewrote query: '{user_message[:30]}...' -> "
-                    f"'{query_to_use[:30]}...', keywords={keywords}"
-                )
-            else:
-                # 回退到原始行为（没有 Gateway 时）
-                query_to_use = user_message
-                keywords = None
-                filters = None
-
-            # 调用检索引擎
-            result = self.retrieval_engine.retrieve_context(
-                query=query_to_use,
+            # 调用 PatchouliSystem 统一入口
+            result = self.patchouli_system.process_interaction(
+                role="user",
+                content=user_message,
                 user_id=self.user_id,
+                agent_id=self.agent_id,
+                session_id=session_id,
                 context=context,
-                keywords=keywords,
-                filters=filters,
             )
 
-            # 保存结果用于调试
-            self._last_retrieval_result = result
+            # 保存结果供后续使用
+            self._last_interaction_result = result
 
-            if result.is_empty():
-                logger.debug(f"No relevant memories found for query: '{query_to_use[:30]}...'")
+            intent = result.get("intent", "")
+            if intent != "RAG":
+                logger.debug(
+                    f"Intent={intent}, skipping memory retrieval"
+                )
                 return ""
 
-            logger.info(
-                f"Retrieved {result.memories_count} memories for query "
-                f"(latency={result.latency_ms:.1f}ms)"
-            )
+            memory_context = result.get("memory", "") or ""
+            if memory_context:
+                logger.info(
+                    f"Retrieved memory context for query "
+                    f"(rewritten='{result.get('rewritten', '')[:30]}...')"
+                )
 
-            return result.rendered_context
+            return memory_context
 
         except Exception as e:
             logger.warning(f"Memory retrieval failed: {e}")
-            self._last_retrieval_result = None
+            self._last_interaction_result = None
             return ""
+
 
     def _build_messages_for_llm(
         self,
@@ -325,7 +262,8 @@ class ChatBotAgent:
         """
         将消息记录到感知层（触发帕秋莉）
 
-        v2.0 更新：传递 Gateway 的 rewritten_query 到感知层
+        注意：user 消息已在 _retrieve_memory_context 中通过 process_interaction 处理，
+        这里只需要记录 assistant 消息。
 
         Args:
             session_id: 会话 ID
@@ -333,29 +271,17 @@ class ChatBotAgent:
             content: 消息内容
         """
         try:
-            # 使用新的感知层 API
-            # PatchouliAgent 会自动管理 Buffer，无需手动获取
-
-            # ========== v2.0: 传递 Gateway 输出 ==========
-            # 准备额外的参数
-            extra_kwargs = {
-                "user_id": self.user_id,
-                "agent_id": self.agent_id,
-                "session_id": session_id
-            }
-
-            # 如果有 Gateway 结果且是用户消息，传递 rewritten_query
-            if self._last_gateway_result and role == "user":
-                extra_kwargs["rewritten_query"] = self._last_gateway_result.content_payload.rewritten_query
-                extra_kwargs["gateway_intent"] = self._last_gateway_result.intent.value
-                extra_kwargs["worth_saving"] = self._last_gateway_result.memory_signal.worth_saving
-
-            self.patchouli.add_message(
-                role=role,
-                content=content,
-                **extra_kwargs
-            )
-            logger.debug(f"Recorded {role} message to perception layer (session={session_id})")
+            # user 消息已在 _retrieve_memory_context 中处理
+            # 这里只处理 assistant 消息
+            if role == "assistant":
+                self.patchouli_system.process_interaction(
+                    role=role,
+                    content=content,
+                    user_id=self.user_id,
+                    agent_id=self.agent_id,
+                    session_id=session_id,
+                )
+                logger.debug(f"Recorded {role} message to perception layer (session={session_id})")
         except Exception as e:
             logger.error(f"Failed to record message to perception layer: {e}")
             # 不抛出异常，避免影响对话流
@@ -371,12 +297,12 @@ class ChatBotAgent:
         处理用户消息并生成回复
 
         工作流程：
-        1. **[NEW]** 检索相关历史记忆
+        1. 检索相关历史记忆（同时将 user 消息记录到感知层）
         2. 从 SessionManager 获取历史对话
         3. 构建包含记忆上下文的 Prompt
         4. 调用 LLM 生成回复
         5. 将对话保存到 SessionManager
-        6. （可选）将对话推送到感知层（触发帕秋莉）
+        6. （可选）将 assistant 回复推送到感知层
 
         Args:
             session_id: 会话 ID
@@ -391,8 +317,8 @@ class ChatBotAgent:
             Exception: LLM 调用失败
         """
         logger.info(f"Processing message for session={session_id}")
-        
-        # 1. 检索相关记忆
+
+        # 1. 检索相关记忆（同时将 user 消息记录到感知层）
         should_use_memory = use_memory if use_memory is not None else self.enable_memory_retrieval
         memory_context = ""
         if should_use_memory:
@@ -412,28 +338,10 @@ class ChatBotAgent:
         self.session_manager.add_message(session_id, "user", user_message)
         self.session_manager.add_message(session_id, "assistant", assistant_reply)
 
-        # 5. 推送到 ConversationBuffer（帕秋莉监听）
+        # 5. 推送 assistant 回复到感知层
+        # 注意：user 消息已在 _retrieve_memory_context 中通过 process_interaction 处理
         if record_to_patchouli:
-            self._record_to_buffer(session_id, "user", user_message)
             self._record_to_buffer(session_id, "assistant", assistant_reply)
-        
-        # 6. 更新记忆访问统计（如果使用了记忆）
-        if self._last_retrieval_result and not self._last_retrieval_result.is_empty():
-            try:
-                self.retrieval_engine.update_access_stats(
-                    self._last_retrieval_result.memories
-                )
-            except Exception as e:
-                logger.debug(f"Failed to update access stats: {e}")
-
-            # 7. 记录生命周期 HIT 事件 (Stage 3)
-            if self.lifecycle_manager and self.enable_lifecycle_management:
-                try:
-                    for memory in self._last_retrieval_result.memories:
-                        self.lifecycle_manager.record_hit(memory.id, source="chatbot")
-                    logger.debug(f"Recorded {len(self._last_retrieval_result.memories)} HIT events")
-                except Exception as e:
-                    logger.debug(f"Failed to record HIT events: {e}")
 
         logger.info(f"Chat completed for session={session_id}")
         return assistant_reply
@@ -449,11 +357,12 @@ class ChatBotAgent:
         self.session_manager.clear_session(session_id)
 
         # 清空 Patchouli 的 Buffer
-        self.patchouli.clear_buffer(
+        identity = Identity(
             user_id=self.user_id,
             agent_id=self.agent_id,
             session_id=session_id
         )
+        self.patchouli_system.librarian_core.clear_buffer(identity)
 
         logger.info(f"Cleared session {session_id} (including buffer)")
 
@@ -478,50 +387,18 @@ class ChatBotAgent:
     
     def get_last_retrieval_info(self) -> Optional[Dict[str, Any]]:
         """
-        获取上一次记忆检索的信息（用于调试）
+        获取上一次交互的信息（用于调试）
 
         Returns:
-            检索信息字典，包含检索到的记忆数量和延迟
+            交互信息字典，包含意图、重写查询等
         """
-        if not self._last_retrieval_result:
+        if not self._last_interaction_result:
             return None
 
-        result = self._last_retrieval_result
         return {
-            "should_retrieve": result.should_retrieve,
-            "memories_count": result.memories_count,
-            "latency_ms": result.latency_ms,
-            "query_used": result.query_used,
-            "memories": [
-                {
-                    "title": m.index.title,
-                    "type": m.index.memory_type.value,
-                    "confidence": m.meta.confidence_score
-                }
-                for m in result.memories[:5]  # 最多显示 5 条
-            ]
+            "intent": self._last_interaction_result.get("intent"),
+            "rewritten": self._last_interaction_result.get("rewritten"),
+            "keywords": self._last_interaction_result.get("keywords", []),
+            "worth_saving": self._last_interaction_result.get("worth_saving"),
+            "has_memory": bool(self._last_interaction_result.get("memory")),
         }
-
-    def record_feedback(self, memory_id, positive: bool = True):
-        """
-        记录用户反馈到生命周期管理器 (Stage 3)
-
-        Args:
-            memory_id: 记忆 ID
-            positive: 是否正面反馈，默认 True
-
-        Returns:
-            ReinforcementResult 如果成功，None 如果未配置 lifecycle_manager 或已禁用
-        """
-        if self.lifecycle_manager and self.enable_lifecycle_management:
-            return self.lifecycle_manager.record_feedback(memory_id, positive)
-        return None
-
-    def get_lifecycle_manager(self):
-        """
-        获取生命周期管理器 (Stage 3)
-
-        Returns:
-            LifecycleManager 实例，如果未配置则返回 None
-        """
-        return self.lifecycle_manager

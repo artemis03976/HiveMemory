@@ -83,6 +83,46 @@ class SessionManager:
         """生成 Redis key"""
         return f"{self.key_prefix}:{session_id}:history"
 
+    def get_all_sessions(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        获取用户的所有会话
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            会话列表 [{"session_id": "...", "updated_at": "..."}, ...]
+        """
+        # 注意：这需要一个索引来存储用户的 session 列表
+        # 这里使用 SCAN 命令作为临时方案（生产环境建议使用 Set 或 Sorted Set 维护索引）
+        pattern = f"{self.key_prefix}:*:history"
+        sessions = []
+        
+        try:
+            for key in self.redis.scan_iter(match=pattern):
+                key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+                # 解析 session_id: hivememory:session:{uuid}:history
+                parts = key_str.split(":")
+                if len(parts) >= 3:
+                    session_id = parts[2]
+                    # 获取最后更新时间 (使用 TTL 估算或读取最后一条消息)
+                    # 这里简单读取最后一条消息的时间
+                    history = self.get_history(session_id, limit=1)
+                    updated_at = history[0].timestamp if history else datetime.now().isoformat()
+                    
+                    sessions.append({
+                        "session_id": session_id,
+                        "updated_at": updated_at
+                    })
+            
+            # 按时间倒序排序
+            sessions.sort(key=lambda x: x["updated_at"], reverse=True)
+            return sessions
+            
+        except Exception as e:
+            logger.error(f"Failed to get all sessions: {e}")
+            return []
+
     def get_history(
         self,
         session_id: str,

@@ -608,3 +608,113 @@ Deployment Successful. Service is UP.
 [Resume]
 已记录该修复方案。您现在可以尝试重启服务了。
 ```
+
+---
+
+# 7. 系统重构与运行时架构 (System Refactoring & Runtime Architecture)
+
+为了支撑引入的 **MTP (Memory Tool Protocol)**，系统必须从早期的“单向线性处理”模式，转型为支持“多轮递归中断”的 **AIOS (AI Operating System)** 架构。本章定义了 PatchouliSystem v3.0 的核心拓扑结构。
+
+## 7.1 架构演进理念 (Architectural Philosophy)
+
+我们将 HiveMemory 的运行模式重定义为 **“帕秋莉 OS (Patchouli OS)”** 模型：
+
+*   **从“流水线”到“事件循环”**：系统不再只是处理一次性的 Request/Response，而是维护一个持续的 **Kernel Loop**，负责在 Worker Agent 生成过程中处理多次 MTP 中断与恢复。
+*   **从“三位一体”到“一核三使”**：
+    *   原有的分身将作为独立的微服务（Microservices）。
+    *   引入 **Patchouli Kernel** 作为总线与调度器。
+    *   引入 **Koakuma (小恶魔)** 作为专职的 MTP 处理器。
+
+## 7.2 系统拓扑图 (System Topology)
+
+v3.0 架构采用了星形拓扑，以 Kernel 为中心，连接网关、微服务与数据层。
+
+```mermaid
+graph TD
+    UserClient[用户 / Worker Agent] <--> API_Interface
+    
+    subgraph "PatchouliSystem (The Facility)"
+        API_Interface <--> TheEye[The Eye / 真理之眼 \n(Ingress Gateway)]
+        
+        TheEye <--> Kernel[Patchouli Kernel \n(State & Scheduler)]
+        
+        subgraph "Microservices Layer (The Staff)"
+            Kernel <--> Retrieval[Retrieval Familiar \n(Read-Only Service)]
+            Kernel <--> Koakuma[Koakuma / 小恶魔 \n(MTP Runtime Service)]
+            Kernel -.->|Async Log| Librarian[Librarian Core \n(Write/Manage Service)]
+        end
+        
+        subgraph "Data & Runtime Layer"
+            Retrieval <--> Qdrant[(Vector DB)]
+            Librarian <--> Qdrant
+            Koakuma <--> Sandbox[Docker/RestrictedEnv]
+            Librarian <--> SqlDB[(Meta DB)]
+        end
+    end
+```
+
+## 7.3 核心组件定义 (Core Component Definitions)
+
+### 7.3.1 守门人：真理之眼 (The Eye / Gateway)
+*   **定位**：系统的 **Ingress Controller**，独立于 Kernel 之外。
+*   **职责**：
+    *   **流量清洗**：拦截无效请求、系统指令（如 `/clear`）。
+    *   **意图识别**：L1拦截层负责，判断请求是 `CHAT`（直接转发）还是 `WORK`（需 Kernel 介入）。
+    *   **查询重写**：L2语义分析层负责，将用户的模糊 Query 转化为精准的 Semantic Query。
+*   **交互**：作为 Kernel 的 Client，向 Kernel 发送标准化的 `JobRequest`。
+
+### 7.3.2 操作系统：帕秋莉内核 (Patchouli Kernel)
+*   **定位**：系统的 **Orchestrator (编排器)** 与 **State Manager (状态管理器)**。
+*   **职责**：
+    *   **Session State**：维护对话历史、上下文缓存 (Prompt Caching) 和临时变量。
+    *   **LLM IO**：持有 Worker Agent 的 API Client，负责发送请求并处理 `stop=["⟫"]` 中断信号。
+    *   **调度总线**：根据当前状态，决定调用哪个微服务（Retrieval, Koakuma, 或 Librarian）。
+
+### 7.3.3 执行层：三大微服务 (The Triad Services)
+
+1.  **Retrieval Familiar (检索使魔)**
+    *   **功能**：只读服务。负责 RAG 检索、混合排序、上下文渲染。
+    *   **服务对象**：既服务于 Kernel（开场注入），也通过内部 API 服务于 Koakuma（处理 `READ` 指令）。
+
+2.  **Koakuma (小恶魔 / MTP Executor)**
+    *   **[新增组件]**
+    *   **功能**：无状态计算服务。负责 MTP 协议的 **解析 (Parsing)**、**路由 (Routing)** 和 **执行 (Execution)**。
+    *   **能力**：持有沙箱环境的控制权，负责运行 `sys_` 工具和 `mem_` 代码。
+
+3.  **Librarian Core (大图书馆本体)**
+    *   **功能**：写入与管理服务。负责记忆生成、去重、演化和 GC。
+    *   **特性**：**纯异步 (Async)**。从 Kernel 接收对话日志副本，不阻塞前台响应。
+
+## 7.4 运行时数据流：内核递归循环 (The Kernel Recursive Loop)
+
+引入 MTP 后，一次用户请求的处理流程变为一个递归循环：
+
+1.  **初始化 (Initialization)**
+    *   **Eye** 处理请求，转发给 **Kernel**。
+    *   **Kernel** 呼叫 **Retrieval Familiar**，获取 Index Menu，组装初始 System Prompt，解决 Worker Agent 的冷启动问题，确保其面对新 Query 时有合适的 Memory 背景。
+
+2.  **生成循环 (The Generation Loop)**
+    *   **Phase A (Request)**: Kernel 向 LLM 发起生成请求（带 `stop` 参数）。
+    *   **Phase B (Decision)**:
+        *   *分支 1 (Finished)*: LLM 正常结束生成 -> Kernel 将结果返回给用户 -> 异步投递日志给 **Librarian**。
+        *   *分支 2 (Interrupted)*: 捕获到 MTP 信号 -> Kernel 暂停，提取指令 Buffer。
+    *   **Phase C (Execution)**: Kernel 将 Buffer 发送给 **Koakuma**。
+        *   **Koakuma** 解析指令，执行工具/检索，返回 XML 格式结果。
+    *   **Phase D (Resume)**: Kernel 将 XML 结果追加到 History，**跳转回 Phase A**（发起新一轮续写）。
+
+## 7.5 容错与服务降级 (Fault Tolerance)
+
+本架构实现了“能力分层”，确保核心功能的可用性。即便任意一个分身离线，其余分身的核心功能也不会受到严重影响或降级处理：
+
+*   **Koakuma 离线**：
+    *   *现象*：MTP 指令执行超时或失败。
+    *   *降级*：Kernel 向 Worker Agent 注入 `<mtp_response status="error">System Offline</mtp_response>`。
+    *   *后果*：Agent 失去“手”（执行能力），退化为普通 Chatbot，但依然拥有“脑”（记忆能力）。
+*   **Retrieval 离线**：
+    *   *现象*：开场检索失败。
+    *   *降级*：Kernel 注入空 Context 启动对话。
+    *   *后果*：Agent 暂时失忆，但仍能对话。
+*   **Librarian 离线**：
+    *   *现象*：日志投递失败。
+    *   *策略*：Kernel 将日志暂存至 Redis 队列，等待重试。
+    *   *后果*：用户无感知，仅记忆生成延迟。

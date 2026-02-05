@@ -38,5 +38,6 @@ ipython>=8.20.0
 
 # UI (Optional - for Streamlit dashboard)
 streamlit>=1.31.0
+streamlit-antd-components>=0.3.0  # For polished UI components
 plotly>=5.18.0
 pandas>=2.2.0

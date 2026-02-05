@@ -435,7 +435,7 @@ Gateway 的输出被下游模块充分复用：
 
 为了应对生产环境中多变的消息流形态（如 Bot 的闲聊跳转、Agent 的长链条执行、Bugfix 的短文本修正等等），系统不单单将消息同步给帕秋莉，而是采用 **“统一语义流”** 架构。
 
-### 4.1.1 基础单元：逻辑原子块 (Logical Block)
+### 5.1.1 基础单元：逻辑原子块 (Logical Block)
 帕秋莉处理的最小单位不再是单条从LLM接收的Message，而是**不可分割的语义单元**。在消息进入 Buffer 之前，先通过一个**预处理器**，将其封装为标准化的**逻辑原子块**。
 
 *   **定义**：一个不可分割的最小语义单元。
@@ -478,29 +478,53 @@ Gateway 的输出被下游模块充分复用：
 
 ## 5.2 语义吸附与漂移 (Semantic Adsorption & Drift)
 
-现在，Buffer 不再是一个“消息队列”，而是一个“**Logical Block 容器**”。我们使用“**语义吸附 (Semantic Adsorption)**” 算法来决定新来的 Block 是放入当前容器，还是触发切割。
+现在，Buffer 不再是一个简单的“消息队列”，而是一个 **“增强型逻辑块容器 (Enhanced Logical Block Container)”**。我们引入了一套 **“基于意图与指代 (Intent & Reference based)”** 的三级检测机制，来决定新来的 Block 是放入当前容器（吸附），还是作为新话题的开始（切分）。
 
-由于 LLM 的生成内容（AI Response）通常很长且包含大量解释性废话，拼接后会稀释 User Query 的核心意图。显然话题的转移 90% 是由用户发起的，因此采用“**锚点对齐**”策略，不再计算整个 Buffer 的平均向量，而是维护一个 “**当前话题核心 (Current Topic Kernel)**”。变量定义：
+这种机制旨在解决传统向量相似度计算在“逻辑连贯但语义跳跃”场景下的误判（例如从“写代码”跳转到“部署服务器”），实现像人类一样理解“任务流”的连续性。
 
-- **Topic_Kernel_Vec**: 当前 Buffer 中所有 anchor_text 的指数移动平均向量。
+### 5.2.1 核心概念：话题核心 (Topic Kernel)
 
-帕秋莉的感知引擎维护一个动态的 Buffer，对新进入的 Block 执行以下判定流程：
+为了避免稀释效应，我们不再计算整个 Buffer 内消息内容的平均向量，而是维护一个 **“当前话题核心 (Current Topic Kernel)”**。
 
-1.  **Step 1: Anchor 文本获取**：
-    *   Perception Layer 不再自行提取文本，而是直接从 Gateway 传入的 Metadata 中获取 `rewritten_query`。这保证了即使原始输入是“继续”，Anchor 也是完整的语义（如“继续生成贪吃蛇代码”）。
+- **Topic_Kernel_Vec**: 当前 Buffer 中所有 Block 的 `anchor_text` 的指数移动平均向量。它代表了当前对话流的“语义重心”。
+- **Semantic Anchor (语义锚点)**: 每个 Block 的核心语义特征。**[关键更新]**：不再直接使用原始 User Query，而是直接采用由 **Global Gateway** 传入的 `rewritten_query`（已完成指代消解）。这保证了即使原始输入是“继续”或“它”，锚点也是完整的语义（如“继续生成贪吃蛇代码”）。
 
-2.  **Step 2: 计算向量距离与语义判定 (Embedding Similarity)**
-    *   使用本地轻量模型（如 `all-MiniLM-L6-v2`）计算 `New_Block` 的 `anchor_text` 与 `Topic_Kernel_Vec` 的余弦相似度。
-    *   **吸附 (Adsorb)**：相似度 > 阈值（如 0.6）。加入 Buffer，更新 Buffer 平均向量，让 Topic Kernel 缓慢向新的 User Query 移动
-    *   **漂移 (Drift)**：相似度 < 阈值。判定为话题切换（语义休止符）。
-        *   *Action*：触发 **Flush**（唤醒帕秋莉处理旧 Buffer），以 New_Block 开启新 Buffer并建立新的 Topic Kernel。
+### 5.2.2 三级判定流水线 (The Three-Tier Pipeline)
 
-3.  **闲置超时 (Idle Timeout)**：
-    *   若 Buffer 超过 T 分钟无新 Block 进入，视为自然休止，触发 **Flush**。
+当一个新的 `LogicalBlock` 到达感知层时，系统执行以下三级流水线来决定其去留：
 
-4. **用户手动触发（Flush）**：
-    *   用户在任何对话结束时，都可以通过发送 `/save` 指令，强制触发当前 Buffer 的处理，即绕过语义吸附，直接发送给帕秋莉。
-    *   *目的*：尊重用户的不同工作流习惯，给出人为介入的接口。
+#### Step 1: 启发式强吸附 (Heuristic Filtering) - L1
+*   **逻辑**：检测“非信息性”的短文本与停用词。
+*   **规则**：
+    *   如果 `rewritten_query` 长度极短（如 < 5 token，且为“继续”、“是的”等确认语）。
+    *   或者属于预定义的 Stop Words 列表（“不对”、“报错了”）。
+*   **动作**：触发 **FORCE_ADSORB (强制吸附)**。直接加入 Buffer，但**不更新** `Topic_Kernel_Vec`，防止噪音污染话题核心。
+
+#### Step 2: 向量初筛 (Vector Screening) - L2
+*   **计算**：
+    *   计算新 Block 的 Anchor 向量 ($V_{new}$) 与当前话题核心 ($V_{kernel}$) 的余弦相似度 ($Score$)。
+*   **判定逻辑**：
+    *   **强相关 ($Score > High\_Threshold$, e.g. 0.75)**: 语义高度一致 -> **ADSORB (吸附)** 并更新 Kernel。
+    *   **强无关 ($Score < Low\_Threshold$, e.g. 0.40)**: 语义完全断裂 -> **SPLIT (切分)**，触发 Flush。
+    *   **模糊地带 (Grey Area)**: 分数介于两者之间 -> **进入 Step 3**。
+
+#### Step 3: 智能仲裁 (Intelligent Arbitration) - L3
+*   **背景**：解决向量空间的“距离欺骗”问题（如“写代码”和“部署”向量距离远，但任务逻辑紧密）。
+*   **执行者**：**本地仲裁官 (Local Arbiter)**。使用轻量级 **Cross-Encoder (如 BGE-Reranker)** 或 **Local SLM (如 Qwen2.5-1.5B)**。
+*   **任务**：进行二分类逻辑判断（YES/NO）。
+*   **Prompt/逻辑**：
+    > "判断以下两个意图是否属于同一个任务流？只要存在因果、递进、指代关系，即视为同一任务。"
+*   **动作**：
+    *   **YES** -> **ADSORB (吸附)**。
+    *   **NO** -> **SPLIT (切分)**。
+
+### 5.2.3 兜底策略 (Fallback Strategies)
+
+1.  **闲置超时 (Idle Timeout)**：
+    *   若 Buffer 超过 T 分钟（如 30分钟）无新 Block 进入，视为自然休止，强制触发 **Flush**。
+
+2.  **用户手动触发**：
+    *   用户发送 `/save` 或 `/reset` 指令时，绕过所有语义判定，强制触发当前 Buffer 的归档与重置。
 
 ## 5.3 上下文接力 (Context Relay)
 
