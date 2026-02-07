@@ -76,15 +76,18 @@ from hivememory.core.models import Identity, StreamMessage, StreamMessageType, M
 from hivememory.engines.perception.models import FlushReason
 
 # 协议消息
-from hivememory.patchouli.protocol.models import Observation, RetrievalRequest, RetrievalResponse
+from hivememory.patchouli.protocol.models import (
+    Observation, RetrievalRequest, RetrievalResponse,
+    EyeGazeResult,
+)
 
 # 配置
 from hivememory.patchouli.config import load_app_config, HiveMemoryConfig
 
 # 分身
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.librarian_core import LibrarianCore
-from hivememory.patchouli.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 
 # 导入 conftest 中的辅助类
 from tests.conftest import FlushRecorder, print_test_result
@@ -121,9 +124,9 @@ def get_session_by_id(test_case: Dict[str, Any], session_id: str) -> Dict[str, A
 
 # ========== 断言辅助函数 ==========
 
-def assert_gateway_intent(observation: Observation, expected: str) -> None:
+def assert_gateway_intent(gaze_result: EyeGazeResult, expected: str) -> None:
     """断言 Gateway 意图"""
-    intent = observation.gateway_context.get("intent")
+    intent = gaze_result.intent.value
     assert intent == expected, f"期望意图 {expected}，实际 {intent}"
 
 
@@ -411,10 +414,18 @@ class SystemScenarioTestSystem:
             content = interaction["content"]
 
             if role == "user":
-                retrieval_request, observation = self.eye.gaze(
+                gaze_result = self.eye.gaze(
                     query=content,
                     context=context,
                     identity=identity,
+                )
+                # Build Observation from EyeGazeResult for LibrarianCore
+                observation = Observation(
+                    anchor=gaze_result.rewritten_query,
+                    raw_message=gaze_result.raw_query,
+                    role="user",
+                    identity=gaze_result.identity,
+                    worth_saving=gaze_result.worth_saving,
                 )
                 self.librarian_core.perceive(observation)
                 context.append(StreamMessage(message_type=StreamMessageType.USER, content=content))
@@ -472,10 +483,19 @@ class SystemScenarioTestSystem:
 
         # 执行 Gateway
         context = session["input"].get("context", [])
-        retrieval_request, observation = self.eye.gaze(
+        gaze_result = self.eye.gaze(
             query=query,
             context=context,
             identity=identity,
+        )
+
+        # 构建 Observation 用于打印和返回
+        observation = Observation(
+            anchor=gaze_result.rewritten_query,
+            raw_message=gaze_result.raw_query,
+            role="user",
+            identity=gaze_result.identity,
+            worth_saving=gaze_result.worth_saving,
         )
 
         # 打印中间信号
@@ -484,7 +504,13 @@ class SystemScenarioTestSystem:
 
         # 执行 Retrieval
         retrieval_response = None
-        if retrieval_request is not None:
+        retrieval_request = None
+        if gaze_result.intent.value == "RAG":
+            retrieval_request = RetrievalRequest(
+                semantic_query=gaze_result.rewritten_query,
+                keywords=gaze_result.search_keywords,
+                user_id=gaze_result.identity.user_id,
+            )
             # 调试：打印过滤器信息
             logger.info(f"检索请求 user_id: {retrieval_request.user_id}")
             retrieval_response = self.retrieval_familiar.retrieve(retrieval_request)
@@ -494,6 +520,7 @@ class SystemScenarioTestSystem:
             "identity": identity,
             "query": query,
             "observation": observation,
+            "gaze_result": gaze_result,
             "retrieval_request": retrieval_request,
             "retrieval_response": retrieval_response,
         }
@@ -501,12 +528,10 @@ class SystemScenarioTestSystem:
     def _print_gateway_signals(self, observation: Observation, raw_query: str) -> None:
         """打印 Gateway 中间信号"""
         rewritten = observation.anchor or "(无重写)"
-        intent = observation.gateway_context.get("intent", "UNKNOWN")
 
         console.print(Panel(
             f"[cyan]原始查询:[/cyan] {raw_query[:60]}...\n"
-            f"[green]重写Query:[/green] {rewritten[:60]}...\n"
-            f"[yellow]意图:[/yellow] {intent}",
+            f"[green]重写Query:[/green] {rewritten[:60]}...",
             title=f"Gateway 信号 [{self._current_test_id}]",
             border_style="blue",
         ))
@@ -612,7 +637,7 @@ class TestGoldenScenarios:
 
         # 验证 Gateway
         expected_gw = session_b["expected"]["gateway"]
-        assert_gateway_intent(result_b["observation"], expected_gw["intent"])
+        assert_gateway_intent(result_b["gaze_result"], expected_gw["intent"])
         console.print(f"[green]✓[/green] Gateway 意图正确: {expected_gw['intent']}")
 
         if result_b["retrieval_request"]:
@@ -659,7 +684,7 @@ class TestGoldenScenarios:
 
         # 验证 Gateway
         expected_gw = session_b["expected"]["gateway"]
-        assert_gateway_intent(result_b["observation"], expected_gw["intent"])
+        assert_gateway_intent(result_b["gaze_result"], expected_gw["intent"])
         console.print(f"[green]✓[/green] Gateway 意图正确: {expected_gw['intent']}")
 
         # 验证 Retrieval
@@ -710,7 +735,7 @@ class TestGoldenScenarios:
 
         # 验证 Gateway
         expected_gw = session_c["expected"]["gateway"]
-        assert_gateway_intent(result_c["observation"], expected_gw["intent"])
+        assert_gateway_intent(result_c["gaze_result"], expected_gw["intent"])
         console.print(f"[green]✓[/green] Gateway 意图正确: {expected_gw['intent']}")
 
         # 验证 Retrieval - 应该召回记忆
@@ -761,7 +786,7 @@ class TestGoldenScenarios:
 
         # 验证 Gateway
         expected_gw = session_b["expected"]["gateway"]
-        assert_gateway_intent(result_b["observation"], expected_gw["intent"])
+        assert_gateway_intent(result_b["gaze_result"], expected_gw["intent"])
         console.print(f"[green]✓[/green] Gateway 意图正确: {expected_gw['intent']}")
 
         # 验证 Retrieval
@@ -808,7 +833,7 @@ class TestGoldenScenarios:
 
         # 验证 Gateway
         expected_gw = session_b["expected"]["gateway"]
-        assert_gateway_intent(result_b["observation"], expected_gw["intent"])
+        assert_gateway_intent(result_b["gaze_result"], expected_gw["intent"])
         console.print(f"[green]✓[/green] Gateway 意图正确: {expected_gw['intent']}")
 
         # 验证 Retrieval
@@ -855,7 +880,7 @@ class TestGoldenScenarios:
 
         # 验证 Gateway
         expected_gw = session_b["expected"]["gateway"]
-        assert_gateway_intent(result_b["observation"], expected_gw["intent"])
+        assert_gateway_intent(result_b["gaze_result"], expected_gw["intent"])
         console.print(f"[green]✓[/green] Gateway 意图正确: {expected_gw['intent']}")
 
         # 验证 Retrieval - 应该能检索到记忆

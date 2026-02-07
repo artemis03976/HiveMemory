@@ -94,6 +94,7 @@ from hivememory.patchouli.protocol.models import (
     Observation,
     RetrievalRequest,
     RetrievalResponse,
+    EyeGazeResult,
 )
 
 # 配置
@@ -101,7 +102,7 @@ from hivememory.patchouli.config import load_app_config, HiveMemoryConfig
 
 # 分身
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 
 # 导入 conftest 中的辅助类
 from tests.conftest import print_test_result
@@ -196,7 +197,7 @@ class EyeSignalPrinter:
 
     @staticmethod
     def print_signals(
-        observation: Observation,
+        gaze_result: EyeGazeResult,
         raw_query: str,
         test_id: str = "",
     ) -> None:
@@ -204,13 +205,13 @@ class EyeSignalPrinter:
         打印 TheEye 产生的三个中间信号
 
         Args:
-            observation: TheEye 产生的 Observation 对象
+            gaze_result: TheEye 产生的 EyeGazeResult 对象
             raw_query: 原始用户查询
             test_id: 测试用例 ID（可选）
         """
-        rewritten_query = observation.anchor or "(无重写)"
-        intent = observation.gateway_context.get("intent", "UNKNOWN")
-        worth_saving = observation.gateway_context.get("worth_saving", None)
+        rewritten_query = gaze_result.rewritten_query or "(无重写)"
+        intent = gaze_result.intent.value
+        worth_saving = gaze_result.worth_saving
 
         # 截断长文本
         raw_display = raw_query[:60] + "..." if len(raw_query) > 60 else raw_query
@@ -232,32 +233,30 @@ class EyeSignalPrinter:
 
 # ========== 断言函数 ==========
 
-def assert_intent(observation: Observation, expected_intent: str):
+def assert_intent(gaze_result: EyeGazeResult, expected_intent: str):
     """意图断言"""
-    intent = observation.gateway_context.get("intent")
+    intent = gaze_result.intent.value
     assert intent == expected_intent, f"期望意图 {expected_intent}，实际 {intent}"
 
 
-def assert_l1_intercepted(observation: Observation, expected: bool = True):
+def assert_l1_intercepted(gaze_result: EyeGazeResult, expected: bool = True):
     """L1 拦截断言"""
     # L1 拦截时 worth_saving 通常为 False
-    worth_saving = observation.gateway_context.get("worth_saving", True)
+    worth_saving = gaze_result.worth_saving
     if expected:
         assert worth_saving == False, "L1 拦截时 worth_saving 应为 False"
 
 
-def assert_rewritten_contains(observation: Observation, keywords: List[str]):
+def assert_rewritten_contains(gaze_result: EyeGazeResult, keywords: List[str]):
     """重写查询包含关键词断言"""
-    rewritten = observation.anchor or ""
+    rewritten = gaze_result.rewritten_query or ""
     for kw in keywords:
         assert kw in rewritten, f"重写查询应包含 '{kw}'，实际: {rewritten}"
 
 
-def assert_keywords_any(retrieval_request: Optional[RetrievalRequest], expected: List[str]):
+def assert_keywords_any(gaze_result: EyeGazeResult, expected: List[str]):
     """关键词提取断言（任一匹配）"""
-    if retrieval_request is None:
-        raise AssertionError("RetrievalRequest 为 None，无法验证关键词")
-    extracted = set(retrieval_request.keywords) if retrieval_request.keywords else set()
+    extracted = set(gaze_result.search_keywords) if gaze_result.search_keywords else set()
     expected_set = set(expected)
     matched = extracted & expected_set
     assert len(matched) > 0, f"应提取出关键词 {expected} 中的至少一个，实际提取: {list(extracted)}"
@@ -436,11 +435,9 @@ class HotPathTestSystem:
             identity: 身份标识
 
         Returns:
-            Tuple[Optional[RetrievalRequest], Observation]:
-                - RetrievalRequest: 检索请求（RAG 意图时）
-                - Observation: 感知信号（包含三个中间信号）
+            EyeGazeResult: TheEye 的统一输出
         """
-        retrieval_request, observation = self.eye.gaze(
+        gaze_result = self.eye.gaze(
             query=query,
             context=context or [],
             identity=identity or self.TEST_IDENTITY,
@@ -449,19 +446,19 @@ class HotPathTestSystem:
         # 打印中间信号
         if self.print_signals:
             EyeSignalPrinter.print_signals(
-                observation=observation,
+                gaze_result=gaze_result,
                 raw_query=query,
                 test_id=self._current_test_id,
             )
 
-        return retrieval_request, observation
+        return gaze_result
 
     def process_full_retrieval(
         self,
         query: str,
         context: Optional[List[StreamMessage]] = None,
         identity: Optional[Identity] = None,
-    ) -> Tuple[Observation, Optional[RetrievalResponse]]:
+    ) -> Tuple[EyeGazeResult, Optional[RetrievalResponse]]:
         """
         执行完整热链路：Gateway -> Retrieval
         用于 HP-RET-* 测试
@@ -472,27 +469,33 @@ class HotPathTestSystem:
             identity: 身份标识
 
         Returns:
-            Tuple[Observation, Optional[RetrievalResponse]]:
-                - Observation: 感知信号
+            Tuple[EyeGazeResult, Optional[RetrievalResponse]]:
+                - EyeGazeResult: Eye 输出
                 - RetrievalResponse: 检索结果（如果需要检索）
         """
         # Step 1: Gateway 处理
-        retrieval_request, observation = self.process_gateway_query(
+        gaze_result = self.process_gateway_query(
             query=query,
             context=context,
             identity=identity,
         )
 
-        # Step 2: 如果需要检索，调用 RetrievalFamiliar
+        # Step 2: 如果需要检索，构建 RetrievalRequest 并调用 RetrievalFamiliar
         retrieval_response = None
-        if retrieval_request is not None:
+        if gaze_result.intent.value == "RAG":
+            from hivememory.engines.gateway.models import GatewayIntent
+            retrieval_request = RetrievalRequest(
+                semantic_query=gaze_result.rewritten_query,
+                keywords=gaze_result.search_keywords,
+                user_id=gaze_result.identity.user_id,
+            )
             retrieval_response = self.retrieval_familiar.retrieve(retrieval_request)
 
             # 打印检索结果摘要
             if self.print_signals:
                 self._print_retrieval_summary(retrieval_response)
 
-        return observation, retrieval_response
+        return gaze_result, retrieval_response
 
     def _print_retrieval_summary(self, response: RetrievalResponse) -> None:
         """打印检索结果摘要"""
@@ -595,14 +598,14 @@ class TestL1SystemInterception:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
         # 断言
-        assert_intent(observation, expected["intent"])
-        assert retrieval_request is None, "SYSTEM 意图不应产生检索请求"
+        assert_intent(gaze_result, expected["intent"])
+        assert gaze_result.intent.value != "RAG", "SYSTEM 意图不应产生检索请求"
 
         print_test_result(console, "HP-GW-001-A", True)
-        console.print(f"    [dim]意图: {observation.gateway_context.get('intent')}[/dim]")
+        console.print(f"    [dim]意图: {gaze_result.intent.value}[/dim]")
 
     def test_hp_gw_001_b_reset(self):
         """HP-GW-001-B: L1 系统指令拦截 - /reset"""
@@ -612,10 +615,10 @@ class TestL1SystemInterception:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert retrieval_request is None
+        assert_intent(gaze_result, expected["intent"])
+        assert gaze_result.intent.value != "RAG"
 
         print_test_result(console, "HP-GW-001-B", True)
 
@@ -627,10 +630,10 @@ class TestL1SystemInterception:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert retrieval_request is None
+        assert_intent(gaze_result, expected["intent"])
+        assert gaze_result.intent.value != "RAG"
 
         print_test_result(console, "HP-GW-001-C", True)
 
@@ -656,10 +659,10 @@ class TestL1ChatInterception:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert retrieval_request is None, "CHAT 意图不应产生检索请求"
+        assert_intent(gaze_result, expected["intent"])
+        assert gaze_result.intent.value != "RAG", "CHAT 意图不应产生检索请求"
 
         print_test_result(console, "HP-GW-002-A", True)
 
@@ -671,10 +674,10 @@ class TestL1ChatInterception:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert retrieval_request is None
+        assert_intent(gaze_result, expected["intent"])
+        assert gaze_result.intent.value != "RAG"
 
         print_test_result(console, "HP-GW-002-B", True)
 
@@ -686,10 +689,10 @@ class TestL1ChatInterception:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert retrieval_request is None
+        assert_intent(gaze_result, expected["intent"])
+        assert gaze_result.intent.value != "RAG"
 
         print_test_result(console, "HP-GW-002-C", True)
 
@@ -701,10 +704,10 @@ class TestL1ChatInterception:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert retrieval_request is None
+        assert_intent(gaze_result, expected["intent"])
+        assert gaze_result.intent.value != "RAG"
 
         print_test_result(console, "HP-GW-002-D", True)
 
@@ -730,11 +733,11 @@ class TestL2RagIntent:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert_rewritten_contains(observation, expected["rewritten_contains"])
-        assert retrieval_request is not None, "RAG 意图应产生检索请求"
+        assert_intent(gaze_result, expected["intent"])
+        assert_rewritten_contains(gaze_result, expected["rewritten_contains"])
+        assert gaze_result.intent.value == "RAG", "RAG 意图应产生检索请求"
 
         print_test_result(console, "HP-GW-003-A", True)
         console.print(f"    [dim]重写查询包含: {expected['rewritten_contains']}[/dim]")
@@ -747,11 +750,11 @@ class TestL2RagIntent:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert_rewritten_contains(observation, expected["rewritten_contains"])
-        assert retrieval_request is not None
+        assert_intent(gaze_result, expected["intent"])
+        assert_rewritten_contains(gaze_result, expected["rewritten_contains"])
+        assert gaze_result.intent.value == "RAG"
 
         print_test_result(console, "HP-GW-003-B", True)
 
@@ -763,11 +766,11 @@ class TestL2RagIntent:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_intent(observation, expected["intent"])
-        assert_rewritten_contains(observation, expected["rewritten_contains"])
-        assert retrieval_request is not None
+        assert_intent(gaze_result, expected["intent"])
+        assert_rewritten_contains(gaze_result, expected["rewritten_contains"])
+        assert gaze_result.intent.value == "RAG"
 
         print_test_result(console, "HP-GW-003-C", True)
 
@@ -794,13 +797,13 @@ class TestCoreferenceResolution:
         context = build_context_from_test_case(test_case)
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(
+        gaze_result = self.system.process_gateway_query(
             query=query,
             context=context,
         )
 
-        assert_intent(observation, expected["intent"])
-        assert_rewritten_contains(observation, expected["rewritten_contains"])
+        assert_intent(gaze_result, expected["intent"])
+        assert_rewritten_contains(gaze_result, expected["rewritten_contains"])
 
         print_test_result(console, "HP-GW-004-A", True)
         console.print(f"    [dim]指代消解: '它' -> 'Docker'[/dim]")
@@ -814,13 +817,13 @@ class TestCoreferenceResolution:
         context = build_context_from_test_case(test_case)
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(
+        gaze_result = self.system.process_gateway_query(
             query=query,
             context=context,
         )
 
-        assert_intent(observation, expected["intent"])
-        assert_rewritten_contains(observation, expected["rewritten_contains"])
+        assert_intent(gaze_result, expected["intent"])
+        assert_rewritten_contains(gaze_result, expected["rewritten_contains"])
 
         print_test_result(console, "HP-GW-004-B", True)
 
@@ -833,13 +836,13 @@ class TestCoreferenceResolution:
         context = build_context_from_test_case(test_case)
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(
+        gaze_result = self.system.process_gateway_query(
             query=query,
             context=context,
         )
 
-        assert_intent(observation, expected["intent"])
-        assert_rewritten_contains(observation, expected["rewritten_contains"])
+        assert_intent(gaze_result, expected["intent"])
+        assert_rewritten_contains(gaze_result, expected["rewritten_contains"])
 
         print_test_result(console, "HP-GW-004-C", True)
 
@@ -865,12 +868,12 @@ class TestKeywordExtraction:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_keywords_any(retrieval_request, expected["keywords_any"])
+        assert_keywords_any(gaze_result, expected["keywords_any"])
 
         print_test_result(console, "HP-GW-005-A", True)
-        console.print(f"    [dim]提取关键词: {retrieval_request.keywords if retrieval_request else []}[/dim]")
+        console.print(f"    [dim]提取关键词: {gaze_result.search_keywords}[/dim]")
 
     def test_hp_gw_005_b_frontend_frameworks(self):
         """HP-GW-005-B: 关键词提取 - 前端框架对比"""
@@ -880,9 +883,9 @@ class TestKeywordExtraction:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_keywords_any(retrieval_request, expected["keywords_any"])
+        assert_keywords_any(gaze_result, expected["keywords_any"])
 
         print_test_result(console, "HP-GW-005-B", True)
 
@@ -894,9 +897,9 @@ class TestKeywordExtraction:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        retrieval_request, observation = self.system.process_gateway_query(query)
+        gaze_result = self.system.process_gateway_query(query)
 
-        assert_keywords_any(retrieval_request, expected["keywords_any"])
+        assert_keywords_any(gaze_result, expected["keywords_any"])
 
         print_test_result(console, "HP-GW-005-C", True)
 
@@ -964,7 +967,7 @@ class TestSemanticRecall:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None, "应返回检索结果"
         assert_recall(response, expected["recall_ids"], expected["min_recall_count"])
@@ -980,7 +983,7 @@ class TestSemanticRecall:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None
         assert_recall(response, expected["recall_ids"], expected["min_recall_count"])
@@ -995,7 +998,7 @@ class TestSemanticRecall:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None
         assert_recall(response, expected["recall_ids"], expected["min_recall_count"])
@@ -1025,7 +1028,7 @@ class TestKeywordRecall:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None, "应返回检索结果"
         assert_top1(response, expected["top1_id"])
@@ -1041,7 +1044,7 @@ class TestKeywordRecall:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None
         assert_top1(response, expected["top1_id"])
@@ -1056,7 +1059,7 @@ class TestKeywordRecall:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None
         assert_top1(response, expected["top1_id"])
@@ -1086,7 +1089,7 @@ class TestHybridConflict:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None, "应返回检索结果"
         assert_top1(response, expected["top1_id"])
@@ -1107,7 +1110,7 @@ class TestHybridConflict:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None
         assert_top1(response, expected["top1_id"])
@@ -1141,7 +1144,7 @@ class TestRerankOptimization:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None, "应返回检索结果"
         assert_top1(response, expected["top1_after_rerank"])
@@ -1157,7 +1160,7 @@ class TestRerankOptimization:
         query = test_case["input"]["query"]
         expected = test_case["expected"]
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         assert response is not None
         assert_top1(response, expected["top1_after_rerank"])
@@ -1188,7 +1191,7 @@ class TestThresholdFiltering:
         expected = test_case["expected"]
         threshold = test_case["input"].get("score_threshold", 0.5)
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         # 验证结果为空或低于阈值
         if expected.get("empty_or_below_threshold"):
@@ -1206,7 +1209,7 @@ class TestThresholdFiltering:
         expected = test_case["expected"]
         threshold = test_case["input"].get("score_threshold", 0.5)
 
-        observation, response = self.system.process_full_retrieval(query)
+        gaze_result, response = self.system.process_full_retrieval(query)
 
         if expected.get("empty_or_below_threshold"):
             assert_empty_or_below_threshold(response, threshold)
@@ -1236,7 +1239,7 @@ class TestRenderFormat:
         expected = test_case["expected"]
 
         # 使用一个会返回结果的查询
-        observation, response = self.system.process_full_retrieval(
+        gaze_result, response = self.system.process_full_retrieval(
             "我想了解一下常见水果的营养成分，比如苹果和香蕉有哪些健康功效？"
         )
 
@@ -1270,7 +1273,7 @@ class TestRenderFormat:
         expected = test_case["expected"]
 
         # 使用一个会返回多条结果的查询
-        observation, response = self.system.process_full_retrieval(
+        gaze_result, response = self.system.process_full_retrieval(
             "请帮我整理一下各种水果的营养价值和健康功效，我想做一个对比分析"
         )
 

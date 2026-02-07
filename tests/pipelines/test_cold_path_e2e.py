@@ -79,14 +79,14 @@ from hivememory.core.models import Identity, StreamMessage, StreamMessageType
 from hivememory.engines.perception.models import FlushReason, FlushEvent
 
 # 协议消息
-from hivememory.patchouli.protocol.models import Observation
+from hivememory.patchouli.protocol.models import Observation, EyeGazeResult
 
 # 配置
 from hivememory.patchouli.config import load_app_config, HiveMemoryConfig
 
 # 分身
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.librarian_core import LibrarianCore
+from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 
 # 导入 conftest 中的辅助类
 from tests.conftest import FlushRecorder, FlushEventRecorder, print_test_result
@@ -130,7 +130,7 @@ class EyeSignalPrinter:
 
     @staticmethod
     def print_signals(
-        observation: Observation,
+        gaze_result: EyeGazeResult,
         raw_query: str,
         test_id: str = "",
     ) -> None:
@@ -138,13 +138,13 @@ class EyeSignalPrinter:
         打印 TheEye 产生的三个中间信号
 
         Args:
-            observation: TheEye 产生的 Observation 对象
+            gaze_result: TheEye 产生的 EyeGazeResult 对象
             raw_query: 原始用户查询
             test_id: 测试用例 ID（可选）
         """
-        rewritten_query = observation.anchor or "(无重写)"
-        intent = observation.gateway_context.get("intent", "UNKNOWN")
-        worth_saving = observation.gateway_context.get("worth_saving", None)
+        rewritten_query = gaze_result.rewritten_query or "(无重写)"
+        intent = gaze_result.intent.value
+        worth_saving = gaze_result.worth_saving
 
         # 截断长文本
         raw_display = raw_query[:60] + "..." if len(raw_query) > 60 else raw_query
@@ -367,7 +367,7 @@ class ColdPathTestSystem:
             Observation: TheEye 产生的感知信号
         """
         # 调用 TheEye.gaze()
-        retrieval_request, observation = self.eye.gaze(
+        gaze_result = self.eye.gaze(
             query=content,
             context=context or [],
             identity=identity,
@@ -376,12 +376,19 @@ class ColdPathTestSystem:
         # 打印中间信号
         if self.print_signals:
             EyeSignalPrinter.print_signals(
-                observation=observation,
+                gaze_result=gaze_result,
                 raw_query=content,
                 test_id=self._current_test_id,
             )
 
-        # 投递到 LibrarianCore
+        # 构建 Observation 并投递到 LibrarianCore
+        observation = Observation(
+            anchor=gaze_result.rewritten_query,
+            raw_message=gaze_result.raw_query,
+            role="user",
+            identity=gaze_result.identity,
+            worth_saving=gaze_result.worth_saving,
+        )
         self.librarian_core.perceive(observation)
 
         return observation

@@ -54,7 +54,7 @@ class RetrievalFamiliar:
 
     使用示例:
         ```python
-        from hivememory.patchouli.retrieval_familiar import RetrievalFamiliar
+        from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
         from hivememory.engines.retrieval.engine import RetrievalEngine
         # ...
         engine = RetrievalEngine(retriever=..., renderer=...)
@@ -102,7 +102,7 @@ class RetrievalFamiliar:
         response = RetrievalResponse()
 
         try:
-            # Step 1: 乐观检索策略 - 仅根据 user_id 创建过滤条件
+            # Step 1: 根据 user_id 创建过滤条件
             query_filters = QueryFilters(user_id=request.user_id)
 
             # Step 2: 构建 RetrievalQuery

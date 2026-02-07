@@ -7,17 +7,52 @@ HiveMemory - Retrieval 模块数据模型
 版本: 0.1.0
 """
 
-from typing import List, Optional
+from datetime import datetime
+from typing import List, Optional, Tuple
 from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
-from hivememory.core.models import MemoryAtom
-from hivememory.patchouli.protocol.models import QueryFilters
+from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.utils.memory_atom_renderer import RenderFormat
 
 
 # ========== 数据模型 ==========
+
+
+class QueryFilters(BaseModel):
+    """
+    结构化过滤条件模型
+
+    用于检索引擎的过滤条件传递。
+    定义了检索时可用的所有过滤维度。
+
+    Attributes:
+        memory_type: 记忆类型过滤
+        time_range: 时间范围过滤
+        tags: 标签过滤
+        source_agent_id: 来源 Agent ID 过滤
+        user_id: 用户 ID 过滤
+        min_confidence: 最小置信度过滤
+    """
+    memory_type: Optional[MemoryType] = None
+    time_range: Optional[Tuple[datetime, datetime]] = None
+    tags: List[str] = Field(default_factory=list)
+    source_agent_id: Optional[str] = None
+    user_id: Optional[str] = None
+    min_confidence: float = 0.0
+
+    def is_empty(self) -> bool:
+        """检查过滤条件是否为空"""
+        return (
+            self.memory_type is None
+            and self.time_range is None
+            and len(self.tags) == 0
+            and self.source_agent_id is None
+            and self.user_id is None
+            and self.min_confidence == 0.0
+        )
+
 
 class RetrievalQuery(BaseModel):
     """
@@ -120,6 +155,7 @@ class RetrievalResult(BaseModel):
 # ========== 导出列表 ==========
 
 __all__ = [
+    "QueryFilters",
     "RetrievalQuery",
     "SearchResult",
     "SearchResults",

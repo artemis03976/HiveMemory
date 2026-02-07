@@ -1,10 +1,12 @@
 """
 HiveMemory - 分布式记忆管理系统
 
-帕秋莉体系 v2.0:
-    - TheEye (真理之眼): 意图识别、查询重写、流量分发
-    - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
-    - LibrarianCore (馆长本体): 话题感知、记忆生成、生命周期管理
+帕秋莉体系 v3.0 (Eye + Kernel):
+    - PatchouliSystem (The Facility): 外层容器，持有 Eye + Kernel
+    - TheEye (真理之眼): Ingress Gateway，意图识别、查询重写
+    - PatchouliKernel (帕秋莉内核): 中心调度器，管理微服务
+        - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
+        - LibrarianCore (馆长本体): 话题感知、记忆生成、生命周期管理
 
 使用示例:
     >>> from hivememory import PatchouliSystem, HiveMemoryClient
@@ -13,7 +15,7 @@ HiveMemory - 分布式记忆管理系统
     >>> result = client.process_query("我之前设置的 API Key 是什么？", context=[], user_id="user123")
 
 作者: HiveMemory Team
-版本: 2.0
+版本: 3.0
 """
 
 # ========== 核心数据模型 (无循环依赖) ==========
@@ -55,6 +57,9 @@ def __getattr__(name: str):
     if name == "HiveMemoryClient":
         from hivememory.client import HiveMemoryClient
         return HiveMemoryClient
+    if name == "PatchouliKernel":
+        from hivememory.patchouli.kernel import PatchouliKernel
+        return PatchouliKernel
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
@@ -65,13 +70,13 @@ def __getattr__(name: str):
         from hivememory.patchouli.eye import GlobalGateway
         return GlobalGateway
     if name == "RetrievalFamiliar":
-        from hivememory.patchouli.retrieval_familiar import RetrievalFamiliar
+        from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
         return RetrievalFamiliar
     if name == "LibrarianCore":
-        from hivememory.patchouli.librarian_core import LibrarianCore
+        from hivememory.patchouli.kernel.librarian_core import LibrarianCore
         return LibrarianCore
     if name == "PatchouliAgent":
-        from hivememory.patchouli.librarian_core import PatchouliAgent
+        from hivememory.patchouli.kernel.librarian_core import PatchouliAgent
         return PatchouliAgent
     if name == "QdrantMemoryStore":
         from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -85,6 +90,7 @@ def __getattr__(name: str):
 __all__ = [
     # 统一入口
     "HiveMemoryClient",
+    "PatchouliKernel",
     "PatchouliSystem",
     # 帕秋莉人格层
     "TheEye",
@@ -115,4 +121,4 @@ __all__ = [
 ]
 
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"

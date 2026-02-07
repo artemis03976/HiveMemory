@@ -41,7 +41,7 @@ class LibrarianCore:
     这是帕秋莉的本体，坐在书桌前，一边喝红茶一边处理堆积如山的借阅记录。
 
     遵循显式依赖注入原则：所有子组件必须通过构造函数传入，
-    不在内部实例化依赖项。由 PatchouliSystem 负责组装和注入。
+    不在内部实例化依赖项。由 PatchouliKernel 负责组装和注入。
 
     职责:
         1. 接收 Eye 传来的感知信号 (Anchors)
@@ -50,10 +50,10 @@ class LibrarianCore:
         4. 调用 Lifecycle 引擎修书
 
     使用示例:
-        >>> # 推荐：通过 PatchouliSystem 使用
-        >>> from hivememory.patchouli import PatchouliSystem
-        >>> system = PatchouliSystem()
-        >>> core = system.librarian_core
+        >>> # 推荐：通过 PatchouliKernel 使用
+        >>> from hivememory.patchouli import PatchouliKernel
+        >>> kernel = PatchouliKernel()
+        >>> core = kernel.librarian_core
         >>>
         >>> # 高级：手动注入组件
         >>> core = LibrarianCore(
@@ -76,12 +76,12 @@ class LibrarianCore:
 
         Args:
             storage: Qdrant 存储实例
-            perception_layer: 感知层实例（预构建，由 PatchouliSystem 注入）
-            generation_engine: 记忆生成引擎（预构建，由 PatchouliSystem 注入）
-            lifecycle_engine: 记忆生命周期引擎（预构建，由 PatchouliSystem 注入）
+            perception_layer: 感知层实例（预构建，由 PatchouliKernel 注入）
+            generation_engine: 记忆生成引擎（预构建，由 PatchouliKernel 注入）
+            lifecycle_engine: 记忆生命周期引擎（预构建，由 PatchouliKernel 注入）
 
         Note:
-            推荐通过 PatchouliSystem 使用，它会自动构建并注入所有组件。
+            推荐通过 PatchouliKernel 使用，它会自动构建并注入所有组件。
         """
         self.storage = storage
 
@@ -131,13 +131,12 @@ class LibrarianCore:
         role = observation.role
         content = observation.raw_message
         rewritten_query = observation.anchor
-        gateway_intent = observation.gateway_context.get("intent")
-        worth_saving = observation.gateway_context.get("worth_saving")
+        worth_saving = observation.worth_saving
 
         if rewritten_query:
             logger.debug(
                 f"LibrarianCore 接收到 Eye 信号: anchor='{rewritten_query[:20]}...', "
-                f"intent={gateway_intent}"
+                f"worth_saving={worth_saving}"
             )
         else:
             logger.debug(f"LibrarianCore 接收到普通消息: role={role}")
@@ -147,7 +146,6 @@ class LibrarianCore:
             content=content,
             identity=identity,
             rewritten_query=rewritten_query,
-            gateway_intent=gateway_intent,
             worth_saving=worth_saving,
         )
 

@@ -8,7 +8,8 @@ from typing import List, Optional, Dict, Any
 from uuid import uuid4
 from collections import defaultdict
 
-from hivememory.core.models import MemoryAtom, QueryFilters
+from hivememory.core.models import MemoryAtom
+from hivememory.engines.retrieval.models import QueryFilters
 
 
 class MockMemoryStore:

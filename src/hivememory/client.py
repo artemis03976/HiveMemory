@@ -3,8 +3,16 @@ HiveMemory 统一客户端入口
 
 这是用户（开发者）与 HiveMemory 系统交互的主要入口。
 
+架构 (v3.0):
+    HiveMemoryClient 封装了完整的帕秋莉体系：
+    - PatchouliSystem (The Facility): 外层容器
+        - TheEye (真理之眼): Ingress Gateway
+        - PatchouliKernel (帕秋莉内核): 中心调度器
+            - RetrievalFamiliar (检索使魔): 混合检索、上下文渲染
+            - LibrarianCore (馆长本体): 感知缓冲、记忆生成、生命周期管理
+
 作者: HiveMemory Team
-版本: 2.0
+版本: 3.0
 """
 
 import logging
@@ -14,9 +22,10 @@ from hivememory.core.models import MemoryAtom, StreamMessage
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.retrieval_familiar import RetrievalFamiliar
-from hivememory.patchouli.librarian_core import LibrarianCore
+from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +36,12 @@ class HiveMemoryClient:
 
     这是对外提供的唯一入口，封装了完整的帕秋莉体系。
 
-    架构:
-        - TheEye (真理之眼): 意图识别、查询重写
-        - RetrievalFamiliar (检索使魔): 混合检索、上下文渲染
-        - LibrarianCore (馆长本体): 感知缓冲、记忆生成、生命周期管理
+    架构 (v3.0):
+        - PatchouliSystem (The Facility): 外层容器
+            - TheEye (真理之眼): Ingress Gateway，意图识别、查询重写
+            - PatchouliKernel (帕秋莉内核): 中心调度器
+                - RetrievalFamiliar (检索使魔): 混合检索、上下文渲染
+                - LibrarianCore (馆长本体): 感知缓冲、记忆生成、生命周期管理
 
     使用示例:
         >>> from hivememory.client import HiveMemoryClient
@@ -91,6 +102,11 @@ class HiveMemoryClient:
         logger.info("HiveMemoryClient 初始化完成")
 
     # ========== 系统属性访问 ==========
+
+    @property
+    def kernel(self) -> PatchouliKernel:
+        """访问帕秋莉内核"""
+        return self.system.kernel
 
     @property
     def eye(self) -> TheEye:

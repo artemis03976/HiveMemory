@@ -1,19 +1,71 @@
 """
 模块间通信协议模型
 
-定义 Eye 与下游模块 (RetrievalFamiliar, LibrarianCore) 之间的通信协议。
+定义 Eye 与 Kernel 之间，以及 Kernel 内部微服务之间的通信协议。
 
 作者: HiveMemory Team
-版本: 2.0
+版本: 3.0
 """
 
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from hivememory.core.models import MemoryAtom, MemoryType, Identity
+from hivememory.core.models import MemoryAtom, Identity
+from hivememory.engines.gateway.models import GatewayIntent
+
+# QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
+from hivememory.engines.retrieval.models import QueryFilters
+
+class EyeGazeResult(BaseModel):
+    """
+    TheEye 的统一输出模型
+
+    TheEye 作为 Ingress Gateway，只负责感知和信息重整，
+    不构建下游协议消息（RetrievalRequest / Observation）。
+    数据格式转换由 PatchouliKernel 负责。
+
+    Attributes:
+        intent: Gateway 意图分类
+        rewritten_query: 指代消解后的完整查询
+        search_keywords: 稀疏检索关键词列表
+        worth_saving: 是否值得保存
+        raw_query: 原始用户查询
+        identity: 身份标识
+        processing_time_ms: Eye 处理耗时（毫秒）
+        is_fallback: 是否为 fallback 结果
+    """
+    intent: GatewayIntent = Field(..., description="意图分类")
+    rewritten_query: str = Field(..., description="指代消解后的查询")
+    search_keywords: List[str] = Field(default_factory=list, description="检索关键词")
+    worth_saving: bool = Field(..., description="是否值得保存")
+    raw_query: str = Field(..., description="原始用户查询")
+    identity: Identity = Field(default_factory=Identity, description="身份标识")
+    processing_time_ms: float = Field(default=0.0, description="处理耗时")
+    is_fallback: bool = Field(default=False, description="是否为 fallback 结果")
+
+
+class KernelHotResult(BaseModel):
+    """
+    PatchouliKernel 热路径的统一输出模型
+
+    替代 handle_hot() 返回的 bare Dict[str, Any]，提供类型安全的返回值。
+
+    Attributes:
+        intent: 意图分类字符串
+        rewritten: 重写后的查询
+        keywords: 关键词列表
+        worth_saving: 是否值得保存
+        memory: 检索到的记忆上下文（可能为 None）
+    """
+    intent: str = Field(..., description="意图")
+    rewritten: Optional[str] = Field(default=None, description="重写后的查询")
+    keywords: List[str] = Field(default_factory=list, description="关键词列表")
+    worth_saving: bool = Field(default=False, description="是否值得保存")
+    memory: Optional[str] = Field(default=None, description="检索到的记忆上下文")
+
 
 __all__ = [
     "MessageType",
@@ -22,6 +74,8 @@ __all__ = [
     "RetrievalRequest",
     "Observation",
     "RetrievalResponse",
+    "EyeGazeResult",
+    "KernelHotResult",
 ]
 
 
@@ -40,6 +94,10 @@ class MessageType(str, Enum):
 
     # 检索结果 - RetrievalFamiliar -> 外部Worker
     RETRIEVAL_RESPONSE = "retrieval_response"
+
+    # 预留：MTP 指令与响应（Koakuma 服务）
+    # MTP_COMMAND = "mtp_command"
+    # MTP_RESPONSE = "mtp_response"
 
 
 class ProtocolMessage(BaseModel):
@@ -68,38 +126,46 @@ class ProtocolMessage(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
 
 
-class QueryFilters(BaseModel):
+class Observation(ProtocolMessage):
     """
-    结构化过滤条件协议模型
+    感知信号协议消息
 
-    用于 Gateway 和 RetrievalFamiliar 之间的过滤条件传递。
-    这是共享协议的一部分，确保前后字段定义一致。
+    从 Kernel 发送到 LibrarianCore 的感知信号。
+    用于冷路径 (Cold Path) 的记忆收集和处理。
 
     Attributes:
-        memory_type: 记忆类型过滤
-        time_range: 时间范围过滤
-        tags: 标签过滤
-        source_agent_id: 来源 Agent ID 过滤
-        user_id: 用户 ID 过滤
-        min_confidence: 最小置信度过滤
-    """
-    memory_type: Optional[MemoryType] = None
-    time_range: Optional[Tuple[datetime, datetime]] = None
-    tags: List[str] = Field(default_factory=list)
-    source_agent_id: Optional[str] = None
-    user_id: Optional[str] = None
-    min_confidence: float = 0.0
+        msg_type: 固定为 OBSERVATION
+        anchor: 语义锚点（Gateway 重写后的查询）
+        raw_message: 原始用户消息
+        role: 消息角色（user/assistant/system）
+        identity: 对话ID标识（包含用户ID、AgentID、会话ID）
+        worth_saving: 是否值得保存为长期记忆
 
-    def is_empty(self) -> bool:
-        """检查过滤条件是否为空"""
-        return (
-            self.memory_type is None
-            and self.time_range is None
-            and len(self.tags) == 0
-            and self.source_agent_id is None
-            and self.user_id is None
-            and self.min_confidence == 0.0
-        )
+    Examples:
+        >>> observation = Observation(
+        ...     anchor="如何部署贪吃蛇游戏？",
+        ...     raw_message="怎么部署它？",
+        ...     worth_saving=True,
+        ... )
+    """
+
+    msg_type: MessageType = MessageType.OBSERVATION
+
+    # 语义锚点（Gateway 重写后的查询）
+    # 对于 Assistant/System 消息，此字段可能为空
+    anchor: Optional[str] = Field(default=None, description="语义锚点")
+
+    # 原始消息
+    raw_message: str = Field(..., description="原始消息")
+
+    # 消息角色
+    role: str = Field(default="user", description="角色 (user/assistant/system)")
+
+    # 标识符
+    identity: Identity = Field(default_factory=Identity, description="对话ID标识")
+
+    # 是否值得保存为长期记忆
+    worth_saving: bool = Field(default=False, description="是否值得保存")
 
 
 class RetrievalRequest(ProtocolMessage):
@@ -137,57 +203,6 @@ class RetrievalRequest(ProtocolMessage):
 
     # 用户标识符
     user_id: str = Field(default="default", description="用户 ID")
-
-
-class Observation(ProtocolMessage):
-    """
-    感知信号协议消息
-
-    从 Eye 发送到 LibrarianCore 的感知信号。
-    用于冷路径 (Cold Path) 的记忆收集和处理。
-    这是连接热路径和冷路径的关键消息。
-
-    Attributes:
-        msg_type: 固定为 OBSERVATION
-        anchor: 语义锚点（Gateway 重写后的查询）
-        raw_message: 原始用户消息
-        role: 消息角色（user/assistant/system）
-        identity: 对话ID标识（包含用户ID、AgentID、会话ID）
-        gateway_context: Gateway 解析的元数据
-
-    Examples:
-        >>> observation = Observation(
-        ...     anchor="如何部署贪吃蛇游戏？",
-        ...     raw_message="怎么部署它？",
-        ...     user_id="user123",
-        ...     agent_id="chatbot",
-        ...     gateway_context={
-        ...         "intent": "RAG",
-        ...         "worth_saving": True
-        ...     }
-        ... )
-    """
-
-    msg_type: MessageType = MessageType.OBSERVATION
-
-    # 语义锚点（Gateway 重写后的查询）
-    # 对于 Assistant/System 消息，此字段可能为空
-    anchor: Optional[str] = Field(default=None, description="语义锚点")
-
-    # 原始消息
-    raw_message: str = Field(..., description="原始消息")
-
-    # 消息角色
-    role: str = Field(default="user", description="角色 (user/assistant/system)")
-
-    # 标识符
-    identity: Identity = Field(default_factory=Identity, description="对话ID标识")
-
-    # Gateway 元数据
-    gateway_context: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Gateway 元数据",
-    )
 
 
 class RetrievalResponse(ProtocolMessage):

@@ -14,7 +14,7 @@
 
 import logging
 import time
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from hivememory.core.models import Identity, StreamMessage
 
@@ -25,7 +25,7 @@ from hivememory.engines.gateway.models import (
 from hivememory.engines.gateway.engine import GatewayEngine
 
 # 导入协议消息
-from hivememory.patchouli.protocol.models import Observation, RetrievalRequest
+from hivememory.patchouli.protocol.models import EyeGazeResult
 
 logger = logging.getLogger(__name__)
 
@@ -42,18 +42,19 @@ class TheEye:
         """
         self._engine = engine
 
-        logger.info(f"TheEye (真理之眼) 初始化完成")
+        logger.info(f"TheEye 真理之眼初始化完成")
 
     def gaze(
         self,
         query: str,
         context: Optional[List[StreamMessage]] = None,
         identity: Optional[Identity] = None,
-    ) -> Tuple[Optional[RetrievalRequest], Observation]:
+    ) -> EyeGazeResult:
         """
         审视用户查询（真理之眼的主要入口方法）
 
-        这是 Eye 的核心方法，执行完整的两级处理流程。
+        Eye 只负责感知和信息重整，不构建下游协议消息。
+        返回 EyeGazeResult 供 Kernel 进行数据格式转换。
 
         Args:
             query: 用户原始查询
@@ -61,15 +62,12 @@ class TheEye:
             identity: 身份标识对象
 
         Returns:
-            Tuple[Optional[RetrievalRequest], Observation]:
-                - RetrievalRequest: 如果需要检索则返回请求对象，否则为 None
-                - Observation: 总是返回感知信号对象
+            EyeGazeResult: Eye 的统一输出模型
         """
         if identity is None:
             identity = Identity()
 
         start_time = time.time()
-        result: GatewayResult
 
         try:
             # 调用数据操作层
@@ -86,83 +84,32 @@ class TheEye:
                 f"latency={result.processing_time_ms:.1f}ms"
             )
 
+            return EyeGazeResult(
+                intent=result.intent,
+                rewritten_query=result.rewritten_query,
+                search_keywords=result.search_keywords,
+                worth_saving=result.worth_saving,
+                raw_query=query,
+                identity=identity,
+                processing_time_ms=result.processing_time_ms,
+                is_fallback=False,
+            )
+
         except Exception as e:
             logger.error(f"TheEye 处理失败: {e}", exc_info=True)
             # Fallback 处理
-            result = GatewayResult.fallback(query, reason=f"Processing error: {str(e)}")
-            result.processing_time_ms = (time.time() - start_time) * 1000
+            processing_time_ms = (time.time() - start_time) * 1000
 
-        # 构建协议消息
-        observation = self.build_observation(
-            gateway_result=result,
-            raw_query=query,
-            identity=identity,
-        )
-
-        retrieval_request = self.build_retrieval_request(
-            gateway_result=result,
-            identity=identity,
-        )
-
-        return retrieval_request, observation
-
-    def build_retrieval_request(
-        self,
-        gateway_result: GatewayResult,
-        identity: Identity,
-    ) -> Optional[RetrievalRequest]:
-        """
-        构建检索请求协议消息
-
-        乐观检索策略：只有 RAG 意图才返回检索请求。
-        不再传递 filters，由 RetrievalFamiliar 根据 user_id 动态创建。
-
-        Args:
-            gateway_result: Gateway 处理结果
-            identity: 身份标识对象
-
-        Returns:
-            RetrievalRequest 如果 intent 是 RAG，否则返回 None
-        """
-        if gateway_result.intent != GatewayIntent.RAG:
-            return None
-
-        return RetrievalRequest(
-            semantic_query=gateway_result.rewritten_query,
-            keywords=gateway_result.search_keywords,
-            user_id=identity.user_id,
-        )
-
-    def build_observation(
-        self,
-        gateway_result: GatewayResult,
-        raw_query: str,
-        identity: Identity,
-    ) -> Observation:
-        """
-        构建感知信号协议消息
-
-        冷路径入口，发送给 LibrarianCore。
-
-        Args:
-            gateway_result: Gateway 处理结果
-            raw_query: 原始查询
-            identity: 身份标识对象
-
-        Returns:
-            Observation: 感知信号协议消息
-        """
-        return Observation(
-            anchor=gateway_result.rewritten_query,
-            raw_message=raw_query,
-            role="user",
-            identity=identity,
-            gateway_context={
-                "intent": gateway_result.intent.value,
-                "worth_saving": gateway_result.worth_saving,
-                "processing_time_ms": gateway_result.processing_time_ms,
-            },
-        )
+            return EyeGazeResult(
+                intent=GatewayIntent.RAG,
+                rewritten_query=query,
+                search_keywords=[],
+                worth_saving=False,
+                raw_query=query,
+                identity=identity,
+                processing_time_ms=processing_time_ms,
+                is_fallback=True,
+            )
 
 
 __all__ = [

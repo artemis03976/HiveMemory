@@ -1,0 +1,474 @@
+"""
+帕秋莉内核 (Patchouli Kernel)
+
+定位：系统的 Orchestrator (编排器) 与 State Manager (状态管理器)
+职责：
+    - 管理 Retrieval Familiar 和 Librarian Core 两个微服务
+    - 维护服务注册表与调度总线
+    - 基础设施初始化（存储、LLM、Embedding、Reranker）
+    - 引擎构建（Perception、Generation、Lifecycle、Retrieval）
+
+架构定位：
+    PatchouliKernel 是星形拓扑的中心节点，独立于 TheEye (Gateway) 之外。
+    TheEye 作为 Ingress Controller 在 Kernel 外部运行，处理完请求后
+    通过标准化接口将 JobRequest 传入 Kernel。
+
+    ┌─────────────────────────────────────────┐
+    │  PatchouliSystem (The Facility)         │
+    │                                         │
+    │  TheEye ──→ PatchouliKernel             │
+    │              ├── RetrievalFamiliar       │
+    │              ├── LibrarianCore           │
+    │              └── (Koakuma - 预留)        │
+    └─────────────────────────────────────────┘
+
+作者: HiveMemory Team
+版本: 3.0
+"""
+
+import logging
+from typing import Any, Dict, List, Optional
+
+from hivememory.core.models import Identity
+from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.patchouli.protocol.models import (
+    EyeGazeResult,
+    KernelHotResult,
+    Observation,
+    RetrievalRequest,
+    RetrievalResponse,
+)
+from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
+from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+
+logger = logging.getLogger(__name__)
+
+
+class PatchouliKernel:
+    """
+    帕秋莉内核 (Patchouli Kernel) - v3.0
+
+    星形拓扑的中心调度器，管理 Retrieval 和 Librarian 两个微服务。
+    不持有 TheEye (Gateway)，TheEye 独立于 Kernel 之外运行。
+
+    职责:
+        - 基础设施初始化 (storage, LLM, embedding, reranker)
+        - 引擎构建 (perception, generation, lifecycle, retrieval)
+        - 服务注册与调度
+        - 处理 Eye 传入的热路径/冷路径请求
+
+    使用示例:
+        >>> # 推荐：通过 PatchouliSystem 使用（自动组装 Eye + Kernel）
+        >>> from hivememory.patchouli.system import PatchouliSystem
+        >>> system = PatchouliSystem()
+        >>> kernel = system.kernel
+        >>>
+        >>> # 高级：直接使用 Kernel（需自行管理 Gateway）
+        >>> from hivememory.patchouli.kernel import PatchouliKernel
+        >>> kernel = PatchouliKernel()
+    """
+
+    def __init__(
+        self,
+        config: Optional[HiveMemoryConfig] = None,
+    ):
+        """
+        初始化帕秋莉内核
+
+        Args:
+            config: 完整的 HiveMemory 配置（可选）
+        """
+        self.config = config or load_app_config()
+
+        # 1. 初始化基础设施（单例服务）
+        self._init_infrastructure()
+
+        # 2. 构建引擎
+        self._engines: Dict[str, Any] = self._build_engines()
+
+        # 3. 注册微服务
+        self._services: Dict[str, Any] = {}
+        self._register_services()
+
+        logger.info("PatchouliKernel 帕秋莉内核初始化完成")
+
+    # ========== 基础设施初始化 ==========
+
+    def _init_infrastructure(self) -> None:
+        """
+        初始化内核基础设施组件（单例服务）
+
+        包含：存储层、感知层 Embedding、Librarian LLM、Reranker
+        不包含：Gateway LLM（属于 TheEye 的依赖，由 PatchouliSystem 管理）
+        """
+        from hivememory.infrastructure.storage import QdrantMemoryStore
+        self.storage = QdrantMemoryStore(
+            qdrant_config=self.config.qdrant,
+            embedding_config=self.config.embedding.default,
+        )
+
+        from hivememory.infrastructure.embedding import get_perception_embedding_service
+        self.perception_embedding_service = get_perception_embedding_service(
+            config=self.config.embedding.perception
+        )
+
+        from hivememory.infrastructure.llm import get_librarian_llm_service
+        self.librarian_llm_service = get_librarian_llm_service(
+            config=self.config.llm.librarian
+        )
+
+        from hivememory.infrastructure.rerank import get_flag_reranker_service
+        reranker_config = self.config.retrieval.retriever.reranker
+        if reranker_config.enabled:
+            self.reranker_service = get_flag_reranker_service(
+                config=reranker_config
+            )
+        else:
+            self.reranker_service = None
+
+    # ========== 引擎构建 ==========
+
+    def _build_engines(self) -> Dict[str, Any]:
+        """
+        构建所有引擎，返回字典统一管理
+
+        包含：perception, generation, lifecycle, retrieval
+        不包含：gateway（属于 TheEye 的依赖）
+        """
+        return {
+            "perception": self._build_perception_layer(),
+            "generation": self._build_generation_engine(),
+            "lifecycle": self._build_lifecycle_engine(),
+            "retrieval": self._build_retrieval_engine(),
+        }
+
+    def _build_retrieval_engine(self):
+        """[私有构建器] 构建 Retrieval 引擎"""
+        from hivememory.engines.retrieval import (
+            RetrievalEngine,
+            BaseMemoryRetriever, create_retriever,
+            BaseContextRenderer, create_renderer,
+        )
+
+        config = self.config.retrieval
+
+        retriever: BaseMemoryRetriever = create_retriever(
+            self.storage,
+            config.retriever,
+            self.reranker_service
+        )
+
+        renderer: BaseContextRenderer = create_renderer(config.renderer)
+
+        return RetrievalEngine(
+            retriever=retriever,
+            renderer=renderer,
+        )
+
+    def _build_perception_layer(self):
+        """[私有构建器] 组装 Perception 层"""
+        from hivememory.engines.perception import create_perception_layer
+
+        return create_perception_layer(
+            config=self.config.perception,
+            embedding_service=self.perception_embedding_service,
+            reranker_service=self.reranker_service,
+        )
+
+    def _build_generation_engine(self):
+        """[私有构建器] 组装 Generation 引擎"""
+        from hivememory.engines.generation import (
+            MemoryGenerationEngine,
+            BaseMemoryExtractor, create_extractor,
+            BaseDeduplicator, create_deduplicator,
+        )
+
+        config = self.config.generation
+
+        extractor: BaseMemoryExtractor = create_extractor(
+            config.extractor,
+            self.librarian_llm_service
+        )
+
+        deduplicator: BaseDeduplicator = create_deduplicator(
+            self.storage,
+            config.deduplicator
+        )
+
+        return MemoryGenerationEngine(
+            storage=self.storage,
+            extractor=extractor,
+            deduplicator=deduplicator,
+        )
+
+    def _build_lifecycle_engine(self):
+        """[私有构建器] 组装 Lifecycle 模块"""
+        from hivememory.engines.lifecycle import (
+            MemoryLifecycleEngine,
+            VitalityCalculator,
+            DynamicReinforcementEngine,
+            BaseMemoryArchiver, create_archiver,
+            BaseGarbageCollector, create_garbage_collector,
+        )
+
+        vitality_calculator = VitalityCalculator(
+            self.config.lifecycle.vitality_calculator
+        )
+
+        reinforcement_engine = DynamicReinforcementEngine(
+            storage=self.storage,
+            config=self.config.lifecycle.reinforcement,
+            vitality_calculator=vitality_calculator
+        )
+
+        archiver: BaseMemoryArchiver = create_archiver(
+            self.storage,
+            self.config.lifecycle.archiver
+        )
+
+        garbage_collector: BaseGarbageCollector = create_garbage_collector(
+            self.storage,
+            archiver,
+            vitality_calculator,
+            self.config.lifecycle.garbage_collector
+        )
+
+        return MemoryLifecycleEngine(
+            storage=self.storage,
+            vitality_calculator=vitality_calculator,
+            reinforcement_engine=reinforcement_engine,
+            archiver=archiver,
+            garbage_collector=garbage_collector,
+        )
+
+    # ========== 服务注册 ==========
+
+    def _register_services(self) -> None:
+        """
+        注册微服务到内核
+
+        当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore)
+        扩展点：未来 Koakuma 在此注册
+        """
+        self._services["retrieval"] = RetrievalFamiliar(
+            storage=self.storage,
+            engine=self._engines["retrieval"],
+        )
+
+        self._services["librarian"] = LibrarianCore(
+            storage=self.storage,
+            perception_layer=self._engines["perception"],
+            generation_engine=self._engines["generation"],
+            lifecycle_engine=self._engines["lifecycle"],
+        )
+
+        # 扩展点：Koakuma (MTP Runtime Service)
+        # self._services["koakuma"] = KoakumaRuntime(...)
+
+    # ========== 服务访问器 ==========
+
+    @property
+    def retrieval_familiar(self) -> RetrievalFamiliar:
+        """访问检索使魔服务"""
+        return self._services["retrieval"]
+
+    @property
+    def librarian_core(self) -> LibrarianCore:
+        """访问馆长本体服务"""
+        return self._services["librarian"]
+
+    # ========== 调度总线 ==========
+
+    def dispatch(self, service_name: str, method: str, **kwargs) -> Any:
+        """
+        通用服务调度
+
+        当前为直接调用的薄封装。未来将作为 MTP 命令路由总线，
+        由 Koakuma 解析 MTP 指令后通过此接口调度到对应服务。
+
+        Args:
+            service_name: 服务名称 (retrieval / librarian / koakuma)
+            method: 方法名称
+            **kwargs: 方法参数
+
+        Returns:
+            服务方法的返回值
+
+        Raises:
+            ValueError: 服务或方法不存在
+        """
+        service = self._services.get(service_name)
+        if service is None:
+            raise ValueError(f"Unknown service: {service_name}")
+        handler = getattr(service, method, None)
+        if handler is None:
+            raise ValueError(
+                f"Service '{service_name}' has no method '{method}'"
+            )
+        return handler(**kwargs)
+
+    # ========== 公开 API ==========
+
+    def handle_hot(
+        self,
+        gaze_result: EyeGazeResult,
+    ) -> KernelHotResult:
+        """
+        处理 Eye 传入的热路径请求
+
+        Kernel 负责数据格式转换：
+        1. 从 EyeGazeResult 构建 Observation → 投递给 Librarian（冷路径感知）
+        2. 从 EyeGazeResult 构建 RetrievalRequest → 调度 Retrieval 服务
+
+        Args:
+            gaze_result: TheEye 的统一输出
+
+        Returns:
+            KernelHotResult: 热路径处理结果
+        """
+        # 1. 构建 Observation 并投递给 Librarian（冷路径）
+        observation = self._build_observation(gaze_result)
+        self.librarian_core.perceive(observation)
+
+        # 2. 构建 RetrievalRequest 并调度 Retrieval（热路径）
+        retrieved_context = None
+        retrieval_request = self._build_retrieval_request(gaze_result)
+        if retrieval_request:
+            retrieved_result = self.retrieval_familiar.retrieve(
+                retrieval_request
+            )
+            if not retrieved_result.is_empty():
+                retrieved_context = retrieved_result.rendered_context
+
+        return KernelHotResult(
+            intent=gaze_result.intent.value,
+            rewritten=gaze_result.rewritten_query,
+            keywords=gaze_result.search_keywords,
+            worth_saving=gaze_result.worth_saving,
+            memory=retrieved_context,
+        )
+
+    def handle_cold(
+        self,
+        observation: Observation,
+    ) -> None:
+        """
+        处理冷路径：直接投递给 Librarian
+
+        Args:
+            observation: 感知信号
+        """
+        self.librarian_core.perceive(observation)
+
+    # ========== 数据格式转换（Eye → 微服务） ==========
+
+    def _build_observation(self, gaze_result: EyeGazeResult) -> Observation:
+        """
+        从 EyeGazeResult 构建 Observation 协议消息
+
+        数据格式转换：Eye 输出 → Librarian 输入
+
+        Args:
+            gaze_result: TheEye 的统一输出
+
+        Returns:
+            Observation: 感知信号协议消息
+        """
+        return Observation(
+            anchor=gaze_result.rewritten_query,
+            raw_message=gaze_result.raw_query,
+            role="user",
+            identity=gaze_result.identity,
+            worth_saving=gaze_result.worth_saving,
+        )
+
+    def _build_retrieval_request(
+        self, gaze_result: EyeGazeResult
+    ) -> Optional[RetrievalRequest]:
+        """
+        从 EyeGazeResult 构建 RetrievalRequest 协议消息
+
+        乐观检索策略：只有 RAG 意图才构建检索请求。
+
+        Args:
+            gaze_result: TheEye 的统一输出
+
+        Returns:
+            RetrievalRequest 如果 intent 是 RAG，否则返回 None
+        """
+        if gaze_result.intent != GatewayIntent.RAG:
+            return None
+
+        return RetrievalRequest(
+            semantic_query=gaze_result.rewritten_query,
+            keywords=gaze_result.search_keywords,
+            user_id=gaze_result.identity.user_id,
+        )
+
+    def retrieve(
+        self,
+        query: str,
+        user_id: str,
+        **kwargs
+    ) -> str:
+        """
+        直接检索记忆（快捷入口）
+
+        Args:
+            query: 查询文本
+            user_id: 用户 ID
+            **kwargs: 其他检索参数
+
+        Returns:
+            str: 渲染后的记忆上下文
+        """
+        request = RetrievalRequest(
+            semantic_query=query,
+            user_id=user_id,
+            keywords=kwargs.get("keywords", []),
+        )
+
+        result = self.retrieval_familiar.retrieve(request)
+        return result.rendered_context if not result.is_empty() else ""
+
+    def flush_buffer(
+        self,
+        identity: Identity,
+    ) -> None:
+        """
+        手动触发感知层 Flush
+
+        Args:
+            identity: 身份标识对象
+        """
+        self.librarian_core.flush_perception(identity)
+
+    def get_buffer_info(
+        self,
+        identity: Identity,
+    ) -> Dict[str, Any]:
+        """
+        获取 Buffer 信息
+
+        Args:
+            identity: 身份标识对象
+
+        Returns:
+            Dict: Buffer 信息字典
+        """
+        return self.librarian_core.get_buffer_info(identity)
+
+    def add_flush_observer(self, observer) -> None:
+        """
+        添加 Flush 事件观察者
+
+        Args:
+            observer: 观察者回调函数
+        """
+        self.librarian_core.add_flush_observer(observer)
+
+
+__all__ = [
+    "PatchouliKernel",
+]
