@@ -58,6 +58,9 @@ ui = [
     "plotly>=5.18.0",
     "pandas>=2.2.0",
 ]
+search = [
+    "duckduckgo-search>=7.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/yourusername/HiveMemory"
@@ -97,4 +100,7 @@ pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=src/hivememory --cov-report=term-missing"
+addopts = "-v --cov=src/hivememory --cov-report=term-missing -m 'not live_llm'"
+markers = [
+    "live_llm: tests that require a real LLM API (set MTP_TEST_MODEL and MTP_TEST_API_KEY env vars)",
+]

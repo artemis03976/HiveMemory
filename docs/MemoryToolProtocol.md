@@ -65,7 +65,7 @@ MTP 的设计遵循以下三个核心原则：
     *   特性：受限环境，无法直接操作底层资源。
 
 *   **Memory as a Tool (MaaT)**
-    *   定义：一种特殊的机制，允许将存储在记忆库中的 `CODE` 类型原子，作为可执行函数被加载和运行。
+    *   定义：一种特殊的机制，允许将存储在记忆库中的特定类型原子，作为可执行函数被加载和运行。
     *   意义：标志着记忆系统从“只读”向“可执行”的质变。
 
 --- 
@@ -718,3 +718,94 @@ graph TD
     *   *现象*：日志投递失败。
     *   *策略*：Kernel 将日志暂存至 Redis 队列，等待重试。
     *   *后果*：用户无感知，仅记忆生成延迟。
+
+# 8. 内核级指令设计
+
+**内核级指令 (Kernel Syscalls / Level 0 Tools)** 是 HiveMemory 的“基本功”。它们硬编码在 `Koakuma` 分身中，代表了系统赋予 Agent 的**与物理世界交互的最低限度能力**。
+
+这些指令不需要检索，**零延迟**，且拥有最高的**稳定性**。
+
+可以将这些指令分为四大类：**文件系统 (VFS)**、**网络 (Network)**、**运行时 (Runtime)** 和 **系统环境 (System)**：
+
+---
+
+### 1. 文件系统类 (Virtual File System - VFS)
+> **目的**：赋予 Agent “手”，使其能读写工作区文件。这对 Coding Agent 至关重要。
+> **安全约束**：所有路径必须限制在沙箱的 `/workspace` 目录下。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_read_file`** | `path` (str) | 读取指定文件的内容。支持文本文件。 | `<content>...code...</content>` |
+| **`sys_write_file`** | `path` (str)<br>`content` (str/code) | 将内容写入文件。如果文件存在则覆盖（或增加 `mode="append"` 参数）。 | `Success: File 'main.py' saved (1024 bytes).` |
+| **`sys_list_files`** | `path` (str, optional) | 列出当前目录下的文件和文件夹结构。 | `['main.py', 'requirements.txt', 'data/']` |
+| **`sys_delete_file`** | `path` (str) | **[危险]** 删除指定文件。 | `Success: 'temp.log' deleted.` |
+
+*   **设计思考**：不要设计太复杂的 `move`, `copy`，Agent 可以通过 `read` + `write` + `delete` 组合实现。保持内核原子性。
+
+---
+
+### 2. 网络连接类 (Network I/O)
+> **目的**：赋予 Agent “眼”和“耳”，连接外部互联网。
+> **注意**：这是最容易变慢的环节，Koakuma 需做好超时控制。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_web_search`** | `query` (str)<br>`num` (int, default=3) | 调用 Google/Bing/DuckDuckGo API 进行搜索。 | `[1] Title: ...\nSnippet: ...\nURL: ...` |
+| **`sys_fetch_url`** | `url` (str) | 爬取指定网页，并转为 Markdown (去除广告/导航)。 | `Title: HiveMemory Docs\n\n# Intro...` |
+
+*   **设计思考**：`sys_web_search` 是解决幻觉的第一防线。`sys_fetch_url` 配合记忆存储 (`WRITE`)，可以实现“阅读网页并做笔记”的功能。
+
+---
+
+### 3. 运行时计算类 (Runtime & Compute)
+> **目的**：赋予 Agent “理智”，弥补 LLM 数学和逻辑差的短板。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_python_repl`** | `code` (str) | 执行一段临时的 Python 代码（无状态或短状态）。**用于简单验证**。 | `Stdout: 42` |
+| **`sys_bash_exec`** | `cmd` (str) | **[高危/可选]** 执行 Shell 命令 (如 `pip install`)。仅在强沙箱下开放。 | `Installing numpy... Done.` |
+
+*   **设计思考**：`sys_python_repl` 非常重要。当用户问 "12345 * 6789 等于多少" 时，Agent 不应口算，而应调用此指令。
+*   **区别**：这与 `mem_tool` 的区别在于，`sys_python_repl` 是**即兴的、一次性的**；而 `mem_tool` 是**复用的、封装好的**逻辑。
+
+---
+
+### 4. 系统环境类 (System & Context)
+> **目的**：赋予 Agent “自我感知”，知道自己在哪、什么时候。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_clock`** | `format` (str, optional) | 获取当前系统时间、日期、时区。 | `2025-06-01 14:30:00 (UTC+8)` |
+| **`sys_whoami`** | 无 | 获取当前 Agent 的配置信息（如 Model 版本、可用 Token 余额）。 | `Model: GPT-4o, Role: Coder` |
+
+---
+
+### 5. 交互类 (Human Interaction) - *可选但推荐*
+> **目的**：在长任务中，允许 Agent 主动挂起并询问用户。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_ask_user`** | `question` (str) | **中断任务**，弹窗请求用户输入。 | (系统挂起，等待用户输入后 Resume) |
+
+---
+
+### 6. 建议的 MVP 最小集 (The Starter Pack)
+
+不需要一开始就实现上面所有指令。为了跑通 MTP 和 HiveMemory 的核心闭环，建议实际测试中优先验证以下 5 个：
+
+1.  **`sys_clock`**：最简单的测试指令，验证 MTP 链路通不通。
+2.  **`sys_web_search`**：立刻增强 Agent 的实用性，展示“联网”能力。
+3.  **`sys_read_file`** & **`sys_write_file`**：验证“文件系统”和“副作用”。
+4.  **`sys_python_repl`**：验证“沙箱执行”能力。
+
+### 7. 在 Prompt 中的呈现
+
+在 System Prompt 的指令集部分，你需要把这些列为 **"Built-in Capabilities"**：
+
+```markdown
+[KERNEL TOOLS] (Available via `RUN`)
+- `sys_clock`: Get current time.
+- `sys_web_search`: Search internet for latest info.
+- `sys_read_file` / `sys_write_file`: Access workspace files.
+- `sys_python_repl`: Calculate or process data via Python.
+```

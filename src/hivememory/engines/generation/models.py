@@ -31,6 +31,10 @@ class ExtractedMemoryDraft(BaseModel):
     content: str = Field(..., description="清洗后的Markdown内容")
     confidence_score: float = Field(..., description="置信度 (0.0-1.0)", ge=0.0, le=1.0)
     has_value: bool = Field(..., description="是否有长期价值 (true/false)")
+    alias_suffix: str = Field(
+        default="",
+        description="别名后缀 (action/subject, snake_case, 不含类型前缀). 例如: 'quicksort_impl', 'project_env'"
+    )
 
 
 # ============ 枚举定义 ============

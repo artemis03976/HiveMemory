@@ -13,6 +13,8 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.models import MemoryAtom, Identity
 from hivememory.engines.gateway.models import GatewayIntent
 
@@ -76,6 +78,7 @@ __all__ = [
     "RetrievalResponse",
     "EyeGazeResult",
     "KernelHotResult",
+    "MTPExecutionResult",
 ]
 
 
@@ -95,9 +98,9 @@ class MessageType(str, Enum):
     # 检索结果 - RetrievalFamiliar -> 外部Worker
     RETRIEVAL_RESPONSE = "retrieval_response"
 
-    # 预留：MTP 指令与响应（Koakuma 服务）
-    # MTP_COMMAND = "mtp_command"
-    # MTP_RESPONSE = "mtp_response"
+    # MTP 指令与响应（Koakuma 服务）
+    MTP_COMMAND = "mtp_command"
+    MTP_RESPONSE = "mtp_response"
 
 
 class ProtocolMessage(BaseModel):
@@ -176,14 +179,15 @@ class RetrievalRequest(ProtocolMessage):
     用于热路径 (Hot Path) 的实时记忆检索。
 
     乐观检索策略：
-    - 不再包含 filters 字段
-    - 过滤条件由 RetrievalFamiliar 根据 user_id 动态创建
+    - 基础过滤条件由 RetrievalFamiliar 根据 user_id 动态创建
+    - MTP SEARCH 指令可通过 filters 字段叠加额外过滤维度 (如 type:CODE)
 
     Attributes:
         msg_type: 固定为 RETRIEVAL_REQUEST
         semantic_query: 指代消解后的完整查询，用于语义检索
         keywords: 稀疏检索关键词列表（BM25）
         user_id: 用户标识符
+        filters: MTP filter 解析后的过滤条件 (可选，叠加到 user_id 基线之上)
 
     Examples:
         >>> request = RetrievalRequest(
@@ -203,6 +207,9 @@ class RetrievalRequest(ProtocolMessage):
 
     # 用户标识符
     user_id: str = Field(default="default", description="用户 ID")
+
+    # MTP SEARCH 指令传入的过滤条件 (可选)
+    filters: Optional[QueryFilters] = Field(default=None, description="MTP filter 过滤条件")
 
 
 class RetrievalResponse(ProtocolMessage):
@@ -234,3 +241,26 @@ class RetrievalResponse(ProtocolMessage):
         if self.is_empty():
             return ""
         return self.rendered_context
+
+
+class MTPExecutionResult(BaseModel):
+    """
+    MTP 指令执行结果
+
+    Kernel 级别的 MTP 执行结果封装，由 KoakumaRuntime 返回。
+    包含解析后的指令、执行响应和格式化后的回填文本。
+
+    Attributes:
+        command: 解析后的 MTP 指令 (解析失败时为 None)
+        response_status: 响应状态 (success/error/ack)
+        response_content: 响应内容
+        formatted_response: 格式化后的完整回填文本 (指令 + XML 响应容器)
+        success: 是否执行成功
+        execution_time_ms: 执行耗时 (毫秒)
+    """
+    command: Optional[Any] = Field(default=None, description="解析后的 MTPCommand 对象")
+    response_status: str = Field(default="error", description="响应状态")
+    response_content: str = Field(default="", description="响应内容")
+    formatted_response: str = Field(default="", description="格式化后的回填文本")
+    success: bool = Field(default=False, description="是否执行成功")
+    execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")

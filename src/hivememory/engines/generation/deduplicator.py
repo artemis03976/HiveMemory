@@ -302,6 +302,7 @@ class MemoryDeduplicator(BaseDeduplicator):
                 summary=merged_summary,
                 tags=merged_tags,
                 memory_type=existing.index.memory_type,  # 保留类型
+                alias=existing.index.alias,  # 保留原别名 (Section 2.3)
             ),
             payload=PayloadLayer(
                 content=merged_content,

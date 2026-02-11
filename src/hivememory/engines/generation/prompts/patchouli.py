@@ -22,6 +22,20 @@ PATCHOULI_SYSTEM_PROMPT = """
 严格按照JSON Schema输出:
 {format_instructions}
 
+## 别名后缀 (alias_suffix)
+为每条记忆生成一个简短的 snake_case 别名后缀，用于语义化寻址。
+- **仅生成 action/subject 部分**，不要包含类型前缀（如 code_, fact_ 等，系统会自动添加）
+- 格式: snake_case，2-4 个单词，总长度不超过 30 字符
+- 应当具有语义辨识度，能让人一眼理解记忆内容
+- 示例:
+  - 代码类: "quicksort_impl", "date_parser", "login_auth"
+  - 事实类: "project_env", "api_rate_limit", "db_connection_config"
+  - URL类: "python_datetime_docs", "k8s_deploy_guide"
+  - 反思类: "avoid_global_state", "test_before_deploy"
+  - 用户画像: "prefers_typescript", "timezone_utc8"
+  - 进行中: "refactor_auth_module", "migrate_to_v2"
+- 如果对话无价值 (has_value=false)，alias_suffix 可以为空字符串
+
 ## 价值判断标准
 **有价值 (has_value=true)**:
 - 包含具体的讨论内容

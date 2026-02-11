@@ -191,9 +191,15 @@ class ChatBotAgent:
 
         # 1. 添加系统提示词（包含记忆上下文）
         system_content = self.system_prompt
+
+        # 注入 MTP 协议 prompt 片段 (Section 5.1)
+        mtp_prompt = self.patchouli_system.get_mtp_prompt()
+        if mtp_prompt:
+            system_content = f"{system_content}\n\n{mtp_prompt}"
+
         if memory_context:
             # 将记忆上下文添加到系统提示词末尾
-            system_content = f"{self.system_prompt}\n\n{memory_context}"
+            system_content = f"{system_content}\n\n{memory_context}"
             logger.debug(f"Injected memory context ({len(memory_context)} chars)")
         
         messages.append({

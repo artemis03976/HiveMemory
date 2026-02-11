@@ -86,10 +86,11 @@ class RetrievalFamiliar:
         检索相关记忆
 
         完整流程:
-        1. 根据 user_id 创建过滤条件 (乐观检索策略)
-        2. 构建查询对象 (RetrievalQuery)
-        3. 调用 Engine 执行检索
-        4. Engine 内部完成上下文渲染
+        1. 根据 user_id 创建基础过滤条件 (安全基线)
+        2. 合并 MTP filter 传入的额外过滤维度 (如 type:CODE)
+        3. 构建查询对象 (RetrievalQuery)
+        4. 调用 Engine 执行检索
+        5. Engine 内部完成上下文渲染
 
         Args:
             request: 检索请求协议消息
@@ -102,10 +103,21 @@ class RetrievalFamiliar:
         response = RetrievalResponse()
 
         try:
-            # Step 1: 根据 user_id 创建过滤条件
+            # Step 1: 基础过滤条件 (user_id 安全基线，不可被 MTP filter 覆盖)
             query_filters = QueryFilters(user_id=request.user_id)
 
-            # Step 2: 构建 RetrievalQuery
+            # Step 2: 合并 MTP filter (如果有)
+            if request.filters is not None:
+                if request.filters.memory_type is not None:
+                    query_filters.memory_type = request.filters.memory_type
+                if request.filters.tags:
+                    query_filters.tags = request.filters.tags
+                if request.filters.source_agent_id is not None:
+                    query_filters.source_agent_id = request.filters.source_agent_id
+                if request.filters.min_confidence > 0:
+                    query_filters.min_confidence = request.filters.min_confidence
+
+            # Step 3: 构建 RetrievalQuery
             query = RetrievalQuery(
                 semantic_query=request.semantic_query,
                 keywords=request.keywords or [],
@@ -121,6 +133,7 @@ class RetrievalFamiliar:
 
             logger.info(
                 f"检索完成: query='{request.semantic_query[:20]}...', "
+                f"filters={query_filters}, "
                 f"使魔取回了 {response.memories_count} 条记忆, "
                 f"latency={response.latency_ms:.1f}ms"
             )

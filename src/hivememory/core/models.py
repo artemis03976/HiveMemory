@@ -226,6 +226,10 @@ class IndexLayer(BaseModel):
     summary: str = Field(..., min_length=10, max_length=500, description="一句话摘要")
     tags: List[str] = Field(default_factory=list, description="动态语义标签")
     memory_type: MemoryType = Field(..., description="记忆类型")
+    alias: Optional[str] = Field(
+        default=None, max_length=60,
+        description="语义化别名 (snake_case, e.g. code_quicksort_impl)"
+    )
 
     @field_validator("tags")
     @classmethod
@@ -241,7 +245,8 @@ class IndexLayer(BaseModel):
                 "title": "Python utils: parse_date 函数实现",
                 "summary": "基于 datetime 库实现的日期解析工具，支持 ISO8601 及多种自定义格式。",
                 "tags": ["python", "datetime", "utils", "code-implementation"],
-                "memory_type": "CODE_SNIPPET"
+                "memory_type": "CODE_SNIPPET",
+                "alias": "code_parse_date"
             }
         }
     )

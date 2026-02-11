@@ -278,6 +278,10 @@ class PatchouliSystem:
         """添加 Flush 事件观察者（委托给 Kernel）"""
         self.kernel.add_flush_observer(observer)
 
+    def get_mtp_prompt(self) -> str:
+        """获取 MTP System Prompt 片段（委托给 Kernel）"""
+        return self.kernel.get_mtp_prompt()
+
 
 __all__ = [
     "PatchouliSystem",

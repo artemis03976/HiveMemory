@@ -14,8 +14,9 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 版本: 0.2.0
 """
 
+import re
 import logging
-from typing import List
+from typing import Dict, List, Optional
 from datetime import datetime
 
 from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -28,6 +29,16 @@ from hivememory.engines.generation.interfaces import (
 )
 
 logger = logging.getLogger(__name__)
+
+# MTP 别名系统: MemoryType -> 别名前缀映射 (Section 2.3.1)
+MEMORY_TYPE_ALIAS_PREFIX: Dict[str, str] = {
+    "CODE_SNIPPET": "code",
+    "FACT": "fact",
+    "URL_RESOURCE": "url",
+    "REFLECTION": "ref",
+    "USER_PROFILE": "user",
+    "WORK_IN_PROGRESS": "wip",
+}
 
 
 class MemoryGenerationEngine:
@@ -225,6 +236,13 @@ class MemoryGenerationEngine:
             logger.warning(f"未知的记忆类型: {draft.memory_type}, 使用 FACT")
             mem_type = MemoryType.FACT
 
+        # 构建 MTP 别名 (Section 2.3)
+        alias = self._build_alias(
+            memory_type=draft.memory_type,
+            alias_suffix=draft.alias_suffix,
+            title=draft.title,
+        )
+
         return MemoryAtom(
             meta=MetaData(
                 source_agent_id=identity.agent_id,
@@ -237,11 +255,55 @@ class MemoryGenerationEngine:
                 summary=draft.summary,
                 tags=draft.tags,
                 memory_type=mem_type,
+                alias=alias,
             ),
             payload=PayloadLayer(
                 content=draft.content,
             ),
         )
+
+    @staticmethod
+    def _build_alias(
+        memory_type: str,
+        alias_suffix: str,
+        title: str,
+    ) -> Optional[str]:
+        """
+        构建完整的 MTP 别名 (Section 2.3.1)
+
+        策略:
+            1. 从 MEMORY_TYPE_ALIAS_PREFIX 取前缀
+            2. 优先使用 LLM 生成的 alias_suffix
+            3. alias_suffix 为空时从 title 派生 fallback suffix
+            4. 清洗并验证最终别名格式
+
+        Args:
+            memory_type: 记忆类型字符串 (e.g. "CODE_SNIPPET")
+            alias_suffix: LLM 生成的别名后缀 (可能为空)
+            title: 记忆标题 (用于 fallback)
+
+        Returns:
+            完整别名 (e.g. "code_quicksort_impl"), 或 None
+        """
+        prefix = MEMORY_TYPE_ALIAS_PREFIX.get(memory_type, "mem")
+
+        # 确定 suffix: 优先使用 LLM 生成的，否则从 title 派生
+        suffix = alias_suffix.strip() if alias_suffix else ""
+        if not suffix:
+            suffix = title.lower().strip()
+            suffix = re.sub(r'[^a-z0-9\s_]', '', suffix)
+            suffix = re.sub(r'\s+', '_', suffix)
+            suffix = re.sub(r'_+', '_', suffix).strip('_')
+
+        if not suffix:
+            return None
+
+        # 清洗 suffix: 确保 snake_case 合规
+        suffix = re.sub(r'[^a-z0-9_]', '', suffix.lower())
+        suffix = re.sub(r'_+', '_', suffix).strip('_')
+        suffix = suffix[:40]
+
+        return f"{prefix}_{suffix}"
 
     def _save_memory(self, memory: MemoryAtom) -> None:
         """

@@ -566,6 +566,46 @@ class MemoryLifecycleConfig(BaseModel):
 
 # ========== 系统与日志 ==========
 
+class MTPPromptConfig(BaseModel):
+    """
+    MTP System Prompt 配置
+
+    控制 MTP 协议 System Prompt 片段的生成参数。
+    该片段追加到 Worker Agent 的 System Prompt 中，
+    教导 LLM 使用 MTP 协议与 Patchouli Kernel 交互。
+
+    对应设计文档: MemoryToolProtocol.md Chapter 5
+    """
+    enabled: bool = Field(default=True, description="是否启用 MTP System Prompt 注入")
+    language: str = Field(default="zh", description="Prompt 语言 (zh/en)")
+    role: str = Field(default="default", description="Agent 角色 (coder/chat/default)")
+    include_demo: bool = Field(default=True, description="是否包含 One-Shot 演示")
+    include_error_handling: bool = Field(default=True, description="是否包含错误恢复指令")
+    include_kernel_tools: bool = Field(default=True, description="是否包含内核工具列表")
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class KoakumaConfig(BaseModel):
+    """
+    Koakuma (小恶魔) MTP 运行时配置
+
+    控制 MTP 指令执行的运行时参数。
+    """
+    enabled: bool = Field(default=True, description="是否启用 Koakuma MTP 运行时")
+    execution_timeout_seconds: int = Field(default=30, description="单指令超时熔断 (秒)")
+    max_recursion_depth: int = Field(default=10, description="最大递归中断深度")
+    tool_cache_size: int = Field(default=64, description="用户态工具 LRU 缓存大小")
+    python_repl_timeout_seconds: int = Field(default=10, description="sys_python_repl 超时 (秒)")
+    workspace_path: str = Field(default="./workspace", description="工作区根目录路径 (sys_read_file/sys_write_file)")
+    file_read_max_bytes: int = Field(default=102400, description="sys_read_file 最大读取字节数 (100KB)")
+    file_write_max_bytes: int = Field(default=102400, description="sys_write_file 最大写入字节数 (100KB)")
+    web_search_timeout_seconds: int = Field(default=15, description="sys_web_search 超时 (秒)")
+    mtp_prompt: MTPPromptConfig = Field(default_factory=MTPPromptConfig, description="MTP System Prompt 配置")
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class LoggingConfig(BaseModel):
     """日志配置"""
     level: str = Field(default="INFO", description="日志级别")
@@ -610,6 +650,7 @@ class HiveMemoryConfig(BaseSettings):
     generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
+    koakuma: KoakumaConfig = Field(default_factory=KoakumaConfig)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),

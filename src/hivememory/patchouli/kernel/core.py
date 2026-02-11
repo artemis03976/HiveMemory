@@ -34,6 +34,7 @@ from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.patchouli.protocol.models import (
     EyeGazeResult,
     KernelHotResult,
+    MTPExecutionResult,
     Observation,
     RetrievalRequest,
     RetrievalResponse,
@@ -41,6 +42,7 @@ from hivememory.patchouli.protocol.models import (
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -263,8 +265,13 @@ class PatchouliKernel:
             lifecycle_engine=self._engines["lifecycle"],
         )
 
-        # 扩展点：Koakuma (MTP Runtime Service)
-        # self._services["koakuma"] = KoakumaRuntime(...)
+        # Koakuma (MTP Runtime Service)
+        self._services["koakuma"] = KoakumaRuntime(
+            retrieval_familiar=self._services["retrieval"],
+            librarian_core=self._services["librarian"],
+            storage=self.storage,
+            config=self.config.koakuma,
+        )
 
     # ========== 服务访问器 ==========
 
@@ -277,6 +284,11 @@ class PatchouliKernel:
     def librarian_core(self) -> LibrarianCore:
         """访问馆长本体服务"""
         return self._services["librarian"]
+
+    @property
+    def koakuma(self) -> KoakumaRuntime:
+        """访问小恶魔 MTP 运行时服务"""
+        return self._services["koakuma"]
 
     # ========== 调度总线 ==========
 
@@ -360,6 +372,63 @@ class PatchouliKernel:
             observation: 感知信号
         """
         self.librarian_core.perceive(observation)
+
+    def handle_mtp(
+        self,
+        assistant_text: str,
+    ) -> Optional[MTPExecutionResult]:
+        """
+        MTP 拦截与执行入口 (Section 3.1)
+
+        供外部 Kernel Loop 调用。当 LLM API 因 stop=["⟫"] 停止时，
+        将 assistant 输出传入此方法进行 MTP 指令检测与执行。
+
+        流程 (Section 7.4):
+        Phase B (Decision): 捕获 MTP 信号 → 提取指令 Buffer
+        Phase C (Execution): 发送给 Koakuma 解析执行
+        Phase D (Resume): 返回 XML 结果供 Kernel 追加到 History
+
+        Args:
+            assistant_text: LLM 生成的文本 (在 ⟫ 处被截断)
+
+        Returns:
+            MTPExecutionResult 如果检测到 MTP 指令，否则 None
+        """
+        return self.koakuma.intercept_and_execute(assistant_text)
+
+    def get_mtp_prompt(self) -> str:
+        """
+        获取 MTP System Prompt 片段 (Section 5.1)
+
+        返回组装好的 MTP 协议教学文本，供 Worker Agent 追加到
+        自身的 System Prompt 中。
+
+        片段内容由 KoakumaConfig.mtp_prompt 配置控制:
+        - language: 语言 (zh/en)
+        - role: Agent 角色 (coder/chat/default)
+        - include_demo: 是否包含演示
+        - include_kernel_tools: 是否包含工具列表
+
+        Returns:
+            str: MTP prompt 片段。MTP 未启用时返回空字符串。
+        """
+        if not self.config.koakuma.enabled:
+            return ""
+
+        prompt_config = self.config.koakuma.mtp_prompt
+        if not prompt_config.enabled:
+            return ""
+
+        from hivememory.patchouli.prompts.mtp_prompt import MTPPromptBuilder, AgentRole
+
+        builder = MTPPromptBuilder(
+            role=AgentRole(prompt_config.role),
+            language=prompt_config.language,
+            include_demo=prompt_config.include_demo,
+            include_error_handling=prompt_config.include_error_handling,
+            include_kernel_tools=prompt_config.include_kernel_tools,
+        )
+        return builder.build()
 
     # ========== 数据格式转换（Eye → 微服务） ==========
 
