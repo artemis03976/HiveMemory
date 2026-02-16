@@ -19,8 +19,9 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Dict, Any, Callable, TYPE_CHECKING
 
-from hivememory.core.models import Identity, StreamMessage
+from hivememory.core.models import Identity, MemoryAtom, StreamMessage
 from hivememory.engines.perception.models import FlushEvent, FlushReason
+from hivememory.engines.generation.models import GenerationRequest, WriteFocus, UpdateFocus
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.protocol.models import Observation
 
@@ -182,6 +183,15 @@ class LibrarianCore:
             reason: Flush 原因
         """
         try:
+            # 双重处理防护: MTP_WRITE/MTP_UPDATE 由专用 handler 直接处理
+            if reason == FlushReason.MTP_WRITE:
+                logger.debug("MTP_WRITE flush，跳过 Mode A 回调 (由 handle_write_signal 处理)")
+                return
+
+            if reason == FlushReason.MTP_UPDATE:
+                logger.debug("MTP_UPDATE flush，跳过 Mode A 回调 (由 handle_update_signal 处理)")
+                return
+
             # 从消息中提取上下文
             if not messages:
                 logger.warning("空消息列表，跳过处理")
@@ -191,10 +201,10 @@ class LibrarianCore:
 
             # 调用生成引擎处理
             memories = self.generation_engine.process(
-                messages=messages,
+                GenerationRequest(context_messages=messages),
             )
 
-            logger.info(f"馆长本体处理完成")
+            logger.info(f"帕秋莉处理完成")
             if memories:
                 logger.info(f"✓ 成功提取 {len(memories)} 条记忆")
             else:
@@ -202,6 +212,117 @@ class LibrarianCore:
 
         except Exception as e:
             logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
+
+    # ========== WRITE 指令处理 ==========
+
+    def handle_write_signal(self, write_focus: WriteFocus) -> List[MemoryAtom]:
+        """
+        处理 MTP WRITE 指令信号
+
+        流程:
+            1. 强制刷新感知层 buffer (reason=MTP_WRITE)
+            2. 将 buffer 消息 + WriteFocus 打包为 GenerationRequest
+            3. 调用 Generation Engine (Mode B) 处理
+
+        Args:
+            write_focus: WRITE 指令的聚焦内容
+
+        Returns:
+            List[MemoryAtom]: 生成的记忆原子列表
+        """
+        identity = write_focus.identity
+
+        # Step 1: 强制刷新 buffer，获取积压的对话上下文
+        buffer_messages = self.perception_layer.flush_buffer(
+            identity=identity,
+            reason=FlushReason.MTP_WRITE,
+        )
+
+        logger.info(
+            f"WRITE 信号处理: flush 获取 {len(buffer_messages)} 条上下文消息"
+        )
+
+        # Step 2: 打包 GenerationRequest (Mode B)
+        request = GenerationRequest(
+            context_messages=buffer_messages,
+            write_focus=write_focus,
+        )
+
+        # Step 3: 调用 Generation Engine
+        try:
+            memories = self.generation_engine.process(request)
+            if memories:
+                logger.info(f"WRITE 信号处理完成: 生成 {len(memories)} 条记忆")
+            else:
+                logger.warning("WRITE 信号处理完成: 未生成记忆")
+            return memories
+        except Exception as e:
+            logger.error(f"WRITE 信号处理失败: {e}", exc_info=True)
+            return []
+
+    # ========== UPDATE 指令处理 ==========
+
+    def handle_update_signal(self, update_focus: UpdateFocus) -> List[MemoryAtom]:
+        """
+        处理 MTP UPDATE 指令信号
+
+        流程:
+            1. 强制刷新感知层 buffer (reason=MTP_UPDATE)
+            2. 从 storage 加载目标记忆
+            3. 注入 existing_memory 到 update_focus
+            4. 打包 GenerationRequest (Mode C)
+            5. 调用 Generation Engine 处理
+
+        Args:
+            update_focus: UPDATE 指令的聚焦内容
+
+        Returns:
+            List[MemoryAtom]: 更新后的记忆原子列表
+
+        Raises:
+            ValueError: 目标记忆不存在时抛出
+        """
+        identity = update_focus.identity
+
+        # Step 1: 强制刷新 buffer，获取积压的对话上下文
+        buffer_messages = self.perception_layer.flush_buffer(
+            identity=identity,
+            reason=FlushReason.MTP_UPDATE,
+        )
+
+        logger.info(
+            f"UPDATE 信号处理: flush 获取 {len(buffer_messages)} 条上下文消息, "
+            f"alias='{update_focus.target_alias}'"
+        )
+
+        # Step 2: 从 storage 加载目标记忆
+        from uuid import UUID as _UUID
+        existing = self.storage.get_memory(_UUID(update_focus.target_uuid))
+        if existing is None:
+            raise ValueError(
+                f"Memory {update_focus.target_uuid} not found in storage"
+            )
+
+        # Step 3: 注入 existing_memory
+        update_focus.existing_memory = existing
+
+        # Step 4: 打包 GenerationRequest (Mode C)
+        request = GenerationRequest(
+            context_messages=buffer_messages,
+            update_focus=update_focus,
+        )
+
+        # Step 5: 调用 Generation Engine
+        try:
+            memories = self.generation_engine.process(request)
+            if memories:
+                logger.info(f"UPDATE 信号处理完成: 更新 {len(memories)} 条记忆")
+            else:
+                logger.warning("UPDATE 信号处理完成: 未更新记忆")
+            return memories
+        except Exception as e:
+            logger.error(f"UPDATE 信号处理失败: {e}", exc_info=True)
+            return []
 
     # ========== Buffer 管理 API ==========
 
@@ -246,7 +367,7 @@ class LibrarianCore:
 
     def get_buffer_info(self, identity: Identity) -> Dict[str, Any]:
         """
-        获取 Buffer 信息（统一接口）
+        获取 Buffer 信息
 
         Args:
             identity: 身份标识对象
@@ -290,7 +411,7 @@ class LibrarianCore:
         未来实现：调用 MemoryLifecycleEngine 进行定期维护
         """
         # TODO: 实现定时维护模式
-        logger.info("定时维护模式尚未实现")
+        logger.warning("定时维护模式尚未实现")
 
 
 __all__ = [

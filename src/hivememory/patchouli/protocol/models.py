@@ -264,3 +264,21 @@ class MTPExecutionResult(BaseModel):
     formatted_response: str = Field(default="", description="格式化后的回填文本")
     success: bool = Field(default=False, description="是否执行成功")
     execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
+
+
+class ChatResult(BaseModel):
+    """
+    PatchouliSystem.chat() 的返回值
+
+    封装 Kernel 递归生成循环的完整结果，包含最终文本和 MTP 执行统计。
+
+    Attributes:
+        final_text: 用户可见的最终回复文本 (仅自然语言部分，不含 MTP 指令/XML)
+        mtp_iterations: MTP 中断执行次数
+        total_iterations: 总生成轮次 (含最终的非 MTP 轮)
+        mtp_commands_executed: 执行过的 MTP 指令动词列表 (如 ["SEARCH", "READ"])
+    """
+    final_text: str = Field(default="", description="用户可见的最终回复文本")
+    mtp_iterations: int = Field(default=0, description="MTP 中断次数")
+    total_iterations: int = Field(default=1, description="总生成轮次")
+    mtp_commands_executed: List[str] = Field(default_factory=list, description="执行过的 MTP 指令摘要")

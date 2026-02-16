@@ -151,7 +151,7 @@ class HiveMemoryClient:
         Returns:
             Dict: 包含 intent, rewritten, memory 等字段
         """
-        return self.system.process_interaction(
+        return self.system.ingest(
             role="user",
             content=query,
             user_id=user_id,
@@ -177,7 +177,7 @@ class HiveMemoryClient:
             agent_id: Agent ID
             session_id: 会话ID（可选）
         """
-        self.system.process_interaction(
+        self.system.ingest(
             role=role,
             content=content,
             user_id=user_id,

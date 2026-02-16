@@ -33,6 +33,7 @@ from hivememory.core.models import (
 )
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
+    GenerationRequest,
 )
 from hivememory.patchouli.config import DeduplicatorConfig, ExtractorConfig
 from hivememory.engines.generation import (
@@ -121,14 +122,14 @@ class TestMemoryGenerationEngineLogic:
 
     def test_process_empty_messages(self):
         """测试空消息列表"""
-        result = self.engine.process([])
+        result = self.engine.process(GenerationRequest())
         assert result == []
 
     def test_process_extraction_fails(self):
         """测试提取失败"""
         self.mock_extractor.extract.return_value = None
         
-        result = self.engine.process(self.messages)
+        result = self.engine.process(GenerationRequest(context_messages=self.messages))
         
         assert result == []
         self.mock_deduplicator.check_duplicate.assert_not_called()
@@ -138,7 +139,7 @@ class TestMemoryGenerationEngineLogic:
         self.mock_extractor.extract.return_value = self.draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         
-        result = self.engine.process(self.messages)
+        result = self.engine.process(GenerationRequest(context_messages=self.messages))
         
         assert len(result) == 1
         assert result[0].index.title == "Test"
@@ -151,7 +152,7 @@ class TestMemoryGenerationEngineLogic:
         self.mock_extractor.extract.return_value = self.draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.TOUCH, self.memory_atom)
         
-        result = self.engine.process(self.messages)
+        result = self.engine.process(GenerationRequest(context_messages=self.messages))
         
         assert len(result) == 1
         assert result[0] == self.memory_atom
@@ -170,7 +171,7 @@ class TestMemoryGenerationEngineLogic:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, self.memory_atom)
         self.mock_deduplicator.merge_memory.return_value = merged_memory
         
-        result = self.engine.process(self.messages)
+        result = self.engine.process(GenerationRequest(context_messages=self.messages))
         
         assert len(result) == 1
         assert result[0].index.title == "Merged Title"
@@ -185,7 +186,7 @@ class TestMemoryGenerationEngineLogic:
         # 模拟返回一个不在 (TOUCH, UPDATE, CREATE) 中的决策值，触发 else 分支 (DISCARD)
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None)
         
-        result = self.engine.process(self.messages)
+        result = self.engine.process(GenerationRequest(context_messages=self.messages))
         assert result == []
         self.mock_storage.upsert_memory.assert_not_called()
 
@@ -244,7 +245,7 @@ class TestEngineComponentCoordination:
             StreamMessage(message_type="assistant", content="测试回复"),
         ]
 
-        result = engine.process(messages)
+        result = engine.process(GenerationRequest(context_messages=messages))
 
         assert result is not None
         assert len(result) == 1

@@ -11,6 +11,8 @@ Koakuma MTP 运行时集成测试
 """
 
 import pytest
+
+pytestmark = pytest.mark.e2e
 from unittest.mock import MagicMock, patch
 
 from hivememory.patchouli.protocol.mtp import (

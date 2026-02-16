@@ -37,6 +37,8 @@ class FlushReason(str, Enum):
     MANUAL = "manual"  # 手动触发
     SHORT_TEXT_ADSORB = "short_text_adsorb"  # 短文本强吸附
     MESSAGE_COUNT = "message_count"  # 消息数量达到阈值（兼容旧版本）
+    MTP_WRITE = "mtp_write"  # MTP WRITE 指令触发的强制刷新
+    MTP_UPDATE = "mtp_update"  # MTP UPDATE 指令触发的强制刷新
 
 
 class BufferState(str, Enum):

@@ -16,7 +16,6 @@ HiveMemory - 记忆提取器 (Memory Extractor)
 
 import logging
 from typing import Dict, Any, Optional
-from datetime import datetime
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
@@ -24,8 +23,12 @@ from langchain_core.output_parsers import PydanticOutputParser
 from hivememory.patchouli.config import ExtractorConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
-from hivememory.engines.generation.models import ExtractedMemoryDraft
-from hivememory.engines.generation.prompts.patchouli import PATCHOULI_SYSTEM_PROMPT, PATCHOULI_USER_PROMPT
+from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult
+from hivememory.engines.generation.prompts.patchouli import (
+    PATCHOULI_SYSTEM_PROMPT, PATCHOULI_USER_PROMPT,
+    PATCHOULI_WRITE_SYSTEM_PROMPT, PATCHOULI_WRITE_USER_PROMPT,
+    PATCHOULI_UPDATE_SYSTEM_PROMPT, PATCHOULI_UPDATE_USER_PROMPT,
+)
 from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -75,10 +78,22 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         # 初始化输出解析器
         self.output_parser = PydanticOutputParser(pydantic_object=ExtractedMemoryDraft)
 
-        # 构建提示词模板
+        # 构建提示词模板 (Mode A: 被动观察)
         self.prompt_template = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
             ("user", self.user_prompt),
+        ])
+
+        # Mode B: 主动响应 (WRITE 指令触发)
+        self.write_prompt_template = ChatPromptTemplate.from_messages([
+            ("system", PATCHOULI_WRITE_SYSTEM_PROMPT),
+            ("user", PATCHOULI_WRITE_USER_PROMPT),
+        ])
+
+        # Mode C: 合并更新 (UPDATE 指令触发)
+        self.update_prompt_template = ChatPromptTemplate.from_messages([
+            ("system", PATCHOULI_UPDATE_SYSTEM_PROMPT),
+            ("user", PATCHOULI_UPDATE_USER_PROMPT),
         ])
 
         model_name = self.llm_service.config.model if self.llm_service and hasattr(self.llm_service, 'config') else "unknown"
@@ -122,15 +137,23 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             'CODE_SNIPPET'
         """
         try:
+            # 检测模式: Mode B (WRITE) vs Mode A (默认)
+            is_write_mode = metadata.get("mode") == "write"
+
             # Step 1: 构建 Prompt
-            prompt_messages = self.prompt_template.format_messages(
-                format_instructions=self.output_parser.get_format_instructions(),
-                transcript=transcript,
-                session_id=metadata.get("session_id", "unknown"),
-                user_id=metadata.get("user_id", "unknown"),
-                agent_id=metadata.get("agent_id", "unknown"),
-                timestamp=metadata.get("timestamp", datetime.now().isoformat()),
-            )
+            if is_write_mode:
+                prompt_messages = self.write_prompt_template.format_messages(
+                    format_instructions=self.output_parser.get_format_instructions(),
+                    write_content=metadata.get("write_content", ""),
+                    write_reason=metadata.get("write_reason", "(未提供)"),
+                    transcript=transcript,
+                )
+                logger.info("Mode B (主动响应): 使用 WRITE 专用提示词")
+            else:
+                prompt_messages = self.prompt_template.format_messages(
+                    format_instructions=self.output_parser.get_format_instructions(),
+                    transcript=transcript,
+                )
 
             # 转换为 LiteLLM 格式 (处理 LangChain 角色名)
             messages = self._convert_to_litellm_messages(prompt_messages)
@@ -152,6 +175,10 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             )
 
             if draft:
+                # Mode B 强制入库: has_value=True, confidence_score=1.0
+                if is_write_mode:
+                    draft.has_value = True
+                    draft.confidence_score = 1.0
                 logger.info(f"成功提取记忆草稿: '{draft.title}' (has_value={draft.has_value})")
             else:
                 logger.warning("JSON 解析失败")
@@ -178,6 +205,69 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             {"role": ROLE_MAPPING.get(msg.type, msg.type), "content": msg.content}
             for msg in langchain_messages
         ]
+
+    def merge(
+        self,
+        old_content: str,
+        metadata: Dict[str, Any],
+    ) -> Optional[MergeResult]:
+        """
+        Mode C: 执行 LLM 驱动的记忆合并 (UPDATE 指令)
+
+        Args:
+            old_content: 目标记忆的当前内容
+            metadata: 元信息，包含:
+                - instruction: 修改指令
+                - new_content: 新素材 (可能为空)
+                - memory_title: 目标记忆标题
+                - memory_alias: 目标记忆别名
+                - transcript: 近期对话上下文
+
+        Returns:
+            MergeResult: 合并结果，失败时返回 None
+        """
+        try:
+            # Step 1: 构建 Merge Prompt
+            new_content = metadata.get("new_content", "")
+            prompt_messages = self.update_prompt_template.format_messages(
+                old_payload=old_content,
+                instruction=metadata.get("instruction", ""),
+                new_content=new_content if new_content else "(无新素材，仅根据指令修改)",
+                transcript=metadata.get("transcript", "(无背景对话)"),
+                memory_title=metadata.get("memory_title", ""),
+                memory_alias=metadata.get("memory_alias", ""),
+            )
+            logger.info("Mode C (合并更新): 使用 UPDATE 专用提示词")
+
+            # 转换为 LiteLLM 格式
+            messages = self._convert_to_litellm_messages(prompt_messages)
+
+            # Step 2: 调用 LLM
+            raw_output = self.llm_service.complete_with_retry(
+                messages=messages,
+            )
+
+            if not raw_output:
+                logger.error("LLM 返回空响应 (Mode C)")
+                return None
+
+            # Step 3: 解析 JSON → MergeResult
+            result = parse_llm_json(
+                raw_output,
+                as_model=MergeResult,
+                default=None,
+            )
+
+            if result:
+                logger.info(f"成功合并记忆: changelog='{result.changelog}'")
+            else:
+                logger.warning("Mode C JSON 解析失败")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"记忆合并失败: {e}", exc_info=True)
+            return None
 
 
 class NoOpMemoryExtractor(BaseMemoryExtractor):
@@ -231,10 +321,9 @@ def create_extractor(
         >>> extractor = create_extractor(config)
     """
     if not config.enabled:
-        logger.info("MemoryExtractor 已禁用 (No-Op)")
+        logger.warning("MemoryExtractor 已禁用 (No-Op)")
         return NoOpMemoryExtractor()
 
-    logger.info("MemoryExtractor 已启用")
     return LLMMemoryExtractor(
         llm_service=llm_service,
         config=config,

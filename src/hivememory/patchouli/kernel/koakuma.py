@@ -50,8 +50,9 @@ from hivememory.patchouli.protocol.models import (
     RetrievalRequest,
 )
 
-from hivememory.core.models import MemoryType
+from hivememory.core.models import MemoryType, Identity
 from hivememory.engines.retrieval.models import QueryFilters
+from hivememory.engines.generation.models import WriteFocus, UpdateFocus
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
 if TYPE_CHECKING:
@@ -576,55 +577,75 @@ class KoakumaRuntime:
 
     def _handle_write(self, command: MTPCommand) -> MTPResponse:
         """
-        处理 WRITE 指令 (Section 2.2)
+        处理 WRITE 指令 (Section 2.2 + 附录B)
 
-        向帕秋莉发送高优先级保存信号。异步操作，返回 ACK。
+        将 WRITE 内容打包为 WriteFocus，发送给 LibrarianCore 处理。
+        Koakuma 不直接操作 DB，由 LibrarianCore 负责 flush + Generation Engine (Mode B)。
 
         Type B 动作类响应 (Section 3.3.3)
 
         Args:
-            command: WRITE 指令 (target=*, args: title="...", content=`...`)
+            command: WRITE 指令 (target=*, args: content=`...`, reason="...", title="...")
 
         Returns:
-            MTPResponse: ACK 确认
+            MTPResponse: ACK 确认 (含生成的 memory_ids)
         """
-        title = command.args.get("title", "")
         content = command.args.get("content", "")
-
         if not content:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content='WRITE requires a "content" argument.',
             )
 
-        # TODO: 调用 Librarian 的高优先级写入接口
-        # 应创建 Observation 并标记为高优先级，触发立即 flush
-        # self._librarian.priority_write(
-        #     title=title, content=content, user_id=self._current_user_id,
-        # )
+        reason = command.args.get("reason", "")
+        title = command.args.get("title", "")
 
-        logger.info(f"MTP WRITE 信号已接收: title='{title}'")
-
-        return MTPResponse(
-            status=MTPResponseStatus.ACK,
-            content=f'Memory write request acknowledged. '
-                    f'Title: "{title or "(untitled)"}".',
+        # 构建 WriteFocus 并发送给 LibrarianCore
+        write_focus = WriteFocus(
+            content=content,
+            reason=reason or None,
+            title=title or None,
+            identity=Identity(user_id=self._current_user_id),
         )
+
+        logger.info(f"MTP WRITE 信号: content='{content[:50]}...', reason='{reason}'")
+
+        try:
+            atoms = self._librarian.handle_write_signal(write_focus)
+            memory_ids = [str(a.id) for a in atoms]
+
+            return MTPResponse(
+                status=MTPResponseStatus.ACK,
+                content=f'Memory saved. {len(atoms)} atom(s) created.',
+                data={"memory_ids": memory_ids},
+            )
+        except Exception as e:
+            logger.error(f"WRITE 处理失败: {e}", exc_info=True)
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=f'WRITE failed: {str(e)}',
+            )
 
     def _handle_update(self, command: MTPCommand) -> MTPResponse:
         """
-        处理 UPDATE 指令 (Section 2.2)
+        处理 UPDATE 指令 (附录 C)
 
-        请求更新已有记忆。异步操作，返回 ACK。
+        流程:
+            1. 校验 alias (必须存在)
+            2. 校验 instruction (必填)
+            3. 解析 alias → UUID
+            4. 构建 UpdateFocus
+            5. 调用 LibrarianCore.handle_update_signal()
 
         Type B 动作类响应 (Section 3.3.3)
 
         Args:
-            command: UPDATE 指令 (target=alias, args: patch=`...`)
+            command: UPDATE 指令 (target=alias, args: instruction="...", content=`...`)
 
         Returns:
-            MTPResponse: ACK 确认
+            MTPResponse: ACK 确认或 ERROR
         """
+        # 1. 校验 alias
         alias = command.target.single_alias
         if alias is None:
             return MTPResponse(
@@ -632,13 +653,15 @@ class KoakumaRuntime:
                 content="UPDATE requires a single alias as target.",
             )
 
-        patch = command.args.get("patch", "")
-        if not patch:
+        # 2. 校验 instruction (必填)
+        instruction = command.args.get("instruction", "")
+        if not instruction:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content='UPDATE requires a "patch" argument.',
+                content='UPDATE requires an "instruction" argument.',
             )
 
+        # 3. 解析 alias → UUID
         uuid = self._alias_resolver.resolve(alias)
         if uuid is None:
             return MTPResponse(
@@ -647,17 +670,39 @@ class KoakumaRuntime:
                         f"Did you mean to use SEARCH?",
             )
 
-        # TODO: 调用 Librarian 的 patch 更新接口
-        # self._librarian.patch_memory(
-        #     uuid=uuid, patch=patch, user_id=self._current_user_id,
-        # )
+        # 4. 获取可选的 content
+        content = command.args.get("content", None)
 
-        logger.info(f"MTP UPDATE 信号已接收: alias='{alias}', uuid='{uuid}'")
-
-        return MTPResponse(
-            status=MTPResponseStatus.ACK,
-            content=f"Memory update request acknowledged for '{alias}'.",
+        # 5. 构建 UpdateFocus
+        update_focus = UpdateFocus(
+            instruction=instruction,
+            content=content if content else None,
+            target_uuid=uuid,
+            target_alias=alias,
+            identity=Identity(user_id=self._current_user_id),
         )
+
+        # 6. 调用 LibrarianCore
+        try:
+            atoms = self._librarian.handle_update_signal(update_focus)
+            memory_ids = [str(a.id) for a in atoms]
+
+            logger.info(
+                f"MTP UPDATE 完成: alias='{alias}', "
+                f"生成 {len(atoms)} 条记忆"
+            )
+
+            return MTPResponse(
+                status=MTPResponseStatus.ACK,
+                content=f"Memory '{alias}' updated successfully.",
+                data={"memory_ids": memory_ids},
+            )
+        except Exception as e:
+            logger.error(f"UPDATE 处理失败: {e}", exc_info=True)
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=f'UPDATE failed: {str(e)}',
+            )
 
     # ========== 辅助方法 ==========
 

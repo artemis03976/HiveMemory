@@ -25,16 +25,18 @@
 """
 
 import logging
+import threading
 from typing import List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
-from hivememory.patchouli.protocol.models import Observation
+from hivememory.patchouli.protocol.models import ChatResult, Observation
 
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+from hivememory.patchouli.worker_agent import WorkerAgentService
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +87,7 @@ class PatchouliSystem:
         """
         self.config = config or load_app_config()
 
-        # 1. 初始化 Kernel（内核管理 Retrieval + Librarian 微服务）
+        # 1. 初始化 Kernel（内核管理 Retrieval + Librarian + MTP 微服务）
         self.kernel = PatchouliKernel(config=self.config)
 
         # 2. 初始化 Gateway
@@ -93,6 +95,9 @@ class PatchouliSystem:
 
         # 3. 构建 TheEye
         self.eye = TheEye(engine=self._gateway_engine)
+
+        # 4. 初始化 Worker Agent (LLM 文本生成引擎)
+        self._worker_agent = WorkerAgentService(config=self.config.llm.worker)
 
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
 
@@ -145,9 +150,9 @@ class PatchouliSystem:
         """访问存储层（代理到 Kernel）"""
         return self.kernel.storage
 
-    # ========== 公开 API ==========
+    # ========== 被动消息流处理 API ==========
 
-    def process_interaction(
+    def ingest(
         self,
         role: str,
         content: str,
@@ -157,11 +162,18 @@ class PatchouliSystem:
         context: Optional[List[StreamMessage]] = None,
     ) -> Dict[str, Any]:
         """
-        统一交互入口 (Unified Interaction Entry)
+        被动消息流处理入口 (Passive Message Stream Ingestion)
 
-        自动根据角色分流处理：
-        - User: Eye 拦截重写 → Kernel 调度 Retrieval + Librarian
-        - Assistant/System: 直接投递 Kernel 冷路径
+        接收外部消息流（来自第三方 Agent 或应用层），执行感知与检索，
+        但不驱动 LLM 生成。适用于系统作为"记忆中间件"被动接入的场景。
+
+        与 chat() 的区别:
+            - chat(): Kernel 主动驱动 LLM 递归生成循环 (IoC)
+            - ingest(): 被动接收消息，仅做 Eye 分析 + 感知投递 + 可选检索
+
+        所有角色的消息均经过感知层投递:
+            - User: Eye 拦截重写 → 感知投递 → 同步预检索 (仅 RAG 意图)
+            - Assistant/System: 直接异步感知投递
 
         Args:
             role: 消息角色 (user/assistant/system)
@@ -173,92 +185,209 @@ class PatchouliSystem:
 
         Returns:
             Dict: 处理结果
-                - intent: 意图 (Chat/RAG/Record)
-                - memory: 检索到的记忆 (仅 User RAG)
+                - intent: 意图 (Chat/RAG/Record/record_only)
                 - rewritten: 重写后的查询 (仅 User)
+                - keywords: 检索关键词 (仅 User)
+                - worth_saving: 是否值得保存
+                - memory: 检索到的记忆上下文 (仅 User RAG)
         """
         identity = Identity(
             user_id=user_id, agent_id=agent_id, session_id=session_id
         )
 
         if role == "user":
-            return self._process_hot(
-                query=content,
-                context=context or [],
-                identity=identity,
+            # User 消息: Eye → Kernel.handle_hot (感知 + 检索)
+            gaze_result = self.eye.gaze(
+                query=content, context=context or [], identity=identity
             )
+            hot_result = self.kernel.handle_hot(gaze_result)
+
+            return {
+                "intent": hot_result.intent,
+                "rewritten": hot_result.rewritten,
+                "keywords": hot_result.keywords,
+                "worth_saving": hot_result.worth_saving,
+                "memory": hot_result.memory,
+            }
         else:
-            self._process_cold(
+            # Non-user 消息: 直接异步投递感知层
+            observation = Observation(
                 role=role,
-                content=content,
+                raw_message=content,
                 identity=identity,
             )
+            threading.Thread(
+                target=self._safe_perceive, args=(observation,), daemon=True
+            ).start()
+
             return {
                 "intent": "record_only",
-                "memory": None,
                 "rewritten": None,
+                "keywords": [],
                 "worth_saving": True,
+                "memory": None,
             }
 
-    def _process_hot(
-        self,
-        query: str,
-        context: List[StreamMessage],
-        identity: Identity,
-    ) -> Dict[str, Any]:
-        """
-        [Hot Path] Eye 拦截 → Kernel 调度
-
-        Step 1: TheEye.gaze() — 意图识别、查询重写 → EyeGazeResult
-        Step 2: Kernel.handle_hot() — 数据格式转换 + 调度 Retrieval + Librarian
-        """
-        # Eye: 拦截与信息重整
-        gaze_result = self.eye.gaze(
-            query=query,
-            context=context,
-            identity=identity,
-        )
-
-        # Kernel: 数据格式转换 + 调度微服务
-        result = self.kernel.handle_hot(gaze_result=gaze_result)
-
-        return result.model_dump()
-
-    def _process_cold(
+    def process_interaction(
         self,
         role: str,
         content: str,
-        identity: Identity,
-    ) -> None:
+        user_id: str,
+        agent_id: str = "default",
+        session_id: Optional[str] = None,
+        context: Optional[List[StreamMessage]] = None,
+    ) -> Dict[str, Any]:
         """
-        [Cold Path] 直接投递 Kernel
+        [向后兼容] 统一交互入口，委托给 ingest()。
+
+        .. deprecated::
+            请使用 ingest() 代替。
         """
-        observation = Observation(
-            role=role,
-            raw_message=content,
-            identity=identity,
+        return self.ingest(
+            role=role, content=content, user_id=user_id,
+            agent_id=agent_id, session_id=session_id, context=context,
         )
 
-        self.kernel.handle_cold(observation)
+    # ========== Kernel 驱动的对话 API ==========
 
-    def retrieve(
+    def chat(
         self,
-        query: str,
+        user_message: str,
+        messages: List[Dict[str, str]],
         user_id: str,
-        **kwargs
-    ) -> str:
+        agent_id: str = "default",
+        session_id: Optional[str] = None,
+        context: Optional[List[StreamMessage]] = None,
+        enable_memory_retrieval: bool = True,
+    ) -> ChatResult:
         """
-        直接检索记忆（快捷入口，委托给 Kernel）
+        Kernel 驱动的对话入口
+
+        流程:
+        1. [The Eye] 意图识别 + 查询重写 (始终执行)
+        2. [Kernel.handle_hot] 异步感知投递 + 可选预检索
+        3. [Prompt Augmentation] 注入 MTP prompt + 记忆上下文
+        4. [The Loop] 递归生成循环 (Phase A→B→C→D)
+        5. [Librarian] 异步记录 assistant 回复到感知层
 
         Args:
-            query: 查询文本
+            user_message: 当前用户消息 (用于 Eye 分析)
+            messages: OpenAI 格式的完整消息列表 (含 system prompt + history)
             user_id: 用户 ID
-            **kwargs: 其他检索参数
+            agent_id: Agent ID
+            session_id: 会话 ID
+            context: 对话历史上下文 (用于 Eye 指代消解)
+            enable_memory_retrieval: 是否启用记忆预检索 (False 时 Eye 和感知层仍正常运行，仅跳过检索)
 
         Returns:
-            str: 渲染后的记忆上下文
+            ChatResult: 递归生成循环的完整结果
         """
-        return self.kernel.retrieve(query, user_id, **kwargs)
+        identity = Identity(
+            user_id=user_id, agent_id=agent_id, session_id=session_id
+        )
+
+        # 1. Eye 分析 (始终执行)
+        gaze_result = self.eye.gaze(
+            query=user_message, context=context or [], identity=identity
+        )
+
+        # 2. Kernel 统一管线: 异步感知投递 + 可选预检索
+        hot_result = self.kernel.handle_hot(
+            gaze_result,
+            enable_retrieval=enable_memory_retrieval,
+        )
+
+        # 3. 增强 System Prompt (MTP + 记忆上下文)
+        messages = [dict(m) for m in messages]  # 浅拷贝
+        if messages and messages[0]["role"] == "system":
+            mtp_prompt = self.get_mtp_prompt()
+            if mtp_prompt:
+                messages[0]["content"] += f"\n\n{mtp_prompt}"
+            if hot_result.memory:
+                messages[0]["content"] += f"\n\n{hot_result.memory}"
+
+        # 4. 递归生成循环
+        loop_result = self._recursive_generation_loop(messages, user_id)
+
+        # 5. 异步记录 assistant 回复到感知层
+        threading.Thread(
+            target=self._safe_perceive,
+            args=(Observation(
+                role="assistant",
+                raw_message=loop_result.final_text,
+                identity=identity,
+            ),),
+            daemon=True,
+        ).start()
+
+        return loop_result
+
+    def _recursive_generation_loop(
+        self,
+        messages: List[Dict[str, str]],
+        user_id: str,
+        max_iterations: Optional[int] = None,
+    ) -> ChatResult:
+        """
+        Kernel 递归生成循环 (Phase A→B→C→D)
+
+        Phase A: 调用 WorkerAgent 生成文本 (stop=["⟫"])
+        Phase B: 检测是否 MTP 中断
+        Phase C: Koakuma 执行 MTP 指令
+        Phase D: 将 XML 结果追加到 history，跳回 Phase A
+
+        Args:
+            messages: 当前消息列表 (会被原地修改)
+            user_id: 用户 ID (用于 Koakuma 权限)
+            max_iterations: 最大迭代次数 (默认从配置读取)
+
+        Returns:
+            ChatResult: 循环结果
+        """
+        max_iter = max_iterations or self.config.koakuma.max_recursion_depth
+        text_segments: List[str] = []
+        mtp_commands: List[str] = []
+        iteration = 0
+
+        self.kernel.koakuma.set_current_user(user_id)
+
+        while iteration < max_iter:
+            iteration += 1
+
+            # Phase A: Generate
+            result = self._worker_agent.generate(messages)
+
+            # Phase B: Decision
+            if not result.was_mtp_interrupted:
+                text_segments.append(result.text)
+                break
+
+            # MTP 中断 — 累积前缀文本
+            text_segments.append(result.prefix_text)
+
+            # Phase C: Execute
+            mtp_result = self.kernel.handle_mtp(result.text)
+
+            if mtp_result is None:
+                # 误判: stop sequence 命中但无有效 MTP 指令
+                text_segments.append(result.mtp_fragment)
+                break
+
+            mtp_commands.append(
+                mtp_result.command.verb.value
+                if mtp_result.command else "UNKNOWN"
+            )
+
+            # Phase D: Resume — 构建 fake assistant history
+            fake_assistant = result.text + mtp_result.formatted_response
+            messages.append({"role": "assistant", "content": fake_assistant})
+
+        return ChatResult(
+            final_text="".join(text_segments),
+            mtp_iterations=max(0, iteration - 1),
+            total_iterations=iteration,
+            mtp_commands_executed=mtp_commands,
+        )
 
     def flush_buffer(
         self,
@@ -281,6 +410,13 @@ class PatchouliSystem:
     def get_mtp_prompt(self) -> str:
         """获取 MTP System Prompt 片段（委托给 Kernel）"""
         return self.kernel.get_mtp_prompt()
+
+    def _safe_perceive(self, observation: Observation) -> None:
+        """线程安全的感知层投递 (用于 fire-and-forget 场景)"""
+        try:
+            self.kernel.handle_cold(observation)
+        except Exception as e:
+            logger.warning(f"Async perception failed: {e}")
 
 
 __all__ = [

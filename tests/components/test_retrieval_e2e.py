@@ -55,6 +55,8 @@ from datetime import datetime
 import uuid
 
 import pytest
+
+pytestmark = pytest.mark.e2e
 from rich.console import Console
 from rich.panel import Panel
 

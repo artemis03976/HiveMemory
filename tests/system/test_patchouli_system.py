@@ -61,6 +61,8 @@ for logger_name, level in _log_levels_to_disable.items():
 # ========== 其他导入 ==========
 
 import pytest
+
+pytestmark = pytest.mark.e2e
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -260,7 +262,8 @@ class SystemScenarioTestSystem:
         def wrapped_flush_callback(messages: List[StreamMessage], reason: FlushReason):
             self.flush_recorder(messages, reason)
             if messages:
-                self._generation_engine.process(messages=messages)
+                from hivememory.engines.generation.models import GenerationRequest
+                self._generation_engine.process(GenerationRequest(context_messages=messages))
 
         self._perception_layer.set_flush_callback(wrapped_flush_callback)
 

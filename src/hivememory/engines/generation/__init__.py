@@ -25,6 +25,10 @@ from hivememory.engines.generation.interfaces import (
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     DuplicateDecision,
+    WriteFocus,
+    GenerationRequest,
+    UpdateFocus,
+    MergeResult,
 )
 
 from hivememory.engines.generation.extractor import (
@@ -49,6 +53,10 @@ __all__ = [
     # 数据模型
     "ExtractedMemoryDraft",
     "DuplicateDecision",
+    "WriteFocus",
+    "GenerationRequest",
+    "UpdateFocus",
+    "MergeResult",
     # 记忆提取
     "LLMMemoryExtractor",
     "NoOpMemoryExtractor",

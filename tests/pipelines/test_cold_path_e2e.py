@@ -64,6 +64,8 @@ for logger_name, level in _log_levels_to_disable.items():
 # ========== 其他导入 ==========
 
 import pytest
+
+pytestmark = pytest.mark.e2e
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -224,7 +226,8 @@ class ColdPathTestSystem:
             self.flush_recorder(messages, reason)
             # 调用生成引擎处理
             if messages:
-                self._generation_engine.process(messages=messages)
+                from hivememory.engines.generation.models import GenerationRequest
+                self._generation_engine.process(GenerationRequest(context_messages=messages))
 
         # 设置感知层的 flush 回调（覆盖 LibrarianCore 设置的回调）
         self._perception_layer.set_flush_callback(wrapped_flush_callback)

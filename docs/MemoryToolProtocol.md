@@ -482,7 +482,206 @@ Agent 可能会犯错（如幻觉 ID、语法错误）。我们需要利用 LLM 
 
 ---
 
-### 6. 附录：示例与用例 (Appendix: Examples)
+### 6. 系统重构与运行时架构 (System Refactoring & Runtime Architecture)
+
+为了支撑引入的 **MTP (Memory Tool Protocol)**，系统必须从早期的“单向线性处理”模式，转型为支持“多轮递归中断”的 **AIOS (AI Operating System)** 架构。本章定义了 PatchouliSystem v3.0 的核心拓扑结构。
+
+#### 6.1 架构演进理念 (Architectural Philosophy)
+
+我们将 HiveMemory 的运行模式重定义为 **“帕秋莉 OS (Patchouli OS)”** 模型：
+
+*   **从“流水线”到“事件循环”**：系统不再只是处理一次性的 Request/Response，而是维护一个持续的 **Kernel Loop**，负责在 Worker Agent 生成过程中处理多次 MTP 中断与恢复。
+*   **从“三位一体”到“一核三使”**：
+    *   原有的分身将作为独立的微服务（Microservices）。
+    *   引入 **Patchouli Kernel** 作为总线与调度器。
+    *   引入 **Koakuma (小恶魔)** 作为专职的 MTP 处理器。
+
+#### 6.2 系统拓扑图 (System Topology)
+
+v3.0 架构采用了星形拓扑，以 Kernel 为中心，连接网关、微服务与数据层。
+
+```mermaid
+graph TD
+    UserClient[用户 / Worker Agent] <--> API_Interface
+    
+    subgraph "PatchouliSystem (The Facility)"
+        API_Interface <--> TheEye[The Eye / 真理之眼 \n(Ingress Gateway)]
+        
+        TheEye <--> Kernel[Patchouli Kernel \n(State & Scheduler)]
+        
+        subgraph "Microservices Layer (The Staff)"
+            Kernel <--> Retrieval[Retrieval Familiar \n(Read-Only Service)]
+            Kernel <--> Koakuma[Koakuma / 小恶魔 \n(MTP Runtime Service)]
+            Kernel -.->|Async Log| Librarian[Librarian Core \n(Write/Manage Service)]
+        end
+        
+        subgraph "Data & Runtime Layer"
+            Retrieval <--> Qdrant[(Vector DB)]
+            Librarian <--> Qdrant
+            Koakuma <--> Sandbox[Docker/RestrictedEnv]
+            Librarian <--> SqlDB[(Meta DB)]
+        end
+    end
+```
+
+#### 6.3 核心组件定义 (Core Component Definitions)
+
+##### 6.3.1 守门人：真理之眼 (The Eye / Gateway)
+*   **定位**：系统的 **Ingress Controller**，独立于 Kernel 之外。
+*   **职责**：
+    *   **流量清洗**：拦截无效请求、系统指令（如 `/clear`）。
+    *   **意图识别**：L1拦截层负责，判断请求是 `CHAT`（直接转发）还是 `WORK`（需 Kernel 介入）。
+    *   **查询重写**：L2语义分析层负责，将用户的模糊 Query 转化为精准的 Semantic Query。
+*   **交互**：作为 Kernel 的 Client，向 Kernel 发送标准化的 `JobRequest`。
+
+##### 6.3.2 操作系统：帕秋莉内核 (Patchouli Kernel)
+*   **定位**：系统的 **Orchestrator (编排器)** 与 **State Manager (状态管理器)**。
+*   **职责**：
+    *   **Session State**：维护对话历史、上下文缓存 (Prompt Caching) 和临时变量。
+    *   **LLM IO**：持有 Worker Agent 的 API Client，负责发送请求并处理 `stop=["⟫"]` 中断信号。
+    *   **调度总线**：根据当前状态，决定调用哪个微服务（Retrieval, Koakuma, 或 Librarian）。
+
+##### 6.3.3 执行层：三大微服务 (The Triad Services)
+
+1.  **Retrieval Familiar (检索使魔)**
+    *   **功能**：只读服务。负责 RAG 检索、混合排序、上下文渲染。
+    *   **服务对象**：既服务于 Kernel（开场注入），也通过内部 API 服务于 Koakuma（处理 `READ` 指令）。
+
+2.  **Koakuma (小恶魔 / MTP Executor)**
+    *   **[新增组件]**
+    *   **功能**：无状态计算服务。负责 MTP 协议的 **解析 (Parsing)**、**路由 (Routing)** 和 **执行 (Execution)**。
+    *   **能力**：持有沙箱环境的控制权，负责运行 `sys_` 工具和 `mem_` 代码。
+
+3.  **Librarian Core (大图书馆本体)**
+    *   **功能**：写入与管理服务。负责记忆生成、去重、演化和 GC。
+    *   **特性**：**纯异步 (Async)**。从 Kernel 接收对话日志副本，不阻塞前台响应。
+
+#### 6.4 运行时数据流：内核递归循环 (The Kernel Recursive Loop)
+
+引入 MTP 后，一次用户请求的处理流程变为一个递归循环：
+
+1.  **初始化 (Initialization)**
+    *   **Eye** 处理请求，转发给 **Kernel**。
+    *   **Kernel** 呼叫 **Retrieval Familiar**，获取 Index Menu，组装初始 System Prompt，解决 Worker Agent 的冷启动问题，确保其面对新 Query 时有合适的 Memory 背景。
+
+2.  **生成循环 (The Generation Loop)**
+    *   **Phase A (Request)**: Kernel 向 LLM 发起生成请求（带 `stop` 参数）。
+    *   **Phase B (Decision)**:
+        *   *分支 1 (Finished)*: LLM 正常结束生成 -> Kernel 将结果返回给用户 -> 异步投递日志给 **Librarian**。
+        *   *分支 2 (Interrupted)*: 捕获到 MTP 信号 -> Kernel 暂停，提取指令 Buffer。
+    *   **Phase C (Execution)**: Kernel 将 Buffer 发送给 **Koakuma**。
+        *   **Koakuma** 解析指令，执行工具/检索，返回 XML 格式结果。
+    *   **Phase D (Resume)**: Kernel 将 XML 结果追加到 History，**跳转回 Phase A**（发起新一轮续写）。
+
+#### 6.5 容错与服务降级 (Fault Tolerance)
+
+本架构实现了“能力分层”，确保核心功能的可用性。即便任意一个分身离线，其余分身的核心功能也不会受到严重影响或降级处理：
+
+*   **Koakuma 离线**：
+    *   *现象*：MTP 指令执行超时或失败。
+    *   *降级*：Kernel 向 Worker Agent 注入 `<mtp_response status="error">System Offline</mtp_response>`。
+    *   *后果*：Agent 失去“手”（执行能力），退化为普通 Chatbot，但依然拥有“脑”（记忆能力）。
+*   **Retrieval 离线**：
+    *   *现象*：开场检索失败。
+    *   *降级*：Kernel 注入空 Context 启动对话。
+    *   *后果*：Agent 暂时失忆，但仍能对话。
+*   **Librarian 离线**：
+    *   *现象*：日志投递失败。
+    *   *策略*：Kernel 将日志暂存至 Redis 队列，等待重试。
+    *   *后果*：用户无感知，仅记忆生成延迟。
+
+### 7. 内核级指令设计
+
+**内核级指令 (Kernel Syscalls / Level 0 Tools)** 是 HiveMemory 的“基本功”。它们硬编码在 `Koakuma` 分身中，代表了系统赋予 Agent 的**与物理世界交互的最低限度能力**。
+
+这些指令不需要检索，**零延迟**，且拥有最高的**稳定性**。
+
+可以将这些指令分为四大类：**文件系统 (VFS)**、**网络 (Network)**、**运行时 (Runtime)** 和 **系统环境 (System)**：
+
+---
+
+#### 7.1 文件系统类 (Virtual File System - VFS)
+> **目的**：赋予 Agent “手”，使其能读写工作区文件。这对 Coding Agent 至关重要。
+> **安全约束**：所有路径必须限制在沙箱的 `/workspace` 目录下。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_read_file`** | `path` (str) | 读取指定文件的内容。支持文本文件。 | `<content>...code...</content>` |
+| **`sys_write_file`** | `path` (str)<br>`content` (str/code) | 将内容写入文件。如果文件存在则覆盖（或增加 `mode="append"` 参数）。 | `Success: File 'main.py' saved (1024 bytes).` |
+| **`sys_list_files`** | `path` (str, optional) | 列出当前目录下的文件和文件夹结构。 | `['main.py', 'requirements.txt', 'data/']` |
+| **`sys_delete_file`** | `path` (str) | **[危险]** 删除指定文件。 | `Success: 'temp.log' deleted.` |
+
+*   **设计思考**：不要设计太复杂的 `move`, `copy`，Agent 可以通过 `read` + `write` + `delete` 组合实现。保持内核原子性。
+
+---
+
+#### 7.2 网络连接类 (Network I/O)
+> **目的**：赋予 Agent “眼”和“耳”，连接外部互联网。
+> **注意**：这是最容易变慢的环节，Koakuma 需做好超时控制。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_web_search`** | `query` (str)<br>`num` (int, default=3) | 调用 Google/Bing/DuckDuckGo API 进行搜索。 | `[1] Title: ...\nSnippet: ...\nURL: ...` |
+| **`sys_fetch_url`** | `url` (str) | 爬取指定网页，并转为 Markdown (去除广告/导航)。 | `Title: HiveMemory Docs\n\n# Intro...` |
+
+*   **设计思考**：`sys_web_search` 是解决幻觉的第一防线。`sys_fetch_url` 配合记忆存储 (`WRITE`)，可以实现“阅读网页并做笔记”的功能。
+
+---
+
+#### 7.3 运行时计算类 (Runtime & Compute)
+> **目的**：赋予 Agent “理智”，弥补 LLM 数学和逻辑差的短板。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_python_repl`** | `code` (str) | 执行一段临时的 Python 代码（无状态或短状态）。**用于简单验证**。 | `Stdout: 42` |
+| **`sys_bash_exec`** | `cmd` (str) | **[高危/可选]** 执行 Shell 命令 (如 `pip install`)。仅在强沙箱下开放。 | `Installing numpy... Done.` |
+
+*   **设计思考**：`sys_python_repl` 非常重要。当用户问 "12345 * 6789 等于多少" 时，Agent 不应口算，而应调用此指令。
+*   **区别**：这与 `mem_tool` 的区别在于，`sys_python_repl` 是**即兴的、一次性的**；而 `mem_tool` 是**复用的、封装好的**逻辑。
+
+---
+
+#### 7.4 系统环境类 (System & Context)
+> **目的**：赋予 Agent “自我感知”，知道自己在哪、什么时候。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_clock`** | `format` (str, optional) | 获取当前系统时间、日期、时区。 | `2025-06-01 14:30:00 (UTC+8)` |
+| **`sys_whoami`** | 无 | 获取当前 Agent 的配置信息（如 Model 版本、可用 Token 余额）。 | `Model: GPT-4o, Role: Coder` |
+
+---
+
+#### 7.5 交互类 (Human Interaction) - *可选但推荐*
+> **目的**：在长任务中，允许 Agent 主动挂起并询问用户。
+
+| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
+| :--- | :--- | :--- | :--- |
+| **`sys_ask_user`** | `question` (str) | **中断任务**，弹窗请求用户输入。 | (系统挂起，等待用户输入后 Resume) |
+
+---
+
+#### 7.6 建议的 MVP 最小集 (The Starter Pack)
+
+不需要一开始就实现上面所有指令。为了跑通 MTP 和 HiveMemory 的核心闭环，建议实际测试中优先验证以下 5 个：
+
+1.  **`sys_clock`**：最简单的测试指令，验证 MTP 链路通不通。
+2.  **`sys_web_search`**：立刻增强 Agent 的实用性，展示“联网”能力。
+3.  **`sys_read_file`** & **`sys_write_file`**：验证“文件系统”和“副作用”。
+4.  **`sys_python_repl`**：验证“沙箱执行”能力。
+
+#### 7.7 在 Prompt 中的呈现
+
+在 System Prompt 的指令集部分，你需要把这些列为 **"Built-in Capabilities"**：
+
+```markdown
+[KERNEL TOOLS] (Available via `RUN`)
+- `sys_clock`: Get current time.
+- `sys_web_search`: Search internet for latest info.
+- `sys_read_file` / `sys_write_file`: Access workspace files.
+- `sys_python_repl`: Calculate or process data via Python.
+```
+
+### 附录A：示例与用例 (Appendix: Examples)
 
 本章提供 MTP 在不同业务场景下的标准交互日志。
 **图例说明**:
@@ -611,201 +810,183 @@ Deployment Successful. Service is UP.
 
 ---
 
-# 7. 系统重构与运行时架构 (System Refactoring & Runtime Architecture)
+### 附录B：WRITE指令实现策略
 
-为了支撑引入的 **MTP (Memory Tool Protocol)**，系统必须从早期的“单向线性处理”模式，转型为支持“多轮递归中断”的 **AIOS (AI Operating System)** 架构。本章定义了 PatchouliSystem v3.0 的核心拓扑结构。
+#### 1. 协议设计：Agent 该提供什么？
 
-## 7.1 架构演进理念 (Architectural Philosophy)
+我们不需要 Agent 填写复杂的 Schema，只需要它提供 **“核心素材”** 和 **“意图说明”**。
 
-我们将 HiveMemory 的运行模式重定义为 **“帕秋莉 OS (Patchouli OS)”** 模型：
-
-*   **从“流水线”到“事件循环”**：系统不再只是处理一次性的 Request/Response，而是维护一个持续的 **Kernel Loop**，负责在 Worker Agent 生成过程中处理多次 MTP 中断与恢复。
-*   **从“三位一体”到“一核三使”**：
-    *   原有的分身将作为独立的微服务（Microservices）。
-    *   引入 **Patchouli Kernel** 作为总线与调度器。
-    *   引入 **Koakuma (小恶魔)** 作为专职的 MTP 处理器。
-
-## 7.2 系统拓扑图 (System Topology)
-
-v3.0 架构采用了星形拓扑，以 Kernel 为中心，连接网关、微服务与数据层。
-
-```mermaid
-graph TD
-    UserClient[用户 / Worker Agent] <--> API_Interface
-    
-    subgraph "PatchouliSystem (The Facility)"
-        API_Interface <--> TheEye[The Eye / 真理之眼 \n(Ingress Gateway)]
-        
-        TheEye <--> Kernel[Patchouli Kernel \n(State & Scheduler)]
-        
-        subgraph "Microservices Layer (The Staff)"
-            Kernel <--> Retrieval[Retrieval Familiar \n(Read-Only Service)]
-            Kernel <--> Koakuma[Koakuma / 小恶魔 \n(MTP Runtime Service)]
-            Kernel -.->|Async Log| Librarian[Librarian Core \n(Write/Manage Service)]
-        end
-        
-        subgraph "Data & Runtime Layer"
-            Retrieval <--> Qdrant[(Vector DB)]
-            Librarian <--> Qdrant
-            Koakuma <--> Sandbox[Docker/RestrictedEnv]
-            Librarian <--> SqlDB[(Meta DB)]
-        end
-    end
+**推荐语法**：
+```text
+⟪ WRITE | * | content="..." reason="..." ⟫
 ```
 
-## 7.3 核心组件定义 (Core Component Definitions)
+*   **`content` (必填)**：Agent 想要保存的核心内容。可以是代码片段、总结的规则、或者是纠正后的事实。
+    *   *Prompt 隐喻*：“这是笔记的正文。”
+*   **`reason` (选填)**：为什么通过 `WRITE` 保存？方便 Librarian 理解上下文。
+    *   *Prompt 隐喻*：“这是给帕秋莉的便条。”
 
-### 7.3.1 守门人：真理之眼 (The Eye / Gateway)
-*   **定位**：系统的 **Ingress Controller**，独立于 Kernel 之外。
-*   **职责**：
-    *   **流量清洗**：拦截无效请求、系统指令（如 `/clear`）。
-    *   **意图识别**：L1拦截层负责，判断请求是 `CHAT`（直接转发）还是 `WORK`（需 Kernel 介入）。
-    *   **查询重写**：L2语义分析层负责，将用户的模糊 Query 转化为精准的 Semantic Query。
-*   **交互**：作为 Kernel 的 Client，向 Kernel 发送标准化的 `JobRequest`。
-
-### 7.3.2 操作系统：帕秋莉内核 (Patchouli Kernel)
-*   **定位**：系统的 **Orchestrator (编排器)** 与 **State Manager (状态管理器)**。
-*   **职责**：
-    *   **Session State**：维护对话历史、上下文缓存 (Prompt Caching) 和临时变量。
-    *   **LLM IO**：持有 Worker Agent 的 API Client，负责发送请求并处理 `stop=["⟫"]` 中断信号。
-    *   **调度总线**：根据当前状态，决定调用哪个微服务（Retrieval, Koakuma, 或 Librarian）。
-
-### 7.3.3 执行层：三大微服务 (The Triad Services)
-
-1.  **Retrieval Familiar (检索使魔)**
-    *   **功能**：只读服务。负责 RAG 检索、混合排序、上下文渲染。
-    *   **服务对象**：既服务于 Kernel（开场注入），也通过内部 API 服务于 Koakuma（处理 `READ` 指令）。
-
-2.  **Koakuma (小恶魔 / MTP Executor)**
-    *   **[新增组件]**
-    *   **功能**：无状态计算服务。负责 MTP 协议的 **解析 (Parsing)**、**路由 (Routing)** 和 **执行 (Execution)**。
-    *   **能力**：持有沙箱环境的控制权，负责运行 `sys_` 工具和 `mem_` 代码。
-
-3.  **Librarian Core (大图书馆本体)**
-    *   **功能**：写入与管理服务。负责记忆生成、去重、演化和 GC。
-    *   **特性**：**纯异步 (Async)**。从 Kernel 接收对话日志副本，不阻塞前台响应。
-
-## 7.4 运行时数据流：内核递归循环 (The Kernel Recursive Loop)
-
-引入 MTP 后，一次用户请求的处理流程变为一个递归循环：
-
-1.  **初始化 (Initialization)**
-    *   **Eye** 处理请求，转发给 **Kernel**。
-    *   **Kernel** 呼叫 **Retrieval Familiar**，获取 Index Menu，组装初始 System Prompt，解决 Worker Agent 的冷启动问题，确保其面对新 Query 时有合适的 Memory 背景。
-
-2.  **生成循环 (The Generation Loop)**
-    *   **Phase A (Request)**: Kernel 向 LLM 发起生成请求（带 `stop` 参数）。
-    *   **Phase B (Decision)**:
-        *   *分支 1 (Finished)*: LLM 正常结束生成 -> Kernel 将结果返回给用户 -> 异步投递日志给 **Librarian**。
-        *   *分支 2 (Interrupted)*: 捕获到 MTP 信号 -> Kernel 暂停，提取指令 Buffer。
-    *   **Phase C (Execution)**: Kernel 将 Buffer 发送给 **Koakuma**。
-        *   **Koakuma** 解析指令，执行工具/检索，返回 XML 格式结果。
-    *   **Phase D (Resume)**: Kernel 将 XML 结果追加到 History，**跳转回 Phase A**（发起新一轮续写）。
-
-## 7.5 容错与服务降级 (Fault Tolerance)
-
-本架构实现了“能力分层”，确保核心功能的可用性。即便任意一个分身离线，其余分身的核心功能也不会受到严重影响或降级处理：
-
-*   **Koakuma 离线**：
-    *   *现象*：MTP 指令执行超时或失败。
-    *   *降级*：Kernel 向 Worker Agent 注入 `<mtp_response status="error">System Offline</mtp_response>`。
-    *   *后果*：Agent 失去“手”（执行能力），退化为普通 Chatbot，但依然拥有“脑”（记忆能力）。
-*   **Retrieval 离线**：
-    *   *现象*：开场检索失败。
-    *   *降级*：Kernel 注入空 Context 启动对话。
-    *   *后果*：Agent 暂时失忆，但仍能对话。
-*   **Librarian 离线**：
-    *   *现象*：日志投递失败。
-    *   *策略*：Kernel 将日志暂存至 Redis 队列，等待重试。
-    *   *后果*：用户无感知，仅记忆生成延迟。
-
-# 8. 内核级指令设计
-
-**内核级指令 (Kernel Syscalls / Level 0 Tools)** 是 HiveMemory 的“基本功”。它们硬编码在 `Koakuma` 分身中，代表了系统赋予 Agent 的**与物理世界交互的最低限度能力**。
-
-这些指令不需要检索，**零延迟**，且拥有最高的**稳定性**。
-
-可以将这些指令分为四大类：**文件系统 (VFS)**、**网络 (Network)**、**运行时 (Runtime)** 和 **系统环境 (System)**：
+**示例**：
+> `⟪ WRITE | * | content=`def fix_cors(): ...` reason="解决了跨域问题的最终代码" ⟫`
 
 ---
 
-### 1. 文件系统类 (Virtual File System - VFS)
-> **目的**：赋予 Agent “手”，使其能读写工作区文件。这对 Coding Agent 至关重要。
-> **安全约束**：所有路径必须限制在沙箱的 `/workspace` 目录下。
+#### 2. 执行逻辑：Urgent Block 与 混合打包
 
-| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
-| :--- | :--- | :--- | :--- |
-| **`sys_read_file`** | `path` (str) | 读取指定文件的内容。支持文本文件。 | `<content>...code...</content>` |
-| **`sys_write_file`** | `path` (str)<br>`content` (str/code) | 将内容写入文件。如果文件存在则覆盖（或增加 `mode="append"` 参数）。 | `Success: File 'main.py' saved (1024 bytes).` |
-| **`sys_list_files`** | `path` (str, optional) | 列出当前目录下的文件和文件夹结构。 | `['main.py', 'requirements.txt', 'data/']` |
-| **`sys_delete_file`** | `path` (str) | **[危险]** 删除指定文件。 | `Success: 'temp.log' deleted.` |
+为了解决“冗余提取”的问题，我们需要在 **感知层 (Perception Layer)** 做一点特殊的处理。我们不应该让 `WRITE` 内容和 `Buffer` 内容分别提取两次，而是将它们**打包成一个任务**。
 
-*   **设计思考**：不要设计太复杂的 `move`, `copy`，Agent 可以通过 `read` + `write` + `delete` 组合实现。保持内核原子性。
+##### 流程设计
 
----
+1.  **Koakuma (拦截)**：
+    *   捕获 `WRITE` 指令。
+    *   **不执行**任何 DB 操作。
+    *   由于对话链被拦截，需要将拦截下的内容与解析好的 `WRITE` 指令内容（`content`、`reason`）一并发送给 Librarian Core。
+    *   向 Worker Agent 返回 `<mtp_response status="ack">Request queued.</mtp_response>`（异步确认）。
 
-### 2. 网络连接类 (Network I/O)
-> **目的**：赋予 Agent “眼”和“耳”，连接外部互联网。
-> **注意**：这是最容易变慢的环节，Koakuma 需做好超时控制。
+2.  **Librarian Core - Perception Layer (感知)**：
+    *   接收到发送的内容，发现有特别的 `WRITE` 指令内容。将调用指令前的消息添加到Buffer中，作为 assistant response 强制闭合当前 Block（理论上Agent调用WRITE就说明前面的任务基本执行完毕，后面的内容大概率偏向于总结，因而强制闭合不会影响消息的完整性）
+    *   **立即触发 Flush**：将当前 Buffer 中的所有积压对话（Context）与 `WRITE` 指令内容打包成一个生成请求。
+    *   **关键点**：构建一个 **“带有焦点的生成请求 (Focused Generation Request)”** 发送给 Librarian。
+        *   `request.context_blocks`: [Msg1, Msg2, Msg3...] (感知层分割好的原始对话流 Blocks)
+        *   `request.focus`: "Agent Explicitly Request Save: [Content]..." (来自 WRITE 指令)
 
-| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
-| :--- | :--- | :--- | :--- |
-| **`sys_web_search`** | `query` (str)<br>`num` (int, default=3) | 调用 Google/Bing/DuckDuckGo API 进行搜索。 | `[1] Title: ...\nSnippet: ...\nURL: ...` |
-| **`sys_fetch_url`** | `url` (str) | 爬取指定网页，并转为 Markdown (去除广告/导航)。 | `Title: HiveMemory Docs\n\n# Intro...` |
-
-*   **设计思考**：`sys_web_search` 是解决幻觉的第一防线。`sys_fetch_url` 配合记忆存储 (`WRITE`)，可以实现“阅读网页并做笔记”的功能。
+3.  **Librarian Core - Generation Engine (生成)**：
+    *   帕秋莉接收到 Request，检测到有 `focus` 字段。
+    *   **切换 Prompt 策略**：不使用默认的“总结这段对话”，而是使用 **“验证并入库”** 策略。
 
 ---
 
-### 3. 运行时计算类 (Runtime & Compute)
-> **目的**：赋予 Agent “理智”，弥补 LLM 数学和逻辑差的短板。
+#### 3. Librarian 的“双模态” Prompt 设计
 
-| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
-| :--- | :--- | :--- | :--- |
-| **`sys_python_repl`** | `code` (str) | 执行一段临时的 Python 代码（无状态或短状态）。**用于简单验证**。 | `Stdout: 42` |
-| **`sys_bash_exec`** | `cmd` (str) | **[高危/可选]** 执行 Shell 命令 (如 `pip install`)。仅在强沙箱下开放。 | `Installing numpy... Done.` |
+这是解决“冗余”和“失焦”的关键。帕秋莉根据输入源的不同，运行两种不同的思维链：
 
-*   **设计思考**：`sys_python_repl` 非常重要。当用户问 "12345 * 6789 等于多少" 时，Agent 不应口算，而应调用此指令。
-*   **区别**：这与 `mem_tool` 的区别在于，`sys_python_repl` 是**即兴的、一次性的**；而 `mem_tool` 是**复用的、封装好的**逻辑。
+##### 模式 A：被动观察 (Passive Mode - 默认)
+*   *Input*: 只有对话流。
+*   *Prompt示例*: "观察这段对话，提取是否有价值的信息。如果没有，忽略。"
+*   *特点*: 过滤严格，容易遗漏细节。
 
----
-
-### 4. 系统环境类 (System & Context)
-> **目的**：赋予 Agent “自我感知”，知道自己在哪、什么时候。
-
-| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
-| :--- | :--- | :--- | :--- |
-| **`sys_clock`** | `format` (str, optional) | 获取当前系统时间、日期、时区。 | `2025-06-01 14:30:00 (UTC+8)` |
-| **`sys_whoami`** | 无 | 获取当前 Agent 的配置信息（如 Model 版本、可用 Token 余额）。 | `Model: GPT-4o, Role: Coder` |
-
----
-
-### 5. 交互类 (Human Interaction) - *可选但推荐*
-> **目的**：在长任务中，允许 Agent 主动挂起并询问用户。
-
-| 指令别名 (Alias) | 参数 (Args) | 功能描述 | 返回值示例 |
-| :--- | :--- | :--- | :--- |
-| **`sys_ask_user`** | `question` (str) | **中断任务**，弹窗请求用户输入。 | (系统挂起，等待用户输入后 Resume) |
+##### 模式 B：主动响应 (Active Response Mode - 触发 WRITE 时)
+*   *Input*: 对话流 + **Agent 的草稿 (`content`)**。
+*   *Prompt示例*:
+    > "Agent 提交了一份记忆草稿：
+    > **草稿内容**: {content}
+    > **保存理由**: {reason}
+    >
+    > 请结合 **背景对话历史** (Context) 执行以下操作：
+    > 1.  **验证 (Verify)**: 草稿内容是否与对话上下文一致？（防止幻觉）
+    > 2.  **补全 (Enrich)**: 草稿是否遗漏了对话中的关键前提（例如 import 语句）？如果有，请补全。
+    > 3.  **结构化 (Structure)**: 将其转化为标准的 Memory Atom (Title, Tags, Payload)。
+    > 4.  **强制入库**: 除非内容完全错误，否则必须生成记忆（Confidence = 1.0）。"
 
 ---
 
-### 6. 建议的 MVP 最小集 (The Starter Pack)
+#### 4. 这个方案解决了什么问题？
 
-不需要一开始就实现上面所有指令。为了跑通 MTP 和 HiveMemory 的核心闭环，建议实际测试中优先验证以下 5 个：
+1.  **解决了“Agent 无法控制细节”**：
+    *   通过 `content` 参数，Agent 明确指出了“这几行代码是重点”，帕秋莉会以这几行代码为核心生成 Atom，而不是生成一个泛泛的“讨论了代码问题”的总结。
 
-1.  **`sys_clock`**：最简单的测试指令，验证 MTP 链路通不通。
-2.  **`sys_web_search`**：立刻增强 Agent 的实用性，展示“联网”能力。
-3.  **`sys_read_file`** & **`sys_write_file`**：验证“文件系统”和“副作用”。
-4.  **`sys_python_repl`**：验证“沙箱执行”能力。
+2.  **解决了“冗余提取”**：
+    *   Librarian **只运行一次** Extraction。她将 `content` 视为“高权重的输入特征”，将 `Buffer` 视为“背景参考资料”。两者互补，而不是重复。
 
-### 7. 在 Prompt 中的呈现
+3.  **解决了“安全性与结构化”**：
+    *   Agent 依然不知道 Schema。它只是提交了“原材料”。
+    *   Librarian 依然掌握生杀大权。如果 Agent 胡乱 `WRITE` 了一段虚假代码，Librarian 在“验证”环节可以通过对比 Context 发现（“这也是一种幻觉检测”），从而拒绝入库或降低置信度。
 
-在 System Prompt 的指令集部分，你需要把这些列为 **"Built-in Capabilities"**：
+### 附录C：UPDATE指令实现策略
 
-```markdown
-[KERNEL TOOLS] (Available via `RUN`)
-- `sys_clock`: Get current time.
-- `sys_web_search`: Search internet for latest info.
-- `sys_read_file` / `sys_write_file`: Access workspace files.
-- `sys_python_repl`: Calculate or process data via Python.
+#### 1. 协议设计：Agent 该提供什么？
+
+与 `WRITE` 类似，Agent 不需要提供完整的 JSON，只需要提供 **“修改意图”** 和 **“新素材”**。
+
+**推荐语法**：
+```text
+⟪ UPDATE | TARGET | instruction="..." content=`...` ⟫
 ```
+
+*   **`TARGET` (必填)**：目标记忆原子的 Alias（必须是已知的，否则报错）。
+*   **`instruction` (必填)**：自然语言描述的修改指令。
+    *   *示例*：“将端口改为 8080”、“追加一个新的错误码”、“优化这段代码的性能”。
+*   **`content` (选填)**：如果有具体的代码替换或大段文本追加，放在这里。如果只是微调记忆原子的部分内容，可以省略，仅靠 instruction 说明。
+
+**场景示例**：
+
+*   **场景 A：代码修复 (Bugfix)**
+    > `⟪ UPDATE | tool_login | instruction="修复了空指针异常" content=`if user is None: return` ⟫`
+*   **场景 B：事实更正 (Correction)**
+    > `⟪ UPDATE | fact_project_env | instruction="项目 Python 版本升级到了 3.11，请更新相关依赖描述" ⟫`
+
+---
+
+#### 2. 执行逻辑：帕秋莉的“合并（Merge）”作业
+
+帕秋莉在这里的角色不再是“记录员”，而是 **“代码审查员 (Reviewer) / 编辑 (Editor)”**。
+
+我们需要在 GenerationEngine 中设计一个专门用于 **UPDATE** 的处理管线，这不同于普通的 Extraction 流。
+
+##### 流程设计
+
+1.  **Koakuma (前置校验)**：
+    *   捕获 `UPDATE` 指令。
+    *   **校验 Alias**：检查目标原子是否存在。
+        *   *不存在*：立即返回 `<mtp_response status="error">Alias not found.</mtp_response>`。
+        *   *存在*：获取该原子的 `UUID`，与 WRITE 指令相似，将指令内容、UUID与对话发送到感知层。
+
+2.  **Librarian Core (智能合并)**：
+    *   接收到相关内容。
+    *   **加载旧记忆 (Load)**：从 DB 读取 `Target_Atom` 的完整 Payload。
+    *   **执行合并 (The Merge Prompt)**：调用 LLM 进行“手术”。
+
+##### Merge Prompt 设计 (The Editor's Mind)
+
+这是一个高精度的 Prompt，输入包含三部分：**旧内容 (Old)**、**修改指令 (Instruction)**、**新素材 (New)**。
+
+> **[System: Librarian Editor Mode]**
+>
+> 你正在更新一条现有的记忆原子。
+>
+> **目标记忆**:
+> ```{old_payload}```
+>
+> **修改请求**:
+> - 指令: {instruction}
+> - 新素材: {content}
+> - 参考上下文: {recent_dialogue_context}
+>
+> **任务**:
+> 1.  **语义理解**: 理解修改指令。如果是代码，请确保新代码逻辑正确；如果是事实，请确保其与上下文一致。
+> 2.  **执行修改**: 生成新的 Payload Content。
+>     *   如果是 *Replacement*：完全替换旧内容。
+>     *   如果是 *Refinement*：仅修改特定行或段落，保留其他细节。
+>     *   如果是 *Append*：追加到末尾。
+> 3.  **生成变更日志 (Changelog)**: 用一句话总结这次变更（用于存入 `history`）。
+>
+> **输出**: JSON { "new_content": "...", "changelog": "..." }
+
+---
+
+#### 3. 版本控制与“后悔药”
+
+我们在 PROJECT.md 文档3.2 节设计的 **演化模型** 在这里正式落地。帕秋莉执行完 Merge 后，必须进行 **数据库层面的原子事务操作**：
+
+1.  **Push History**:
+    *   读取原 Payload，构建一个 History Item: `{ "timestamp": now, "content": old_content, "reason": changelog }`。
+    *   将此 Item 压入 `artifacts.history` 列表。
+2.  **Update Head**:
+    *   用 `new_content` 覆盖 `payload.content`。
+    *   更新 `meta.updated_at`。
+    *   **置信度重置**：通常将 `confidence` 设为 `1.0`（因为这是 Agent 主动要求的修改），或者设为 `0.9`（因为是基于 Agent 生成的）。
+
+---
+
+#### 4. 解决“冲突”与“幻觉”
+
+Agent 可能会发疯，比如发出了错误的 UPDATE 指令，或者修改后的代码是坏的。
+
+*   **Diff 校验 (Safety Check)**:
+    *   Librarian 生成新内容后，可以计算一下 `Similarity(old, new)`。
+    *   如果相似度极低（< 0.2），说明内容发生了剧烈变化（可能 Agent 搞错了对象，或者完全重写了）。
+    *   此时，帕秋莉可以（可选地）向 Worker Agent 发送一个 **回执 (Callback)**：
+        > "警告：您正在彻底重写 `tool_login`。变更幅度 90%。确认吗？"
+        > *(注：MVP 阶段可以跳过此步，直接信任 Agent，有 History 可以回滚。)*
+
+---

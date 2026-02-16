@@ -63,6 +63,8 @@ from datetime import datetime
 import uuid
 
 import pytest
+
+pytestmark = pytest.mark.e2e
 from rich.console import Console
 from rich.panel import Panel
 
@@ -86,7 +88,7 @@ from hivememory.core.models import (
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
-from hivememory.engines.generation.models import ExtractedMemoryDraft, DuplicateDecision
+from hivememory.engines.generation.models import ExtractedMemoryDraft, DuplicateDecision, GenerationRequest
 
 # 配置
 from hivememory.patchouli.config import (
@@ -1059,7 +1061,7 @@ class TestEndToEndFlow:
         messages = create_stream_messages(test_case["messages"], self.identity)
 
         # 调用引擎处理
-        memories = self.engine.process(messages)
+        memories = self.engine.process(GenerationRequest(context_messages=messages))
 
         # 验证结果
         success = len(memories) > 0
@@ -1090,7 +1092,7 @@ class TestEndToEndFlow:
         messages = create_stream_messages(test_case["messages"], self.identity)
 
         # 调用引擎处理
-        memories = self.engine.process(messages)
+        memories = self.engine.process(GenerationRequest(context_messages=messages))
 
         # 验证结果：噪音对话不应产生记忆
         success = len(memories) == 0

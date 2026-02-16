@@ -68,6 +68,7 @@ class LLMGlobalConfig(BaseModel):
     """LLM 全局配置集合"""
     librarian: LLMConfig = Field(default_factory=lambda: LLMConfig(model="deepseek/deepseek-chat", temperature=0.3, max_tokens=8192))
     gateway: LLMConfig = Field(default_factory=lambda: LLMConfig(model="gpt-4o", temperature=0.0, max_tokens=512))
+    worker: LLMConfig = Field(default_factory=lambda: LLMConfig(model="gpt-4o", temperature=0.7, max_tokens=4096), description="Worker Agent LLM 配置 (用于对话生成)")
 
     model_config = ConfigDict(extra="allow")
 
@@ -698,6 +699,14 @@ class HiveMemoryConfig(BaseSettings):
         环境变量覆盖: HIVEMEMORY__LLM__GATEWAY__MODEL, HIVEMEMORY__LLM__GATEWAY__API_KEY 等
         """
         return self.llm.gateway
+
+    def get_worker_llm_config(self) -> LLMConfig:
+        """
+        获取 Worker Agent LLM 配置
+
+        环境变量覆盖: HIVEMEMORY__LLM__WORKER__MODEL, HIVEMEMORY__LLM__WORKER__API_KEY 等
+        """
+        return self.llm.worker
 
 
 # ========== 工厂函数 (Factory) ==========

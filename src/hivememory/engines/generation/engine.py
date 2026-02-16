@@ -21,7 +21,7 @@ from datetime import datetime
 
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, StreamMessage, Identity
-from hivememory.engines.generation.models import ExtractedMemoryDraft
+from hivememory.engines.generation.models import ExtractedMemoryDraft, GenerationRequest, WriteFocus, UpdateFocus, MergeResult
 from hivememory.engines.generation.interfaces import (
     BaseMemoryExtractor,
     BaseDeduplicator,
@@ -45,17 +45,12 @@ class MemoryGenerationEngine:
     """
     记忆生成引擎
 
-    协调LLM 提取、查重、存储等所有步骤。
-
-    遵循显式依赖注入原则：所有子组件必须通过构造函数传入，
-    不在内部实例化依赖项。
+    协调 LLM 提取、查重、存储等所有步骤。
 
     Examples:
-        >>> from hivememory.engines.generation import create_default_generation_engine
-        >>> engine = create_default_generation_engine(storage=storage)
+        >>> from hivememory.engines.generation import MemoryGenerationEngine
         >>>
-        >>> # 高级：手动注入组件
-        >>> orchestrator = MemoryGenerationOrchestrator(
+        >>> engine = MemoryGenerationEngine(
         ...     storage=storage,
         ...     extractor=my_extractor,
         ...     deduplicator=my_deduplicator,
@@ -69,85 +64,245 @@ class MemoryGenerationEngine:
         deduplicator: BaseDeduplicator,
     ):
         """
-        初始化编排器
+        初始化引擎
 
         Args:
             storage: 向量存储实例
             extractor: 记忆提取器（必需）
             deduplicator: 查重器（必需）
 
-        Note:
-            所有组件参数都是必需的。
         """
         self.storage = storage
         self.extractor = extractor
         self.deduplicator = deduplicator
 
-        logger.info("MemoryGenerationOrchestrator 初始化完成")
+        logger.info("MemoryGenerationEngine 初始化完成")
 
-    def process(
-        self,
-        messages: List[StreamMessage],
-    ) -> List[MemoryAtom]:
+    def process(self, request: GenerationRequest) -> List[MemoryAtom]:
         """
-        处理对话片段，提取记忆原子
+        处理对话片段，提取记忆原子 (三模式)
 
-        完整流程:
-            1. LLM 提取 → 生成结构化草稿
-            2. 查重检测 → 判断 CREATE/UPDATE/TOUCH
-            3. 记忆构建 → MemoryAtom
-            4. 持久化 → Qdrant
+        Mode A (被动观察): request.write_focus=None, request.update_focus=None
+        Mode B (主动响应): request.is_focused=True (WRITE 指令触发)
+        Mode C (合并更新): request.is_update=True (UPDATE 指令触发)
 
         Args:
-            messages: 对话消息列表
+            request: GenerationRequest 对象
 
         Returns:
             List[MemoryAtom]: 提取的记忆原子列表
-
-        Examples:
-            >>> memories = orchestrator.process(
-            ...     messages=[
-            ...         StreamMessage(role="user", content="写快排"),
-            ...         StreamMessage(role="assistant", content="代码...")
-            ...     ],
-            ... )
-            >>> len(memories)
-            1
         """
-        if not messages:
-            logger.debug("空消息列表，跳过处理")
+        if not request.context_messages and not request.is_focused and not request.is_update:
+            logger.debug("空消息列表且无 write_focus/update_focus，跳过处理")
             return []
-        
+
+        # 路由到对应模式
+        if request.is_update:
+            return self._process_mode_c(request)
+        elif request.is_focused:
+            return self._process_mode_b(request)
+        else:
+            return self._process_mode_a(request)
+
+    def _process_mode_a(self, request: GenerationRequest) -> List[MemoryAtom]:
+        """
+        Mode A: 被动观察模式 (默认)
+
+        从对话中被动提取有价值的记忆。
+        """
+        messages = request.context_messages
+        if not messages:
+            return []
+
         identity = messages[0].identity
-        user_id = identity.user_id
-        agent_id = identity.agent_id
-        session_id = identity.session_id
 
-        logger.info(f"开始处理 {len(messages)} 条消息...")
+        logger.info(f"[Mode A] 开始处理 {len(messages)} 条消息...")
 
-        # ========== Step 1: LLM 提取 ==========
-        logger.debug("Step 1: LLM 提取...")
-
-        # 格式化对话
+        # Step 1: LLM 提取
         transcript = self._format_transcript(messages)
-
-        # 调用提取器
         draft = self.extractor.extract(
             transcript=transcript,
-            metadata={
-                "user_id": user_id,
-                "agent_id": agent_id,
-                "session_id": session_id,
-                "timestamp": datetime.now().isoformat(),
-            }
+            metadata={}
         )
 
         if not draft or not draft.has_value:
-            logger.info("LLM 判断对话无价值，跳过存储")
+            logger.info("[Mode A] LLM 判断对话无价值，跳过存储")
             return []
 
-        # ========== Step 2: 查重检测 ==========
-        logger.debug("Step 2: 查重检测...")
+        # Step 2-4: 查重 → 构建 → 持久化
+        return self._dedup_and_persist(draft, identity)
+
+    def _process_mode_b(self, request: GenerationRequest) -> List[MemoryAtom]:
+        """
+        Mode B: 主动响应模式 (WRITE 指令触发)
+
+        Agent 明确要求保存，以 WriteFocus 为核心，对话历史为背景。
+        包含 fallback 机制：LLM 提取失败时直接从 WriteFocus 构建草稿。
+        """
+        focus = request.write_focus
+        identity = focus.identity
+
+        logger.info(f"[Mode B] WRITE 主动响应: content='{focus.content[:50]}...'")
+
+        # 格式化背景对话
+        transcript = self._format_transcript(request.context_messages) if request.context_messages else "(无背景对话)"
+
+        # Step 1: LLM 提取 (Mode B prompt)
+        draft = self.extractor.extract(
+            transcript=transcript,
+            metadata={
+                "mode": "write",
+                "write_content": focus.content,
+                "write_reason": focus.reason or "(未提供)",
+            }
+        )
+
+        # Fallback: LLM 失败时直接从 WriteFocus 构建草稿 (保底入库)
+        if draft is None:
+            logger.warning("[Mode B] LLM 提取失败，启用 fallback 直接构建草稿")
+            draft = self._build_fallback_draft(focus)
+
+        # Step 2-4: 查重 → 构建 → 持久化
+        return self._dedup_and_persist(draft, identity)
+
+    def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
+        """
+        从 WriteFocus 直接构建 fallback 草稿
+
+        当 LLM 提取失败时，保证 WRITE 内容不丢失。
+        """
+        title = focus.title or focus.content[:50]
+        summary = focus.reason or title
+        if len(summary) < 10:
+            summary = summary + " — " + focus.content[:50]
+        return ExtractedMemoryDraft(
+            title=title,
+            summary=summary,
+            tags=["mtp_write"],
+            memory_type="FACT",
+            content=focus.content,
+            confidence_score=1.0,
+            has_value=True,
+            alias_suffix="",
+        )
+
+    def _process_mode_c(self, request: GenerationRequest) -> List[MemoryAtom]:
+        """
+        Mode C: 合并更新模式 (UPDATE 指令触发)
+
+        Agent 请求修改已有记忆，以 UpdateFocus 为核心。
+        LLM 执行智能合并，生成新内容和变更日志。
+        包含 fallback 机制：LLM 合并失败时直接拼接。
+        """
+        uf = request.update_focus
+        existing = uf.existing_memory
+
+        if existing is None:
+            logger.error("[Mode C] existing_memory 未注入，无法执行 UPDATE")
+            return []
+
+        logger.info(
+            f"[Mode C] UPDATE 合并: alias='{uf.target_alias}', "
+            f"instruction='{uf.instruction[:50]}...'"
+        )
+
+        # 格式化对话上下文
+        transcript = self._format_transcript(request.context_messages) if request.context_messages else "(无背景对话)"
+
+        # Step 1: 调用 extractor.merge() (Mode C Merge Prompt)
+        merge_result = self.extractor.merge(
+            old_content=existing.payload.content,
+            metadata={
+                "mode": "update",
+                "instruction": uf.instruction,
+                "new_content": uf.content or "",
+                "memory_title": existing.index.title,
+                "memory_alias": existing.index.alias or uf.target_alias,
+                "transcript": transcript,
+            }
+        )
+
+        # Fallback: LLM 合并失败时直接拼接
+        if merge_result is None:
+            logger.warning("[Mode C] LLM 合并失败，启用 fallback")
+            merge_result = self._build_update_fallback(uf, existing)
+
+        # Step 2: 版本历史 + 更新 + 持久化
+        return self._apply_update(existing, merge_result)
+
+    def _build_update_fallback(
+        self, uf: UpdateFocus, existing: MemoryAtom
+    ) -> MergeResult:
+        """
+        UPDATE fallback: LLM 合并失败时的保底策略
+
+        - 有 content: 追加到旧内容末尾
+        - 仅有 instruction: 保留旧内容不变，changelog 记录 instruction
+        """
+        if uf.content:
+            new_content = (
+                f"{existing.payload.content}\n\n"
+                f"## 更新 ({datetime.now().strftime('%Y-%m-%d')})\n"
+                f"{uf.content}"
+            )
+            changelog = f"Fallback 追加: {uf.instruction[:80]}"
+        else:
+            new_content = existing.payload.content
+            changelog = f"Fallback (无变更): {uf.instruction[:80]}"
+
+        return MergeResult(new_content=new_content, changelog=changelog)
+
+    def _apply_update(
+        self, memory: MemoryAtom, result: MergeResult
+    ) -> List[MemoryAtom]:
+        """
+        执行版本历史追踪 + 内容更新 + 持久化
+
+        1. Push old content → artifacts.full_history
+        2. 更新 history_summary
+        3. 覆盖 payload.content
+        4. 更新 meta (updated_at, confidence, version)
+        5. 持久化 (重新生成向量)
+        """
+        now = datetime.now()
+
+        # 1. Push History: 旧内容压入 artifacts.full_history
+        history_item = {
+            "timestamp": now.isoformat(),
+            "content": memory.payload.content,
+            "reason": result.changelog,
+        }
+        memory.payload.artifacts.full_history.append(history_item)
+
+        # 2. 更新 history_summary (简化版本记录)
+        summary_line = f"{now.strftime('%Y-%m-%d')}: {result.changelog}"
+        memory.payload.history_summary.append(summary_line)
+
+        # 3. Update Head: 覆盖 payload.content
+        memory.payload.content = result.new_content
+
+        # 4. 更新 meta
+        memory.meta.updated_at = now
+        memory.meta.confidence_score = 1.0  # Agent 主动修改
+        memory.meta.version += 1
+
+        # 5. 持久化 (重新生成向量)
+        self._save_memory(memory)
+
+        logger.info(
+            f"[Mode C] UPDATE 完成: '{memory.index.title}' "
+            f"v{memory.meta.version}, changelog='{result.changelog}'"
+        )
+        return [memory]
+
+    def _dedup_and_persist(
+        self,
+        draft: ExtractedMemoryDraft,
+        identity: Identity,
+    ) -> List[MemoryAtom]:
+        """
+        查重 → 构建 → 持久化 (Mode A/B 共用)
+        """
 
         decision, existing_memory = self.deduplicator.check_duplicate(draft)
 
@@ -193,15 +348,15 @@ class MemoryGenerationEngine:
         Examples:
             >>> transcript = orchestrator._format_transcript(messages)
             >>> print(transcript)
-            👤 User: 你好
-            🤖 Assistant: 你好！
+            [User]: 你好
+            [Assistant]: 你好！
         """
         lines = []
         for msg in messages:
             role_display = {
-                "user": "👤 User",
-                "assistant": "🤖 Assistant",
-                "system": "⚙️ System"
+                "user": "[User]",
+                "assistant": "[Assistant]",
+                "system": "[System]"
             }.get(msg.role, msg.role)
 
             lines.append(f"{role_display}: {msg.content}")

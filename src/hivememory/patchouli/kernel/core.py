@@ -27,6 +27,7 @@
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 from hivememory.core.models import Identity
@@ -325,33 +326,39 @@ class PatchouliKernel:
     def handle_hot(
         self,
         gaze_result: EyeGazeResult,
+        enable_retrieval: bool = True,
     ) -> KernelHotResult:
         """
         处理 Eye 传入的热路径请求
 
-        Kernel 负责数据格式转换：
-        1. 从 EyeGazeResult 构建 Observation → 投递给 Librarian（冷路径感知）
-        2. 从 EyeGazeResult 构建 RetrievalRequest → 调度 Retrieval 服务
+        统一的预生成管线：异步感知投递 + 可选检索。
+        供 PatchouliSystem.chat() 和 ingest() 复用。
+
+        感知投递通过 daemon 线程异步执行，不阻塞后续检索与生成流程。
 
         Args:
             gaze_result: TheEye 的统一输出
+            enable_retrieval: 是否执行预检索 (False 时跳过，即使 intent 为 RAG)
 
         Returns:
             KernelHotResult: 热路径处理结果
         """
-        # 1. 构建 Observation 并投递给 Librarian（冷路径）
-        observation = self._build_observation(gaze_result)
-        self.librarian_core.perceive(observation)
+        # 1. 构建 Observation 并异步投递给 Librarian（冷路径感知，不阻塞热路径）
+        observation = self.build_observation(gaze_result)
+        threading.Thread(
+            target=self._safe_perceive, args=(observation,), daemon=True
+        ).start()
 
         # 2. 构建 RetrievalRequest 并调度 Retrieval（热路径）
         retrieved_context = None
-        retrieval_request = self._build_retrieval_request(gaze_result)
-        if retrieval_request:
-            retrieved_result = self.retrieval_familiar.retrieve(
-                retrieval_request
-            )
-            if not retrieved_result.is_empty():
-                retrieved_context = retrieved_result.rendered_context
+        if enable_retrieval:
+            retrieval_request = self.build_retrieval_request(gaze_result)
+            if retrieval_request:
+                retrieved_result = self.retrieval_familiar.retrieve(
+                    retrieval_request
+                )
+                if not retrieved_result.is_empty():
+                    retrieved_context = retrieved_result.rendered_context
 
         return KernelHotResult(
             intent=gaze_result.intent.value,
@@ -372,6 +379,13 @@ class PatchouliKernel:
             observation: 感知信号
         """
         self.librarian_core.perceive(observation)
+
+    def _safe_perceive(self, observation: Observation) -> None:
+        """线程安全的感知层投递 (用于 handle_hot 异步 fire-and-forget)"""
+        try:
+            self.librarian_core.perceive(observation)
+        except Exception as e:
+            logger.warning(f"Async perception failed: {e}")
 
     def handle_mtp(
         self,
@@ -432,7 +446,7 @@ class PatchouliKernel:
 
     # ========== 数据格式转换（Eye → 微服务） ==========
 
-    def _build_observation(self, gaze_result: EyeGazeResult) -> Observation:
+    def build_observation(self, gaze_result: EyeGazeResult) -> Observation:
         """
         从 EyeGazeResult 构建 Observation 协议消息
 
@@ -452,7 +466,7 @@ class PatchouliKernel:
             worth_saving=gaze_result.worth_saving,
         )
 
-    def _build_retrieval_request(
+    def build_retrieval_request(
         self, gaze_result: EyeGazeResult
     ) -> Optional[RetrievalRequest]:
         """

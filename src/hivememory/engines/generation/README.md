@@ -163,10 +163,12 @@ Step 4: 持久化 → Qdrant
 
 **用法**:
 ```python
-from hivememory.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.models import GenerationRequest
 
 engine = MemoryGenerationEngine(storage=storage, extractor=extractor, deduplicator=deduplicator)
-memories = engine.process(messages, user_id, agent_id)
+request = GenerationRequest(context_messages=messages)
+memories = engine.process(request)
 ```
 
 ---

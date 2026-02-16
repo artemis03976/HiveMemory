@@ -61,6 +61,9 @@ def __getattr__(name: str):
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
+    if name == "WorkerAgentService":
+        from hivememory.patchouli.worker_agent import WorkerAgentService
+        return WorkerAgentService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -68,6 +71,7 @@ __all__ = [
     # 统一入口 (懒加载)
     "PatchouliKernel",
     "PatchouliSystem",
+    "WorkerAgentService",
     # 三位一体
     "TheEye",
     "RetrievalFamiliar",

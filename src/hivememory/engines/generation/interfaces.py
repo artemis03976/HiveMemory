@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 
 from hivememory.core.models import MemoryAtom, StreamMessage
-from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
+from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft, MergeResult
 
 
 # ========== 接口定义 ==========
@@ -63,6 +63,31 @@ class BaseMemoryExtractor(ABC):
             "Python 日期解析方法"
         """
         pass
+
+    def merge(
+        self,
+        old_content: str,
+        metadata: Dict[str, Any],
+    ) -> Optional["MergeResult"]:
+        """
+        执行记忆合并 (Mode C: UPDATE)
+
+        调用 LLM 将旧内容与修改指令合并，生成新内容和变更日志。
+        默认实现返回 None (NoOp)，子类可覆盖。
+
+        Args:
+            old_content: 目标记忆的当前内容
+            metadata: 元信息，包含:
+                - instruction: 修改指令
+                - new_content: 新素材 (可能为空)
+                - memory_title: 目标记忆标题
+                - memory_alias: 目标记忆别名
+                - transcript: 近期对话上下文
+
+        Returns:
+            MergeResult: 合并结果，失败时返回 None
+        """
+        return None
 
 
 class BaseDeduplicator(ABC):

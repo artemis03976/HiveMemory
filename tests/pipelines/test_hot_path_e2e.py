@@ -66,6 +66,8 @@ for logger_name, level in _log_levels_to_disable.items():
 # ========== 其他导入 ==========
 
 import pytest
+
+pytestmark = pytest.mark.e2e
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table

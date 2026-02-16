@@ -100,7 +100,8 @@ pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=src/hivememory --cov-report=term-missing -m 'not live_llm'"
+addopts = "-v --cov=src/hivememory --cov-report=term-missing -m 'not live_llm and not e2e'"
 markers = [
     "live_llm: tests that require a real LLM API (set MTP_TEST_MODEL and MTP_TEST_API_KEY env vars)",
+    "e2e: end-to-end scenario tests that require real external services (LLM API, Qdrant, embedding models)",
 ]
