@@ -22,7 +22,7 @@ import time
 from typing import List, Optional, Dict, Any, Callable
 from hivememory.core.models import Identity, StreamMessage, StreamMessageType
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
-from hivememory.engines.perception.models import SimpleBuffer, FlushReason
+from hivememory.engines.perception.models import SimpleBuffer, FlushReason, InteractionPayload
 from hivememory.engines.perception.buffer_manager import SimpleBufferManager
 from hivememory.patchouli.config import SimplePerceptionConfig
 from hivememory.engines.perception.trigger_strategies import (
@@ -114,6 +114,8 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         buffer: SimpleBuffer,
         buffer_key: str,
         reason: FlushReason,
+        write_focus=None,
+        update_focus=None,
     ) -> List[StreamMessage]:
         """
         执行 Flush
@@ -122,6 +124,8 @@ class SimplePerceptionLayer(BasePerceptionLayer):
             buffer: SimpleBuffer 实例
             buffer_key: Buffer 唯一键
             reason: Flush 原因
+            write_focus: WRITE 指令控制信号 (仅 MTP_WRITE 时传入)
+            update_focus: UPDATE 指令控制信号 (仅 MTP_UPDATE 时传入)
 
         Returns:
             List[StreamMessage]: Flush 的消息列表
@@ -140,7 +144,11 @@ class SimplePerceptionLayer(BasePerceptionLayer):
         # 调用回调
         if self.on_flush_callback:
             try:
-                self.on_flush_callback(messages_to_process, reason)
+                self.on_flush_callback(
+                    messages_to_process, reason,
+                    write_focus=write_focus,
+                    update_focus=update_focus,
+                )
             except Exception as e:
                 logger.error(f"Flush 回调执行失败: {e}", exc_info=True)
 
@@ -148,58 +156,59 @@ class SimplePerceptionLayer(BasePerceptionLayer):
 
     # ========== BasePerceptionLayer 接口实现 ==========
 
-    def perceive(
-        self,
-        role: str,
-        content: str,
-        identity: Identity,
-        rewritten_query: Optional[str] = None,
-        gateway_intent: Optional[str] = None,
-        worth_saving: Optional[bool] = None,
-    ) -> None:
+    def ingest_payload(self, payload: InteractionPayload) -> None:
         """
-        添加消息到感知层
+        摄入 Kernel 递归循环的完整交互载荷
 
-        处理流程（匹配 SemanticFlowPerceptionLayer）：
-            1. 创建消息并添加到 Buffer
-            2. 检查触发条件
-            3. 如果触发，执行 Flush
+        处理流程:
+            1. MTPLogParser 清洗 assistant 文本
+            2. 将 user + clean assistant 添加到 buffer
+            3. 信号检查: 携带 write_focus/update_focus → 立即 flush
+            4. 否则走常规触发检查
 
         Args:
-            role: 角色 (user/assistant/system)
-            content: 消息内容
-            identity: 身份标识对象
-            rewritten_query: Gateway 重写后的查询（可选）
-            gateway_intent: Gateway 意图分类结果（可选）
-            worth_saving: Gateway 价值判断（可选）
+            payload: Kernel → Perception 的原子传输包
         """
-        buffer_key = identity.buffer_key
+        from hivememory.patchouli.protocol.mtp_log_parser import MTPLogParser
 
-        # 1. 创建消息
-        try:
-            msg_type = StreamMessageType(role)
-        except ValueError:
-            msg_type = StreamMessageType.ASSISTANT
-        
-        message = StreamMessage(
-            message_type=msg_type,
-            content=content,
-            identity=Identity(
-                user_id=identity.user_id,
-                agent_id=identity.agent_id,
-                session_id=identity.session_id or buffer_key.split(":")[-1]
-            )
+        clean_text, _ = MTPLogParser.parse(payload.assistant_message)
+        buffer_key = payload.identity.buffer_key
+
+        # 添加 user message
+        user_msg = StreamMessage(
+            message_type=StreamMessageType.USER,
+            content=payload.user_message,
+            identity=payload.identity,
         )
-        
-        # 2. 添加到 Buffer (通过 Manager)
-        self._buffer_manager.add_message(identity, message)
+        self._buffer_manager.add_message(payload.identity, user_msg)
 
-        logger.debug(f"添加消息: {role} - {content[:50]}...")
+        # 添加 clean assistant message
+        assistant_msg = StreamMessage(
+            message_type=StreamMessageType.ASSISTANT,
+            content=clean_text,
+            identity=payload.identity,
+        )
+        self._buffer_manager.add_message(payload.identity, assistant_msg)
 
-        # 3. 检查触发条件
-        # 获取 buffer 对象用于检查
-        buffer = self._buffer_manager.get_buffer(identity)
-        self._check_and_flush(buffer, buffer_key)
+        # 信号检查: WRITE/UPDATE → 立即 flush
+        if payload.write_focus is not None or payload.update_focus is not None:
+            reason = (
+                FlushReason.MTP_WRITE if payload.write_focus is not None
+                else FlushReason.MTP_UPDATE
+            )
+            buffer = self._buffer_manager.get_buffer(payload.identity)
+            if buffer:
+                self._flush(
+                    buffer, buffer_key, reason,
+                    write_focus=payload.write_focus,
+                    update_focus=payload.update_focus,
+                )
+            return
+
+        # 常规触发检查
+        buffer = self._buffer_manager.get_buffer(payload.identity)
+        if buffer:
+            self._check_and_flush(buffer, buffer_key)
 
     def flush_buffer(
         self,

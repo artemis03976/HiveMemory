@@ -74,9 +74,8 @@ sys.path.insert(0, str(project_root / "src"))
 from hivememory.core.models import Identity
 
 # 感知层组件
-from hivememory.engines.perception.models import FlushReason, FlushEvent
+from hivememory.engines.perception.models import FlushReason, FlushEvent, InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
-from hivememory.engines.perception.stream_parser import UnifiedStreamParser
 from hivememory.engines.perception.relay_controller import RelayController
 from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber, create_adsorber
 
@@ -167,10 +166,7 @@ def setup_test_env(max_tokens: int = 2048) -> SemanticFlowPerceptionLayer:
         enable_smart_summary=False,
     )
 
-    # 5. 创建 Parser
-    parser = UnifiedStreamParser()
-
-    # 6. 创建 FlushRecorder
+    # 5. 创建 FlushRecorder
     _shared_flush_recorder = FlushRecorder()
 
     # 7. 创建 SemanticFlowPerceptionLayer 配置
@@ -184,7 +180,6 @@ def setup_test_env(max_tokens: int = 2048) -> SemanticFlowPerceptionLayer:
     # 8. 创建 SemanticFlowPerceptionLayer
     _shared_perception = SemanticFlowPerceptionLayer(
         config=perception_config,
-        parser=parser,
         adsorber=adsorber,
         relay_controller=relay_controller,
         on_flush_callback=_shared_flush_recorder,
@@ -234,6 +229,10 @@ def reset_test_env() -> None:
 
 # ========== 辅助函数 ==========
 
+# 缓存 user 消息，等 assistant 到达后配对提交
+_pending_user_messages: dict = {}
+
+
 def add_message_to_perception(
     perception: SemanticFlowPerceptionLayer,
     role: str,
@@ -244,6 +243,9 @@ def add_message_to_perception(
     """
     向 Perception Layer 添加消息
 
+    缓存 user 消息，当 assistant 消息到达时配对为
+    InteractionPayload 并调用 ingest_payload()。
+
     Args:
         perception: SemanticFlowPerceptionLayer 实例
         role: 消息角色 (user/assistant/system/tool)
@@ -251,12 +253,23 @@ def add_message_to_perception(
         identity: 身份标识
         rewritten_query: 重写后的查询（可选）
     """
-    perception.perceive(
-        role=role,
-        content=content,
-        identity=identity,
-        rewritten_query=rewritten_query,
-    )
+    key = identity.buffer_key
+    if role == "user":
+        _pending_user_messages[key] = {
+            "content": content,
+            "rewritten_query": rewritten_query,
+        }
+    elif role == "assistant":
+        pending = _pending_user_messages.pop(key, None)
+        user_msg = pending["content"] if pending else ""
+        rq = pending.get("rewritten_query") if pending else None
+        payload = InteractionPayload(
+            user_message=user_msg,
+            assistant_message=content,
+            identity=identity,
+            rewritten_query=rq,
+        )
+        perception.ingest_payload(payload)
 
 
 # ========== Group 1: 语义吸附测试 (similarity >= 0.75) ==========

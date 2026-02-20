@@ -125,5 +125,5 @@ class InteractionPayload:
 
 通过本次重构，我们实现了：
 1.  **数据完整性**：确保 `WRITE/UPDATE` 指令触发时，Agent 的完整上下文（包括为何要 Write 的前言后语）都被正确捕获。
-2.  **关注点分离**：Kernel 负责执行，Perception 负责清洗，Librarian 负责归档。
+2.  **关注点分离**：Koakuma (Kernel) 负责执行，Librarian.Perception 负责清洗，Librarian.Generation 负责归档。
 3.  **系统鲁棒性**：统一了普通对话与指令对话的处理管道，消除了竞态条件。

@@ -279,7 +279,6 @@ class TestWriteScenario:
             alias="fact_api_key",
         )
         mock_librarian = MagicMock()
-        mock_librarian.handle_write_signal.return_value = [saved_mem]
 
         koakuma = KoakumaRuntime(
             retrieval_familiar=MagicMock(),
@@ -311,22 +310,6 @@ class TestWriteScenario:
         assert first_mtp["mtp_result"] is not None
         assert first_mtp["mtp_result"]["success"] is True
 
-    def test_write_calls_librarian(
-        self, llm_service, full_system_prompt, write_koakuma,
-    ):
-        """WRITE 应调用 LibrarianCore.handle_write_signal"""
-        runner = MTPLoopRunner(llm_service, write_koakuma, max_rounds=3)
-        runner.run(
-            system_prompt=full_system_prompt,
-            user_message="Please save this note: always use UTC for timestamps.",
-        )
-
-        mock_librarian = write_koakuma._librarian
-        if mock_librarian.handle_write_signal.called:
-            call_args = mock_librarian.handle_write_signal.call_args[0][0]
-            assert call_args.content, "WriteFocus.content should not be empty"
-            logger.info(f"  ✓ handle_write_signal called with content: '{call_args.content[:80]}'")
-
 
 # ========== Test 4: UPDATE Scenario ==========
 
@@ -343,7 +326,6 @@ class TestUpdateScenario:
             alias="fact_dev_port",
         )
         mock_librarian = MagicMock()
-        mock_librarian.handle_update_signal.return_value = [updated_mem]
 
         mock_retrieval = MagicMock()
         mock_retrieval.retrieve.return_value = _make_retrieval_response([updated_mem])
@@ -382,25 +364,6 @@ class TestUpdateScenario:
             f"Expected UPDATE to be triggered. Log: {runner.round_log}"
         )
 
-    def test_update_calls_librarian(
-        self, llm_service, full_system_prompt, update_koakuma,
-    ):
-        """UPDATE 应调用 LibrarianCore.handle_update_signal"""
-        runner = MTPLoopRunner(llm_service, update_koakuma, max_rounds=4)
-        runner.run(
-            system_prompt=full_system_prompt,
-            user_message=(
-                "Please update the memory fact_dev_port: "
-                "change the port from 8080 to 9090."
-            ),
-        )
-
-        mock_librarian = update_koakuma._librarian
-        if mock_librarian.handle_update_signal.called:
-            call_args = mock_librarian.handle_update_signal.call_args[0][0]
-            assert call_args.instruction, "UpdateFocus.instruction should not be empty"
-            logger.info(f"  ✓ handle_update_signal called with instruction: '{call_args.instruction[:80]}'")
-
 
 # ========== Test 5: Multi-Verb Scenario ==========
 
@@ -423,8 +386,6 @@ class TestMultiVerbScenario:
         mock_storage.get_memory.return_value = mem
 
         mock_librarian = MagicMock()
-        mock_librarian.handle_write_signal.return_value = [mem]
-        mock_librarian.handle_update_signal.return_value = [mem]
 
         koakuma = KoakumaRuntime(
             retrieval_familiar=mock_retrieval,

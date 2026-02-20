@@ -16,6 +16,7 @@ from typing import List, Optional, Any, Dict, Callable, TYPE_CHECKING
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import (
     FlushReason,
+    InteractionPayload,
 )
 
 if TYPE_CHECKING:
@@ -344,30 +345,21 @@ class BasePerceptionLayer(ABC):
         """
         return self._idle_monitor_running
 
-    # ========== 抽象接口 ==========
+    # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
     @abstractmethod
-    def perceive(
-        self,
-        role: str,
-        content: str,
-        identity: Identity,
-        rewritten_query: Optional[str] = None,
-        gateway_intent: Optional[str] = None,
-        worth_saving: Optional[bool] = None,
-    ) -> None:
+    def ingest_payload(self, payload: InteractionPayload) -> None:
         """
-        添加消息到感知层
+        摄入 Kernel 递归循环的完整交互载荷
+
+        感知层唯一合法入口。子类必须实现此方法。
 
         Args:
-            role: 角色 (user/assistant/system)
-            content: 消息内容
-            identity: 身份标识对象
-            rewritten_query: Gateway 重写后的查询（可选）
-            gateway_intent: Gateway 意图分类结果（可选）
-            worth_saving: Gateway 价值判断（可选）
+            payload: Kernel → Perception 的原子传输包
         """
         pass
+
+    # ========== 抽象接口 ==========
 
     @abstractmethod
     def flush_buffer(

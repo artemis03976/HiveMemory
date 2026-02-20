@@ -53,6 +53,7 @@ from hivememory.patchouli.protocol.models import (
 from hivememory.core.models import MemoryType, Identity
 from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.engines.generation.models import WriteFocus, UpdateFocus
+from hivememory.engines.perception.models import TraceItem
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
 if TYPE_CHECKING:
@@ -146,6 +147,31 @@ class KoakumaRuntime:
         # self._user_tool_cache = LRUCache(maxsize=self._config.tool_cache_size)
 
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
+
+        # ========== 交互状态 (v3.0 延迟捕获) ==========
+        self._current_traces: List[TraceItem] = []
+        self._current_write_focus: Optional[WriteFocus] = None
+        self._current_update_focus: Optional[UpdateFocus] = None
+
+    # ========== 交互状态管理 (v3.0) ==========
+
+    def reset_interaction_state(self) -> None:
+        """每轮递归循环前重置交互状态"""
+        self._current_traces = []
+        self._current_write_focus = None
+        self._current_update_focus = None
+
+    def get_interaction_traces(self) -> List[TraceItem]:
+        """获取当前轮次记录的 TraceItem 列表"""
+        return self._current_traces.copy()
+
+    def get_write_focus(self) -> Optional[WriteFocus]:
+        """获取延迟捕获的 WriteFocus (如果有)"""
+        return self._current_write_focus
+
+    def get_update_focus(self) -> Optional[UpdateFocus]:
+        """获取延迟捕获的 UpdateFocus (如果有)"""
+        return self._current_update_focus
 
     # ========== 公开 API ==========
 
@@ -444,6 +470,11 @@ class KoakumaRuntime:
                     alias, str(mem.id)
                 )
 
+            # 记录 TraceItem
+            self._current_traces.append(TraceItem(
+                action="SEARCH", query=query,
+            ))
+
             return MTPResponse(
                 status=MTPResponseStatus.SUCCESS,
                 content=menu,
@@ -518,6 +549,12 @@ class KoakumaRuntime:
                 f"Did you mean to use SEARCH?"
             )
 
+        # 记录 TraceItem (折叠: 仅记录查阅动作和目标)
+        for alias, _ in resolved:
+            self._current_traces.append(TraceItem(
+                action="READ", target=alias,
+            ))
+
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="\n".join(output_lines),
@@ -552,6 +589,10 @@ class KoakumaRuntime:
         if syscall is not None:
             try:
                 result = syscall.handler(command.args)
+                # 记录 TraceItem (摘要: 记录副作用操作及状态)
+                self._current_traces.append(TraceItem(
+                    action="RUN", tool=alias, status="success",
+                ))
                 return MTPResponse(
                     status=MTPResponseStatus.SUCCESS,
                     content=result,
@@ -560,6 +601,9 @@ class KoakumaRuntime:
                 logger.error(
                     f"Kernel syscall '{alias}' failed: {e}", exc_info=True
                 )
+                self._current_traces.append(TraceItem(
+                    action="RUN", tool=alias, status="error",
+                ))
                 return MTPResponse(
                     status=MTPResponseStatus.ERROR,
                     content=f"Tool '{alias}' execution failed: {str(e)}",
@@ -579,8 +623,10 @@ class KoakumaRuntime:
         """
         处理 WRITE 指令 (Section 2.2 + 附录B)
 
-        将 WRITE 内容打包为 WriteFocus，发送给 LibrarianCore 处理。
-        Koakuma 不直接操作 DB，由 LibrarianCore 负责 flush + Generation Engine (Mode B)。
+        v3.0 延迟捕获模式:
+        将 WRITE 内容打包为 WriteFocus 并暂存到 _current_write_focus，
+        实际记忆生成延迟到 InteractionPayload 提交时执行。
+        ACK 响应文案保持不变，对 Agent 完全透明。
 
         Type B 动作类响应 (Section 3.3.3)
 
@@ -588,7 +634,7 @@ class KoakumaRuntime:
             command: WRITE 指令 (target=*, args: content=`...`, reason="...", title="...")
 
         Returns:
-            MTPResponse: ACK 确认 (含生成的 memory_ids)
+            MTPResponse: ACK 确认
         """
         content = command.args.get("content", "")
         if not content:
@@ -600,7 +646,7 @@ class KoakumaRuntime:
         reason = command.args.get("reason", "")
         title = command.args.get("title", "")
 
-        # 构建 WriteFocus 并发送给 LibrarianCore
+        # 构建 WriteFocus 并延迟捕获 (不再直接调用 Librarian)
         write_focus = WriteFocus(
             content=content,
             reason=reason or None,
@@ -608,34 +654,25 @@ class KoakumaRuntime:
             identity=Identity(user_id=self._current_user_id),
         )
 
-        logger.info(f"MTP WRITE 信号: content='{content[:50]}...', reason='{reason}'")
+        self._current_write_focus = write_focus
 
-        try:
-            atoms = self._librarian.handle_write_signal(write_focus)
-            memory_ids = [str(a.id) for a in atoms]
+        logger.info(
+            f"MTP WRITE 延迟捕获: content='{content[:50]}...', reason='{reason}'"
+        )
 
-            return MTPResponse(
-                status=MTPResponseStatus.ACK,
-                content=f'Memory saved. {len(atoms)} atom(s) created.',
-                data={"memory_ids": memory_ids},
-            )
-        except Exception as e:
-            logger.error(f"WRITE 处理失败: {e}", exc_info=True)
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f'WRITE failed: {str(e)}',
-            )
+        return MTPResponse(
+            status=MTPResponseStatus.ACK,
+            content='Memory saved.',
+        )
 
     def _handle_update(self, command: MTPCommand) -> MTPResponse:
         """
         处理 UPDATE 指令 (附录 C)
 
-        流程:
-            1. 校验 alias (必须存在)
-            2. 校验 instruction (必填)
-            3. 解析 alias → UUID
-            4. 构建 UpdateFocus
-            5. 调用 LibrarianCore.handle_update_signal()
+        v3.0 延迟捕获模式:
+        将 UPDATE 意图打包为 UpdateFocus 并暂存到 _current_update_focus，
+        实际记忆更新延迟到 InteractionPayload 提交时执行。
+        ACK 响应文案保持不变，对 Agent 完全透明。
 
         Type B 动作类响应 (Section 3.3.3)
 
@@ -673,7 +710,7 @@ class KoakumaRuntime:
         # 4. 获取可选的 content
         content = command.args.get("content", None)
 
-        # 5. 构建 UpdateFocus
+        # 5. 构建 UpdateFocus 并延迟捕获 (不再直接调用 Librarian)
         update_focus = UpdateFocus(
             instruction=instruction,
             content=content if content else None,
@@ -682,27 +719,16 @@ class KoakumaRuntime:
             identity=Identity(user_id=self._current_user_id),
         )
 
-        # 6. 调用 LibrarianCore
-        try:
-            atoms = self._librarian.handle_update_signal(update_focus)
-            memory_ids = [str(a.id) for a in atoms]
+        self._current_update_focus = update_focus
 
-            logger.info(
-                f"MTP UPDATE 完成: alias='{alias}', "
-                f"生成 {len(atoms)} 条记忆"
-            )
+        logger.info(
+            f"MTP UPDATE 延迟捕获: alias='{alias}', instruction='{instruction[:50]}'"
+        )
 
-            return MTPResponse(
-                status=MTPResponseStatus.ACK,
-                content=f"Memory '{alias}' updated successfully.",
-                data={"memory_ids": memory_ids},
-            )
-        except Exception as e:
-            logger.error(f"UPDATE 处理失败: {e}", exc_info=True)
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f'UPDATE failed: {str(e)}',
-            )
+        return MTPResponse(
+            status=MTPResponseStatus.ACK,
+            content=f"Memory '{alias}' updated successfully.",
+        )
 
     # ========== 辅助方法 ==========
 

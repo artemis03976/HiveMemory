@@ -79,7 +79,7 @@ from hivememory.engines.perception.models import FlushReason
 
 # 协议消息
 from hivememory.patchouli.protocol.models import (
-    Observation, RetrievalRequest, RetrievalResponse,
+    RetrievalRequest, RetrievalResponse,
     EyeGazeResult,
 )
 
@@ -147,9 +147,9 @@ def assert_gateway_keywords_any(
     assert len(matched) > 0, f"应提取出关键词 {expected} 中的至少一个，实际提取: {extracted}"
 
 
-def assert_rewritten_contains(observation: Observation, keywords: List[str]) -> None:
+def assert_rewritten_contains(gaze_result: EyeGazeResult, keywords: List[str]) -> None:
     """断言重写查询包含关键词"""
-    rewritten = observation.anchor or ""
+    rewritten = gaze_result.rewritten_query or ""
     for kw in keywords:
         assert kw in rewritten, f"重写查询应包含 '{kw}'，实际: {rewritten}"
 
@@ -412,6 +412,7 @@ class SystemScenarioTestSystem:
 
         # 处理交互序列
         context: List[StreamMessage] = []
+        pending_user = None
         for interaction in session["input"]["interactions"]:
             role = interaction["role"]
             content = interaction["content"]
@@ -422,20 +423,25 @@ class SystemScenarioTestSystem:
                     context=context,
                     identity=identity,
                 )
-                # Build Observation from EyeGazeResult for LibrarianCore
-                observation = Observation(
-                    anchor=gaze_result.rewritten_query,
-                    raw_message=gaze_result.raw_query,
-                    role="user",
-                    identity=gaze_result.identity,
-                    worth_saving=gaze_result.worth_saving,
-                )
-                self.librarian_core.perceive(observation)
+                pending_user = {
+                    "content": content,
+                    "rewritten_query": gaze_result.rewritten_query,
+                    "worth_saving": gaze_result.worth_saving,
+                }
                 context.append(StreamMessage(message_type=StreamMessageType.USER, content=content))
 
             elif role == "assistant":
-                observation = Observation(role="assistant", raw_message=content, identity=identity)
-                self.librarian_core.perceive(observation)
+                from hivememory.engines.perception.models import InteractionPayload
+                user_msg = pending_user["content"] if pending_user else ""
+                payload = InteractionPayload(
+                    user_message=user_msg,
+                    assistant_message=content,
+                    identity=identity,
+                    rewritten_query=pending_user.get("rewritten_query") if pending_user else None,
+                    worth_saving=pending_user.get("worth_saving") if pending_user else None,
+                )
+                self.librarian_core.ingest_interaction(payload)
+                pending_user = None
                 context.append(StreamMessage(message_type=StreamMessageType.ASSISTANT, content=content))
 
         # 触发 Flush
@@ -492,18 +498,9 @@ class SystemScenarioTestSystem:
             identity=identity,
         )
 
-        # 构建 Observation 用于打印和返回
-        observation = Observation(
-            anchor=gaze_result.rewritten_query,
-            raw_message=gaze_result.raw_query,
-            role="user",
-            identity=gaze_result.identity,
-            worth_saving=gaze_result.worth_saving,
-        )
-
         # 打印中间信号
         if self.print_signals:
-            self._print_gateway_signals(observation, query)
+            self._print_gateway_signals(gaze_result, query)
 
         # 执行 Retrieval
         retrieval_response = None
@@ -522,15 +519,14 @@ class SystemScenarioTestSystem:
             "session_id": session["session_id"],
             "identity": identity,
             "query": query,
-            "observation": observation,
             "gaze_result": gaze_result,
             "retrieval_request": retrieval_request,
             "retrieval_response": retrieval_response,
         }
 
-    def _print_gateway_signals(self, observation: Observation, raw_query: str) -> None:
+    def _print_gateway_signals(self, gaze_result: EyeGazeResult, raw_query: str) -> None:
         """打印 Gateway 中间信号"""
-        rewritten = observation.anchor or "(无重写)"
+        rewritten = gaze_result.rewritten_query or "(无重写)"
 
         console.print(Panel(
             f"[cyan]原始查询:[/cyan] {raw_query[:60]}...\n"

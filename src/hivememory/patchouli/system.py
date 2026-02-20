@@ -25,17 +25,18 @@
 """
 
 import logging
-import threading
 from typing import List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
-from hivememory.patchouli.protocol.models import ChatResult, Observation
+from hivememory.engines.perception.models import InteractionPayload
+from hivememory.patchouli.protocol.models import ChatResult
 
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.worker_agent import WorkerAgentService
 
 logger = logging.getLogger(__name__)
@@ -146,12 +147,17 @@ class PatchouliSystem:
         return self.kernel.librarian_core
 
     @property
+    def koakuma(self) -> KoakumaRuntime:
+        """访问小恶魔 MTP 运行时服务"""
+        return self.kernel.koakuma
+
+    @property
     def storage(self):
         """访问存储层（代理到 Kernel）"""
         return self.kernel.storage
 
     # ========== 被动消息流处理 API ==========
-
+    # TODO: 重置被动观测模式，统一收集数据流为InteractionPayload
     def ingest(
         self,
         role: str,
@@ -210,15 +216,14 @@ class PatchouliSystem:
                 "memory": hot_result.memory,
             }
         else:
-            # Non-user 消息: 直接异步投递感知层
-            observation = Observation(
-                role=role,
-                raw_message=content,
+            # Non-user 消息: 构建最小 InteractionPayload 异步提交
+            payload = InteractionPayload(
+                user_message="",
+                assistant_message=content,
+                mtp_traces=[],
                 identity=identity,
             )
-            threading.Thread(
-                target=self._safe_perceive, args=(observation,), daemon=True
-            ).start()
+            self.kernel.submit_interaction(payload)
 
             return {
                 "intent": "record_only",
@@ -227,26 +232,6 @@ class PatchouliSystem:
                 "worth_saving": True,
                 "memory": None,
             }
-
-    def process_interaction(
-        self,
-        role: str,
-        content: str,
-        user_id: str,
-        agent_id: str = "default",
-        session_id: Optional[str] = None,
-        context: Optional[List[StreamMessage]] = None,
-    ) -> Dict[str, Any]:
-        """
-        [向后兼容] 统一交互入口，委托给 ingest()。
-
-        .. deprecated::
-            请使用 ingest() 代替。
-        """
-        return self.ingest(
-            role=role, content=content, user_id=user_id,
-            agent_id=agent_id, session_id=session_id, context=context,
-        )
 
     # ========== Kernel 驱动的对话 API ==========
 
@@ -309,16 +294,33 @@ class PatchouliSystem:
         # 4. 递归生成循环
         loop_result = self._recursive_generation_loop(messages, user_id)
 
-        # 5. 异步记录 assistant 回复到感知层
-        threading.Thread(
-            target=self._safe_perceive,
-            args=(Observation(
-                role="assistant",
-                raw_message=loop_result.final_text,
-                identity=identity,
-            ),),
-            daemon=True,
-        ).start()
+        # 5. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
+        raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
+
+        # Koakuma 离线 fallback: 降级为空 traces / None focus
+        try:
+            mtp_traces = self.kernel.koakuma.get_interaction_traces()
+            write_focus = self.kernel.koakuma.get_write_focus()
+            update_focus = self.kernel.koakuma.get_update_focus()
+        except Exception as e:
+            logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
+            mtp_traces = []
+            write_focus = None
+            update_focus = None
+
+        payload = InteractionPayload(
+            user_message=user_message,
+            assistant_message=raw_assistant_text,
+            mtp_traces=mtp_traces,
+            write_focus=write_focus,
+            update_focus=update_focus,
+            identity=identity,
+            rewritten_query=hot_result.rewritten,
+            worth_saving=hot_result.worth_saving,
+        )
+
+        # 统一异步提交: 感知层内部处理 URGENT 信号的即时 flush
+        self.kernel.submit_interaction(payload)
 
         return loop_result
 
@@ -350,6 +352,7 @@ class PatchouliSystem:
         iteration = 0
 
         self.kernel.koakuma.set_current_user(user_id)
+        self.kernel.koakuma.reset_interaction_state()
 
         while iteration < max_iter:
             iteration += 1
@@ -411,12 +414,36 @@ class PatchouliSystem:
         """获取 MTP System Prompt 片段（委托给 Kernel）"""
         return self.kernel.get_mtp_prompt()
 
-    def _safe_perceive(self, observation: Observation) -> None:
-        """线程安全的感知层投递 (用于 fire-and-forget 场景)"""
-        try:
-            self.kernel.handle_cold(observation)
-        except Exception as e:
-            logger.warning(f"Async perception failed: {e}")
+    @staticmethod
+    def _reconstruct_raw_assistant_text(
+        messages: List[Dict[str, str]],
+        loop_result: ChatResult,
+    ) -> str:
+        """
+        从 messages 历史中重建完整的 assistant 文本 (含 MTP 噪音)
+
+        递归循环中每次 MTP 中断都会追加一条 fake assistant message 到 messages，
+        包含 MTP 指令 + XML 响应。最终的 final_text 是纯净文本。
+        此方法将所有 assistant 片段拼接为完整的原始文本。
+
+        Args:
+            messages: 递归循环结束后的完整消息列表
+            loop_result: 循环结果
+
+        Returns:
+            str: 包含 MTP 指令和 XML 响应的完整原始 assistant 文本
+        """
+        # 收集循环中追加的所有 assistant messages
+        assistant_parts = []
+        for msg in messages:
+            if msg.get("role") == "assistant":
+                assistant_parts.append(msg["content"])
+
+        if assistant_parts:
+            return "\n".join(assistant_parts)
+
+        # Fallback: 如果没有 assistant messages (不应发生)，使用 final_text
+        return loop_result.final_text
 
 
 __all__ = [

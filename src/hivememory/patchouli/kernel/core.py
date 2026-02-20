@@ -26,17 +26,17 @@
 版本: 3.0
 """
 
+import asyncio
 import logging
-import threading
 from typing import Any, Dict, List, Optional
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.engines.perception.models import InteractionPayload
 from hivememory.patchouli.protocol.models import (
     EyeGazeResult,
     KernelHotResult,
     MTPExecutionResult,
-    Observation,
     RetrievalRequest,
     RetrievalResponse,
 )
@@ -329,12 +329,7 @@ class PatchouliKernel:
         enable_retrieval: bool = True,
     ) -> KernelHotResult:
         """
-        处理 Eye 传入的热路径请求
-
-        统一的预生成管线：异步感知投递 + 可选检索。
-        供 PatchouliSystem.chat() 和 ingest() 复用。
-
-        感知投递通过 daemon 线程异步执行，不阻塞后续检索与生成流程。
+        处理 Eye 传入的热路径预检索请求
 
         Args:
             gaze_result: TheEye 的统一输出
@@ -343,13 +338,7 @@ class PatchouliKernel:
         Returns:
             KernelHotResult: 热路径处理结果
         """
-        # 1. 构建 Observation 并异步投递给 Librarian（冷路径感知，不阻塞热路径）
-        observation = self.build_observation(gaze_result)
-        threading.Thread(
-            target=self._safe_perceive, args=(observation,), daemon=True
-        ).start()
-
-        # 2. 构建 RetrievalRequest 并调度 Retrieval（热路径）
+        # 构建 RetrievalRequest 并调度 Retrieval（热路径）
         retrieved_context = None
         if enable_retrieval:
             retrieval_request = self.build_retrieval_request(gaze_result)
@@ -367,25 +356,6 @@ class PatchouliKernel:
             worth_saving=gaze_result.worth_saving,
             memory=retrieved_context,
         )
-
-    def handle_cold(
-        self,
-        observation: Observation,
-    ) -> None:
-        """
-        处理冷路径：直接投递给 Librarian
-
-        Args:
-            observation: 感知信号
-        """
-        self.librarian_core.perceive(observation)
-
-    def _safe_perceive(self, observation: Observation) -> None:
-        """线程安全的感知层投递 (用于 handle_hot 异步 fire-and-forget)"""
-        try:
-            self.librarian_core.perceive(observation)
-        except Exception as e:
-            logger.warning(f"Async perception failed: {e}")
 
     def handle_mtp(
         self,
@@ -409,6 +379,25 @@ class PatchouliKernel:
             MTPExecutionResult 如果检测到 MTP 指令，否则 None
         """
         return self.koakuma.intercept_and_execute(assistant_text)
+
+    def submit_interaction(self, payload: InteractionPayload) -> None:
+        """
+        异步提交交互载荷到 Librarian (fire-and-forget)
+
+        Kernel 作为 orchestrator 管理后台任务生命周期，
+        调用方无需关心 asyncio 细节。
+
+        Args:
+            payload: Kernel → Perception 的原子传输包
+        """
+        asyncio.create_task(self._submit_interaction_task(payload))
+
+    async def _submit_interaction_task(self, payload: InteractionPayload) -> None:
+        """后台任务: 提交到 Librarian，错误不传播"""
+        try:
+            self.librarian_core.ingest_interaction(payload)
+        except Exception as e:
+            logger.warning(f"Background interaction submission failed: {e}")
 
     def get_mtp_prompt(self) -> str:
         """
@@ -444,27 +433,7 @@ class PatchouliKernel:
         )
         return builder.build()
 
-    # ========== 数据格式转换（Eye → 微服务） ==========
-
-    def build_observation(self, gaze_result: EyeGazeResult) -> Observation:
-        """
-        从 EyeGazeResult 构建 Observation 协议消息
-
-        数据格式转换：Eye 输出 → Librarian 输入
-
-        Args:
-            gaze_result: TheEye 的统一输出
-
-        Returns:
-            Observation: 感知信号协议消息
-        """
-        return Observation(
-            anchor=gaze_result.rewritten_query,
-            raw_message=gaze_result.raw_query,
-            role="user",
-            identity=gaze_result.identity,
-            worth_saving=gaze_result.worth_saving,
-        )
+    # ========== 数据格式转换 ==========
 
     def build_retrieval_request(
         self, gaze_result: EyeGazeResult
@@ -472,7 +441,7 @@ class PatchouliKernel:
         """
         从 EyeGazeResult 构建 RetrievalRequest 协议消息
 
-        乐观检索策略：只有 RAG 意图才构建检索请求。
+        只有 RAG 意图才构建检索请求。
 
         Args:
             gaze_result: TheEye 的统一输出
@@ -489,38 +458,12 @@ class PatchouliKernel:
             user_id=gaze_result.identity.user_id,
         )
 
-    def retrieve(
-        self,
-        query: str,
-        user_id: str,
-        **kwargs
-    ) -> str:
-        """
-        直接检索记忆（快捷入口）
-
-        Args:
-            query: 查询文本
-            user_id: 用户 ID
-            **kwargs: 其他检索参数
-
-        Returns:
-            str: 渲染后的记忆上下文
-        """
-        request = RetrievalRequest(
-            semantic_query=query,
-            user_id=user_id,
-            keywords=kwargs.get("keywords", []),
-        )
-
-        result = self.retrieval_familiar.retrieve(request)
-        return result.rendered_context if not result.is_empty() else ""
-
     def flush_buffer(
         self,
         identity: Identity,
     ) -> None:
         """
-        手动触发感知层 Flush
+        用户端手动触发感知层 Flush
 
         Args:
             identity: 身份标识对象

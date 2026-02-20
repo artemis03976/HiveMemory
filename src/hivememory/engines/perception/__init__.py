@@ -36,6 +36,8 @@ from hivememory.engines.perception.interfaces import (
     BaseArbiter,
 )
 from hivememory.engines.perception.models import (
+    TraceItem,
+    InteractionPayload,
     Triplet,
     LogicalBlock,
     BufferState,
@@ -49,7 +51,6 @@ from hivememory.engines.perception.trigger_strategies import (
     MessageCountTrigger,
     SemanticBoundaryTrigger,
 )
-from hivememory.engines.perception.stream_parser import UnifiedStreamParser
 from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber, create_adsorber
 from hivememory.engines.perception.relay_controller import RelayController
 from hivememory.engines.perception.block_builder import LogicalBlockBuilder
@@ -129,8 +130,6 @@ def create_perception_layer(
         return perception
 
     elif isinstance(impl_config, SemanticFlowPerceptionConfig):
-        parser = UnifiedStreamParser()
-
         adsorber = create_adsorber(
             config=impl_config.adsorber,
             embedding_service=embedding_service,
@@ -143,7 +142,6 @@ def create_perception_layer(
 
         perception = SemanticFlowPerceptionLayer(
             config=impl_config,
-            parser=parser,
             adsorber=adsorber,
             relay_controller=relay_controller,
             on_flush_callback=on_flush_callback,
@@ -172,6 +170,8 @@ __all__ = [
     "BaseArbiter",
     "BasePerceptionLayer",
     # 数据模型
+    "TraceItem",
+    "InteractionPayload",
     "Triplet",
     "LogicalBlock",
     "BufferState",
@@ -188,7 +188,7 @@ __all__ = [
     "SemanticBufferManager",
     "SimpleBufferManager",
     # 统一消息流分析
-    "UnifiedStreamParser",
+    # (UnifiedStreamParser 已移除，使用 MTPLogParser 替代)
     # 语义边界判定
     "SemanticBoundaryAdsorber",
     # 溢出接力控制

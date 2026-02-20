@@ -2,7 +2,6 @@
 感知引擎组件协作测试
 
 测试感知引擎内部各组件之间的协作：
-- StreamParser 与 LogicalBlock 的交互
 - SemanticBoundaryAdsorber 与 Buffer 的协作
 - TriggerManager 与 PerceptionLayer 的交互
 - SimplePerceptionLayer 的组件编排
@@ -10,8 +9,8 @@
 
 Note:
     v3.0 重构：
-    - should_create_new_block() 移至 LogicalBlockBuilder
-    - LogicalBlock 通过构造函数创建
+    - perceive() 已移除，统一使用 ingest_payload()
+    - UnifiedStreamParser 已移除，使用 MTPLogParser 替代
     - Adsorber.should_adsorb() 返回 Optional[FlushEvent]
     - Adsorber.compute_new_topic_kernel() 替代 update_topic_kernel()
 
@@ -37,7 +36,6 @@ from hivememory.core.models import (
 from hivememory.engines.perception import (
     SimplePerceptionLayer,
     SemanticFlowPerceptionLayer,
-    UnifiedStreamParser,
     SemanticBoundaryAdsorber,
     TriggerManager,
     MessageCountTrigger,
@@ -49,6 +47,7 @@ from hivememory.engines.perception.models import (
     LogicalBlock,
     SemanticBuffer,
     FlushReason,
+    InteractionPayload,
 )
 from hivememory.patchouli.config import (
     SimplePerceptionConfig,
@@ -57,32 +56,13 @@ from hivememory.patchouli.config import (
 )
 
 
-class TestParserAndBlockCollaboration:
-    """测试 StreamParser 与 LogicalBlock 的协作"""
-
-    def test_parser_creates_correct_message_types(self):
-        """测试解析器创建正确的消息类型"""
-        parser = UnifiedStreamParser()
-
-        # 测试不同格式的消息
-        user_msg = parser.parse_message({"role": "user", "content": "测试消息"})
-        assistant_msg = parser.parse_message({"role": "assistant", "content": "回复"})
-
-        assert user_msg is not None
-        assert assistant_msg is not None
-
-    def test_builder_identifies_block_boundaries(self):
-        """测试 Builder 识别 Block 边界"""
-        builder = LogicalBlockBuilder()
-
-        # USER 消息应该触发新 Block
-        user_msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="新问题"
-        )
-        should_create_block = builder.should_create_new_block(user_msg)
-
-        assert should_create_block is True
+def _make_payload(user_msg, assistant_msg, identity):
+    """辅助: 构建 InteractionPayload"""
+    return InteractionPayload(
+        user_message=user_msg,
+        assistant_message=assistant_msg,
+        identity=identity,
+    )
 
 
 class TestAdsorberAndBufferCollaboration:
@@ -90,7 +70,6 @@ class TestAdsorberAndBufferCollaboration:
 
     def test_adsorber_computes_buffer_kernel(self):
         """测试吸附器计算 Buffer 话题核心"""
-        # Mock Embedding Service
         mock_embedding = Mock()
         mock_embedding.encode.return_value = [0.1, 0.2, 0.3]
 
@@ -100,7 +79,6 @@ class TestAdsorberAndBufferCollaboration:
             identity=Identity(user_id="test_user", agent_id="test_agent", session_id="test_session"),
         )
 
-        # 创建初始 Block（通过构造函数）
         block = LogicalBlock(
             user_block=StreamMessage(
                 message_type=StreamMessageType.USER,
@@ -112,19 +90,16 @@ class TestAdsorberAndBufferCollaboration:
             )
         )
 
-        # 计算话题核心（纯函数，不修改 buffer）
         new_kernel = adsorber.compute_new_topic_kernel(buffer, block)
 
-        # 验证返回了新的话题核心向量
         assert new_kernel is not None
         assert len(new_kernel) == 3
 
     def test_adsorber_detects_topic_shift(self):
         """测试吸附器检测话题切换"""
-        # Mock Embedding Service
         mock_embedding = Mock()
         mock_embedding.encode.return_value = [0.1, 0.2, 0.3]
-        mock_embedding.compute_cosine_similarity.return_value = 0.1  # 低相似度
+        mock_embedding.compute_cosine_similarity.return_value = 0.1
 
         config = SemanticAdsorberConfig()
         adsorber = SemanticBoundaryAdsorber(config=config, embedding_service=mock_embedding)
@@ -132,38 +107,30 @@ class TestAdsorberAndBufferCollaboration:
             identity=Identity(user_id="test_user", agent_id="test_agent", session_id="test_session"),
         )
 
-        # 建立初始话题
         block1 = LogicalBlock(
             user_block=StreamMessage(
-                message_type=StreamMessageType.USER,
-                content="Python编程",
+                message_type=StreamMessageType.USER, content="Python编程",
             ),
             response_block=StreamMessage(
-                message_type=StreamMessageType.ASSISTANT,
-                content="Python教程",
+                message_type=StreamMessageType.ASSISTANT, content="Python教程",
             )
         )
 
         buffer.blocks.append(block1)
-        buffer.topic_kernel_vector = [0.9, 0.1, 0.0]  # 设置话题核心
+        buffer.topic_kernel_vector = [0.9, 0.1, 0.0]
 
-        # 创建不同话题的 Block
         block2 = LogicalBlock(
             user_block=StreamMessage(
-                message_type=StreamMessageType.USER,
-                content="红烧肉做法",
+                message_type=StreamMessageType.USER, content="红烧肉做法",
             ),
             response_block=StreamMessage(
-                message_type=StreamMessageType.ASSISTANT,
-                content="烹饪教程",
+                message_type=StreamMessageType.ASSISTANT, content="烹饪教程",
             ),
             rewritten_query="红烧肉做法",
         )
 
-        # 检查是否应该吸附（v3.0: 返回 Optional[FlushEvent]）
         result = adsorber.should_adsorb(buffer, block2)
 
-        # 低相似度应该返回 FlushEvent（语义漂移）
         assert result is not None
         assert isinstance(result, FlushEvent)
         assert result.flush_reason == FlushReason.SEMANTIC_DRIFT
@@ -176,7 +143,7 @@ class TestTriggerAndPerceptionCollaboration:
         """测试消息数触发器"""
         flush_called = []
 
-        def on_flush(messages, reason):
+        def on_flush(messages, reason, **kwargs):
             flush_called.append((messages, reason))
 
         trigger_manager = TriggerManager(strategies=[
@@ -192,12 +159,11 @@ class TestTriggerAndPerceptionCollaboration:
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        # 添加消息直到触发
-        perception.perceive("user", "消息1", identity)
-        perception.perceive("assistant", "回复1", identity)
-        perception.perceive("user", "消息2", identity)
+        # ingest_payload 添加 2 条消息 (user + assistant)
+        perception.ingest_payload(_make_payload("消息1", "回复1", identity))
+        # 再添加 2 条，总共 4 条，超过阈值 3
+        perception.ingest_payload(_make_payload("消息2", "回复2", identity))
 
-        # 应该触发 flush
         assert len(flush_called) >= 1
 
 
@@ -208,7 +174,7 @@ class TestSimplePerceptionLayerOrchestration:
         """辅助方法：创建 SimplePerceptionLayer"""
         config = SimplePerceptionConfig()
         trigger_manager = TriggerManager(strategies=[
-            MessageCountTrigger(threshold=10)  # 高阈值避免自动触发
+            MessageCountTrigger(threshold=10)
         ])
         return SimplePerceptionLayer(
             config=config,
@@ -222,11 +188,8 @@ class TestSimplePerceptionLayerOrchestration:
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        # 添加消息
-        perception.perceive("user", "消息1", identity)
-        perception.perceive("assistant", "回复1", identity)
+        perception.ingest_payload(_make_payload("消息1", "回复1", identity))
 
-        # 获取 Buffer 信息
         info = perception.get_buffer_info(identity)
 
         assert info['exists'] is True
@@ -236,17 +199,15 @@ class TestSimplePerceptionLayerOrchestration:
         """测试手动 Flush"""
         flush_called = []
 
-        def on_flush(messages, reason):
+        def on_flush(messages, reason, **kwargs):
             flush_called.append((messages, reason))
 
         perception = self._create_perception(on_flush_callback=on_flush)
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        perception.perceive("user", "消息1", identity)
-        perception.perceive("assistant", "回复1", identity)
+        perception.ingest_payload(_make_payload("消息1", "回复1", identity))
 
-        # 手动 flush
         messages = perception.flush_buffer(identity)
 
         assert messages is not None
@@ -259,15 +220,14 @@ class TestSimplePerceptionLayerOrchestration:
         identity1 = Identity(user_id="user1", agent_id="agent", session_id="session1")
         identity2 = Identity(user_id="user2", agent_id="agent", session_id="session2")
 
-        perception.perceive("user", "用户1的消息", identity1)
-        perception.perceive("user", "用户2的消息", identity2)
+        perception.ingest_payload(_make_payload("用户1的消息", "回复1", identity1))
+        perception.ingest_payload(_make_payload("用户2的消息", "回复2", identity2))
 
         info1 = perception.get_buffer_info(identity1)
         info2 = perception.get_buffer_info(identity2)
 
-        # 每个会话应该有独立的 buffer
-        assert info1['message_count'] == 1
-        assert info2['message_count'] == 1
+        assert info1['message_count'] == 2
+        assert info2['message_count'] == 2
 
 
 class TestSemanticFlowPerceptionLayerOrchestration:
@@ -276,20 +236,16 @@ class TestSemanticFlowPerceptionLayerOrchestration:
     def _create_perception(self, on_flush_callback=None):
         """辅助方法：创建 SemanticFlowPerceptionLayer"""
         config = SemanticFlowPerceptionConfig()
-        parser = UnifiedStreamParser()
 
-        # Mock adsorber
         mock_adsorber = Mock()
-        mock_adsorber.should_adsorb.return_value = None  # 继续吸附
+        mock_adsorber.should_adsorb.return_value = None
         mock_adsorber.compute_new_topic_kernel.return_value = [0.1, 0.2, 0.3]
 
-        # Mock relay
         mock_relay = Mock()
-        mock_relay.should_relay.return_value = None  # 不需要接力
+        mock_relay.should_relay.return_value = None
 
         return SemanticFlowPerceptionLayer(
             config=config,
-            parser=parser,
             adsorber=mock_adsorber,
             relay_controller=mock_relay,
             on_flush_callback=on_flush_callback,
@@ -306,8 +262,7 @@ class TestSemanticFlowPerceptionLayerOrchestration:
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        perception.perceive("user", "测试消息", identity)
-        perception.perceive("assistant", "测试回复", identity)
+        perception.ingest_payload(_make_payload("测试消息", "测试回复", identity))
 
         info = perception.get_buffer_info(identity)
 
@@ -317,15 +272,14 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         """测试语义流 Flush"""
         flush_called = []
 
-        def on_flush(messages, reason):
+        def on_flush(messages, reason, **kwargs):
             flush_called.append((messages, reason))
 
         perception = self._create_perception(on_flush_callback=on_flush)
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        perception.perceive("user", "消息1", identity)
-        perception.perceive("assistant", "回复1", identity)
+        perception.ingest_payload(_make_payload("消息1", "回复1", identity))
 
         messages = perception.flush_buffer(identity)
 
@@ -339,7 +293,7 @@ class TestPerceptionAndGenerationCollaboration:
         """测试消息转换为 StreamMessage"""
         flush_called = []
 
-        def on_flush(messages, reason):
+        def on_flush(messages, reason, **kwargs):
             flush_called.append(messages)
 
         config = SimplePerceptionConfig()
@@ -354,12 +308,10 @@ class TestPerceptionAndGenerationCollaboration:
 
         identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
-        perception.perceive("user", "用户消息", identity)
-        perception.perceive("assistant", "助手回复", identity)
+        perception.ingest_payload(_make_payload("用户消息", "助手回复", identity))
 
         perception.flush_buffer(identity)
 
-        # 验证返回的消息是 StreamMessage 格式
         if len(flush_called) > 0 and len(flush_called[0]) > 0:
             first_msg = flush_called[0][0]
             assert isinstance(first_msg, StreamMessage)
@@ -377,12 +329,10 @@ class TestTokenManagement:
         tokens = estimate_tokens(text)
 
         assert tokens > 0
-        # 中文大约1个字符=1个token，但某些 tokenizer 可能压缩率更高
         assert tokens >= len(text) // 3
 
     def test_block_token_count(self):
         """测试 Block 的 Token 计数"""
-        # 通过构造函数创建 Block
         block = LogicalBlock(
             user_block=StreamMessage(
                 message_type=StreamMessageType.USER,
@@ -392,7 +342,7 @@ class TestTokenManagement:
                 message_type=StreamMessageType.ASSISTANT,
                 content="助手回复",
             ),
-            total_tokens=100,  # 直接设置 token 数
+            total_tokens=100,
         )
 
         tokens = block.total_tokens

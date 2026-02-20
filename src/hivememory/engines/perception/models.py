@@ -2,19 +2,23 @@
 HiveMemory 感知层数据模型
 
 定义统一语义流架构中的核心数据结构：
-- Triplet: 执行链三元组 (Thought -> Tool Call -> Observation)
+- TraceItem: MTP 操作语义轨迹项 (v3.0 新增，替代 Triplet 中的执行细节)
+- InteractionPayload: Kernel → Perception 的原子传输包 (v3.0 新增)
+- Triplet: 执行链三元组 (Thought -> Tool Call -> Observation) [向后兼容]
 - LogicalBlock: 逻辑原子块（最小语义单元）
 - SemanticBuffer: 语义缓冲区
 
-参考: PROJECT.md 4.1 节
+参考: PROJECT.md 4.1 节, PerceptionLayerRefactoring.md
 
 作者: HiveMemory Team
-版本: 1.0.0
+版本: 3.0.0
 """
+
+from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -25,6 +29,9 @@ from hivememory.core.models import (
     StreamMessageType,
 )
 from hivememory.utils.token_estimator import estimate_tokens
+
+if TYPE_CHECKING:
+    from hivememory.engines.generation.models import WriteFocus, UpdateFocus
 
 
 # ============ 枚举定义 ============
@@ -62,6 +69,8 @@ class FlushEvent(BaseModel):
         blocks_to_flush: 要刷出的 blocks（不包含触发 flush 的新 block）
         relay_summary: 接力摘要（仅 TOKEN_OVERFLOW 时生成）
         triggered_by_block: 触发此 flush 的新 block（将在 flush 后添加到 buffer）
+        write_focus: WRITE 指令控制信号（仅 MTP_WRITE flush 时携带）
+        update_focus: UPDATE 指令控制信号（仅 MTP_UPDATE flush 时携带）
     """
     flush_reason: FlushReason
     blocks_to_flush: List["LogicalBlock"] = Field(
@@ -77,12 +86,52 @@ class FlushEvent(BaseModel):
         description="触发此 flush 的新 block"
     )
 
+    #: WRITE 指令控制信号 (v3.0)
+    write_focus: Optional[Any] = Field(
+        default=None,
+        description="WRITE 指令的核心素材 (仅 MTP_WRITE flush 时携带)"
+    )
+    #: UPDATE 指令控制信号 (v3.0)
+    update_focus: Optional[Any] = Field(
+        default=None,
+        description="UPDATE 指令的修改意图 (仅 MTP_UPDATE flush 时携带)"
+    )
+
     @property
     def has_blocks(self) -> bool:
         """检查是否有 blocks 需要 flush"""
         return len(self.blocks_to_flush) > 0
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# ============ 语义轨迹项 (v3.0 新增) ============
+
+class TraceItem(BaseModel):
+    """
+    MTP 操作的语义轨迹项 (替代 Triplet 中的执行细节)
+
+    清洗策略 (对齐 PerceptionLayerRefactoring.md §2.2):
+        READ   -> 折叠:   仅记录查阅动作和目标
+        SEARCH -> 保留:   记录 Agent 的探索意图
+        RUN    -> 摘要:   记录副作用操作及状态
+        WRITE/UPDATE -> 不生成 TraceItem (作为控制信号处理)
+        XML 响应 -> 丢弃
+
+    Attributes:
+        action: 操作类型 (READ / SEARCH / RUN)
+        target: READ 目标别名
+        query: SEARCH 查询文本
+        tool: RUN 工具名称
+        status: RUN 执行状态 (success / error)
+    """
+    action: str = Field(..., description="操作类型: READ / SEARCH / RUN")
+    target: Optional[str] = Field(default=None, description="READ 目标别名")
+    query: Optional[str] = Field(default=None, description="SEARCH 查询文本")
+    tool: Optional[str] = Field(default=None, description="RUN 工具名称")
+    status: Optional[str] = Field(default=None, description="RUN 执行状态")
+
+    model_config = ConfigDict(use_enum_values=True)
 
 
 # ============ 执行链三元组 ============
@@ -194,33 +243,82 @@ class LogicalBlock(BaseModel):
         description="Gateway 记忆价值判断"
     )
 
+    # ========== v3.0 新增字段 (Kernel/MTP 模式) ==========
+    # 参考: PerceptionLayerRefactoring.md §2.1
+
+    #: 原始用户问题 (Kernel 模式下替代 user_block)
+    user_query: str = Field(
+        default="",
+        description="原始用户问题"
+    )
+
+    #: 语义轨迹 (替代 execution_chain)
+    semantic_traces: List[TraceItem] = Field(
+        default_factory=list,
+        description="经过清洗和降维的 MTP 操作摘要"
+    )
+
+    #: 包含 MTP 指令和 XML 的完整原始文本 (用于 Debug/Context)
+    raw_response: str = Field(
+        default="",
+        description="包含 MTP 噪音的完整原始 assistant 文本"
+    )
+
+    #: 去除 MTP 噪音后的纯净回复 (用户可见版本)
+    clean_response: str = Field(
+        default="",
+        description="去除 MTP 噪音后的纯净回复"
+    )
+
+    #: 优先级控制信号
+    priority: str = Field(
+        default="NORMAL",
+        description="NORMAL | URGENT"
+    )
+
+    #: WRITE 指令的核心素材 (Kernel 模式)
+    write_focus: Optional[Any] = Field(
+        default=None,
+        description="携带 WRITE 指令的核心素材 (WriteFocus)"
+    )
+
+    #: UPDATE 指令的修改意图 (Kernel 模式)
+    update_focus: Optional[Any] = Field(
+        default=None,
+        description="携带 UPDATE 指令的修改意图 (UpdateFocus)"
+    )
+
     @property
     def is_complete(self) -> bool:
         """
-        Block 是否闭合（User 和 Response 都存在）
+        Block 是否闭合
 
-        闭合条件：
-            - user_block 不为空
-            - response_block 不为空
+        闭合条件 (双模式):
+            - Legacy 模式: user_block 和 response_block 都不为空
+            - Kernel 模式: user_query 和 clean_response 都不为空
         """
-        return (
-            self.user_block is not None
-            and self.response_block is not None
-        )
+        # Legacy mode
+        if self.user_block is not None and self.response_block is not None:
+            return True
+        # Kernel mode (v3.0)
+        if self.user_query and self.clean_response:
+            return True
+        return False
 
     @property
     def anchor_text(self) -> str:
         """
         获取语义锚点文本
 
-        锚点对齐策略 (v2.0 更新):
+        锚点对齐策略 (v3.0 更新):
             1. 优先使用 rewritten_query（Gateway 指代消解后的查询）
-            2. 回退到 user_block.content（原始查询）
-
-        这样确保感知层获得最准确的语义表示。
+            2. 回退到 user_query（Kernel 模式原始查询）
+            3. 回退到 user_block.content（Legacy 模式原始查询）
         """
         if self.rewritten_query:
             return self.rewritten_query
+        if self.user_query:
+            return self.user_query
         if self.user_block:
             return self.user_block.content
         return ""
@@ -234,6 +332,10 @@ class LogicalBlock(BaseModel):
         """
         转换为 StreamMessage 列表
 
+        支持双模式:
+            - Kernel 模式 (v3.0): 从 user_query + clean_response 构建
+            - Legacy 模式: 从 user_block + execution_chain + response_block 构建
+
         Args:
             identity: 身份标识对象
 
@@ -242,6 +344,23 @@ class LogicalBlock(BaseModel):
         """
         messages = []
 
+        # Kernel 模式 (v3.0): 使用 user_query + clean_response
+        if self.user_query and self.clean_response:
+            messages.append(StreamMessage(
+                message_type=StreamMessageType.USER,
+                content=self.user_query,
+                timestamp=self.created_at,
+                identity=identity,
+            ))
+            messages.append(StreamMessage(
+                message_type=StreamMessageType.ASSISTANT,
+                content=self.clean_response,
+                timestamp=self.created_at,
+                identity=identity,
+            ))
+            return messages
+
+        # Legacy 模式: 使用 user_block + execution_chain + response_block
         if self.user_block:
             msg = self.user_block.model_copy()
             msg.identity = identity
@@ -258,7 +377,7 @@ class LogicalBlock(BaseModel):
             if triplet.tool_name:
                 messages.append(StreamMessage(
                     message_type=StreamMessageType.TOOL_CALL,
-                    content=f"Calling {triplet.tool_name}",  # Placeholder content
+                    content=f"Calling {triplet.tool_name}",
                     tool_name=triplet.tool_name,
                     tool_args=triplet.tool_args,
                     timestamp=self.created_at,
@@ -370,6 +489,58 @@ class SemanticBuffer(BaseModel):
         return (current_time - self.last_update) > timeout_seconds
 
 
+# ============ 交互载荷 (v3.0 新增) ============
+
+class InteractionPayload(BaseModel):
+    """
+    Kernel -> Perception 的原子传输包
+
+    在 Kernel 完成一轮递归生成循环后，将所有相关数据封装为一个原子包提交给感知层。
+    这消除了 WRITE/UPDATE 旁路触发导致的上下文丢失问题。
+
+    参考: PerceptionLayerRefactoring.md §3.1
+
+    Attributes:
+        user_message: 原始用户消息
+        assistant_message: 包含 MTP 指令的完整 assistant 文本
+        mtp_traces: 由 Koakuma 在执行过程中记录的 Trace 列表
+        write_focus: WRITE 指令的核心素材 (挂载在 Payload 上，而非独立传输)
+        update_focus: UPDATE 指令的修改意图
+        identity: 身份标识
+        rewritten_query: Gateway 重写后的查询
+        worth_saving: Gateway 价值判断
+    """
+    user_message: str = Field(..., description="原始用户消息")
+    assistant_message: str = Field(..., description="包含 MTP 指令的完整 assistant 文本")
+    mtp_traces: List[TraceItem] = Field(
+        default_factory=list,
+        description="由 Koakuma 在执行过程中记录的 Trace 列表"
+    )
+
+    # 控制信号 (挂载在 Payload 上，而非独立传输)
+    write_focus: Optional[Any] = Field(
+        default=None,
+        description="WRITE 指令的核心素材 (WriteFocus)"
+    )
+    update_focus: Optional[Any] = Field(
+        default=None,
+        description="UPDATE 指令的修改意图 (UpdateFocus)"
+    )
+
+    # 上下文元数据
+    identity: Identity = Field(default_factory=Identity)
+    rewritten_query: Optional[str] = Field(
+        default=None,
+        description="Gateway 重写后的查询"
+    )
+    worth_saving: Optional[bool] = Field(
+        default=None,
+        description="Gateway 价值判断"
+    )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 # ============ 简单缓冲区 ============
 
 class SimpleBuffer(BaseModel):
@@ -432,8 +603,10 @@ __all__ = [
     "FlushReason",
     "BufferState",
     "FlushEvent",
+    "TraceItem",
     "Triplet",
     "LogicalBlock",
+    "InteractionPayload",
     "SemanticBuffer",
     "SimpleBuffer",
 ]

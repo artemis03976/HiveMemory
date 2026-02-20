@@ -9,10 +9,9 @@ UPDATE 指令执行链路测试
     3. Mode C Merge Prompt 选择 (extractor)
     4. Mode C fallback 拼接
     5. _apply_update 版本历史追踪
-    6. LibrarianCore.handle_update_signal 流程
-    7. 双重处理防护 (MTP_UPDATE flush 不触发 Mode A)
-    8. Koakuma._handle_update E2E
-    9. Koakuma UPDATE 校验 (alias/instruction 缺失)
+    6. 双重处理防护 (MTP_UPDATE flush 不触发 Mode A)
+    7. Koakuma._handle_update E2E
+    8. Koakuma UPDATE 校验 (alias/instruction 缺失)
 
 作者: HiveMemory Team
 版本: 1.0
@@ -21,7 +20,6 @@ UPDATE 指令执行链路测试
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import datetime
-from uuid import uuid4
 
 from hivememory.core.models import (
     Identity, StreamMessage, StreamMessageType,
@@ -445,18 +443,16 @@ class TestApplyUpdate:
         assert len(existing_memory.payload.history_summary) == 2
 
 
-# ========== Test 7: LibrarianCore.handle_update_signal ==========
+# ========== Test 7: Double Processing Guard (UPDATE) ==========
 
-class TestHandleUpdateSignal:
-    """验证 LibrarianCore UPDATE 信号处理流程"""
+class TestFlushCallbackModesUpdate:
+    """验证 _on_perception_flush 统一回调的 UPDATE 模式分发"""
 
-    def test_flush_load_and_generate(self, identity, sample_messages, existing_memory):
-        mock_perception = MagicMock()
-        mock_perception.flush_buffer.return_value = sample_messages
-
+    def test_mtp_update_flush_triggers_mode_c(self, sample_messages, existing_memory):
+        """MTP_UPDATE flush 携带 update_focus → Mode C GenerationRequest"""
         mock_generation = MagicMock()
-        mock_generation.process.return_value = [existing_memory]
-
+        mock_generation.process.return_value = []
+        mock_perception = MagicMock()
         mock_storage = MagicMock()
         mock_storage.get_memory.return_value = existing_memory
 
@@ -467,93 +463,31 @@ class TestHandleUpdateSignal:
             lifecycle_engine=MagicMock(),
         )
 
-        uf = UpdateFocus(
-            instruction="更新端口",
+        focus = UpdateFocus(
+            instruction="把端口改成 9090",
             target_uuid=str(existing_memory.id),
             target_alias="fact_api_port",
-            identity=identity,
-        )
-        result = core.handle_update_signal(uf)
-
-        # 验证 flush_buffer 被调用 (reason=MTP_UPDATE)
-        mock_perception.flush_buffer.assert_called_once_with(
-            identity=identity,
-            reason=FlushReason.MTP_UPDATE,
+            identity=Identity(user_id="test_user"),
         )
 
-        # 验证 storage.get_memory 被调用
-        mock_storage.get_memory.assert_called_once()
-
-        # 验证 generation_engine.process 被调用 (Mode C request)
-        call_args = mock_generation.process.call_args
-        request = call_args[0][0]
-        assert isinstance(request, GenerationRequest)
-        assert request.is_update
-        assert request.update_focus.instruction == "更新端口"
-        assert request.update_focus.existing_memory == existing_memory
-        assert request.context_messages == sample_messages
-
-        assert len(result) == 1
-
-    def test_memory_not_found_raises(self, identity):
-        mock_perception = MagicMock()
-        mock_perception.flush_buffer.return_value = []
-
-        mock_storage = MagicMock()
-        mock_storage.get_memory.return_value = None  # 记忆不存在
-
-        core = LibrarianCore(
-            storage=mock_storage,
-            generation_engine=MagicMock(),
-            perception_layer=mock_perception,
-            lifecycle_engine=MagicMock(),
+        core._on_perception_flush(
+            sample_messages, FlushReason.MTP_UPDATE,
+            update_focus=focus,
         )
 
-        uf = UpdateFocus(
-            instruction="test",
-            target_uuid=str(uuid4()),
-            target_alias="nonexistent",
-            identity=identity,
-        )
+        # generation_engine.process 应被调用，且携带 update_focus
+        mock_generation.process.assert_called_once()
+        request = mock_generation.process.call_args[0][0]
+        assert request.update_focus is not None
+        assert request.update_focus.instruction == "把端口改成 9090"
+        assert request.write_focus is None
+        # existing_memory 应被注入
+        assert request.update_focus.existing_memory is existing_memory
 
-        with pytest.raises(ValueError, match="not found in storage"):
-            core.handle_update_signal(uf)
-
-    def test_generation_failure_returns_empty(self, identity, existing_memory):
-        mock_perception = MagicMock()
-        mock_perception.flush_buffer.return_value = []
-
+    def test_mtp_write_flush_also_triggers(self, sample_messages):
+        """MTP_WRITE flush 携带 write_focus → Mode B"""
         mock_generation = MagicMock()
-        mock_generation.process.side_effect = Exception("LLM error")
-
-        mock_storage = MagicMock()
-        mock_storage.get_memory.return_value = existing_memory
-
-        core = LibrarianCore(
-            storage=mock_storage,
-            generation_engine=mock_generation,
-            perception_layer=mock_perception,
-            lifecycle_engine=MagicMock(),
-        )
-
-        uf = UpdateFocus(
-            instruction="test",
-            target_uuid=str(existing_memory.id),
-            target_alias="fact_api_port",
-            identity=identity,
-        )
-        result = core.handle_update_signal(uf)
-
-        assert result == []
-
-
-# ========== Test 8: Double Processing Guard (UPDATE) ==========
-
-class TestDoubleProcessingGuardUpdate:
-    """验证 MTP_UPDATE flush 不触发 Mode A 回调"""
-
-    def test_mtp_update_flush_skips_mode_a(self, sample_messages):
-        mock_generation = MagicMock()
+        mock_generation.process.return_value = []
         mock_perception = MagicMock()
 
         core = LibrarianCore(
@@ -563,25 +497,12 @@ class TestDoubleProcessingGuardUpdate:
             lifecycle_engine=MagicMock(),
         )
 
-        # 模拟 MTP_UPDATE 原因的 flush 回调
-        core._on_perception_flush(sample_messages, FlushReason.MTP_UPDATE)
-
-        # generation_engine.process 不应被调用 (Mode A 被跳过)
-        mock_generation.process.assert_not_called()
-
-    def test_mtp_write_flush_also_skips(self, sample_messages):
-        mock_generation = MagicMock()
-        mock_perception = MagicMock()
-
-        core = LibrarianCore(
-            storage=MagicMock(),
-            generation_engine=mock_generation,
-            perception_layer=mock_perception,
-            lifecycle_engine=MagicMock(),
+        focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
+        core._on_perception_flush(
+            sample_messages, FlushReason.MTP_WRITE,
+            write_focus=focus,
         )
-
-        core._on_perception_flush(sample_messages, FlushReason.MTP_WRITE)
-        mock_generation.process.assert_not_called()
+        mock_generation.process.assert_called_once()
 
     def test_normal_flush_still_triggers_mode_a(self, sample_messages):
         mock_generation = MagicMock()
@@ -632,13 +553,12 @@ class TestKoakumaUpdateE2E:
         assert result is not None
         assert result.success
 
-        mock_librarian = update_koakuma._librarian
-        mock_librarian.handle_update_signal.assert_called_once()
-
-        call_args = mock_librarian.handle_update_signal.call_args[0][0]
-        assert isinstance(call_args, UpdateFocus)
-        assert call_args.instruction == "把端口改成 9090"
-        assert call_args.target_alias == "fact_api_port"
+        # v3.0 延迟捕获: 验证 UpdateFocus 被暂存
+        focus = update_koakuma.get_update_focus()
+        assert focus is not None
+        assert isinstance(focus, UpdateFocus)
+        assert focus.instruction == "把端口改成 9090"
+        assert focus.target_alias == "fact_api_port"
 
     def test_update_with_content(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="替换端口" content="port = 9090"'
@@ -647,9 +567,10 @@ class TestKoakumaUpdateE2E:
         assert result is not None
         assert result.success
 
-        call_args = update_koakuma._librarian.handle_update_signal.call_args[0][0]
-        assert call_args.content == "port = 9090"
-        assert call_args.instruction == "替换端口"
+        focus = update_koakuma.get_update_focus()
+        assert focus is not None
+        assert focus.content == "port = 9090"
+        assert focus.instruction == "替换端口"
 
     def test_update_response_contains_ack(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test update"'
@@ -683,7 +604,7 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        validation_koakuma._librarian.handle_update_signal.assert_not_called()
+        assert validation_koakuma.get_update_focus() is None
 
     def test_alias_not_found(self, validation_koakuma):
         agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
@@ -691,15 +612,13 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        validation_koakuma._librarian.handle_update_signal.assert_not_called()
+        assert validation_koakuma.get_update_focus() is None
 
-    def test_update_failure_returns_error(self, existing_memory):
-        mock_librarian = MagicMock()
-        mock_librarian.handle_update_signal.side_effect = Exception("DB error")
-
+    def test_update_deferred_capture_always_ack(self, existing_memory):
+        """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
         koakuma = KoakumaRuntime(
             retrieval_familiar=MagicMock(),
-            librarian_core=mock_librarian,
+            librarian_core=MagicMock(),
             storage=MagicMock(),
             config=KoakumaConfig(),
         )
@@ -712,7 +631,9 @@ class TestKoakumaUpdateValidation:
         result = koakuma.intercept_and_execute(agent_text)
 
         assert result is not None
-        assert "error" in result.formatted_response.lower() or "fail" in result.formatted_response.lower()
+        assert result.success
+        assert koakuma.get_update_focus() is not None
+        assert koakuma.get_update_focus().instruction == "test"
 
 
 # ========== Test 11: FlushReason.MTP_UPDATE ==========

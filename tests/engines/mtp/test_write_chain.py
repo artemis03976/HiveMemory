@@ -7,9 +7,8 @@ WRITE 指令执行链路测试
     1. WriteFocus / GenerationRequest 数据模型
     2. Mode B 提示词选择 (extractor)
     3. Mode B fallback 草稿构建
-    4. LibrarianCore.handle_write_signal 流程
-    5. 双重处理防护 (MTP_WRITE flush 不触发 Mode A)
-    6. Koakuma._handle_write E2E
+    4. 双重处理防护 (MTP_WRITE flush 不触发 Mode A)
+    5. Koakuma._handle_write E2E
 
 作者: HiveMemory Team
 版本: 1.0
@@ -240,50 +239,16 @@ class TestModeBFallback:
         assert draft.title == focus.content[:50]
 
 
-# ========== Test 5: LibrarianCore.handle_write_signal ==========
+# ========== Test 5: Double Processing Guard ==========
 
-class TestHandleWriteSignal:
-    """验证 LibrarianCore WRITE 信号处理流程"""
+class TestFlushCallbackModes:
+    """验证 _on_perception_flush 统一回调的模式分发"""
 
-    def test_flush_and_generate(self, identity, sample_messages, sample_memory):
-        mock_perception = MagicMock()
-        mock_perception.flush_buffer.return_value = sample_messages
-
-        mock_generation = MagicMock()
-        mock_generation.process.return_value = [sample_memory]
-
-        core = LibrarianCore(
-            storage=MagicMock(),
-            generation_engine=mock_generation,
-            perception_layer=mock_perception,
-            lifecycle_engine=MagicMock(),
-        )
-
-        focus = WriteFocus(content="test content", identity=identity)
-        result = core.handle_write_signal(focus)
-
-        # 验证 flush_buffer 被调用 (reason=MTP_WRITE)
-        mock_perception.flush_buffer.assert_called_once_with(
-            identity=identity,
-            reason=FlushReason.MTP_WRITE,
-        )
-
-        # 验证 generation_engine.process 被调用 (Mode B request)
-        call_args = mock_generation.process.call_args
-        request = call_args[0][0]
-        assert isinstance(request, GenerationRequest)
-        assert request.is_focused
-        assert request.write_focus.content == "test content"
-        assert request.context_messages == sample_messages
-
-        assert len(result) == 1
-
-    def test_empty_buffer_still_processes(self, identity):
-        mock_perception = MagicMock()
-        mock_perception.flush_buffer.return_value = []  # 空 buffer
-
+    def test_mtp_write_flush_triggers_mode_b(self, sample_messages):
+        """MTP_WRITE flush 携带 write_focus → Mode B GenerationRequest"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
+        mock_perception = MagicMock()
 
         core = LibrarianCore(
             storage=MagicMock(),
@@ -292,39 +257,23 @@ class TestHandleWriteSignal:
             lifecycle_engine=MagicMock(),
         )
 
-        focus = WriteFocus(content="standalone write", identity=identity)
-        result = core.handle_write_signal(focus)
+        focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
+        core._on_perception_flush(
+            sample_messages, FlushReason.MTP_WRITE,
+            write_focus=focus,
+        )
 
-        # 即使 buffer 为空，也应该调用 generation engine
+        # generation_engine.process 应被调用，且携带 write_focus
         mock_generation.process.assert_called_once()
+        request = mock_generation.process.call_args[0][0]
+        assert request.write_focus is not None
+        assert request.write_focus.content == "端口改为 9090"
+        assert request.update_focus is None
 
-    def test_generation_failure_returns_empty(self, identity):
-        mock_perception = MagicMock()
-        mock_perception.flush_buffer.return_value = []
-
+    def test_mtp_write_flush_without_focus_triggers_mode_a(self, sample_messages):
+        """MTP_WRITE flush 但无 write_focus → 降级为 Mode A"""
         mock_generation = MagicMock()
-        mock_generation.process.side_effect = Exception("LLM error")
-
-        core = LibrarianCore(
-            storage=MagicMock(),
-            generation_engine=mock_generation,
-            perception_layer=mock_perception,
-            lifecycle_engine=MagicMock(),
-        )
-
-        focus = WriteFocus(content="test", identity=identity)
-        result = core.handle_write_signal(focus)
-
-        assert result == []
-
-
-# ========== Test 6: Double Processing Guard ==========
-
-class TestDoubleProcessingGuard:
-    """验证 MTP_WRITE flush 不触发 Mode A 回调"""
-
-    def test_mtp_write_flush_skips_mode_a(self, sample_messages):
-        mock_generation = MagicMock()
+        mock_generation.process.return_value = []
         mock_perception = MagicMock()
 
         core = LibrarianCore(
@@ -334,11 +283,11 @@ class TestDoubleProcessingGuard:
             lifecycle_engine=MagicMock(),
         )
 
-        # 模拟 MTP_WRITE 原因的 flush 回调
         core._on_perception_flush(sample_messages, FlushReason.MTP_WRITE)
 
-        # generation_engine.process 不应被调用 (Mode A 被跳过)
-        mock_generation.process.assert_not_called()
+        mock_generation.process.assert_called_once()
+        request = mock_generation.process.call_args[0][0]
+        assert request.write_focus is None
 
     def test_normal_flush_triggers_mode_a(self, sample_messages):
         mock_generation = MagicMock()
@@ -399,31 +348,29 @@ class TestKoakumaWriteE2E:
         assert result is not None
         assert result.success
 
-        # 验证 librarian.handle_write_signal 被调用
-        mock_librarian = write_koakuma._librarian
-        mock_librarian.handle_write_signal.assert_called_once()
-
-        # 验证 WriteFocus 参数
-        call_args = mock_librarian.handle_write_signal.call_args[0][0]
-        assert call_args.content == "端口从 8080 改为 9090"
-        assert call_args.reason == "修复 CORS"
-        assert call_args.identity.user_id == "test_user"
+        # v3.0 延迟捕获: 验证 WriteFocus 被暂存而非直接调用 librarian
+        focus = write_koakuma.get_write_focus()
+        assert focus is not None
+        assert focus.content == "端口从 8080 改为 9090"
+        assert focus.reason == "修复 CORS"
+        assert focus.identity.user_id == "test_user"
 
     def test_write_with_title(self, write_koakuma):
         agent_text = '⟪ WRITE | * | title="Fix CORS" content="端口改为 9090" reason="修复"'
         result = write_koakuma.intercept_and_execute(agent_text)
 
         assert result is not None
-        call_args = write_koakuma._librarian.handle_write_signal.call_args[0][0]
-        assert call_args.title == "Fix CORS"
+        focus = write_koakuma.get_write_focus()
+        assert focus is not None
+        assert focus.title == "Fix CORS"
 
     def test_write_missing_content(self, write_koakuma):
         agent_text = '⟪ WRITE | * | reason="no content"'
         result = write_koakuma.intercept_and_execute(agent_text)
 
         assert result is not None
-        # 应该返回 error，不调用 librarian
-        write_koakuma._librarian.handle_write_signal.assert_not_called()
+        # 应该返回 error，不捕获 WriteFocus
+        assert write_koakuma.get_write_focus() is None
 
     def test_write_response_contains_ack(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="test content"'
@@ -433,13 +380,11 @@ class TestKoakumaWriteE2E:
         # 响应应包含 status=ack
         assert "ack" in result.formatted_response.lower() or "saved" in result.formatted_response.lower()
 
-    def test_write_failure_returns_error(self):
-        mock_librarian = MagicMock()
-        mock_librarian.handle_write_signal.side_effect = Exception("DB error")
-
+    def test_write_deferred_capture_always_ack(self):
+        """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""
         koakuma = KoakumaRuntime(
             retrieval_familiar=MagicMock(),
-            librarian_core=mock_librarian,
+            librarian_core=MagicMock(),
             storage=MagicMock(),
             config=KoakumaConfig(),
         )
@@ -449,7 +394,9 @@ class TestKoakumaWriteE2E:
         result = koakuma.intercept_and_execute(agent_text)
 
         assert result is not None
-        assert "error" in result.formatted_response.lower() or "fail" in result.formatted_response.lower()
+        assert result.success
+        assert koakuma.get_write_focus() is not None
+        assert koakuma.get_write_focus().content == "test"
 
 
 # ========== Test 8: FlushReason.MTP_WRITE ==========

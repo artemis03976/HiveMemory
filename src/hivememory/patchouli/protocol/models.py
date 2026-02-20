@@ -26,7 +26,7 @@ class EyeGazeResult(BaseModel):
     TheEye 的统一输出模型
 
     TheEye 作为 Ingress Gateway，只负责感知和信息重整，
-    不构建下游协议消息（RetrievalRequest / Observation）。
+    不构建下游协议消息（RetrievalRequest）。
     数据格式转换由 PatchouliKernel 负责。
 
     Attributes:
@@ -74,7 +74,6 @@ __all__ = [
     "ProtocolMessage",
     "QueryFilters",
     "RetrievalRequest",
-    "Observation",
     "RetrievalResponse",
     "EyeGazeResult",
     "KernelHotResult",
@@ -127,48 +126,6 @@ class ProtocolMessage(BaseModel):
 
     # 消息创建时间
     timestamp: datetime = Field(default_factory=datetime.now)
-
-
-class Observation(ProtocolMessage):
-    """
-    感知信号协议消息
-
-    从 Kernel 发送到 LibrarianCore 的感知信号。
-    用于冷路径 (Cold Path) 的记忆收集和处理。
-
-    Attributes:
-        msg_type: 固定为 OBSERVATION
-        anchor: 语义锚点（Gateway 重写后的查询）
-        raw_message: 原始用户消息
-        role: 消息角色（user/assistant/system）
-        identity: 对话ID标识（包含用户ID、AgentID、会话ID）
-        worth_saving: 是否值得保存为长期记忆
-
-    Examples:
-        >>> observation = Observation(
-        ...     anchor="如何部署贪吃蛇游戏？",
-        ...     raw_message="怎么部署它？",
-        ...     worth_saving=True,
-        ... )
-    """
-
-    msg_type: MessageType = MessageType.OBSERVATION
-
-    # 语义锚点（Gateway 重写后的查询）
-    # 对于 Assistant/System 消息，此字段可能为空
-    anchor: Optional[str] = Field(default=None, description="语义锚点")
-
-    # 原始消息
-    raw_message: str = Field(..., description="原始消息")
-
-    # 消息角色
-    role: str = Field(default="user", description="角色 (user/assistant/system)")
-
-    # 标识符
-    identity: Identity = Field(default_factory=Identity, description="对话ID标识")
-
-    # 是否值得保存为长期记忆
-    worth_saving: bool = Field(default=False, description="是否值得保存")
 
 
 class RetrievalRequest(ProtocolMessage):

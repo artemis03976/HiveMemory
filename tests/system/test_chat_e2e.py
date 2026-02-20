@@ -13,19 +13,23 @@ PatchouliSystem.chat() 端到端测试
     6. assistant 回复异步感知 — 验证 assistant observation 被投递
     7. 无 system prompt — messages 不含 system 角色时的降级处理
     8. MTP prompt 注入 — get_mtp_prompt 内容追加到 system prompt
+    9. InteractionPayload 构建 — 验证 payload 字段与 submit_interaction 调用
+    10. Koakuma 离线 fallback — koakuma 异常时降级为空 traces
+    11. 递归深度上限 — max_iter 边界终止循环
+    12. MTP 误判 — handle_mtp 返回 None 时的 fallback 处理
+    13. Phase D resume — fake assistant history 拼接验证
 
 作者: HiveMemory Team
 版本: 1.0
 """
 
-import threading
 import pytest
 from unittest.mock import MagicMock, patch, call
 import types
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.patchouli.protocol.models import (
-    ChatResult, KernelHotResult, Observation, EyeGazeResult, MTPExecutionResult,
+    ChatResult, KernelHotResult, EyeGazeResult, MTPExecutionResult,
 )
 from hivememory.patchouli.worker_agent import GenerationResult
 from hivememory.patchouli.protocol.mtp import MTPVerb
@@ -120,10 +124,6 @@ def sys():
     s.kernel.handle_hot.return_value = _make_hot_result()
     s.kernel.handle_mtp = MagicMock(return_value=None)
     s.kernel.koakuma = MagicMock()
-    s.kernel.build_observation.return_value = Observation(
-        role="user", raw_message="hello",
-        identity=Identity(user_id="u1"),
-    )
 
     # Worker Agent
     s._worker_agent = MagicMock()
@@ -132,15 +132,13 @@ def sys():
     # MTP prompt
     s.get_mtp_prompt = MagicMock(return_value="")
 
-    # _safe_perceive — 使用真实实现
-    from hivememory.patchouli.system import PatchouliSystem as Real
-    s._safe_perceive = types.MethodType(Real._safe_perceive, s)
-
     # 绑定真实方法
+    from hivememory.patchouli.system import PatchouliSystem as Real
     s.chat = types.MethodType(Real.chat, s)
     s._recursive_generation_loop = types.MethodType(
         Real._recursive_generation_loop, s
     )
+    s._reconstruct_raw_assistant_text = Real._reconstruct_raw_assistant_text
 
     return s
 
@@ -319,15 +317,9 @@ class TestNoSystemPrompt:
 class TestAsyncPerception:
     """异步感知投递"""
 
-    def test_assistant_reply_perceived_async(self, sys):
-        """chat() 结束后 assistant 回复被异步投递到感知层"""
-        perceived = []
-        original_handle_cold = sys.kernel.handle_cold
-
-        def capture_cold(obs):
-            perceived.append(obs)
-
-        sys.kernel.handle_cold.side_effect = capture_cold
+    def test_assistant_reply_submitted_via_payload(self, sys):
+        """chat() 结束后 assistant 回复通过 InteractionPayload 提交"""
+        sys._worker_agent.generate.return_value = _normal_gen("Hi there!")
 
         result = sys.chat(
             user_message="hi",
@@ -335,15 +327,10 @@ class TestAsyncPerception:
             user_id="u1",
         )
 
-        # 等待 daemon 线程完成
-        import time
-        time.sleep(0.1)
-
-        # assistant observation 应该被投递
-        assert any(
-            obs.role == "assistant" and obs.raw_message == "Hi there!"
-            for obs in perceived
-        )
+        # submit_interaction 被调用，payload 包含 assistant 文本
+        sys.kernel.submit_interaction.assert_called_once()
+        payload = sys.kernel.submit_interaction.call_args[0][0]
+        assert "Hi there!" in payload.assistant_message
 
     def test_handle_hot_called_for_user_perception(self, sys):
         """handle_hot 内部负责 user 消息的异步感知投递"""
@@ -423,3 +410,261 @@ class TestChatWithMTP:
 
         assert result.mtp_iterations == 1
         assert result.final_text == "Let me check. Done."
+
+
+# ========== Test: InteractionPayload & submit_interaction ==========
+
+class TestInteractionPayloadSubmission:
+    """验证 chat() 结束后 InteractionPayload 构建与提交"""
+
+    def test_submit_interaction_called(self, sys):
+        """chat() 结束后 kernel.submit_interaction 被调用"""
+        sys.chat(
+            user_message="hello",
+            messages=[{"role": "system", "content": "Base."},
+                      {"role": "user", "content": "hello"}],
+            user_id="u1",
+        )
+
+        sys.kernel.submit_interaction.assert_called_once()
+
+    def test_payload_contains_user_and_assistant(self, sys):
+        """payload 包含正确的 user_message 和 assistant_message"""
+        sys._worker_agent.generate.return_value = _normal_gen("Reply!")
+
+        sys.chat(
+            user_message="hello",
+            messages=[{"role": "system", "content": "Base."},
+                      {"role": "user", "content": "hello"}],
+            user_id="u1",
+        )
+
+        payload = sys.kernel.submit_interaction.call_args[0][0]
+        assert payload.user_message == "hello"
+        assert "Reply!" in payload.assistant_message
+
+    def test_payload_carries_mtp_traces(self, sys):
+        """payload 携带 koakuma 的 mtp_traces"""
+        from hivememory.engines.perception.models import TraceItem
+        fake_traces = [
+            TraceItem(action="SEARCH", query="test query"),
+            TraceItem(action="READ", target="fact_api_port"),
+        ]
+        sys.kernel.koakuma.get_interaction_traces.return_value = fake_traces
+        sys.kernel.koakuma.get_write_focus.return_value = None
+        sys.kernel.koakuma.get_update_focus.return_value = None
+
+        sys.chat(
+            user_message="hi",
+            messages=[{"role": "user", "content": "hi"}],
+            user_id="u1",
+        )
+
+        payload = sys.kernel.submit_interaction.call_args[0][0]
+        assert payload.mtp_traces == fake_traces
+
+    def test_payload_carries_write_focus(self, sys):
+        """WRITE 场景下 payload 携带 write_focus"""
+        fake_wf = MagicMock()
+        sys.kernel.koakuma.get_interaction_traces.return_value = []
+        sys.kernel.koakuma.get_write_focus.return_value = fake_wf
+        sys.kernel.koakuma.get_update_focus.return_value = None
+
+        sys.chat(
+            user_message="save this",
+            messages=[{"role": "user", "content": "save this"}],
+            user_id="u1",
+        )
+
+        payload = sys.kernel.submit_interaction.call_args[0][0]
+        assert payload.write_focus is fake_wf
+
+    def test_payload_carries_update_focus(self, sys):
+        """UPDATE 场景下 payload 携带 update_focus"""
+        fake_uf = MagicMock()
+        sys.kernel.koakuma.get_interaction_traces.return_value = []
+        sys.kernel.koakuma.get_write_focus.return_value = None
+        sys.kernel.koakuma.get_update_focus.return_value = fake_uf
+
+        sys.chat(
+            user_message="update port",
+            messages=[{"role": "user", "content": "update port"}],
+            user_id="u1",
+        )
+
+        payload = sys.kernel.submit_interaction.call_args[0][0]
+        assert payload.update_focus is fake_uf
+
+    def test_payload_identity_matches(self, sys):
+        """payload.identity 与传入参数一致"""
+        sys.chat(
+            user_message="hi",
+            messages=[{"role": "user", "content": "hi"}],
+            user_id="user_x",
+            agent_id="agent_y",
+            session_id="sess_z",
+        )
+
+        payload = sys.kernel.submit_interaction.call_args[0][0]
+        assert payload.identity.user_id == "user_x"
+        assert payload.identity.agent_id == "agent_y"
+        assert payload.identity.session_id == "sess_z"
+
+
+# ========== Test: Koakuma Offline Fallback ==========
+
+class TestKoakumaOfflineFallback:
+    """验证 Koakuma 离线时的降级处理"""
+
+    def test_koakuma_exception_degrades_gracefully(self, sys):
+        """koakuma 抛异常时降级为空 traces / None focus"""
+        sys.kernel.koakuma.get_interaction_traces.side_effect = RuntimeError("offline")
+        sys.kernel.koakuma.get_write_focus.side_effect = RuntimeError("offline")
+        sys.kernel.koakuma.get_update_focus.side_effect = RuntimeError("offline")
+
+        result = sys.chat(
+            user_message="hi",
+            messages=[{"role": "system", "content": "Base."},
+                      {"role": "user", "content": "hi"}],
+            user_id="u1",
+        )
+
+        # chat 不应崩溃
+        assert result.final_text == "Hi there!"
+
+        # payload 应使用降级值
+        payload = sys.kernel.submit_interaction.call_args[0][0]
+        assert payload.mtp_traces == []
+        assert payload.write_focus is None
+        assert payload.update_focus is None
+
+
+# ========== Test: Recursion Depth Limit ==========
+
+class TestRecursionDepthLimit:
+    """验证递归循环 max_iter 边界"""
+
+    def test_max_iterations_stops_loop(self, sys):
+        """MTP 持续中断达到上限时循环终止"""
+        sys.config.koakuma.max_recursion_depth = 3
+
+        # 每次都返回 MTP 中断，永不停止
+        sys._worker_agent.generate.return_value = _mtp_gen("loop ")
+        sys.kernel.handle_mtp.return_value = _mtp_exec()
+
+        result = sys.chat(
+            user_message="infinite loop",
+            messages=[{"role": "system", "content": "Base."},
+                      {"role": "user", "content": "infinite loop"}],
+            user_id="u1",
+        )
+
+        assert result.total_iterations == 3
+        assert result.mtp_iterations == 2
+        # generate 被调用 3 次 (max_iter)
+        assert sys._worker_agent.generate.call_count == 3
+
+    def test_depth_1_means_no_recursion(self, sys):
+        """max_recursion_depth=1 时只执行一次生成，不递归"""
+        sys.config.koakuma.max_recursion_depth = 1
+
+        sys._worker_agent.generate.return_value = _mtp_gen("once ")
+        sys.kernel.handle_mtp.return_value = _mtp_exec()
+
+        result = sys.chat(
+            user_message="q",
+            messages=[{"role": "user", "content": "q"}],
+            user_id="u1",
+        )
+
+        assert result.total_iterations == 1
+        assert sys._worker_agent.generate.call_count == 1
+
+
+# ========== Test: MTP False Positive ==========
+
+class TestMTPFalsePositive:
+    """验证 handle_mtp 返回 None (误判) 的处理"""
+
+    def test_handle_mtp_none_appends_fragment(self, sys):
+        """handle_mtp 返回 None 时 mtp_fragment 被追加到文本"""
+        mtp_gen = _mtp_gen("Before MTP. ")
+        sys._worker_agent.generate.return_value = mtp_gen
+        sys.kernel.handle_mtp.return_value = None  # 误判
+
+        result = sys.chat(
+            user_message="q",
+            messages=[{"role": "system", "content": "Base."},
+                      {"role": "user", "content": "q"}],
+            user_id="u1",
+        )
+
+        # 前缀 + fragment 都应出现在最终文本中
+        assert "Before MTP. " in result.final_text
+        assert "SEARCH" in result.final_text
+        # 不应有 MTP 迭代计数
+        assert result.mtp_iterations == 0
+        # generate 只调用一次 (不递归)
+        assert sys._worker_agent.generate.call_count == 1
+
+    def test_handle_mtp_none_no_resume(self, sys):
+        """误判时不追加 fake assistant history，不继续循环"""
+        mtp_gen = _mtp_gen("Text. ")
+        sys._worker_agent.generate.return_value = mtp_gen
+        sys.kernel.handle_mtp.return_value = None
+
+        messages = [{"role": "system", "content": "Base."},
+                    {"role": "user", "content": "q"}]
+        sys.chat(user_message="q", messages=messages, user_id="u1")
+
+        # generate 收到的 messages 不应包含 fake assistant
+        gen_call = sys._worker_agent.generate.call_args
+        sent_messages = gen_call.args[0]
+        assert all(m["role"] != "assistant" for m in sent_messages)
+
+
+# ========== Test: Phase D Resume Message ==========
+
+class TestPhaseDResumeMessage:
+    """验证 Phase D fake assistant history 拼接"""
+
+    def test_fake_assistant_contains_mtp_response(self, sys):
+        """Phase D 追加的 assistant message 包含 MTP 指令 + XML 响应"""
+        sys._worker_agent.generate.side_effect = [
+            _mtp_gen("Searching. "),
+            _normal_gen("Found it."),
+        ]
+        mtp_result = _mtp_exec()
+        sys.kernel.handle_mtp.return_value = mtp_result
+
+        messages = [{"role": "system", "content": "Base."},
+                    {"role": "user", "content": "find"}]
+        sys.chat(user_message="find", messages=messages, user_id="u1")
+
+        # 第二次 generate 调用时 messages 应包含 fake assistant
+        second_call = sys._worker_agent.generate.call_args_list[1]
+        sent_messages = second_call.args[0]
+        assistant_msgs = [m for m in sent_messages if m["role"] == "assistant"]
+        assert len(assistant_msgs) == 1
+        # fake assistant 应包含 formatted_response
+        assert "<mtp_response>results</mtp_response>" in assistant_msgs[0]["content"]
+
+    def test_multi_mtp_accumulates_history(self, sys):
+        """多次 MTP 中断累积多条 fake assistant history"""
+        sys._worker_agent.generate.side_effect = [
+            _mtp_gen("Step1. "),
+            _mtp_gen("Step2. "),
+            _normal_gen("Done."),
+        ]
+        sys.kernel.handle_mtp.return_value = _mtp_exec()
+
+        messages = [{"role": "system", "content": "Base."},
+                    {"role": "user", "content": "multi"}]
+        sys.chat(user_message="multi", messages=messages, user_id="u1")
+
+        # 第三次 generate 调用时应有 2 条 fake assistant
+        third_call = sys._worker_agent.generate.call_args_list[2]
+        sent_messages = third_call.args[0]
+        assistant_msgs = [m for m in sent_messages if m["role"] == "assistant"]
+        assert len(assistant_msgs) == 2
+

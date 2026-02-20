@@ -28,15 +28,16 @@ from typing import Any, Callable, Dict, List, Optional
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
-from hivememory.engines.perception.stream_parser import UnifiedStreamParser
 from hivememory.engines.perception.relay_controller import RelayController
 from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber
 from hivememory.engines.perception.models import (
     BufferState,
     FlushEvent,
     FlushReason,
+    InteractionPayload,
     LogicalBlock,
     SemanticBuffer,
+    TraceItem,
 )
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
 
@@ -72,7 +73,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         >>> config = SemanticFlowPerceptionConfig()
         >>> perception = SemanticFlowPerceptionLayer(
         ...     config=config,
-        ...     parser=parser,
         ...     adsorber=adsorber,
         ...     relay_controller=relay_controller,
         ...     on_flush_callback=on_flush
@@ -87,7 +87,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     def __init__(
         self,
         config: SemanticFlowPerceptionConfig,
-        parser: UnifiedStreamParser,
         adsorber: SemanticBoundaryAdsorber,
         relay_controller: RelayController,
         on_flush_callback: Optional[
@@ -99,7 +98,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         Args:
             config: SemanticFlowPerceptionConfig 配置对象
-            parser: 流式解析器
             adsorber: 语义吸附器（无状态服务）
             relay_controller: 接力控制器（无状态服务）
             on_flush_callback: Flush 回调函数
@@ -108,7 +106,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         super().__init__()
 
         self.config = config
-        self.parser = parser
         self.adsorber = adsorber
         self.relay_controller = relay_controller
         self.on_flush_callback = on_flush_callback
@@ -122,99 +119,92 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         logger.info("SemanticFlowPerceptionLayer 初始化完成")
 
-    def perceive(
-        self,
-        role: str,
-        content: str,
-        identity: Identity,
-        rewritten_query: Optional[str] = None,
-        gateway_intent: Optional[str] = None,
-        worth_saving: Optional[bool] = None,
-    ) -> None:
-        """
-        添加消息到感知层
+    # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
-        编排流程：
-            1. 解析消息
-            2. 获取 buffer 和 builder
-            3. 检查是否需要开始新 block
-            4. 添加消息到 builder
-            5. 如果 block 未完成，返回
-            6. Block 完成，构建它
-            7. 吸附判断：检查语义漂移
-            8. 容量判断：检查 Token 溢出
-            9. 将 block 添加到 buffer
-            10. 更新话题核心
-            11. 重置 builder 和状态
+    def ingest_payload(self, payload: InteractionPayload) -> None:
+        """
+        摄入 Kernel 递归循环的完整交互载荷 (BlockBuilder 状态机, §3.2)
+
+        直接构建 LogicalBlock（使用 v3.0 字段），绕过 StreamParser + Builder。
+
+        流程:
+            1. MTPLogParser 清洗 → clean_text + fallback_traces
+            2. 构建 LogicalBlock (v3.0 字段)
+            3. 信号检查:
+               - URGENT (write_focus/update_focus): 添加 block → 立即 flush
+               - NORMAL: 语义吸附判定 + 溢出接力判定 → 添加 block → 更新话题核心
 
         Args:
-            role: 角色 (user/assistant/system)
-            content: 消息内容
-            identity: 身份标识对象
-            rewritten_query: Gateway 重写后的查询（可选）
-            gateway_intent: Gateway 意图分类结果（可选）
-            worth_saving: Gateway 价值判断（可选）
+            payload: Kernel → Perception 的原子传输包
         """
-        # 1. 解析消息
-        try:
-            raw_message = {"role": role, "content": content}
-            stream_message = self.parser.parse_message(raw_message)
-            stream_message.identity = identity
-        except Exception as e:
-            logger.error(f"消息解析失败: {e}")
-            return
+        from hivememory.patchouli.protocol.mtp_log_parser import MTPLogParser
 
-        # 2. 获取 buffer 和 builder
+        # 1. 清洗 MTP 噪音
+        clean_text, fallback_traces = MTPLogParser.parse(payload.assistant_message)
+
+        # 优先使用 Kernel 传入的 traces，回退到 parser 解析的
+        traces = payload.mtp_traces if payload.mtp_traces else fallback_traces
+
+        # 2. 构建 LogicalBlock (v3.0 字段)
+        block = LogicalBlock(
+            user_query=payload.user_message,
+            rewritten_query=payload.rewritten_query,
+            semantic_traces=traces,
+            raw_response=payload.assistant_message,
+            clean_response=clean_text,
+            worth_saving=payload.worth_saving,
+            write_focus=payload.write_focus,
+            update_focus=payload.update_focus,
+        )
+
+        # 计算 priority
+        is_urgent = (payload.write_focus is not None
+                     or payload.update_focus is not None)
+        if is_urgent:
+            block.priority = "URGENT"
+
+        identity = payload.identity
         buffer = self._buffer_manager.get_buffer(identity)
-        builder = self._buffer_manager.get_builder(identity)
 
-        # 3. 检查是否需要开始新 block
-        if builder.should_create_new_block(stream_message):
-            builder.start(
-                rewritten_query=rewritten_query,
-                gateway_intent=gateway_intent,
-                worth_saving=worth_saving,
+        # 3. 信号检查
+        if is_urgent:
+            # URGENT: 添加 block → 立即 flush
+            self._buffer_manager.add_block_to_buffer(identity, block)
+            reason = (
+                FlushReason.MTP_WRITE if payload.write_focus is not None
+                else FlushReason.MTP_UPDATE
             )
-            self._buffer_manager.update_buffer_metadata(
-                identity, state=BufferState.PROCESSING
-            )
-            logger.debug(f"为 {identity.buffer_key} 开始新 block")
-
-        # 4. 添加消息到 builder
-        builder.add_message(stream_message)
-
-        # 5. 如果 block 未完成，返回
-        if not builder.is_complete:
-            return
-
-        # 6. Block 完成，构建它
-        completed_block = builder.build()
-
-        # 7. 吸附判断：检查语义漂移
-        flush_event = self.adsorber.should_adsorb(buffer, completed_block)
-        if flush_event:
-            self._handle_flush_event(identity, flush_event)
-            # flush 后刷新 buffer 引用
             buffer = self._buffer_manager.get_buffer(identity)
-        # 8. 容量判断：检查 Token 溢出（仅在未发生语义漂移 Flush 时）
+            flush_event = FlushEvent(
+                flush_reason=reason,
+                blocks_to_flush=buffer.blocks.copy(),
+                write_focus=payload.write_focus,
+                update_focus=payload.update_focus,
+            )
+            self._handle_flush_event(identity, flush_event)
         else:
-            flush_event = self.relay_controller.should_relay(buffer, completed_block)
+            # NORMAL: 语义吸附 + 溢出接力
+            flush_event = self.adsorber.should_adsorb(buffer, block)
             if flush_event:
                 self._handle_flush_event(identity, flush_event)
                 buffer = self._buffer_manager.get_buffer(identity)
+            else:
+                flush_event = self.relay_controller.should_relay(buffer, block)
+                if flush_event:
+                    self._handle_flush_event(identity, flush_event)
+                    buffer = self._buffer_manager.get_buffer(identity)
 
-        # 9. 将 block 添加到 buffer
-        self._buffer_manager.add_block_to_buffer(identity, completed_block)
+            # 添加 block 到 buffer
+            self._buffer_manager.add_block_to_buffer(identity, block)
 
-        # 10. 更新话题核心
-        new_kernel = self.adsorber.compute_new_topic_kernel(buffer, completed_block)
-        if new_kernel:
-            self._buffer_manager.update_buffer_metadata(
-                identity, topic_kernel_vector=new_kernel
-            )
+            # 更新话题核心
+            new_kernel = self.adsorber.compute_new_topic_kernel(buffer, block)
+            if new_kernel:
+                self._buffer_manager.update_buffer_metadata(
+                    identity, topic_kernel_vector=new_kernel
+                )
 
-        # 11. 重置 builder 和状态
-        self._buffer_manager.reset_builder(identity)
+        # 重置状态
         self._buffer_manager.update_buffer_metadata(
             identity, state=BufferState.IDLE
         )
@@ -267,7 +257,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         if self.on_flush_callback and blocks_to_process:
             try:
                 messages = self._blocks_to_messages(blocks_to_process, identity)
-                self.on_flush_callback(messages, event.flush_reason)
+                self.on_flush_callback(
+                    messages, event.flush_reason,
+                    write_focus=event.write_focus,
+                    update_focus=event.update_focus,
+                )
             except Exception as e:
                 logger.error(f"Flush 回调失败: {e}")
         elif self.on_flush_callback and not blocks_to_process:
