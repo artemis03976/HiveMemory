@@ -240,6 +240,48 @@ class QdrantMemoryStore:
             logger.error(f"获取记忆失败: {e}")
             return None
 
+    def get_memory_by_alias(
+        self,
+        alias: str,
+        user_id: Optional[str] = None,
+    ) -> Optional[MemoryAtom]:
+        """
+        根据别名精确匹配检索记忆 (L2 Cold Lookup, MTP Section 2.3.2)
+
+        使用 scroll API + FieldCondition 精确匹配 index.alias 字段。
+
+        Args:
+            alias: 语义化别名 (e.g. "code_quicksort_impl")
+            user_id: 可选的用户 ID 过滤
+
+        Returns:
+            MemoryAtom 对象，未找到返回 None
+        """
+        try:
+            filters: Dict[str, Any] = {"index.alias": alias}
+            if user_id:
+                filters["meta.user_id"] = user_id
+
+            filter_obj = self._build_filter(filters)
+
+            scroll_result = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=filter_obj,
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            points = scroll_result[0]
+            if not points:
+                return None
+
+            return self._payload_to_memory(points[0].payload)
+
+        except Exception as e:
+            logger.error(f"按别名检索记忆失败 (alias={alias}): {e}")
+            return None
+
     def search_memories(
         self,
         query_text: str,

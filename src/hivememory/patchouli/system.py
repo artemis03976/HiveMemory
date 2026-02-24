@@ -25,6 +25,7 @@
 """
 
 import logging
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
@@ -156,8 +157,8 @@ class PatchouliSystem:
         """访问存储层（代理到 Kernel）"""
         return self.kernel.storage
 
-    # ========== 被动消息流处理 API ==========
-    # TODO: 重置被动观测模式，统一收集数据流为InteractionPayload
+    # ========== 被动消息流处理 API (Passive Observer Mode) ==========
+
     def ingest(
         self,
         role: str,
@@ -168,21 +169,23 @@ class PatchouliSystem:
         context: Optional[List[StreamMessage]] = None,
     ) -> Dict[str, Any]:
         """
-        被动消息流处理入口 (Passive Message Stream Ingestion)
+        被动消息流处理入口 (Passive Observer Mode)
 
-        接收外部消息流（来自第三方 Agent 或应用层），执行感知与检索，
-        但不驱动 LLM 生成。适用于系统作为"记忆中间件"被动接入的场景。
+        接收外部系统（Discord Bot、微信机器人、传统 Agent 框架）的离散消息，
+        通过 TheEye 的 ObserverSessionBuffer 缓冲配对后，构建完整的 InteractionPayload
+        提交给感知层进行记忆沉淀。
 
         与 chat() 的区别:
-            - chat(): Kernel 主动驱动 LLM 递归生成循环 (IoC)
-            - ingest(): 被动接收消息，仅做 Eye 分析 + 感知投递 + 可选检索
+            - chat(): Kernel 主动驱动 LLM 递归生成循环 (Active/AIOS Mode)
+            - ingest(): 被动接收消息，缓冲配对 + Eye 分析 + 检索降级 (Passive Mode)
 
-        所有角色的消息均经过感知层投递:
-            - User: Eye 拦截重写 → 感知投递 → 同步预检索 (仅 RAG 意图)
-            - Assistant/System: 直接异步感知投递
+        数据流 (参考 Passive.md):
+            - User: Eye 分析 + 缓冲(自动 flush 上一轮) → 被动模式检索
+            - Assistant: 缓冲配对(等待 flush 触发)
+            - 其他: 忽略
 
         Args:
-            role: 消息角色 (user/assistant/system)
+            role: 消息角色 (user/assistant)
             content: 消息内容
             user_id: 用户 ID
             agent_id: Agent ID
@@ -191,22 +194,24 @@ class PatchouliSystem:
 
         Returns:
             Dict: 处理结果
-                - intent: 意图 (Chat/RAG/Record/record_only)
-                - rewritten: 重写后的查询 (仅 User)
-                - keywords: 检索关键词 (仅 User)
-                - worth_saving: 是否值得保存
-                - memory: 检索到的记忆上下文 (仅 User RAG)
         """
         identity = Identity(
             user_id=user_id, agent_id=agent_id, session_id=session_id
         )
 
         if role == "user":
-            # User 消息: Eye → Kernel.handle_hot (感知 + 检索)
-            gaze_result = self.eye.gaze(
-                query=content, context=context or [], identity=identity
+            # 1. Eye 分析 + 缓冲 (自动 flush 上一轮)
+            gaze_result, flushed_payload = self.eye.ingest_user(
+                content=content, identity=identity, context=context or [],
             )
-            hot_result = self.kernel.handle_hot(gaze_result)
+            if flushed_payload:
+                self.kernel.submit_interaction(flushed_payload)
+
+            # 2. 被动模式检索 (使用 FullContextRenderer 降级渲染)
+            hot_result = self.kernel.handle_hot(
+                gaze_result,
+                mode="passive",
+            )
 
             return {
                 "intent": hot_result.intent,
@@ -215,23 +220,68 @@ class PatchouliSystem:
                 "worth_saving": hot_result.worth_saving,
                 "memory": hot_result.memory,
             }
-        else:
-            # Non-user 消息: 构建最小 InteractionPayload 异步提交
-            payload = InteractionPayload(
-                user_message="",
-                assistant_message=content,
-                mtp_traces=[],
-                identity=identity,
-            )
-            self.kernel.submit_interaction(payload)
+
+        elif role == "assistant":
+            self.eye.ingest_assistant(content=content, identity=identity)
 
             return {
-                "intent": "record_only",
+                "intent": "buffered",
                 "rewritten": None,
                 "keywords": [],
                 "worth_saving": True,
                 "memory": None,
             }
+
+        else:
+            return {
+                "intent": "ignored",
+                "rewritten": None,
+                "keywords": [],
+                "worth_saving": False,
+                "memory": None,
+            }
+
+    def flush_observer_session(
+        self,
+        user_id: str,
+        agent_id: str = "default",
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """
+        显式 flush 指定 session 的 Observer Buffer (Explicit EOF 触发器)
+
+        Args:
+            user_id: 用户 ID
+            agent_id: Agent ID
+            session_id: 会话 ID
+
+        Returns:
+            bool: 是否有数据被 flush
+        """
+        identity = Identity(
+            user_id=user_id, agent_id=agent_id, session_id=session_id
+        )
+        payload = self.eye.flush_session(identity)
+        if payload:
+            self.kernel.submit_interaction(payload)
+            return True
+        return False
+
+    def start_observer_idle_monitor(
+        self,
+        timeout_seconds: float = 30.0,
+        scan_interval_seconds: float = 10.0,
+    ) -> None:
+        """启动 Observer Buffer 空闲超时监控 (委托给 TheEye)"""
+        self.eye.start_observer_idle_monitor(
+            timeout_seconds=timeout_seconds,
+            scan_interval_seconds=scan_interval_seconds,
+            on_flush_callback=lambda p: self.kernel.submit_interaction(p),
+        )
+
+    def stop_observer_idle_monitor(self) -> None:
+        """停止 Observer Buffer 空闲超时监控 (委托给 TheEye)"""
+        self.eye.stop_observer_idle_monitor()
 
     # ========== Kernel 驱动的对话 API ==========
 

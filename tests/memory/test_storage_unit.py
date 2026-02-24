@@ -83,3 +83,60 @@ class TestQdrantMemoryStore:
         assert "sparse_text" in vector
         assert vector["dense_text"] == [0.1] * 1024
         assert vector["sparse_text"].indices == [1, 2]
+
+    # ========== get_memory_by_alias ==========
+
+    def test_get_memory_by_alias_found(self, storage):
+        """scroll 返回匹配点时，正确还原 MemoryAtom"""
+        mem = MemoryAtom(
+            meta=MetaData(source_agent_id="agent1", user_id="user1"),
+            index=IndexLayer(
+                title="My Tool",
+                summary="A code snippet tool for testing",
+                tags=["tool"],
+                memory_type=MemoryType.CODE_SNIPPET,
+                alias="code_my_tool",
+            ),
+            payload=PayloadLayer(content="print('hello')"),
+        )
+        payload = mem.to_qdrant_payload()
+
+        mock_point = MagicMock()
+        mock_point.payload = payload
+        storage.client.scroll.return_value = ([mock_point], None)
+
+        result = storage.get_memory_by_alias("code_my_tool")
+
+        assert result is not None
+        assert result.index.alias == "code_my_tool"
+        assert result.payload.content == "print('hello')"
+        storage.client.scroll.assert_called_once()
+
+    def test_get_memory_by_alias_not_found(self, storage):
+        """scroll 返回空列表时，返回 None"""
+        storage.client.scroll.return_value = ([], None)
+
+        result = storage.get_memory_by_alias("nonexistent_alias")
+
+        assert result is None
+
+    def test_get_memory_by_alias_with_user_filter(self, storage):
+        """传入 user_id 时，filter 应包含 meta.user_id"""
+        storage.client.scroll.return_value = ([], None)
+
+        storage.get_memory_by_alias("some_alias", user_id="user_42")
+
+        call_args = storage.client.scroll.call_args
+        scroll_filter = call_args.kwargs.get("scroll_filter") or call_args[1].get("scroll_filter")
+        # Filter 的 must 条件应包含 index.alias 和 meta.user_id
+        field_keys = [cond.key for cond in scroll_filter.must]
+        assert "index.alias" in field_keys
+        assert "meta.user_id" in field_keys
+
+    def test_get_memory_by_alias_exception(self, storage):
+        """storage 异常时返回 None"""
+        storage.client.scroll.side_effect = Exception("Connection refused")
+
+        result = storage.get_memory_by_alias("broken_alias")
+
+        assert result is None

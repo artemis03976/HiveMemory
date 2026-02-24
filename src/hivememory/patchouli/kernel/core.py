@@ -251,12 +251,17 @@ class PatchouliKernel:
         """
         注册微服务到内核
 
-        当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore)
-        扩展点：未来 Koakuma 在此注册
+        当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore), koakuma (KoakumaRuntime)
         """
+        # 构建被动模式渲染器 (Passive.md §5.2)
+        from hivememory.engines.retrieval.renderer import FullContextRenderer
+        from hivememory.patchouli.config import FullRendererConfig
+        passive_renderer = FullContextRenderer(FullRendererConfig())
+
         self._services["retrieval"] = RetrievalFamiliar(
             storage=self.storage,
             engine=self._engines["retrieval"],
+            passive_renderer=passive_renderer,
         )
 
         self._services["librarian"] = LibrarianCore(
@@ -327,6 +332,7 @@ class PatchouliKernel:
         self,
         gaze_result: EyeGazeResult,
         enable_retrieval: bool = True,
+        mode: str = "active",
     ) -> KernelHotResult:
         """
         处理 Eye 传入的热路径预检索请求
@@ -334,6 +340,7 @@ class PatchouliKernel:
         Args:
             gaze_result: TheEye 的统一输出
             enable_retrieval: 是否执行预检索 (False 时跳过，即使 intent 为 RAG)
+            mode: 运行模式 ("active" | "passive")，透传给 RetrievalFamiliar
 
         Returns:
             KernelHotResult: 热路径处理结果
@@ -344,7 +351,8 @@ class PatchouliKernel:
             retrieval_request = self.build_retrieval_request(gaze_result)
             if retrieval_request:
                 retrieved_result = self.retrieval_familiar.retrieve(
-                    retrieval_request
+                    retrieval_request,
+                    mode=mode,
                 )
                 if not retrieved_result.is_empty():
                     retrieved_context = retrieved_result.rendered_context

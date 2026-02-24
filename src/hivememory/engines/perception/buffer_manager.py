@@ -1,11 +1,10 @@
 """
 HiveMemory Buffer Manager
 
-纯状态管理器，管理 buffer 池和 builder 池的 CRUD 操作。
+纯状态管理器，管理 buffer 池的 CRUD 操作。
 
 职责:
     - 管理 buffer 池 (Dict[str, SemanticBuffer])
-    - 管理 builder 池 (Dict[str, LogicalBlockBuilder])
     - 提供 CRUD 操作接口
 
 不负责:
@@ -16,7 +15,7 @@ HiveMemory Buffer Manager
 参考: PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 3.0.0
+版本: 3.1.0
 """
 
 from __future__ import annotations
@@ -27,7 +26,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from hivememory.core.models import Identity, StreamMessage
-from hivememory.engines.perception.block_builder import LogicalBlockBuilder
 from hivememory.engines.perception.models import (
     BufferState,
     LogicalBlock,
@@ -42,12 +40,11 @@ class SemanticBufferManager:
     """
     语义 Buffer 管理器 - 纯状态容器
 
-    管理语义缓冲区和逻辑块构建器的生命周期。
+    管理语义缓冲区的生命周期。
     仅提供 CRUD 操作，不包含业务逻辑。
 
     职责:
         - 管理 buffer 池 (Dict[str, SemanticBuffer])
-        - 管理 builder 池 (Dict[str, LogicalBlockBuilder])
         - 提供线程安全的 CRUD 操作
 
     Examples:
@@ -60,9 +57,6 @@ class SemanticBufferManager:
         """初始化 SemanticBufferManager"""
         # Buffer 池: key -> SemanticBuffer
         self._buffers: Dict[str, SemanticBuffer] = {}
-
-        # Builder 池: key -> LogicalBlockBuilder
-        self._builders: Dict[str, LogicalBlockBuilder] = {}
 
         # 线程安全
         self._lock = threading.RLock()
@@ -184,40 +178,6 @@ class SemanticBufferManager:
         with self._lock:
             return list(self._buffers.keys())
 
-    # ========== Builder CRUD ==========
-
-    def get_builder(self, identity: Identity) -> LogicalBlockBuilder:
-        """
-        获取或创建 builder
-
-        Args:
-            identity: 用于查找 builder 的身份标识
-
-        Returns:
-            该身份对应的 LogicalBlockBuilder
-        """
-        key = identity.buffer_key
-
-        with self._lock:
-            if key not in self._builders:
-                self._builders[key] = LogicalBlockBuilder()
-                logger.debug(f"创建新 builder: {key}")
-
-            return self._builders[key]
-
-    def reset_builder(self, identity: Identity) -> None:
-        """
-        重置 builder 到初始状态
-
-        Args:
-            identity: 身份标识
-        """
-        with self._lock:
-            key = identity.buffer_key
-            if key in self._builders:
-                self._builders[key]._reset()
-                logger.debug(f"重置 builder: {key}")
-
     # ========== Info ==========
 
     def get_buffer_info(self, identity: Identity) -> Dict[str, Any]:
@@ -232,7 +192,6 @@ class SemanticBufferManager:
         """
         with self._lock:
             buffer = self._buffers.get(identity.buffer_key)
-            builder = self._builders.get(identity.buffer_key)
 
             if buffer:
                 return {
@@ -241,8 +200,6 @@ class SemanticBufferManager:
                     "block_count": len(buffer.blocks),
                     "total_tokens": buffer.total_tokens,
                     "state": buffer.state.value if hasattr(buffer.state, 'value') else buffer.state,
-                    "has_building_block": builder.is_started if builder else False,
-                    "building_block_complete": builder.is_complete if builder else False,
                     "relay_summary": buffer.relay_summary,
                     "has_topic_kernel": buffer.topic_kernel_vector is not None,
                 }

@@ -40,7 +40,6 @@ from hivememory.engines.perception import (
     TriggerManager,
     MessageCountTrigger,
     SemanticBoundaryTrigger,
-    LogicalBlockBuilder,
     FlushEvent,
 )
 from hivememory.engines.perception.models import (

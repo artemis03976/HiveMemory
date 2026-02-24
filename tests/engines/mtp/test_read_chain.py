@@ -207,6 +207,7 @@ class TestReadAliasResolution:
         assert "resolved content" in result.response_content
 
     def test_all_invalid(self, koakuma):
+        koakuma._storage.get_memory_by_alias.return_value = None  # L2 miss
         result = koakuma.execute_mtp('⟪ READ | nonexistent_alias | ⟫')
 
         assert not result.success
@@ -218,6 +219,7 @@ class TestReadAliasResolution:
         uid = str(mem.id)
         koakuma._alias_resolver.register_context_alias("good_alias", uid)
         koakuma._storage.get_memory.return_value = mem
+        koakuma._storage.get_memory_by_alias.return_value = None  # L2 miss for bad_alias
 
         result = koakuma.execute_mtp('⟪ READ | [good_alias, bad_alias] | ⟫')
 
@@ -286,6 +288,7 @@ class TestKoakumaReadE2E:
         assert "Doc B" in result.response_content
 
     def test_read_alias_not_found(self, koakuma):
+        koakuma._storage.get_memory_by_alias.return_value = None  # L2 miss
         result = koakuma.execute_mtp('⟪ READ | unknown_alias | ⟫')
 
         assert not result.success
@@ -346,3 +349,78 @@ class TestKoakumaReadValidation:
         """无效 MTP 语法"""
         result = koakuma.execute_mtp('⟪ READ ⟫')
         assert not result.success
+
+
+# ========== Test 7: L2 Cold Lookup Fallback ==========
+
+class TestReadL2Fallback:
+    """READ 指令 L2 冷检索回退测试"""
+
+    def test_l2_fallback_hit(self, koakuma):
+        """L1 未命中但 L2 命中，READ 成功"""
+        mem = _make_memory(content="l2 content")
+        # 不注册到 L1，让 L2 通过 storage.get_memory_by_alias 命中
+        koakuma._storage.get_memory_by_alias.return_value = mem
+        koakuma._storage.get_memory.return_value = mem
+
+        result = koakuma.execute_mtp('⟪ READ | fact_from_l2 | ⟫')
+
+        assert result.success
+        assert "l2 content" in result.response_content
+        koakuma._storage.get_memory_by_alias.assert_called_once()
+
+    def test_l2_promotes_to_l1(self, koakuma):
+        """L2 命中后别名被提升到 L1，第二次不再查 L2"""
+        mem = _make_memory(content="promoted content")
+        koakuma._storage.get_memory_by_alias.return_value = mem
+        koakuma._storage.get_memory.return_value = mem
+
+        # 第一次: L1 miss → L2 hit → promote
+        result1 = koakuma.execute_mtp('⟪ READ | fact_promoted | ⟫')
+        assert result1.success
+
+        # 重置 mock 计数
+        koakuma._storage.get_memory_by_alias.reset_mock()
+
+        # 第二次: L1 应该命中 (已被提升)
+        result2 = koakuma.execute_mtp('⟪ READ | fact_promoted | ⟫')
+        assert result2.success
+        assert "promoted content" in result2.response_content
+
+        # L2 不应被再次调用
+        koakuma._storage.get_memory_by_alias.assert_not_called()
+
+    def test_l2_miss_returns_error(self, koakuma):
+        """L1 和 L2 均未命中"""
+        koakuma._storage.get_memory_by_alias.return_value = None
+
+        result = koakuma.execute_mtp('⟪ READ | totally_unknown | ⟫')
+
+        assert not result.success
+        assert "not found" in result.response_content
+
+    def test_l2_mixed_list(self, koakuma):
+        """列表读取: 一个走 L1，一个走 L2"""
+        mem_l1 = _make_memory(content="from L1")
+        mem_l2 = _make_memory(content="from L2")
+
+        # L1 注册
+        koakuma._alias_resolver.register_context_alias("alias_l1", str(mem_l1.id))
+
+        # L2 返回
+        koakuma._storage.get_memory_by_alias.return_value = mem_l2
+
+        def mock_get(uuid_obj):
+            if str(uuid_obj) == str(mem_l1.id):
+                return mem_l1
+            elif str(uuid_obj) == str(mem_l2.id):
+                return mem_l2
+            return None
+
+        koakuma._storage.get_memory.side_effect = mock_get
+
+        result = koakuma.execute_mtp('⟪ READ | [alias_l1, alias_l2] | ⟫')
+
+        assert result.success
+        assert "from L1" in result.response_content
+        assert "from L2" in result.response_content

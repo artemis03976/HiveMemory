@@ -30,6 +30,11 @@ from hivememory.engines.gateway.semantic_analyzer import (
     LLMAnalyzer,
     create_semantic_analyzer,
 )
+from hivememory.engines.gateway.observer_buffer import (
+    ObserverBufferState,
+    ObserverSessionBuffer,
+    ObserverBufferManager,
+)
 
 import logging
 
@@ -53,4 +58,8 @@ __all__ = [
     # L2 语义分析器
     "LLMAnalyzer",
     "create_semantic_analyzer",
+    # Observer Buffer (被动观测模式)
+    "ObserverBufferState",
+    "ObserverSessionBuffer",
+    "ObserverBufferManager",
 ]

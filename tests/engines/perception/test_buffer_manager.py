@@ -4,7 +4,6 @@ BufferManager 单元测试
 测试覆盖:
 - SemanticBufferManager (原 BufferManager)
     - Buffer 获取和创建
-    - Builder 获取和创建
     - Buffer CRUD 操作
     - Buffer 元数据更新
     - 多会话隔离
@@ -64,43 +63,6 @@ class TestSemanticBufferManagerBasic:
         buffer2 = self.manager.get_buffer(self.identity)
 
         assert buffer1 is buffer2
-
-    # ========== Builder 获取和创建测试 ==========
-
-    def test_get_builder_creates_new(self):
-        """测试获取不存在的 builder 时创建新的"""
-        builder = self.manager.get_builder(self.identity)
-
-        assert builder is not None
-        assert builder.is_empty
-
-    def test_get_builder_returns_existing(self):
-        """测试获取已存在的 builder"""
-        builder1 = self.manager.get_builder(self.identity)
-        builder2 = self.manager.get_builder(self.identity)
-
-        assert builder1 is builder2
-
-    def test_reset_builder(self):
-        """测试重置 builder"""
-        builder = self.manager.get_builder(self.identity)
-
-        # 开始构建
-        user_msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="Hello"
-        )
-        builder.start(rewritten_query="Hello")
-        builder.add_message(user_msg)
-
-        assert builder.is_started
-
-        # 重置
-        self.manager.reset_builder(self.identity)
-
-        # 验证重置后状态
-        builder = self.manager.get_builder(self.identity)
-        assert builder.is_empty
 
 
 class TestSemanticBufferManagerCRUD:
@@ -390,25 +352,6 @@ class TestSemanticBufferManagerInfo:
         info = self.manager.get_buffer_info(self.identity)
 
         assert info["has_topic_kernel"] is True
-
-    def test_get_buffer_info_with_building_block(self):
-        """测试获取有构建中 block 的 buffer 信息"""
-        builder = self.manager.get_builder(self.identity)
-        user_msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="Hello"
-        )
-        builder.start(rewritten_query="Hello")
-        builder.add_message(user_msg)
-
-        # 确保 buffer 也存在
-        self.manager.get_buffer(self.identity)
-
-        info = self.manager.get_buffer_info(self.identity)
-
-        assert info["exists"] is True
-        assert info["has_building_block"] is True
-        assert info["building_block_complete"] is False
 
 
 class TestSimpleBufferManager:

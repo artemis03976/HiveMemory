@@ -14,7 +14,7 @@
 版本: 2.2 (乐观检索策略)
 """
 
-from typing import List, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 import time
 import logging
 
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.retrieval.engine import RetrievalEngine
+from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.protocol.models import RetrievalRequest, RetrievalResponse
@@ -68,6 +69,7 @@ class RetrievalFamiliar:
         self,
         storage: QdrantMemoryStore,
         engine: RetrievalEngine,
+        passive_renderer: Optional[BaseContextRenderer] = None,
     ):
         """
         初始化检索使魔
@@ -75,13 +77,16 @@ class RetrievalFamiliar:
         Args:
             storage: QdrantMemoryStore 实例 (用于更新统计)
             engine: 检索引擎实例
+            passive_renderer: 被动模式渲染器 (FullContextRenderer)，
+                              用于 Passive Observer Mode 的上下文降级渲染
         """
         self.storage = storage
         self.engine = engine
+        self._passive_renderer = passive_renderer
 
         logger.info("RetrievalFamiliar (检索使魔) 初始化完成")
 
-    def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
+    def retrieve(self, request: RetrievalRequest, mode: str = "active") -> RetrievalResponse:
         """
         检索相关记忆
 
@@ -90,10 +95,13 @@ class RetrievalFamiliar:
         2. 合并 MTP filter 传入的额外过滤维度 (如 type:CODE)
         3. 构建查询对象 (RetrievalQuery)
         4. 调用 Engine 执行检索
-        5. Engine 内部完成上下文渲染
+        5. 根据 mode 选择渲染策略:
+           - active: 使用 Engine 内置 renderer (CompactContext/Cascade)
+           - passive: 使用 FullContextRenderer 降级渲染 (Passive.md §5.2)
 
         Args:
             request: 检索请求协议消息
+            mode: 运行模式 ("active" | "passive")
 
         Returns:
             RetrievalResponse 对象
@@ -128,12 +136,27 @@ class RetrievalFamiliar:
 
             response.memories = engine_result.memories
             response.memories_count = engine_result.memories_count
-            response.rendered_context = engine_result.rendered_context
             response.latency_ms = engine_result.latency_ms
+
+            # Step 5: 渲染策略分流 (Passive.md §5.2)
+            if (
+                mode == "passive"
+                and self._passive_renderer is not None
+                and engine_result.search_results
+                and not engine_result.search_results.is_empty()
+            ):
+                # 被动模式: 使用 FullContextRenderer 降级渲染
+                # 外部 Agent 不懂 MTP，无法使用 READ 获取详情，
+                # 因此直接注入完整 Payload 文本
+                response.rendered_context = self._passive_renderer.render(
+                    engine_result.search_results.results
+                )
+            else:
+                response.rendered_context = engine_result.rendered_context
 
             logger.info(
                 f"检索完成: query='{request.semantic_query[:20]}...', "
-                f"filters={query_filters}, "
+                f"mode={mode}, filters={query_filters}, "
                 f"使魔取回了 {response.memories_count} 条记忆, "
                 f"latency={response.latency_ms:.1f}ms"
             )

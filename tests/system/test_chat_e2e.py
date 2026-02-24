@@ -189,6 +189,19 @@ class TestChatBasicFlow:
             gaze, enable_retrieval=True,
         )
 
+    def test_empty_response(self, sys):
+        """LLM 返回空文本时 chat 正常返回"""
+        sys._worker_agent.generate.return_value = _normal_gen("")
+
+        result = sys.chat(
+            user_message="hi",
+            messages=[{"role": "user", "content": "hi"}],
+            user_id="u1",
+        )
+
+        assert result.final_text == ""
+        assert result.total_iterations == 1
+
     def test_identity_constructed_correctly(self, sys):
         """Identity 从参数正确构建"""
         sys.chat(
@@ -667,4 +680,18 @@ class TestPhaseDResumeMessage:
         sent_messages = third_call.args[0]
         assistant_msgs = [m for m in sent_messages if m["role"] == "assistant"]
         assert len(assistant_msgs) == 2
+
+
+class TestUserIdPropagation:
+    """用户 ID 传播到 Koakuma"""
+
+    def test_koakuma_receives_user_id(self, sys):
+        """set_current_user 在循环开始时被调用"""
+        sys.chat(
+            user_message="hi",
+            messages=[{"role": "user", "content": "hi"}],
+            user_id="user_abc",
+        )
+
+        sys.kernel.koakuma.set_current_user.assert_called_once_with("user_abc")
 

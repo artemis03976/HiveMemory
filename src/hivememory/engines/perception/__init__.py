@@ -53,7 +53,6 @@ from hivememory.engines.perception.trigger_strategies import (
 )
 from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber, create_adsorber
 from hivememory.engines.perception.relay_controller import RelayController
-from hivememory.engines.perception.block_builder import LogicalBlockBuilder
 from hivememory.engines.perception.buffer_manager import (
     SemanticBufferManager,
     SimpleBufferManager,
@@ -184,7 +183,6 @@ __all__ = [
     "MessageCountTrigger",
     "SemanticBoundaryTrigger",
     # 缓冲区管理器
-    "LogicalBlockBuilder",
     "SemanticBufferManager",
     "SimpleBufferManager",
     # 统一消息流分析

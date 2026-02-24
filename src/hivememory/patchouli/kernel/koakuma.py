@@ -29,8 +29,9 @@
 
 import time
 import logging
+from collections import OrderedDict
 from uuid import UUID
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from hivememory.patchouli.protocol.mtp import (
@@ -76,6 +77,40 @@ _FILTER_TYPE_MAP: Dict[str, MemoryType] = {
     "wip": MemoryType.WORK_IN_PROGRESS,
     "work_in_progress": MemoryType.WORK_IN_PROGRESS,
 }
+
+
+class _LRUCache:
+    """
+    简单 LRU 缓存 (用户态工具缓存, MTP Section 4.2.2)
+
+    基于 OrderedDict 实现，O(1) get/put。
+    缓存 key: alias (str)，value: code content (str)
+    """
+
+    def __init__(self, maxsize: int = 64):
+        self._maxsize = maxsize
+        self._cache: OrderedDict[str, str] = OrderedDict()
+
+    def get(self, key: str) -> Optional[str]:
+        """获取缓存项，命中时移到末尾 (最近使用)"""
+        if key not in self._cache:
+            return None
+        self._cache.move_to_end(key)
+        return self._cache[key]
+
+    def put(self, key: str, value: str) -> None:
+        """插入缓存项，超出容量时淘汰最久未使用的"""
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        self._cache[key] = value
+        if len(self._cache) > self._maxsize:
+            self._cache.popitem(last=False)
+
+    def __len__(self) -> int:
+        return len(self._cache)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._cache
 
 
 class KoakumaRuntime:
@@ -142,9 +177,9 @@ class KoakumaRuntime:
             web_search_timeout=self._config.web_search_timeout_seconds,
         )
 
-        # TODO: 初始化用户态工具 LRU 缓存 (Section 4.2.2)
-        # 缓存从 Qdrant 加载的 CODE_SNIPPET 类型记忆原子
-        # self._user_tool_cache = LRUCache(maxsize=self._config.tool_cache_size)
+        # 初始化用户态工具 LRU 缓存 (Section 4.2.2)
+        # 缓存从 Qdrant 加载的记忆原子的代码内容
+        self._user_tool_cache = _LRUCache(maxsize=self._config.tool_cache_size)
 
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
 
@@ -515,10 +550,13 @@ class KoakumaRuntime:
             )
 
         # 解析别名 → UUID，分离有效与无效别名
+        # 双层路由: L1 上下文热映射 → L2 全局冷检索 (Section 2.3.2)
         resolved: List[Tuple[str, str]] = []  # (alias, uuid)
         unresolved: List[str] = []
         for alias in aliases:
-            uuid = self._alias_resolver.resolve(alias)
+            uuid = self._alias_resolver.resolve(alias)       # L1
+            if uuid is None:
+                uuid = self._resolve_alias_l2(alias)          # L2 fallback
             if uuid is None:
                 unresolved.append(alias)
             else:
@@ -567,7 +605,7 @@ class KoakumaRuntime:
 
         两层分发:
         - Level 0: 内核工具快速路径 (KERNEL_REGISTRY, Section 4.2.1)
-        - Level 1: 用户态工具慢速路径 (Section 4.2.2, 暂未实现)
+        - Level 1: 用户态工具慢速路径 (LRU Cache → L1/L2 别名解析 → Qdrant → 沙箱执行)
 
         Type B 动作类响应 (Section 3.3.3)
 
@@ -609,15 +647,54 @@ class KoakumaRuntime:
                     content=f"Tool '{alias}' execution failed: {str(e)}",
                 )
 
-        # Level 1: 用户态工具慢速路径 (Section 4.2.2) — 暂未实现
-        # TODO: 检查 USER_TOOL_CACHE (LRU)
-        # TODO: Cache Miss → Qdrant 检索 CODE_SNIPPET → 沙箱执行
+        # Level 1: 用户态工具慢速路径 (Section 4.2.2)
+        # Step 1: LRU 缓存命中 → 直接沙箱执行
+        cached_code = self._user_tool_cache.get(alias)
+        if cached_code is not None:
+            logger.debug(f"User tool cache hit: alias='{alias}'")
+            return self._execute_user_tool(alias, cached_code, command.args)
 
-        return MTPResponse(
-            status=MTPResponseStatus.ERROR,
-            content=f"Tool alias '{alias}' not found. "
-                    f"Did you forget to SEARCH first?",
-        )
+        # Step 2: 别名解析 (L1 → L2 回退) → 获取 UUID
+        uuid = self._alias_resolver.resolve(alias)
+        if uuid is None:
+            uuid = self._resolve_alias_l2(alias)
+        if uuid is None:
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=f"Tool alias '{alias}' not found. "
+                        f"Did you forget to SEARCH first?",
+            )
+
+        # Step 3: 从 Qdrant 加载记忆原子
+        try:
+            memory = self._storage.get_memory(UUID(uuid))
+        except (ValueError, TypeError) as e:
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=f"Invalid UUID '{uuid}' for alias '{alias}': {e}",
+            )
+
+        if memory is None:
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=f"Memory not found for alias '{alias}' (UUID: {uuid}). "
+                        f"It may have been archived or deleted.",
+            )
+
+        # Step 4: 校验类型必须是 CODE_SNIPPET
+        if memory.index.memory_type != MemoryType.CODE_SNIPPET:
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=f"Alias '{alias}' is not a runnable tool "
+                        f"(type: {memory.index.memory_type.value}). "
+                        f"current RUN only supports CODE_SNIPPET memories.",
+            )
+
+        # Step 5: 提取代码 → 缓存 → 沙箱执行
+        code = memory.payload.content
+        self._user_tool_cache.put(alias, code)
+        logger.info(f"User tool loaded and cached: alias='{alias}', UUID={uuid}")
+        return self._execute_user_tool(alias, code, command.args)
 
     def _handle_write(self, command: MTPCommand) -> MTPResponse:
         """
@@ -698,8 +775,10 @@ class KoakumaRuntime:
                 content='UPDATE requires an "instruction" argument.',
             )
 
-        # 3. 解析 alias → UUID
+        # 3. 解析 alias → UUID (双层路由: L1 → L2)
         uuid = self._alias_resolver.resolve(alias)
+        if uuid is None:
+            uuid = self._resolve_alias_l2(alias)
         if uuid is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -848,6 +927,79 @@ class KoakumaRuntime:
     def _get_current_user_id(self) -> str:
         """获取当前用户 ID"""
         return self._current_user_id
+
+    # ========== L2 冷检索 + 用户态工具 ==========
+
+    def _resolve_alias_l2(self, alias: str) -> Optional[str]:
+        """
+        L2 全局冷检索 (Section 2.3.2)
+
+        当 L1 上下文热映射未命中时，向 Qdrant 发起精确匹配检索。
+        命中后自动提升到 L1 热映射，后续访问走 O(1) 快速路径。
+
+        Args:
+            alias: 语义化别名
+
+        Returns:
+            UUID 字符串，未命中返回 None
+        """
+        try:
+            memory = self._storage.get_memory_by_alias(
+                alias=alias, user_id=self._current_user_id,
+            )
+            if memory is None:
+                logger.debug(f"L2 cold-lookup miss: alias='{alias}'")
+                return None
+
+            uuid_str = str(memory.id)
+            # 校验 UUID 格式有效性，防止脏数据污染 L1 缓存
+            UUID(uuid_str)
+
+            self._alias_resolver.register_context_alias(alias, uuid_str)
+            logger.debug(
+                f"L2 cold-lookup hit: alias='{alias}' -> {uuid_str}, promoted to L1"
+            )
+            return uuid_str
+        except Exception as e:
+            logger.debug(f"L2 cold-lookup failed: alias='{alias}', error={e}")
+            return None
+
+    def _execute_user_tool(
+        self, alias: str, code: str, args: Dict[str, str]
+    ) -> MTPResponse:
+        """
+        在受限沙箱中执行用户态工具 (Section 4.2.2)
+
+        用户态工具通过 params 字典接收 MTP 参数。
+        工具代码中可通过 params["key"] 访问传入的参数。
+
+        Args:
+            alias: 工具别名
+            code: 工具代码 (来自 CODE_SNIPPET 记忆原子的 payload.content)
+            args: MTP 指令参数 (key-value pairs)
+
+        Returns:
+            MTPResponse: 执行结果
+        """
+        from hivememory.patchouli.kernel.syscalls import execute_sandboxed
+
+        result = execute_sandboxed(
+            code,
+            namespace_extras={"params": dict(args)},
+            timeout_seconds=self._config.python_repl_timeout_seconds,
+        )
+
+        is_error = result.startswith("Error")
+        status = "error" if is_error else "success"
+
+        self._current_traces.append(TraceItem(
+            action="RUN", tool=alias, status=status,
+        ))
+
+        return MTPResponse(
+            status=MTPResponseStatus.ERROR if is_error else MTPResponseStatus.SUCCESS,
+            content=result,
+        )
 
 
 __all__ = [

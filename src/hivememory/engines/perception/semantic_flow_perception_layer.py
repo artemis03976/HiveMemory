@@ -304,14 +304,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             List[StreamMessage]: 被 Flush 的消息列表
         """
-        builder = self._buffer_manager.get_builder(identity)
-
-        # 如果 builder 有完成的 block，先添加它
-        if builder.is_complete:
-            completed_block = builder.build()
-            self._buffer_manager.add_block_to_buffer(identity, completed_block)
-            self._buffer_manager.reset_builder(identity)
-
         # 获取最新的 buffer 状态
         buffer = self._buffer_manager.get_buffer(identity)
         if not buffer.blocks:
@@ -357,7 +349,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             bool: 是否成功清理
         """
         cleared = self._buffer_manager.clear_buffer(identity)
-        self._buffer_manager.reset_builder(identity)
         self._buffer_manager.update_buffer_metadata(
             identity,
             reset_topic_kernel=True,

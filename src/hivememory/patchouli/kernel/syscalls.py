@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +149,61 @@ def _run_code_in_thread(
         raise result_holder["error"]
 
 
+def execute_sandboxed(
+    code: str,
+    *,
+    namespace_extras: Optional[Dict[str, Any]] = None,
+    timeout_seconds: int = 10,
+) -> str:
+    """
+    在受限沙箱中执行 Python 代码 (共享安全模型, Section 4.3.1)
+
+    供 sys_python_repl (L0) 和用户态工具执行 (L1) 共用。
+
+    安全模型:
+        - 白名单 builtins (禁止 import, open, exec, eval 等)
+        - 子线程执行 + 超时熔断
+        - 隔离命名空间
+
+    Args:
+        code: 要执行的 Python 代码
+        namespace_extras: 额外注入到命名空间的变量 (如 {"params": {...}})
+        timeout_seconds: 超时秒数
+
+    Returns:
+        执行结果字符串 (成功时 "Stdout: ..." 或 "Executed successfully",
+        失败时 "Error: ...")
+    """
+    restricted_builtins = {
+        k: getattr(builtins, k)
+        for k in _SAFE_BUILTINS
+        if hasattr(builtins, k)
+    }
+    restricted_builtins["__import__"] = _blocked_import
+
+    namespace: dict = {"__builtins__": restricted_builtins}
+    if namespace_extras:
+        namespace.update(namespace_extras)
+
+    stdout_capture = io.StringIO()
+
+    try:
+        _run_code_in_thread(
+            code=code,
+            namespace=namespace,
+            stdout_capture=stdout_capture,
+            timeout_seconds=timeout_seconds,
+        )
+    except _TimeoutError:
+        return f"Error: Execution timed out after {timeout_seconds}s."
+    except Exception:
+        tb_lines = traceback.format_exc().strip().split("\n")
+        return "Error:\n" + "\n".join(tb_lines[-3:])
+
+    output = stdout_capture.getvalue().strip()
+    return f"Stdout: {output}" if output else "Executed successfully (no output)."
+
+
 def sys_python_repl(args: Dict[str, str], *, timeout_seconds: int = 10) -> str:
     """
     受限 Python REPL (Section 4.3.1 MVP / Chapter 8.3)
@@ -167,34 +222,7 @@ def sys_python_repl(args: Dict[str, str], *, timeout_seconds: int = 10) -> str:
     if not code:
         return "Error: 'code' argument is required."
 
-    # 构建受限 builtins
-    restricted_builtins = {
-        k: getattr(builtins, k)
-        for k in _SAFE_BUILTINS
-        if hasattr(builtins, k)
-    }
-    restricted_builtins["__import__"] = _blocked_import
-
-    # 隔离命名空间
-    namespace = {"__builtins__": restricted_builtins}
-    stdout_capture = io.StringIO()
-
-    try:
-        _run_code_in_thread(
-            code=code,
-            namespace=namespace,
-            stdout_capture=stdout_capture,
-            timeout_seconds=timeout_seconds,
-        )
-    except _TimeoutError:
-        return f"Error: Execution timed out after {timeout_seconds}s."
-    except Exception:
-        # 返回最后 3 行 traceback (Section 4.4)
-        tb_lines = traceback.format_exc().strip().split("\n")
-        return "Error:\n" + "\n".join(tb_lines[-3:])
-
-    output = stdout_capture.getvalue().strip()
-    return f"Stdout: {output}" if output else "Executed successfully (no output)."
+    return execute_sandboxed(code, timeout_seconds=timeout_seconds)
 
 
 # ========== sys_web_search ==========
