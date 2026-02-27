@@ -89,17 +89,30 @@ class PatchouliSystem:
         """
         self.config = config or load_app_config()
 
-        # 1. 初始化 Kernel（内核管理 Retrieval + Librarian + MTP 微服务）
-        self.kernel = PatchouliKernel(config=self.config)
+        # 0. 创建 SystemBus（系统总线 — 主板）
+        from hivememory.infrastructure.system_bus import SystemBus
+        self.bus = SystemBus()
+
+        # 1. 初始化 Kernel（内核管理 Retrieval + Librarian + MTP 微服务，注册总线路由）
+        self.kernel = PatchouliKernel(config=self.config, bus=self.bus)
 
         # 2. 初始化 Gateway
         self._init_gateway()
 
-        # 3. 构建 TheEye
-        self.eye = TheEye(engine=self._gateway_engine)
+        # 3. 构建 TheEye (通过 bus 访问感知层，Phase 4.5 Agentic Dispatcher)
+        self.eye = TheEye(
+            engine=self._gateway_engine,
+            bus=self.bus,
+        )
 
         # 4. 初始化 Worker Agent (LLM 文本生成引擎)
         self._worker_agent = WorkerAgentService(config=self.config.llm.worker)
+
+        # 5. System 级 Pub/Sub 订阅
+        self.bus.subscribe(
+            "observer.idle_flushed",
+            lambda payload: self.kernel.submit_interaction(payload),
+        )
 
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
 
@@ -205,7 +218,10 @@ class PatchouliSystem:
                 content=content, identity=identity, context=context or [],
             )
             if flushed_payload:
-                self.kernel.submit_interaction(flushed_payload)
+                self.kernel.submit_interaction(
+                    flushed_payload,
+                    target_topic=gaze_result.target_topic,
+                )
 
             # 2. 被动模式检索 (使用 FullContextRenderer 降级渲染)
             hot_result = self.kernel.handle_hot(
@@ -272,11 +288,10 @@ class PatchouliSystem:
         timeout_seconds: float = 30.0,
         scan_interval_seconds: float = 10.0,
     ) -> None:
-        """启动 Observer Buffer 空闲超时监控 (委托给 TheEye)"""
+        """启动 Observer Buffer 空闲超时监控 (委托给 TheEye，flush 事件通过 bus 路由)"""
         self.eye.start_observer_idle_monitor(
             timeout_seconds=timeout_seconds,
             scan_interval_seconds=scan_interval_seconds,
-            on_flush_callback=lambda p: self.kernel.submit_interaction(p),
         )
 
     def stop_observer_idle_monitor(self) -> None:
@@ -370,7 +385,9 @@ class PatchouliSystem:
         )
 
         # 统一异步提交: 感知层内部处理 URGENT 信号的即时 flush
-        self.kernel.submit_interaction(payload)
+        self.kernel.submit_interaction(
+            payload, target_topic=gaze_result.target_topic
+        )
 
         return loop_result
 
@@ -446,19 +463,19 @@ class PatchouliSystem:
         self,
         identity: Identity,
     ) -> None:
-        """手动触发感知层 Flush（委托给 Kernel）"""
-        self.kernel.flush_buffer(identity)
+        """手动触发感知层 Flush"""
+        self.bus.request("perception.flush_buffer", identity=identity)
 
     def get_buffer_info(
         self,
         identity: Identity,
     ) -> Dict[str, Any]:
-        """获取 Buffer 信息（委托给 Kernel）"""
-        return self.kernel.get_buffer_info(identity)
+        """获取 Buffer 信息"""
+        return self.bus.request("perception.get_buffer_info", identity=identity)
 
     def add_flush_observer(self, observer) -> None:
-        """添加 Flush 事件观察者（委托给 Kernel）"""
-        self.kernel.add_flush_observer(observer)
+        """添加 Flush 事件观察者"""
+        self.bus.request("librarian.add_flush_observer", observer)
 
     def get_mtp_prompt(self) -> str:
         """获取 MTP System Prompt 片段（委托给 Kernel）"""

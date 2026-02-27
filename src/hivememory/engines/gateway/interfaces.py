@@ -8,7 +8,7 @@ Global Gateway 接口定义
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from hivememory.core.models import StreamMessage
 from hivememory.engines.gateway.models import (
@@ -66,7 +66,6 @@ class BaseInterceptor(ABC):
 # L2: 语义分析器接口
 # ============================================================
 
-
 class BaseSemanticAnalyzer(ABC):
     """
     L2 语义分析器抽象基类
@@ -90,6 +89,7 @@ class BaseSemanticAnalyzer(ABC):
         self,
         query: str,
         context: List[StreamMessage],
+        active_topics_menu: Optional[str] = None,
     ) -> SemanticAnalysisResult:
         """
         执行语义分析
@@ -97,9 +97,10 @@ class BaseSemanticAnalyzer(ABC):
         Args:
             query: 用户原始查询
             context: 对话上下文（用于指代消解）
+            active_topics_menu: 活跃话题菜单字符串（用于 Agentic Routing）
 
         Returns:
-            SemanticAnalysisResult: L2 分析器的原始输出，包含意图、重写查询、关键词等
+            SemanticAnalysisResult: L2 分析器的原始输出，包含意图、重写查询、关键词、路由目标等
         """
         pass
 

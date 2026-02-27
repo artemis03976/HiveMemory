@@ -26,11 +26,6 @@ class GatewayEngine:
     - 调用 L2 语义分析器并返回原始结果
     - 将结果封装为 GatewayResult
 
-    注意：此类不处理任何业务逻辑，如：
-    - 不处理 fallback（由上层 TheEye 处理）
-    - 不记录日志（由上层 TheEye 处理）
-    - 不添加处理时间（由上层 TheEye 处理）
-
     乐观检索策略：
     - 不再生成 target_filters，过滤条件由 RetrievalFamiliar 动态创建
     - 默认意图为 RAG，让检索层决定是否有相关记忆
@@ -69,18 +64,20 @@ class GatewayEngine:
         self,
         query: str,
         context: Optional[List[StreamMessage]] = None,
+        active_topics_menu: Optional[str] = None,
     ) -> GatewayResult:
         """
         执行完整的 Gateway 处理流程
 
         流程：
         1. 尝试 L1 拦截
-        2. 如果 L1 未命中，执行 L2 语义分析
+        2. 如果 L1 未命中，执行 L2 语义分析（含话题路由）
         3. 将 L1/L2 原始结果统一转换为 GatewayResult
 
         Args:
             query: 用户查询字符串
             context: 对话上下文（可选）
+            active_topics_menu: 活跃话题菜单字符串（用于 Agentic Routing）
 
         Returns:
             GatewayResult: GatewayEngine 对 TheEye 的最终输出
@@ -100,10 +97,13 @@ class GatewayEngine:
                 worth_saving=False,
                 reason=l1_result.reason,
                 l1_result=l1_result,
+                target_topic="NEW_TOPIC",  # L1 拦截不做路由
             )
 
-        # L2: 语义分析
-        l2_result = self.semantic_analyzer.analyze(query, context)
+        # L2: 语义分析（含话题路由）
+        l2_result = self.semantic_analyzer.analyze(
+            query, context, active_topics_menu=active_topics_menu
+        )
 
         # L2 成功，将 SemanticAnalysisResult 转换为 GatewayResult
         return GatewayResult(
@@ -113,6 +113,7 @@ class GatewayEngine:
             worth_saving=l2_result.worth_saving,
             reason=l2_result.reason,
             l1_result=l1_result,
+            target_topic=l2_result.target_topic,
         )
 
 

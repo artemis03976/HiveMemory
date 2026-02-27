@@ -25,8 +25,7 @@ class EyeGazeResult(BaseModel):
     """
     TheEye 的统一输出模型
 
-    TheEye 作为 Ingress Gateway，只负责感知和信息重整，
-    不构建下游协议消息（RetrievalRequest）。
+    TheEye 作为 Agentic Dispatcher，负责信息重整与话题路由。
     数据格式转换由 PatchouliKernel 负责。
 
     Attributes:
@@ -38,6 +37,7 @@ class EyeGazeResult(BaseModel):
         identity: 身份标识
         processing_time_ms: Eye 处理耗时（毫秒）
         is_fallback: 是否为 fallback 结果
+        target_topic: 路由目标话题 ID 或 "NEW_TOPIC"
     """
     intent: GatewayIntent = Field(..., description="意图分类")
     rewritten_query: str = Field(..., description="指代消解后的查询")
@@ -47,6 +47,9 @@ class EyeGazeResult(BaseModel):
     identity: Identity = Field(default_factory=Identity, description="身份标识")
     processing_time_ms: float = Field(default=0.0, description="处理耗时")
     is_fallback: bool = Field(default=False, description="是否为 fallback 结果")
+
+    #: 路由目标话题 (MMU Agentic Routing, Phase 4.5)
+    target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID 或 NEW_TOPIC")
 
 
 class KernelHotResult(BaseModel):

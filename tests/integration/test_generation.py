@@ -209,8 +209,8 @@ class TestMemoryGenerationEngineLogic:
 
         text = self.engine._format_transcript(msgs)
 
-        assert "👤 User: Hi" in text
-        assert "🤖 Assistant: Hello" in text
+        assert "[User]: Hi" in text
+        assert "[Assistant]: Hello" in text
 
 
 class TestEngineComponentCoordination:

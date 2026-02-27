@@ -140,13 +140,13 @@ The Eye (Gateway) 不再是单纯的文本重写器，而是升级为**拥有全
 1.  **挂起生成 (Suspend)**：暂停当前的 LLM 续写请求。
 2.  **状态提取 (State Extraction)**：
     *   取出当前话题旧的 `state_summary`。
-    *   取出该话题下**最旧的 N 个** `LogicalBlock`（留下最近的 M 个以保持短期语境连贯）。
+    *   取出该话题下**全部**或**最旧的 N 个** `LogicalBlock`（留下最近的 M 个以保持短期语境连贯）。
 3.  **高速压缩 (Compaction)**：
     *   调用极速、低成本小模型（如 GPT-4o-mini 或 Claude-3.5-Haiku）执行压缩。
     *   *Prompt 示例*: "将以下历史对话提炼为当前状态摘要。重点保留：当前项目的阶段、已确立的规则、环境变量、以及未解决的 Bug 或任务。保持紧凑。"
 4.  **状态替换 (State Replacement)**：
     *   将产出的新摘要覆盖旧的 `state_summary`。
-    *   从 `blocks` 列表中永久丢弃那 N 个已被压缩的旧块，重置 `total_tokens` 计数。
+    *   从 `blocks` 列表中永久丢弃那 N 个已被压缩的旧块，更新 `total_tokens` 计数。
 
 #### 4.3 组装“伪无限上下文” (Context Hydration)
 折叠完成后，Kernel 组装给 Worker Agent 的最终 Prompt 将呈现为“冰山结构”：

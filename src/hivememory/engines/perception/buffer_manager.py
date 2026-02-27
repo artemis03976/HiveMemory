@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import (
@@ -38,42 +38,58 @@ logger = logging.getLogger(__name__)
 
 class SemanticBufferManager:
     """
-    语义 Buffer 管理器 - 纯状态容器
+    话题管理器 / MMU (TopicManager / Memory Management Unit)
 
-    管理语义缓冲区的生命周期。
-    仅提供 CRUD 操作，不包含业务逻辑。
+    短期记忆的中央调度器，管理活跃话题池的生命周期。
+    类似操作系统的 MMU，负责话题的换入(Swap-in)、换出(Swap-out)和 LRU 驱逐。
+
+    映射关系 (ShortTermMemory.md §2.1):
+        TopicManager = SemanticBufferManager
+        active_topics = _buffers
 
     职责:
-        - 管理 buffer 池 (Dict[str, SemanticBuffer])
+        - 管理活跃话题池 (Dict[str, SemanticBuffer/TopicSegment])
         - 提供线程安全的 CRUD 操作
+        - 提供话题路由 (route) 与换出 (swap_out)
+        - 提供活跃话题菜单供 TheEye 路由决策
+        - LRU 驱逐判定
 
     Examples:
-        >>> manager = SemanticBufferManager()
+        >>> manager = SemanticBufferManager(max_resident_topics=5)
         >>> buffer = manager.get_buffer(identity)
-        >>> manager.add_block_to_buffer(identity, block)
+        >>> menu = manager.get_active_topics_menu()
+        >>> manager.route(topic_id)
     """
 
-    def __init__(self) -> None:
-        """初始化 SemanticBufferManager"""
-        # Buffer 池: key -> SemanticBuffer
+    def __init__(self, max_resident_topics: int = 5) -> None:
+        """
+        初始化 SemanticBufferManager (MMU)
+
+        Args:
+            max_resident_topics: 最大驻留话题数，超过此数量将触发 LRU 驱逐
+        """
+        # 活跃话题池 (L1 Cache / 驻留内存): key -> SemanticBuffer (TopicSegment)
         self._buffers: Dict[str, SemanticBuffer] = {}
+
+        # 最大驻留限制
+        self.max_resident_topics = max_resident_topics
 
         # 线程安全
         self._lock = threading.RLock()
 
-        logger.info("SemanticBufferManager 初始化完成")
+        logger.info(f"SemanticBufferManager (MMU) 初始化完成, max_resident={max_resident_topics}")
 
     # ========== Buffer CRUD ==========
 
     def get_buffer(self, identity: Identity) -> SemanticBuffer:
         """
-        获取或创建 buffer
+        获取或创建话题段 (TopicSegment)
 
         Args:
             identity: 用于查找 buffer 的身份标识
 
         Returns:
-            该身份对应的 SemanticBuffer
+            该身份对应的 SemanticBuffer (TopicSegment)
         """
         key = identity.buffer_key
 
@@ -82,9 +98,11 @@ class SemanticBufferManager:
                 self._buffers[key] = SemanticBuffer(
                     identity=identity,
                 )
-                logger.debug(f"创建新 buffer: {key}")
+                logger.debug(f"创建新话题段 (TopicSegment): {key}")
 
-            return self._buffers[key]
+            buf = self._buffers[key]
+            buf.last_accessed_at = datetime.now().timestamp()
+            return buf
 
     def add_block_to_buffer(
         self,
@@ -170,13 +188,114 @@ class SemanticBufferManager:
 
     def list_active_buffers(self) -> List[str]:
         """
-        列出所有活跃的 buffer keys
+        列出所有活跃的话题 keys
 
         Returns:
             buffer key 列表
         """
         with self._lock:
             return list(self._buffers.keys())
+
+    # ========== MMU 路由与生命周期 (Phase 4.5) ==========
+
+    def get_active_topics_menu(self) -> List[Dict[str, str]]:
+        """
+        获取活跃话题菜单，供 TheEye 路由决策使用
+
+        Returns:
+            List[Dict]: [{"topic_id": buffer_id, "title": title, "buffer_key": key}, ...]
+        """
+        with self._lock:
+            menu = []
+            for key, buf in self._buffers.items():
+                if buf.blocks:  # 只返回有内容的话题
+                    menu.append({
+                        "topic_id": buf.buffer_id,
+                        "title": buf.title,
+                        "buffer_key": key,
+                    })
+            return menu
+
+    def route(self, topic_id: str) -> Optional[SemanticBuffer]:
+        """
+        根据 topic_id 换入(Swap-in)目标话题
+
+        更新 last_accessed_at 时间戳，用于 LRU 驱逐判定。
+
+        Args:
+            topic_id: 目标话题的 buffer_id
+
+        Returns:
+            SemanticBuffer 如果找到，否则 None
+        """
+        with self._lock:
+            for key, buf in self._buffers.items():
+                if buf.buffer_id == topic_id:
+                    buf.last_accessed_at = datetime.now().timestamp()
+                    return buf
+            return None
+
+    def create_new_topic(self, identity: Identity, title: str = "新建话题") -> SemanticBuffer:
+        """
+        创建新话题段
+
+        Args:
+            identity: 身份标识
+            title: 话题标题
+
+        Returns:
+            新创建的 SemanticBuffer (TopicSegment)
+        """
+        with self._lock:
+            buf = SemanticBuffer(identity=identity, title=title)
+            key = identity.buffer_key
+            self._buffers[key] = buf
+            logger.debug(f"创建新话题段: key={key}, title='{title}'")
+            return buf
+
+    def find_lru_topic(self) -> Optional[Tuple[str, SemanticBuffer]]:
+        """
+        找到最近最少访问的话题 (LRU)
+
+        Returns:
+            (buffer_key, SemanticBuffer) 或 None
+        """
+        with self._lock:
+            if not self._buffers:
+                return None
+            lru_key = min(
+                self._buffers.keys(),
+                key=lambda k: self._buffers[k].last_accessed_at
+            )
+            return (lru_key, self._buffers[lru_key])
+
+    def swap_out(self, buffer_key: str) -> Optional[SemanticBuffer]:
+        """
+        换出(Swap-out)指定话题，从活跃池中移除并返回
+
+        调用方负责将返回的 TopicSegment 移交给 LibrarianCore 进行 MTM 归档。
+
+        Args:
+            buffer_key: 要换出的话题 key
+
+        Returns:
+            被换出的 SemanticBuffer，不存在则返回 None
+        """
+        with self._lock:
+            evicted = self._buffers.pop(buffer_key, None)
+            if evicted:
+                logger.info(f"话题换出: key={buffer_key}, title='{evicted.title}'")
+            return evicted
+
+    def needs_eviction(self) -> bool:
+        """检查是否需要 LRU 驱逐"""
+        with self._lock:
+            return len(self._buffers) >= self.max_resident_topics
+
+    def get_active_count(self) -> int:
+        """获取当前活跃话题数量"""
+        with self._lock:
+            return len(self._buffers)
 
     # ========== Info ==========
 

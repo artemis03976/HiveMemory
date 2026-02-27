@@ -151,6 +151,8 @@ class BasePerceptionLayer(ABC):
         self._scan_interval_seconds: int = 30  # 扫描间隔 30 秒
         self._idle_monitor_scheduler = None
         self._idle_monitor_running: bool = False
+        # SystemBus 引用（可选，由 set_bus() 注入）
+        self._bus = None
 
     def set_flush_callback(self, callback: Callable[[List[StreamMessage], FlushReason], None]) -> None:
         """
@@ -160,6 +162,18 @@ class BasePerceptionLayer(ABC):
             callback: 刷新时调用的函数，接收 StreamMessage 列表和 FlushReason 参数
         """
         self.on_flush_callback = callback
+
+    def set_bus(self, bus) -> None:
+        """
+        注入 SystemBus 实例
+
+        感知层通过 bus 发布 flush 事件（替代直接回调）。
+        由 PatchouliKernel._register_bus_routes() 在路由注册阶段调用。
+
+        Args:
+            bus: SystemBus 实例
+        """
+        self._bus = bus
 
     # ========== 空闲超时监控（默认实现）==========
 
@@ -358,6 +372,37 @@ class BasePerceptionLayer(ABC):
             payload: Kernel → Perception 的原子传输包
         """
         pass
+
+    # ========== MMU 路由与话题管理 (Phase 4.5) ==========
+
+    def route_and_ingest(
+        self,
+        topic_id: str,
+        payload: InteractionPayload,
+    ) -> None:
+        """
+        路由到指定话题并摄入载荷 (MMU 模式)
+
+        默认实现：忽略 topic_id，直接调用 ingest_payload。
+        SemanticFlowPerceptionLayer 重写此方法实现真正的路由。
+
+        Args:
+            topic_id: 目标话题 ID 或 "NEW_TOPIC"
+            payload: 原子传输包
+        """
+        self.ingest_payload(payload)
+
+    def get_active_topics_menu(self) -> List[Dict[str, str]]:
+        """
+        获取活跃话题菜单，供 TheEye 路由决策使用
+
+        默认实现：返回空列表（无话题路由能力）。
+        SemanticFlowPerceptionLayer 重写此方法。
+
+        Returns:
+            List[Dict]: [{"topic_id": ..., "title": ..., "buffer_key": ...}, ...]
+        """
+        return []
 
     # ========== 抽象接口 ==========
 

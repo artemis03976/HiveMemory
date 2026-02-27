@@ -1,26 +1,32 @@
 """
-HiveMemory - 语义流感知层 (Semantic Flow Perception Layer)
+HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory Management Unit)
 
 职责:
-    使用统一语义流架构的感知层实现。
-    负责编排 flush 逻辑，协调 BufferManager、Adsorber 和 Relay。
+    作为短期记忆的 MMU（内存管理单元），管理多话题的生命周期。
+    负责话题路由(route)、换入(swap-in)、换出(swap-out)和 LRU 驱逐。
 
 特性:
-    - LogicalBlock 作为处理单元
-    - 语义吸附判定
-    - Token 溢出检测与接力
+    - LogicalBlock 作为处理单元（页 / Page）
+    - 多话题并发管理（活跃话题池）
+    - LRU 驱逐策略
+    - URGENT 信号立即 flush
     - 异步空闲超时监控
 
-Note:
-    v3.0 重构：
-    - BufferManager 简化为纯状态管理器
-    - Adsorber 和 Relay 变为无状态服务
-    - Flush 编排逻辑移至 PerceptionLayer
+映射关系 (ShortTermMemory.md):
+    TopicManager (MMU) = SemanticBufferManager
+    TopicSegment = SemanticBuffer
+    Pages = blocks (List[LogicalBlock])
 
-参考: PROJECT.md 2.3.1 节
+Note:
+    Phase 4.5 重构：
+    - 移除 Adsorber 和 Relay 依赖（话题路由由 TheEye 完成）
+    - 新增 route_and_ingest / swap_out_topic / get_active_topics_menu
+    - BufferManager 升级为 MMU（含 LRU 驱逐）
+
+参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 1.0.0
+版本: 4.5.0
 """
 
 import logging
@@ -28,8 +34,6 @@ from typing import Any, Callable, Dict, List, Optional
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
-from hivememory.engines.perception.relay_controller import RelayController
-from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber
 from hivememory.engines.perception.models import (
     BufferState,
     FlushEvent,
@@ -46,84 +50,67 @@ logger = logging.getLogger(__name__)
 
 class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     """
-    语义流感知层 (v3.0 重构版)
+    语义流感知层 / MMU (Phase 4.5 重构版)
 
-    使用统一的语义流架构：
-        - LogicalBlock 作为处理单元
-        - 语义吸附判定
-        - Token 溢出检测与接力
-        - 异步空闲超时监控
-
-    职责：
-        - 解析消息
-        - 编排 flush 逻辑（协调 Adsorber 和 Relay）
-        - 管理话题核心向量更新
-        - 管理空闲超时监控
+    作为短期记忆的内存管理单元 (MMU)，管理多话题的并发生命周期：
+        - 话题路由：根据 TheEye 的 target_topic 将载荷路由到正确话题
+        - LRU 驱逐：活跃话题池满时驱逐最久未访问的话题
+        - URGENT 信号：write_focus/update_focus 触发立即 flush
+        - 空闲超时：长期不活跃的话题自动换出
 
     架构：
-        - BufferManager: 纯状态容器（CRUD 操作）
-        - Adsorber: 无状态服务（语义漂移检测）
-        - Relay: 无状态服务（Token 溢出检测）
+        - BufferManager (MMU): 话题池管理（CRUD + 路由 + LRU）
         - PerceptionLayer: 编排和协调
 
     Examples:
-        >>> def on_flush(messages, reason):
-        ...     print(f"Flush: {reason}, Messages: {len(messages)}")
-        >>>
         >>> config = SemanticFlowPerceptionConfig()
         >>> perception = SemanticFlowPerceptionLayer(
         ...     config=config,
-        ...     adsorber=adsorber,
-        ...     relay_controller=relay_controller,
         ...     on_flush_callback=on_flush
         ... )
-        >>> perception.start_idle_monitor()
-        >>>
-        >>> perception.add_message("user", "hello", identity)
-        >>>
-        >>> perception.stop_idle_monitor()
+        >>> perception.route_and_ingest("NEW_TOPIC", payload)
     """
 
     def __init__(
         self,
         config: SemanticFlowPerceptionConfig,
-        adsorber: SemanticBoundaryAdsorber,
-        relay_controller: RelayController,
         on_flush_callback: Optional[
             Callable[[List[StreamMessage], FlushReason], None]
         ] = None,
+        # 以下参数保留向后兼容签名，但不再使用
+        adsorber: Optional[Any] = None,
+        relay_controller: Optional[Any] = None,
     ):
         """
-        初始化语义流感知层
+        初始化语义流感知层 (MMU)
 
         Args:
             config: SemanticFlowPerceptionConfig 配置对象
-            adsorber: 语义吸附器（无状态服务）
-            relay_controller: 接力控制器（无状态服务）
             on_flush_callback: Flush 回调函数
-                参数: (messages: List[StreamMessage], reason: FlushReason)
+            adsorber: (已弃用) 语义吸附器，保留参数兼容性
+            relay_controller: (已弃用) 接力控制器，保留参数兼容性
         """
         super().__init__()
 
         self.config = config
-        self.adsorber = adsorber
-        self.relay_controller = relay_controller
         self.on_flush_callback = on_flush_callback
 
         # 空闲超时监控器配置（由基类管理）
         self._idle_timeout_seconds = config.idle_timeout_seconds
         self._scan_interval_seconds = config.scan_interval_seconds
 
-        # BufferManager 作为纯状态容器
-        self._buffer_manager = SemanticBufferManager()
+        # BufferManager 作为 MMU（话题管理器）
+        self._buffer_manager = SemanticBufferManager(
+            max_resident_topics=getattr(config, "max_resident_topics", 5)
+        )
 
-        logger.info("SemanticFlowPerceptionLayer 初始化完成")
+        logger.info("SemanticFlowPerceptionLayer (MMU) 初始化完成")
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
     def ingest_payload(self, payload: InteractionPayload) -> None:
         """
-        摄入 Kernel 递归循环的完整交互载荷 (BlockBuilder 状态机, §3.2)
+        摄入 Kernel 递归循环的完整交互载荷
 
         直接构建 LogicalBlock（使用 v3.0 字段），绕过 StreamParser + Builder。
 
@@ -132,7 +119,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             2. 构建 LogicalBlock (v3.0 字段)
             3. 信号检查:
                - URGENT (write_focus/update_focus): 添加 block → 立即 flush
-               - NORMAL: 语义吸附判定 + 溢出接力判定 → 添加 block → 更新话题核心
+               - NORMAL: 直接添加 block（话题路由已由 TheEye 完成）
 
         Args:
             payload: Kernel → Perception 的原子传输包
@@ -164,7 +151,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             block.priority = "URGENT"
 
         identity = payload.identity
-        buffer = self._buffer_manager.get_buffer(identity)
 
         # 3. 信号检查
         if is_urgent:
@@ -183,26 +169,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             )
             self._handle_flush_event(identity, flush_event)
         else:
-            # NORMAL: 语义吸附 + 溢出接力
-            flush_event = self.adsorber.should_adsorb(buffer, block)
-            if flush_event:
-                self._handle_flush_event(identity, flush_event)
-                buffer = self._buffer_manager.get_buffer(identity)
-            else:
-                flush_event = self.relay_controller.should_relay(buffer, block)
-                if flush_event:
-                    self._handle_flush_event(identity, flush_event)
-                    buffer = self._buffer_manager.get_buffer(identity)
-
-            # 添加 block 到 buffer
+            # NORMAL: 话题路由已由 TheEye 完成，直接添加 block
             self._buffer_manager.add_block_to_buffer(identity, block)
-
-            # 更新话题核心
-            new_kernel = self.adsorber.compute_new_topic_kernel(buffer, block)
-            if new_kernel:
-                self._buffer_manager.update_buffer_metadata(
-                    identity, topic_kernel_vector=new_kernel
-                )
 
         # 重置状态
         self._buffer_manager.update_buffer_metadata(
@@ -254,17 +222,28 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             )
 
         # 5. 调用回调（仅当有 block 需要处理时）
-        if self.on_flush_callback and blocks_to_process:
+        if blocks_to_process:
             try:
                 messages = self._blocks_to_messages(blocks_to_process, identity)
-                self.on_flush_callback(
-                    messages, event.flush_reason,
-                    write_focus=event.write_focus,
-                    update_focus=event.update_focus,
-                )
+                if self._bus:
+                    # 通过 SystemBus 发布 flush 事件
+                    self._bus.emit(
+                        "perception.flushed",
+                        messages=messages,
+                        reason=event.flush_reason,
+                        write_focus=event.write_focus,
+                        update_focus=event.update_focus,
+                    )
+                elif self.on_flush_callback:
+                    # Fallback: 直接回调（无 bus 时，如测试环境）
+                    self.on_flush_callback(
+                        messages, event.flush_reason,
+                        write_focus=event.write_focus,
+                        update_focus=event.update_focus,
+                    )
             except Exception as e:
                 logger.error(f"Flush 回调失败: {e}")
-        elif self.on_flush_callback and not blocks_to_process:
+        elif (self._bus or self.on_flush_callback) and not blocks_to_process:
             logger.debug(
                 f"所有 blocks 被 worth_saving 过滤，跳过 Generation 回调"
             )
@@ -383,6 +362,117 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         info["mode"] = "semantic_flow"
         info["identity"] = identity
         return info
+
+    # ========== MMU 路由与话题管理 (Phase 4.5) ==========
+
+    def get_active_topics_menu(self) -> List[Dict[str, str]]:
+        """
+        获取活跃话题菜单，供 TheEye 路由决策使用
+
+        Returns:
+            List[Dict]: [{topic_id, title, buffer_key}, ...]
+        """
+        return self._buffer_manager.get_active_topics_menu()
+
+    def route_and_ingest(
+        self,
+        topic_id: str,
+        payload: InteractionPayload,
+    ) -> None:
+        """
+        MMU 核心方法：路由到指定话题并摄入载荷
+
+        流程:
+            - NEW_TOPIC: 检查驱逐 → 创建新话题 → ingest_payload
+            - 已有 topic_id: 换入话题 → ingest_payload
+
+        Args:
+            topic_id: 目标话题 ID 或 "NEW_TOPIC"
+            payload: Kernel → Perception 的原子传输包
+        """
+        identity = payload.identity
+
+        if topic_id == "NEW_TOPIC":
+            # 检查是否需要 LRU 驱逐
+            if self._buffer_manager.needs_eviction():
+                self._evict_lru_topic()
+            # 创建新话题（使用 payload 的 identity）
+            self._buffer_manager.create_new_topic(identity)
+        else:
+            # 按 topic_id 换入已有话题
+            routed = self._buffer_manager.route(topic_id)
+            if routed is None:
+                logger.warning(
+                    f"话题 {topic_id} 不存在，回退到 NEW_TOPIC"
+                )
+                if self._buffer_manager.needs_eviction():
+                    self._evict_lru_topic()
+                self._buffer_manager.create_new_topic(identity)
+
+        # 摄入载荷
+        self.ingest_payload(payload)
+
+    def _evict_lru_topic(self) -> None:
+        """
+        LRU 驱逐：找到最久未访问的话题，flush 后换出
+
+        驱逐流程:
+            1. 找到 LRU 话题
+            2. flush 其 buffer（触发 Generation 回调）
+            3. 从活跃池移除
+        """
+        lru = self._buffer_manager.find_lru_topic()
+        if lru is None:
+            return
+
+        buffer_key, buffer = lru
+        logger.info(
+            f"LRU 驱逐话题: {buffer_key}, "
+            f"title={buffer.title}"
+        )
+
+        # flush buffer 内容
+        if buffer.blocks:
+            parts = buffer_key.split(":")
+            if len(parts) == 3:
+                evict_identity = Identity(
+                    user_id=parts[0],
+                    agent_id=parts[1],
+                    session_id=parts[2],
+                )
+                self.flush_buffer(evict_identity, FlushReason.LRU_EVICTION)
+
+        # 从活跃池移除
+        self._buffer_manager.swap_out(buffer_key)
+
+    def swap_out_topic(
+        self, buffer_key: str
+    ) -> Optional[SemanticBuffer]:
+        """
+        显式换出指定话题
+
+        Args:
+            buffer_key: 话题的 buffer key
+
+        Returns:
+            被换出的 SemanticBuffer，不存在返回 None
+        """
+        return self._buffer_manager.swap_out(buffer_key)
+
+    def update_topic_title(
+        self, topic_id: str, title: str
+    ) -> None:
+        """
+        更新话题标题
+
+        Args:
+            topic_id: 话题 ID (buffer_id)
+            title: 新标题
+        """
+        buf = self._buffer_manager.route(topic_id)
+        if buf is not None:
+            buf.title = title
+            logger.debug(f"话题 {topic_id} 标题更新为: {title}")
 
 
 __all__ = [

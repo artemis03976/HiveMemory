@@ -4,8 +4,10 @@ Global Gateway 系统提示词
 定义 Gateway 的 System Prompt 模板，用于 LLM 语义分析。
 
 作者: HiveMemory Team
-版本: 2.0
+版本: 3.0 (Phase 4.5 Agentic Dispatcher)
 """
+
+from typing import Optional
 
 # 默认 System Prompt
 GATEWAY_SYSTEM_PROMPT = """你是 HiveMemory 系统的全局智能网关，负责分析用户查询。
@@ -101,20 +103,67 @@ Strictly follow the function schema and return JSON only.
 """
 
 
+# ============ Agentic Dispatcher Prompt (Phase 4.5 MMU) ============
+
+GATEWAY_DISPATCHER_PROMPT = """你是一个 OS 级别的调度网关（Agentic Dispatcher）。你的任务是分析用户的最新输入，判断它属于哪个后台活跃任务，补全缺失的指代信息，并提取元数据。
+
+【当前活跃任务列表】
+{active_topics_menu}
+
+【规则】
+1. 如果用户输入明确属于某个活跃任务（通过语义匹配或指代关系），将 target_topic 设为该任务的 ID。
+2. 如果用户输入与所有活跃任务都不相关，将 target_topic 设为 "NEW_TOPIC"。
+3. 结合匹配任务的上下文，消除代词（它/这个/那个），生成完整的独立指令作为 rewritten_query。
+4. 提取 3-5 个用于稀疏检索的关键词。
+5. 判断是否值得保存为长期记忆。
+
+【记忆价值判断】
+- 值得保存: 技术问答、代码实现、配置方案、用户偏好、重要事实
+- 不值得保存: 简单寒暄、确认回复、重复提问、琐碎内容
+
+请严格按照函数 schema 返回结果。"""
+
+
+GATEWAY_DISPATCHER_PROMPT_EN = """You are an OS-level dispatch gateway (Agentic Dispatcher). Your task is to analyze the user's latest input, determine which active background task it belongs to, resolve missing references, and extract metadata.
+
+【Active Task List】
+{active_topics_menu}
+
+【Rules】
+1. If the user input clearly belongs to an active task (via semantic match or coreference), set target_topic to that task's ID.
+2. If the user input is unrelated to all active tasks, set target_topic to "NEW_TOPIC".
+3. Using the matched task's context, resolve pronouns (it/this/that) and produce a complete standalone instruction as rewritten_query.
+4. Extract 3-5 keywords for sparse retrieval.
+5. Determine whether the interaction is worth saving as long-term memory.
+
+【Memory Value Judgment】
+- Worth saving: Technical Q&A, code implementations, configurations, user preferences, important facts
+- Not worth saving: Simple greetings, confirmations, repetitive content, trivial info
+
+Strictly follow the function schema and return JSON only."""
+
+
 def get_system_prompt(
     variant: str = "default",
     language: str = "zh",
+    active_topics_menu: Optional[str] = None,
 ) -> str:
     """
     获取 System Prompt
 
     Args:
-        variant: 变体 ("default", "simple")
+        variant: 变体 ("default", "simple", "dispatcher")
         language: 语言 ("zh", "en")
+        active_topics_menu: 活跃话题菜单字符串（仅 dispatcher 模式使用）
 
     Returns:
         str: System Prompt
     """
+    # Dispatcher 模式：有活跃话题菜单时使用调度 prompt
+    if variant == "dispatcher" and active_topics_menu is not None:
+        template = GATEWAY_DISPATCHER_PROMPT_EN if language == "en" else GATEWAY_DISPATCHER_PROMPT
+        return template.replace("{active_topics_menu}", active_topics_menu)
+
     if language == "en":
         return GATEWAY_SYSTEM_PROMPT_EN
 
@@ -128,5 +177,7 @@ __all__ = [
     "GATEWAY_SYSTEM_PROMPT",
     "GATEWAY_SYSTEM_PROMPT_SIMPLE",
     "GATEWAY_SYSTEM_PROMPT_EN",
+    "GATEWAY_DISPATCHER_PROMPT",
+    "GATEWAY_DISPATCHER_PROMPT_EN",
     "get_system_prompt",
 ]

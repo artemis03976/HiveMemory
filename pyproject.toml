@@ -100,8 +100,11 @@ pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=src/hivememory --cov-report=term-missing -m 'not live_llm and not e2e'"
+addopts = "-v --cov=src/hivememory --cov-report=term-missing -m 'not live_llm and not e2e and not slow'"
 markers = [
-    "live_llm: tests that require a real LLM API (set MTP_TEST_MODEL and MTP_TEST_API_KEY env vars)",
-    "e2e: end-to-end scenario tests that require real external services (LLM API, Qdrant, embedding models)",
+    "unit: 快速单元测试，无外部依赖 (< 1s)",
+    "integration: 多组件协作测试，使用 mock (< 10s)",
+    "e2e: 端到端测试，需要真实外部服务 (Qdrant, Embedding, Reranker)",
+    "live_llm: 需要真实 LLM API (设置 LLM 相关环境变量或 config.yaml)",
+    "slow: 耗时 > 30s 的测试 (idle timeout 等)",
 ]

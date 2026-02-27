@@ -28,7 +28,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
@@ -44,6 +44,9 @@ from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+
+if TYPE_CHECKING:
+    from hivememory.infrastructure.system_bus import SystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -75,14 +78,17 @@ class PatchouliKernel:
     def __init__(
         self,
         config: Optional[HiveMemoryConfig] = None,
+        bus: Optional["SystemBus"] = None,
     ):
         """
         初始化帕秋莉内核
 
         Args:
             config: 完整的 HiveMemory 配置（可选）
+            bus: SystemBus 实例（可选），用于模块间通信路由
         """
         self.config = config or load_app_config()
+        self._bus = bus
 
         # 1. 初始化基础设施（单例服务）
         self._init_infrastructure()
@@ -93,6 +99,10 @@ class PatchouliKernel:
         # 3. 注册微服务
         self._services: Dict[str, Any] = {}
         self._register_services()
+
+        # 4. 注册总线路由（如果有 bus）
+        if self._bus:
+            self._register_bus_routes()
 
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")
 
@@ -266,20 +276,66 @@ class PatchouliKernel:
 
         self._services["librarian"] = LibrarianCore(
             storage=self.storage,
-            perception_layer=self._engines["perception"],
-            generation_engine=self._engines["generation"],
+            bus=self._bus,
             lifecycle_engine=self._engines["lifecycle"],
         )
 
         # Koakuma (MTP Runtime Service)
         self._services["koakuma"] = KoakumaRuntime(
-            retrieval_familiar=self._services["retrieval"],
-            librarian_core=self._services["librarian"],
-            storage=self.storage,
+            bus=self._bus,
             config=self.config.koakuma,
         )
 
     # ========== 服务访问器 ==========
+
+    def _register_bus_routes(self) -> None:
+        """
+        在 SystemBus 上注册所有 RPC 路由
+
+        路由命名规范: {service}.{method}
+        所有路由集中在 Kernel 注册，确保单一注册点。
+        """
+        bus = self._bus
+        perception = self._engines["perception"]
+        generation = self._engines["generation"]
+        retrieval_svc = self._services["retrieval"]
+        librarian_svc = self._services["librarian"]
+        koakuma_svc = self._services["koakuma"]
+
+        # 注入 bus 到感知层（用于 Pub/Sub emit）
+        if hasattr(perception, "set_bus"):
+            perception.set_bus(bus)
+
+        # --- Perception 路由 ---
+        bus.register("perception.get_active_topics_menu", perception.get_active_topics_menu)
+        bus.register("perception.route_and_ingest", perception.route_and_ingest)
+        bus.register("perception.flush_buffer", perception.flush_buffer)
+        bus.register("perception.get_buffer", perception.get_buffer)
+        bus.register("perception.clear_buffer", perception.clear_buffer)
+        bus.register("perception.get_buffer_info", perception.get_buffer_info)
+        bus.register("perception.list_active_buffers", perception.list_active_buffers)
+
+        # --- Generation 路由 ---
+        bus.register("generation.process", generation.process)
+
+        # --- Storage 路由 (跨服务子集) ---
+        bus.register("storage.get_memory", self.storage.get_memory)
+        bus.register("storage.get_memory_by_alias", self.storage.get_memory_by_alias)
+        bus.register("storage.update_access_info", self.storage.update_access_info)
+
+        # --- Retrieval 服务路由 ---
+        bus.register("retrieval.retrieve", retrieval_svc.retrieve)
+
+        # --- Librarian 服务路由 ---
+        bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
+        bus.register("librarian.add_flush_observer", librarian_svc.add_flush_observer)
+
+        # --- Koakuma 服务路由 ---
+        bus.register("koakuma.intercept_and_execute", koakuma_svc.intercept_and_execute)
+
+        logger.info(
+            f"SystemBus 路由注册完成: {len(bus.list_routes())} 条路由"
+        )
 
     @property
     def retrieval_familiar(self) -> RetrievalFamiliar:
@@ -295,36 +351,6 @@ class PatchouliKernel:
     def koakuma(self) -> KoakumaRuntime:
         """访问小恶魔 MTP 运行时服务"""
         return self._services["koakuma"]
-
-    # ========== 调度总线 ==========
-
-    def dispatch(self, service_name: str, method: str, **kwargs) -> Any:
-        """
-        通用服务调度
-
-        当前为直接调用的薄封装。未来将作为 MTP 命令路由总线，
-        由 Koakuma 解析 MTP 指令后通过此接口调度到对应服务。
-
-        Args:
-            service_name: 服务名称 (retrieval / librarian / koakuma)
-            method: 方法名称
-            **kwargs: 方法参数
-
-        Returns:
-            服务方法的返回值
-
-        Raises:
-            ValueError: 服务或方法不存在
-        """
-        service = self._services.get(service_name)
-        if service is None:
-            raise ValueError(f"Unknown service: {service_name}")
-        handler = getattr(service, method, None)
-        if handler is None:
-            raise ValueError(
-                f"Service '{service_name}' has no method '{method}'"
-            )
-        return handler(**kwargs)
 
     # ========== 公开 API ==========
 
@@ -350,10 +376,14 @@ class PatchouliKernel:
         if enable_retrieval:
             retrieval_request = self.build_retrieval_request(gaze_result)
             if retrieval_request:
-                retrieved_result = self.retrieval_familiar.retrieve(
-                    retrieval_request,
-                    mode=mode,
-                )
+                if self._bus:
+                    retrieved_result = self._bus.request(
+                        "retrieval.retrieve", retrieval_request, mode=mode,
+                    )
+                else:
+                    retrieved_result = self.retrieval_familiar.retrieve(
+                        retrieval_request, mode=mode,
+                    )
                 if not retrieved_result.is_empty():
                     retrieved_context = retrieved_result.rendered_context
 
@@ -386,9 +416,15 @@ class PatchouliKernel:
         Returns:
             MTPExecutionResult 如果检测到 MTP 指令，否则 None
         """
+        if self._bus:
+            return self._bus.request("koakuma.intercept_and_execute", assistant_text)
         return self.koakuma.intercept_and_execute(assistant_text)
 
-    def submit_interaction(self, payload: InteractionPayload) -> None:
+    def submit_interaction(
+        self,
+        payload: InteractionPayload,
+        target_topic: str = "NEW_TOPIC",
+    ) -> None:
         """
         异步提交交互载荷到 Librarian (fire-and-forget)
 
@@ -397,13 +433,23 @@ class PatchouliKernel:
 
         Args:
             payload: Kernel → Perception 的原子传输包
+            target_topic: 路由目标话题 ID 或 "NEW_TOPIC" (由 TheEye 决定)
         """
-        asyncio.create_task(self._submit_interaction_task(payload))
+        asyncio.create_task(
+            self._submit_interaction_task(payload, target_topic)
+        )
 
-    async def _submit_interaction_task(self, payload: InteractionPayload) -> None:
+    async def _submit_interaction_task(
+        self,
+        payload: InteractionPayload,
+        target_topic: str = "NEW_TOPIC",
+    ) -> None:
         """后台任务: 提交到 Librarian，错误不传播"""
         try:
-            self.librarian_core.ingest_interaction(payload)
+            if self._bus:
+                self._bus.request("librarian.ingest_interaction", payload, target_topic)
+            else:
+                self.librarian_core.ingest_interaction(payload, target_topic)
         except Exception as e:
             logger.warning(f"Background interaction submission failed: {e}")
 
@@ -476,7 +522,10 @@ class PatchouliKernel:
         Args:
             identity: 身份标识对象
         """
-        self.librarian_core.flush_perception(identity)
+        if self._bus:
+            self._bus.request("perception.flush_buffer", identity=identity)
+        else:
+            self._engines["perception"].flush_buffer(identity)
 
     def get_buffer_info(
         self,
@@ -491,7 +540,9 @@ class PatchouliKernel:
         Returns:
             Dict: Buffer 信息字典
         """
-        return self.librarian_core.get_buffer_info(identity)
+        if self._bus:
+            return self._bus.request("perception.get_buffer_info", identity=identity)
+        return self._engines["perception"].get_buffer_info(identity)
 
     def add_flush_observer(self, observer) -> None:
         """
@@ -500,7 +551,10 @@ class PatchouliKernel:
         Args:
             observer: 观察者回调函数
         """
-        self.librarian_core.add_flush_observer(observer)
+        if self._bus:
+            self._bus.request("librarian.add_flush_observer", observer)
+        else:
+            self.librarian_core.add_flush_observer(observer)
 
 
 __all__ = [

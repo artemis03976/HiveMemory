@@ -1,0 +1,261 @@
+"""
+TheEye 单元测试
+
+测试覆盖:
+- gaze: 正常 / fallback / identity 默认值 / context 传递
+- _build_active_topics_menu: bus=None / 空菜单 / 正常 / 异常
+- 被动模式: ingest_user / ingest_assistant / flush_session / flush_idle
+- idle monitor: 启动 / 重复启动 / 停止 / scan 分支
+"""
+
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+
+from hivememory.core.models import Identity
+from hivememory.engines.gateway.models import GatewayIntent, GatewayResult
+from hivememory.patchouli.eye import TheEye
+from hivememory.patchouli.protocol.models import EyeGazeResult
+
+
+def _make_identity() -> Identity:
+    return Identity(user_id="u1", agent_id="a1", session_id="s1")
+
+
+def _make_gateway_result(**kwargs) -> GatewayResult:
+    """构建 mock GatewayResult"""
+    defaults = dict(
+        intent=GatewayIntent.RAG,
+        rewritten_query="重写查询",
+        search_keywords=["kw1"],
+        worth_saving=True,
+        reason="有价值",
+        target_topic="topic_001",
+        processing_time_ms=0.0,
+    )
+    defaults.update(kwargs)
+    result = Mock(spec=GatewayResult)
+    for k, v in defaults.items():
+        setattr(result, k, v)
+    return result
+
+
+class TestTheEyeGaze:
+    """gaze() 方法测试"""
+
+    def setup_method(self):
+        self.mock_engine = Mock()
+        self.eye = TheEye(engine=self.mock_engine, bus=None)
+
+    def test_gaze_success(self):
+        """正常调用 engine.process，返回 EyeGazeResult(is_fallback=False)"""
+        self.mock_engine.process.return_value = _make_gateway_result()
+
+        result = self.eye.gaze("测试查询", identity=_make_identity())
+
+        self.mock_engine.process.assert_called_once()
+        assert isinstance(result, EyeGazeResult)
+        assert result.is_fallback is False
+        assert result.intent == GatewayIntent.RAG
+        assert result.rewritten_query == "重写查询"
+
+    def test_gaze_fallback_on_exception(self):
+        """engine.process 抛异常时返回 fallback"""
+        self.mock_engine.process.side_effect = RuntimeError("boom")
+
+        result = self.eye.gaze("测试查询", identity=_make_identity())
+
+        assert result.is_fallback is True
+        assert result.intent == GatewayIntent.RAG
+        assert result.rewritten_query == "测试查询"
+        assert result.target_topic == "NEW_TOPIC"
+
+    def test_gaze_identity_default(self):
+        """identity=None 时使用 Identity() 默认值"""
+        self.mock_engine.process.return_value = _make_gateway_result()
+
+        result = self.eye.gaze("查询", identity=None)
+
+        assert result.identity is not None
+
+    def test_gaze_passes_context(self):
+        """context 正确传递给 engine.process"""
+        self.mock_engine.process.return_value = _make_gateway_result()
+        ctx = [Mock()]
+
+        self.eye.gaze("查询", context=ctx, identity=_make_identity())
+
+        call_args = self.mock_engine.process.call_args
+        assert call_args[0][1] is ctx
+
+
+class TestTheEyeBuildTopicsMenu:
+    """_build_active_topics_menu() 测试"""
+
+    def test_build_menu_no_bus(self):
+        """bus=None 时返回 None"""
+        eye = TheEye(engine=Mock(), bus=None)
+        result = eye._build_active_topics_menu()
+        assert result is None
+
+    def test_build_menu_empty(self):
+        """bus 返回空菜单时返回 None"""
+        mock_bus = Mock()
+        mock_bus.request.return_value = []
+        eye = TheEye(engine=Mock(), bus=mock_bus)
+
+        result = eye._build_active_topics_menu()
+        assert result is None
+
+    def test_build_menu_success(self):
+        """正常格式化菜单字符串"""
+        mock_bus = Mock()
+        mock_bus.request.return_value = [
+            {"topic_id": "t1", "title": "Python学习"},
+            {"topic_id": "t2", "title": "游戏开发"},
+        ]
+        eye = TheEye(engine=Mock(), bus=mock_bus)
+
+        result = eye._build_active_topics_menu()
+        assert result is not None
+        assert "t1" in result
+        assert "Python学习" in result
+
+    def test_build_menu_exception(self):
+        """bus 抛异常时返回 None"""
+        mock_bus = Mock()
+        mock_bus.request.side_effect = RuntimeError("bus error")
+        eye = TheEye(engine=Mock(), bus=mock_bus)
+
+        result = eye._build_active_topics_menu()
+        assert result is None
+
+
+class TestTheEyePassiveMode:
+    """被动观测模式测试"""
+
+    def setup_method(self):
+        self.mock_engine = Mock()
+        self.mock_engine.process.return_value = _make_gateway_result()
+        self.eye = TheEye(engine=self.mock_engine, bus=None)
+        self.identity = _make_identity()
+
+    def test_ingest_user_first_message(self):
+        """首条 user 消息，无 flush"""
+        gaze_result, flushed = self.eye.ingest_user("你好", self.identity)
+
+        assert isinstance(gaze_result, EyeGazeResult)
+        assert flushed is None
+
+    def test_ingest_user_triggers_flush(self):
+        """第二条 user 消息触发上一轮 flush"""
+        self.eye.ingest_user("第一轮", self.identity)
+        self.eye.ingest_assistant("回复", self.identity)
+
+        gaze_result, flushed = self.eye.ingest_user("第二轮", self.identity)
+
+        assert flushed is not None
+        assert flushed.user_message == "第一轮"
+        assert flushed.assistant_message == "回复"
+
+    def test_ingest_assistant(self):
+        """assistant 消息正确缓冲"""
+        self.eye.ingest_user("问题", self.identity)
+        self.eye.ingest_assistant("回答", self.identity)
+
+        buf = self.eye.observer_buffers.get_buffer(self.identity)
+        assert buf.is_sealed
+
+    def test_flush_session(self):
+        """显式 flush 返回 payload"""
+        self.eye.ingest_user("问题", self.identity)
+        self.eye.ingest_assistant("回答", self.identity)
+
+        payload = self.eye.flush_session(self.identity)
+
+        assert payload is not None
+        assert payload.user_message == "问题"
+
+    def test_flush_idle_sessions(self):
+        """委托给 ObserverBufferManager"""
+        self.eye.ingest_user("消息", self.identity)
+        self.eye.ingest_assistant("回复", self.identity)
+        # 手动设置超时
+        buf = self.eye.observer_buffers.get_buffer(self.identity)
+        buf._last_activity = 0.0
+
+        payloads = self.eye.flush_idle_sessions(timeout_seconds=1.0)
+        assert len(payloads) == 1
+
+
+class TestTheEyeIdleMonitor:
+    """idle monitor 测试"""
+
+    def setup_method(self):
+        self.mock_engine = Mock()
+        self.eye = TheEye(engine=self.mock_engine, bus=None)
+
+    @patch("apscheduler.schedulers.background.BackgroundScheduler")
+    def test_start_idle_monitor(self, MockScheduler):
+        """启动调度器"""
+        mock_sched = MockScheduler.return_value
+        self.eye.start_observer_idle_monitor(timeout_seconds=10.0)
+
+        MockScheduler.assert_called_once()
+        mock_sched.add_job.assert_called_once()
+        mock_sched.start.assert_called_once()
+
+    @patch("apscheduler.schedulers.background.BackgroundScheduler")
+    def test_start_idle_monitor_double_guard(self, MockScheduler):
+        """重复启动不创建新调度器"""
+        self.eye.start_observer_idle_monitor()
+        self.eye.start_observer_idle_monitor()
+
+        assert MockScheduler.call_count == 1
+
+    @patch("apscheduler.schedulers.background.BackgroundScheduler")
+    def test_stop_idle_monitor(self, MockScheduler):
+        """停止调度器"""
+        mock_sched = MockScheduler.return_value
+        self.eye.start_observer_idle_monitor()
+        self.eye.stop_observer_idle_monitor()
+
+        mock_sched.shutdown.assert_called_once_with(wait=False)
+        assert self.eye._observer_idle_scheduler is None
+
+    def test_scan_with_bus(self):
+        """有 bus 时 emit 事件"""
+        mock_bus = Mock()
+        eye = TheEye(engine=self.mock_engine, bus=mock_bus)
+        eye._mock_engine = self.mock_engine
+        self.mock_engine.process.return_value = _make_gateway_result()
+
+        identity = _make_identity()
+        eye.ingest_user("消息", identity)
+        eye.ingest_assistant("回复", identity)
+        buf = eye.observer_buffers.get_buffer(identity)
+        buf._last_activity = 0.0
+        eye._observer_idle_timeout = 1.0
+
+        eye._scan_observer_idle_buffers()
+
+        mock_bus.emit.assert_called_once()
+        call_kwargs = mock_bus.emit.call_args
+        assert call_kwargs[0][0] == "observer.idle_flushed"
+
+    def test_scan_with_callback(self):
+        """无 bus 时调用 callback"""
+        eye = TheEye(engine=self.mock_engine, bus=None)
+        self.mock_engine.process.return_value = _make_gateway_result()
+        mock_cb = Mock()
+        eye._on_flush_callback = mock_cb
+
+        identity = _make_identity()
+        eye.ingest_user("消息", identity)
+        eye.ingest_assistant("回复", identity)
+        buf = eye.observer_buffers.get_buffer(identity)
+        buf._last_activity = 0.0
+        eye._observer_idle_timeout = 1.0
+
+        eye._scan_observer_idle_buffers()
+
+        mock_cb.assert_called_once()

@@ -4,7 +4,7 @@ L2 语义分析器实现
 提供基于 LLM + Function Calling 的语义分析实现。
 
 作者: HiveMemory Team
-版本: 2.1 (乐观检索策略)
+版本: 3.0 (Phase 4.5 Agentic Dispatcher)
 """
 
 import logging
@@ -24,15 +24,19 @@ from hivememory.utils.json_parser import parse_llm_json
 logger = logging.getLogger(__name__)
 
 
-# Function Calling Schema 定义 
+# Function Calling Schema 定义
 GATEWAY_FUNCTION_SCHEMA = {
     "type": "function",
     "function": {
         "name": "analyze_user_query",
-        "description": "分析用户查询，重写查询并评估记忆价值",
+        "description": "分析用户查询，路由到目标话题，重写查询并评估记忆价值",
         "parameters": {
             "type": "object",
             "properties": {
+                "target_topic": {
+                    "type": "string",
+                    "description": "匹配的活跃话题 ID，或 'NEW_TOPIC' 表示新话题",
+                },
                 "rewritten_query": {
                     "type": "string",
                     "description": "指代消解后的完整、独立的查询",
@@ -52,6 +56,7 @@ GATEWAY_FUNCTION_SCHEMA = {
                 },
             },
             "required": [
+                "target_topic",
                 "rewritten_query",
                 "search_keywords",
                 "worth_saving",
@@ -92,15 +97,18 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         self,
         query: str,
         context: List[StreamMessage],
+        active_topics_menu: Optional[str] = None,
     ) -> SemanticAnalysisResult:
         """
         执行语义分析
 
         使用 Function Calling 调用 LLM，获取结构化输出。
+        当提供 active_topics_menu 时，启用 Agentic Dispatcher 模式进行话题路由。
 
         Args:
             query: 用户原始查询
             context: 对话上下文（用于指代消解）
+            active_topics_menu: 活跃话题菜单字符串（用于 Agentic Routing）
 
         Returns:
             SemanticAnalysisResult: L2 分析器的原始输出
@@ -108,8 +116,18 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         Raises:
             Exception: LLM 调用失败时抛出异常，由 GatewayEngine 处理回退
         """
+        # 构建系统提示词：有话题菜单时使用 dispatcher 模式
+        if active_topics_menu:
+            system_prompt = get_system_prompt(
+                variant="dispatcher",
+                language=self.config.prompt_language,
+                active_topics_menu=active_topics_menu,
+            )
+        else:
+            system_prompt = self.system_prompt
+
         # 构建消息
-        messages = [{"role": "system", "content": self.system_prompt}]
+        messages = [{"role": "system", "content": system_prompt}]
 
         # 添加上下文（最近 N 条）
         if context and self.config.context_window > 0:
@@ -205,6 +223,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
             search_keywords=arguments.get("search_keywords", []),
             worth_saving=arguments["worth_saving"],
             reason=arguments["reason"],
+            target_topic=arguments.get("target_topic", "NEW_TOPIC"),
             model=self.llm_service.model,
         )
 
@@ -221,6 +240,7 @@ class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
         self,
         query: str,
         context: List[StreamMessage],
+        active_topics_menu: Optional[str] = None,
     ) -> SemanticAnalysisResult:
         """
         执行语义分析 (No-Op)
@@ -228,13 +248,10 @@ class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
         Args:
             query: 用户原始查询
             context: 对话上下文
+            active_topics_menu: 活跃话题菜单（忽略）
 
         Returns:
             SemanticAnalysisResult: 默认结果
-                - intent: CHAT
-                - rewritten_query: original query
-                - worth_saving: False
-                - reason: "L2 semantic analysis disabled"
         """
         return SemanticAnalysisResult(
             intent=GatewayIntent.RAG,  # 乐观策略：即使禁用也默认 RAG
@@ -242,6 +259,7 @@ class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
             search_keywords=[],
             worth_saving=False,
             reason="L2 semantic analysis disabled",
+            target_topic="NEW_TOPIC",
             model=None,
         )
 

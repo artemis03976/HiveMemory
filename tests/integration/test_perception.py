@@ -34,13 +34,16 @@ from hivememory.core.models import (
     StreamMessage,
 )
 from hivememory.engines.perception import (
-    SimplePerceptionLayer,
     SemanticFlowPerceptionLayer,
-    SemanticBoundaryAdsorber,
+    FlushEvent,
+)
+# 以下组件在 Phase 4.5 中已从 __init__.py 断开，直接从源模块导入
+from hivememory.engines.perception.simple_perception_layer import SimplePerceptionLayer
+from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber
+from hivememory.engines.perception.trigger_strategies import (
     TriggerManager,
     MessageCountTrigger,
     SemanticBoundaryTrigger,
-    FlushEvent,
 )
 from hivememory.engines.perception.models import (
     LogicalBlock,

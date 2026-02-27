@@ -46,6 +46,7 @@ class FlushReason(str, Enum):
     MESSAGE_COUNT = "message_count"  # 消息数量达到阈值（兼容旧版本）
     MTP_WRITE = "mtp_write"  # MTP WRITE 指令触发的强制刷新
     MTP_UPDATE = "mtp_update"  # MTP UPDATE 指令触发的强制刷新
+    LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
 
 
 class BufferState(str, Enum):
@@ -406,45 +407,54 @@ class LogicalBlock(BaseModel):
 
 class SemanticBuffer(BaseModel):
     """
-    基于语义的对话流缓冲区 - 纯数据容器
+    话题段 (TopicSegment) — 短期记忆的独立工作区
+
+    MMU 架构中的核心数据容器，代表一个独立的讨论线程。
+    每个 TopicSegment 拥有绝对纯净的上下文隔离。
+
+    映射关系 (ShortTermMemory.md §2.2):
+        TopicSegment = SemanticBuffer
+        Pages = blocks (List[LogicalBlock])
 
     特性：
-        - 存储 LogicalBlock 列表（非原始消息）
-        - 维护话题核心向量（Topic Kernel）
-        - 支持语义吸附判定
-        - 支持接力摘要（处理 Token 溢出）
-
-    Note:
-        v2.0 重构：移除 current_block 字段和业务逻辑方法。
-        Block 构建逻辑由 LogicalBlockBuilder 管理。
-        Buffer 操作由 BufferManager 管理。
+        - 存储 LogicalBlock 列表（页表 / Pages）
+        - 维护话题标题与状态摘要（伪无限上下文基底）
+        - 支持 LRU 驱逐判定（last_accessed_at）
+        - 支持水位线监控（total_tokens）
 
     Attributes:
-        buffer_id: 缓冲区唯一标识
-        user_id: 用户ID
-        agent_id: Agent ID
-        session_id: 会话ID
-        blocks: 已闭合的 LogicalBlock 列表
-        topic_kernel_vector: 话题核心向量（用于语义吸附判定）
+        buffer_id: 话题段唯一标识 (topic_id)
+        identity: 身份标识
+        title: 话题标题，由 TheEye 或 Kernel 异步生成，用于菜单展示
+        state_summary: 页折叠后的状态摘要，伪无限上下文基底
+        blocks: 已闭合的 LogicalBlock 列表（页表）
+        topic_kernel_vector: 话题核心向量（保留，用于向量相似度回退）
         state: 缓冲区状态
-        last_update: 最后更新时间
-        total_tokens: 总 Token 数
-        relay_summary: 接力摘要（处理 Token 溢出时生成）
+        last_update: 最后写入时间
+        last_accessed_at: 最后访问时间（用于 LRU 驱逐）
+        total_tokens: 总 Token 数（水位线监控）
+        relay_summary: 接力摘要（保留向后兼容，未来由 state_summary 替代）
     """
     buffer_id: str = Field(default_factory=lambda: str(uuid4()))
     identity: Identity
 
+    # --- 话题元数据 (TopicSegment, Phase 4.5 新增) ---
+    title: str = Field(default="新建话题", description="话题标题，由 TheEye 或 Kernel 异步生成")
+    state_summary: str = Field(default="", description="页折叠后的状态摘要，伪无限上下文基底")
+
+    # --- 页表 (Pages) ---
     blocks: List[LogicalBlock] = Field(default_factory=list)
 
-    # 话题核心
+    # 话题核心（保留，用于向量相似度回退）
     topic_kernel_vector: Optional[List[float]] = None
 
-    # 状态
+    # --- 生命周期元数据 ---
     state: BufferState = BufferState.IDLE
     last_update: float = Field(default_factory=lambda: datetime.now().timestamp())
+    last_accessed_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     total_tokens: int = 0
 
-    # 接力摘要（处理 Token 溢出时生成）
+    # 接力摘要（保留向后兼容，未来由 state_summary 替代）
     relay_summary: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True, use_enum_values=True)

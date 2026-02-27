@@ -55,9 +55,9 @@ from hivememory.core.models import MemoryType, Identity
 from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.engines.generation.models import WriteFocus, UpdateFocus
 from hivememory.engines.perception.models import TraceItem
-from hivememory.infrastructure.storage import QdrantMemoryStore
 
 if TYPE_CHECKING:
+    from hivememory.infrastructure.system_bus import SystemBus
     from hivememory.patchouli.config import KoakumaConfig
     from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
     from hivememory.patchouli.kernel.librarian_core import LibrarianCore
@@ -138,26 +138,20 @@ class KoakumaRuntime:
 
     def __init__(
         self,
-        retrieval_familiar: "RetrievalFamiliar",
-        librarian_core: "LibrarianCore",
-        storage: QdrantMemoryStore,
+        bus: Optional["SystemBus"] = None,
         config: Optional["KoakumaConfig"] = None,
     ):
         """
         初始化 Koakuma MTP 运行时
 
         Args:
-            retrieval_familiar: 检索使魔服务 (用于 SEARCH 指令)
-            librarian_core: 馆长本体服务 (用于 WRITE/UPDATE 指令)
-            storage: Qdrant 存储实例 (用于 READ 指令按 UUID 读取)
+            bus: SystemBus 实例，用于跨服务通信（替代 retrieval_familiar + librarian_core + storage）
             config: Koakuma 配置 (可选，使用默认值)
         """
         from hivememory.patchouli.config import KoakumaConfig
 
-        self._retrieval = retrieval_familiar
-        self._librarian = librarian_core
-        self._storage = storage
-        
+        self._bus = bus
+
         self._config = config or KoakumaConfig()
         self._parser = MTPParser()
         self._formatter = MTPFormatter()
@@ -482,7 +476,8 @@ class KoakumaRuntime:
         parsed_filters = self._parse_mtp_filter(filter_str) if filter_str else None
 
         try:
-            result = self._retrieval.retrieve(
+            result = self._bus.request(
+                "retrieval.retrieve",
                 request=RetrievalRequest(
                     semantic_query=query,
                     user_id=self._current_user_id,
@@ -667,7 +662,7 @@ class KoakumaRuntime:
 
         # Step 3: 从 Qdrant 加载记忆原子
         try:
-            memory = self._storage.get_memory(UUID(uuid))
+            memory = self._bus.request("storage.get_memory", UUID(uuid))
         except (ValueError, TypeError) as e:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -861,7 +856,7 @@ class KoakumaRuntime:
             str: 格式化的内容行
         """
         try:
-            memory = self._storage.get_memory(UUID(uuid))
+            memory = self._bus.request("storage.get_memory", UUID(uuid))
         except (ValueError, TypeError) as e:
             return f"[{alias}]: Error - Invalid UUID '{uuid}': {e}"
         except Exception as e:
@@ -944,7 +939,8 @@ class KoakumaRuntime:
             UUID 字符串，未命中返回 None
         """
         try:
-            memory = self._storage.get_memory_by_alias(
+            memory = self._bus.request(
+                "storage.get_memory_by_alias",
                 alias=alias, user_id=self._current_user_id,
             )
             if memory is None:

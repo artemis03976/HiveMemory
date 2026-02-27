@@ -71,6 +71,10 @@ class GatewayResult(BaseModel):
     #: L1 拦截结果 (可选)
     l1_result: Optional["InterceptorResult"] = Field(default=None, description="L1 拦截结果")
 
+    #: 路由目标话题 ID (MMU 话题路由, Phase 4.5)
+    #: 值为 topic_id (buffer_id) 或 "NEW_TOPIC" 表示新建话题
+    target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
+
     @property
     def is_l1_intercepted(self) -> bool:
         """是否被 L1 拦截"""
@@ -101,6 +105,7 @@ class GatewayResult(BaseModel):
             worth_saving=False,
             reason=reason,
             gateway_parse_failed=True,
+            target_topic="NEW_TOPIC",  # fallback 时默认新话题
         )
 
 
@@ -148,6 +153,9 @@ class SemanticAnalysisResult(BaseModel):
 
     #: 使用的模型（可选）
     model: Optional[str] = Field(default=None, description="使用的模型")
+
+    #: 路由目标话题 ID (MMU 话题路由, Phase 4.5)
+    target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
 
 
 __all__ = [

@@ -143,7 +143,7 @@ class TestGatewayEngine:
         assert isinstance(engine.semantic_analyzer, NoOpSemanticAnalyzer)
 
     def test_process_l1_hit_chat(self):
-        """测试 L1 命中路径 (乐观策略: CHAT 拦截后也返回 RAG)"""
+        """测试 L1 命中路径 (CHAT 拦截直接返回 CHAT 意图)"""
         config = RuleInterceptorConfig()
         interceptor = RuleInterceptor(config=config)
         engine = GatewayEngine(
@@ -153,8 +153,7 @@ class TestGatewayEngine:
 
         result = engine.process("你好")
 
-        # 乐观策略：即使 L1 拦截为 CHAT，也返回 RAG
-        assert result.intent == GatewayIntent.RAG
+        assert result.intent == GatewayIntent.CHAT
         assert result.rewritten_query == "你好"
         assert result.is_l1_intercepted is True
 

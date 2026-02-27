@@ -1,22 +1,23 @@
 """
 帕秋莉·真理之眼 (The Eye of Patchouli)
 
-定位：守门人与感知者
+定位：Agentic Dispatcher（进程调度员）与感知者
 职责：
     - 流量入口和意图判断 (Hot)
-    - 调用 GatewayService 获取原始结果
+    - 读取活跃话题列表，执行 Agentic Routing（话题路由）
+    - 调用 GatewayEngine 获取原始结果（含 target_topic）
     - 处理 fallback、日志、数据转换
-    - 产出 RetrievalRequest 和 Observation 供下游使用
+    - 产出 EyeGazeResult 供 Kernel 进行数据格式转换
     - 被动观测模式下管理 ObserverBuffer 池 (Passive Observer Mode)
 
 作者: HiveMemory Team
-版本: 2.3
+版本: 3.0 (Phase 4.5 Agentic Dispatcher)
 """
 
 import logging
 import time
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import InteractionPayload
@@ -40,19 +41,47 @@ class TheEye:
     def __init__(
         self,
         engine: GatewayEngine,
+        bus=None,
     ):
         """
-        初始化真理之眼
+        初始化真理之眼 (Agentic Dispatcher)
 
         Args:
             engine: Gateway 引擎实例
+            bus: SystemBus 实例，用于跨服务通信（替代 perception_layer 直接引用）
         """
         self._engine = engine
+        self._bus = bus
         self._observer_buffers = ObserverBufferManager()
         self._observer_idle_scheduler = None
         self._observer_idle_timeout: float = 30.0
 
-        logger.info(f"TheEye 真理之眼初始化完成")
+        logger.info(f"TheEye 真理之眼初始化完成 (Agentic Dispatcher)")
+
+    # ========== MMU 话题菜单 (Phase 4.5) ==========
+
+    def _build_active_topics_menu(self) -> Optional[str]:
+        """
+        从感知层获取活跃话题菜单，格式化为 Dispatcher prompt 可用的字符串
+
+        Returns:
+            格式化的话题菜单字符串，无话题时返回 None
+        """
+        if self._bus is None:
+            return None
+
+        try:
+            menu = self._bus.request("perception.get_active_topics_menu")
+            if not menu:
+                return None
+
+            lines = []
+            for item in menu:
+                lines.append(f'"{item["topic_id"]}: {item["title"]}"')
+            return "[" + ", ".join(lines) + "]"
+        except Exception as e:
+            logger.warning(f"获取活跃话题菜单失败: {e}")
+            return None
 
     def gaze(
         self,
@@ -61,10 +90,10 @@ class TheEye:
         identity: Optional[Identity] = None,
     ) -> EyeGazeResult:
         """
-        审视用户查询（真理之眼的主要入口方法）
+        审视用户查询（Agentic Dispatcher 的主要入口方法）
 
-        Eye 只负责感知和信息重整，不构建下游协议消息。
-        返回 EyeGazeResult 供 Kernel 进行数据格式转换。
+        Eye 负责感知、信息重整与话题路由。
+        返回 EyeGazeResult（含 target_topic）供 Kernel 进行数据格式转换。
 
         Args:
             query: 用户原始查询
@@ -72,7 +101,7 @@ class TheEye:
             identity: 身份标识对象
 
         Returns:
-            EyeGazeResult: Eye 的统一输出模型
+            EyeGazeResult: Eye 的统一输出模型（含话题路由结果）
         """
         if identity is None:
             identity = Identity()
@@ -80,16 +109,22 @@ class TheEye:
         start_time = time.time()
 
         try:
-            # 调用数据操作层
-            result = self._engine.process(query, context)
+            # 获取活跃话题菜单
+            active_topics_menu = self._build_active_topics_menu()
 
-            # 业务逻辑：添加元信息
+            # 调用数据操作层（含话题路由）
+            result = self._engine.process(
+                query, context, active_topics_menu=active_topics_menu
+            )
+
+            # 添加元信息
             result.processing_time_ms = (time.time() - start_time) * 1000
 
-            # 业务逻辑：日志记录
+            # 日志记录
             logger.info(
                 f"TheEye 处理完成: "
                 f"intent={result.intent.value}, "
+                f"target_topic={result.target_topic}, "
                 f"worth_saving={result.worth_saving}, "
                 f"latency={result.processing_time_ms:.1f}ms"
             )
@@ -103,6 +138,7 @@ class TheEye:
                 identity=identity,
                 processing_time_ms=result.processing_time_ms,
                 is_fallback=False,
+                target_topic=result.target_topic,
             )
 
         except Exception as e:
@@ -119,6 +155,7 @@ class TheEye:
                 identity=identity,
                 processing_time_ms=processing_time_ms,
                 is_fallback=True,
+                target_topic="NEW_TOPIC",
             )
 
     # ========== 被动观测模式 (Passive Observer Mode) ==========
@@ -239,10 +276,14 @@ class TheEye:
     def _scan_observer_idle_buffers(self) -> None:
         """扫描并 flush 所有超时的 observer buffer"""
         payloads = self._observer_buffers.flush_idle_buffers(self._observer_idle_timeout)
-        callback = getattr(self, "_on_flush_callback", None)
-        if callback:
+        if self._bus:
             for payload in payloads:
-                callback(payload)
+                self._bus.emit("observer.idle_flushed", payload=payload)
+        else:
+            callback = getattr(self, "_on_flush_callback", None)
+            if callback:
+                for payload in payloads:
+                    callback(payload)
 
 
 __all__ = [
