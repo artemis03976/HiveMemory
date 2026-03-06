@@ -15,7 +15,7 @@ MemoryPerception 模块是 HiveMemory 系统的 "感官" 入口，负责实时�
 3.  **语义吸附 (Adsorption)** - 基于 Embedding 相似度判断上下文连贯性，自动识别话题切换
 4.  **上下文接力 (Relay)** - 在 Token 溢出时生成中间态摘要，维持长对话的记忆连贯性
 5.  **异步空闲监控** - 后台监控 Buffer 空闲状态，超时自动触发 Flush
-6.  **多策略触发** - 支持基于消息数、时间、语义边界的灵活触发机制
+6.  **多话题并发管理** - 支持多话题并发生命周期管理，LRU 驱逐策略
 
 ---
 
@@ -30,6 +30,7 @@ MemoryPerception 模块是 HiveMemory 系统的 "感官" 入口，负责实时�
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  SemanticFlowPerceptionLayer                │
+│                         (MMU / 内存管理单元)                  │
 │                                                             │
 │   ┌──────────────┐    ┌──────────────┐    ┌─────────────┐   │
 │   │ StreamParser │───>│ LogicalBlock │───>│   Buffer    │   │
@@ -68,17 +69,20 @@ MemoryPerception 模块是 HiveMemory 系统的 "感官" 入口，负责实时�
 
 ```python
 from hivememory.perception.interfaces import (
-    StreamParser,           # 流式解析器接口
-    SemanticAdsorber,       # 语义吸附器接口
-    RelayController,        # 接力控制器接口
-    IdleTimeoutMonitor,     # 空闲超时监控器接口
     BasePerceptionLayer,    # 感知层基类
+    BaseArbiter,            # 灰度仲裁器接口
 )
 ```
 
-### 2. `semantic_flow_perception_layer.py` - 语义流感知层
+### 2. `semantic_flow_perception_layer.py` - 语义流感知层 / MMU
 
-**职责**: 模块的主入口，协调解析、吸附、接力和空闲监控过程，管理会话 Buffer。
+**职责**: 模块的主入口，协调解析、吸附、接力和空闲监控过程，管理会话 Buffer。作为短期记忆的内存管理单元 (MMU)，管理多话题的并发生命周期。
+
+**特性**:
+- 话题路由：根据 TheEye 的 target_topic 将载荷路由到正确话题
+- LRU 驱逐：活跃话题池满时驱逐最久未访问的话题
+- URGENT 信号：write_focus/update_focus 触发立即 flush
+- 空闲超时：长期不活跃的话题自动换出
 
 **用法**:
 ```python
@@ -96,33 +100,23 @@ layer = SemanticFlowPerceptionLayer(
 # 启动异步空闲监控（可选）
 layer.start_idle_monitor()
 
-# 添加消息 (支持多会话隔离)
-layer.add_message("user", "Python 里的 GIL 是什么？", "user1", "agent1", "session1")
-layer.add_message("assistant", "GIL 是全局解释器锁...", "user1", "agent1", "session1")
+# 摄入载荷
+from hivememory.perception import InteractionPayload
+payload = InteractionPayload(
+    user_message="Hello",
+    assistant_message="Hi there!",
+    identity=identity,
+)
+layer.ingest_payload(payload)
+
+# 或使用路由模式
+layer.route_and_ingest("NEW_TOPIC", payload)
 
 # 停止监控（程序退出前）
 layer.stop_idle_monitor()
 ```
 
-### 3. `stream_parser.py` - 统一流式解析器
-
-**职责**: 将异构的原始消息转换为标准化的 `StreamMessage`，并识别 `LogicalBlock` 边界。
-
-**支持格式**:
-- LangChain (`AIMessage`, `HumanMessage`, `ToolMessage`)
-- OpenAI API (`{"role": "...", "content": "..."}`)
-- 纯文本字符串
-
-**用法**:
-```python
-from hivememory.perception import UnifiedStreamParser
-
-parser = UnifiedStreamParser()
-msg = parser.parse_message({"role": "user", "content": "hello"})
-# 输出: StreamMessage(type=USER_QUERY, content="hello")
-```
-
-### 4. `semantic_adsorber.py` - 语义边界吸附器
+### 3. `semantic_adsorber.py` - 语义边界吸附器
 
 **职责**: 决定新的逻辑块是"吸附"到当前话题，还是因"语义漂移"触发刷新。
 
@@ -143,57 +137,32 @@ adsorber = SemanticBoundaryAdsorber(
 should_adsorb, reason = adsorber.should_adsorb(new_block, buffer)
 ```
 
-### 5. `relay_controller.py` - 接力控制器
+### 4. `relay_controller.py` - 接力控制器 / Page Folding 摘要生成器
 
 **职责**: 检测 Token 溢出，生成摘要以便在下一个 Buffer 中通过 Context Injection 维持连贯性。
 
 **用法**:
 ```python
-from hivememory.perception import TokenOverflowRelayController
+from hivememory.perception import LLMRelayController
 
-controller = TokenOverflowRelayController(max_processing_tokens=8192)
+controller = LLMRelayController(max_processing_tokens=8192)
 if controller.should_trigger_relay(buffer, new_block):
     summary = controller.generate_summary(buffer.blocks)
     # 将 summary 注入下一个 buffer
 ```
 
-### 6. `idle_timeout_monitor.py` - 空闲超时监控器
+### 5. `buffer_manager.py` - 话题管理器 / MMU
 
-**职责**: 使用 APScheduler 后台定时扫描所有 Buffer，对超时的 Buffer 自动触发 Flush。
-
-**特性**:
-- 异步监控，不阻塞消息处理
-- 可配置扫描间隔和超时时间
-- 支持手动触发扫描
+**职责**: 管理活跃话题池的生命周期，提供 CRUD 操作、LRU 驱逐判定和话题路由。
 
 **用法**:
 ```python
-from hivememory.perception import IdleTimeoutMonitor
+from hivememory.perception import SemanticBufferManager
 
-# 方式 1: 通过 SemanticFlowPerceptionLayer 管理
-layer = SemanticFlowPerceptionLayer(idle_timeout_seconds=900)
-layer.start_idle_monitor()  # 启动
-layer.stop_idle_monitor()   # 停止
-
-# 方式 2: 独立使用
-monitor = IdleTimeoutMonitor(
-    perception_layer=layer,
-    idle_timeout_seconds=900,
-    scan_interval_seconds=30,
-)
-monitor.start()
-flushed = monitor.scan_now()  # 手动触发扫描
-monitor.stop()
+manager = SemanticBufferManager(max_resident_topics=5)
+buffer = manager.create_topic_buffer(identity)
+menu = manager.get_active_topics_menu()
 ```
-
-### 7. `trigger_strategies.py` - 基础触发策略
-
-**职责**: 提供基础的触发判断逻辑（主要用于 `SimplePerceptionLayer` 或作为辅助策略）。
-
-**支持**:
-- `MessageCountTrigger`: 消息计数
-- `IdleTimeoutTrigger`: 时间阈值（同步检测，用于 SimplePerceptionLayer）
-- `SemanticBoundaryTrigger`: 关键词/正则匹配结束语
 
 ---
 
@@ -202,66 +171,34 @@ monitor.stop()
 ### 集成到 Agent 循环中
 
 ```python
-from hivememory.perception import SemanticFlowPerceptionLayer
-from hivememory.generation import MemoryOrchestrator
+from hivememory.perception import SemanticFlowPerceptionLayer, InteractionPayload
+from hivememory.core.models import Identity
 
 # 1. 初始化
-orchestrator = MemoryOrchestrator(...)
 perception = SemanticFlowPerceptionLayer(
-    on_flush_callback=orchestrator.process,  # 连接到生成模块
-    idle_timeout_seconds=900,                # 15分钟超时
+    on_flush_callback=on_flush,
+    idle_timeout_seconds=900,  # 15分钟超时
 )
 
 # 2. 启动异步空闲监控
 perception.start_idle_monitor()
 
 # 3. 在 Agent 循环中调用
-def chat_loop(user_input):
-    # 用户输入
-    perception.add_message("user", user_input, "u1", "a1", "s1")
+identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
 
-    # ... Agent 执行逻辑 ...
-    response = agent.run(user_input)
-
-    # Agent 响应
-    perception.add_message("assistant", response, "u1", "a1", "s1")
+def chat_loop(user_input, response):
+    payload = InteractionPayload(
+        user_message=user_input,
+        assistant_message=response,
+        identity=identity,
+    )
+    perception.ingest_payload(payload)
 
 # 4. 手动刷新 (可选)
-perception.flush_buffer("u1", "a1", "s1")
+perception.flush_buffer(identity)
 
 # 5. 程序退出前停止监控
 perception.stop_idle_monitor()
-```
-
-### 自定义配置
-
-```python
-from hivememory.perception import (
-    SemanticFlowPerceptionLayer,
-    SemanticBoundaryAdsorber,
-    TokenOverflowRelayController,
-    UnifiedStreamParser
-)
-
-# 自定义吸附策略
-adsorber = SemanticBoundaryAdsorber(
-    semantic_threshold=0.75,  # 更严格的语义匹配
-    short_text_threshold=50
-)
-
-# 自定义 Token 溢出阈值
-relay = TokenOverflowRelayController(max_processing_tokens=4096)
-
-# 启用 Claude 思考过程提取
-parser = UnifiedStreamParser(enable_thought_extraction=True)
-
-layer = SemanticFlowPerceptionLayer(
-    parser=parser,
-    adsorber=adsorber,
-    relay_controller=relay,
-    idle_timeout_seconds=600,  # 10分钟超时
-    scan_interval_seconds=60,  # 1分钟扫描间隔
-)
 ```
 
 ---
@@ -274,7 +211,9 @@ layer = SemanticFlowPerceptionLayer(
 | `TOKEN_OVERFLOW` | Token 数超过阈值 | 新 Block 加入前 | RelayController |
 | `IDLE_TIMEOUT` | Buffer 空闲超时 | 后台异步扫描 | IdleTimeoutMonitor |
 | `MANUAL` | 用户手动调用 | 调用 flush_buffer() | 用户代码 |
-| `SHORT_TEXT_ADSORB` | 短文本强制吸附 | 新 Block 加入时 | SemanticAdsorber |
+| `MTP_WRITE` | MTP WRITE 指令 | 载荷摄入时 | SemanticFlowPerceptionLayer |
+| `MTP_UPDATE` | MTP UPDATE 指令 | 载荷摄入时 | SemanticFlowPerceptionLayer |
+| `LRU_EVICTION` | 活跃话题池满 | 新话题创建时 | SemanticBufferManager |
 
 ---
 
@@ -310,5 +249,5 @@ layer = SemanticFlowPerceptionLayer(
 ---
 
 **维护者**: HiveMemory Team
-**最后更新**: 2026-01-03
-**版本**: 2.0.0
+**最后更新**: 2026-03-02
+**版本**: 4.5.0

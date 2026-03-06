@@ -109,9 +109,14 @@ class PatchouliSystem:
         self._worker_agent = WorkerAgentService(config=self.config.llm.worker)
 
         # 5. System 级 Pub/Sub 订阅
+        # 注意: 回调中使用 asyncio.create_task 启动异步任务
+        async def _on_observer_idle_flushed(payload):
+            import asyncio
+            asyncio.create_task(self.kernel.submit_interaction(payload))
+
         self.bus.subscribe(
             "observer.idle_flushed",
-            lambda payload: self.kernel.submit_interaction(payload),
+            _on_observer_idle_flushed,
         )
 
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
@@ -172,7 +177,7 @@ class PatchouliSystem:
 
     # ========== 被动消息流处理 API (Passive Observer Mode) ==========
 
-    def ingest(
+    async def ingest(
         self,
         role: str,
         content: str,
@@ -182,7 +187,7 @@ class PatchouliSystem:
         context: Optional[List[StreamMessage]] = None,
     ) -> Dict[str, Any]:
         """
-        被动消息流处理入口 (Passive Observer Mode)
+        被动消息流处理入口 (Passive Observer Mode) - 异步版本
 
         接收外部系统（Discord Bot、微信机器人、传统 Agent 框架）的离散消息，
         通过 TheEye 的 ObserverSessionBuffer 缓冲配对后，构建完整的 InteractionPayload
@@ -218,7 +223,7 @@ class PatchouliSystem:
                 content=content, identity=identity, context=context or [],
             )
             if flushed_payload:
-                self.kernel.submit_interaction(
+                await self.kernel.submit_interaction(
                     flushed_payload,
                     target_topic=gaze_result.target_topic,
                 )
@@ -257,14 +262,14 @@ class PatchouliSystem:
                 "memory": None,
             }
 
-    def flush_observer_session(
+    async def flush_observer_session(
         self,
         user_id: str,
         agent_id: str = "default",
         session_id: Optional[str] = None,
     ) -> bool:
         """
-        显式 flush 指定 session 的 Observer Buffer (Explicit EOF 触发器)
+        显式 flush 指定 session 的 Observer Buffer (Explicit EOF 触发器) - 异步版本
 
         Args:
             user_id: 用户 ID
@@ -279,7 +284,7 @@ class PatchouliSystem:
         )
         payload = self.eye.flush_session(identity)
         if payload:
-            self.kernel.submit_interaction(payload)
+            await self.kernel.submit_interaction(payload)
             return True
         return False
 
@@ -300,7 +305,7 @@ class PatchouliSystem:
 
     # ========== Kernel 驱动的对话 API ==========
 
-    def chat(
+    async def chat(
         self,
         user_message: str,
         messages: List[Dict[str, str]],
@@ -311,7 +316,7 @@ class PatchouliSystem:
         enable_memory_retrieval: bool = True,
     ) -> ChatResult:
         """
-        Kernel 驱动的对话入口
+        Kernel 驱动的对话入口 (异步版本)
 
         流程:
         1. [The Eye] 意图识别 + 查询重写 (始终执行)
@@ -337,11 +342,13 @@ class PatchouliSystem:
         )
 
         # 1. Eye 分析 (始终执行)
+        # TODO: 改为 async def，使用 await self.eye.gaze_async(...)
         gaze_result = self.eye.gaze(
             query=user_message, context=context or [], identity=identity
         )
 
         # 2. Kernel 统一管线: 异步感知投递 + 可选预检索
+        # TODO: 改为 async def，使用 await self.kernel.handle_hot_async(...)
         hot_result = self.kernel.handle_hot(
             gaze_result,
             enable_retrieval=enable_memory_retrieval,
@@ -357,6 +364,7 @@ class PatchouliSystem:
                 messages[0]["content"] += f"\n\n{hot_result.memory}"
 
         # 4. 递归生成循环
+        # TODO: 改为 async def，使用 await self._recursive_generation_loop_async(...)
         loop_result = self._recursive_generation_loop(messages, user_id)
 
         # 5. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
@@ -384,8 +392,8 @@ class PatchouliSystem:
             worth_saving=hot_result.worth_saving,
         )
 
-        # 统一异步提交: 感知层内部处理 URGENT 信号的即时 flush
-        self.kernel.submit_interaction(
+        # 阻塞等待提交完成，确保 token 溢出压缩等操作完成后再返回
+        await self.kernel.submit_interaction(
             payload, target_topic=gaze_result.target_topic
         )
 
@@ -464,14 +472,14 @@ class PatchouliSystem:
         identity: Identity,
     ) -> None:
         """手动触发感知层 Flush"""
-        self.bus.request("perception.flush_buffer", identity=identity)
+        self.kernel.flush_buffer(identity)
 
     def get_buffer_info(
         self,
         identity: Identity,
     ) -> Dict[str, Any]:
         """获取 Buffer 信息"""
-        return self.bus.request("perception.get_buffer_info", identity=identity)
+        return self.kernel.get_buffer_info(identity)
 
     def add_flush_observer(self, observer) -> None:
         """添加 Flush 事件观察者"""

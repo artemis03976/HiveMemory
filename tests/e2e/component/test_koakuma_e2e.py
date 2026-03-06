@@ -42,10 +42,20 @@ def mock_kernel():
 def koakuma(mock_kernel) -> KoakumaRuntime:
     """提供 KoakumaRuntime 实例"""
     config = KoakumaConfig()
+    mock_bus = MagicMock()
+
+    def _request(route, *args, **kwargs):
+        if route == "retrieval.retrieve":
+            return mock_kernel.retrieval.retrieve(kwargs.get("request"))
+        if route == "storage.get_memory":
+            return mock_kernel.storage.get_memory(*args, **kwargs)
+        if route == "storage.get_memory_by_alias":
+            return mock_kernel.storage.get_memory_by_alias(*args, **kwargs)
+        return None
+
+    mock_bus.request.side_effect = _request
     return KoakumaRuntime(
-        retrieval_familiar=mock_kernel.retrieval,
-        librarian_core=mock_kernel.librarian,
-        storage=mock_kernel.storage,
+        bus=mock_bus,
         config=config,
     )
 # PLACEHOLDER_KOAKUMA_TESTS
@@ -142,7 +152,7 @@ class TestKoakumaExecution:
 
         assert result.success is True
         assert result.response_status == "ack"
-        assert "acknowledged" in result.response_content.lower()
+        assert "saved" in result.response_content.lower()
 
     def test_execute_write_missing_content(self, koakuma: KoakumaRuntime):
         """测试 WRITE 缺少 content"""
@@ -153,10 +163,12 @@ class TestKoakumaExecution:
 
     def test_execute_update_success(self, koakuma: KoakumaRuntime):
         """测试 UPDATE 指令 ACK"""
-        koakuma.alias_resolver.register_context_alias("fact_old", "uuid-old")
+        koakuma.alias_resolver.register_context_alias(
+            "fact_old", "00000000-0000-0000-0000-000000000123"
+        )
 
         result = koakuma.execute_mtp(
-            '⟪ UPDATE | fact_old | patch=`new_value=42` ⟫'
+            '⟪ UPDATE | fact_old | instruction=`new_value=42` ⟫'
         )
 
         assert result.success is True
@@ -165,7 +177,7 @@ class TestKoakumaExecution:
     def test_execute_update_alias_not_found(self, koakuma: KoakumaRuntime):
         """测试 UPDATE 别名未找到"""
         result = koakuma.execute_mtp(
-            '⟪ UPDATE | nonexistent | patch=`fix` ⟫'
+            '⟪ UPDATE | nonexistent | instruction=`fix` ⟫'
         )
 
         assert result.success is False

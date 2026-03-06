@@ -6,17 +6,21 @@ HiveMemory 系统总线 (SystemBus)
     - RPC 模式 (Request-Response): 模拟 HTTP/API 调用，一个路由对应一个 handler
     - Pub/Sub 模式 (Event Broadcast): 模拟消息队列，一个事件可有多个订阅者
 
+并发范式 (Concurrent.md):
+    - 热链路阻塞 (Hot Path): 使用 await bus.async_request() - 必须等待结果
+    - 冷链路脱手 (Cold Path): 使用 bus.emit() - Fire-and-Forget
+
 设计原则：
-    - 同步优先：当前阶段所有 RPC 调用保持同步，不引入 async 改造
-    - async_request 预留给未来 handler 异步化后使用
+    - 双版本 API: request() (同步) + async_request() (异步)
     - emit 对 sync handler 直接调用，对 async handler 用 create_task
     - 路由命名规范: {service}.{method}，如 "perception.get_active_topics_menu"
 
 作者: HiveMemory Team
-版本: 1.0
+版本: 2.0
 """
 
 import asyncio
+import inspect
 import logging
 from typing import Any, Callable, Dict, List
 
@@ -67,6 +71,10 @@ class SystemBus:
         """
         同步 RPC 调用
 
+        使用场景：同步上下文中的简单 RPC 调用
+
+        注意：对于 async handler，需要使用 async_request()
+
         Args:
             route: 路由名称
             *args, **kwargs: 传递给 handler 的参数
@@ -84,11 +92,16 @@ class SystemBus:
 
     async def async_request(self, route: str, *args, **kwargs) -> Any:
         """
-        异步 RPC 调用
+        异步 RPC 调用 - 热路径阻塞 (Hot Path)
 
         自动区分 sync/async handler：
         - async handler: 直接 await
-        - sync handler: 在事件循环中直接调用（不阻塞其他协程时可用）
+        - sync handler: 在事件循环中直接调用
+
+        使用场景 (参考 Concurrent.md):
+            - Kernel 请求 LLM 生成回复
+            - Kernel 向感知层提交数据（必须等待内存打扫完毕）
+            - 任何需要阻塞等待结果的场景
 
         Args:
             route: 路由名称
@@ -103,7 +116,7 @@ class SystemBus:
         handler = self._handlers.get(route)
         if handler is None:
             raise KeyError(f"SystemBus: 路由 '{route}' 未注册")
-        if asyncio.iscoroutinefunction(handler):
+        if inspect.iscoroutinefunction(handler):
             return await handler(*args, **kwargs)
         return handler(*args, **kwargs)
 
@@ -139,10 +152,14 @@ class SystemBus:
 
     def emit(self, event: str, *args, **kwargs) -> None:
         """
-        发布事件 (fire-and-forget)
+        发布事件 - 冷链路脱手 (Cold Path Fire-and-Forget)
 
         调用所有订阅者。sync handler 直接调用，async handler 通过
         create_task 调度。单个订阅者的异常不影响其他订阅者。
+
+        使用场景 (参考 Concurrent.md):
+            - 话题被驱逐时，唤醒 Librarian 生成记忆原子
+            - 任何后台任务，不需要等待结果
 
         Args:
             event: 事件名称
@@ -151,7 +168,7 @@ class SystemBus:
         subscribers = self._subscribers.get(event, [])
         for cb in subscribers:
             try:
-                if asyncio.iscoroutinefunction(cb):
+                if inspect.iscoroutinefunction(cb):
                     try:
                         loop = asyncio.get_running_loop()
                         loop.create_task(cb(*args, **kwargs))

@@ -32,7 +32,7 @@ from hivememory.core.models import (
 
 
 def _make_identity() -> Identity:
-    return Identity(user_id="u1", agent_id="a1", session_id="s1")
+    return Identity(user_id="u1", agent_id="a1")
 
 
 def _make_messages(n=2) -> list:

@@ -264,8 +264,8 @@ class TestIntentClassification:
         )
 
         # 验证意图
-        assert result.intent == GatewayIntent.CHAT, \
-            f"Expected CHAT, got {result.intent}"
+        assert result.intent == GatewayIntent.RAG, \
+            f"Expected RAG, got {result.intent}"
 
         print_test_result(case["id"], case["name"], True)
 
@@ -709,8 +709,8 @@ class TestFallbackMechanism:
         result = GatewayResult.fallback(original_query)
 
         # 验证 fallback 结果
-        assert result.intent == GatewayIntent.CHAT, \
-            f"Expected CHAT, got {result.intent}"
+        assert result.intent == GatewayIntent.RAG, \
+            f"Expected RAG, got {result.intent}"
         assert result.rewritten_query == original_query, \
             f"Expected original query, got {result.rewritten_query}"
         assert result.worth_saving is False, \

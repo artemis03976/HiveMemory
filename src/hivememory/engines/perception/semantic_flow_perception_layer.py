@@ -30,9 +30,12 @@ Note:
 """
 
 import logging
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
+from hivememory.engines.perception.relay_controller import BaseRelayController
+from hivememory.engines.perception.trigger_manager import TriggerManager
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
     BufferState,
@@ -44,6 +47,7 @@ from hivememory.engines.perception.models import (
     TraceItem,
 )
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.utils.token_estimator import estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -65,64 +69,105 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     Examples:
         >>> config = SemanticFlowPerceptionConfig()
         >>> perception = SemanticFlowPerceptionLayer(
-        ...     config=config,
-        ...     on_flush_callback=on_flush
+        ...     config=config
         ... )
+        >>> perception.set_generation_callback(on_generate_memory)
         >>> perception.route_and_ingest("NEW_TOPIC", payload)
     """
 
     def __init__(
         self,
         config: SemanticFlowPerceptionConfig,
-        on_flush_callback: Optional[
-            Callable[[List[StreamMessage], FlushReason], None]
-        ] = None,
-        # 以下参数保留向后兼容签名，但不再使用
-        adsorber: Optional[Any] = None,
-        relay_controller: Optional[Any] = None,
+        relay_controller: BaseRelayController,
     ):
         """
         初始化语义流感知层 (MMU)
 
         Args:
             config: SemanticFlowPerceptionConfig 配置对象
-            on_flush_callback: Flush 回调函数
-            adsorber: (已弃用) 语义吸附器，保留参数兼容性
-            relay_controller: (已弃用) 接力控制器，保留参数兼容性
+            relay_controller: 接力控制器 / Page Folding 摘要生成器
         """
         super().__init__()
 
         self.config = config
-        self.on_flush_callback = on_flush_callback
 
         # 空闲超时监控器配置（由基类管理）
         self._idle_timeout_seconds = config.idle_timeout_seconds
         self._scan_interval_seconds = config.scan_interval_seconds
 
+        self._relay_controller = relay_controller
+
         # BufferManager 作为 MMU（话题管理器）
         self._buffer_manager = SemanticBufferManager(
-            max_resident_topics=getattr(config, "max_resident_topics", 5)
+            max_resident_topics=config.max_resident_topics
+        )
+
+        # TriggerManager 负责话题结算调度
+        self._trigger_manager = TriggerManager(
+            buffer_manager=self._buffer_manager,
+            relay_controller=self._relay_controller,
         )
 
         logger.info("SemanticFlowPerceptionLayer (MMU) 初始化完成")
 
+    def set_generation_callback(self, callback: Callable[[Dict[str, Any]], Any]) -> None:
+        self._trigger_manager.set_generation_callback(callback)
+
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
-    def ingest_payload(self, payload: InteractionPayload) -> None:
+    async def route_and_ingest(
+        self,
+        topic_id: str,
+        payload: InteractionPayload,
+    ) -> str:
         """
-        摄入 Kernel 递归循环的完整交互载荷
+        MMU 核心方法：路由到指定话题并摄入载荷
 
-        直接构建 LogicalBlock（使用 v3.0 字段），绕过 StreamParser + Builder。
+        流程:
+            - NEW_TOPIC: 检查驱逐 → 创建新话题 → ingest_payload
+            - 已有 topic_id: 换入话题 → ingest_payload（不存在则回退到 NEW_TOPIC）
+
+        Args:
+            topic_id: 目标话题 ID 或 "NEW_TOPIC"
+            payload: Kernel → Perception 的原子传输包
+
+        Returns:
+            str: 最终路由到的 topic_id
+        """
+        # 统一处理：需要创建新话题的情况
+        if topic_id == "NEW_TOPIC":
+            topic_id = await self._ensure_topic_slot_and_create(payload.identity)
+        else:
+            buffer = self._buffer_manager.get_buffer(topic_id)
+            if buffer is None:
+                logger.warning(f"话题 {topic_id} 不存在，回退到 NEW_TOPIC")
+                topic_id = await self._ensure_topic_slot_and_create(payload.identity)
+
+        # 摄入载荷
+        await self.ingest_payload(payload, topic_id)
+
+        return topic_id
+
+    async def ingest_payload(
+        self,
+        payload: InteractionPayload,
+        topic_id: str,
+    ) -> None:
+        """
+        摄入完整交互载荷
+
+        从 InteractionPayload 直接构建 LogicalBlock。
 
         流程:
             1. MTPLogParser 清洗 → clean_text + fallback_traces
             2. 构建 LogicalBlock (v3.0 字段)
             3. 信号检查:
                - URGENT (write_focus/update_focus): 添加 block → 立即 flush
-               - NORMAL: 直接添加 block（话题路由已由 TheEye 完成）
+               - NORMAL: 直接添加 block
 
         Args:
             payload: Kernel → Perception 的原子传输包
+            topic_id: 目标话题 ID
         """
         from hivememory.patchouli.protocol.mtp_log_parser import MTPLogParser
 
@@ -144,109 +189,75 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             update_focus=payload.update_focus,
         )
 
+        # 2.5 计算 block 的 total_tokens
+        block.total_tokens = (
+            estimate_tokens(block.user_query)
+            + estimate_tokens(block.clean_response)
+            + sum(
+                estimate_tokens(t.query or "") + estimate_tokens(t.target or "")
+                for t in block.semantic_traces
+            )
+        )
+
         # 计算 priority
-        is_urgent = (payload.write_focus is not None
-                     or payload.update_focus is not None)
-        if is_urgent:
-            block.priority = "URGENT"
-
-        identity = payload.identity
-
+        is_urgent = (payload.write_focus is not None or payload.update_focus is not None)
         # 3. 信号检查
         if is_urgent:
             # URGENT: 添加 block → 立即 flush
-            self._buffer_manager.add_block_to_buffer(identity, block)
+            block.priority = "URGENT"
+            self._buffer_manager.add_block(topic_id, block)
             reason = (
                 FlushReason.MTP_WRITE if payload.write_focus is not None
                 else FlushReason.MTP_UPDATE
             )
-            buffer = self._buffer_manager.get_buffer(identity)
-            flush_event = FlushEvent(
-                flush_reason=reason,
-                blocks_to_flush=buffer.blocks.copy(),
-                write_focus=payload.write_focus,
-                update_focus=payload.update_focus,
+
+            # 调用统一调度器
+            await self._trigger_manager.resolve_topic(
+                topic_id=topic_id,
+                trigger_reason=reason,
+                mtp_focus=payload.write_focus or payload.update_focus,
             )
-            self._handle_flush_event(identity, flush_event)
         else:
             # NORMAL: 话题路由已由 TheEye 完成，直接添加 block
-            self._buffer_manager.add_block_to_buffer(identity, block)
+            self._buffer_manager.add_block(topic_id, block)
+
+        # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
+        await self._maybe_fold_pages(topic_id)
 
         # 重置状态
-        self._buffer_manager.update_buffer_metadata(
-            identity, state=BufferState.IDLE
+        self._buffer_manager.update_metadata(
+            topic_id, state=BufferState.IDLE
         )
 
-    def _handle_flush_event(self, identity: Identity, event: FlushEvent) -> None:
+    async def _maybe_fold_pages(self, topic_id: str) -> None:
         """
-        处理 flush 事件
+        Page Folding: token 溢出时触发 Compact 操作
+        """
+        buffer = self._buffer_manager.get_buffer(topic_id)
+        if buffer is None:
+            return
 
-        Args:
-            identity: 身份标识
-            event: FlushEvent 包含 flush 详情
-        """
+        threshold = self.config.fold_token_threshold
+
+        logger.debug(
+            f"_maybe_fold_pages: topic_id={topic_id}, "
+            f"total_tokens={buffer.total_tokens}, threshold={threshold}, "
+            f"blocks_count={len(buffer.blocks)}"
+        )
+
+        if buffer.total_tokens <= threshold:
+            return
+
         logger.info(
-            f"Flush buffer {identity.buffer_key}, "
-            f"原因: {event.flush_reason.value}, "
-            f"blocks: {len(event.blocks_to_flush)}"
+            f"Token 溢出: topic_id={topic_id}, "
+            f"total_tokens={buffer.total_tokens} > threshold={threshold}"
         )
 
-        # 1. 清空 buffer
-        self._buffer_manager.clear_buffer(identity)
-
-        # 2. 更新 relay_summary（如果有）
-        if event.relay_summary:
-            self._buffer_manager.update_buffer_metadata(
-                identity, relay_summary=event.relay_summary
-            )
-
-        # 3. 重置话题核心
-        self._buffer_manager.update_buffer_metadata(
-            identity, reset_topic_kernel=True
+        # 调用统一调度器
+        await self._trigger_manager.resolve_topic(
+            topic_id=topic_id,
+            trigger_reason=FlushReason.TOKEN_OVERFLOW,
         )
-
-        # 4. 过滤 worth_saving=False 的 block
-        # worth_saving=None 时保留（gateway 离线或异常时不影响冷链路）
-        original_count = len(event.blocks_to_flush)
-        blocks_to_process = [
-            block for block in event.blocks_to_flush
-            if block.worth_saving is not False
-        ]
-        filtered_count = original_count - len(blocks_to_process)
-
-        if filtered_count > 0:
-            logger.info(
-                f"worth_saving 过滤: 原始 {original_count} blocks, "
-                f"过滤 {filtered_count} blocks (worth_saving=False), "
-                f"保留 {len(blocks_to_process)} blocks"
-            )
-
-        # 5. 调用回调（仅当有 block 需要处理时）
-        if blocks_to_process:
-            try:
-                messages = self._blocks_to_messages(blocks_to_process, identity)
-                if self._bus:
-                    # 通过 SystemBus 发布 flush 事件
-                    self._bus.emit(
-                        "perception.flushed",
-                        messages=messages,
-                        reason=event.flush_reason,
-                        write_focus=event.write_focus,
-                        update_focus=event.update_focus,
-                    )
-                elif self.on_flush_callback:
-                    # Fallback: 直接回调（无 bus 时，如测试环境）
-                    self.on_flush_callback(
-                        messages, event.flush_reason,
-                        write_focus=event.write_focus,
-                        update_focus=event.update_focus,
-                    )
-            except Exception as e:
-                logger.error(f"Flush 回调失败: {e}")
-        elif (self._bus or self.on_flush_callback) and not blocks_to_process:
-            logger.debug(
-                f"所有 blocks 被 worth_saving 过滤，跳过 Generation 回调"
-            )
 
     def _blocks_to_messages(
         self,
@@ -270,97 +281,134 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     def flush_buffer(
         self,
-        identity: Identity,
+        topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
     ) -> List[StreamMessage]:
         """
-        手动刷新 Buffer
+        手动刷新 Buffer（使用统一调度器）
 
         Args:
-            identity: 身份标识对象
+            topic_id: 话题 ID
             reason: 刷新原因
 
         Returns:
             List[StreamMessage]: 被 Flush 的消息列表
         """
-        # 获取最新的 buffer 状态
-        buffer = self._buffer_manager.get_buffer(identity)
-        if not buffer.blocks:
+        buffer = self._buffer_manager.get_buffer(topic_id)
+        if not buffer or not buffer.blocks:
             return []
 
-        # 创建 flush event
-        flush_event = FlushEvent(
-            flush_reason=reason,
-            blocks_to_flush=buffer.blocks.copy(),
+        blocks_snapshot = buffer.blocks.copy()
+        identity = buffer.identity
+
+        # 调用统一调度器（同步方式，因为这是同步方法）
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.create_task(self._trigger_manager.resolve_topic(
+                topic_id=topic_id,
+                trigger_reason=reason,
+            ))
+        except RuntimeError:
+            asyncio.run(self._trigger_manager.resolve_topic(
+                topic_id=topic_id,
+                trigger_reason=reason,
+            ))
+
+        return self._blocks_to_messages(blocks_snapshot, identity)
+
+    async def flush_buffer_async(
+        self,
+        topic_id: str,
+        reason: FlushReason = FlushReason.MANUAL,
+    ) -> List[StreamMessage]:
+        """
+        手动刷新 Buffer（异步版本）
+
+        Args:
+            topic_id: 话题 ID
+            reason: 刷新原因
+
+        Returns:
+            List[StreamMessage]: 被 Flush 的消息列表
+        """
+        buffer = self._buffer_manager.get_buffer(topic_id)
+        if not buffer or not buffer.blocks:
+            return []
+
+        blocks_snapshot = buffer.blocks.copy()
+        identity = buffer.identity
+
+        # 调用统一调度器
+        await self._trigger_manager.resolve_topic(
+            topic_id=topic_id,
+            trigger_reason=reason,
         )
 
-        # 处理 flush
-        self._handle_flush_event(identity, flush_event)
-
-        return self._blocks_to_messages(flush_event.blocks_to_flush, identity)
+        return self._blocks_to_messages(blocks_snapshot, identity)
 
     def get_buffer(
         self,
-        identity: Identity,
+        topic_id: str,
     ) -> Optional[SemanticBuffer]:
         """
         获取指定 Buffer
 
         Args:
-            identity: 身份标识对象
+            topic_id: 话题 ID
 
         Returns:
-            SemanticBuffer: 缓冲区对象，不存在则创建
+            SemanticBuffer: 缓冲区对象，不存在则返回 None
         """
-        return self._buffer_manager.get_buffer(identity)
+        return self._buffer_manager.get_buffer(topic_id)
 
     def clear_buffer(
         self,
-        identity: Identity,
+        topic_id: str,
     ) -> bool:
         """
         清理指定的 Buffer
 
         Args:
-            identity: 身份标识对象
+            topic_id: 话题 ID
 
         Returns:
             bool: 是否成功清理
         """
-        cleared = self._buffer_manager.clear_buffer(identity)
-        self._buffer_manager.update_buffer_metadata(
-            identity,
-            reset_topic_kernel=True,
-            reset_relay_summary=True,
-            state=BufferState.IDLE,
-        )
-        return len(cleared) > 0 or True  # 总是返回 True 表示操作成功
+        # clear_buffer 原意是清空内容，不移除 topic
+        cleared = self._buffer_manager.clear_buffer(topic_id)
+        if cleared is not None:  # 如果 buffer 存在，clear_buffer 返回 list (可能为空)
+            self._buffer_manager.update_metadata(
+                topic_id,
+                state=BufferState.IDLE,
+            )
+            return True
+        return False
 
     def list_active_buffers(self) -> List[str]:
         """
         列出所有活跃的 Buffer
 
         Returns:
-            List[str]: Buffer key 列表
+            List[str]: topic_id 列表
         """
-        return self._buffer_manager.list_active_buffers()
+        return [b.topic_id for b in self._buffer_manager.get_all_buffers()]
 
     def get_buffer_info(
         self,
-        identity: Identity,
+        topic_id: str,
     ) -> Dict[str, Any]:
         """
         获取缓冲区信息
 
         Args:
-            identity: 身份标识对象
+            topic_id: 话题 ID
 
         Returns:
             Dict: 缓冲区信息字典
         """
-        info = self._buffer_manager.get_buffer_info(identity)
+        info = self._buffer_manager.get_buffer_info(topic_id)
         info["mode"] = "semantic_flow"
-        info["identity"] = identity
         return info
 
     # ========== MMU 路由与话题管理 (Phase 4.5) ==========
@@ -370,109 +418,100 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         获取活跃话题菜单，供 TheEye 路由决策使用
 
         Returns:
-            List[Dict]: [{topic_id, title, buffer_key}, ...]
+            List[Dict]: [{topic_id, title}, ...]
         """
         return self._buffer_manager.get_active_topics_menu()
 
-    def route_and_ingest(
-        self,
-        topic_id: str,
-        payload: InteractionPayload,
-    ) -> None:
+    async def _ensure_topic_slot_and_create(self, identity: Identity) -> str:
         """
-        MMU 核心方法：路由到指定话题并摄入载荷
-
-        流程:
-            - NEW_TOPIC: 检查驱逐 → 创建新话题 → ingest_payload
-            - 已有 topic_id: 换入话题 → ingest_payload
+        确保有空闲槽位后创建新话题
 
         Args:
-            topic_id: 目标话题 ID 或 "NEW_TOPIC"
-            payload: Kernel → Perception 的原子传输包
+            identity: 新话题的归属身份
+
+        Returns:
+            str: 新创建的 topic_id
         """
-        identity = payload.identity
+        if self._buffer_manager.needs_eviction():
+            await self._evict_lru_topic()
+        buffer = self._buffer_manager.create_buffer(
+            identity=identity,
+            title="新建话题"
+        )
+        return buffer.topic_id
 
-        if topic_id == "NEW_TOPIC":
-            # 检查是否需要 LRU 驱逐
-            if self._buffer_manager.needs_eviction():
-                self._evict_lru_topic()
-            # 创建新话题（使用 payload 的 identity）
-            self._buffer_manager.create_new_topic(identity)
-        else:
-            # 按 topic_id 换入已有话题
-            routed = self._buffer_manager.route(topic_id)
-            if routed is None:
-                logger.warning(
-                    f"话题 {topic_id} 不存在，回退到 NEW_TOPIC"
-                )
-                if self._buffer_manager.needs_eviction():
-                    self._evict_lru_topic()
-                self._buffer_manager.create_new_topic(identity)
-
-        # 摄入载荷
-        self.ingest_payload(payload)
-
-    def _evict_lru_topic(self) -> None:
+    async def _evict_lru_topic(self) -> None:
         """
-        LRU 驱逐：找到最久未访问的话题，flush 后换出
-
-        驱逐流程:
-            1. 找到 LRU 话题
-            2. flush 其 buffer（触发 Generation 回调）
-            3. 从活跃池移除
+        LRU 驱逐：找到最久未访问的话题，调用统一调度器
         """
-        lru = self._buffer_manager.find_lru_topic()
-        if lru is None:
+        buffer = self._buffer_manager.get_lru_buffer()
+        if buffer is None:
             return
 
-        buffer_key, buffer = lru
         logger.info(
-            f"LRU 驱逐话题: {buffer_key}, "
+            f"LRU 驱逐话题: topic_id={buffer.topic_id}, "
             f"title={buffer.title}"
         )
 
-        # flush buffer 内容
-        if buffer.blocks:
-            parts = buffer_key.split(":")
-            if len(parts) == 3:
-                evict_identity = Identity(
-                    user_id=parts[0],
-                    agent_id=parts[1],
-                    session_id=parts[2],
-                )
-                self.flush_buffer(evict_identity, FlushReason.LRU_EVICTION)
-
-        # 从活跃池移除
-        self._buffer_manager.swap_out(buffer_key)
+        # 调用统一调度器（Archive + Evict）
+        await self._trigger_manager.resolve_topic(
+            topic_id=buffer.topic_id,
+            trigger_reason=FlushReason.LRU_EVICTION,
+        )
 
     def swap_out_topic(
-        self, buffer_key: str
+        self, topic_id: str
     ) -> Optional[SemanticBuffer]:
         """
         显式换出指定话题
 
         Args:
-            buffer_key: 话题的 buffer key
+            topic_id: 话题的 ID
 
         Returns:
             被换出的 SemanticBuffer，不存在返回 None
         """
-        return self._buffer_manager.swap_out(buffer_key)
+        return self._buffer_manager.pop_buffer(topic_id)
 
     def update_topic_title(
         self, topic_id: str, title: str
     ) -> None:
         """
         更新话题标题
-
-        Args:
-            topic_id: 话题 ID (buffer_id)
-            title: 新标题
         """
-        buf = self._buffer_manager.route(topic_id)
-        if buf is not None:
-            buf.title = title
+        buffer = self._buffer_manager.get_buffer(topic_id)
+        if buffer:
+            buffer.title = title
             logger.debug(f"话题 {topic_id} 标题更新为: {title}")
+
+    # ========== Idle Hibernate (§5.1) ==========
+
+    async def scan_idle_buffers_now(self) -> List[str]:
+        """
+        立即执行一次空闲 Buffer 扫描（手动触发）
+
+        Returns:
+            List[str]: 被刷新的 topic_id 列表
+        """
+        flushed_keys = []
+        all_buffers = self._buffer_manager.get_all_buffers()
+
+        for buffer in all_buffers:
+            if buffer.is_idle(self._idle_timeout_seconds):
+                logger.info(
+                    f"检测到空闲话题: topic_id={buffer.topic_id}, "
+                    f"idle_time={(datetime.now().timestamp() - buffer.last_update):.1f}s"
+                )
+
+                # 调用统一调度器（Archive + Evict）
+                await self._trigger_manager.resolve_topic(
+                    topic_id=buffer.topic_id,
+                    trigger_reason=FlushReason.IDLE_TIMEOUT,
+                )
+
+                flushed_keys.append(buffer.topic_id)
+
+        return flushed_keys
 
 
 __all__ = [

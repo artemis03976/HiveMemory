@@ -50,7 +50,7 @@ def sample_messages(identity) -> list:
 @pytest.fixture
 def sample_memory(identity) -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(user_id=identity.user_id, source_agent_id=identity.agent_id, session_id=identity.session_id, confidence_score=1.0),
+        meta=MetaData(user_id=identity.user_id, source_agent_id=identity.agent_id, session_id=None, confidence_score=1.0),
         index=IndexLayer(title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"], memory_type=MemoryType.FACT),
         payload=PayloadLayer(content="端口从 8080 改为 9090"),
     )
@@ -241,10 +241,16 @@ class TestModeBFallback:
 
 # ========== Test 5: Double Processing Guard ==========
 
-class TestFlushCallbackModes:
-    """验证 _on_perception_flush 统一回调的模式分发"""
+import pytest
+from hivememory.engines.perception.models import LogicalBlock
+from hivememory.core.models import StreamMessage, StreamMessageType
 
-    def test_mtp_write_flush_triggers_mode_b(self, sample_messages):
+
+class TestFlushCallbackModes:
+    """验证 _on_generate_memory 统一回调的模式分发"""
+
+    @pytest.mark.asyncio
+    async def test_mtp_write_flush_triggers_mode_b(self, sample_messages):
         """MTP_WRITE flush 携带 write_focus → Mode B GenerationRequest"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
@@ -255,13 +261,34 @@ class TestFlushCallbackModes:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
+            generation_engine=mock_generation,
         )
 
+        # 将 StreamMessage 转换为 LogicalBlock
+        blocks = [
+            LogicalBlock(
+                user_block=StreamMessage(
+                    message_type=StreamMessageType.USER,
+                    content=msg.content,
+                    identity=msg.identity,
+                ),
+                response_block=StreamMessage(
+                    message_type=StreamMessageType.ASSISTANT,
+                    content=msg.content,
+                    identity=msg.identity,
+                ) if i % 2 == 1 else None,
+            )
+            for i, msg in enumerate(sample_messages)
+        ]
+
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
-        core._on_perception_flush(
-            sample_messages, FlushReason.MTP_WRITE,
-            write_focus=focus,
-        )
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": focus,
+            "reason": FlushReason.MTP_WRITE,
+        }
+        await core._on_generate_memory(payload)
 
         # generation_engine.process 应被调用，且携带 write_focus
         mock_generation.process.assert_called_once()
@@ -270,7 +297,8 @@ class TestFlushCallbackModes:
         assert request.write_focus.content == "端口改为 9090"
         assert request.update_focus is None
 
-    def test_mtp_write_flush_without_focus_triggers_mode_a(self, sample_messages):
+    @pytest.mark.asyncio
+    async def test_mtp_write_flush_without_focus_triggers_mode_a(self, sample_messages):
         """MTP_WRITE flush 但无 write_focus → 降级为 Mode A"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
@@ -281,15 +309,40 @@ class TestFlushCallbackModes:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
+            generation_engine=mock_generation,
         )
 
-        core._on_perception_flush(sample_messages, FlushReason.MTP_WRITE)
+        # 将 StreamMessage 转换为 LogicalBlock
+        blocks = [
+            LogicalBlock(
+                user_block=StreamMessage(
+                    message_type=StreamMessageType.USER,
+                    content=msg.content,
+                    identity=msg.identity,
+                ),
+                response_block=StreamMessage(
+                    message_type=StreamMessageType.ASSISTANT,
+                    content=msg.content,
+                    identity=msg.identity,
+                ) if i % 2 == 1 else None,
+            )
+            for i, msg in enumerate(sample_messages)
+        ]
+
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MTP_WRITE,
+        }
+        await core._on_generate_memory(payload)
 
         mock_generation.process.assert_called_once()
         request = mock_generation.process.call_args[0][0]
         assert request.write_focus is None
 
-    def test_normal_flush_triggers_mode_a(self, sample_messages):
+    @pytest.mark.asyncio
+    async def test_normal_flush_triggers_mode_a(self, sample_messages):
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
@@ -299,14 +352,39 @@ class TestFlushCallbackModes:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
+            generation_engine=mock_generation,
         )
 
+        # 将 StreamMessage 转换为 LogicalBlock
+        blocks = [
+            LogicalBlock(
+                user_block=StreamMessage(
+                    message_type=StreamMessageType.USER,
+                    content=msg.content,
+                    identity=msg.identity,
+                ),
+                response_block=StreamMessage(
+                    message_type=StreamMessageType.ASSISTANT,
+                    content=msg.content,
+                    identity=msg.identity,
+                ) if i % 2 == 1 else None,
+            )
+            for i, msg in enumerate(sample_messages)
+        ]
+
         # 正常 flush 应该触发 Mode A
-        core._on_perception_flush(sample_messages, FlushReason.SEMANTIC_DRIFT)
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.SEMANTIC_DRIFT,
+        }
+        await core._on_generate_memory(payload)
 
         mock_generation.process.assert_called_once()
 
-    def test_manual_flush_triggers_mode_a(self, sample_messages):
+    @pytest.mark.asyncio
+    async def test_manual_flush_triggers_mode_a(self, sample_messages):
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
@@ -316,9 +394,33 @@ class TestFlushCallbackModes:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
+            generation_engine=mock_generation,
         )
 
-        core._on_perception_flush(sample_messages, FlushReason.MANUAL)
+        # 将 StreamMessage 转换为 LogicalBlock
+        blocks = [
+            LogicalBlock(
+                user_block=StreamMessage(
+                    message_type=StreamMessageType.USER,
+                    content=msg.content,
+                    identity=msg.identity,
+                ),
+                response_block=StreamMessage(
+                    message_type=StreamMessageType.ASSISTANT,
+                    content=msg.content,
+                    identity=msg.identity,
+                ) if i % 2 == 1 else None,
+            )
+            for i, msg in enumerate(sample_messages)
+        ]
+
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MANUAL,
+        }
+        await core._on_generate_memory(payload)
         mock_generation.process.assert_called_once()
 
 

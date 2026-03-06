@@ -159,7 +159,10 @@ def setup_test_env() -> MemoryGenerationEngine:
     _shared_storage.create_collection(recreate=False)
 
     # 3. 创建 LLMMemoryExtractor
-    _shared_extractor = LLMMemoryExtractor(llm_service=llm_service)
+    _shared_extractor = LLMMemoryExtractor(
+        config=app_config.generation.extractor,
+        llm_service=llm_service,
+    )
 
     # 4. 创建 MemoryDeduplicator
     dedup_config = app_config.generation.deduplicator

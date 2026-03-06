@@ -3,17 +3,13 @@ BufferManager 单元测试
 
 测试覆盖:
 - SemanticBufferManager (原 BufferManager)
-    - Buffer 获取和创建
-    - Buffer CRUD 操作
+    - Buffer 获取和创建 (create_buffer, get_buffer)
+    - Buffer CRUD 操作 (pop_buffer)
     - Buffer 元数据更新
-    - 多会话隔离
-- SimpleBufferManager
-    - Buffer 获取和创建
-    - 消息添加
-    - Buffer 清空
+    - 多会话/多话题隔离
 
 Note:
-    v3.0 重构：BufferManager 分拆为 SemanticBufferManager 和 SimpleBufferManager
+    Phase 4.5 重构：BufferManager 从 Identity-based 改为 topic_id-based
 """
 
 import pytest
@@ -21,15 +17,11 @@ from unittest.mock import Mock
 from datetime import datetime
 
 from hivememory.core.models import Identity, StreamMessage, StreamMessageType
-from hivememory.engines.perception.buffer_manager import (
-    SemanticBufferManager,
-    SimpleBufferManager
-)
+from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.models import (
     BufferState,
     LogicalBlock,
     SemanticBuffer,
-    SimpleBuffer,
 )
 
 
@@ -42,27 +34,33 @@ class TestSemanticBufferManagerBasic:
         self.identity = Identity(
             user_id="user1",
             agent_id="agent1",
-            session_id="session1"
         )
 
     # ========== Buffer 获取和创建测试 ==========
 
-    def test_get_buffer_creates_new(self):
-        """测试获取不存在的 buffer 时创建新的"""
-        buffer = self.manager.get_buffer(self.identity)
+    def test_get_buffer_returns_none_if_not_exists(self):
+        """测试获取不存在的 buffer 返回 None"""
+        buffer = self.manager.get_buffer("nonexistent_topic")
+        assert buffer is None
+
+    def test_create_buffer(self):
+        """测试创建新 buffer"""
+        buffer = self.manager.create_buffer(self.identity, title="Test Topic")
 
         assert buffer is not None
         assert buffer.identity.user_id == "user1"
         assert buffer.identity.agent_id == "agent1"
-        assert buffer.identity.session_id == "session1"
+        assert buffer.title == "Test Topic"
+        assert buffer.topic_id is not None
         assert len(buffer.blocks) == 0
 
     def test_get_buffer_returns_existing(self):
         """测试获取已存在的 buffer"""
-        buffer1 = self.manager.get_buffer(self.identity)
-        buffer2 = self.manager.get_buffer(self.identity)
+        created = self.manager.create_buffer(self.identity)
+        buffer = self.manager.get_buffer(created.topic_id)
 
-        assert buffer1 is buffer2
+        assert buffer is created
+        assert buffer.identity == self.identity
 
 
 class TestSemanticBufferManagerCRUD:
@@ -74,7 +72,6 @@ class TestSemanticBufferManagerCRUD:
         self.identity = Identity(
             user_id="user1",
             agent_id="agent1",
-            session_id="session1"
         )
 
     def _create_block(self, content: str = "Hello") -> LogicalBlock:
@@ -93,200 +90,171 @@ class TestSemanticBufferManagerCRUD:
             total_tokens=100,
         )
 
-    # ========== add_block_to_buffer 测试 ==========
+    # ========== add_block 测试 ==========
 
-    def test_add_block_to_buffer(self):
+    def test_add_block(self):
         """测试添加 block 到 buffer"""
+        buffer = self.manager.create_buffer(self.identity)
         block = self._create_block()
 
-        self.manager.add_block_to_buffer(self.identity, block)
+        self.manager.add_block(buffer.topic_id, block)
 
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer is not None
-        assert len(buffer.blocks) == 1
-        assert buffer.blocks[0] is block
-        assert buffer.total_tokens == 100
+        retrieved = self.manager.get_buffer(buffer.topic_id)
+        assert retrieved is not None
+        assert len(retrieved.blocks) == 1
+        assert retrieved.blocks[0] is block
+        assert retrieved.total_tokens == 100
 
     def test_add_multiple_blocks(self):
         """测试添加多个 blocks"""
+        buffer = self.manager.create_buffer(self.identity)
         block1 = self._create_block("Hello 1")
         block2 = self._create_block("Hello 2")
 
-        self.manager.add_block_to_buffer(self.identity, block1)
-        self.manager.add_block_to_buffer(self.identity, block2)
+        self.manager.add_block(buffer.topic_id, block1)
+        self.manager.add_block(buffer.topic_id, block2)
 
-        buffer = self.manager.get_buffer(self.identity)
-        assert len(buffer.blocks) == 2
-        assert buffer.total_tokens == 200
+        retrieved = self.manager.get_buffer(buffer.topic_id)
+        assert len(retrieved.blocks) == 2
+        assert retrieved.total_tokens == 200
+
+    # ========== pop_buffer 测试 ==========
+
+    def test_pop_buffer_returns_buffer(self):
+        """测试移除 buffer 并返回"""
+        buffer = self.manager.create_buffer(self.identity)
+        block = self._create_block("Hello 1")
+        self.manager.add_block(buffer.topic_id, block)
+
+        popped = self.manager.pop_buffer(buffer.topic_id)
+
+        assert popped is not None
+        assert len(popped.blocks) == 1
+        assert popped.blocks[0] is block
+
+        # 确认已从 manager 中移除
+        assert self.manager.get_buffer(buffer.topic_id) is None
+
+    def test_pop_nonexistent_buffer_returns_none(self):
+        """测试移除不存在的 buffer 返回 None"""
+        popped = self.manager.pop_buffer("nonexistent_topic")
+        assert popped is None
 
     # ========== clear_buffer 测试 ==========
 
     def test_clear_buffer_returns_blocks(self):
-        """测试清空 buffer 返回被清除的 blocks"""
-        block1 = self._create_block("Hello 1")
-        block2 = self._create_block("Hello 2")
+        """测试清空 buffer 内容并保留 buffer"""
+        buffer = self.manager.create_buffer(self.identity)
+        block = self._create_block("Hello")
+        self.manager.add_block(buffer.topic_id, block)
 
-        self.manager.add_block_to_buffer(self.identity, block1)
-        self.manager.add_block_to_buffer(self.identity, block2)
+        cleared = self.manager.clear_buffer(buffer.topic_id)
 
-        cleared = self.manager.clear_buffer(self.identity)
+        assert len(cleared) == 1
+        assert cleared[0] is block
 
-        assert len(cleared) == 2
-        assert block1 in cleared
-        assert block2 in cleared
-
-    def test_clear_buffer_empties_buffer(self):
-        """测试清空 buffer 后 buffer 为空"""
-        block = self._create_block()
-        self.manager.add_block_to_buffer(self.identity, block)
-
-        self.manager.clear_buffer(self.identity)
-
-        buffer = self.manager.get_buffer(self.identity)
-        assert len(buffer.blocks) == 0
-        assert buffer.total_tokens == 0
+        # 确认 buffer 仍然存在但为空
+        retrieved = self.manager.get_buffer(buffer.topic_id)
+        assert retrieved is not None
+        assert len(retrieved.blocks) == 0
+        assert retrieved.total_tokens == 0
 
     def test_clear_nonexistent_buffer_returns_empty(self):
         """测试清空不存在的 buffer 返回空列表"""
-        cleared = self.manager.clear_buffer(self.identity)
+        cleared = self.manager.clear_buffer("nonexistent_topic")
         assert cleared == []
 
-    # ========== update_buffer_metadata 测试 ==========
+    # ========== update_metadata 测试 ==========
 
     def test_update_topic_kernel_vector(self):
         """测试更新话题核心向量"""
-        self.manager.get_buffer(self.identity)
+        buffer = self.manager.create_buffer(self.identity)
 
         new_vector = [0.1, 0.2, 0.3]
-        self.manager.update_buffer_metadata(
-            self.identity,
+        self.manager.update_metadata(
+            buffer.topic_id,
             topic_kernel_vector=new_vector
         )
 
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer.topic_kernel_vector == new_vector
-
-    def test_reset_topic_kernel_vector(self):
-        """测试重置话题核心向量"""
-        self.manager.get_buffer(self.identity)
-        self.manager.update_buffer_metadata(
-            self.identity,
-            topic_kernel_vector=[0.1, 0.2, 0.3]
-        )
-
-        self.manager.update_buffer_metadata(
-            self.identity,
-            reset_topic_kernel=True
-        )
-
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer.topic_kernel_vector is None
-
-    def test_update_relay_summary(self):
-        """测试更新接力摘要"""
-        self.manager.get_buffer(self.identity)
-
-        self.manager.update_buffer_metadata(
-            self.identity,
-            relay_summary="Test summary"
-        )
-
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer.relay_summary == "Test summary"
-
-    def test_reset_relay_summary(self):
-        """测试重置接力摘要"""
-        self.manager.get_buffer(self.identity)
-        self.manager.update_buffer_metadata(
-            self.identity,
-            relay_summary="Test summary"
-        )
-
-        self.manager.update_buffer_metadata(
-            self.identity,
-            reset_relay_summary=True
-        )
-
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer.relay_summary is None
+        retrieved = self.manager.get_buffer(buffer.topic_id)
+        assert retrieved.topic_kernel_vector == new_vector
 
     def test_update_state(self):
         """测试更新状态"""
-        self.manager.get_buffer(self.identity)
+        buffer = self.manager.create_buffer(self.identity)
 
-        self.manager.update_buffer_metadata(
-            self.identity,
+        self.manager.update_metadata(
+            buffer.topic_id,
             state=BufferState.PROCESSING
         )
 
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer.state == BufferState.PROCESSING
+        retrieved = self.manager.get_buffer(buffer.topic_id)
+        assert retrieved.state == BufferState.PROCESSING
 
     def test_update_multiple_fields(self):
         """测试同时更新多个字段"""
-        self.manager.get_buffer(self.identity)
+        buffer = self.manager.create_buffer(self.identity)
 
-        self.manager.update_buffer_metadata(
-            self.identity,
+        self.manager.update_metadata(
+            buffer.topic_id,
             topic_kernel_vector=[0.1, 0.2],
-            relay_summary="Summary",
             state=BufferState.FLUSHING
         )
 
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer.topic_kernel_vector == [0.1, 0.2]
-        assert buffer.relay_summary == "Summary"
-        assert buffer.state == BufferState.FLUSHING
+        retrieved = self.manager.get_buffer(buffer.topic_id)
+        assert retrieved.topic_kernel_vector == [0.1, 0.2]
+        assert retrieved.state == BufferState.FLUSHING
 
 
-class TestSemanticBufferManagerMultiSession:
-    """SemanticBufferManager 多会话测试"""
+class TestSemanticBufferManagerMultiTopic:
+    """SemanticBufferManager 多话题测试"""
 
     def setup_method(self):
         """每个测试方法前初始化"""
         self.manager = SemanticBufferManager()
 
-    def test_multi_session_isolation(self):
-        """测试多会话隔离"""
-        identity1 = Identity(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="session1"
-        )
-        identity2 = Identity(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="session2"
-        )
+    def test_multi_topic_isolation(self):
+        """测试多话题隔离"""
+        identity = Identity(user_id="user1", agent_id="agent1")
 
-        buffer1 = self.manager.get_buffer(identity1)
-        buffer2 = self.manager.get_buffer(identity2)
+        # 创建两个话题
+        buffer1 = self.manager.create_buffer(identity, title="Topic 1")
+        buffer2 = self.manager.create_buffer(identity, title="Topic 2")
 
-        assert buffer1 is not buffer2
-        assert buffer1.identity.session_id == "session1"
-        assert buffer2.identity.session_id == "session2"
+        # 两个 buffer 应该有不同的 topic_id
+        assert buffer1.topic_id != buffer2.topic_id
+        assert buffer1.title == "Topic 1"
+        assert buffer2.title == "Topic 2"
 
-    def test_list_active_buffers(self):
-        """测试列出活跃 buffers"""
-        identity1 = Identity(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="session1"
-        )
-        identity2 = Identity(
-            user_id="user2",
-            agent_id="agent1",
-            session_id="session1"
-        )
+        # 可以通过 topic_id 独立获取
+        retrieved1 = self.manager.get_buffer(buffer1.topic_id)
+        retrieved2 = self.manager.get_buffer(buffer2.topic_id)
 
-        self.manager.get_buffer(identity1)
-        self.manager.get_buffer(identity2)
+        assert retrieved1 is buffer1
+        assert retrieved2 is buffer2
 
-        active_buffers = self.manager.list_active_buffers()
+    def test_get_active_topic_buffer_count(self):
+        """测试获取活跃 buffer 数量"""
+        identity1 = Identity(user_id="user1", agent_id="agent1")
+        identity2 = Identity(user_id="user2", agent_id="agent1")
 
-        assert len(active_buffers) == 2
-        assert "user1:agent1:session1" in active_buffers
-        assert "user2:agent1:session1" in active_buffers
+        self.manager.create_buffer(identity1)
+        self.manager.create_buffer(identity2)
+
+        count = self.manager.get_active_topic_buffer_count()
+        assert count == 2
+
+    def test_get_all_buffers(self):
+        """测试获取所有活跃 buffer"""
+        identity = Identity(user_id="user1", agent_id="agent1")
+        buffer1 = self.manager.create_buffer(identity)
+        buffer2 = self.manager.create_buffer(identity)
+
+        buffers = self.manager.get_all_buffers()
+        assert len(buffers) == 2
+        topic_ids = [b.topic_id for b in buffers]
+        assert buffer1.topic_id in topic_ids
+        assert buffer2.topic_id in topic_ids
 
 
 class TestSemanticBufferManagerInfo:
@@ -295,22 +263,18 @@ class TestSemanticBufferManagerInfo:
     def setup_method(self):
         """每个测试方法前初始化"""
         self.manager = SemanticBufferManager()
-        self.identity = Identity(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="session1"
-        )
+        self.identity = Identity(user_id="user1", agent_id="agent1")
 
     def test_get_buffer_info_nonexistent(self):
         """测试获取不存在 buffer 的信息"""
-        info = self.manager.get_buffer_info(self.identity)
+        info = self.manager.get_buffer_info("nonexistent_topic")
         assert info["exists"] is False
 
     def test_get_buffer_info_existing(self):
         """测试获取存在 buffer 的信息"""
-        self.manager.get_buffer(self.identity)
+        buffer = self.manager.create_buffer(self.identity)
 
-        info = self.manager.get_buffer_info(self.identity)
+        info = self.manager.get_buffer_info(buffer.topic_id)
 
         assert info["exists"] is True
         assert info["block_count"] == 0
@@ -319,6 +283,8 @@ class TestSemanticBufferManagerInfo:
 
     def test_get_buffer_info_with_blocks(self):
         """测试获取有 blocks 的 buffer 信息"""
+        buffer = self.manager.create_buffer(self.identity)
+
         user_msg = StreamMessage(
             message_type=StreamMessageType.USER,
             content="Hello"
@@ -333,9 +299,9 @@ class TestSemanticBufferManagerInfo:
             total_tokens=50,
         )
 
-        self.manager.add_block_to_buffer(self.identity, block)
+        self.manager.add_block(buffer.topic_id, block)
 
-        info = self.manager.get_buffer_info(self.identity)
+        info = self.manager.get_buffer_info(buffer.topic_id)
 
         assert info["exists"] is True
         assert info["block_count"] == 1
@@ -343,104 +309,43 @@ class TestSemanticBufferManagerInfo:
 
     def test_get_buffer_info_with_topic_kernel(self):
         """测试获取有话题核心的 buffer 信息"""
-        self.manager.get_buffer(self.identity)
-        self.manager.update_buffer_metadata(
-            self.identity,
+        buffer = self.manager.create_buffer(self.identity)
+        self.manager.update_metadata(
+            buffer.topic_id,
             topic_kernel_vector=[0.1, 0.2, 0.3]
         )
 
-        info = self.manager.get_buffer_info(self.identity)
+        info = self.manager.get_buffer_info(buffer.topic_id)
 
         assert info["has_topic_kernel"] is True
 
 
-class TestSimpleBufferManager:
-    """SimpleBufferManager 测试"""
+class TestSemanticBufferMenu:
+    """活跃话题菜单测试"""
 
     def setup_method(self):
         """每个测试方法前初始化"""
-        self.manager = SimpleBufferManager()
-        self.identity = Identity(
-            user_id="user1",
-            agent_id="agent1",
-            session_id="session1"
+        self.manager = SemanticBufferManager()
+
+    def test_get_active_topics_menu(self):
+        """测试获取活跃话题菜单"""
+        identity = Identity(user_id="user1", agent_id="agent1")
+
+        # 创建话题
+        buf1 = self.manager.create_buffer(identity, title="Topic 1")
+        buf2 = self.manager.create_buffer(identity, title="Topic 2")
+
+        # 添加 blocks 以使话题出现在菜单中
+        block = LogicalBlock(
+            user_query="test",
+            clean_response="test",
+            total_tokens=10
         )
+        self.manager.add_block(buf1.topic_id, block)
 
-    def test_get_buffer_creates_new(self):
-        """测试获取不存在的 buffer 时创建新的"""
-        buffer = self.manager.get_buffer(self.identity)
+        menu = self.manager.get_active_topics_menu()
 
-        assert buffer is not None
-        assert isinstance(buffer, SimpleBuffer)
-        assert buffer.user_id == "user1"
-        assert buffer.agent_id == "agent1"
-        assert buffer.session_id == "session1"
-
-    def test_get_buffer_returns_existing(self):
-        """测试获取已存在的 buffer"""
-        buffer1 = self.manager.get_buffer(self.identity)
-        buffer2 = self.manager.get_buffer(self.identity)
-        assert buffer1 is buffer2
-
-    def test_add_message(self):
-        """测试添加消息"""
-        msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="Hello"
-        )
-        
-        self.manager.add_message(self.identity, msg)
-        
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer.message_count == 1
-        assert buffer.messages[0] is msg
-
-    def test_clear_buffer(self):
-        """测试清空 buffer"""
-        msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="Hello"
-        )
-        self.manager.add_message(self.identity, msg)
-        
-        result = self.manager.clear_buffer(self.identity)
-        
-        assert result is True
-        buffer = self.manager.get_buffer(self.identity)
-        assert buffer.message_count == 0
-
-    def test_clear_nonexistent_buffer(self):
-        """测试清空不存在的 buffer"""
-        result = self.manager.clear_buffer(self.identity)
-        assert result is False
-
-    def test_list_active_buffers(self):
-        """测试列出活跃 buffers"""
-        self.manager.get_buffer(self.identity)
-        
-        active = self.manager.list_active_buffers()
-        assert len(active) == 1
-        assert self.identity.buffer_key in active
-
-    def test_get_buffer_info(self):
-        """测试获取 buffer 信息"""
-        msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="Hello"
-        )
-        self.manager.add_message(self.identity, msg)
-        
-        info = self.manager.get_buffer_info(self.identity)
-        buffer = self.manager.get_buffer(self.identity)
-        
-        assert info["exists"] is True
-        assert info["buffer_id"] == buffer.buffer_id
-        assert info["message_count"] == 1
-        assert info["user_id"] == "user1"
-        assert info["agent_id"] == "agent1"
-        assert info["session_id"] == "session1"
-
-    def test_get_buffer_info_nonexistent(self):
-        """测试获取不存在的 buffer 信息"""
-        info = self.manager.get_buffer_info(self.identity)
-        assert info["exists"] is False
+        # 只有有内容的话题出现在菜单中
+        assert len(menu) == 1
+        assert menu[0]["topic_id"] == buf1.topic_id
+        assert menu[0]["title"] == "Topic 1"

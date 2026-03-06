@@ -19,8 +19,8 @@ from hivememory.engines.gateway.observer_buffer import (
 )
 
 
-def _make_identity(session_id="s1") -> Identity:
-    return Identity(user_id="u1", agent_id="a1", session_id=session_id)
+def _make_identity(session_id="s1", user_id="u1", agent_id="a1") -> Identity:
+    return Identity(user_id=user_id, agent_id=agent_id, session_id=session_id)
 
 
 def _make_gaze_result(rewritten_query="重写查询", worth_saving=True):
@@ -206,8 +206,8 @@ class TestObserverBufferManager:
 
     def test_list_active_buffers(self):
         """返回快照"""
-        id1 = _make_identity("s1")
-        id2 = _make_identity("s2")
+        id1 = _make_identity("s1", user_id="u1", agent_id="a1")
+        id2 = _make_identity("s2", user_id="u2", agent_id="a2")
         self.manager.get_buffer(id1)
         self.manager.get_buffer(id2)
         buffers = self.manager.list_active_buffers()
@@ -215,14 +215,14 @@ class TestObserverBufferManager:
 
     def test_flush_idle_buffers(self):
         """超时 buffer 被 flush，活跃 buffer 保留"""
-        id1 = _make_identity("s1")
+        id1 = _make_identity("s1", user_id="u1", agent_id="a1")
         buf1 = self.manager.get_buffer(id1)
         buf1.accept_user("消息")
         buf1.accept_assistant("回复")
         # 手动设置 last_activity 为很久以前
         buf1._last_activity = 0.0
 
-        id2 = _make_identity("s2")
+        id2 = _make_identity("s2", user_id="u2", agent_id="a2")
         buf2 = self.manager.get_buffer(id2)
         buf2.accept_user("新消息")
         # buf2 的 last_activity 是刚刚，不会超时

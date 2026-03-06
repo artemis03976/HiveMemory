@@ -423,8 +423,8 @@ class SemanticBuffer(BaseModel):
         - 支持水位线监控（total_tokens）
 
     Attributes:
-        buffer_id: 话题段唯一标识 (topic_id)
-        identity: 身份标识
+        topic_id: 话题唯一标识（主键），由 PerceptionLayer 创建时生成
+        identity: 身份标识（归属元数据，用于权限控制）
         title: 话题标题，由 TheEye 或 Kernel 异步生成，用于菜单展示
         state_summary: 页折叠后的状态摘要，伪无限上下文基底
         blocks: 已闭合的 LogicalBlock 列表（页表）
@@ -433,10 +433,19 @@ class SemanticBuffer(BaseModel):
         last_update: 最后写入时间
         last_accessed_at: 最后访问时间（用于 LRU 驱逐）
         total_tokens: 总 Token 数（水位线监控）
-        relay_summary: 接力摘要（保留向后兼容，未来由 state_summary 替代）
     """
-    buffer_id: str = Field(default_factory=lambda: str(uuid4()))
-    identity: Identity
+    topic_id: str = Field(default_factory=lambda: str(uuid4()), description="话题唯一标识")
+    identity: Identity = Field(default_factory=Identity, description="归属元数据")
+
+    @property
+    def buffer_id(self) -> str:
+        """向后兼容：返回 topic_id"""
+        return self.topic_id
+
+    @property
+    def buffer_key(self) -> str:
+        """向后兼容：返回 identity.buffer_key"""
+        return self.identity.buffer_key
 
     # --- 话题元数据 (TopicSegment, Phase 4.5 新增) ---
     title: str = Field(default="新建话题", description="话题标题，由 TheEye 或 Kernel 异步生成")
@@ -453,9 +462,6 @@ class SemanticBuffer(BaseModel):
     last_update: float = Field(default_factory=lambda: datetime.now().timestamp())
     last_accessed_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     total_tokens: int = 0
-
-    # 接力摘要（保留向后兼容，未来由 state_summary 替代）
-    relay_summary: Optional[str] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True, use_enum_values=True)
 
@@ -512,11 +518,11 @@ class InteractionPayload(BaseModel):
 
     Attributes:
         user_message: 原始用户消息
-        assistant_message: 包含 MTP 指令的完整 assistant 文本
+        assistant_message: ���含 MTP 指令的完整 assistant 文本
         mtp_traces: 由 Koakuma 在执行过程中记录的 Trace 列表
         write_focus: WRITE 指令的核心素材 (挂载在 Payload 上，而非独立传输)
         update_focus: UPDATE 指令的修改意图
-        identity: 身份标识
+        identity: 身份标识（归属元数据）
         rewritten_query: Gateway 重写后的查询
         worth_saving: Gateway 价值判断
     """
@@ -538,7 +544,7 @@ class InteractionPayload(BaseModel):
     )
 
     # 上下文元数据
-    identity: Identity = Field(default_factory=Identity)
+    identity: Identity = Field(default_factory=Identity, description="归属元数据")
     rewritten_query: Optional[str] = Field(
         default=None,
         description="Gateway 重写后的查询"
@@ -551,64 +557,6 @@ class InteractionPayload(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-# ============ 简单缓冲区 ============
-
-class SimpleBuffer(BaseModel):
-    """
-    简单缓冲区 - 纯数据容器
-
-    特性：
-        - 存储 StreamMessage 列表
-        - 无业务逻辑
-        - 线程不安全（由 Perception Layer 管理）
-
-    Attributes:
-        buffer_id: 缓冲区唯一标识
-        user_id: 用户ID
-        agent_id: Agent ID
-        session_id: 会话ID
-        messages: 消息列表
-        last_update: 最后更新时间
-    """
-    buffer_id: str = Field(default_factory=lambda: str(uuid4()))
-    user_id: str
-    agent_id: str
-    session_id: str
-
-    messages: List[StreamMessage] = Field(default_factory=list)
-    last_update: float = Field(default_factory=lambda: datetime.now().timestamp())
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    def add_message(self, message: StreamMessage) -> None:
-        """添加消息到缓冲区"""
-        self.messages.append(message)
-        self.last_update = datetime.now().timestamp()
-
-    def clear(self) -> None:
-        """清空缓冲区"""
-        self.messages.clear()
-        self.last_update = datetime.now().timestamp()
-
-    @property
-    def message_count(self) -> int:
-        """获取消息数量"""
-        return len(self.messages)
-
-    def is_idle(self, timeout_seconds: int = 900) -> bool:
-        """
-        检查缓冲区是否空闲
-
-        Args:
-            timeout_seconds: 超时时间（秒）
-
-        Returns:
-            bool: 是否空闲
-        """
-        current_time = datetime.now().timestamp()
-        return (current_time - self.last_update) > timeout_seconds
-
-
 __all__ = [
     "FlushReason",
     "BufferState",
@@ -618,5 +566,4 @@ __all__ = [
     "LogicalBlock",
     "InteractionPayload",
     "SemanticBuffer",
-    "SimpleBuffer",
 ]

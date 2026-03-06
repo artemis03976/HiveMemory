@@ -20,47 +20,9 @@ from hivememory.engines.perception.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.engines.perception.models import SimpleBuffer
+    from hivememory.engines.perception.models import SemanticBuffer
 
 logger = logging.getLogger(__name__)
-
-
-class TriggerStrategy(ABC):
-    """
-    触发策略接口
-
-    职责:
-        判断是否应该触发记忆处理。
-
-    实现策略:
-        - MessageCountTrigger: 消息数阈值
-        - IdleTimeoutTrigger: 超时触发
-        - SemanticBoundaryTrigger: 语义边界检测
-    """
-
-    @abstractmethod
-    def should_trigger(
-        self,
-        messages: List[StreamMessage],
-        context: Dict[str, Any]
-    ) -> tuple[bool, Optional[FlushReason]]:
-        """
-        判断是否应该触发
-
-        Args:
-            messages: 当前缓冲区的消息列表
-            context: 上下文信息 (last_trigger_time, buffer_size 等)
-
-        Returns:
-            tuple[bool, FlushReason]: (是否触发, 触发原因)
-
-        Examples:
-            >>> trigger = MessageCountTrigger(threshold=5)
-            >>> should, reason = trigger.should_trigger(messages, {})
-            >>> if should:
-            ...     print(f"触发原因: {reason.value}")
-        """
-        pass
 
 
 class BaseArbiter(ABC):
@@ -123,19 +85,18 @@ class BasePerceptionLayer(ABC):
 
     定义所有类型的 PerceptionLayer 的统一接口，并提供空闲超时监控的默认实现。
 
-    两种策略实现：
-        - SimplePerceptionLayer: 简单缓冲策略（StreamMessage + 三重触发）
-        - SemanticFlowPerceptionLayer: 语义流策略（LogicalBlock + 语义吸附）
+    实现策略：
+        - SemanticFlowPerceptionLayer: 语义流策略（LogicalBlock + 语义吸附 + MMU）
 
     空闲超时监控：
         所有子类都继承统一的空闲超时监控功能，通过 start_idle_monitor() 启动。
 
     Examples:
         >>> from hivememory.core.models import Identity
-        >>> perception = SimplePerceptionLayer()
+        >>> perception = SemanticFlowPerceptionLayer()
         >>> perception.start_idle_monitor()  # 启动空闲监控
         >>> identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
-        >>> perception.add_message("user", "hello", identity)
+        >>> perception.ingest_payload(payload)
         >>> messages = perception.flush_buffer(identity)
     """
 
@@ -151,8 +112,6 @@ class BasePerceptionLayer(ABC):
         self._scan_interval_seconds: int = 30  # 扫描间隔 30 秒
         self._idle_monitor_scheduler = None
         self._idle_monitor_running: bool = False
-        # SystemBus 引用（可选，由 set_bus() 注入）
-        self._bus = None
 
     def set_flush_callback(self, callback: Callable[[List[StreamMessage], FlushReason], None]) -> None:
         """
@@ -162,18 +121,6 @@ class BasePerceptionLayer(ABC):
             callback: 刷新时调用的函数，接收 StreamMessage 列表和 FlushReason 参数
         """
         self.on_flush_callback = callback
-
-    def set_bus(self, bus) -> None:
-        """
-        注入 SystemBus 实例
-
-        感知层通过 bus 发布 flush 事件（替代直接回调）。
-        由 PatchouliKernel._register_bus_routes() 在路由注册阶段调用。
-
-        Args:
-            bus: SystemBus 实例
-        """
-        self._bus = bus
 
     # ========== 空闲超时监控（默认实现）==========
 
@@ -302,12 +249,9 @@ class BasePerceptionLayer(ABC):
                         continue
 
                     # 检查是否有内容需要 Flush
-                    # SimpleBuffer: 检查 messages
                     # SemanticBuffer: 检查 blocks
                     has_content = False
-                    if hasattr(buffer, "messages"):
-                        has_content = len(buffer.messages) > 0
-                    elif hasattr(buffer, "blocks"):
+                    if hasattr(buffer, "blocks"):
                         has_content = len(buffer.blocks) > 0
 
                     if not has_content:
@@ -409,7 +353,7 @@ class BasePerceptionLayer(ABC):
     @abstractmethod
     def flush_buffer(
         self,
-        identity: Identity,
+        topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
     ) -> List[StreamMessage]:
         """
@@ -418,7 +362,7 @@ class BasePerceptionLayer(ABC):
         注意：统一的返回类型，便于 orchestrator 处理
 
         Args:
-            identity: 身份标识对象
+            topic_id: 话题 ID
             reason: 刷新原因
 
         Returns:
@@ -429,17 +373,15 @@ class BasePerceptionLayer(ABC):
     @abstractmethod
     def get_buffer(
         self,
-        identity: Identity,
+        topic_id: str,
     ) -> Optional[Any]:
         """
         获取缓冲区对象
 
-        注意：返回类型取决于具体实现
-            - SimplePerceptionLayer: 返回 SimpleBuffer
-            - SemanticFlowPerceptionLayer: 返回 SemanticBuffer
+        返回类型: SemanticBuffer
 
         Args:
-            identity: 身份标识对象
+            topic_id: 话题 ID
 
         Returns:
             缓冲区对象，不存在返回 None
@@ -449,7 +391,7 @@ class BasePerceptionLayer(ABC):
     @abstractmethod
     def clear_buffer(
         self,
-        identity: Identity,
+        topic_id: str,
     ) -> bool:
         """清理指定的缓冲区"""
         pass
@@ -462,13 +404,13 @@ class BasePerceptionLayer(ABC):
     @abstractmethod
     def get_buffer_info(
         self,
-        identity: Identity,
+        topic_id: str,
     ) -> Dict[str, Any]:
         """
         获取缓冲区信息
 
         Args:
-            identity: 身份标识对象
+            topic_id: 话题 ID
 
         Returns:
             Dict: 缓冲区信息字典
@@ -477,7 +419,6 @@ class BasePerceptionLayer(ABC):
 
 
 __all__ = [
-    "TriggerStrategy",
     "BaseArbiter",
     "BasePerceptionLayer",
 ]

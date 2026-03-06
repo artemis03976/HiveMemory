@@ -208,23 +208,58 @@ class SemanticAdsorberConfig(BaseModel):
         return self
 
 
-class SimplePerceptionConfig(BaseModel):
-    """SimplePerceptionLayer 配置"""
-    type: Literal["simple"] = Field(default="simple", description="感知层类型")
-    message_count_threshold: int = Field(default=6, description="消息数触发阈值")
-    enable_semantic_trigger: bool = Field(default=True, description="是否启用语义边界触发")
-    idle_timeout_seconds: int = Field(default=900, description="空闲超时时间（秒）")
-    scan_interval_seconds: int = Field(default=30, description="空闲监控扫描间隔（秒）")
+# ========== RelayController 配置 ==========
+
+class SimpleRelayConfig(BaseModel):
+    """SimpleRelayController 配置（基于规则的摘要生成）"""
+    type: Literal["simple"] = Field(default="simple", description="接力控制器类型")
+    max_processing_tokens: int = Field(default=8192, description="单次处理的最大 Token 数")
 
     model_config = ConfigDict(extra="ignore")
+
+
+class LLMRelayConfig(BaseModel):
+    """LLMRelayController 配置（基于 LLM 的智能摘要生成）"""
+    type: Literal["llm"] = Field(default="llm", description="接力控制器类型")
+    max_processing_tokens: int = Field(default=8192, description="单次处理的最大 Token 数")
+    # 未来可添加 LLM 特定配置，如 prompt_template 等
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class RelayControllerConfig(BaseModel):
+    """RelayController 统一配置"""
+    engine: Union[SimpleRelayConfig, LLMRelayConfig] = Field(
+        default_factory=SimpleRelayConfig,
+        description="接力控制器引擎配置",
+        discriminator="type"
+    )
+
+    model_config = ConfigDict(extra="ignore")
+
+
+# ========== 感知层配置 ==========
 
 class SemanticFlowPerceptionConfig(BaseModel):
     """SemanticFlowPerceptionLayer 配置"""
     type: Literal["semantic_flow"] = Field(default="semantic_flow", description="感知层类型")
-    max_processing_tokens: int = Field(default=8192, description="单次处理的最大 Token 数")
-    enable_smart_summary: bool = Field(default=False, description="是否启用智能摘要")
+
+    # 已弃用字段（保留向后兼容）
+    max_processing_tokens: int = Field(default=8192, description="[已弃用] 单次处理的最大 Token 数，请使用 relay.engine.max_processing_tokens")
+    enable_smart_summary: bool = Field(default=False, description="[已弃用] 是否启用智能摘要，请使用 relay.engine.type='llm'")
+
     idle_timeout_seconds: int = Field(default=900, description="空闲超时时间（秒）")
     scan_interval_seconds: int = Field(default=30, description="空闲监控扫描间隔（秒）")
+
+    # Page Folding 配置 (§4.2)
+    fold_token_threshold: int = Field(default=32768, description="页折叠高水位线：buffer total_tokens 超过此值时触发折叠")
+    fold_retain_recent_blocks: int = Field(default=2, description="折叠后保留的最近 block 数量")
+
+    # MMU 话题池配置 (§5.1)
+    max_resident_topics: int = Field(default=5, description="活跃话题池最大驻留数，超过触发 LRU 驱逐")
+
+    # RelayController 配置 (§4.2)
+    relay: RelayControllerConfig = Field(default_factory=RelayControllerConfig, description="接力控制器配置")
 
     adsorber: SemanticAdsorberConfig = Field(default_factory=SemanticAdsorberConfig, description="语义吸附器配置")
 
@@ -233,10 +268,9 @@ class SemanticFlowPerceptionConfig(BaseModel):
 
 class MemoryPerceptionConfig(BaseModel):
     """感知层统一配置"""
-    engine: Union[SemanticFlowPerceptionConfig, SimplePerceptionConfig] = Field(
+    engine: SemanticFlowPerceptionConfig = Field(
         default_factory=SemanticFlowPerceptionConfig,
-        description="感知层引擎配置",
-        discriminator="type"
+        description="感知层引擎配置"
     )
 
     model_config = ConfigDict(extra="ignore")

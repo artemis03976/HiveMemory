@@ -2,57 +2,99 @@
 LibrarianCore 单元测试
 
 测试覆盖:
-- 初始化: 有/无 bus 时的订阅行为
+- 初始化: 有/无依赖注入时的行为
 - 观察者: 添加 / 移除 / 移除不存在的
-- ingest_interaction: 委托给 bus
-- _on_perception_flush: Mode A/B/C 分支 / 空消息 / 异常隔离
+- _on_generate_memory: Mode A/B/C 分支 / 空消息 / 异常隔离
 """
 
 import pytest
-from unittest.mock import Mock, call
+from unittest.mock import Mock, AsyncMock, MagicMock
 from uuid import uuid4
 
 from hivememory.core.models import StreamMessage, StreamMessageType, Identity
-from hivememory.engines.perception.models import FlushReason, InteractionPayload
-from hivememory.engines.generation.models import GenerationRequest, WriteFocus
+from hivememory.engines.perception.models import FlushReason, LogicalBlock
+from hivememory.engines.generation.models import GenerationRequest, WriteFocus, UpdateFocus
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 
 
 def _make_identity() -> Identity:
-    return Identity(user_id="u1", agent_id="a1", session_id="s1")
+    return Identity(user_id="u1", agent_id="a1")
 
 
-def _make_messages(n=2):
+def _make_logical_blocks(n=2):
+    """创建测试用的 LogicalBlock 列表"""
     identity = _make_identity()
-    msgs = []
+    blocks = []
     for i in range(n):
-        msg_type = StreamMessageType.USER if i % 2 == 0 else StreamMessageType.ASSISTANT
-        msgs.append(StreamMessage(message_type=msg_type, content=f"msg_{i}", identity=identity))
-    return msgs
+        user_msg = StreamMessage(
+            message_type=StreamMessageType.USER,
+            content=f"user_msg_{i}",
+            identity=identity,
+        )
+        assistant_msg = StreamMessage(
+            message_type=StreamMessageType.ASSISTANT,
+            content=f"assistant_msg_{i}",
+            identity=identity,
+        )
+        block = LogicalBlock(
+            user_block=user_msg,
+            response_block=assistant_msg,
+        )
+        blocks.append(block)
+    return blocks
+
+
+def _make_kernel_logical_blocks(n=2):
+    blocks = []
+    for i in range(n):
+        block = LogicalBlock(
+            user_query=f"user_query_{i}",
+            clean_response=f"assistant_response_{i}",
+        )
+        blocks.append(block)
+    return blocks
 
 
 class TestLibrarianCoreInit:
     """初始化测试"""
 
-    def test_init_with_bus_subscribes(self):
-        """有 bus 时订阅 perception.flushed"""
-        mock_bus = Mock()
-        core = LibrarianCore(storage=Mock(), bus=mock_bus)
+    def test_init_with_storage_only(self):
+        """只有 storage 时正常初始化"""
+        mock_storage = Mock()
+        core = LibrarianCore(storage=mock_storage)
+        assert core.storage is mock_storage
+        assert core._bus is None
+        assert core.generation_engine is None
+        assert core.perception_layer is None
 
-        mock_bus.subscribe.assert_called_once_with(
-            "perception.flushed", core._on_perception_flush
+    def test_init_with_all_dependencies(self):
+        """注入所有依赖时正常初始化"""
+        mock_storage = Mock()
+        mock_bus = Mock()
+        mock_generation = Mock()
+        mock_perception = Mock()
+        mock_lifecycle = Mock()
+
+        core = LibrarianCore(
+            storage=mock_storage,
+            bus=mock_bus,
+            generation_engine=mock_generation,
+            perception_layer=mock_perception,
+            lifecycle_engine=mock_lifecycle,
         )
 
-    def test_init_without_bus(self):
-        """无 bus 时不报错"""
-        core = LibrarianCore(storage=Mock(), bus=None)
-        assert core._bus is None
+        assert core.storage is mock_storage
+        assert core._bus is mock_bus
+        assert core.generation_engine is mock_generation
+        assert core.perception_layer is mock_perception
+        assert core.lifecycle_engine is mock_lifecycle
+
 
 class TestLibrarianCoreObservers:
     """观察者管理测试"""
 
     def setup_method(self):
-        self.core = LibrarianCore(storage=Mock(), bus=None)
+        self.core = LibrarianCore(storage=Mock())
 
     def test_add_flush_observer(self):
         """添加观察者"""
@@ -72,149 +114,257 @@ class TestLibrarianCoreObservers:
         self.core.remove_flush_observer(Mock())
 
 
-class TestLibrarianCoreIngest:
-    """ingest_interaction 测试"""
-
-    def test_ingest_interaction_delegates_to_bus(self):
-        """委托给 bus.request"""
-        mock_bus = Mock()
-        core = LibrarianCore(storage=Mock(), bus=mock_bus)
-        payload = Mock(spec=InteractionPayload)
-        payload.user_message = "test message for logging"
-        payload.mtp_traces = []
-        payload.write_focus = None
-        payload.update_focus = None
-
-        core.ingest_interaction(payload, target_topic="topic_1")
-
-        mock_bus.request.assert_called_with(
-            "perception.route_and_ingest", "topic_1", payload
-        )
-
-
-class TestLibrarianCoreFlushCallback:
-    """_on_perception_flush 回调测试"""
+class TestLibrarianCoreGenerateMemory:
+    """_on_generate_memory 回调测试"""
 
     def setup_method(self):
-        self.mock_bus = Mock()
-        self.mock_storage = Mock()
+        self.mock_generation = MagicMock()
+        self.mock_generation.process = AsyncMock(return_value=[])
+        self.mock_storage = MagicMock()
         self.core = LibrarianCore(
-            storage=self.mock_storage, bus=self.mock_bus
+            storage=self.mock_storage,
+            generation_engine=self.mock_generation,
         )
 
-    def test_flush_mode_a_default(self):
+    @pytest.mark.asyncio
+    async def test_generate_memory_mode_a_default(self):
         """普通 flush，构建 GenerationRequest(context_messages=msgs)"""
-        msgs = _make_messages(2)
-        self.mock_bus.request.return_value = []
+        blocks = _make_logical_blocks(2)
+        payload = {
+            "blocks": blocks,
+            "state_summary": "测试摘要",
+            "focus": None,
+            "reason": FlushReason.MESSAGE_COUNT,
+        }
 
-        self.core._on_perception_flush(msgs, FlushReason.MESSAGE_COUNT)
+        await self.core._on_generate_memory(payload)
 
-        # 第二次 request 调用是 generation.process（第一次是 subscribe）
-        gen_call = None
-        for c in self.mock_bus.request.call_args_list:
-            if c[0][0] == "generation.process":
-                gen_call = c
-                break
-        assert gen_call is not None
-        request = gen_call[0][1]
+        self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
         assert isinstance(request, GenerationRequest)
-        assert len(request.context_messages) == 2
+        # 每个 LogicalBlock 有 user_block 和 response_block
+        assert len(request.context_messages) == 4
         assert request.write_focus is None
         assert request.update_focus is None
 
-    def test_flush_mode_b_write(self):
+    @pytest.mark.asyncio
+    async def test_generate_memory_mode_b_write(self):
         """MTP_WRITE flush，构建带 write_focus 的 request"""
-        msgs = _make_messages(2)
+        blocks = _make_logical_blocks(2)
         write_focus = WriteFocus(content="测试写入内容")
-        self.mock_bus.request.return_value = []
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": write_focus,
+            "reason": FlushReason.MTP_WRITE,
+        }
 
-        self.core._on_perception_flush(
-            msgs, FlushReason.MTP_WRITE, write_focus=write_focus
-        )
+        await self.core._on_generate_memory(payload)
 
-        gen_call = None
-        for c in self.mock_bus.request.call_args_list:
-            if c[0][0] == "generation.process":
-                gen_call = c
-                break
-        assert gen_call is not None
-        request = gen_call[0][1]
+        self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
         assert request.write_focus is write_focus
+        assert request.update_focus is None
 
-    def test_flush_mode_c_update_success(self):
+    @pytest.mark.asyncio
+    async def test_generate_memory_mode_c_update_success(self):
         """MTP_UPDATE flush，加载 existing memory 成功"""
-        msgs = _make_messages(2)
-        update_focus = Mock()
-        update_focus.target_uuid = str(uuid4())
-        update_focus.target_alias = "fact_test"
+        blocks = _make_logical_blocks(2)
+        # 使用真正的 UpdateFocus 实例而不是 Mock
+        update_focus = UpdateFocus(
+            instruction="更新测试",
+            target_uuid=str(uuid4()),
+            target_alias="fact_test",
+            identity=_make_identity(),
+        )
         existing_memory = Mock()
 
-        def bus_request_side_effect(route, *args, **kwargs):
-            if route == "storage.get_memory":
-                return existing_memory
-            return []
+        # 设置 storage.get_memory 为异步 mock
+        self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        self.mock_bus.request.side_effect = bus_request_side_effect
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": update_focus,
+            "reason": FlushReason.MTP_UPDATE,
+        }
 
-        self.core._on_perception_flush(
-            msgs, FlushReason.MTP_UPDATE, update_focus=update_focus
-        )
+        await self.core._on_generate_memory(payload)
 
         assert update_focus.existing_memory is existing_memory
+        self.mock_generation.process.assert_called_once()
 
-    def test_flush_mode_c_update_memory_not_found(self):
+    @pytest.mark.asyncio
+    async def test_generate_memory_mode_c_update_memory_not_found(self):
         """existing memory 不存在时 early return"""
-        msgs = _make_messages(2)
-        update_focus = Mock()
-        update_focus.target_uuid = str(uuid4())
-        update_focus.target_alias = "fact_test"
-
-        def bus_request_side_effect(route, *args, **kwargs):
-            if route == "storage.get_memory":
-                return None
-            return []
-
-        self.mock_bus.request.side_effect = bus_request_side_effect
-
-        self.core._on_perception_flush(
-            msgs, FlushReason.MTP_UPDATE, update_focus=update_focus
+        blocks = _make_logical_blocks(2)
+        # 使用真正的 UpdateFocus 实例
+        update_focus = UpdateFocus(
+            instruction="更新测试",
+            target_uuid=str(uuid4()),
+            target_alias="fact_test",
+            identity=_make_identity(),
         )
 
-        # generation.process 不应被调用
-        gen_calls = [
-            c for c in self.mock_bus.request.call_args_list
-            if c[0][0] == "generation.process"
-        ]
-        assert len(gen_calls) == 0
+        # 设置 storage.get_memory 返回 None
+        self.mock_storage.get_memory = AsyncMock(return_value=None)
 
-    def test_flush_empty_messages(self):
-        """空消息列表 early return"""
-        self.core._on_perception_flush([], FlushReason.MESSAGE_COUNT)
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": update_focus,
+            "reason": FlushReason.MTP_UPDATE,
+        }
+
+        await self.core._on_generate_memory(payload)
+
+        # generation.process 不应被调用
+        self.mock_generation.process.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_generate_memory_empty_blocks(self):
+        """空 blocks 列表 early return"""
+        payload = {
+            "blocks": [],
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MESSAGE_COUNT,
+        }
+
+        await self.core._on_generate_memory(payload)
 
         # 不应调用 generation.process
-        gen_calls = [
-            c for c in self.mock_bus.request.call_args_list
-            if c[0][0] == "generation.process"
-        ]
-        assert len(gen_calls) == 0
+        self.mock_generation.process.assert_not_called()
 
-    def test_flush_generation_exception(self):
+    @pytest.mark.asyncio
+    async def test_generate_memory_blocks_with_only_user(self):
+        """只有 user_block 的 blocks"""
+        identity = _make_identity()
+        block = LogicalBlock(
+            user_block=StreamMessage(
+                message_type=StreamMessageType.USER,
+                content="user message",
+                identity=identity,
+            ),
+            response_block=None,
+        )
+        payload = {
+            "blocks": [block],
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MESSAGE_COUNT,
+        }
+
+        await self.core._on_generate_memory(payload)
+
+        self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
+        assert len(request.context_messages) == 1
+
+    @pytest.mark.asyncio
+    async def test_generate_memory_generation_exception(self):
         """generation.process 抛异常时不崩溃"""
-        msgs = _make_messages(2)
+        blocks = _make_logical_blocks(2)
+        self.mock_generation.process.side_effect = RuntimeError("generation failed")
 
-        def bus_request_side_effect(route, *args, **kwargs):
-            if route == "generation.process":
-                raise RuntimeError("generation failed")
-            return []
-
-        self.mock_bus.request.side_effect = bus_request_side_effect
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MESSAGE_COUNT,
+        }
 
         # 不应抛异常
-        self.core._on_perception_flush(msgs, FlushReason.MESSAGE_COUNT)
+        await self.core._on_generate_memory(payload)
 
-    def test_flush_generation_returns_empty(self):
-        """generation.process 返回空列表（正常日志，不崩溃）"""
-        msgs = _make_messages(2)
-        self.mock_bus.request.return_value = []
+    @pytest.mark.asyncio
+    async def test_generate_memory_without_generation_engine(self):
+        """没有 generation_engine 时跳过处理"""
+        core = LibrarianCore(storage=Mock())
+        blocks = _make_logical_blocks(2)
 
-        self.core._on_perception_flush(msgs, FlushReason.MESSAGE_COUNT)
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MESSAGE_COUNT,
+        }
+
+        # 不应抛异常
+        await core._on_generate_memory(payload)
+
+    @pytest.mark.asyncio
+    async def test_generate_memory_semantic_drift(self):
+        """SEMANTIC_DRIFT 触发 Mode A"""
+        blocks = _make_logical_blocks(2)
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.SEMANTIC_DRIFT,
+        }
+
+        await self.core._on_generate_memory(payload)
+
+        self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
+        assert request.write_focus is None
+        assert request.update_focus is None
+
+    @pytest.mark.asyncio
+    async def test_generate_memory_manual(self):
+        """MANUAL 触发 Mode A"""
+        blocks = _make_logical_blocks(2)
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MANUAL,
+        }
+
+        await self.core._on_generate_memory(payload)
+
+        self.mock_generation.process.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_memory_kernel_blocks_with_topic_identity(self):
+        identity = _make_identity()
+        mock_perception = Mock()
+        mock_perception.get_buffer.return_value = Mock(identity=identity)
+        core = LibrarianCore(
+            storage=self.mock_storage,
+            generation_engine=self.mock_generation,
+            perception_layer=mock_perception,
+        )
+        blocks = _make_kernel_logical_blocks(2)
+        payload = {
+            "topic_id": "topic-test-1",
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MANUAL,
+        }
+
+        await core._on_generate_memory(payload)
+
+        self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
+        assert len(request.context_messages) == 4
+
+    @pytest.mark.asyncio
+    async def test_generate_memory_kernel_blocks_with_payload_identity(self):
+        identity = _make_identity()
+        blocks = _make_kernel_logical_blocks(2)
+        payload = {
+            "identity": identity,
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.MANUAL,
+        }
+
+        await self.core._on_generate_memory(payload)
+
+        self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
+        assert len(request.context_messages) == 4

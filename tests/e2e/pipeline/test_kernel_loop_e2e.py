@@ -1,19 +1,19 @@
 """
-Kernel 递归循环 E2E 集成测试 (Live LLM)
+Kernel 递归循环 E2E Pipeline 测试
 
 使用真实 LLM API 验证 PatchouliSystem._recursive_generation_loop() 的完整链路:
     stop sequence 拦截 → MTP 解析 → Koakuma 执行 → 回填 → 续写
 
 测试策略: Semi-Integration
     真实: WorkerAgentService + _recursive_generation_loop + KoakumaRuntime
-    Mock: PatchouliSystem shell + TheEye + RetrievalFamiliar + LibrarianCore + Storage
+    Mock: PatchouliSystem shell + Kernel Bus
 
 运行条件:
     - 需要有效的 LLM API Key
     - 标记为 @pytest.mark.live_llm，使用 -m live_llm 运行
 
 使用方式:
-    pytest tests/system/test_kernel_loop_live.py -m live_llm -v -s --log-cli-level=INFO
+    pytest tests/e2e/pipeline/test_kernel_loop_e2e.py -m live_llm -v -s --log-cli-level=INFO
 
 作者: HiveMemory Team
 版本: 1.0
@@ -54,9 +54,14 @@ def _get_llm_config():
     try:
         from hivememory.patchouli.config import load_app_config
         config = load_app_config()
-        llm_config = config.llm.worker
-        if llm_config and llm_config.model:
-            return llm_config
+        worker_config = config.llm.worker
+        librarian_config = config.llm.librarian
+
+        if worker_config and worker_config.model and worker_config.api_key:
+            return worker_config
+
+        if librarian_config and librarian_config.model and librarian_config.api_key:
+            return librarian_config
     except Exception:
         pass
     return None
@@ -97,14 +102,24 @@ class KernelLoopTestHarness:
         # Real WorkerAgentService
         self.worker_agent = WorkerAgentService(config=llm_config)
 
-        # Real KoakumaRuntime with mocked storage
+        # Real KoakumaRuntime with mocked bus
+        self.mock_bus = MagicMock()
+
+        def _request(route, *args, **kwargs):
+            if route == "retrieval.retrieve":
+                empty_result = MagicMock()
+                empty_result.is_empty.return_value = True
+                empty_result.memories = []
+                return empty_result
+            if route in ("storage.get_memory", "storage.get_memory_by_alias"):
+                return None
+            return None
+
+        self.mock_bus.request.side_effect = _request
         self.koakuma = KoakumaRuntime(
-            retrieval_familiar=MagicMock(),
-            librarian_core=MagicMock(),
-            storage=MagicMock(),
+            bus=self.mock_bus,
             config=KoakumaConfig(),
         )
-        self.koakuma._storage.get_memory_by_alias.return_value = None
 
         # Mock PatchouliSystem with real _recursive_generation_loop
         self.system = MagicMock(spec=PatchouliSystem)
@@ -139,7 +154,7 @@ class KernelLoopTestHarness:
 @pytest.fixture(scope="module")
 def llm_config():
     config = _get_llm_config()
-    if config is None:
+    if config is None or not getattr(config, "api_key", None):
         pytest.skip(
             "LLM API not configured. Set MTP_TEST_MODEL and "
             "MTP_TEST_API_KEY environment variables."

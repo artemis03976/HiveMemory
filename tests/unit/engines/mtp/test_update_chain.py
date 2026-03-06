@@ -18,7 +18,7 @@ UPDATE 指令执行链路测试
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from hivememory.core.models import (
@@ -28,7 +28,7 @@ from hivememory.core.models import (
 from hivememory.engines.generation.models import (
     UpdateFocus, MergeResult, GenerationRequest, WriteFocus,
 )
-from hivememory.engines.perception.models import FlushReason
+from hivememory.engines.perception.models import FlushReason, LogicalBlock
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
@@ -57,7 +57,7 @@ def existing_memory(identity) -> MemoryAtom:
         meta=MetaData(
             user_id=identity.user_id,
             source_agent_id=identity.agent_id,
-            session_id=identity.session_id,
+            session_id=None,  # session_id 已从 Identity 中移除
             confidence_score=0.85,
             version=1,
         ),
@@ -445,15 +445,22 @@ class TestApplyUpdate:
 
 # ========== Test 7: Double Processing Guard (UPDATE) ==========
 
-class TestFlushCallbackModesUpdate:
-    """验证 _on_perception_flush 统一回调的 UPDATE 模式分发"""
+import pytest
+from hivememory.engines.perception.models import LogicalBlock
+from hivememory.core.models import StreamMessage, StreamMessageType
 
-    def test_mtp_update_flush_triggers_mode_c(self, sample_messages, existing_memory):
+
+class TestFlushCallbackModesUpdate:
+    """验证 _on_generate_memory 统一回调的 UPDATE 模式分发"""
+
+    @pytest.mark.asyncio
+    async def test_mtp_update_flush_triggers_mode_c(self, sample_messages, existing_memory):
         """MTP_UPDATE flush 携带 update_focus → Mode C GenerationRequest"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
         mock_storage = MagicMock()
-        mock_storage.get_memory.return_value = existing_memory
+        # 使用 AsyncMock 模拟异步方法
+        mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
         from tests.unit.engines.mtp.conftest import make_mock_bus
         bus = make_mock_bus(mock_storage=mock_storage, mock_generation=mock_generation)
@@ -461,7 +468,25 @@ class TestFlushCallbackModesUpdate:
             storage=mock_storage,
             bus=bus,
             lifecycle_engine=MagicMock(),
+            generation_engine=mock_generation,
         )
+
+        # 将 StreamMessage 转换为 LogicalBlock
+        blocks = [
+            LogicalBlock(
+                user_block=StreamMessage(
+                    message_type=StreamMessageType.USER,
+                    content=msg.content,
+                    identity=msg.identity,
+                ),
+                response_block=StreamMessage(
+                    message_type=StreamMessageType.ASSISTANT,
+                    content=msg.content,
+                    identity=msg.identity,
+                ) if i % 2 == 1 else None,
+            )
+            for i, msg in enumerate(sample_messages)
+        ]
 
         focus = UpdateFocus(
             instruction="把端口改成 9090",
@@ -470,10 +495,13 @@ class TestFlushCallbackModesUpdate:
             identity=Identity(user_id="test_user"),
         )
 
-        core._on_perception_flush(
-            sample_messages, FlushReason.MTP_UPDATE,
-            update_focus=focus,
-        )
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": focus,
+            "reason": FlushReason.MTP_UPDATE,
+        }
+        await core._on_generate_memory(payload)
 
         # generation_engine.process 应被调用，且携带 update_focus
         mock_generation.process.assert_called_once()
@@ -484,7 +512,8 @@ class TestFlushCallbackModesUpdate:
         # existing_memory 应被注入
         assert request.update_focus.existing_memory is existing_memory
 
-    def test_mtp_write_flush_also_triggers(self, sample_messages):
+    @pytest.mark.asyncio
+    async def test_mtp_write_flush_also_triggers(self, sample_messages):
         """MTP_WRITE flush 携带 write_focus → Mode B"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
@@ -495,16 +524,38 @@ class TestFlushCallbackModesUpdate:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
+            generation_engine=mock_generation,
         )
+
+        # 将 StreamMessage 转换为 LogicalBlock
+        blocks = [
+            LogicalBlock(
+                user_block=StreamMessage(
+                    message_type=StreamMessageType.USER,
+                    content=msg.content,
+                    identity=msg.identity,
+                ),
+                response_block=StreamMessage(
+                    message_type=StreamMessageType.ASSISTANT,
+                    content=msg.content,
+                    identity=msg.identity,
+                ) if i % 2 == 1 else None,
+            )
+            for i, msg in enumerate(sample_messages)
+        ]
 
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
-        core._on_perception_flush(
-            sample_messages, FlushReason.MTP_WRITE,
-            write_focus=focus,
-        )
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": focus,
+            "reason": FlushReason.MTP_WRITE,
+        }
+        await core._on_generate_memory(payload)
         mock_generation.process.assert_called_once()
 
-    def test_normal_flush_still_triggers_mode_a(self, sample_messages):
+    @pytest.mark.asyncio
+    async def test_normal_flush_still_triggers_mode_a(self, sample_messages):
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
@@ -514,9 +565,33 @@ class TestFlushCallbackModesUpdate:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
+            generation_engine=mock_generation,
         )
 
-        core._on_perception_flush(sample_messages, FlushReason.SEMANTIC_DRIFT)
+        # 将 StreamMessage 转换为 LogicalBlock
+        blocks = [
+            LogicalBlock(
+                user_block=StreamMessage(
+                    message_type=StreamMessageType.USER,
+                    content=msg.content,
+                    identity=msg.identity,
+                ),
+                response_block=StreamMessage(
+                    message_type=StreamMessageType.ASSISTANT,
+                    content=msg.content,
+                    identity=msg.identity,
+                ) if i % 2 == 1 else None,
+            )
+            for i, msg in enumerate(sample_messages)
+        ]
+
+        payload = {
+            "blocks": blocks,
+            "state_summary": "",
+            "focus": None,
+            "reason": FlushReason.SEMANTIC_DRIFT,
+        }
+        await core._on_generate_memory(payload)
         mock_generation.process.assert_called_once()
 
 

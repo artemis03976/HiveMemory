@@ -47,43 +47,39 @@ class VerificationStatus(str, Enum):
 
 class Identity(BaseModel):
     """
-    身份标识组合 - 统一管理用户、Agent、会话三个核心ID
+    身份标识组合 - 统一管理用户、Agent 两个核心ID
 
-    用于替代散落的 user_id, agent_id, session_id 参数，
+    用于替代散落的 user_id, agent_id 参数，
     提供统一的身份标识和便捷的操作方法。
+
+    注意：session_id 已被移除，其功能被 topic_id 替代。
+    话题的生命周期由 PerceptionLayer 的 topic_id 管理。
 
     Attributes:
         user_id: 用户标识符
         agent_id: Agent 标识符
-        session_id: 会话标识符（可选）
 
     Examples:
         >>> identity = Identity(
         ...     user_id="user123",
         ...     agent_id="chatbot",
-        ...     session_id="sess_456"
         ... )
-        >>> identity.buffer_key  # "user123:chatbot:sess_456"
+        >>> identity.buffer_key  # "user123:chatbot"
         >>> identity.is_valid   # True
     """
     user_id: str = Field(default="default", description="用户 ID")
     agent_id: str = Field(default="default", description="Agent ID")
-    session_id: Optional[str] = Field(default=None, description="会话 ID")
+    session_id: Optional[str] = Field(default=None, description="会话 ID（兼容字段）")
 
     @property
     def buffer_key(self) -> str:
         """生成用于缓冲区的唯一键"""
-        sess = self.session_id or f"{self.user_id}_{self.agent_id}"
-        return f"{self.user_id}:{self.agent_id}:{sess}"
+        return f"{self.user_id}:{self.agent_id}"
 
     @property
     def is_valid(self) -> bool:
         """检查身份标识是否有效"""
         return bool(self.user_id and self.agent_id)
-
-    def with_session(self, session_id: str) -> "Identity":
-        """返回带有新 session_id 的副本"""
-        return self.model_copy(update={"session_id": session_id})
 
     model_config = ConfigDict(
         json_schema_extra={

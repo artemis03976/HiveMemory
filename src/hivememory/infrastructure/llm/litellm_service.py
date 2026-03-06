@@ -234,6 +234,85 @@ def get_librarian_llm_service(
     return LiteLLMService(config=config)
 
 
+    # ========== Async 方法 (Concurrent.md 热链路) ==========
+
+    async def acomplete(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> str:
+        """
+        异步生成聊天补全
+
+        并发范式 (参考 Concurrent.md):
+            这是热链路 LLM 调用，使用 await 确保阻塞。
+
+        Args:
+            messages: 消息列表
+            temperature: 温度参数（None 则使用实例默认值）
+            max_tokens: 最大 token 数（None 则使用实例默认值）
+            **kwargs: 传递给 litellm.acompletion 的额外参数
+
+        Returns:
+            str: LLM 响应内容
+
+        Raises:
+            Exception: LLM 调用失败时抛出
+        """
+        logger.debug(f"调用 LLM (async): {self.model}, 消息数: {len(messages)}")
+
+        response = await litellm.acompletion(
+            model=self.model,
+            messages=messages,
+            api_key=self.api_key,
+            api_base=self.api_base,
+            temperature=temperature if temperature is not None else self.temperature,
+            max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
+            **kwargs
+        )
+        content = response.choices[0].message.content
+
+        # 记录 token 使用情况
+        if hasattr(response, 'usage') and response.usage:
+            logger.info(
+                f"LLM 调用成功 (model={self.model}, "
+                f"tokens={response.usage.total_tokens})"
+            )
+        else:
+            logger.info(f"LLM 调用成功 (model={self.model})")
+
+        logger.debug(f"LLM 匽应长度: {len(content)} 字符")
+
+        return content
+
+    async def acomplete_with_retry(
+        self,
+        messages: List[Dict[str, str]],
+        max_retries: int = 2,
+        **kwargs
+    ) -> Optional[str]:
+        """
+        带重试机制的异步补全
+
+        Args:
+            messages: 消息列表
+            max_retries: 最大重试次数
+            **kwargs: 其他参数
+
+        Returns:
+            Optional[str]: LLM 响应内容，失败时返回 None
+        """
+        for attempt in range(max_retries):
+            try:
+                logger.debug(f"调用 LLM (async, 尝试 {attempt + 1}/{max_retries})...")
+                return await self.acomplete(messages, **kwargs)
+            except Exception as e:
+                logger.warning(f"LLM 调用失败 (async, 尝试 {attempt + 1}/{max_retries}): {e}")
+        return None
+
+
 __all__ = [
     "LiteLLMService",
     "get_gateway_llm_service",

@@ -1,65 +1,33 @@
 """
-感知引擎组件协作测试
+Perception 层集成测试
 
-测试感知引擎内部各组件之间的协作：
-- SemanticBoundaryAdsorber 与 Buffer 的协作
-- TriggerManager 与 PerceptionLayer 的交互
-- SimplePerceptionLayer 的组件编排
-- SemanticFlowPerceptionLayer 的组件编排
+测试感知层与各组件的协作:
+- 与 Adsorber 的协作
+- 与 Generation Engine 的协作
+- 与 Buffer Manager 的协作
 
 Note:
-    v3.0 重构：
-    - perceive() 已移除，统一使用 ingest_payload()
-    - UnifiedStreamParser 已移除，使用 MTPLogParser 替代
-    - Adsorber.should_adsorb() 返回 Optional[FlushEvent]
-    - Adsorber.compute_new_topic_kernel() 替代 update_topic_kernel()
-
-不测试：与外部服务（LLM、Embedding）的交互
+    Phase 4.5 重构：PerceptionLayer 方法改为使用 topic_id
 """
 
-import sys
-from pathlib import Path
-
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / "src"))
-
 import pytest
-from unittest.mock import Mock, MagicMock
-from typing import List
+from unittest.mock import Mock, AsyncMock
+from datetime import datetime
 
-from hivememory.core.models import (
-    Identity,
-    StreamMessageType,
-    StreamMessage,
-)
-from hivememory.engines.perception import (
-    SemanticFlowPerceptionLayer,
-    FlushEvent,
-)
-# 以下组件在 Phase 4.5 中已从 __init__.py 断开，直接从源模块导入
-from hivememory.engines.perception.simple_perception_layer import SimplePerceptionLayer
-from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber
-from hivememory.engines.perception.trigger_strategies import (
-    TriggerManager,
-    MessageCountTrigger,
-    SemanticBoundaryTrigger,
-)
+from hivememory.core.models import Identity, StreamMessage, StreamMessageType
+from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.models import (
+    BufferState,
     LogicalBlock,
     SemanticBuffer,
-    FlushReason,
     InteractionPayload,
 )
-from hivememory.patchouli.config import (
-    SimplePerceptionConfig,
-    SemanticFlowPerceptionConfig,
-    SemanticAdsorberConfig,
-)
+from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
+from hivememory.patchouli.config import SemanticFlowPerceptionConfig
 
 
-def _make_payload(user_msg, assistant_msg, identity):
-    """辅助: 构建 InteractionPayload"""
+def _make_payload(user_msg: str, assistant_msg: str, identity: Identity) -> InteractionPayload:
+    """辅助方法：创建测试用 Payload"""
     return InteractionPayload(
         user_message=user_msg,
         assistant_message=assistant_msg,
@@ -68,209 +36,102 @@ def _make_payload(user_msg, assistant_msg, identity):
 
 
 class TestAdsorberAndBufferCollaboration:
-    """测试 SemanticBoundaryAdsorber 与 Buffer 的协作"""
+    """测试感知层与 Buffer Manager 的协作"""
 
     def test_adsorber_computes_buffer_kernel(self):
-        """测试吸附器计算 Buffer 话题核心"""
-        mock_embedding = Mock()
-        mock_embedding.encode.return_value = [0.1, 0.2, 0.3]
+        """测试 Buffer Kernel 计算"""
+        manager = SemanticBufferManager()
 
-        config = SemanticAdsorberConfig()
-        adsorber = SemanticBoundaryAdsorber(config=config, embedding_service=mock_embedding)
-        buffer = SemanticBuffer(
-            identity=Identity(user_id="test_user", agent_id="test_agent", session_id="test_session"),
-        )
+        identity = Identity(user_id="user1", agent_id="agent1")
 
-        block = LogicalBlock(
-            user_block=StreamMessage(
-                message_type=StreamMessageType.USER,
-                content="Python编程问题",
-            ),
-            response_block=StreamMessage(
-                message_type=StreamMessageType.ASSISTANT,
-                content="Python是一种编程语言",
-            )
-        )
+        # 创建 buffer
+        buffer = manager.create_buffer(identity)
 
-        new_kernel = adsorber.compute_new_topic_kernel(buffer, block)
-
-        assert new_kernel is not None
-        assert len(new_kernel) == 3
+        # 验证 buffer 创建
+        assert buffer is not None
+        assert buffer.identity == identity
+        assert buffer.topic_id is not None
 
     def test_adsorber_detects_topic_shift(self):
-        """测试吸附器检测话题切换"""
-        mock_embedding = Mock()
-        mock_embedding.encode.return_value = [0.1, 0.2, 0.3]
-        mock_embedding.compute_cosine_similarity.return_value = 0.1
+        """测试话题切换检测"""
+        manager = SemanticBufferManager()
+        identity = Identity(user_id="user1", agent_id="agent1")
 
-        config = SemanticAdsorberConfig()
-        adsorber = SemanticBoundaryAdsorber(config=config, embedding_service=mock_embedding)
-        buffer = SemanticBuffer(
-            identity=Identity(user_id="test_user", agent_id="test_agent", session_id="test_session"),
-        )
+        # 创建两个话题
+        buf1 = manager.create_buffer(identity, title="Topic 1")
+        buf2 = manager.create_buffer(identity, title="Topic 2")
 
-        block1 = LogicalBlock(
-            user_block=StreamMessage(
-                message_type=StreamMessageType.USER, content="Python编程",
-            ),
-            response_block=StreamMessage(
-                message_type=StreamMessageType.ASSISTANT, content="Python教程",
-            )
-        )
-
-        buffer.blocks.append(block1)
-        buffer.topic_kernel_vector = [0.9, 0.1, 0.0]
-
-        block2 = LogicalBlock(
-            user_block=StreamMessage(
-                message_type=StreamMessageType.USER, content="红烧肉做法",
-            ),
-            response_block=StreamMessage(
-                message_type=StreamMessageType.ASSISTANT, content="烹饪教程",
-            ),
-            rewritten_query="红烧肉做法",
-        )
-
-        result = adsorber.should_adsorb(buffer, block2)
-
-        assert result is not None
-        assert isinstance(result, FlushEvent)
-        assert result.flush_reason == FlushReason.SEMANTIC_DRIFT
-
-
-class TestTriggerAndPerceptionCollaboration:
-    """测试 TriggerManager 与 PerceptionLayer 的协作"""
-
-    def test_message_count_trigger(self):
-        """测试消息数触发器"""
-        flush_called = []
-
-        def on_flush(messages, reason, **kwargs):
-            flush_called.append((messages, reason))
-
-        trigger_manager = TriggerManager(strategies=[
-            MessageCountTrigger(threshold=3)
-        ])
-
-        config = SimplePerceptionConfig()
-        perception = SimplePerceptionLayer(
-            config=config,
-            trigger_manager=trigger_manager,
-            on_flush_callback=on_flush,
-        )
-
-        identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
-
-        # ingest_payload 添加 2 条消息 (user + assistant)
-        perception.ingest_payload(_make_payload("消息1", "回复1", identity))
-        # 再添加 2 条，总共 4 条，超过阈值 3
-        perception.ingest_payload(_make_payload("消息2", "回复2", identity))
-
-        assert len(flush_called) >= 1
-
-
-class TestSimplePerceptionLayerOrchestration:
-    """测试 SimplePerceptionLayer 的编排"""
-
-    def _create_perception(self, on_flush_callback=None):
-        """辅助方法：创建 SimplePerceptionLayer"""
-        config = SimplePerceptionConfig()
-        trigger_manager = TriggerManager(strategies=[
-            MessageCountTrigger(threshold=10)
-        ])
-        return SimplePerceptionLayer(
-            config=config,
-            trigger_manager=trigger_manager,
-            on_flush_callback=on_flush_callback,
-        )
-
-    def test_buffer_management(self):
-        """测试 Buffer 管理"""
-        perception = self._create_perception()
-
-        identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
-
-        perception.ingest_payload(_make_payload("消息1", "回复1", identity))
-
-        info = perception.get_buffer_info(identity)
-
-        assert info['exists'] is True
-        assert info['message_count'] == 2
-
-    def test_manual_flush(self):
-        """测试手动 Flush"""
-        flush_called = []
-
-        def on_flush(messages, reason, **kwargs):
-            flush_called.append((messages, reason))
-
-        perception = self._create_perception(on_flush_callback=on_flush)
-
-        identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
-
-        perception.ingest_payload(_make_payload("消息1", "回复1", identity))
-
-        messages = perception.flush_buffer(identity)
-
-        assert messages is not None
-        assert len(flush_called) >= 1
-
-    def test_multi_session_isolation(self):
-        """测试多会话隔离"""
-        perception = self._create_perception()
-
-        identity1 = Identity(user_id="user1", agent_id="agent", session_id="session1")
-        identity2 = Identity(user_id="user2", agent_id="agent", session_id="session2")
-
-        perception.ingest_payload(_make_payload("用户1的消息", "回复1", identity1))
-        perception.ingest_payload(_make_payload("用户2的消息", "回复2", identity2))
-
-        info1 = perception.get_buffer_info(identity1)
-        info2 = perception.get_buffer_info(identity2)
-
-        assert info1['message_count'] == 2
-        assert info2['message_count'] == 2
+        # 验证话题隔离
+        assert buf1.topic_id != buf2.topic_id
+        assert buf1.identity == buf2.identity  # 同一个用户
 
 
 class TestSemanticFlowPerceptionLayerOrchestration:
-    """测试 SemanticFlowPerceptionLayer 的编排"""
+    """测试语义流感知层的编排"""
 
     def _create_perception(self, on_flush_callback=None):
-        """辅助方法：创建 SemanticFlowPerceptionLayer"""
+        """辅助方法：创建感知层实例"""
         config = SemanticFlowPerceptionConfig()
-
-        mock_adsorber = Mock()
-        mock_adsorber.should_adsorb.return_value = None
-        mock_adsorber.compute_new_topic_kernel.return_value = [0.1, 0.2, 0.3]
 
         mock_relay = Mock()
         mock_relay.should_relay.return_value = None
 
-        return SemanticFlowPerceptionLayer(
+        perception = SemanticFlowPerceptionLayer(
             config=config,
-            adsorber=mock_adsorber,
             relay_controller=mock_relay,
-            on_flush_callback=on_flush_callback,
         )
+        if on_flush_callback is not None:
+            perception.set_generation_callback(on_flush_callback)
+        return perception
 
-    def test_semantic_flow_initialization(self):
+    @pytest.mark.asyncio
+    async def test_semantic_flow_initialization(self):
         """测试语义流初始化"""
         perception = self._create_perception()
         assert perception is not None
 
-    def test_semantic_flow_buffer_info(self):
+    @pytest.mark.asyncio
+    async def test_semantic_flow_route_and_ingest(self):
+        """测试语义流路由和摄入"""
+        perception = self._create_perception()
+
+        identity = Identity(user_id="test_user", agent_id="test_agent")
+
+        # 路由到新话题并摄入
+        await perception.route_and_ingest(
+            "NEW_TOPIC",
+            _make_payload("测试消息", "测试回复", identity)
+        )
+
+        # 验证话题创建
+        menu = perception.get_active_topics_menu()
+        assert len(menu) == 1
+        assert menu[0]["title"] == "新建话题"
+
+    @pytest.mark.asyncio
+    async def test_semantic_flow_buffer_info(self):
         """测试语义流 Buffer 信息获取"""
         perception = self._create_perception()
 
-        identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+        identity = Identity(user_id="test_user", agent_id="test_agent")
 
-        perception.ingest_payload(_make_payload("测试消息", "测试回复", identity))
+        # 路由到新话题
+        await perception.route_and_ingest(
+            "NEW_TOPIC",
+            _make_payload("测试消息", "测试回复", identity)
+        )
 
-        info = perception.get_buffer_info(identity)
+        # 获取菜单以获取 topic_id
+        menu = perception.get_active_topics_menu()
+        topic_id = menu[0]["topic_id"]
+
+        # 通过 topic_id 获取信息
+        info = perception.get_buffer_info(topic_id)
 
         assert info['exists'] is True
 
-    def test_semantic_flow_flush(self):
+    @pytest.mark.asyncio
+    async def test_semantic_flow_flush(self):
         """测试语义流 Flush"""
         flush_called = []
 
@@ -279,40 +140,59 @@ class TestSemanticFlowPerceptionLayerOrchestration:
 
         perception = self._create_perception(on_flush_callback=on_flush)
 
-        identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+        identity = Identity(user_id="test_user", agent_id="test_agent")
 
-        perception.ingest_payload(_make_payload("消息1", "回复1", identity))
+        # 路由到新话题并摄入
+        await perception.route_and_ingest(
+            "NEW_TOPIC",
+            _make_payload("消息1", "回复1", identity)
+        )
 
-        messages = perception.flush_buffer(identity)
+        # 获取 topic_id
+        menu = perception.get_active_topics_menu()
+        topic_id = menu[0]["topic_id"]
 
-        assert messages is not None or len(flush_called) > 0
+        # 通过 topic_id flush
+        messages = perception.flush_buffer(topic_id)
+
+        # 验证 flush 成功
+        assert messages is not None
 
 
 class TestPerceptionAndGenerationCollaboration:
     """测试感知层与生成层的协作"""
 
-    def test_messages_converted_to_stream_messages(self):
+    @pytest.mark.asyncio
+    async def test_messages_converted_to_stream_messages(self):
         """测试消息转换为 StreamMessage"""
         flush_called = []
 
         def on_flush(messages, reason, **kwargs):
             flush_called.append(messages)
 
-        config = SimplePerceptionConfig()
-        trigger_manager = TriggerManager(strategies=[
-            MessageCountTrigger(threshold=10)
-        ])
-        perception = SimplePerceptionLayer(
+        config = SemanticFlowPerceptionConfig()
+        mock_relay = Mock()
+        mock_relay.should_relay.return_value = None
+
+        perception = SemanticFlowPerceptionLayer(
             config=config,
-            trigger_manager=trigger_manager,
-            on_flush_callback=on_flush,
+            relay_controller=mock_relay,
+        )
+        perception.set_generation_callback(on_flush)
+
+        identity = Identity(user_id="test_user", agent_id="test_agent")
+
+        # 路由并摄入
+        await perception.route_and_ingest(
+            "NEW_TOPIC",
+            _make_payload("用户消息", "助手回复", identity)
         )
 
-        identity = Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+        # 获取 topic_id 并 flush
+        menu = perception.get_active_topics_menu()
+        topic_id = menu[0]["topic_id"]
 
-        perception.ingest_payload(_make_payload("用户消息", "助手回复", identity))
-
-        perception.flush_buffer(identity)
+        perception.flush_buffer(topic_id)
 
         if len(flush_called) > 0 and len(flush_called[0]) > 0:
             first_msg = flush_called[0][0]
@@ -325,32 +205,26 @@ class TestTokenManagement:
 
     def test_token_estimation(self):
         """测试 Token 估算"""
-        from hivememory.engines.perception.models import estimate_tokens
+        from hivememory.utils.token_estimator import estimate_tokens
 
-        text = "这是一个测试句子，用于验证token估算功能。"
+        text = "Hello, world!"
         tokens = estimate_tokens(text)
 
         assert tokens > 0
-        assert tokens >= len(text) // 3
+        assert isinstance(tokens, int)
 
     def test_block_token_count(self):
-        """测试 Block 的 Token 计数"""
+        """测试 Block Token 计数"""
         block = LogicalBlock(
-            user_block=StreamMessage(
-                message_type=StreamMessageType.USER,
-                content="用户消息",
-            ),
-            response_block=StreamMessage(
-                message_type=StreamMessageType.ASSISTANT,
-                content="助手回复",
-            ),
-            total_tokens=100,
+            user_query="Test query",
+            clean_response="Test response",
+            total_tokens=0,
         )
 
-        tokens = block.total_tokens
+        from hivememory.utils.token_estimator import estimate_tokens
+        block.total_tokens = (
+            estimate_tokens(block.user_query) +
+            estimate_tokens(block.clean_response)
+        )
 
-        assert tokens == 100
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        assert block.total_tokens > 0

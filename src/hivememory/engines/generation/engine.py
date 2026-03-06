@@ -379,7 +379,7 @@ class MemoryGenerationEngine:
             MemoryAtom: 记忆原子对象
 
         Examples:
-            >>> identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
+            >>> identity = Identity(user_id="u1", agent_id="a1")
             >>> memory = orchestrator._draft_to_memory(draft, identity)
             >>> memory.index.title
             "Python 快排算法"
@@ -402,7 +402,7 @@ class MemoryGenerationEngine:
             meta=MetaData(
                 source_agent_id=identity.agent_id,
                 user_id=identity.user_id,
-                session_id=identity.session_id,
+                session_id=None,  # session_id 已从 Identity 中移除
                 confidence_score=draft.confidence_score,
             ),
             index=IndexLayer(

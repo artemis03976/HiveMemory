@@ -23,8 +23,9 @@ PatchouliSystem.chat() 端到端测试
 版本: 1.0
 """
 
+import asyncio
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch, call
 import types
 
 from hivememory.core.models import Identity, StreamMessage
@@ -124,6 +125,7 @@ def sys():
     s.kernel.handle_hot.return_value = _make_hot_result()
     s.kernel.handle_mtp = MagicMock(return_value=None)
     s.kernel.koakuma = MagicMock()
+    s.kernel.submit_interaction = AsyncMock(return_value=None)
 
     # Worker Agent
     s._worker_agent = MagicMock()
@@ -134,7 +136,8 @@ def sys():
 
     # 绑定真实方法
     from hivememory.patchouli.system import PatchouliSystem as Real
-    s.chat = types.MethodType(Real.chat, s)
+    _chat_async = types.MethodType(Real.chat, s)
+    s.chat = lambda *args, **kwargs: asyncio.run(_chat_async(*args, **kwargs))
     s._recursive_generation_loop = types.MethodType(
         Real._recursive_generation_loop, s
     )
@@ -216,7 +219,6 @@ class TestChatBasicFlow:
         identity = call_kwargs["identity"]
         assert identity.user_id == "user_x"
         assert identity.agent_id == "agent_y"
-        assert identity.session_id == "sess_z"
 
 
 class TestMemoryRetrieval:
@@ -521,7 +523,6 @@ class TestInteractionPayloadSubmission:
         payload = sys.kernel.submit_interaction.call_args[0][0]
         assert payload.identity.user_id == "user_x"
         assert payload.identity.agent_id == "agent_y"
-        assert payload.identity.session_id == "sess_z"
 
 
 # ========== Test: Koakuma Offline Fallback ==========

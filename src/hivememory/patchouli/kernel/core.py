@@ -26,7 +26,6 @@
 版本: 3.0
 """
 
-import asyncio
 import logging
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
@@ -262,6 +261,7 @@ class PatchouliKernel:
         注册微服务到内核
 
         当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore), koakuma (KoakumaRuntime)
+
         """
         # 构建被动模式渲染器 (Passive.md §5.2)
         from hivememory.engines.retrieval.renderer import FullContextRenderer
@@ -278,6 +278,8 @@ class PatchouliKernel:
             storage=self.storage,
             bus=self._bus,
             lifecycle_engine=self._engines["lifecycle"],
+            perception_layer=self._engines["perception"],
+            generation_engine=self._engines["generation"],
         )
 
         # Koakuma (MTP Runtime Service)
@@ -290,45 +292,24 @@ class PatchouliKernel:
 
     def _register_bus_routes(self) -> None:
         """
-        在 SystemBus 上注册所有 RPC 路由
+        在 SystemBus 上注册外部 RPC 路由
 
         路由命名规范: {service}.{method}
-        所有路由集中在 Kernel 注册，确保单一注册点。
+        仅注册外部/分身通信路由，内部模块调用已改为直接调用。
+
         """
         bus = self._bus
-        perception = self._engines["perception"]
-        generation = self._engines["generation"]
         retrieval_svc = self._services["retrieval"]
         librarian_svc = self._services["librarian"]
         koakuma_svc = self._services["koakuma"]
 
-        # 注入 bus 到感知层（用于 Pub/Sub emit）
-        if hasattr(perception, "set_bus"):
-            perception.set_bus(bus)
-
-        # --- Perception 路由 ---
-        bus.register("perception.get_active_topics_menu", perception.get_active_topics_menu)
-        bus.register("perception.route_and_ingest", perception.route_and_ingest)
-        bus.register("perception.flush_buffer", perception.flush_buffer)
-        bus.register("perception.get_buffer", perception.get_buffer)
-        bus.register("perception.clear_buffer", perception.clear_buffer)
-        bus.register("perception.get_buffer_info", perception.get_buffer_info)
-        bus.register("perception.list_active_buffers", perception.list_active_buffers)
-
-        # --- Generation 路由 ---
-        bus.register("generation.process", generation.process)
-
-        # --- Storage 路由 (跨服务子集) ---
-        bus.register("storage.get_memory", self.storage.get_memory)
-        bus.register("storage.get_memory_by_alias", self.storage.get_memory_by_alias)
-        bus.register("storage.update_access_info", self.storage.update_access_info)
+        # --- Librarian 服务路由（包含感知层代理接口）---
+        bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
+        bus.register("librarian.add_flush_observer", librarian_svc.add_flush_observer)
+        bus.register("librarian.get_active_topics_menu", librarian_svc.get_active_topics_menu)
 
         # --- Retrieval 服务路由 ---
         bus.register("retrieval.retrieve", retrieval_svc.retrieve)
-
-        # --- Librarian 服务路由 ---
-        bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
-        bus.register("librarian.add_flush_observer", librarian_svc.add_flush_observer)
 
         # --- Koakuma 服务路由 ---
         bus.register("koakuma.intercept_and_execute", koakuma_svc.intercept_and_execute)
@@ -420,38 +401,29 @@ class PatchouliKernel:
             return self._bus.request("koakuma.intercept_and_execute", assistant_text)
         return self.koakuma.intercept_and_execute(assistant_text)
 
-    def submit_interaction(
+    async def submit_interaction(
         self,
         payload: InteractionPayload,
         target_topic: str = "NEW_TOPIC",
     ) -> None:
         """
-        异步提交交互载荷到 Librarian (fire-and-forget)
+        提交交互载荷到 Librarian (阻塞等待)
 
-        Kernel 作为 orchestrator 管理后台任务生命周期，
-        调用方无需关心 asyncio 细节。
+        并发范式 (参考 Concurrent.md):
+            这是冷链路入口，必须阻塞等待完成。
+            确保 token 溢出压缩等操作完成后再处理下一波请求。
 
         Args:
             payload: Kernel → Perception 的原子传输包
             target_topic: 路由目标话题 ID 或 "NEW_TOPIC" (由 TheEye 决定)
         """
-        asyncio.create_task(
-            self._submit_interaction_task(payload, target_topic)
-        )
-
-    async def _submit_interaction_task(
-        self,
-        payload: InteractionPayload,
-        target_topic: str = "NEW_TOPIC",
-    ) -> None:
-        """后台任务: 提交到 Librarian，错误不传播"""
         try:
             if self._bus:
-                self._bus.request("librarian.ingest_interaction", payload, target_topic)
+                await self._bus.async_request("librarian.ingest_interaction", payload, target_topic)
             else:
-                self.librarian_core.ingest_interaction(payload, target_topic)
+                await self.librarian_core.ingest_interaction(payload, target_topic)
         except Exception as e:
-            logger.warning(f"Background interaction submission failed: {e}")
+            logger.warning(f"Interaction submission failed: {e}")
 
     def get_mtp_prompt(self) -> str:
         """

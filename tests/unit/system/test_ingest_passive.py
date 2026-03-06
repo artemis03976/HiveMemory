@@ -10,11 +10,12 @@
 版本: 1.0
 """
 
+import asyncio
 import time
 import types
 import threading
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
 from hivememory.core.models import Identity
@@ -33,7 +34,7 @@ from hivememory.engines.gateway.models import GatewayIntent
 # ========== Helpers ==========
 
 def _make_identity(user_id="u1", agent_id="default", session_id=None) -> Identity:
-    return Identity(user_id=user_id, agent_id=agent_id, session_id=session_id)
+    return Identity(user_id=user_id, agent_id=agent_id)
 
 
 def _make_gaze_result(
@@ -199,7 +200,6 @@ class TestObserverGazeResultPropagation:
 
         assert payload.identity.user_id == "u99"
         assert payload.identity.agent_id == "bot"
-        assert payload.identity.session_id == "s1"
 
 
 # ============================================================
@@ -211,8 +211,8 @@ class TestObserverBufferManagerMultiSession:
 
     def test_different_sessions_get_different_buffers(self):
         mgr = ObserverBufferManager()
-        id1 = _make_identity(user_id="u1", session_id="s1")
-        id2 = _make_identity(user_id="u1", session_id="s2")
+        id1 = _make_identity(user_id="u1", agent_id="a1", session_id="s1")
+        id2 = _make_identity(user_id="u1", agent_id="a2", session_id="s2")
 
         buf1 = mgr.get_buffer(id1)
         buf2 = mgr.get_buffer(id2)
@@ -346,11 +346,16 @@ def sys_passive():
     # Kernel
     s.kernel = MagicMock()
     s.kernel.handle_hot.return_value = _make_hot_result(memory="<mem>ctx</mem>")
+    s.kernel.submit_interaction = AsyncMock(return_value=None)
 
     # 绑定真实方法
     from hivememory.patchouli.system import PatchouliSystem as Real
-    s.ingest = types.MethodType(Real.ingest, s)
-    s.flush_observer_session = types.MethodType(Real.flush_observer_session, s)
+    _ingest_async = types.MethodType(Real.ingest, s)
+    _flush_async = types.MethodType(Real.flush_observer_session, s)
+    s.ingest = lambda *args, **kwargs: asyncio.run(_ingest_async(*args, **kwargs))
+    s.flush_observer_session = lambda *args, **kwargs: asyncio.run(
+        _flush_async(*args, **kwargs)
+    )
 
     return s
 
@@ -408,7 +413,6 @@ class TestIngestUserFlow:
         identity = call_kwargs["identity"]
         assert identity.user_id == "ux"
         assert identity.agent_id == "ax"
-        assert identity.session_id == "sx"
 
 
 class TestIngestAssistantFlow:

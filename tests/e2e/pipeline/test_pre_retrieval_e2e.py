@@ -1,7 +1,8 @@
 """
-Hot Path E2E Tests - 热链路端到端测试
+Pre-Retrieval E2E Tests - 预检索阶段端到端测试
 
-测试 TheEye + RetrievalFamiliar 的完整热链路流程。
+测试 TheEye + RetrievalFamiliar 的完整预检索热链路流程。
+这是热路径的第一阶段，专注于 Gateway 意图识别与检索准备。
 
 测试组：
     - Group 1: L1 系统指令拦截 (HP-GW-001)
@@ -18,7 +19,7 @@ Hot Path E2E Tests - 热链路端到端测试
     - Group 12: 渲染格式验证 (HP-RET-006)
 
 运行方式：
-    pytest tests/pipelines/test_hot_path_e2e.py -v -s
+    pytest tests/e2e/pipeline/test_pre_retrieval_e2e.py -v -s
 
 作者: HiveMemory Team
 版本: 1.0.0
@@ -73,7 +74,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 # 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 # 核心模型

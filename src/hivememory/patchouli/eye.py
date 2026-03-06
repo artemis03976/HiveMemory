@@ -71,7 +71,7 @@ class TheEye:
             return None
 
         try:
-            menu = self._bus.request("perception.get_active_topics_menu")
+            menu = self._bus.request("librarian.get_active_topics_menu")
             if not menu:
                 return None
 

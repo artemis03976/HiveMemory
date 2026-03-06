@@ -8,9 +8,11 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
 核心组件:
     - BasePerceptionLayer: 感知层基类，提供空闲超时监控功能
     - SemanticFlowPerceptionLayer: 语义流感知层 / MMU（多话题并发管理）
-    - SemanticBufferManager: 话题管理器 (TopicManager)
+    - SemanticBufferManager: 话题管理器 (TopicManager) - 纯状态管理
+    - TriggerManager: 话题结算调度器 - Flush 触发逻辑
     - SemanticBuffer: 话题段 (TopicSegment)
     - LogicalBlock: 页 (Page)
+    - RelayController: Token 溢出接力控制器 / Page Folding 摘要生成器
 
 空闲超时监控:
     所有感知层实现都继承了基类的空闲超时监控功能：
@@ -18,16 +20,10 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
     - stop_idle_monitor(): 停止监控
     - scan_idle_buffers_now(): 立即扫描一次
 
-Note:
-    Phase 4.5 重构：
-    - 移除 Adsorber / Relay / TriggerManager / SimplePerceptionLayer 依赖
-    - 上述组件源码保留，但不再从 __init__.py 导出或在主流程中使用
-    - create_perception_layer() 简化为仅创建 SemanticFlowPerceptionLayer
-
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 4.5.0
+版本: 4.5.1
 """
 from hivememory.patchouli.config import (
     MemoryPerceptionConfig,
@@ -49,6 +45,17 @@ from hivememory.engines.perception.models import (
     FlushReason,
 )
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
+from hivememory.engines.perception.trigger_manager import (
+    TriggerManager,
+    DECISION_MATRIX,
+)
+from hivememory.engines.perception.relay_controller import (
+    BaseRelayController,
+    SimpleRelayController,
+    LLMRelayController,
+    RelayController,
+    create_relay_controller,
+)
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
@@ -63,7 +70,6 @@ def create_perception_layer(
     config: MemoryPerceptionConfig,
     embedding_service=None,
     reranker_service=None,
-    on_flush_callback=None,
 ) -> SemanticFlowPerceptionLayer:
     """
     创建感知层 (MMU) 实例
@@ -75,7 +81,6 @@ def create_perception_layer(
         config: 感知层配置 (MemoryPerceptionConfig)
         embedding_service: (已弃用) 保留参数兼容性
         reranker_service: (已弃用) 保留参数兼容性
-        on_flush_callback: Flush 回调函数
 
     Returns:
         SemanticFlowPerceptionLayer 实例
@@ -89,9 +94,15 @@ def create_perception_layer(
         )
         impl_config = SemanticFlowPerceptionConfig()
 
+    relay_config = getattr(config, "relay", None) or impl_config.relay
+    relay_controller = create_relay_controller(
+        config=relay_config,
+        llm_service=None
+    )
+
     perception = SemanticFlowPerceptionLayer(
         config=impl_config,
-        on_flush_callback=on_flush_callback,
+        relay_controller=relay_controller,
     )
 
     # 启动空闲超时监控
@@ -120,6 +131,15 @@ __all__ = [
     "FlushReason",
     # 缓冲区管理器
     "SemanticBufferManager",
+    # 话题结算调度器
+    "TriggerManager",
+    "DECISION_MATRIX",
+    # 接力控制器 / Page Folding 摘要生成器
+    "BaseRelayController",
+    "SimpleRelayController",
+    "LLMRelayController",
+    "RelayController",  # 向后兼容
+    "create_relay_controller",  # 工厂函数
     # 工厂函数
     "create_perception_layer",
 ]

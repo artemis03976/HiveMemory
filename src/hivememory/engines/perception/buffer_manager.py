@@ -4,18 +4,18 @@ HiveMemory Buffer Manager
 纯状态管理器，管理 buffer 池的 CRUD 操作。
 
 职责:
-    - 管理 buffer 池 (Dict[str, SemanticBuffer])
-    - 提供 CRUD 操作接口
+    - 管理 buffer 池 (Dict[str, SemanticBuffer])，key 为 topic_id
+    - 提供基于 topic_id 的 CRUD 操作接口
+    - 提供基于 owner (user_id:agent_id) 的索引查询
+    - LRU 驱逐判定
 
-不负责:
-    - Flush 条件检测（由 PerceptionLayer 编排）
-    - Flush 执行（由 PerceptionLayer 编排）
-    - 话题核心更新（由 PerceptionLayer 编排）
+注意:
+    Trigger 调度逻辑已迁移至 TriggerManager。
 
 参考: PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 3.1.0
+版本: 5.0.0 (Phase 4.5 重构)
 """
 
 from __future__ import annotations
@@ -23,14 +23,13 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set
 
-from hivememory.core.models import Identity, StreamMessage
+from hivememory.core.models import Identity
 from hivememory.engines.perception.models import (
     BufferState,
     LogicalBlock,
     SemanticBuffer,
-    SimpleBuffer,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,8 +46,13 @@ class SemanticBufferManager:
         TopicManager = SemanticBufferManager
         active_topics = _buffers
 
+    架构变更 (Phase 4.5):
+        - _buffers 的 key 从 buffer_key 改为 topic_id
+        - 新增 _user_index 索引：user_id:agent_id -> Set[topic_id]
+        - 所有 CRUD 操作通过 topic_id 完成
+
     职责:
-        - 管理活跃话题池 (Dict[str, SemanticBuffer/TopicSegment])
+        - 管理活跃话题池 (Dict[str, SemanticBuffer/TopicSegment])，key 为 topic_id
         - 提供线程安全的 CRUD 操作
         - 提供话题路由 (route) 与换出 (swap_out)
         - 提供活跃话题菜单供 TheEye 路由决策
@@ -56,9 +60,8 @@ class SemanticBufferManager:
 
     Examples:
         >>> manager = SemanticBufferManager(max_resident_topics=5)
-        >>> buffer = manager.get_buffer(identity)
+        >>> buffer = manager.get_buffer("topic_123")
         >>> menu = manager.get_active_topics_menu()
-        >>> manager.route(topic_id)
     """
 
     def __init__(self, max_resident_topics: int = 5) -> None:
@@ -69,7 +72,12 @@ class SemanticBufferManager:
             max_resident_topics: 最大驻留话题数，超过此数量将触发 LRU 驱逐
         """
         # 活跃话题池 (L1 Cache / 驻留内存): key -> SemanticBuffer (TopicSegment)
+        # Phase 4.5: key 从 buffer_key 改为 topic_id
         self._buffers: Dict[str, SemanticBuffer] = {}
+
+        # 用户索引: user_id:agent_id -> Set[topic_id]
+        # 用于查询特定用户的所有话题
+        self._user_index: Dict[str, Set[str]] = {}
 
         # 最大驻留限制
         self.max_resident_topics = max_resident_topics
@@ -77,188 +85,242 @@ class SemanticBufferManager:
         # 线程安全
         self._lock = threading.RLock()
 
-        logger.info(f"SemanticBufferManager (MMU) 初始化完成, max_resident={max_resident_topics}")
+        logger.info(f"SemanticBufferManager 初始化完成, max_resident={max_resident_topics}")
 
-    # ========== Buffer CRUD ==========
+    # ========== 内部辅助方法 ==========
 
-    def get_buffer(self, identity: Identity) -> SemanticBuffer:
+    def _get_owner_key(self, identity: Identity) -> str:
+        """获取 owner key"""
+        return f"{identity.user_id}:{identity.agent_id}"
+
+    def _update_user_index(self, identity: Identity, topic_id: str, remove: bool = False) -> None:
+        """更新用户索引"""
+        owner_key = self._get_owner_key(identity)
+        if owner_key not in self._user_index:
+            self._user_index[owner_key] = set()
+
+        if remove:
+            self._user_index[owner_key].discard(topic_id)
+            if not self._user_index[owner_key]:
+                del self._user_index[owner_key]
+        else:
+            self._user_index[owner_key].add(topic_id)
+
+    # ========== 基于 topic_id 的 CRUD (Phase 4.5 新接口) ==========
+
+    def get_buffer(self, topic_id: str) -> Optional[SemanticBuffer]:
         """
-        获取或创建话题段 (TopicSegment)
+        通过 topic_id 获取话题段
+
+        如果存在，更新 last_accessed_at 并返回 buffer；否则返回 None。
 
         Args:
-            identity: 用于查找 buffer 的身份标识
+            topic_id: 话题 ID
 
         Returns:
-            该身份对应的 SemanticBuffer (TopicSegment)
+            SemanticBuffer or None
         """
-        key = identity.buffer_key
-
         with self._lock:
-            if key not in self._buffers:
-                self._buffers[key] = SemanticBuffer(
-                    identity=identity,
-                )
-                logger.debug(f"创建新话题段 (TopicSegment): {key}")
+            if topic_id in self._buffers:
+                buf = self._buffers[topic_id]
+                buf.last_accessed_at = datetime.now().timestamp()
+                return buf
+            return None
 
-            buf = self._buffers[key]
-            buf.last_accessed_at = datetime.now().timestamp()
+    def create_buffer(self, identity: Identity, title: str = "新建话题") -> SemanticBuffer:
+        """
+        创建新话题段
+
+        唯一的 Create 方法，创建时生成新的 topic_id。
+
+        Args:
+            identity: 归属身份标识
+            title: 话题标题
+
+        Returns:
+            新创建的 SemanticBuffer（包含新生成的 topic_id）
+        """
+        with self._lock:
+            buf = SemanticBuffer(identity=identity, title=title)
+            topic_id = buf.topic_id
+
+            self._buffers[topic_id] = buf
+            self._update_user_index(identity, topic_id)
+
+            logger.debug(f"创建新话题段: topic_id={topic_id}, title='{title}', owner={identity.buffer_key}")
             return buf
 
-    def add_block_to_buffer(
-        self,
-        identity: Identity,
-        block: LogicalBlock,
-    ) -> None:
+    def pop_buffer(self, topic_id: str) -> Optional[SemanticBuffer]:
         """
-        将完成的 block 添加到 buffer
+        通过 topic_id 移除并返回话题段
 
         Args:
-            identity: 身份标识
-            block: 要添加的完成 block
+            topic_id: 话题 ID
+
+        Returns:
+            被移除的 SemanticBuffer，不存在则返回 None
         """
         with self._lock:
-            buffer = self.get_buffer(identity)
-            buffer.blocks.append(block)
-            buffer.total_tokens += block.total_tokens
-            buffer.last_update = datetime.now().timestamp()
-            logger.debug(f"将 block {block.block_id} 添加到 buffer {buffer.buffer_id}")
+            if topic_id not in self._buffers:
+                return None
 
-    def clear_buffer(self, identity: Identity) -> List[LogicalBlock]:
+            buf = self._buffers.pop(topic_id)
+            self._update_user_index(buf.identity, topic_id, remove=True)
+
+            logger.info(f"移除话题段: topic_id={topic_id}, title='{buf.title}'")
+            return buf
+
+    def clear_buffer(self, topic_id: str) -> List[LogicalBlock]:
         """
-        清空 buffer 并返回被清除的 blocks
+        清空话题段内容，保留在活跃池中
 
         Args:
-            identity: 身份标识
+            topic_id: 话题 ID
 
         Returns:
             被清除的 blocks 列表
         """
         with self._lock:
-            key = identity.buffer_key
-            if key not in self._buffers:
+            buffer = self._buffers.get(topic_id)
+            if not buffer:
                 return []
 
-            buffer = self._buffers[key]
             cleared_blocks = buffer.blocks.copy()
+            buffer.clear()
 
-            buffer.blocks.clear()
-            buffer.total_tokens = 0
-            buffer.last_update = datetime.now().timestamp()
+            # 重置元数据
+            buffer.topic_kernel_vector = None
+            buffer.state_summary = ""
 
-            logger.debug(f"清空 buffer {key}, 返回 {len(cleared_blocks)} 个 blocks")
+            logger.debug(f"清空话题段内容: topic_id={topic_id}, 返回 {len(cleared_blocks)} 个 blocks")
             return cleared_blocks
 
-    def update_buffer_metadata(
+    def add_block(self, topic_id: str, block: LogicalBlock) -> None:
+        """
+        将完成的 block 添加到 buffer
+
+        Args:
+            topic_id: 话题 ID
+            block: 要添加的完成 block
+        """
+        with self._lock:
+            buffer = self._buffers.get(topic_id)
+            if not buffer:
+                logger.error(f"尝试向不存在的 buffer 添加 block: topic_id={topic_id}")
+                return
+
+            buffer.blocks.append(block)
+            buffer.total_tokens += block.total_tokens
+            buffer.last_update = datetime.now().timestamp()
+
+            logger.debug(f"将 block {block.block_id} 添加到 buffer topic_id={topic_id}")
+
+    def fold_blocks(
         self,
-        identity: Identity,
+        topic_id: str,
+        state_summary: str,
+        retain_count: int,
+    ) -> int:
+        """
+        原子化页折叠操作 (Page Folding)
+
+        保留最近 retain_count 个 blocks，丢弃其余旧 blocks，
+        将 state_summary 写入 buffer.state_summary，重新计算 total_tokens。
+
+        Args:
+            topic_id: 话题 ID
+            state_summary: 折叠摘要文本（累积拼接由调用方负责）
+            retain_count: 保留的最近 block 数量
+
+        Returns:
+            int: 被折叠（丢弃）的 block 数量
+        """
+        with self._lock:
+            buffer = self._buffers.get(topic_id)
+            if not buffer:
+                logger.error(f"尝试折叠不存在的 buffer: topic_id={topic_id}")
+                return 0
+
+            # 写入 state_summary（无论是否删除 blocks）
+            buffer.state_summary = state_summary
+            buffer.last_update = datetime.now().timestamp()
+
+            # 如果 blocks 数量不足，只更新 summary，不删除 blocks
+            if len(buffer.blocks) <= retain_count:
+                logger.info(
+                    f"Page fold (summary only): topic_id={topic_id}, "
+                    f"blocks={len(buffer.blocks)} (retained all), "
+                    f"summary_len={len(state_summary)}"
+                )
+                return 0
+
+            # blocks 数量充足，执行正常折叠
+            folded_count = len(buffer.blocks) - retain_count
+            # 保留最近 retain_count 个 blocks
+            buffer.blocks = buffer.blocks[-retain_count:]
+            # 重新计算 total_tokens（仅基于保留的 blocks）
+            buffer.total_tokens = sum(b.total_tokens for b in buffer.blocks)
+
+            logger.info(
+                f"Page fold: topic_id={topic_id}, "
+                f"folded={folded_count}, retained={retain_count}, "
+                f"new_total_tokens={buffer.total_tokens}"
+            )
+            return folded_count
+
+    def update_metadata(
+        self,
+        topic_id: str,
         topic_kernel_vector: Optional[List[float]] = None,
-        relay_summary: Optional[str] = None,
         state: Optional[BufferState] = None,
-        reset_topic_kernel: bool = False,
-        reset_relay_summary: bool = False,
     ) -> None:
         """
         更新 buffer 元数据
 
         Args:
-            identity: 身份标识
-            topic_kernel_vector: 新的话题核心向量（None 表示不更新，除非 reset_topic_kernel=True）
-            relay_summary: 新的接力摘要（None 表示不更新，除非 reset_relay_summary=True）
+            topic_id: 话题 ID
+            topic_kernel_vector: 新的话题核心向量（None 表示不更新）
             state: 新的状态（None 表示不更新）
-            reset_topic_kernel: 是否重置话题核心向量为 None
-            reset_relay_summary: 是否重置接力摘要为 None
         """
         with self._lock:
-            buffer = self.get_buffer(identity)
+            buffer = self._buffers.get(topic_id)
+            if not buffer:
+                logger.error(f"尝试更新不存在的 buffer 元数据: topic_id={topic_id}")
+                return
 
             if topic_kernel_vector is not None:
                 buffer.topic_kernel_vector = topic_kernel_vector
-            elif reset_topic_kernel:
-                buffer.topic_kernel_vector = None
-
-            if relay_summary is not None:
-                buffer.relay_summary = relay_summary
-            elif reset_relay_summary:
-                buffer.relay_summary = None
 
             if state is not None:
                 buffer.state = state
 
             buffer.last_update = datetime.now().timestamp()
 
-    def list_active_buffers(self) -> List[str]:
+    # ========== 所有者查询 ==========
+
+    def get_buffers_by_owner(self, identity: Identity) -> List[SemanticBuffer]:
         """
-        列出所有活跃的话题 keys
-
-        Returns:
-            buffer key 列表
-        """
-        with self._lock:
-            return list(self._buffers.keys())
-
-    # ========== MMU 路由与生命周期 (Phase 4.5) ==========
-
-    def get_active_topics_menu(self) -> List[Dict[str, str]]:
-        """
-        获取活跃话题菜单，供 TheEye 路由决策使用
-
-        Returns:
-            List[Dict]: [{"topic_id": buffer_id, "title": title, "buffer_key": key}, ...]
-        """
-        with self._lock:
-            menu = []
-            for key, buf in self._buffers.items():
-                if buf.blocks:  # 只返回有内容的话题
-                    menu.append({
-                        "topic_id": buf.buffer_id,
-                        "title": buf.title,
-                        "buffer_key": key,
-                    })
-            return menu
-
-    def route(self, topic_id: str) -> Optional[SemanticBuffer]:
-        """
-        根据 topic_id 换入(Swap-in)目标话题
-
-        更新 last_accessed_at 时间戳，用于 LRU 驱逐判定。
-
-        Args:
-            topic_id: 目标话题的 buffer_id
-
-        Returns:
-            SemanticBuffer 如果找到，否则 None
-        """
-        with self._lock:
-            for key, buf in self._buffers.items():
-                if buf.buffer_id == topic_id:
-                    buf.last_accessed_at = datetime.now().timestamp()
-                    return buf
-            return None
-
-    def create_new_topic(self, identity: Identity, title: str = "新建话题") -> SemanticBuffer:
-        """
-        创建新话题段
+        获取指定用户的所有活跃话题
 
         Args:
             identity: 身份标识
-            title: 话题标题
 
         Returns:
-            新创建的 SemanticBuffer (TopicSegment)
+            话题列表
         """
         with self._lock:
-            buf = SemanticBuffer(identity=identity, title=title)
-            key = identity.buffer_key
-            self._buffers[key] = buf
-            logger.debug(f"创建新话题段: key={key}, title='{title}'")
-            return buf
+            owner_key = self._get_owner_key(identity)
+            topic_ids = self._user_index.get(owner_key, set())
+            return [self._buffers[tid] for tid in topic_ids if tid in self._buffers]
 
-    def find_lru_topic(self) -> Optional[Tuple[str, SemanticBuffer]]:
+    # ========== LRU 与生命周期管理 ==========
+
+    def get_lru_buffer(self) -> Optional[SemanticBuffer]:
         """
-        找到最近最少访问的话题 (LRU)
+        获取最近最少访问的话题段 (LRU)
 
         Returns:
-            (buffer_key, SemanticBuffer) 或 None
+            SemanticBuffer 或 None
         """
         with self._lock:
             if not self._buffers:
@@ -267,186 +329,162 @@ class SemanticBufferManager:
                 self._buffers.keys(),
                 key=lambda k: self._buffers[k].last_accessed_at
             )
-            return (lru_key, self._buffers[lru_key])
+            return self._buffers[lru_key]
 
-    def swap_out(self, buffer_key: str) -> Optional[SemanticBuffer]:
+    def get_active_topic_buffer_count(self) -> int:
         """
-        换出(Swap-out)指定话题，从活跃池中移除并返回
-
-        调用方负责将返回的 TopicSegment 移交给 LibrarianCore 进行 MTM 归档。
-
-        Args:
-            buffer_key: 要换出的话题 key
+        获取活跃话题数量
 
         Returns:
-            被换出的 SemanticBuffer，不存在则返回 None
+            int: 活跃话题数量
         """
         with self._lock:
-            evicted = self._buffers.pop(buffer_key, None)
-            if evicted:
-                logger.info(f"话题换出: key={buffer_key}, title='{evicted.title}'")
-            return evicted
+            return len(self._buffers)
+
+    def get_all_buffers(self) -> List[SemanticBuffer]:
+        """
+        获取所有活跃话题段
+
+        用于遍历检查（如空闲超时）。
+
+        Returns:
+            List[SemanticBuffer]
+        """
+        with self._lock:
+            return list(self._buffers.values())
+
+    # ========== MMU 路由与菜单 ==========
+
+    def get_active_topics_menu(self) -> List[Dict[str, str]]:
+        """
+        获取活跃话题菜单，供 TheEye 路由决策使用
+
+        Returns:
+            List[Dict]: [{"topic_id": topic_id, "title": title}, ...]
+        """
+        with self._lock:
+            menu = []
+            for topic_id, buf in self._buffers.items():
+                if buf.blocks:  # 只返回有内容的话题
+                    menu.append({
+                        "topic_id": topic_id,
+                        "title": buf.title,
+                    })
+            return menu
 
     def needs_eviction(self) -> bool:
         """检查是否需要 LRU 驱逐"""
         with self._lock:
             return len(self._buffers) >= self.max_resident_topics
 
-    def get_active_count(self) -> int:
-        """获取当前活跃话题数量"""
-        with self._lock:
-            return len(self._buffers)
-
-    # ========== Info ==========
-
-    def get_buffer_info(self, identity: Identity) -> Dict[str, Any]:
+    def get_buffer_info(self, topic_id: str) -> Dict[str, Any]:
         """
         获取 buffer 信息
 
         Args:
-            identity: 身份标识
+            topic_id: 话题 ID
 
         Returns:
             buffer 信息字典
         """
         with self._lock:
-            buffer = self._buffers.get(identity.buffer_key)
+            buffer = self._buffers.get(topic_id)
 
             if buffer:
                 return {
                     "exists": True,
-                    "buffer_id": buffer.buffer_id,
+                    "topic_id": buffer.topic_id,
+                    "buffer_key": buffer.identity.buffer_key,
                     "block_count": len(buffer.blocks),
                     "total_tokens": buffer.total_tokens,
                     "state": buffer.state.value if hasattr(buffer.state, 'value') else buffer.state,
-                    "relay_summary": buffer.relay_summary,
                     "has_topic_kernel": buffer.topic_kernel_vector is not None,
                 }
             return {"exists": False}
 
+    # ========== 向后兼容接口 (Deprecated) ==========
 
-class SimpleBufferManager:
-    """
-    Simple Buffer 管理器 - 纯状态容器
-
-    管理简单缓冲区 (SimpleBuffer) 的生命周期。
-    仅提供 CRUD 操作，不包含业务逻辑。
-
-    职责:
-        - 管理 buffer 池 (Dict[str, SimpleBuffer])
-        - 提供线程安全的 CRUD 操作
-
-    Examples:
-        >>> manager = SimpleBufferManager()
-        >>> buffer = manager.get_buffer(identity)
-        >>> manager.add_message(identity, message)
-    """
-
-    def __init__(self) -> None:
-        """初始化 SimpleBufferManager"""
-        # Buffer 池: key -> SimpleBuffer
-        self._buffers: Dict[str, SimpleBuffer] = {}
-
-        # 线程安全
-        self._lock = threading.RLock()
-
-        logger.info("SimpleBufferManager 初始化完成")
-
-    # ========== Buffer CRUD ==========
-
-    def get_buffer(self, identity: Identity) -> SimpleBuffer:
+    def get_topic_buffer(self, identity: Identity) -> Optional[SemanticBuffer]:
         """
-        获取或创建 buffer
+        [已废弃] 使用 get_buffer(topic_id) 代替
 
-        Args:
-            identity: 用于查找 buffer 的身份标识
-
-        Returns:
-            该身份对应的 SimpleBuffer
+        此方法仅用于向后兼容，未来版本将移除。
         """
-        key = identity.buffer_key
+        logger.warning("get_topic_buffer 已废弃，请使用 get_buffer(topic_id)")
+        # 回退：尝试通过 identity 查找（如果有多个 topic 会只返回第一个）
+        buffers = self.get_buffers_by_owner(identity)
+        return buffers[0] if buffers else None
 
-        with self._lock:
-            if key not in self._buffers:
-                self._buffers[key] = SimpleBuffer(
-                    user_id=identity.user_id,
-                    agent_id=identity.agent_id,
-                    session_id=identity.session_id or key.split(":")[-1],
-                )
-                logger.debug(f"创建新 simple buffer: {key}")
+    def create_topic_buffer(self, identity: Identity, title: str = "新建话题") -> SemanticBuffer:
+        """
+        [已废弃] 使用 create_buffer(identity, title) 代替
 
-            return self._buffers[key]
+        此方法仅用于向后兼容，未来版本将移除。
+        """
+        logger.warning("create_topic_buffer 已废弃，请使用 create_buffer(identity, title)")
+        return self.create_buffer(identity, title)
 
-    def add_message(
+    def pop_topic_buffer(self, identity: Identity) -> Optional[SemanticBuffer]:
+        """
+        [已废弃] 使用 pop_buffer(topic_id) 代替
+
+        此方法仅用于向后兼容，未来版本将移除。
+        """
+        logger.warning("pop_topic_buffer 已废弃，请使用 pop_buffer(topic_id)")
+        # 回退：尝试通过 identity 查找
+        buffers = self.get_buffers_by_owner(identity)
+        if buffers:
+            return self.pop_buffer(buffers[0].topic_id)
+        return None
+
+    def clear_topic_buffer(self, identity: Identity) -> List[LogicalBlock]:
+        """
+        [已废弃] 使用 clear_buffer(topic_id) 代替
+
+        此方法仅用于向后兼容，未来版本将移除。
+        """
+        logger.warning("clear_topic_buffer 已废弃，请使用 clear_buffer(topic_id)")
+        buffers = self.get_buffers_by_owner(identity)
+        if buffers:
+            return self.clear_buffer(buffers[0].topic_id)
+        return []
+
+    def add_block_to_buffer(self, identity: Identity, block: LogicalBlock) -> None:
+        """
+        [已废弃] 使用 add_block(topic_id, block) 代替
+
+        此方法仅用于向后兼容，未来版本将移除。
+        """
+        logger.warning("add_block_to_buffer 已废弃，请使用 add_block(topic_id, block)")
+        buffers = self.get_buffers_by_owner(identity)
+        if buffers:
+            self.add_block(buffers[0].topic_id, block)
+
+    def update_buffer_metadata(
         self,
         identity: Identity,
-        message: StreamMessage,
+        topic_kernel_vector: Optional[List[float]] = None,
+        state: Optional[BufferState] = None,
     ) -> None:
         """
-        添加消息到 buffer
+        [已废弃] 使用 update_metadata(topic_id, ...) 代替
 
-        Args:
-            identity: 身份标识
-            message: 要添加的消息
+        此方法仅用于向后兼容，未来版本将移除。
         """
-        with self._lock:
-            buffer = self.get_buffer(identity)
-            buffer.add_message(message)
-            logger.debug(f"将消息添加到 simple buffer {buffer.buffer_id}")
+        logger.warning("update_buffer_metadata 已废弃，请使用 update_metadata(topic_id, ...)")
+        buffers = self.get_buffers_by_owner(identity)
+        if buffers:
+            self.update_metadata(buffers[0].topic_id, topic_kernel_vector, state)
 
-    def clear_buffer(self, identity: Identity) -> bool:
+    def get_lru_topic_buffer(self) -> Optional[SemanticBuffer]:
         """
-        清空 buffer
+        [已废弃] 使用 get_lru_buffer() 代替
 
-        Args:
-            identity: 身份标识
-
-        Returns:
-            是否成功清空（如果 buffer 存在则返回 True）
+        此方法仅用于向后兼容，未来版本将移除。
         """
-        with self._lock:
-            key = identity.buffer_key
-            if key in self._buffers:
-                self._buffers[key].clear()
-                logger.debug(f"清空 simple buffer {key}")
-                return True
-            return False
-
-    def list_active_buffers(self) -> List[str]:
-        """
-        列出所有活跃的 buffer keys
-
-        Returns:
-            buffer key 列表
-        """
-        with self._lock:
-            return list(self._buffers.keys())
-
-    def get_buffer_info(self, identity: Identity) -> Dict[str, Any]:
-        """
-        获取 buffer 信息
-
-        Args:
-            identity: 身份标识
-
-        Returns:
-            buffer 信息字典
-        """
-        with self._lock:
-            buffer = self._buffers.get(identity.buffer_key)
-            if buffer:
-                return {
-                    "exists": True,
-                    "buffer_id": buffer.buffer_id,
-                    "message_count": buffer.message_count,
-                    "user_id": buffer.user_id,
-                    "agent_id": buffer.agent_id,
-                    "session_id": buffer.session_id,
-                }
-            return {"exists": False}
+        return self.get_lru_buffer()
 
 
 __all__ = [
-    "SemanticBufferManager", 
-    "SimpleBufferManager"
+    "SemanticBufferManager",
 ]
