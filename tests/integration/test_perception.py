@@ -11,10 +11,11 @@ Note:
 """
 
 import pytest
+import asyncio
 from unittest.mock import Mock, AsyncMock
 from datetime import datetime
 
-from hivememory.core.models import Identity, StreamMessage, StreamMessageType
+from hivememory.core.models import Identity
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.models import (
     BufferState,
@@ -75,6 +76,7 @@ class TestSemanticFlowPerceptionLayerOrchestration:
 
         mock_relay = Mock()
         mock_relay.should_relay.return_value = None
+        mock_relay.generate_summary.return_value = ""
 
         perception = SemanticFlowPerceptionLayer(
             config=config,
@@ -131,14 +133,9 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         assert info['exists'] is True
 
     @pytest.mark.asyncio
-    async def test_semantic_flow_flush(self):
-        """测试语义流 Flush"""
-        flush_called = []
-
-        def on_flush(messages, reason, **kwargs):
-            flush_called.append((messages, reason))
-
-        perception = self._create_perception(on_flush_callback=on_flush)
+    async def test_semantic_flow_manual_trigger(self):
+        """测试语义流 manual_trigger"""
+        perception = self._create_perception()
 
         identity = Identity(user_id="test_user", agent_id="test_agent")
 
@@ -152,11 +149,10 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         menu = perception.get_active_topics_menu()
         topic_id = menu[0]["topic_id"]
 
-        # 通过 topic_id flush
-        messages = perception.flush_buffer(topic_id)
-
-        # 验证 flush 成功
-        assert messages is not None
+        result = await perception.manual_trigger(topic_id)
+        assert result["success"] is True
+        assert result["topic_id"] == topic_id
+        assert result["blocks_archived"] == 1
 
 
 class TestPerceptionAndGenerationCollaboration:
@@ -165,20 +161,21 @@ class TestPerceptionAndGenerationCollaboration:
     @pytest.mark.asyncio
     async def test_messages_converted_to_stream_messages(self):
         """测试消息转换为 StreamMessage"""
-        flush_called = []
+        archive_payloads = []
 
-        def on_flush(messages, reason, **kwargs):
-            flush_called.append(messages)
+        async def on_generate(payload):
+            archive_payloads.append(payload)
 
         config = SemanticFlowPerceptionConfig()
         mock_relay = Mock()
         mock_relay.should_relay.return_value = None
+        mock_relay.generate_summary.return_value = ""
 
         perception = SemanticFlowPerceptionLayer(
             config=config,
             relay_controller=mock_relay,
         )
-        perception.set_generation_callback(on_flush)
+        perception.set_generation_callback(on_generate)
 
         identity = Identity(user_id="test_user", agent_id="test_agent")
 
@@ -188,16 +185,16 @@ class TestPerceptionAndGenerationCollaboration:
             _make_payload("用户消息", "助手回复", identity)
         )
 
-        # 获取 topic_id 并 flush
+        # 获取 topic_id 并手动触发结算
         menu = perception.get_active_topics_menu()
         topic_id = menu[0]["topic_id"]
 
-        perception.flush_buffer(topic_id)
+        await perception.manual_trigger(topic_id)
+        await asyncio.sleep(0)
 
-        if len(flush_called) > 0 and len(flush_called[0]) > 0:
-            first_msg = flush_called[0][0]
-            assert isinstance(first_msg, StreamMessage)
-            assert first_msg.message_type == StreamMessageType.USER
+        assert len(archive_payloads) > 0
+        assert archive_payloads[0]["topic_id"] == topic_id
+        assert len(archive_payloads[0]["blocks"]) > 0
 
 
 class TestTokenManagement:

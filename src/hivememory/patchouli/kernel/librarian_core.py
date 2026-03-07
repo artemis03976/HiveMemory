@@ -286,6 +286,44 @@ class LibrarianCore:
             return self.perception_layer.get_active_topics_menu()
         logger.warning("perception_layer 未注入，返回空话题菜单")
         return []
+    
+    def get_buffer_info(self, identity: Identity) -> Dict[str, Any]:
+        """
+        获取当前缓冲区信息（代理感知层接口）
+
+        Returns:
+            Dict: 缓冲区信息，包含当前话题、记忆数量等
+        """
+        if self.perception_layer:
+            return self.perception_layer.get_buffer_info(identity)
+        logger.warning("perception_layer 未注入，返回空缓冲区信息")
+        return {}
+
+    async def manual_trigger(
+        self,
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        手动触发话题结算 (Archive + Compact)
+
+        代理感知层的 manual_trigger 接口，供上层统一调用。
+
+        Args:
+            topic_id: 目标话题 ID。如果为 None，使用 last_active_topic_id。
+
+        Returns:
+            Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
+        """
+        if self.perception_layer:
+            return await self.perception_layer.manual_trigger(topic_id)
+
+        logger.warning("perception_layer 未注入，manual_trigger 失败")
+        return {
+            "success": False,
+            "topic_id": topic_id or "unknown",
+            "message": "perception_layer 未注入",
+            "blocks_archived": 0,
+        }
 
 
 __all__ = [

@@ -467,12 +467,30 @@ class PatchouliSystem:
             mtp_commands_executed=mtp_commands,
         )
 
-    def flush_buffer(
+    async def manual_trigger(
         self,
-        identity: Identity,
-    ) -> None:
-        """手动触发感知层 Flush"""
-        self.kernel.flush_buffer(identity)
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        手动触发话题结算 (Archive + Compact)
+
+        用户主动保存当前对话状态。语义为"立即归档 + 生成摘要并保留内存"。
+        话题不会被驱逐，可以继续接收新的交互。
+
+        Args:
+            topic_id: 目标话题 ID。如果为 None，使用最后活跃的话题。
+
+        Returns:
+            Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
+
+        Examples:
+            >>> # 触发最后活跃话题
+            >>> result = await system.manual_trigger()
+
+            >>> # 触发指定话题
+            >>> result = await system.manual_trigger(topic_id="topic_123")
+        """
+        return await self.kernel.manual_trigger(topic_id)
 
     def get_buffer_info(
         self,

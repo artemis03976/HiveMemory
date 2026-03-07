@@ -489,9 +489,10 @@ class ColdPathTestSystem:
             "buffer_info": self._perception_layer.get_buffer_info(identity),
         }
 
-    def flush_buffer(self, identity: Identity) -> None:
-        """手动触发 Buffer Flush"""
-        self.librarian_core.flush_perception(identity)
+    def manual_trigger(self) -> Dict[str, Any]:
+        """手动触发话题结算"""
+        import asyncio
+        return asyncio.run(self.librarian_core.manual_trigger())
 
     def get_buffer_info(self, identity: Identity) -> Dict[str, Any]:
         """获取 Buffer 信息"""
@@ -943,9 +944,7 @@ class TestMemoryExtraction:
         test_case = get_test_case_by_id("CP-GEN-001-A")
         result = self.system.process_test_case(test_case)
 
-        # 手动触发 flush 以生成记忆
-        identity = result["identity"]
-        self.system.flush_buffer(identity)
+        self.system.manual_trigger()
 
         expected = test_case["expected"]
 
@@ -960,8 +959,7 @@ class TestMemoryExtraction:
         test_case = get_test_case_by_id("CP-GEN-001-B")
         result = self.system.process_test_case(test_case)
 
-        identity = result["identity"]
-        self.system.flush_buffer(identity)
+        self.system.manual_trigger()
 
         expected = test_case["expected"]
 
@@ -975,8 +973,7 @@ class TestMemoryExtraction:
         test_case = get_test_case_by_id("CP-GEN-001-C")
         result = self.system.process_test_case(test_case)
 
-        identity = result["identity"]
-        self.system.flush_buffer(identity)
+        self.system.manual_trigger()
 
         expected = test_case["expected"]
 

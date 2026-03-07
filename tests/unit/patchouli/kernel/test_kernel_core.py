@@ -6,11 +6,11 @@ PatchouliKernel 单元测试
 - handle_mtp: bus vs 直接调用
 - build_retrieval_request: RAG vs 非 RAG
 - get_mtp_prompt: koakuma 禁用 / prompt 禁用 / 正常
-- 委托方法: flush_buffer / add_flush_observer (bus vs 直接)
+- 委托方法: manual_trigger / add_flush_observer (bus vs 直接)
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, AsyncMock
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
@@ -233,25 +233,30 @@ class TestKernelGetMTPPrompt:
 class TestKernelDelegation:
     """委托方法测试"""
 
-    def test_flush_buffer_with_bus(self):
-        """有 bus 时委托"""
+    @pytest.mark.asyncio
+    async def test_manual_trigger_with_bus(self):
+        """有 bus 时委托 manual_trigger"""
         mock_bus = Mock()
+        mock_bus.async_request = AsyncMock(return_value={"success": True})
         kernel = _create_kernel(bus=mock_bus)
-        identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
 
-        kernel.flush_buffer(identity)
+        await kernel.manual_trigger("topic_123")
 
-        route_calls = [c for c in mock_bus.request.call_args_list if c[0][0] == "perception.flush_buffer"]
+        route_calls = [c for c in mock_bus.async_request.call_args_list if c[0][0] == "librarian.manual_trigger"]
         assert len(route_calls) == 1
+        assert route_calls[0][0][1] == "topic_123"
 
-    def test_flush_buffer_without_bus(self):
-        """无 bus 时直接调用 perception engine"""
+    @pytest.mark.asyncio
+    async def test_manual_trigger_without_bus(self):
+        """无 bus 时直接调用 librarian_core.manual_trigger"""
         kernel = _create_kernel(bus=None)
-        identity = Identity(user_id="u1", agent_id="a1", session_id="s1")
+        kernel._services["librarian"].manual_trigger = AsyncMock(
+            return_value={"success": True}
+        )
 
-        kernel.flush_buffer(identity)
+        await kernel.manual_trigger("topic_456")
 
-        kernel._engines["perception"].flush_buffer.assert_called_once()
+        kernel._services["librarian"].manual_trigger.assert_called_once_with("topic_456")
 
     def test_add_flush_observer_with_bus(self):
         """有 bus 时委托"""

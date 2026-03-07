@@ -65,6 +65,11 @@ DECISION_MATRIX: Dict[FlushReason, Dict[str, bool]] = {
         "compact": True,   # 话题未完，必须留摘要
         "evict": False,    # 保持存活
     },
+    FlushReason.MANUAL: {
+        "archive": True,   # 立即归档到 Librarian
+        "compact": True,   # 生成摘要保持上下文连续性
+        "evict": False,    # 保留话题在活跃池中
+    },
 }
 
 
@@ -85,6 +90,7 @@ class TriggerManager:
         | LRU_EVICTION     | ✅      | ❌      | ✅    |
         | MTP_WRITE        | ✅      | ✅      | ❌    |
         | MTP_UPDATE       | ✅      | ✅      | ❌    |
+        | MANUAL           | ✅      | ✅      | ❌    |
 
     依赖:
         - SemanticBufferManager: 读取 buffer 状态、执行 evict

@@ -41,27 +41,13 @@ pytestmark = pytest.mark.live_llm
 
 def _get_llm_config():
     """从环境变量或 config.yaml 获取 LLM 配置"""
-    model = os.environ.get("MTP_TEST_MODEL")
-    api_key = os.environ.get("MTP_TEST_API_KEY")
-    if model and api_key:
-        return LLMConfig(
-            model=model,
-            api_key=api_key,
-            api_base=os.environ.get("MTP_TEST_API_BASE"),
-            temperature=0.0,
-            max_tokens=1024,
-        )
     try:
         from hivememory.patchouli.config import load_app_config
         config = load_app_config()
         worker_config = config.llm.worker
-        librarian_config = config.llm.librarian
-
         if worker_config and worker_config.model and worker_config.api_key:
             return worker_config
 
-        if librarian_config and librarian_config.model and librarian_config.api_key:
-            return librarian_config
     except Exception:
         pass
     return None

@@ -13,7 +13,7 @@ import logging
 import datetime
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Dict, Callable, TYPE_CHECKING
-from hivememory.core.models import Identity, StreamMessage
+from hivememory.core.models import StreamMessage
 from hivememory.engines.perception.models import (
     FlushReason,
     InteractionPayload,
@@ -92,12 +92,10 @@ class BasePerceptionLayer(ABC):
         所有子类都继承统一的空闲超时监控功能，通过 start_idle_monitor() 启动。
 
     Examples:
-        >>> from hivememory.core.models import Identity
         >>> perception = SemanticFlowPerceptionLayer()
         >>> perception.start_idle_monitor()  # 启动空闲监控
-        >>> identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
         >>> perception.ingest_payload(payload)
-        >>> messages = perception.flush_buffer(identity)
+        >>> result = await perception.manual_trigger()
     """
 
     def __init__(self, *args, **kwargs):
@@ -200,7 +198,7 @@ class BasePerceptionLayer(ABC):
         用于测试或立即检查空闲 Buffer。
 
         Returns:
-            List[str]: 被刷新的 Buffer key 列表
+            List[str]: 被刷新的 topic_id 列表
 
         Examples:
             >>> flushed_keys = perception.scan_idle_buffers_now()
@@ -222,28 +220,14 @@ class BasePerceptionLayer(ABC):
         current_time = datetime.datetime.now().timestamp()
 
         try:
-            # 获取所有活跃 Buffer
-            buffer_keys = self.list_active_buffers()
+            # 获取所有活跃 topic_id
+            topic_ids = self.list_active_buffers()
 
-            logger.debug(f"开始扫描 {len(buffer_keys)} 个 Buffer")
+            logger.debug(f"开始扫描 {len(topic_ids)} 个 Buffer")
 
-            for key in buffer_keys:
+            for topic_id in topic_ids:
                 try:
-                    # 解析 key
-                    parts = key.split(":")
-                    if len(parts) != 3:
-                        continue
-
-                    user_id, agent_id, session_id = parts
-
-                    # 获取 Buffer
-                    buffer = self.get_buffer(
-                        Identity(
-                            user_id=user_id,
-                            agent_id=agent_id,
-                            session_id=session_id
-                        )
-                    )
+                    buffer = self.get_buffer(topic_id)
 
                     if buffer is None:
                         continue
@@ -267,23 +251,20 @@ class BasePerceptionLayer(ABC):
 
                     if is_timeout:
                         logger.info(
-                            f"Buffer 超时: {key}, "
+                            f"Buffer 超时: {topic_id}, "
                             f"空闲时长={current_time - buffer.last_update:.1f}s"
                         )
 
-                        # 触发 Flush
-                        self.flush_buffer(
-                            Identity(
-                                user_id=user_id,
-                                agent_id=agent_id,
-                                session_id=session_id
-                            ),
-                            FlushReason.IDLE_TIMEOUT
-                        )
-                        flushed_keys.append(key)
+                        import asyncio
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(self.manual_trigger(topic_id))
+                        except RuntimeError:
+                            asyncio.run(self.manual_trigger(topic_id))
+                        flushed_keys.append(topic_id)
 
                 except Exception as e:
-                    logger.error(f"处理 Buffer {key} 时出错: {e}")
+                    logger.error(f"处理 Buffer {topic_id} 时出错: {e}")
 
             if flushed_keys:
                 logger.info(f"本次扫描刷新了 {len(flushed_keys)} 个 Buffer")
@@ -351,26 +332,6 @@ class BasePerceptionLayer(ABC):
     # ========== 抽象接口 ==========
 
     @abstractmethod
-    def flush_buffer(
-        self,
-        topic_id: str,
-        reason: FlushReason = FlushReason.MANUAL,
-    ) -> List[StreamMessage]:
-        """
-        手动刷新缓冲区，返回消息列表
-
-        注意：统一的返回类型，便于 orchestrator 处理
-
-        Args:
-            topic_id: 话题 ID
-            reason: 刷新原因
-
-        Returns:
-            List[StreamMessage]: 缓冲区的消息列表
-        """
-        pass
-
-    @abstractmethod
     def get_buffer(
         self,
         topic_id: str,
@@ -414,6 +375,28 @@ class BasePerceptionLayer(ABC):
 
         Returns:
             Dict: 缓冲区信息字典
+        """
+        pass
+
+    @abstractmethod
+    async def manual_trigger(
+        self,
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        手动触发话题结算 (Archive + Compact)
+
+        语义：立即归档 + 生成摘要并保留内存。
+        话题不会被驱逐，可以继续接收新的交互。
+
+        Args:
+            topic_id: 目标话题 ID。如果为 None，则使用 last_active_topic_id 作为回退。
+
+        Returns:
+            Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
+
+        Raises:
+            ValueError: 如果 topic_id 未指定且没有 last_active_topic_id
         """
         pass
 

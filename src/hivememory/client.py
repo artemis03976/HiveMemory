@@ -206,14 +206,12 @@ class HiveMemoryClient:
         """
         return self.system.retrieve(query, user_id, context, **kwargs)
 
-    def flush_buffer(
+    async def manual_trigger(
         self,
-        user_id: str,
-        agent_id: str,
-        session_id: str,
-    ) -> None:
-        """手动触发感知层 Flush"""
-        self.system.flush_buffer(user_id, agent_id, session_id)
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """手动触发话题结算"""
+        return await self.system.manual_trigger(topic_id)
 
     def get_buffer_info(
         self,

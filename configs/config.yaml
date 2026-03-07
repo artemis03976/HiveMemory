@@ -27,7 +27,7 @@ llm:
   gateway:
     provider: "litellm"
     model: "deepseek/deepseek-chat"
-    api_key: null  # 通过环境变量 HIVEMEMORY__LLM__WORKER__API_KEY 设置
+    api_key: null  # 通过环境变量 HIVEMEMORY__LLM__GATEWAY__API_KEY 设置
     api_base: null
     temperature: 0.7
     max_tokens: 4096
@@ -38,6 +38,14 @@ llm:
     api_key: null  # 通过环境变量 HIVEMEMORY__LLM__LIBRARIAN__API_KEY 设置
     api_base: null
     temperature: 0.3
+    max_tokens: 4096
+  
+  worker:
+    provider: "litellm"
+    model: "deepseek/deepseek-chat"
+    api_key: null  # 通过环境变量 HIVEMEMORY__LLM__LIBRARIAN__API_KEY 设置
+    api_base: null
+    temperature: 1.0
     max_tokens: 4096
 
 # ========== Embedding 模型配置 ==========

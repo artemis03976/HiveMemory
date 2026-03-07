@@ -11,6 +11,7 @@ E2E 测试共享 Fixtures
 """
 
 import time
+import asyncio
 import logging
 from typing import Optional, List
 from uuid import uuid4
@@ -139,4 +140,26 @@ def wait_for_memory_persistence(
 
     raise TimeoutError(
         f"等待超时 ({timeout}s): 用户 {user_id} 记忆数量 {len(memories)}, 期望 >= {min_count}"
+    )
+
+
+async def wait_for_memory_persistence_async(
+    system: PatchouliSystem,
+    user_id: str,
+    min_count: int = 1,
+    timeout: float = 15.0,
+    poll_interval: float = 1.0,
+) -> List[MemoryAtom]:
+    """
+    异步版本：在线程中执行同步轮询，避免阻塞事件循环
+
+    适用于 pytest.mark.asyncio 场景，确保后台 create_task 能正常调度执行。
+    """
+    return await asyncio.to_thread(
+        wait_for_memory_persistence,
+        system,
+        user_id,
+        min_count,
+        timeout,
+        poll_interval,
     )

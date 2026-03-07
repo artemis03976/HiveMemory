@@ -194,8 +194,8 @@ def chat_loop(user_input, response):
     )
     perception.ingest_payload(payload)
 
-# 4. 手动刷新 (可选)
-perception.flush_buffer(identity)
+# 4. 手动触发结算 (可选)
+await perception.manual_trigger()
 
 # 5. 程序退出前停止监控
 perception.stop_idle_monitor()
@@ -210,7 +210,7 @@ perception.stop_idle_monitor()
 | `SEMANTIC_DRIFT` | 语义相似度低于阈值 | 新 Block 加入前 | SemanticAdsorber |
 | `TOKEN_OVERFLOW` | Token 数超过阈值 | 新 Block 加入前 | RelayController |
 | `IDLE_TIMEOUT` | Buffer 空闲超时 | 后台异步扫描 | IdleTimeoutMonitor |
-| `MANUAL` | 用户手动调用 | 调用 flush_buffer() | 用户代码 |
+| `MANUAL` | 用户手动调用 | 调用 manual_trigger() | 用户代码 |
 | `MTP_WRITE` | MTP WRITE 指令 | 载荷摄入时 | SemanticFlowPerceptionLayer |
 | `MTP_UPDATE` | MTP UPDATE 指令 | 载荷摄入时 | SemanticFlowPerceptionLayer |
 | `LRU_EVICTION` | 活跃话题池满 | 新话题创建时 | SemanticBufferManager |

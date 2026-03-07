@@ -117,15 +117,11 @@ class TestSemanticFlowPerceptionLayer:
         # 验证两个 block 都在 buffer 中
         assert len(buffer.blocks) == 2
 
-    def test_no_flush_callback_when_no_blocks(self):
-        """测试无 blocks 时不调用回调"""
-        # 先路由创建话题
-        identity = Identity(user_id="u1", agent_id="a1")
-
-        # 尝试 flush 一个不存在的 topic_id
-        result = self.layer.flush_buffer("nonexistent_topic")
-
-        assert result == []
+    @pytest.mark.asyncio
+    async def test_manual_trigger_without_active_topic(self):
+        """测试无活跃话题时 manual_trigger 抛出异常"""
+        with pytest.raises(ValueError):
+            await self.layer.manual_trigger()
         self.mock_callback.assert_not_called()
 
     @pytest.mark.asyncio

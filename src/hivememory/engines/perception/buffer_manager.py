@@ -85,7 +85,37 @@ class SemanticBufferManager:
         # 线程安全
         self._lock = threading.RLock()
 
+        # 最后活跃话题 ID（用于 manual_trigger 的默认回退）
+        self._last_active_topic_id: Optional[str] = None
+
         logger.info(f"SemanticBufferManager 初始化完成, max_resident={max_resident_topics}")
+
+    # ========== 最后活跃话题跟踪 ==========
+
+    def get_last_active_topic(self) -> Optional[str]:
+        """
+        获取最后活跃的话题 ID
+
+        用于 manual_trigger 的默认回退目标。
+
+        Returns:
+            最后活跃的 topic_id，如果没有活跃话题则返回 None
+        """
+        with self._lock:
+            return self._last_active_topic_id
+
+    def set_last_active_topic(self, topic_id: str) -> None:
+        """
+        设置最后活跃的话题 ID
+
+        在 route_and_ingest 中自动调用。
+
+        Args:
+            topic_id: 话题 ID
+        """
+        with self._lock:
+            self._last_active_topic_id = topic_id
+            logger.debug(f"更新 last_active_topic_id: {topic_id}")
 
     # ========== 内部辅助方法 ==========
 
@@ -112,7 +142,8 @@ class SemanticBufferManager:
         """
         通过 topic_id 获取话题段
 
-        如果存在，更新 last_accessed_at 并返回 buffer；否则返回 None。
+        如果存在，更新 last_accessed_at 和 last_active_topic_id，然后返回 buffer；
+        否则返回 None。
 
         Args:
             topic_id: 话题 ID
@@ -124,6 +155,8 @@ class SemanticBufferManager:
             if topic_id in self._buffers:
                 buf = self._buffers[topic_id]
                 buf.last_accessed_at = datetime.now().timestamp()
+                # 自动更新最后活跃话题
+                self._last_active_topic_id = topic_id
                 return buf
             return None
 

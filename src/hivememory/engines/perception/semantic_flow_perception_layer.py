@@ -32,19 +32,17 @@ Note:
 import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
-from hivememory.core.models import Identity, StreamMessage
+from hivememory.core.models import Identity
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
     BufferState,
-    FlushEvent,
     FlushReason,
     InteractionPayload,
     LogicalBlock,
     SemanticBuffer,
-    TraceItem,
 )
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
 from hivememory.utils.token_estimator import estimate_tokens
@@ -145,6 +143,9 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 摄入载荷
         await self.ingest_payload(payload, topic_id)
+
+        # 更新最后活跃话题
+        self._buffer_manager.set_last_active_topic(topic_id)
 
         return topic_id
 
@@ -259,93 +260,77 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             trigger_reason=FlushReason.TOKEN_OVERFLOW,
         )
 
-    def _blocks_to_messages(
+    async def manual_trigger(
         self,
-        blocks: List[LogicalBlock],
-        identity: Identity,
-    ) -> List[StreamMessage]:
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        将 blocks 转换为 stream messages
+        手动触发话题结算 (Archive + Compact)
+
+        语义：立即归档 + 生成摘要并保留内存。
+        当用户主动请求保存当前对话状态时使用。不同于其他触发原因，
+        MANUAL 触发会同时执行 Archive 和 Compact，但不会 Evict 话题。
 
         Args:
-            blocks: 要转换的 blocks
-            identity: 身份标识
+            topic_id: 目标话题 ID。如果为 None，则使用 last_active_topic_id 作为回退。
 
         Returns:
-            stream messages 列表
+            Dict: 包含以下键的字典:
+                - success: bool - 操作是否成功
+                - topic_id: str - 实际操作的话题 ID
+                - message: str - 操作结果描述
+                - blocks_archived: int - 归档的 block 数量
+
+        Raises:
+            ValueError: 如果 topic_id 未指定且没有 last_active_topic_id
         """
-        messages = []
-        for block in blocks:
-            messages.extend(block.to_stream_messages(identity))
-        return messages
+        # 解析目标话题
+        target_topic_id = topic_id
+        if target_topic_id is None:
+            target_topic_id = self._buffer_manager.get_last_active_topic()
 
-    def flush_buffer(
-        self,
-        topic_id: str,
-        reason: FlushReason = FlushReason.MANUAL,
-    ) -> List[StreamMessage]:
-        """
-        手动刷新 Buffer（使用统一调度器）
+        if target_topic_id is None:
+            raise ValueError(
+                "manual_trigger: 未指定 topic_id 且没有活跃话题可回退"
+            )
 
-        Args:
-            topic_id: 话题 ID
-            reason: 刷新原因
+        # 验证话题存在
+        buffer = self._buffer_manager.get_buffer(target_topic_id)
+        if buffer is None:
+            return {
+                "success": False,
+                "topic_id": target_topic_id,
+                "message": f"话题 {target_topic_id} 不存在",
+                "blocks_archived": 0,
+            }
 
-        Returns:
-            List[StreamMessage]: 被 Flush 的消息列表
-        """
-        buffer = self._buffer_manager.get_buffer(topic_id)
-        if not buffer or not buffer.blocks:
-            return []
+        if not buffer.blocks:
+            return {
+                "success": True,
+                "topic_id": target_topic_id,
+                "message": "话题为空，无需处理",
+                "blocks_archived": 0,
+            }
 
-        blocks_snapshot = buffer.blocks.copy()
-        identity = buffer.identity
+        blocks_count = len(buffer.blocks)
 
-        # 调用统一调度器（同步方式，因为这是同步方法）
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            asyncio.create_task(self._trigger_manager.resolve_topic(
-                topic_id=topic_id,
-                trigger_reason=reason,
-            ))
-        except RuntimeError:
-            asyncio.run(self._trigger_manager.resolve_topic(
-                topic_id=topic_id,
-                trigger_reason=reason,
-            ))
-
-        return self._blocks_to_messages(blocks_snapshot, identity)
-
-    async def flush_buffer_async(
-        self,
-        topic_id: str,
-        reason: FlushReason = FlushReason.MANUAL,
-    ) -> List[StreamMessage]:
-        """
-        手动刷新 Buffer（异步版本）
-
-        Args:
-            topic_id: 话题 ID
-            reason: 刷新原因
-
-        Returns:
-            List[StreamMessage]: 被 Flush 的消息列表
-        """
-        buffer = self._buffer_manager.get_buffer(topic_id)
-        if not buffer or not buffer.blocks:
-            return []
-
-        blocks_snapshot = buffer.blocks.copy()
-        identity = buffer.identity
-
-        # 调用统一调度器
+        # 调用统一调度器（MANUAL 触发）
         await self._trigger_manager.resolve_topic(
-            topic_id=topic_id,
-            trigger_reason=reason,
+            topic_id=target_topic_id,
+            trigger_reason=FlushReason.MANUAL,
         )
 
-        return self._blocks_to_messages(blocks_snapshot, identity)
+        logger.info(
+            f"manual_trigger 完成: topic_id={target_topic_id}, "
+            f"blocks_archived={blocks_count}"
+        )
+
+        return {
+            "success": True,
+            "topic_id": target_topic_id,
+            "message": f"成功归档 {blocks_count} 个 blocks",
+            "blocks_archived": blocks_count,
+        }
 
     def get_buffer(
         self,

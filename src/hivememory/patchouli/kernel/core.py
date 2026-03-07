@@ -307,6 +307,8 @@ class PatchouliKernel:
         bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
         bus.register("librarian.add_flush_observer", librarian_svc.add_flush_observer)
         bus.register("librarian.get_active_topics_menu", librarian_svc.get_active_topics_menu)
+        bus.register("librarian.get_buffer_info", librarian_svc.get_buffer_info)
+        bus.register("librarian.manual_trigger", librarian_svc.manual_trigger)
 
         # --- Retrieval 服务路由 ---
         bus.register("retrieval.retrieve", retrieval_svc.retrieve)
@@ -484,21 +486,6 @@ class PatchouliKernel:
             user_id=gaze_result.identity.user_id,
         )
 
-    def flush_buffer(
-        self,
-        identity: Identity,
-    ) -> None:
-        """
-        用户端手动触发感知层 Flush
-
-        Args:
-            identity: 身份标识对象
-        """
-        if self._bus:
-            self._bus.request("perception.flush_buffer", identity=identity)
-        else:
-            self._engines["perception"].flush_buffer(identity)
-
     def get_buffer_info(
         self,
         identity: Identity,
@@ -513,8 +500,8 @@ class PatchouliKernel:
             Dict: Buffer 信息字典
         """
         if self._bus:
-            return self._bus.request("perception.get_buffer_info", identity=identity)
-        return self._engines["perception"].get_buffer_info(identity)
+            return self._bus.request("librarian.get_buffer_info", identity=identity)
+        return self.librarian_core.get_buffer_info(identity)
 
     def add_flush_observer(self, observer) -> None:
         """
@@ -527,6 +514,26 @@ class PatchouliKernel:
             self._bus.request("librarian.add_flush_observer", observer)
         else:
             self.librarian_core.add_flush_observer(observer)
+
+    async def manual_trigger(
+        self,
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        手动触发话题结算 (Archive + Compact)
+
+        用户主动保存当前对话状态。语义为"立即归档 + 生成摘要并保留内存"。
+        话题不会被驱逐，可以继续接收新的交互。
+
+        Args:
+            topic_id: 目标话题 ID。如果为 None，使用最后活跃的话题。
+
+        Returns:
+            Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
+        """
+        if self._bus:
+            return await self._bus.async_request("librarian.manual_trigger", topic_id)
+        return await self.librarian_core.manual_trigger(topic_id)
 
 
 __all__ = [
