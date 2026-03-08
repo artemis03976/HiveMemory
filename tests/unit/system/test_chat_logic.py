@@ -106,7 +106,7 @@ def _mtp_exec() -> MTPExecutionResult:
 def sys():
     """
     构建最小化 PatchouliSystem mock:
-    mock Eye, Kernel, WorkerAgent — 绑定真实 chat() 和 _recursive_generation_loop()
+    mock Eye, Kernel, WorkerAgent — 绑定真实 chat() 和递归生成循环
     """
     from hivememory.patchouli.system import PatchouliSystem
 
@@ -118,21 +118,25 @@ def sys():
 
     # Eye
     s.eye = MagicMock()
-    s.eye.gaze.return_value = _make_gaze_result()
+    s.eye.gaze = AsyncMock(return_value=_make_gaze_result())
 
     # Kernel
     s.kernel = MagicMock()
-    s.kernel.handle_hot.return_value = _make_hot_result()
-    s.kernel.handle_mtp = MagicMock(return_value=None)
+    s.kernel.handle_hot = AsyncMock(return_value=_make_hot_result())
+    s.kernel.handle_mtp = AsyncMock(return_value=None)
     s.kernel.koakuma = MagicMock()
     s.kernel.submit_interaction = AsyncMock(return_value=None)
+    s.kernel.librarian_core = MagicMock()
 
     # Worker Agent
     s._worker_agent = MagicMock()
-    s._worker_agent.generate.return_value = _normal_gen()
+    s._worker_agent.generate_async = AsyncMock(return_value=_normal_gen())
 
     # MTP prompt
     s.get_mtp_prompt = MagicMock(return_value="")
+
+    # SystemBus (optional)
+    s._bus = None
 
     # 绑定真实方法
     from hivememory.patchouli.system import PatchouliSystem as Real
@@ -142,6 +146,18 @@ def sys():
         Real._recursive_generation_loop, s
     )
     s._reconstruct_raw_assistant_text = Real._reconstruct_raw_assistant_text
+    s._get_topic_snapshots = types.MethodType(Real._get_topic_snapshots, s)
+    s._get_topic_context_for_generation = types.MethodType(Real._get_topic_context_for_generation, s)
+    s._assemble_messages_from_context = types.MethodType(Real._assemble_messages_from_context, s)
+
+    # Mock perception layer methods
+    s.kernel.librarian_core.get_active_topics_snapshots = MagicMock(return_value=[])
+    s.kernel.librarian_core.get_topic_context_for_prompt = MagicMock(return_value={
+        "state_summary": "",
+        "blocks": [],
+        "total_tokens": 0,
+        "title": "新建话题",
+    })
 
     return s
 
@@ -155,8 +171,7 @@ class TestChatBasicFlow:
         """chat() 返回 ChatResult，包含 final_text"""
         result = sys.chat(
             user_message="hello",
-            messages=[{"role": "system", "content": "You are helpful."},
-                      {"role": "user", "content": "hello"}],
+            
             user_id="u1",
         )
 
@@ -169,7 +184,7 @@ class TestChatBasicFlow:
         """Eye.gaze 始终被调用"""
         sys.chat(
             user_message="test query",
-            messages=[{"role": "user", "content": "test query"}],
+            
             user_id="u1",
         )
 
@@ -184,7 +199,7 @@ class TestChatBasicFlow:
 
         sys.chat(
             user_message="q",
-            messages=[{"role": "user", "content": "q"}],
+            
             user_id="u1",
         )
 
@@ -194,11 +209,11 @@ class TestChatBasicFlow:
 
     def test_empty_response(self, sys):
         """LLM 返回空文本时 chat 正常返回"""
-        sys._worker_agent.generate.return_value = _normal_gen("")
+        sys._worker_agent.generate_async.return_value = _normal_gen("")
 
         result = sys.chat(
             user_message="hi",
-            messages=[{"role": "user", "content": "hi"}],
+            
             user_id="u1",
         )
 
@@ -209,7 +224,7 @@ class TestChatBasicFlow:
         """Identity 从参数正确构建"""
         sys.chat(
             user_message="hi",
-            messages=[{"role": "user", "content": "hi"}],
+            
             user_id="user_x",
             agent_id="agent_y",
             session_id="sess_z",
@@ -230,16 +245,14 @@ class TestMemoryRetrieval:
             memory="<memory>User prefers Python</memory>"
         )
 
-        messages = [
-            {"role": "system", "content": "You are helpful."},
-            {"role": "user", "content": "hi"},
-        ]
         sys.chat(
-            user_message="hi", messages=messages, user_id="u1",
+            user_message="hi",
+            
+            user_id="u1",
         )
 
         # 验证 generate 收到的 messages 中 system prompt 被增强
-        gen_call = sys._worker_agent.generate.call_args
+        gen_call = sys._worker_agent.generate_async.call_args
         sent_messages = gen_call.args[0]
         assert "<memory>User prefers Python</memory>" in sent_messages[0]["content"]
 
@@ -247,7 +260,7 @@ class TestMemoryRetrieval:
         """enable_memory_retrieval=False 传递给 handle_hot"""
         sys.chat(
             user_message="hi",
-            messages=[{"role": "user", "content": "hi"}],
+            
             user_id="u1",
             enable_memory_retrieval=False,
         )
@@ -258,18 +271,22 @@ class TestMemoryRetrieval:
         )
 
     def test_no_memory_no_injection(self, sys):
-        """memory 为 None 时不修改 system prompt"""
+        """memory 为 None 且 MTP prompt 为空时，不生成 system message"""
         sys.kernel.handle_hot.return_value = _make_hot_result(memory=None)
 
-        messages = [
-            {"role": "system", "content": "Base prompt."},
-            {"role": "user", "content": "hi"},
-        ]
-        sys.chat(user_message="hi", messages=messages, user_id="u1")
+        sys.chat(
+            user_message="hi",
 
-        gen_call = sys._worker_agent.generate.call_args
+            user_id="u1",
+        )
+
+        gen_call = sys._worker_agent.generate_async.call_args
         sent_messages = gen_call.args[0]
-        assert sent_messages[0]["content"] == "Base prompt."
+        # 无 system prompt 内容时，messages 不含 system 角色
+        system_msgs = [m for m in sent_messages if m["role"] == "system"]
+        assert len(system_msgs) == 0
+        # 第一条消息应为 user message
+        assert sent_messages[0] == {"role": "user", "content": "hi"}
 
 
 class TestMTPPromptInjection:
@@ -279,54 +296,46 @@ class TestMTPPromptInjection:
         """get_mtp_prompt 返回内容时追加到 system prompt"""
         sys.get_mtp_prompt.return_value = "[MTP Protocol Instructions]"
 
-        messages = [
-            {"role": "system", "content": "Base."},
-            {"role": "user", "content": "hi"},
-        ]
-        sys.chat(user_message="hi", messages=messages, user_id="u1")
+        sys.chat(user_message="hi", user_id="u1")
 
-        gen_call = sys._worker_agent.generate.call_args
+        gen_call = sys._worker_agent.generate_async.call_args
         sent_messages = gen_call.args[0]
         assert "[MTP Protocol Instructions]" in sent_messages[0]["content"]
 
     def test_empty_mtp_prompt_no_injection(self, sys):
-        """get_mtp_prompt 返回空字符串时不追加"""
+        """get_mtp_prompt 返回空字符串且无 memory 时，不生成 system message"""
         sys.get_mtp_prompt.return_value = ""
 
-        messages = [
-            {"role": "system", "content": "Base."},
-            {"role": "user", "content": "hi"},
-        ]
-        sys.chat(user_message="hi", messages=messages, user_id="u1")
+        sys.chat(user_message="hi", user_id="u1")
 
-        gen_call = sys._worker_agent.generate.call_args
+        gen_call = sys._worker_agent.generate_async.call_args
         sent_messages = gen_call.args[0]
-        assert sent_messages[0]["content"] == "Base."
+        # 无 system prompt 内容时，messages 不含 system 角色
+        system_msgs = [m for m in sent_messages if m["role"] == "system"]
+        assert len(system_msgs) == 0
 
 
 class TestNoSystemPrompt:
     """无 system prompt 降级"""
 
     def test_no_system_message_still_works(self, sys):
-        """messages 不含 system 角色时正常运行"""
-        messages = [{"role": "user", "content": "hi"}]
-        result = sys.chat(user_message="hi", messages=messages, user_id="u1")
+        """system_prompt 为空时仍可正常运行"""
+        result = sys.chat(user_message="hi", user_id="u1")
 
         assert result.final_text == "Hi there!"
 
     def test_no_system_message_skips_augmentation(self, sys):
-        """无 system prompt 时跳过 MTP/memory 注入"""
+        """system_prompt 为空时仍可注入 MTP/memory"""
         sys.get_mtp_prompt.return_value = "[MTP]"
         sys.kernel.handle_hot.return_value = _make_hot_result(memory="<mem/>")
 
-        messages = [{"role": "user", "content": "hi"}]
-        sys.chat(user_message="hi", messages=messages, user_id="u1")
+        sys.chat(user_message="hi", user_id="u1")
 
-        gen_call = sys._worker_agent.generate.call_args
+        gen_call = sys._worker_agent.generate_async.call_args
         sent_messages = gen_call.args[0]
-        # 只有 user 消息，无 system 消息被修改
-        assert len(sent_messages) == 1
-        assert sent_messages[0]["role"] == "user"
+        assert sent_messages[0]["role"] == "system"
+        assert "[MTP]" in sent_messages[0]["content"]
+        assert "<mem/>" in sent_messages[0]["content"]
 
 
 class TestAsyncPerception:
@@ -334,11 +343,11 @@ class TestAsyncPerception:
 
     def test_assistant_reply_submitted_via_payload(self, sys):
         """chat() 结束后 assistant 回复通过 InteractionPayload 提交"""
-        sys._worker_agent.generate.return_value = _normal_gen("Hi there!")
+        sys._worker_agent.generate_async.return_value = _normal_gen("Hi there!")
 
         result = sys.chat(
             user_message="hi",
-            messages=[{"role": "user", "content": "hi"}],
+            
             user_id="u1",
         )
 
@@ -351,28 +360,24 @@ class TestAsyncPerception:
         """handle_hot 内部负责 user 消息的异步感知投递"""
         sys.chat(
             user_message="hi",
-            messages=[{"role": "user", "content": "hi"}],
+            
             user_id="u1",
         )
 
         # handle_hot 被调用 = kernel 负责 user 感知
         sys.kernel.handle_hot.assert_called_once()
 
-    def test_messages_not_mutated(self, sys):
-        """原始 messages 列表不被修改 (浅拷贝保护)"""
-        original_messages = [
-            {"role": "system", "content": "Base."},
-            {"role": "user", "content": "hi"},
-        ]
-        messages_copy = [dict(m) for m in original_messages]
-
+    def test_messages_assembled_internally(self, sys):
+        """messages 由内部组装，包含 system+user 两条基础消息"""
         sys.kernel.handle_hot.return_value = _make_hot_result(memory="<mem/>")
         sys.get_mtp_prompt.return_value = "[MTP]"
 
-        sys.chat(user_message="hi", messages=original_messages, user_id="u1")
+        sys.chat(user_message="hi", user_id="u1")
 
-        # 原始 messages 的 content 不应被修改
-        assert original_messages[0]["content"] == messages_copy[0]["content"]
+        gen_call = sys._worker_agent.generate_async.call_args
+        sent_messages = gen_call.args[0]
+        assert sent_messages[0]["role"] == "system"
+        assert sent_messages[-1] == {"role": "user", "content": "hi"}
 
 
 class TestChatWithMTP:
@@ -380,7 +385,7 @@ class TestChatWithMTP:
 
     def test_mtp_interrupt_handled(self, sys):
         """MTP 中断在 chat 内部被递归处理"""
-        sys._worker_agent.generate.side_effect = [
+        sys._worker_agent.generate_async.side_effect = [
             _mtp_gen("Searching... "),
             _normal_gen("Found the answer."),
         ]
@@ -388,8 +393,7 @@ class TestChatWithMTP:
 
         result = sys.chat(
             user_message="find something",
-            messages=[{"role": "system", "content": "Base."},
-                      {"role": "user", "content": "find something"}],
+            
             user_id="u1",
         )
 
@@ -404,7 +408,7 @@ class TestChatWithMTP:
             memory="<memory>context</memory>"
         )
         sys.get_mtp_prompt.return_value = "[MTP Protocol]"
-        sys._worker_agent.generate.side_effect = [
+        sys._worker_agent.generate_async.side_effect = [
             _mtp_gen("Let me check. "),
             _normal_gen("Done."),
         ]
@@ -412,13 +416,12 @@ class TestChatWithMTP:
 
         result = sys.chat(
             user_message="q",
-            messages=[{"role": "system", "content": "Base."},
-                      {"role": "user", "content": "q"}],
+            
             user_id="u1",
         )
 
         # system prompt 应包含 MTP prompt 和 memory
-        gen_first_call = sys._worker_agent.generate.call_args_list[0]
+        gen_first_call = sys._worker_agent.generate_async.call_args_list[0]
         first_messages = gen_first_call.args[0]
         assert "[MTP Protocol]" in first_messages[0]["content"]
         assert "<memory>context</memory>" in first_messages[0]["content"]
@@ -436,8 +439,7 @@ class TestInteractionPayloadSubmission:
         """chat() 结束后 kernel.submit_interaction 被调用"""
         sys.chat(
             user_message="hello",
-            messages=[{"role": "system", "content": "Base."},
-                      {"role": "user", "content": "hello"}],
+            
             user_id="u1",
         )
 
@@ -445,12 +447,11 @@ class TestInteractionPayloadSubmission:
 
     def test_payload_contains_user_and_assistant(self, sys):
         """payload 包含正确的 user_message 和 assistant_message"""
-        sys._worker_agent.generate.return_value = _normal_gen("Reply!")
+        sys._worker_agent.generate_async.return_value = _normal_gen("Reply!")
 
         sys.chat(
             user_message="hello",
-            messages=[{"role": "system", "content": "Base."},
-                      {"role": "user", "content": "hello"}],
+            
             user_id="u1",
         )
 
@@ -471,7 +472,7 @@ class TestInteractionPayloadSubmission:
 
         sys.chat(
             user_message="hi",
-            messages=[{"role": "user", "content": "hi"}],
+            
             user_id="u1",
         )
 
@@ -487,7 +488,7 @@ class TestInteractionPayloadSubmission:
 
         sys.chat(
             user_message="save this",
-            messages=[{"role": "user", "content": "save this"}],
+            
             user_id="u1",
         )
 
@@ -503,7 +504,7 @@ class TestInteractionPayloadSubmission:
 
         sys.chat(
             user_message="update port",
-            messages=[{"role": "user", "content": "update port"}],
+            
             user_id="u1",
         )
 
@@ -514,7 +515,7 @@ class TestInteractionPayloadSubmission:
         """payload.identity 与传入参数一致"""
         sys.chat(
             user_message="hi",
-            messages=[{"role": "user", "content": "hi"}],
+            
             user_id="user_x",
             agent_id="agent_y",
             session_id="sess_z",
@@ -538,8 +539,7 @@ class TestKoakumaOfflineFallback:
 
         result = sys.chat(
             user_message="hi",
-            messages=[{"role": "system", "content": "Base."},
-                      {"role": "user", "content": "hi"}],
+            
             user_id="u1",
         )
 
@@ -563,36 +563,35 @@ class TestRecursionDepthLimit:
         sys.config.koakuma.max_recursion_depth = 3
 
         # 每次都返回 MTP 中断，永不停止
-        sys._worker_agent.generate.return_value = _mtp_gen("loop ")
+        sys._worker_agent.generate_async.return_value = _mtp_gen("loop ")
         sys.kernel.handle_mtp.return_value = _mtp_exec()
 
         result = sys.chat(
             user_message="infinite loop",
-            messages=[{"role": "system", "content": "Base."},
-                      {"role": "user", "content": "infinite loop"}],
+            
             user_id="u1",
         )
 
         assert result.total_iterations == 3
         assert result.mtp_iterations == 2
         # generate 被调用 3 次 (max_iter)
-        assert sys._worker_agent.generate.call_count == 3
+        assert sys._worker_agent.generate_async.call_count == 3
 
     def test_depth_1_means_no_recursion(self, sys):
         """max_recursion_depth=1 时只执行一次生成，不递归"""
         sys.config.koakuma.max_recursion_depth = 1
 
-        sys._worker_agent.generate.return_value = _mtp_gen("once ")
+        sys._worker_agent.generate_async.return_value = _mtp_gen("once ")
         sys.kernel.handle_mtp.return_value = _mtp_exec()
 
         result = sys.chat(
             user_message="q",
-            messages=[{"role": "user", "content": "q"}],
+            
             user_id="u1",
         )
 
         assert result.total_iterations == 1
-        assert sys._worker_agent.generate.call_count == 1
+        assert sys._worker_agent.generate_async.call_count == 1
 
 
 # ========== Test: MTP False Positive ==========
@@ -603,13 +602,12 @@ class TestMTPFalsePositive:
     def test_handle_mtp_none_appends_fragment(self, sys):
         """handle_mtp 返回 None 时 mtp_fragment 被追加到文本"""
         mtp_gen = _mtp_gen("Before MTP. ")
-        sys._worker_agent.generate.return_value = mtp_gen
+        sys._worker_agent.generate_async.return_value = mtp_gen
         sys.kernel.handle_mtp.return_value = None  # 误判
 
         result = sys.chat(
             user_message="q",
-            messages=[{"role": "system", "content": "Base."},
-                      {"role": "user", "content": "q"}],
+            
             user_id="u1",
         )
 
@@ -619,20 +617,18 @@ class TestMTPFalsePositive:
         # 不应有 MTP 迭代计数
         assert result.mtp_iterations == 0
         # generate 只调用一次 (不递归)
-        assert sys._worker_agent.generate.call_count == 1
+        assert sys._worker_agent.generate_async.call_count == 1
 
     def test_handle_mtp_none_no_resume(self, sys):
         """误判时不追加 fake assistant history，不继续循环"""
         mtp_gen = _mtp_gen("Text. ")
-        sys._worker_agent.generate.return_value = mtp_gen
+        sys._worker_agent.generate_async.return_value = mtp_gen
         sys.kernel.handle_mtp.return_value = None
 
-        messages = [{"role": "system", "content": "Base."},
-                    {"role": "user", "content": "q"}]
-        sys.chat(user_message="q", messages=messages, user_id="u1")
+        sys.chat(user_message="q", user_id="u1")
 
         # generate 收到的 messages 不应包含 fake assistant
-        gen_call = sys._worker_agent.generate.call_args
+        gen_call = sys._worker_agent.generate_async.call_args
         sent_messages = gen_call.args[0]
         assert all(m["role"] != "assistant" for m in sent_messages)
 
@@ -644,19 +640,17 @@ class TestPhaseDResumeMessage:
 
     def test_fake_assistant_contains_mtp_response(self, sys):
         """Phase D 追加的 assistant message 包含 MTP 指令 + XML 响应"""
-        sys._worker_agent.generate.side_effect = [
+        sys._worker_agent.generate_async.side_effect = [
             _mtp_gen("Searching. "),
             _normal_gen("Found it."),
         ]
         mtp_result = _mtp_exec()
         sys.kernel.handle_mtp.return_value = mtp_result
 
-        messages = [{"role": "system", "content": "Base."},
-                    {"role": "user", "content": "find"}]
-        sys.chat(user_message="find", messages=messages, user_id="u1")
+        sys.chat(user_message="find", user_id="u1")
 
         # 第二次 generate 调用时 messages 应包含 fake assistant
-        second_call = sys._worker_agent.generate.call_args_list[1]
+        second_call = sys._worker_agent.generate_async.call_args_list[1]
         sent_messages = second_call.args[0]
         assistant_msgs = [m for m in sent_messages if m["role"] == "assistant"]
         assert len(assistant_msgs) == 1
@@ -665,19 +659,17 @@ class TestPhaseDResumeMessage:
 
     def test_multi_mtp_accumulates_history(self, sys):
         """多次 MTP 中断累积多条 fake assistant history"""
-        sys._worker_agent.generate.side_effect = [
+        sys._worker_agent.generate_async.side_effect = [
             _mtp_gen("Step1. "),
             _mtp_gen("Step2. "),
             _normal_gen("Done."),
         ]
         sys.kernel.handle_mtp.return_value = _mtp_exec()
 
-        messages = [{"role": "system", "content": "Base."},
-                    {"role": "user", "content": "multi"}]
-        sys.chat(user_message="multi", messages=messages, user_id="u1")
+        sys.chat(user_message="multi", user_id="u1")
 
         # 第三次 generate 调用时应有 2 条 fake assistant
-        third_call = sys._worker_agent.generate.call_args_list[2]
+        third_call = sys._worker_agent.generate_async.call_args_list[2]
         sent_messages = third_call.args[0]
         assistant_msgs = [m for m in sent_messages if m["role"] == "assistant"]
         assert len(assistant_msgs) == 2
@@ -690,7 +682,7 @@ class TestUserIdPropagation:
         """set_current_user 在循环开始时被调用"""
         sys.chat(
             user_message="hi",
-            messages=[{"role": "user", "content": "hi"}],
+            
             user_id="user_abc",
         )
 

@@ -335,17 +335,20 @@ def sys_passive():
 
     # Eye — mock spec，但持有真实 buffer 池和真实被动方法
     s.eye = MagicMock(spec=TheEye)
-    s.eye.gaze.return_value = _make_gaze_result()
+    s.eye.gaze = AsyncMock(return_value=_make_gaze_result())
     s.eye._observer_buffers = ObserverBufferManager()
     s.eye._observer_idle_timeout = 30.0
     s.eye.ingest_user = types.MethodType(TheEye.ingest_user, s.eye)
+    s.eye.ingest_user_async = types.MethodType(TheEye.ingest_user_async, s.eye)
     s.eye.ingest_assistant = types.MethodType(TheEye.ingest_assistant, s.eye)
     s.eye.flush_session = types.MethodType(TheEye.flush_session, s.eye)
     s.eye.flush_idle_sessions = types.MethodType(TheEye.flush_idle_sessions, s.eye)
 
     # Kernel
     s.kernel = MagicMock()
-    s.kernel.handle_hot.return_value = _make_hot_result(memory="<mem>ctx</mem>")
+    s.kernel.handle_hot = AsyncMock(
+        return_value=_make_hot_result(memory="<mem>ctx</mem>")
+    )
     s.kernel.submit_interaction = AsyncMock(return_value=None)
 
     # 绑定真实方法

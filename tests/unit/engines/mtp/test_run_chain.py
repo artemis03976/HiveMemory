@@ -152,6 +152,17 @@ class TestRunUserToolPath:
         assert not result.success
         assert "SEARCH" in result.response_content
 
+    def test_l2_route_failure_returns_infra_error(self, koakuma):
+        koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
+            "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
+        )
+
+        result = koakuma.execute_mtp('⟪ RUN | my_custom_tool | ⟫')
+
+        assert not result.success
+        assert "L2 alias lookup failed" in result.response_content
+        assert "storage route is unavailable" in result.response_content
+
     def test_l2_hit_executes_code_snippet(self, koakuma):
         """L2 命中 CODE_SNIPPET，沙箱执行成功"""
         mem = _make_code_memory(code="print('tool output')", alias="tool_greet")

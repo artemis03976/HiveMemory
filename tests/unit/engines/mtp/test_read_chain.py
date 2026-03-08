@@ -396,6 +396,17 @@ class TestReadL2Fallback:
         assert not result.success
         assert "not found" in result.response_content
 
+    def test_l2_route_failure_returns_infra_error(self, koakuma):
+        koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
+            "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
+        )
+
+        result = koakuma.execute_mtp('⟪ READ | fact_from_l2 | ⟫')
+
+        assert not result.success
+        assert "L2 alias lookup failed" in result.response_content
+        assert "storage route is unavailable" in result.response_content
+
     def test_l2_mixed_list(self, koakuma):
         """列表读取: 一个走 L1，一个走 L2"""
         mem_l1 = _make_memory(content="from L1")

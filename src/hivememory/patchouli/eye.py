@@ -14,6 +14,7 @@
 版本: 3.0 (Phase 4.5 Agentic Dispatcher)
 """
 
+import asyncio
 import logging
 import time
 from datetime import datetime
@@ -83,25 +84,39 @@ class TheEye:
             logger.warning(f"获取活跃话题菜单失败: {e}")
             return None
 
-    def gaze(
+    async def _build_active_topics_menu_async(self) -> Optional[str]:
+        if self._bus is None:
+            return None
+        try:
+            menu = await self._bus.async_request(
+                "librarian.get_active_topics_menu"
+            )
+            if not menu:
+                return None
+            lines = []
+            for item in menu:
+                lines.append(f'"{item["topic_id"]}: {item["title"]}"')
+            return "[" + ", ".join(lines) + "]"
+        except Exception as e:
+            logger.warning(f"获取活跃话题菜单失败: {e}")
+            return None
+
+    async def gaze(
         self,
         query: str,
-        context: Optional[List[StreamMessage]] = None,
+        topic_snapshots: Optional[List] = None,  # List[TopicSnapshot]
         identity: Optional[Identity] = None,
     ) -> EyeGazeResult:
         """
-        审视用户查询（Agentic Dispatcher 的主要入口方法）
-
-        Eye 负责感知、信息重整与话题路由。
-        返回 EyeGazeResult（含 target_topic）供 Kernel 进行数据格式转换。
+        TheEye 凝视：意图识别、查询重写、话题路由
 
         Args:
-            query: 用户原始查询
-            context: 对话上下文（可选），用于指代消解
-            identity: 身份标识对象
+            query: 用户查询字符串
+            topic_snapshots: 活跃话题快照列表（用于路由和指代消解）
+            identity: 用户身份标识
 
         Returns:
-            EyeGazeResult: Eye 的统一输出模型（含话题路由结果）
+            EyeGazeResult: Eye 分析结果
         """
         if identity is None:
             identity = Identity()
@@ -109,18 +124,23 @@ class TheEye:
         start_time = time.time()
 
         try:
-            # 获取活跃话题菜单
-            active_topics_menu = self._build_active_topics_menu()
+            # 将 topic_snapshots 转换为文本格式
+            from hivememory.engines.perception.context_converter import PerceptionContextConverter
 
-            # 调用数据操作层（含话题路由）
-            result = self._engine.process(
-                query, context, active_topics_menu=active_topics_menu
+            active_topics_menu = None
+            if topic_snapshots:
+                active_topics_menu = PerceptionContextConverter.snapshots_to_context_text(
+                    topic_snapshots
+                )
+
+            result = await asyncio.to_thread(
+                self._engine.process,
+                query,
+                None,  # context 参数已废弃，传 None
+                active_topics_menu,
             )
-
-            # 添加元信息
             result.processing_time_ms = (time.time() - start_time) * 1000
-
-            # 日志记录
+            
             logger.info(
                 f"TheEye 处理完成: "
                 f"intent={result.intent.value}, "
@@ -140,12 +160,9 @@ class TheEye:
                 is_fallback=False,
                 target_topic=result.target_topic,
             )
-
         except Exception as e:
             logger.error(f"TheEye 处理失败: {e}", exc_info=True)
-            # Fallback 处理
             processing_time_ms = (time.time() - start_time) * 1000
-
             return EyeGazeResult(
                 intent=GatewayIntent.RAG,
                 rewritten_query=query,
@@ -169,7 +186,7 @@ class TheEye:
         self,
         content: str,
         identity: Identity,
-        context: Optional[List[StreamMessage]] = None,
+        context: Optional[List[StreamMessage]] = None,  # Deprecated, kept for compatibility
     ) -> tuple[EyeGazeResult, Optional[InteractionPayload]]:
         """
         被动模式: 接收 user 消息
@@ -179,16 +196,46 @@ class TheEye:
         Args:
             content: 用户消息内容
             identity: 身份标识
-            context: 对话历史上下文
+            context: 对话历史上下文（已废弃，保留用于兼容）
 
         Returns:
             (gaze_result, flushed_payload):
                 gaze_result: Eye 分析结果
                 flushed_payload: 若触发 "Next User Turn" flush，返回上一轮 payload
         """
-        gaze_result = self.gaze(query=content, context=context, identity=identity)
+        gaze_result = asyncio.run(
+            self.gaze(query=content, topic_snapshots=None, identity=identity)
+        )
         buffer = self._observer_buffers.get_buffer(identity)
         flushed_payload = buffer.accept_user(content=content, gaze_result=gaze_result)
+        return gaze_result, flushed_payload
+
+    async def ingest_user_async(
+        self,
+        content: str,
+        identity: Identity,
+        context: Optional[List[StreamMessage]] = None,  # Deprecated, kept for compatibility
+    ) -> tuple[EyeGazeResult, Optional[InteractionPayload]]:
+        """
+        被动模式: 接收 user 消息（异步版本）
+
+        Args:
+            content: 用户消息内容
+            identity: 身份标识
+            context: 对话历史上下文（已废弃，保留用于兼容）
+
+        Returns:
+            (gaze_result, flushed_payload):
+                gaze_result: Eye 分析结果
+                flushed_payload: 若触发 "Next User Turn" flush，返回上一轮 payload
+        """
+        gaze_result = await self.gaze(
+            query=content, topic_snapshots=None, identity=identity
+        )
+        buffer = self._observer_buffers.get_buffer(identity)
+        flushed_payload = buffer.accept_user(
+            content=content, gaze_result=gaze_result
+        )
         return gaze_result, flushed_payload
 
     def ingest_assistant(

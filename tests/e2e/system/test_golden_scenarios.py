@@ -20,6 +20,7 @@ System Scenario E2E Tests - 系统级场景端到端测试
 
 import sys
 import os
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -418,10 +419,12 @@ class SystemScenarioTestSystem:
             content = interaction["content"]
 
             if role == "user":
-                gaze_result = self.eye.gaze(
-                    query=content,
-                    context=context,
-                    identity=identity,
+                gaze_result = asyncio.run(
+                    self.eye.gaze(
+                        query=content,
+                        context=context,
+                        identity=identity,
+                    )
                 )
                 pending_user = {
                     "content": content,
@@ -492,10 +495,12 @@ class SystemScenarioTestSystem:
 
         # 执行 Gateway
         context = session["input"].get("context", [])
-        gaze_result = self.eye.gaze(
-            query=query,
-            context=context,
-            identity=identity,
+        gaze_result = asyncio.run(
+            self.eye.gaze(
+                query=query,
+                context=context,
+                identity=identity,
+            )
         )
 
         # 打印中间信号

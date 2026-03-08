@@ -19,6 +19,7 @@ Kernel 递归循环 E2E Pipeline 测试
 版本: 1.0
 """
 
+import asyncio
 import os
 import types
 import logging
@@ -112,7 +113,9 @@ class KernelLoopTestHarness:
         self.system._worker_agent = self.worker_agent
         self.system.kernel = MagicMock()
         self.system.kernel.koakuma = self.koakuma
-        self.system.kernel.handle_mtp = lambda text: self.koakuma.intercept_and_execute(text)
+        async def _handle_mtp(text):
+            return self.koakuma.intercept_and_execute(text)
+        self.system.kernel.handle_mtp = _handle_mtp
         self.system.config = MagicMock()
         self.system.config.koakuma.max_recursion_depth = 10
 
@@ -127,8 +130,10 @@ class KernelLoopTestHarness:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_message},
         ]
-        result = self.system._recursive_generation_loop(
-            messages, user_id="test_user", max_iterations=max_iterations
+        result = asyncio.run(
+            self.system._recursive_generation_loop(
+                messages, user_id="test_user", max_iterations=max_iterations
+            )
         )
         # 保存 messages 供测试检查
         self._last_messages = messages

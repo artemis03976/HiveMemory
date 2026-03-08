@@ -61,7 +61,7 @@ class WorkerAgentService:
     """
     无状态 LLM 文本生成服务
 
-    封装 litellm.completion() 调用，自动注入 MTP Stop Sequence，
+    封装 litellm.acompletion() 调用，自动注入 MTP Stop Sequence，
     并对返回结果进行 MTP 中断检测。
 
     使用示例:
@@ -69,7 +69,7 @@ class WorkerAgentService:
         >>> from hivememory.patchouli.config import LLMConfig
         >>>
         >>> service = WorkerAgentService(config=LLMConfig(model="gpt-4o"))
-        >>> result = service.generate([{"role": "user", "content": "Hello"}])
+        >>> result = await service.generate_async([{"role": "user", "content": "Hello"}])
         >>> if result.was_mtp_interrupted:
         ...     print(f"MTP detected: {result.mtp_fragment}")
     """
@@ -84,26 +84,13 @@ class WorkerAgentService:
             f"WorkerAgentService 初始化完成 (model={config.model})"
         )
 
-    def generate(
+    async def generate_async(
         self,
         messages: List[Dict[str, str]],
         **kwargs,
     ) -> GenerationResult:
-        """
-        单次 LLM 生成，使用 stop=[MTP_STOP_SEQUENCE]
-
-        当 LLM 生成 ⟫ 时 API 会提前返回，此方法检测文本中是否包含 ⟪
-        来判断是否为 MTP 指令中断。
-
-        Args:
-            messages: OpenAI 格式的消息列表
-            **kwargs: 传递给 litellm.completion() 的额外参数
-
-        Returns:
-            GenerationResult: 结构化生成结果
-        """
         try:
-            response = litellm.completion(
+            response = await litellm.acompletion(
                 model=self._config.model,
                 messages=messages,
                 api_key=self._config.api_key,
@@ -114,21 +101,19 @@ class WorkerAgentService:
                 **kwargs,
             )
         except Exception as e:
-            logger.error(f"LLM 生成失败: {e}")
+            logger.error(f"LLM 异步生成失败: {e}")
             raise
 
         text = response.choices[0].message.content or ""
         finish_reason = response.choices[0].finish_reason or "stop"
 
-        # 记录 token 使用
         if hasattr(response, "usage") and response.usage:
             logger.info(
-                f"LLM 生成完成 (model={self._config.model}, "
+                f"LLM 异步生成完成 (model={self._config.model}, "
                 f"tokens={response.usage.total_tokens}, "
                 f"finish_reason={finish_reason})"
             )
 
-        # MTP 中断检测
         last_open = text.rfind(MTP_LEFT_DELIMITER)
         was_mtp = finish_reason == "stop" and last_open != -1
 

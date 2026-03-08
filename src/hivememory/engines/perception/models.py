@@ -505,6 +505,32 @@ class SemanticBuffer(BaseModel):
         return (current_time - self.last_update) > timeout_seconds
 
 
+# ============ 话题快照 (Phase 4.5 新增) ============
+
+class TopicSnapshot(BaseModel):
+    """
+    话题快照，用于 TheEye 路由决策
+
+    包含话题的基本信息和最后一轮对话，
+    使 TheEye 能够进行准确的路由和指代消解。
+
+    Attributes:
+        topic_id: 话题唯一标识
+        title: 话题标题
+        state_summary: 话题状态摘要（如果有折叠）
+        last_turn: 最后一轮对话 {"user": "...", "assistant": "..."}
+    """
+    topic_id: str = Field(..., description="话题唯一标识")
+    title: str = Field(..., description="话题标题")
+    state_summary: str = Field(default="", description="话题状态摘要（如果有折叠）")
+    last_turn: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="最后一轮对话 {'user': '...', 'assistant': '...'}"
+    )
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
 # ============ 交互载荷 (v3.0 新增) ============
 
 class InteractionPayload(BaseModel):

@@ -27,6 +27,7 @@ Pre-Retrieval E2E Tests - 预检索阶段端到端测试
 
 import sys
 import os
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -94,7 +95,6 @@ from hivememory.core.models import (
 
 # 协议消息
 from hivememory.patchouli.protocol.models import (
-    Observation,
     RetrievalRequest,
     RetrievalResponse,
     EyeGazeResult,
@@ -428,7 +428,7 @@ class HotPathTestSystem:
         query: str,
         context: Optional[List[StreamMessage]] = None,
         identity: Optional[Identity] = None,
-    ) -> Tuple[Optional[RetrievalRequest], Observation]:
+    ) -> EyeGazeResult:
         """
         仅执行 Gateway 处理，用于 HP-GW-* 测试
 
@@ -440,10 +440,12 @@ class HotPathTestSystem:
         Returns:
             EyeGazeResult: TheEye 的统一输出
         """
-        gaze_result = self.eye.gaze(
-            query=query,
-            context=context or [],
-            identity=identity or self.TEST_IDENTITY,
+        gaze_result = asyncio.run(
+            self.eye.gaze(
+                query=query,
+                context=context or [],
+                identity=identity or self.TEST_IDENTITY,
+            )
         )
 
         # 打印中间信号

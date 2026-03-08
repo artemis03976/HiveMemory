@@ -79,6 +79,10 @@ _FILTER_TYPE_MAP: Dict[str, MemoryType] = {
 }
 
 
+class L2AliasResolutionError(RuntimeError):
+    pass
+
+
 class _LRUCache:
     """
     简单 LRU 缓存 (用户态工具缓存, MTP Section 4.2.2)
@@ -551,7 +555,13 @@ class KoakumaRuntime:
         for alias in aliases:
             uuid = self._alias_resolver.resolve(alias)       # L1
             if uuid is None:
-                uuid = self._resolve_alias_l2(alias)          # L2 fallback
+                try:
+                    uuid = self._resolve_alias_l2(alias)
+                except L2AliasResolutionError as e:
+                    return MTPResponse(
+                        status=MTPResponseStatus.ERROR,
+                        content=f"L2 alias lookup failed for '{alias}': {str(e)}",
+                    )
             if uuid is None:
                 unresolved.append(alias)
             else:
@@ -592,7 +602,6 @@ class KoakumaRuntime:
             status=MTPResponseStatus.SUCCESS,
             content="\n".join(output_lines),
         )
-# PLACEHOLDER_RUN_WRITE_UPDATE
 
     def _handle_run(self, command: MTPCommand) -> MTPResponse:
         """
@@ -619,6 +628,16 @@ class KoakumaRuntime:
 
         # Level 0: 内核工具快速路径 (Section 4.2.1)
         syscall = self._kernel_registry.get(alias)
+        if syscall is None and alias.startswith("sys_"):
+            # sys_ 前缀保留给内核工具，不走 L1/L2 用户态解析
+            self._current_traces.append(TraceItem(
+                action="RUN", tool=alias, status="error",
+            ))
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=f"Kernel tool '{alias}' not found. "
+                        f"Use SEARCH to discover available tools.",
+            )
         if syscall is not None:
             try:
                 result = syscall.handler(command.args)
@@ -652,7 +671,13 @@ class KoakumaRuntime:
         # Step 2: 别名解析 (L1 → L2 回退) → 获取 UUID
         uuid = self._alias_resolver.resolve(alias)
         if uuid is None:
-            uuid = self._resolve_alias_l2(alias)
+            try:
+                uuid = self._resolve_alias_l2(alias)
+            except L2AliasResolutionError as e:
+                return MTPResponse(
+                    status=MTPResponseStatus.ERROR,
+                    content=f"L2 alias lookup failed for '{alias}': {str(e)}",
+                )
         if uuid is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -773,7 +798,13 @@ class KoakumaRuntime:
         # 3. 解析 alias → UUID (双层路由: L1 → L2)
         uuid = self._alias_resolver.resolve(alias)
         if uuid is None:
-            uuid = self._resolve_alias_l2(alias)
+            try:
+                uuid = self._resolve_alias_l2(alias)
+            except L2AliasResolutionError as e:
+                return MTPResponse(
+                    status=MTPResponseStatus.ERROR,
+                    content=f"L2 alias lookup failed for '{alias}': {str(e)}",
+                )
         if uuid is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -956,9 +987,16 @@ class KoakumaRuntime:
                 f"L2 cold-lookup hit: alias='{alias}' -> {uuid_str}, promoted to L1"
             )
             return uuid_str
+        except KeyError as e:
+            logger.error(f"L2 cold-lookup route unavailable: alias='{alias}', error={e}")
+            raise L2AliasResolutionError(
+                "storage route is unavailable"
+            ) from e
         except Exception as e:
-            logger.debug(f"L2 cold-lookup failed: alias='{alias}', error={e}")
-            return None
+            logger.error(f"L2 cold-lookup infrastructure failure: alias='{alias}', error={e}")
+            raise L2AliasResolutionError(
+                "storage backend failure"
+            ) from e
 
     def _execute_user_tool(
         self, alias: str, code: str, args: Dict[str, str]

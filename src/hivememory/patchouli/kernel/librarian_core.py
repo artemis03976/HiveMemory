@@ -299,6 +299,56 @@ class LibrarianCore:
         logger.warning("perception_layer 未注入，返回空缓冲区信息")
         return {}
 
+    def get_active_topics_snapshots(
+        self,
+        identity: Identity,
+    ) -> List:  # List[TopicSnapshot]
+        """
+        获取活跃话题快照列表（代理感知层接口）
+
+        Args:
+            identity: 用户身份标识
+
+        Returns:
+            List[TopicSnapshot]: 话题快照列表
+        """
+        if self.perception_layer:
+            return self.perception_layer.get_active_topics_snapshots(identity)
+        logger.warning("perception_layer 未注入，返回空快照列表")
+        return []
+
+    def get_topic_context_for_prompt(
+        self,
+        topic_id: str,
+        max_recent_blocks: int = 5,
+    ) -> Dict[str, Any]:
+        """
+        获取话题的完整上下文用于 Prompt 组装（代理感知层接口）
+
+        Args:
+            topic_id: 话题 ID
+            max_recent_blocks: 返回最近的 N 个 blocks
+
+        Returns:
+            Dict: {
+                "state_summary": str,
+                "blocks": List[LogicalBlock],
+                "total_tokens": int,
+                "title": str,
+            }
+        """
+        if self.perception_layer:
+            return self.perception_layer.get_topic_context_for_prompt(
+                topic_id, max_recent_blocks
+            )
+        logger.warning("perception_layer 未注入，返回空上下文")
+        return {
+            "state_summary": "",
+            "blocks": [],
+            "total_tokens": 0,
+            "title": "未知话题",
+        }
+
     async def manual_trigger(
         self,
         topic_id: Optional[str] = None,

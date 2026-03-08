@@ -681,6 +681,19 @@ class TestKoakumaUpdateValidation:
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
         assert validation_koakuma.get_update_focus() is None
 
+    def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
+        validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
+            "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
+        )
+        agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
+        result = validation_koakuma.intercept_and_execute(agent_text)
+
+        assert result is not None
+        assert not result.success
+        assert "L2 alias lookup failed" in result.response_content
+        assert "storage route is unavailable" in result.response_content
+        assert validation_koakuma.get_update_focus() is None
+
     def test_update_deferred_capture_always_ack(self, existing_memory):
         """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
         from tests.unit.engines.mtp.conftest import make_mock_bus

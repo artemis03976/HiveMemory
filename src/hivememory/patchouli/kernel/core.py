@@ -26,6 +26,7 @@
 版本: 3.0
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
@@ -309,9 +310,15 @@ class PatchouliKernel:
         bus.register("librarian.get_active_topics_menu", librarian_svc.get_active_topics_menu)
         bus.register("librarian.get_buffer_info", librarian_svc.get_buffer_info)
         bus.register("librarian.manual_trigger", librarian_svc.manual_trigger)
+        bus.register("librarian.get_active_topics_snapshots", librarian_svc.get_active_topics_snapshots)
+        bus.register("librarian.get_topic_context_for_prompt", librarian_svc.get_topic_context_for_prompt)
 
         # --- Retrieval 服务路由 ---
         bus.register("retrieval.retrieve", retrieval_svc.retrieve)
+
+        # --- Storage 服务路由 ---
+        bus.register("storage.get_memory", self.storage.get_memory)
+        bus.register("storage.get_memory_by_alias", self.storage.get_memory_by_alias)
 
         # --- Koakuma 服务路由 ---
         bus.register("koakuma.intercept_and_execute", koakuma_svc.intercept_and_execute)
@@ -337,35 +344,25 @@ class PatchouliKernel:
 
     # ========== 公开 API ==========
 
-    def handle_hot(
+    async def handle_hot(
         self,
         gaze_result: EyeGazeResult,
         enable_retrieval: bool = True,
         mode: str = "active",
     ) -> KernelHotResult:
-        """
-        处理 Eye 传入的热路径预检索请求
-
-        Args:
-            gaze_result: TheEye 的统一输出
-            enable_retrieval: 是否执行预检索 (False 时跳过，即使 intent 为 RAG)
-            mode: 运行模式 ("active" | "passive")，透传给 RetrievalFamiliar
-
-        Returns:
-            KernelHotResult: 热路径处理结果
-        """
-        # 构建 RetrievalRequest 并调度 Retrieval（热路径）
         retrieved_context = None
         if enable_retrieval:
             retrieval_request = self.build_retrieval_request(gaze_result)
             if retrieval_request:
                 if self._bus:
-                    retrieved_result = self._bus.request(
+                    retrieved_result = await self._bus.async_request(
                         "retrieval.retrieve", retrieval_request, mode=mode,
                     )
                 else:
-                    retrieved_result = self.retrieval_familiar.retrieve(
-                        retrieval_request, mode=mode,
+                    retrieved_result = await asyncio.to_thread(
+                        self.retrieval_familiar.retrieve,
+                        retrieval_request,
+                        mode,
                     )
                 if not retrieved_result.is_empty():
                     retrieved_context = retrieved_result.rendered_context
@@ -378,30 +375,18 @@ class PatchouliKernel:
             memory=retrieved_context,
         )
 
-    def handle_mtp(
+    async def handle_mtp(
         self,
         assistant_text: str,
     ) -> Optional[MTPExecutionResult]:
-        """
-        MTP 拦截与执行入口 (Section 3.1)
-
-        供外部 Kernel Loop 调用。当 LLM API 因 stop=["⟫"] 停止时，
-        将 assistant 输出传入此方法进行 MTP 指令检测与执行。
-
-        流程 (Section 7.4):
-        Phase B (Decision): 捕获 MTP 信号 → 提取指令 Buffer
-        Phase C (Execution): 发送给 Koakuma 解析执行
-        Phase D (Resume): 返回 XML 结果供 Kernel 追加到 History
-
-        Args:
-            assistant_text: LLM 生成的文本 (在 ⟫ 处被截断)
-
-        Returns:
-            MTPExecutionResult 如果检测到 MTP 指令，否则 None
-        """
         if self._bus:
-            return self._bus.request("koakuma.intercept_and_execute", assistant_text)
-        return self.koakuma.intercept_and_execute(assistant_text)
+            return await self._bus.async_request(
+                "koakuma.intercept_and_execute", assistant_text
+            )
+        return await asyncio.to_thread(
+            self.koakuma.intercept_and_execute,
+            assistant_text,
+        )
 
     async def submit_interaction(
         self,

@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.infrastructure.system_bus import SystemBus
 from hivememory.patchouli.protocol.models import (
     EyeGazeResult,
     KernelHotResult,
@@ -75,96 +76,100 @@ def _create_kernel(bus=None):
         return kernel
 
 
+@pytest.mark.asyncio
 class TestKernelHandleHot:
     """handle_hot() 测试"""
 
-    def test_handle_hot_rag_intent(self):
+    async def test_handle_hot_rag_intent(self):
         """RAG 意图时执行检索，返回 memory context"""
         kernel = _create_kernel()
         gaze = _make_gaze_result(intent=GatewayIntent.RAG)
         kernel._services["retrieval"].retrieve.return_value = _make_retrieval_response(empty=False)
 
-        result = kernel.handle_hot(gaze)
+        result = await kernel.handle_hot(gaze)
 
         assert isinstance(result, KernelHotResult)
         assert result.memory is not None
         assert result.intent == "RAG"
 
-    def test_handle_hot_chat_intent(self):
+    async def test_handle_hot_chat_intent(self):
         """CHAT 意图时不检索，memory=None"""
         kernel = _create_kernel()
         gaze = _make_gaze_result(intent=GatewayIntent.CHAT)
 
-        result = kernel.handle_hot(gaze)
+        result = await kernel.handle_hot(gaze)
 
         assert result.memory is None
         kernel._services["retrieval"].retrieve.assert_not_called()
 
-    def test_handle_hot_retrieval_disabled(self):
+    async def test_handle_hot_retrieval_disabled(self):
         """enable_retrieval=False 时跳过检索"""
         kernel = _create_kernel()
         gaze = _make_gaze_result(intent=GatewayIntent.RAG)
 
-        result = kernel.handle_hot(gaze, enable_retrieval=False)
+        result = await kernel.handle_hot(gaze, enable_retrieval=False)
 
         assert result.memory is None
         kernel._services["retrieval"].retrieve.assert_not_called()
 
-    def test_handle_hot_empty_retrieval(self):
+    async def test_handle_hot_empty_retrieval(self):
         """检索结果为空时 memory=None"""
         kernel = _create_kernel()
         gaze = _make_gaze_result(intent=GatewayIntent.RAG)
         kernel._services["retrieval"].retrieve.return_value = _make_retrieval_response(empty=True)
 
-        result = kernel.handle_hot(gaze)
+        result = await kernel.handle_hot(gaze)
 
         assert result.memory is None
 
-    def test_handle_hot_with_bus(self):
-        """有 bus 时通过 bus.request 调度"""
+    async def test_handle_hot_with_bus(self):
+        """有 bus 时通过 bus.async_request 调度"""
         mock_bus = Mock()
-        mock_bus.request.return_value = _make_retrieval_response(empty=False)
+        mock_bus.async_request = AsyncMock(
+            return_value=_make_retrieval_response(empty=False)
+        )
         kernel = _create_kernel(bus=mock_bus)
         gaze = _make_gaze_result(intent=GatewayIntent.RAG)
 
-        result = kernel.handle_hot(gaze)
+        result = await kernel.handle_hot(gaze)
 
-        mock_bus.request.assert_called()
+        mock_bus.async_request.assert_called()
         # 验证调用了 retrieval.retrieve 路由
-        route_calls = [c for c in mock_bus.request.call_args_list if c[0][0] == "retrieval.retrieve"]
+        route_calls = [c for c in mock_bus.async_request.call_args_list if c[0][0] == "retrieval.retrieve"]
         assert len(route_calls) == 1
 
-    def test_handle_hot_without_bus(self):
+    async def test_handle_hot_without_bus(self):
         """无 bus 时直接调用 retrieval_familiar"""
         kernel = _create_kernel(bus=None)
         gaze = _make_gaze_result(intent=GatewayIntent.RAG)
         kernel._services["retrieval"].retrieve.return_value = _make_retrieval_response(empty=False)
 
-        result = kernel.handle_hot(gaze)
+        result = await kernel.handle_hot(gaze)
 
         kernel._services["retrieval"].retrieve.assert_called_once()
 
 
+@pytest.mark.asyncio
 class TestKernelHandleMTP:
     """handle_mtp() 测试"""
 
-    def test_handle_mtp_with_bus(self):
+    async def test_handle_mtp_with_bus(self):
         """有 bus 时委托给 bus"""
         mock_bus = Mock()
-        mock_bus.request.return_value = Mock()
+        mock_bus.async_request = AsyncMock(return_value=Mock())
         kernel = _create_kernel(bus=mock_bus)
 
-        kernel.handle_mtp("some text")
+        await kernel.handle_mtp("some text")
 
-        route_calls = [c for c in mock_bus.request.call_args_list if c[0][0] == "koakuma.intercept_and_execute"]
+        route_calls = [c for c in mock_bus.async_request.call_args_list if c[0][0] == "koakuma.intercept_and_execute"]
         assert len(route_calls) == 1
 
-    def test_handle_mtp_without_bus(self):
+    async def test_handle_mtp_without_bus(self):
         """无 bus 时直接调用 koakuma"""
         kernel = _create_kernel(bus=None)
         kernel._services["koakuma"].intercept_and_execute.return_value = Mock()
 
-        kernel.handle_mtp("some text")
+        await kernel.handle_mtp("some text")
 
         kernel._services["koakuma"].intercept_and_execute.assert_called_once_with("some text")
 
@@ -277,3 +282,17 @@ class TestKernelDelegation:
         kernel.add_flush_observer(observer)
 
         kernel._services["librarian"].add_flush_observer.assert_called_once_with(observer)
+
+
+class TestKernelBusRouteRegistration:
+    """SystemBus 路由注册测试"""
+
+    def test_register_storage_routes(self):
+        bus = SystemBus()
+        kernel = _create_kernel(bus=bus)
+
+        kernel._register_bus_routes()
+
+        routes = set(bus.list_routes())
+        assert "storage.get_memory" in routes
+        assert "storage.get_memory_by_alias" in routes

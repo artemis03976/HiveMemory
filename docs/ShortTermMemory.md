@@ -203,7 +203,7 @@ The Eye (Gateway) 不再是单纯的文本重写器，而是升级为**拥有全
 
 1.  **用户输入** -> The Eye (清洗、路由、重写) -> 生成 `rewritten_query`，向 Perception Layer 发起 `route(topic_id)` 请求。
 2.  **环境换入 (Swap-in)**：Perception Layer 返回对应的 `TopicSegment` 数据。
-3.  **长时记忆注入 (RAG)**：Kernel 拿着 `rewritten_query` 向 Retrieval Familiar 请求 MTP 菜单（Menu）。
+3.  **预检索记忆注入 (RAG)**：Kernel 拿着 `rewritten_query` 向 Retrieval Familiar 请求 MTP 菜单（Menu）。
 4.  **组装 Prompt**：Kernel 拼装 `[System + Topic_State_Summary + MTP_Menu + Topic_Recent_Blocks]`。
 5.  **生成循环 (Generation Loop)**：Kernel 驱动 Worker Agent，处理 MTP 协议的多次中断与恢复（`⟪ READ ⟫`, `⟪ RUN ⟫`）。
 6.  **环境换出与归档 (Swap-out & Archive)**：

@@ -407,6 +407,109 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         return self._buffer_manager.get_active_topics_menu()
 
+    def get_active_topics_snapshots(
+        self,
+        identity: Optional[Identity] = None,
+    ) -> List["TopicSnapshot"]:
+        """
+        获取活跃话题快照列表（用于 TheEye 路由决策）
+
+        每个快照包含:
+        - topic_id: 话题 ID
+        - title: 话题标题
+        - state_summary: 状态摘要（如果有折叠）
+        - last_turn: 最后一轮对话 {"user": "...", "assistant": "..."}
+
+        Args:
+            identity: 可选，如果提供则只返回该用户的话题
+
+        Returns:
+            List[TopicSnapshot]: 话题快照列表
+        """
+        from hivememory.engines.perception.models import TopicSnapshot
+
+        # 获取 buffers
+        if identity:
+            buffers = self._buffer_manager.get_buffers_by_owner(identity)
+        else:
+            buffers = self._buffer_manager.get_all_buffers()
+
+        snapshots = []
+        for buffer in buffers:
+            # 只返回有内容的话题
+            if not buffer.blocks:
+                continue
+
+            # 获取最后一个 block
+            last_block = buffer.blocks[-1]
+            last_turn = {
+                "user": last_block.user_query,
+                "assistant": last_block.clean_response,
+            }
+
+            snapshot = TopicSnapshot(
+                topic_id=buffer.topic_id,
+                title=buffer.title,
+                state_summary=buffer.state_summary,
+                last_turn=last_turn,
+            )
+            snapshots.append(snapshot)
+
+        return snapshots
+
+    def get_topic_context_for_prompt(
+        self,
+        topic_id: str,
+        max_recent_blocks: int = 5,
+    ) -> Dict[str, Any]:
+        """
+        获取话题的完整上下文用于 Prompt 组装
+
+        Args:
+            topic_id: 话题 ID
+            max_recent_blocks: 返回最近的 N 个 blocks
+
+        Returns:
+            Dict: {
+                "state_summary": str,
+                "blocks": List[LogicalBlock],
+                "total_tokens": int,
+                "title": str,
+            }
+        """
+        # 处理 NEW_TOPIC 情况
+        if topic_id == "NEW_TOPIC":
+            return {
+                "state_summary": "",
+                "blocks": [],
+                "total_tokens": 0,
+                "title": "新建话题",
+            }
+
+        # 获取 buffer
+        buffer = self._buffer_manager.get_buffer(topic_id)
+        if buffer is None:
+            logger.warning(f"话题不存在: topic_id={topic_id}，返回空上下文")
+            return {
+                "state_summary": "",
+                "blocks": [],
+                "total_tokens": 0,
+                "title": "未知话题",
+            }
+
+        # 更新访问时间
+        buffer.last_accessed_at = datetime.now().timestamp()
+
+        # 获取最近的 N 个 blocks
+        recent_blocks = buffer.blocks[-max_recent_blocks:] if buffer.blocks else []
+
+        return {
+            "state_summary": buffer.state_summary,
+            "blocks": recent_blocks,
+            "total_tokens": buffer.total_tokens,
+            "title": buffer.title,
+        }
+
     async def _ensure_topic_slot_and_create(self, identity: Identity) -> str:
         """
         确保有空闲槽位后创建新话题

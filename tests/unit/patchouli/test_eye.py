@@ -39,6 +39,7 @@ def _make_gateway_result(**kwargs) -> GatewayResult:
     return result
 
 
+@pytest.mark.asyncio
 class TestTheEyeGaze:
     """gaze() 方法测试"""
 
@@ -46,11 +47,11 @@ class TestTheEyeGaze:
         self.mock_engine = Mock()
         self.eye = TheEye(engine=self.mock_engine, bus=None)
 
-    def test_gaze_success(self):
+    async def test_gaze_success(self):
         """正常调用 engine.process，返回 EyeGazeResult(is_fallback=False)"""
         self.mock_engine.process.return_value = _make_gateway_result()
 
-        result = self.eye.gaze("测试查询", identity=_make_identity())
+        result = await self.eye.gaze("测试查询", identity=_make_identity())
 
         self.mock_engine.process.assert_called_once()
         assert isinstance(result, EyeGazeResult)
@@ -58,34 +59,38 @@ class TestTheEyeGaze:
         assert result.intent == GatewayIntent.RAG
         assert result.rewritten_query == "重写查询"
 
-    def test_gaze_fallback_on_exception(self):
+    async def test_gaze_fallback_on_exception(self):
         """engine.process 抛异常时返回 fallback"""
         self.mock_engine.process.side_effect = RuntimeError("boom")
 
-        result = self.eye.gaze("测试查询", identity=_make_identity())
+        result = await self.eye.gaze("测试查询", identity=_make_identity())
 
         assert result.is_fallback is True
         assert result.intent == GatewayIntent.RAG
         assert result.rewritten_query == "测试查询"
         assert result.target_topic == "NEW_TOPIC"
 
-    def test_gaze_identity_default(self):
+    async def test_gaze_identity_default(self):
         """identity=None 时使用 Identity() 默认值"""
         self.mock_engine.process.return_value = _make_gateway_result()
 
-        result = self.eye.gaze("查询", identity=None)
+        result = await self.eye.gaze("查询", identity=None)
 
         assert result.identity is not None
 
-    def test_gaze_passes_context(self):
-        """context 正确传递给 engine.process"""
+    async def test_gaze_forwards_none_context(self):
+        """engine.process 第二参固定为 None"""
         self.mock_engine.process.return_value = _make_gateway_result()
-        ctx = [Mock()]
 
-        self.eye.gaze("查询", context=ctx, identity=_make_identity())
+        await self.eye.gaze(
+            "查询",
+            topic_snapshots=[],
+            identity=_make_identity(),
+        )
 
         call_args = self.mock_engine.process.call_args
-        assert call_args[0][1] is ctx
+        assert call_args[0][0] == "查询"
+        assert call_args[0][1] is None
 
 
 class TestTheEyeBuildTopicsMenu:

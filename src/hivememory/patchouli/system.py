@@ -9,7 +9,7 @@
     - TheEye (真理之眼): Ingress Gateway，独立于 Kernel 之外
     - PatchouliKernel (帕秋莉内核): 中心调度器，管理微服务
 
-    数据流: User → PatchouliSystem → TheEye.gaze() → Kernel.handle() → Services
+    数据流: User → PatchouliSystem → TheEye.gaze() → Kernel.handle_hot() → Services
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
@@ -219,7 +219,7 @@ class PatchouliSystem:
 
         if role == "user":
             # 1. Eye 分析 + 缓冲 (自动 flush 上一轮)
-            gaze_result, flushed_payload = self.eye.ingest_user(
+            gaze_result, flushed_payload = await self.eye.ingest_user_async(
                 content=content, identity=identity, context=context or [],
             )
             if flushed_payload:
@@ -229,7 +229,7 @@ class PatchouliSystem:
                 )
 
             # 2. 被动模式检索 (使用 FullContextRenderer 降级渲染)
-            hot_result = self.kernel.handle_hot(
+            hot_result = await self.kernel.handle_hot(
                 gaze_result,
                 mode="passive",
             )
@@ -308,66 +308,73 @@ class PatchouliSystem:
     async def chat(
         self,
         user_message: str,
-        messages: List[Dict[str, str]],
         user_id: str,
         agent_id: str = "default",
         session_id: Optional[str] = None,
-        context: Optional[List[StreamMessage]] = None,
         enable_memory_retrieval: bool = True,
     ) -> ChatResult:
         """
-        Kernel 驱动的对话入口 (异步版本)
+        Kernel 驱动的对话入口
 
         流程:
-        1. [The Eye] 意图识别 + 查询重写 (始终执行)
-        2. [Kernel.handle_hot] 异步感知投递 + 可选预检索
-        3. [Prompt Augmentation] 注入 MTP prompt + 记忆上下文
-        4. [The Loop] 递归生成循环 (Phase A→B→C→D)
-        5. [Librarian] 异步记录 assistant 回复到感知层
+        1. [Perception Layer] 获取活跃话题快照
+        2. [The Eye] 意图识别 + 查询重写 + 话题路由
+        3. [Perception Layer] 根据路由决策获取完整话题上下文
+        4. [Kernel.handle_hot] 预检索
+        5. [Prompt Assembly] 从感知层上下文组装 messages
+        6. [The Loop] 递归生成循环 (Phase A→B→C→D)
+        7. [Librarian] 异步记录 assistant 回复到感知层
 
         Args:
-            user_message: 当前用户消息 (用于 Eye 分析)
-            messages: OpenAI 格式的完整消息列表 (含 system prompt + history)
+            user_message: 当前用户消息
             user_id: 用户 ID
             agent_id: Agent ID
             session_id: 会话 ID
-            context: 对话历史上下文 (用于 Eye 指代消解)
-            enable_memory_retrieval: 是否启用记忆预检索 (False 时 Eye 和感知层仍正常运行，仅跳过检索)
+            enable_memory_retrieval: 是否启用记忆预检索
 
         Returns:
             ChatResult: 递归生成循环的完整结果
         """
+        # 1. Create identity
         identity = Identity(
             user_id=user_id, agent_id=agent_id, session_id=session_id
         )
 
-        # 1. Eye 分析 (始终执行)
-        # TODO: 改为 async def，使用 await self.eye.gaze_async(...)
-        gaze_result = self.eye.gaze(
-            query=user_message, context=context or [], identity=identity
+        # 2. Get topic snapshots from perception layer
+        topic_snapshots = await self._get_topic_snapshots(identity)
+
+        # 3. Eye 分析 (with topic snapshots for routing and coreference)
+        gaze_result = await self.eye.gaze(
+            query=user_message,
+            topic_snapshots=topic_snapshots,
+            identity=identity
         )
 
-        # 2. Kernel 统一管线: 异步感知投递 + 可选预检索
-        # TODO: 改为 async def，使用 await self.kernel.handle_hot_async(...)
-        hot_result = self.kernel.handle_hot(
+        # 4. Fetch full context from perception layer based on routing decision
+        topic_context = await self._get_topic_context_for_generation(
+            gaze_result.target_topic,
+            identity
+        )
+
+        # 5. Kernel 统一管线: 预检索
+        hot_result = await self.kernel.handle_hot(
             gaze_result,
             enable_retrieval=enable_memory_retrieval,
         )
 
-        # 3. 增强 System Prompt (MTP + 记忆上下文)
-        messages = [dict(m) for m in messages]  # 浅拷贝
-        if messages and messages[0]["role"] == "system":
-            mtp_prompt = self.get_mtp_prompt()
-            if mtp_prompt:
-                messages[0]["content"] += f"\n\n{mtp_prompt}"
-            if hot_result.memory:
-                messages[0]["content"] += f"\n\n{hot_result.memory}"
+        # 6. Assemble messages from perception layer context
+        messages = self._assemble_messages_from_context(
+            topic_context=topic_context,
+            hot_result=hot_result,
+            user_message=user_message,
+        )
 
-        # 4. 递归生成循环
-        # TODO: 改为 async def，使用 await self._recursive_generation_loop_async(...)
-        loop_result = self._recursive_generation_loop(messages, user_id)
+        # 7. 递归生成循环
+        loop_result = await self._recursive_generation_loop(
+            messages, user_id
+        )
 
-        # 5. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
+        # 8. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
         raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
 
         # Koakuma 离线 fallback: 降级为空 traces / None focus
@@ -399,28 +406,12 @@ class PatchouliSystem:
 
         return loop_result
 
-    def _recursive_generation_loop(
+    async def _recursive_generation_loop(
         self,
         messages: List[Dict[str, str]],
         user_id: str,
         max_iterations: Optional[int] = None,
     ) -> ChatResult:
-        """
-        Kernel 递归生成循环 (Phase A→B→C→D)
-
-        Phase A: 调用 WorkerAgent 生成文本 (stop=["⟫"])
-        Phase B: 检测是否 MTP 中断
-        Phase C: Koakuma 执行 MTP 指令
-        Phase D: 将 XML 结果追加到 history，跳回 Phase A
-
-        Args:
-            messages: 当前消息列表 (会被原地修改)
-            user_id: 用户 ID (用于 Koakuma 权限)
-            max_iterations: 最大迭代次数 (默认从配置读取)
-
-        Returns:
-            ChatResult: 循环结果
-        """
         max_iter = max_iterations or self.config.koakuma.max_recursion_depth
         text_segments: List[str] = []
         mtp_commands: List[str] = []
@@ -432,22 +423,17 @@ class PatchouliSystem:
         while iteration < max_iter:
             iteration += 1
 
-            # Phase A: Generate
-            result = self._worker_agent.generate(messages)
+            result = await self._worker_agent.generate_async(messages)
 
-            # Phase B: Decision
             if not result.was_mtp_interrupted:
                 text_segments.append(result.text)
                 break
 
-            # MTP 中断 — 累积前缀文本
             text_segments.append(result.prefix_text)
 
-            # Phase C: Execute
-            mtp_result = self.kernel.handle_mtp(result.text)
+            mtp_result = await self.kernel.handle_mtp(result.text)
 
             if mtp_result is None:
-                # 误判: stop sequence 命中但无有效 MTP 指令
                 text_segments.append(result.mtp_fragment)
                 break
 
@@ -456,7 +442,6 @@ class PatchouliSystem:
                 if mtp_result.command else "UNKNOWN"
             )
 
-            # Phase D: Resume — 构建 fake assistant history
             fake_assistant = result.text + mtp_result.formatted_response
             messages.append({"role": "assistant", "content": fake_assistant})
 
@@ -506,6 +491,140 @@ class PatchouliSystem:
     def get_mtp_prompt(self) -> str:
         """获取 MTP System Prompt 片段（委托给 Kernel）"""
         return self.kernel.get_mtp_prompt()
+
+    async def _get_topic_snapshots(
+        self,
+        identity: Identity,
+    ) -> List:  # List[TopicSnapshot]
+        """
+        获取活跃话题快照列表
+
+        从感知层获取所有活跃话题的快照，包含每个话题的最后一轮对话。
+
+        Args:
+            identity: 用户身份标识
+
+        Returns:
+            List[TopicSnapshot]: 话题快照列表
+        """
+        if self._bus:
+            snapshots = await self._bus.async_request(
+                "librarian.get_active_topics_snapshots",
+                identity=identity,
+            )
+        else:
+            snapshots = self.kernel.librarian_core.get_active_topics_snapshots(identity)
+
+        return snapshots
+
+    async def _get_topic_context_for_generation(
+        self,
+        target_topic: str,
+        identity: Identity,
+    ) -> Dict[str, Any]:
+        """
+        根据路由决策获取完整话题上下文
+
+        Args:
+            target_topic: TheEye 返回的目标话题 ID 或 "NEW_TOPIC"
+            identity: 用户身份
+
+        Returns:
+            Dict: {
+                "state_summary": str,
+                "blocks": List[LogicalBlock],
+                "total_tokens": int,
+                "title": str,
+            }
+        """
+        # 处理 NEW_TOPIC 情况
+        if target_topic == "NEW_TOPIC":
+            return {
+                "state_summary": "",
+                "blocks": [],
+                "total_tokens": 0,
+                "title": "新建话题",
+            }
+
+        # 从感知层获取话题上下文
+        if self._bus:
+            context = await self._bus.async_request(
+                "librarian.get_topic_context_for_prompt",
+                topic_id=target_topic,
+                max_recent_blocks=5,
+            )
+        else:
+            context = self.kernel.librarian_core.get_topic_context_for_prompt(
+                topic_id=target_topic,
+                max_recent_blocks=5,
+            )
+
+        return context
+
+    def _assemble_messages_from_context(
+        self,
+        topic_context: Dict[str, Any],
+        hot_result,  # KernelHotResult
+        user_message: str,
+    ) -> List[Dict[str, str]]:
+        """
+        从感知层上下文组装 LLM messages
+
+        组装顺序:
+        1. System prompt (MTP + memory + topic state)
+        2. Topic history (from blocks)
+        3. Current user message
+
+        Args:
+            topic_context: 话题上下文（来自感知层）
+            hot_result: Kernel hot path 结果（包含检索到的记忆）
+            user_message: 当前用户消息
+
+        Returns:
+            List[Dict]: OpenAI 格式的 messages
+        """
+        from hivememory.engines.perception.context_converter import PerceptionContextConverter
+
+        messages = []
+
+        # 1. Assemble system prompt
+        full_system_prompt = ""
+
+        # Add MTP prompt (包含基础人设)
+        mtp_prompt = self.get_mtp_prompt()
+        if mtp_prompt:
+            full_system_prompt = mtp_prompt
+
+        # Add retrieved memory
+        if hot_result.memory:
+            if full_system_prompt:
+                full_system_prompt += f"\n\n{hot_result.memory}"
+            else:
+                full_system_prompt = hot_result.memory
+
+        # Add topic state summary
+        if topic_context["state_summary"]:
+            state_section = f"[Topic State]\n{topic_context['state_summary']}"
+            if full_system_prompt:
+                full_system_prompt += f"\n\n{state_section}"
+            else:
+                full_system_prompt = state_section
+
+        # Only add system message if there's content
+        if full_system_prompt:
+            messages.append({"role": "system", "content": full_system_prompt})
+
+        # 2. Add topic history from blocks
+        history_messages = PerceptionContextConverter.blocks_to_messages(
+            blocks=topic_context["blocks"],
+            include_state_summary=False,  # Already included in system prompt
+        )
+        messages.extend(history_messages)
+
+        # 3. Add current user message
+        messages.append({"role": "user", "content": user_message})
+
+        return messages
 
     @staticmethod
     def _reconstruct_raw_assistant_text(
