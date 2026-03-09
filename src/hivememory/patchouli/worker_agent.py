@@ -25,7 +25,7 @@ Worker Agent Service - 无状态 LLM 文本生成服务
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional
 
 import litellm
 
@@ -55,6 +55,25 @@ class GenerationResult:
     was_mtp_interrupted: bool = False
     prefix_text: str = ""
     mtp_fragment: str = ""
+
+
+@dataclass
+class StreamChunk:
+    """
+    流式生成的单个 chunk
+
+    Attributes:
+        delta: 本次增量文本
+        full_text: 累积的完整文本
+        is_final: 是否为最终结果 (流结束)
+        result: 最终结果 (仅 is_final=True 时有值)
+        mtp_detected: 是否已检测到 MTP 定界符 ⟪
+    """
+    delta: str = ""
+    full_text: str = ""
+    is_final: bool = False
+    result: Optional[GenerationResult] = None
+    mtp_detected: bool = False
 
 
 class WorkerAgentService:
@@ -131,8 +150,107 @@ class WorkerAgentService:
             mtp_fragment=text[last_open:] if was_mtp else "",
         )
 
+    async def generate_stream(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """
+        流式 LLM 生成，逐 chunk yield
+
+        使用 litellm.acompletion(stream=True)，实时检测 MTP 定界符 ⟪。
+        - 检测到 ⟪ 之前：每个 chunk 作为 delta yield (mtp_detected=False)
+        - 检测到 ⟪ 之后：继续缓冲但不 yield delta (mtp_detected=True)
+        - 流结束时：yield is_final=True 的 StreamChunk，携带完整 GenerationResult
+
+        Args:
+            messages: OpenAI 格式的消息列表
+            **kwargs: 传递给 litellm 的额外参数
+
+        Yields:
+            StreamChunk: 流式 chunk
+        """
+        try:
+            response = await litellm.acompletion(
+                model=self._config.model,
+                messages=messages,
+                api_key=self._config.api_key,
+                api_base=self._config.api_base,
+                temperature=self._config.temperature,
+                max_tokens=self._config.max_tokens,
+                stop=[MTP_STOP_SEQUENCE],
+                stream=True,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(f"LLM 流式生成启动失败: {e}")
+            raise
+
+        full_text = ""
+        mtp_detected = False
+        finish_reason = "stop"
+        # 缓冲区：用于处理 ⟪ 可能跨 chunk 边界的情况
+        pending = ""
+
+        async for chunk in response:
+            choice = chunk.choices[0] if chunk.choices else None
+            if choice is None:
+                continue
+
+            delta_content = choice.delta.content or ""
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+
+            if not delta_content:
+                continue
+
+            full_text += delta_content
+
+            if not mtp_detected:
+                pending += delta_content
+                if MTP_LEFT_DELIMITER in pending:
+                    mtp_detected = True
+                    idx = pending.index(MTP_LEFT_DELIMITER)
+                    # ⟪ 之前的文本作为最后一个正常 delta 推送
+                    before = pending[:idx]
+                    if before:
+                        yield StreamChunk(delta=before, full_text=full_text, mtp_detected=False)
+                    # ⟪ 及之后的内容不推送，标记 mtp_detected
+                    yield StreamChunk(delta="", full_text=full_text, mtp_detected=True)
+                    pending = ""
+                else:
+                    yield StreamChunk(delta=delta_content, full_text=full_text, mtp_detected=False)
+            # mtp_detected=True 后不再 yield 中间 chunk，静默缓冲
+
+        # 流结束，构建最终 GenerationResult
+        last_open = full_text.rfind(MTP_LEFT_DELIMITER)
+        was_mtp = finish_reason == "stop" and last_open != -1
+
+        if was_mtp:
+            logger.info(
+                f"流式 MTP 中断检测: ⟪ 位于 offset={last_open}, "
+                f"prefix_len={last_open}, fragment_len={len(full_text) - last_open}"
+            )
+
+        result = GenerationResult(
+            text=full_text,
+            finish_reason=finish_reason,
+            was_mtp_interrupted=was_mtp,
+            prefix_text=full_text[:last_open] if was_mtp else full_text,
+            mtp_fragment=full_text[last_open:] if was_mtp else "",
+        )
+
+        yield StreamChunk(
+            delta="",
+            full_text=full_text,
+            is_final=True,
+            result=result,
+            mtp_detected=mtp_detected,
+        )
+
 
 __all__ = [
     "GenerationResult",
+    "StreamChunk",
     "WorkerAgentService",
 ]

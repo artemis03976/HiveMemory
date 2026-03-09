@@ -26,7 +26,7 @@
 
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import InteractionPayload
@@ -451,6 +451,162 @@ class PatchouliSystem:
             total_iterations=iteration,
             mtp_commands_executed=mtp_commands,
         )
+
+    # ========== 流式对话 API (SSE) ==========
+
+    async def chat_stream(
+        self,
+        user_message: str,
+        user_id: str,
+        agent_id: str = "default",
+        session_id: Optional[str] = None,
+        enable_memory_retrieval: bool = True,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        流式对话入口 — chat() 的 SSE 流式变体
+
+        逐 token 推送 LLM 生成文本，MTP 执行过程实时推送状态。
+        复用 chat() 的所有私有方法，仅将递归循环改为流式 yield。
+
+        SSE 事件类型:
+            - topic_info: 话题路由结果
+            - token: LLM 生成的文本增量
+            - mtp_start: MTP 指令被拦截
+            - mtp_result: MTP 执行完成
+            - done: 生成完成
+            - error: 错误发生
+
+        Yields:
+            Dict[str, Any]: {"event": str, "data": dict}
+        """
+        identity = Identity(
+            user_id=user_id, agent_id=agent_id, session_id=session_id
+        )
+
+        try:
+            # 1. 获取话题快照
+            topic_snapshots = await self._get_topic_snapshots(identity)
+
+            # 2. Eye 分析
+            gaze_result = await self.eye.gaze(
+                query=user_message,
+                topic_snapshots=topic_snapshots,
+                identity=identity,
+            )
+
+            yield {
+                "event": "topic_info",
+                "data": {
+                    "topic_id": gaze_result.target_topic,
+                    "is_new": gaze_result.target_topic == "NEW_TOPIC",
+                },
+            }
+
+            # 3. 获取话题上下文
+            topic_context = await self._get_topic_context_for_generation(
+                gaze_result.target_topic, identity
+            )
+
+            # 4. 预检索
+            hot_result = await self.kernel.handle_hot(
+                gaze_result, enable_retrieval=enable_memory_retrieval,
+            )
+
+            # 5. 组装 messages
+            messages = self._assemble_messages_from_context(
+                topic_context=topic_context,
+                hot_result=hot_result,
+                user_message=user_message,
+            )
+
+            # 6. 流式递归生成循环
+            max_iter = self.config.koakuma.max_recursion_depth
+            text_segments: List[str] = []
+            mtp_commands: List[str] = []
+            iteration = 0
+
+            self.kernel.koakuma.set_current_user(user_id)
+            self.kernel.koakuma.reset_interaction_state()
+
+            while iteration < max_iter:
+                iteration += 1
+                gen_result = None
+
+                async for chunk in self._worker_agent.generate_stream(messages):
+                    if chunk.is_final:
+                        gen_result = chunk.result
+                        break
+                    if not chunk.mtp_detected and chunk.delta:
+                        yield {"event": "token", "data": {"content": chunk.delta}}
+
+                if gen_result is None:
+                    break
+
+                if not gen_result.was_mtp_interrupted:
+                    text_segments.append(gen_result.text)
+                    break
+
+                # MTP 中断
+                text_segments.append(gen_result.prefix_text)
+
+                verb_hint = "UNKNOWN"
+                yield {"event": "mtp_start", "data": {"verb": verb_hint, "iteration": iteration}}
+
+                mtp_result = await self.kernel.handle_mtp(gen_result.text)
+
+                if mtp_result is None:
+                    text_segments.append(gen_result.mtp_fragment)
+                    yield {"event": "mtp_result", "data": {"verb": verb_hint, "status": "failed", "iteration": iteration}}
+                    break
+
+                verb = mtp_result.command.verb.value if mtp_result.command else "UNKNOWN"
+                mtp_commands.append(verb)
+
+                yield {"event": "mtp_result", "data": {"verb": verb, "status": mtp_result.response_status, "iteration": iteration}}
+
+                fake_assistant = gen_result.text + mtp_result.formatted_response
+                messages.append({"role": "assistant", "content": fake_assistant})
+
+            # 7. 构建最终结果
+            loop_result = ChatResult(
+                final_text="".join(text_segments),
+                mtp_iterations=max(0, iteration - 1),
+                total_iterations=iteration,
+                mtp_commands_executed=mtp_commands,
+            )
+
+            # 8. 提交 InteractionPayload
+            raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
+
+            try:
+                mtp_traces = self.kernel.koakuma.get_interaction_traces()
+                write_focus = self.kernel.koakuma.get_write_focus()
+                update_focus = self.kernel.koakuma.get_update_focus()
+            except Exception:
+                mtp_traces = []
+                write_focus = None
+                update_focus = None
+
+            interaction_payload = InteractionPayload(
+                user_message=user_message,
+                assistant_message=raw_assistant_text,
+                mtp_traces=mtp_traces,
+                write_focus=write_focus,
+                update_focus=update_focus,
+                identity=identity,
+                rewritten_query=hot_result.rewritten,
+                worth_saving=hot_result.worth_saving,
+            )
+
+            await self.kernel.submit_interaction(
+                interaction_payload, target_topic=gaze_result.target_topic
+            )
+
+            yield {"event": "done", "data": loop_result.model_dump()}
+
+        except Exception as e:
+            logger.error(f"chat_stream 异常: {e}", exc_info=True)
+            yield {"event": "error", "data": {"message": str(e)}}
 
     async def manual_trigger(
         self,

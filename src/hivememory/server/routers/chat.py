@@ -1,0 +1,44 @@
+"""Chat 路由 — POST /api/v1/chat (SSE 流式响应)"""
+
+import json
+
+from fastapi import APIRouter, Depends
+from sse_starlette.sse import EventSourceResponse
+
+from hivememory.patchouli.system import PatchouliSystem
+from hivememory.server.deps import get_system
+from hivememory.server.models.chat import ChatRequest
+
+router = APIRouter(tags=["chat"])
+
+
+@router.post("/chat")
+async def chat(
+    request: ChatRequest,
+    system: PatchouliSystem = Depends(get_system),
+):
+    """
+    主动对话接口 — SSE 流式响应
+
+    SSE 事件类型:
+    - token: {"content": "..."} — LLM 生成的文本增量
+    - mtp_start: {"verb": "...", "iteration": N} — MTP 指令被拦截
+    - mtp_result: {"verb": "...", "status": "...", "iteration": N} — MTP 执行完成
+    - topic_info: {"topic_id": "...", "is_new": bool} — 话题路由结果
+    - done: {"final_text": "...", ...} — 生成完成
+    - error: {"message": "..."} — 错误发生
+    """
+    async def event_generator():
+        async for event in system.chat_stream(
+            user_message=request.message,
+            user_id=request.user_id,
+            agent_id=request.agent_id,
+            session_id=request.session_id,
+            enable_memory_retrieval=request.enable_memory_retrieval,
+        ):
+            yield {
+                "event": event["event"],
+                "data": json.dumps(event["data"], ensure_ascii=False),
+            }
+
+    return EventSourceResponse(event_generator())

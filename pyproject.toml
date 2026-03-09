@@ -41,6 +41,7 @@ dependencies = [
     "rich>=13.0.0",
     "httpx>=0.26.0",
     "FlagEmbedding>=1.2.0",
+    "sse-starlette>=1.6.0",
 ]
 
 [project.optional-dependencies]
@@ -61,6 +62,9 @@ ui = [
 search = [
     "duckduckgo-search>=7.0.0",
 ]
+
+[project.scripts]
+hivememory-server = "hivememory.server.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/HiveMemory"

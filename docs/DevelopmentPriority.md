@@ -102,7 +102,7 @@
    - `DELETE /api/v1/memories/{id}` — 删除记忆
 
 4. **基础设施**:
-   - CORS 中间件配置 (允许 Next.js 开发服务器跨域)
+   - CORS 中间件配置 (允许前端开发服务器跨域)
    - 简单的 `x-user-id` 头透传 (暂不引入 JWT)
    - 健康检查端点 `GET /health`
    - 请求日志中间件
@@ -112,12 +112,12 @@
    - Chat 接口使用 SSE 而非 WebSocket (降低前端复杂度，Phase 1 足够)
    - MTP 执行过程中的中间状态通过 SSE event 实时推送
 
-### P2: Next.js 前端核心 (Chat UI)
+### P2: React 前端核心 (Chat UI)
 
 > 提供可用的图形界面，替代 Streamlit Demo。
 
 1. **项目初始化**:
-   - Next.js 15 + App Router
+   - React 18 + Vite
    - TailwindCSS + Shadcn/UI
    - 目录: `web/` (项目根目录下)
 
@@ -154,7 +154,7 @@
 2. **用户认证**: 集成 JWT / OAuth2
 3. **记忆可视化**: 前端展示记忆节点关联图谱
 4. **文件上传**: 集成多模态能力
-5. **Docker Compose**: 一键部署 (FastAPI + Next.js + Qdrant + Redis)
+5. **Docker Compose**: 一键部署 (FastAPI + React + Qdrant + Redis)
 6. **DB-based Archiver**: 替代文件归档，提升可扩展性
 
 ---
@@ -165,7 +165,7 @@
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Next.js Frontend (web/)                    │
+│  React Frontend (web/)                    │
 │  ├── SSE Consumer (chat stream)             │
 │  ├── REST Client (memories, topics)         │
 │  └── MTP Visual Renderer                   │
