@@ -1,5 +1,5 @@
 # HiveMemory UI/UX 设计文档 (v1.0)
-## 主题：面向 AIOS 的可视化仪表盘 (The AIOS Visual Dashboard)
+## 主题：面向 AIOS 的对话空间与可视化仪表盘 (The AIOS Visual Dashboard)
 
 ### 1. 设计理念与目标 (Design Philosophy)
 
@@ -59,7 +59,7 @@ HiveMemory 的前端不仅是给普通用户使用的“聊天窗口（Chat Inte
 
 Shadcn UI 依赖 CSS 变量来进行主题控制。我们将在 `globals.css` 中定义基于 **深色模式优先 (Dark Mode First)** 的主题变量。
 
-推荐使用具有魔法感和科技感的色调：**星云紫 (Nebula Purple) 与 深渊蓝 (Abyss Blue)**。
+推荐使用具有魔法感和科技感的色调：**星云紫 (Nebula Purple) 与 深渊蓝 (Abyss Blue)**作为系统配色的主基调，对应帕秋莉的人格属性与系统性质
 
 **`globals.css` 核心变量示例 (深色模式)**:
 ```css
