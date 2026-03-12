@@ -27,64 +27,42 @@ export function OmniInput({ onSend, disabled }: OmniInputProps) {
   };
 
   return (
-    <div className="glass-input rounded-2xl p-2 flex flex-col focus-within:ring-2 ring-primary transition-all duration-200">
-      {/* Toolbar */}
-      <div className="flex gap-2 pb-2 border-b border-white/10 mb-2">
-        <button
-          type="button"
-          className="p-2 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
-          aria-label="Attach file"
-        >
-          <Paperclip className="w-4 h-4 text-muted-foreground" />
-        </button>
-        <button
-          type="button"
-          className="p-2 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
-          aria-label="Reference memory"
-        >
-          <Hash className="w-4 h-4 text-muted-foreground" />
-        </button>
+    <div className="mx-auto max-w-3xl mb-4 w-full px-4"> 
+      {/* 核心输入框本体 */}
+      <div className="glass-input rounded-2xl p-3 flex flex-col gap-2">
+        
+        {/* 1. 输入区放在最上面，彻底无边框 */}
+        <TextareaAutosize
+          className="w-full resize-none bg-transparent outline-none text-[15px] text-foreground placeholder:text-muted-foreground/75 leading-relaxed px-1"
+          placeholder="向帕秋莉提问，或输入 / 唤出指令..."
+          minRows={1}
+          maxRows={8}
+        />
+        
+        {/* 2. 底部工具栏与发送按钮并排 */}
+        <div className="flex items-center justify-between pt-1">
+          {/* 左侧工具：附件、记忆引用 */}
+          <div className="flex items-center gap-1 text-muted-foreground/75">
+            <button className="p-2 hover:text-foreground hover:bg-white/5 rounded-lg transition-colors">
+              <Paperclip className="w-4 h-4" />
+            </button>
+            <button className="p-2 hover:text-foreground hover:bg-white/5 rounded-lg transition-colors">
+              <Hash className="w-4 h-4" />
+            </button>
+          </div>
+          
+          {/* 右侧：发送按钮 (有输入内容时点亮为主色调) */}
+          <button className="p-2 rounded-xl bg-primary/20 text-primary hover:bg-primary hover:text-white transition-all duration-300">
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Input Area */}
-      <form onSubmit={handleSubmit} className="flex items-end gap-2">
-        <TextareaAutosize
-          id="message-input"
-          name="message"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          maxRows={10}
-          placeholder="向帕秋莉提问，或输入 / 唤出指令..."
-          disabled={disabled}
-          className={cn(
-            'flex-1 resize-none bg-transparent outline-none p-2',
-            'text-foreground placeholder:text-muted-foreground',
-            'min-h-[40px]'
-          )}
-        />
-
-        <button
-          type="submit"
-          disabled={!message.trim() || disabled}
-          className={cn(
-            'p-2 rounded-lg transition-all duration-200',
-            'flex items-center justify-center',
-            message.trim() && !disabled
-              ? 'bg-primary hover:bg-primary/80 text-primary-foreground cursor-pointer'
-              : 'bg-muted text-muted-foreground cursor-not-allowed'
-          )}
-          aria-label="Send message"
-        >
-          <Send className="w-4 h-4" />
-        </button>
-      </form>
-
-      {/* Hint */}
-      <div className="mt-2 text-xs text-muted-foreground">
-        <kbd className="px-1.5 py-0.5 rounded bg-black/20 border border-white/10">Enter</kbd> 发送
-        <span className="mx-2">•</span>
-        <kbd className="px-1.5 py-0.5 rounded bg-black/20 border border-white/10">Shift + Enter</kbd> 换行
+      {/* 3. 快捷键提示移到输入框外面，极度淡化 */}
+      <div className="text-center mt-3 text-[11px] text-muted-foreground/60 font-medium tracking-wide">
+        <span className="bg-white/5 px-1.5 py-0.5 rounded text-[10px] mr-1">Enter</span> 发送 
+        <span className="mx-2">•</span> 
+        <span className="bg-white/5 px-1.5 py-0.5 rounded text-[10px] mr-1">Shift + Enter</span> 换行
       </div>
     </div>
   );

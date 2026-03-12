@@ -33,6 +33,20 @@ const mockMessages: Message[] = [
       },
     ],
   },
+  {
+    id: 'm_code_test',
+    role: 'assistant',
+    content: `当然，这里有一段 Python 代码示例：
+
+\`\`\`python
+def hello_world():
+    print("Hello, HiveMemory!")
+    return True
+\`\`\`
+
+`,
+    timestamp: Date.now() - 10000,
+  },
 ];
 
 export function MainWorkspace() {
@@ -89,8 +103,8 @@ export function MainWorkspace() {
         </div>
       </div>
 
-      {/* Omni Input - 无分界线，带有对比背景 */}
-      <div className="p-6 bg-muted/20">
+      {/* Omni Input - Suspended Floating Design */}
+      <div className="p-6 relative z-10">
         <div className="max-w-4xl mx-auto">
           <OmniInput onSend={handleSendMessage} />
         </div>
