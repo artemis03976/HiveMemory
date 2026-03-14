@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
-import { MtpActionCard } from './MtpActionCard';
+import { MtpActionCard } from './MTPCard';
 import type { Message } from '@/types';
 
 interface ChatMessageProps {

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mock Data Debug</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    .memory-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .memory-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .memory-type {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .memory-summary {
+      color: #aaa;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .memory-meta {
+      font-size: 12px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <h1>Memory Garden Mock Data Debug</h1>
+  <p>这个页面用于测试 mock 数据是否正确加载</p>
+  <div id="memories"></div>
+
+  <script type="module">
+    // 模拟 mock 数据
+    const mockMemories = [
+      {
+        id: 'mock-1',
+        title: 'HiveMemory 项目架构设计',
+        summary: 'HiveMemory 采用三层架构：感知层（Perception）负责消息接收和话题管理，记忆层（Memory）负责向量存储和检索，生成层（Generation）负责 LLM 调用和响应生成。',
+        memory_type: 'FACT',
+        tags: ['architecture', 'design', 'hivememory'],
+        confidence_score: 0.95,
+        access_count: 12,
+      },
+      {
+        id: 'mock-2',
+        title: 'React useEffect 清理函数最佳实践',
+        summary: '在 useEffect 中返回清理函数用于取消订阅、清除定时器、中止请求等，避免内存泄漏。清理函数在组件卸载或依赖项变化时执行。',
+        memory_type: 'CODE_SNIPPET',
+        tags: ['react', 'hooks', 'javascript', 'best-practice'],
+        confidence_score: 0.92,
+        access_count: 8,
+      },
+      {
+        id: 'mock-3',
+        title: 'Tailwind CSS 毛玻璃效果实现',
+        summary: '使用 backdrop-blur 和半透明背景色实现毛玻璃（Glassmorphism）效果。需要配合 border 和 shadow 增强层次感。',
+        memory_type: 'CODE_SNIPPET',
+        tags: ['css', 'tailwind', 'ui', 'glassmorphism'],
+        confidence_score: 0.88,
+        access_count: 5,
+      },
+      {
+        id: 'mock-4',
+        title: 'Qdrant 向量数据库配置',
+        summary: 'Qdrant 是高性能向量数据库，支持密集向量和稀疏向量混合检索。配置包括集合创建、向量维度、距离度量等。',
+        memory_type: 'URL_RESOURCE',
+        tags: ['qdrant', 'vector-db', 'configuration', 'database'],
+        confidence_score: 0.85,
+        access_count: 3,
+      },
+      {
+        id: 'mock-5',
+        title: '用户偏好：喜欢简洁的代码风格',
+        summary: '用户倾向于编写简洁、可读性强的代码，避免过度工程化。偏好函数式编程风格，使用 TypeScript 严格模式。',
+        memory_type: 'USER_PROFILE',
+        tags: ['preference', 'coding-style', 'typescript'],
+        confidence_score: 0.78,
+        access_count: 15,
+      },
+      {
+        id: 'mock-6',
+        title: '记忆花园 UI 实现进行中',
+        summary: '正在实现记忆花园面板，包括卡片视图、列表视图、搜索过滤、详情模态框等功能。使用 Framer Motion 实现动画效果。',
+        memory_type: 'WORK_IN_PROGRESS',
+        tags: ['frontend', 'react', 'ui', 'memory-garden'],
+        confidence_score: 0.42,
+        access_count: 1,
+      },
+    ];
+
+    const typeColors = {
+      CODE_SNIPPET: '#00d4ff',
+      FACT: '#00ff88',
+      URL_RESOURCE: '#ffd700',
+      REFLECTION: '#ff4081',
+      USER_PROFILE: '#9d4edd',
+      WORK_IN_PROGRESS: '#ffb700',
+    };
+
+    const container = document.getElementById('memories');
+
+    mockMemories.forEach(memory => {
+      const card = document.createElement('div');
+      card.className = 'memory-card';
+
+      const typeColor = typeColors[memory.memory_type];
+
+      card.innerHTML = `
+        <div class="memory-type" style="background: ${typeColor}20; color: ${typeColor}; border: 1px solid ${typeColor}40;">
+          ${memory.memory_type}
+        </div>
+        <div class="memory-title">${memory.title}</div>
+        <div class="memory-summary">${memory.summary}</div>
+        <div class="memory-meta">
+          置信度: ${(memory.confidence_score * 100).toFixed(0)}% |
+          访问次数: ${memory.access_count} |
+          标签: ${memory.tags.join(', ')}
+        </div>
+      `;
+
+      container.appendChild(card);
+    });
+
+    console.log('Mock memories loaded:', mockMemories.length);
+  </script>
+</body>
+</html>

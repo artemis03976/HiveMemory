@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChatMessage } from './ChatMessage';
-import { OmniInput } from './OmniInput';
+import { ChatMessage } from './chat/ChatMessage';
+import { OmniInput } from './chat/OmniInput';
 import type { Message } from '@/types';
 
 const mockMessages: Message[] = [

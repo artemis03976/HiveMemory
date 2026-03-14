@@ -3,10 +3,11 @@ import { Panel, Group, Separator } from 'react-resizable-panels';
 import { PanelRightOpen } from 'lucide-react';
 import { GlobalNavBar } from './components/GlobalNavBar';
 import type { ViewType } from './components/GlobalNavBar';
-import { ContextSidebar } from './components/ContextSidebar';
+import { ContextSidebar } from './components/chat/ContextSidebar';
 import { MainWorkspace } from './components/MainWorkspace';
 import { SettingsPanel } from './components/SettingsPanel';
 import { KernelVision } from './components/KernelVision';
+import { MemoryGarden } from './components/MemoryGarden';
 
 function App() {
   const [activeView, setActiveView] = useState<ViewType>('chat');
@@ -26,11 +27,7 @@ function App() {
           </div>
         );
       case 'memory':
-        return (
-          <div className="h-screen flex items-center justify-center">
-            <div className="text-foreground/60">Memory Garden - Coming Soon</div>
-          </div>
-        );
+        return <MemoryGarden />;
       default:
         return <MainWorkspace />;
     }
