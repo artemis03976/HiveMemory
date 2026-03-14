@@ -106,9 +106,21 @@ perception:
     type: "semantic_flow"
     idle_timeout_seconds: 900  # 15分钟
     scan_interval_seconds: 30
-    max_processing_tokens: 8192
-    enable_smart_summary: false
 
+    # Page Folding 配置
+    fold_token_threshold: 32768  # 页折叠高水位线
+    fold_retain_recent_blocks: 2  # 折叠后保留的最近 block 数量
+
+    # MMU 话题池配置
+    max_resident_topics: 5  # 活跃话题池最大驻留数
+
+    # RelayController 配置
+    relay:
+      engine:
+        type: "simple"  # simple/llm
+        max_processing_tokens: 8192
+
+    # SemanticAdsorber 配置
     adsorber:
       semantic_threshold_high: 0.55
       semantic_threshold_low: 0.45

@@ -39,6 +39,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:5173",      # Vite 默认端口
+        "http://127.0.0.1:5173",      # Vite 默认端口
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -74,11 +76,13 @@ async def health():
 
 # 注册路由
 from hivememory.server.routers.chat import router as chat_router
+from hivememory.server.routers.config import router as config_router
 from hivememory.server.routers.ingest import router as ingest_router
 from hivememory.server.routers.memories import router as memories_router
 from hivememory.server.routers.topics import router as topics_router
 
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(config_router, prefix="/api")
 app.include_router(ingest_router, prefix="/api/v1")
 app.include_router(memories_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")

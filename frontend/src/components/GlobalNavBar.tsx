@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { MessageSquare, BookOpen, Bot, Moon, Terminal, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -70,26 +69,30 @@ const bottomNavItems: NavItemConfig[] = [
   { id: 'settings', icon: Settings, label: 'Settings', accent: 'neutral' },
 ];
 
-export function GlobalNavBar() {
-  const [activeNav, setActiveNav] = useState('chat');
-  const [activeToggles, setActiveToggles] = useState<Set<string>>(new Set());
+export type ViewType = 'chat' | 'memory' | 'agents' | 'kernel' | 'settings';
 
+interface GlobalNavBarProps {
+  activeView: ViewType;
+  onViewChange: (view: ViewType) => void;
+}
+
+export function GlobalNavBar({ activeView, onViewChange }: GlobalNavBarProps) {
   const handleClick = (item: NavItemConfig) => {
     if (item.disabled) return;
+
     if (item.toggle) {
-      setActiveToggles(prev => {
-        const next = new Set(prev);
-        if (next.has(item.id)) next.delete(item.id);
-        else next.add(item.id);
-        return next;
-      });
-    } else {
-      setActiveNav(item.id);
+      // Toggle actions (like theme) don't change the view
+      // Handle theme toggle logic here if needed
+      return;
     }
+
+    onViewChange(item.id as ViewType);
   };
 
-  const isActive = (item: NavItemConfig) =>
-    item.toggle ? activeToggles.has(item.id) : activeNav === item.id;
+  const isActive = (item: NavItemConfig) => {
+    if (item.toggle) return false;
+    return activeView === item.id;
+  };
 
   return (
     <nav className="glass-nav w-16 h-screen flex flex-col items-center py-6 relative z-50">

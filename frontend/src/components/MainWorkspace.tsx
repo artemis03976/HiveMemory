@@ -7,7 +7,7 @@ const mockMessages: Message[] = [
   {
     id: 'm1',
     role: 'assistant',
-    content: '你好！我是帕秋莉，HiveMemory 的 AI 助手。我可以帮你管理记忆、执行任务和回答问题。',
+    content: '你好！有什么可以帮您？',
     timestamp: Date.now() - 60000,
   },
   {
@@ -24,7 +24,7 @@ const mockMessages: Message[] = [
     mtpActions: [
       {
         id: 'a1',
-        type: 'READ',
+        type: 'RUN',
         command: 'sys_read_file',
         params: { path: 'package.json' },
         status: 'success',
@@ -36,7 +36,7 @@ const mockMessages: Message[] = [
   {
     id: 'm_code_test',
     role: 'assistant',
-    content: `当然，这里有一段 Python 代码示例：
+    content: `这里是一段 Python 代码示例：
 
 \`\`\`python
 def hello_world():

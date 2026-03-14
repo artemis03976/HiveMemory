@@ -31,7 +31,7 @@ export function MtpActionCard({ action, onOpenKernelVision }: MtpActionCardProps
     },
     success: {
       icon: CheckCircle2,
-      text: `${action.type} 完毕`,
+      text: `${action.type} 执行完毕`,
       bgClass: 'bg-magic-wood/10 border-magic-wood/20 shadow-[inset_0_0_12px_hsla(150,80%,45%,0.1)]',
       textClass: 'text-magic-wood',
       iconClass: '',
@@ -114,15 +114,14 @@ export function MtpActionCard({ action, onOpenKernelVision }: MtpActionCardProps
           >
             <div className="p-3 text-[12px] font-mono text-muted-foreground/80 space-y-1.5">
               <div className="flex">
-                <span className="w-10 shrink-0 text-emerald-500/40 select-none">TGT </span>
-                <span className="text-primary-300 font-semibold">{action.target || '*'}</span>
+                <span className="w-10 shrink-0 text-emerald-500/40 select-none">CMD </span>
+                <span className="text-primary-300 font-semibold">{action.command}</span>
               </div>
-              {action.args && (
+              {action.params && Object.keys(action.params).length > 0 && (
                 <div className="flex">
-                  <span className="w-12 shrink-0 opacity-50">ARG |</span>
+                  <span className="w-12 shrink-0 opacity-50">PARAMS |</span>
                   <span className="text-emerald-300/70 line-clamp-3">
-                    {/* 如果参数太长，这里也做了最多3行的截断 */}
-                    {typeof action.args === 'string' ? action.args : JSON.stringify(action.args)}
+                    {JSON.stringify(action.params)}
                   </span>
                 </div>
               )}

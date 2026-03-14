@@ -54,6 +54,18 @@
 }
 
 @layer utilities {
+  /* 基础液态玻璃容器 */
+  .liquid-glass {
+    /* 核心1：强模糊 + 提升150%的饱和度，让背景色在玻璃内爆发 */
+    @apply backdrop-blur-2xl backdrop-saturate-150;
+    /* 核心2：极淡的填充色，User偏亮(白), Agent偏暗(黑) */
+    @apply bg-white/3; 
+    /* 核心3：极细的半透明边框，不带任何彩色 */
+    @apply border border-white/8;
+    /* 核心4：顶部内发光 + 底部深投影 */
+    @apply shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_8px_32px_rgba(0,0,0,0.4)];
+  }
+
   /* Enhanced Glassmorphism utilities */
   .glass-nav {
     /* 使用 black/40 压暗底色，backdrop-blur-3xl 提供最强的物理厚重感 */
@@ -111,20 +123,17 @@
 body::before {
   content: '';
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
   z-index: -1;
   background:
     /* 左下：月之深邃 (紫) */
-    radial-gradient(circle at 15% 85%, hsl(265 70% 40% / 0.25) 0%, transparent 50%),
+    radial-gradient(circle at 15% 85%, hsl(265 70% 40% / 0.25) 0%, transparent 70%),
     /* 中部：魔法之渊 (蓝) */
-    radial-gradient(circle at 50% 50%, hsl(225 80% 50% / 0.15) 0%, transparent 60%),
+    radial-gradient(circle at 50% 50%, hsl(225 80% 50% / 0.15) 0%, transparent 70%),
     /* 右上：日之高光 (琥珀金) */
-    radial-gradient(circle at 85% 15%, hsla(40 90% 55% / 0.30) 0%, transparent 50%);
-  opacity: 0.4; /* 提高整体基础透明度 */
-  animation: aurora 20s ease-in-out infinite;
+    radial-gradient(circle at 85% 15%, hsla(40 90% 55% / 0.30) 0%, transparent 70%);
+  background-color: hsl(230 20% 5%);
+  animation: aurora 20s ease-in-out infinite alternate;
   pointer-events: none;
 }
 

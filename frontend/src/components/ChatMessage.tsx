@@ -23,7 +23,6 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
         <div className={cn(
           "w-9 h-9 rounded-xl shrink-0 flex items-center justify-center relative",
           "bg-background/40 backdrop-blur-md border border-primary/40",
-          "shadow-[0_0_15px_rgba(139,92,246,0.3)]" // 专属的紫色魔法光晕
         )}>
           <span className="text-sm font-bold text-primary drop-shadow-md">P</span>
         </div>
@@ -33,31 +32,29 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
         className={cn(
           isUser
             ? [
-                'max-w-[85%] rounded-3xl p-5 transition-all duration-300',
-                // 1. 暖色水晶渐变底色 (极低透明度)
-                'bg-linear-to-br from-amber-500/20 to-rose-500/20',
-                // 2. 强模糊度，透出极光背景
-                'backdrop-blur-xl',
-                // 3. 晶体边框
-                'border border-amber-500/30',
-                // 4. 右上角对话尖角
+                'max-w-[85%] rounded-2xl p-5 transition-all duration-300',
+                // 1. 无色、微亮的半透明白
+                'bg-amber-400/25',
+                // 2. 极致模糊，粉碎背后的图案
+                'backdrop-blur-3xl',
+                // 3. 极细的高光切面边框
+                'border border-white/10 border-b-white/5 border-r-white/5', 
                 'rounded-tr-sm',
-                // 5. 光影：Inset高光 + 琥珀色外发光
-                'shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_8px_24px_rgba(245,158,11,0.1)]',
+                // 4. 纯净的深色投影（去掉金色发光）
+                'shadow-[0_8px_32px_rgba(0,0,0,0.3)]',
                 'text-foreground font-medium' // 提升文字清晰度
               ]
             : [
-                'relative max-w-[85%] rounded-3xl p-5 transition-all duration-300',
+                'relative max-w-[85%] rounded-2xl p-5 transition-all duration-300',
                 // 1. 紫粉水晶渐变 (帕秋莉色系，极低透明度保证可读性)
-                'bg-linear-to-br from-purple-500/10 via-fuchsia-500/10 to-transparent',
-                // 2. 极强模糊度 (让后面的极光在这里糊化，托住黑色文字)
-                'backdrop-blur-2xl',
-                // 3. 晶莹剔透的银色边框
-                'border border-white/10',
-                // 4. 左上角对话尖角
+                'bg-purple-500/10',
+                // 2. 同样极致的模糊
+                'backdrop-blur-3xl',
+                // 3. 统一的物理边框
+                'border border-white/10 border-b-white/5 border-r-white/5',
                 'rounded-tl-sm',
-                // 5. 光影：Inset高光 + 悬浮深色重阴影 (托住视线)
-                'shadow-[inset_0_1px_1px_rgba(255,255,255,0.15),0_8px_32px_rgba(0,0,0,0.4)]',
+                // 4. 更深的悬浮阴影
+                'shadow-[0_8px_32px_rgba(0,0,0,0.4)]',
                 'text-foreground'
               ]
         )}

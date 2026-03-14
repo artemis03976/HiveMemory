@@ -1,0 +1,23 @@
+"""Topic 相关的 Response 模型"""
+
+from typing import Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+
+class TopicSnapshotResponse(BaseModel):
+    topic_id: str
+    title: str
+    state_summary: str = ""
+    last_turn: Optional[Dict[str, str]] = None
+
+
+class TopicListResponse(BaseModel):
+    topics: List[TopicSnapshotResponse]
+
+
+class TriggerResponse(BaseModel):
+    success: bool
+    topic_id: Optional[str] = None
+    message: str = ""
+    blocks_archived: Optional[int] = None

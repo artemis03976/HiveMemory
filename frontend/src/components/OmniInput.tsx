@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import TextareaAutosize from 'react-textarea-autosize';
 import { Send, Paperclip, Hash } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface OmniInputProps {
   onSend: (message: string) => void;
@@ -37,6 +36,10 @@ export function OmniInput({ onSend, disabled }: OmniInputProps) {
           placeholder="向帕秋莉提问，或输入 / 唤出指令..."
           minRows={1}
           maxRows={8}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
         />
         
         {/* 2. 底部工具栏与发送按钮并排 */}
@@ -52,7 +55,11 @@ export function OmniInput({ onSend, disabled }: OmniInputProps) {
           </div>
           
           {/* 右侧：发送按钮 (有输入内容时点亮为主色调) */}
-          <button className="p-2 rounded-xl bg-primary/20 text-primary hover:bg-primary hover:text-white transition-all duration-300">
+          <button
+            onClick={handleSubmit}
+            disabled={!message.trim() || disabled}
+            className="p-2 rounded-xl bg-primary/20 text-primary hover:bg-primary hover:text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Send className="w-4 h-4" />
           </button>
         </div>
