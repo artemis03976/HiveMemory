@@ -19,8 +19,11 @@
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.7.2",
     "react-textarea-autosize": "^8.5.9",
+    "react-window": "^2.2.7",
     "rehype-highlight": "^7.0.2",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "use-debounce": "^10.1.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

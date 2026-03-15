@@ -2,7 +2,9 @@
 ## 主题：短期记忆系统重构与 MMU 化 (STM Refactoring & MMU)
 
 **文档状态**: Approved (已定稿)
+
 **适用阶段**: Phase 4.5 (Kernel Foundation Refactoring)
+
 **核心重构模块**: `engines.gateway` (The Eye), `engines.perception`, `engines.kernel`
 
 ---

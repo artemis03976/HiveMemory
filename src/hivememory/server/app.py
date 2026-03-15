@@ -8,7 +8,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from hivememory.server.deps import init_system, shutdown_system
+from hivememory.server.deps import (
+    init_system,
+    init_websocket_log_broadcasting,
+    shutdown_system,
+    shutdown_websocket_log_broadcasting,
+)
 from hivememory.server.models.common import HealthResponse
 
 logger = logging.getLogger(__name__)
@@ -20,8 +25,17 @@ async def lifespan(app: FastAPI):
     logger.info("正在初始化 PatchouliSystem...")
     system = init_system()
     system.start_observer_idle_monitor()
+
+    # 初始化 WebSocket 日志广播
+    ws_manager = init_websocket_log_broadcasting(system.config)
+    app.state.ws_manager = ws_manager  # 存储到 app state
+
     logger.info("PatchouliSystem 就绪，服务启动完成")
     yield
+
+    # 清理 WebSocket 连接
+    await shutdown_websocket_log_broadcasting(ws_manager)
+
     shutdown_system()
     logger.info("PatchouliSystem 已关闭")
 
@@ -78,11 +92,13 @@ async def health():
 from hivememory.server.routers.chat import router as chat_router
 from hivememory.server.routers.config import router as config_router
 from hivememory.server.routers.ingest import router as ingest_router
+from hivememory.server.routers.logs import router as logs_router
 from hivememory.server.routers.memories import router as memories_router
 from hivememory.server.routers.topics import router as topics_router
 
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api")
 app.include_router(ingest_router, prefix="/api/v1")
+app.include_router(logs_router, prefix="/api/v1")
 app.include_router(memories_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")

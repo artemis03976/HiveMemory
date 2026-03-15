@@ -22,6 +22,14 @@ logging:
   file_path: null  # 设置为路径以启用文件日志
   console_output: true
 
+  # WebSocket 日志广播配置
+  websocket_enabled: true
+  websocket_namespaces:
+    - "hivememory.*"
+  websocket_level: "INFO"
+  websocket_buffer_size: 100
+  websocket_max_rate: 100
+
 # ========== LLM 模型配置 ==========
 llm:
   gateway:

@@ -648,6 +648,16 @@ class LoggingConfig(BaseModel):
     file_path: Optional[str] = Field(default=None, description="日志文件路径")
     console_output: bool = Field(default=True, description="是否输出到控制台")
 
+    # WebSocket 日志广播配置
+    websocket_enabled: bool = Field(default=False, description="启用 WebSocket 日志广播")
+    websocket_namespaces: List[str] = Field(
+        default_factory=lambda: ["hivememory.*"],
+        description="要广播的命名空间（支持通配符 '*'）"
+    )
+    websocket_level: str = Field(default="INFO", description="WebSocket 广播的最低日志级别")
+    websocket_buffer_size: int = Field(default=100, description="无客户端连接时的最大缓冲日志数")
+    websocket_max_rate: int = Field(default=100, description="最大日志广播速率（条/秒）")
+
     model_config = ConfigDict(extra="ignore")
 
 

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HiveMemory WebSocket Logs Test</title>
+    <style>
+        body {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            margin: 0;
+        }
+        h1 {
+            color: #4ec9b0;
+        }
+        #controls {
+            margin-bottom: 20px;
+        }
+        button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin-right: 10px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #1177bb;
+        }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        #status {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        #status.connected {
+            background: #1e3a1e;
+            color: #4ec9b0;
+        }
+        #status.disconnected {
+            background: #3a1e1e;
+            color: #f48771;
+        }
+        #logs {
+            background: #252526;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            padding: 15px;
+            height: 600px;
+            overflow-y: auto;
+            font-size: 13px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 8px;
+            border-left: 3px solid #555;
+            background: #2d2d30;
+        }
+        .log-entry.DEBUG { border-left-color: #808080; }
+        .log-entry.INFO { border-left-color: #4ec9b0; }
+        .log-entry.WARNING { border-left-color: #dcdcaa; }
+        .log-entry.ERROR { border-left-color: #f48771; }
+        .log-entry.CRITICAL { border-left-color: #ff0000; }
+        .log-timestamp {
+            color: #858585;
+            font-size: 11px;
+        }
+        .log-level {
+            font-weight: bold;
+            margin: 0 8px;
+        }
+        .log-logger {
+            color: #9cdcfe;
+        }
+        .log-message {
+            margin-top: 4px;
+            color: #d4d4d4;
+        }
+        .log-location {
+            color: #858585;
+            font-size: 11px;
+            margin-top: 4px;
+        }
+        .log-exception {
+            margin-top: 8px;
+            padding: 8px;
+            background: #1e1e1e;
+            border-left: 3px solid #f48771;
+            font-size: 11px;
+            white-space: pre-wrap;
+        }
+        #stats {
+            margin-top: 10px;
+            color: #858585;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐝 HiveMemory WebSocket Logs Test</h1>
+
+    <div id="controls">
+        <button id="connectBtn" onclick="connect()">Connect</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+        <button onclick="sendPing()">Send Ping</button>
+    </div>
+
+    <div id="status" class="disconnected">Disconnected</div>
+    <div id="stats">Logs received: <span id="logCount">0</span></div>
+
+    <div id="logs"></div>
+
+    <script>
+        let ws = null;
+        let logCount = 0;
+
+        function connect() {
+            const wsUrl = 'ws://localhost:8000/api/v1/ws/logs';
+
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    updateStatus('Connected', true);
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                    addSystemMessage('Connected to ' + wsUrl);
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const logData = JSON.parse(event.data);
+                        addLogEntry(logData);
+                        logCount++;
+                        document.getElementById('logCount').textContent = logCount;
+                    } catch (e) {
+                        console.error('Failed to parse log data:', e);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    addSystemMessage('WebSocket error: ' + error, 'ERROR');
+                };
+
+                ws.onclose = () => {
+                    updateStatus('Disconnected', false);
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                    addSystemMessage('Connection closed');
+                    ws = null;
+                };
+            } catch (e) {
+                addSystemMessage('Failed to connect: ' + e.message, 'ERROR');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function sendPing() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('ping');
+                addSystemMessage('Sent ping');
+            }
+        }
+
+        function updateStatus(text, connected) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = text;
+            statusEl.className = connected ? 'connected' : 'disconnected';
+        }
+
+        function addLogEntry(logData) {
+            const logsDiv = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + logData.level;
+
+            let html = `
+                <div>
+                    <span class="log-timestamp">${logData.timestamp}</span>
+                    <span class="log-level">[${logData.level}]</span>
+                    <span class="log-logger">${logData.logger}</span>
+                </div>
+                <div class="log-message">${escapeHtml(logData.message)}</div>
+                <div class="log-location">${logData.module}:${logData.function}:${logData.line} (${logData.thread})</div>
+            `;
+
+            if (logData.exception) {
+                html += `
+                    <div class="log-exception">
+                        <strong>${logData.exception.type}: ${escapeHtml(logData.exception.message)}</strong>
+                        <pre>${escapeHtml(logData.exception.traceback)}</pre>
+                    </div>
+                `;
+            }
+
+            entry.innerHTML = html;
+            logsDiv.appendChild(entry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function addSystemMessage(message, level = 'INFO') {
+            const logsDiv = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + level;
+            entry.innerHTML = `
+                <div>
+                    <span class="log-timestamp">${new Date().toISOString()}</span>
+                    <span class="log-level">[SYSTEM]</span>
+                </div>
+                <div class="log-message">${escapeHtml(message)}</div>
+            `;
+            logsDiv.appendChild(entry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            logCount = 0;
+            document.getElementById('logCount').textContent = '0';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Auto-connect on load
+        window.addEventListener('load', () => {
+            addSystemMessage('Ready to connect. Click "Connect" button.');
+        });
+    </script>
+</body>
+</html>

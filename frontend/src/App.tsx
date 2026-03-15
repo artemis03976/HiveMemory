@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
 import { PanelRightOpen } from 'lucide-react';
 import { GlobalNavBar } from './components/GlobalNavBar';
@@ -8,10 +8,25 @@ import { MainWorkspace } from './components/MainWorkspace';
 import { SettingsPanel } from './components/SettingsPanel';
 import { KernelVision } from './components/KernelVision';
 import { MemoryGarden } from './components/MemoryGarden';
+import { useKernelStore } from './stores/kernelStore';
 
 function App() {
   const [activeView, setActiveView] = useState<ViewType>('chat');
   const [isKernelVisionOpen, setIsKernelVisionOpen] = useState(false);
+
+  // Initialize kernel store connection on app startup
+  const connect = useKernelStore((state) => state.connect);
+  const disconnect = useKernelStore((state) => state.disconnect);
+
+  useEffect(() => {
+    // Auto-connect on mount
+    connect();
+
+    // Cleanup on unmount
+    return () => {
+      disconnect();
+    };
+  }, [connect, disconnect]);
 
   // Render the main content based on active view
   const renderMainContent = () => {
@@ -57,9 +72,17 @@ function App() {
         )}
 
         {/* L3: Main Content Area */}
-        <Panel defaultSize={isKernelVisionOpen ? 50 : 80} minSize={35}>
-          <div className="relative h-full">
-            {renderMainContent()}
+        <Panel defaultSize={80} minSize={35}>
+          <div className="relative h-full flex">
+            {/* Main content with dynamic width */}
+            <div
+              className="h-full transition-all duration-300 ease-in-out"
+              style={{
+                width: activeView === 'chat' && isKernelVisionOpen ? 'calc(100% - 400px)' : '100%'
+              }}
+            >
+              {renderMainContent()}
+            </div>
 
             {/* Toggle Kernel Vision Button - Only show for chat view */}
             {activeView === 'chat' && !isKernelVisionOpen && (
@@ -71,25 +94,22 @@ function App() {
                 <PanelRightOpen className="w-5 h-5 text-foreground" />
               </button>
             )}
+
+            {/* L4: Kernel Vision - Slide-in panel */}
+            {activeView === 'chat' && (
+              <div
+                className={`fixed right-0 top-0 h-full w-[400px] transition-transform duration-300 ease-in-out z-40 ${
+                  isKernelVisionOpen ? 'translate-x-0' : 'translate-x-full'
+                }`}
+              >
+                <KernelVision
+                  isOpen={isKernelVisionOpen}
+                  onClose={() => setIsKernelVisionOpen(false)}
+                />
+              </div>
+            )}
           </div>
         </Panel>
-
-        {/* L4: Kernel Vision (conditional) - Only show for chat view */}
-        {activeView === 'chat' && isKernelVisionOpen && (
-          <>
-            <Separator className="w-px bg-white/10 hover:bg-purple-500/50 transition-colors" />
-            <Panel
-              defaultSize={30}
-              minSize={25}
-              maxSize={40}
-            >
-              <KernelVision
-                isOpen={isKernelVisionOpen}
-                onClose={() => setIsKernelVisionOpen(false)}
-              />
-            </Panel>
-          </>
-        )}
       </Group>
     </div>
   );
