@@ -166,6 +166,7 @@ class ReciprocalRankFusion(BaseFusion):
         )
 
 
+# TODO:实现完全的动态权重生成
 class AdaptiveWeightedFusion(BaseFusion):
     """
     自适应加权融合器
