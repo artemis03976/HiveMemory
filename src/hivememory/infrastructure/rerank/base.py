@@ -43,6 +43,10 @@ class BaseRerankService(ABC):
         """检查模型是否已加载"""
         return True
 
+    def warmup(self) -> None:
+        """预热模型（默认无操作，子类可覆盖）"""
+        pass
+
     def unload(self) -> None:
         """卸载模型以释放内存"""
         pass
@@ -111,6 +115,18 @@ class SingletonModelService(BaseRerankService):
     def is_loaded(self) -> bool:
         """检查模型是否已加载"""
         return self._model is not None
+
+    def warmup(self) -> None:
+        """
+        预热模型 — 主动触发延迟加载
+
+        在后台线程中调用此方法可避免首次请求时的加载延迟。
+        线程安全：内部使用 _lazy_load_lock 保护。
+        """
+        if self._model is None:
+            logger.info(f"{self.__class__.__name__} 开始预热模型: {self.model_name}")
+            _ = self.model  # 触发 property 中的延迟加载
+            logger.info(f"{self.__class__.__name__} 模型预热完成")
 
     def unload(self) -> None:
         """卸载模型以释放内存"""

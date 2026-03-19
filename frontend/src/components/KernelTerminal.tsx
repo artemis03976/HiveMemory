@@ -6,7 +6,7 @@
  * Can be rendered inside L4 panel, a standalone route, or an Electron detached window.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Search,
   Trash2,
@@ -120,12 +120,39 @@ export function KernelTerminal() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // State selectors (granular to avoid unnecessary re-renders)
-  const logs = useKernelStore((s) => s.filteredLogs());
   const connection = useKernelStore((s) => s.connection);
   const filters = useKernelStore((s) => s.filters);
   const ui = useKernelStore((s) => s.ui);
 
+  const allLogs = useKernelStore((s) => s.logs);
+  const logs = useMemo(() => {
+    return allLogs.filter((log) => {
+      if (filters.logLevel && log.level !== filters.logLevel) {
+        return false;
+      }
+
+      if (
+        filters.loggerNamespace &&
+        !log.logger.startsWith(filters.loggerNamespace)
+      ) {
+        return false;
+      }
+
+      if (filters.searchText) {
+        const search = filters.searchText.toLowerCase();
+        return (
+          log.message.toLowerCase().includes(search) ||
+          log.logger.toLowerCase().includes(search)
+        );
+      }
+
+      return true;
+    });
+  }, [allLogs, filters.logLevel, filters.loggerNamespace, filters.searchText]);
+
   // Actions
+  const connect = useKernelStore((s) => s.connect);
+  const disconnect = useKernelStore((s) => s.disconnect);
   const setLogLevel = useKernelStore((s) => s.setLogLevel);
   const setSearchText = useKernelStore((s) => s.setSearchText);
   const clearLogs = useKernelStore((s) => s.clearLogs);
@@ -166,6 +193,17 @@ export function KernelTerminal() {
           {STATUS_LABEL[connection.status]}
         </span>
 
+        {/* Connect button (only show when disconnected) */}
+        {connection.status === 'disconnected' && (
+          <button
+            onClick={connect}
+            className="px-2 py-0.5 text-[11px] rounded bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+            title="Connect to kernel logs"
+          >
+            Connect
+          </button>
+        )}
+
         {connection.status === 'error' && (
           <button
             onClick={reconnect}
@@ -173,6 +211,16 @@ export function KernelTerminal() {
             title="Reconnect"
           >
             <RefreshCw className="w-3 h-3 text-muted-foreground" />
+          </button>
+        )}
+
+        {connection.status !== 'disconnected' && (
+          <button
+            onClick={disconnect}
+            className="px-2 py-0.5 text-[11px] rounded bg-magic-fire/20 text-magic-fire hover:bg-magic-fire/30 transition-colors"
+            title="Temporary disconnect for testing"
+          >
+            Disconnect
           </button>
         )}
 

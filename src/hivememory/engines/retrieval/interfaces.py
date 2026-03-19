@@ -143,7 +143,7 @@ class BaseContextRenderer(ABC):
             >>> renderer = BaseContextRenderer(format=RenderFormat.XML)
             >>> context = renderer.render(search_results.results)
             >>> print(context)
-            <system_memory_context>...
+            <memory_context>...
         """
         pass
 

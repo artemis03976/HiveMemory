@@ -227,6 +227,39 @@ class TestTheEyeIdleMonitor:
         mock_sched.shutdown.assert_called_once_with(wait=False)
         assert self.eye._observer_idle_scheduler is None
 
+    @patch("apscheduler.schedulers.background.BackgroundScheduler")
+    def test_lazy_start_on_first_message(self, MockScheduler):
+        """惰性启动：收到消息后才启动调度器"""
+        mock_sched = MockScheduler.return_value
+        self.mock_engine.process.return_value = _make_gateway_result()
+        self.eye.start_observer_idle_monitor(lazy_start=True)
+
+        MockScheduler.assert_not_called()
+        self.eye.ingest_user("消息", _make_identity())
+
+        MockScheduler.assert_called_once()
+        mock_sched.start.assert_called_once()
+
+    def test_scan_auto_stop_after_global_idle(self):
+        """全局无新消息超时后 flush 并自动停表"""
+        mock_bus = Mock()
+        eye = TheEye(engine=self.mock_engine, bus=mock_bus)
+        self.mock_engine.process.return_value = _make_gateway_result()
+        eye._observer_idle_monitor_enabled = True
+        eye._observer_idle_scheduler = Mock()
+        eye._observer_idle_timeout = 9999.0
+        eye._observer_monitor_idle_shutdown_seconds = 1.0
+
+        identity = _make_identity()
+        eye.ingest_user("消息", identity)
+        eye.ingest_assistant("回复", identity)
+        eye._observer_last_message_ts = 0.0
+
+        eye._scan_observer_idle_buffers()
+
+        mock_bus.emit.assert_called_once()
+        assert eye._observer_idle_scheduler is None
+
     def test_scan_with_bus(self):
         """有 bus 时 emit 事件"""
         mock_bus = Mock()

@@ -55,6 +55,10 @@ class TheEye:
         self._bus = bus
         self._observer_buffers = ObserverBufferManager()
         self._observer_idle_scheduler = None
+        self._observer_idle_monitor_enabled: bool = False
+        self._observer_scan_interval_seconds: float = 10.0
+        self._observer_monitor_idle_shutdown_seconds: float = 60.0
+        self._observer_last_message_ts: Optional[float] = None
         self._observer_idle_timeout: float = 30.0
 
         logger.info(f"TheEye 真理之眼初始化完成 (Agentic Dispatcher)")
@@ -206,6 +210,7 @@ class TheEye:
         gaze_result = asyncio.run(
             self.gaze(query=content, topic_snapshots=None, identity=identity)
         )
+        self._on_observer_message_received()
         buffer = self._observer_buffers.get_buffer(identity)
         flushed_payload = buffer.accept_user(content=content, gaze_result=gaze_result)
         return gaze_result, flushed_payload
@@ -232,6 +237,7 @@ class TheEye:
         gaze_result = await self.gaze(
             query=content, topic_snapshots=None, identity=identity
         )
+        self._on_observer_message_received()
         buffer = self._observer_buffers.get_buffer(identity)
         flushed_payload = buffer.accept_user(
             content=content, gaze_result=gaze_result
@@ -250,6 +256,7 @@ class TheEye:
             content: 助手消息内容
             identity: 身份标识
         """
+        self._on_observer_message_received()
         buffer = self._observer_buffers.get_buffer(identity)
         buffer.accept_assistant(content)
 
@@ -283,6 +290,8 @@ class TheEye:
         self,
         timeout_seconds: float = 30.0,
         scan_interval_seconds: float = 10.0,
+        idle_shutdown_seconds: Optional[float] = None,
+        lazy_start: bool = False,
         on_flush_callback=None,
     ) -> None:
         """
@@ -293,25 +302,27 @@ class TheEye:
             scan_interval_seconds: 扫描间隔（秒）
             on_flush_callback: flush 时的回调 (接收 InteractionPayload)
         """
-        from apscheduler.schedulers.background import BackgroundScheduler
-
         if self._observer_idle_scheduler is not None:
             logger.warning("Observer idle monitor 已在运行")
             return
 
         self._observer_idle_timeout = timeout_seconds
+        self._observer_scan_interval_seconds = scan_interval_seconds
+        self._observer_monitor_idle_shutdown_seconds = (
+            idle_shutdown_seconds
+            if idle_shutdown_seconds is not None
+            else max(timeout_seconds, scan_interval_seconds * 3)
+        )
         self._on_flush_callback = on_flush_callback
-        self._observer_idle_scheduler = BackgroundScheduler()
-        self._observer_idle_scheduler.add_job(
-            self._scan_observer_idle_buffers,
-            "interval",
-            seconds=scan_interval_seconds,
-        )
-        self._observer_idle_scheduler.start()
-        logger.info(
-            f"Observer idle monitor 已启动: "
-            f"timeout={timeout_seconds}s, interval={scan_interval_seconds}s"
-        )
+        self._observer_idle_monitor_enabled = True
+        if lazy_start:
+            logger.info(
+                f"Observer idle monitor 已配置为惰性启动: "
+                f"timeout={timeout_seconds}s, interval={scan_interval_seconds}s, "
+                f"idle_shutdown={self._observer_monitor_idle_shutdown_seconds}s"
+            )
+            return
+        self._ensure_observer_idle_monitor_started()
 
     def stop_observer_idle_monitor(self) -> None:
         """停止 Observer Buffer 空闲超时监控"""
@@ -320,17 +331,79 @@ class TheEye:
             self._observer_idle_scheduler = None
             logger.info("Observer idle monitor 已停止")
 
-    def _scan_observer_idle_buffers(self) -> None:
-        """扫描并 flush 所有超时的 observer buffer"""
-        payloads = self._observer_buffers.flush_idle_buffers(self._observer_idle_timeout)
+    def _ensure_observer_idle_monitor_started(self) -> None:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
+        if self._observer_idle_scheduler is not None:
+            return
+        self._observer_idle_scheduler = BackgroundScheduler()
+        self._observer_idle_scheduler.add_job(
+            self._scan_observer_idle_buffers,
+            "interval",
+            seconds=self._observer_scan_interval_seconds,
+        )
+        self._observer_idle_scheduler.add_listener(
+            self._on_observer_scheduler_event,
+            EVENT_JOB_ERROR | EVENT_JOB_MISSED,
+        )
+        self._observer_idle_scheduler.start()
+        logger.info(
+            f"Observer idle monitor 已启动: "
+            f"timeout={self._observer_idle_timeout}s, "
+            f"interval={self._observer_scan_interval_seconds}s, "
+            f"idle_shutdown={self._observer_monitor_idle_shutdown_seconds}s"
+        )
+
+    def _on_observer_scheduler_event(self, event) -> None:
+        if getattr(event, "exception", None):
+            logger.error(
+                f"Observer idle monitor 任务异常: "
+                f"job_id={getattr(event, 'job_id', 'unknown')}, "
+                f"error={event.exception}, "
+                f"traceback={getattr(event, 'traceback', '')}",
+            )
+            return
+        logger.warning(
+            f"Observer idle monitor 错过调度: "
+            f"job_id={getattr(event, 'job_id', 'unknown')}"
+        )
+
+    def _on_observer_message_received(self) -> None:
+        self._observer_last_message_ts = time.time()
+        if self._observer_idle_monitor_enabled:
+            self._ensure_observer_idle_monitor_started()
+
+    def _dispatch_observer_payloads(self, payloads: List[InteractionPayload]) -> None:
+        if not payloads:
+            return
         if self._bus:
             for payload in payloads:
                 self._bus.emit("observer.idle_flushed", payload=payload)
-        else:
-            callback = getattr(self, "_on_flush_callback", None)
-            if callback:
-                for payload in payloads:
-                    callback(payload)
+            return
+        callback = getattr(self, "_on_flush_callback", None)
+        if callback:
+            for payload in payloads:
+                callback(payload)
+
+    def _scan_observer_idle_buffers(self) -> None:
+        """扫描并 flush 所有超时的 observer buffer"""
+        try:
+            payloads = self._observer_buffers.flush_idle_buffers(self._observer_idle_timeout)
+            self._dispatch_observer_payloads(payloads)
+            if self._observer_last_message_ts is None:
+                return
+            idle_duration = time.time() - self._observer_last_message_ts
+            if idle_duration < self._observer_monitor_idle_shutdown_seconds:
+                return
+            final_payloads = self._observer_buffers.flush_idle_buffers(-1.0)
+            self._dispatch_observer_payloads(final_payloads)
+            self.stop_observer_idle_monitor()
+            logger.info(
+                f"Observer idle monitor 自动关闭: "
+                f"idle={idle_duration:.1f}s"
+            )
+        except Exception as e:
+            logger.error(f"Observer idle monitor 扫描失败: {e}", exc_info=True)
 
 
 __all__ = [

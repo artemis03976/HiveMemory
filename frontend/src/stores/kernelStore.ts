@@ -15,12 +15,11 @@ import type {
   KernelStore,
   LogEntry,
   BroadcastMessage,
-  ConnectionState,
 } from '@/types/kernel';
 
 // Configuration constants
 const WS_URL = import.meta.env.DEV
-  ? 'ws://localhost:8000/api/v1/ws/logs'
+  ? 'ws://localhost:8769/api/v1/ws/logs'  // Custom port to avoid Windows reserved ranges
   : `ws://${window.location.host}/api/v1/ws/logs`;
 
 const BROADCAST_CHANNEL_NAME = 'hivememory_kernel_logs';
@@ -315,7 +314,7 @@ export const useKernelStore = create<KernelStore>()(
         // Computed selector
         filteredLogs: () => {
           const { logs, filters } = get();
-          const filtered = logs.filter((log) => {
+          return logs.filter((log) => {
             // Level filter
             if (filters.logLevel && log.level !== filters.logLevel) {
               return false;
@@ -340,11 +339,6 @@ export const useKernelStore = create<KernelStore>()(
 
             return true;
           });
-
-          // Update filtered count
-          set({ stats: { ...get().stats, filteredCount: filtered.length } });
-
-          return filtered;
         },
 
         // Connection actions

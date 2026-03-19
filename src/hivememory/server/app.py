@@ -1,5 +1,6 @@
 """HiveMemory FastAPI 应用入口"""
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -10,11 +11,12 @@ from fastapi.responses import JSONResponse
 
 from hivememory.server.deps import (
     init_system,
+    get_system,
     init_websocket_log_broadcasting,
     shutdown_system,
     shutdown_websocket_log_broadcasting,
 )
-from hivememory.server.models.common import HealthResponse
+from hivememory.server.models.common import HealthResponse, ReadinessResponse
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +24,26 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理 — 初始化/销毁 PatchouliSystem 单例"""
+    loop = asyncio.get_running_loop()
+
+    def _loop_exception_handler(_loop, context):
+        exc = context.get("exception")
+        if exc is not None:
+            logger.error(f"事件循环未处理异常: {exc}", exc_info=exc)
+            return
+        logger.error(f"事件循环未处理异常: {context.get('message', 'unknown')}")
+
+    loop.set_exception_handler(_loop_exception_handler)
     logger.info("正在初始化 PatchouliSystem...")
     system = init_system()
-    system.start_observer_idle_monitor()
+    system.start_observer_idle_monitor(lazy_start=True)
 
     # 初始化 WebSocket 日志广播
     ws_manager = init_websocket_log_broadcasting(system.config)
     app.state.ws_manager = ws_manager  # 存储到 app state
+
+    # 后台预热推理模型（不阻塞服务启动）
+    asyncio.create_task(system.kernel.warmup_models())
 
     logger.info("PatchouliSystem 就绪，服务启动完成")
     yield
@@ -51,10 +66,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",      # Vite 默认端口
-        "http://127.0.0.1:5173",      # Vite 默认端口
+        "http://localhost:6918",      # Custom frontend port
+        "http://127.0.0.1:6918",      # Custom frontend port
+        "http://localhost:3000",      # Legacy port
+        "http://127.0.0.1:3000",      # Legacy port
+        "http://localhost:5173",      # Vite default (may be reserved by Windows)
+        "http://127.0.0.1:5173",      # Vite default (may be reserved by Windows)
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -82,10 +99,23 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# 健康检查
+# 健康检查 (Liveness)
 @app.get("/health", response_model=HealthResponse)
 async def health():
     return HealthResponse(status="ok", version="0.1.0")
+
+
+# 就绪检查 (Readiness) — 模型是否已加载
+@app.get("/health/ready")
+async def readiness():
+    system = get_system()
+    ready = system.kernel.is_models_ready()
+    if ready:
+        return ReadinessResponse(status="ready", models_ready=True)
+    return JSONResponse(
+        status_code=503,
+        content={"status": "warming_up", "models_ready": False},
+    )
 
 
 # 注册路由

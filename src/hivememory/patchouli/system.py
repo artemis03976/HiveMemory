@@ -292,11 +292,15 @@ class PatchouliSystem:
         self,
         timeout_seconds: float = 30.0,
         scan_interval_seconds: float = 10.0,
+        idle_shutdown_seconds: Optional[float] = None,
+        lazy_start: bool = False,
     ) -> None:
         """启动 Observer Buffer 空闲超时监控 (委托给 TheEye，flush 事件通过 bus 路由)"""
         self.eye.start_observer_idle_monitor(
             timeout_seconds=timeout_seconds,
             scan_interval_seconds=scan_interval_seconds,
+            idle_shutdown_seconds=idle_shutdown_seconds,
+            lazy_start=lazy_start,
         )
 
     def stop_observer_idle_monitor(self) -> None:
@@ -550,19 +554,72 @@ class PatchouliSystem:
                 text_segments.append(gen_result.prefix_text)
 
                 verb_hint = "UNKNOWN"
-                yield {"event": "mtp_start", "data": {"verb": verb_hint, "iteration": iteration}}
+                target_hint = ""
+                args_hint = {}
+                raw_hint = gen_result.mtp_fragment
+                try:
+                    from hivememory.patchouli.protocol.mtp import MTPParser
+                    parsed_hint = MTPParser().complete_and_parse(gen_result.text)
+                    verb_hint = parsed_hint.verb.value
+                    if parsed_hint.target.is_wildcard:
+                        target_hint = "*"
+                    elif parsed_hint.target.aliases:
+                        target_hint = ",".join(parsed_hint.target.aliases)
+                    args_hint = dict(parsed_hint.args)
+                    raw_hint = parsed_hint.raw_text or raw_hint
+                except Exception:
+                    pass
+                yield {
+                    "event": "mtp_start",
+                    "data": {
+                        "verb": verb_hint,
+                        "target": target_hint,
+                        "args": args_hint,
+                        "raw_text": raw_hint,
+                        "iteration": iteration,
+                    },
+                }
 
                 mtp_result = await self.kernel.handle_mtp(gen_result.text)
 
                 if mtp_result is None:
                     text_segments.append(gen_result.mtp_fragment)
-                    yield {"event": "mtp_result", "data": {"verb": verb_hint, "status": "failed", "iteration": iteration}}
+                    yield {
+                        "event": "mtp_result",
+                        "data": {
+                            "verb": verb_hint,
+                            "target": target_hint,
+                            "args": args_hint,
+                            "raw_text": raw_hint,
+                            "status": "failed",
+                            "iteration": iteration,
+                        },
+                    }
                     break
 
                 verb = mtp_result.command.verb.value if mtp_result.command else "UNKNOWN"
                 mtp_commands.append(verb)
+                if mtp_result.command and mtp_result.command.target:
+                    if mtp_result.command.target.is_wildcard:
+                        target_hint = "*"
+                    elif mtp_result.command.target.aliases:
+                        target_hint = ",".join(mtp_result.command.target.aliases)
+                    else:
+                        target_hint = ""
+                    args_hint = dict(mtp_result.command.args or {})
+                    raw_hint = mtp_result.command.raw_text or raw_hint
 
-                yield {"event": "mtp_result", "data": {"verb": verb, "status": mtp_result.response_status, "iteration": iteration}}
+                yield {
+                    "event": "mtp_result",
+                    "data": {
+                        "verb": verb,
+                        "target": target_hint,
+                        "args": args_hint,
+                        "raw_text": raw_hint,
+                        "status": mtp_result.response_status,
+                        "iteration": iteration,
+                    },
+                }
 
                 fake_assistant = gen_result.text + mtp_result.formatted_response
                 messages.append({"role": "assistant", "content": fake_assistant})
@@ -606,7 +663,7 @@ class PatchouliSystem:
 
         except Exception as e:
             logger.error(f"chat_stream 异常: {e}", exc_info=True)
-            yield {"event": "error", "data": {"message": str(e)}}
+            yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
 
     async def manual_trigger(
         self,
@@ -663,8 +720,9 @@ class PatchouliSystem:
         Returns:
             List[TopicSnapshot]: 话题快照列表
         """
-        if self._bus:
-            snapshots = await self._bus.async_request(
+        bus = getattr(self, "bus", None)
+        if bus:
+            snapshots = await bus.async_request(
                 "librarian.get_active_topics_snapshots",
                 identity=identity,
             )
@@ -703,8 +761,9 @@ class PatchouliSystem:
             }
 
         # 从感知层获取话题上下文
-        if self._bus:
-            context = await self._bus.async_request(
+        bus = getattr(self, "bus", None)
+        if bus:
+            context = await bus.async_request(
                 "librarian.get_topic_context_for_prompt",
                 topic_id=target_topic,
                 max_recent_blocks=5,

@@ -160,3 +160,73 @@ class TestWorkerAgentGenerateAsync:
         assert call_kwargs["top_p"] == 0.9
         assert call_kwargs["presence_penalty"] == 0.5
 
+
+class _MockStreamResponse:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def __aiter__(self):
+        return self._iter()
+
+    async def _iter(self):
+        for item in self._chunks:
+            yield item
+
+
+def _make_stream_chunk(delta: str = "", finish_reason=None):
+    choice = Mock()
+    choice.delta.content = delta
+    choice.finish_reason = finish_reason
+    chunk = Mock()
+    chunk.choices = [choice]
+    return chunk
+
+
+@pytest.mark.asyncio
+class TestWorkerAgentGenerateStream:
+    def setup_method(self):
+        self.config = _make_config()
+        self.service = WorkerAgentService(config=self.config)
+
+    @patch("hivememory.patchouli.worker_agent.litellm.acompletion")
+    async def test_stream_no_duplicate_before_mtp(self, mock_completion):
+        left = MTP_LEFT_DELIMITER
+        chunks = [
+            _make_stream_chunk("你好"),
+            _make_stream_chunk("世界"),
+            _make_stream_chunk(f"{left}READ|x", finish_reason="stop"),
+        ]
+        mock_completion.return_value = _MockStreamResponse(chunks)
+
+        stream_chunks = []
+        async for chunk in self.service.generate_stream([{"role": "user", "content": "hi"}]):
+            stream_chunks.append(chunk)
+
+        non_final_text = "".join(
+            c.delta for c in stream_chunks if (not c.is_final and not c.mtp_detected)
+        )
+        assert non_final_text == "你好世界"
+        assert stream_chunks[-1].is_final is True
+        assert stream_chunks[-1].result is not None
+        assert stream_chunks[-1].result.was_mtp_interrupted is True
+
+    @patch("hivememory.patchouli.worker_agent.litellm.acompletion")
+    async def test_stream_flushes_pending_tail_without_mtp(self, mock_completion):
+        chunks = [
+            _make_stream_chunk("A"),
+            _make_stream_chunk("B"),
+            _make_stream_chunk("", finish_reason="stop"),
+        ]
+        mock_completion.return_value = _MockStreamResponse(chunks)
+
+        stream_chunks = []
+        async for chunk in self.service.generate_stream([{"role": "user", "content": "hi"}]):
+            stream_chunks.append(chunk)
+
+        non_final_text = "".join(
+            c.delta for c in stream_chunks if (not c.is_final and not c.mtp_detected)
+        )
+        assert non_final_text == "AB"
+        assert stream_chunks[-1].is_final is True
+        assert stream_chunks[-1].result is not None
+        assert stream_chunks[-1].result.text == "AB"

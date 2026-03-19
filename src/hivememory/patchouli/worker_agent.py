@@ -191,6 +191,7 @@ class WorkerAgentService:
         finish_reason = "stop"
         # 缓冲区：用于处理 ⟪ 可能跨 chunk 边界的情况
         pending = ""
+        delimiter_tail = max(0, len(MTP_LEFT_DELIMITER) - 1)
 
         async for chunk in response:
             choice = chunk.choices[0] if chunk.choices else None
@@ -219,8 +220,20 @@ class WorkerAgentService:
                     yield StreamChunk(delta="", full_text=full_text, mtp_detected=True)
                     pending = ""
                 else:
-                    yield StreamChunk(delta=delta_content, full_text=full_text, mtp_detected=False)
+                    if delimiter_tail == 0:
+                        emit_text = pending
+                        pending = ""
+                    elif len(pending) > delimiter_tail:
+                        emit_text = pending[:-delimiter_tail]
+                        pending = pending[-delimiter_tail:]
+                    else:
+                        emit_text = ""
+                    if emit_text:
+                        yield StreamChunk(delta=emit_text, full_text=full_text, mtp_detected=False)
             # mtp_detected=True 后不再 yield 中间 chunk，静默缓冲
+
+        if not mtp_detected and pending:
+            yield StreamChunk(delta=pending, full_text=full_text, mtp_detected=False)
 
         # 流结束，构建最终 GenerationResult
         last_open = full_text.rfind(MTP_LEFT_DELIMITER)

@@ -475,7 +475,6 @@ class FullRendererConfig(BaseModel):
     渲染所有 MemoryAtom 的完整内容，超过字符上限则直接截断。
     """
     type: Literal["full"] = "full"
-    render_format: str = Field(default="xml", description="渲染格式: xml/markdown")
     max_tokens: int = Field(default=2000, description="最大字符数")
     max_content_length: int = Field(default=500, description="单条记忆最大内容长度")
     show_artifacts: bool = Field(default=False, description="是否显示原始数据链接")
@@ -495,12 +494,8 @@ class CascadeRendererConfig(BaseModel):
     type: Literal["cascade"] = "cascade"
     max_memory_tokens: int = Field(default=2000, description="最大记忆 Token 预算")
     full_payload_count: int = Field(default=1, description="强制完整渲染的数量 (Top-N)")
-    render_format: str = Field(default="xml", description="渲染格式: xml/markdown")
     max_content_length: int = Field(default=500, description="完整渲染时单条记忆最大内容长度")
     index_max_summary_length: int = Field(default=100, description="Index 视图摘要最大长度")
-    enable_lazy_loading: bool = Field(default=False, description="是否启用懒加载提示")
-    lazy_load_tool_name: str = Field(default="read_memory", description="懒加载工具名称")
-    lazy_load_hint: str = Field(default="如需完整内容，请使用 read_memory(id) 工具", description="懒加载提示文本")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -510,14 +505,11 @@ class CompactRendererConfig(BaseModel):
     紧凑上下文渲染器配置
 
     仅渲染 Index 层信息 (摘要+标签)，不渲染完整 Payload。
+    懒加载引导统一由 MEMORY_FOOTER 提供。
     """
     type: Literal["compact"] = "compact"
     max_memory_tokens: int = Field(default=2000, description="最大记忆 Token 预算")
-    render_format: str = Field(default="xml", description="渲染格式: xml/markdown")
     index_max_summary_length: int = Field(default=100, description="Index 视图摘要最大长度")
-    enable_lazy_loading: bool = Field(default=True, description="是否启用懒加载提示")
-    lazy_load_tool_name: str = Field(default="read_memory", description="懒加载工具名称")
-    lazy_load_hint: str = Field(default="如需完整内容，请使用 read_memory(id) 工具", description="懒加载提示文本")
 
     model_config = ConfigDict(extra="ignore")
 

@@ -1,6 +1,7 @@
 """Chat 路由 — POST /api/v1/chat (SSE 流式响应)"""
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
@@ -10,6 +11,7 @@ from hivememory.server.deps import get_system
 from hivememory.server.models.chat import ChatRequest
 
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/chat")
@@ -29,16 +31,26 @@ async def chat(
     - error: {"message": "..."} — 错误发生
     """
     async def event_generator():
-        async for event in system.chat_stream(
-            user_message=request.message,
-            user_id=request.user_id,
-            agent_id=request.agent_id,
-            session_id=request.session_id,
-            enable_memory_retrieval=request.enable_memory_retrieval,
-        ):
+        try:
+            async for event in system.chat_stream(
+                user_message=request.message,
+                user_id=request.user_id,
+                agent_id=request.agent_id,
+                session_id=request.session_id,
+                enable_memory_retrieval=request.enable_memory_retrieval,
+            ):
+                yield {
+                    "event": event["event"],
+                    "data": json.dumps(event["data"], ensure_ascii=False),
+                }
+        except Exception as e:
+            logger.error(f"chat 路由流异常: {e}", exc_info=True)
             yield {
-                "event": event["event"],
-                "data": json.dumps(event["data"], ensure_ascii=False),
+                "event": "error",
+                "data": json.dumps(
+                    {"message": "系统错误，请检查后端服务器"},
+                    ensure_ascii=False,
+                ),
             }
 
     return EventSourceResponse(event_generator())

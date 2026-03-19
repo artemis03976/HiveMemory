@@ -28,9 +28,9 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, MemoryAtom
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.engines.perception.models import InteractionPayload
 from hivememory.patchouli.protocol.models import (
@@ -105,6 +105,62 @@ class PatchouliKernel:
             self._register_bus_routes()
 
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")
+
+        # 模型预热状态
+        self._models_ready = False
+
+    # ========== 模型预热 ==========
+
+    async def warmup_models(self) -> None:
+        """
+        后台预热所有推理模型 (Embedding + Reranker)
+
+        在后台线程中触发模型加载，避免首次请求时的延迟。
+        服务启动后由 lifespan 异步调用，不阻塞 HTTP 服务可用性。
+        """
+        import time
+        start = time.time()
+        logger.info("开始后台预热推理模型...")
+
+        try:
+            # 存储层 Embedding (BGE-M3, 用于写入时的向量化)
+            await asyncio.to_thread(self.storage.embedding_service.warmup)
+
+            # 感知层 Embedding (用于检索时的查询向量化)
+            # 如果与存储层共享同一实例 (Multiton)，warmup 会立即返回
+            await asyncio.to_thread(self.perception_embedding_service.warmup)
+
+            # Reranker
+            if self.reranker_service is not None:
+                await asyncio.to_thread(self.reranker_service.warmup)
+
+            self._models_ready = True
+            elapsed = (time.time() - start) * 1000
+            logger.info(f"推理模型预热完成 ({elapsed:.0f}ms)")
+
+        except Exception as e:
+            logger.error(f"模型预热失败: {e}", exc_info=True)
+            # 预热失败不阻塞服务，退化为首次请求时懒加载
+            self._models_ready = False
+
+    def is_models_ready(self) -> bool:
+        """
+        检查所有推理模型是否已加载就绪
+
+        Returns:
+            True 如果所有模型已加载，否则 False
+        """
+        if self._models_ready:
+            return True
+
+        # 动态检查（覆盖懒加载已完成但 warmup 未调用的情况）
+        storage_ready = self.storage.embedding_service.is_loaded()
+        perception_ready = self.perception_embedding_service.is_loaded()
+        reranker_ready = (
+            self.reranker_service is None
+            or self.reranker_service.is_loaded()
+        )
+        return storage_ready and perception_ready and reranker_ready
 
     # ========== 基础设施初始化 ==========
 
@@ -351,6 +407,7 @@ class PatchouliKernel:
         mode: str = "active",
     ) -> KernelHotResult:
         retrieved_context = None
+        
         if enable_retrieval:
             retrieval_request = self.build_retrieval_request(gaze_result)
             if retrieval_request:
@@ -367,6 +424,10 @@ class PatchouliKernel:
                 if not retrieved_result.is_empty():
                     retrieved_context = retrieved_result.rendered_context
 
+                    # 将预检索记忆的别名注册到 Koakuma 的 L1 热映射，
+                    # 使 Agent 在看到渲染结果后可直接用别名发起 MTP READ
+                    self._register_preretrieval_aliases(retrieved_result.memories)
+
         return KernelHotResult(
             intent=gaze_result.intent.value,
             rewritten=gaze_result.rewritten_query,
@@ -374,7 +435,7 @@ class PatchouliKernel:
             worth_saving=gaze_result.worth_saving,
             memory=retrieved_context,
         )
-
+ 
     async def handle_mtp(
         self,
         assistant_text: str,
@@ -447,6 +508,25 @@ class PatchouliKernel:
         return builder.build()
 
     # ========== 数据格式转换 ==========
+
+    def _register_preretrieval_aliases(self, memories: List[MemoryAtom]) -> None:
+        """
+        将预检索记忆的别名注册到 Koakuma 的 L1 别名热映射
+
+        预检索注入的记忆上下文使用别名作为 id，Agent 看到后会直接
+        用别名发起 MTP READ。此方法确保这些别名在 Koakuma 中可解析。
+
+        Args:
+            memories: 预检索返回的 MemoryAtom 列表
+        """
+        resolver = self.koakuma.alias_resolver
+        for mem in memories:
+            alias = mem.get_alias()
+            resolver.register_context_alias(alias, str(mem.id))
+        if memories:
+            logger.debug(
+                f"预检索别名注册完成: {len(memories)} 条记忆已注册到 Koakuma L1"
+            )
 
     def build_retrieval_request(
         self, gaze_result: EyeGazeResult

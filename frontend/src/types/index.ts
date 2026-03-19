@@ -1,13 +1,27 @@
 // MTP Protocol Types
 export interface MtpAction {
   id: string;
-  type: 'RUN' | 'READ' | 'WRITE' | 'SEARCH';
+  type: 'RUN' | 'READ' | 'WRITE' | 'SEARCH' | 'UPDATE' | 'UNKNOWN';
   command: string;
   params?: Record<string, unknown>;
   status: 'pending' | 'executing' | 'success' | 'error';
   response?: string;
   timestamp: number;
 }
+
+// ========== Content Block (有序内容块) ==========
+
+export interface TextBlock {
+  kind: 'text';
+  text: string;
+}
+
+export interface MtpBlock {
+  kind: 'mtp';
+  action: MtpAction;
+}
+
+export type ContentBlock = TextBlock | MtpBlock;
 
 // Topic/MMU Types
 export interface Topic {
@@ -24,8 +38,10 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  contentBlocks: ContentBlock[];
   timestamp: number;
-  mtpActions?: MtpAction[];
+  isStreaming?: boolean;
+  error?: string;
 }
 
 // Memory Atom Types
@@ -54,3 +70,6 @@ export interface AgentConfig {
   maxTokens: number;
   systemPrompt: string;
 }
+
+// Re-export chat types
+export * from './chat';

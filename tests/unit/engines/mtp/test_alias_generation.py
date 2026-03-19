@@ -5,7 +5,7 @@ MTP 别名系统测试 (Section 2.3)
 - MemoryGenerationEngine._build_alias() 别名构建逻辑
 - _draft_to_memory() 中别名的端到端生成
 - IndexLayer.alias 的 Qdrant 持久化
-- Koakuma._make_alias_from_memory() 的存储别名优先逻辑
+- MemoryAtom.get_alias() 的存储别名优先逻辑
 
 对应设计文档: MemoryToolProtocol.md Section 2.3
 """
@@ -21,9 +21,9 @@ from hivememory.engines.generation.models import ExtractedMemoryDraft
 from hivememory.core.models import (
     Identity,
     IndexLayer,
+    MemoryAtom,
     MemoryType,
 )
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 
 
 # ========== _build_alias 单元测试 ==========
@@ -215,7 +215,7 @@ class TestDraftToMemoryAlias:
 # ========== Koakuma 别名偏好测试 ==========
 
 class TestKoakumaAliasPreference:
-    """测试 Koakuma._make_alias_from_memory 的存储别名优先逻辑"""
+    """测试 MemoryAtom.get_alias() 的存储别名优先逻辑"""
 
     def test_prefer_stored_alias(self):
         """存储了正式别名时直接返回"""
@@ -224,7 +224,7 @@ class TestKoakumaAliasPreference:
         mem.index.memory_type.value = "FACT"
         mem.index.title = "API Specification"
 
-        result = KoakumaRuntime._make_alias_from_memory(mem)
+        result = MemoryAtom.get_alias(mem)
         assert result == "fact_api_spec"
 
     def test_fallback_when_alias_none(self):
@@ -234,7 +234,7 @@ class TestKoakumaAliasPreference:
         mem.index.memory_type.value = "FACT"
         mem.index.title = "API Specification"
 
-        result = KoakumaRuntime._make_alias_from_memory(mem)
+        result = MemoryAtom.get_alias(mem)
         assert result == "fact_api_specification"
 
     def test_fallback_when_alias_empty(self):
@@ -244,5 +244,5 @@ class TestKoakumaAliasPreference:
         mem.index.memory_type.value = "CODE_SNIPPET"
         mem.index.title = "Parse Date"
 
-        result = KoakumaRuntime._make_alias_from_memory(mem)
+        result = MemoryAtom.get_alias(mem)
         assert result == "code_parse_date"

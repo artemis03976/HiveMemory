@@ -499,7 +499,7 @@ class KoakumaRuntime:
 
             # 将检索到的记忆注册到别名解析器
             for mem in result.memories:
-                alias = self._make_alias_from_memory(mem)
+                alias = mem.get_alias()
                 self._alias_resolver.register_context_alias(
                     alias, str(mem.id)
                 )
@@ -919,36 +919,10 @@ class KoakumaRuntime:
         """
         lines = ["[Menu]:"]
         for i, mem in enumerate(result.memories, 1):
-            alias = self._make_alias_from_memory(mem)
+            alias = mem.get_alias()
             summary = mem.index.summary[:80] if mem.index.summary else "(no summary)"
             lines.append(f"{i}. {alias} (Alias) - \"{summary}\"")
         return "\n".join(lines)
-
-    @staticmethod
-    def _make_alias_from_memory(mem) -> str:
-        """
-        从 MemoryAtom 获取或生成别名
-
-        优先使用 IndexLayer 中存储的正式别名 (由 Generation Engine 在记忆创建时生成)。
-        如果不存在，则基于 memory_type 和 title 生成临时别名作为 fallback。
-
-        Args:
-            mem: MemoryAtom 对象
-
-        Returns:
-            str: 语义化别名
-        """
-        # 优先使用存储的正式别名 (Section 2.3)
-        if getattr(mem.index, 'alias', None):
-            return mem.index.alias
-
-        # Fallback: 运行时临时生成 (向后兼容旧记忆)
-        type_prefix = mem.index.memory_type.value.lower().split("_")[0]
-        title = mem.index.title or "untitled"
-        alias = title.lower().replace(" ", "_").replace("-", "_")
-        alias = "".join(c for c in alias if c.isalnum() or c == "_")
-        alias = alias[:40]
-        return f"{type_prefix}_{alias}"
 
     def _get_current_user_id(self) -> str:
         """获取当前用户 ID"""

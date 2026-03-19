@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
 import { PanelRightOpen } from 'lucide-react';
 import { GlobalNavBar } from './components/GlobalNavBar';
@@ -8,25 +8,10 @@ import { MainWorkspace } from './components/MainWorkspace';
 import { SettingsPanel } from './components/SettingsPanel';
 import { KernelVision } from './components/KernelVision';
 import { MemoryGarden } from './components/MemoryGarden';
-import { useKernelStore } from './stores/kernelStore';
 
 function App() {
   const [activeView, setActiveView] = useState<ViewType>('chat');
   const [isKernelVisionOpen, setIsKernelVisionOpen] = useState(false);
-
-  // Initialize kernel store connection on app startup
-  const connect = useKernelStore((state) => state.connect);
-  const disconnect = useKernelStore((state) => state.disconnect);
-
-  useEffect(() => {
-    // Auto-connect on mount
-    connect();
-
-    // Cleanup on unmount
-    return () => {
-      disconnect();
-    };
-  }, [connect, disconnect]);
 
   // Render the main content based on active view
   const renderMainContent = () => {
@@ -103,7 +88,6 @@ function App() {
                 }`}
               >
                 <KernelVision
-                  isOpen={isKernelVisionOpen}
                   onClose={() => setIsKernelVisionOpen(false)}
                 />
               </div>

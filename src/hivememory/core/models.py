@@ -341,6 +341,23 @@ class MemoryAtom(BaseModel):
     payload: PayloadLayer
     relations: RelationLayer = Field(default_factory=RelationLayer)
 
+    def get_alias(self) -> str:
+        """
+        获取或生成语义化别名
+
+        优先使用 IndexLayer 中存储的正式别名 (由 Generation Engine 在记忆创建时生成)。
+        如果不存在，则基于 memory_type 和 title 生成临时别名作为 fallback。
+        """
+        if getattr(self.index, 'alias', None):
+            return self.index.alias
+
+        type_prefix = self.index.memory_type.value.lower().split("_")[0]
+        title = self.index.title or "untitled"
+        alias = title.lower().replace(" ", "_").replace("-", "_")
+        alias = "".join(c for c in alias if c.isalnum() or c == "_")
+        alias = alias[:40]
+        return f"{type_prefix}_{alias}"
+
     def to_qdrant_payload(self) -> Dict[str, Any]:
         """
         转换为 Qdrant Payload 格式 (不含embedding向量)

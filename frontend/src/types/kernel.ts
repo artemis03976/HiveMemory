@@ -16,7 +16,7 @@ export type ConnectionStatus =
 
 /**
  * Log entry from backend WebSocket
- * Matches the JSON format from ws://localhost:8000/api/v1/ws/logs
+ * Matches the JSON format from ws://localhost:8769/api/v1/ws/logs
  */
 export interface LogEntry {
   id: string; // Generated client-side (UUID)
@@ -115,8 +115,8 @@ export interface KernelStore {
   _ws: WebSocket | null;
   _broadcastChannel: BroadcastChannel | null;
   _isPrimaryWindow: boolean;
-  _reconnectTimer: NodeJS.Timeout | null;
-  _statsUpdateTimer: NodeJS.Timeout | null;
+  _reconnectTimer: ReturnType<typeof setTimeout> | null;
+  _statsUpdateTimer: ReturnType<typeof setInterval> | null;
 }
 
 /**

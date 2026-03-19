@@ -41,6 +41,7 @@ def _make_retrieval_response(empty=False):
     resp = Mock(spec=RetrievalResponse)
     resp.is_empty.return_value = empty
     resp.rendered_context = "" if empty else "<memory>context</memory>"
+    resp.memories = []
     return resp
 
 

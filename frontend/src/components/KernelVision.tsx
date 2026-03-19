@@ -35,7 +35,6 @@ const mockMemories: MemoryAtom[] = [
 // ─── Types ────────────────────────────────────────────────────
 
 interface KernelVisionProps {
-  isOpen: boolean;
   onClose: () => void;
 }
 
@@ -43,8 +42,8 @@ type TabType = 'terminal' | 'context';
 
 // ─── Panel Component ──────────────────────────────────────────
 
-export function KernelVision({ isOpen, onClose }: KernelVisionProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('terminal');
+export function KernelVision({ onClose }: KernelVisionProps) {
+  const [activeTab, setActiveTab] = useState<TabType>('context'); // Default to context tab to avoid auto-connecting
 
   return (
     <div className="glass-panel h-full flex flex-col border-l shadow-2xl">

@@ -23,12 +23,18 @@ class ChatTokenEvent(BaseModel):
 class MTPStartEvent(BaseModel):
     """mtp_start 事件: MTP 指令被拦截"""
     verb: str
+    target: str = ""
+    args: dict = Field(default_factory=dict)
+    raw_text: str = ""
     iteration: int
 
 
 class MTPResultEvent(BaseModel):
     """mtp_result 事件: MTP 执行完成"""
     verb: str
+    target: str = ""
+    args: dict = Field(default_factory=dict)
+    raw_text: str = ""
     status: str
     iteration: int
 
