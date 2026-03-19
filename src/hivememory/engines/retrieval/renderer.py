@@ -21,7 +21,7 @@ from hivememory.patchouli.config import FullRendererConfig, CascadeRendererConfi
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
-from hivememory.utils import TimeFormatter, Language, estimate_tokens
+from hivememory.utils import estimate_tokens
 from hivememory.utils.memory_atom_renderer import (
     MemoryAtomRenderer,
     MEMORY_HEADER,
@@ -57,7 +57,7 @@ class FullContextRenderer(BaseContextRenderer):
         self.max_tokens = config.max_tokens
         self.max_content_length = config.max_content_length
         self.show_artifacts = config.show_artifacts
-        self._time_formatter = TimeFormatter(language=Language.CHINESE, stale_days=config.stale_days)
+        self.stale_days = config.stale_days
 
     def render(
         self,
@@ -88,11 +88,10 @@ class FullContextRenderer(BaseContextRenderer):
         return "".join(blocks)
 
     def _render_memory(self, memory: MemoryAtom) -> str:
-        time_str = self._time_formatter.format(memory.meta.updated_at)
-        return MemoryAtomRenderer.for_llm_context(
+        return MemoryAtomRenderer.for_full_context(
             memory=memory,
             max_content_length=self.max_content_length,
-            formatted_time=time_str,
+            stale_days=self.stale_days,
         )
 
 
@@ -108,7 +107,6 @@ class CascadeContextRenderer(BaseContextRenderer):
 
     def __init__(self, config: CascadeRendererConfig):
         self.config = config
-        self._time_formatter = TimeFormatter(language=Language.CHINESE, stale_days=90)
 
     def render(
         self,
@@ -145,16 +143,11 @@ class CascadeContextRenderer(BaseContextRenderer):
         remaining_budget = budget
 
         for i, memory in enumerate(memories):
-            alias = memory.get_alias()
-            time_str = self._time_formatter.format(memory.meta.updated_at)
-
             # Top-N 强制完整渲染
             if i < self.config.full_payload_count:
-                full_block = MemoryAtomRenderer.for_llm_context(
+                full_block = MemoryAtomRenderer.for_full_context(
                     memory=memory,
                     max_content_length=self.config.max_content_length,
-                    formatted_time=time_str,
-                    alias=alias,
                 )
                 full_tokens = estimate_tokens(full_block)
 
@@ -167,8 +160,6 @@ class CascadeContextRenderer(BaseContextRenderer):
             # 尝试 Index 视图渲染
             index_block = MemoryAtomRenderer.for_index_context(
                 memory=memory,
-                formatted_time=time_str,
-                alias=alias,
                 max_summary_length=self.config.index_max_summary_length,
             )
             index_tokens = estimate_tokens(index_block)
@@ -193,7 +184,6 @@ class CompactContextRenderer(BaseContextRenderer):
 
     def __init__(self, config: CompactRendererConfig):
         self.config = config
-        self._time_formatter = TimeFormatter(language=Language.CHINESE, stale_days=90)
 
     def render(
         self,
@@ -218,13 +208,8 @@ class CompactContextRenderer(BaseContextRenderer):
         remaining_budget = available_budget
 
         for memory in memories:
-            alias = memory.get_alias()
-            time_str = self._time_formatter.format(memory.meta.updated_at)
-
             block = MemoryAtomRenderer.for_index_context(
                 memory=memory,
-                formatted_time=time_str,
-                alias=alias,
                 max_summary_length=self.config.index_max_summary_length,
             )
             block_tokens = estimate_tokens(block)

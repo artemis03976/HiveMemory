@@ -5,7 +5,7 @@ MemoryAtom 通用渲染器
     将 MemoryAtom 渲染为不同用途的文本格式:
     - for_dense_embedding: 用于稠密向量生成的文本
     - for_sparse_embedding: 用于稀疏向量生成的文本
-    - for_llm_context: 用于注入 LLM 上下文的完整记忆渲染
+    - for_full_context: 用于注入 LLM 上下文的完整记忆渲染
     - for_index_context: 用于注入 LLM 上下文的索引/摘要渲染
 
 设计原则:
@@ -19,6 +19,7 @@ from typing import Optional
 from enum import Enum
 
 from hivememory.core.models import MemoryAtom, VerificationStatus
+from hivememory.utils.time_formatter import TimeFormatter, Language
 
 
 # ==========================================
@@ -149,11 +150,10 @@ class MemoryAtomRenderer:
     # ========== LLM 上下文渲染 ==========
 
     @staticmethod
-    def for_llm_context(
+    def for_full_context(
         memory: MemoryAtom,
         max_content_length: int = 500,
-        formatted_time: str = "",
-        alias: Optional[str] = None,
+        stale_days: int = 90,
     ) -> str:
         """
         渲染用于注入 LLM 上下文的完整记忆文本
@@ -163,16 +163,16 @@ class MemoryAtomRenderer:
         Args:
             memory: 记忆原子
             max_content_length: 内容最大长度
-            formatted_time: 已格式化的时间字符串 (由 TimeFormatter 生成)
-            alias: 语义化别名。未提供时自动从 memory 生成。
+            stale_days: 记忆被视为陈旧的天数
 
         Returns:
             渲染后的单条记忆文本
         """
         content = MemoryAtomRenderer._truncate_content(memory.payload.content, max_content_length)
         confidence_str = MemoryAtomRenderer._format_confidence(memory)
-        block_alias = alias or memory.get_alias()
+        alias = memory.get_alias()
         tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or "(无标签)"
+        time_str = TimeFormatter(language=Language.CHINESE, stale_days=stale_days).format(memory.meta.updated_at)
 
         # 构建版本历史
         history = ""
@@ -182,10 +182,10 @@ class MemoryAtomRenderer:
             history = "\n".join(history_lines)
 
         return FULL_ITEM_TEMPLATE.format(
-            alias=block_alias,
+            alias=alias,
             title=memory.index.title,
             type=memory.index.memory_type.value,
-            time=formatted_time,
+            time=time_str,
             confidence=confidence_str,
             tags=tags,
             content=content,
@@ -195,9 +195,8 @@ class MemoryAtomRenderer:
     @staticmethod
     def for_index_context(
         memory: MemoryAtom,
-        formatted_time: str = "",
-        alias: Optional[str] = None,
         max_summary_length: int = 100,
+        stale_days: int = 90,
     ) -> str:
         """
         渲染用于注入 LLM 上下文的索引/摘要文本
@@ -207,26 +206,26 @@ class MemoryAtomRenderer:
 
         Args:
             memory: 记忆原子
-            formatted_time: 已格式化的时间字符串
-            alias: 语义化别名。未提供时自动从 memory 生成。
             max_summary_length: 摘要最大长度
+            stale_days: 记忆被视为陈旧的天数
 
         Returns:
             渲染后的索引文本
         """
-        block_alias = alias or memory.get_alias()
+        alias = memory.get_alias()
         confidence_str = MemoryAtomRenderer._format_confidence(memory)
         tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or "(无标签)"
+        time_str = TimeFormatter(language=Language.CHINESE, stale_days=stale_days).format(memory.meta.updated_at)
 
         summary = memory.index.summary
         if len(summary) > max_summary_length:
             summary = summary[:max_summary_length] + "..."
 
         return INDEX_ITEM_TEMPLATE.format(
-            alias=block_alias,
+            alias=alias,
             title=memory.index.title,
             type=memory.index.memory_type.value,
-            time=formatted_time,
+            time=time_str,
             confidence=confidence_str,
             tags=tags,
             summary=summary,
