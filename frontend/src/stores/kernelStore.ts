@@ -19,8 +19,8 @@ import type {
 
 // Configuration constants
 const WS_URL = import.meta.env.DEV
-  ? 'ws://localhost:8769/api/v1/ws/logs'  // Custom port to avoid Windows reserved ranges
-  : `ws://${window.location.host}/api/v1/ws/logs`;
+  ? 'ws://localhost:8769/api/v1/ws/logs'
+  : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/v1/ws/logs`;
 
 const BROADCAST_CHANNEL_NAME = 'hivememory_kernel_logs';
 const PRIMARY_WINDOW_KEY = 'hivememory_primary_window';
@@ -28,6 +28,7 @@ const HEARTBEAT_INTERVAL = 5000; // 5 seconds
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]; // Exponential backoff
 const PING_INTERVAL = 30000; // 30 seconds
+const CONNECT_TIMEOUT = 10000;
 
 /**
  * Check if this window should be the primary window
@@ -60,10 +61,40 @@ function initializeWebSocket(
   set: (partial: Partial<KernelStore>) => void,
   get: () => KernelStore
 ) {
-  const ws = new WebSocket(WS_URL);
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'WebSocket initialization failed';
+    console.error('[KernelStore] Failed to initialize WebSocket:', error);
+    set({
+      connection: {
+        ...get().connection,
+        status: 'error',
+        error: message,
+      },
+    });
+    return;
+  }
+
+  const connectTimeout = setTimeout(() => {
+    if (ws.readyState === WebSocket.CONNECTING) {
+      console.error('[KernelStore] WebSocket connection timeout');
+      set({
+        connection: {
+          ...get().connection,
+          status: 'error',
+          error: 'WebSocket connection timeout',
+        },
+      });
+      ws.close();
+    }
+  }, CONNECT_TIMEOUT);
 
   ws.onopen = () => {
     console.log('[KernelStore] WebSocket connected');
+    clearTimeout(connectTimeout);
     set({
       connection: {
         status: 'connected',
@@ -124,17 +155,19 @@ function initializeWebSocket(
 
   ws.onerror = (error) => {
     console.error('[KernelStore] WebSocket error:', error);
+    clearTimeout(connectTimeout);
     set({
       connection: {
         ...get().connection,
         status: 'error',
-        error: 'WebSocket connection error',
+        error: 'WebSocket connection error. Check backend status or browser security policy.',
       },
     });
   };
 
   ws.onclose = () => {
     console.log('[KernelStore] WebSocket closed');
+    clearTimeout(connectTimeout);
 
     // Clear ping timer
     if ((ws as any)._pingTimer) {
@@ -142,6 +175,22 @@ function initializeWebSocket(
     }
 
     const state = get();
+    if (state._manualDisconnecting) {
+      set({
+        connection: {
+          status: 'disconnected',
+          error: null,
+          connectedAt: null,
+          reconnectAttempts: 0,
+          lastPingTime: null,
+        },
+        _manualDisconnecting: false,
+        _ws: null,
+        _reconnectTimer: null,
+      });
+      return;
+    }
+
     const attempts = state.connection.reconnectAttempts;
 
     if (attempts < MAX_RECONNECT_ATTEMPTS) {
@@ -310,6 +359,7 @@ export const useKernelStore = create<KernelStore>()(
         _isPrimaryWindow: false,
         _reconnectTimer: null,
         _statsUpdateTimer: null,
+        _manualDisconnecting: false,
 
         // Computed selector
         filteredLogs: () => {
@@ -344,7 +394,10 @@ export const useKernelStore = create<KernelStore>()(
         // Connection actions
         connect: () => {
           const state = get();
-          if (state._ws?.readyState === WebSocket.OPEN) {
+          if (
+            state._ws?.readyState === WebSocket.OPEN ||
+            state._ws?.readyState === WebSocket.CONNECTING
+          ) {
             console.log('[KernelStore] Already connected');
             return;
           }
@@ -355,45 +408,53 @@ export const useKernelStore = create<KernelStore>()(
               ...state.connection,
               status: 'connecting',
             },
+            _manualDisconnecting: false,
           });
 
           // Determine if this is the primary window
-          const isPrimary = checkAndClaimPrimaryWindow();
-          set({ _isPrimaryWindow: isPrimary });
+          try {
+            const isPrimary = checkAndClaimPrimaryWindow();
+            set({ _isPrimaryWindow: isPrimary });
 
-          console.log(
-            `[KernelStore] Window role: ${isPrimary ? 'PRIMARY' : 'SECONDARY'}`
-          );
+            console.log(
+              `[KernelStore] Window role: ${isPrimary ? 'PRIMARY' : 'SECONDARY'}`
+            );
 
-          // Initialize BroadcastChannel for all windows
-          if (!state._broadcastChannel) {
-            const bc = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
-            bc.onmessage = (event) => handleBroadcastMessage(event.data, set, get);
-            set({ _broadcastChannel: bc });
-            console.log('[KernelStore] BroadcastChannel initialized');
-          }
-
-          if (isPrimary) {
-            // Primary window: establish WebSocket
-            initializeWebSocket(set, get);
-
-            // Start heartbeat
-            const heartbeatTimer = startPrimaryHeartbeat(get);
-            set({ _statsUpdateTimer: heartbeatTimer });
-          } else {
-            // Secondary window: request full sync from primary
-            const bc = get()._broadcastChannel;
-            if (bc) {
-              bc.postMessage({ type: 'REQUEST_SYNC' });
-              console.log('[KernelStore] Requested full sync from primary');
+            if (!state._broadcastChannel) {
+              const bc = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+              bc.onmessage = (event) => handleBroadcastMessage(event.data, set, get);
+              set({ _broadcastChannel: bc });
+              console.log('[KernelStore] BroadcastChannel initialized');
             }
 
-            // Set connection status to connected (via BroadcastChannel)
+            if (isPrimary) {
+              initializeWebSocket(set, get);
+              const heartbeatTimer = startPrimaryHeartbeat(get);
+              set({ _statsUpdateTimer: heartbeatTimer });
+            } else {
+              const bc = get()._broadcastChannel;
+              if (bc) {
+                bc.postMessage({ type: 'REQUEST_SYNC' });
+                console.log('[KernelStore] Requested full sync from primary');
+              }
+
+              set({
+                connection: {
+                  ...state.connection,
+                  status: 'connected',
+                  connectedAt: Date.now(),
+                },
+              });
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : 'Kernel connection initialization failed';
+            console.error('[KernelStore] Failed to start connection:', error);
             set({
               connection: {
-                ...state.connection,
-                status: 'connected',
-                connectedAt: Date.now(),
+                ...get().connection,
+                status: 'error',
+                error: message,
               },
             });
           }
@@ -402,6 +463,10 @@ export const useKernelStore = create<KernelStore>()(
         disconnect: () => {
           console.log('[KernelStore] Disconnecting...');
           const state = get();
+          const hasWs = Boolean(state._ws);
+          if (hasWs) {
+            set({ _manualDisconnecting: true });
+          }
 
           // Close WebSocket
           if (state._ws) {
@@ -439,6 +504,7 @@ export const useKernelStore = create<KernelStore>()(
               lastPingTime: null,
             },
             _isPrimaryWindow: false,
+            _manualDisconnecting: hasWs,
           });
         },
 

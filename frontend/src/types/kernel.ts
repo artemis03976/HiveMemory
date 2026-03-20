@@ -117,6 +117,7 @@ export interface KernelStore {
   _isPrimaryWindow: boolean;
   _reconnectTimer: ReturnType<typeof setTimeout> | null;
   _statsUpdateTimer: ReturnType<typeof setInterval> | null;
+  _manualDisconnecting: boolean;
 }
 
 /**

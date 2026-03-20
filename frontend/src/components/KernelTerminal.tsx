@@ -192,6 +192,11 @@ export function KernelTerminal() {
         <span className="text-[11px] text-muted-foreground mr-1">
           {STATUS_LABEL[connection.status]}
         </span>
+        {connection.error && (
+          <span className="text-[11px] text-magic-fire/80 truncate max-w-[320px]" title={connection.error}>
+            {connection.error}
+          </span>
+        )}
 
         {/* Connect button (only show when disconnected) */}
         {connection.status === 'disconnected' && (
