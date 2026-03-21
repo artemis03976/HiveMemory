@@ -45,10 +45,10 @@ function App() {
         {activeView === 'chat' && (
           <>
             <Panel
-              defaultSize={20}
-              minSize={15}
-              maxSize={30}
-              className="min-w-[240px]"
+              defaultSize={25}
+              minSize={20}
+              maxSize={35}
+              className="min-w-[280px]"
             >
               <ContextSidebar />
             </Panel>

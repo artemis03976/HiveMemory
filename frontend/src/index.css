@@ -3,29 +3,29 @@
 @import 'highlight.js/styles/github-dark.css';
 
 @theme {
-    /* 七曜魔法 Semantic Colors */
+  /* 日月交辉底色 - 晶格聚光底板 (极深渊色) */
+  --color-background: hsl(240 20% 4%);      /* 极深的底色，突显高光 */
+  --color-foreground: hsl(210 40% 96%);      /* 文字保持高对比 */
+  
+  /* 七曜魔法状态色*/
   --color-magic-water: hsl(190 90% 50%);
   --color-magic-wood: hsl(150 80% 45%);
   --color-magic-fire: hsl(340 80% 60%);
   --color-magic-earth: hsl(30 20% 50%);
   --color-magic-metal: hsl(52 82% 73%);
-  --color-magic-moon: hsl(260 80% 65%);
+  --color-magic-moon: hsl(260 70% 65%);
   --color-magic-sun: hsl(45 100% 60%);
-
-  --color-background: hsl(230 20% 8%);
-  --color-foreground: hsl(210 40% 98%);
+  
+  /* 主题强调色 */
+  --color-primary: hsl(265 70% 65%);        /* 略提亮，更通透 */
 
   --color-card: hsl(240 10% 3.9%);
   --color-card-foreground: hsl(210 40% 98%);
-
-  --color-primary: hsl(262 80% 60%);
-  --color-primary-foreground: hsl(210 40% 98%);
 
   --color-muted: hsl(240 3.7% 15.9%);
   --color-muted-foreground: hsl(240 5% 64.9%);
 
   --color-border: hsl(240 5% 25% / 0.2); 
-  --color-input: hsl(240 3.7% 15.9%);
   --color-ring: hsl(262 80% 60%);
   
   --radius-sm: 0.125rem;
@@ -55,34 +55,76 @@
 
 @layer utilities {
 
-  /* Enhanced Glassmorphism utilities */
-  .glass-nav {
-    /* 使用 black/40 压暗底色，backdrop-blur-3xl 提供最强的物理厚重感 */
-    @apply bg-black/40 backdrop-blur-3xl border-r border-white/5;
-    /* 向右投射阴影，在视觉上把它“抬高”，压在 L2 之上 */
-    box-shadow: 2px 0 30px rgba(0, 0, 0, 0.5); 
+  /* 
+   * ==========================================
+   * Liquid Glass Base Material
+   * 苹果 iOS 风格液态玻璃 + 魔法水晶折射质感
+   * ==========================================
+   */
+  .liquid-glass {
+    /* 基础模糊，iOS 级别的柔和度 */
+    backdrop-filter: blur(24px) saturate(120%);
+    /* 默认深色主题：带微弱蓝紫倾向的深色半透明底色，确保透出底部聚光灯的同时不过于惨白 */
+    background-color: rgba(15, 15, 20, 0.35);
+    /* 魔法水晶质感的核心：多重内阴影 + 外阴影 */
+     box-shadow: 
+      inset 0 1px 1px rgba(255, 255, 255, 0.15),   /* 顶部锐利高光 */
+      inset 1px 0 1px rgba(255, 255, 255, 0.05),   /* 左侧微弱侧光 */
+      inset 0 -1px 1px rgba(0, 0, 0, 0.4),         /* 底部暗部截断 */
+      0 4px 12px rgba(0, 0, 0, 0.2);               /* 基础环境光遮蔽 (AO) */
+    /* 极细的边框，增强物理边缘感 */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Enhanced Glassmorphism utilities - Crystal/Spotlight approach */
+  .nav {
+    /* 作为系统边框的纯色导航栏，不透光，提供视觉锚点 */
+    background-color: hsl(240, 13%, 6%);
+    /* 强烈的侧边阴影，将其层级提升，与背后的发光空间隔离开 */
+    box-shadow: 
+      2px 0 20px rgba(0, 0, 0, 0.6), 
+      inset -1px 0 0 rgba(255, 255, 255, 0.03); 
   }
   
-  /* L1/L2 Sidebar: Heavy blur, dark background, structural emphasis */
+  /* L1/L2 Sidebar: 继承基础材质，移除右侧圆角/边框，适应侧边栏形态 */
   .glass-sidebar {
-    @apply bg-background/30 backdrop-blur-lg border-r border-white/5;
-    /* 玻璃边缘微光 (Inner Highlight) - 这是高级玻璃质感的灵魂 */
-    box-shadow: 4px 0 24px rgba(0,0,0,0.15);
+    border-top: none;
+    border-bottom: none;
+    border-left: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    /* 微调阴影，使其更符合贴边的物理形态 */
+    box-shadow: 
+      inset -1px 0 1px rgba(255, 255, 255, 0.05),
+      4px 0 24px rgba(0, 0, 0, 0.3);
   }
 
-  /* L3 Workspace: Light blur to reveal aurora background */
-  .glass-workspace {
-    @apply bg-transparent;
-  }
-
-  /* Cards/Popovers: Hover effect, edge highlight */
+  /* Cards/Popovers: 继承基础材质，增加交互态 */
   .glass-card {
-    @apply bg-muted/20 backdrop-blur-lg border border-white/10 shadow-lg hover:bg-muted/30 hover:border-white/20 transition-all duration-300;
+    @apply transition-all duration-300;
+  }
+  .glass-card:hover {
+    background-color: rgba(25, 25, 30, 0.45);
+    border-color: rgba(255, 255, 255, 0.15);
+    /* 悬浮时增强顶部高光，模拟被“照亮” */
+    box-shadow: 
+      inset 0 1px 2px rgba(255, 255, 255, 0.25),
+      inset 0 0 20px rgba(255, 255, 255, 0.05),
+      0 12px 40px rgba(0, 0, 0, 0.4);
   }
   
   /* Omni-Input: Enhanced glow on focus */
   .glass-input {
-    @apply bg-background/50 backdrop-blur-xl border border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.5)] focus-within:ring-1 focus-within:ring-primary/50 focus-within:border-primary/50 focus-within:bg-background/70 transition-all duration-300;
+    @apply transition-all duration-300;
+  }
+  .glass-input:focus-within {
+    background-color: rgba(10, 10, 12, 0.6);
+    /* 聚焦时泛出主题色光芒 */
+    border-color: var(--color-magic-moon); /* 对应 primary 色系的紫色 */
+    box-shadow: 
+      inset 0 1px 1px rgba(255, 255, 255, 0.2),
+      0 0 0 1px var(--color-magic-moon), /* Focus ring */
+      0 12px 40px rgba(0, 0, 0, 0.5);
+    
   }
 
   /* Custom scrollbar */
@@ -130,46 +172,48 @@
   }
 }
 
-/* Aurora gradient background */
+/* Textured Spotlights Background */
 body::before {
   content: '';
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  z-index: -1;
+  z-index: -2;
   background:
-    /* 左下：月之深邃 (紫) */
-    radial-gradient(circle at 15% 85%, hsl(265 70% 40% / 0.25) 0%, transparent 70%),
+    /* 左下：月之深邃 (紫) - 缩小范围，提高浓度作为聚光 */
+    radial-gradient(circle at 20% 80%, hsl(265 80% 50% / 0.45) 0%, transparent 45%),
     /* 中部：魔法之渊 (蓝) */
-    radial-gradient(circle at 50% 50%, hsl(225 80% 50% / 0.15) 0%, transparent 70%),
+    radial-gradient(circle at 50% 50%, hsl(225 90% 60% / 0.35) 0%, transparent 50%),
     /* 右上：日之高光 (琥珀金) */
-    radial-gradient(circle at 85% 15%, hsla(40 90% 55% / 0.30) 0%, transparent 70%);
-  background-color: hsl(230 20% 5%);
-  animation: aurora 20s ease-in-out infinite alternate;
+    radial-gradient(circle at 80% 20%, hsla(40 100% 60% / 0.4) 0%, transparent 40%);
+  background-color: var(--color-background);
+  animation: spotlights 20s ease-in-out infinite alternate;
   pointer-events: none;
 }
 
-@keyframes aurora {
+/* 晶格纹理层 */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: -1;
+  /* 微弱的网格纹理，增强玻璃折射的物理厚度感 */
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  /* 让边缘网格逐渐消失，只在中心光亮处明显 */
+  mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+  pointer-events: none;
+}
+
+@keyframes spotlights {
   0%, 100% {
-    opacity: 0.6;
+    opacity: 0.8;
     transform: scale(1);
   }
   50% {
-    opacity: 0.4;
-    transform: scale(1.1);
-  }
-}
-
-/* Reduced motion support */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-
-  body::before {
-    animation: none;
+    opacity: 0.6;
+    transform: scale(1.15);
   }
 }

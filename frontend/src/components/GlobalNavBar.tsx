@@ -95,7 +95,7 @@ export function GlobalNavBar({ activeView, onViewChange }: GlobalNavBarProps) {
   };
 
   return (
-    <nav className="glass-nav w-16 h-screen flex flex-col items-center py-6 relative z-50">
+    <nav className="nav w-16 h-screen flex flex-col items-center py-6 relative z-50">
       {/* Top Section */}
       <div className="flex-1 flex flex-col gap-4">
         {topNavItems.map((item) => (

@@ -13,7 +13,7 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
-    port: 6918, // Custom port to avoid Windows reserved ranges
+    port: 5173, // Custom port to avoid Windows reserved ranges
     proxy: {
       '/api': {
         target: 'http://localhost:8769', // Custom port to avoid Windows reserved ranges

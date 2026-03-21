@@ -46,7 +46,7 @@ export function KernelVision({ onClose }: KernelVisionProps) {
   const [activeTab, setActiveTab] = useState<TabType>('context'); // Default to context tab to avoid auto-connecting
 
   return (
-    <div className="glass-panel h-full flex flex-col border-l shadow-2xl">
+    <div className="liquid-glass glass-panel h-full flex flex-col border-l shadow-2xl">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
         <h2 className="text-sm font-semibold text-foreground">Kernel Vision</h2>

@@ -19,7 +19,7 @@ export function MemoryCard({ memory, onClick }: MemoryCardProps) {
 
   return (
     <motion.div
-      className="glass-card p-4 rounded-lg cursor-pointer flex flex-col h-full min-h-[240px]"
+      className="liquid-glass glass-card p-4 rounded-lg cursor-pointer flex flex-col h-full min-h-[240px]"
       whileHover={{ scale: 1.02 }}
       transition={{ duration: 0.2 }}
       onClick={onClick}

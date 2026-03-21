@@ -28,12 +28,12 @@ export function OmniInput({ onSend, disabled }: OmniInputProps) {
   return (
     <div className="mx-auto max-w-3xl mb-4 w-full px-4"> 
       {/* 核心输入框本体 */}
-      <div className="glass-input rounded-2xl p-3 flex flex-col gap-2">
+      <div className="liquid-glass glass-input rounded-2xl p-3 flex flex-col gap-2">
         
         {/* 1. 输入区放在最上面，彻底无边框 */}
         <TextareaAutosize
           className="w-full resize-none bg-transparent outline-none text-[15px] text-foreground placeholder:text-muted-foreground/75 leading-relaxed px-1"
-          placeholder="向帕秋莉提问，或输入 / 唤出指令..."
+          placeholder="向 Agent 提问，或输入 / 唤出指令..."
           minRows={1}
           maxRows={8}
           value={message}
