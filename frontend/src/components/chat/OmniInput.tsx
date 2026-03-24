@@ -1,19 +1,16 @@
+"use client";
+
 import { useState } from 'react';
-import TextareaAutosize from 'react-textarea-autosize';
-import { Send, Paperclip, Hash } from 'lucide-react';
+import { Paperclip, Hash, Send } from 'lucide-react';
+import { useChatStore } from '@/stores/chatStore';
 
-interface OmniInputProps {
-  onSend: (message: string) => void;
-  disabled?: boolean;
-}
-
-export function OmniInput({ onSend, disabled }: OmniInputProps) {
+export default function OmniInput() {
   const [message, setMessage] = useState('');
+  const { sendMessage, isStreaming } = useChatStore();
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (message.trim() && !disabled) {
-      onSend(message);
+  const handleSend = () => {
+    if (message.trim() && !isStreaming) {
+      sendMessage(message);
       setMessage('');
     }
   };
@@ -21,55 +18,56 @@ export function OmniInput({ onSend, disabled }: OmniInputProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      handleSend();
     }
   };
 
   return (
-    <div className="mx-auto max-w-3xl mb-4 w-full px-4"> 
-      {/* 核心输入框本体 */}
-      <div className="liquid-glass glass-input rounded-2xl p-3 flex flex-col gap-2">
-        
-        {/* 1. 输入区放在最上面，彻底无边框 */}
-        <TextareaAutosize
-          className="w-full resize-none bg-transparent outline-none text-[15px] text-foreground placeholder:text-muted-foreground/75 leading-relaxed px-1"
-          placeholder="向 Agent 提问，或输入 / 唤出指令..."
-          minRows={1}
-          maxRows={8}
+    <div className="p-6 pb-10 w-full max-w-4xl mx-auto shrink-0">
+      <div className="glass-panel ghost-border rounded-2xl p-2 flex flex-col shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-300 focus-within:shadow-[0_0_5px_rgba(149,71,247,0.4),0_12px_40px_rgba(0,0,0,0.5)] focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20">
+        {/* 输入区 */}
+        <textarea
+          className="w-full bg-transparent border-none focus:ring-0 text-sm py-3 px-4 resize-none placeholder-slate-500 outline-none"
+          placeholder={isStreaming ? "正在思考..." : "向智能体提问..."}
+          rows={1}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={disabled}
-        />
-        
-        {/* 2. 底部工具栏与发送按钮并排 */}
-        <div className="flex items-center justify-between pt-1">
+          disabled={isStreaming}
+        ></textarea>
+
+        {/* 底部工具栏，与发送按钮并排 */}
+        <div className="flex items-center justify-between px-1 pt-1">
           {/* 左侧工具：附件、记忆引用 */}
-          <div className="flex items-center gap-1 text-muted-foreground/75">
-            <button className="p-2 hover:text-foreground hover:bg-white/5 rounded-lg transition-colors">
+          <div className="flex items-center gap-1">
+            <button className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all" disabled={isStreaming}>
               <Paperclip className="w-4 h-4" />
             </button>
-            <button className="p-2 hover:text-foreground hover:bg-white/5 rounded-lg transition-colors">
+            <button className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all">
               <Hash className="w-4 h-4" />
             </button>
           </div>
-          
+
           {/* 右侧：发送按钮 (有输入内容时点亮为主色调) */}
-          <button
-            onClick={handleSubmit}
-            disabled={!message.trim() || disabled}
-            className="p-2 rounded-xl bg-primary/20 text-primary hover:bg-primary hover:text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          <button 
+            disabled={!message.trim() || isStreaming}
+            onClick={handleSend}
+            className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
+              message.trim() && !isStreaming
+                ? 'bg-primary-dim text-on-primary-container shadow-[0_0_10px_rgba(149,71,247,0.4)] hover:shadow-[0_0_10px_rgba(149,71,247,0.6)] hover:bg-primary/90' 
+                : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
+            }`}
           >
             <Send className="w-4 h-4" />
           </button>
         </div>
       </div>
-
-      {/* 3. 快捷键提示移到输入框外面，极度淡化 */}
-      <div className="text-center mt-3 text-[11px] text-muted-foreground/60 font-medium tracking-wide">
-        <span className="bg-white/5 px-1.5 py-0.5 rounded text-[10px] mr-1">Enter</span> 发送 
+      
+      {/* 快捷键提示 */}
+      <div className="text-center mt-4 text-[11px] text-slate-500/60 font-medium tracking-wide">
+        <span className="bg-white/5 px-1.5 py-0.5 rounded text-[10px] mr-1 border border-white/5">Enter</span> 发送 
         <span className="mx-2">•</span> 
-        <span className="bg-white/5 px-1.5 py-0.5 rounded text-[10px] mr-1">Shift + Enter</span> 换行
+        <span className="bg-white/5 px-1.5 py-0.5 rounded text-[10px] mr-1 border border-white/5">Shift + Enter</span> 换行
       </div>
     </div>
   );

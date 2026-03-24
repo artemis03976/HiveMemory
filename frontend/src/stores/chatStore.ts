@@ -12,6 +12,7 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { ChatSSEClient } from '@/services/chatApi';
+import { useTopicStore } from '@/stores/topicStore';
 import type {
   Message,
   MtpAction,
@@ -238,7 +239,7 @@ export const useChatStore = create<ChatStore>()(
                             return {
                               ...msg,
                               content: msg.content + delta,
-                              contentBlocks: appendTokenToBlocks(msg.contentBlocks, delta),
+                              contentBlocks: appendTokenToBlocks(msg.contentBlocks || [], delta),
                             };
                           })()
                         : msg
@@ -263,7 +264,7 @@ export const useChatStore = create<ChatStore>()(
                       msg.id === assistantMessageId
                         ? {
                             ...msg,
-                            contentBlocks: pushMtpBlock(msg.contentBlocks, newAction),
+                            contentBlocks: pushMtpBlock(msg.contentBlocks || [], newAction),
                           }
                         : msg
                     ),
@@ -277,7 +278,7 @@ export const useChatStore = create<ChatStore>()(
                       msg.id === assistantMessageId
                         ? {
                             ...msg,
-                            contentBlocks: updateLastMtpStatus(msg.contentBlocks, {
+                            contentBlocks: updateLastMtpStatus(msg.contentBlocks || [], {
                               status: data.status,
                               verb: normalizeVerb(data.verb),
                               target: data.target,
@@ -293,6 +294,7 @@ export const useChatStore = create<ChatStore>()(
                 // Topic Info event: store topic ID
                 onTopicInfo: (data) => {
                   set({ currentTopicId: data.topic_id });
+                  useTopicStore.getState().fetchTopics();
                 },
 
                 // Done event: finalize message, rebuild text blocks from final_text
@@ -303,9 +305,9 @@ export const useChatStore = create<ChatStore>()(
                         ? {
                             ...msg,
                             content: data.final_text,
-                            contentBlocks: msg.contentBlocks.some((b) => b.kind === 'mtp')
+                            contentBlocks: (msg.contentBlocks || []).some((b) => b.kind === 'mtp')
                               ? msg.contentBlocks
-                              : rebuildBlocksWithFinalText(msg.contentBlocks, data.final_text),
+                              : rebuildBlocksWithFinalText(msg.contentBlocks || [], data.final_text),
                             isStreaming: false,
                           }
                         : msg

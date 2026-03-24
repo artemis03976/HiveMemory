@@ -7,7 +7,7 @@
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
 
-export type ConnectionStatus =
+export type KernelConnectionStatus =
   | 'disconnected'
   | 'connecting'
   | 'connected'
@@ -41,7 +41,7 @@ export interface LogEntry {
  * WebSocket connection state
  */
 export interface ConnectionState {
-  status: ConnectionStatus;
+  status: KernelConnectionStatus;
   error: string | null;
   connectedAt: number | null; // Unix timestamp
   reconnectAttempts: number;

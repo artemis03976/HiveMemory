@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type {
-  MemoryResponse,
+  MemoryAtom,
   MemoryListResponse,
   SearchMode,
   SortOption,
@@ -8,7 +8,7 @@ import type {
 } from '@/types/memory';
 
 // Mock data for development/testing when backend is not available
-const mockMemories: MemoryResponse[] = [
+const mockMemories: MemoryAtom[] = [
   {
     id: 'mock-1',
     title: 'HiveMemory 项目架构设计',
@@ -315,7 +315,7 @@ results = client.search(
 ];
 
 interface UseMemoriesReturn {
-  memories: MemoryResponse[];
+  memories: MemoryAtom[];
   loading: boolean;
   error: string | null;
   total: number;
@@ -346,8 +346,8 @@ interface UseMemoriesReturn {
 }
 
 export function useMemories(): UseMemoriesReturn {
-  const [memories, setMemories] = useState<MemoryResponse[]>([]);
-  const [rawMemories, setRawMemories] = useState<MemoryResponse[]>([]); // 缓存原始数据
+  const [memories, setMemories] = useState<MemoryAtom[]>([]);
+  const [rawMemories, setRawMemories] = useState<MemoryAtom[]>([]); // 缓存原始数据
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);

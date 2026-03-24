@@ -1,12 +1,7 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-@import 'highlight.js/styles/github-dark.css';
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;600;800&family=Inter:wght@300;400;500;600&display=swap');
 
 @theme {
-  /* 日月交辉底色 - 晶格聚光底板 (极深渊色) */
-  --color-background: hsl(240 20% 4%);      /* 极深的底色，突显高光 */
-  --color-foreground: hsl(210 40% 96%);      /* 文字保持高对比 */
-  
   /* 七曜魔法状态色*/
   --color-magic-water: hsl(190 90% 50%);
   --color-magic-wood: hsl(150 80% 45%);
@@ -16,204 +11,51 @@
   --color-magic-moon: hsl(260 70% 65%);
   --color-magic-sun: hsl(45 100% 60%);
   
-  /* 主题强调色 */
-  --color-primary: hsl(265 70% 65%);        /* 略提亮，更通透 */
+  --font-manrope: "Manrope", sans-serif;
+  --font-inter: "Inter", sans-serif;
 
-  --color-card: hsl(240 10% 3.9%);
-  --color-card-foreground: hsl(210 40% 98%);
-
-  --color-muted: hsl(240 3.7% 15.9%);
-  --color-muted-foreground: hsl(240 5% 64.9%);
-
-  --color-border: hsl(240 5% 25% / 0.2); 
-  --color-ring: hsl(262 80% 60%);
-  
-  --radius-sm: 0.125rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
-}
-
-@layer base {
-  * {
-    border-color: var(--color-border);
-  }
-
-  body {
-    background-color: var(--color-background);
-    color: var(--color-foreground);
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    font-feature-settings: 'cv11', 'ss01';
-    margin: 0;
-    padding: 0;
-  }
-
-  code, pre {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  }
+  --color-background: #0e0e12;
+  --color-surface: #0e0e12;
+  --color-surface-dim: #0e0e12;
+  --color-surface-container: #19191e;
+  --color-surface-container-low: #131317;
+  --color-surface-container-high: #1f1f25;
+  --color-surface-container-highest: #25252b;
+  --color-on-surface: #fcf8fe;
+  --color-primary: #c59aff;
+  --color-primary-dim: #9547f7;
+  --color-secondary-container: #454652;
+  --color-on-secondary-container: #d0cfde;
+  --color-outline: #76757a;
+  --color-tertiary: #a1faff;
 }
 
 @layer utilities {
-
-  /* 
-   * ==========================================
-   * Liquid Glass Base Material
-   * 苹果 iOS 风格液态玻璃 + 魔法水晶折射质感
-   * ==========================================
-   */
-  .liquid-glass {
-    /* 基础模糊，iOS 级别的柔和度 */
-    backdrop-filter: blur(24px) saturate(120%);
-    /* 默认深色主题：带微弱蓝紫倾向的深色半透明底色，确保透出底部聚光灯的同时不过于惨白 */
-    background-color: rgba(15, 15, 20, 0.35);
-    /* 魔法水晶质感的核心：多重内阴影 + 外阴影 */
-     box-shadow: 
+  .nebula-glow {
+    text-shadow: 0 0 15px rgba(197, 154, 255, 0.4);
+  }
+  .glass-panel {
+    background: rgba(31, 31, 37, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 
       inset 0 1px 1px rgba(255, 255, 255, 0.15),   /* 顶部锐利高光 */
       inset 1px 0 1px rgba(255, 255, 255, 0.05),   /* 左侧微弱侧光 */
       inset 0 -1px 1px rgba(0, 0, 0, 0.4),         /* 底部暗部截断 */
       0 4px 12px rgba(0, 0, 0, 0.2);               /* 基础环境光遮蔽 (AO) */
-    /* 极细的边框，增强物理边缘感 */
-    border: 1px solid rgba(255, 255, 255, 0.08);
   }
-
-  /* Enhanced Glassmorphism utilities - Crystal/Spotlight approach */
-  .nav {
-    /* 作为系统边框的纯色导航栏，不透光，提供视觉锚点 */
-    background-color: hsl(240, 13%, 6%);
-    /* 强烈的侧边阴影，将其层级提升，与背后的发光空间隔离开 */
-    box-shadow: 
-      2px 0 20px rgba(0, 0, 0, 0.6), 
-      inset -1px 0 0 rgba(255, 255, 255, 0.03); 
+  .ghost-border {
+    border: 0.5px solid rgba(197, 154, 255, 0.15);
   }
-  
-  /* L1/L2 Sidebar: 继承基础材质，移除右侧圆角/边框，适应侧边栏形态 */
-  .glass-sidebar {
-    border-top: none;
-    border-bottom: none;
-    border-left: none;
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
-    /* 微调阴影，使其更符合贴边的物理形态 */
-    box-shadow: 
-      inset -1px 0 1px rgba(255, 255, 255, 0.05),
-      4px 0 24px rgba(0, 0, 0, 0.3);
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
-
-  /* Cards/Popovers: 继承基础材质，增加交互态 */
-  .glass-card {
-    @apply transition-all duration-300;
-  }
-  .glass-card:hover {
-    background-color: rgba(25, 25, 30, 0.45);
-    border-color: rgba(255, 255, 255, 0.15);
-    /* 悬浮时增强顶部高光，模拟被“照亮” */
-    box-shadow: 
-      inset 0 1px 2px rgba(255, 255, 255, 0.25),
-      inset 0 0 20px rgba(255, 255, 255, 0.05),
-      0 12px 40px rgba(0, 0, 0, 0.4);
-  }
-  
-  /* Omni-Input: Enhanced glow on focus */
-  .glass-input {
-    @apply transition-all duration-300;
-  }
-  .glass-input:focus-within {
-    background-color: rgba(10, 10, 12, 0.6);
-    /* 聚焦时泛出主题色光芒 */
-    border-color: var(--color-magic-moon); /* 对应 primary 色系的紫色 */
-    box-shadow: 
-      inset 0 1px 1px rgba(255, 255, 255, 0.2),
-      0 0 0 1px var(--color-magic-moon), /* Focus ring */
-      0 12px 40px rgba(0, 0, 0, 0.5);
-    
-  }
-
-  /* Custom scrollbar */
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background-color: transparent;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: var(--color-muted-foreground);
-    opacity: 0.2;
-    border-radius: 9999px;
-    transition: background-color 0.2s;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: var(--color-muted-foreground);
-    opacity: 0.4;
-  }
-
-  /* Line clamp utilities */
-  .line-clamp-1 {
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .line-clamp-3 {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }
 
-/* Textured Spotlights Background */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  z-index: -2;
-  background:
-    /* 左下：月之深邃 (紫) - 缩小范围，提高浓度作为聚光 */
-    radial-gradient(circle at 20% 80%, hsl(265 80% 50% / 0.45) 0%, transparent 45%),
-    /* 中部：魔法之渊 (蓝) */
-    radial-gradient(circle at 50% 50%, hsl(225 90% 60% / 0.35) 0%, transparent 50%),
-    /* 右上：日之高光 (琥珀金) */
-    radial-gradient(circle at 80% 20%, hsla(40 100% 60% / 0.4) 0%, transparent 40%);
-  background-color: var(--color-background);
-  animation: spotlights 20s ease-in-out infinite alternate;
-  pointer-events: none;
-}
-
-/* 晶格纹理层 */
-body::after {
-  content: '';
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  z-index: -1;
-  /* 微弱的网格纹理，增强玻璃折射的物理厚度感 */
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 32px 32px;
-  /* 让边缘网格逐渐消失，只在中心光亮处明显 */
-  mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
-  -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
-  pointer-events: none;
-}
-
-@keyframes spotlights {
-  0%, 100% {
-    opacity: 0.8;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(1.15);
-  }
+body {
+  @apply bg-background text-on-surface font-inter antialiased;
 }

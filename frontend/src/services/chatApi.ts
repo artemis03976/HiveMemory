@@ -14,7 +14,7 @@ import type {
   TopicInfoEvent,
   ChatDoneEvent,
   ChatErrorEvent,
-} from '@/types/chat';
+} from '@/types';
 
 export class ChatSSEClient {
   private abortController: AbortController | null = null;

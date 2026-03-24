@@ -10,14 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/react-syntax-highlighter": "^15.5.13",
     "clsx": "^2.1.1",
     "framer-motion": "^12.35.2",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.577.0",
+    "motion": "^12.38.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.7.2",
+    "react-syntax-highlighter": "^16.1.1",
     "react-textarea-autosize": "^8.5.9",
     "react-window": "^2.2.7",
     "rehype-highlight": "^7.0.2",

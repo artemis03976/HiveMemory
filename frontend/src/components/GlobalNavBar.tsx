@@ -1,174 +1,70 @@
-import { MessageSquare, BookOpen, Bot, Moon, Terminal, Settings } from 'lucide-react';
-import { cn } from '@/lib/utils';
-
-// 每个导航项的独立色彩身份
-type AccentColor = 'moon' | 'sun' | 'water' | 'wood' | 'fire' | 'earth' | 'metal' | 'neutral';
-
-const accentStyles: Record<AccentColor, { text: string; shadow: string; indicator: string }> = {
-  moon: {
-    text: 'text-[hsl(260,80%,65%)]',
-    shadow: 'drop-shadow-[0_0_8px_hsla(260,80%,65%,0.6)]',
-    indicator: 'bg-[hsl(260,80%,65%)] shadow-[0_0_10px_hsla(260,80%,65%,0.8)]',
-  },
-  sun: {
-    text: 'text-[hsl(45,100%,60%)]',
-    shadow: 'drop-shadow-[0_0_8px_hsla(45,100%,60%,0.6)]',
-    indicator: 'bg-[hsl(45,100%,60%)] shadow-[0_0_10px_hsla(45,100%,60%,0.8)]',
-  },
-  water: {
-    text: 'text-[hsl(190,90%,50%)]',
-    shadow: 'drop-shadow-[0_0_8px_hsla(190,90%,50%,0.6)]',
-    indicator: 'bg-[hsl(190,90%,50%)] shadow-[0_0_10px_hsla(190,90%,50%,0.8)]',
-  },
-  wood: {
-    text: 'text-[hsl(150,80%,45%)]',
-    shadow: 'drop-shadow-[0_0_8px_hsla(150,80%,45%,0.6)]',
-    indicator: 'bg-[hsl(150,80%,45%)] shadow-[0_0_10px_hsla(150,80%,45%,0.8)]',
-  },
-  fire: {
-    text: 'text-[hsl(340,80%,60%)]',
-    shadow: 'drop-shadow-[0_0_8px_hsla(340,80%,60%,0.6)]',
-    indicator: 'bg-[hsl(340,80%,60%)] shadow-[0_0_10px_hsla(340,80%,60%,0.8)]',
-  },
-  earth: {
-    text: 'text-[hsl(30,20%,50%)]',
-    shadow: 'drop-shadow-[0_0_8px_hsla(30,20%,50%,0.6)]',
-    indicator: 'bg-[hsl(30,20%,50%)] shadow-[0_0_10px_hsla(30,20%,50%,0.8)]',
-  },
-  metal: {
-    text: 'text-[hsl(40,90%,55%)]',
-    shadow: 'drop-shadow-[0_0_8px_hsla(40,90%,55%,0.6)]',
-    indicator: 'bg-[hsl(40,90%,55%)] shadow-[0_0_10px_hsla(40,90%,55%,0.8)]',
-  },
-  neutral: {
-    text: 'text-foreground/80',
-    shadow: 'drop-shadow-[0_0_6px_rgba(255,255,255,0.15)]',
-    indicator: 'bg-foreground/60 shadow-[0_0_8px_rgba(255,255,255,0.2)]',
-  },
-};
-
-interface NavItemConfig {
-  id: string;
-  icon: React.ElementType;
-  label: string;
-  accent: AccentColor;
-  disabled?: boolean;
-  /** 底部按钮可以是 toggle 行为，不参与主导航切换 */
-  toggle?: boolean;
-}
-
-const topNavItems: NavItemConfig[] = [
-  { id: 'chat', icon: MessageSquare, label: 'Chat', accent: 'moon' },
-  { id: 'memory', icon: BookOpen, label: 'Memory Garden', accent: 'sun' },
-  { id: 'agents', icon: Bot, label: 'Agents', accent: 'water', disabled: true },
-];
-
-const bottomNavItems: NavItemConfig[] = [
-  { id: 'theme', icon: Moon, label: 'Theme', accent: 'neutral', toggle: true },
-  { id: 'kernel', icon: Terminal, label: 'Kernel Console', accent: 'water' },
-  { id: 'settings', icon: Settings, label: 'Settings', accent: 'neutral' },
-];
-
-export type ViewType = 'chat' | 'memory' | 'agents' | 'kernel' | 'settings';
+import { Sparkles, MessageSquare, Database, Bot, Moon, Terminal, Settings } from 'lucide-react';
+import type { NavTab } from '../types';
 
 interface GlobalNavBarProps {
-  activeView: ViewType;
-  onViewChange: (view: ViewType) => void;
+  activeTab: NavTab;
+  onTabChange: (tab: NavTab) => void;
 }
 
-export function GlobalNavBar({ activeView, onViewChange }: GlobalNavBarProps) {
-  const handleClick = (item: NavItemConfig) => {
-    if (item.disabled) return;
+export default function GlobalNavBar({ activeTab, onTabChange }: GlobalNavBarProps) {
+  const navItems = [
+    { id: 'chat' as const, icon: MessageSquare, fill: true },
+    { id: 'database' as const, icon: Database },
+    { id: 'agents' as const, icon: Bot },
+  ];
 
-    if (item.toggle) {
-      // Toggle actions (like theme) don't change the view
-      // Handle theme toggle logic here if needed
-      return;
-    }
+  const footerItems = [
+    { id: 'theme' as const, icon: Moon },
+    { id: 'terminal' as const, icon: Terminal },
+    { id: 'settings' as const, icon: Settings },
+  ];
 
-    onViewChange(item.id as ViewType);
-  };
+  const renderButton = (item: { id: NavTab; icon: any; fill?: boolean }) => {
+    const isActive = activeTab === item.id;
+    const Icon = item.icon;
 
-  const isActive = (item: NavItemConfig) => {
-    if (item.toggle) return false;
-    return activeView === item.id;
+    return (
+      <button
+        key={item.id}
+        onClick={() => onTabChange(item.id)}
+        className={`relative flex items-center justify-center w-full py-2 transition-all active:scale-95 ${
+          isActive ? 'text-primary' : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+        }`}
+      >
+        {isActive && (
+          <div className="absolute left-0 h-8 w-[2px] bg-primary shadow-[0_0_15px_#c59aff]" />
+        )}
+        <Icon className={`w-5 h-5 ${item.fill && isActive ? 'fill-current' : ''}`} />
+      </button>
+    );
   };
 
   return (
-    <nav className="nav w-16 h-screen flex flex-col items-center py-6 relative z-50">
-      {/* Top Section */}
-      <div className="flex-1 flex flex-col gap-4">
-        {topNavItems.map((item) => (
-          <NavButton
-            key={item.id}
-            {...item}
-            active={isActive(item)}
-            onClick={() => handleClick(item)}
-          />
-        ))}
+    <aside className="fixed left-0 top-0 h-full z-50 w-16 flex flex-col items-center py-4 border-r border-white/5 bg-surface-container-low backdrop-blur-xl shadow-[4px_0_24px_rgba(0,0,0,0.5)] font-manrope">
+      <div className="flex flex-col items-center gap-8 w-full">
+        {/* 系统/软件图标*/}
+        <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-container-highest ghost-border">
+          <Sparkles className="w-5 h-5 text-primary" />
+        </div>
+
+        {/* 顶部导航栏项目 */}
+        <nav className="flex flex-col gap-6 w-full items-center">
+          {navItems.map(renderButton)}
+        </nav>
       </div>
 
-      {/* Bottom Section */}
-      <div className="flex flex-col gap-4">
-        {bottomNavItems.map((item) => (
-          <NavButton
-            key={item.id}
-            {...item}
-            active={isActive(item)}
-            onClick={() => handleClick(item)}
+      {/* 底部导航栏项目 */}
+      <div className="mt-auto flex flex-col gap-6 w-full items-center">
+        {footerItems.map(renderButton)}
+        <div className="mt-2">
+          <img
+            alt="User Profile"
+            className="w-8 h-8 rounded-full border border-white/10"
+            src="https://lh3.googleusercontent.com/aida-public/AB6AXuAOfRVlFqvlT7MmIXghjW-xDwJaWL9uuWzMrMysEmti0APnV7dLcEmevwpY3R0KZVETrJ6pGMHgwk7ME-OubXIS5o_9J6hCuSspa-aWaww14z7tzG9lbrj-EKDwiFxJSKq23QsfrOq0DD_UjE3FjgJJCWz03i3mBJ4fSHAVr1ZMADL-thVKUjXQVlMCIwBdyVL0BgrvSyIoJvml9ZhWaLmfej6ZkWNhiWYEn1BgmdXRc41Ii1OYacO38h_cjDZmQVogPlWhrLiQPleV"
+            referrerPolicy="no-referrer"
           />
-        ))}
+        </div>
       </div>
-    </nav>
-  );
-}
-
-interface NavButtonProps extends NavItemConfig {
-  active: boolean;
-  onClick: () => void;
-}
-
-function NavButton({ icon: Icon, label, accent, active, disabled, onClick }: NavButtonProps) {
-  const colors = accentStyles[accent];
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        'group relative w-12 h-12 flex items-center justify-center rounded-xl',
-        'transition-all duration-300 ease-out',
-        !active && !disabled && 'text-muted-foreground hover:text-foreground hover:bg-white/5',
-        disabled && 'text-muted-foreground/30 cursor-not-allowed',
-        !disabled && 'cursor-pointer',
-        active && colors.text,
-        active && colors.shadow,
-      )}
-      aria-label={label}
-    >
-      {/* 左侧霓虹指示条 — 颜色跟随 accent */}
-      {active && (
-        <div className={cn(
-          'absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-10 rounded-r-full',
-          colors.indicator,
-        )} />
-      )}
-
-      <Icon className={cn(
-        "w-[22px] h-[22px] transition-transform duration-300",
-        active ? "scale-110" : "group-hover:scale-110"
-      )} />
-
-      {/* Tooltip */}
-      <span className={cn(
-        'absolute left-full ml-3 px-3 py-1.5 rounded-md',
-        'bg-background/80 backdrop-blur-md border border-white/10 shadow-xl',
-        'text-xs font-medium text-foreground whitespace-nowrap',
-        'opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0',
-        'transition-all duration-200 ease-out pointer-events-none z-50'
-      )}>
-        {label}
-      </span>
-    </button>
+    </aside>
   );
 }

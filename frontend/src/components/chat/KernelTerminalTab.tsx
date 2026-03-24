@@ -1,0 +1,231 @@
+import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { Circle, Play, Pause, ArrowDownToLine, ArrowUpFromLine, Trash2, Search, RefreshCw } from 'lucide-react';
+import { useKernelStore } from '@/stores/kernelStore';
+import type { LogLevel, LogEntry, KernelConnectionStatus } from '@/types/kernel';
+
+const STATUS_DOT: Record<KernelConnectionStatus, string> = {
+  disconnected: 'text-slate-500',
+  connecting: 'text-magic-metal',
+  connected: 'text-magic-wood',
+  error: 'text-magic-fire',
+  reconnecting: 'text-magic-metal animate-pulse',
+};
+
+const STATUS_LABEL: Record<KernelConnectionStatus, string> = {
+  disconnected: 'Disconnected',
+  connecting: 'Connecting...',
+  connected: 'Connected',
+  error: 'Error',
+  reconnecting: 'Reconnecting...',
+};
+
+const LEVEL_STYLES: Record<LogLevel, string> = {
+  DEBUG: 'text-slate-500',
+  INFO: 'text-magic-water',
+  WARNING: 'text-magic-metal',
+  ERROR: 'text-magic-fire',
+  CRITICAL: 'text-magic-fire font-bold',
+};
+
+function LogRow({ log }: { log: LogEntry }) {
+  const ts = new Date(log.timestamp).toLocaleTimeString();
+
+  return (
+    <div className="flex gap-2 px-3 py-1 hover:bg-white/5 rounded group leading-5 transition-colors">
+      <span className="text-slate-500 shrink-0 select-none">{ts}</span>
+      <span className={`shrink-0 w-[60px] text-right ${LEVEL_STYLES[log.level]}`}>
+        {log.level}
+      </span>
+      <span className="text-primary/60 shrink-0 truncate max-w-[80px]" title={log.logger}>{log.logger.split('.').pop()}</span>
+      <span className="text-slate-300 break-all">{log.message}</span>
+      {log.exception && (
+        <span className="text-magic-fire shrink-0 opacity-0 group-hover:opacity-100" title={log.exception.type}>
+          !!
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ToolbarButton({ onClick, title, active, children }: { onClick: () => void, title: string, active?: boolean, children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`p-1.5 rounded-lg transition-colors ${
+        active
+          ? 'bg-primary/20 text-primary ghost-border'
+          : 'text-slate-400 hover:bg-white/10 hover:text-white'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Empty state placeholder */
+function EmptyState({ status }: { status: KernelConnectionStatus }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-2 select-none">
+      <span className="text-lg opacity-40">{'>'}_</span>
+      <span className="text-[11px]">
+        {status === 'connected'
+          ? 'Waiting for backend activity...'
+          : status === 'error'
+            ? 'Connection failed. Click reconnect to retry.'
+            : 'Connecting to kernel...'}
+      </span>
+    </div>
+  );
+}
+
+export default function KernelTerminalTab() {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // State selectors
+  const connection = useKernelStore((s) => s.connection);
+  const filters = useKernelStore((s) => s.filters);
+  const ui = useKernelStore((s) => s.ui);
+  
+  const allLogs = useKernelStore((s) => s.logs);
+  const logs = useMemo(() => {
+    return allLogs.filter((log) => {
+      if (filters.logLevel && log.level !== filters.logLevel) return false;
+      if (filters.loggerNamespace && !log.logger.startsWith(filters.loggerNamespace)) return false;
+      
+      if (filters.searchText) {
+        const search = filters.searchText.toLowerCase();
+        return (
+          log.message.toLowerCase().includes(search) ||
+          log.logger.toLowerCase().includes(search)
+        );
+      }
+      return true;
+    });
+  }, [allLogs, filters.logLevel, filters.loggerNamespace, filters.searchText]);
+
+  // Actions
+  const connect = useKernelStore((s) => s.connect);
+  const disconnect = useKernelStore((s) => s.disconnect);
+  const setLogLevel = useKernelStore((s) => s.setLogLevel);
+  const setSearchText = useKernelStore((s) => s.setSearchText);
+  const clearLogs = useKernelStore((s) => s.clearLogs);
+  const toggleAutoScroll = useKernelStore((s) => s.toggleAutoScroll);
+  const togglePause = useKernelStore((s) => s.togglePause);
+  const reconnect = useKernelStore((s) => s.reconnect);
+
+  // Auto-scroll
+  useEffect(() => {
+    if (ui.autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs.length, ui.autoScroll]);
+
+  const handleLevelChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      setLogLevel((e.target.value as LogLevel) || null);
+    },
+    [setLogLevel]
+  );
+
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setSearchText(e.target.value);
+    },
+    [setSearchText]
+  );
+
+  return (
+    <div className="flex flex-col h-full bg-black/20 font-mono text-[11px] rounded-xl ghost-border overflow-hidden">
+      {/* ── Toolbar ── */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-black/40">
+        <Circle className={`w-2.5 h-2.5 fill-current ${STATUS_DOT[connection.status]}`} />
+        <span className="text-slate-400 mr-1">{STATUS_LABEL[connection.status]}</span>
+        
+        {connection.error && (
+          <span className="text-[11px] text-magic-fire/80 truncate max-w-[200px]" title={connection.error}>
+            {connection.error}
+          </span>
+        )}
+
+        {connection.status === 'disconnected' && (
+          <button onClick={connect} className="px-2 py-0.5 rounded bg-primary/20 text-primary hover:bg-primary/30 transition-colors ghost-border">
+            Connect
+          </button>
+        )}
+        
+        {connection.status === 'error' && (
+          <button onClick={reconnect} className="p-1 rounded hover:bg-white/10 transition-colors" title="Reconnect">
+            <RefreshCw className="w-3 h-3 text-slate-500" />
+          </button>
+        )}
+        
+        {connection.status !== 'disconnected' && (
+          <button onClick={disconnect} className="px-2 py-0.5 rounded bg-magic-fire/20 text-magic-fire hover:bg-magic-fire/30 transition-colors ghost-border">
+            Disconnect
+          </button>
+        )}
+
+        <div className="flex-1" />
+
+        <ToolbarButton onClick={togglePause} title={ui.isPaused ? 'Resume' : 'Pause'} active={ui.isPaused}>
+          {ui.isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+        </ToolbarButton>
+        <ToolbarButton onClick={toggleAutoScroll} title={ui.autoScroll ? 'Unlock scroll' : 'Lock to bottom'} active={ui.autoScroll}>
+          {ui.autoScroll ? <ArrowDownToLine className="w-3.5 h-3.5" /> : <ArrowUpFromLine className="w-3.5 h-3.5" />}
+        </ToolbarButton>
+        <ToolbarButton onClick={clearLogs} title="Clear logs">
+          <Trash2 className="w-3.5 h-3.5" />
+        </ToolbarButton>
+      </div>
+
+      {/* ── Filter bar ── */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-black/20">
+        <select
+          value={filters.logLevel || ''}
+          onChange={handleLevelChange}
+          className="bg-black/40 border border-white/10 rounded-md px-2 py-1 text-slate-300 outline-none focus:border-primary/50 cursor-pointer appearance-none"
+        >
+          <option value="">ALL</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARN</option>
+          <option value="ERROR">ERROR</option>
+          <option value="CRITICAL">CRIT</option>
+        </select>
+
+        <div className="flex-1 relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Filter logs..."
+            value={filters.searchText}
+            onChange={handleSearchChange}
+            className="w-full bg-black/40 border border-white/10 rounded-md pl-8 pr-3 py-1 text-slate-300 placeholder:text-slate-600 outline-none focus:border-primary/50 transition-colors"
+          />
+        </div>
+      </div>
+
+      {/* ── Log viewport ── */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hide py-2">
+        {logs.length === 0 ? (
+          <EmptyState status={connection.status} />
+        ) : (
+          logs.map((log) => <LogRow key={log.id} log={log} />)
+        )}
+      </div>
+
+      {/* ── Status bar ── */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-t border-white/5 bg-black/40 text-[10px] text-slate-500 select-none">
+        <span>
+          {logs.length} entries
+          {(filters.logLevel || filters.searchText) && ' (filtered)'}
+        </span>
+        <div className="flex items-center gap-3">
+          {ui.isPaused && <span className="text-magic-metal">PAUSED</span>}
+          {ui.autoScroll && <span className="text-primary/70">AUTO-SCROLL</span>}
+        </div>
+      </div>
+    </div>
+  );
+}

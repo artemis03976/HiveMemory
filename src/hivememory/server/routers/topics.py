@@ -9,6 +9,7 @@ from hivememory.server.models.topic import (
     TopicSnapshotResponse,
     TopicListResponse,
     TriggerResponse,
+    DeleteResponse,
 )
 
 router = APIRouter(tags=["topics"])
@@ -44,3 +45,15 @@ async def trigger_topic(
     """手动触发话题结算"""
     result = await system.manual_trigger(topic_id=topic_id)
     return TriggerResponse(**result)
+
+
+@router.delete("/topics/{topic_id}", response_model=DeleteResponse)
+async def delete_topic(
+    topic_id: str,
+    system: PatchouliSystem = Depends(get_system),
+):
+    """从活跃池驱逐话题（不归档，不写长期记忆）"""
+    buf = system.kernel.librarian_core.perception_layer.buffer_manager.pop_buffer(topic_id)
+    if buf is None:
+        return DeleteResponse(success=False, message="话题不存在或已被驱逐")
+    return DeleteResponse(success=True, message=f"话题 {topic_id} 已删除")
