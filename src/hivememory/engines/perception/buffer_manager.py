@@ -55,13 +55,11 @@ class SemanticBufferManager:
         - 管理活跃话题池 (Dict[str, SemanticBuffer/TopicSegment])，key 为 topic_id
         - 提供线程安全的 CRUD 操作
         - 提供话题路由 (route) 与换出 (swap_out)
-        - 提供活跃话题菜单供 TheEye 路由决策
         - LRU 驱逐判定
 
     Examples:
         >>> manager = SemanticBufferManager(max_resident_topics=5)
         >>> buffer = manager.get_buffer("topic_123")
-        >>> menu = manager.get_active_topics_menu()
     """
 
     def __init__(self, max_resident_topics: int = 5) -> None:
@@ -386,24 +384,7 @@ class SemanticBufferManager:
         with self._lock:
             return list(self._buffers.values())
 
-    # ========== MMU 路由与菜单 ==========
-
-    def get_active_topics_menu(self) -> List[Dict[str, str]]:
-        """
-        获取活跃话题菜单，供 TheEye 路由决策使用
-
-        Returns:
-            List[Dict]: [{"topic_id": topic_id, "title": title}, ...]
-        """
-        with self._lock:
-            menu = []
-            for topic_id, buf in self._buffers.items():
-                if buf.blocks:  # 只返回有内容的话题
-                    menu.append({
-                        "topic_id": topic_id,
-                        "title": buf.title,
-                    })
-            return menu
+    # ========== MMU 路由 ==========
 
     def needs_eviction(self) -> bool:
         """检查是否需要 LRU 驱逐"""
@@ -434,88 +415,6 @@ class SemanticBufferManager:
                     "has_topic_kernel": buffer.topic_kernel_vector is not None,
                 }
             return {"exists": False}
-
-    # ========== 向后兼容接口 (Deprecated) ==========
-
-    def get_topic_buffer(self, identity: Identity) -> Optional[SemanticBuffer]:
-        """
-        [已废弃] 使用 get_buffer(topic_id) 代替
-
-        此方法仅用于向后兼容，未来版本将移除。
-        """
-        logger.warning("get_topic_buffer 已废弃，请使用 get_buffer(topic_id)")
-        # 回退：尝试通过 identity 查找（如果有多个 topic 会只返回第一个）
-        buffers = self.get_buffers_by_owner(identity)
-        return buffers[0] if buffers else None
-
-    def create_topic_buffer(self, identity: Identity, title: str = "新建话题") -> SemanticBuffer:
-        """
-        [已废弃] 使用 create_buffer(identity, title) 代替
-
-        此方法仅用于向后兼容，未来版本将移除。
-        """
-        logger.warning("create_topic_buffer 已废弃，请使用 create_buffer(identity, title)")
-        return self.create_buffer(identity, title)
-
-    def pop_topic_buffer(self, identity: Identity) -> Optional[SemanticBuffer]:
-        """
-        [已废弃] 使用 pop_buffer(topic_id) 代替
-
-        此方法仅用于向后兼容，未来版本将移除。
-        """
-        logger.warning("pop_topic_buffer 已废弃，请使用 pop_buffer(topic_id)")
-        # 回退：尝试通过 identity 查找
-        buffers = self.get_buffers_by_owner(identity)
-        if buffers:
-            return self.pop_buffer(buffers[0].topic_id)
-        return None
-
-    def clear_topic_buffer(self, identity: Identity) -> List[LogicalBlock]:
-        """
-        [已废弃] 使用 clear_buffer(topic_id) 代替
-
-        此方法仅用于向后兼容，未来版本将移除。
-        """
-        logger.warning("clear_topic_buffer 已废弃，请使用 clear_buffer(topic_id)")
-        buffers = self.get_buffers_by_owner(identity)
-        if buffers:
-            return self.clear_buffer(buffers[0].topic_id)
-        return []
-
-    def add_block_to_buffer(self, identity: Identity, block: LogicalBlock) -> None:
-        """
-        [已废弃] 使用 add_block(topic_id, block) 代替
-
-        此方法仅用于向后兼容，未来版本将移除。
-        """
-        logger.warning("add_block_to_buffer 已废弃，请使用 add_block(topic_id, block)")
-        buffers = self.get_buffers_by_owner(identity)
-        if buffers:
-            self.add_block(buffers[0].topic_id, block)
-
-    def update_buffer_metadata(
-        self,
-        identity: Identity,
-        topic_kernel_vector: Optional[List[float]] = None,
-        state: Optional[BufferState] = None,
-    ) -> None:
-        """
-        [已废弃] 使用 update_metadata(topic_id, ...) 代替
-
-        此方法仅用于向后兼容，未来版本将移除。
-        """
-        logger.warning("update_buffer_metadata 已废弃，请使用 update_metadata(topic_id, ...)")
-        buffers = self.get_buffers_by_owner(identity)
-        if buffers:
-            self.update_metadata(buffers[0].topic_id, topic_kernel_vector, state)
-
-    def get_lru_topic_buffer(self) -> Optional[SemanticBuffer]:
-        """
-        [已废弃] 使用 get_lru_buffer() 代替
-
-        此方法仅用于向后兼容，未来版本将移除。
-        """
-        return self.get_lru_buffer()
 
 
 __all__ = [

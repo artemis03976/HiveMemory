@@ -8,12 +8,11 @@ L2 语义分析器实现
 """
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from hivememory.patchouli.config import LLMAnalyzerConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.gateway.interfaces import BaseSemanticAnalyzer
-from hivememory.core.models import StreamMessage
 from hivememory.engines.gateway.models import (
     GatewayIntent,
     SemanticAnalysisResult,
@@ -54,6 +53,14 @@ GATEWAY_FUNCTION_SCHEMA = {
                     "type": "string",
                     "description": "判断理由",
                 },
+                "new_topic_title": {
+                    "type": "string",
+                    "description": "新话题的简短标题（仅当 target_topic 为 NEW_TOPIC 时填写）",
+                },
+                "new_topic_summary": {
+                    "type": "string",
+                    "description": "新话题的一句话摘要（仅当 target_topic 为 NEW_TOPIC 时填写）",
+                },
             },
             "required": [
                 "target_topic",
@@ -93,29 +100,11 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
             language=self.config.prompt_language,
         )
 
-    def analyze(
+    async def analyze(
         self,
         query: str,
-        context: List[StreamMessage],
         active_topics_menu: Optional[str] = None,
     ) -> SemanticAnalysisResult:
-        """
-        执行语义分析
-
-        使用 Function Calling 调用 LLM，获取结构化输出。
-        当提供 active_topics_menu 时，启用 Agentic Dispatcher 模式进行话题路由。
-
-        Args:
-            query: 用户原始查询
-            context: 对话上下文（用于指代消解）
-            active_topics_menu: 活跃话题菜单字符串（用于 Agentic Routing）
-
-        Returns:
-            SemanticAnalysisResult: L2 分析器的原始输出
-
-        Raises:
-            Exception: LLM 调用失败时抛出异常，由 GatewayEngine 处理回退
-        """
         # 构建系统提示词：有话题菜单时使用 dispatcher 模式
         if active_topics_menu:
             system_prompt = get_system_prompt(
@@ -126,24 +115,14 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         else:
             system_prompt = self.system_prompt
 
-        # 构建消息
-        messages = [{"role": "system", "content": system_prompt}]
-
-        # 添加上下文（最近 N 条）
-        if context and self.config.context_window > 0:
-            context_str = self._format_context(context[-self.config.context_window :])
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"最近对话:\n{context_str}\n\n当前查询: {query}",
-                }
-            )
-        else:
-            messages.append({"role": "user", "content": query})
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": query},
+        ]
 
         # 调用 LLM (使用 Function Calling)
         try:
-            response = self.llm_service.complete_with_tools(
+            response = await self.llm_service.acomplete_with_tools(
                 messages=messages,
                 tools=[GATEWAY_FUNCTION_SCHEMA],
                 tool_choice={
@@ -160,22 +139,6 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         except Exception as e:
             logger.error(f"LLM 语义分析失败: {e}", exc_info=True)
             raise e
-
-    def _format_context(self, messages: List[StreamMessage]) -> str:
-        """
-        格式化上下文为字符串
-
-        Args:
-            messages: 对话消息列表
-
-        Returns:
-            str: 格式化后的上下文字符串
-        """
-        lines = []
-        for msg in messages:
-            role_name = "用户" if msg.role == "user" else "助手"
-            lines.append(f"{role_name}: {msg.content}")
-        return "\n".join(lines)
 
     def _parse_function_call_response(
         self,
@@ -224,6 +187,8 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
             worth_saving=arguments["worth_saving"],
             reason=arguments["reason"],
             target_topic=arguments.get("target_topic", "NEW_TOPIC"),
+            new_topic_title=arguments.get("new_topic_title"),
+            new_topic_summary=arguments.get("new_topic_summary"),
             model=self.llm_service.model,
         )
 
@@ -236,10 +201,9 @@ class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
     用于在配置未启用 L2 分析时作为默认实现。
     """
 
-    def analyze(
+    async def analyze(
         self,
         query: str,
-        context: List[StreamMessage],
         active_topics_menu: Optional[str] = None,
     ) -> SemanticAnalysisResult:
         """
@@ -247,7 +211,6 @@ class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
 
         Args:
             query: 用户原始查询
-            context: 对话上下文
             active_topics_menu: 活跃话题菜单（忽略）
 
         Returns:

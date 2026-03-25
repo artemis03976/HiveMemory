@@ -17,7 +17,6 @@
 import asyncio
 import logging
 import time
-from datetime import datetime
 from typing import Any, List, Optional
 
 from hivememory.core.models import Identity, StreamMessage
@@ -63,48 +62,6 @@ class TheEye:
 
         logger.info(f"TheEye 真理之眼初始化完成 (Agentic Dispatcher)")
 
-    # ========== MMU 话题菜单 (Phase 4.5) ==========
-
-    def _build_active_topics_menu(self) -> Optional[str]:
-        """
-        从感知层获取活跃话题菜单，格式化为 Dispatcher prompt 可用的字符串
-
-        Returns:
-            格式化的话题菜单字符串，无话题时返回 None
-        """
-        if self._bus is None:
-            return None
-
-        try:
-            menu = self._bus.request("librarian.get_active_topics_menu")
-            if not menu:
-                return None
-
-            lines = []
-            for item in menu:
-                lines.append(f'"{item["topic_id"]}: {item["title"]}"')
-            return "[" + ", ".join(lines) + "]"
-        except Exception as e:
-            logger.warning(f"获取活跃话题菜单失败: {e}")
-            return None
-
-    async def _build_active_topics_menu_async(self) -> Optional[str]:
-        if self._bus is None:
-            return None
-        try:
-            menu = await self._bus.async_request(
-                "librarian.get_active_topics_menu"
-            )
-            if not menu:
-                return None
-            lines = []
-            for item in menu:
-                lines.append(f'"{item["topic_id"]}: {item["title"]}"')
-            return "[" + ", ".join(lines) + "]"
-        except Exception as e:
-            logger.warning(f"获取活跃话题菜单失败: {e}")
-            return None
-
     async def gaze(
         self,
         query: str,
@@ -133,15 +90,11 @@ class TheEye:
 
             active_topics_menu = None
             if topic_snapshots:
-                active_topics_menu = PerceptionContextConverter.snapshots_to_context_text(
-                    topic_snapshots
-                )
+                active_topics_menu = PerceptionContextConverter.snapshots_to_context_text(topic_snapshots)
 
-            result = await asyncio.to_thread(
-                self._engine.process,
+            result = await self._engine.process(
                 query,
-                None,  # context 参数已废弃，传 None
-                active_topics_menu,
+                active_topics_menu=active_topics_menu,
             )
             result.processing_time_ms = (time.time() - start_time) * 1000
             
@@ -163,10 +116,14 @@ class TheEye:
                 processing_time_ms=result.processing_time_ms,
                 is_fallback=False,
                 target_topic=result.target_topic,
+                new_topic_title=result.new_topic_title,
+                new_topic_summary=result.new_topic_summary,
             )
+
         except Exception as e:
             logger.error(f"TheEye 处理失败: {e}", exc_info=True)
             processing_time_ms = (time.time() - start_time) * 1000
+            
             return EyeGazeResult(
                 intent=GatewayIntent.RAG,
                 rewritten_query=query,

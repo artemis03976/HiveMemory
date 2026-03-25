@@ -74,6 +74,23 @@ class BaseLLMService(ABC):
         """
         raise NotImplementedError(f"{self.__class__.__name__} does not support complete_with_tools")
 
+    async def acomplete_with_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Dict[str, Any]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> Any:
+        """
+        异步生成聊天补全（支持 Function Calling）
+
+        Raises:
+            NotImplementedError: 子类未实现此方法时抛出
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support acomplete_with_tools")
+
     def complete_with_retry(
         self,
         messages: List[Dict[str, str]],

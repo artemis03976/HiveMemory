@@ -152,7 +152,7 @@ def sys():
 
     # Mock perception layer methods
     s.kernel.librarian_core.get_active_topics_snapshots = MagicMock(return_value=[])
-    s.kernel.librarian_core.get_topic_context_for_prompt = MagicMock(return_value={
+    s.kernel.librarian_core.get_topic_context = MagicMock(return_value={
         "state_summary": "",
         "blocks": [],
         "total_tokens": 0,
@@ -687,4 +687,3 @@ class TestUserIdPropagation:
         )
 
         sys.kernel.koakuma.set_current_user.assert_called_once_with("user_abc")
-

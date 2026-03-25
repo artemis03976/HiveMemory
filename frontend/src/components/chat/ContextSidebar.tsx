@@ -84,7 +84,7 @@ export default function ContextSidebar({
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-y-auto px-2 mt-4 space-y-1 scrollbar-hide pb-6">
+      <div className="flex-1 overflow-y-auto px-2 mt-4 flex flex-col gap-1 scrollbar-hide pb-6">
         {activeTab === 'topics' ? (
           <TopicTab 
             topics={topics}

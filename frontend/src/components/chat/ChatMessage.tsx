@@ -44,7 +44,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       </div>
 
       <div className={`flex-1 space-y-4 ${isUser ? 'max-w-[80%]' : 'w-full overflow-hidden'}`}>
-        <div className={`p-5 rounded-xl ghost-border ${
+        <div className={`p-5 rounded-xl ghost-border flex flex-col gap-4 ${
           isAgent ? 'bg-primary-container/10' : 'bg-surface-container-highest'
         }`}>
           {blocks.map((block, idx) => {

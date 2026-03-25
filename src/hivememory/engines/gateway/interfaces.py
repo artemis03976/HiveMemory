@@ -8,9 +8,7 @@ Global Gateway 接口定义
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
-
-from hivememory.core.models import StreamMessage
+from typing import Optional
 from hivememory.engines.gateway.models import (
     GatewayIntent,
     GatewayResult,
@@ -78,17 +76,15 @@ class BaseSemanticAnalyzer(ABC):
 
     示例:
         >>> analyzer = LLMAnalyzer(llm_service)
-        >>> result = analyzer.analyze(
+        >>> result = await analyzer.analyze(
         ...     query="怎么部署它？",
-        ...     context=[ConversationMessage(role="user", content="贪吃蛇游戏")]
         ... )
     """
 
     @abstractmethod
-    def analyze(
+    async def analyze(
         self,
         query: str,
-        context: List[StreamMessage],
         active_topics_menu: Optional[str] = None,
     ) -> SemanticAnalysisResult:
         """
@@ -96,7 +92,6 @@ class BaseSemanticAnalyzer(ABC):
 
         Args:
             query: 用户原始查询
-            context: 对话上下文（用于指代消解）
             active_topics_menu: 活跃话题菜单字符串（用于 Agentic Routing）
 
         Returns:

@@ -161,7 +161,7 @@ from hivememory.perception import SemanticBufferManager
 
 manager = SemanticBufferManager(max_resident_topics=5)
 buffer = manager.create_topic_buffer(identity)
-menu = manager.get_active_topics_menu()
+buffers = manager.get_all_buffers()
 ```
 
 ---

@@ -11,6 +11,13 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
     <ReactMarkdown
       components={{
+        strong({ children, ...props }: any) {
+          return (
+            <strong {...props} className="text-primary font-bold">
+              {children}
+            </strong>
+          );
+        },
         code({ node, inline, className, children, ...props }: any) {
           const match = /language-(\w+)/.exec(className || '');
           return !inline && match ? (

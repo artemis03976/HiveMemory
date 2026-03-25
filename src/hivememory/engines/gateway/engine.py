@@ -10,9 +10,7 @@ Gateway Engine - 纯数据操作层
 版本: 2.1 (乐观检索策略)
 """
 
-from typing import List, Optional
-
-from hivememory.core.models import StreamMessage
+from typing import Optional
 from hivememory.engines.gateway.interfaces import BaseInterceptor, BaseSemanticAnalyzer
 from hivememory.engines.gateway.models import GatewayResult, GatewayIntent
 
@@ -42,7 +40,7 @@ class GatewayEngine:
         ...     semantic_analyzer=analyzer
         ... )
         >>>
-        >>> result = engine.process("你好，世界！")
+        >>> result = await engine.process("你好，世界！")
     """
 
     def __init__(
@@ -60,10 +58,9 @@ class GatewayEngine:
         self.interceptor = interceptor
         self.semantic_analyzer = semantic_analyzer
 
-    def process(
+    async def process(
         self,
         query: str,
-        context: Optional[List[StreamMessage]] = None,
         active_topics_menu: Optional[str] = None,
     ) -> GatewayResult:
         """
@@ -76,7 +73,6 @@ class GatewayEngine:
 
         Args:
             query: 用户查询字符串
-            context: 对话上下文（可选）
             active_topics_menu: 活跃话题菜单字符串（用于 Agentic Routing）
 
         Returns:
@@ -101,8 +97,8 @@ class GatewayEngine:
             )
 
         # L2: 语义分析（含话题路由）
-        l2_result = self.semantic_analyzer.analyze(
-            query, context, active_topics_menu=active_topics_menu
+        l2_result = await self.semantic_analyzer.analyze(
+            query, active_topics_menu=active_topics_menu
         )
 
         # L2 成功，将 SemanticAnalysisResult 转换为 GatewayResult
@@ -114,6 +110,8 @@ class GatewayEngine:
             reason=l2_result.reason,
             l1_result=l1_result,
             target_topic=l2_result.target_topic,
+            new_topic_title=l2_result.new_topic_title,
+            new_topic_summary=l2_result.new_topic_summary,
         )
 
 

@@ -63,18 +63,6 @@ GATEWAY_SYSTEM_PROMPT = """你是 HiveMemory 系统的全局智能网关，负�
 """
 
 
-# 简化版 System Prompt（用于低延迟场景）
-GATEWAY_SYSTEM_PROMPT_SIMPLE = """你是 HiveMemory 系统的网关。
-
-分析用户查询，返回：
-1. rewritten_query: 重写后的查询（消解指代）
-2. search_keywords: 3-5 个检索关键词
-3. worth_saving: 是否值得保存为记忆
-4. reason: 判断理由
-
-严格按照 schema 返回 JSON。"""
-
-
 # 英文版 System Prompt
 GATEWAY_SYSTEM_PROMPT_EN = """You are the Global Intelligent Gateway for the HiveMemory system.
 
@@ -112,7 +100,7 @@ GATEWAY_DISPATCHER_PROMPT = """你是一个 OS 级别的调度网关（Agentic D
 
 【规则】
 1. 如果用户输入明确属于某个活跃任务（通过语义匹配或指代关系），将 target_topic 设为该任务的 ID。
-2. 如果用户输入与所有活跃任务都不相关，将 target_topic 设为 "NEW_TOPIC"。
+2. 如果用户输入与所有活跃任务都不相关，将 target_topic 设为 "NEW_TOPIC"，并且必须同时填写 new_topic_title（简短标题，10字以内）和 new_topic_summary（一句话摘要，概括用户意图）。
 3. 结合匹配任务的上下文，消除代词（它/这个/那个），生成完整的独立指令作为 rewritten_query。
 4. 提取 3-5 个用于稀疏检索的关键词。
 5. 判断是否值得保存为长期记忆。
@@ -131,7 +119,7 @@ GATEWAY_DISPATCHER_PROMPT_EN = """You are an OS-level dispatch gateway (Agentic 
 
 【Rules】
 1. If the user input clearly belongs to an active task (via semantic match or coreference), set target_topic to that task's ID.
-2. If the user input is unrelated to all active tasks, set target_topic to "NEW_TOPIC".
+2. If the user input is unrelated to all active tasks, set target_topic to "NEW_TOPIC", and you MUST also fill in new_topic_title (short title, under 10 words) and new_topic_summary (one-sentence summary of user intent).
 3. Using the matched task's context, resolve pronouns (it/this/that) and produce a complete standalone instruction as rewritten_query.
 4. Extract 3-5 keywords for sparse retrieval.
 5. Determine whether the interaction is worth saving as long-term memory.
@@ -167,15 +155,11 @@ def get_system_prompt(
     if language == "en":
         return GATEWAY_SYSTEM_PROMPT_EN
 
-    if variant == "simple":
-        return GATEWAY_SYSTEM_PROMPT_SIMPLE
-
     return GATEWAY_SYSTEM_PROMPT
 
 
 __all__ = [
     "GATEWAY_SYSTEM_PROMPT",
-    "GATEWAY_SYSTEM_PROMPT_SIMPLE",
     "GATEWAY_SYSTEM_PROMPT_EN",
     "GATEWAY_DISPATCHER_PROMPT",
     "GATEWAY_DISPATCHER_PROMPT_EN",

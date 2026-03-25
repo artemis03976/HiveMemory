@@ -134,7 +134,6 @@ class RuleInterceptorConfig(BaseModel):
 class LLMAnalyzerConfig(BaseModel):
     """L2 语义分析器配置"""
     enabled: bool = Field(default=True, description="是否启用 L2 语义分析")
-    context_window: int = Field(default=3, description="上下文窗口大小（最近N条消息）")
     prompt_variant: str = Field(default="default", description="System Prompt 变体")
     prompt_language: str = Field(default="zh", description="System Prompt 语言")
 

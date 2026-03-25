@@ -75,6 +75,12 @@ class GatewayResult(BaseModel):
     #: 值为 topic_id (buffer_id) 或 "NEW_TOPIC" 表示新建话题
     target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
 
+    #: 新话题标题（仅 NEW_TOPIC 时由 Gateway 生成）
+    new_topic_title: Optional[str] = Field(default=None, description="新话题标题")
+
+    #: 新话题摘要（仅 NEW_TOPIC 时由 Gateway 生成）
+    new_topic_summary: Optional[str] = Field(default=None, description="新话题摘要")
+
     @property
     def is_l1_intercepted(self) -> bool:
         """是否被 L1 拦截"""
@@ -156,6 +162,12 @@ class SemanticAnalysisResult(BaseModel):
 
     #: 路由目标话题 ID (MMU 话题路由, Phase 4.5)
     target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
+
+    #: 新话题标题（仅 NEW_TOPIC 时由 Gateway 生成）
+    new_topic_title: Optional[str] = Field(default=None, description="新话题标题")
+
+    #: 新话题摘要（仅 NEW_TOPIC 时由 Gateway 生成）
+    new_topic_summary: Optional[str] = Field(default=None, description="新话题摘要")
 
 
 __all__ = [

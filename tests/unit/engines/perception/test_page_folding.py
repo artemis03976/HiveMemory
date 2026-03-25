@@ -78,8 +78,8 @@ class TestBlockTokenComputation:
 
         await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
-        menu = self.layer.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = self.layer.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         buffer = self.layer.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
@@ -101,8 +101,8 @@ class TestBlockTokenComputation:
 
         await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
-        menu = self.layer.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = self.layer.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         buffer = self.layer.get_buffer(topic_id)
         block = buffer.blocks[0]
@@ -132,8 +132,8 @@ class TestPageFoldingThreshold:
         for i in range(5):
             if topic_id is None:
                 await layer.route_and_ingest("NEW_TOPIC", _make_payload(f"msg{i}", f"reply{i}", identity))
-                menu = layer.get_active_topics_menu()
-                topic_id = menu[0]["topic_id"]
+                snapshots = layer.get_active_topics_snapshots(identity)
+                topic_id = snapshots[0].topic_id
             else:
                 await layer.route_and_ingest(topic_id, _make_payload(f"msg{i}", f"reply{i}", identity))
 
@@ -245,8 +245,8 @@ class TestPageFoldingCumulative:
         for i in range(4):
             if topic_id is None:
                 await layer.route_and_ingest("NEW_TOPIC", _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity))
-                menu = layer.get_active_topics_menu()
-                topic_id = menu[0]["topic_id"]
+                snapshots = layer.get_active_topics_snapshots(identity)
+                topic_id = snapshots[0].topic_id
             else:
                 await layer.route_and_ingest(topic_id, _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity))
 

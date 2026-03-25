@@ -154,6 +154,42 @@ class LiteLLMService(SingletonLLMService):
 
         return response
 
+    async def acomplete_with_tools(
+        self,
+        messages,
+        tools=None,
+        tool_choice=None,
+        temperature=None,
+        max_tokens=None,
+        **kwargs
+    ):
+        llm_params = {
+            "model": self.model,
+            "messages": messages,
+            "api_key": self.api_key,
+            "api_base": self.api_base,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+        }
+        if tools:
+            llm_params["tools"] = tools
+        if tool_choice:
+            llm_params["tool_choice"] = tool_choice
+        llm_params.update(kwargs)
+
+        response = await litellm.acompletion(**llm_params)
+
+        if hasattr(response, 'usage') and response.usage:
+            logger.info(
+                f"LLM 调用成功 (model={self.model}, "
+                f"tokens={response.usage.total_tokens}, "
+                f"tool_calls={bool(response.choices[0].message.tool_calls) if response.choices else False})"
+            )
+        else:
+            logger.info(f"LLM 调用成功 (model={self.model})")
+
+        return response
+
     def complete_with_retry(
         self,
         messages: List[Dict[str, str]],

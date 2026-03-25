@@ -1,4 +1,5 @@
 import { MessageSquare } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import type { Topic } from '@/types';
 import TopicCard from './TopicCard';
 import { useTopicStore } from '@/stores/topicStore';
@@ -35,17 +36,25 @@ export default function TopicTab({
   }
 
   return (
-    <>
+    <AnimatePresence mode="popLayout">
       {topics.map((topic) => (
-        <TopicCard
+        <motion.div
           key={topic.id}
-          topic={topic}
-          isActive={topic.id === activeTopicId}
-          onClick={() => onTopicSelect(topic.id)}
-          onArchive={() => archiveTopic(topic.id)}
-          onDelete={() => deleteTopic(topic.id)}
-        />
+          layout
+          initial={{ opacity: 0, y: -20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+          transition={{ duration: 0.4, type: "spring", bounce: 0.2 }}
+        >
+          <TopicCard
+            topic={topic}
+            isActive={topic.id === activeTopicId}
+            onClick={() => onTopicSelect(topic.id)}
+            onArchive={() => archiveTopic(topic.id)}
+            onDelete={() => deleteTopic(topic.id)}
+          />
+        </motion.div>
       ))}
-    </>
+    </AnimatePresence>
   );
 }

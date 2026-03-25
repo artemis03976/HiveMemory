@@ -150,7 +150,6 @@ def setup_test_env() -> GatewayEngine:
     # 创建 L2 语义分析器
     analyzer_config = LLMAnalyzerConfig(
         enabled=True,
-        context_window=3,
         prompt_variant="default",
         prompt_language="zh",
     )

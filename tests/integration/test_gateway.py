@@ -11,14 +11,14 @@ Gateway 单元测试
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import AsyncMock, Mock, MagicMock, patch
 
 from hivememory.patchouli.config import (
     MemoryGatewayConfig,
     RuleInterceptorConfig,
     LLMAnalyzerConfig,
 )
-from hivememory.core.models import MemoryType, StreamMessage
+from hivememory.core.models import MemoryType
 from hivememory.engines.gateway.models import (
     GatewayIntent,
     GatewayResult,
@@ -142,7 +142,8 @@ class TestGatewayEngine:
         assert engine.interceptor is not None
         assert isinstance(engine.semantic_analyzer, NoOpSemanticAnalyzer)
 
-    def test_process_l1_hit_chat(self):
+    @pytest.mark.asyncio
+    async def test_process_l1_hit_chat(self):
         """测试 L1 命中路径 (CHAT 拦截直接返回 CHAT 意图)"""
         config = RuleInterceptorConfig()
         interceptor = RuleInterceptor(config=config)
@@ -151,13 +152,14 @@ class TestGatewayEngine:
             semantic_analyzer=NoOpSemanticAnalyzer()
         )
 
-        result = engine.process("你好")
+        result = await engine.process("你好")
 
         assert result.intent == GatewayIntent.CHAT
         assert result.rewritten_query == "你好"
         assert result.is_l1_intercepted is True
 
-    def test_process_l1_hit_system(self):
+    @pytest.mark.asyncio
+    async def test_process_l1_hit_system(self):
         """测试 L1 命中 SYSTEM 指令 (保持 SYSTEM 意图)"""
         config = RuleInterceptorConfig()
         interceptor = RuleInterceptor(config=config)
@@ -166,34 +168,36 @@ class TestGatewayEngine:
             semantic_analyzer=NoOpSemanticAnalyzer()
         )
 
-        result = engine.process("/clear")
+        result = await engine.process("/clear")
 
         # SYSTEM 指令保持原意图
         assert result.intent == GatewayIntent.SYSTEM
         assert result.is_l1_intercepted is True
 
-    def test_process_l1_no_hit_no_l2(self):
+    @pytest.mark.asyncio
+    async def test_process_l1_no_hit_no_l2(self):
         """测试 L1 未命中且 L2 禁用 (乐观策略: 默认 RAG)"""
         engine = GatewayEngine(
             interceptor=NoOpInterceptor(),
             semantic_analyzer=NoOpSemanticAnalyzer()
         )
 
-        result = engine.process("如何部署项目？")
+        result = await engine.process("如何部署项目？")
 
         # 乐观策略：NoOpSemanticAnalyzer 也返回 RAG
         assert result.intent == GatewayIntent.RAG
         assert result.rewritten_query == "如何部署项目？"
         assert result.search_keywords == []
 
-    def test_process_with_mock_l2(self):
+    @pytest.mark.asyncio
+    async def test_process_with_mock_l2(self):
         """测试带 Mock L2 的完整流程"""
         config = RuleInterceptorConfig()
         interceptor = RuleInterceptor(config=config)
 
         # Mock L2 分析器 (乐观策略: 无 target_filters)
         mock_analyzer = Mock()
-        mock_analyzer.analyze = Mock(return_value=SemanticAnalysisResult(
+        mock_analyzer.analyze = AsyncMock(return_value=SemanticAnalysisResult(
             intent=GatewayIntent.RAG,
             rewritten_query="如何部署 Python 项目",
             search_keywords=["Python", "部署"],
@@ -208,10 +212,7 @@ class TestGatewayEngine:
         )
 
         # L1 不会拦截这个查询，会走 L2
-        result = engine.process("怎么部署它？", context=[
-            StreamMessage(message_type="user", content="我有一个 Python 项目"),
-            StreamMessage(message_type="assistant", content="好的，告诉我更多")
-        ])
+        result = await engine.process("怎么部署它？")
 
         assert result.intent == GatewayIntent.RAG
         assert "Python" in result.rewritten_query
@@ -235,7 +236,6 @@ class TestMemoryGatewayConfig:
         assert config.interceptor.enable_chat is True
 
         assert isinstance(config.analyzer, LLMAnalyzerConfig)
-        assert config.analyzer.context_window == 3
         assert config.analyzer.prompt_variant == "default"
 
     def test_custom_config(self):
@@ -243,12 +243,10 @@ class TestMemoryGatewayConfig:
         config = MemoryGatewayConfig(
             interceptor=RuleInterceptorConfig(enabled=False),
             analyzer=LLMAnalyzerConfig(
-                context_window=5,
                 prompt_variant="simple"
             )
         )
         assert config.interceptor.enabled is False
-        assert config.analyzer.context_window == 5
         assert config.analyzer.prompt_variant == "simple"
 
 
@@ -264,9 +262,9 @@ class TestSystemPrompts:
         assert "意图分类" not in prompt
 
     def test_get_simple_prompt(self):
-        """测试获取简化版 Prompt"""
+        """测试 simple 变体当前回退到默认 Prompt"""
         prompt = get_system_prompt(variant="simple")
-        assert len(prompt) < len(get_system_prompt())  # 简化版更短
+        assert prompt == get_system_prompt()
 
     def test_get_english_prompt(self):
         """测试获取英文 Prompt (乐观策略: 无 Intent Classification)"""

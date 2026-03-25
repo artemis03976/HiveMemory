@@ -104,7 +104,6 @@ gateway:
 
   analyzer:
     enabled: true
-    context_window: 3       # 上下文窗口大小（最近N条消息）
     prompt_variant: "default"
     prompt_language: "zh"
 
@@ -158,7 +157,7 @@ generation:
 # ========== 记忆检索配置 ==========
 retrieval:
   renderer:
-    type: "full"  # 可选: full, cascade, compact
+    type: "compact"  # 可选: full, cascade, compact
     render_format: "xml"  # xml/markdown
     max_tokens: 2000
     max_content_length: 500

@@ -158,7 +158,6 @@ class SemanticBufferManager:
 | `add_block(topic_id, block)` | 向话题段追加 LogicalBlock |
 | `fold_blocks(topic_id, summary, retain_count)` | 原子化页折叠：保留最近 N 个 blocks，写入摘要 |
 | `get_lru_buffer()` | 获取最久未访问的话题段（LRU 驱逐候选） |
-| `get_active_topics_menu()` | 返回有内容的话题列表，供 TheEye 路由决策 |
 | `needs_eviction()` | 检查活跃池是否已满 |
 
 ### 5.3.3 SemanticFlowPerceptionLayer（MMU 主入口）
@@ -188,9 +187,8 @@ route_and_ingest(topic_id, payload)
 | 方法 | 说明 |
 | :--- | :--- |
 | `route_and_ingest(topic_id, payload)` | MMU 核心：路由到指定话题并摄入载荷 |
-| `get_active_topics_menu()` | 获取活跃话题菜单（供 TheEye 使用） |
 | `get_active_topics_snapshots(identity)` | 获取话题快照列表（含最后一轮对话） |
-| `get_topic_context_for_prompt(topic_id)` | 获取话题完整上下文用于 Prompt 组装 |
+| `get_topic_context(topic_id)` | 获取话题完整上下文用于 Prompt 组装 |
 | `manual_trigger(topic_id)` | 手动触发话题结算（Archive + Compact，不 Evict） |
 | `scan_idle_buffers_now()` | 立即扫描并 flush 超时话题 |
 
@@ -393,7 +391,7 @@ blocks_to_archive = [b for b in blocks_snapshot if b.worth_saving is not False]
 
 ## 5.8 Prompt 上下文组装
 
-`get_topic_context_for_prompt()` 为 Kernel 提供话题的完整上下文：
+`get_topic_context()` 为 Kernel 提供话题的完整上下文：
 
 ```python
 {

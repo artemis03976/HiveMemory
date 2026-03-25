@@ -13,6 +13,7 @@ export interface Topic {
   model: string;
   messageCount?: number;
   lastActive?: number;
+  willEvict?: boolean;
 }
 
 export interface MtpAction {

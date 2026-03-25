@@ -28,9 +28,22 @@ export interface MTPResultEvent {
   iteration: number;
 }
 
+export interface TopicPoolInfo {
+  topics: Array<{
+    topic_id: string;
+    title: string;
+    state_summary: string;
+    block_count: number;
+    last_accessed_at: number;
+  }>;
+  max_resident_topics: number;
+  current_count: number;
+}
+
 export interface TopicInfoEvent {
   topic_id: string;
   is_new: boolean;
+  pool?: TopicPoolInfo;
 }
 
 export interface ChatDoneEvent {

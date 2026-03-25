@@ -197,18 +197,18 @@ GATEWAY_FUNCTION_SCHEMA = {
 ### 处理流程
 
 ```python
-def analyze(query, context, active_topics_menu=None):
+def analyze(query, active_topics_menu=None):
     # 1. 选择 Prompt 变体
     if active_topics_menu:
         system_prompt = DISPATCHER_PROMPT  # Agentic Dispatcher 模式
     else:
         system_prompt = STANDARD_PROMPT    # 标准分析模式
 
-    # 2. 构建消息（含最近 N 条上下文）
-    messages = [system, user_with_context]
+    # 2. 构建消息
+    messages = [system, user_query]
 
     # 3. 调用 LLM with Function Calling
-    response = llm_service.complete_with_tools(
+    response = await llm_service.acomplete_with_tools(
         messages, tools=[GATEWAY_FUNCTION_SCHEMA],
         tool_choice={"type": "function", "function": {"name": "analyze_user_query"}}
     )
@@ -370,7 +370,6 @@ Gateway 相关配置分布在 `LLMAnalyzerConfig` 与 `RuleInterceptorConfig` �
 | 配置项 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `enabled` | `bool` | `True` | 是否启用 L2 语义分析（禁用时降级为 NoOp） |
-| `context_window` | `int` | `5` | 传入 LLM 的最近对话轮数 |
 | `prompt_variant` | `str` | `"default"` | Prompt 变体（`default`/`simple`/`dispatcher`） |
 | `prompt_language` | `str` | `"zh"` | Prompt 语言（`zh`/`en`） |
 

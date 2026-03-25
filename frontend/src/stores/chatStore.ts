@@ -291,10 +291,14 @@ export const useChatStore = create<ChatStore>()(
                   }));
                 },
 
-                // Topic Info event: store topic ID
+                // Topic Info event: store topic ID and hydrate topic list from pool
                 onTopicInfo: (data) => {
                   set({ currentTopicId: data.topic_id });
-                  useTopicStore.getState().fetchTopics();
+                  if (data.pool) {
+                    useTopicStore.getState().setTopicsFromPool(data.pool, data.topic_id);
+                  } else {
+                    useTopicStore.getState().fetchTopics();
+                  }
                 },
 
                 // Done event: finalize message, rebuild text blocks from final_text

@@ -20,7 +20,7 @@ HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory M
 Note:
     Phase 4.5 重构：
     - 移除 Adsorber 和 Relay 依赖（话题路由由 TheEye 完成）
-    - 新增 route_and_ingest / swap_out_topic / get_active_topics_menu
+    - 新增 route_and_ingest / swap_out_topic / get_active_topics_snapshots
     - BufferManager 升级为 MMU（含 LRU 驱逐）
 
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
@@ -31,7 +31,7 @@ Note:
 
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from hivememory.core.models import Identity
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.relay_controller import BaseRelayController
@@ -134,12 +134,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         # 统一处理：需要创建新话题的情况
         if topic_id == "NEW_TOPIC":
-            topic_id = await self._ensure_topic_slot_and_create(payload.identity)
+            topic_id = await self.create_new_topic(payload.identity)
         else:
             buffer = self._buffer_manager.get_buffer(topic_id)
             if buffer is None:
                 logger.warning(f"话题 {topic_id} 不存在，回退到 NEW_TOPIC")
-                topic_id = await self._ensure_topic_slot_and_create(payload.identity)
+                topic_id = await self.create_new_topic(payload.identity)
 
         # 摄入载荷
         await self.ingest_payload(payload, topic_id)
@@ -396,16 +396,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         info["mode"] = "semantic_flow"
         return info
 
-    # ========== MMU 路由与话题管理 (Phase 4.5) ==========
-
-    def get_active_topics_menu(self) -> List[Dict[str, str]]:
-        """
-        获取活跃话题菜单，供 TheEye 路由决策使用
-
-        Returns:
-            List[Dict]: [{topic_id, title}, ...]
-        """
-        return self._buffer_manager.get_active_topics_menu()
+    # ========== 话题路由与管理 ==========
 
     def get_active_topics_snapshots(
         self,
@@ -457,7 +448,84 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         return snapshots
 
-    def get_topic_context_for_prompt(
+    async def prepare_topic(
+        self,
+        target_topic_id: str,
+        new_topic_title: Optional[str],
+        new_topic_summary: Optional[str],
+        identity: Identity,
+    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+        """
+        预创建/刷新话题，返回 (topic_id, pool_snapshot, topic_context)
+
+        在 LLM 生成之前调用，将驱逐和创建提前执行：
+        - 已有话题: 刷新 last_accessed_at 置顶
+        - 新话题: 分配 UUID，保存 title/summary，检查 LRU 驱逐
+
+        Args:
+            target_topic_id: "NEW_TOPIC" 或已有 topic_id
+            new_topic_title: Gateway 生成的新话题标题
+            new_topic_summary: Gateway 生成的新话题摘要
+            identity: 用户身份
+
+        Returns:
+            (topic_id, pool_snapshot, topic_context)
+        """
+        if target_topic_id == "NEW_TOPIC":
+            topic_id = await self.create_new_topic(
+                identity=identity,
+                title=new_topic_title,
+                summary=new_topic_summary,
+            )
+        else:
+            buffer = self._buffer_manager.get_buffer(target_topic_id)
+            if buffer is None:
+                logger.warning(f"话题 {target_topic_id} 不存在，回退到创建新话题")
+                topic_id = await self.create_new_topic(
+                    identity=identity,
+                    title=new_topic_title,
+                    summary=new_topic_summary,
+                )
+            else:
+                # 已有话题：刷新访问时间（置顶）
+                topic_id = target_topic_id
+
+        pool_snapshot = self.get_topic_pool_snapshot(identity)
+        topic_context = self.get_topic_context(topic_id, max_recent_blocks=5)
+
+        return topic_id, pool_snapshot, topic_context
+
+    def get_topic_pool_snapshot(self, identity: Identity) -> Dict[str, Any]:
+        """
+        返回完整话题池状态供前端直接渲染
+
+        Args:
+            identity: 用户身份
+
+        Returns:
+            Dict: {topics: [...], max_resident_topics, current_count}
+        """
+        buffers = self._buffer_manager.get_buffers_by_owner(identity)
+        buffers_sorted = sorted(
+            buffers, key=lambda b: b.last_accessed_at, reverse=True
+        )
+        topics = [
+            {
+                "topic_id": buf.topic_id,
+                "title": buf.title,
+                "state_summary": buf.state_summary or "",
+                "block_count": len(buf.blocks),
+                "last_accessed_at": buf.last_accessed_at,
+            }
+            for buf in buffers_sorted
+        ]
+        return {
+            "topics": topics,
+            "max_resident_topics": self._buffer_manager.max_resident_topics,
+            "current_count": len(buffers),
+        }
+
+    def get_topic_context(
         self,
         topic_id: str,
         max_recent_blocks: int = 5,
@@ -477,15 +545,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 "title": str,
             }
         """
-        # 处理 NEW_TOPIC 情况
-        if topic_id == "NEW_TOPIC":
-            return {
-                "state_summary": "",
-                "blocks": [],
-                "total_tokens": 0,
-                "title": "新建话题",
-            }
-
         # 获取 buffer
         buffer = self._buffer_manager.get_buffer(topic_id)
         if buffer is None:
@@ -510,12 +569,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             "title": buffer.title,
         }
 
-    async def _ensure_topic_slot_and_create(self, identity: Identity) -> str:
+    async def create_new_topic(
+        self,
+        identity: Identity,
+        title: Optional[str] = None,
+        summary: Optional[str] = None,
+    ) -> str:
         """
-        确保有空闲槽位后创建新话题
+        创建新话题（必要时先执行 LRU 驱逐）
 
         Args:
             identity: 新话题的归属身份
+            title: 可选话题标题
+            summary: 可选话题摘要
 
         Returns:
             str: 新创建的 topic_id
@@ -524,8 +590,10 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             await self._evict_lru_topic()
         buffer = self._buffer_manager.create_buffer(
             identity=identity,
-            title="新建话题"
+            title=title or "新建话题",
         )
+        if summary:
+            buffer.state_summary = summary
         return buffer.topic_id
 
     async def _evict_lru_topic(self) -> None:

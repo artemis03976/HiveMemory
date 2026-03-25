@@ -13,7 +13,7 @@ HiveMemory 系统总线 (SystemBus)
 设计原则：
     - 双版本 API: request() (同步) + async_request() (异步)
     - emit 对 sync handler 直接调用，对 async handler 用 create_task
-    - 路由命名规范: {service}.{method}，如 "perception.get_active_topics_menu"
+    - 路由命名规范: {service}.{method}，如 "librarian.get_active_topics_snapshots"
 
 作者: HiveMemory Team
 版本: 2.0
@@ -39,8 +39,8 @@ class SystemBus:
 
     使用示例:
         >>> bus = SystemBus()
-        >>> bus.register("perception.get_active_topics_menu", perception.get_active_topics_menu)
-        >>> menu = bus.request("perception.get_active_topics_menu")
+        >>> bus.register("librarian.get_active_topics_snapshots", librarian.get_active_topics_snapshots)
+        >>> snapshots = bus.request("librarian.get_active_topics_snapshots", identity=identity)
         >>>
         >>> bus.subscribe("perception.flushed", librarian._on_perception_flush)
         >>> bus.emit("perception.flushed", messages=msgs, reason=reason)

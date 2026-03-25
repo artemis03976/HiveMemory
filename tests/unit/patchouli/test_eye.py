@@ -2,14 +2,13 @@
 TheEye 单元测试
 
 测试覆盖:
-- gaze: 正常 / fallback / identity 默认值 / context 传递
-- _build_active_topics_menu: bus=None / 空菜单 / 正常 / 异常
+- gaze: 正常 / fallback / identity 默认值 / active_topics_menu 传递
 - 被动模式: ingest_user / ingest_assistant / flush_session / flush_idle
 - idle monitor: 启动 / 重复启动 / 停止 / scan 分支
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent, GatewayResult
@@ -30,6 +29,8 @@ def _make_gateway_result(**kwargs) -> GatewayResult:
         worth_saving=True,
         reason="有价值",
         target_topic="topic_001",
+        new_topic_title=None,
+        new_topic_summary=None,
         processing_time_ms=0.0,
     )
     defaults.update(kwargs)
@@ -45,6 +46,7 @@ class TestTheEyeGaze:
 
     def setup_method(self):
         self.mock_engine = Mock()
+        self.mock_engine.process = AsyncMock()
         self.eye = TheEye(engine=self.mock_engine, bus=None)
 
     async def test_gaze_success(self):
@@ -78,8 +80,8 @@ class TestTheEyeGaze:
 
         assert result.identity is not None
 
-    async def test_gaze_forwards_none_context(self):
-        """engine.process 第二参固定为 None"""
+    async def test_gaze_forwards_active_topics_menu(self):
+        """engine.process 接收 active_topics_menu 关键字参数"""
         self.mock_engine.process.return_value = _make_gateway_result()
 
         await self.eye.gaze(
@@ -90,49 +92,7 @@ class TestTheEyeGaze:
 
         call_args = self.mock_engine.process.call_args
         assert call_args[0][0] == "查询"
-        assert call_args[0][1] is None
-
-
-class TestTheEyeBuildTopicsMenu:
-    """_build_active_topics_menu() 测试"""
-
-    def test_build_menu_no_bus(self):
-        """bus=None 时返回 None"""
-        eye = TheEye(engine=Mock(), bus=None)
-        result = eye._build_active_topics_menu()
-        assert result is None
-
-    def test_build_menu_empty(self):
-        """bus 返回空菜单时返回 None"""
-        mock_bus = Mock()
-        mock_bus.request.return_value = []
-        eye = TheEye(engine=Mock(), bus=mock_bus)
-
-        result = eye._build_active_topics_menu()
-        assert result is None
-
-    def test_build_menu_success(self):
-        """正常格式化菜单字符串"""
-        mock_bus = Mock()
-        mock_bus.request.return_value = [
-            {"topic_id": "t1", "title": "Python学习"},
-            {"topic_id": "t2", "title": "游戏开发"},
-        ]
-        eye = TheEye(engine=Mock(), bus=mock_bus)
-
-        result = eye._build_active_topics_menu()
-        assert result is not None
-        assert "t1" in result
-        assert "Python学习" in result
-
-    def test_build_menu_exception(self):
-        """bus 抛异常时返回 None"""
-        mock_bus = Mock()
-        mock_bus.request.side_effect = RuntimeError("bus error")
-        eye = TheEye(engine=Mock(), bus=mock_bus)
-
-        result = eye._build_active_topics_menu()
-        assert result is None
+        assert call_args[1]["active_topics_menu"] is None
 
 
 class TestTheEyePassiveMode:

@@ -320,15 +320,15 @@ class TestSemanticBufferManagerInfo:
         assert info["has_topic_kernel"] is True
 
 
-class TestSemanticBufferMenu:
-    """活跃话题菜单测试"""
+class TestSemanticBufferActiveTopics:
+    """活跃话题筛选测试"""
 
     def setup_method(self):
         """每个测试方法前初始化"""
         self.manager = SemanticBufferManager()
 
-    def test_get_active_topics_menu(self):
-        """测试获取活跃话题菜单"""
+    def test_get_active_topics_with_content(self):
+        """测试仅有内容话题应被识别为活跃"""
         identity = Identity(user_id="user1", agent_id="agent1")
 
         # 创建话题
@@ -343,9 +343,11 @@ class TestSemanticBufferMenu:
         )
         self.manager.add_block(buf1.topic_id, block)
 
-        menu = self.manager.get_active_topics_menu()
+        active_topic_ids = [
+            buffer.topic_id
+            for buffer in self.manager.get_all_buffers()
+            if buffer.blocks
+        ]
 
-        # 只有有内容的话题出现在菜单中
-        assert len(menu) == 1
-        assert menu[0]["topic_id"] == buf1.topic_id
-        assert menu[0]["title"] == "Topic 1"
+        assert len(active_topic_ids) == 1
+        assert active_topic_ids[0] == buf1.topic_id

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import inspect
-from typing import List, Optional, Callable, TYPE_CHECKING, Dict, Any
+from typing import List, Optional, Callable, TYPE_CHECKING, Dict, Any, Tuple
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import FlushEvent, FlushReason, InteractionPayload
@@ -112,7 +112,7 @@ class LibrarianCore:
     async def ingest_interaction(
         self,
         payload: InteractionPayload,
-        target_topic: str = "NEW_TOPIC",
+        target_topic_id: str = "NEW_TOPIC",
     ) -> None:
         """
         Kernel 模式主入口: 摄入完整交互载荷
@@ -127,12 +127,12 @@ class LibrarianCore:
 
         Args:
             payload: Kernel → Perception 的原子传输包
-            target_topic: 路由目标话题 ID 或 "NEW_TOPIC" (由 TheEye 决定)
+            target_topic_id: 路由目标话题 ID 或 "NEW_TOPIC" (由 TheEye 决定)
         """
         logger.info(
             f"LibrarianCore 摄入交互载荷: "
             f"user='{payload.user_message[:30]}...', "
-            f"target_topic={target_topic}, "
+            f"target_topic_id={target_topic_id}, "
             f"traces={len(payload.mtp_traces)}, "
             f"write_focus={'YES' if payload.write_focus else 'NO'}, "
             f"update_focus={'YES' if payload.update_focus else 'NO'}"
@@ -140,7 +140,7 @@ class LibrarianCore:
 
         # 直接调用感知层，感知层内部自动检测触发条件并调用回调
         if self.perception_layer:
-            await self.perception_layer.route_and_ingest(target_topic, payload)
+            await self.perception_layer.route_and_ingest(target_topic_id, payload)
         else:
             logger.warning("perception_layer 未注入，跳过感知处理")
 
@@ -275,18 +275,6 @@ class LibrarianCore:
 
     # ========== 感知层代理 API ==========
 
-    def get_active_topics_menu(self) -> List[Dict[str, Any]]:
-        """
-        获取活跃话题菜单（代理感知层接口）
-
-        Returns:
-            List[Dict]: 活跃话题列表，每个话题包含 topic_id, title, summary 等信息
-        """
-        if self.perception_layer:
-            return self.perception_layer.get_active_topics_menu()
-        logger.warning("perception_layer 未注入，返回空话题菜单")
-        return []
-    
     def get_buffer_info(self, identity: Identity) -> Dict[str, Any]:
         """
         获取当前缓冲区信息（代理感知层接口）
@@ -317,38 +305,6 @@ class LibrarianCore:
         logger.warning("perception_layer 未注入，返回空快照列表")
         return []
 
-    def get_topic_context_for_prompt(
-        self,
-        topic_id: str,
-        max_recent_blocks: int = 5,
-    ) -> Dict[str, Any]:
-        """
-        获取话题的完整上下文用于 Prompt 组装（代理感知层接口）
-
-        Args:
-            topic_id: 话题 ID
-            max_recent_blocks: 返回最近的 N 个 blocks
-
-        Returns:
-            Dict: {
-                "state_summary": str,
-                "blocks": List[LogicalBlock],
-                "total_tokens": int,
-                "title": str,
-            }
-        """
-        if self.perception_layer:
-            return self.perception_layer.get_topic_context_for_prompt(
-                topic_id, max_recent_blocks
-            )
-        logger.warning("perception_layer 未注入，返回空上下文")
-        return {
-            "state_summary": "",
-            "blocks": [],
-            "total_tokens": 0,
-            "title": "未知话题",
-        }
-
     async def manual_trigger(
         self,
         topic_id: Optional[str] = None,
@@ -374,6 +330,32 @@ class LibrarianCore:
             "message": "perception_layer 未注入",
             "blocks_archived": 0,
         }
+
+    async def prepare_topic(
+        self,
+        target_topic_id: str,
+        new_topic_title: Optional[str],
+        new_topic_summary: Optional[str],
+        identity: Identity,
+    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+        """
+        预创建/刷新话题（代理感知层接口），同时获取话题上下文
+
+        Args:
+            target_topic_id: "NEW_TOPIC" 或已有 topic_id
+            new_topic_title: Gateway 生成的新话题标题
+            new_topic_summary: Gateway 生成的新话题摘要
+            identity: 用户身份
+
+        Returns:
+            (real_topic_id, pool_snapshot, topic_context)
+        """
+        if self.perception_layer:
+            return await self.perception_layer.prepare_topic(
+                target_topic_id, new_topic_title, new_topic_summary, identity
+            )
+        logger.warning("perception_layer 未注入，prepare_topic 失败")
+        return target_topic_id, {"topics": [], "max_resident_topics": 5, "current_count": 0}, {"state_summary": "", "blocks": [], "total_tokens": 0, "title": ""}
 
 
 __all__ = [

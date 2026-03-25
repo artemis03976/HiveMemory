@@ -70,8 +70,8 @@ class TestSemanticFlowPerceptionLayer:
         await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
         # 获取 topic_id
-        menu = self.layer.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = self.layer.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         # Verify: block 应该已完成并加入 buffer
         buffer = self.layer.get_buffer(topic_id)
@@ -85,8 +85,8 @@ class TestSemanticFlowPerceptionLayer:
         # 第一轮：路由到新话题
         await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("old topic", "old response", identity))
 
-        menu = self.layer.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = self.layer.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         # 验证第一个 block 已加入
         buffer = self.layer.get_buffer(topic_id)
@@ -105,8 +105,8 @@ class TestSemanticFlowPerceptionLayer:
 
         await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("first", "response1", identity))
 
-        menu = self.layer.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = self.layer.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         buffer = self.layer.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
@@ -131,8 +131,8 @@ class TestSemanticFlowPerceptionLayer:
 
         await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("hi", "hello", identity))
 
-        menu = self.layer.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = self.layer.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         buffer = self.layer.get_buffer(topic_id)
         assert len(buffer.blocks) == 1

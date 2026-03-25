@@ -176,7 +176,7 @@ class PatchouliSystem:
         return self.kernel.storage
 
     # ========== 被动消息流处理 API (Passive Observer Mode) ==========
-
+    # TODO: 参考chat方法重置话题路由时序流
     async def ingest(
         self,
         role: str,
@@ -345,7 +345,7 @@ class PatchouliSystem:
         )
 
         # 2. Get topic snapshots from perception layer
-        topic_snapshots = await self._get_topic_snapshots(identity)
+        topic_snapshots = await self.kernel.get_topic_snapshots(identity)
 
         # 3. Eye 分析 (with topic snapshots for routing and coreference)
         gaze_result = await self.eye.gaze(
@@ -354,10 +354,13 @@ class PatchouliSystem:
             identity=identity
         )
 
-        # 4. Fetch full context from perception layer based on routing decision
-        topic_context = await self._get_topic_context_for_generation(
-            gaze_result.target_topic,
-            identity
+        # 4. 预创建话题 + LRU 驱逐（提前到生成之前）
+        is_new = (gaze_result.target_topic == "NEW_TOPIC")
+        real_topic_id, _, topic_context = await self.kernel.prepare_topic(
+            target_topic_id=gaze_result.target_topic,
+            new_topic_title=gaze_result.new_topic_title,
+            new_topic_summary=gaze_result.new_topic_summary,
+            identity=identity,
         )
 
         # 5. Kernel 统一管线: 预检索
@@ -366,19 +369,19 @@ class PatchouliSystem:
             enable_retrieval=enable_memory_retrieval,
         )
 
-        # 6. Assemble messages from perception layer context
+        # 7. Assemble messages from perception layer context
         messages = self._assemble_messages_from_context(
             topic_context=topic_context,
             hot_result=hot_result,
             user_message=user_message,
         )
 
-        # 7. 递归生成循环
+        # 8. 递归生成循环
         loop_result = await self._recursive_generation_loop(
             messages, user_id
         )
 
-        # 8. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
+        # 9. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
         raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
 
         # Koakuma 离线 fallback: 降级为空 traces / None focus
@@ -405,7 +408,7 @@ class PatchouliSystem:
 
         # 阻塞等待提交完成，确保 token 溢出压缩等操作完成后再返回
         await self.kernel.submit_interaction(
-            payload, target_topic=gaze_result.target_topic
+            payload, target_topic=real_topic_id
         )
 
         return loop_result
@@ -489,7 +492,7 @@ class PatchouliSystem:
 
         try:
             # 1. 获取话题快照
-            topic_snapshots = await self._get_topic_snapshots(identity)
+            topic_snapshots = await self.kernel.get_topic_snapshots(identity)
 
             # 2. Eye 分析
             gaze_result = await self.eye.gaze(
@@ -498,18 +501,23 @@ class PatchouliSystem:
                 identity=identity,
             )
 
+            # 3. 预创建话题 + LRU 驱逐（提前到生成之前）
+            is_new = (gaze_result.target_topic == "NEW_TOPIC")
+            real_topic_id, pool_snapshot, topic_context = await self.kernel.prepare_topic(
+                target_topic_id=gaze_result.target_topic,
+                new_topic_title=gaze_result.new_topic_title,
+                new_topic_summary=gaze_result.new_topic_summary,
+                identity=identity,
+            )
+
             yield {
                 "event": "topic_info",
                 "data": {
-                    "topic_id": gaze_result.target_topic,
-                    "is_new": gaze_result.target_topic == "NEW_TOPIC",
+                    "topic_id": real_topic_id,
+                    "is_new": is_new,
+                    "pool": pool_snapshot,
                 },
             }
-
-            # 3. 获取话题上下文
-            topic_context = await self._get_topic_context_for_generation(
-                gaze_result.target_topic, identity
-            )
 
             # 4. 预检索
             hot_result = await self.kernel.handle_hot(
@@ -656,13 +664,22 @@ class PatchouliSystem:
             )
 
             await self.kernel.submit_interaction(
-                interaction_payload, target_topic=gaze_result.target_topic
+                interaction_payload, target_topic=real_topic_id
             )
 
             yield {"event": "done", "data": loop_result.model_dump()}
 
         except Exception as e:
             logger.error(f"chat_stream 异常: {e}", exc_info=True)
+            # 错误恢复：如果预创建了空的新话题，清理它
+            if 'is_new' in dir() and is_new and 'real_topic_id' in dir():
+                try:
+                    buf = self.kernel.librarian_core.perception_layer.get_buffer(real_topic_id)
+                    if buf and not buf.blocks:
+                        self.kernel.librarian_core.perception_layer.swap_out_topic(real_topic_id)
+                        logger.info(f"已清理预创建的空话题: {real_topic_id}")
+                except Exception:
+                    pass
             yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
 
     async def manual_trigger(
@@ -704,77 +721,6 @@ class PatchouliSystem:
     def get_mtp_prompt(self) -> str:
         """获取 MTP System Prompt 片段（委托给 Kernel）"""
         return self.kernel.get_mtp_prompt()
-
-    async def _get_topic_snapshots(
-        self,
-        identity: Identity,
-    ) -> List:  # List[TopicSnapshot]
-        """
-        获取活跃话题快照列表
-
-        从感知层获取所有活跃话题的快照，包含每个话题的最后一轮对话。
-
-        Args:
-            identity: 用户身份标识
-
-        Returns:
-            List[TopicSnapshot]: 话题快照列表
-        """
-        bus = getattr(self, "bus", None)
-        if bus:
-            snapshots = await bus.async_request(
-                "librarian.get_active_topics_snapshots",
-                identity=identity,
-            )
-        else:
-            snapshots = self.kernel.librarian_core.get_active_topics_snapshots(identity)
-
-        return snapshots
-
-    async def _get_topic_context_for_generation(
-        self,
-        target_topic: str,
-        identity: Identity,
-    ) -> Dict[str, Any]:
-        """
-        根据路由决策获取完整话题上下文
-
-        Args:
-            target_topic: TheEye 返回的目标话题 ID 或 "NEW_TOPIC"
-            identity: 用户身份
-
-        Returns:
-            Dict: {
-                "state_summary": str,
-                "blocks": List[LogicalBlock],
-                "total_tokens": int,
-                "title": str,
-            }
-        """
-        # 处理 NEW_TOPIC 情况
-        if target_topic == "NEW_TOPIC":
-            return {
-                "state_summary": "",
-                "blocks": [],
-                "total_tokens": 0,
-                "title": "新建话题",
-            }
-
-        # 从感知层获取话题上下文
-        bus = getattr(self, "bus", None)
-        if bus:
-            context = await bus.async_request(
-                "librarian.get_topic_context_for_prompt",
-                topic_id=target_topic,
-                max_recent_blocks=5,
-            )
-        else:
-            context = self.kernel.librarian_core.get_topic_context_for_prompt(
-                topic_id=target_topic,
-                max_recent_blocks=5,
-            )
-
-        return context
 
     def _assemble_messages_from_context(
         self,

@@ -20,6 +20,7 @@ from hivememory.engines.perception.models import (
 )
 
 if TYPE_CHECKING:
+    from hivememory.core.models import Identity
     from hivememory.engines.perception.models import SemanticBuffer
 
 logger = logging.getLogger(__name__)
@@ -317,15 +318,15 @@ class BasePerceptionLayer(ABC):
         """
         self.ingest_payload(payload)
 
-    def get_active_topics_menu(self) -> List[Dict[str, str]]:
+    def get_active_topics_snapshots(
+        self,
+        identity: Optional["Identity"] = None,
+    ) -> List[Any]:
         """
-        获取活跃话题菜单，供 TheEye 路由决策使用
+        获取活跃话题快照列表，供路由决策使用
 
-        默认实现：返回空列表（无话题路由能力）。
+        默认实现：返回空列表（无多话题快照能力）。
         SemanticFlowPerceptionLayer 重写此方法。
-
-        Returns:
-            List[Dict]: [{"topic_id": ..., "title": ..., "buffer_key": ...}, ...]
         """
         return []
 

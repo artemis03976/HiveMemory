@@ -28,7 +28,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from hivememory.core.models import Identity, MemoryAtom
 from hivememory.engines.gateway.models import GatewayIntent
@@ -363,11 +363,10 @@ class PatchouliKernel:
         # --- Librarian 服务路由（包含感知层代理接口）---
         bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
         bus.register("librarian.add_flush_observer", librarian_svc.add_flush_observer)
-        bus.register("librarian.get_active_topics_menu", librarian_svc.get_active_topics_menu)
         bus.register("librarian.get_buffer_info", librarian_svc.get_buffer_info)
         bus.register("librarian.manual_trigger", librarian_svc.manual_trigger)
+        bus.register("librarian.prepare_topic", librarian_svc.prepare_topic)
         bus.register("librarian.get_active_topics_snapshots", librarian_svc.get_active_topics_snapshots)
-        bus.register("librarian.get_topic_context_for_prompt", librarian_svc.get_topic_context_for_prompt)
 
         # --- Retrieval 服务路由 ---
         bus.register("retrieval.retrieve", retrieval_svc.retrieve)
@@ -507,8 +506,6 @@ class PatchouliKernel:
         )
         return builder.build()
 
-    # ========== 数据格式转换 ==========
-
     def _register_preretrieval_aliases(self, memories: List[MemoryAtom]) -> None:
         """
         将预检索记忆的别名注册到 Koakuma 的 L1 别名热映射
@@ -580,10 +577,7 @@ class PatchouliKernel:
         else:
             self.librarian_core.add_flush_observer(observer)
 
-    async def manual_trigger(
-        self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    async def manual_trigger(self, topic_id: Optional[str] = None) -> Dict[str, Any]:
         """
         手动触发话题结算 (Archive + Compact)
 
@@ -599,6 +593,47 @@ class PatchouliKernel:
         if self._bus:
             return await self._bus.async_request("librarian.manual_trigger", topic_id)
         return await self.librarian_core.manual_trigger(topic_id)
+
+    async def get_topic_snapshots(self, identity: "Identity") -> List:
+        """
+        获取活跃话题快照列表
+
+        从感知层获取所有活跃话题的快照，包含每个话题的最后一轮对话。
+
+        Args:
+            identity: 用户身份标识
+
+        Returns:
+            List[TopicSnapshot]: 话题快照列表
+        """
+        if self._bus:
+            return await self._bus.async_request(
+                "librarian.get_active_topics_snapshots",
+                identity=identity,
+            )
+        return self.librarian_core.get_active_topics_snapshots(identity)
+
+    async def prepare_topic(
+        self,
+        target_topic_id: str,
+        new_topic_title: Optional[str],
+        new_topic_summary: Optional[str],
+        identity: "Identity",
+    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+        """
+        预创建/刷新话题，同时获取话题上下文
+
+        Returns:
+            (real_topic_id, pool_snapshot, topic_context)
+        """
+        if self._bus:
+            return await self._bus.async_request(
+                "librarian.prepare_topic",
+                target_topic_id, new_topic_title, new_topic_summary, identity,
+            )
+        return await self.librarian_core.prepare_topic(
+            target_topic_id, new_topic_title, new_topic_summary, identity
+        )
 
 
 __all__ = [

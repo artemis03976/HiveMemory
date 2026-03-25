@@ -62,7 +62,7 @@ export default function MTPCard({ action }: MTPCardProps) {
   return (
     <motion.div
       layout
-      className={`mt-3 w-full max-w-md overflow-hidden rounded-xl border backdrop-blur-md transition-colors duration-300 ${config.bgClass}`}
+      className={`w-full max-w-md overflow-hidden rounded-xl border backdrop-blur-md transition-colors duration-300 ${config.bgClass}`}
     >
       {/* 点击展开简略参数 */}
       <div
@@ -78,7 +78,7 @@ export default function MTPCard({ action }: MTPCardProps) {
           <div className="flex flex-col">
             {/* 指令名 & 工具名 */}
             <span className="text-[11px] font-bold tracking-widest uppercase text-slate-300 font-manrope">
-              {action.type} <span className="opacity-60">[{action.command}]</span>
+              MTP {action.type} <span className="opacity-60">[{action.command}]</span>
             </span>
 
             {/* 状态胶囊 */}

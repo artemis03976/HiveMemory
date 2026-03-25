@@ -106,9 +106,9 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         )
 
         # 验证话题创建
-        menu = perception.get_active_topics_menu()
-        assert len(menu) == 1
-        assert menu[0]["title"] == "新建话题"
+        snapshots = perception.get_active_topics_snapshots(identity)
+        assert len(snapshots) == 1
+        assert snapshots[0].title == "新建话题"
 
     @pytest.mark.asyncio
     async def test_semantic_flow_buffer_info(self):
@@ -124,8 +124,8 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         )
 
         # 获取菜单以获取 topic_id
-        menu = perception.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = perception.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         # 通过 topic_id 获取信息
         info = perception.get_buffer_info(topic_id)
@@ -146,8 +146,8 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         )
 
         # 获取 topic_id
-        menu = perception.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = perception.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         result = await perception.manual_trigger(topic_id)
         assert result["success"] is True
@@ -186,8 +186,8 @@ class TestPerceptionAndGenerationCollaboration:
         )
 
         # 获取 topic_id 并手动触发结算
-        menu = perception.get_active_topics_menu()
-        topic_id = menu[0]["topic_id"]
+        snapshots = perception.get_active_topics_snapshots(identity)
+        topic_id = snapshots[0].topic_id
 
         await perception.manual_trigger(topic_id)
         await asyncio.sleep(0)
