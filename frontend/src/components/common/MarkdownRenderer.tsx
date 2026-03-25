@@ -20,8 +20,9 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
         },
         code({ node, inline, className, children, ...props }: any) {
           const match = /language-(\w+)/.exec(className || '');
+          
           return !inline && match ? (
-            <div className="rounded-md overflow-hidden my-4 border border-white/10 bg-black/40">
+            <div className="code-block-wrapper rounded-md overflow-hidden my-4 border border-white/10 bg-black/40">
               <div className="px-4 py-1.5 text-xs text-slate-400 border-b border-white/5 flex items-center justify-between bg-black/40">
                 <span className="uppercase tracking-wider font-bold">{match[1]}</span>
                 <button

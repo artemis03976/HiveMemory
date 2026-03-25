@@ -28,9 +28,40 @@
   --color-on-secondary-container: #d0cfde;
   --color-outline: #76757a;
   --color-tertiary: #a1faff;
+
+  --animate-cursor-blink: cursor-blink 1s step-end infinite;
+
+  @keyframes cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
 }
 
 @layer utilities {
+  /* 定义光标的基础样式和闪烁动画 */
+  .typing-cursor:empty::after,
+  .typing-cursor > *:last-child:not(ul):not(ol):not(.code-block-wrapper):not(blockquote)::after,
+  .typing-cursor > ul:last-child > li:last-child::after,
+  .typing-cursor > ol:last-child > li:last-child::after,
+  .typing-cursor > blockquote:last-child > *:last-child::after,
+  .typing-cursor > .code-block-wrapper:last-child > div:last-child::after {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 1.1em;
+    background-color: var(--color-primary);
+    vertical-align: -0.1em;
+    margin-left: 4px;
+    border-radius: 2px;
+    box-shadow: 0 0 8px rgba(197, 154, 255, 0.6);
+    animation: var(--animate-cursor-blink);
+  }
+
+  /* 移除代码块外层容器的默认光标（防止光标掉到代码块下方） */
+  .typing-cursor > .code-block-wrapper:last-child::after {
+    display: none;
+  }
+
   .nebula-glow {
     text-shadow: 0 0 15px rgba(197, 154, 255, 0.4);
   }

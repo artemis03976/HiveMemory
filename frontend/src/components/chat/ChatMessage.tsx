@@ -51,12 +51,8 @@ export default function ChatMessage({ message }: ChatMessageProps) {
             if (block.kind === 'text') {
               if (!block.text) return null;
               return (
-                <div key={idx} className={`text-sm leading-relaxed text-on-surface ${isAgent ? 'nebula-glow' : ''}`}>
-                  <MarkdownRenderer content={block.text} />
-                  {/* 如果正在流式输出，并且是最后一个文本块，显示光标 */}
-                  {message.isStreaming && idx === lastTextIdx && (
-                    <span className="inline-block w-1.5 h-4 bg-primary align-middle animate-pulse ml-1 rounded-full shadow-[0_0_8px_rgba(147,51,234,0.5)]" />
-                  )}
+                <div key={idx} className={`text-sm leading-relaxed text-on-surface ${isAgent ? 'nebula-glow' : ''} ${message.isStreaming && idx === lastTextIdx ? 'typing-cursor' : ''}`}>
+                  <MarkdownRenderer content={message.isStreaming && idx === lastTextIdx ? block.text + '\u200B' : block.text} />
                 </div>
               );
             }
