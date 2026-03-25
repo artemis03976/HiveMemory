@@ -12,6 +12,7 @@ import type {
   MTPStartEvent,
   MTPResultEvent,
   TopicInfoEvent,
+  MemoryRefsEvent,
   ChatDoneEvent,
   ChatErrorEvent,
 } from '@/types';
@@ -139,6 +140,10 @@ export class ChatSSEClient {
 
       case 'topic_info':
         callbacks.onTopicInfo(data as TopicInfoEvent);
+        break;
+
+      case 'memory_refs':
+        callbacks.onMemoryRefs(data as MemoryRefsEvent);
         break;
 
       case 'done':

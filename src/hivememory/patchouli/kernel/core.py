@@ -406,7 +406,8 @@ class PatchouliKernel:
         mode: str = "active",
     ) -> KernelHotResult:
         retrieved_context = None
-        
+        retrieved_memories = []
+
         if enable_retrieval:
             retrieval_request = self.build_retrieval_request(gaze_result)
             if retrieval_request:
@@ -422,6 +423,7 @@ class PatchouliKernel:
                     )
                 if not retrieved_result.is_empty():
                     retrieved_context = retrieved_result.rendered_context
+                    retrieved_memories = retrieved_result.memories
 
                     # 将预检索记忆的别名注册到 Koakuma 的 L1 热映射，
                     # 使 Agent 在看到渲染结果后可直接用别名发起 MTP READ
@@ -432,7 +434,8 @@ class PatchouliKernel:
             rewritten=gaze_result.rewritten_query,
             keywords=gaze_result.search_keywords,
             worth_saving=gaze_result.worth_saving,
-            memory=retrieved_context,
+            rendered_memory_context=retrieved_context,
+            retrieved_memories=retrieved_memories,
         )
  
     async def handle_mtp(

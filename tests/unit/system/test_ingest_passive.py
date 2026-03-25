@@ -53,13 +53,13 @@ def _make_gaze_result(
     )
 
 
-def _make_hot_result(memory=None) -> KernelHotResult:
+def _make_hot_result(rendered_memory_context=None) -> KernelHotResult:
     return KernelHotResult(
         intent="Chat",
         rewritten="hello rewritten",
         keywords=[],
         worth_saving=True,
-        memory=memory,
+        rendered_memory_context=rendered_memory_context,
     )
 
 
@@ -347,7 +347,7 @@ def sys_passive():
     # Kernel
     s.kernel = MagicMock()
     s.kernel.handle_hot = AsyncMock(
-        return_value=_make_hot_result(memory="<mem>ctx</mem>")
+        return_value=_make_hot_result(rendered_memory_context="<mem>ctx</mem>")
     )
     s.kernel.submit_interaction = AsyncMock(return_value=None)
 
@@ -397,7 +397,7 @@ class TestIngestUserFlow:
 
     def test_user_ingest_returns_memory(self, sys_passive):
         sys_passive.kernel.handle_hot.return_value = _make_hot_result(
-            memory="<memory>relevant</memory>"
+            rendered_memory_context="<memory>relevant</memory>"
         )
 
         result = sys_passive.ingest(

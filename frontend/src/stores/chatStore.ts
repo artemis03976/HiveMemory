@@ -19,6 +19,7 @@ import type {
   ContentBlock,
   ChatConnectionState,
   ChatRequestParams,
+  MemoryAtom,
 } from '@/types';
 
 // ========== Store Interface ==========
@@ -29,6 +30,7 @@ interface ChatStore {
   connection: ChatConnectionState;
   isStreaming: boolean;
   currentTopicId: string | null;
+  retrievedMemories: MemoryAtom[];
 
   // Actions
   sendMessage: (content: string, options?: Partial<ChatRequestParams>) => Promise<void>;
@@ -173,6 +175,7 @@ export const useChatStore = create<ChatStore>()(
         },
         isStreaming: false,
         currentTopicId: null,
+        retrievedMemories: [],
         _sseClient: null,
         _currentStreamingMessageId: null,
 
@@ -299,6 +302,12 @@ export const useChatStore = create<ChatStore>()(
                   } else {
                     useTopicStore.getState().fetchTopics();
                   }
+                },
+
+                // Memory Refs event: update retrieved memories in sidebar
+                onMemoryRefs: (data) => {
+                  const memories = Array.isArray(data.memories) ? data.memories : [];
+                  set({ retrievedMemories: memories });
                 },
 
                 // Done event: finalize message, rebuild text blocks from final_text

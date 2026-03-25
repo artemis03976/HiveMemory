@@ -5,6 +5,8 @@
  * - src/hivememory/server/models/chat.py
  */
 
+import type { MemoryAtom } from './memory';
+
 // ========== SSE Event Data Types ==========
 
 export interface ChatTokenEvent {
@@ -58,9 +60,13 @@ export interface ChatErrorEvent {
   detail?: string;
 }
 
+export interface MemoryRefsEvent {
+  memories: MemoryAtom[];
+}
+
 // ========== SSE Event Union Type ==========
 
-export type SSEEventType = 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'done' | 'error';
+export type SSEEventType = 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'memory_refs' | 'done' | 'error';
 
 export interface SSEEvent {
   event: SSEEventType;
@@ -93,6 +99,7 @@ export interface SSECallbacks {
   onMTPStart: (data: MTPStartEvent) => void;
   onMTPResult: (data: MTPResultEvent) => void;
   onTopicInfo: (data: TopicInfoEvent) => void;
+  onMemoryRefs: (data: MemoryRefsEvent) => void;
   onDone: (data: ChatDoneEvent) => void;
   onError: (data: ChatErrorEvent) => void;
   onConnectionError: (error: Error) => void;

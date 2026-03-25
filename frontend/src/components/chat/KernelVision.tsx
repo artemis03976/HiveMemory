@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, ChevronLeft, Database, Terminal, Brain } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import type { MemoryAtom } from '@/types';
 import KernelTerminalTab from './KernelTerminalTab';
 
@@ -17,6 +18,7 @@ export default function KernelVision({
   onToggleCollapse 
 }: KernelVisionProps) {
   const [activeTab, setActiveTab] = useState<TabType>('context');
+  const safeMemories = Array.isArray(memories) ? memories : [];
 
   if (isCollapsed) {
     return (
@@ -83,37 +85,50 @@ export default function KernelVision({
         {activeTab === 'context' ? (
           <div className="space-y-4">
             <h4 className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-1">
-              当前话题参考记忆 (Top {memories.length})
+              当前话题参考记忆 (Top {safeMemories.length})
             </h4>
-            {memories.map((memory) => (
-              <div
-                key={memory.id}
-                className="p-4 rounded-xl bg-surface-container-high ghost-border group hover:bg-surface-container-highest transition-all relative overflow-hidden"
-              >
-                <div className="flex items-start justify-between mb-3 relative z-10">
-                  <code className="text-[11px] font-bold text-primary font-mono px-1.5 py-0.5 bg-primary/10 rounded">
-                    {memory.alias}
-                  </code>
-                  {memory.confidence_score && (
-                    <span className="text-[10px] text-tertiary font-mono">
-                      {(memory.confidence_score * 100).toFixed(0)}%
-                    </span>
-                  )}
-                </div>
-                
-                <p className="text-[12px] leading-relaxed text-slate-300 font-inter mb-3 relative z-10">
-                  {memory.summary}
-                </p>
-                
-                <div className="flex flex-wrap gap-1.5 relative z-10">
-                  {memory.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 rounded-md bg-white/5 text-slate-400 text-[9px] uppercase tracking-wider ghost-border">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
+            {safeMemories.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
+                <Brain className="w-8 h-8 opacity-30" />
+                <p className="text-sm">暂无引用记忆</p>
+                <p className="text-xs opacity-60">发送消息后，检索到的记忆将显示在此处</p>
               </div>
-            ))}
+            ) : (
+              <AnimatePresence mode="popLayout">
+                {safeMemories.map((memory) => (
+                  <motion.div
+                    key={memory.id}
+                    layout
+                    initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+                    transition={{ duration: 0.4, type: "spring", bounce: 0.2 }}
+                    className="mb-4 p-4 rounded-xl bg-surface-container-high ghost-border group hover:bg-surface-container-highest transition-all relative overflow-hidden"
+                  >
+                    <div className="flex items-start justify-between mb-3 relative z-10">
+                      <code className="text-[11px] font-bold text-primary font-mono px-1.5 py-0.5 bg-primary/10 rounded">
+                        {memory.alias}
+                      </code>
+                      {memory.confidence_score && (
+                        <span className="text-[10px] text-tertiary font-mono">
+                          {(memory.confidence_score * 100).toFixed(0)}%
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] leading-relaxed text-slate-300 font-inter mb-3 relative z-10">
+                      {memory.summary}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 relative z-10">
+                      {(Array.isArray(memory.tags) ? memory.tags : []).map((tag) => (
+                        <span key={tag} className="px-2 py-0.5 rounded-md bg-white/5 text-slate-400 text-[9px] uppercase tracking-wider ghost-border">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            )}
           </div>
         ) : (
           <KernelTerminalTab />

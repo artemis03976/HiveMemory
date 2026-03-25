@@ -69,13 +69,14 @@ class KernelHotResult(BaseModel):
         rewritten: 重写后的查询
         keywords: 关键词列表
         worth_saving: 是否值得保存
-        memory: 检索到的记忆上下文（可能为 None）
+        rendered_memory_context: 检索到的记忆上下文（可能为 None）
     """
     intent: str = Field(..., description="意图")
     rewritten: Optional[str] = Field(default=None, description="重写后的查询")
     keywords: List[str] = Field(default_factory=list, description="关键词列表")
     worth_saving: bool = Field(default=False, description="是否值得保存")
-    memory: Optional[str] = Field(default=None, description="检索到的记忆上下文")
+    rendered_memory_context: Optional[str] = Field(default=None, description="渲染后的记忆上下文")
+    retrieved_memories: List[MemoryAtom] = Field(default_factory=list, description="预检索到的记忆列表")
 
 
 __all__ = [

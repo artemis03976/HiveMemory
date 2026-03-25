@@ -1,18 +1,13 @@
 import { useState, useEffect } from 'react';
-import type { MemoryAtom } from '@/types';
 import ContextSidebar from './chat/ContextSidebar';
 import ChatWorkspace from './chat/ChatWorkspace';
 import KernelVision from './chat/KernelVision';
 import { useTopicStore } from '@/stores/topicStore';
 import { useChatStore } from '@/stores/chatStore';
 
-interface ChatLayoutProps {
-  memories: MemoryAtom[];
-}
-
-export default function ChatLayout({ memories }: ChatLayoutProps) {
+export default function ChatLayout() {
   const { topics, fetchTopics } = useTopicStore();
-  const { currentTopicId } = useChatStore();
+  const { currentTopicId, retrievedMemories } = useChatStore();
   
   const [activeTopicId, setActiveTopicId] = useState('');
   const [isContextSidebarCollapsed, setIsContextSidebarCollapsed] = useState(false);
@@ -45,7 +40,7 @@ export default function ChatLayout({ memories }: ChatLayoutProps) {
         activeTopicTitle={activeTopic?.title || ''}
       />
       <KernelVision
-        memories={memories}
+        memories={retrievedMemories}
         isCollapsed={isKernelVisionCollapsed}
         onToggleCollapse={() => setIsKernelVisionCollapsed(!isKernelVisionCollapsed)}
       />

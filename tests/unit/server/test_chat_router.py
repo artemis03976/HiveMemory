@@ -9,6 +9,7 @@ Chat 路由单元测试
 
 import json
 import pytest
+from uuid import uuid4
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
@@ -147,3 +148,31 @@ class TestChatRouter:
         error_events = [e for e in events if e["event"] == "error"]
         assert len(error_events) == 1
         assert "LLM" in error_events[0]["data"]["message"]
+
+    def test_uuid_payload_is_serializable(self):
+        mock_system = MagicMock()
+
+        async def fake_stream(**kwargs):
+            yield {
+                "event": "memory_refs",
+                "data": {
+                    "memories": [{"id": uuid4(), "content": "hello"}],
+                },
+            }
+
+        mock_system.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "hello", "user_id": "test"},
+        )
+        assert response.status_code == 200
+
+        events = _parse_sse_events(response.text)
+        memory_events = [e for e in events if e["event"] == "memory_refs"]
+        assert len(memory_events) == 1
+        memory_id = memory_events[0]["data"]["memories"][0]["id"]
+        assert isinstance(memory_id, str)

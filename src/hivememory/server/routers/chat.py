@@ -41,7 +41,7 @@ async def chat(
             ):
                 yield {
                     "event": event["event"],
-                    "data": json.dumps(event["data"], ensure_ascii=False),
+                    "data": json.dumps(event["data"], ensure_ascii=False, default=str),
                 }
         except Exception as e:
             logger.error(f"chat 路由流异常: {e}", exc_info=True)

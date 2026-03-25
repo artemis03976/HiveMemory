@@ -17,7 +17,7 @@
     │  TheEye (Gateway) ──→ PatchouliKernel   │
     │                        ├── Retrieval    │
     │                        ├── Librarian    │
-    │                        └── (Koakuma)    │
+    │                        └── Koakuma      │
     └─────────────────────────────────────────┘
 
 作者: HiveMemory Team
@@ -39,6 +39,7 @@ from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.worker_agent import WorkerAgentService
+from hivememory.server.models.memory import MemoryResponse
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +240,7 @@ class PatchouliSystem:
                 "rewritten": hot_result.rewritten,
                 "keywords": hot_result.keywords,
                 "worth_saving": hot_result.worth_saving,
-                "memory": hot_result.memory,
+                "memory": hot_result.rendered_memory_context,
             }
 
         elif role == "assistant":
@@ -524,6 +525,17 @@ class PatchouliSystem:
                 gaze_result, enable_retrieval=enable_memory_retrieval,
             )
 
+            if hot_result.retrieved_memories:
+                yield {
+                    "event": "memory_refs",
+                    "data": {
+                        "memories": [
+                            MemoryResponse.from_atom(m).model_dump(mode="json")
+                            for m in hot_result.retrieved_memories
+                        ],
+                    },
+                }
+
             # 5. 组装 messages
             messages = self._assemble_messages_from_context(
                 topic_context=topic_context,
@@ -757,11 +769,11 @@ class PatchouliSystem:
             full_system_prompt = mtp_prompt
 
         # Add retrieved memory
-        if hot_result.memory:
+        if hot_result.rendered_memory_context:
             if full_system_prompt:
-                full_system_prompt += f"\n\n{hot_result.memory}"
+                full_system_prompt += f"\n\n{hot_result.rendered_memory_context}"
             else:
-                full_system_prompt = hot_result.memory
+                full_system_prompt = hot_result.rendered_memory_context
 
         # Add topic state summary
         if topic_context["state_summary"]:

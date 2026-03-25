@@ -6,7 +6,7 @@ PatchouliSystem.chat() 端到端测试
 
 测试覆盖:
     1. 基本对话 — Eye + handle_hot + 生成循环 + assistant 感知
-    2. 记忆检索注入 — hot_result.memory 注入 system prompt
+    2. 记忆检索注入 — hot_result.rendered_memory_context 注入 system prompt
     3. 禁用记忆检索 — enable_memory_retrieval=False 跳过检索
     4. MTP 中断 — chat 内部递归循环处理 MTP
     5. handle_hot 异步感知 — 验证 kernel._safe_perceive 被线程调用
@@ -56,13 +56,13 @@ def _make_gaze_result(
         identity=Identity(user_id=user_id),
     )
 
-def _make_hot_result(memory: str = None) -> KernelHotResult:
+def _make_hot_result(rendered_memory_context: str = None) -> KernelHotResult:
     return KernelHotResult(
         intent="Chat",
         rewritten="hello rewritten",
         keywords=[],
         worth_saving=True,
-        memory=memory,
+        rendered_memory_context=rendered_memory_context,
     )
 
 
@@ -240,9 +240,9 @@ class TestMemoryRetrieval:
     """记忆检索与注入"""
 
     def test_memory_injected_into_system_prompt(self, sys):
-        """hot_result.memory 被注入到 system prompt"""
+        """hot_result.rendered_memory_context 被注入到 system prompt"""
         sys.kernel.handle_hot.return_value = _make_hot_result(
-            memory="<memory>User prefers Python</memory>"
+            rendered_memory_context="<memory>User prefers Python</memory>"
         )
 
         sys.chat(
@@ -271,8 +271,8 @@ class TestMemoryRetrieval:
         )
 
     def test_no_memory_no_injection(self, sys):
-        """memory 为 None 且 MTP prompt 为空时，不生成 system message"""
-        sys.kernel.handle_hot.return_value = _make_hot_result(memory=None)
+        """rendered_memory_context 为 None 且 MTP prompt 为空时，不生成 system message"""
+        sys.kernel.handle_hot.return_value = _make_hot_result(rendered_memory_context=None)
 
         sys.chat(
             user_message="hi",
@@ -325,9 +325,9 @@ class TestNoSystemPrompt:
         assert result.final_text == "Hi there!"
 
     def test_no_system_message_skips_augmentation(self, sys):
-        """system_prompt 为空时仍可注入 MTP/memory"""
+        """system_prompt 为空时仍可注入 MTP/rendered_memory_context"""
         sys.get_mtp_prompt.return_value = "[MTP]"
-        sys.kernel.handle_hot.return_value = _make_hot_result(memory="<mem/>")
+        sys.kernel.handle_hot.return_value = _make_hot_result(rendered_memory_context="<mem/>")
 
         sys.chat(user_message="hi", user_id="u1")
 
@@ -369,7 +369,7 @@ class TestAsyncPerception:
 
     def test_messages_assembled_internally(self, sys):
         """messages 由内部组装，包含 system+user 两条基础消息"""
-        sys.kernel.handle_hot.return_value = _make_hot_result(memory="<mem/>")
+        sys.kernel.handle_hot.return_value = _make_hot_result(rendered_memory_context="<mem/>")
         sys.get_mtp_prompt.return_value = "[MTP]"
 
         sys.chat(user_message="hi", user_id="u1")
@@ -405,7 +405,7 @@ class TestChatWithMTP:
     def test_mtp_with_memory_and_prompt(self, sys):
         """MTP + 记忆 + MTP prompt 全部注入后递归正常"""
         sys.kernel.handle_hot.return_value = _make_hot_result(
-            memory="<memory>context</memory>"
+            rendered_memory_context="<memory>context</memory>"
         )
         sys.get_mtp_prompt.return_value = "[MTP Protocol]"
         sys._worker_agent.generate_async.side_effect = [

@@ -82,7 +82,7 @@ class TestKernelHandleHot:
     """handle_hot() 测试"""
 
     async def test_handle_hot_rag_intent(self):
-        """RAG 意图时执行检索，返回 memory context"""
+        """RAG 意图时执行检索，返回 rendered memory context"""
         kernel = _create_kernel()
         gaze = _make_gaze_result(intent=GatewayIntent.RAG)
         kernel._services["retrieval"].retrieve.return_value = _make_retrieval_response(empty=False)
@@ -90,17 +90,17 @@ class TestKernelHandleHot:
         result = await kernel.handle_hot(gaze)
 
         assert isinstance(result, KernelHotResult)
-        assert result.memory is not None
+        assert result.rendered_memory_context is not None
         assert result.intent == "RAG"
 
     async def test_handle_hot_chat_intent(self):
-        """CHAT 意图时不检索，memory=None"""
+        """CHAT 意图时不检索，rendered_memory_context=None"""
         kernel = _create_kernel()
         gaze = _make_gaze_result(intent=GatewayIntent.CHAT)
 
         result = await kernel.handle_hot(gaze)
 
-        assert result.memory is None
+        assert result.rendered_memory_context is None
         kernel._services["retrieval"].retrieve.assert_not_called()
 
     async def test_handle_hot_retrieval_disabled(self):
@@ -110,18 +110,18 @@ class TestKernelHandleHot:
 
         result = await kernel.handle_hot(gaze, enable_retrieval=False)
 
-        assert result.memory is None
+        assert result.rendered_memory_context is None
         kernel._services["retrieval"].retrieve.assert_not_called()
 
     async def test_handle_hot_empty_retrieval(self):
-        """检索结果为空时 memory=None"""
+        """检索结果为空时 rendered_memory_context=None"""
         kernel = _create_kernel()
         gaze = _make_gaze_result(intent=GatewayIntent.RAG)
         kernel._services["retrieval"].retrieve.return_value = _make_retrieval_response(empty=True)
 
         result = await kernel.handle_hot(gaze)
 
-        assert result.memory is None
+        assert result.rendered_memory_context is None
 
     async def test_handle_hot_with_bus(self):
         """有 bus 时通过 bus.async_request 调度"""
