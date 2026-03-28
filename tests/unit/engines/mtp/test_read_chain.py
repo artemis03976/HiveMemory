@@ -4,15 +4,14 @@ READ 指令执行链路测试
 验证 MTP READ 指令从 Koakuma._handle_read 的完整链路。
 
 测试覆盖:
-    1. _read_single_memory 单条读取
-    2. _read_memories_concurrent 并行读取
-    3. 通配符拒绝
-    4. 别名解析 (有效/无效/混合)
-    5. Koakuma READ E2E
-    6. 参数校验
+    1. 通配符拒绝
+    2. 别名解析 (有效/无效/混合)
+    3. Koakuma READ E2E
+    4. 参数校验
+    5. L2 冷检索回退
 
 作者: HiveMemory Team
-版本: 1.0
+版本: 2.0
 """
 
 import pytest
@@ -24,7 +23,6 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.config import KoakumaConfig
-from hivememory.patchouli.protocol.mtp import AliasResolver
 
 
 # ========== Helpers ==========
@@ -33,6 +31,7 @@ def _make_memory(
     mem_id=None,
     content: str = "test content",
     title: str = "Test Memory",
+    alias: str = None,
 ) -> MemoryAtom:
     return MemoryAtom(
         id=mem_id or uuid4(),
@@ -42,6 +41,7 @@ def _make_memory(
             summary="A test memory for unit testing",
             tags=["test"],
             memory_type=MemoryType.FACT,
+            alias=alias,
         ),
         payload=PayloadLayer(content=content),
     )
@@ -54,123 +54,7 @@ def koakuma() -> KoakumaRuntime:
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 
 
-# ========== Test 1: _read_single_memory ==========
-
-class TestReadSingleMemory:
-    """_read_single_memory 直接测试"""
-
-    def test_normal_read(self, koakuma):
-        mem = _make_memory(content="Hello World")
-        koakuma._bus._mock_storage.get_memory.return_value = mem
-
-        result = koakuma._read_single_memory("my_alias", str(mem.id))
-
-        assert "[my_alias]:" in result
-        assert "Hello World" in result
-
-    def test_memory_not_found(self, koakuma):
-        koakuma._bus._mock_storage.get_memory.return_value = None
-        uid = str(uuid4())
-
-        result = koakuma._read_single_memory("missing_alias", uid)
-
-        assert "Error" in result
-        assert "not found" in result
-
-    def test_invalid_uuid(self, koakuma):
-        result = koakuma._read_single_memory("bad_alias", "not-a-uuid")
-
-        assert "Error" in result
-        assert "Invalid UUID" in result or "badly formed" in result.lower() or "invalid" in result.lower()
-
-    def test_storage_exception(self, koakuma):
-        koakuma._bus._mock_storage.get_memory.side_effect = Exception("DB connection lost")
-
-        result = koakuma._read_single_memory("err_alias", str(uuid4()))
-
-        assert "Error" in result
-        assert "Storage read failed" in result
-
-    def test_content_format(self, koakuma):
-        """返回格式: [alias]:\\n{content}"""
-        mem = _make_memory(content="line1\nline2")
-        koakuma._bus._mock_storage.get_memory.return_value = mem
-
-        result = koakuma._read_single_memory("test", str(mem.id))
-
-        assert result == "[test]:\nline1\nline2"
-
-
-# ========== Test 2: _read_memories_concurrent ==========
-
-class TestReadMemoriesConcurrent:
-    """_read_memories_concurrent 并行读取测试"""
-
-    def test_single_item_sequential(self, koakuma):
-        """单条退化为顺序读取"""
-        mem = _make_memory(content="single item")
-        koakuma._bus._mock_storage.get_memory.return_value = mem
-        uid = str(mem.id)
-
-        results = koakuma._read_memories_concurrent([("alias1", uid)])
-
-        assert len(results) == 1
-        assert "single item" in results[("alias1", uid)]
-
-    def test_multiple_items_parallel(self, koakuma):
-        """多条并行读取"""
-        mem1 = _make_memory(content="content A")
-        mem2 = _make_memory(content="content B")
-
-        def mock_get(uuid_obj):
-            if str(uuid_obj) == str(mem1.id):
-                return mem1
-            elif str(uuid_obj) == str(mem2.id):
-                return mem2
-            return None
-
-        koakuma._bus._mock_storage.get_memory.side_effect = mock_get
-
-        resolved = [("a1", str(mem1.id)), ("a2", str(mem2.id))]
-        results = koakuma._read_memories_concurrent(resolved)
-
-        assert len(results) == 2
-        assert "content A" in results[("a1", str(mem1.id))]
-        assert "content B" in results[("a2", str(mem2.id))]
-
-    def test_partial_failure(self, koakuma):
-        """部分失败不影响其他"""
-        mem1 = _make_memory(content="good content")
-
-        def mock_get(uuid_obj):
-            if str(uuid_obj) == str(mem1.id):
-                return mem1
-            raise Exception("DB error")
-
-        koakuma._bus._mock_storage.get_memory.side_effect = mock_get
-        bad_uid = str(uuid4())
-
-        resolved = [("good", str(mem1.id)), ("bad", bad_uid)]
-        results = koakuma._read_memories_concurrent(resolved)
-
-        assert len(results) == 2
-        assert "good content" in results[("good", str(mem1.id))]
-        assert "Error" in results[("bad", bad_uid)]
-
-    def test_all_failure(self, koakuma):
-        """全部失败"""
-        koakuma._bus._mock_storage.get_memory.side_effect = Exception("Total failure")
-        uid1, uid2 = str(uuid4()), str(uuid4())
-
-        resolved = [("a1", uid1), ("a2", uid2)]
-        results = koakuma._read_memories_concurrent(resolved)
-
-        assert len(results) == 2
-        assert "Error" in results[("a1", uid1)]
-        assert "Error" in results[("a2", uid2)]
-
-
-# ========== Test 3: Wildcard Rejection ==========
+# ========== Test 1: Wildcard Rejection ==========
 
 class TestReadWildcardRejection:
     """READ 不支持通配符"""
@@ -187,16 +71,14 @@ class TestReadWildcardRejection:
         assert not result.success
 
 
-# ========== Test 4: Alias Resolution ==========
+# ========== Test 2: Alias Resolution ==========
 
 class TestReadAliasResolution:
     """READ 别名解析测试"""
 
     def test_all_valid(self, koakuma):
-        mem = _make_memory(content="resolved content")
-        uid = str(mem.id)
-        koakuma._alias_resolver.register_context_alias("fact_a", uid)
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        mem = _make_memory(content="resolved content", alias="fact_a")
+        koakuma._atom_cache.ingest_atom(mem)
 
         result = koakuma.execute_mtp('⟪ READ | fact_a | ⟫')
 
@@ -208,14 +90,12 @@ class TestReadAliasResolution:
         result = koakuma.execute_mtp('⟪ READ | nonexistent_alias | ⟫')
 
         assert not result.success
-        assert "not found in context" in result.response_content
+        assert "Alias Not Found" in result.response_content
 
     def test_mixed_valid_invalid(self, koakuma):
         """混合有效/无效别名"""
-        mem = _make_memory(content="valid content")
-        uid = str(mem.id)
-        koakuma._alias_resolver.register_context_alias("good_alias", uid)
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        mem = _make_memory(content="valid content", alias="good_alias")
+        koakuma._atom_cache.ingest_atom(mem)
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss for bad_alias
 
         result = koakuma.execute_mtp('⟪ READ | [good_alias, bad_alias] | ⟫')
@@ -226,20 +106,11 @@ class TestReadAliasResolution:
         assert "not found" in result.response_content
 
     def test_multiple_valid_aliases(self, koakuma):
-        mem1 = _make_memory(content="content A")
-        mem2 = _make_memory(content="content B")
+        mem1 = _make_memory(content="content A", alias="a1")
+        mem2 = _make_memory(content="content B", alias="a2")
 
-        koakuma._alias_resolver.register_context_alias("a1", str(mem1.id))
-        koakuma._alias_resolver.register_context_alias("a2", str(mem2.id))
-
-        def mock_get(uuid_obj):
-            if str(uuid_obj) == str(mem1.id):
-                return mem1
-            elif str(uuid_obj) == str(mem2.id):
-                return mem2
-            return None
-
-        koakuma._bus._mock_storage.get_memory.side_effect = mock_get
+        koakuma._atom_cache.ingest_atom(mem1)
+        koakuma._atom_cache.ingest_atom(mem2)
 
         result = koakuma.execute_mtp('⟪ READ | [a1, a2] | ⟫')
 
@@ -248,15 +119,14 @@ class TestReadAliasResolution:
         assert "content B" in result.response_content
 
 
-# ========== Test 5: Koakuma READ E2E ==========
+# ========== Test 3: Koakuma READ E2E ==========
 
 class TestKoakumaReadE2E:
     """通过 execute_mtp 端到端测试 READ"""
 
     def test_read_single_alias(self, koakuma):
-        mem = _make_memory(content="API documentation")
-        koakuma._alias_resolver.register_context_alias("fact_api", str(mem.id))
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        mem = _make_memory(content="API documentation", alias="fact_api")
+        koakuma._atom_cache.ingest_atom(mem)
 
         result = koakuma.execute_mtp('⟪ READ | fact_api | ⟫')
 
@@ -264,19 +134,10 @@ class TestKoakumaReadE2E:
         assert "API documentation" in result.response_content
 
     def test_read_list_aliases(self, koakuma):
-        mem1 = _make_memory(content="Doc A")
-        mem2 = _make_memory(content="Doc B")
-        koakuma._alias_resolver.register_context_alias("a1", str(mem1.id))
-        koakuma._alias_resolver.register_context_alias("a2", str(mem2.id))
-
-        def mock_get(uuid_obj):
-            if str(uuid_obj) == str(mem1.id):
-                return mem1
-            elif str(uuid_obj) == str(mem2.id):
-                return mem2
-            return None
-
-        koakuma._bus._mock_storage.get_memory.side_effect = mock_get
+        mem1 = _make_memory(content="Doc A", alias="a1")
+        mem2 = _make_memory(content="Doc B", alias="a2")
+        koakuma._atom_cache.ingest_atom(mem1)
+        koakuma._atom_cache.ingest_atom(mem2)
 
         result = koakuma.execute_mtp('⟪ READ | [a1, a2] | ⟫')
 
@@ -292,9 +153,8 @@ class TestKoakumaReadE2E:
         assert "not found" in result.response_content
 
     def test_read_formatted_response_xml(self, koakuma):
-        mem = _make_memory(content="test")
-        koakuma._alias_resolver.register_context_alias("test_alias", str(mem.id))
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        mem = _make_memory(content="test", alias="test_alias")
+        koakuma._atom_cache.ingest_atom(mem)
 
         result = koakuma.execute_mtp('⟪ READ | test_alias | ⟫')
 
@@ -302,9 +162,8 @@ class TestKoakumaReadE2E:
         assert "</mtp_response>" in result.formatted_response
 
     def test_read_via_intercept(self, koakuma):
-        mem = _make_memory(content="intercepted content")
-        koakuma._alias_resolver.register_context_alias("fact_x", str(mem.id))
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        mem = _make_memory(content="intercepted content", alias="fact_x")
+        koakuma._atom_cache.ingest_atom(mem)
 
         agent_text = 'Let me read that. ⟪ READ | fact_x |'
         result = koakuma.intercept_and_execute(agent_text)
@@ -313,18 +172,21 @@ class TestKoakumaReadE2E:
         assert result.success
         assert "intercepted content" in result.response_content
 
-    def test_read_memory_deleted(self, koakuma):
-        """alias 存在但 storage 返回 None (已删除)"""
-        koakuma._alias_resolver.register_context_alias("deleted", str(uuid4()))
-        koakuma._bus._mock_storage.get_memory.return_value = None
+    def test_read_cache_hit_no_db_query(self, koakuma):
+        """缓存命中后不查数据库"""
+        mem = _make_memory(content="cached content", alias="fact_cached")
+        koakuma._atom_cache.ingest_atom(mem)
 
-        result = koakuma.execute_mtp('⟪ READ | deleted | ⟫')
+        result = koakuma.execute_mtp('⟪ READ | fact_cached | ⟫')
 
-        assert result.success  # 不是 parse error
-        assert "not found" in result.response_content or "archived" in result.response_content
+        assert result.success
+        assert "cached content" in result.response_content
+        # 验证没有查 Qdrant
+        koakuma._bus._mock_storage.get_memory.assert_not_called()
+        koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
 
 
-# ========== Test 6: Koakuma READ Validation ==========
+# ========== Test 4: Koakuma READ Validation ==========
 
 class TestKoakumaReadValidation:
     """READ 参数校验"""
@@ -336,10 +198,7 @@ class TestKoakumaReadValidation:
 
     def test_empty_target(self, koakuma):
         """空 target 解析为无 aliases"""
-        # MTP parser 会将空 target 解析为 MTPTarget(aliases=[])
-        # 但实际上 parser 可能不允许空 target
         result = koakuma.execute_mtp('⟪ READ | | ⟫')
-        # 应该返回某种错误
         assert not result.success or "Error" in result.response_content or "error" in result.response_content
 
     def test_parse_error_returns_error(self, koakuma):
@@ -348,17 +207,16 @@ class TestKoakumaReadValidation:
         assert not result.success
 
 
-# ========== Test 7: L2 Cold Lookup Fallback ==========
+# ========== Test 5: L2 Cold Lookup Fallback ==========
 
 class TestReadL2Fallback:
     """READ 指令 L2 冷检索回退测试"""
 
     def test_l2_fallback_hit(self, koakuma):
         """L1 未命中但 L2 命中，READ 成功"""
-        mem = _make_memory(content="l2 content")
-        # 不注册到 L1，让 L2 通过 storage.get_memory_by_alias 命中
+        mem = _make_memory(content="l2 content", alias="fact_from_l2")
+        # 不注册到缓存，让 L2 通过 storage.get_memory_by_alias 命中
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
 
         result = koakuma.execute_mtp('⟪ READ | fact_from_l2 | ⟫')
 
@@ -366,20 +224,19 @@ class TestReadL2Fallback:
         assert "l2 content" in result.response_content
         koakuma._bus._mock_storage.get_memory_by_alias.assert_called_once()
 
-    def test_l2_promotes_to_l1(self, koakuma):
-        """L2 命中后别名被提升到 L1，第二次不再查 L2"""
-        mem = _make_memory(content="promoted content")
+    def test_l2_promotes_to_cache(self, koakuma):
+        """L2 命中后原子被缓存，第二次不再查 L2"""
+        mem = _make_memory(content="promoted content", alias="fact_promoted")
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        # 第一次: L1 miss → L2 hit → promote
+        # 第一次: 缓存 miss → L2 hit → 缓存
         result1 = koakuma.execute_mtp('⟪ READ | fact_promoted | ⟫')
         assert result1.success
 
         # 重置 mock 计数
         koakuma._bus._mock_storage.get_memory_by_alias.reset_mock()
 
-        # 第二次: L1 应该命中 (已被提升)
+        # 第二次: 缓存应该命中 (已被缓存)
         result2 = koakuma.execute_mtp('⟪ READ | fact_promoted | ⟫')
         assert result2.success
         assert "promoted content" in result2.response_content
@@ -404,31 +261,21 @@ class TestReadL2Fallback:
         result = koakuma.execute_mtp('⟪ READ | fact_from_l2 | ⟫')
 
         assert not result.success
-        assert "L2 alias lookup failed" in result.response_content
-        assert "storage route is unavailable" in result.response_content
+        assert "Service Unavailable" in result.response_content
 
     def test_l2_mixed_list(self, koakuma):
-        """列表读取: 一个走 L1，一个走 L2"""
-        mem_l1 = _make_memory(content="from L1")
-        mem_l2 = _make_memory(content="from L2")
+        """列表读取: 一个走缓存，一个走 L2"""
+        mem_cached = _make_memory(content="from cache", alias="alias_l1")
+        mem_l2 = _make_memory(content="from L2", alias="alias_l2")
 
-        # L1 注册
-        koakuma._alias_resolver.register_context_alias("alias_l1", str(mem_l1.id))
+        # 缓存注册
+        koakuma._atom_cache.ingest_atom(mem_cached)
 
         # L2 返回
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem_l2
 
-        def mock_get(uuid_obj):
-            if str(uuid_obj) == str(mem_l1.id):
-                return mem_l1
-            elif str(uuid_obj) == str(mem_l2.id):
-                return mem_l2
-            return None
-
-        koakuma._bus._mock_storage.get_memory.side_effect = mock_get
-
         result = koakuma.execute_mtp('⟪ READ | [alias_l1, alias_l2] | ⟫')
 
         assert result.success
-        assert "from L1" in result.response_content
+        assert "from cache" in result.response_content
         assert "from L2" in result.response_content

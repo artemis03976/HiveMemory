@@ -4,7 +4,6 @@ MTP 协议解析器与格式化器单元测试
 测试覆盖:
 - MTPParser: 5 种 VERB 解析、3 种 TARGET 形态、2 种 ARGS 格式
 - MTPFormatter: XML 响应容器格式化、回填文本生成
-- AliasResolver: L1 上下文热映射
 - 边界情况: 不完整指令补全、ARGS 内部管道符、解析错误
 
 对应设计文档: MemoryToolProtocol.md Chapter 2 & 3.3
@@ -24,10 +23,8 @@ from hivememory.patchouli.protocol.mtp import (
     MTPParser,
     MTPParseError,
     MTPFormatter,
-    AliasResolver,
     create_parser,
     create_formatter,
-    create_alias_resolver,
 )
 
 
@@ -41,11 +38,6 @@ def parser() -> MTPParser:
 @pytest.fixture
 def formatter() -> MTPFormatter:
     return MTPFormatter()
-
-
-@pytest.fixture
-def resolver() -> AliasResolver:
-    return AliasResolver()
 
 
 # ========== 常量测试 ==========
@@ -312,56 +304,6 @@ class TestMTPFormatter:
         assert "time=" not in result
 
 
-# ========== 别名解析器测试 ==========
-
-class TestAliasResolver:
-    """测试 MTP 别名解析器"""
-
-    def test_register_and_resolve(self, resolver: AliasResolver):
-        """测试注册并解析别名 (L1 热映射)"""
-        resolver.register_context_alias("fact_api_spec", "uuid-123")
-        assert resolver.resolve("fact_api_spec") == "uuid-123"
-
-    def test_resolve_not_found(self, resolver: AliasResolver):
-        """测试未找到别名"""
-        assert resolver.resolve("nonexistent") is None
-
-    def test_register_batch(self, resolver: AliasResolver):
-        """测试批量注册"""
-        resolver.register_context_aliases({
-            "fact_a": "uuid-1",
-            "fact_b": "uuid-2",
-        })
-        assert resolver.resolve("fact_a") == "uuid-1"
-        assert resolver.resolve("fact_b") == "uuid-2"
-
-    def test_clear_context(self, resolver: AliasResolver):
-        """测试清空上下文"""
-        resolver.register_context_alias("fact_a", "uuid-1")
-        resolver.clear_context()
-        assert resolver.resolve("fact_a") is None
-        assert resolver.context_size == 0
-
-    def test_has_alias(self, resolver: AliasResolver):
-        """测试检查别名存在"""
-        resolver.register_context_alias("fact_a", "uuid-1")
-        assert resolver.has_alias("fact_a") is True
-        assert resolver.has_alias("fact_b") is False
-
-    def test_context_size(self, resolver: AliasResolver):
-        """测试上下文大小"""
-        assert resolver.context_size == 0
-        resolver.register_context_alias("a", "1")
-        resolver.register_context_alias("b", "2")
-        assert resolver.context_size == 2
-
-    def test_overwrite_alias(self, resolver: AliasResolver):
-        """测试覆盖已有别名"""
-        resolver.register_context_alias("fact_a", "uuid-old")
-        resolver.register_context_alias("fact_a", "uuid-new")
-        assert resolver.resolve("fact_a") == "uuid-new"
-
-
 # ========== 工厂函数测试 ==========
 
 class TestFactoryFunctions:
@@ -375,6 +317,3 @@ class TestFactoryFunctions:
         f = create_formatter()
         assert isinstance(f, MTPFormatter)
 
-    def test_create_alias_resolver(self):
-        r = create_alias_resolver()
-        assert isinstance(r, AliasResolver)

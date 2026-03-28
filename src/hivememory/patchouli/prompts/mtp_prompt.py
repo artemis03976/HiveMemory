@@ -130,10 +130,19 @@ Deployment is complete. The login module is now running in production."""
 
 _ERROR_HANDLING_EN = """\
 [ERROR RECOVERY]
-If you receive `<mtp_response status="error">`, analyze the error message and retry with the corrected command immediately. Common fixes:
-- "Alias not found" -> Use SEARCH to discover the correct alias first.
-- "Syntax error" -> Check your delimiter and separator placement.
-- "Missing argument" -> Review the required args for the tool and retry."""
+When you receive `<mtp_response status="error">`, check the error category tag:
+- [Syntax Error]: You made a protocol mistake. Fix your command syntax and retry.
+- [Invalid Argument]: A required argument is missing or malformed. Fix and retry.
+- [Alias Not Found]: The alias doesn't exist. Use SEARCH to discover the correct alias, then retry.
+- [Memory Not Found]: The memory was archived or deleted. Use SEARCH to find alternatives.
+- [Type Mismatch]: The memory type doesn't match the operation. Check the type and use the correct command.
+- [Storage Offline]: Memory storage is unavailable. Do NOT retry. Continue without memory.
+- [Storage Error]: An internal storage error occurred. Do NOT retry. Continue without memory.
+- [Tool Error]: A tool encountered an internal error. Do NOT retry with the same input.
+- [Service Unavailable]: A required service is down. Do NOT retry. Continue without memory.
+- [Internal Error]: An unexpected error occurred. Do NOT retry. Continue normally.
+
+Rule: If the category says "Do NOT retry", you MUST stop issuing MTP commands and answer from your own knowledge."""
 
 
 # ========== 中文模板 ==========
@@ -207,10 +216,19 @@ _DENSE_DEMO_ZH = """\
 
 _ERROR_HANDLING_ZH = """\
 [错误恢复]
-如果你收到 `<mtp_response status="error">`，请分析错误信息并立即用修正后的指令重试。常见修复:
-- "Alias not found" -> 先使用 SEARCH 发现正确的别名。
-- "Syntax error" -> 检查定界符和分隔符的位置。
-- "Missing argument" -> 查看该工具所需的参数并重试。"""
+当你收到 `<mtp_response status="error">` 时，请检查错误类别标签：
+- [Syntax Error]: 你的协议语法有误。修正指令语法后重试。
+- [Invalid Argument]: 必需参数缺失或格式错误。修正后重试。
+- [Alias Not Found]: 别名不存在。先使用 SEARCH 发现正确的别名，再重试。
+- [Memory Not Found]: 记忆已归档或删除。使用 SEARCH 查找替代项。
+- [Type Mismatch]: 记忆类型与操作不匹配。检查类型并使用正确的指令。
+- [Storage Offline]: 记忆存储不可用。禁止重试。不使用记忆继续对话。
+- [Storage Error]: 存储内部错误。禁止重试。不使用记忆继续对话。
+- [Tool Error]: 工具遇到内部错误。禁止使用相同输入重试。
+- [Service Unavailable]: 所需服务已下线。禁止重试。不使用记忆继续对话。
+- [Internal Error]: 发生意外错误。禁止重试。正常继续对话。
+
+规则：如果错误类别包含"禁止重试"，你必须停止发出 MTP 指令，使用自身知识回答用户。"""
 
 
 # ========== 语言无关模板 ==========

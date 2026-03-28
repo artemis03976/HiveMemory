@@ -13,10 +13,36 @@ from hivememory.patchouli.protocol.models import (
     RetrievalRequest,
 )
 from hivememory.patchouli.protocol.mtp_log_parser import MTPLogParser
+from hivememory.patchouli.protocol.exceptions import (
+    MTPError,
+    AgentFault,
+    SystemFault,
+    MTPParseError,
+    AliasNotFoundError,
+    MemoryNotFoundError,
+    MemoryTypeMismatchError,
+    InvalidArgumentError,
+    StorageOfflineError,
+    StorageReadError,
+    BusRouteUnavailableError,
+    SyscallInternalError,
+)
 
 __all__ = [
     "MessageType",
     "ProtocolMessage",
     "RetrievalRequest",
     "MTPLogParser",
+    "MTPError",
+    "AgentFault",
+    "SystemFault",
+    "MTPParseError",
+    "AliasNotFoundError",
+    "MemoryNotFoundError",
+    "MemoryTypeMismatchError",
+    "InvalidArgumentError",
+    "StorageOfflineError",
+    "StorageReadError",
+    "BusRouteUnavailableError",
+    "SyscallInternalError",
 ]

@@ -18,6 +18,7 @@ UPDATE 指令执行链路测试
 """
 
 import pytest
+from uuid import uuid4
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
 
@@ -610,10 +611,8 @@ class TestKoakumaUpdateE2E:
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
         koakuma.set_current_user("test_user")
 
-        # 注册 alias 到 resolver
-        koakuma.alias_resolver.register_context_alias(
-            "fact_api_port", str(existing_memory.id),
-        )
+        # 注册 alias 到缓存
+        koakuma.atom_cache.ingest_atom(existing_memory)
         return koakuma
 
     def test_update_basic(self, update_koakuma):
@@ -665,7 +664,19 @@ class TestKoakumaUpdateValidation:
 
     def test_missing_instruction(self, validation_koakuma):
         # 注册 alias 但不提供 instruction
-        validation_koakuma.alias_resolver.register_context_alias("fact_api_port", "uuid-123")
+        validation_koakuma.atom_cache.ingest_atom(
+            MemoryAtom(
+                id=uuid4(),
+                meta=MetaData(user_id="test_user", source_agent_id="test"),
+                index=IndexLayer(
+                    title="API Port Config",
+                    summary="API port configuration fact",
+                    memory_type=MemoryType.FACT,
+                    alias="fact_api_port",
+                ),
+                payload=PayloadLayer(content="port = 8080"),
+            )
+        )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
         result = validation_koakuma.intercept_and_execute(agent_text)
 
@@ -690,8 +701,7 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert not result.success
-        assert "L2 alias lookup failed" in result.response_content
-        assert "storage route is unavailable" in result.response_content
+        assert "Service Unavailable" in result.response_content
         assert validation_koakuma.get_update_focus() is None
 
     def test_update_deferred_capture_always_ack(self, existing_memory):
@@ -700,9 +710,7 @@ class TestKoakumaUpdateValidation:
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
         koakuma.set_current_user("test_user")
-        koakuma.alias_resolver.register_context_alias(
-            "fact_api_port", str(existing_memory.id),
-        )
+        koakuma.atom_cache.ingest_atom(existing_memory)
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
         result = koakuma.intercept_and_execute(agent_text)

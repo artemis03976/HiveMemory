@@ -29,10 +29,8 @@
 
 import time
 import logging
-from collections import OrderedDict
 from uuid import UUID
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from hivememory.patchouli.protocol.mtp import (
     MTP_LEFT_DELIMITER,
@@ -42,79 +40,32 @@ from hivememory.patchouli.protocol.mtp import (
     MTPCommand,
     MTPResponse,
     MTPParser,
+    MTPFilterParser,
     MTPParseError,
     MTPFormatter,
-    AliasResolver,
 )
+from hivememory.patchouli.kernel.cache import KoakumaAtomCache
 from hivememory.patchouli.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,
 )
 
 from hivememory.core.models import MemoryType, Identity
-from hivememory.engines.retrieval.models import QueryFilters
+from hivememory.patchouli.protocol.exceptions import (
+    AgentFault,
+    SystemFault,
+    StorageOfflineError,
+    StorageReadError,
+    BusRouteUnavailableError,
+)
 from hivememory.engines.generation.models import WriteFocus, UpdateFocus
 from hivememory.engines.perception.models import TraceItem
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus
     from hivememory.patchouli.config import KoakumaConfig
-    from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
-    from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 
 logger = logging.getLogger(__name__)
-
-# MTP filter "type:XXX" 值到 MemoryType 枚举的映射 (大小写不敏感)
-_FILTER_TYPE_MAP: Dict[str, MemoryType] = {
-    "code": MemoryType.CODE_SNIPPET,
-    "code_snippet": MemoryType.CODE_SNIPPET,
-    "fact": MemoryType.FACT,
-    "url": MemoryType.URL_RESOURCE,
-    "url_resource": MemoryType.URL_RESOURCE,
-    "reflection": MemoryType.REFLECTION,
-    "profile": MemoryType.USER_PROFILE,
-    "user_profile": MemoryType.USER_PROFILE,
-    "wip": MemoryType.WORK_IN_PROGRESS,
-    "work_in_progress": MemoryType.WORK_IN_PROGRESS,
-}
-
-
-class L2AliasResolutionError(RuntimeError):
-    pass
-
-
-class _LRUCache:
-    """
-    简单 LRU 缓存 (用户态工具缓存, MTP Section 4.2.2)
-
-    基于 OrderedDict 实现，O(1) get/put。
-    缓存 key: alias (str)，value: code content (str)
-    """
-
-    def __init__(self, maxsize: int = 64):
-        self._maxsize = maxsize
-        self._cache: OrderedDict[str, str] = OrderedDict()
-
-    def get(self, key: str) -> Optional[str]:
-        """获取缓存项，命中时移到末尾 (最近使用)"""
-        if key not in self._cache:
-            return None
-        self._cache.move_to_end(key)
-        return self._cache[key]
-
-    def put(self, key: str, value: str) -> None:
-        """插入缓存项，超出容量时淘汰最久未使用的"""
-        if key in self._cache:
-            self._cache.move_to_end(key)
-        self._cache[key] = value
-        if len(self._cache) > self._maxsize:
-            self._cache.popitem(last=False)
-
-    def __len__(self) -> int:
-        return len(self._cache)
-
-    def __contains__(self, key: str) -> bool:
-        return key in self._cache
 
 
 class KoakumaRuntime:
@@ -158,8 +109,9 @@ class KoakumaRuntime:
 
         self._config = config or KoakumaConfig()
         self._parser = MTPParser()
+        self._filter_parser = MTPFilterParser()
         self._formatter = MTPFormatter()
-        self._alias_resolver = AliasResolver()
+        self._atom_cache = KoakumaAtomCache()
 
         # 当前会话的用户 ID (由 Kernel 在会话开始时设置)
         self._current_user_id: str = "default"
@@ -174,10 +126,6 @@ class KoakumaRuntime:
             file_write_max_bytes=self._config.file_write_max_bytes,
             web_search_timeout=self._config.web_search_timeout_seconds,
         )
-
-        # 初始化用户态工具 LRU 缓存 (Section 4.2.2)
-        # 缓存从 Qdrant 加载的记忆原子的代码内容
-        self._user_tool_cache = _LRUCache(maxsize=self._config.tool_cache_size)
 
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
 
@@ -252,7 +200,7 @@ class KoakumaRuntime:
             elapsed = (time.time() - start_time) * 1000
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=f"Protocol syntax error: {str(e)}",
+                content=e.to_agent_prompt(),
                 execution_time_ms=elapsed,
             )
             formatted = self._formatter.format_response(error_response)
@@ -305,18 +253,26 @@ class KoakumaRuntime:
         设置当前会话的用户 ID
 
         由 Kernel 在会话开始时调用。
+        新会话时清空缓存。
 
         Args:
             user_id: 用户 ID
         """
+        if user_id != self._current_user_id:
+            self._atom_cache.clear()
+            logger.info(f"New session started for user {user_id}, cache cleared")
         self._current_user_id = user_id
+
+    def _get_current_user_id(self) -> str:
+        """获取当前用户 ID"""
+        return self._current_user_id
 
     # ========== 别名管理 ==========
 
     @property
-    def alias_resolver(self) -> AliasResolver:
-        """访问别名解析器"""
-        return self._alias_resolver
+    def atom_cache(self) -> KoakumaAtomCache:
+        """访问统一原子缓存"""
+        return self._atom_cache
 
     # ========== 内部路由 ==========
 
@@ -325,6 +281,7 @@ class KoakumaRuntime:
         路由并执行 MTP 指令 (Section 3)
 
         根据 VERB 分发到对应的处理器。
+        集中捕获所有 MTP 语义化异常，格式化为 Agent 可读的错误提示。
 
         Args:
             command: 解析后的 MTP 指令
@@ -344,110 +301,52 @@ class KoakumaRuntime:
         if handler is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=f"Unknown verb: {command.verb}",
+                content=(
+                    "[Syntax Error] Unknown verb: "
+                    f"{command.verb}. Valid verbs: SEARCH, READ, RUN, WRITE, UPDATE."
+                ),
             )
 
         try:
             return handler(command)
-        except Exception as e:
-            logger.error(f"MTP 指令执行失败: {command.verb} - {e}", exc_info=True)
+
+        except StorageOfflineError as e:
+            logger.warning(f"Storage offline during {command.verb}: {e}")
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=f"Execution failed: {str(e)}",
+                content=e.to_agent_prompt(),
             )
 
-    # ========== Filter 解析 ==========
-
-    def _parse_mtp_filter(self, filter_str: str) -> Optional[QueryFilters]:
-        """
-        解析 MTP SEARCH 指令的 filter 参数 (Section 2.2)
-
-        语法: key:value 对，多个用空格分隔
-        支持的 key:
-            - type: 记忆类型 (CODE, FACT, URL, REFLECTION, PROFILE, WIP)
-            - tag: 标签 (可多次出现)
-            - agent: 来源 Agent ID
-            - confidence: 最小置信度 (0.0-1.0)
-
-        安全策略: 宽容解析，静默降级
-            - 无法识别的 key/value → 忽略 + log warning
-            - 解析后全空 → 返回 None (等同于无 filter)
-            - 任何异常 → 返回 None
-
-        Args:
-            filter_str: 原始 filter 字符串，如 "type:CODE" 或 "type:FACT tag:python"
-
-        Returns:
-            Optional[QueryFilters]: 解析后的过滤条件，全空或异常时返回 None
-        """
-        if not filter_str or not filter_str.strip():
-            return None
-
-        try:
-            memory_type = None
-            tags: List[str] = []
-            source_agent_id = None
-            min_confidence = 0.0
-
-            for token in filter_str.strip().split():
-                if ":" not in token:
-                    logger.warning(f"MTP filter: 忽略无法解析的 token '{token}'")
-                    continue
-
-                key, _, value = token.partition(":")
-                key = key.strip().lower()
-                value = value.strip()
-
-                if not key or not value:
-                    logger.warning(f"MTP filter: 忽略空 key 或 value: '{token}'")
-                    continue
-
-                if key == "type":
-                    mapped = _FILTER_TYPE_MAP.get(value.lower())
-                    if mapped is not None:
-                        memory_type = mapped
-                    else:
-                        logger.warning(
-                            f"MTP filter: 未知 type 值 '{value}'，已忽略。"
-                            f"支持: CODE, FACT, URL, REFLECTION, PROFILE, WIP"
-                        )
-                elif key == "tag":
-                    tags.append(value)
-                elif key == "agent":
-                    source_agent_id = value
-                elif key == "confidence":
-                    try:
-                        parsed = float(value)
-                        if 0.0 < parsed <= 1.0:
-                            min_confidence = parsed
-                        else:
-                            logger.warning(
-                                f"MTP filter: confidence 值 {parsed} 超出范围 (0,1]，已忽略"
-                            )
-                    except ValueError:
-                        logger.warning(
-                            f"MTP filter: confidence 值 '{value}' 不是有效数字，已忽略"
-                        )
-                else:
-                    logger.warning(f"MTP filter: 未知 key '{key}'，已忽略")
-
-            # 构建 QueryFilters，全空则返回 None
-            filters = QueryFilters(
-                memory_type=memory_type,
-                tags=tags,
-                source_agent_id=source_agent_id,
-                min_confidence=min_confidence,
+        except StorageReadError as e:
+            logger.error(f"Storage error during {command.verb}: {e}")
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=e.to_agent_prompt(),
             )
 
-            if filters.is_empty():
-                return None
+        except AgentFault as e:
+            logger.info(f"Agent fault during {command.verb}: {e}")
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=e.to_agent_prompt(),
+            )
 
-            logger.info(f"MTP filter 解析结果: {filters}")
-            return filters
+        except SystemFault as e:
+            logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=e.to_agent_prompt(),
+            )
 
         except Exception as e:
-            logger.warning(f"MTP filter 解析异常，已降级为无 filter: {e}")
-            return None
+            logger.error(f"Unexpected error during {command.verb}: {e}", exc_info=True)
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=(
+                    "[Internal Error] An unexpected error occurred. "
+                    "Do NOT retry this command. Continue the conversation normally."
+                ),
+            )
 
     # ========== 指令处理器 ==========
 
@@ -470,55 +369,51 @@ class KoakumaRuntime:
         if not query:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content='SEARCH requires a "query" argument.',
+                content='[Invalid Argument] SEARCH requires a "query" argument.\n'
+                        'Action: Provide a query argument and retry.',
             )
 
         # 解析 filter 参数 (Section 2.2)
         # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
-        # 宽容解析: 非法 filter 静默降级为 None
+        # 宽容解析: 非法 filter 降级为 None，但返回警告
         filter_str = command.args.get("filter", "")
-        parsed_filters = self._parse_mtp_filter(filter_str) if filter_str else None
+        parsed_filters, filter_warnings = self._filter_parser.parse(filter_str) if filter_str else (None, [])
 
-        try:
-            result = self._bus.request(
-                "retrieval.retrieve",
-                request=RetrievalRequest(
-                    semantic_query=query,
-                    user_id=self._current_user_id,
-                    filters=parsed_filters,
-                ),
-            )
+        # Let StorageOfflineError / StorageReadError propagate to _route_and_execute
+        result = self._bus.request(
+            "retrieval.retrieve",
+            request=RetrievalRequest(
+                semantic_query=query,
+                user_id=self._current_user_id,
+                filters=parsed_filters,
+            ),
+        )
 
-            if result.is_empty():
-                return MTPResponse(
-                    status=MTPResponseStatus.SUCCESS,
-                    content="No memories found. Try a different query.",
-                )
-
-            menu = self._render_search_menu(result)
-
-            # 将检索到的记忆注册到别名解析器
-            for mem in result.memories:
-                alias = mem.get_alias()
-                self._alias_resolver.register_context_alias(
-                    alias, str(mem.id)
-                )
-
-            # 记录 TraceItem
-            self._current_traces.append(TraceItem(
-                action="SEARCH", query=query,
-            ))
-
+        if result.is_empty():
+            content = "No memories found. Try a different query."
+            if filter_warnings:
+                content += "\n" + "\n".join(filter_warnings)
             return MTPResponse(
                 status=MTPResponseStatus.SUCCESS,
-                content=menu,
+                content=content,
             )
 
-        except Exception as e:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"Search failed: {str(e)}",
-            )
+        menu = self._render_search_menu(result)
+        if filter_warnings:
+            menu += "\n" + "\n".join(filter_warnings)
+
+        # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
+        self._atom_cache.ingest_atoms(result.memories)
+
+        # 记录 TraceItem
+        self._current_traces.append(TraceItem(
+            action="SEARCH", query=query,
+        ))
+
+        return MTPResponse(
+            status=MTPResponseStatus.SUCCESS,
+            content=menu,
+        )
 
     def _handle_read(self, command: MTPCommand) -> MTPResponse:
         """
@@ -548,30 +443,23 @@ class KoakumaRuntime:
                 content="READ requires at least one target alias.",
             )
 
-        # 解析别名 → UUID，分离有效与无效别名
-        # 双层路由: L1 上下文热映射 → L2 全局冷检索 (Section 2.3.2)
-        resolved: List[Tuple[str, str]] = []  # (alias, uuid)
+        # 解析别名 → MemoryAtom，分离有效与无效别名
+        # 统一缓存路径: 缓存命中 → L2 冷检索回退
+        # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
+        resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
         unresolved: List[str] = []
         for alias in aliases:
-            uuid = self._alias_resolver.resolve(alias)       # L1
-            if uuid is None:
-                try:
-                    uuid = self._resolve_alias_l2(alias)
-                except L2AliasResolutionError as e:
-                    return MTPResponse(
-                        status=MTPResponseStatus.ERROR,
-                        content=f"L2 alias lookup failed for '{alias}': {str(e)}",
-                    )
-            if uuid is None:
+            atom = self._resolve_and_fetch(alias)
+            if atom is None:
                 unresolved.append(alias)
             else:
-                resolved.append((alias, uuid))
+                resolved.append((alias, atom))
 
         # 全部无效：直接返回错误
         if not resolved:
             lines = [
-                f"[{a}]: Error - Alias '{a}' not found in context. "
-                f"Did you mean to use SEARCH?"
+                f"[{a}]: [Alias Not Found] Alias '{a}' not found. "
+                f"Use SEARCH to discover the correct alias first."
                 for a in unresolved
             ]
             return MTPResponse(
@@ -579,17 +467,17 @@ class KoakumaRuntime:
                 content="\n".join(lines),
             )
 
-        # 并行读取 (Section 3.2.1)
-        read_results = self._read_memories_concurrent(resolved)
+        # 直接从缓存的原子中提取内容（无需查询数据库）
+        read_results = self._format_cached_atoms(resolved)
 
         # 组装输出
         output_lines: List[str] = []
-        for alias, uuid in resolved:
-            output_lines.append(read_results[(alias, uuid)])
+        for alias, _ in resolved:
+            output_lines.append(read_results[alias])
         for alias in unresolved:
             output_lines.append(
-                f"[{alias}]: Error - Alias '{alias}' not found in context. "
-                f"Did you mean to use SEARCH?"
+                f"[{alias}]: [Alias Not Found] Alias '{alias}' not found. "
+                f"Use SEARCH to discover the correct alias first."
             )
 
         # 记录 TraceItem (折叠: 仅记录查阅动作和目标)
@@ -635,7 +523,7 @@ class KoakumaRuntime:
             ))
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=f"Kernel tool '{alias}' not found. "
+                content=f"[Alias Not Found] Kernel tool '{alias}' not found. "
                         f"Use SEARCH to discover available tools.",
             )
         if syscall is not None:
@@ -658,62 +546,32 @@ class KoakumaRuntime:
                 ))
                 return MTPResponse(
                     status=MTPResponseStatus.ERROR,
-                    content=f"Tool '{alias}' execution failed: {str(e)}",
+                    content=f"[Tool Error] Tool '{alias}' execution failed. "
+                            f"Do NOT retry with the same input.",
                 )
 
-        # Level 1: 用户态工具慢速路径 (Section 4.2.2)
-        # Step 1: LRU 缓存命中 → 直接沙箱执行
-        cached_code = self._user_tool_cache.get(alias)
-        if cached_code is not None:
-            logger.debug(f"User tool cache hit: alias='{alias}'")
-            return self._execute_user_tool(alias, cached_code, command.args)
-
-        # Step 2: 别名解析 (L1 → L2 回退) → 获取 UUID
-        uuid = self._alias_resolver.resolve(alias)
-        if uuid is None:
-            try:
-                uuid = self._resolve_alias_l2(alias)
-            except L2AliasResolutionError as e:
-                return MTPResponse(
-                    status=MTPResponseStatus.ERROR,
-                    content=f"L2 alias lookup failed for '{alias}': {str(e)}",
-                )
-        if uuid is None:
+        # Level 1: 用户态工具路径 (统一原子缓存)
+        # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
+        atom = self._resolve_and_fetch(alias)
+        if atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=f"Tool alias '{alias}' not found. "
-                        f"Did you forget to SEARCH first?",
+                content=f"[Alias Not Found] Tool alias '{alias}' not found. "
+                        f"Use SEARCH to discover the correct alias first.",
             )
 
-        # Step 3: 从 Qdrant 加载记忆原子
-        try:
-            memory = self._bus.request("storage.get_memory", UUID(uuid))
-        except (ValueError, TypeError) as e:
+        # 校验类型必须是 CODE_SNIPPET
+        if atom.index.memory_type != MemoryType.CODE_SNIPPET:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=f"Invalid UUID '{uuid}' for alias '{alias}': {e}",
+                content=f"[Type Mismatch] Alias '{alias}' is not a runnable tool "
+                        f"(type: {atom.index.memory_type.value}). "
+                        f"RUN only supports CODE_SNIPPET memories.",
             )
 
-        if memory is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"Memory not found for alias '{alias}' (UUID: {uuid}). "
-                        f"It may have been archived or deleted.",
-            )
-
-        # Step 4: 校验类型必须是 CODE_SNIPPET
-        if memory.index.memory_type != MemoryType.CODE_SNIPPET:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"Alias '{alias}' is not a runnable tool "
-                        f"(type: {memory.index.memory_type.value}). "
-                        f"current RUN only supports CODE_SNIPPET memories.",
-            )
-
-        # Step 5: 提取代码 → 缓存 → 沙箱执行
-        code = memory.payload.content
-        self._user_tool_cache.put(alias, code)
-        logger.info(f"User tool loaded and cached: alias='{alias}', UUID={uuid}")
+        # 使用缓存的代码执行
+        code = atom.payload.content
+        logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
         return self._execute_user_tool(alias, code, command.args)
 
     def _handle_write(self, command: MTPCommand) -> MTPResponse:
@@ -795,22 +653,16 @@ class KoakumaRuntime:
                 content='UPDATE requires an "instruction" argument.',
             )
 
-        # 3. 解析 alias → UUID (双层路由: L1 → L2)
-        uuid = self._alias_resolver.resolve(alias)
-        if uuid is None:
-            try:
-                uuid = self._resolve_alias_l2(alias)
-            except L2AliasResolutionError as e:
-                return MTPResponse(
-                    status=MTPResponseStatus.ERROR,
-                    content=f"L2 alias lookup failed for '{alias}': {str(e)}",
-                )
-        if uuid is None:
+        # 3. 解析 alias → MemoryAtom (统一缓存路径)
+        # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
+        atom = self._resolve_and_fetch(alias)
+        if atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=f"Alias '{alias}' not found in context. "
-                        f"Did you mean to use SEARCH?",
+                content=f"[Alias Not Found] Alias '{alias}' not found. "
+                        f"Use SEARCH to discover the correct alias first.",
             )
+        uuid = str(atom.id)
 
         # 4. 获取可选的 content
         content = command.args.get("content", None)
@@ -826,6 +678,9 @@ class KoakumaRuntime:
 
         self._current_update_focus = update_focus
 
+        # 6. 使缓存失效，防止脏读
+        self._atom_cache.invalidate_alias(alias)
+
         logger.info(
             f"MTP UPDATE 延迟捕获: alias='{alias}', instruction='{instruction[:50]}'"
         )
@@ -837,70 +692,24 @@ class KoakumaRuntime:
 
     # ========== 辅助方法 ==========
 
-    def _read_memories_concurrent(
-        self, resolved: List[Tuple[str, str]]
-    ) -> Dict[Tuple[str, str], str]:
+    def _format_cached_atoms(
+        self, resolved: List[Tuple[str, "MemoryAtom"]]
+    ) -> Dict[str, str]:
         """
-        并行读取多个记忆原子 (Section 3.2.1)
+        格式化已缓存的记忆原子内容
 
-        使用 ThreadPoolExecutor 并发执行 storage.get_memory()，
-        适用于同步阻塞 I/O (Qdrant HTTP)。
-
-        单个别名时退化为顺序读取，避免线程池开销。
+        直接使用缓存的原子，无需查询数据库。
 
         Args:
-            resolved: [(alias, uuid), ...] 已解析的别名-UUID 对
+            resolved: [(alias, atom), ...] 已解析的别名-原子对
 
         Returns:
-            {(alias, uuid): formatted_line} 结果映射
+            {alias: formatted_content} 结果映射
         """
-        if len(resolved) == 1:
-            alias, uuid = resolved[0]
-            return {(alias, uuid): self._read_single_memory(alias, uuid)}
-
-        results: Dict[Tuple[str, str], str] = {}
-        with ThreadPoolExecutor(max_workers=min(len(resolved), 4)) as executor:
-            future_to_key = {
-                executor.submit(self._read_single_memory, alias, uuid): (alias, uuid)
-                for alias, uuid in resolved
-            }
-            for future in as_completed(future_to_key):
-                key = future_to_key[future]
-                try:
-                    results[key] = future.result()
-                except Exception as e:
-                    alias, uuid = key
-                    results[key] = (
-                        f"[{alias}]: Error - Failed to read UUID {uuid}: {e}"
-                    )
+        results: Dict[str, str] = {}
+        for alias, atom in resolved:
+            results[alias] = f"[{alias}]:\n{atom.payload.content}"
         return results
-
-    def _read_single_memory(self, alias: str, uuid: str) -> str:
-        """
-        读取单个记忆原子的 Payload 内容
-
-        Args:
-            alias: 语义化别名
-            uuid: 记忆原子 UUID
-
-        Returns:
-            str: 格式化的内容行
-        """
-        try:
-            memory = self._bus.request("storage.get_memory", UUID(uuid))
-        except (ValueError, TypeError) as e:
-            return f"[{alias}]: Error - Invalid UUID '{uuid}': {e}"
-        except Exception as e:
-            logger.error(f"Storage read failed for {alias} (UUID: {uuid}): {e}")
-            return f"[{alias}]: Error - Storage read failed: {e}"
-
-        if memory is None:
-            return (
-                f"[{alias}]: Error - Memory not found for UUID {uuid}. "
-                f"It may have been archived or deleted."
-            )
-
-        return f"[{alias}]:\n{memory.payload.content}"
 
     def _render_search_menu(self, result) -> str:
         """
@@ -924,25 +733,31 @@ class KoakumaRuntime:
             lines.append(f"{i}. {alias} (Alias) - \"{summary}\"")
         return "\n".join(lines)
 
-    def _get_current_user_id(self) -> str:
-        """获取当前用户 ID"""
-        return self._current_user_id
-
-    # ========== L2 冷检索 + 用户态工具 ==========
-
-    def _resolve_alias_l2(self, alias: str) -> Optional[str]:
+    def _resolve_and_fetch(self, alias: str) -> Optional["MemoryAtom"]:
         """
-        L2 全局冷检索 (Section 2.3.2)
+        统一的别名解析与原子获取
 
-        当 L1 上下文热映射未命中时，向 Qdrant 发起精确匹配检索。
-        命中后自动提升到 L1 热映射，后续访问走 O(1) 快速路径。
+        先检查缓存，未命中则查询存储并缓存结果。
+        替代原有的 L1/L2 分离解析模式。
+
+        Raises:
+            StorageOfflineError: 存储层离线
+            StorageReadError: 存储层响应异常
+            BusRouteUnavailableError: 系统总线路由缺失
 
         Args:
             alias: 语义化别名
 
         Returns:
-            UUID 字符串，未命中返回 None
+            MemoryAtom 对象，未命中返回 None
         """
+        # 检查缓存
+        atom = self._atom_cache.get_atom_by_alias(alias)
+        if atom is not None:
+            logger.debug(f"Atom cache hit: alias='{alias}'")
+            return atom
+
+        # 缓存未命中：查询存储（L2 冷检索）
         try:
             memory = self._bus.request(
                 "storage.get_memory_by_alias",
@@ -953,23 +768,26 @@ class KoakumaRuntime:
                 return None
 
             uuid_str = str(memory.id)
-            # 校验 UUID 格式有效性，防止脏数据污染 L1 缓存
+            # 校验 UUID 格式有效性，防止脏数据污染缓存
             UUID(uuid_str)
 
-            self._alias_resolver.register_context_alias(alias, uuid_str)
+            # 缓存完整原子
+            self._atom_cache.ingest_atom(memory)
             logger.debug(
-                f"L2 cold-lookup hit: alias='{alias}' -> {uuid_str}, promoted to L1"
+                f"L2 cold-lookup hit: alias='{alias}' -> {uuid_str}, cached"
             )
-            return uuid_str
+            return memory
         except KeyError as e:
             logger.error(f"L2 cold-lookup route unavailable: alias='{alias}', error={e}")
-            raise L2AliasResolutionError(
-                "storage route is unavailable"
+            raise BusRouteUnavailableError(
+                "Memory storage service is not available."
             ) from e
+        except (StorageOfflineError, StorageReadError):
+            raise  # propagate as-is
         except Exception as e:
             logger.error(f"L2 cold-lookup infrastructure failure: alias='{alias}', error={e}")
-            raise L2AliasResolutionError(
-                "storage backend failure"
+            raise StorageReadError(
+                "Memory storage encountered an error during alias lookup."
             ) from e
 
     def _execute_user_tool(

@@ -21,6 +21,9 @@ from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
+from hivememory.core.models import MemoryType
+from hivememory.engines.retrieval.models import QueryFilters
+
 logger = logging.getLogger(__name__)
 
 # ========== 协议常量 ==========
@@ -63,10 +66,12 @@ class MTPResponseStatus(str, Enum):
     SUCCESS - 执行成功
     ERROR   - 执行失败
     ACK     - 异步信号已确认 (用于 WRITE/UPDATE)
+    WARNING - 部分成功，附带警告 (如 filter 降级)
     """
     SUCCESS = "success"
     ERROR = "error"
     ACK = "ack"
+    WARNING = "warning"
 
 
 # ========== 数据模型 ==========
@@ -132,9 +137,8 @@ class MTPResponse(BaseModel):
 
 # ========== 异常定义 ==========
 
-class MTPParseError(Exception):
-    """MTP 协议解析错误"""
-    pass
+# MTPParseError 定义在 exceptions.py 中，此处导入以保持向后兼容
+from hivememory.patchouli.protocol.exceptions import MTPParseError  # noqa: F401
 
 
 # ========== MTP 解析器 ==========
@@ -362,6 +366,137 @@ class MTPParser:
         return args
 
 
+# ========== MTP Filter 解析器 ==========
+
+# MTP filter "type:XXX" 值到 MemoryType 枚举的映射 (大小写不敏感)
+_FILTER_TYPE_MAP: Dict[str, MemoryType] = {
+    "code": MemoryType.CODE_SNIPPET,
+    "code_snippet": MemoryType.CODE_SNIPPET,
+    "fact": MemoryType.FACT,
+    "url": MemoryType.URL_RESOURCE,
+    "url_resource": MemoryType.URL_RESOURCE,
+    "reflection": MemoryType.REFLECTION,
+    "profile": MemoryType.USER_PROFILE,
+    "user_profile": MemoryType.USER_PROFILE,
+    "wip": MemoryType.WORK_IN_PROGRESS,
+    "work_in_progress": MemoryType.WORK_IN_PROGRESS,
+}
+
+class MTPFilterParser:
+    """
+    MTP Filter 解析器
+
+    专门用于解析 SEARCH 指令中的 filter 参数字符串。
+    """
+
+    def parse(self, filter_str: str) -> Tuple[Optional[QueryFilters], List[str]]:
+        """
+        解析 MTP SEARCH 指令的 filter 参数 (Section 2.2)
+
+        语法: key:value 对，多个用空格分隔
+        支持的 key:
+            - type: 记忆类型 (CODE, FACT, URL, REFLECTION, PROFILE, WIP)
+            - tag: 标签 (可多次出现)
+            - agent: 来源 Agent ID
+            - confidence: 最小置信度 (0.0-1.0)
+
+        安全策略: 宽容解析，降级并返回警告
+            - 无法识别的 key/value → 忽略 + 返回警告
+            - 解析后全空 → 返回 (None, warnings)
+            - 任何异常 → 返回 (None, warnings)
+
+        Args:
+            filter_str: 原始 filter 字符串，如 "type:CODE" 或 "type:FACT tag:python"
+
+        Returns:
+            Tuple[Optional[QueryFilters], List[str]]: (过滤条件, 警告列表)
+        """
+        if not filter_str or not filter_str.strip():
+            return None, []
+
+        warnings: List[str] = []
+
+        try:
+            memory_type = None
+            tags: List[str] = []
+            source_agent_id = None
+            min_confidence = 0.0
+
+            for token in filter_str.strip().split():
+                if ":" not in token:
+                    warnings.append(f"Note: Filter token '{token}' was ignored (missing ':' separator).")
+                    logger.warning(f"MTP filter: 忽略无法解析的 token '{token}'")
+                    continue
+
+                key, _, value = token.partition(":")
+                key = key.strip().lower()
+                value = value.strip()
+
+                if not key or not value:
+                    warnings.append(f"Note: Filter token '{token}' was ignored (empty key or value).")
+                    logger.warning(f"MTP filter: 忽略空 key 或 value: '{token}'")
+                    continue
+
+                if key == "type":
+                    mapped = _FILTER_TYPE_MAP.get(value.lower())
+                    if mapped is not None:
+                        memory_type = mapped
+                    else:
+                        warnings.append(
+                            f"Note: Unknown filter type '{value}' was ignored. "
+                            f"Valid types: CODE, FACT, URL, REFLECTION, PROFILE, WIP."
+                        )
+                        logger.warning(
+                            f"MTP filter: 未知 type 值 '{value}'，已忽略。"
+                            f"支持: CODE, FACT, URL, REFLECTION, PROFILE, WIP"
+                        )
+                elif key == "tag":
+                    tags.append(value)
+                elif key == "agent":
+                    source_agent_id = value
+                elif key == "confidence":
+                    try:
+                        parsed = float(value)
+                        if 0.0 < parsed <= 1.0:
+                            min_confidence = parsed
+                        else:
+                            warnings.append(
+                                f"Note: Filter confidence value {parsed} is out of range (0,1] and was ignored."
+                            )
+                            logger.warning(
+                                f"MTP filter: confidence 值 {parsed} 超出范围 (0,1]，已忽略"
+                            )
+                    except ValueError:
+                        warnings.append(
+                            f"Note: Filter confidence value '{value}' is not a valid number and was ignored."
+                        )
+                        logger.warning(
+                            f"MTP filter: confidence 值 '{value}' 不是有效数字，已忽略"
+                        )
+                else:
+                    warnings.append(f"Note: Unknown filter key '{key}' was ignored.")
+                    logger.warning(f"MTP filter: 未知 key '{key}'，已忽略")
+
+            # 构建 QueryFilters，全空则返回 None
+            filters = QueryFilters(
+                memory_type=memory_type,
+                tags=tags,
+                source_agent_id=source_agent_id,
+                min_confidence=min_confidence,
+            )
+
+            if filters.is_empty():
+                return None, warnings
+
+            logger.info(f"MTP filter 解析结果: {filters}")
+            return filters, warnings
+
+        except Exception as e:
+            logger.warning(f"MTP filter 解析异常，已降级为无 filter: {e}")
+            warnings.append("Note: Filter parsing failed. Results may be broader than expected.")
+            return None, warnings
+
+
 # ========== MTP 格式化器 ==========
 
 class MTPFormatter:
@@ -429,89 +564,6 @@ class MTPFormatter:
         return f"{command.raw_text}\n{response_xml}"
 
 
-# ========== 别名解析器 ==========
-
-class AliasResolver:
-    """
-    MTP 别名解析器 (Section 2.3)
-
-    双层路由解析:
-    1. Level 1: 上下文热映射 (Context Hot-Map) - O(1) 内存查找
-    2. Level 2: 全局冷检索 (Global Cold-Lookup) - 向量库精确匹配
-
-    使用示例:
-        >>> resolver = AliasResolver()
-        >>> resolver.register_context_alias("fact_api_spec", "uuid-123")
-        >>> uuid = resolver.resolve("fact_api_spec")
-        >>> uuid == "uuid-123"
-        True
-    """
-
-    def __init__(self):
-        # Level 1: 上下文热映射 {alias -> uuid}
-        self._context_map: Dict[str, str] = {}
-
-    def register_context_alias(self, alias: str, uuid: str) -> None:
-        """
-        注册上下文别名映射 (L1 热映射)
-
-        当 Retrieval Familiar 检索到记忆并注入 Context 时调用。
-
-        Args:
-            alias: 语义化别名
-            uuid: 记忆原子 UUID
-        """
-        self._context_map[alias] = uuid
-
-    def register_context_aliases(self, alias_map: Dict[str, str]) -> None:
-        """
-        批量注册上下文别名
-
-        Args:
-            alias_map: {alias -> uuid} 映射字典
-        """
-        self._context_map.update(alias_map)
-
-    def clear_context(self) -> None:
-        """清空上下文映射 (新会话时调用)"""
-        self._context_map.clear()
-
-    def resolve(self, alias: str) -> Optional[str]:
-        """
-        解析别名为 UUID (Section 2.3.2)
-
-        优先级: L1 Context Hot-Map > L2 Global Cold-Lookup
-
-        Args:
-            alias: 语义化别名
-
-        Returns:
-            UUID 字符串，未找到返回 None
-        """
-        # L1: 上下文热映射 - O(1)
-        if alias in self._context_map:
-            return self._context_map[alias]
-
-        # TODO: L2 全局冷检索 (Section 2.3.2)
-        # 需要 storage 依赖注入，向 Qdrant 发起 Alias 精确匹配检索
-        # 命中则加载并缓存到 L1；未命中则返回 None
-        logger.debug(f"Alias '{alias}' not found in context hot-map, L2 cold-lookup not yet implemented")
-        return None
-
-    @property
-    def context_size(self) -> int:
-        """当前上下文映射的大小"""
-        return len(self._context_map)
-
-    def has_alias(self, alias: str) -> bool:
-        """检查别名是否在上下文中"""
-        return alias in self._context_map
-
-    # 别名生成逻辑已在 MemoryGenerationEngine._build_alias() 中实现 (Section 2.3.1)
-    # 记忆创建时由 Engine 根据 MemoryType 前缀 + LLM alias_suffix 拼接
-    # 生成的别名存储在 IndexLayer.alias 中，持久化到 Qdrant
-
-
 # ========== 工厂函数 ==========
 
 def create_parser() -> MTPParser:
@@ -524,9 +576,9 @@ def create_formatter() -> MTPFormatter:
     return MTPFormatter()
 
 
-def create_alias_resolver() -> AliasResolver:
-    """创建别名解析器实例"""
-    return AliasResolver()
+def create_filter_parser() -> MTPFilterParser:
+    """创建 MTP Filter 解析器实例"""
+    return MTPFilterParser()
 
 
 __all__ = [
@@ -544,13 +596,12 @@ __all__ = [
     "MTPResponse",
     # 解析器
     "MTPParser",
+    "MTPFilterParser",
     "MTPParseError",
     # 格式化器
     "MTPFormatter",
-    # 别名解析
-    "AliasResolver",
     # 工厂函数
     "create_parser",
+    "create_filter_parser",
     "create_formatter",
-    "create_alias_resolver",
 ]

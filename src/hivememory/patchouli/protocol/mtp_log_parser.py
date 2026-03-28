@@ -22,7 +22,13 @@ import logging
 from typing import List, Optional, Tuple
 
 from hivememory.engines.perception.models import TraceItem
-from hivememory.patchouli.protocol.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
+from hivememory.patchouli.protocol.mtp import (
+    MTP_LEFT_DELIMITER, 
+    MTP_RIGHT_DELIMITER,
+    MTPParser,
+    MTPParseError,
+    MTPVerb,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,67 +86,47 @@ class MTPLogParser:
     def _extract_traces(cls, raw_text: str) -> List[TraceItem]:
         """从 MTP 指令中提取 TraceItem (备用解析)"""
         traces = []
+        parser = MTPParser()
         for match in cls._MTP_COMMAND_PATTERN.finditer(raw_text):
-            body = match.group(1).strip()
-            trace = cls._parse_single_command(body)
-            if trace is not None:
-                traces.append(trace)
+            full_command = match.group(0)
+            try:
+                command = parser.parse(full_command)
+                trace = cls._command_to_trace(command)
+                if trace is not None:
+                    traces.append(trace)
+            except MTPParseError:
+                # 解析失败则静默忽略，与原逻辑保持一致
+                continue
         return traces
 
     @classmethod
-    def _parse_single_command(cls, body: str) -> Optional[TraceItem]:
+    def _command_to_trace(cls, command) -> Optional[TraceItem]:
         """
-        解析单个 MTP 指令体为 TraceItem
+        将 MTPCommand 映射为 TraceItem
 
         Args:
-            body: ⟪ 和 ⟫ 之间的文本内容
+            command: 解析后的 MTPCommand 对象
 
         Returns:
             TraceItem 或 None (WRITE/UPDATE/无法解析时)
         """
-        parts = [p.strip() for p in body.split('|')]
-        if not parts:
-            return None
-
-        verb = parts[0].upper()
-
-        if verb == "READ":
-            target = parts[1] if len(parts) > 1 else None
+        if command.verb == MTPVerb.READ:
+            # target 支持单别名或列表
+            target = command.target.single_alias
+            if not target and command.target.aliases:
+                target = ",".join(command.target.aliases)
             return TraceItem(action="READ", target=target)
 
-        elif verb == "SEARCH":
-            query = cls._extract_arg(body, "query")
+        elif command.verb == MTPVerb.SEARCH:
+            query = command.args.get("query")
             return TraceItem(action="SEARCH", query=query)
 
-        elif verb == "RUN":
-            tool = parts[1] if len(parts) > 1 else None
+        elif command.verb == MTPVerb.RUN:
+            tool = command.target.single_alias
             return TraceItem(action="RUN", tool=tool, status="unknown")
 
         # WRITE/UPDATE 作为控制信号处理，不生成 trace
         # 其他未知指令也忽略
-        return None
-
-    @classmethod
-    def _extract_arg(cls, body: str, key: str) -> Optional[str]:
-        """
-        从 MTP 指令体中提取指定参数值
-
-        支持两种格式:
-            - key="value"
-            - key=`value`
-
-        Args:
-            body: 指令体文本
-            key: 参数名
-
-        Returns:
-            参数值或 None
-        """
-        # 匹配 key="value" 或 key=`value`
-        pattern = rf'{key}\s*=\s*["`]([^"`]*)["`]'
-        match = re.search(pattern, body)
-        if match:
-            return match.group(1)
         return None
 
 

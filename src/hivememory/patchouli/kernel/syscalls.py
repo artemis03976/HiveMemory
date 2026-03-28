@@ -196,9 +196,10 @@ def execute_sandboxed(
         )
     except _TimeoutError:
         return f"Error: Execution timed out after {timeout_seconds}s."
+    except ImportError as e:
+        return f"Error: {e}"
     except Exception:
-        tb_lines = traceback.format_exc().strip().split("\n")
-        return "Error:\n" + "\n".join(tb_lines[-3:])
+        return "Error: Python execution failed. Check your code for runtime errors."
 
     output = stdout_capture.getvalue().strip()
     return f"Stdout: {output}" if output else "Executed successfully (no output)."
@@ -252,16 +253,13 @@ def sys_web_search(args: Dict[str, str], *, timeout_seconds: int = 15) -> str:
     try:
         from duckduckgo_search import DDGS
     except ImportError:
-        return (
-            "Error: duckduckgo-search package is not installed. "
-            "Install it with: pip install hivememory[search]"
-        )
+        return "Error: Web search is not available on this system. Use a different approach."
 
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=num))
-    except Exception as e:
-        return f"Error: Web search failed: {e}"
+    except Exception:
+        return "Error: Web search failed. The search service may be temporarily unavailable."
 
     if not results:
         return f"No results found for query: '{query}'"
@@ -343,8 +341,8 @@ def sys_read_file(
             head = f.read(512)
         if b"\x00" in head:
             return f"Error: '{path_str}' appears to be a binary file."
-    except OSError as e:
-        return f"Error: Cannot read file: {e}"
+    except OSError:
+        return "Error: Cannot read file. The file may be locked or inaccessible."
 
     # 读取文本内容
     file_size = target.stat().st_size
@@ -357,10 +355,10 @@ def sys_read_file(
         try:
             with open(target, "r", encoding="latin-1") as f:
                 content = f.read(max_bytes)
-        except OSError as e:
-            return f"Error: Cannot read file: {e}"
-    except OSError as e:
-        return f"Error: Cannot read file: {e}"
+        except OSError:
+            return "Error: Cannot read file. The file may be locked or inaccessible."
+    except OSError:
+        return "Error: Cannot read file. The file may be locked or inaccessible."
 
     result = f"<content>\n{content}\n</content>"
     if truncated:
@@ -418,8 +416,8 @@ def sys_write_file(
         write_mode = "a" if mode == "append" else "w"
         with open(target, write_mode, encoding="utf-8") as f:
             f.write(content)
-    except OSError as e:
-        return f"Error: Cannot write file: {e}"
+    except OSError:
+        return "Error: Cannot write file. The path may be read-only or inaccessible."
 
     return f"Success: File '{target.name}' saved ({len(content_bytes)} bytes)."
 

@@ -7,7 +7,7 @@ SEARCH 指令执行链路测试
     1. _parse_mtp_filter 过滤器解析
     2. SEARCH → RetrievalFamiliar.retrieve() 调用参数
     3. _render_search_menu 结果渲染
-    4. 别名注册到 AliasResolver
+    4. 别名注册到 KoakumaAtomCache
     5. Koakuma SEARCH E2E
     6. 参数校验
 
@@ -68,95 +68,114 @@ def koakuma() -> KoakumaRuntime:
 
 # ========== Test 1: _parse_mtp_filter ==========
 
+from hivememory.patchouli.protocol.mtp import MTPFilterParser
+
 class TestParseFilter:
-    """_parse_mtp_filter 过滤器解析测试"""
+    """测试 _parse_mtp_filter 方法"""
+
+    @pytest.fixture
+    def koakuma(self):
+        # 此处使用 MTPFilterParser 代替 koakuma._parse_mtp_filter
+        return MTPFilterParser()
 
     def test_type_code(self, koakuma):
-        f = koakuma._parse_mtp_filter("type:code")
-        assert f is not None
-        assert f.memory_type == MemoryType.CODE_SNIPPET
+        filters, warnings = koakuma.parse("type:code")
+        assert filters.memory_type == MemoryType.CODE_SNIPPET
+        assert not warnings
 
     def test_type_fact(self, koakuma):
-        f = koakuma._parse_mtp_filter("type:fact")
-        assert f is not None
-        assert f.memory_type == MemoryType.FACT
+        filters, warnings = koakuma.parse("type:fact")
+        assert filters.memory_type == MemoryType.FACT
+        assert not warnings
 
     def test_type_url(self, koakuma):
-        f = koakuma._parse_mtp_filter("type:url")
-        assert f is not None
-        assert f.memory_type == MemoryType.URL_RESOURCE
+        filters, warnings = koakuma.parse("type:url_resource")
+        assert filters.memory_type == MemoryType.URL_RESOURCE
+        assert not warnings
 
     def test_type_reflection(self, koakuma):
-        f = koakuma._parse_mtp_filter("type:reflection")
-        assert f is not None
-        assert f.memory_type == MemoryType.REFLECTION
+        filters, warnings = koakuma.parse("type:reflection")
+        assert filters.memory_type == MemoryType.REFLECTION
+        assert not warnings
 
     def test_type_profile(self, koakuma):
-        f = koakuma._parse_mtp_filter("type:profile")
-        assert f is not None
-        assert f.memory_type == MemoryType.USER_PROFILE
+        filters, warnings = koakuma.parse("type:user_profile")
+        assert filters.memory_type == MemoryType.USER_PROFILE
+        assert not warnings
 
     def test_type_wip(self, koakuma):
-        f = koakuma._parse_mtp_filter("type:wip")
-        assert f is not None
-        assert f.memory_type == MemoryType.WORK_IN_PROGRESS
+        filters, warnings = koakuma.parse("type:wip")
+        assert filters.memory_type == MemoryType.WORK_IN_PROGRESS
+        assert not warnings
 
     def test_tag_single(self, koakuma):
-        f = koakuma._parse_mtp_filter("tag:python")
-        assert f is not None
-        assert "python" in f.tags
+        filters, warnings = koakuma.parse("tag:python")
+        assert filters.tags == ["python"]
+        assert not warnings
 
     def test_tag_multiple(self, koakuma):
-        f = koakuma._parse_mtp_filter("tag:python tag:async")
-        assert f is not None
-        assert "python" in f.tags
-        assert "async" in f.tags
+        filters, warnings = koakuma.parse("tag:python tag:bug")
+        assert filters.tags == ["python", "bug"]
+        assert not warnings
 
     def test_agent_filter(self, koakuma):
-        f = koakuma._parse_mtp_filter("agent:coder_01")
-        assert f is not None
-        assert f.source_agent_id == "coder_01"
+        filters, warnings = koakuma.parse("agent:agent_123")
+        assert filters.source_agent_id == "agent_123"
+        assert not warnings
 
     def test_confidence_filter(self, koakuma):
-        f = koakuma._parse_mtp_filter("confidence:0.8")
-        assert f is not None
-        assert f.min_confidence == 0.8
+        filters, warnings = koakuma.parse("confidence:0.8")
+        assert filters.min_confidence == 0.8
+        assert not warnings
 
     def test_confidence_out_of_range(self, koakuma):
-        """超出范围的 confidence 被忽略"""
-        f = koakuma._parse_mtp_filter("confidence:1.5")
-        assert f is None  # 全空 → None
+        filters, warnings = koakuma.parse("confidence:1.5")
+        # should ignore out of range and fallback to 0.0
+        assert filters is None
+        assert len(warnings) == 1
+        assert "out of range" in warnings[0]
 
     def test_multi_token_combination(self, koakuma):
-        f = koakuma._parse_mtp_filter("type:code tag:python confidence:0.7")
-        assert f is not None
-        assert f.memory_type == MemoryType.CODE_SNIPPET
-        assert "python" in f.tags
-        assert f.min_confidence == 0.7
+        filters, warnings = koakuma.parse("type:code tag:api agent:bot1 confidence:0.5")
+        assert filters.memory_type == MemoryType.CODE_SNIPPET
+        assert filters.tags == ["api"]
+        assert filters.source_agent_id == "bot1"
+        assert filters.min_confidence == 0.5
+        assert not warnings
 
     def test_unknown_type_ignored(self, koakuma):
-        """未知 type 值被忽略"""
-        f = koakuma._parse_mtp_filter("type:UNKNOWN")
-        assert f is None
+        filters, warnings = koakuma.parse("type:unknown_type tag:test")
+        assert filters.memory_type is None
+        assert filters.tags == ["test"]
+        assert len(warnings) == 1
+        assert "Unknown filter type" in warnings[0]
 
     def test_unknown_key_ignored(self, koakuma):
-        """未知 key 被忽略"""
-        f = koakuma._parse_mtp_filter("foo:bar")
-        assert f is None
+        filters, warnings = koakuma.parse("unknown:value tag:test")
+        assert filters.tags == ["test"]
+        assert len(warnings) == 1
+        assert "Unknown filter key" in warnings[0]
 
     def test_invalid_token_no_colon(self, koakuma):
-        """无冒号的 token 被忽略"""
-        f = koakuma._parse_mtp_filter("garbage")
-        assert f is None
+        filters, warnings = koakuma.parse("invalid_token tag:test")
+        assert filters.tags == ["test"]
+        assert len(warnings) == 1
+        assert "missing ':' separator" in warnings[0]
 
     def test_empty_string(self, koakuma):
-        assert koakuma._parse_mtp_filter("") is None
+        filters, warnings = koakuma.parse("")
+        assert filters is None
+        assert not warnings
 
     def test_none_input(self, koakuma):
-        assert koakuma._parse_mtp_filter(None) is None
+        filters, warnings = koakuma.parse(None)
+        assert filters is None
+        assert not warnings
 
     def test_whitespace_only(self, koakuma):
-        assert koakuma._parse_mtp_filter("   ") is None
+        filters, warnings = koakuma.parse("   \t  ")
+        assert filters is None
+        assert not warnings
 
 
 # ========== Test 2: SEARCH → RetrievalRequest ==========
@@ -267,7 +286,7 @@ class TestSearchResultRendering:
 # ========== Test 4: Alias Registration ==========
 
 class TestSearchAliasRegistration:
-    """SEARCH 后别名注册到 AliasResolver"""
+    """SEARCH 后别名注册到 KoakumaAtomCache"""
 
     def test_aliases_registered_after_search(self, koakuma):
         mem = _make_memory(alias="fact_api_spec")
@@ -275,8 +294,10 @@ class TestSearchAliasRegistration:
 
         koakuma.execute_mtp('⟪ SEARCH | * | query="api spec" ⟫')
 
-        assert koakuma._alias_resolver.has_alias("fact_api_spec")
-        assert koakuma._alias_resolver.resolve("fact_api_spec") == str(mem.id)
+        assert koakuma._atom_cache.has_alias("fact_api_spec")
+        atom = koakuma._atom_cache.get_atom_by_alias("fact_api_spec")
+        assert atom is not None
+        assert str(atom.id) == str(mem.id)
 
     def test_multiple_aliases_registered(self, koakuma):
         mems = [
@@ -287,8 +308,8 @@ class TestSearchAliasRegistration:
 
         koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
 
-        assert koakuma._alias_resolver.has_alias("fact_a")
-        assert koakuma._alias_resolver.has_alias("fact_b")
+        assert koakuma._atom_cache.has_alias("fact_a")
+        assert koakuma._atom_cache.has_alias("fact_b")
 
     def test_registered_alias_resolvable_by_read(self, koakuma):
         """SEARCH 注册的 alias 可被 READ 解析"""
@@ -345,7 +366,7 @@ class TestKoakumaSearchE2E:
         result = koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
 
         assert not result.success
-        assert "Search failed" in result.response_content
+        assert "An unexpected error occurred" in result.response_content
 
     def test_search_formatted_response_contains_xml(self, koakuma):
         mem = _make_memory(alias="fact_test")

@@ -46,7 +46,7 @@ class TestMTPLogParserParse:
 
     def test_single_search_command(self):
         """解析 SEARCH 指令提取 query"""
-        text = f'{L}SEARCH|query="docker config"{R}'
+        text = f'{L}SEARCH | * | query="docker config"{R}'
         clean, traces = MTPLogParser.parse(text)
         assert len(traces) == 1
         assert traces[0].action == "SEARCH"
@@ -115,25 +115,6 @@ class TestMTPLogParserParse:
         clean, traces = MTPLogParser.parse(text)
         assert "\n\n\n" not in clean
         assert "第一段\n\n第二段" == clean
-
-
-class TestMTPLogParserExtractArg:
-    """_extract_arg() 参数提取测试"""
-
-    def test_extract_arg_double_quote(self):
-        """key="value" 格式"""
-        result = MTPLogParser._extract_arg('query="hello world"', "query")
-        assert result == "hello world"
-
-    def test_extract_arg_backtick(self):
-        """key=`value` 格式"""
-        result = MTPLogParser._extract_arg("query=`docker config`", "query")
-        assert result == "docker config"
-
-    def test_extract_arg_missing_key(self):
-        """不存在的 key 返回 None"""
-        result = MTPLogParser._extract_arg('query="value"', "nonexistent")
-        assert result is None
 
 
 class TestMTPLogParserEdgeCases:

@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Optional, Dict, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from hivememory.patchouli.protocol.exceptions import StorageOfflineError, StorageReadError
 from hivememory.patchouli.config import (
     DenseRetrieverConfig,
     SparseRetrieverConfig,
@@ -103,8 +104,10 @@ class DenseRetriever(BaseMemoryRetriever):
                 filters=filters,
                 mode="dense"
             )
+        except (StorageOfflineError, StorageReadError):
+            raise  # Must propagate to Koakuma
         except Exception as e:
-            logger.error(f"Dense检索失败: {e}")
+            logger.error(f"Dense检索失败: {e}", exc_info=True)
             return SearchResults(latency_ms=(time.time() - start_time) * 1000)
 
         # 转换结果并应用加权
@@ -230,8 +233,10 @@ class SparseRetriever(BaseMemoryRetriever):
                 filters=filters,
                 mode="sparse"
             )
+        except (StorageOfflineError, StorageReadError):
+            raise  # Must propagate to Koakuma
         except Exception as e:
-            logger.error(f"Sparse检索失败: {e}")
+            logger.error(f"Sparse检索失败: {e}", exc_info=True)
             return SearchResults(latency_ms=(time.time() - start_time) * 1000)
 
         # 转换结果
@@ -377,8 +382,10 @@ class HybridRetriever(BaseMemoryRetriever):
                         dense_results = future.result()
                     else:
                         sparse_results = future.result()
+                except (StorageOfflineError, StorageReadError):
+                    raise  # propagate system faults
                 except Exception as e:
-                    logger.error(f"{result_type.capitalize()} 检索失败: {e}")
+                    logger.error(f"{result_type.capitalize()} 检索失败: {e}", exc_info=True)
 
         # 返回空结果作为 fallback
         if dense_results is None:

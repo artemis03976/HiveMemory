@@ -768,6 +768,14 @@ class PatchouliSystem:
         if mtp_prompt:
             full_system_prompt = mtp_prompt
 
+            # Health check: if storage is offline, append degradation notice
+            if not self.kernel.check_storage_health():
+                full_system_prompt += (
+                    "\n\n[SYSTEM NOTICE] Memory storage is currently OFFLINE. "
+                    "All MTP commands (SEARCH, READ, RUN, WRITE, UPDATE) will fail. "
+                    "Do NOT issue any MTP commands. Answer from your own knowledge."
+                )
+
         # Add retrieved memory
         if hot_result.rendered_memory_context:
             if full_system_prompt:

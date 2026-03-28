@@ -397,6 +397,35 @@ class PatchouliKernel:
         """访问小恶魔 MTP 运行时服务"""
         return self._services["koakuma"]
 
+    # ========== 健康检查 ==========
+
+    _health_cache: Optional[bool] = None
+    _health_cache_ts: float = 0.0
+    _HEALTH_CACHE_TTL: float = 30.0  # seconds
+
+    def check_storage_health(self) -> bool:
+        """
+        存储层健康检查 (带 30 秒缓存)
+
+        用于系统级降级判断：如果 Qdrant 不可达，
+        在 System Prompt 中注入降级通知，阻止 Agent 发出 MTP 指令。
+
+        Returns:
+            bool: True 表示存储可用，False 表示离线
+        """
+        import time
+        now = time.time()
+        if self._health_cache is not None and (now - self._health_cache_ts) < self._HEALTH_CACHE_TTL:
+            return self._health_cache
+
+        try:
+            self.storage.client.get_collections(timeout=3)
+            self._health_cache = True
+        except Exception:
+            self._health_cache = False
+        self._health_cache_ts = now
+        return self._health_cache
+
     # ========== 公开 API ==========
 
     async def handle_hot(
@@ -511,7 +540,7 @@ class PatchouliKernel:
 
     def _register_preretrieval_aliases(self, memories: List[MemoryAtom]) -> None:
         """
-        将预检索记忆的别名注册到 Koakuma 的 L1 别名热映射
+        将预检索记忆的完整原子注册到 Koakuma 缓存
 
         预检索注入的记忆上下文使用别名作为 id，Agent 看到后会直接
         用别名发起 MTP READ。此方法确保这些别名在 Koakuma 中可解析。
@@ -519,13 +548,10 @@ class PatchouliKernel:
         Args:
             memories: 预检索返回的 MemoryAtom 列表
         """
-        resolver = self.koakuma.alias_resolver
-        for mem in memories:
-            alias = mem.get_alias()
-            resolver.register_context_alias(alias, str(mem.id))
+        self.koakuma.atom_cache.ingest_atoms(memories)
         if memories:
             logger.debug(
-                f"预检索别名注册完成: {len(memories)} 条记忆已注册到 Koakuma L1"
+                f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma"
             )
 
     def build_retrieval_request(

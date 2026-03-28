@@ -221,6 +221,9 @@ class QdrantMemoryStore:
         Returns:
             MemoryAtom 对象，不存在则返回 None
         """
+        from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
+        from hivememory.patchouli.protocol.exceptions import StorageOfflineError, StorageReadError
+
         try:
             points = self.client.retrieve(
                 collection_name=self.collection_name,
@@ -236,9 +239,15 @@ class QdrantMemoryStore:
             payload = points[0].payload
             return self._payload_to_memory(payload)
 
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error(f"Storage offline during get_memory: {e}")
+            raise StorageOfflineError("Memory storage is unreachable.") from e
+        except (UnexpectedResponse, ResponseHandlingException) as e:
+            logger.error(f"Storage error during get_memory: {e}")
+            raise StorageReadError("Memory storage returned an error.") from e
         except Exception as e:
-            logger.error(f"获取记忆失败: {e}")
-            return None
+            logger.error(f"Unexpected storage error in get_memory: {e}", exc_info=True)
+            raise StorageReadError("Memory storage encountered an unexpected error.") from e
 
     def get_memory_by_alias(
         self,
@@ -257,6 +266,9 @@ class QdrantMemoryStore:
         Returns:
             MemoryAtom 对象，未找到返回 None
         """
+        from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
+        from hivememory.patchouli.protocol.exceptions import StorageOfflineError, StorageReadError
+
         try:
             filters: Dict[str, Any] = {"index.alias": alias}
             if user_id:
@@ -278,9 +290,15 @@ class QdrantMemoryStore:
 
             return self._payload_to_memory(points[0].payload)
 
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error(f"Storage offline during get_memory_by_alias (alias={alias}): {e}")
+            raise StorageOfflineError("Memory storage is unreachable.") from e
+        except (UnexpectedResponse, ResponseHandlingException) as e:
+            logger.error(f"Storage error during get_memory_by_alias (alias={alias}): {e}")
+            raise StorageReadError("Memory storage returned an error.") from e
         except Exception as e:
-            logger.error(f"按别名检索记忆失败 (alias={alias}): {e}")
-            return None
+            logger.error(f"Unexpected storage error in get_memory_by_alias (alias={alias}): {e}", exc_info=True)
+            raise StorageReadError("Memory storage encountered an unexpected error.") from e
 
     def search_memories(
         self,
@@ -364,9 +382,14 @@ class QdrantMemoryStore:
 
             return results
 
+        except (ConnectionError, TimeoutError, OSError) as e:
+            logger.error(f"Storage offline during search_memories: {e}")
+            from hivememory.patchouli.protocol.exceptions import StorageOfflineError
+            raise StorageOfflineError("Memory storage is unreachable.") from e
         except Exception as e:
-            logger.error(f"检索记忆失败: {e}")
-            return []
+            logger.error(f"Storage error during search_memories: {e}", exc_info=True)
+            from hivememory.patchouli.protocol.exceptions import StorageReadError
+            raise StorageReadError("Memory storage encountered an error during search.") from e
 
     def delete_memory(self, memory_id: UUID) -> bool:
         """

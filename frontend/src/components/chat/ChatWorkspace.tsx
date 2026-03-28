@@ -20,7 +20,7 @@ export default function ChatWorkspace({ activeTopicTitle }: ChatWorkspaceProps) 
         ))}
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-            开始对话以探索星云设计架构...
+            少女祈祷中...
           </div>
         )}
       </div>

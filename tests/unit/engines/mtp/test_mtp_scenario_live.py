@@ -341,9 +341,7 @@ class TestUpdateScenario:
         )
         koakuma.set_current_user("test_user")
         # 预注册 alias (模拟之前 SEARCH 过)
-        koakuma.alias_resolver.register_context_alias(
-            "fact_dev_port", str(updated_mem.id)
-        )
+        koakuma.atom_cache.ingest_atom(updated_mem)
         return koakuma
 
     def test_update_triggered_for_modify_request(

@@ -26,6 +26,7 @@ from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
 from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.patchouli.protocol.exceptions import StorageOfflineError, StorageReadError
 from hivememory.patchouli.protocol.models import RetrievalRequest, RetrievalResponse
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,8 @@ class RetrievalFamiliar:
                 f"latency={response.latency_ms:.1f}ms"
             )
 
+        except (StorageOfflineError, StorageReadError):
+            raise  # Must propagate to Koakuma's _route_and_execute
         except Exception as e:
             logger.error(f"检索失败: {e}", exc_info=True)
             response.latency_ms = (time.time() - start_time) * 1000

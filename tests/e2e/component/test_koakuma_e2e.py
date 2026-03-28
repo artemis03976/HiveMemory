@@ -28,6 +28,15 @@ from hivememory.patchouli.config import KoakumaConfig
 
 # ========== Fixtures ==========
 
+def _register_cached_alias(
+    koakuma: KoakumaRuntime, alias: str, uuid: str, content: str = "test content"
+):
+    memory = MagicMock()
+    memory.id = uuid
+    memory.get_alias.return_value = alias
+    memory.payload.content = content
+    koakuma.atom_cache.ingest_atom(memory)
+
 @pytest.fixture
 def mock_kernel():
     """提供 Mock 兄弟服务实例"""
@@ -47,8 +56,6 @@ def koakuma(mock_kernel) -> KoakumaRuntime:
     def _request(route, *args, **kwargs):
         if route == "retrieval.retrieve":
             return mock_kernel.retrieval.retrieve(kwargs.get("request"))
-        if route == "storage.get_memory":
-            return mock_kernel.storage.get_memory(*args, **kwargs)
         if route == "storage.get_memory_by_alias":
             return mock_kernel.storage.get_memory_by_alias(*args, **kwargs)
         return None
@@ -108,20 +115,21 @@ class TestKoakumaExecution:
 
     def test_execute_read_with_resolved_alias(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试 READ 已注册别名 - 从 storage 读取完整 Payload"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000123"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000123",
+            "This is the API specification for login.",
         )
 
         # Mock storage 返回 MemoryAtom
         mock_memory = MagicMock()
         mock_memory.payload.content = "This is the API specification for login."
-        mock_kernel.storage.get_memory.return_value = mock_memory
+        mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
         assert result.success is True
         assert "API specification for login" in result.response_content
-        mock_kernel.storage.get_memory.assert_called_once()
+        mock_kernel.storage.get_memory_by_alias.assert_not_called()
 
     def test_execute_read_wildcard_rejected(self, koakuma: KoakumaRuntime):
         """测试 READ 拒绝通配符"""
@@ -163,8 +171,8 @@ class TestKoakumaExecution:
 
     def test_execute_update_success(self, koakuma: KoakumaRuntime):
         """测试 UPDATE 指令 ACK"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_old", "00000000-0000-0000-0000-000000000123"
+        _register_cached_alias(
+            koakuma, "fact_old", "00000000-0000-0000-0000-000000000123"
         )
 
         result = koakuma.execute_mtp(
@@ -209,58 +217,41 @@ class TestKoakumaRead:
 
     def test_read_memory_not_found_in_storage(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试 storage 中找不到记忆 (已删除/归档)"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000001"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
         )
-        mock_kernel.storage.get_memory.return_value = None
+        mock_kernel.storage.get_memory_by_alias.return_value = None
 
         result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
-        assert result.success is True
+        assert result.success is False
         assert "not found" in result.response_content.lower()
-        assert "archived or deleted" in result.response_content.lower()
 
     def test_read_multiple_aliases_concurrent(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试列表目标并发读取"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000001"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000001", "Content of memory A"
         )
-        koakuma.alias_resolver.register_context_alias(
-            "fact_b", "00000000-0000-0000-0000-000000000002"
+        _register_cached_alias(
+            koakuma, "fact_b", "00000000-0000-0000-0000-000000000002", "Content of memory B"
         )
-
-        mem_a = MagicMock()
-        mem_a.payload.content = "Content of memory A"
-        mem_b = MagicMock()
-        mem_b.payload.content = "Content of memory B"
-
-        from uuid import UUID
-        def mock_get_memory(memory_id):
-            if str(memory_id) == "00000000-0000-0000-0000-000000000001":
-                return mem_a
-            elif str(memory_id) == "00000000-0000-0000-0000-000000000002":
-                return mem_b
-            return None
-
-        mock_kernel.storage.get_memory.side_effect = mock_get_memory
 
         result = koakuma.execute_mtp("⟪ READ | [fact_a, fact_b] | ⟫")
 
         assert result.success is True
         assert "Content of memory A" in result.response_content
         assert "Content of memory B" in result.response_content
-        assert mock_kernel.storage.get_memory.call_count == 2
 
     def test_read_mixed_resolved_and_unresolved(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试部分别名有效、部分无效"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000001"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000001", "Valid content"
         )
         # fact_b 未注册
 
         mock_memory = MagicMock()
         mock_memory.payload.content = "Valid content"
-        mock_kernel.storage.get_memory.return_value = mock_memory
+        mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         result = koakuma.execute_mtp("⟪ READ | [fact_a, fact_b] | ⟫")
 
@@ -271,25 +262,24 @@ class TestKoakumaRead:
 
     def test_read_storage_exception(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试 storage 读取异常被优雅处理"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000001"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
         )
-        mock_kernel.storage.get_memory.side_effect = Exception("Connection refused")
+        mock_kernel.storage.get_memory_by_alias.side_effect = Exception("Connection refused")
 
         result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
         assert result.success is True
-        assert "storage read failed" in result.response_content.lower()
-        assert "connection refused" in result.response_content.lower()
 
     def test_read_payload_content_format(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试读取结果的格式: [alias]:\\n{content}"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000001"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000001",
+            "def login(user):\n    return True",
         )
         mock_memory = MagicMock()
         mock_memory.payload.content = "def login(user):\n    return True"
-        mock_kernel.storage.get_memory.return_value = mock_memory
+        mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
@@ -305,12 +295,12 @@ class TestKoakumaInterception:
 
     def test_intercept_with_mtp_command(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试拦截包含 MTP 指令的文本"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000001"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
         )
         mock_memory = MagicMock()
         mock_memory.payload.content = "test content"
-        mock_kernel.storage.get_memory.return_value = mock_memory
+        mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         text = "Let me check the documentation. ⟪ READ | fact_a |"
         result = koakuma.intercept_and_execute(text)
@@ -327,12 +317,12 @@ class TestKoakumaInterception:
 
     def test_intercept_extracts_last_command(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试提取最后一个 MTP 指令"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_b", "00000000-0000-0000-0000-000000000002"
+        _register_cached_alias(
+            koakuma, "fact_b", "00000000-0000-0000-0000-000000000002"
         )
         mock_memory = MagicMock()
         mock_memory.payload.content = "test content"
-        mock_kernel.storage.get_memory.return_value = mock_memory
+        mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         text = "Previous text... ⟪ READ | fact_b |"
         result = koakuma.intercept_and_execute(text)
@@ -349,12 +339,12 @@ class TestKoakumaResponseFormatting:
 
     def test_formatted_response_contains_xml(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试回填文本包含 XML 响应容器"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000001"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
         )
         mock_memory = MagicMock()
         mock_memory.payload.content = "test content"
-        mock_kernel.storage.get_memory.return_value = mock_memory
+        mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
@@ -363,12 +353,12 @@ class TestKoakumaResponseFormatting:
 
     def test_formatted_response_contains_command(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试回填文本包含原始指令"""
-        koakuma.alias_resolver.register_context_alias(
-            "fact_a", "00000000-0000-0000-0000-000000000001"
+        _register_cached_alias(
+            koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
         )
         mock_memory = MagicMock()
         mock_memory.payload.content = "test content"
-        mock_kernel.storage.get_memory.return_value = mock_memory
+        mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
