@@ -18,14 +18,12 @@ from __future__ import annotations
 
 import logging
 import inspect
-from typing import List, Optional, Callable, TYPE_CHECKING, Dict, Any, Tuple
+from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
 from hivememory.core.models import Identity, StreamMessage
-from hivememory.engines.perception.models import FlushEvent, FlushReason, InteractionPayload
+from hivememory.engines.perception.models import FlushReason, InteractionPayload
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.infrastructure.storage import QdrantMemoryStore
-
-FlushObserver = Callable[[FlushEvent], None]
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus
@@ -90,22 +88,10 @@ class LibrarianCore:
         self.perception_layer = perception_layer
         self.generation_engine = generation_engine
 
-        # Flush 事件观察者列表
-        self._flush_observers: List[FlushObserver] = []
-
         if self.perception_layer and hasattr(self.perception_layer, "set_generation_callback"):
             self.perception_layer.set_generation_callback(self._on_generate_memory)
 
         logger.info("LibrarianCore 初始化完成")
-
-    def add_flush_observer(self, observer: FlushObserver) -> None:
-        """添加 Flush 事件观察者"""
-        self._flush_observers.append(observer)
-
-    def remove_flush_observer(self, observer: FlushObserver) -> None:
-        """移除 Flush 事件观察者"""
-        if observer in self._flush_observers:
-            self._flush_observers.remove(observer)
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
@@ -274,18 +260,6 @@ class LibrarianCore:
         logger.warning("定时维护模式尚未实现")
 
     # ========== 感知层代理 API ==========
-
-    def get_buffer_info(self, identity: Identity) -> Dict[str, Any]:
-        """
-        获取当前缓冲区信息（代理感知层接口）
-
-        Returns:
-            Dict: 缓冲区信息，包含当前话题、记忆数量等
-        """
-        if self.perception_layer:
-            return self.perception_layer.get_buffer_info(identity)
-        logger.warning("perception_layer 未注入，返回空缓冲区信息")
-        return {}
 
     def get_active_topics_snapshots(
         self,

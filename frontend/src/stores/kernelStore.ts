@@ -15,6 +15,8 @@ import type {
   KernelStore,
   LogEntry,
   BroadcastMessage,
+  TraceGroup,
+  SpanGroup,
 } from '@/types/kernel';
 
 // Configuration constants
@@ -29,6 +31,44 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]; // Exponential backoff
 const PING_INTERVAL = 30000; // 30 seconds
 const CONNECT_TIMEOUT = 10000;
+
+/**
+ * Group logs by trace_id and span_name
+ */
+function groupLogsByTrace(logs: LogEntry[]): Map<string, TraceGroup> {
+  const groups = new Map<string, TraceGroup>();
+
+  for (const log of logs) {
+    const { trace_id, span_name, task_type } = log;
+
+    if (!groups.has(trace_id)) {
+      groups.set(trace_id, {
+        trace_id,
+        spans: new Map(),
+        task_type,
+        collapsed: task_type === 'background',
+      });
+    }
+
+    const trace = groups.get(trace_id)!;
+    if (!trace.spans.has(span_name)) {
+      trace.spans.set(span_name, {
+        span_name,
+        logs: [],
+        collapsed: false,
+        task_type,
+        first_timestamp: log.timestamp,
+        last_timestamp: log.timestamp,
+      });
+    }
+
+    const span = trace.spans.get(span_name)!;
+    span.logs.push(log);
+    span.last_timestamp = log.timestamp;
+  }
+
+  return groups;
+}
 
 /**
  * Check if this window should be the primary window
@@ -329,6 +369,7 @@ export const useKernelStore = create<KernelStore>()(
       (set, get) => ({
         // Initial state
         logs: [],
+        traceGroups: new Map(),
         connection: {
           status: 'disconnected',
           error: null,
@@ -534,6 +575,7 @@ export const useKernelStore = create<KernelStore>()(
 
             return {
               logs: newLogs,
+              traceGroups: groupLogsByTrace(newLogs),
               stats: {
                 ...state.stats,
                 totalLogs: state.stats.totalLogs + 1,
@@ -561,6 +603,7 @@ export const useKernelStore = create<KernelStore>()(
 
             return {
               logs: allLogs,
+              traceGroups: groupLogsByTrace(allLogs),
               stats: {
                 ...state.stats,
                 totalLogs: state.stats.totalLogs + newLogs.length,
@@ -572,6 +615,7 @@ export const useKernelStore = create<KernelStore>()(
         clearLogs: () => {
           set({
             logs: [],
+            traceGroups: new Map(),
             stats: {
               totalLogs: 0,
               filteredCount: 0,
@@ -633,6 +677,31 @@ export const useKernelStore = create<KernelStore>()(
           set((state) => ({
             ui: { ...state.ui, maxBufferSize: size },
           }));
+        },
+
+        toggleTraceCollapse: (trace_id) => {
+          set((state) => {
+            const newGroups = new Map(state.traceGroups);
+            const trace = newGroups.get(trace_id);
+            if (trace) {
+              trace.collapsed = !trace.collapsed;
+            }
+            return { traceGroups: newGroups };
+          });
+        },
+
+        toggleSpanCollapse: (trace_id, span_name) => {
+          set((state) => {
+            const newGroups = new Map(state.traceGroups);
+            const trace = newGroups.get(trace_id);
+            if (trace) {
+              const span = trace.spans.get(span_name);
+              if (span) {
+                span.collapsed = !span.collapsed;
+              }
+            }
+            return { traceGroups: newGroups };
+          });
         },
       }),
       {

@@ -143,6 +143,10 @@ class WebSocketLogHandler(logging.Handler):
             "line": record.lineno,
             "thread": record.threadName,
             "process": record.process,
+            # 追踪上下文字段（向后兼容）
+            "trace_id": getattr(record, "trace_id", "system"),
+            "span_name": getattr(record, "span_name", "main"),
+            "task_type": getattr(record, "task_type", "foreground"),
         }
 
         # 异常信息

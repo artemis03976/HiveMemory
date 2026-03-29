@@ -25,12 +25,14 @@
 """
 
 import logging
-from datetime import datetime
 from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import InteractionPayload
 from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.infrastructure.trace_context import (
+    generate_trace_id, set_trace_context, reset_trace_context
+)
 
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.eye import TheEye
@@ -158,12 +160,12 @@ class PatchouliSystem:
 
     @property
     def retrieval_familiar(self) -> RetrievalFamiliar:
-        """访问检索使魔（代理到 Kernel）"""
+        """访问检索使魔"""
         return self.kernel.retrieval_familiar
 
     @property
     def librarian_core(self) -> LibrarianCore:
-        """访问馆长本体（代理到 Kernel）"""
+        """访问帕秋莉本体"""
         return self.kernel.librarian_core
 
     @property
@@ -340,79 +342,90 @@ class PatchouliSystem:
         Returns:
             ChatResult: 递归生成循环的完整结果
         """
-        # 1. Create identity
-        identity = Identity(
-            user_id=user_id, agent_id=agent_id, session_id=session_id
-        )
+        # Set trace context for observability
+        trace_id = generate_trace_id("chat")
+        tokens = set_trace_context(trace_id, "PatchouliSystem.Chat", "foreground")
 
-        # 2. Get topic snapshots from perception layer
-        topic_snapshots = await self.kernel.get_topic_snapshots(identity)
-
-        # 3. Eye 分析 (with topic snapshots for routing and coreference)
-        gaze_result = await self.eye.gaze(
-            query=user_message,
-            topic_snapshots=topic_snapshots,
-            identity=identity
-        )
-
-        # 4. 预创建话题 + LRU 驱逐（提前到生成之前）
-        is_new = (gaze_result.target_topic == "NEW_TOPIC")
-        real_topic_id, _, topic_context = await self.kernel.prepare_topic(
-            target_topic_id=gaze_result.target_topic,
-            new_topic_title=gaze_result.new_topic_title,
-            new_topic_summary=gaze_result.new_topic_summary,
-            identity=identity,
-        )
-
-        # 5. Kernel 统一管线: 预检索
-        hot_result = await self.kernel.handle_hot(
-            gaze_result,
-            enable_retrieval=enable_memory_retrieval,
-        )
-
-        # 7. Assemble messages from perception layer context
-        messages = self._assemble_messages_from_context(
-            topic_context=topic_context,
-            hot_result=hot_result,
-            user_message=user_message,
-        )
-
-        # 8. 递归生成循环
-        loop_result = await self._recursive_generation_loop(
-            messages, user_id
-        )
-
-        # 9. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
-        raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
-
-        # Koakuma 离线 fallback: 降级为空 traces / None focus
         try:
-            mtp_traces = self.kernel.koakuma.get_interaction_traces()
-            write_focus = self.kernel.koakuma.get_write_focus()
-            update_focus = self.kernel.koakuma.get_update_focus()
-        except Exception as e:
-            logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
-            mtp_traces = []
-            write_focus = None
-            update_focus = None
+            logger.info(f"Processing user chat message")
 
-        payload = InteractionPayload(
-            user_message=user_message,
-            assistant_message=raw_assistant_text,
-            mtp_traces=mtp_traces,
-            write_focus=write_focus,
-            update_focus=update_focus,
-            identity=identity,
-            rewritten_query=hot_result.rewritten,
-            worth_saving=hot_result.worth_saving,
-        )
+            # 1. Create identity
+            identity = Identity(
+                user_id=user_id, agent_id=agent_id, session_id=session_id
+            )
 
-        # 阻塞等待提交完成，确保 token 溢出压缩等操作完成后再返回
-        await self.kernel.submit_interaction(
-            payload, target_topic=real_topic_id
-        )
+            # 2. Get topic snapshots from perception layer
+            topic_snapshots = await self.kernel.get_topic_snapshots(identity)
 
-        return loop_result
+            # 3. Eye 分析 (with topic snapshots for routing and coreference)
+            gaze_result = await self.eye.gaze(
+                query=user_message,
+                topic_snapshots=topic_snapshots,
+                identity=identity
+            )
+
+            # 4. 预创建话题 + LRU 驱逐（提前到生成之前）
+            is_new = (gaze_result.target_topic == "NEW_TOPIC")
+            real_topic_id, _, topic_context = await self.kernel.prepare_topic(
+                target_topic_id=gaze_result.target_topic,
+                new_topic_title=gaze_result.new_topic_title,
+                new_topic_summary=gaze_result.new_topic_summary,
+                identity=identity,
+            )
+
+            # 5. Kernel 统一管线: 预检索
+            hot_result = await self.kernel.handle_hot(
+                gaze_result,
+                enable_retrieval=enable_memory_retrieval,
+            )
+
+            # 7. Assemble messages from perception layer context
+            messages = self._assemble_messages_from_context(
+                topic_context=topic_context,
+                hot_result=hot_result,
+                user_message=user_message,
+            )
+
+            # 8. 递归生成循环
+            loop_result = await self._recursive_generation_loop(
+                messages, user_id
+            )
+
+            # 9. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
+            raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
+
+            # Koakuma 离线 fallback: 降级为空 traces / None focus
+            try:
+                mtp_traces = self.kernel.koakuma.get_interaction_traces()
+                write_focus = self.kernel.koakuma.get_write_focus()
+                update_focus = self.kernel.koakuma.get_update_focus()
+            except Exception as e:
+                logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
+                mtp_traces = []
+                write_focus = None
+                update_focus = None
+
+            payload = InteractionPayload(
+                user_message=user_message,
+                assistant_message=raw_assistant_text,
+                mtp_traces=mtp_traces,
+                write_focus=write_focus,
+                update_focus=update_focus,
+                identity=identity,
+                rewritten_query=hot_result.rewritten,
+                worth_saving=hot_result.worth_saving,
+            )
+
+            # 阻塞等待提交完成，确保 token 溢出压缩等操作完成后再返回
+            await self.kernel.submit_interaction(
+                payload, target_topic=real_topic_id
+            )
+
+            logger.info("Chat completed successfully")
+            return loop_result
+
+        finally:
+            reset_trace_context(tokens)
 
     async def _recursive_generation_loop(
         self,
@@ -487,11 +500,16 @@ class PatchouliSystem:
         Yields:
             Dict[str, Any]: {"event": str, "data": dict}
         """
-        identity = Identity(
-            user_id=user_id, agent_id=agent_id, session_id=session_id
-        )
+        # Set trace context for observability
+        trace_id = generate_trace_id("stream")
+        tokens = set_trace_context(trace_id, "PatchouliSystem.Stream", "foreground")
 
         try:
+            logger.info("Processing user stream message")
+
+            identity = Identity(
+                user_id=user_id, agent_id=agent_id, session_id=session_id
+            )
             # 1. 获取话题快照
             topic_snapshots = await self.kernel.get_topic_snapshots(identity)
 
@@ -679,6 +697,7 @@ class PatchouliSystem:
                 interaction_payload, target_topic=real_topic_id
             )
 
+            logger.info("Stream completed successfully")
             yield {"event": "done", "data": loop_result.model_dump()}
 
         except Exception as e:
@@ -693,6 +712,9 @@ class PatchouliSystem:
                 except Exception:
                     pass
             yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
+
+        finally:
+            reset_trace_context(tokens)
 
     async def manual_trigger(
         self,
@@ -718,21 +740,6 @@ class PatchouliSystem:
             >>> result = await system.manual_trigger(topic_id="topic_123")
         """
         return await self.kernel.manual_trigger(topic_id)
-
-    def get_buffer_info(
-        self,
-        identity: Identity,
-    ) -> Dict[str, Any]:
-        """获取 Buffer 信息"""
-        return self.kernel.get_buffer_info(identity)
-
-    def add_flush_observer(self, observer) -> None:
-        """添加 Flush 事件观察者"""
-        self.bus.request("librarian.add_flush_observer", observer)
-
-    def get_mtp_prompt(self) -> str:
-        """获取 MTP System Prompt 片段（委托给 Kernel）"""
-        return self.kernel.get_mtp_prompt()
 
     def _assemble_messages_from_context(
         self,
@@ -763,8 +770,8 @@ class PatchouliSystem:
         # 1. Assemble system prompt
         full_system_prompt = ""
 
-        # Add MTP prompt (包含基础人设)
-        mtp_prompt = self.get_mtp_prompt()
+        # Add MTP prompt
+        mtp_prompt = self.kernel.get_mtp_prompt()
         if mtp_prompt:
             full_system_prompt = mtp_prompt
 

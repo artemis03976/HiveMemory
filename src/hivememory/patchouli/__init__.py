@@ -46,11 +46,7 @@ from hivememory.patchouli.config import (
 # 三位一体分身
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
-from hivememory.patchouli.kernel.librarian_core import (
-    LibrarianCore,
-    FlushObserver,
-)
-from hivememory.engines.perception.models import FlushEvent
+from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 
 
 def __getattr__(name: str):

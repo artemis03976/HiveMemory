@@ -1,7 +1,8 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react';
-import { Circle, Play, Pause, ArrowDownToLine, ArrowUpFromLine, Trash2, Search, RefreshCw } from 'lucide-react';
+import { Circle, Play, Pause, ArrowDownToLine, ArrowUpFromLine, Trash2, Search, RefreshCw, ChevronRight, User, Activity, Layers } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useKernelStore } from '@/stores/kernelStore';
-import type { LogLevel, LogEntry, KernelConnectionStatus } from '@/types/kernel';
+import type { LogLevel, LogEntry, KernelConnectionStatus, SpanGroup, TraceGroup } from '@/types/kernel';
 
 const STATUS_DOT: Record<KernelConnectionStatus, string> = {
   disconnected: 'text-slate-500',
@@ -28,16 +29,19 @@ const LEVEL_STYLES: Record<LogLevel, string> = {
 };
 
 function LogRow({ log }: { log: LogEntry }) {
-  const ts = new Date(log.timestamp).toLocaleTimeString();
+  const date = new Date(log.timestamp);
+  const ts = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}`;
 
   return (
-    <div className="flex gap-2 px-3 py-1 hover:bg-white/5 rounded group leading-5 transition-colors">
-      <span className="text-slate-500 shrink-0 select-none">{ts}</span>
-      <span className={`shrink-0 w-[60px] text-right ${LEVEL_STYLES[log.level]}`}>
+    <div className="flex gap-2 px-2 py-0.5 hover:bg-white/5 rounded group leading-5 transition-colors text-xs">
+      <span className="text-slate-500/70 shrink-0 select-none font-mono">{ts}</span>
+      <span className={`shrink-0 w-[50px] text-right text-[10px] font-bold mt-0.5 ${LEVEL_STYLES[log.level]}`}>
         {log.level}
       </span>
-      <span className="text-primary/60 shrink-0 truncate max-w-[80px]" title={log.logger}>{log.logger.split('.').pop()}</span>
-      <span className="text-slate-300 break-all">{log.message}</span>
+      <span className="text-primary/50 shrink-0 truncate max-w-[100px] text-[11px] mt-0.5" title={log.logger}>
+        {log.logger.split('.').pop()}
+      </span>
+      <span className="text-slate-300 break-all font-mono whitespace-pre-wrap">{log.message}</span>
       {log.exception && (
         <span className="text-magic-fire shrink-0 opacity-0 group-hover:opacity-100" title={log.exception.type}>
           !!
@@ -79,6 +83,131 @@ function EmptyState({ status }: { status: KernelConnectionStatus }) {
   );
 }
 
+function SpanBlock({ span, onToggle }: { span: SpanGroup; onToggle: () => void }) {
+  const duration = new Date(span.last_timestamp).getTime() - new Date(span.first_timestamp).getTime();
+
+  return (
+    <div className="relative ml-1 my-1 group/span">
+      {/* Thread line */}
+      <div className="absolute left-[11px] top-7 bottom-0 w-px bg-white/5 group-hover/span:bg-primary/20 transition-colors" />
+
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 px-2 py-1 hover:bg-white/5 rounded w-full text-left transition-colors relative z-10"
+      >
+        <motion.div
+          animate={{ rotate: span.collapsed ? 0 : 90 }}
+          transition={{ duration: 0.2 }}
+          className="text-slate-500 group-hover/span:text-primary transition-colors"
+        >
+          <ChevronRight className="w-3 h-3" />
+        </motion.div>
+        
+        <Activity className="w-3 h-3 text-primary/60 shrink-0" />
+
+        <span className="text-primary/80 font-mono text-[11px] font-medium tracking-tight truncate">
+          {span.span_name}
+        </span>
+        
+        <span className="ml-auto text-slate-500 text-[10px] flex items-center gap-2 shrink-0 font-mono">
+          <span>{span.logs.length} log{span.logs.length > 1 ? 's' : ''}</span>
+          <span className="w-0.5 h-0.5 rounded-full bg-slate-600" />
+          <span>{duration}ms</span>
+        </span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {!span.collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="ml-6 mt-0.5 space-y-px pb-1">
+              {span.logs.map(log => (
+                <LogRow key={log.id} log={log} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function TraceBlock({
+  trace,
+  onToggleTrace,
+  onToggleSpan
+}: {
+  trace: TraceGroup;
+  onToggleTrace: () => void;
+  onToggleSpan: (span_name: string) => void;
+}) {
+  const isForeground = trace.task_type === 'foreground';
+  const TaskIcon = isForeground ? User : RefreshCw;
+
+  return (
+    <div className="my-2 border border-white/5 bg-black/20 rounded-md overflow-hidden transition-colors hover:border-white/10">
+      <button
+        onClick={onToggleTrace}
+        className={`flex items-center gap-2.5 px-3 py-1.5 w-full text-left transition-colors ${
+          isForeground ? 'bg-primary/5 hover:bg-primary/10' : 'bg-white/2 hover:bg-white/4'
+        }`}
+      >
+        <motion.div
+          animate={{ rotate: trace.collapsed ? 0 : 90 }}
+          transition={{ duration: 0.2 }}
+        >
+          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+        </motion.div>
+        
+        <div className={`p-1 rounded ${isForeground ? 'bg-primary/20 text-primary' : 'bg-white/10 text-slate-300'}`}>
+          <TaskIcon className="w-3 h-3" />
+        </div>
+        
+        <div className="flex flex-col">
+          <span className="text-slate-300 font-mono text-[11px] font-medium">
+            {trace.trace_id}
+          </span>
+          <span className="text-[9px] text-slate-500 uppercase tracking-wider leading-none mt-0.5">
+            {trace.task_type} TASK
+          </span>
+        </div>
+
+        <div className="ml-auto text-[10px] text-slate-500 flex items-center gap-1.5 font-mono">
+          <Layers className="w-3 h-3 opacity-70" />
+          {trace.spans.size} span{trace.spans.size > 1 ? 's' : ''}
+        </div>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {!trace.collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="p-1.5 pl-3 border-t border-white/5 bg-black/10">
+              {Array.from(trace.spans.values()).map(span => (
+                <SpanBlock
+                  key={span.span_name}
+                  span={span}
+                  onToggle={() => onToggleSpan(span.span_name)}
+                />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function KernelTerminalTab() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -86,13 +215,14 @@ export default function KernelTerminalTab() {
   const connection = useKernelStore((s) => s.connection);
   const filters = useKernelStore((s) => s.filters);
   const ui = useKernelStore((s) => s.ui);
-  
+  const traceGroups = useKernelStore((s) => s.traceGroups);
+
   const allLogs = useKernelStore((s) => s.logs);
   const logs = useMemo(() => {
     return allLogs.filter((log) => {
       if (filters.logLevel && log.level !== filters.logLevel) return false;
       if (filters.loggerNamespace && !log.logger.startsWith(filters.loggerNamespace)) return false;
-      
+
       if (filters.searchText) {
         const search = filters.searchText.toLowerCase();
         return (
@@ -113,6 +243,8 @@ export default function KernelTerminalTab() {
   const toggleAutoScroll = useKernelStore((s) => s.toggleAutoScroll);
   const togglePause = useKernelStore((s) => s.togglePause);
   const reconnect = useKernelStore((s) => s.reconnect);
+  const toggleTraceCollapse = useKernelStore((s) => s.toggleTraceCollapse);
+  const toggleSpanCollapse = useKernelStore((s) => s.toggleSpanCollapse);
 
   // Auto-scroll
   useEffect(() => {
@@ -208,10 +340,19 @@ export default function KernelTerminalTab() {
 
       {/* ── Log viewport ── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hide py-2">
-        {logs.length === 0 ? (
+        {traceGroups.size === 0 ? (
           <EmptyState status={connection.status} />
         ) : (
-          logs.map((log) => <LogRow key={log.id} log={log} />)
+          <div className="py-2">
+            {Array.from(traceGroups.values()).map(trace => (
+              <TraceBlock
+                key={trace.trace_id}
+                trace={trace}
+                onToggleTrace={() => toggleTraceCollapse(trace.trace_id)}
+                onToggleSpan={(span) => toggleSpanCollapse(trace.trace_id, span)}
+              />
+            ))}
+          </div>
         )}
       </div>
 

@@ -362,8 +362,6 @@ class PatchouliKernel:
 
         # --- Librarian 服务路由（包含感知层代理接口）---
         bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
-        bus.register("librarian.add_flush_observer", librarian_svc.add_flush_observer)
-        bus.register("librarian.get_buffer_info", librarian_svc.get_buffer_info)
         bus.register("librarian.manual_trigger", librarian_svc.manual_trigger)
         bus.register("librarian.prepare_topic", librarian_svc.prepare_topic)
         bus.register("librarian.get_active_topics_snapshots", librarian_svc.get_active_topics_snapshots)
@@ -576,35 +574,6 @@ class PatchouliKernel:
             keywords=gaze_result.search_keywords,
             user_id=gaze_result.identity.user_id,
         )
-
-    def get_buffer_info(
-        self,
-        identity: Identity,
-    ) -> Dict[str, Any]:
-        """
-        获取 Buffer 信息
-
-        Args:
-            identity: 身份标识对象
-
-        Returns:
-            Dict: Buffer 信息字典
-        """
-        if self._bus:
-            return self._bus.request("librarian.get_buffer_info", identity=identity)
-        return self.librarian_core.get_buffer_info(identity)
-
-    def add_flush_observer(self, observer) -> None:
-        """
-        添加 Flush 事件观察者
-
-        Args:
-            observer: 观察者回调函数
-        """
-        if self._bus:
-            self._bus.request("librarian.add_flush_observer", observer)
-        else:
-            self.librarian_core.add_flush_observer(observer)
 
     async def manual_trigger(self, topic_id: Optional[str] = None) -> Dict[str, Any]:
         """

@@ -29,6 +29,10 @@ export interface LogEntry {
   line: number;
   thread: string; // e.g., "MainThread"
   process: number;
+  // Trace context fields for distributed tracing
+  trace_id: string;
+  span_name: string;
+  task_type: 'foreground' | 'background';
   exception?: {
     type: string;
     message: string;
@@ -82,6 +86,7 @@ export interface Statistics {
 export interface KernelStore {
   // State
   logs: LogEntry[];
+  traceGroups: Map<string, TraceGroup>;
   connection: ConnectionState;
   filters: FilterState;
   ui: UIState;
@@ -99,6 +104,10 @@ export interface KernelStore {
   addLog: (log: Omit<LogEntry, 'id'>) => void;
   addLogs: (logs: Omit<LogEntry, 'id'>[]) => void;
   clearLogs: () => void;
+
+  // Actions - Trace Management
+  toggleTraceCollapse: (trace_id: string) => void;
+  toggleSpanCollapse: (trace_id: string, span_name: string) => void;
 
   // Actions - Filter Management
   setLogLevel: (level: LogLevel | null) => void;
@@ -140,3 +149,25 @@ export type BroadcastMessage =
       }
     }
   | { type: 'PRIMARY_HEARTBEAT'; timestamp: number };
+
+/**
+ * Span group - logs grouped by span_name within a trace
+ */
+export interface SpanGroup {
+  span_name: string;
+  logs: LogEntry[];
+  collapsed: boolean;
+  task_type: 'foreground' | 'background';
+  first_timestamp: string;
+  last_timestamp: string;
+}
+
+/**
+ * Trace group - top-level grouping by trace_id
+ */
+export interface TraceGroup {
+  trace_id: string;
+  spans: Map<string, SpanGroup>;
+  task_type: 'foreground' | 'background';
+  collapsed: boolean;
+}

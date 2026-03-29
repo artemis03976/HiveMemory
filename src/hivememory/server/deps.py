@@ -87,6 +87,10 @@ def init_websocket_log_broadcasting(
     root_logger = logging.getLogger()
     root_logger.addHandler(handler)
 
+    # 注册追踪上下文过滤器
+    from hivememory.infrastructure.trace_context import TraceInjectFilter
+    root_logger.addFilter(TraceInjectFilter())
+
     logger.info(
         f"WebSocket log broadcasting initialized: "
         f"namespaces={config.logging.websocket_namespaces}, "
