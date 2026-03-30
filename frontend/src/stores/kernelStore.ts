@@ -16,7 +16,6 @@ import type {
   LogEntry,
   BroadcastMessage,
   TraceGroup,
-  SpanGroup,
 } from '@/types/kernel';
 
 // Configuration constants

@@ -27,15 +27,14 @@ from hivememory.utils.time_formatter import TimeFormatter, Language
 # ==========================================
 
 MEMORY_HEADER = """<memory_context>
-帕秋莉 (记忆库的管理者) 为你取回了以下相关的历史记忆与可用工具。
+[System Guidance]: 帕秋莉 (记忆库的管理者) 为你取回了以下相关的历史记忆与可用工具。
 你可以将这些信息视为你脑海里自然而然浮现的"潜意识"，作为背景知识直接融合到你的思考中，无需刻意生硬地声明"根据记忆显示"。
 """
 
 MEMORY_FOOTER = """
-
-[System Guidance]:
-- 若记忆摘要符合当前用户意图但信息不足，希望查看其完整的记忆内容，请使用 `⟪ READ | alias | ⟫` 指令，**不要向用户询问**。
-- 带有 [Unverified] 或 (Warning: Old) 状态的记忆可能包含错误或过时信息，请注意甄别。
+\n[System Guidance]:
+- 若上述记忆摘要符合当前用户意图，但摘要信息不足，希望查看完整的记忆内容，请立即使用 `⟪ READ | alias | ⟫` 指令（**严谨自行猜测或编造**）。
+- 带有 [未验证] 或 (警告：陈旧) 状态的记忆可能包含错误或过时信息，请结合常识注意甄别。
 </memory_context>
 """
 
@@ -260,11 +259,11 @@ class MemoryAtomRenderer:
 
         # 分数格式化
         if score >= 0.9:
-            return f"✓ {score:.0%} (高){status_str}"
+            return f"{score:.0%} (高){status_str}"
         elif score >= 0.7:
-            return f"~ {score:.0%} (中){status_str}"
+            return f"{score:.0%} (中){status_str}"
         else:
-            return f"? {score:.0%} (低-需验证){status_str}"
+            return f"{score:.0%} (低){status_str}"
 
     @staticmethod
     def _truncate_content(content: str, max_length: int) -> str:
@@ -293,7 +292,7 @@ class MemoryAtomRenderer:
                 truncated = truncated[:last_sep + len(sep)]
                 break
 
-        return truncated + "\n\n[内容已截断。如需完整内容请询问。]"
+        return truncated + "\n\n[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"
 
 
 __all__ = [
