@@ -37,6 +37,7 @@ export interface TopicPoolInfo {
     state_summary: string;
     block_count: number;
     last_accessed_at: number;
+    total_tokens: number;
   }>;
   max_resident_topics: number;
   current_count: number;

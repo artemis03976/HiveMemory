@@ -71,6 +71,7 @@ export const useTopicStore = create<TopicStore>()(
           lastActive: t.last_accessed_at * 1000,
           messageCount: t.block_count,
           willEvict: isFull && idx === pool.topics.length - 1 && t.topic_id !== activeTopicId,
+          totalTokens: t.total_tokens,
         }));
         set({ topics, isLoading: false, error: null });
       },

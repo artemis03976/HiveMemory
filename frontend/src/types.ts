@@ -14,6 +14,7 @@ export interface Topic {
   messageCount?: number;
   lastActive?: number;
   willEvict?: boolean;
+  totalTokens?: number;
 }
 
 export interface MtpAction {

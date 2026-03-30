@@ -14,6 +14,7 @@ interface TopicListResponse {
     title: string;
     state_summary: string;
     last_turn: { role: string; content: string } | null;
+    total_tokens: number;
   }>;
 }
 
@@ -26,6 +27,7 @@ function mapTopic(raw: TopicListResponse['topics'][number]): Topic {
     model: 'GPT-4o', // Default model for now
     lastActive: Date.now(),
     messageCount: 0,
+    totalTokens: raw.total_tokens,
   };
 }
 

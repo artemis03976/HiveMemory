@@ -10,6 +10,7 @@ class TopicSnapshotResponse(BaseModel):
     title: str
     state_summary: str = ""
     last_turn: Optional[Dict[str, str]] = None
+    total_tokens: int = 0
 
 
 class TopicListResponse(BaseModel):

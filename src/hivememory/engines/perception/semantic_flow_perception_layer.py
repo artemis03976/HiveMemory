@@ -443,6 +443,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 title=buffer.title,
                 state_summary=buffer.state_summary,
                 last_turn=last_turn,
+                total_tokens=buffer.total_tokens,
             )
             snapshots.append(snapshot)
 
@@ -516,6 +517,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 "state_summary": buf.state_summary or "",
                 "block_count": len(buf.blocks),
                 "last_accessed_at": buf.last_accessed_at,
+                "total_tokens": buf.total_tokens,
             }
             for buf in buffers_sorted
         ]

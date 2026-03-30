@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { HiveMemoryConfig, ValidationError } from '../types/config';
 import { validateConfig } from '../utils/configValidation';
+import { fetchConfig, updateConfig as updateConfigApi, fetchDefaultConfig } from '../services/configApi';
 
 // Mock data for development when backend is offline
 const MOCK_CONFIG: HiveMemoryConfig = {
@@ -259,11 +260,7 @@ export const useSettings = (): UseSettingsReturn => {
     const loadConfig = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/config');
-        if (!response.ok) {
-          throw new Error('Failed to load configuration');
-        }
-        const data = await response.json();
+        const data = await fetchConfig();
         setConfig(data);
         setOriginalConfig(JSON.parse(JSON.stringify(data)));
         setValidationErrors(validateConfig(data));
@@ -313,18 +310,7 @@ export const useSettings = (): UseSettingsReturn => {
 
     try {
       setLoading(true);
-      const response = await fetch('/api/config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(config),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to save configuration');
-      }
-
+      await updateConfigApi(config);
       setOriginalConfig(JSON.parse(JSON.stringify(config)));
       setIsDirty(false);
     } catch (err) {
@@ -348,11 +334,7 @@ export const useSettings = (): UseSettingsReturn => {
   const resetToDefaults = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/config/defaults');
-      if (!response.ok) {
-        throw new Error('Failed to load default configuration');
-      }
-      const data = await response.json();
+      const data = await fetchDefaultConfig();
       setConfig(data);
       setValidationErrors(validateConfig(data));
       setIsDirty(JSON.stringify(data) !== JSON.stringify(originalConfig));

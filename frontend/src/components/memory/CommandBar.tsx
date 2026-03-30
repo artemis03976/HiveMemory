@@ -1,5 +1,6 @@
 import { Search, Filter, SortDesc, LayoutGrid, List } from 'lucide-react';
-import type { SortOption } from '@/types/memory';
+import type { SortOption, MemoryType } from '@/types/memory';
+import { memoryTypeLabels } from '@/types/memory';
 
 interface CommandBarProps {
   searchQuery: string;
@@ -8,6 +9,8 @@ interface CommandBarProps {
   onViewModeChange: (mode: 'grid' | 'list') => void;
   sortBy: SortOption;
   onSortByChange: (sort: SortOption) => void;
+  selectedType: string | null;
+  onSelectedTypeChange: (type: string | null) => void;
 }
 
 export default function CommandBar({
@@ -16,7 +19,9 @@ export default function CommandBar({
   viewMode,
   onViewModeChange,
   sortBy,
-  onSortByChange
+  onSortByChange,
+  selectedType,
+  onSelectedTypeChange
 }: CommandBarProps) {
   return (
     <div className="px-8 py-4 flex items-center gap-4 border-b border-white/5 bg-surface-container-low/50">
@@ -33,11 +38,29 @@ export default function CommandBar({
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 relative group/filter">
         <button className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-sm text-slate-300 transition-colors">
           <Filter className="w-4 h-4" />
-          标签筛选
+          {selectedType ? memoryTypeLabels[selectedType as MemoryType] : '类型筛选'}
         </button>
+        {/* 类型筛选下拉框 */}
+        <div className="absolute top-full mt-2 left-0 w-40 bg-surface-container-high border border-white/10 rounded-xl shadow-xl opacity-0 invisible group-hover/filter:opacity-100 group-hover/filter:visible transition-all z-50 overflow-hidden">
+          <div
+            onClick={() => onSelectedTypeChange(null)}
+            className={`px-4 py-2 text-sm cursor-pointer hover:bg-white/5 transition-colors ${!selectedType ? 'text-primary bg-primary/10' : 'text-slate-300'}`}
+          >
+            全部类型
+          </div>
+          {Object.entries(memoryTypeLabels).map(([type, label]) => (
+            <div 
+              key={type}
+              onClick={() => onSelectedTypeChange(type)}
+              className={`px-4 py-2 text-sm cursor-pointer hover:bg-white/5 transition-colors ${selectedType === type ? 'text-primary bg-primary/10' : 'text-slate-300'}`}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="w-px h-6 bg-white/10 mx-2" />

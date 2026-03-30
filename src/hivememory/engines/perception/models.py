@@ -519,6 +519,7 @@ class TopicSnapshot(BaseModel):
         title: 话题标题
         state_summary: 话题状态摘要（如果有折叠）
         last_turn: 最后一轮对话 {"user": "...", "assistant": "..."}
+        total_tokens: 当前总 token 数
     """
     topic_id: str = Field(..., description="话题唯一标识")
     title: str = Field(..., description="话题标题")
@@ -527,6 +528,7 @@ class TopicSnapshot(BaseModel):
         default=None,
         description="最后一轮对话 {'user': '...', 'assistant': '...'}"
     )
+    total_tokens: int = Field(default=0, description="当前总 token 数")
 
     model_config = ConfigDict(use_enum_values=True)
 

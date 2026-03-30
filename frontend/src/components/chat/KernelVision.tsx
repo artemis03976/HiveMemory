@@ -134,22 +134,6 @@ export default function KernelVision({
           <KernelTerminalTab />
         )}
       </div>
-
-      {/* 上下文容量显示（暂定） */}
-      {activeTab === 'context' && (
-        <div className="p-6 bg-surface-container-low border-t border-white/5">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-[10px] text-slate-500 uppercase tracking-widest">Context Window</span>
-            <span className="text-[10px] text-slate-300 font-mono">1.2k / 128k</span>
-          </div>
-          <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary shadow-[0_0_8px_#c59aff]"
-              style={{ width: `15%` }}
-            ></div>
-          </div>
-        </div>
-      )}
     </aside>
   );
 }
