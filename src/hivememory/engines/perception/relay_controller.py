@@ -13,121 +13,14 @@ HiveMemory Token 溢出接力控制器 / Page Folding 摘要生成器
 """
 
 import logging
-from abc import ABC, abstractmethod
 from typing import List, Optional, Any, TYPE_CHECKING
-from hivememory.engines.perception.models import FlushEvent, LogicalBlock, SemanticBuffer, FlushReason
+from hivememory.engines.perception.models import LogicalBlock
+from hivememory.engines.perception.interfaces import BaseRelayController
 
 if TYPE_CHECKING:
     from hivememory.patchouli.config import SimpleRelayConfig, LLMRelayConfig
 
 logger = logging.getLogger(__name__)
-
-
-class BaseRelayController(ABC):
-    """
-    Token 溢出接力控制器基类 (v4.6)
-
-    无状态服务，职责：
-        - 检测即将溢出的 Buffer (should_relay)
-        - 为 Page Folding 生成 state_summary (generate_summary)
-        - 返回统一的 FlushEvent
-
-    子类需实现 generate_summary 方法以提供不同的摘要生成策略。
-    """
-
-    def __init__(self, max_processing_tokens: int = 8192):
-        """
-        初始化接力控制器基类
-
-        Args:
-            max_processing_tokens: 单次处理的最大 Token 数
-        """
-        self.max_processing_tokens = max_processing_tokens
-
-        logger.info(
-            f"{self.__class__.__name__} 初始化: "
-            f"max_tokens={max_processing_tokens}"
-        )
-
-    def should_relay(
-        self,
-        buffer: SemanticBuffer,
-        new_block: LogicalBlock
-    ) -> Optional[FlushEvent]:
-        """
-        检测是否需要接力（Token 溢出）
-
-        Args:
-            buffer: 当前语义缓冲区（只读）
-            new_block: 新的 LogicalBlock
-
-        Returns:
-            None: 不需要接力
-            FlushEvent: 需要接力，包含 flush 原因、blocks 和 relay_summary
-        """
-        projected_tokens = buffer.total_tokens + new_block.total_tokens
-
-        if projected_tokens <= self.max_processing_tokens:
-            return None
-
-        logger.debug(
-            f"Token 即将溢出: {projected_tokens} > {self.max_processing_tokens}"
-        )
-
-        # 生成接力摘要（不包含 previous_summary，因为这是 Token Overflow 场景）
-        summary = self.generate_summary(buffer.blocks)
-
-        return FlushEvent(
-            flush_reason=FlushReason.TOKEN_OVERFLOW,
-            blocks_to_flush=buffer.blocks.copy(),
-            relay_summary=summary,
-            triggered_by_block=new_block,
-        )
-
-    @abstractmethod
-    def generate_summary(
-        self,
-        blocks_to_fold: List[LogicalBlock],
-        previous_summary: Optional[str] = None
-    ) -> str:
-        """
-        生成摘要（抽象方法）
-
-        Args:
-            blocks_to_fold: 需要折叠的 LogicalBlock 列表
-            previous_summary: 之前的 state_summary（如果有）
-
-        Returns:
-            str: 生成的摘要文本（已合并 previous_summary）
-
-        Examples:
-            >>> blocks = [block1, block2]
-            >>> summary = controller.generate_summary(blocks, previous_summary="旧摘要")
-            >>> print(summary)  # "旧摘要\n---\n处理了 2 个用户请求；使用了工具: search"
-        """
-        pass
-
-    def create_relay_context(self, summary: str) -> str:
-        """
-        创建接力上下文文本
-
-        将摘要转换为可注入下一个 Buffer 的上下文格式。
-
-        Args:
-            summary: 摘要文本
-
-        Returns:
-            str: 上下文文本
-
-        Examples:
-            >>> summary = "处理了 2 个用户请求"
-            >>> context = controller.create_relay_context(summary)
-            >>> print(context)  # "[接力摘要] 处理了 2 个用户请求..."
-        """
-        if not summary:
-            return ""
-
-        return f"[接力摘要] {summary}"
 
 
 class SimpleRelayController(BaseRelayController):
@@ -232,19 +125,13 @@ class LLMRelayController(BaseRelayController):
     使用 LLM 生成更智能、更语义化的摘要。
     """
 
-    def __init__(
-        self,
-        max_processing_tokens: int = 8192,
-        summary_llm: Optional[Any] = None
-    ):
+    def __init__(self, summary_llm: Optional[Any] = None):
         """
         初始化 LLM 接力控制器
 
         Args:
-            max_processing_tokens: 单次处理的最大 Token 数
             summary_llm: 用于生成摘要的 LLM 服务（可选）
         """
-        super().__init__(max_processing_tokens)
         self.summary_llm = summary_llm
 
     def generate_summary(
@@ -265,35 +152,105 @@ class LLMRelayController(BaseRelayController):
         if not blocks_to_fold:
             return previous_summary or ""
 
-        # 生成新摘要
-        new_summary = self._generate_llm_summary(blocks_to_fold)
+        # 生成新摘要（传入 previous_summary 供 LLM 参考）
+        new_summary = self._generate_llm_summary(blocks_to_fold, previous_summary)
 
-        # 合并之前的摘要
-        if previous_summary:
-            return f"{previous_summary}\n---\n{new_summary}"
-        else:
-            return new_summary
+        return new_summary
 
-    def _generate_llm_summary(self, blocks: List[LogicalBlock]) -> str:
+    def _build_recent_events(self, blocks: List[LogicalBlock]) -> str:
         """
-        使用 LLM 生成更智能的摘要（预留接口）
+        构建 recent_events 文本（包含 MTP 轨迹和对话）
 
         Args:
             blocks: LogicalBlock 列表
 
         Returns:
+            str: 格式化的 recent_events 文本
+        """
+        lines = []
+
+        for block in blocks:
+            # Add MTP semantic traces
+            for trace in block.semantic_traces:
+                if trace.action == "SEARCH":
+                    lines.append(f"[Action]: SEARCH query=\"{trace.query}\"")
+                elif trace.action == "READ":
+                    lines.append(f"[Action]: READ target={trace.target}")
+                elif trace.action == "RUN":
+                    status = trace.status or "unknown"
+                    lines.append(f"[Action]: RUN tool={trace.tool} (Status: {status})")
+
+            # Add user query
+            user_query = block.rewritten_query or block.user_query
+            if not user_query and block.user_block:
+                user_query = block.user_block.content
+            if user_query:
+                lines.append(f"User: {user_query}")
+
+            # Add assistant response
+            response = block.clean_response
+            if not response and block.response_block:
+                response = block.response_block.content
+            if response:
+                lines.append(f"Agent: {response}")
+
+            lines.append("")  # Blank line between blocks
+
+        return "\n".join(lines)
+
+    def _generate_llm_summary(
+        self,
+        blocks: List[LogicalBlock],
+        previous_summary: Optional[str] = None
+    ) -> str:
+        """
+        使用 LLM 生成智能摘要
+
+        Args:
+            blocks: LogicalBlock 列表
+            previous_summary: 之前的 state_summary（供 LLM 合并）
+
+        Returns:
             str: 摘要文本
         """
-        # TODO: 实现 LLM 调用
-        # 目前回退到简单摘要
-        logger.warning("LLM 摘要功能尚未实现，使用简单摘要")
-        # 创建临时 SimpleRelayController 实例来生成简单摘要
-        simple_controller = SimpleRelayController(self.max_processing_tokens)
-        return simple_controller._generate_simple_summary(blocks)
+        # Fallback if no LLM service
+        if self.summary_llm is None:
+            logger.warning("summary_llm 未配置，回退到简单摘要")
+            simple_controller = SimpleRelayController()
+            return simple_controller._generate_simple_summary(blocks)
 
+        try:
+            from hivememory.patchouli.prompts.relay_prompt import get_relay_system_prompt
 
-# 向后兼容：保留 RelayController 作为 SimpleRelayController 的别名
-RelayController = SimpleRelayController
+            # Build recent events text
+            recent_events = self._build_recent_events(blocks)
+
+            # Build user prompt
+            user_prompt = f"""<old_state_summary>
+{previous_summary if previous_summary else "None. This is a new topic."}
+</old_state_summary>
+
+<recent_events>
+{recent_events}
+</recent_events>"""
+
+            # Get system prompt (default to Chinese)
+            system_prompt = get_relay_system_prompt(language="zh")
+
+            # Call LLM
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+
+            summary = self.summary_llm.complete(messages)
+            logger.info(f"LLM 摘要生成成功，长度: {len(summary)} 字符")
+            return summary
+
+        except Exception as e:
+            logger.error(f"LLM 摘要生成失败: {e}，回退到简单摘要")
+            simple_controller = SimpleRelayController()
+            return simple_controller._generate_simple_summary(blocks)
 
 
 # ========== 工厂函数 ==========
@@ -316,7 +273,7 @@ def create_relay_controller(
 
     Examples:
         >>> from hivememory.patchouli.config import RelayControllerConfig, SimpleRelayConfig
-        >>> config = RelayControllerConfig(engine=SimpleRelayConfig(max_processing_tokens=4096))
+        >>> config = RelayControllerConfig(engine=SimpleRelayConfig())
         >>> controller = create_relay_controller(config)
         >>> isinstance(controller, SimpleRelayController)
         True
@@ -326,13 +283,10 @@ def create_relay_controller(
     impl_config = config.engine
 
     if isinstance(impl_config, SimpleRelayConfig):
-        return SimpleRelayController(max_processing_tokens=impl_config.max_processing_tokens)
+        return SimpleRelayController()
 
     elif isinstance(impl_config, LLMRelayConfig):
-        return LLMRelayController(
-            max_processing_tokens=impl_config.max_processing_tokens,
-            summary_llm=llm_service
-        )
+        return LLMRelayController(summary_llm=llm_service)
 
     raise ValueError(f"未知的 RelayController 配置类型: {type(impl_config)}")
 
@@ -341,6 +295,5 @@ __all__ = [
     "BaseRelayController",
     "SimpleRelayController",
     "LLMRelayController",
-    "RelayController",  # 向后兼容
-    "create_relay_controller",  # 工厂函数
+    "create_relay_controller",
 ]

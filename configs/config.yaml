@@ -125,7 +125,6 @@ perception:
     relay:
       engine:
         type: "simple"  # simple/llm
-        max_processing_tokens: 8192
 
     # SemanticAdsorber 配置
     adsorber:

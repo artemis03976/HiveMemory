@@ -12,7 +12,7 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
     - TriggerManager: 话题结算调度器 - Flush 触发逻辑
     - SemanticBuffer: 话题段 (TopicSegment)
     - LogicalBlock: 页 (Page)
-    - RelayController: Token 溢出接力控制器 / Page Folding 摘要生成器
+    - BaseRelayController: Token 溢出接力控制器 / Page Folding 摘要生成器
 
 空闲超时监控:
     所有感知层实现都继承了基类的空闲超时监控功能：
@@ -53,7 +53,6 @@ from hivememory.engines.perception.relay_controller import (
     BaseRelayController,
     SimpleRelayController,
     LLMRelayController,
-    RelayController,
     create_relay_controller,
 )
 from hivememory.engines.perception.semantic_flow_perception_layer import (
@@ -68,8 +67,7 @@ logger = logging.getLogger(__name__)
 
 def create_perception_layer(
     config: MemoryPerceptionConfig,
-    embedding_service=None,
-    reranker_service=None,
+    llm_service=None,
 ) -> SemanticFlowPerceptionLayer:
     """
     创建感知层 (MMU) 实例
@@ -79,8 +77,7 @@ def create_perception_layer(
 
     Args:
         config: 感知层配置 (MemoryPerceptionConfig)
-        embedding_service: (已弃用) 保留参数兼容性
-        reranker_service: (已弃用) 保留参数兼容性
+        llm_service: LLM 服务（用于 LLMRelayController 摘要生成）
 
     Returns:
         SemanticFlowPerceptionLayer 实例
@@ -97,7 +94,7 @@ def create_perception_layer(
     relay_config = getattr(config, "relay", None) or impl_config.relay
     relay_controller = create_relay_controller(
         config=relay_config,
-        llm_service=None
+        llm_service=llm_service
     )
 
     perception = SemanticFlowPerceptionLayer(
@@ -138,8 +135,7 @@ __all__ = [
     "BaseRelayController",
     "SimpleRelayController",
     "LLMRelayController",
-    "RelayController",  # 向后兼容
-    "create_relay_controller",  # 工厂函数
+    "create_relay_controller",
     # 工厂函数
     "create_perception_layer",
 ]

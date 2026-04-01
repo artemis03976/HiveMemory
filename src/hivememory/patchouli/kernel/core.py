@@ -241,8 +241,7 @@ class PatchouliKernel:
 
         return create_perception_layer(
             config=self.config.perception,
-            embedding_service=self.perception_embedding_service,
-            reranker_service=self.reranker_service,
+            llm_service=self.librarian_llm_service,
         )
 
     def _build_generation_engine(self):

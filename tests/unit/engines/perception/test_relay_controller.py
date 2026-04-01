@@ -14,7 +14,7 @@ import pytest
 from unittest.mock import Mock
 
 from hivememory.core.models import Identity
-from hivememory.engines.perception.relay_controller import RelayController
+from hivememory.engines.perception.relay_controller import SimpleRelayController
 from hivememory.engines.perception.models import (
     FlushEvent,
     LogicalBlock,
@@ -29,53 +29,7 @@ class TestRelayController:
     """测试 Token 溢出接力控制器"""
 
     def setup_method(self):
-        self.controller = RelayController(max_processing_tokens=100)
-
-    def test_should_relay_no_overflow(self):
-        """测试无溢出时返回 None"""
-        identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
-        buffer = SemanticBuffer(identity=identity)
-        buffer.total_tokens = 80
-
-        new_block = LogicalBlock(
-            user_block=StreamMessage(message_type=StreamMessageType.USER, content="Hello"),
-            response_block=StreamMessage(message_type=StreamMessageType.ASSISTANT, content="Hi"),
-            total_tokens=10,
-        )
-
-        # 80 + 10 <= 100 -> None (no overflow)
-        result = self.controller.should_relay(buffer, new_block)
-        assert result is None
-
-    def test_should_relay_with_overflow(self):
-        """测试溢出时返回 FlushEvent"""
-        identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
-        buffer = SemanticBuffer(identity=identity)
-        buffer.total_tokens = 80
-
-        # 添加一个 block 到 buffer
-        existing_block = LogicalBlock(
-            user_block=StreamMessage(message_type=StreamMessageType.USER, content="Existing"),
-            response_block=StreamMessage(message_type=StreamMessageType.ASSISTANT, content="Response"),
-            total_tokens=80,
-        )
-        buffer.blocks.append(existing_block)
-
-        new_block = LogicalBlock(
-            user_block=StreamMessage(message_type=StreamMessageType.USER, content="New"),
-            response_block=StreamMessage(message_type=StreamMessageType.ASSISTANT, content="Response"),
-            total_tokens=30,
-        )
-
-        # 80 + 30 > 100 -> FlushEvent
-        result = self.controller.should_relay(buffer, new_block)
-
-        assert result is not None
-        assert isinstance(result, FlushEvent)
-        assert result.flush_reason == FlushReason.TOKEN_OVERFLOW
-        assert result.relay_summary is not None
-        assert result.triggered_by_block is new_block
-        assert len(result.blocks_to_flush) == 1
+        self.controller = SimpleRelayController()
 
     def test_generate_simple_summary(self):
         """测试简单摘要生成"""
@@ -109,33 +63,116 @@ class TestRelayController:
         assert "[接力摘要]" in context
         assert "Test Summary" in context
 
-    def test_flush_event_contains_relay_summary(self):
-        """测试 FlushEvent 包含接力摘要"""
-        identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
-        buffer = SemanticBuffer(identity=identity)
-        buffer.total_tokens = 90
 
-        # 添加 blocks
-        block1 = LogicalBlock(
-            user_block=StreamMessage(message_type=StreamMessageType.USER, content="查询1"),
-            response_block=StreamMessage(message_type=StreamMessageType.ASSISTANT, content="回复1"),
-            total_tokens=45,
+class TestLLMRelayController:
+    """测试 LLM 接力控制器"""
+
+    def test_llm_summary_generation(self):
+        """测试 LLM 摘要生成"""
+        from hivememory.engines.perception.relay_controller import LLMRelayController
+        from hivememory.engines.perception.models import TraceItem
+
+        # Mock LLM service
+        mock_llm = Mock()
+        mock_llm.complete.return_value = """### 1. 核心目标
+实现用户认证功能
+
+### 2. 系统状态与已完成
+- 已创建 auth.py 文件
+- 已执行 sys_write_file 工具 (Status: success)
+
+### 3. 约束与避坑
+- 不使用明文密码存储
+
+### 4. 当前焦点
+需要添加密码加密逻辑"""
+
+        controller = LLMRelayController(summary_llm=mock_llm)
+
+        # 构造带 semantic_traces 的 blocks
+        block = LogicalBlock(
+            user_query="创建认证模块",
+            clean_response="已创建 auth.py",
+            semantic_traces=[
+                TraceItem(action="RUN", tool="sys_write_file", status="success")
+            ],
+            total_tokens=50
         )
-        block2 = LogicalBlock(
-            user_block=StreamMessage(message_type=StreamMessageType.USER, content="查询2"),
-            response_block=StreamMessage(message_type=StreamMessageType.ASSISTANT, content="回复2"),
-            total_tokens=45,
+
+        summary = controller.generate_summary([block])
+
+        # 验证 LLM 被调用
+        assert mock_llm.complete.called
+        call_args = mock_llm.complete.call_args[0][0]
+        assert len(call_args) == 2
+        assert call_args[0]["role"] == "system"
+        assert call_args[1]["role"] == "user"
+
+        # 验证返回结构化摘要
+        assert "核心目标" in summary
+        assert "系统状态与已完成" in summary
+
+    def test_llm_fallback_when_no_service(self):
+        """测试无 LLM 服务时回退到简单摘要"""
+        from hivememory.engines.perception.relay_controller import LLMRelayController
+
+        controller = LLMRelayController(summary_llm=None)
+
+        block = LogicalBlock(
+            user_query="测试查询",
+            clean_response="测试响应",
+            total_tokens=50
         )
-        buffer.blocks.extend([block1, block2])
 
-        new_block = LogicalBlock(
-            user_block=StreamMessage(message_type=StreamMessageType.USER, content="新查询"),
-            response_block=StreamMessage(message_type=StreamMessageType.ASSISTANT, content="新回复"),
-            total_tokens=20,
+        summary = controller.generate_summary([block])
+
+        # 应该回退到简单摘要格式
+        assert "处理了 1 个用户请求" in summary
+
+    def test_llm_fallback_on_error(self):
+        """测试 LLM 调用失败时回退"""
+        from hivememory.engines.perception.relay_controller import LLMRelayController
+
+        mock_llm = Mock()
+        mock_llm.complete.side_effect = Exception("LLM error")
+
+        controller = LLMRelayController(summary_llm=mock_llm)
+
+        block = LogicalBlock(
+            user_query="测试",
+            clean_response="响应",
+            total_tokens=50
         )
 
-        result = self.controller.should_relay(buffer, new_block)
+        summary = controller.generate_summary([block])
 
-        assert result is not None
-        assert result.relay_summary is not None
-        assert "处理了 2 个用户请求" in result.relay_summary
+        # 应该回退到简单摘要
+        assert "处理了 1 个用户请求" in summary
+
+    def test_build_recent_events_with_traces(self):
+        """测试 recent_events 构建包含 MTP 轨迹"""
+        from hivememory.engines.perception.relay_controller import LLMRelayController
+        from hivememory.engines.perception.models import TraceItem
+
+        controller = LLMRelayController()
+
+        blocks = [
+            LogicalBlock(
+                user_query="搜索代码",
+                clean_response="找到了",
+                semantic_traces=[
+                    TraceItem(action="SEARCH", query="auth code"),
+                    TraceItem(action="READ", target="mem_123"),
+                    TraceItem(action="RUN", tool="sys_write_file", status="success")
+                ],
+                total_tokens=30
+            )
+        ]
+
+        events = controller._build_recent_events(blocks)
+
+        assert "[Action]: SEARCH query=\"auth code\"" in events
+        assert "[Action]: READ target=mem_123" in events
+        assert "[Action]: RUN tool=sys_write_file (Status: success)" in events
+        assert "User: 搜索代码" in events
+        assert "Agent: 找到了" in events

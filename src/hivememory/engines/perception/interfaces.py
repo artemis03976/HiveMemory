@@ -402,7 +402,26 @@ class BasePerceptionLayer(ABC):
         pass
 
 
+class BaseRelayController(ABC):
+    """
+    Token 溢出接力控制器基类
+
+    无状态服务，职责：
+        - 为 Page Folding 生成 state_summary (generate_summary)
+    """
+
+    @abstractmethod
+    def generate_summary(self, blocks_to_fold: List[Any], previous_summary: Optional[str] = None) -> str:
+        """生成摘要（抽象方法）"""
+        pass
+
+    def create_relay_context(self, summary: str) -> str:
+        """创建接力上下文文本"""
+        return f"[接力摘要] {summary}" if summary else ""
+
+
 __all__ = [
     "BaseArbiter",
     "BasePerceptionLayer",
+    "BaseRelayController",
 ]
