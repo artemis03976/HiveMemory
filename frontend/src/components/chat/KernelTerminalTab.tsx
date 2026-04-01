@@ -21,11 +21,11 @@ const STATUS_LABEL: Record<KernelConnectionStatus, string> = {
 };
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
-  DEBUG: 'text-slate-500',
-  INFO: 'text-magic-water',
-  WARNING: 'text-magic-metal',
-  ERROR: 'text-magic-fire',
-  CRITICAL: 'text-magic-fire font-bold',
+  DEBUG: 'text-slate-500 bg-slate-500/10',
+  INFO: 'text-magic-water bg-magic-water/10',
+  WARNING: 'text-magic-metal bg-magic-metal/10',
+  ERROR: 'text-magic-fire bg-magic-fire/10',
+  CRITICAL: 'text-magic-fire bg-magic-fire/20 font-bold',
 };
 
 function LogRow({ log }: { log: LogEntry }) {
@@ -33,19 +33,31 @@ function LogRow({ log }: { log: LogEntry }) {
   const ts = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}`;
 
   return (
-    <div className="flex gap-2 px-2 py-0.5 hover:bg-white/5 rounded group leading-5 transition-colors text-xs">
-      <span className="text-slate-500/70 shrink-0 select-none font-mono">{ts}</span>
-      <span className={`shrink-0 w-[50px] text-right text-[10px] font-bold mt-0.5 ${LEVEL_STYLES[log.level]}`}>
-        {log.level}
-      </span>
-      <span className="text-primary/50 shrink-0 truncate max-w-[100px] text-[11px] mt-0.5" title={log.logger}>
-        {log.logger.split('.').pop()}
-      </span>
-      <span className="text-slate-300 break-all font-mono whitespace-pre-wrap">{log.message}</span>
-      {log.exception && (
-        <span className="text-magic-fire shrink-0 opacity-0 group-hover:opacity-100" title={log.exception.type}>
-          !!
+    <div className="flex flex-col gap-1.5 px-3 py-2 hover:bg-white/5 rounded-lg group transition-colors border border-transparent hover:border-white/5 my-0.5">
+      {/* Metadata Row */}
+      <div className="flex items-center gap-2.5 select-none flex-wrap">
+        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider leading-none uppercase shrink-0 ${LEVEL_STYLES[log.level]}`}>
+          {log.level}
         </span>
+        <span className="text-slate-500/60 font-mono text-[10px] shrink-0">{ts}</span>
+        <span className="text-primary/60 text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/5 truncate max-w-[200px] ml-auto" title={log.logger}>
+          {log.logger.split('.').pop()}
+        </span>
+      </div>
+
+      {/* Message Row */}
+      <div className="text-slate-300 font-mono text-[11px] whitespace-pre-wrap wrap-break-words leading-relaxed pl-0.5">
+        {log.message}
+      </div>
+      
+      {/* Exception */}
+      {log.exception && (
+        <div className="mt-1 p-2 rounded bg-magic-fire/10 border border-magic-fire/20">
+          <div className="text-magic-fire font-bold text-[10px] mb-1">{log.exception.type}</div>
+          <div className="text-magic-fire/80 text-[10px] font-mono whitespace-pre-wrap wrap-break-words">
+            {log.exception.message}
+          </div>
+        </div>
       )}
     </div>
   );

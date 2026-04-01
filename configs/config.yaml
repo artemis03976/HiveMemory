@@ -25,10 +25,12 @@ logging:
   # WebSocket 日志广播配置
   websocket_enabled: true
   websocket_namespaces:
-    - "hivememory.*"
+    - "hivememory.patchouli.*"
+    - "hivememory.engines.*"
+    - "hivememory.infrastructure.system_bus"
   websocket_level: "INFO"
   websocket_buffer_size: 100
-  websocket_max_rate: 100
+  websocket_max_rate: 200
 
 # ========== LLM 模型配置 ==========
 llm:

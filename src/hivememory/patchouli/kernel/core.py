@@ -396,13 +396,9 @@ class PatchouliKernel:
 
     # ========== 健康检查 ==========
 
-    _health_cache: Optional[bool] = None
-    _health_cache_ts: float = 0.0
-    _HEALTH_CACHE_TTL: float = 30.0  # seconds
-
     def check_storage_health(self) -> bool:
         """
-        存储层健康检查 (带 30 秒缓存)
+        存储层健康检查
 
         用于系统级降级判断：如果 Qdrant 不可达，
         在 System Prompt 中注入降级通知，阻止 Agent 发出 MTP 指令。
@@ -410,18 +406,12 @@ class PatchouliKernel:
         Returns:
             bool: True 表示存储可用，False 表示离线
         """
-        import time
-        now = time.time()
-        if self._health_cache is not None and (now - self._health_cache_ts) < self._HEALTH_CACHE_TTL:
-            return self._health_cache
-
         try:
-            self.storage.client.get_collections(timeout=3)
-            self._health_cache = True
-        except Exception:
-            self._health_cache = False
-        self._health_cache_ts = now
-        return self._health_cache
+            self.storage.client.get_collections()
+            return True
+        except Exception as e:
+            logger.warning(f"Storage health check failed: {e}")
+            return False
 
     # ========== 公开 API ==========
 
