@@ -80,7 +80,15 @@ function pushMtpBlock(blocks: ContentBlock[], action: MtpAction): ContentBlock[]
 /** Update the last MTP block's action status */
 function updateLastMtpStatus(
   blocks: ContentBlock[],
-  payload: { status: string; verb?: string; target?: string; args?: Record<string, unknown>; raw_text?: string }
+  payload: { 
+    status: string; 
+    verb?: string; 
+    target?: string; 
+    args?: Record<string, unknown>; 
+    raw_text?: string;
+    result_message?: string;
+    stats?: Record<string, unknown>;
+  }
 ): ContentBlock[] {
   const updated = [...blocks];
   for (let i = updated.length - 1; i >= 0; i--) {
@@ -94,8 +102,11 @@ function updateLastMtpStatus(
           ...b.action,
           type: verb as any,
           command,
+          target: payload.target ?? b.action.target,
           params: payload.args ?? b.action.params,
           status: payload.status as any,
+          resultMessage: payload.result_message ?? b.action.resultMessage,
+          stats: payload.stats ?? b.action.stats,
         },
       };
       break;
@@ -257,6 +268,7 @@ export const useChatStore = create<ChatStore>()(
                     id: crypto.randomUUID(),
                     type: verb as any,
                     command: data.raw_text || [verb, data.target].filter(Boolean).join(' | ') || verb,
+                    target: data.target,
                     params: data.args,
                     status: 'executing',
                     timestamp: Date.now(),
@@ -287,6 +299,8 @@ export const useChatStore = create<ChatStore>()(
                               target: data.target,
                               args: data.args,
                               raw_text: data.raw_text,
+                              result_message: data.result_message,
+                              stats: data.stats,
                             }),
                           }
                         : msg

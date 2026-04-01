@@ -21,9 +21,12 @@ export interface MtpAction {
   id?: string;
   type: 'RUN' | 'READ' | 'WRITE' | 'SEARCH' | 'UPDATE' | 'UNKNOWN';
   command: string;
+  target?: string;
   params?: Record<string, unknown> | string;
   status: 'pending' | 'executing' | 'success' | 'error';
   response?: string;
+  resultMessage?: string;
+  stats?: Record<string, unknown>;
   timestamp?: number;
 }
 

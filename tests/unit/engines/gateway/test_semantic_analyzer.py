@@ -7,7 +7,7 @@ from hivememory.patchouli.config import LLMAnalyzerConfig, LLMConfig
 from hivememory.engines.gateway.models import GatewayIntent, SemanticAnalysisResult
 from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer, GATEWAY_FUNCTION_SCHEMA
 from hivememory.utils.json_parser import JSONParseError
-from hivememory.prompts.gateway import get_system_prompt
+from hivememory.prompts.gateway import get_gateway_system_prompt
 
 
 class TestLLMAnalyzer:
@@ -116,7 +116,7 @@ class TestLLMAnalyzer:
         assert messages == [
             {
                 "role": "system",
-                "content": get_system_prompt(
+                "content": get_gateway_system_prompt(
                     variant="dispatcher",
                     language=config.prompt_language,
                     active_topics_menu=active_topics_menu,

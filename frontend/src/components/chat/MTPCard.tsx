@@ -76,9 +76,9 @@ export default function MTPCard({ action }: MTPCardProps) {
           </div>
           
           <div className="flex flex-col">
-            {/* 指令名 & 工具名 */}
+            {/* 指令名 & 别名 */}
             <span className="text-[11px] font-bold tracking-widest uppercase text-slate-300 font-manrope">
-              MTP {action.type} <span className="opacity-60">[{action.command}]</span>
+              MTP {action.type} <span className="opacity-60">[{action.target || '*'}]</span>
             </span>
 
             {/* 状态胶囊 */}
@@ -97,7 +97,7 @@ export default function MTPCard({ action }: MTPCardProps) {
         </button>
       </div>
 
-      {/* 展开区：仅显示输入参数 (Target & Args)，不显示长篇 Response */}
+      {/* 展开区：显示详细信息 */}
       <AnimatePresence>
         {isExpanded && (
           <motion.div
@@ -107,17 +107,50 @@ export default function MTPCard({ action }: MTPCardProps) {
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             className="overflow-hidden border-t border-black/10 bg-black/30"
           >
-            <div className="p-3 text-[12px] font-mono text-slate-400/80 space-y-1.5">
+            <div className="p-3 text-[12px] font-mono text-slate-400/80 space-y-2">
               <div className="flex">
-                <span className="w-10 shrink-0 text-emerald-500/40 select-none">CMD </span>
-                <span className="text-primary/80 font-semibold">{action.command}</span>
+                <span className="w-16 shrink-0 opacity-50 select-none">TARGET |</span>
+                <span className="text-primary/80 font-semibold">{action.target || '*'}</span>
               </div>
+              
               {action.params && Object.keys(action.params).length > 0 && (
                 <div className="flex">
-                  <span className="w-12 shrink-0 opacity-50">PARAMS |</span>
-                  <span className="text-emerald-300/70 line-clamp-3">
-                    {typeof action.params === 'string' ? action.params : JSON.stringify(action.params)}
+                  <span className="w-16 shrink-0 opacity-50 select-none">ARGS   |</span>
+                  <div className="text-emerald-300/70 flex flex-col gap-0.5">
+                    {typeof action.params === 'string' ? (
+                      <span className="line-clamp-3">{action.params}</span>
+                    ) : (
+                      Object.entries(action.params).map(([key, val]) => (
+                        <span key={key} className="flex gap-2">
+                          <span className="text-emerald-500/50 shrink-0">{key}:</span>
+                          <span className="line-clamp-3 break-all">{String(val)}</span>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {action.status !== 'pending' && action.status !== 'executing' && (
+                <div className="flex">
+                  <span className="w-16 shrink-0 opacity-50 select-none">RESULT |</span>
+                  <span className={action.status === 'success' ? 'text-magic-wood/80' : 'text-magic-fire/80'}>
+                    {action.resultMessage || (action.status === 'success' ? '执行成功' : '执行失败')}
                   </span>
+                </div>
+              )}
+
+              {action.stats && Object.keys(action.stats).length > 0 && (
+                <div className="flex">
+                  <span className="w-16 shrink-0 opacity-50 select-none">STATS  |</span>
+                  <div className="text-slate-400/70 flex flex-col gap-0.5">
+                    {Object.entries(action.stats).map(([key, val]) => (
+                      <span key={key} className="flex gap-2">
+                        <span className="text-slate-500 shrink-0">{key}:</span>
+                        <span>{String(val)}</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

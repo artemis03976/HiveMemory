@@ -17,7 +17,7 @@ from hivememory.engines.gateway.models import (
     GatewayIntent,
     SemanticAnalysisResult,
 )
-from hivememory.prompts.gateway import get_system_prompt
+from hivememory.prompts.gateway import get_gateway_system_prompt
 from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         """
         self.config = config
         self.llm_service = llm_service
-        self.system_prompt = system_prompt or get_system_prompt(
+        self.system_prompt = system_prompt or get_gateway_system_prompt(
             variant=self.config.prompt_variant,
             language=self.config.prompt_language,
         )
@@ -107,7 +107,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
     ) -> SemanticAnalysisResult:
         # 构建系统提示词：有话题菜单时使用 dispatcher 模式
         if active_topics_menu:
-            system_prompt = get_system_prompt(
+            system_prompt = get_gateway_system_prompt(
                 variant="dispatcher",
                 language=self.config.prompt_language,
                 active_topics_menu=active_topics_menu,

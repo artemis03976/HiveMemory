@@ -28,6 +28,8 @@ export interface MTPResultEvent {
   raw_text?: string;
   status: string;
   iteration: number;
+  result_message?: string;
+  stats?: Record<string, unknown>;
 }
 
 export interface TopicPoolInfo {

@@ -28,7 +28,7 @@ from hivememory.engines.gateway.models import (
 from hivememory.engines.gateway.interceptors import RuleInterceptor, NoOpInterceptor
 from hivememory.engines.gateway.semantic_analyzer import NoOpSemanticAnalyzer
 from hivememory.engines.gateway.engine import GatewayEngine
-from hivememory.prompts.gateway import get_system_prompt
+from hivememory.prompts.gateway import get_gateway_system_prompt
 
 
 class TestGatewayModels:
@@ -253,25 +253,20 @@ class TestMemoryGatewayConfig:
 class TestSystemPrompts:
     """测试 System Prompt (乐观检索策略)"""
 
-    def test_get_default_prompt(self):
-        """测试获取默认 Prompt (乐观策略: 无意图分类)"""
-        prompt = get_system_prompt()
-        assert "指代消解" in prompt
-        assert "元数据提取" in prompt
-        # 乐观策略下移除了意图分类
-        assert "意图分类" not in prompt
+    def test_get_gateway_system_prompt(self):
+        # 默认使用中文
+        prompt = get_gateway_system_prompt()
+        assert "OS 级别的调度网关" in prompt
+        assert "无" in prompt
 
-    def test_get_simple_prompt(self):
-        """测试 simple 变体当前回退到默认 Prompt"""
-        prompt = get_system_prompt(variant="simple")
-        assert prompt == get_system_prompt()
+        # 测试 variant 已被忽略，行为一致
+        prompt = get_gateway_system_prompt(variant="simple")
+        assert prompt == get_gateway_system_prompt()
 
-    def test_get_english_prompt(self):
-        """测试获取英文 Prompt (乐观策略: 无 Intent Classification)"""
-        prompt = get_system_prompt(language="en")
-        assert "Coreference Resolution" in prompt
-        # 乐观策略下移除了意图分类
-        assert "Intent Classification" not in prompt
+        # 测试英文
+        prompt = get_gateway_system_prompt(language="en")
+        assert "OS-level dispatch gateway" in prompt
+        assert "None" in prompt
 
 
 if __name__ == "__main__":
