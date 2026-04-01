@@ -6,7 +6,7 @@ PatchouliKernel 单元测试
 - handle_mtp: bus vs 直接调用
 - build_retrieval_request: RAG vs 非 RAG
 - get_mtp_prompt: koakuma 禁用 / prompt 禁用 / 正常
-- 委托方法: manual_trigger / add_flush_observer (bus vs 直接)
+- 委托方法: manual_trigger / get_topic_snapshots (bus vs 直接)
 """
 
 import pytest
@@ -223,7 +223,7 @@ class TestKernelGetMTPPrompt:
 
         assert result == ""
 
-    @patch("hivememory.patchouli.prompts.mtp_prompt.MTPPromptBuilder")
+    @patch("hivememory.prompts.mtp.MTPPromptBuilder")
     def test_mtp_prompt_enabled(self, MockBuilder):
         """正常返回 prompt"""
         kernel = _create_kernel()
@@ -264,25 +264,28 @@ class TestKernelDelegation:
 
         kernel._services["librarian"].manual_trigger.assert_called_once_with("topic_456")
 
-    def test_add_flush_observer_with_bus(self):
-        """有 bus 时委托"""
+    @pytest.mark.asyncio
+    async def test_get_topic_snapshots_with_bus(self):
+        """有 bus 时委托 get_topic_snapshots 路由"""
         mock_bus = Mock()
+        mock_bus.async_request = AsyncMock(return_value=[])
         kernel = _create_kernel(bus=mock_bus)
-        observer = Mock()
+        identity = Identity(user_id="u1", agent_id="a1")
 
-        kernel.add_flush_observer(observer)
+        await kernel.get_topic_snapshots(identity)
 
-        route_calls = [c for c in mock_bus.request.call_args_list if c[0][0] == "librarian.add_flush_observer"]
+        route_calls = [c for c in mock_bus.async_request.call_args_list if c[0][0] == "librarian.get_active_topics_snapshots"]
         assert len(route_calls) == 1
 
-    def test_add_flush_observer_without_bus(self):
-        """无 bus 时直接调用 librarian_core"""
+    @pytest.mark.asyncio
+    async def test_get_topic_snapshots_without_bus(self):
+        """无 bus 时直接调用 librarian_core.get_active_topics_snapshots"""
         kernel = _create_kernel(bus=None)
-        observer = Mock()
+        identity = Identity(user_id="u1", agent_id="a1")
 
-        kernel.add_flush_observer(observer)
+        await kernel.get_topic_snapshots(identity)
 
-        kernel._services["librarian"].add_flush_observer.assert_called_once_with(observer)
+        kernel._services["librarian"].get_active_topics_snapshots.assert_called_once_with(identity)
 
 
 class TestKernelBusRouteRegistration:

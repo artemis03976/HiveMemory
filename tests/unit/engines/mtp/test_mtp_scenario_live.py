@@ -29,7 +29,7 @@ from hivememory.patchouli.config import KoakumaConfig
 from hivememory.patchouli.protocol.mtp import MTP_LEFT_DELIMITER
 from hivememory.patchouli.protocol.models import RetrievalResponse
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.prompts.mtp_prompt import MTPPromptBuilder, AgentRole
+from hivememory.prompts.mtp import MTPPromptBuilder, AgentRole
 
 # 复用 MTPLoopRunner 和 LLM fixture 工厂
 from tests.unit.engines.mtp.test_syscall_scenario_live import (

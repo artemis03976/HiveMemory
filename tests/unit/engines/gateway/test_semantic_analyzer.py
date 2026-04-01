@@ -7,7 +7,7 @@ from hivememory.patchouli.config import LLMAnalyzerConfig, LLMConfig
 from hivememory.engines.gateway.models import GatewayIntent, SemanticAnalysisResult
 from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer, GATEWAY_FUNCTION_SCHEMA
 from hivememory.utils.json_parser import JSONParseError
-from hivememory.engines.gateway.prompts import get_system_prompt
+from hivememory.prompts.gateway import get_system_prompt
 
 
 class TestLLMAnalyzer:

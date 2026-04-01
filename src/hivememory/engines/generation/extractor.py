@@ -24,7 +24,7 @@ from hivememory.patchouli.config import ExtractorConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult
-from hivememory.engines.generation.prompts.patchouli import (
+from hivememory.prompts.generation import (
     PATCHOULI_SYSTEM_PROMPT, PATCHOULI_USER_PROMPT,
     PATCHOULI_WRITE_SYSTEM_PROMPT, PATCHOULI_WRITE_USER_PROMPT,
     PATCHOULI_UPDATE_SYSTEM_PROMPT, PATCHOULI_UPDATE_USER_PROMPT,

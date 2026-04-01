@@ -514,7 +514,7 @@ class PatchouliKernel:
         if not prompt_config.enabled:
             return ""
 
-        from hivememory.patchouli.prompts.mtp_prompt import MTPPromptBuilder, AgentRole
+        from hivememory.prompts.mtp import MTPPromptBuilder, AgentRole
 
         builder = MTPPromptBuilder(
             role=AgentRole(prompt_config.role),

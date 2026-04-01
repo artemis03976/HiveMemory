@@ -5,6 +5,7 @@ from uuid import uuid4
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.config import QdrantConfig, EmbeddingConfig
+from hivememory.patchouli.protocol.exceptions import StorageReadError
 
 class TestQdrantMemoryStore:
     @pytest.fixture
@@ -134,9 +135,8 @@ class TestQdrantMemoryStore:
         assert "meta.user_id" in field_keys
 
     def test_get_memory_by_alias_exception(self, storage):
-        """storage 异常时返回 None"""
+        """storage 异常时抛出 StorageReadError"""
         storage.client.scroll.side_effect = Exception("Connection refused")
 
-        result = storage.get_memory_by_alias("broken_alias")
-
-        assert result is None
+        with pytest.raises(StorageReadError):
+            storage.get_memory_by_alias("broken_alias")

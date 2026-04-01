@@ -90,28 +90,37 @@ class TestLibrarianCoreInit:
         assert core.lifecycle_engine is mock_lifecycle
 
 
-class TestLibrarianCoreObservers:
-    """观察者管理测试"""
+class TestLibrarianCorePerceptionDelegation:
+    """感知层代理接口测试"""
 
     def setup_method(self):
-        self.core = LibrarianCore(storage=Mock())
+        self.perception = Mock()
+        self.perception.manual_trigger = AsyncMock(return_value={
+            "success": True,
+            "topic_id": "topic_1",
+            "message": "ok",
+            "blocks_archived": 1,
+        })
+        self.perception.get_active_topics_snapshots = Mock(return_value=["snapshot"])
+        self.core = LibrarianCore(storage=Mock(), perception_layer=self.perception)
 
-    def test_add_flush_observer(self):
-        """添加观察者"""
-        observer = Mock()
-        self.core.add_flush_observer(observer)
-        assert observer in self.core._flush_observers
+    def test_get_active_topics_snapshots(self):
+        identity = _make_identity()
+        result = self.core.get_active_topics_snapshots(identity)
+        assert result == ["snapshot"]
+        self.perception.get_active_topics_snapshots.assert_called_once_with(identity)
 
-    def test_remove_flush_observer(self):
-        """移除观察者"""
-        observer = Mock()
-        self.core.add_flush_observer(observer)
-        self.core.remove_flush_observer(observer)
-        assert observer not in self.core._flush_observers
+    @pytest.mark.asyncio
+    async def test_manual_trigger(self):
+        result = await self.core.manual_trigger("topic_1")
+        assert result["success"] is True
+        self.perception.manual_trigger.assert_called_once_with("topic_1")
 
-    def test_remove_nonexistent_observer(self):
-        """移除不存在的观察者不报错"""
-        self.core.remove_flush_observer(Mock())
+    @pytest.mark.asyncio
+    async def test_manual_trigger_without_perception(self):
+        core = LibrarianCore(storage=Mock(), perception_layer=None)
+        result = await core.manual_trigger("topic_x")
+        assert result["success"] is False
 
 
 class TestLibrarianCoreGenerateMemory:

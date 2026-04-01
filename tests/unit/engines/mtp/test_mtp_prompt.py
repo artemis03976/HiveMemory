@@ -12,7 +12,7 @@ MTP System Prompt 构建器单元测试
 
 import pytest
 
-from hivememory.patchouli.prompts.mtp_prompt import (
+from hivememory.prompts.mtp import (
     MTPPromptBuilder,
     get_mtp_prompt,
     AgentRole,

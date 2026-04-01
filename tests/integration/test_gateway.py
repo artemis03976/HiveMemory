@@ -28,7 +28,7 @@ from hivememory.engines.gateway.models import (
 from hivememory.engines.gateway.interceptors import RuleInterceptor, NoOpInterceptor
 from hivememory.engines.gateway.semantic_analyzer import NoOpSemanticAnalyzer
 from hivememory.engines.gateway.engine import GatewayEngine
-from hivememory.engines.gateway.prompts import get_system_prompt
+from hivememory.prompts.gateway import get_system_prompt
 
 
 class TestGatewayModels:

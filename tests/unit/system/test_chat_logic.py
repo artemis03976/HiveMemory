@@ -12,7 +12,7 @@ PatchouliSystem.chat() 端到端测试
     5. handle_hot 异步感知 — 验证 kernel._safe_perceive 被线程调用
     6. assistant 回复异步感知 — 验证 assistant observation 被投递
     7. 无 system prompt — messages 不含 system 角色时的降级处理
-    8. MTP prompt 注入 — get_mtp_prompt 内容追加到 system prompt
+    8. MTP prompt 注入 — kernel.get_mtp_prompt 内容追加到 system prompt
     9. InteractionPayload 构建 — 验证 payload 字段与 submit_interaction 调用
     10. Koakuma 离线 fallback — koakuma 异常时降级为空 traces
     11. 递归深度上限 — max_iter 边界终止循环
@@ -124,6 +124,14 @@ def sys():
     s.kernel = MagicMock()
     s.kernel.handle_hot = AsyncMock(return_value=_make_hot_result())
     s.kernel.handle_mtp = AsyncMock(return_value=None)
+    s.kernel.get_topic_snapshots = AsyncMock(return_value=[])
+    s.kernel.prepare_topic = AsyncMock(return_value=(
+        "topic_1",
+        {"topics": [], "max_resident_topics": 5, "current_count": 1},
+        {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新建话题"},
+    ))
+    s.kernel.get_mtp_prompt = MagicMock(return_value="")
+    s.kernel.check_storage_health = MagicMock(return_value=True)
     s.kernel.koakuma = MagicMock()
     s.kernel.submit_interaction = AsyncMock(return_value=None)
     s.kernel.librarian_core = MagicMock()
@@ -131,9 +139,6 @@ def sys():
     # Worker Agent
     s._worker_agent = MagicMock()
     s._worker_agent.generate_async = AsyncMock(return_value=_normal_gen())
-
-    # MTP prompt
-    s.get_mtp_prompt = MagicMock(return_value="")
 
     # SystemBus (optional)
     s._bus = None
@@ -146,8 +151,6 @@ def sys():
         Real._recursive_generation_loop, s
     )
     s._reconstruct_raw_assistant_text = Real._reconstruct_raw_assistant_text
-    s._get_topic_snapshots = types.MethodType(Real._get_topic_snapshots, s)
-    s._get_topic_context_for_generation = types.MethodType(Real._get_topic_context_for_generation, s)
     s._assemble_messages_from_context = types.MethodType(Real._assemble_messages_from_context, s)
 
     # Mock perception layer methods
@@ -293,8 +296,8 @@ class TestMTPPromptInjection:
     """MTP prompt 注入"""
 
     def test_mtp_prompt_appended_to_system(self, sys):
-        """get_mtp_prompt 返回内容时追加到 system prompt"""
-        sys.get_mtp_prompt.return_value = "[MTP Protocol Instructions]"
+        """kernel.get_mtp_prompt 返回内容时追加到 system prompt"""
+        sys.kernel.get_mtp_prompt.return_value = "[MTP Protocol Instructions]"
 
         sys.chat(user_message="hi", user_id="u1")
 
@@ -303,8 +306,8 @@ class TestMTPPromptInjection:
         assert "[MTP Protocol Instructions]" in sent_messages[0]["content"]
 
     def test_empty_mtp_prompt_no_injection(self, sys):
-        """get_mtp_prompt 返回空字符串且无 memory 时，不生成 system message"""
-        sys.get_mtp_prompt.return_value = ""
+        """kernel.get_mtp_prompt 返回空字符串且无 memory 时，不生成 system message"""
+        sys.kernel.get_mtp_prompt.return_value = ""
 
         sys.chat(user_message="hi", user_id="u1")
 
@@ -326,7 +329,7 @@ class TestNoSystemPrompt:
 
     def test_no_system_message_skips_augmentation(self, sys):
         """system_prompt 为空时仍可注入 MTP/rendered_memory_context"""
-        sys.get_mtp_prompt.return_value = "[MTP]"
+        sys.kernel.get_mtp_prompt.return_value = "[MTP]"
         sys.kernel.handle_hot.return_value = _make_hot_result(rendered_memory_context="<mem/>")
 
         sys.chat(user_message="hi", user_id="u1")
@@ -370,7 +373,7 @@ class TestAsyncPerception:
     def test_messages_assembled_internally(self, sys):
         """messages 由内部组装，包含 system+user 两条基础消息"""
         sys.kernel.handle_hot.return_value = _make_hot_result(rendered_memory_context="<mem/>")
-        sys.get_mtp_prompt.return_value = "[MTP]"
+        sys.kernel.get_mtp_prompt.return_value = "[MTP]"
 
         sys.chat(user_message="hi", user_id="u1")
 
@@ -407,7 +410,7 @@ class TestChatWithMTP:
         sys.kernel.handle_hot.return_value = _make_hot_result(
             rendered_memory_context="<memory>context</memory>"
         )
-        sys.get_mtp_prompt.return_value = "[MTP Protocol]"
+        sys.kernel.get_mtp_prompt.return_value = "[MTP Protocol]"
         sys._worker_agent.generate_async.side_effect = [
             _mtp_gen("Let me check. "),
             _normal_gen("Done."),

@@ -83,7 +83,7 @@ class TestFullContextRenderer:
         renderer = FullContextRenderer(config)
         output = renderer.render([memory])
 
-        assert "[内容已截断" in output
+        assert "部分内容已截断" in output
         assert len(output) < len(long_content) + 200
 
     def test_time_formatting(self):
@@ -119,9 +119,9 @@ class TestFullContextRenderer:
         from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
 
         # 高置信度
-        assert "✓" in MemoryAtomRenderer._format_confidence(self.memory1)
+        assert "(高)" in MemoryAtomRenderer._format_confidence(self.memory1)
         # 中置信度
-        assert "~" in MemoryAtomRenderer._format_confidence(self.memory2)
+        assert "(中)" in MemoryAtomRenderer._format_confidence(self.memory2)
 
     def test_with_config(self):
         """测试使用配置初始化"""

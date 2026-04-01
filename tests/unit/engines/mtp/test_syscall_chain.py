@@ -37,7 +37,7 @@ from hivememory.patchouli.protocol.mtp import (
     MTPVerb,
 )
 from hivememory.patchouli.protocol.models import MTPExecutionResult
-from hivememory.patchouli.prompts.mtp_prompt import (
+from hivememory.prompts.mtp import (
     MTPPromptBuilder,
     AgentRole,
 )
@@ -173,7 +173,7 @@ class TestSysPythonRepl:
     def test_runtime_error(self):
         result = sys_python_repl({"code": "1/0"})
         assert "Error" in result
-        assert "ZeroDivisionError" in result
+        assert "runtime errors" in result.lower()
 
     def test_timeout(self):
         result = sys_python_repl(
@@ -235,7 +235,7 @@ class TestSysWebSearch:
                 assert "Result 1" in result
         except ImportError:
             result = sys_web_search({"query": "test"})
-            assert "not installed" in result
+            assert "not available on this system" in result
 
     def test_num_parameter_non_numeric(self):
         """num 非数字默认为 3"""
@@ -244,7 +244,7 @@ class TestSysWebSearch:
             pytest.skip("Skipping to avoid real network call")
         except ImportError:
             result = sys_web_search({"query": "test", "num": "abc"})
-            assert "not installed" in result
+            assert "not available on this system" in result
 
 
 # ========== Test 4: sys_read_file 直接调用 ==========
@@ -461,7 +461,7 @@ class TestSyscallViaMTP:
             koakuma, '⟪ RUN | sys_python_repl | code="1/0"'
         )
         assert result.success is True
-        assert "ZeroDivisionError" in result.response_content
+        assert "runtime errors" in result.response_content.lower()
 
     def test_repl_no_output_via_mtp(self, koakuma):
         result = simulate_kernel_loop_single(

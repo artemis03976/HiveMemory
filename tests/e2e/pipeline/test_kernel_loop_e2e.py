@@ -30,7 +30,7 @@ from hivememory.patchouli.config import LLMConfig, KoakumaConfig
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.protocol.models import ChatResult
-from hivememory.patchouli.prompts.mtp_prompt import MTPPromptBuilder, AgentRole
+from hivememory.prompts.mtp import MTPPromptBuilder, AgentRole
 from hivememory.patchouli.system import PatchouliSystem
 
 logger = logging.getLogger(__name__)

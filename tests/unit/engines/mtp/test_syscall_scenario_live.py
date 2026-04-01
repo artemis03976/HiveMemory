@@ -37,7 +37,7 @@ from hivememory.patchouli.protocol.mtp import (
 )
 from hivememory.patchouli.protocol.models import MTPExecutionResult
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.prompts.mtp_prompt import (
+from hivememory.prompts.mtp import (
     MTPPromptBuilder,
     AgentRole,
 )

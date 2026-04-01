@@ -220,7 +220,7 @@ class LLMRelayController(BaseRelayController):
             return simple_controller._generate_simple_summary(blocks)
 
         try:
-            from hivememory.patchouli.prompts.relay_prompt import get_relay_system_prompt
+            from hivememory.prompts.relay import get_relay_system_prompt
 
             # Build recent events text
             recent_events = self._build_recent_events(blocks)

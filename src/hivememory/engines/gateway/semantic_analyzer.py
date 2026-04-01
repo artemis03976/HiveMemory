@@ -17,7 +17,7 @@ from hivememory.engines.gateway.models import (
     GatewayIntent,
     SemanticAnalysisResult,
 )
-from hivememory.engines.gateway.prompts import get_system_prompt
+from hivememory.prompts.gateway import get_system_prompt
 from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
