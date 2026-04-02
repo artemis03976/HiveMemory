@@ -1,6 +1,11 @@
 """
 HiveMemory 语义边界吸附器
 
+.. deprecated::
+    Phase 4.5 重构后，话题路由已由 TheEye 完成，
+    SemanticBoundaryAdsorber 不再被 SemanticFlowPerceptionLayer 使用。
+    此模块保留作为参考实现，将在后续版本中移除。
+
 无状态服务，基于本地 Embedding 模型实现智能话题分割。
 
 核心算法 (v3.0 无状态版):
@@ -337,8 +342,3 @@ def create_adsorber(
         embedding_service=embedding_service,
         arbiter=arbiter,
     )
-
-
-__all__ = [
-    "SemanticBoundaryAdsorber",
-]

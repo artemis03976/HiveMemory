@@ -1,4 +1,4 @@
-import { Bot, User, Copy, ThumbsUp, RefreshCw } from 'lucide-react';
+import { Bot, User, Copy, ThumbsUp, RefreshCw, BrainCircuit } from 'lucide-react';
 import type { Message, ContentBlock } from '@/types';
 import { motion } from 'motion/react';
 import MTPCard from './MTPCard';
@@ -17,6 +17,9 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       ? [{ kind: 'text', text: message.content }, { kind: 'mtp', action: message.mtpAction }]
       : [{ kind: 'text', text: message.content }]
   ) as ContentBlock[];
+
+  const hasContent = blocks.some(b => (b.kind === 'text' && b.text) || (b.kind === 'mtp' && b.action));
+  const isProcessing = isAgent && message.isStreaming && !hasContent;
 
   let lastTextIdx = -1;
   for (let i = blocks.length - 1; i >= 0; i--) {
@@ -46,7 +49,13 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       <div className={`flex-1 space-y-4 ${isUser ? 'max-w-[80%]' : 'w-full overflow-hidden'}`}>
         <div className={`p-5 rounded-xl ghost-border flex flex-col gap-4 ${
           isAgent ? 'bg-primary-container/10' : 'bg-surface-container-highest'
-        }`}>
+        } ${isAgent && message.isStreaming ? 'agent-processing-border' : ''}`}>
+          {isProcessing && (
+            <div className="flex items-center gap-2 text-primary/80 text-sm font-medium">
+              <BrainCircuit className="w-4 h-4 animate-pulse" />
+              <span>思考中<span className="thinking-dots"></span></span>
+            </div>
+          )}
           {blocks.map((block, idx) => {
             if (block.kind === 'text') {
               if (!block.text) return null;

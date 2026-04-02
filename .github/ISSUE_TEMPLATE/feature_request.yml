@@ -1,0 +1,51 @@
+name: Feature Request
+description: 提出一个新功能请求
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您对新功能的建议！请填写以下信息来帮助我们评估和规划这个功能。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 功能描述
+      description: 请简洁清晰地描述你想要的功能
+      placeholder: 描述你想要的功能...
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解决的问题
+      description: 这个功能解决了什么问题？有什么使用场景？
+      placeholder: |
+        解决的问题：
+        - ...
+        使用场景：
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 建议的解决方案
+      description: 你希望如何实现这个功能？
+      placeholder: 描述你的建议解决方案...
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案
+      description: 有没有考虑过其他的解决方案？
+      placeholder: 描述其他可能的替代方案...
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 附加信息
+      description: 任何其他相关的信息、日志、截图等
+      placeholder: 添加任何其他相关信息...

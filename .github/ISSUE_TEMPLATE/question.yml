@@ -1,0 +1,28 @@
+name: Question
+description: 提出一个问题
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的提问！在提问之前，你可以先查看现有的 [Issues](https://github.com/yourusername/HiveMemory/issues) 和 [文档](https://github.com/yourusername/HiveMemory/docs)。
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 问题
+      description: 请清晰地描述你的问题
+      placeholder: 描述你的问题...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 附加上下文
+      description: 提供更多上下文信息，帮助我们更好地回答
+      placeholder: |
+        - 相关代码片段
+        - 错误日志
+        - 你尝试过的解决方案
+        - 环境信息

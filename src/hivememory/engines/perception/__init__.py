@@ -20,6 +20,12 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
     - stop_idle_monitor(): 停止监控
     - scan_idle_buffers_now(): 立即扫描一次
 
+.. deprecated::
+    Phase 4.5 重构后，以下组件已废弃：
+    - BaseArbiter: 灰度仲裁器接口，已不再被感知层使用
+    - SemanticBoundaryAdsorber: 语义吸附器，已不再被感知层使用
+    这些组件保留作为参考实现，将在后续版本中移除。
+
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
@@ -32,7 +38,6 @@ from hivememory.patchouli.config import (
 
 from hivememory.engines.perception.interfaces import (
     BasePerceptionLayer,
-    BaseArbiter,
 )
 from hivememory.engines.perception.models import (
     TraceItem,
@@ -115,7 +120,6 @@ __all__ = [
     # 感知层实现
     "SemanticFlowPerceptionLayer",
     # 接口
-    "BaseArbiter",
     "BasePerceptionLayer",
     # 数据模型
     "TraceItem",

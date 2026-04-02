@@ -358,7 +358,7 @@ KoakumaRuntime 是 PatchouliKernel 管理的第三个微服务，负责 MTP 协�
 
 ### 3.2.2 类似于 Git 的版本控制 (Git-like Versioning)
 
-为了解决“Python 3.8 升级到 3.10”这类事实变迁，我们在 Schema 中引入 `history` 字段。
+为了解决"Python 3.10 升级到 3.12"这类事实变迁，我们在 Schema 中引入 `history` 字段。
 
 **变更处理逻辑**：
 
@@ -373,14 +373,14 @@ KoakumaRuntime 是 PatchouliKernel 管理的第三个微服务，负责 MTP 协�
   "id": "mem_001",
   "index": {
     "title": "项目环境配置",
-    "summary": "当前项目基于 Python 3.10，依赖库列表...", // 最新状态
+    "summary": "当前项目基于 Python 3.12，依赖库列表...", // 最新状态
     "version": 3
   },
   "payload": {
-    "content": "当前环境要求：**Python 3.10**。请确保安装 `requirements.txt`。", // Head
+    "content": "当前环境要求：**Python 3.12**。请确保安装 `requirements.txt`。", // Head
     "history_summary": [ // 注入 Context 的简化历史，让 Agent 知道变迁
-       "2025-01-01: 项目初始化，使用 Python 3.8",
-       "2025-05-20: 升级至 Python 3.10 以支持 match 语法"
+       "2025-01-01: 项目初始化，使用 Python 3.10",
+       "2025-05-20: 升级至 Python 3.12 以支持最新语法"
     ]
   },
   "artifacts": {
@@ -826,7 +826,7 @@ src/hivememory
 
 ## 10.2 核心技术栈 (Core Stack)
 
-- **编程语言**: **Python 3.10+**
+- **编程语言**: **Python 3.12+**
 - **基础设施**:
   - **LLM**: **LiteLLM** (统一接口，支持 OpenAI/Claude/DeepSeek).
   - **Embedding**: **Sentence-Transformers** (Local `all-MiniLM-L6-v2` for Perception) / OpenAI (for Indexing).

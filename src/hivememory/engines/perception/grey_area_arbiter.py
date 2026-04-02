@@ -1,6 +1,11 @@
 """
 HiveMemory 灰度仲裁器 (Grey Area Arbiter)
 
+.. deprecated::
+    Phase 4.5 重构后，感知层不再使用 Embedding 和灰度仲裁进行话题分割。
+    SemanticBoundaryAdsorber 和 GreyAreaArbiter 不再被 SemanticFlowPerceptionLayer 使用。
+    此模块保留作为参考实现，将在后续版本中移除。
+
 负责处理语义相似度处于灰度区间（0.40-0.75）的模糊情况，
 使用更精细的模型来判断两个意图是否属于同一任务流。
 
@@ -287,6 +292,9 @@ def create_arbiter(
     """
     灰度仲裁器工厂函数
 
+    .. deprecated::
+        Phase 4.5 重构后，此函数不再被感知层使用。
+
     Args:
         config: 仲裁器配置
         reranker_service: Reranker 服务 (用于 RerankerArbiter)
@@ -313,11 +321,3 @@ def create_arbiter(
         return SLMArbiter(config=impl_config, llm_service=llm_service)
 
     return NoOpArbiter()
-
-
-__all__ = [
-    "RerankerArbiter",
-    "SLMArbiter",
-    "NoOpArbiter",
-    "create_arbiter",
-]

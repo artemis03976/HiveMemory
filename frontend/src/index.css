@@ -85,6 +85,62 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  /* Agent processing border animation */
+  .agent-processing-border {
+    position: relative;
+    z-index: 0;
+  }
+
+  .agent-processing-border::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1.5px;
+    /* 改为线性渐变+位移动画，解决 conic-gradient 在长方形下线速度不均的问题 */
+    background-image: linear-gradient(
+      115deg,
+      transparent 30%,
+      var(--color-primary) 48%,
+      #ff9a9e 50%,
+      var(--color-primary) 52%,
+      transparent 70%
+    );
+    background-size: 2000px 2000px;
+    -webkit-mask: 
+      linear-gradient(#fff 0 0) content-box, 
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: border-flow 4s linear infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  @keyframes border-flow {
+    0% { background-position: 0 0; }
+    100% { background-position: 2000px 0; }
+  }
+
+  @keyframes ellipsis {
+    0% { content: ""; }
+    25% { content: "."; }
+    50% { content: ".."; }
+    75% { content: "..."; }
+    100% { content: ""; }
+  }
+  
+  .thinking-dots {
+    display: inline-block;
+    width: 1.5em;
+    text-align: left;
+  }
+
+  .thinking-dots::after {
+    content: "";
+    animation: ellipsis 1.5s infinite steps(1);
+  }
 }
 
 body {

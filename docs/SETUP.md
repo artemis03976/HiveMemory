@@ -1,318 +1,411 @@
 # HiveMemory 环境搭建指南
 
-本文档指导您从零开始搭建 HiveMemory 开发/运行环境。
+本文档面向当前 `v0.1.0` 测试版，说明如何从零开始搭建 HiveMemory 的本地开发 / 运行环境。
+
+如需快速了解项目整体功能与架构，请先阅读 [README.md](../README.md)。
 
 ---
 
-## 📋 前置要求
+## 1. 前置要求
 
 ### 必需工具
-- **Python 3.12+** ([下载地址](https://www.python.org/downloads/))
-- **Docker Desktop** ([下载地址](https://www.docker.com/products/docker-desktop))
-- **Git** (用于克隆项目)
 
-### 硬件要求
-- **内存**: 至少 8GB RAM (运行 BGE-M3 Embedding 模型)
-- **磁盘**: 5GB 可用空间 (模型文件 + 数据库)
-- **GPU** (可选): 如需加速 Embedding, 推荐 NVIDIA GPU + CUDA
+- **Python 3.12+**
+- **Git**
+- **Docker / Docker Compose**
+- **Node.js**（用于前端开发界面，建议使用较新的 LTS 版本）
+
+### 推荐硬件
+
+- **内存**：至少 8GB RAM
+- **磁盘**：至少 5GB 可用空间（模型缓存、数据库数据、依赖安装）
+- **GPU**：可选；如需加速 Embedding / Reranker，可使用 CUDA 环境
+
+> 首次运行时，Embedding 与 Reranker 模型可能需要下载与预热，因此初次启动会明显慢于后续启动。
 
 ---
 
-## 🚀 快速开始 (5分钟)
-
-### Step 1: 克隆项目
+## 2. 克隆仓库
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/artemis03976/HiveMemory.git
 cd HiveMemory
 ```
 
-### Step 2: 启动 Docker 服务
+---
+
+## 3. 启动基础设施
+
+当前项目本地依赖以下基础设施：
+
+- **Qdrant**：向量数据库
+- **Redis**：缓存 / 队列基础设施
+- **Qdrant Web UI**：可选，仅用于调试可视化
+
+### 启动 Qdrant + Redis
 
 ```bash
-# 启动 Qdrant 和 Redis
-cd docker
-docker-compose up -d
+docker-compose -f docker/docker-compose.yml up -d
+```
 
-# 验证服务状态
+### 可选：同时启动 Qdrant Web UI
+
+```bash
+docker-compose -f docker/docker-compose.yml --profile debug up -d
+```
+
+### 端口说明
+
+- Qdrant HTTP: `6333`
+- Qdrant gRPC: `6334`
+- Redis: `6379`
+- Qdrant Web UI: `6335`（debug profile）
+
+### 检查容器状态
+
+```bash
 docker ps
 ```
 
-**预期输出:**
-```
-CONTAINER ID   IMAGE                    STATUS
-xxx            qdrant/qdrant:latest     Up 10 seconds
-yyy            redis:7-alpine           Up 10 seconds
-```
+> 注意：`docker-compose.yml` 中 Redis 默认密码为 `hivememory_redis_pass`，而 `configs/.env.example` 中该值默认为空。如果直接使用仓库自带的 Compose 配置，请记得在环境变量中设置：
+>
+> ```env
+> HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass
+> ```
 
-**访问 Qdrant Dashboard**: [http://localhost:6333/dashboard](http://localhost:6333/dashboard)
+---
 
-### Step 3: 创建 Python 虚拟环境
+## 4. 创建 Python 虚拟环境
 
-```bash
-# 返回项目根目录
-cd ..
-
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# Linux/macOS
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### Step 4: 安装依赖
+### Windows
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+.venv\Scripts\activate
 ```
 
-**首次安装说明**:
-- 安装时间约 5-10 分钟 (取决于网速)
-- `sentence-transformers` 会自动下载 BGE-M3 模型 (~2GB)
-- 如果下载慢, 可配置 HuggingFace 镜像:
+### Linux / macOS
 
 ```bash
-# Windows (PowerShell)
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+---
+
+## 5. 安装后端依赖
+
+当前项目已采用 `pyproject.toml` 作为包管理入口，**不要再使用旧的 `requirements.txt` 方式作为主安装路径**。
+
+### 运行项目所需的最小安装
+
+```bash
+pip install -e .
+```
+
+### 如需运行测试与开发工具
+
+```bash
+pip install -e ".[dev]"
+```
+
+### 可选：如果模型下载较慢
+
+中国大陆网络环境下可尝试配置 HuggingFace 镜像：
+
+```bash
+# Windows PowerShell
 $env:HF_ENDPOINT = "https://hf-mirror.com"
 
-# Linux/macOS
+# Linux / macOS
 export HF_ENDPOINT=https://hf-mirror.com
 ```
 
-### Step 5: 配置环境变量
+---
+
+## 6. 配置环境变量
+
+先复制模板文件：
 
 ```bash
-# 复制环境变量模板
 cp configs/.env.example .env
-
-# 编辑 .env 文件
-# Windows: notepad .env
-# Linux/macOS: nano .env 或 vim .env
 ```
 
-**必须配置的字段** (阶段1测试):
+当前配置采用 **环境变量 + YAML** 分层模式：
+
+- `.env`：放 API Key、Qdrant / Redis 地址、调试开关等
+- `configs/config.yaml`：放业务逻辑参数、检索参数、感知参数、生命周期参数等
+
+### 当前环境变量格式
+
+环境变量统一使用 `HIVEMEMORY__` 前缀和双下划线层级分隔，例如：
 
 ```env
-# Librarian Agent 使用的 LLM (帕秋莉)
-LIBRARIAN_LLM_MODEL=deepseek/deepseek-chat
-LIBRARIAN_LLM_API_KEY=sk-xxxxx  # 替换为您的 DeepSeek API Key
-LIBRARIAN_LLM_API_BASE=https://api.deepseek.com
+HIVEMEMORY__LLM__WORKER__MODEL=deepseek/deepseek-chat
+HIVEMEMORY__LLM__WORKER__API_KEY=your_worker_api_key
+HIVEMEMORY__LLM__WORKER__API_BASE=https://api.deepseek.com
 
-# Embedding 模型 (本地运行, 无需 API Key)
-EMBEDDING_MODEL=BAAI/bge-m3
-EMBEDDING_DEVICE=cpu  # 如有 GPU, 改为 cuda
+HIVEMEMORY__LLM__LIBRARIAN__MODEL=deepseek/deepseek-chat
+HIVEMEMORY__LLM__LIBRARIAN__API_KEY=your_librarian_api_key
+HIVEMEMORY__LLM__LIBRARIAN__API_BASE=https://api.deepseek.com
+
+HIVEMEMORY__QDRANT__HOST=localhost
+HIVEMEMORY__QDRANT__PORT=6333
+
+HIVEMEMORY__REDIS__HOST=localhost
+HIVEMEMORY__REDIS__PORT=6379
+HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass
 ```
 
-**可选配置** (Worker Agent, 阶段2使用):
+### 最低建议检查项
 
-```env
-WORKER_LLM_MODEL=gpt-4o
-WORKER_LLM_API_KEY=sk-xxxxx
-```
+至少请确认以下字段：
 
-### Step 6: 运行连接性测试
+- `HIVEMEMORY__LLM__WORKER__API_KEY`
+- `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
+- `HIVEMEMORY__QDRANT__HOST`
+- `HIVEMEMORY__QDRANT__PORT`
+- `HIVEMEMORY__REDIS__HOST`
+- `HIVEMEMORY__REDIS__PORT`
+- `HIVEMEMORY__REDIS__PASSWORD`
+
+### 配置文件加载说明
+
+当前配置系统支持：
+
+- 仓库根目录 `.env`
+- `configs/.env`
+- `HIVEMEMORY_CONFIG_PATH` 指定的 YAML 配置文件
+
+默认 YAML 配置文件为：
+
+- `configs/config.yaml`
+
+---
+
+## 7. 启动后端服务
+
+推荐使用项目自带的包脚本：
 
 ```bash
-python tests/test_connections.py
+hivememory-server
 ```
 
-**预期输出**:
-```
-✓ Qdrant 连接成功!
-✓ Redis 连接成功!
-✓ Embedding 模型加载成功!
-✓ 数据模型验证成功!
-⊘ LiteLLM 测试 (跳过或成功)
+当前默认后端地址：
 
-🎉 所有核心组件测试通过! 系统已就绪。
+- `http://localhost:8769`
+
+### 启动后检查
+
+```bash
+curl http://localhost:8769/health
+curl http://localhost:8769/health/ready
+```
+
+接口说明：
+
+- `/health`：服务是否存活
+- `/health/ready`：模型是否已完成预热
+  - 若仍在后台预热，返回 `503` 和 `warming_up`
+
+> 服务启动成功不代表模型已经完全 ready；初次启动请优先检查 `/health/ready`。
+
+---
+
+## 8. 启动前端开发界面
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+当前前端开发服务器默认地址：
+
+- `http://127.0.0.1:5173`
+
+前端开发代理会将 `/api` 转发到：
+
+- `http://localhost:8769`
+
+如果你只想验证后端，也可以跳过此前端步骤，直接调用 HTTP API。
+
+---
+
+## 9. 运行测试
+
+当前项目测试由 `pytest` 驱动，默认配置见 [pyproject.toml](../pyproject.toml)。
+
+### 运行默认测试集
+
+```bash
+pytest
+```
+
+默认会跳过以下类型测试：
+
+- `live_llm`
+- `e2e`
+- `slow`
+
+### 只运行单元 / 集成测试
+
+```bash
+pytest -m "unit or integration"
+```
+
+### 运行前端检查
+
+```bash
+cd frontend
+npm run lint
+npm run build
 ```
 
 ---
 
-## 🧪 运行阶段1测试
+## 10. 常见问题排查
 
-### 端到端记忆入库测试
+### 问题 1：Qdrant 连接失败
+
+**现象**：服务启动时报 Qdrant 连接错误，或检索功能不可用。
+
+**排查方式**：
 
 ```bash
-python scripts/test_ingestion.py
-```
-
-**测试内容**:
-1. 模拟 3 个对话场景 (代码片段/用户偏好/闲聊)
-2. Patchouli 提取结构化记忆
-3. 存储到 Qdrant 向量数据库
-4. 验证语义检索功能
-
-**预期输出**:
-```
-📝 场景: 代码片段提取
-✓ 记忆原子 xxx-xxx-xxx-xxx
-  标题: Python ISO8601 日期解析函数
-  类型: CODE_SNIPPET
-  标签: #python #datetime #iso8601
-
-测试结果汇总:
-  ✓ 通过  代码片段提取
-  ✓ 通过  用户偏好设置
-  ○ 跳过  闲聊过滤测试
-
-🎉 测试完全成功! Patchouli 工作正常。
-```
-
----
-
-## 🔧 常见问题排查
-
-### 问题1: Qdrant 连接失败
-
-**症状**:
-```
-✗ Qdrant 连接失败: Connection refused
-```
-
-**解决方案**:
-```bash
-# 检查 Docker 容器是否运行
 docker ps
-
-# 如果没有运行, 启动服务
-cd docker
-docker-compose up -d
-
-# 查看日志
 docker logs hivememory_qdrant
 ```
 
-### 问题2: Embedding 模型下载失败
+确认以下内容：
 
-**症状**:
-```
-✗ Embedding 模型加载失败: Connection timeout
-```
+- Qdrant 容器已正常运行
+- `HIVEMEMORY__QDRANT__HOST=localhost`
+- `HIVEMEMORY__QDRANT__PORT=6333`
 
-**解决方案**:
-```bash
-# 方案1: 使用 HuggingFace 镜像 (中国大陆)
-export HF_ENDPOINT=https://hf-mirror.com
-pip install -r requirements.txt
+---
 
-# 方案2: 手动下载模型 (如果已有模型文件)
-mkdir -p ~/.cache/huggingface/hub
-# 将模型文件放入上述目录
-```
+### 问题 2：Redis 连接失败
 
-### 问题3: LiteLLM 调用失败
+**现象**：启动或运行过程中出现 Redis 认证 / 连接错误。
 
-**症状**:
-```
-✗ LiteLLM 调用失败: Invalid API Key
-```
+**排查方式**：
 
-**解决方案**:
-```bash
-# 检查 .env 文件中的 API Key 是否正确
-cat .env | grep LIBRARIAN_LLM_API_KEY
+- 检查 Redis 容器是否已运行
+- 检查 `.env` 中 `HIVEMEMORY__REDIS__PASSWORD` 是否与 `docker-compose.yml` 中一致
 
-# 如果使用 DeepSeek, 确保格式正确:
-# LIBRARIAN_LLM_MODEL=deepseek/deepseek-chat  (注意前缀 deepseek/)
-# LIBRARIAN_LLM_API_KEY=sk-xxxxx
-```
+如果使用仓库默认 Compose，通常应为：
 
-### 问题4: 记忆提取为空
-
-**症状**:
-```
-⚠️  所有场景都未提取到记忆
-```
-
-**可能原因**:
-1. **API Key 未配置**: 检查 `.env` 文件
-2. **模型判断无价值**: 查看日志中 `has_value=false`
-3. **JSON 解析失败**: 查看日志中的错误信息
-
-**调试方法**:
-```bash
-# 启用详细日志
-# 在脚本开头添加:
-logging.basicConfig(level=logging.DEBUG)
-
-# 重新运行测试
-python scripts/test_ingestion.py
+```env
+HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass
 ```
 
 ---
 
-## 📁 项目结构说明
+### 问题 3：模型下载或预热太慢
 
+**现象**：服务已启动，但 `/health/ready` 长时间仍为 `warming_up`。
+
+**排查方式**：
+
+- 首次启动时等待模型下载与预热完成
+- 检查网络连接是否影响 HuggingFace 模型下载
+- 必要时配置 `HF_ENDPOINT=https://hf-mirror.com`
+
+---
+
+### 问题 4：LLM 调用失败
+
+**现象**：请求时出现 API Key 错误或上游模型调用失败。
+
+**排查方式**：
+
+检查 `.env` 中以下字段：
+
+- `HIVEMEMORY__LLM__WORKER__MODEL`
+- `HIVEMEMORY__LLM__WORKER__API_KEY`
+- `HIVEMEMORY__LLM__WORKER__API_BASE`
+- `HIVEMEMORY__LLM__LIBRARIAN__MODEL`
+- `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
+- `HIVEMEMORY__LLM__LIBRARIAN__API_BASE`
+
+若使用 DeepSeek，模型名通常应类似：
+
+```env
+HIVEMEMORY__LLM__WORKER__MODEL=deepseek/deepseek-chat
+HIVEMEMORY__LLM__LIBRARIAN__MODEL=deepseek/deepseek-chat
 ```
+
+---
+
+### 问题 5：前端无法连接后端
+
+**现象**：前端页面已打开，但 API 请求失败。
+
+**排查方式**：
+
+确认以下内容：
+
+- 后端已运行在 `http://localhost:8769`
+- 前端 dev server 运行在 `http://127.0.0.1:5173`
+- `frontend/vite.config.ts` 中 `/api` 代理目标未被改动
+
+---
+
+## 11. 项目结构参考
+
+```text
 HiveMemory/
-├── src/hivememory/          # 核心代码
-│   ├── core/
-│   │   ├── models.py        # ✅ 数据模型 (MemoryAtom)
-│   │   └── config.py        # ✅ 配置管理
-│   ├── agents/
-│   │   └── patchouli.py     # ✅ Librarian Agent
-│   ├── memory/
-│   │   └── storage.py       # ✅ Qdrant 存储层
-│   └── utils/
-│       └── buffer.py        # ✅ 对话缓冲器
-│
-├── tests/
-│   └── test_connections.py # ✅ 连接性测试
-│
-├── scripts/
-│   └── test_ingestion.py   # ✅ 端到端测试
-│
-├── docker/
-│   └── docker-compose.yml  # ✅ Docker 配置
-│
-└── configs/
-    ├── config.yaml         # ✅ 主配置
-    └── .env.example        # ✅ 环境变量模板
+├── configs/                 # 环境变量模板与主配置
+├── docker/                  # 本地基础设施（Qdrant / Redis）
+├── docs/                    # 项目文档
+├── frontend/                # React + Vite 前端开发界面
+├── scripts/                 # 调试与辅助脚本
+├── src/hivememory/
+│   ├── core/                # 核心数据模型
+│   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle
+│   ├── infrastructure/      # Storage / LLM / SystemBus / WebSocket
+│   ├── patchouli/           # Patchouli 体系、Kernel、MTP、WorkerAgent
+│   └── server/              # FastAPI 服务入口与路由
+└── tests/                   # 单元、集成、端到端测试
 ```
 
-**图例**:
-- ✅ 阶段0/1已实现
-- ⏳ 后续阶段开发
-- 📝 文档
-
 ---
 
-## 🎯 验收检查清单
+## 12. 验收检查清单
 
-完成以下检查项后，阶段0和阶段1即为成功搭建:
+完成以下项目后，可认为本地环境已基本可用：
 
-- [ ] Docker 服务正常运行 (`docker ps` 显示 Qdrant 和 Redis)
+- [ ] Docker 服务正常运行（Qdrant / Redis）
 - [ ] Python 虚拟环境已激活
-- [ ] 依赖全部安装成功 (`pip list | grep langchain`)
-- [ ] BGE-M3 模型已下载 (首次运行测试时自动下载)
-- [ ] `.env` 文件已配置 API Key
-- [ ] `test_connections.py` 全部通过 (或仅 LiteLLM 跳过)
-- [ ] `test_ingestion.py` 至少提取到 1 个记忆
-- [ ] Qdrant Dashboard 中可见向量数据
+- [ ] 后端依赖安装成功（`pip install -e .`）
+- [ ] `.env` 中已配置 LLM API Key
+- [ ] Redis 密码与 Compose 配置一致
+- [ ] `hivememory-server` 可正常启动
+- [ ] `GET /health` 返回成功
+- [ ] `GET /health/ready` 最终返回 ready
+- [ ] 前端 `npm run dev` 可正常运行（可选）
+- [ ] `pytest` 可正常执行默认测试集（可选）
 
 ---
 
-## 🔜 下一步
+## 13. 下一步
 
-完成环境搭建后, 您可以:
+环境搭建完成后，你可以继续：
 
-1. **阶段 II**: 实现记忆检索与 Context 注入 (详见 [ROADMAP.md](ROADMAP.md))
-2. **自定义配置**: 修改 `configs/config.yaml` 调整参数
-3. **集成到项目**: 参考 `scripts/test_ingestion.py` 集成到您的应用
-
----
-
-## 📞 获取帮助
-
-如遇到问题:
-
-1. 查看详细日志: `python xxx.py` 会输出调试信息
-2. 检查 Docker 日志: `docker logs hivememory_qdrant`
-3. 提交 Issue: [GitHub Issues](https://github.com/yourusername/HiveMemory/issues)
+1. 阅读 [README.md](../README.md) 了解项目整体能力
+2. 阅读 [PROJECT.md](PROJECT.md) 了解 Patchouli 架构与设计背景
+3. 通过 `/api/v1/chat` 或 `/api/v1/ingest` 接入你的 Agent 工作流
+4. 修改 `configs/config.yaml` 调整检索、感知和生命周期参数
 
 ---
 
-**祝您使用愉快！ 🐝**
+## 14. 获取帮助
+
+如果遇到问题，建议按以下顺序排查：
+
+1. 查看后端日志输出
+2. 检查容器状态与 Docker 日志
+3. 检查 `.env` 与 `configs/config.yaml` 是否一致
+4. 在 GitHub 提交 Issue：
+   - [HiveMemory Issues](https://github.com/artemis03976/HiveMemory/issues)

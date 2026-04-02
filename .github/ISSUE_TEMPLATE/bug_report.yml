@@ -1,0 +1,74 @@
+name: Bug Report
+description: 报告一个 Bug
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您报告 Bug！请填写以下信息来帮助我们复现和修复问题。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug 描述
+      description: 请简洁清晰地描述这个 Bug
+      placeholder: 描述你遇到的问题...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请提供详细的复现步骤
+      placeholder: |
+        1. 进入 '...'
+        2. 点击 '....'
+        3. 滚动到 '....'
+        4. 出现错误
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望发生什么？
+      placeholder: 描述期望的行为...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么？
+      placeholder: 描述实际的行为...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 受影响的版本（如 v0.1.0、commit hash 等）
+      placeholder: 请输入版本号或 commit hash...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志/错误信息
+      description: 如果有的话，请粘贴相关的错误日志
+      placeholder: 粘贴错误日志在这里...
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 操作系统、Python 版本、相关依赖版本等
+      placeholder: |
+        - OS: [e.g. macOS 14.0]
+        - Python: [e.g. 3.10.11]
+        - 相关依赖: [e.g. qdrant-client 1.7.0]

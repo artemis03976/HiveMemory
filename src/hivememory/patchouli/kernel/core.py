@@ -5,7 +5,7 @@
 职责：
     - 管理 Retrieval Familiar 和 Librarian Core 两个微服务
     - 维护服务注册表与调度总线
-    - 基础设施初始化（存储、LLM、Embedding、Reranker）
+    - 基础设施初始化（存储、LLM、Reranker）
     - 引擎构建（Perception、Generation、Lifecycle、Retrieval）
 
 架构定位：
@@ -17,9 +17,9 @@
     │  PatchouliSystem (The Facility)         │
     │                                         │
     │  TheEye ──→ PatchouliKernel             │
-    │              ├── RetrievalFamiliar       │
-    │              ├── LibrarianCore           │
-    │              └── (Koakuma - 预留)        │
+    │              ├── RetrievalFamiliar      │
+    │              ├── LibrarianCore          │
+    │              └── Koakuma                │
     └─────────────────────────────────────────┘
 
 作者: HiveMemory Team
@@ -126,10 +126,6 @@ class PatchouliKernel:
             # 存储层 Embedding (BGE-M3, 用于写入时的向量化)
             await asyncio.to_thread(self.storage.embedding_service.warmup)
 
-            # 感知层 Embedding (用于检索时的查询向量化)
-            # 如果与存储层共享同一实例 (Multiton)，warmup 会立即返回
-            await asyncio.to_thread(self.perception_embedding_service.warmup)
-
             # Reranker
             if self.reranker_service is not None:
                 await asyncio.to_thread(self.reranker_service.warmup)
@@ -155,12 +151,11 @@ class PatchouliKernel:
 
         # 动态检查（覆盖懒加载已完成但 warmup 未调用的情况）
         storage_ready = self.storage.embedding_service.is_loaded()
-        perception_ready = self.perception_embedding_service.is_loaded()
         reranker_ready = (
             self.reranker_service is None
             or self.reranker_service.is_loaded()
         )
-        return storage_ready and perception_ready and reranker_ready
+        return storage_ready and reranker_ready
 
     # ========== 基础设施初始化 ==========
 
@@ -168,18 +163,14 @@ class PatchouliKernel:
         """
         初始化内核基础设施组件（单例服务）
 
-        包含：存储层、感知层 Embedding、Librarian LLM、Reranker
+        包含：存储层、Librarian LLM、Reranker
         不包含：Gateway LLM（属于 TheEye 的依赖，由 PatchouliSystem 管理）
+        不包含：感知层 Embedding（感知层已不再使用 Embedding）
         """
         from hivememory.infrastructure.storage import QdrantMemoryStore
         self.storage = QdrantMemoryStore(
             qdrant_config=self.config.qdrant,
             embedding_config=self.config.embedding.default,
-        )
-
-        from hivememory.infrastructure.embedding import get_perception_embedding_service
-        self.perception_embedding_service = get_perception_embedding_service(
-            config=self.config.embedding.perception
         )
 
         from hivememory.infrastructure.llm import get_librarian_llm_service
