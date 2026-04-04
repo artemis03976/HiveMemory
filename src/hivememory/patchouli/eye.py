@@ -243,6 +243,10 @@ class TheEye:
         timeout = timeout_seconds or self._observer_idle_timeout
         return self._observer_buffers.flush_idle_buffers(timeout)
 
+    def flush_all_pending_sessions(self) -> List[InteractionPayload]:
+        """强制 flush 所有仍有 pending round 的 observer buffer。"""
+        return self._observer_buffers.flush_idle_buffers(-1.0)
+
     def start_observer_idle_monitor(
         self,
         timeout_seconds: float = 30.0,

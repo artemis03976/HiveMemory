@@ -55,6 +55,13 @@ class TestDecisionMatrix:
         assert actions["compact"] is True
         assert actions["evict"] is False
 
+    def test_shutdown_actions(self):
+        """SHUTDOWN: Archive + Evict"""
+        actions = DECISION_MATRIX[FlushReason.SHUTDOWN]
+        assert actions["archive"] is True
+        assert actions["compact"] is False
+        assert actions["evict"] is True
+
     def test_mtp_update_actions(self):
         """MTP_UPDATE: Archive + Compact"""
         actions = DECISION_MATRIX[FlushReason.MTP_UPDATE]
@@ -243,6 +250,23 @@ class TestTriggerManagerResolveTopic:
 
         # 验证 Evict 被调用
         self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
+
+    @pytest.mark.asyncio
+    async def test_resolve_topic_shutdown_waits_for_archive(self):
+        """测试 SHUTDOWN 触发时等待 Archive 完成后再驱逐"""
+        buffer = self._create_buffer_with_blocks()
+        self.mock_buffer_manager.get_buffer.return_value = buffer
+
+        await self.manager.resolve_topic(
+            self.topic_id,
+            FlushReason.SHUTDOWN,
+            wait_for_archive=True,
+        )
+
+        self.mock_callback.assert_awaited_once()
+        self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
+        assert len(buffer.blocks) == 0
+        assert buffer.total_tokens == 0
 
 
 class TestTriggerManagerArchiveTopic:

@@ -671,6 +671,40 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         return flushed_keys
 
+    async def flush_all_for_shutdown(self) -> Dict[str, Any]:
+        """进程关闭前强制归档并驱逐所有活跃话题。"""
+        topic_ids = list(self.list_active_buffers())
+        flushed_topics: List[str] = []
+        skipped_topics: List[str] = []
+        archived_blocks = 0
+
+        for topic_id in topic_ids:
+            buffer = self.get_buffer(topic_id)
+            if buffer is None or not buffer.blocks:
+                skipped_topics.append(topic_id)
+                continue
+
+            archived_blocks += len(buffer.blocks)
+            await self._trigger_manager.resolve_topic(
+                topic_id=topic_id,
+                trigger_reason=FlushReason.SHUTDOWN,
+                wait_for_archive=True,
+            )
+            flushed_topics.append(topic_id)
+
+        result = {
+            "success": True,
+            "trigger_reason": FlushReason.SHUTDOWN.value,
+            "flushed_topics": flushed_topics,
+            "skipped_topics": skipped_topics,
+            "archived_blocks": archived_blocks,
+        }
+        logger.info(
+            f"shutdown flush 完成: flushed={len(flushed_topics)}, "
+            f"skipped={len(skipped_topics)}, archived_blocks={archived_blocks}"
+        )
+        return result
+
 
 __all__ = [
     "SemanticFlowPerceptionLayer",

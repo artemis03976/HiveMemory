@@ -113,6 +113,8 @@ class PatchouliSystem:
 
         # 5. System 级 Pub/Sub 订阅
         # 注意: 回调中使用 asyncio.create_task 启动异步任务
+        self._shutdown_drain_started = False
+
         async def _on_observer_idle_flushed(payload):
             import asyncio
             asyncio.create_task(self.kernel.submit_interaction(payload))
@@ -309,6 +311,45 @@ class PatchouliSystem:
     def stop_observer_idle_monitor(self) -> None:
         """停止 Observer Buffer 空闲超时监控 (委托给 TheEye)"""
         self.eye.stop_observer_idle_monitor()
+
+    async def shutdown_drain(self) -> Dict[str, Any]:
+        """服务关闭前排空 observer buffer 并强制归档所有活跃话题。"""
+        if self._shutdown_drain_started:
+            logger.info("shutdown drain 已执行，跳过重复调用")
+            return {
+                "success": True,
+                "observer_payloads_submitted": 0,
+                "perception": {
+                    "success": True,
+                    "trigger_reason": "shutdown",
+                    "flushed_topics": [],
+                    "skipped_topics": [],
+                    "archived_blocks": 0,
+                },
+                "reentrant": True,
+            }
+
+        self._shutdown_drain_started = True
+        logger.info("开始执行 shutdown drain")
+
+        self.stop_observer_idle_monitor()
+
+        observer_payloads = self.eye.flush_all_pending_sessions()
+        for payload in observer_payloads:
+            await self.kernel.submit_interaction(payload)
+
+        perception_result = await self.kernel.librarian_core.perception_layer.flush_all_for_shutdown()
+        result = {
+            "success": True,
+            "observer_payloads_submitted": len(observer_payloads),
+            "perception": perception_result,
+            "reentrant": False,
+        }
+        logger.info(
+            f"shutdown drain 完成: observer_payloads={len(observer_payloads)}, "
+            f"flushed_topics={len(perception_result['flushed_topics'])}"
+        )
+        return result
 
     # ========== Kernel 驱动的对话 API ==========
 

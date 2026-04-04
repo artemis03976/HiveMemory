@@ -140,16 +140,17 @@ class TestTheEyePassiveMode:
         assert payload is not None
         assert payload.user_message == "问题"
 
-    def test_flush_idle_sessions(self):
-        """委托给 ObserverBufferManager"""
-        self.eye.ingest_user("消息", self.identity)
-        self.eye.ingest_assistant("回复", self.identity)
-        # 手动设置超时
-        buf = self.eye.observer_buffers.get_buffer(self.identity)
-        buf._last_activity = 0.0
+    def test_flush_all_pending_sessions(self):
+        """强制 flush 所有 pending observer buffers"""
+        identity = _make_identity()
+        self.eye.ingest_user("消息", identity)
+        self.eye.ingest_assistant("回复", identity)
 
-        payloads = self.eye.flush_idle_sessions(timeout_seconds=1.0)
+        payloads = self.eye.flush_all_pending_sessions()
+
         assert len(payloads) == 1
+        assert payloads[0].user_message == "消息"
+        assert payloads[0].assistant_message == "回复"
 
 
 class TestTheEyeIdleMonitor:

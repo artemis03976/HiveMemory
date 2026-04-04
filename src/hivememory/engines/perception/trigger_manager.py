@@ -55,6 +55,11 @@ DECISION_MATRIX: Dict[FlushReason, Dict[str, bool]] = {
         "compact": False,  # 无需摘要
         "evict": True,     # 踢出内存
     },
+    FlushReason.SHUTDOWN: {
+        "archive": True,   # 进程关闭前强制归档
+        "compact": False,  # 无需摘要
+        "evict": True,     # 清空内存态话题
+    },
     FlushReason.MTP_WRITE: {
         "archive": True,   # 带 Focus 打包发走
         "compact": True,   # 话题未完，必须留摘要
@@ -143,6 +148,7 @@ class TriggerManager:
         topic_id: str,
         trigger_reason: FlushReason,
         mtp_focus: Optional[Any] = None,
+        wait_for_archive: bool = False,
     ) -> None:
         """
         统一的话题结算调度器
@@ -151,8 +157,9 @@ class TriggerManager:
 
         Args:
             topic_id: 话题 ID
-            trigger_reason: 触发原因（TOKEN_OVERFLOW/IDLE_TIMEOUT/LRU_EVICTION/MTP_WRITE/MTP_UPDATE）
+            trigger_reason: 触发原因（TOKEN_OVERFLOW/IDLE_TIMEOUT/LRU_EVICTION/MTP_WRITE/MTP_UPDATE/SHUTDOWN）
             mtp_focus: MTP 控制信号（仅 MTP_WRITE/MTP_UPDATE 时有值）
+            wait_for_archive: 是否等待 Archive 完成（shutdown drain 时使用）
         """
         buffer = self._buffer_manager.get_buffer(topic_id)
         if not buffer or not buffer.blocks:
@@ -182,15 +189,16 @@ class TriggerManager:
 
         # ================= 执行区 =================
 
-        # Action 1: Archive（异步非阻塞）
+        # Action 1: Archive（默认异步非阻塞；shutdown drain 可等待完成）
         if need_archive:
-            self._archive_topic(
+            await self._archive_topic(
                 topic_id,
                 blocks_snapshot,
                 previous_summary,
                 mtp_focus,
                 trigger_reason,
                 buffer.identity,
+                wait_for_completion=wait_for_archive,
             )
 
         # Action 2: Compact（同步阻塞）
@@ -208,7 +216,7 @@ class TriggerManager:
 
     # ========== 原子操作 ==========
 
-    def _archive_topic(
+    async def _archive_topic(
         self,
         topic_id: str,
         blocks_snapshot: List[LogicalBlock],
@@ -216,11 +224,12 @@ class TriggerManager:
         mtp_focus: Optional[Any],
         reason: FlushReason = FlushReason.IDLE_TIMEOUT,
         identity: Optional[Any] = None,
+        wait_for_completion: bool = False,
     ) -> None:
         """
         Archive 原子操作：将 blocks 打包发送给 Librarian
 
-        特性：异步非阻塞（fire-and-forget），通过回调 + asyncio.create_task 实现
+        默认保持异步非阻塞；当 wait_for_completion=True 时等待回调执行完成。
         """
         # 过滤 worth_saving=False 的 block
         # worth_saving=None 时保留（gateway 离线或异常时不影响冷链路）
@@ -255,10 +264,17 @@ class TriggerManager:
 
         # 使用回调函数触发记忆生成
         if self._on_generate_memory:
+            if wait_for_completion:
+                await self._on_generate_memory(payload)
+                logger.info(
+                    f"Archive: 已等待记忆生成完成，blocks={len(blocks_to_archive)}"
+                )
+                return
+
             # 安全地启动后台任务
             # 在有运行中事件循环时使用 create_task，否则尝试获取或创建循环
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(self._on_generate_memory(payload))
             except RuntimeError:
                 # 没有运行中的事件循环，创建一个新的来执行任务

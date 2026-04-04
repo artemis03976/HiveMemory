@@ -48,10 +48,10 @@ async def lifespan(app: FastAPI):
     logger.info("PatchouliSystem 就绪，服务启动完成")
     yield
 
+    await shutdown_system()
+
     # 清理 WebSocket 连接
     await shutdown_websocket_log_broadcasting(ws_manager)
-
-    shutdown_system()
     logger.info("PatchouliSystem 已关闭")
 
 
@@ -127,7 +127,7 @@ from hivememory.server.routers.memories import router as memories_router
 from hivememory.server.routers.topics import router as topics_router
 
 app.include_router(chat_router, prefix="/api/v1")
-app.include_router(config_router, prefix="/api")
+app.include_router(config_router, prefix="/api/v1")
 app.include_router(ingest_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")
 app.include_router(memories_router, prefix="/api/v1")

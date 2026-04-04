@@ -36,9 +36,9 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 
 ### Configuration and Observability
 
-- Current runtime config: `GET /api/config`
-- Update in-memory runtime config: `POST /api/config`
-- View default config: `GET /api/config/defaults`
+- Current runtime config: `GET /api/v1/config`
+- Update in-memory runtime config: `POST /api/v1/config`
+- View default config: `GET /api/v1/config/defaults`
 - WebSocket log stream: `WS /api/v1/ws/logs`
 - Health check: `GET /health`
 - Readiness check: `GET /health/ready`
@@ -107,8 +107,8 @@ For full design background, motivation, and terminology, see [docs/PROJECT.md](d
 | `/api/v1/topics` | GET | List active topics |
 | `/api/v1/topics/{topic_id}/trigger` | POST | Manually settle a topic |
 | `/api/v1/topics/{topic_id}` | DELETE | Remove a topic from the active pool |
-| `/api/config` | GET / POST | Read / update runtime config |
-| `/api/config/defaults` | GET | Get default config |
+| `/api/v1/config` | GET / POST | Read / update runtime config |
+| `/api/v1/config/defaults` | GET | Get default config |
 | `/api/v1/ws/logs` | WS | Stream runtime logs |
 
 ## Requirements

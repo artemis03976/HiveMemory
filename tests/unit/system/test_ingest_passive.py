@@ -333,6 +333,8 @@ def sys_passive():
 
     s = MagicMock(spec=PatchouliSystem)
 
+    s._shutdown_drain_started = False
+
     # Eye — mock spec，但持有真实 buffer 池和真实被动方法
     s.eye = MagicMock(spec=TheEye)
     s.eye.gaze = AsyncMock(return_value=_make_gaze_result())
@@ -342,7 +344,9 @@ def sys_passive():
     s.eye.ingest_user_async = types.MethodType(TheEye.ingest_user_async, s.eye)
     s.eye.ingest_assistant = types.MethodType(TheEye.ingest_assistant, s.eye)
     s.eye.flush_session = types.MethodType(TheEye.flush_session, s.eye)
-    s.eye.flush_idle_sessions = types.MethodType(TheEye.flush_idle_sessions, s.eye)
+    s.eye.flush_all_pending_sessions = types.MethodType(
+        TheEye.flush_all_pending_sessions, s.eye
+    )
 
     # Kernel
     s.kernel = MagicMock()
@@ -448,8 +452,63 @@ class TestIngestAssistantFlow:
         assert result["worth_saving"] is False
 
 
+class TestShutdownDrain:
+    """shutdown_drain() 编排测试"""
+
+    def test_shutdown_drain_flushes_observer_and_perception(self, sys_passive):
+        from hivememory.patchouli.system import PatchouliSystem as Real
+
+        sys_passive.stop_observer_idle_monitor = MagicMock()
+        sys_passive.kernel.librarian_core = MagicMock()
+        sys_passive.kernel.librarian_core.perception_layer = MagicMock()
+        sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
+            return_value={
+                "success": True,
+                "trigger_reason": "shutdown",
+                "flushed_topics": ["t1"],
+                "skipped_topics": [],
+                "archived_blocks": 1,
+            }
+        )
+
+        sys_passive.ingest(role="user", content="q", user_id="u1")
+        sys_passive.ingest(role="assistant", content="a", user_id="u1")
+
+        result = asyncio.run(Real.shutdown_drain(sys_passive))
+
+        sys_passive.stop_observer_idle_monitor.assert_called_once()
+        sys_passive.kernel.submit_interaction.assert_called_once()
+        sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
+        assert result["observer_payloads_submitted"] == 1
+        assert result["perception"]["trigger_reason"] == "shutdown"
+
+    def test_shutdown_drain_is_reentrant(self, sys_passive):
+        from hivememory.patchouli.system import PatchouliSystem as Real
+
+        sys_passive.stop_observer_idle_monitor = MagicMock()
+        sys_passive.kernel.librarian_core = MagicMock()
+        sys_passive.kernel.librarian_core.perception_layer = MagicMock()
+        sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
+            return_value={
+                "success": True,
+                "trigger_reason": "shutdown",
+                "flushed_topics": [],
+                "skipped_topics": [],
+                "archived_blocks": 0,
+            }
+        )
+
+        first = asyncio.run(Real.shutdown_drain(sys_passive))
+        second = asyncio.run(Real.shutdown_drain(sys_passive))
+
+        assert first["reentrant"] is False
+        assert second["reentrant"] is True
+        sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
+
+
 class TestIngestFullRoundTrip:
     """完整 user → assistant → user 流程，验证 submit_interaction"""
+
 
     def test_next_user_triggers_submit(self, sys_passive):
         """第二个 user 消息触发上一轮 payload 提交"""

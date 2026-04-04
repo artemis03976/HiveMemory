@@ -36,9 +36,9 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 
 ### 配置与可观测性
 
-- 当前运行时配置：`GET /api/config`
-- 更新内存中的运行时配置：`POST /api/config`
-- 查看默认配置：`GET /api/config/defaults`
+- 当前运行时配置：`GET /api/v1/config`
+- 更新内存中的运行时配置：`POST /api/v1/config`
+- 查看默认配置：`GET /api/v1/config/defaults`
 - WebSocket 日志流：`WS /api/v1/ws/logs`
 - 健康检查：`GET /health`
 - 就绪检查：`GET /health/ready`
@@ -107,8 +107,8 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 | `/api/v1/topics` | GET | 获取活跃话题 |
 | `/api/v1/topics/{topic_id}/trigger` | POST | 手动触发话题结算 |
 | `/api/v1/topics/{topic_id}` | DELETE | 从活跃池删除话题 |
-| `/api/config` | GET / POST | 读取 / 更新运行时配置 |
-| `/api/config/defaults` | GET | 获取默认配置 |
+| `/api/v1/config` | GET / POST | 读取 / 更新运行时配置 |
+| `/api/v1/config/defaults` | GET | 获取默认配置 |
 | `/api/v1/ws/logs` | WS | 获取实时日志流 |
 
 ## 环境要求

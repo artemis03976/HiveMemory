@@ -142,3 +142,32 @@ class TestIdleHibernateSwapOut:
 
         active = layer.list_active_buffers()
         assert len(active) == 1
+
+    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @pytest.mark.asyncio
+    async def test_shutdown_flush_archives_and_swaps_out_all_topics(self, mock_parser_cls):
+        """验证 shutdown flush 会归档并驱逐所有活跃话题"""
+        mock_parser_cls.parse.return_value = ("reply", [])
+
+        config = SemanticFlowPerceptionConfig(
+            idle_timeout_seconds=999,
+            fold_token_threshold=999999,
+            max_resident_topics=4,
+        )
+        mock_relay = Mock()
+        mock_relay.should_relay.return_value = None
+        layer = SemanticFlowPerceptionLayer(config=config, relay_controller=mock_relay)
+        mock_callback = AsyncMock(return_value=None)
+        layer.set_generation_callback(mock_callback)
+
+        await layer.route_and_ingest("NEW_TOPIC", _make_payload("q1", "a1", _make_identity("u1", "a1")))
+        await layer.route_and_ingest("NEW_TOPIC", _make_payload("q2", "a2", _make_identity("u2", "a2")))
+
+        result = await layer.flush_all_for_shutdown()
+
+        assert result["trigger_reason"] == FlushReason.SHUTDOWN.value
+        assert len(result["flushed_topics"]) == 2
+        assert result["archived_blocks"] == 2
+        assert layer.list_active_buffers() == []
+        assert mock_callback.await_count == 2
+

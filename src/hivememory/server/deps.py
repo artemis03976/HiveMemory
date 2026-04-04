@@ -24,11 +24,11 @@ def init_system(config: Optional[HiveMemoryConfig] = None) -> PatchouliSystem:
     return _system
 
 
-def shutdown_system() -> None:
+async def shutdown_system() -> None:
     """lifespan shutdown 时调用"""
     global _system
     if _system:
-        _system.stop_observer_idle_monitor()
+        await _system.shutdown_drain()
         logger.info("PatchouliSystem 已关闭")
     _system = None
 

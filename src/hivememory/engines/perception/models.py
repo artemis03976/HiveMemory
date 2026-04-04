@@ -47,6 +47,7 @@ class FlushReason(str, Enum):
     MTP_WRITE = "mtp_write"  # MTP WRITE 指令触发的强制刷新
     MTP_UPDATE = "mtp_update"  # MTP UPDATE 指令触发的强制刷新
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
+    SHUTDOWN = "shutdown"  # 进程关闭时的全局强制归档
 
 
 class BufferState(str, Enum):
