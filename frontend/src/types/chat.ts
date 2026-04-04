@@ -93,6 +93,14 @@ export interface ChatRequestParams {
   agent_id?: string;
   session_id?: string | null;
   enable_memory_retrieval?: boolean;
+  generation_options?: ChatGenerationOptions;
+}
+
+export interface ChatGenerationOptions {
+  model?: string;
+  temperature?: number;
+  top_p?: number;
+  max_tokens?: number;
 }
 
 // ========== SSE Callbacks ==========

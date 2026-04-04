@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
+import { useToastStore } from '@/stores/toastStore';
 import { useMemories } from '@/hooks/useMemories';
 import type { MemoryAtom } from '@/types/memory';
 import MemoryAtomCard from './memory/MemoryAtomCard';
@@ -9,6 +10,7 @@ import CommandBar from './memory/CommandBar';
 import MemoryDetailModal from './memory/MemoryDetailModal';
 
 export default function MemoryGarden() {
+  const { addToast } = useToastStore();
   const [selectedAtom, setSelectedAtom] = useState<MemoryAtom | null>(null);
 
   const {
@@ -47,7 +49,7 @@ export default function MemoryGarden() {
         totalMemories={total}
         dbSize="45MB"
         warnings={0}
-        onNewMemory={() => console.log('New Memory')}
+        onNewMemory={() => addToast('施工中，请耐心等待~', 'info')}
       />
 
       {/* Command Bar */}

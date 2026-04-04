@@ -25,7 +25,7 @@ Worker Agent Service - 无状态 LLM 文本生成服务
 
 import logging
 from dataclasses import dataclass, field
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import litellm
 
@@ -103,20 +103,37 @@ class WorkerAgentService:
             f"WorkerAgentService 初始化完成 (model={config.model})"
         )
 
+    def _extract_runtime_params(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        model = kwargs.pop("model", None)
+        temperature = kwargs.pop("temperature", None)
+        top_p = kwargs.pop("top_p", None)
+        max_tokens = kwargs.pop("max_tokens", None)
+
+        params: Dict[str, Any] = {
+            "model": model or self._config.model,
+            "temperature": self._config.temperature if temperature is None else temperature,
+            "max_tokens": self._config.max_tokens if max_tokens is None else max_tokens,
+        }
+        if top_p is not None:
+            params["top_p"] = top_p
+        return params
+
     async def generate_async(
         self,
         messages: List[Dict[str, str]],
         **kwargs,
     ) -> GenerationResult:
+        runtime_params = self._extract_runtime_params(kwargs)
         try:
             response = await litellm.acompletion(
-                model=self._config.model,
+                model=runtime_params["model"],
                 messages=messages,
                 api_key=self._config.api_key,
                 api_base=self._config.api_base,
-                temperature=self._config.temperature,
-                max_tokens=self._config.max_tokens,
+                temperature=runtime_params["temperature"],
+                max_tokens=runtime_params["max_tokens"],
                 stop=[MTP_STOP_SEQUENCE],
+                top_p=runtime_params.get("top_p"),
                 **kwargs,
             )
         except Exception as e:
@@ -170,14 +187,16 @@ class WorkerAgentService:
         Yields:
             StreamChunk: 流式 chunk
         """
+        runtime_params = self._extract_runtime_params(kwargs)
         try:
             response = await litellm.acompletion(
-                model=self._config.model,
+                model=runtime_params["model"],
                 messages=messages,
                 api_key=self._config.api_key,
                 api_base=self._config.api_base,
-                temperature=self._config.temperature,
-                max_tokens=self._config.max_tokens,
+                temperature=runtime_params["temperature"],
+                max_tokens=runtime_params["max_tokens"],
+                top_p=runtime_params.get("top_p"),
                 stop=[MTP_STOP_SEQUENCE],
                 stream=True,
                 **kwargs,

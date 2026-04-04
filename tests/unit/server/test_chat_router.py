@@ -51,6 +51,40 @@ def _parse_sse_events(response_text: str):
 
 
 class TestChatRouter:
+    def test_runtime_generation_options_are_forwarded(self):
+        mock_system = MagicMock()
+
+        async def fake_stream(**kwargs):
+            yield {"event": "done", "data": {"final_text": "ok", "mtp_iterations": 0, "total_iterations": 1, "mtp_commands_executed": []}}
+
+        mock_system.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "hello",
+                "user_id": "test",
+                "generation_options": {
+                    "model": "gpt-4o",
+                    "temperature": 0.2,
+                    "top_p": 0.8,
+                    "max_tokens": 1024,
+                },
+            },
+        )
+        assert response.status_code == 200
+        mock_system.chat_stream.assert_called_once()
+        call_kwargs = mock_system.chat_stream.call_args.kwargs
+        assert call_kwargs["generation_options"] == {
+            "model": "gpt-4o",
+            "temperature": 0.2,
+            "top_p": 0.8,
+            "max_tokens": 1024,
+        }
+
     def test_normal_chat_sse_events(self):
         """正常对话: topic_info → token → done"""
         mock_system = MagicMock()

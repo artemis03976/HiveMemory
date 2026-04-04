@@ -5,12 +5,20 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class GenerationOptions(BaseModel):
+    model: Optional[str] = Field(default=None, min_length=1, description="模型名称")
+    temperature: Optional[float] = Field(default=None, ge=0, le=2, description="采样温度")
+    top_p: Optional[float] = Field(default=None, ge=0, le=1, description="Top-p 采样率")
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=32768, description="最大生成长度")
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息")
     user_id: str = Field(default="default", description="用户 ID")
     agent_id: str = Field(default="default", description="Agent ID")
     session_id: Optional[str] = Field(default=None, description="会话 ID")
     enable_memory_retrieval: bool = Field(default=True, description="是否启用记忆检索")
+    generation_options: Optional[GenerationOptions] = Field(default=None, description="本次请求的生成参数覆盖")
 
 
 # ========== SSE 事件数据模型 ==========

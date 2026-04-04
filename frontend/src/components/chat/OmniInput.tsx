@@ -3,16 +3,21 @@
 import { useState } from 'react';
 import { Paperclip, Hash, Send, BrainCircuit } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
+import { useChatRuntimeConfigStore } from '@/stores/chatRuntimeConfigStore';
 import { Toggle } from '../common/FormControls';
 
 export default function OmniInput() {
   const [message, setMessage] = useState('');
   const [enableMemory, setEnableMemory] = useState(true);
   const { sendMessage, isStreaming } = useChatStore();
+  const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
 
   const handleSend = () => {
     if (message.trim() && !isStreaming) {
-      sendMessage(message, { enable_memory_retrieval: enableMemory });
+      sendMessage(message, {
+        enable_memory_retrieval: enableMemory,
+        generation_options: generationOptions,
+      });
       setMessage('');
     }
   };

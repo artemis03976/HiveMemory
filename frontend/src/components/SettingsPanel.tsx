@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Settings as SettingsIcon, Cpu, Database, Network, Activity, Save, RefreshCw, Undo2, TerminalSquare, Search, Eye, Sparkles } from 'lucide-react';
 import { useSettings } from '../hooks/useSettings';
+import { useToastStore } from '@/stores/toastStore';
 import { GeneralSettings } from './settings/GeneralSettings';
 import { ModelSettings } from './settings/ModelSettings';
 import { InfrastructureSettings } from './settings/InfrastructureSettings';
@@ -35,6 +36,7 @@ export default function Settings() {
     resetConfig,
     resetToDefaults,
   } = useSettings();
+  const { addToast } = useToastStore();
 
   const getFieldError = (fieldPath: string) => {
     return validationErrors.find(e => e.field === fieldPath)?.message;
@@ -55,9 +57,9 @@ export default function Settings() {
   const handleSave = async () => {
     try {
       await saveConfig();
-      alert('设置保存成功');
+      addToast('设置保存成功', 'success');
     } catch (err) {
-      alert('保存设置失败: ' + (err instanceof Error ? err.message : '未知错误'));
+      addToast('保存设置失败: ' + (err instanceof Error ? err.message : '未知错误'), 'error');
     }
   };
 

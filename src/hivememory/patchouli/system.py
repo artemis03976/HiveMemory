@@ -360,6 +360,7 @@ class PatchouliSystem:
         agent_id: str = "default",
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
+        generation_options: Optional[Dict[str, Any]] = None,
     ) -> ChatResult:
         """
         Kernel 驱动的对话入口
@@ -429,7 +430,9 @@ class PatchouliSystem:
 
             # 8. 递归生成循环
             loop_result = await self._recursive_generation_loop(
-                messages, user_id
+                messages,
+                user_id,
+                generation_options=generation_options,
             )
 
             # 9. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
@@ -473,6 +476,7 @@ class PatchouliSystem:
         messages: List[Dict[str, str]],
         user_id: str,
         max_iterations: Optional[int] = None,
+        generation_options: Optional[Dict[str, Any]] = None,
     ) -> ChatResult:
         max_iter = max_iterations or self.config.koakuma.max_recursion_depth
         text_segments: List[str] = []
@@ -485,7 +489,10 @@ class PatchouliSystem:
         while iteration < max_iter:
             iteration += 1
 
-            result = await self._worker_agent.generate_async(messages)
+            result = await self._worker_agent.generate_async(
+                messages,
+                **(generation_options or {}),
+            )
 
             if not result.was_mtp_interrupted:
                 text_segments.append(result.text)
@@ -523,6 +530,7 @@ class PatchouliSystem:
         agent_id: str = "default",
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
+        generation_options: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         流式对话入口 — chat() 的 SSE 流式变体
@@ -615,7 +623,10 @@ class PatchouliSystem:
                 iteration += 1
                 gen_result = None
 
-                async for chunk in self._worker_agent.generate_stream(messages):
+                async for chunk in self._worker_agent.generate_stream(
+                    messages,
+                    **(generation_options or {}),
+                ):
                     if chunk.is_final:
                         gen_result = chunk.result
                         break

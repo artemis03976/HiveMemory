@@ -22,6 +22,17 @@ HIVEMEMORY_ENV_PREFIX = "HIVEMEMORY__"
 
 # ========== YAML Source Helper ==========
 
+def get_default_config_file_path() -> Path:
+    return Path(__file__).parent.parent.parent.parent / "configs" / "config.yaml"
+
+
+def get_config_file_path() -> Path:
+    configured_path = os.getenv("HIVEMEMORY_CONFIG_PATH")
+    if configured_path:
+        return Path(configured_path)
+    return get_default_config_file_path()
+
+
 def yaml_config_settings_source() -> Dict[str, Any]:
     """
     Pydantic Settings Source: 从 YAML 加载配置
@@ -30,9 +41,8 @@ def yaml_config_settings_source() -> Dict[str, Any]:
 
     注意: YAML 中的值会被环境变量覆盖 (通过 Pydantic 的 env_nested_delimiter 机制)
     """
-    default_path = Path(__file__).parent.parent.parent.parent / "configs" / "config.yaml"
-    config_path = os.getenv("HIVEMEMORY_CONFIG_PATH", str(default_path))
-    path = Path(config_path)
+    default_path = get_default_config_file_path()
+    path = get_config_file_path()
 
     if not path.exists():
         # 如果是默认路径且不存在，返回空字典（使用默认值）

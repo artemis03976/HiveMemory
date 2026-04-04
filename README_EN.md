@@ -23,6 +23,7 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 ### Conversation and Integration Modes
 
 - **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, driven by `PatchouliSystem.chat_stream()` with the full generation loop and MTP execution
+- `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
 - **Passive mode**: `POST /api/v1/ingest` accepts discrete messages from external frameworks, and `PatchouliSystem.ingest()` handles buffering, analysis, retrieval, and later memory consolidation
 
 ### Memory and Topic Management
@@ -37,7 +38,7 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 ### Configuration and Observability
 
 - Current runtime config: `GET /api/v1/config`
-- Update in-memory runtime config: `POST /api/v1/config`
+- Update and persist runtime config: `POST /api/v1/config`
 - View default config: `GET /api/v1/config/defaults`
 - WebSocket log stream: `WS /api/v1/ws/logs`
 - Health check: `GET /health`

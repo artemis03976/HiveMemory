@@ -44,6 +44,7 @@ export class ChatSSEClient {
           agent_id: params.agent_id || 'default',
           session_id: params.session_id || null,
           enable_memory_retrieval: params.enable_memory_retrieval ?? true,
+          generation_options: params.generation_options,
         }),
         signal: this.abortController.signal,
       });

@@ -1,11 +1,16 @@
 """配置管理 API 路由"""
 
 import logging
+import os
+import tempfile
+from pathlib import Path
 from typing import Dict, Any
-from fastapi import APIRouter, HTTPException
+import yaml
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, ValidationError
 
-from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
+from hivememory.patchouli.config import HiveMemoryConfig, get_config_file_path
+from hivememory.patchouli.system import PatchouliSystem
 from hivememory.server.deps import get_system
 
 logger = logging.getLogger(__name__)
@@ -29,20 +34,62 @@ class ConfigResponse(BaseModel):
     koakuma: Dict[str, Any]
 
 
+def _build_config_without_path_override(config_data: Dict[str, Any] | None = None) -> HiveMemoryConfig:
+    original_path = os.environ.pop("HIVEMEMORY_CONFIG_PATH", None)
+    try:
+        if config_data is None:
+            return HiveMemoryConfig()
+        return HiveMemoryConfig(**config_data)
+    finally:
+        if original_path is not None:
+            os.environ["HIVEMEMORY_CONFIG_PATH"] = original_path
+
+
+def _persist_config_atomically(config: HiveMemoryConfig) -> Path:
+    config_path = get_config_file_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    temp_file_path: str | None = None
+    try:
+        fd, temp_file_path = tempfile.mkstemp(
+            prefix=f"{config_path.name}.",
+            suffix=".tmp",
+            dir=str(config_path.parent),
+            text=True,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
+            yaml.safe_dump(
+                config.model_dump(mode="json"),
+                temp_file,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+
+        os.replace(temp_file_path, config_path)
+
+        with open(config_path, "r", encoding="utf-8") as persisted_file:
+            persisted_data = yaml.safe_load(persisted_file) or {}
+        _build_config_without_path_override(persisted_data)
+    except Exception as e:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        raise RuntimeError(f"配置文件持久化失败: {e}") from e
+
+    return config_path
+
+
 @router.get("/config", response_model=ConfigResponse)
-async def get_config():
+async def get_config(
+    system: PatchouliSystem = Depends(get_system),
+):
     """
     获取当前系统配置
 
     返回当前运行时的完整配置，包括所有模块的参数设置。
     """
     try:
-        system = get_system()
         config = system.config
-
-        # 将配置转换为字典格式
         config_dict = config.model_dump(mode='json')
-
         return ConfigResponse(**config_dict)
     except Exception as e:
         logger.error(f"获取配置失败: {e}", exc_info=True)
@@ -50,7 +97,10 @@ async def get_config():
 
 
 @router.post("/config")
-async def update_config(new_config: Dict[str, Any]):
+async def update_config(
+    new_config: Dict[str, Any],
+    system: PatchouliSystem = Depends(get_system),
+):
     """
     更新系统配置
 
@@ -64,11 +114,8 @@ async def update_config(new_config: Dict[str, Any]):
         更新后的配置
     """
     try:
-        system = get_system()
-
-        # 验证新配置
         try:
-            validated_config = HiveMemoryConfig(**new_config)
+            validated_config = _build_config_without_path_override(new_config)
         except ValidationError as e:
             logger.warning(f"配置验证失败: {e}")
             raise HTTPException(
@@ -76,13 +123,11 @@ async def update_config(new_config: Dict[str, Any]):
                 detail=f"Configuration validation failed: {e.errors()}"
             )
 
-        # 更新系统配置
-        # 注意：这里只更新内存中的配置，不会持久化到文件
+        _persist_config_atomically(validated_config)
         system.config = validated_config
 
         logger.info("配置已更新")
 
-        # 返回更新后的配置
         config_dict = validated_config.model_dump(mode='json')
         return ConfigResponse(**config_dict)
 
@@ -102,11 +147,8 @@ async def get_default_config():
     可用于重置配置或查看默认值。
     """
     try:
-        # 创建一个新的配置实例，使用默认值
-        default_config = HiveMemoryConfig()
-
+        default_config = _build_config_without_path_override()
         config_dict = default_config.model_dump(mode='json')
-
         return ConfigResponse(**config_dict)
     except Exception as e:
         logger.error(f"获取默认配置失败: {e}", exc_info=True)

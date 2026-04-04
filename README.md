@@ -23,6 +23,7 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 ### 对话与接入模式
 
 - **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话，由 `PatchouliSystem.chat_stream()` 驱动完整生成循环与 MTP 执行
+- `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
 - **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散消息，由 `PatchouliSystem.ingest()` 负责缓冲、分析、检索和后续记忆沉淀
 
 ### 记忆与话题管理
@@ -37,7 +38,7 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 ### 配置与可观测性
 
 - 当前运行时配置：`GET /api/v1/config`
-- 更新内存中的运行时配置：`POST /api/v1/config`
+- 更新并持久化运行时配置：`POST /api/v1/config`
 - 查看默认配置：`GET /api/v1/config/defaults`
 - WebSocket 日志流：`WS /api/v1/ws/logs`
 - 健康检查：`GET /health`

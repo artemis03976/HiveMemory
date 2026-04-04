@@ -38,6 +38,7 @@ async def chat(
                 agent_id=request.agent_id,
                 session_id=request.session_id,
                 enable_memory_retrieval=request.enable_memory_retrieval,
+                generation_options=request.generation_options.model_dump(exclude_none=True) if request.generation_options else None,
             ):
                 yield {
                     "event": event["event"],
