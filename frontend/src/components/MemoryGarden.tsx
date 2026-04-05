@@ -25,6 +25,7 @@ export default function MemoryGarden() {
     sortBy,
     setSortBy,
     deleteMemory,
+    updateMemory,
     selectedType,
     setSelectedType
   } = useMemories();
@@ -33,7 +34,19 @@ export default function MemoryGarden() {
     const atom = memories.find(m => m.id === id);
     if (atom) setSelectedAtom(atom);
   };
-  const handleEdit = (id: string) => console.log('Edit', id);
+  const handleEdit = (id: string) => {
+    const atom = memories.find(m => m.id === id);
+    if (atom) setSelectedAtom(atom);
+  };
+  const handleModalEdit = async (id: string, patch: Parameters<typeof updateMemory>[1]) => {
+    try {
+      await updateMemory(id, patch);
+      setSelectedAtom(prev => prev?.id === id ? { ...prev, ...patch, tags: patch.tags ?? prev.tags, alias: patch.alias ?? prev.alias } : prev);
+      addToast('记忆已更新', 'success');
+    } catch {
+      addToast('更新失败，请重试', 'error');
+    }
+  };
   const handlePin = (id: string) => console.log('Pin', id);
   const handleDelete = (id: string) => {
     deleteMemory(id);
@@ -134,7 +147,7 @@ export default function MemoryGarden() {
         <MemoryDetailModal
           atom={selectedAtom}
           onClose={() => setSelectedAtom(null)}
-          onEdit={handleEdit}
+          onEdit={handleModalEdit}
           onPin={handlePin}
           onDelete={handleDelete}
         />

@@ -343,6 +343,7 @@ interface UseMemoriesReturn {
   // Actions
   refetch: () => Promise<void>;
   deleteMemory: (id: string) => Promise<void>;
+  updateMemory: (id: string, patch: Partial<Pick<MemoryAtom, 'title' | 'summary' | 'content' | 'alias' | 'tags'>>) => Promise<void>;
 }
 
 export function useMemories(): UseMemoriesReturn {
@@ -462,6 +463,20 @@ export function useMemories(): UseMemoriesReturn {
     setTotal(filtered.length);
   }, [rawMemories, searchQuery, searchMode, selectedType, selectedTags, sortBy]);
 
+  const updateMemory = useCallback(async (
+    id: string,
+    patch: Partial<Pick<MemoryAtom, 'title' | 'summary' | 'content' | 'alias' | 'tags'>>
+  ) => {
+    const response = await fetch(`/api/v1/memories/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!response.ok) throw new Error(`Failed to update memory: ${response.statusText}`);
+    const updated: MemoryAtom = await response.json();
+    setRawMemories(prev => prev.map(m => m.id === id ? updated : m));
+  }, []);
+
   // Delete memory with optimistic update
   const deleteMemory = useCallback(async (id: string) => {
     // Optimistic update
@@ -504,5 +519,6 @@ export function useMemories(): UseMemoriesReturn {
     setViewMode,
     refetch: fetchMemories,
     deleteMemory,
+    updateMemory,
   };
 }

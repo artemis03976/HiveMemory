@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.server.deps import get_system
-from hivememory.server.models.memory import MemoryResponse, MemoryListResponse
+from hivememory.server.models.memory import MemoryResponse, MemoryListResponse, MemoryUpdateRequest
 
 router = APIRouter(tags=["memories"])
 
@@ -70,6 +70,39 @@ async def get_memory(
     if atom is None:
         raise HTTPException(status_code=404, detail="记忆不存在")
 
+    return MemoryResponse.from_atom(atom)
+
+
+@router.patch("/memories/{memory_id}", response_model=MemoryResponse)
+async def update_memory(
+    memory_id: str,
+    body: MemoryUpdateRequest,
+    system: PatchouliSystem = Depends(get_system),
+):
+    """更新记忆的可编辑字段"""
+    try:
+        uid = UUID(memory_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
+
+    atom = system.storage.get_memory(uid)
+    if atom is None:
+        raise HTTPException(status_code=404, detail="记忆不存在")
+
+    from datetime import datetime, timezone
+    if body.title is not None:
+        atom.index.title = body.title
+    if body.summary is not None:
+        atom.index.summary = body.summary
+    if body.content is not None:
+        atom.payload.content = body.content
+    if body.alias is not None:
+        atom.index.alias = body.alias or None
+    if body.tags is not None:
+        atom.index.tags = body.tags
+    atom.meta.updated_at = datetime.now(timezone.utc)
+
+    system.storage.upsert_memory(atom)
     return MemoryResponse.from_atom(atom)
 
 

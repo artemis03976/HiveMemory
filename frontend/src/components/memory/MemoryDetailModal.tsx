@@ -1,4 +1,5 @@
-import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Code2, Wrench, Link as LinkIcon, User } from 'lucide-react';
+import { useState } from 'react';
+import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Code2, Wrench, Link as LinkIcon, User, Check } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { motion, AnimatePresence } from 'motion/react';
@@ -7,7 +8,7 @@ import { memoryTypeColors } from '../../types/memory';
 interface MemoryDetailModalProps {
   atom: MemoryAtom | null;
   onClose: () => void;
-  onEdit: (id: string) => void;
+  onEdit: (id: string, patch: Partial<Pick<MemoryAtom, 'title' | 'summary' | 'content' | 'alias' | 'tags'>>) => Promise<void>;
   onPin: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -23,17 +24,42 @@ const typeIcons: Record<string, any> = {
 };
 
 export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDelete }: MemoryDetailModalProps) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState({ title: '', summary: '', content: '', alias: '', tags: '' });
+
   if (!atom) return null;
-  
+
   const typeConfig = memoryTypeColors[atom.memory_type] || { color: 'hsl(220, 10%, 50%)', name: 'unknown' };
   const TypeIcon = typeIcons[atom.memory_type] || FileText;
 
-  const handleCopyAlias = () => {
-    navigator.clipboard.writeText(atom.alias || '');
+  const startEdit = () => {
+    setDraft({
+      title: atom.title,
+      summary: atom.summary,
+      content: atom.content,
+      alias: atom.alias ?? '',
+      tags: atom.tags.join(', '),
+    });
+    setEditing(true);
   };
 
-  const handleCopyPayload = () => {
-    navigator.clipboard.writeText(atom.content);
+  const cancelEdit = () => setEditing(false);
+
+  const saveEdit = async () => {
+    setSaving(true);
+    try {
+      await onEdit(atom.id, {
+        title: draft.title,
+        summary: draft.summary,
+        content: draft.content,
+        alias: draft.alias || null,
+        tags: draft.tags.split(',').map(t => t.trim()).filter(Boolean),
+      });
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -50,36 +76,62 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="relative w-full max-w-4xl max-h-[90vh] flex flex-col bg-surface-container-lowest border border-white/10 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden"
+          className={`relative w-full max-w-4xl max-h-[90vh] flex flex-col bg-surface-container-lowest border border-white/10 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden ${editing ? 'h-[85vh]' : ''}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
           <div className="flex items-start justify-between p-6 border-b border-white/5 bg-surface-dim shrink-0">
             <div className="flex-1 basis-0 min-w-0 pr-6">
-              <div className="flex items-center gap-3 mb-1">
-                <div 
-                  className="flex items-center justify-center p-2 rounded-lg border"
-                  style={{ 
-                    color: typeConfig.color, 
+              <div className={`flex ${editing ? 'items-start' : 'items-center'} gap-3 mb-1`}>
+                <div
+                  className={`flex items-center justify-center p-2 rounded-lg border ${editing ? 'mt-6' : ''}`}
+                  style={{
+                    color: typeConfig.color,
                     borderColor: typeConfig.color.replace('hsl', 'hsla').replace(')', ', 0.4)'),
                     backgroundColor: typeConfig.color.replace('hsl', 'hsla').replace(')', ', 0.2)')
                   }}
                 >
-                  <TypeIcon className={`w-5 h-5`} />
+                  <TypeIcon className="w-5 h-5" />
                 </div>
-                <h2 className="flex-1 min-w-0 text-xl font-bold text-slate-100 leading-tight truncate">
-                  {atom.title}
-                </h2>
-                {atom.isPinned && (
+                {editing ? (
+                  <div className="flex-1 min-w-0 flex flex-col gap-1.5 w-full">
+                    <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">标题</label>
+                    <input
+                      className="w-full text-lg font-bold bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                      placeholder="记忆标题..."
+                      value={draft.title}
+                      onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
+                    />
+                  </div>
+                ) : (
+                  <h2 className="flex-1 min-w-0 text-xl font-bold text-slate-100 leading-tight truncate">
+                    {atom.title}
+                  </h2>
+                )}
+                {atom.isPinned && !editing && (
                   <Pin className="w-4 h-4 text-primary fill-primary/20 shrink-0" />
                 )}
               </div>
-              
-              <div className="flex flex-col gap-2 mt-2 w-full min-w-0">
+
+              <div className={`flex flex-col gap-2 mt-2 w-full min-w-0 ${editing ? 'pl-[52px]' : ''}`}>
+                {/* Alias */}
                 <div className="flex items-center gap-3 w-full min-w-0 min-h-[28px]">
-                  {atom.alias ? (
-                    <button 
-                      onClick={handleCopyAlias}
+                  {editing ? (
+                    <div className="flex flex-col gap-1.5 w-full max-w-sm mt-2">
+                      <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">别名 (可选)</label>
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/20 border border-white/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 transition-all">
+                        <AtSign className="w-4 h-4 text-slate-500 shrink-0" />
+                        <input
+                          className="flex-1 text-sm font-mono bg-transparent text-primary/90 placeholder:text-slate-600 focus:outline-none"
+                          placeholder="e.g. user-preferences"
+                          value={draft.alias}
+                          onChange={e => setDraft(d => ({ ...d, alias: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  ) : atom.alias ? (
+                    <button
+                      onClick={() => navigator.clipboard.writeText(atom.alias || '')}
                       className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/30 hover:bg-black/50 border border-white/5 transition-colors group"
                     >
                       <AtSign className="w-3.5 h-3.5 text-primary/70 group-hover:text-primary" />
@@ -94,26 +146,56 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                   )}
                 </div>
 
-                <p className="w-full max-w-none text-slate-400 text-sm leading-relaxed">
-                  {atom.summary}
-                </p>
+                {/* Summary */}
+                {editing ? (
+                  <div className="flex flex-col gap-1.5 w-full mt-2">
+                    <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">摘要</label>
+                    <textarea
+                      className="w-full text-sm bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all resize-none"
+                      rows={2}
+                      placeholder="简短描述这段记忆的核心内容..."
+                      value={draft.summary}
+                      onChange={e => setDraft(d => ({ ...d, summary: e.target.value }))}
+                    />
+                  </div>
+                ) : (
+                  <p className="w-full max-w-none text-slate-400 text-sm leading-relaxed">{atom.summary}</p>
+                )}
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <button onClick={() => onPin(atom.id)} className={`p-2 rounded-lg hover:bg-white/10 transition-colors ${atom.isPinned ? 'text-primary' : 'text-slate-400'}`} title="固定/取消固定">
-                <Pin className="w-4 h-4" />
-              </button>
-              <button onClick={() => onEdit(atom.id)} className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="编辑">
-                <Edit2 className="w-4 h-4" />
-              </button>
-              <button onClick={() => onDelete(atom.id)} className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors" title="删除">
-                <Trash2 className="w-4 h-4" />
-              </button>
-              <div className="w-px h-6 bg-white/10 mx-1" />
-              <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
-                <X className="w-5 h-5" />
-              </button>
+            <div className="flex items-start gap-2 shrink-0">
+              {editing ? (
+                <div className="flex items-center gap-2 mr-2 mt-6">
+                  <button onClick={cancelEdit} className="px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">
+                    取消
+                  </button>
+                  <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    {saving ? (
+                      <span className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    {saving ? '保存中...' : '保存'}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button onClick={() => onPin(atom.id)} className={`p-2 rounded-lg hover:bg-white/10 transition-colors ${atom.isPinned ? 'text-primary' : 'text-slate-400'}`} title="固定/取消固定">
+                    <Pin className="w-4 h-4" />
+                  </button>
+                  <button onClick={startEdit} className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="编辑">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => onDelete(atom.id)} className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors" title="删除">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  <div className="w-px h-6 bg-white/10 mx-1 mt-2" />
+                  <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -125,16 +207,29 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                   <FileText className="w-4 h-4" />
                   记忆内容
                 </h3>
-                <button 
-                  onClick={handleCopyPayload}
-                  className="p-1.5 text-slate-500 hover:text-slate-300 hover:bg-white/5 rounded-lg transition-colors"
-                  title="复制内容"
-                >
-                  <Copy className="w-4 h-4" />
-                </button>
+                {!editing && (
+                  <button
+                    onClick={() => navigator.clipboard.writeText(atom.content)}
+                    className="p-1.5 text-slate-500 hover:text-slate-300 hover:bg-white/5 rounded-lg transition-colors"
+                    title="复制内容"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                )}
               </div>
-              <div className="flex-1 bg-black/40 rounded-xl border border-white/5 p-4 text-slate-300 text-sm leading-relaxed overflow-y-auto scrollbar-hide">
-                <MarkdownRenderer content={atom.content} />
+              <div className={`flex-1 rounded-xl border ${editing ? 'bg-black/20 border-white/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50' : 'bg-black/40 border-white/5'} p-4 text-slate-300 text-sm leading-relaxed overflow-hidden flex flex-col transition-all`}>
+                {editing ? (
+                  <textarea
+                    className="w-full h-full bg-transparent text-slate-300 text-sm leading-relaxed font-mono focus:outline-none resize-none placeholder:text-slate-600 scrollbar-hide"
+                    value={draft.content}
+                    placeholder="支持 Markdown 格式..."
+                    onChange={e => setDraft(d => ({ ...d, content: e.target.value }))}
+                  />
+                ) : (
+                  <div className="overflow-y-auto scrollbar-hide h-full">
+                    <MarkdownRenderer content={atom.content} />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -184,12 +279,22 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                   </div>
                 </div>
 
-                {atom.tags && atom.tags.length > 0 && (
-                  <div className="p-3 rounded-xl bg-surface-container border border-white/5">
-                    <div className="text-[13px] text-slate-500 mb-2 flex items-center gap-1.5">
-                      <Hash className="w-3.5 h-3.5" />
-                      标签
+                <div className="p-3 rounded-xl bg-surface-container border border-white/5">
+                  <div className="text-[13px] text-slate-500 mb-2 flex items-center gap-1.5">
+                    <Hash className="w-3.5 h-3.5" />
+                    标签
+                  </div>
+                  {editing ? (
+                    <div className="mt-1 flex flex-col gap-1.5">
+                      <input
+                        className="w-full text-xs font-mono bg-black/20 border border-white/10 rounded-lg px-2.5 py-2 text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                        placeholder="e.g. react, ui, bugs"
+                        value={draft.tags}
+                        onChange={e => setDraft(d => ({ ...d, tags: e.target.value }))}
+                      />
+                      <span className="text-[10px] text-slate-500 ml-1">以逗号分隔多个标签</span>
                     </div>
+                  ) : atom.tags && atom.tags.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {atom.tags.map(tag => (
                         <span key={tag} className="px-2 py-1 rounded bg-black/20 text-xs text-slate-300 font-mono border border-white/5">
@@ -197,9 +302,10 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                         </span>
                       ))}
                     </div>
-                  </div>
-                )}
-
+                  ) : (
+                    <span className="text-xs text-slate-500">暂无标签</span>
+                  )}
+                </div>
               </div>
             </div>
           </div>

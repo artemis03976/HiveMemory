@@ -43,6 +43,14 @@ class MemoryResponse(BaseModel):
         )
 
 
+class MemoryUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    content: Optional[str] = None
+    alias: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
 class MemoryListResponse(BaseModel):
     memories: List[MemoryResponse]
     total: int
