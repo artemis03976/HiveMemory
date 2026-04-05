@@ -94,17 +94,17 @@ function updateLastMtpStatus(
   for (let i = updated.length - 1; i >= 0; i--) {
     const b = updated[i];
     if (b.kind === 'mtp') {
-      const verb = (payload.verb || b.action.type || 'UNKNOWN').toUpperCase();
+      const verb = normalizeVerb(payload.verb || b.action.type || 'UNKNOWN');
       const command = payload.raw_text || [verb, payload.target].filter(Boolean).join(' | ') || b.action.command;
       updated[i] = {
         kind: 'mtp',
         action: {
           ...b.action,
-          type: verb as any,
+          type: verb,
           command,
           target: payload.target ?? b.action.target,
           params: payload.args ?? b.action.params,
-          status: payload.status as any,
+          status: normalizeMtpStatus(payload.status),
           resultMessage: payload.result_message ?? b.action.resultMessage,
           stats: payload.stats ?? b.action.stats,
         },
@@ -115,12 +115,20 @@ function updateLastMtpStatus(
   return updated;
 }
 
-function normalizeVerb(verb?: string): string {
+function normalizeVerb(verb?: string): MtpAction['type'] {
   const upper = (verb || '').toUpperCase();
   if (['RUN', 'READ', 'SEARCH', 'WRITE', 'UPDATE'].includes(upper)) {
-    return upper;
+    return upper as MtpAction['type'];
   }
   return 'UNKNOWN';
+}
+
+function normalizeMtpStatus(status?: string): MtpAction['status'] {
+  const lower = (status || '').toLowerCase();
+  if (lower === 'pending' || lower === 'executing' || lower === 'success' || lower === 'error') {
+    return lower;
+  }
+  return 'executing';
 }
 
 /** Rebuild contentBlocks from final_text while preserving MTP blocks in-place */
@@ -131,16 +139,13 @@ function rebuildBlocksWithFinalText(blocks: ContentBlock[], finalText: string): 
     return [{ kind: 'text', text: finalText }];
   }
 
-  // Strategy: the backend's final_text is the concatenation of all text segments
-  // (prefix_text from each iteration + final clean text). We split it back
-  // by measuring how many text blocks we had during streaming.
-  //
   // Simpler approach: keep MTP blocks in their positions, distribute final_text
   // across the text slots proportionally by their streaming lengths.
   const textSlots: { index: number; streamLen: number }[] = [];
   for (let i = 0; i < blocks.length; i++) {
-    if (blocks[i].kind === 'text') {
-      textSlots.push({ index: i, streamLen: (blocks[i] as any).text.length });
+    const block = blocks[i];
+    if (block.kind === 'text') {
+      textSlots.push({ index: i, streamLen: block.text.length });
     }
   }
 
@@ -266,7 +271,7 @@ export const useChatStore = create<ChatStore>()(
                   const verb = normalizeVerb(data.verb);
                   const newAction: MtpAction = {
                     id: crypto.randomUUID(),
-                    type: verb as any,
+                    type: verb,
                     command: data.raw_text || [verb, data.target].filter(Boolean).join(' | ') || verb,
                     target: data.target,
                     params: data.args,
@@ -436,13 +441,14 @@ export const useChatStore = create<ChatStore>()(
           currentTopicId: null,
         }),
         // 测试阶段：升级后统一清空已持久化会话，避免渲染异常导致刷新后继续崩溃
-        migrate: (persisted: any, version: number) => {
-          if (!persisted) return persisted as any;
+        migrate: (persisted: unknown, version: number) => {
+          if (!persisted || typeof persisted !== 'object') return persisted;
+          const migrated = persisted as { messages?: unknown; currentTopicId?: unknown };
           if (version < 2) {
-            persisted.messages = [];
-            persisted.currentTopicId = null;
+            migrated.messages = [];
+            migrated.currentTopicId = null;
           }
-          return persisted as any;
+          return migrated;
         },
       }
     ),

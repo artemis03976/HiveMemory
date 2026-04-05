@@ -2,12 +2,11 @@ import { Database, Plus, AlertCircle } from 'lucide-react';
 
 interface MemoryHeaderProps {
   totalMemories: number;
-  dbSize: string;
   warnings: number;
   onNewMemory: () => void;
 }
 
-export default function MemoryHeader({ totalMemories, dbSize, warnings, onNewMemory }: MemoryHeaderProps) {
+export default function MemoryHeader({ totalMemories, warnings, onNewMemory }: MemoryHeaderProps) {
   return (
     <header className="flex items-center justify-between px-8 py-6 border-b border-white/5 bg-surface/30 backdrop-blur-md z-10 shrink-0">
       <div>
@@ -23,11 +22,6 @@ export default function MemoryHeader({ totalMemories, dbSize, warnings, onNewMem
         <div className="flex items-center gap-2">
           <span className="text-slate-500 uppercase tracking-widest text-[12px]">记忆总数</span>
           <span className="text-primary font-bold">{totalMemories.toLocaleString()}</span>
-        </div>
-        <div className="w-px h-4 bg-white/10" />
-        <div className="flex items-center gap-2">
-          <span className="text-slate-500 uppercase tracking-widest text-[12px]">向量库</span>
-          <span className="text-emerald-400 font-bold">{dbSize}</span>
         </div>
         <div className="w-px h-4 bg-white/10" />
         <div className={`flex items-center gap-2 ${warnings > 0 ? 'text-red-400' : 'text-slate-500'}`}>

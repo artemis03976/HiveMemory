@@ -47,7 +47,7 @@ export default function MemoryGarden() {
       addToast('更新失败，请重试', 'error');
     }
   };
-  const handlePin = (id: string) => console.log('Pin', id);
+  const handlePin = () => addToast('Pin 功能施工中', 'info');
   const handleDelete = (id: string) => {
     deleteMemory(id);
     if (selectedAtom?.id === id) {
@@ -60,7 +60,6 @@ export default function MemoryGarden() {
       {/* Header & Stats */}
       <MemoryHeader 
         totalMemories={total}
-        dbSize="45MB"
         warnings={0}
         onNewMemory={() => addToast('施工中，请耐心等待~', 'info')}
       />

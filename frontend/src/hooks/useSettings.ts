@@ -241,7 +241,7 @@ interface UseSettingsReturn {
   error: string | null;
   validationErrors: ValidationError[];
   isDirty: boolean;
-  updateConfig: (path: string, value: any) => void;
+  updateConfig: (path: string, value: unknown) => void;
   saveConfig: () => Promise<void>;
   resetConfig: () => void;
   resetToDefaults: () => Promise<void>;
@@ -279,15 +279,20 @@ export const useSettings = (): UseSettingsReturn => {
   }, []);
 
   // Update a specific configuration value
-  const updateConfig = (path: string, value: any) => {
+  const updateConfig = (path: string, value: unknown) => {
     if (!config) return;
 
-    const newConfig = JSON.parse(JSON.stringify(config));
+    const newConfig = JSON.parse(JSON.stringify(config)) as HiveMemoryConfig;
     const keys = path.split('.');
-    let current: any = newConfig;
+    let current: Record<string, unknown> = newConfig as unknown as Record<string, unknown>;
 
     for (let i = 0; i < keys.length - 1; i++) {
-      current = current[keys[i]];
+      const key = keys[i];
+      const next = current[key];
+      if (typeof next !== 'object' || next === null) {
+        current[key] = {};
+      }
+      current = current[key] as Record<string, unknown>;
     }
 
     current[keys[keys.length - 1]] = value;

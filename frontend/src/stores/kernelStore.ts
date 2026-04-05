@@ -30,6 +30,7 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]; // Exponential backoff
 const PING_INTERVAL = 30000; // 30 seconds
 const CONNECT_TIMEOUT = 10000;
+type PingWebSocket = WebSocket & { _pingTimer?: ReturnType<typeof setInterval> };
 
 /**
  * Group logs by trace_id and span_name
@@ -132,6 +133,7 @@ function initializeWebSocket(
   }, CONNECT_TIMEOUT);
 
   ws.onopen = () => {
+    const managedWs = ws as PingWebSocket;
     console.log('[KernelStore] WebSocket connected');
     clearTimeout(connectTimeout);
     set({
@@ -158,7 +160,7 @@ function initializeWebSocket(
     }, PING_INTERVAL);
 
     // Store ping timer for cleanup
-    (ws as any)._pingTimer = pingTimer;
+    managedWs._pingTimer = pingTimer;
   };
 
   ws.onmessage = (event) => {
@@ -205,12 +207,13 @@ function initializeWebSocket(
   };
 
   ws.onclose = () => {
+    const managedWs = ws as PingWebSocket;
     console.log('[KernelStore] WebSocket closed');
     clearTimeout(connectTimeout);
 
     // Clear ping timer
-    if ((ws as any)._pingTimer) {
-      clearInterval((ws as any)._pingTimer);
+    if (managedWs._pingTimer) {
+      clearInterval(managedWs._pingTimer);
     }
 
     const state = get();

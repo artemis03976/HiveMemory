@@ -67,7 +67,6 @@ export default function TopicCard({
               onClick={(e) => { 
                 e.stopPropagation(); 
                 if (onArchive) onArchive(topic.id);
-                else console.log('Archive', topic.id); 
               }}
             >
               <Archive className="w-3.5 h-3.5" />
@@ -80,7 +79,6 @@ export default function TopicCard({
               onClick={(e) => { 
                 e.stopPropagation(); 
                 if (onDelete) onDelete(topic.id);
-                else console.log('Delete', topic.id); 
               }}
             >
               <Trash2 className="w-3.5 h-3.5" />

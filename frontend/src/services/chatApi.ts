@@ -123,7 +123,7 @@ export class ChatSSEClient {
    */
   private handleEvent(
     eventType: string,
-    data: any,
+    data: unknown,
     callbacks: SSECallbacks
   ): void {
     switch (eventType) {

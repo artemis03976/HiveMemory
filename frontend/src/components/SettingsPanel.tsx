@@ -52,6 +52,14 @@ export default function Settings() {
     );
   }
 
+  if (!config) {
+    return (
+      <div className="flex-1 flex items-center justify-center h-full bg-background text-slate-400">
+        配置加载失败，请稍后重试。
+      </div>
+    );
+  }
+
   const hasErrors = validationErrors.some(e => e.severity === 'error');
 
   const handleSave = async () => {

@@ -2,6 +2,13 @@
   "name": "frontend",
   "private": true,
   "version": "0.1.0",
+  "description": "HiveMemory Frontend Dashboard",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/artemis03976/HiveMemory.git"
+  },
+  "author": "artemis03976",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -24,6 +31,7 @@
     "react-textarea-autosize": "^8.5.9",
     "react-window": "^2.2.7",
     "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.5.0",
     "unist-util-visit": "^5.1.0",
     "use-debounce": "^10.1.0",

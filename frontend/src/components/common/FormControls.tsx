@@ -1,3 +1,5 @@
+import type { InputHTMLAttributes } from 'react';
+
 export function SettingSection({ title, children }: { title: string, children: React.ReactNode }) {
   return (
     <section className="mb-8">
@@ -35,13 +37,41 @@ export function Toggle({ checked, onChange, disabled }: { checked: boolean, onCh
   );
 }
 
-export function Input({ type = "text", value, onChange, placeholder, className = "w-48", step, disabled, error }: any) {
+type BaseInputProps = {
+  placeholder?: string;
+  className?: string;
+  step?: number | string;
+  disabled?: boolean;
+  error?: string;
+};
+
+type NumberInputProps = BaseInputProps & {
+  type: 'number';
+  value?: number | null;
+  onChange?: (v: number) => void;
+};
+
+type TextInputProps = BaseInputProps & {
+  type?: Exclude<InputHTMLAttributes<HTMLInputElement>['type'], 'number'>;
+  value?: string | null;
+  onChange?: (v: string) => void;
+};
+
+type InputProps = NumberInputProps | TextInputProps;
+
+export function Input({ type = 'text', value, onChange, placeholder, className = 'w-48', step, disabled, error }: InputProps) {
   return (
     <div className="flex flex-col gap-1 items-end">
       <input 
         type={type} 
         value={value ?? ''}
-        onChange={(e) => onChange?.(type === 'number' ? Number(e.target.value) : e.target.value)}
+        onChange={(e) => {
+          if (type === 'number') {
+            (onChange as NumberInputProps['onChange'])?.(Number(e.target.value));
+            return;
+          }
+          (onChange as TextInputProps['onChange'])?.(e.target.value);
+        }}
         placeholder={placeholder}
         step={step}
         disabled={disabled}

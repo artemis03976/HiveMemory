@@ -17,21 +17,14 @@ export default function ChatLayout() {
     fetchTopics();
   }, [fetchTopics]);
 
-  useEffect(() => {
-    if (currentTopicId) {
-      setActiveTopicId(currentTopicId);
-    } else if (topics.length > 0 && !activeTopicId) {
-      setActiveTopicId(topics[0].id);
-    }
-  }, [currentTopicId, topics, activeTopicId]);
-
-  const activeTopic = topics.find((t) => t.id === activeTopicId) || topics[0];
+  const resolvedActiveTopicId = currentTopicId || activeTopicId || topics[0]?.id || '';
+  const activeTopic = topics.find((t) => t.id === resolvedActiveTopicId) || topics[0];
 
   return (
     <>
       <ContextSidebar
         topics={topics}
-        activeTopicId={activeTopicId}
+        activeTopicId={resolvedActiveTopicId}
         onTopicSelect={setActiveTopicId}
         isCollapsed={isContextSidebarCollapsed}
         onToggleCollapse={() => setIsContextSidebarCollapsed(!isContextSidebarCollapsed)}
