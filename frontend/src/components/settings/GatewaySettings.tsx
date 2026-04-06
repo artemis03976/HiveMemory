@@ -1,7 +1,7 @@
 import { SettingSection, SettingRow, Toggle } from '../common/FormControls';
-import type { SettingsBaseProps } from '@/types/settings';
+import type { SettingsWithValidationProps } from '@/types/settings';
 
-export function GatewaySettings({ config, updateConfig }: SettingsBaseProps) {
+export function GatewaySettings({ config, updateConfig }: SettingsWithValidationProps) {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <SettingSection title="网关拦截器">

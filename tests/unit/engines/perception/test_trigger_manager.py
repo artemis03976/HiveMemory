@@ -285,7 +285,8 @@ class TestTriggerManagerArchiveTopic:
         self.topic_id = "test_topic_123"
         self.identity = Identity(user_id="user1", agent_id="agent1")
 
-    def test_archive_without_callback(self):
+    @pytest.mark.asyncio
+    async def test_archive_without_callback(self):
         """测试无回调时跳过 Archive"""
         manager = TriggerManager(buffer_manager=self.mock_buffer_manager)
 
@@ -293,12 +294,13 @@ class TestTriggerManagerArchiveTopic:
             LogicalBlock(user_query="test", clean_response="test", total_tokens=10)
         ]
 
-        manager._archive_topic(self.topic_id, blocks, "summary", None)
+        await manager._archive_topic(self.topic_id, blocks, "summary", None)
 
         # 不应该抛出异常
         assert True
 
-    def test_archive_filters_worth_saving_false(self):
+    @pytest.mark.asyncio
+    async def test_archive_filters_worth_saving_false(self):
         """测试过滤 worth_saving=False 的 block"""
         blocks = [
             LogicalBlock(user_query="test1", clean_response="test1", worth_saving=True, total_tokens=10),
@@ -306,32 +308,34 @@ class TestTriggerManagerArchiveTopic:
             LogicalBlock(user_query="test3", clean_response="test3", worth_saving=None, total_tokens=10),
         ]
 
-        self.manager._archive_topic(self.topic_id, blocks, "summary", None)
+        await self.manager._archive_topic(self.topic_id, blocks, "summary", None)
 
         # 验证只发射了 2 个 block (worth_saving=True 和 None)
         call_args = self.mock_callback.call_args
         emitted_blocks = call_args[0][0]["blocks"]
         assert len(emitted_blocks) == 2
 
-    def test_archive_payload_contains_identity(self):
+    @pytest.mark.asyncio
+    async def test_archive_payload_contains_identity(self):
         blocks = [
             LogicalBlock(user_query="test", clean_response="test", total_tokens=10)
         ]
 
-        self.manager._archive_topic(
+        await self.manager._archive_topic(
             self.topic_id, blocks, "summary", None, FlushReason.IDLE_TIMEOUT, self.identity
         )
 
         call_args = self.mock_callback.call_args
         assert call_args[0][0]["identity"] == self.identity
 
-    def test_archive_skips_all_filtered(self):
+    @pytest.mark.asyncio
+    async def test_archive_skips_all_filtered(self):
         """测试所有 blocks 被过滤时跳过 Archive"""
         blocks = [
             LogicalBlock(user_query="test", clean_response="test", worth_saving=False, total_tokens=10)
         ]
 
-        self.manager._archive_topic(self.topic_id, blocks, "summary", None)
+        await self.manager._archive_topic(self.topic_id, blocks, "summary", None)
 
         self.mock_callback.assert_not_called()
 

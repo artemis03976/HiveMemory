@@ -1,7 +1,7 @@
 import { SettingSection, SettingRow, Input, Toggle, Select } from '../common/FormControls';
-import type { SettingsBaseProps } from '@/types/settings';
+import type { SettingsWithValidationProps } from '@/types/settings';
 
-export function KoakumaSettings({ config, updateConfig }: SettingsBaseProps) {
+export function KoakumaSettings({ config, updateConfig }: SettingsWithValidationProps) {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <SettingSection title="Koakuma 运行时">
