@@ -29,6 +29,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 from hivememory.engines.perception.models import (
     FlushReason,
     LogicalBlock,
+    ArchivePayload,
 )
 
 if TYPE_CHECKING:
@@ -197,7 +198,7 @@ class TriggerManager:
                 previous_summary,
                 mtp_focus,
                 trigger_reason,
-                buffer.identity,
+                buffer.user_id,
                 wait_for_completion=wait_for_archive,
             )
 
@@ -223,7 +224,7 @@ class TriggerManager:
         state_summary: str,
         mtp_focus: Optional[Any],
         reason: FlushReason = FlushReason.IDLE_TIMEOUT,
-        identity: Optional[Any] = None,
+        user_id: Optional[str] = None,
         wait_for_completion: bool = False,
     ) -> None:
         """
@@ -253,14 +254,14 @@ class TriggerManager:
             return
 
         # 构建完整的 payload，包含 reason 以便回调函数正确处理
-        payload = {
-            "topic_id": topic_id,
-            "identity": identity,
-            "blocks": blocks_to_archive,
-            "state_summary": state_summary,
-            "focus": mtp_focus,  # MTP_WRITE 时是 write_focus，MTP_UPDATE 时是 update_focus
-            "reason": reason,     # flush 原因，用于回调区分处理模式
-        }
+        payload = ArchivePayload(
+            topic_id=topic_id,
+            user_id=user_id,
+            blocks=blocks_to_archive,
+            state_summary=state_summary,
+            focus=mtp_focus,
+            reason=reason,
+        )
 
         # 使用回调函数触发记忆生成
         if self._on_generate_memory:

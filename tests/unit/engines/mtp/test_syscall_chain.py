@@ -39,7 +39,6 @@ from hivememory.patchouli.protocol.mtp import (
 from hivememory.patchouli.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import (
     MTPPromptBuilder,
-    AgentRole,
 )
 
 
@@ -56,13 +55,13 @@ def koakuma() -> KoakumaRuntime:
 @pytest.fixture
 def mtp_prompt_en() -> str:
     """英文 MTP System Prompt"""
-    return MTPPromptBuilder(language="en", role=AgentRole.DEFAULT).build()
+    return MTPPromptBuilder(language="en").build()
 
 
 @pytest.fixture
 def mtp_prompt_zh() -> str:
     """中文 MTP System Prompt"""
-    return MTPPromptBuilder(language="zh", role=AgentRole.DEFAULT).build()
+    return MTPPromptBuilder(language="zh").build()
 
 
 # ========== Helpers ==========

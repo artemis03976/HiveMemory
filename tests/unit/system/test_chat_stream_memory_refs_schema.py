@@ -71,7 +71,7 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     )
     system.kernel.submit_interaction = AsyncMock(return_value=None)
     system.kernel.koakuma = MagicMock()
-    system.kernel.koakuma.set_current_user = MagicMock()
+    system.kernel.koakuma.set_current_identity = MagicMock()
     system.kernel.koakuma.reset_interaction_state = MagicMock()
     system.kernel.koakuma.get_interaction_traces = MagicMock(return_value=[])
     system.kernel.koakuma.get_write_focus = MagicMock(return_value=None)

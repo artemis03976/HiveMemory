@@ -105,8 +105,8 @@ class TestIdleHibernateSwapOut:
         call_args = mock_callback.call_args
         payload = call_args[0][0]
         # 验证 payload 包含必要字段
-        assert "topic_id" in payload
-        assert "blocks" in payload
+        assert payload.topic_id is not None
+        assert len(payload.blocks) > 0
 
     @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
     @pytest.mark.asyncio

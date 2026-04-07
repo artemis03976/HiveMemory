@@ -15,6 +15,7 @@ import pytest
 pytestmark = pytest.mark.e2e
 from unittest.mock import MagicMock, patch
 
+from hivememory.core.models import Identity
 from hivememory.patchouli.protocol.mtp import (
     MTPVerb,
     MTPResponseStatus,
@@ -370,18 +371,3 @@ class TestKoakumaResponseFormatting:
         result = koakuma.execute_mtp("⟪ SEARCH | * | ⟫")
 
         assert result.execution_time_ms >= 0
-
-
-# ========== 用户管理测试 ==========
-
-class TestKoakumaUserManagement:
-    """测试 Koakuma 用户管理"""
-
-    def test_set_current_user(self, koakuma: KoakumaRuntime):
-        """测试设置当前用户"""
-        koakuma.set_current_user("user_123")
-        assert koakuma._get_current_user_id() == "user_123"
-
-    def test_default_user(self, koakuma: KoakumaRuntime):
-        """测试默认用户"""
-        assert koakuma._get_current_user_id() == "default"

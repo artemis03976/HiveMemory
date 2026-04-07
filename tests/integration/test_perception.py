@@ -46,11 +46,11 @@ class TestAdsorberAndBufferCollaboration:
         identity = Identity(user_id="user1", agent_id="agent1")
 
         # 创建 buffer
-        buffer = manager.create_buffer(identity)
+        buffer = manager.create_buffer(user_id=identity.user_id, title="新建话题")
 
         # 验证 buffer 创建
         assert buffer is not None
-        assert buffer.identity == identity
+        assert buffer.user_id == identity.user_id
         assert buffer.topic_id is not None
 
     def test_adsorber_detects_topic_shift(self):
@@ -59,12 +59,12 @@ class TestAdsorberAndBufferCollaboration:
         identity = Identity(user_id="user1", agent_id="agent1")
 
         # 创建两个话题
-        buf1 = manager.create_buffer(identity, title="Topic 1")
-        buf2 = manager.create_buffer(identity, title="Topic 2")
+        buf1 = manager.create_buffer(user_id=identity.user_id, title="Topic 1")
+        buf2 = manager.create_buffer(user_id=identity.user_id, title="Topic 2")
 
         # 验证话题隔离
         assert buf1.topic_id != buf2.topic_id
-        assert buf1.identity == buf2.identity  # 同一个用户
+        assert buf1.user_id == buf2.user_id  # 同一个用户
 
 
 class TestSemanticFlowPerceptionLayerOrchestration:
@@ -193,8 +193,48 @@ class TestPerceptionAndGenerationCollaboration:
         await asyncio.sleep(0)
 
         assert len(archive_payloads) > 0
-        assert archive_payloads[0]["topic_id"] == topic_id
-        assert len(archive_payloads[0]["blocks"]) > 0
+        assert archive_payloads[0].topic_id == topic_id
+        assert len(archive_payloads[0].blocks) > 0
+
+    @pytest.mark.asyncio
+    async def test_manual_trigger_archives_identity_from_payload(self):
+        """场景D：manual_trigger 后归档块保留 identity 溯源"""
+        archive_payloads = []
+
+        async def on_generate(payload):
+            archive_payloads.append(payload)
+
+        config = SemanticFlowPerceptionConfig()
+        mock_relay = Mock()
+        mock_relay.should_relay.return_value = None
+        mock_relay.generate_summary.return_value = ""
+
+        perception = SemanticFlowPerceptionLayer(
+            config=config,
+            relay_controller=mock_relay,
+        )
+        perception.set_generation_callback(on_generate)
+
+        identity = Identity(user_id="test_user", agent_id="reviewer_doll")
+        buffer = perception._buffer_manager.create_buffer(
+            user_id=identity.user_id,
+            title="新建话题",
+        )
+        topic_id = buffer.topic_id
+        perception._buffer_manager.set_last_active_topic(topic_id)
+        await perception.ingest_payload(
+            _make_payload("请 review 一下上面的代码", "建议补充边界条件测试", identity),
+            topic_id=topic_id,
+        )
+
+        result = await perception.manual_trigger(topic_id)
+        assert result["success"] is True
+        await asyncio.sleep(0)
+
+        assert len(archive_payloads) > 0
+        archived_blocks = archive_payloads[0].blocks
+        assert len(archived_blocks) == 1
+        assert archived_blocks[0].identity.agent_id == "reviewer_doll"
 
 
 class TestTokenManagement:

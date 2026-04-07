@@ -492,7 +492,7 @@ class HotPathTestSystem:
             retrieval_request = RetrievalRequest(
                 semantic_query=gaze_result.rewritten_query,
                 keywords=gaze_result.search_keywords,
-                user_id=gaze_result.identity.user_id,
+                identity=gaze_result.identity,
             )
             retrieval_response = self.retrieval_familiar.retrieve(retrieval_request)
 

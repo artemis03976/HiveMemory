@@ -21,7 +21,7 @@ import inspect
 from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
 from hivememory.core.models import Identity, StreamMessage
-from hivememory.engines.perception.models import FlushReason, InteractionPayload
+from hivememory.engines.perception.models import FlushReason, InteractionPayload, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
@@ -130,7 +130,7 @@ class LibrarianCore:
         else:
             logger.warning("perception_layer 未注入，跳过感知处理")
 
-    async def _on_generate_memory(self, payload: Dict[str, Any]) -> None:
+    async def _on_generate_memory(self, payload: "ArchivePayload") -> None:
         """
         感知层 Archive 回调（TriggerManager 触发）
 
@@ -141,29 +141,24 @@ class LibrarianCore:
             - Mode B (WRITE): 携带 write_focus，定向记忆生成
             - Mode C (UPDATE): 携带 update_focus，定向记忆更新
 
+        每个 LogicalBlock 自行携带 identity，无需在此层面统一构建。
+
         Args:
-            payload: 包含以下键的字典:
-                - blocks: List[LogicalBlock] - 从 buffer flush 出的 blocks
+            payload: ArchivePayload 对象，包含:
+                - blocks: List[LogicalBlock] - 从 buffer flush 出的 blocks（每个携带 identity）
                 - state_summary: str - 话题状态摘要
                 - focus: write_focus 或 update_focus (仅 MTP_WRITE/UPDATE 时有值)
                 - reason: FlushReason - flush 触发原因
+                - topic_id: str - 话题 ID
+                - user_id: Optional[str] - 用户 ID
         """
         try:
-            blocks = payload.get("blocks", [])
-            state_summary = payload.get("state_summary", "")
-            focus = payload.get("focus")
-            reason: FlushReason = payload.get("reason", FlushReason.IDLE_TIMEOUT)
-            topic_id = payload.get("topic_id")
-            identity = payload.get("identity")
-            if identity is None and topic_id and self.perception_layer:
-                try:
-                    buffer = self.perception_layer.get_buffer(topic_id)
-                    if buffer:
-                        identity = buffer.identity
-                except Exception:
-                    identity = None
+            blocks = payload.blocks
+            state_summary = payload.state_summary
+            focus = payload.focus
+            reason = payload.reason
 
-            messages = self._blocks_to_messages(blocks, identity)
+            messages = self._blocks_to_messages(blocks)
 
             if not messages:
                 logger.warning("空消息列表，跳过处理")
@@ -241,11 +236,21 @@ class LibrarianCore:
     def _blocks_to_messages(
         self,
         blocks: List[Any],
-        identity: Optional[Identity],
     ) -> List[StreamMessage]:
+        """
+        将 LogicalBlock 列表转换为 StreamMessage 列表
+
+        每个 block 自行携带 identity，直接调用 block.to_stream_messages()。
+
+        Args:
+            blocks: LogicalBlock 列表
+
+        Returns:
+            List[StreamMessage]: 转换后的消息列表
+        """
         messages: List[StreamMessage] = []
         for block in blocks:
-            messages.extend(block.to_stream_messages(identity))
+            messages.extend(block.to_stream_messages())
         return messages
 
     # ========== 生命周期管理 API (未来扩展) ==========

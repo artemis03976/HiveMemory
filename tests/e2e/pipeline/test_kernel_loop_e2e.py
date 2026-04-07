@@ -30,7 +30,7 @@ from hivememory.patchouli.config import LLMConfig, KoakumaConfig
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.protocol.models import ChatResult
-from hivememory.prompts.mtp import MTPPromptBuilder, AgentRole
+from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.patchouli.system import PatchouliSystem
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,6 @@ def _build_mtp_system_prompt(language: str = "en") -> str:
         ("sys_python_repl", "Execute Python code for calculation or data processing."),
     ]
     mtp_fragment = MTPPromptBuilder(
-        role=AgentRole.DEFAULT,
         language=language,
         kernel_tools=available_tools,
     ).build()

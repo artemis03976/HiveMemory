@@ -112,8 +112,9 @@ class RetrievalFamiliar:
         response = RetrievalResponse()
 
         try:
-            # Step 1: 基础过滤条件 (user_id 安全基线，不可被 MTP filter 覆盖)
-            query_filters = QueryFilters(user_id=request.user_id)
+            # Step 1: 基础过滤条件 (identity 安全基线，不可被 MTP filter 覆盖)
+            # 实现 MutiAgentSystem.md §3.3.1 Visibility Scope Filtering
+            query_filters = QueryFilters(identity=request.identity)
 
             # Step 2: 合并 MTP filter (如果有)
             if request.filters is not None:
@@ -121,8 +122,6 @@ class RetrievalFamiliar:
                     query_filters.memory_type = request.filters.memory_type
                 if request.filters.tags:
                     query_filters.tags = request.filters.tags
-                if request.filters.source_agent_id is not None:
-                    query_filters.source_agent_id = request.filters.source_agent_id
                 if request.filters.min_confidence > 0:
                     query_filters.min_confidence = request.filters.min_confidence
 

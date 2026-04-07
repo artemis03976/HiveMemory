@@ -146,21 +146,21 @@ class RetrievalRequest(ProtocolMessage):
     用于热路径 (Hot Path) 的实时记忆检索。
 
     乐观检索策略：
-    - 基础过滤条件由 RetrievalFamiliar 根据 user_id 动态创建
+    - 基础过滤条件由 RetrievalFamiliar 根据 identity 动态创建
     - MTP SEARCH 指令可通过 filters 字段叠加额外过滤维度 (如 type:CODE)
 
     Attributes:
         msg_type: 固定为 RETRIEVAL_REQUEST
         semantic_query: 指代消解后的完整查询，用于语义检索
         keywords: 稀疏检索关键词列表（BM25）
-        user_id: 用户标识符
-        filters: MTP filter 解析后的过滤条件 (可选，叠加到 user_id 基线之上)
+        identity: 请求者身份标识 (user_id + agent_id + team_id)
+        filters: MTP filter 解析后的过滤条件 (可选，叠加到 identity 基线之上)
 
     Examples:
         >>> request = RetrievalRequest(
         ...     semantic_query="如何部署贪吃蛇游戏？",
         ...     keywords=["部署", "贪吃蛇", "游戏"],
-        ...     user_id="user123"
+        ...     identity=Identity(user_id="user123")
         ... )
     """
 
@@ -172,11 +172,16 @@ class RetrievalRequest(ProtocolMessage):
     # 稀疏检索关键词（用于 BM25）
     keywords: List[str] = Field(default_factory=list, description="检索关键词")
 
-    # 用户标识符
-    user_id: str = Field(default="default", description="用户 ID")
+    # 请求者身份标识
+    identity: Identity = Field(default_factory=Identity, description="请求者身份标识")
 
     # MTP SEARCH 指令传入的过滤条件 (可选)
     filters: Optional[QueryFilters] = Field(default=None, description="MTP filter 过滤条件")
+
+    @property
+    def user_id(self) -> str:
+        """兼容属性: 从 identity 中提取 user_id"""
+        return self.identity.user_id
 
 
 class RetrievalResponse(ProtocolMessage):

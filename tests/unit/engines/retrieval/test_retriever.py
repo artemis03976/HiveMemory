@@ -13,7 +13,7 @@ from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime, timedelta
 import time
 
-from hivememory.core.models import MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
+from hivememory.core.models import Identity, MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
 from hivememory.patchouli.config import (
     DenseRetrieverConfig,
     SparseRetrieverConfig,
@@ -65,15 +65,22 @@ class TestDenseRetriever:
         """测试带过滤条件的检索"""
         self.mock_storage.search_memories.return_value = []
         
-        filters = QueryFilters(memory_type=MemoryType.FACT, user_id="u1")
+        filters = QueryFilters(memory_type=MemoryType.FACT, identity=Identity(user_id="u1"))
         query = RetrievalQuery(semantic_query="test", filters=filters)
         
         self.retriever.retrieve(query)
         
-        # 验证过滤条件传递
+        # 验证过滤条件传递 (现在返回 qdrant Filter 对象)
         call_args = self.mock_storage.search_memories.call_args
-        assert call_args.kwargs["filters"]["index.memory_type"] == "FACT"
-        assert call_args.kwargs["filters"]["meta.user_id"] == "u1"
+        qdrant_filter = call_args.kwargs["filters"]
+        # Filter 对象的 must 条件中应包含 user_id 和 memory_type
+        must_conditions = qdrant_filter.must
+        field_keys = []
+        for cond in must_conditions:
+            if hasattr(cond, 'key'):
+                field_keys.append(cond.key)
+        assert "meta.user_id" in field_keys
+        assert "index.memory_type" in field_keys
 
     def test_time_decay(self):
         """测试时间衰减"""

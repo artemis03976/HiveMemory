@@ -396,6 +396,10 @@ class PatchouliSystem:
                 user_id=user_id, agent_id=agent_id, session_id=session_id
             )
 
+            # 1.5 Load agent profile (Phase 1 多智能体)
+            agent_profile = self.kernel.load_agent_profile(agent_id)
+            persona = self.kernel.get_agent_persona(agent_id)
+
             # 2. Get topic snapshots from perception layer
             topic_snapshots = await self.kernel.get_topic_snapshots(identity)
 
@@ -426,9 +430,15 @@ class PatchouliSystem:
                 topic_context=topic_context,
                 hot_result=hot_result,
                 user_message=user_message,
+                profile=agent_profile,
+                persona=persona,
+                current_agent_id=agent_id,
             )
 
             # 8. 递归生成循环
+            # 设置 Koakuma 权限沙箱 (Phase 1 多智能体)
+            self.kernel.koakuma.set_active_profile(agent_profile)
+
             loop_result = await self._recursive_generation_loop(
                 messages,
                 user_id,
@@ -483,7 +493,7 @@ class PatchouliSystem:
         mtp_commands: List[str] = []
         iteration = 0
 
-        self.kernel.koakuma.set_current_user(user_id)
+        self.kernel.koakuma.set_current_identity(Identity(user_id=user_id))
         self.kernel.koakuma.reset_interaction_state()
 
         while iteration < max_iter:
@@ -559,6 +569,11 @@ class PatchouliSystem:
             identity = Identity(
                 user_id=user_id, agent_id=agent_id, session_id=session_id
             )
+
+            # Load agent profile (Phase 1 多智能体)
+            agent_profile = self.kernel.load_agent_profile(agent_id)
+            persona = self.kernel.get_agent_persona(agent_id)
+
             # 1. 获取话题快照
             topic_snapshots = await self.kernel.get_topic_snapshots(identity)
 
@@ -608,6 +623,9 @@ class PatchouliSystem:
                 topic_context=topic_context,
                 hot_result=hot_result,
                 user_message=user_message,
+                profile=agent_profile,
+                persona=persona,
+                current_agent_id=agent_id,
             )
 
             # 6. 流式递归生成循环
@@ -616,7 +634,8 @@ class PatchouliSystem:
             mtp_commands: List[str] = []
             iteration = 0
 
-            self.kernel.koakuma.set_current_user(user_id)
+            self.kernel.koakuma.set_current_identity(identity)
+            self.kernel.koakuma.set_active_profile(agent_profile)
             self.kernel.koakuma.reset_interaction_state()
 
             while iteration < max_iter:
@@ -798,66 +817,68 @@ class PatchouliSystem:
         topic_context: Dict[str, Any],
         hot_result,  # KernelHotResult
         user_message: str,
+        profile=None,  # AgentProfileConfig (Phase 1)
+        persona: str = "",
+        current_agent_id: str = "default",
     ) -> List[Dict[str, str]]:
         """
         从感知层上下文组装 LLM messages
 
-        组装顺序:
-        1. System prompt (MTP + memory + topic state)
-        2. Topic history (from blocks)
+        三明治结构 (Phase 1):
+        1. System prompt:
+           - Top: MTP 协议教学 + 存储降级通知
+           - Middle: 灵魂注入 (persona)
+           - Bottom: 预检索记忆 + 话题状态
+        2. Topic history (from blocks, 含多角色渲染)
         3. Current user message
 
         Args:
             topic_context: 话题上下文（来自感知层）
             hot_result: Kernel hot path 结果（包含检索到的记忆）
             user_message: 当前用户消息
+            profile: 人偶图纸配置（Phase 1 权限过滤）
+            persona: 人偶灵魂文本（Phase 1 灵魂注入）
+            current_agent_id: 当前活跃 Agent 别名（Phase 1 多角色渲染）
 
         Returns:
             List[Dict]: OpenAI 格式的 messages
         """
         from hivememory.engines.perception.context_converter import PerceptionContextConverter
+        from hivememory.prompts.system_prompt import SystemPromptBuilder
 
         messages = []
 
-        # 1. Assemble system prompt
-        full_system_prompt = ""
+        # 1. Assemble system prompt via SystemPromptBuilder
+        language = self.kernel.config.koakuma.mtp_prompt.language if self.kernel.config.koakuma.mtp_prompt else "zh"
+        builder = SystemPromptBuilder(language=language)
 
-        # Add MTP prompt
-        mtp_prompt = self.kernel.get_mtp_prompt()
-        if mtp_prompt:
-            full_system_prompt = mtp_prompt
+        # Top: MTP 协议教学
+        mtp_prompt = self.kernel.get_mtp_prompt(profile=profile)
+        builder.with_mtp_prompt(mtp_prompt)
 
-            # Health check: if storage is offline, append degradation notice
-            if not self.kernel.check_storage_health():
-                full_system_prompt += (
-                    "\n\n[SYSTEM NOTICE] Memory storage is currently OFFLINE. "
-                    "All MTP commands (SEARCH, READ, RUN, WRITE, UPDATE) will fail. "
-                    "Do NOT issue any MTP commands. Answer from your own knowledge."
-                )
+        # Top: 存储降级通知
+        if mtp_prompt and not self.kernel.check_storage_health():
+            builder.with_storage_offline_notice()
 
-        # Add retrieved memory
-        if hot_result.rendered_memory_context:
-            if full_system_prompt:
-                full_system_prompt += f"\n\n{hot_result.rendered_memory_context}"
-            else:
-                full_system_prompt = hot_result.rendered_memory_context
+        # Middle: 灵魂注入
+        if profile and persona:
+            builder.with_persona(persona)
 
-        # Add topic state summary
-        if topic_context["state_summary"]:
-            state_section = f"[Topic State]\n{topic_context['state_summary']}"
-            if full_system_prompt:
-                full_system_prompt += f"\n\n{state_section}"
-            else:
-                full_system_prompt = state_section
+        # Bottom: 预检索记忆
+        builder.with_memory_context(hot_result.rendered_memory_context)
 
-        # Only add system message if there's content
-        if full_system_prompt:
-            messages.append({"role": "system", "content": full_system_prompt})
+        # Bottom: 话题状态
+        builder.with_topic_state(topic_context.get("state_summary", ""))
 
-        # 2. Add topic history from blocks
+        system_prompt = builder.build()
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        # 2. Add topic history from blocks (with multi-agent role rendering)
         history_messages = PerceptionContextConverter.blocks_to_messages(
             blocks=topic_context["blocks"],
             include_state_summary=False,  # Already included in system prompt
+            current_agent_id=current_agent_id,
         )
         messages.extend(history_messages)
 

@@ -23,14 +23,20 @@ class PerceptionContextConverter:
         blocks: List[LogicalBlock],
         include_state_summary: bool = False,
         state_summary: str = "",
+        current_agent_id: str = "default",
     ) -> List[Dict[str, str]]:
         """
         将 LogicalBlock 列表转换为 OpenAI messages 格式
+
+        多角色历史渲染 (Phase 1):
+        当 block.identity.agent_id 与 current_agent_id 不同时，
+        在 assistant 消息头部追加身份标识前缀，防止"认领幻觉"。
 
         Args:
             blocks: LogicalBlock 列表
             include_state_summary: 是否在开头包含状态摘要（已废弃，保留用于兼容）
             state_summary: 话题状态摘要（已废弃，保留用于兼容）
+            current_agent_id: 当前活跃的 Agent 别名，用于多角色渲染
 
         Returns:
             List[Dict]: OpenAI 格式的 messages
@@ -44,9 +50,17 @@ class PerceptionContextConverter:
                 "role": "user",
                 "content": block.user_query
             })
+
+            # 多角色历史渲染：非当前 Agent 的发言追加身份前缀
+            content = block.clean_response
+            if (block.identity.agent_id
+                    and block.identity.agent_id != "default"
+                    and block.identity.agent_id != current_agent_id):
+                content = f"[From: {block.identity.agent_id}]\n{content}"
+
             messages.append({
                 "role": "assistant",
-                "content": block.clean_response
+                "content": content
             })
 
         return messages

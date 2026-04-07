@@ -513,7 +513,7 @@ class SystemScenarioTestSystem:
             retrieval_request = RetrievalRequest(
                 semantic_query=gaze_result.rewritten_query,
                 keywords=gaze_result.search_keywords,
-                user_id=gaze_result.identity.user_id,
+                identity=gaze_result.identity,
             )
             # 调试：打印过滤器信息
             logger.info(f"检索请求 user_id: {retrieval_request.user_id}")

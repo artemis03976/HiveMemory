@@ -12,7 +12,7 @@ from unittest.mock import Mock, AsyncMock, MagicMock
 from uuid import uuid4
 
 from hivememory.core.models import StreamMessage, StreamMessageType, Identity
-from hivememory.engines.perception.models import FlushReason, LogicalBlock
+from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, WriteFocus, UpdateFocus
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 
@@ -139,12 +139,13 @@ class TestLibrarianCoreGenerateMemory:
     async def test_generate_memory_mode_a_default(self):
         """普通 flush，构建 GenerationRequest(context_messages=msgs)"""
         blocks = _make_logical_blocks(2)
-        payload = {
-            "blocks": blocks,
-            "state_summary": "测试摘要",
-            "focus": None,
-            "reason": FlushReason.MESSAGE_COUNT,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="测试摘要",
+            focus=None,
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
 
         await self.core._on_generate_memory(payload)
 
@@ -161,12 +162,13 @@ class TestLibrarianCoreGenerateMemory:
         """MTP_WRITE flush，构建带 write_focus 的 request"""
         blocks = _make_logical_blocks(2)
         write_focus = WriteFocus(content="测试写入内容")
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": write_focus,
-            "reason": FlushReason.MTP_WRITE,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=write_focus,
+            reason=FlushReason.MTP_WRITE,
+        )
 
         await self.core._on_generate_memory(payload)
 
@@ -191,12 +193,13 @@ class TestLibrarianCoreGenerateMemory:
         # 设置 storage.get_memory 为异步 mock
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": update_focus,
-            "reason": FlushReason.MTP_UPDATE,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=update_focus,
+            reason=FlushReason.MTP_UPDATE,
+        )
 
         await self.core._on_generate_memory(payload)
 
@@ -218,12 +221,13 @@ class TestLibrarianCoreGenerateMemory:
         # 设置 storage.get_memory 返回 None
         self.mock_storage.get_memory = AsyncMock(return_value=None)
 
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": update_focus,
-            "reason": FlushReason.MTP_UPDATE,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=update_focus,
+            reason=FlushReason.MTP_UPDATE,
+        )
 
         await self.core._on_generate_memory(payload)
 
@@ -233,16 +237,16 @@ class TestLibrarianCoreGenerateMemory:
     @pytest.mark.asyncio
     async def test_generate_memory_empty_blocks(self):
         """空 blocks 列表 early return"""
-        payload = {
-            "blocks": [],
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.MESSAGE_COUNT,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=[],
+            state_summary="",
+            focus=None,
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
 
         await self.core._on_generate_memory(payload)
 
-        # 不应调用 generation.process
         self.mock_generation.process.assert_not_called()
 
     @pytest.mark.asyncio
@@ -257,12 +261,13 @@ class TestLibrarianCoreGenerateMemory:
             ),
             response_block=None,
         )
-        payload = {
-            "blocks": [block],
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.MESSAGE_COUNT,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=[block],
+            state_summary="",
+            focus=None,
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
 
         await self.core._on_generate_memory(payload)
 
@@ -276,12 +281,13 @@ class TestLibrarianCoreGenerateMemory:
         blocks = _make_logical_blocks(2)
         self.mock_generation.process.side_effect = RuntimeError("generation failed")
 
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.MESSAGE_COUNT,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=None,
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
 
         # 不应抛异常
         await self.core._on_generate_memory(payload)
@@ -292,12 +298,13 @@ class TestLibrarianCoreGenerateMemory:
         core = LibrarianCore(storage=Mock())
         blocks = _make_logical_blocks(2)
 
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.MESSAGE_COUNT,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=None,
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
 
         # 不应抛异常
         await core._on_generate_memory(payload)
@@ -306,12 +313,13 @@ class TestLibrarianCoreGenerateMemory:
     async def test_generate_memory_semantic_drift(self):
         """SEMANTIC_DRIFT 触发 Mode A"""
         blocks = _make_logical_blocks(2)
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.SEMANTIC_DRIFT,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=None,
+            reason=FlushReason.SEMANTIC_DRIFT,
+        )
 
         await self.core._on_generate_memory(payload)
 
@@ -324,12 +332,13 @@ class TestLibrarianCoreGenerateMemory:
     async def test_generate_memory_manual(self):
         """MANUAL 触发 Mode A"""
         blocks = _make_logical_blocks(2)
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.MANUAL,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=None,
+            reason=FlushReason.MANUAL,
+        )
 
         await self.core._on_generate_memory(payload)
 
@@ -346,13 +355,13 @@ class TestLibrarianCoreGenerateMemory:
             perception_layer=mock_perception,
         )
         blocks = _make_kernel_logical_blocks(2)
-        payload = {
-            "topic_id": "topic-test-1",
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.MANUAL,
-        }
+        payload = ArchivePayload(
+            topic_id="topic-test-1",
+            blocks=blocks,
+            state_summary="",
+            focus=None,
+            reason=FlushReason.MANUAL,
+        )
 
         await core._on_generate_memory(payload)
 
@@ -364,13 +373,14 @@ class TestLibrarianCoreGenerateMemory:
     async def test_generate_memory_kernel_blocks_with_payload_identity(self):
         identity = _make_identity()
         blocks = _make_kernel_logical_blocks(2)
-        payload = {
-            "identity": identity,
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.MANUAL,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=None,
+            reason=FlushReason.MANUAL,
+            identity=identity,
+        )
 
         await self.core._on_generate_memory(payload)
 

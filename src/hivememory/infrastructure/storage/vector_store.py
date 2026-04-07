@@ -8,7 +8,7 @@ Qdrant 向量存储层封装
 - 批量操作
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from uuid import UUID
 import logging
 
@@ -296,7 +296,7 @@ class QdrantMemoryStore:
         query_text: str,
         top_k: int = 5,
         score_threshold: float = 0.0,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[Union[Dict[str, Any], Filter]] = None,
         mode: str = "dense",
     ) -> List[Dict[str, Any]]:
         """
@@ -313,8 +313,11 @@ class QdrantMemoryStore:
             检索结果列表: [{"memory": MemoryAtom, "score": float}, ...]
         """
         try:
-            # 构建过滤条件
-            filter_obj = self._build_filter(filters) if filters else None
+            # 构建过滤条件 (支持 Dict 或 qdrant Filter 对象)
+            if isinstance(filters, Filter):
+                filter_obj = filters
+            else:
+                filter_obj = self._build_filter(filters) if filters else None
 
             if mode == "sparse":
                 # BM25 检索 - 使用 Qdrant 原生 BM25 Document 查询

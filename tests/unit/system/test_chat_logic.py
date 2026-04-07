@@ -29,6 +29,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 import types
 
 from hivememory.core.models import Identity, StreamMessage
+from hivememory.engines.perception.models import LogicalBlock
 from hivememory.patchouli.protocol.models import (
     ChatResult, KernelHotResult, EyeGazeResult, MTPExecutionResult,
 )
@@ -132,6 +133,8 @@ def sys():
     ))
     s.kernel.get_mtp_prompt = MagicMock(return_value="")
     s.kernel.check_storage_health = MagicMock(return_value=True)
+    s.kernel.load_agent_profile = MagicMock(return_value=None)
+    s.kernel.get_agent_persona = MagicMock(return_value="")
     s.kernel.koakuma = MagicMock()
     s.kernel.submit_interaction = AsyncMock(return_value=None)
     s.kernel.librarian_core = MagicMock()
@@ -682,11 +685,76 @@ class TestUserIdPropagation:
     """用户 ID 传播到 Koakuma"""
 
     def test_koakuma_receives_user_id(self, sys):
-        """set_current_user 在循环开始时被调用"""
+        """set_current_identity 在循环开始时被调用"""
         sys.chat(
             user_message="hi",
-            
+
             user_id="user_abc",
         )
 
-        sys.kernel.koakuma.set_current_user.assert_called_once_with("user_abc")
+        sys.kernel.koakuma.set_current_identity.assert_called_once_with(Identity(user_id="user_abc"))
+
+
+class TestMultiAgentScenarioB:
+    """场景B：同话题换将与历史归属渲染"""
+
+    def test_handoff_renders_colleague_prefix_and_uses_reviewer_identity(self, sys):
+        coder_identity = Identity(user_id="u1", agent_id="coder_doll")
+        reviewer_identity = Identity(user_id="u1", agent_id="reviewer_doll")
+        coder_block = LogicalBlock(
+            user_query="写一个 Python 冒泡排序",
+            clean_response="def bubble_sort(arr): return arr",
+            identity=coder_identity,
+        )
+
+        sys.eye.gaze.side_effect = [
+            EyeGazeResult(
+                intent=GatewayIntent.CHAT,
+                rewritten_query="写一个 Python 冒泡排序",
+                search_keywords=[],
+                worth_saving=True,
+                raw_query="写一个 Python 冒泡排序",
+                identity=coder_identity,
+                target_topic="NEW_TOPIC",
+            ),
+            EyeGazeResult(
+                intent=GatewayIntent.CHAT,
+                rewritten_query="请检查一下上面同事写的代码有没有可以优化的",
+                search_keywords=[],
+                worth_saving=True,
+                raw_query="请检查一下上面同事写的代码有没有可以优化的",
+                identity=reviewer_identity,
+                target_topic="topic_1",
+            ),
+        ]
+        sys.kernel.prepare_topic.side_effect = [
+            (
+                "topic_1",
+                {"topics": [], "max_resident_topics": 5, "current_count": 1},
+                {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新建话题"},
+            ),
+            (
+                "topic_1",
+                {"topics": [], "max_resident_topics": 5, "current_count": 1},
+                {"state_summary": "", "blocks": [coder_block], "total_tokens": 42, "title": "新建话题"},
+            ),
+        ]
+        sys._worker_agent.generate_async.side_effect = [
+            _normal_gen("这里是冒泡排序代码。"),
+            _normal_gen("我会从复杂度和边界条件给出审查意见。"),
+        ]
+
+        sys.chat(user_message="写一个 Python 冒泡排序", user_id="u1", agent_id="coder_doll")
+        sys.chat(
+            user_message="请检查一下上面同事写的代码有没有可以优化的",
+            user_id="u1",
+            agent_id="reviewer_doll",
+        )
+
+        second_call_messages = sys._worker_agent.generate_async.call_args_list[1].args[0]
+        assistant_history = [m for m in second_call_messages if m["role"] == "assistant"]
+        assert len(assistant_history) == 1
+        assert assistant_history[0]["content"].startswith("[From: coder_doll]\n")
+
+        second_payload = sys.kernel.submit_interaction.call_args_list[1][0][0]
+        assert second_payload.identity.agent_id == "reviewer_doll"

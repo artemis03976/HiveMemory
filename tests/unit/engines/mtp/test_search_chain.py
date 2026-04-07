@@ -186,7 +186,7 @@ class TestSearchRetrievalRequest:
     def test_query_passed_to_retrieval(self, koakuma):
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-        koakuma.set_current_user("user_42")
+        koakuma.set_current_identity(Identity(user_id="user_42"))
 
         koakuma.execute_mtp('⟪ SEARCH | * | query="python decorators" ⟫')
 
@@ -196,7 +196,7 @@ class TestSearchRetrievalRequest:
     def test_user_id_injected(self, koakuma):
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-        koakuma.set_current_user("user_42")
+        koakuma.set_current_identity(Identity(user_id="user_42"))
 
         koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
 

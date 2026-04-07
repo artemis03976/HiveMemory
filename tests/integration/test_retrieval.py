@@ -21,6 +21,7 @@ import pytest
 from unittest.mock import Mock
 
 from hivememory.core.models import (
+    Identity,
     MemoryAtom,
     MetaData,
     IndexLayer,
@@ -307,7 +308,7 @@ class TestQueryAndFilterCollaboration:
             semantic_query="查询",
             filters=QueryFilters(
                 memory_type=MemoryType.USER_PROFILE,
-                user_id="user1",
+                identity=Identity(user_id="user1"),
                 tags=["profile"],
             ),
         )

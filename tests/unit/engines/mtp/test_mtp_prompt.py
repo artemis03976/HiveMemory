@@ -15,7 +15,6 @@ import pytest
 from hivememory.prompts.mtp import (
     MTPPromptBuilder,
     get_mtp_prompt,
-    AgentRole,
     DEFAULT_KERNEL_TOOLS,
 )
 from hivememory.patchouli.protocol.mtp import (
@@ -64,31 +63,6 @@ class TestMTPPromptBuilder:
         assert "约束" in output
         assert "行为准则" in output
         assert "示例演示" in output
-    def test_build_coder_role(self):
-        """Coder 角色包含激进查阅指令"""
-        output = MTPPromptBuilder(role=AgentRole.CODER, language="en").build()
-        assert "rigorous engineer" in output
-        assert "MUST consult" in output
-
-    def test_build_coder_role_zh(self):
-        """Coder 角色中文版"""
-        output = MTPPromptBuilder(role=AgentRole.CODER, language="zh").build()
-        assert "严谨的工程师" in output
-
-    def test_build_chat_role(self):
-        """Chat 角色包含保守查阅指令"""
-        output = MTPPromptBuilder(role=AgentRole.CHAT, language="en").build()
-        assert "only when necessary" in output
-
-    def test_build_chat_role_zh(self):
-        """Chat 角色中文版"""
-        output = MTPPromptBuilder(role=AgentRole.CHAT, language="zh").build()
-        assert "得力的助手" in output
-
-    def test_build_default_role(self):
-        """Default 角色包含平衡指令"""
-        output = MTPPromptBuilder(role=AgentRole.DEFAULT, language="en").build()
-        assert "lack context" in output
 
     def test_build_without_demo(self):
         """关闭演示模块"""
@@ -108,8 +82,8 @@ class TestMTPPromptBuilder:
         assert "PROTOCOL RULES" in output
 
     def test_build_without_kernel_tools(self):
-        """关闭内核工具列表"""
-        output = MTPPromptBuilder(include_kernel_tools=False).build()
+        """空白名单不渲染内核工具列表"""
+        output = MTPPromptBuilder(allowed_kernel_tools=[]).build()
         assert "[KERNEL TOOLS]" not in output
 
     def test_build_custom_kernel_tools(self):
@@ -164,7 +138,7 @@ class TestMTPPromptBuilder:
         output = MTPPromptBuilder(
             include_demo=False,
             include_error_handling=False,
-            include_kernel_tools=False,
+            allowed_kernel_tools=[],
             language="en",
         ).build()
 
@@ -190,11 +164,6 @@ class TestGetMTPPrompt:
         result = get_mtp_prompt()
         assert isinstance(result, str)
         assert len(result) > 0
-
-    def test_passes_role_param(self):
-        """角色参数正确传递"""
-        result = get_mtp_prompt(role=AgentRole.CODER, language="en")
-        assert "rigorous engineer" in result
 
     def test_passes_language_param(self):
         """语言参数正确传递"""
@@ -222,10 +191,8 @@ class TestMTPPromptConfig:
         config = MTPPromptConfig()
         assert config.enabled is True
         assert config.language == "zh"
-        assert config.role == "default"
         assert config.include_demo is True
         assert config.include_error_handling is True
-        assert config.include_kernel_tools is True
 
     def test_nested_in_koakuma(self):
         """MTPPromptConfig 嵌套在 KoakumaConfig 中"""
@@ -239,18 +206,15 @@ class TestMTPPromptConfig:
         config = MTPPromptConfig(
             enabled=False,
             language="en",
-            role="coder",
             include_demo=False,
         )
         assert config.enabled is False
         assert config.language == "en"
-        assert config.role == "coder"
         assert config.include_demo is False
 
     def test_koakuma_config_with_mtp_prompt(self):
         """KoakumaConfig 接受嵌套的 mtp_prompt 配置"""
         config = KoakumaConfig(
-            mtp_prompt=MTPPromptConfig(language="en", role="coder")
+            mtp_prompt=MTPPromptConfig(language="en")
         )
         assert config.mtp_prompt.language == "en"
-        assert config.mtp_prompt.role == "coder"

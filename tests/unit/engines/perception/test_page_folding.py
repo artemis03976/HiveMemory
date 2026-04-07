@@ -158,7 +158,7 @@ class TestPageFoldingThreshold:
         identity = _make_identity()
 
         # 直接使用 BufferManager 创建 buffer 并添加 blocks
-        buffer = layer._buffer_manager.create_buffer(identity)
+        buffer = layer._buffer_manager.create_buffer(identity.user_id)
         topic_id = buffer.topic_id
 
         # 添加多个小 blocks，总 token 会超过阈值
@@ -201,7 +201,7 @@ class TestPageFoldingThreshold:
         identity = _make_identity()
 
         # 直接使用 BufferManager 创建 buffer 并添加 blocks
-        buffer = layer._buffer_manager.create_buffer(identity)
+        buffer = layer._buffer_manager.create_buffer(identity.user_id)
         topic_id = buffer.topic_id
 
         # 添加多个小 blocks

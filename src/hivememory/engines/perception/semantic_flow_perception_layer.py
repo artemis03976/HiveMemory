@@ -188,6 +188,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             worth_saving=payload.worth_saving,
             write_focus=payload.write_focus,
             update_focus=payload.update_focus,
+            identity=payload.identity,
         )
 
         # 2.5 计算 block 的 total_tokens
@@ -421,7 +422,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 获取 buffers
         if identity:
-            buffers = self._buffer_manager.get_buffers_by_owner(identity)
+            buffers = self._buffer_manager.get_buffers_by_owner(identity.user_id)
         else:
             buffers = self._buffer_manager.get_all_buffers()
 
@@ -506,7 +507,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             Dict: {topics: [...], max_resident_topics, current_count}
         """
-        buffers = self._buffer_manager.get_buffers_by_owner(identity)
+        buffers = self._buffer_manager.get_buffers_by_owner(identity.user_id)
         buffers_sorted = sorted(
             buffers, key=lambda b: b.last_accessed_at, reverse=True
         )
@@ -591,7 +592,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         if self._buffer_manager.needs_eviction():
             await self._evict_lru_topic()
         buffer = self._buffer_manager.create_buffer(
-            identity=identity,
+            user_id=identity.user_id,
             title=title or "新建话题",
         )
         if summary:

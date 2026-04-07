@@ -29,7 +29,7 @@ from hivememory.core.models import (
 from hivememory.engines.generation.models import (
     UpdateFocus, MergeResult, GenerationRequest, WriteFocus,
 )
-from hivememory.engines.perception.models import FlushReason, LogicalBlock
+from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
@@ -496,12 +496,13 @@ class TestFlushCallbackModesUpdate:
             identity=Identity(user_id="test_user"),
         )
 
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": focus,
-            "reason": FlushReason.MTP_UPDATE,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=focus,
+            reason=FlushReason.MTP_UPDATE,
+        )
         await core._on_generate_memory(payload)
 
         # generation_engine.process 应被调用，且携带 update_focus
@@ -546,12 +547,13 @@ class TestFlushCallbackModesUpdate:
         ]
 
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": focus,
-            "reason": FlushReason.MTP_WRITE,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=focus,
+            reason=FlushReason.MTP_WRITE,
+        )
         await core._on_generate_memory(payload)
         mock_generation.process.assert_called_once()
 
@@ -586,12 +588,13 @@ class TestFlushCallbackModesUpdate:
             for i, msg in enumerate(sample_messages)
         ]
 
-        payload = {
-            "blocks": blocks,
-            "state_summary": "",
-            "focus": None,
-            "reason": FlushReason.SEMANTIC_DRIFT,
-        }
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=blocks,
+            state_summary="",
+            focus=None,
+            reason=FlushReason.SEMANTIC_DRIFT,
+        )
         await core._on_generate_memory(payload)
         mock_generation.process.assert_called_once()
 
@@ -609,7 +612,7 @@ class TestKoakumaUpdateE2E:
         from tests.unit.engines.mtp.conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_user("test_user")
+        koakuma.set_current_identity(Identity(user_id="test_user"))
 
         # 注册 alias 到缓存
         koakuma.atom_cache.ingest_atom(existing_memory)
@@ -659,7 +662,7 @@ class TestKoakumaUpdateValidation:
         from tests.unit.engines.mtp.conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_user("test_user")
+        koakuma.set_current_identity(Identity(user_id="test_user"))
         return koakuma
 
     def test_missing_instruction(self, validation_koakuma):
@@ -709,7 +712,7 @@ class TestKoakumaUpdateValidation:
         from tests.unit.engines.mtp.conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_user("test_user")
+        koakuma.set_current_identity(Identity(user_id="test_user"))
         koakuma.atom_cache.ingest_atom(existing_memory)
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
