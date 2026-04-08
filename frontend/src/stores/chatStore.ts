@@ -30,12 +30,14 @@ interface ChatStore {
   connection: ChatConnectionState;
   isStreaming: boolean;
   currentTopicId: string | null;
+  currentAgentId: string;
   retrievedMemories: MemoryAtom[];
 
   // Actions
   sendMessage: (content: string, options?: Partial<ChatRequestParams>) => Promise<void>;
   clearMessages: () => void;
   retryMessage: (messageId: string) => Promise<void>;
+  setCurrentAgentId: (id: string) => void;
 
   // Internal
   _sseClient: ChatSSEClient | null;
@@ -191,9 +193,13 @@ export const useChatStore = create<ChatStore>()(
         },
         isStreaming: false,
         currentTopicId: null,
+        currentAgentId: 'default',
         retrievedMemories: [],
         _sseClient: null,
         _currentStreamingMessageId: null,
+
+        // Agent Action
+        setCurrentAgentId: (id: string) => set({ currentAgentId: id }),
 
         // Send message action
         sendMessage: async (content: string, options = {}) => {
@@ -204,6 +210,8 @@ export const useChatStore = create<ChatStore>()(
             console.warn('[ChatStore] Already streaming, ignoring new message');
             return;
           }
+
+          const currentAgentId = state.currentAgentId;
 
           // Add user message
           const userMessage: Message = {
@@ -229,6 +237,7 @@ export const useChatStore = create<ChatStore>()(
             contentBlocks: [],
             timestamp: Date.now(),
             isStreaming: true,
+            agent_id: currentAgentId, // mock assigning the current agent
           };
 
           set({
@@ -244,6 +253,7 @@ export const useChatStore = create<ChatStore>()(
             await client.connect(
               {
                 message: content,
+                agent_id: currentAgentId,
                 ...options,
               },
               {
@@ -436,17 +446,19 @@ export const useChatStore = create<ChatStore>()(
       {
         name: 'chat-store',
         version: 2,
-        partialize: () => ({
+        partialize: (state) => ({
           messages: [],
           currentTopicId: null,
+          currentAgentId: state.currentAgentId,
         }),
         // 测试阶段：升级后统一清空已持久化会话，避免渲染异常导致刷新后继续崩溃
         migrate: (persisted: unknown, version: number) => {
           if (!persisted || typeof persisted !== 'object') return persisted;
-          const migrated = persisted as { messages?: unknown; currentTopicId?: unknown };
+          const migrated = persisted as { messages?: unknown; currentTopicId?: unknown; currentAgentId?: unknown };
           if (version < 2) {
             migrated.messages = [];
             migrated.currentTopicId = null;
+            migrated.currentAgentId = 'default';
           }
           return migrated;
         },

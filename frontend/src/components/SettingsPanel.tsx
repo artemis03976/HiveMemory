@@ -144,12 +144,12 @@ export default function Settings() {
             {activeCategory === 'general' && <GeneralSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'models' && <ModelSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'infrastructure' && <InfrastructureSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'gateway' && <GatewaySettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
+            {activeCategory === 'gateway' && <GatewaySettings config={config} updateConfig={updateConfig} />}
             {activeCategory === 'perception' && <PerceptionSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'generation' && <GenerationSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'retrieval' && <RetrievalSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'lifecycle' && <LifecycleSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'koakuma' && <KoakumaSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
+            {activeCategory === 'koakuma' && <KoakumaSettings config={config} updateConfig={updateConfig} />}
           </div>
         </div>
       </div>

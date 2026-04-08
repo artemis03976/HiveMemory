@@ -1,8 +1,9 @@
-import { Bot, User, Copy, ThumbsUp, RefreshCw, BrainCircuit } from 'lucide-react';
+import { User, Copy, ThumbsUp, RefreshCw, BrainCircuit } from 'lucide-react';
 import type { Message, ContentBlock } from '@/types';
 import { motion } from 'motion/react';
 import MTPCard from './MTPCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
+import { MOCK_AGENTS } from '@/constants/agents';
 
 interface ChatMessageProps {
   message: Message;
@@ -11,6 +12,10 @@ interface ChatMessageProps {
 export default function ChatMessage({ message }: ChatMessageProps) {
   const isAgent = message.role === 'agent' || message.role === 'assistant';
   const isUser = message.role === 'user';
+  
+  const agent = isAgent 
+    ? (MOCK_AGENTS.find(a => a.id === message.agent_id) || MOCK_AGENTS[0])
+    : null;
   
   const blocks = message.contentBlocks || (
     message.mtpAction 
@@ -35,18 +40,24 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       animate={{ opacity: 1, y: 0 }}
       className={`flex gap-4 items-start ${isUser ? 'flex-row-reverse' : 'group'}`}
     >
-      {/* 消息头像 */}
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-1 ${
-        isAgent ? 'bg-primary/10 ghost-border' : 'bg-surface-container-highest border border-white/10'
-      }`}>
-        {isAgent ? (
-          <Bot className="w-4 h-4 text-primary" />
-        ) : (
+      {/* 消息头像 - 仅在 User 时显示，Agent 时将头像和名字显示在气泡上方 */}
+      {isUser && (
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-1 bg-surface-container-highest border border-white/10">
           <User className="w-4 h-4 text-slate-400" />
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className={`flex-1 space-y-4 ${isUser ? 'max-w-[80%]' : 'w-full overflow-hidden'}`}>
+      <div className={`flex-1 space-y-2 ${isUser ? 'max-w-[80%]' : 'w-full overflow-hidden'}`}>
+        {/* Agent 头像与名字 (气泡上方) */}
+        {isAgent && agent && (
+          <div className="flex items-center gap-2.5 mb-1.5 px-1">
+            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-primary/10 ghost-border`}>
+              <agent.avatarIcon className={`w-3.5 h-3.5 ${agent.colorClass}`} />
+            </div>
+            <span className="text-sm font-semibold text-slate-300">{agent.name}</span>
+          </div>
+        )}
+
         <div className={`p-5 rounded-xl ghost-border flex flex-col gap-4 ${
           isAgent ? 'bg-primary-container/10' : 'bg-surface-container-highest'
         } ${isAgent && message.isStreaming ? 'agent-processing-border' : ''}`}>

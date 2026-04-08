@@ -51,4 +51,5 @@ export interface Message {
   timestamp?: number;
   isStreaming?: boolean;
   error?: string;
+  agent_id?: string;
 }
