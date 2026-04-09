@@ -41,22 +41,28 @@ class TestLLMMemoryExtractor:
             llm_service=self.mock_service
         )
 
-    def test_convert_to_litellm_messages(self, mock_env):
-        """测试 LangChain 消息转 LiteLLM 格式"""
-        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-        
-        lc_messages = [
-            SystemMessage(content="sys"),
-            HumanMessage(content="user input"),
-            AIMessage(content="assistant reply")
-        ]
-        
-        litellm_msgs = self.extractor._convert_to_litellm_messages(lc_messages)
-        
-        assert len(litellm_msgs) == 3
-        assert litellm_msgs[0] == {"role": "system", "content": "sys"}
-        assert litellm_msgs[1] == {"role": "user", "content": "user input"}
-        assert litellm_msgs[2] == {"role": "assistant", "content": "assistant reply"}
+    def test_extract_messages_are_litellm_format(self):
+        """测试提取流程发送 LiteLLM 标准消息"""
+        json_output = json.dumps({
+            "title": "Extracted",
+            "summary": "Summary",
+            "tags": ["t1"],
+            "memory_type": "FACT",
+            "content": "Content",
+            "confidence_score": 0.95,
+            "has_value": True
+        })
+        self.mock_service.complete_with_retry.return_value = json_output
+
+        transcript = "User: Hi\nAssistant: Hello"
+        metadata = {"user_id": "u1", "session_id": "s1"}
+        self.extractor.extract(transcript, metadata)
+
+        _, kwargs = self.mock_service.complete_with_retry.call_args
+        messages = kwargs["messages"]
+        assert isinstance(messages, list)
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
 
     # test_parse_json_* tests removed as they test internal implementation details
     # or should be tested via parse_llm_json unit tests.

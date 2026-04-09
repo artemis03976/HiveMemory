@@ -257,7 +257,7 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
 
 export const validateField = (
   field: string,
-  _value: any,
+  _value: unknown,
   config: HiveMemoryConfig
 ): ValidationError | null => {
   const errors = validateConfig(config);

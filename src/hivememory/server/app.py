@@ -2,12 +2,14 @@
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from hivememory.server.deps import (
     init_system,
@@ -58,7 +60,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="HiveMemory API",
     description="HiveMemory 记忆系统 HTTP API",
-    version="0.1.0",
+    version="0.1.0-beta",
     lifespan=lifespan,
 )
 
@@ -132,3 +134,59 @@ app.include_router(ingest_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")
 app.include_router(memories_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")
+
+# ==========================================
+# 前后端整合与静态资源挂载 (生产环境与开发环境切换)
+# ==========================================
+
+# 默认情况下，前端由 Vite 独立启动（开发模式）。
+# 若设置 HIVEMEMORY_SERVE_FRONTEND=true，则由 FastAPI 直接提供构建好的前端页面（生产/测试模式）。
+SERVE_FRONTEND = os.getenv("HIVEMEMORY_SERVE_FRONTEND", "false").lower() == "true"
+
+# 定位前端构建产物目录
+# app.py 所在目录向上 4 级到达项目根目录，再进入 frontend/dist
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+DEFAULT_FRONTEND_DIST_DIR = os.path.join(PROJECT_ROOT, "frontend", "dist")
+FRONTEND_DIST_DIR = os.path.abspath(
+    os.path.expanduser(os.getenv("HIVEMEMORY_FRONTEND_DIST_DIR", DEFAULT_FRONTEND_DIST_DIR))
+)
+
+if SERVE_FRONTEND:
+    if os.path.isdir(FRONTEND_DIST_DIR):
+        logger.info(f"启用前端静态资源代理: {FRONTEND_DIST_DIR}")
+        
+        # 挂载前端静态资源文件夹（Vite 构建通常在 assets 下）
+        assets_dir = os.path.join(FRONTEND_DIST_DIR, "assets")
+        if os.path.exists(assets_dir):
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+            
+        # 挂载其他可能存在的静态目录或文件（根据需要可进一步细化）
+        # app.mount(...) 
+        
+        # SPA (单页应用) 兜底路由
+        # 将所有未匹配的非 API 请求转发给 index.html，由前端 React Router 接管
+        @app.get("/{catchall:path}")
+        async def serve_spa(catchall: str):
+            if catchall == "api" or catchall.startswith("api/"):
+                return JSONResponse(status_code=404, content={"error": "Not Found"})
+                
+            dist_root = os.path.realpath(FRONTEND_DIST_DIR)
+            requested_path = os.path.realpath(os.path.join(dist_root, catchall))
+            try:
+                if os.path.commonpath([dist_root, requested_path]) != dist_root:
+                    return JSONResponse(status_code=404, content={"error": "Not Found"})
+            except ValueError:
+                return JSONResponse(status_code=404, content={"error": "Not Found"})
+
+            if os.path.isfile(requested_path):
+                return FileResponse(requested_path)
+                
+            index_path = os.path.join(dist_root, "index.html")
+            if os.path.exists(index_path):
+                return FileResponse(index_path)
+            else:
+                return JSONResponse(status_code=404, content={"error": "Frontend index.html not found"})
+    else:
+        logger.warning(
+            f"未找到前端构建目录 {FRONTEND_DIST_DIR}。请先在 frontend 目录下执行 'npm run build'。"
+        )

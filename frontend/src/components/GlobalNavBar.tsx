@@ -1,4 +1,5 @@
 import { Sparkles, MessageSquare, Database, Bot, Moon, Terminal, Settings } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { NavTab } from '../types';
 
 interface GlobalNavBarProps {
@@ -19,7 +20,7 @@ export default function GlobalNavBar({ activeTab, onTabChange }: GlobalNavBarPro
     { id: 'settings' as const, icon: Settings },
   ];
 
-  const renderButton = (item: { id: NavTab; icon: any; fill?: boolean }) => {
+  const renderButton = (item: { id: NavTab; icon: LucideIcon; fill?: boolean }) => {
     const isActive = activeTab === item.id;
     const Icon = item.icon;
 

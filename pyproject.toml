@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hivememory"
-version = "0.1.0"
+version = "0.1.0-beta"
 description = "蜂巢记忆系统 - 专为 LLM Agent 设计的持久化记忆与知识共享基础设施"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,12 +22,11 @@ classifiers = [
 ]
 
 dependencies = [
-    "langchain>=0.2.0",
-    "langchain-community>=0.2.0",
-    "langgraph>=0.1.0",
     "litellm>=1.30.0",
     "qdrant-client>=1.7.0",
-    "sentence-transformers>=2.5.0",
+    "sentence-transformers==2.5.0",
+    "torch==2.6.0",
+    "transformers==4.49.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "redis>=5.0.0",

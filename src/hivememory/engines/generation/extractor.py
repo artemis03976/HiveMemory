@@ -15,10 +15,8 @@ HiveMemory - 记忆提取器 (Memory Extractor)
 """
 
 import logging
+import json
 from typing import Dict, Any, Optional
-
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
 
 from hivememory.patchouli.config import ExtractorConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
@@ -32,9 +30,6 @@ from hivememory.prompts.generation import (
 from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
-
-
-ROLE_MAPPING = {"human": "user", "ai": "assistant", "system": "system"}
 
 class LLMMemoryExtractor(BaseMemoryExtractor):
     """
@@ -75,26 +70,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         self.system_prompt = config.system_prompt or PATCHOULI_SYSTEM_PROMPT
         self.user_prompt = config.user_prompt or PATCHOULI_USER_PROMPT
 
-        # 初始化输出解析器
-        self.output_parser = PydanticOutputParser(pydantic_object=ExtractedMemoryDraft)
-
-        # 构建提示词模板 (Mode A: 被动观察)
-        self.prompt_template = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("user", self.user_prompt),
-        ])
-
-        # Mode B: 主动响应 (WRITE 指令触发)
-        self.write_prompt_template = ChatPromptTemplate.from_messages([
-            ("system", PATCHOULI_WRITE_SYSTEM_PROMPT),
-            ("user", PATCHOULI_WRITE_USER_PROMPT),
-        ])
-
-        # Mode C: 合并更新 (UPDATE 指令触发)
-        self.update_prompt_template = ChatPromptTemplate.from_messages([
-            ("system", PATCHOULI_UPDATE_SYSTEM_PROMPT),
-            ("user", PATCHOULI_UPDATE_USER_PROMPT),
-        ])
+        self.format_instructions = self._build_format_instructions()
 
         model_name = self.llm_service.config.model if self.llm_service and hasattr(self.llm_service, 'config') else "unknown"
         logger.info(f"LLMMemoryExtractor 初始化完成 (模型: {model_name})")
@@ -142,21 +118,38 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
 
             # Step 1: 构建 Prompt
             if is_write_mode:
-                prompt_messages = self.write_prompt_template.format_messages(
-                    format_instructions=self.output_parser.get_format_instructions(),
-                    write_content=metadata.get("write_content", ""),
-                    write_reason=metadata.get("write_reason", "(未提供)"),
-                    transcript=transcript,
-                )
+                prompt_messages = [
+                    {
+                        "role": "system",
+                        "content": PATCHOULI_WRITE_SYSTEM_PROMPT.format(
+                            format_instructions=self.format_instructions
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": PATCHOULI_WRITE_USER_PROMPT.format(
+                            write_content=metadata.get("write_content", ""),
+                            write_reason=metadata.get("write_reason", "(未提供)"),
+                            transcript=transcript,
+                        ),
+                    },
+                ]
                 logger.info("Mode B (主动响应): 使用 WRITE 专用提示词")
             else:
-                prompt_messages = self.prompt_template.format_messages(
-                    format_instructions=self.output_parser.get_format_instructions(),
-                    transcript=transcript,
-                )
+                prompt_messages = [
+                    {
+                        "role": "system",
+                        "content": self.system_prompt.format(
+                            format_instructions=self.format_instructions
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": self.user_prompt.format(transcript=transcript),
+                    },
+                ]
 
-            # 转换为 LiteLLM 格式 (处理 LangChain 角色名)
-            messages = self._convert_to_litellm_messages(prompt_messages)
+            messages = prompt_messages
 
             # Step 2: 调用 LLM (带重试)
             raw_output = self.llm_service.complete_with_retry(
@@ -189,22 +182,9 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             logger.error(f"记忆提取失败: {e}", exc_info=True)
             return None
 
-    def _convert_to_litellm_messages(self, langchain_messages) -> list[Dict[str, str]]:
-        """
-        转换 LangChain 消息格式为 LiteLLM 格式
-
-        LangChain 使用 "human"/"ai"，OpenAI/DeepSeek 使用 "user"/"assistant"
-
-        Args:
-            langchain_messages: LangChain 消息列表
-
-        Returns:
-            list[Dict]: LiteLLM 格式的消息列表
-        """
-        return [
-            {"role": ROLE_MAPPING.get(msg.type, msg.type), "content": msg.content}
-            for msg in langchain_messages
-        ]
+    def _build_format_instructions(self) -> str:
+        schema = ExtractedMemoryDraft.model_json_schema()
+        return json.dumps(schema, ensure_ascii=False, indent=2)
 
     def merge(
         self,
@@ -229,18 +209,26 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         try:
             # Step 1: 构建 Merge Prompt
             new_content = metadata.get("new_content", "")
-            prompt_messages = self.update_prompt_template.format_messages(
-                old_payload=old_content,
-                instruction=metadata.get("instruction", ""),
-                new_content=new_content if new_content else "(无新素材，仅根据指令修改)",
-                transcript=metadata.get("transcript", "(无背景对话)"),
-                memory_title=metadata.get("memory_title", ""),
-                memory_alias=metadata.get("memory_alias", ""),
-            )
+            prompt_messages = [
+                {
+                    "role": "system",
+                    "content": PATCHOULI_UPDATE_SYSTEM_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": PATCHOULI_UPDATE_USER_PROMPT.format(
+                        old_payload=old_content,
+                        instruction=metadata.get("instruction", ""),
+                        new_content=new_content if new_content else "(无新素材，仅根据指令修改)",
+                        transcript=metadata.get("transcript", "(无背景对话)"),
+                        memory_title=metadata.get("memory_title", ""),
+                        memory_alias=metadata.get("memory_alias", ""),
+                    ),
+                },
+            ]
             logger.info("Mode C (合并更新): 使用 UPDATE 专用提示词")
 
-            # 转换为 LiteLLM 格式
-            messages = self._convert_to_litellm_messages(prompt_messages)
+            messages = prompt_messages
 
             # Step 2: 调用 LLM
             raw_output = self.llm_service.complete_with_retry(

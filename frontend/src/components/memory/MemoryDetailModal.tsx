@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Code2, Wrench, Link as LinkIcon, User, Check } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { motion, AnimatePresence } from 'motion/react';
@@ -13,7 +14,7 @@ interface MemoryDetailModalProps {
   onDelete: (id: string) => void;
 }
 
-const typeIcons: Record<string, any> = {
+const typeIcons: Record<string, LucideIcon> = {
   CODE_SNIPPET: Code2,
   FACT: FileText,
   TOOL: Wrench,

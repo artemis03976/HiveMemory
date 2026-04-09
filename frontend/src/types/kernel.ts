@@ -38,7 +38,7 @@ export interface LogEntry {
     message: string;
     traceback: string;
   };
-  extra?: Record<string, any>;
+  extra?: Record<string, unknown>;
 }
 
 /**

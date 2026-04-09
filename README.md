@@ -11,8 +11,8 @@ HiveMemory 是一套面向 LLM Agent 工作流的持久化记忆系统，目标�
 
 ## 发布状态
 
-- 当前版本：`0.1.0`
-- 发布阶段：测试版 / Alpha
+- 当前版本：`0.1.0-beta`
+- 发布阶段：测试版 
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0
 
@@ -116,43 +116,35 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 
 运行本项目建议准备以下环境：
 
-- Python 3.12+
-- Node.js（建议使用较新的 LTS 版本，用于前端开发界面）
-- Docker / Docker Compose（用于本地启动 Qdrant 和 Redis）
-- 可用的 LLM API Key（例如 DeepSeek / OpenAI 兼容接口）
+- Docker / Docker Compose（推荐，用于一键部署）
+- 或手动搭建环境：
+  - Python 3.12+
+  - Node.js（用于前端开发）
+  - 可用的 LLM API Key（例如 DeepSeek / OpenAI 兼容接口）
 
 此外，Embedding 与 Reranker 模型在初次启动时可能需要下载与预热，因此服务启动成功并不等于模型已经 ready。
 
 ## 快速开始
 
-### 1. 克隆仓库
+### 方式一：Docker 一键部署 (推荐)
+
+如果你只是想快速体验测试版，我们强烈推荐使用 Docker 一键部署：
 
 ```bash
+# 1. 克隆仓库
 git clone https://github.com/artemis03976/HiveMemory.git
 cd HiveMemory
+
+# 2. 复制并修改环境变量文件 (填入你的 LLM API Key)
+cp configs/.env.example configs/.env
+
+# 3. 一键启动 (包含 Qdrant 和 HiveMemory 后端应用)
+docker-compose -f docker/docker-compose.yml up -d --build
 ```
 
-### 2. 启动基础设施
+启动成功后，直接在浏览器中打开 **http://localhost:8000** 即可开始使用完整的 Web 界面！
 
-本仓库提供的 Docker Compose 会启动：
-
-- Qdrant（HTTP `6333` / gRPC `6334`）
-- Redis（`6379`）
-- 可选的 Qdrant Web UI（`6335`，仅 debug profile）
-
-```bash
-docker-compose -f docker/docker-compose.yml up -d
-```
-
-如果你需要 Qdrant Web UI：
-
-```bash
-docker-compose -f docker/docker-compose.yml --profile debug up -d
-```
-
-> 注意：Compose 中 Redis 默认密码为 `hivememory_redis_pass`，而 `configs/.env.example` 中该值留空。如果直接使用仓库自带 Compose，请在环境变量中把 `HIVEMEMORY__REDIS__PASSWORD` 设置为 `hivememory_redis_pass`。
-
-### 3. 配置环境变量
+### 方式二：本地开发环境搭建
 
 先复制环境变量模板：
 
@@ -162,14 +154,13 @@ cp configs/.env.example .env
 
 然后按需修改 `.env`。其中：
 
-- `.env` / 环境变量：主要放 API Key、Qdrant / Redis 地址、调试开关等
+- `.env` / 环境变量：主要放 API Key、Qdrant 地址、调试开关等
 - `configs/config.yaml`：主要放业务逻辑和算法参数（检索、感知、生成、生命周期等）
 
 至少需要检查：
 
 - `HIVEMEMORY__LLM__WORKER__API_KEY`
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
-- `HIVEMEMORY__REDIS__PASSWORD`
 - `HIVEMEMORY__QDRANT__HOST` / `PORT`
 
 ### 4. 安装后端
@@ -239,7 +230,6 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 - `HIVEMEMORY__LLM__WORKER__MODEL`
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
 - `HIVEMEMORY__QDRANT__HOST`
-- `HIVEMEMORY__REDIS__PASSWORD`
 - `HIVEMEMORY__LOGGING__LEVEL`
 
 ### YAML 配置
@@ -249,7 +239,6 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 - `llm`：gateway / librarian / worker
 - `embedding`
 - `qdrant`
-- `redis`
 - `gateway`
 - `perception`
 - `generation`
@@ -280,7 +269,7 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 ```text
 HiveMemory/
 ├── configs/                 # 环境变量模板与主配置
-├── docker/                  # 本地基础设施（Qdrant / Redis）
+├── docker/                  # Docker 一键部署（后端应用 + Qdrant）
 ├── docs/                    # 项目设计与规划文档
 ├── frontend/                # React + Vite 前端开发界面
 ├── scripts/                 # 启动与辅助脚本

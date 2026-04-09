@@ -58,8 +58,8 @@ if %errorlevel% neq 0 (
 
 echo.
 echo 启动后端服务器...
-echo 后端地址: http://localhost:8000
-echo API 文档: http://localhost:8000/docs
+echo 后端地址: http://localhost:8769
+echo API 文档: http://localhost:8769/docs
 echo.
 
 REM 启动后端（在新窗口）
@@ -70,7 +70,7 @@ echo 等待后端启动...
 timeout /t 5 /nobreak > nul
 
 REM 检查后端是否启动成功
-curl -s http://localhost:8000/health > nul 2>&1
+curl -s http://localhost:8769/health > nul 2>&1
 if %errorlevel% equ 0 (
     echo [OK] 后端启动成功
 ) else (
@@ -115,9 +115,9 @@ echo.
 echo ==========================================
 echo 开发环境已启动
 echo ==========================================
-echo 后端: http://localhost:8000
+echo 后端: http://localhost:8769
 echo 前端: http://localhost:5173
-echo API 文档: http://localhost:8000/docs
+echo API 文档: http://localhost:8769/docs
 echo.
 echo 提示:
 echo   - 后端和前端在独立窗口中运行

@@ -14,12 +14,12 @@ fi
 
 # 启动后端
 echo "启动后端服务器..."
-echo "后端地址: http://localhost:8000"
-echo "API 文档: http://localhost:8000/docs"
+echo "后端地址: http://localhost:8769"
+echo "API 文档: http://localhost:8769/docs"
 echo ""
 
 # 使用 uvicorn 启动后端（带自动重载）
-uvicorn hivememory.server.app:app --host 0.0.0.0 --port 8000 --reload &
+uvicorn hivememory.server.app:app --host 0.0.0.0 --port 8769 --reload &
 BACKEND_PID=$!
 
 # 等待后端启动
@@ -27,7 +27,7 @@ echo "等待后端启动..."
 sleep 3
 
 # 检查后端是否启动成功
-if curl -s http://localhost:8000/health > /dev/null; then
+if curl -s http://localhost:8769/health > /dev/null; then
     echo "✓ 后端启动成功"
 else
     echo "✗ 后端启动失败"
@@ -49,9 +49,9 @@ echo ""
 echo "=========================================="
 echo "开发环境已启动"
 echo "=========================================="
-echo "后端: http://localhost:8000"
+echo "后端: http://localhost:8769"
 echo "前端: http://localhost:5173"
-echo "API 文档: http://localhost:8000/docs"
+echo "API 文档: http://localhost:8769/docs"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
 echo "=========================================="

@@ -1,14 +1,11 @@
 # Core LLM & Agent Framework
-langchain>=0.2.0
-langchain-community>=0.2.0
-langgraph>=0.1.0
 litellm>=1.30.0
 
 # Vector Database & Embeddings
 qdrant-client>=1.7.0
-sentence-transformers>=2.5.0  # Perception Layer (semantic adsorber)
-torch>=2.6.0
-transformers>=4.49.0
+sentence-transformers==2.5.0  # Local Embedding Model
+torch==2.6.0
+transformers==4.49.0
 
 # Data Validation & Configuration
 pydantic>=2.0.0

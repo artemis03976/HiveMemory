@@ -39,10 +39,9 @@ cd HiveMemory
 当前项目本地依赖以下基础设施：
 
 - **Qdrant**：向量数据库
-- **Redis**：缓存 / 队列基础设施
 - **Qdrant Web UI**：可选，仅用于调试可视化
 
-### 启动 Qdrant + Redis
+### 启动 Qdrant（与后端应用）
 
 ```bash
 docker-compose -f docker/docker-compose.yml up -d
@@ -56,9 +55,9 @@ docker-compose -f docker/docker-compose.yml --profile debug up -d
 
 ### 端口说明
 
+- HiveMemory Web: `8000`
 - Qdrant HTTP: `6333`
 - Qdrant gRPC: `6334`
-- Redis: `6379`
 - Qdrant Web UI: `6335`（debug profile）
 
 ### 检查容器状态
@@ -66,14 +65,6 @@ docker-compose -f docker/docker-compose.yml --profile debug up -d
 ```bash
 docker ps
 ```
-
-> 注意：`docker-compose.yml` 中 Redis 默认密码为 `hivememory_redis_pass`，而 `configs/.env.example` 中该值默认为空。如果直接使用仓库自带的 Compose 配置，请记得在环境变量中设置：
->
-> ```env
-> HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass
-> ```
-
----
 
 ## 4. 创建 Python 虚拟环境
 
@@ -133,7 +124,7 @@ cp configs/.env.example .env
 
 当前配置采用 **环境变量 + YAML** 分层模式：
 
-- `.env`：放 API Key、Qdrant / Redis 地址、调试开关等
+- `.env`：放 API Key、Qdrant 地址、调试开关等
 - `configs/config.yaml`：放业务逻辑参数、检索参数、感知参数、生命周期参数等
 
 ### 当前环境变量格式
@@ -154,7 +145,7 @@ HIVEMEMORY__QDRANT__PORT=6333
 
 HIVEMEMORY__REDIS__HOST=localhost
 HIVEMEMORY__REDIS__PORT=6379
-HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass
+HIVEMEMORY__REDIS__PASSWORD=
 ```
 
 ### 最低建议检查项
@@ -165,9 +156,6 @@ HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
 - `HIVEMEMORY__QDRANT__HOST`
 - `HIVEMEMORY__QDRANT__PORT`
-- `HIVEMEMORY__REDIS__HOST`
-- `HIVEMEMORY__REDIS__PORT`
-- `HIVEMEMORY__REDIS__PASSWORD`
 
 ### 配置文件加载说明
 
@@ -280,29 +268,13 @@ docker logs hivememory_qdrant
 确认以下内容：
 
 - Qdrant 容器已正常运行
-- `HIVEMEMORY__QDRANT__HOST=localhost`
+- Docker Compose 部署时 `HIVEMEMORY__QDRANT__HOST=qdrant`
+- 本地开发时 `HIVEMEMORY__QDRANT__HOST=localhost`
 - `HIVEMEMORY__QDRANT__PORT=6333`
 
 ---
 
-### 问题 2：Redis 连接失败
-
-**现象**：启动或运行过程中出现 Redis 认证 / 连接错误。
-
-**排查方式**：
-
-- 检查 Redis 容器是否已运行
-- 检查 `.env` 中 `HIVEMEMORY__REDIS__PASSWORD` 是否与 `docker-compose.yml` 中一致
-
-如果使用仓库默认 Compose，通常应为：
-
-```env
-HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass
-```
-
----
-
-### 问题 3：模型下载或预热太慢
+### 问题 2：模型下载或预热太慢
 
 **现象**：服务已启动，但 `/health/ready` 长时间仍为 `warming_up`。
 
@@ -314,7 +286,7 @@ HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass
 
 ---
 
-### 问题 4：LLM 调用失败
+### 问题 3：LLM 调用失败
 
 **现象**：请求时出现 API Key 错误或上游模型调用失败。
 
@@ -338,7 +310,7 @@ HIVEMEMORY__LLM__LIBRARIAN__MODEL=deepseek/deepseek-chat
 
 ---
 
-### 问题 5：前端无法连接后端
+### 问题 4：前端无法连接后端
 
 **现象**：前端页面已打开，但 API 请求失败。
 
@@ -357,7 +329,7 @@ HIVEMEMORY__LLM__LIBRARIAN__MODEL=deepseek/deepseek-chat
 ```text
 HiveMemory/
 ├── configs/                 # 环境变量模板与主配置
-├── docker/                  # 本地基础设施（Qdrant / Redis）
+├── docker/                  # Docker 一键部署（后端应用 + Qdrant）
 ├── docs/                    # 项目文档
 ├── frontend/                # React + Vite 前端开发界面
 ├── scripts/                 # 调试与辅助脚本
@@ -376,11 +348,10 @@ HiveMemory/
 
 完成以下项目后，可认为本地环境已基本可用：
 
-- [ ] Docker 服务正常运行（Qdrant / Redis）
+- [ ] Docker 服务正常运行（HiveMemory + Qdrant）
 - [ ] Python 虚拟环境已激活
 - [ ] 后端依赖安装成功（`pip install -e .`）
 - [ ] `.env` 中已配置 LLM API Key
-- [ ] Redis 密码与 Compose 配置一致
 - [ ] `hivememory-server` 可正常启动
 - [ ] `GET /health` 返回成功
 - [ ] `GET /health/ready` 最终返回 ready

@@ -11,8 +11,8 @@ The repository already includes a runnable Python backend, a frontend developmen
 
 ## Release Status
 
-- Current version: `0.1.0`
-- Release stage: Test build / Alpha
+- Current version: `0.1.0-beta`
+- Release stage: Test build
 - Python requirement: `>=3.12`
 - License: Apache-2.0
 
@@ -116,43 +116,35 @@ For full design background, motivation, and terminology, see [docs/PROJECT.md](d
 
 Recommended environment for running the project:
 
-- Python 3.12+
-- Node.js (a recent LTS version is recommended for the frontend development UI)
-- Docker / Docker Compose (to start local Qdrant and Redis)
-- Valid LLM API keys (for example DeepSeek or OpenAI-compatible endpoints)
+- Docker / Docker Compose (recommended, for one-command deployment)
+- Or manual setup:
+  - Python 3.12+
+  - Node.js (for frontend development)
+  - Valid LLM API keys (for example DeepSeek or OpenAI-compatible endpoints)
 
 Also note that embedding and reranker models may need to be downloaded and warmed up on first startup, so the service being up does not necessarily mean the models are ready.
 
 ## Quick Start
 
-### 1. Clone the repository
+### Option 1: One-Command Docker Deployment (Recommended)
+
+If you just want to try the test build quickly, we strongly recommend Docker one-command deployment:
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/artemis03976/HiveMemory.git
 cd HiveMemory
+
+# 2. Copy and edit environment file (fill in your LLM API key)
+cp configs/.env.example configs/.env
+
+# 3. Start everything (Qdrant + HiveMemory backend app)
+docker-compose -f docker/docker-compose.yml up -d --build
 ```
 
-### 2. Start the infrastructure
+After startup, open **http://localhost:8000** in your browser to use the full web UI.
 
-The bundled Docker Compose setup starts:
-
-- Qdrant (HTTP `6333` / gRPC `6334`)
-- Redis (`6379`)
-- Optional Qdrant Web UI (`6335`, debug profile only)
-
-```bash
-docker-compose -f docker/docker-compose.yml up -d
-```
-
-If you also want the Qdrant Web UI:
-
-```bash
-docker-compose -f docker/docker-compose.yml --profile debug up -d
-```
-
-> Note: Redis uses `hivememory_redis_pass` as the default password in Docker Compose, while `configs/.env.example` leaves it blank. If you use the bundled Compose setup directly, set `HIVEMEMORY__REDIS__PASSWORD=hivememory_redis_pass` in your environment.
-
-### 3. Configure environment variables
+### Option 2: Local Development Setup
 
 First copy the environment template:
 
@@ -162,14 +154,13 @@ cp configs/.env.example .env
 
 Then edit `.env` as needed. In general:
 
-- `.env` / environment variables: API keys, Qdrant / Redis addresses, debug flags, and other environment-level settings
+- `.env` / environment variables: API keys, Qdrant address, debug flags, and other environment-level settings
 - `configs/config.yaml`: business logic and algorithmic settings for retrieval, perception, generation, lifecycle, and more
 
 At minimum, check:
 
 - `HIVEMEMORY__LLM__WORKER__API_KEY`
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
-- `HIVEMEMORY__REDIS__PASSWORD`
 - `HIVEMEMORY__QDRANT__HOST` / `PORT`
 
 ### 4. Install the backend
@@ -239,7 +230,6 @@ HiveMemory currently uses a layered **environment variables + YAML** configurati
 - `HIVEMEMORY__LLM__WORKER__MODEL`
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
 - `HIVEMEMORY__QDRANT__HOST`
-- `HIVEMEMORY__REDIS__PASSWORD`
 - `HIVEMEMORY__LOGGING__LEVEL`
 
 ### YAML Configuration
@@ -249,7 +239,6 @@ HiveMemory currently uses a layered **environment variables + YAML** configurati
 - `llm`: gateway / librarian / worker
 - `embedding`
 - `qdrant`
-- `redis`
 - `gateway`
 - `perception`
 - `generation`
@@ -280,7 +269,7 @@ If you only need HTTP APIs, use the FastAPI service directly. If you want to emb
 ```text
 HiveMemory/
 ├── configs/                 # Environment templates and main config
-├── docker/                  # Local infrastructure (Qdrant / Redis)
+├── docker/                  # Docker one-command deployment (backend app + Qdrant)
 ├── docs/                    # Project design and planning docs
 ├── frontend/                # React + Vite frontend development UI
 ├── scripts/                 # Startup and helper scripts
