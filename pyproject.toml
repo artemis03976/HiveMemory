@@ -39,6 +39,7 @@ dependencies = [
     "httpx>=0.26.0",
     "FlagEmbedding>=1.2.0",
     "sse-starlette>=1.6.0",
+    "apscheduler>=3.10.0",
 ]
 
 [project.optional-dependencies]

@@ -12,7 +12,7 @@ HiveMemory 是一套面向 LLM Agent 工作流的持久化记忆系统，目标�
 ## 发布状态
 
 - 当前版本：`0.1.0-beta`
-- 发布阶段：测试版 
+- 发布阶段：测试版
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0
 
@@ -96,21 +96,21 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 
 ## API 概览
 
-| 接口路径 | 方法 | 用途 |
-| --- | --- | --- |
-| `/health` | GET | 存活检查 |
-| `/health/ready` | GET | 模型预热完成后的就绪检查 |
-| `/api/v1/chat` | POST | SSE 流式主动对话 |
-| `/api/v1/ingest` | POST | 被动消息摄入 |
-| `/api/v1/memories` | GET | 语义搜索 / 列出记忆 |
-| `/api/v1/memories/{memory_id}` | GET | 获取单条记忆 |
-| `/api/v1/memories/{memory_id}` | DELETE | 删除单条记忆 |
-| `/api/v1/topics` | GET | 获取活跃话题 |
-| `/api/v1/topics/{topic_id}/trigger` | POST | 手动触发话题结算 |
-| `/api/v1/topics/{topic_id}` | DELETE | 从活跃池删除话题 |
-| `/api/v1/config` | GET / POST | 读取 / 更新运行时配置 |
-| `/api/v1/config/defaults` | GET | 获取默认配置 |
-| `/api/v1/ws/logs` | WS | 获取实时日志流 |
+| 接口路径                                | 方法         | 用途           |
+| ----------------------------------- | ---------- | ------------ |
+| `/health`                           | GET        | 存活检查         |
+| `/health/ready`                     | GET        | 模型预热完成后的就绪检查 |
+| `/api/v1/chat`                      | POST       | SSE 流式主动对话   |
+| `/api/v1/ingest`                    | POST       | 被动消息摄入       |
+| `/api/v1/memories`                  | GET        | 语义搜索 / 列出记忆  |
+| `/api/v1/memories/{memory_id}`      | GET        | 获取单条记忆       |
+| `/api/v1/memories/{memory_id}`      | DELETE     | 删除单条记忆       |
+| `/api/v1/topics`                    | GET        | 获取活跃话题       |
+| `/api/v1/topics/{topic_id}/trigger` | POST       | 手动触发话题结算     |
+| `/api/v1/topics/{topic_id}`         | DELETE     | 从活跃池删除话题     |
+| `/api/v1/config`                    | GET / POST | 读取 / 更新运行时配置 |
+| `/api/v1/config/defaults`           | GET        | 获取默认配置       |
+| `/api/v1/ws/logs`                   | WS         | 获取实时日志流      |
 
 ## 环境要求
 
@@ -142,7 +142,7 @@ cp configs/.env.example configs/.env
 docker-compose -f docker/docker-compose.yml up -d --build
 ```
 
-启动成功后，直接在浏览器中打开 **http://localhost:8000** 即可开始使用完整的 Web 界面！
+启动成功后，直接在浏览器中打开 **<http://localhost:8000>** 即可开始使用完整的 Web 界面！
 
 ### 方式二：本地开发环境搭建
 
@@ -291,7 +291,7 @@ HiveMemory/
 
 ## 文档索引
 
-- [README_EN.md](README_EN.md) — 英文版 README
+- [README\_EN.md](README_EN.md) — 英文版 README
 - [docs/PROJECT.md](docs/PROJECT.md) — 项目背景、架构设计、Patchouli 体系与 MTP 说明
 - [docs/SETUP.md](docs/SETUP.md) — 环境搭建说明
 - [docs/ROADMAP.md](docs/ROADMAP.md) — 版本规划与后续方向

@@ -70,13 +70,6 @@ const MOCK_CONFIG: HiveMemoryConfig = {
     distance_metric: 'Cosine',
     on_disk_payload: true,
   },
-  redis: {
-    host: 'localhost',
-    port: 6379,
-    password: null,
-    db: 0,
-    decode_responses: true,
-  },
   gateway: {
     interceptor: {
       enabled: true,

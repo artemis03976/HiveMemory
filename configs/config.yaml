@@ -87,14 +87,6 @@ qdrant:
   distance_metric: "Cosine"
   on_disk_payload: false
 
-# ========== Redis 配置 ==========
-redis:
-  host: "localhost"
-  port: 6379
-  password: null  # 通过环境变量 HIVEMEMORY__REDIS__PASSWORD 设置
-  db: 0
-  decode_responses: true
-
 # ========== Gateway 配置 ==========
 gateway:
   interceptor:

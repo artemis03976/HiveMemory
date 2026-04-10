@@ -55,15 +55,6 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
     });
   }
 
-  // Validate Redis db (0-15)
-  if (config.redis.db < 0 || config.redis.db > 15) {
-    errors.push({
-      field: 'redis.db',
-      message: 'Redis database must be between 0 and 15',
-      severity: 'error',
-    });
-  }
-
   // Validate gateway analyzer context window (1-10)
   if (config.gateway.analyzer.context_window < 1 || config.gateway.analyzer.context_window > 10) {
     errors.push({

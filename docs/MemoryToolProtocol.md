@@ -184,9 +184,9 @@ def login(user):
 ```
 
 **场景 5: 探索未知 (Discovery)**
-> *Agent 不知道有没有关于 "Redis" 的记忆。*
+> *Agent 不知道有没有关于 "Qdrant" 的记忆。*
 ```text
-⟪ SEARCH | * | query="Redis configuration" filter="type:CODE" ⟫
+⟪ SEARCH | * | query="Qdrant configuration" filter="type:CODE" ⟫
 ```
 
 ---
@@ -587,7 +587,7 @@ graph TD
     *   *后果*：Agent 暂时失忆，但仍能对话。
 *   **Librarian 离线**：
     *   *现象*：日志投递失败。
-    *   *策略*：Kernel 将日志暂存至 Redis 队列，等待重试。
+    *   *策略*：Kernel 将日志暂存至内存重试队列，等待重试。
     *   *后果*：用户无感知，仅记忆生成延迟。
 
 ### 7. 内核级指令设计

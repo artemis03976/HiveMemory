@@ -53,14 +53,6 @@ export interface QdrantConfig {
   on_disk_payload: boolean;
 }
 
-export interface RedisConfig {
-  host: string;
-  port: number;
-  password: string | null;
-  db: number;
-  decode_responses: boolean;
-}
-
 export interface InterceptorConfig {
   enabled: boolean;
   enable_system: boolean;
@@ -271,7 +263,6 @@ export interface HiveMemoryConfig {
   llm: LLMsConfig;
   embedding: EmbeddingsConfig;
   qdrant: QdrantConfig;
-  redis: RedisConfig;
   gateway: GatewayConfig;
   perception: PerceptionConfig;
   generation: GenerationConfig;

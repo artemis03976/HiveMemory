@@ -40,7 +40,6 @@ from hivememory.patchouli.config import (
     LLMConfig,
     EmbeddingConfig,
     QdrantConfig,
-    RedisConfig,
 )
 
 # 三位一体分身
@@ -83,5 +82,4 @@ __all__ = [
     "LLMConfig",
     "EmbeddingConfig",
     "QdrantConfig",
-    "RedisConfig",
 ]

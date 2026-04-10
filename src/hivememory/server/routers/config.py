@@ -25,7 +25,6 @@ class ConfigResponse(BaseModel):
     llm: Dict[str, Any]
     embedding: Dict[str, Any]
     qdrant: Dict[str, Any]
-    redis: Dict[str, Any]
     gateway: Dict[str, Any]
     perception: Dict[str, Any]
     generation: Dict[str, Any]

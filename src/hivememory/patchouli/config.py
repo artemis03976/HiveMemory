@@ -117,17 +117,6 @@ class QdrantConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class RedisConfig(BaseModel):
-    """Redis 配置"""
-    host: str = Field(default="localhost", description="Redis 主机地址")
-    port: int = Field(default=6379, description="Redis 端口")
-    password: Optional[str] = Field(default=None, description="Redis 密码")
-    db: int = Field(default=0, description="数据库索引")
-    decode_responses: bool = Field(default=True, description="是否自动解码响应")
-
-    model_config = ConfigDict(extra="ignore")
-
-
 # ========== Gateway 配置 ==========
 
 class RuleInterceptorConfig(BaseModel):
@@ -689,7 +678,6 @@ class HiveMemoryConfig(BaseSettings):
     llm: LLMGlobalConfig = Field(default_factory=LLMGlobalConfig)
     embedding: EmbeddingGlobalConfig = Field(default_factory=EmbeddingGlobalConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
-    redis: RedisConfig = Field(default_factory=RedisConfig)
 
     gateway: MemoryGatewayConfig = Field(default_factory=MemoryGatewayConfig)
     perception: MemoryPerceptionConfig = Field(default_factory=MemoryPerceptionConfig)

@@ -50,7 +50,6 @@ from hivememory.patchouli.config import (
     LLMConfig,
     EmbeddingConfig,
     QdrantConfig,
-    RedisConfig,
 )
 
 from hivememory.infrastructure.llm import (
@@ -261,7 +260,6 @@ __all__ = [
     "LLMConfig",
     "EmbeddingConfig",
     "QdrantConfig",
-    "RedisConfig",
     # ========== LLM 服务 ==========
     "BaseLLMService",
     "LiteLLMService",

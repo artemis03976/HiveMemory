@@ -1,4 +1,4 @@
-import { SettingSection, SettingRow, Input, Select, Toggle } from '../common/FormControls';
+import { SettingSection, SettingRow, Input, Select } from '../common/FormControls';
 import type { SettingsWithValidationProps } from '@/types/settings';
 
 export function InfrastructureSettings({ config, updateConfig, getFieldError }: SettingsWithValidationProps) {
@@ -25,21 +25,6 @@ export function InfrastructureSettings({ config, updateConfig, getFieldError }: 
               {label: '点积 (Dot)', value: 'Dot'}
             ]} 
           />
-        </SettingRow>
-      </SettingSection>
-
-      <SettingSection title="Redis">
-        <SettingRow label="主机" description="Redis 服务器的主机名或 IP。">
-          <Input value={config.redis.host} onChange={(v: string) => updateConfig('redis.host', v)} />
-        </SettingRow>
-        <SettingRow label="端口" description="Redis 服务器端口。">
-          <Input type="number" value={config.redis.port} onChange={(v: number) => updateConfig('redis.port', v)} className="w-32" />
-        </SettingRow>
-        <SettingRow label="数据库索引" description="Redis 逻辑数据库编号。">
-          <Input type="number" value={config.redis.db} onChange={(v: number) => updateConfig('redis.db', v)} className="w-24" error={getFieldError('redis.db')} />
-        </SettingRow>
-        <SettingRow label="解码响应" description="自动将字节响应解码为字符串。">
-          <Toggle checked={config.redis.decode_responses} onChange={(v: boolean) => updateConfig('redis.decode_responses', v)} />
         </SettingRow>
       </SettingSection>
     </div>
