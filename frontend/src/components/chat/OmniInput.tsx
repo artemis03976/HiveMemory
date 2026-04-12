@@ -6,7 +6,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useChatRuntimeConfigStore } from '@/stores/chatRuntimeConfigStore';
 import { useChatUiStore } from '@/stores/chatUiStore';
 import { Toggle } from '../common/FormControls';
-import { MOCK_AGENTS } from '@/constants/agents';
+import { useAgents } from '@/hooks/useAgents';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function OmniInput() {
@@ -16,16 +16,18 @@ export default function OmniInput() {
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+
   const { sendMessage, isStreaming, currentAgentId, setCurrentAgentId } = useChatStore();
 
   const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
-  
+  const { agents } = useAgents();
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const currentAgent = MOCK_AGENTS.find(a => a.id === currentAgentId) || MOCK_AGENTS[0];
+  const currentAgent = agents.find(a => a.id === currentAgentId) || agents[0];
 
-  const filteredAgents = MOCK_AGENTS.filter(a => 
+  const filteredAgents = agents.filter(a =>
     mentionQuery === null || a.name.toLowerCase().includes(mentionQuery.toLowerCase())
   );
 
@@ -138,8 +140,8 @@ export default function OmniInput() {
           className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-high border border-white/10 hover:border-primary/50 hover:bg-white/5 transition-all text-xs font-medium text-slate-300 shadow-lg"
         >
           <span className="text-slate-500">当前对话:</span>
-          <currentAgent.avatarIcon className={`w-3.5 h-3.5 ${currentAgent.colorClass}`} />
-          <span>{currentAgent.name}</span>
+          {currentAgent && <currentAgent.avatarIcon className={`w-3.5 h-3.5 ${currentAgent.colorClass}`} />}
+          <span>{currentAgent?.name ?? '...'}</span>
           <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${isAgentMenuOpen ? 'rotate-180' : ''}`} />
         </button>
 
@@ -153,7 +155,7 @@ export default function OmniInput() {
               className="absolute bottom-full left-0 mb-2 w-64 bg-surface-container-highest border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 origin-bottom-left"
             >
               <div className="p-1">
-                {MOCK_AGENTS.map((agent) => (
+                {agents.map((agent) => (
                   <button
                     key={agent.id}
                     onClick={() => {
