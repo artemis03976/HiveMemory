@@ -34,6 +34,7 @@ env/
 *~
 
 # Environment Variables
+config/.env
 .env
 .env.local
 *.local

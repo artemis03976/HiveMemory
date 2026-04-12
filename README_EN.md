@@ -55,7 +55,7 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 
 ## Architecture Overview
 
-The current implementation of HiveMemory is built around the **Patchouli System**. It is not just a chat API, but a runtime that separates real-time retrieval from asynchronous memory organization.
+The current implementation of HiveMemory is built around the **Patchouli System**. It is not just a chat API, but a runtime that separates real-time conversation from asynchronous memory organization.
 
 ### Main Patchouli Components
 
@@ -160,7 +160,11 @@ Then edit `.env` as needed. In general:
 At minimum, check:
 
 - `HIVEMEMORY__LLM__WORKER__API_KEY`
+- `HIVEMEMORY__LLM__WORKER__MODEL`
+- `HIVEMEMORY__LLM__GATEWAY__API_KEY`
+- `HIVEMEMORY__LLM__GATEWAY__MODEL`
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
+- `HIVEMEMORY__LLM__LIBRARIAN__MODEL`
 - `HIVEMEMORY__QDRANT__HOST` / `PORT`
 
 ### 4. Install the backend

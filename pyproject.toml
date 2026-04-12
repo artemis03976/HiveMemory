@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "HiveMemory Team"}
+    {name = "artemis03976"}
 ]
 keywords = ["llm", "agent", "memory", "rag", "vector-database", "ai"]
 classifiers = [
@@ -29,7 +29,6 @@ dependencies = [
     "transformers==4.49.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-    "redis>=5.0.0",
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
     "python-dotenv>=1.0.0",

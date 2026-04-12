@@ -5,7 +5,7 @@
 > 为 LLM Agent 设计的持久化记忆与知识共享系统
 > *The Hippocampus for Artificial Intelligence*
 
-HiveMemory 是一套面向 LLM Agent 工作流的持久化记忆系统，目标是解决长上下文遗忘、跨会话知识无法复用、以及多 Agent 协作中的信息孤岛问题。系统会将对话中的高价值信息沉淀为可检索、可更新、可复用的记忆，并通过统一协议将这些记忆重新注入到后续任务中。
+HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是解决长上下文遗忘、跨会话知识无法复用、以及多 Agent 协作中的信息孤岛问题。系统会将对话中的高价值信息沉淀为可检索、可更新、可使用的记忆，并通过统一协议将这些记忆重新注入到后续任务中。
 
 当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及围绕 Patchouli 体系构建的主动对话、被动消息摄入、记忆检索、话题管理和运行时配置能力。
 
@@ -55,7 +55,7 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 
 ## 架构概览
 
-HiveMemory 当前实现围绕 **Patchouli System** 展开，它不是单纯的聊天接口，而是一套将实时检索与后台记忆整理解耦的运行时系统。
+HiveMemory 当前实现围绕 **Patchouli System** 展开，它不是单纯的聊天接口，而是一套将实时对话与后台记忆整理解耦的运行时系统。
 
 ### Patchouli 的主要组成
 
@@ -160,7 +160,11 @@ cp configs/.env.example .env
 至少需要检查：
 
 - `HIVEMEMORY__LLM__WORKER__API_KEY`
+- `HIVEMEMORY__LLM__WORKER__MODEL`
+- `HIVEMEMORY__LLM__GATEWAY__API_KEY`
+- `HIVEMEMORY__LLM__GATEWAY__MODEL`
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
+- `HIVEMEMORY__LLM__LIBRARIAN__MODEL`
 - `HIVEMEMORY__QDRANT__HOST` / `PORT`
 
 ### 4. 安装后端
