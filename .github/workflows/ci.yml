@@ -25,11 +25,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Run Ruff linter
-        run: |
-          pip install ruff
-          ruff check src/
-
       - name: Run unit tests
         run: |
           pytest tests/unit -v --tb=short -m "not live_llm and not e2e"

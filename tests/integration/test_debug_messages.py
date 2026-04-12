@@ -1,7 +1,8 @@
 import pytest
 import asyncio
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.patchouli.protocol.models import RetrievalResponse
 
 @pytest.fixture
 def patch_assemble_messages():
@@ -45,13 +46,30 @@ async def test_debug_messages_with_system(patch_assemble_messages):
     只要使用 patch_assemble_messages fixture，
     调用任何触发 chat 或 chat_stream 的代码都会在控制台打印提示词。
     """
-    # 实例化 PatchouliSystem，自动加载默认配置
-    system = PatchouliSystem()
-    
-    # 这里的调用会被拦截并打印
-    result = await system.chat(
-        user_message="测试拦截功能",
-        user_id="test_user"
-    )
-    
-    assert result is not None
+    # Mock 存储层和检索层，避免真实调用 Qdrant
+    with patch('hivememory.infrastructure.storage.QdrantMemoryStore') as mock_store_cls, \
+         patch('hivememory.patchouli.kernel.retrieval_familiar.RetrievalFamiliar.retrieve') as mock_retrieve:
+
+        # Mock 存储实例
+        mock_store = MagicMock()
+        mock_store.health_check.return_value = True
+        mock_store.embedding_service.is_loaded.return_value = True
+        mock_store.embedding_service.warmup.return_value = None
+        mock_store_cls.return_value = mock_store
+
+        # Mock 检索返回空结果
+        mock_retrieve.return_value = RetrievalResponse(
+            memories=[],
+            rendered_context=""
+        )
+
+        # 实例化 PatchouliSystem，自动加载默认配置
+        system = PatchouliSystem()
+
+        # 这里的调用会被拦截并打印
+        result = await system.chat(
+            user_message="测试拦截功能",
+            user_id="test_user"
+        )
+
+        assert result is not None
