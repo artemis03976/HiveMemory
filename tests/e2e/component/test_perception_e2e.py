@@ -89,7 +89,7 @@ from hivememory.patchouli.config import (
 
 # 基础设施
 from hivememory.infrastructure.embedding import get_perception_embedding_service, BaseEmbeddingService
-from hivememory.infrastructure.rerank import get_flag_reranker_service
+from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
 
 # 导入测试数据
 from tests.fixtures.perception_test_data import (

@@ -23,6 +23,8 @@ from qdrant_client.models import (
     Range,
     SparseVectorParams,
     SparseVector,
+    Document,
+    Modifier,
 )
 
 from hivememory.core.models import MemoryAtom, IndexLayer
@@ -82,7 +84,7 @@ class QdrantMemoryStore:
         bge_config = self.embedding_config
         if "bge-m3" not in bge_config.model_name.lower():
             logger.info("当前 Embedding 配置非 BGE-M3，自动调整模型名称以适配存储层")
-            bge_config = bge_config.model_copy(update={"model_name": "BAAI/bge-m3"})
+            bge_config = bge_config.model_copy(update={"model_name": "Xenova/bge-m3"})
             
         self.embedding_service = get_bge_m3_service(config=bge_config)
 
@@ -124,7 +126,7 @@ class QdrantMemoryStore:
                     ),
                 },
                 sparse_vectors_config={
-                    "sparse_text": SparseVectorParams()
+                    "sparse_text": SparseVectorParams(modifier=Modifier.IDF)
                 },
                 on_disk_payload=self.qdrant_config.on_disk_payload,
             )
@@ -162,24 +164,13 @@ class QdrantMemoryStore:
                     sparse_texts=sparse_context
                 )
 
-                # 获取稠密向量
-                dense_vector = vectors["dense"]
-
-                # 构造稀疏向量 (字典转 indices/values 格式)
-                sparse_dict = vectors["sparse"]
-                sparse_vector = SparseVector(
-                    indices=list(sparse_dict.keys()),
-                    values=list(sparse_dict.values())
-                )
-
-                # 构建 Qdrant Point - 同时包含稠密和稀疏向量
+                # 构建 Qdrant Point - dense 向量 + BM25 文本
+                sparse_text = vectors["sparse_text"]
                 point = PointStruct(
                     id=str(memory.id),
                     vector={
-                        # 命名稠密向量 (用于 mode="dense" 检索)
-                        "dense_text": dense_vector,
-                        # 命名稀疏向量 (用于 mode="sparse" 检索)
-                        "sparse_text": sparse_vector,
+                        "dense_text": vectors["dense"],
+                        "sparse_text": Document(text=sparse_text, model="qdrant/bm25"),
                     },
                     payload=memory.to_qdrant_payload(),
                 )
@@ -326,33 +317,17 @@ class QdrantMemoryStore:
             filter_obj = self._build_filter(filters) if filters else None
 
             if mode == "sparse":
-                # 稀疏向量检索 - 使用 query_points API
-                sparse_vector = self.embedding_service.encode(sparse_texts=query_text)
-                if not sparse_vector:
-                    logger.warning(f"稀疏向量为空 (text='{query_text[:50]}...')，返回空结果")
-                    return []
-                logger.debug(f"稀疏向量非零维度: {len(sparse_vector)} (keys={list(sparse_vector.keys())[:10]}...)")
-
-                # 构造稀疏向量查询
-                query_sparse = SparseVector(
-                    indices=list(sparse_vector.keys()),
-                    values=list(sparse_vector.values())
-                )
-
-                # 使用 query_points 进行稀疏向量检索
+                # BM25 检索 - 使用 Qdrant 原生 BM25 Document 查询
                 search_result = self.client.query_points(
                     collection_name=self.collection_name,
-                    query=query_sparse,
-                    using="sparse_text",  # 指定使用稀疏向量配置
+                    query=Document(text=query_text, model="qdrant/bm25"),
+                    using="sparse_text",
                     query_filter=filter_obj,
                     limit=top_k,
-                    # score_threshold=score_threshold,
                     with_payload=True,
                 )
-                search_result = search_result.points  # 提取 points 列表
-                logger.debug(f"✓ 稀疏检索到 {len(search_result)} 条记忆")
-                if len(search_result) == 0:
-                    logger.warning("稀疏检索返回 0 条结果。")
+                search_result = search_result.points
+                logger.debug(f"✓ BM25 检索到 {len(search_result)} 条记忆")
             else:
                 # 稠密向量检索 - 使用 query_points API
                 query_vector = self.embedding_service.encode(dense_texts=query_text)

@@ -61,34 +61,37 @@ COPY configs/ ./configs/
 RUN [ "$PRELOAD_MODELS" = "true" ] || exit 0; \
     python - <<'PY'
 import yaml
-from FlagEmbedding import BGEM3FlagModel, FlagReranker
+from fastembed import TextEmbedding
+from fastembed.common.model_description import PoolingType, ModelSource
+from fastembed.rerank.cross_encoder import TextCrossEncoder
+
+CUSTOM_EMBEDDING_MODEL = "Xenova/bge-m3"
+CUSTOM_EMBEDDING_FILE = "onnx/model_int8.onnx"
+
+TextEmbedding.add_custom_model(
+    model=CUSTOM_EMBEDDING_MODEL,
+    pooling=PoolingType.CLS,
+    normalization=True,
+    sources=ModelSource(hf=CUSTOM_EMBEDDING_MODEL),
+    dim=1024,
+    model_file=CUSTOM_EMBEDDING_FILE,
+)
 
 with open("/app/configs/config.yaml", "r", encoding="utf-8") as f:
     cfg = yaml.safe_load(f) or {}
 
 embedding_cfg = (cfg.get("embedding") or {}).get("default") or {}
-embedding_model = embedding_cfg.get("model_name", "BAAI/bge-m3")
-embedding_device = embedding_cfg.get("device", "cpu")
+embedding_model = embedding_cfg.get("model_name", CUSTOM_EMBEDDING_MODEL)
 
 reranker_cfg = (((cfg.get("retrieval") or {}).get("retriever") or {}).get("reranker") or {})
-reranker_model = reranker_cfg.get("model_name", "BAAI/bge-reranker-v2-m3")
-reranker_device = reranker_cfg.get("device", "cpu")
-reranker_use_fp16 = bool(reranker_cfg.get("use_fp16", True)) and reranker_device != "cpu"
+reranker_model = reranker_cfg.get("model_name", "BAAI/bge-reranker-base")
 
-print(f"[preload] embedding={embedding_model} device={embedding_device}")
-BGEM3FlagModel(
-    model_name_or_path=embedding_model,
-    device=embedding_device,
-    use_fp16=embedding_device != "cpu",
-    show_progress_bar=False,
-)
+print(f"[preload] embedding={embedding_model}")
+TextEmbedding(model_name=embedding_model)
 
-print(f"[preload] reranker={reranker_model} device={reranker_device}")
-FlagReranker(
-    model_name_or_path=reranker_model,
-    device=reranker_device,
-    use_fp16=reranker_use_fp16,
-)
+print(f"[preload] reranker={reranker_model}")
+TextCrossEncoder(model_name=reranker_model)
+
 print("[preload] model predownload completed")
 PY
 
