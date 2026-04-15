@@ -40,6 +40,7 @@ def patch_assemble_messages():
         yield
 
 # 示例测试：
+@pytest.mark.live_llm
 @pytest.mark.asyncio
 async def test_debug_messages_with_system(patch_assemble_messages):
     """
