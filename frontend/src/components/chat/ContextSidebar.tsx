@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import { Columns, ChevronRight } from 'lucide-react';
 import type { Topic } from '@/types';
 import TopicTab from './TopicTab';
 import ModelConfigTab from './ModelConfigTab';
+import { useChatUiStore } from '@/stores/chatUiStore';
 
 interface ContextSidebarProps {
   topics: Topic[];
@@ -12,8 +12,6 @@ interface ContextSidebarProps {
   onToggleCollapse: () => void;
 }
 
-type TabType = 'topics' | 'config';
-
 export default function ContextSidebar({
   topics,
   activeTopicId,
@@ -21,7 +19,7 @@ export default function ContextSidebar({
   isCollapsed,
   onToggleCollapse
 }: ContextSidebarProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('topics');
+  const { contextSidebarTab: activeTab, setContextSidebarTab: setActiveTab } = useChatUiStore();
 
   if (isCollapsed) {
     return (

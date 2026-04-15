@@ -4,14 +4,19 @@ import ChatWorkspace from './chat/ChatWorkspace';
 import KernelVision from './chat/KernelVision';
 import { useTopicStore } from '@/stores/topicStore';
 import { useChatStore } from '@/stores/chatStore';
+import { useChatUiStore } from '@/stores/chatUiStore';
 
 export default function ChatLayout() {
   const { topics, fetchTopics } = useTopicStore();
   const { currentTopicId, retrievedMemories } = useChatStore();
-  
+  const {
+    isContextSidebarCollapsed,
+    toggleContextSidebar,
+    isKernelVisionCollapsed,
+    toggleKernelVision,
+  } = useChatUiStore();
+
   const [activeTopicId, setActiveTopicId] = useState('');
-  const [isContextSidebarCollapsed, setIsContextSidebarCollapsed] = useState(false);
-  const [isKernelVisionCollapsed, setIsKernelVisionCollapsed] = useState(false);
 
   useEffect(() => {
     fetchTopics();
@@ -27,7 +32,7 @@ export default function ChatLayout() {
         activeTopicId={resolvedActiveTopicId}
         onTopicSelect={setActiveTopicId}
         isCollapsed={isContextSidebarCollapsed}
-        onToggleCollapse={() => setIsContextSidebarCollapsed(!isContextSidebarCollapsed)}
+        onToggleCollapse={toggleContextSidebar}
       />
       <ChatWorkspace
         activeTopicTitle={activeTopic?.title || ''}
@@ -35,7 +40,7 @@ export default function ChatLayout() {
       <KernelVision
         memories={retrievedMemories}
         isCollapsed={isKernelVisionCollapsed}
-        onToggleCollapse={() => setIsKernelVisionCollapsed(!isKernelVisionCollapsed)}
+        onToggleCollapse={toggleKernelVision}
       />
     </>
   );

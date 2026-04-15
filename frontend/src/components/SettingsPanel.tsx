@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import { Settings as SettingsIcon, Cpu, Database, Network, Activity, Save, RefreshCw, Undo2, TerminalSquare, Search, Eye, Sparkles } from 'lucide-react';
 import { useSettings } from '../hooks/useSettings';
 import { useToastStore } from '@/stores/toastStore';
+import { useChatUiStore } from '@/stores/chatUiStore';
 import { GeneralSettings } from './settings/GeneralSettings';
 import { ModelSettings } from './settings/ModelSettings';
 import { InfrastructureSettings } from './settings/InfrastructureSettings';
@@ -25,7 +25,7 @@ const CATEGORIES = [
 ];
 
 export default function Settings() {
-  const [activeCategory, setActiveCategory] = useState('general');
+  const { settingsActiveCategory: activeCategory, setSettingsActiveCategory: setActiveCategory } = useChatUiStore();
   const {
     config,
     loading,
