@@ -178,10 +178,10 @@ class PatchouliKernel:
             config=self.config.llm.librarian
         )
 
-        from hivememory.infrastructure.rerank import get_flag_reranker_service
+        from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
         reranker_config = self.config.retrieval.retriever.reranker
         if reranker_config.enabled:
-            self.reranker_service = get_flag_reranker_service(
+            self.reranker_service = get_fast_embed_reranker_service(
                 config=reranker_config
             )
         else:

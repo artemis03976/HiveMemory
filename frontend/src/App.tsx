@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import GlobalNavBar from './components/GlobalNavBar';
 import ChatLayout from './components/ChatLayout';
-import MemoryGarden from './components/MemoryGarden';
+import MemoryLibrary from './components/MemoryLibrary';
 import SettingsPanel from './components/SettingsPanel';
 import DynamicToast from './components/common/DynamicToast';
 import type { NavTab } from './types';
@@ -23,7 +23,7 @@ export default function App() {
           <ChatLayout />
         )}
         {activeNavTab === 'database' && (
-          <MemoryGarden />
+          <MemoryLibrary />
         )}
         {activeNavTab === 'settings' && (
           <SettingsPanel />

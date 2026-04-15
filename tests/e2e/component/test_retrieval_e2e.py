@@ -74,7 +74,7 @@ from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, create_fus
 from hivememory.engines.retrieval.models import RetrievalQuery, RenderFormat
 from hivememory.patchouli.config import load_app_config, FullRendererConfig, CascadeRendererConfig
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-from hivememory.infrastructure.rerank.flag_reranker import FlagRerankerService
+from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
 
 from tests.fixtures.retrieval_test_data import (
     GOLDEN_MEMORIES, HYBRID_SEARCH_TEST_CASES, RERANKING_TEST_CASES,
@@ -88,7 +88,7 @@ console = Console(force_terminal=True, legacy_windows=False)
 
 _shared_storage: Optional[QdrantMemoryStore] = None
 _shared_retriever: Optional[HybridRetriever] = None
-_shared_reranker_service: Optional[FlagRerankerService] = None
+_shared_reranker_service: Optional[FastEmbedRerankerService] = None
 _shared_engine: Optional[RetrievalEngine] = None
 _test_collection_name: str = "hivememory_retrieval_test"
 _golden_memories_injected: bool = False
@@ -127,7 +127,7 @@ def setup_test_env() -> RetrievalEngine:
     retriever_config = app_config.retrieval.retriever
     reranker_config = retriever_config.reranker
     console.print(f"[dim]Reranker 模型: {reranker_config.model_name}[/dim]")
-    _shared_reranker_service = FlagRerankerService(config=reranker_config)
+    _shared_reranker_service = FastEmbedRerankerService(config=reranker_config)
 
     # 3. 创建 HybridRetriever
     _shared_retriever = create_retriever(
@@ -175,7 +175,7 @@ def get_shared_retriever() -> HybridRetriever:
     return _shared_retriever
 
 
-def get_shared_reranker_service() -> FlagRerankerService:
+def get_shared_reranker_service() -> FastEmbedRerankerService:
     """获取共享的 Reranker 服务实例"""
     global _shared_reranker_service
     if _shared_reranker_service is None:

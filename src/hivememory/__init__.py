@@ -60,16 +60,16 @@ from hivememory.infrastructure.llm import (
 )
 from hivememory.infrastructure.embedding import (
     BaseEmbeddingService,
-    LocalEmbeddingService,
     BGEM3EmbeddingService,
     get_embedding_service,
     get_bge_m3_service,
     get_default_embedding_service,
+    get_perception_embedding_service,
 )
 from hivememory.infrastructure.rerank import (
     BaseRerankService,
-    FlagRerankerService,
-    get_flag_reranker_service,
+    FastEmbedRerankerService,
+    get_fast_embed_reranker_service,
 )
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
@@ -267,15 +267,15 @@ __all__ = [
     "get_librarian_llm_service",
     # ========== Embedding 服务 ==========
     "BaseEmbeddingService",
-    "LocalEmbeddingService",
     "BGEM3EmbeddingService",
     "get_embedding_service",
     "get_bge_m3_service",
     "get_default_embedding_service",
+    "get_perception_embedding_service",
     # ========== Rerank 服务 ==========
     "BaseRerankService",
-    "FlagRerankerService",
-    "get_flag_reranker_service",
+    "FastEmbedRerankerService",
+    "get_fast_embed_reranker_service",
     # ========== 存储 ==========
     "QdrantMemoryStore",
     # ========== 工具 ==========

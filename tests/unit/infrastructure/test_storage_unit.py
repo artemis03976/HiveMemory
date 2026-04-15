@@ -1,6 +1,8 @@
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
+
+from qdrant_client.models import Document
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -29,7 +31,7 @@ class TestQdrantMemoryStore:
             if sparse_texts:
                 return {
                     "dense": [0.1] * 1024,
-                    "sparse": {1: 0.5, 2: 0.3}
+                    "sparse_text": sparse_texts
                 }
             else:
                 # Dense only
@@ -71,19 +73,77 @@ class TestQdrantMemoryStore:
             index=IndexLayer(title="Test", summary="Summary must be longer than 10 chars", tags=["tag"], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="Content")
         )
-        
+
         storage.upsert_memory(memory, use_sparse=True)
-        
-        # 验证 upsert 调用
+
         storage.client.upsert.assert_called_once()
         points = storage.client.upsert.call_args.kwargs['points']
-        
-        # 验证包含 dense 和 sparse
+
         vector = points[0].vector
         assert "dense_text" in vector
         assert "sparse_text" in vector
         assert vector["dense_text"] == [0.1] * 1024
-        assert vector["sparse_text"].indices == [1, 2]
+        assert isinstance(vector["sparse_text"], Document)
+        assert vector["sparse_text"].text
+        assert vector["sparse_text"].model == "qdrant/bm25"
+
+    def test_search_memories_sparse_uses_bm25_document_query(self, storage):
+        mock_point = MagicMock()
+        mock_point.payload = self._make_memory().to_qdrant_payload()
+        mock_point.score = 0.42
+        mock_point.id = "point-1"
+
+        response = MagicMock()
+        response.points = [mock_point]
+        storage.client.query_points.return_value = response
+
+        results = storage.search_memories(
+            query_text="red braised lamb recipe",
+            top_k=3,
+            filters={"meta.user_id": "user1"},
+            mode="sparse",
+        )
+
+        assert len(results) == 1
+        call_args = storage.client.query_points.call_args.kwargs
+        assert call_args["using"] == "sparse_text"
+        assert isinstance(call_args["query"], Document)
+        assert call_args["query"].text == "red braised lamb recipe"
+        assert call_args["query"].model == "qdrant/bm25"
+
+    def test_search_memories_dense_uses_dense_vector_query(self, storage):
+        mock_point = MagicMock()
+        mock_point.payload = self._make_memory().to_qdrant_payload()
+        mock_point.score = 0.88
+        mock_point.id = "point-2"
+
+        response = MagicMock()
+        response.points = [mock_point]
+        storage.client.query_points.return_value = response
+
+        results = storage.search_memories(
+            query_text="dense query",
+            top_k=2,
+            mode="dense",
+        )
+
+        assert len(results) == 1
+        call_args = storage.client.query_points.call_args.kwargs
+        assert call_args["using"] == "dense_text"
+        assert call_args["query"] == [0.1] * 1024
+
+    @staticmethod
+    def _make_memory() -> MemoryAtom:
+        return MemoryAtom(
+            meta=MetaData(source_agent_id="agent1", user_id="user1"),
+            index=IndexLayer(
+                title="Test Memory",
+                summary="Summary must be longer than 10 chars",
+                tags=["tag"],
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="Content"),
+        )
 
     # ========== get_memory_by_alias ==========
 
