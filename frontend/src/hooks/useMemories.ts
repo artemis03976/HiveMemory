@@ -6,6 +6,7 @@ import type {
   SortOption,
   ViewMode,
 } from '@/types/memory';
+import { useMemoryViewStore } from '@/stores/memoryViewStore';
 
 // Mock data for development/testing when backend is not available
 const mockMemories: MemoryAtom[] = [
@@ -353,16 +354,16 @@ export function useMemories(): UseMemoriesReturn {
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
 
-  // Search & Filter state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<SearchMode>('semantic');
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('all');
-
-  // Sort & View state
-  const [sortBy, setSortBy] = useState<SortOption>('created_desc');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  // Search & Filter state from persisted store
+  const {
+    searchQuery, setSearchQuery,
+    searchMode, setSearchMode,
+    selectedType, setSelectedType,
+    selectedTags, setSelectedTags,
+    statusFilter, setStatusFilter,
+    sortBy, setSortBy,
+    viewMode, setViewMode,
+  } = useMemoryViewStore();
 
   // Fetch memories from API (only called once on mount)
   const fetchMemories = useCallback(async () => {

@@ -43,6 +43,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.5.0",
     "black>=24.0.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
@@ -98,7 +99,7 @@ pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=src/hivememory --cov-report=term-missing -m 'not live_llm and not e2e and not slow'"
+addopts = "-v -m 'not live_llm and not e2e and not slow'"
 markers = [
     "unit: 快速单元测试，无外部依赖 (< 1s)",
     "integration: 多组件协作测试，使用 mock (< 10s)",

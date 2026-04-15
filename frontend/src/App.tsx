@@ -3,16 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
 import GlobalNavBar from './components/GlobalNavBar';
 import ChatLayout from './components/ChatLayout';
 import MemoryLibrary from './components/MemoryLibrary';
 import SettingsPanel from './components/SettingsPanel';
 import DynamicToast from './components/common/DynamicToast';
-import type { NavTab } from './types';
+import { useChatUiStore } from './stores/chatUiStore';
 
 export default function App() {
-  const [activeNavTab, setActiveNavTab] = useState<NavTab>('chat');
+  const { activeNavTab, setActiveNavTab } = useChatUiStore();
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">

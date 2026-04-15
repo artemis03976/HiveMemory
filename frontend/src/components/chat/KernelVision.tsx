@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import { X, ChevronLeft, Database, Terminal, Brain } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { MemoryAtom } from '@/types';
 import KernelTerminalTab from './KernelTerminalTab';
+import { useChatUiStore } from '@/stores/chatUiStore';
 
 interface KernelVisionProps {
   memories: MemoryAtom[];
@@ -10,14 +10,12 @@ interface KernelVisionProps {
   onToggleCollapse: () => void;
 }
 
-type TabType = 'context' | 'terminal';
-
-export default function KernelVision({ 
-  memories, 
-  isCollapsed, 
-  onToggleCollapse 
+export default function KernelVision({
+  memories,
+  isCollapsed,
+  onToggleCollapse
 }: KernelVisionProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('context');
+  const { kernelVisionTab: activeTab, setKernelVisionTab: setActiveTab } = useChatUiStore();
   const safeMemories = Array.isArray(memories) ? memories : [];
 
   if (isCollapsed) {
