@@ -9,7 +9,7 @@ import MemoryHeader from './memory/MemoryHeader';
 import CommandBar from './memory/CommandBar';
 import MemoryDetailModal from './memory/MemoryDetailModal';
 
-export default function MemoryGarden() {
+export default function MemoryLibrary() {
   const { addToast } = useToastStore();
   const [selectedAtom, setSelectedAtom] = useState<MemoryAtom | null>(null);
 

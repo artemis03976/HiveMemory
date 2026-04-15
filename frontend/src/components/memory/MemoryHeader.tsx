@@ -12,9 +12,9 @@ export default function MemoryHeader({ totalMemories, warnings, onNewMemory }: M
       <div>
         <h1 className="text-2xl font-black tracking-tighter text-primary drop-shadow-[0_0_12px_rgba(197,154,255,0.3)] flex items-center gap-3">
           <Database className="w-6 h-6" />
-          记忆花园
+          记忆图书馆
         </h1>
-        <p className="text-sm text-slate-400 mt-1 font-medium">系统知识库管理终端</p>
+        <p className="text-sm text-slate-400 mt-1 font-medium">系统记忆库管理终端</p>
       </div>
 
       {/* Garden Stats */}
