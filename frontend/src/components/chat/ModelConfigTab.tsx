@@ -1,4 +1,4 @@
-import { Cpu, SlidersHorizontal, Wrench, ChevronRight, Edit3, RefreshCw } from 'lucide-react';
+import { Cpu, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import RangeSlider from '../common/RangeSlider';
 import { useChatRuntimeConfigStore } from '@/stores/chatRuntimeConfigStore';
 
@@ -65,45 +65,6 @@ export default function ModelConfigTab() {
         </div>
       </div>
 
-      {/* 记忆检索配置 */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-slate-300 font-bold text-[13px]">
-          <Wrench className="w-4 h-4 text-primary" />工具
-        </div>
-
-        <div className="space-y-2">
-          {/* 允许 MTP WRITE 指令 */}
-          <label className="flex items-center justify-between p-3 rounded-xl bg-black/20 border border-white/5 cursor-pointer hover:bg-white/5 transition-colors ghost-border group">
-            <div className="flex items-center gap-3 pl-1">
-              <Edit3 className="w-4 h-4 text-slate-400 group-hover:text-primary transition-colors" />
-              <div className="space-y-0.5">
-                <p className="text-[13px] text-slate-300 font-medium">允许 MTP WRITE 指令</p>
-                <p className="text-[10px] text-slate-500"> Agent 将主动性地写入记忆</p>
-              </div>
-            </div>
-
-            <div className="w-8 h-4 bg-primary/20 rounded-full relative cursor-pointer shadow-[0_0_8px_rgba(197,154,255,0.2)]">
-              <div className="absolute right-0.5 top-0.5 w-3 h-3 bg-primary rounded-full shadow-md"></div>
-            </div>
-          </label>
-
-          {/* 允许 MTP UPDATE 指令 */}
-          <label className="flex items-center justify-between p-3 rounded-xl bg-black/20 border border-white/5 cursor-pointer hover:bg-white/5 transition-colors ghost-border group">
-            <div className="flex items-center gap-3 pl-1">
-              <RefreshCw className="w-4 h-4 text-slate-400 group-hover:text-primary transition-colors" />
-              <div className="space-y-0.5">
-                <p className="text-[13px] text-slate-300 font-medium">允许 MTP UPDATE 指令</p>
-                <p className="text-[10px] text-slate-500"> Agent 将主动性地更新记忆</p>
-              </div>
-            </div>
-
-            <div className="w-8 h-4 bg-primary/20 rounded-full relative cursor-pointer shadow-[0_0_8px_rgba(197,154,255,0.2)]">
-              <div className="absolute right-0.5 top-0.5 w-3 h-3 bg-primary rounded-full shadow-md"></div>
-            </div>
-          </label>
-        </div>
-      </div>
-      
       {/* <div className="pt-4 flex justify-center">
         <button className="flex items-center gap-2 px-6 py-2 bg-primary/10 text-primary rounded-full text-xs font-bold tracking-wider hover:bg-primary/20 hover:shadow-[0_0_15px_rgba(197,154,255,0.3)] transition-all ghost-border">
           <Save className="w-3.5 h-3.5" />

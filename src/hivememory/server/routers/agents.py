@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.server.deps import get_system
@@ -16,6 +16,7 @@ class AgentProfileResponse(BaseModel):
     title: str
     summary: str
     tags: List[str]
+    agent_config: Optional[Dict[str, Any]] = None
 
 
 @router.get("/agents", response_model=List[AgentProfileResponse])
@@ -33,6 +34,7 @@ async def list_agents(system: PatchouliSystem = Depends(get_system)):
                 title=atom.index.title,
                 summary=atom.index.summary,
                 tags=atom.index.tags,
+                agent_config=atom.payload.artifacts.agent_config,
             )
             for atom in atoms
         ]

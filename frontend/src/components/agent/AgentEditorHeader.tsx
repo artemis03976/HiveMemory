@@ -1,0 +1,57 @@
+import { Bot, Power, Save } from 'lucide-react';
+import type { AgentData } from '@/types/agent';
+
+interface AgentEditorHeaderProps {
+  agent: AgentData;
+  onUpdate: (updates: Partial<AgentData>) => void;
+  onSave: () => void;
+}
+
+export function AgentEditorHeader({ agent, onUpdate, onSave }: AgentEditorHeaderProps) {
+  return (
+    <header className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0 z-10 backdrop-blur-md">
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 rounded-2xl bg-surface-container-high border border-white/10 flex items-center justify-center shadow-lg">
+          <Bot className="w-6 h-6 text-primary" />
+        </div>
+        <div>
+          <input
+            type="text"
+            value={agent.name}
+            onChange={e => onUpdate({ name: e.target.value })}
+            className="bg-transparent border-none text-2xl font-black tracking-tighter text-white focus:outline-none focus:ring-0 p-0 m-0"
+          />
+          <input
+            type="text"
+            value={agent.role}
+            onChange={e => onUpdate({ role: e.target.value })}
+            placeholder="Agent Role / Description"
+            className="bg-transparent border-none text-sm text-primary/80 focus:outline-none focus:ring-0 p-0 mt-1 w-full"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => onUpdate({ status: agent.status === 'Active' ? 'Inactive' : 'Active' })}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+            agent.status === 'Active'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              : 'bg-white/5 border-white/10 text-slate-400'
+          }`}
+        >
+          <Power className="w-3.5 h-3.5" />
+          {agent.status}
+        </button>
+
+        <button
+          onClick={onSave}
+          className="flex items-center gap-2 px-4 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all shadow-[0_0_15px_rgba(197,154,255,0.2)]"
+        >
+          <Save className="w-4 h-4" />
+          <span className="text-sm font-bold tracking-wide">Save</span>
+        </button>
+      </div>
+    </header>
+  );
+}

@@ -9,12 +9,19 @@ export interface AgentProfile {
   colorClass: string;
 }
 
-interface BackendAgent {
+export interface BackendAgent {
   id: string;
   alias: string;
   title: string;
   summary: string;
   tags: string[];
+  agent_config?: {
+    model_name?: string;
+    temperature?: number;
+    allowed_mtp_verbs?: string[];
+    allowed_sys_tools?: string[];
+    language?: string;
+  } | null;
 }
 
 const ICON_MAP: Record<string, { icon: LucideIcon; colorClass: string }> = {
@@ -33,15 +40,19 @@ function toAgentProfile(b: BackendAgent): AgentProfile {
 
 export function useAgents() {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [rawAgents, setRawAgents] = useState<BackendAgent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch('/api/v1/agents')
       .then(r => r.json())
-      .then((data: BackendAgent[]) => setAgents(data.map(toAgentProfile)))
+      .then((data: BackendAgent[]) => {
+        setRawAgents(data);
+        setAgents(data.map(toAgentProfile));
+      })
       .catch(() => {/* keep empty, UI falls back gracefully */})
       .finally(() => setLoading(false));
   }, []);
 
-  return { agents, loading };
+  return { agents, rawAgents, loading };
 }
