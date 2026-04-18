@@ -15,6 +15,7 @@ export interface BackendAgent {
   title: string;
   summary: string;
   tags: string[];
+  content: string;     // payload.content — Agent 的人格/系统指令
   agent_config?: {
     model_name?: string;
     temperature?: number;

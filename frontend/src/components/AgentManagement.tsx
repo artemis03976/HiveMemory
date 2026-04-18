@@ -1,7 +1,8 @@
-import { Bot, Terminal, Zap } from 'lucide-react';
+import { Bot, Terminal, Zap, Thermometer } from 'lucide-react';
 import { useAgentManagement } from '@/hooks/useAgentManagement';
 import { AgentSidebar } from './agent/AgentSidebar';
 import { AgentEditorHeader } from './agent/AgentEditorHeader';
+import { TagsSection } from './agent/TagsSection';
 import { PermissionsSection } from './agent/PermissionsSection';
 import { ToolsSection } from './agent/ToolsSection';
 
@@ -37,7 +38,15 @@ export default function AgentManagement() {
 
           <div className="flex-1 overflow-y-auto p-8 z-10 scrollbar-hide">
             <div className="max-w-4xl mx-auto space-y-8 pb-12">
-              {/* System Instructions */}
+              {/* Tags — index.tags */}
+              <TagsSection
+                tags={selectedAgent.tags}
+                onChange={tags => updateAgent({ tags })}
+              />
+
+              <div className="w-full h-px bg-white/5" />
+
+              {/* System Instructions — payload.content */}
               <section className="space-y-3">
                 <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
                   <Terminal className="w-4 h-4 text-primary" />
@@ -47,9 +56,9 @@ export default function AgentManagement() {
                   <textarea
                     value={selectedAgent.systemPrompt}
                     onChange={e => updateAgent({ systemPrompt: e.target.value })}
-                    rows={6}
+                    rows={8}
                     className="w-full bg-black/20 border border-white/10 rounded-2xl p-4 text-sm text-slate-300 font-mono resize-y focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all leading-relaxed shadow-inner"
-                    placeholder="Enter the core system prompt that commands this agent's behavior..."
+                    placeholder="Enter the core system prompt that defines this agent's persona and behavior..."
                   />
                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                     <span className="text-xs text-slate-500 font-mono">{selectedAgent.systemPrompt.length} chars</span>
@@ -57,23 +66,53 @@ export default function AgentManagement() {
                 </div>
               </section>
 
-              {/* Model Selection */}
+              <div className="w-full h-px bg-white/5" />
+
+              {/* Model & Temperature — artifacts.agent_config */}
               <section className="grid grid-cols-2 gap-6">
                 <div className="space-y-3">
                   <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
                     <Zap className="w-4 h-4 text-primary" />
-                    Model Selection
+                    Model
                   </label>
-                  <select
+                  <input
+                    type="text"
                     value={selectedAgent.model}
-                    onChange={e => updateAgent({ model: e.target.value })}
-                    className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all cursor-pointer font-mono appearance-none"
-                  >
-                    <option value="GPT-4o">GPT-4o</option>
-                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet</option>
-                    <option value="deepseek/deepseek-chat">deepseek/deepseek-chat</option>
-                    <option value="Gemini 1.5 Pro">Gemini 1.5 Pro</option>
-                  </select>
+                    onChange={e => {
+                      const model = e.target.value;
+                      updateAgent({
+                        model,
+                        config: { ...selectedAgent.config, model_name: model },
+                      });
+                    }}
+                    placeholder="e.g. deepseek/deepseek-chat, gpt-4o, claude-sonnet-4-20250514"
+                    className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-mono"
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <Thermometer className="w-4 h-4 text-primary" />
+                    Temperature
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      value={selectedAgent.config.temperature}
+                      onChange={e => {
+                        const temperature = parseFloat(e.target.value);
+                        updateAgent({
+                          config: { ...selectedAgent.config, temperature },
+                        });
+                      }}
+                      className="flex-1 accent-primary"
+                    />
+                    <span className="text-sm text-white font-mono w-8 text-right">
+                      {selectedAgent.config.temperature.toFixed(1)}
+                    </span>
+                  </div>
                 </div>
               </section>
 

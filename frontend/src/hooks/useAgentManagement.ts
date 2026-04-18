@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAgents, type BackendAgent } from './useAgents';
-import { MOCK_AGENT_CONFIGS } from '@/constants/agents';
+import { MOCK_AGENT_CONFIGS, AVAILABLE_TOOLS } from '@/constants/agents';
 import type { AgentData, AgentProfileConfig, MTPVerb } from '@/types';
 
 const DEFAULT_CONFIG: AgentProfileConfig = {
@@ -14,10 +14,12 @@ const DEFAULT_CONFIG: AgentProfileConfig = {
 function backendToAgentData(b: BackendAgent): AgentData {
   const cfg = b.agent_config;
   return {
-    id: b.alias,
+    id: b.id,
+    alias: b.alias,
     name: b.title,
-    role: b.summary,
-    systemPrompt: '',
+    summary: b.summary,
+    tags: b.tags ?? [],
+    systemPrompt: b.content ?? '',
     model: cfg?.model_name ?? 'default',
     status: 'Active',
     config: {
@@ -52,7 +54,9 @@ export function useAgentManagement() {
   const filteredAgents = useMemo(
     () => agents.filter(a =>
       a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.role.toLowerCase().includes(searchQuery.toLowerCase())
+      a.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.alias.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()))
     ),
     [agents, searchQuery],
   );
@@ -69,10 +73,12 @@ export function useAgentManagement() {
   const createAgent = useCallback(() => {
     const newAgent: AgentData = {
       id: `agent_${Date.now()}`,
+      alias: `new_agent_${Date.now()}`,
       name: 'New Agent',
-      role: 'Custom Role',
-      systemPrompt: 'You are a helpful assistant...',
-      model: 'GPT-4o',
+      summary: '',
+      tags: [],
+      systemPrompt: '',
+      model: 'default',
       status: 'Inactive',
       config: { ...DEFAULT_CONFIG },
       tools: [],
@@ -82,10 +88,25 @@ export function useAgentManagement() {
   }, []);
 
   const toggleTool = useCallback((toolId: string) => {
+    const allIds = AVAILABLE_TOOLS.map(t => t.id);
     setAgents(prev => prev.map(a => {
       if (a.id !== selectedId) return a;
+      const isAllAllowed = a.tools.length === 0;
+
+      if (isAllAllowed) {
+        // 全部允许 → 展开为完整列表后移除被点击的工具
+        return { ...a, tools: allIds.filter(t => t !== toolId) };
+      }
+
       const has = a.tools.includes(toolId);
-      return { ...a, tools: has ? a.tools.filter(t => t !== toolId) : [...a.tools, toolId] };
+      if (has) {
+        // 移除工具
+        return { ...a, tools: a.tools.filter(t => t !== toolId) };
+      } else {
+        // 添加工具；如果全部选中则回到空列表（全部允许）
+        const next = [...a.tools, toolId];
+        return { ...a, tools: next.length === allIds.length ? [] : next };
+      }
     }));
   }, [selectedId]);
 

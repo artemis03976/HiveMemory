@@ -1,4 +1,4 @@
-import { Bot, Power, Save } from 'lucide-react';
+import { Bot, Power, Save, Hash } from 'lucide-react';
 import type { AgentData } from '@/types/agent';
 
 interface AgentEditorHeaderProps {
@@ -14,19 +14,33 @@ export function AgentEditorHeader({ agent, onUpdate, onSave }: AgentEditorHeader
         <div className="w-12 h-12 rounded-2xl bg-surface-container-high border border-white/10 flex items-center justify-center shadow-lg">
           <Bot className="w-6 h-6 text-primary" />
         </div>
-        <div>
+        <div className="space-y-0.5">
+          {/* Title — index.title */}
           <input
             type="text"
             value={agent.name}
             onChange={e => onUpdate({ name: e.target.value })}
             className="bg-transparent border-none text-2xl font-black tracking-tighter text-white focus:outline-none focus:ring-0 p-0 m-0"
+            placeholder="Agent Name"
           />
+          {/* Alias — index.alias */}
+          <div className="flex items-center gap-1.5">
+            <Hash className="w-3 h-3 text-slate-500" />
+            <input
+              type="text"
+              value={agent.alias}
+              onChange={e => onUpdate({ alias: e.target.value })}
+              placeholder="alias_identifier"
+              className="bg-transparent border-none text-xs text-slate-500 font-mono focus:outline-none focus:ring-0 p-0 w-48"
+            />
+          </div>
+          {/* Summary — index.summary */}
           <input
             type="text"
-            value={agent.role}
-            onChange={e => onUpdate({ role: e.target.value })}
-            placeholder="Agent Role / Description"
-            className="bg-transparent border-none text-sm text-primary/80 focus:outline-none focus:ring-0 p-0 mt-1 w-full"
+            value={agent.summary}
+            onChange={e => onUpdate({ summary: e.target.value })}
+            placeholder="One-line description of this agent..."
+            className="bg-transparent border-none text-sm text-primary/80 focus:outline-none focus:ring-0 p-0 mt-0.5 w-full min-w-[320px]"
           />
         </div>
       </div>

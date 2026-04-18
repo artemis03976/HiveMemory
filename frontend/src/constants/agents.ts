@@ -1,4 +1,4 @@
-import { Bot, Code2, CheckCircle, Palette, Globe, Terminal, Database, Shield, FileCode, type LucideIcon } from 'lucide-react';
+import { Bot, Code2, CheckCircle, Palette, Globe, Terminal, Database, FileCode, Clock, type LucideIcon } from 'lucide-react';
 import type { AgentData, AgentTool } from '@/types/agent';
 
 export interface AgentProfile {
@@ -16,22 +16,25 @@ export const MOCK_AGENTS: AgentProfile[] = [
   { id: 'designer', name: 'Designer Doll', avatarIcon: Palette, description: '精通UI/UX设计的画师', colorClass: 'text-pink-400' },
 ];
 
+/**
+ * 与后端 kernel syscall 对齐的可用工具列表
+ * 对应 build_kernel_registry / DEFAULT_KERNEL_TOOLS
+ */
 export const AVAILABLE_TOOLS: AgentTool[] = [
-  { id: 'web_search', label: 'Web Search', icon: Globe },
-  { id: 'code_interpreter', label: 'Code Interpreter', icon: Terminal },
-  { id: 'query_vector_db', label: 'Query Vector DB', icon: Database },
-  { id: 'write_file', label: 'Write File', icon: FileCode },
-  { id: 'read_file', label: 'Read File', icon: FileCode },
-  { id: 'scan_payload', label: 'Scan Payload', icon: Shield },
-  { id: 'semantic_search', label: 'Semantic Search', icon: Database },
-  { id: 'update_memory_atom', label: 'Update Memory Atom', icon: Database },
+  { id: 'sys_clock',       label: 'Clock',         icon: Clock },
+  { id: 'sys_web_search',  label: 'Web Search',    icon: Globe },
+  { id: 'sys_read_file',   label: 'Read File',     icon: FileCode },
+  { id: 'sys_write_file',  label: 'Write File',    icon: FileCode },
+  { id: 'sys_python_repl', label: 'Python REPL',   icon: Terminal },
 ];
 
 export const MOCK_AGENT_CONFIGS: AgentData[] = [
   {
     id: 'agent_1',
+    alias: 'system_librarian',
     name: 'System Librarian',
-    role: 'Memory Graph & Vector DB Manager',
+    summary: 'Memory Graph & Vector DB Manager',
+    tags: ['memory', 'vector-db', 'librarian'],
     systemPrompt: 'You are the System Librarian. Your primary responsibility is to manage, categorize, and retrieve information from the HiveMemory vector database. Maintain high accuracy and deduce relationships between atoms.',
     model: 'deepseek/deepseek-chat',
     status: 'Active',
@@ -42,12 +45,14 @@ export const MOCK_AGENT_CONFIGS: AgentData[] = [
       allowed_sys_tools: [],
       language: 'zh',
     },
-    tools: ['query_vector_db', 'update_memory_atom', 'semantic_search'],
+    tools: ['sys_web_search', 'sys_read_file'],
   },
   {
     id: 'agent_2',
+    alias: 'security_bot',
     name: 'Security Bot',
-    role: 'Auth & Sanity Checker',
+    summary: 'Auth & Sanity Checker',
+    tags: ['security', 'audit'],
     systemPrompt: 'You are the Security Bot. Inspect every payload and code snippet for malicious intent, memory leaks, and unauthorized access patterns.',
     model: 'GPT-4o',
     status: 'Active',
@@ -58,12 +63,14 @@ export const MOCK_AGENT_CONFIGS: AgentData[] = [
       allowed_sys_tools: [],
       language: 'en',
     },
-    tools: ['scan_payload', 'read_file'],
+    tools: ['sys_read_file', 'sys_python_repl'],
   },
   {
     id: 'agent_3',
+    alias: 'data_engineer',
     name: 'Data Engineer',
-    role: 'Data Pipeline Specialist',
+    summary: 'Data Pipeline Specialist',
+    tags: ['data', 'etl', 'pipeline'],
     systemPrompt: 'You analyze data logs, refine extraction procedures, and construct ETL pipes.',
     model: 'Claude 3.5 Sonnet',
     status: 'Inactive',
@@ -74,6 +81,6 @@ export const MOCK_AGENT_CONFIGS: AgentData[] = [
       allowed_sys_tools: [],
       language: 'zh',
     },
-    tools: ['web_search', 'code_interpreter', 'write_file'],
+    tools: ['sys_web_search', 'sys_python_repl', 'sys_write_file'],
   },
 ];

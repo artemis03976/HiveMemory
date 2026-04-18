@@ -56,11 +56,14 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
                   : 'bg-surface-container border-white/5 hover:bg-surface-container-high'
               }`}
             >
-              <div className="flex justify-between items-start mb-1">
+              <div className="flex justify-between items-start mb-0.5">
                 <span className="font-bold text-sm text-slate-200 truncate pr-2">{agent.name}</span>
                 <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${agent.status === 'Active' ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-slate-600'}`} />
               </div>
-              <div className="text-xs text-slate-400 truncate mb-2">{agent.role}</div>
+              {agent.alias && (
+                <div className="text-[10px] text-slate-500 font-mono mb-0.5">#{agent.alias}</div>
+              )}
+              <div className="text-xs text-slate-400 truncate mb-2">{agent.summary}</div>
               <div className="flex gap-1 flex-wrap">
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/30 text-slate-500 border border-white/5">
                   {agent.model}
@@ -68,6 +71,11 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/30 text-slate-500 border border-white/5">
                   {agent.tools.length} Tools
                 </span>
+                {agent.tags.length > 0 && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/60 border border-primary/10">
+                    {agent.tags.length} Tags
+                  </span>
+                )}
               </div>
             </motion.div>
           ))}

@@ -16,6 +16,7 @@ class AgentProfileResponse(BaseModel):
     title: str
     summary: str
     tags: List[str]
+    content: str = ""  # payload.content — Agent 的人格/系统指令
     agent_config: Optional[Dict[str, Any]] = None
 
 
@@ -34,6 +35,7 @@ async def list_agents(system: PatchouliSystem = Depends(get_system)):
                 title=atom.index.title,
                 summary=atom.index.summary,
                 tags=atom.index.tags,
+                content=atom.payload.content,
                 agent_config=atom.payload.artifacts.agent_config,
             )
             for atom in atoms
