@@ -27,11 +27,11 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest tests/unit -v --tb=short -m "not live_llm and not e2e"
+          pytest tests/unit -v --tb=short -m "not live_llm and not e2e" -n auto
 
       - name: Run integration tests
         run: |
-          pytest tests/integration -v --tb=short -m "not live_llm"
+          pytest tests/integration -v --tb=short -m "not live_llm" -n auto
 
   frontend:
     name: Frontend Build
