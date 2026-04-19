@@ -2,6 +2,8 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAgents, type BackendAgent } from './useAgents';
 import { MOCK_AGENT_CONFIGS, AVAILABLE_TOOLS } from '@/constants/agents';
 import type { AgentData, AgentProfileConfig, MTPVerb } from '@/types';
+import { useToastStore } from '@/stores/toastStore';
+import { createAgent, saveAgent } from '@/services/agentApi';
 
 const DEFAULT_CONFIG: AgentProfileConfig = {
   model_name: 'default',
@@ -34,22 +36,25 @@ function backendToAgentData(b: BackendAgent): AgentData {
 }
 
 export function useAgentManagement() {
-  const { rawAgents, loading: backendLoading } = useAgents();
+  const { rawAgents, loading: backendLoading, fetchError } = useAgents();
   const [agents, setAgents] = useState<AgentData[]>(MOCK_AGENT_CONFIGS);
   const [selectedId, setSelectedId] = useState<string>(MOCK_AGENT_CONFIGS[0]?.id ?? '');
   const [searchQuery, setSearchQuery] = useState('');
   const [initialized, setInitialized] = useState(false);
+  const addToast = useToastStore(s => s.addToast);
 
-  // 后端数据到达后，合并到本地状态
   useEffect(() => {
     if (backendLoading || initialized) return;
     setInitialized(true);
-    if (rawAgents.length === 0) return; // 后端无数据，保留 mock
-
+    if (fetchError) {
+      // 后端连接失败，使用 mock 数据
+      return;
+    }
+    // 后端正常但无数据，清空列表（显示占位）
     const backendData = rawAgents.map(backendToAgentData);
     setAgents(backendData);
     setSelectedId(backendData[0]?.id ?? '');
-  }, [rawAgents, backendLoading, initialized]);
+  }, [rawAgents, backendLoading, fetchError, initialized]);
 
   const filteredAgents = useMemo(
     () => agents.filter(a =>
@@ -70,9 +75,10 @@ export function useAgentManagement() {
     setAgents(prev => prev.map(a => a.id === selectedId ? { ...a, ...updates } : a));
   }, [selectedId]);
 
-  const createAgent = useCallback(() => {
+  const createAgent = useCallback(async () => {
+    const tempId = `pending_${Date.now()}`;
     const newAgent: AgentData = {
-      id: `agent_${Date.now()}`,
+      id: tempId,
       alias: `new_agent_${Date.now()}`,
       name: 'New Agent',
       summary: '',
@@ -84,8 +90,29 @@ export function useAgentManagement() {
       tools: [],
     };
     setAgents(prev => [newAgent, ...prev]);
-    setSelectedId(newAgent.id);
-  }, []);
+    setSelectedId(tempId);
+    addToast('创建中...', 'info');
+    try {
+      const created = await createAgent(newAgent);
+      setAgents(prev => prev.map(a => a.id === tempId ? { ...a, id: created.id } : a));
+      setSelectedId(created.id);
+      addToast('创建成功', 'success');
+    } catch {
+      setAgents(prev => prev.filter(a => a.id !== tempId));
+      addToast('创建失败', 'error');
+    }
+  }, [addToast]);
+
+  const saveAgent = useCallback(async () => {
+    if (!selectedAgent) return;
+    addToast('保存中...', 'info');
+    try {
+      await saveAgent(selectedAgent);
+      addToast('保存成功', 'success');
+    } catch {
+      addToast('保存失败', 'error');
+    }
+  }, [selectedAgent, addToast]);
 
   const toggleTool = useCallback((toolId: string) => {
     const allIds = AVAILABLE_TOOLS.map(t => t.id);
@@ -121,6 +148,7 @@ export function useAgentManagement() {
     loading: backendLoading,
     updateAgent,
     createAgent,
+    saveAgent,
     toggleTool,
   };
 }

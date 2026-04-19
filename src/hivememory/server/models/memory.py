@@ -1,7 +1,7 @@
 """Memory 相关的 Response 模型"""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -49,6 +49,7 @@ class MemoryUpdateRequest(BaseModel):
     content: Optional[str] = None
     alias: Optional[str] = None
     tags: Optional[List[str]] = None
+    agent_config: Optional[Dict[str, Any]] = None
 
 
 class MemoryListResponse(BaseModel):

@@ -16,6 +16,7 @@ export default function AgentManagement() {
     setSearchQuery,
     updateAgent,
     createAgent,
+    saveAgent,
     toggleTool,
   } = useAgentManagement();
 
@@ -34,7 +35,7 @@ export default function AgentManagement() {
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-surface-container-lowest relative">
           <div className="absolute inset-0 bg-linear-to-br from-primary/5 via-transparent to-transparent pointer-events-none opacity-50" />
 
-          <AgentEditorHeader agent={selectedAgent} onUpdate={updateAgent} onSave={() => {}} />
+          <AgentEditorHeader agent={selectedAgent} onUpdate={updateAgent} onSave={saveAgent} />
 
           <div className="flex-1 overflow-y-auto p-8 z-10 scrollbar-hide">
             <div className="max-w-4xl mx-auto space-y-8 pb-12">

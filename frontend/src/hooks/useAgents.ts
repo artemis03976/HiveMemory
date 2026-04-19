@@ -43,6 +43,7 @@ export function useAgents() {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [rawAgents, setRawAgents] = useState<BackendAgent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
     fetch('/api/v1/agents')
@@ -51,9 +52,9 @@ export function useAgents() {
         setRawAgents(data);
         setAgents(data.map(toAgentProfile));
       })
-      .catch(() => {/* keep empty, UI falls back gracefully */})
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
   }, []);
 
-  return { agents, rawAgents, loading };
+  return { agents, rawAgents, loading, fetchError };
 }

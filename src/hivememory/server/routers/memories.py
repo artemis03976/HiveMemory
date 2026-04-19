@@ -100,6 +100,8 @@ async def update_memory(
         atom.index.alias = body.alias or None
     if body.tags is not None:
         atom.index.tags = body.tags
+    if body.agent_config is not None:
+        atom.payload.artifacts.agent_config = body.agent_config
     atom.meta.updated_at = datetime.now(timezone.utc)
 
     system.storage.upsert_memory(atom)
