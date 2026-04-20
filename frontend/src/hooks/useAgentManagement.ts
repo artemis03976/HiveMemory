@@ -3,7 +3,8 @@ import { useAgents, type BackendAgent } from './useAgents';
 import { MOCK_AGENT_CONFIGS, AVAILABLE_TOOLS } from '@/constants/agents';
 import type { AgentData, AgentProfileConfig, MTPVerb } from '@/types';
 import { useToastStore } from '@/stores/toastStore';
-import { createAgent, saveAgent } from '@/services/agentApi';
+import { createAgent, saveAgent, deleteAgent } from '@/services/agentApi';
+
 
 const DEFAULT_CONFIG: AgentProfileConfig = {
   model_name: 'default',
@@ -75,13 +76,13 @@ export function useAgentManagement() {
     setAgents(prev => prev.map(a => a.id === selectedId ? { ...a, ...updates } : a));
   }, [selectedId]);
 
-  const createAgent = useCallback(async () => {
+  const handleCreateAgent = useCallback(() => {
     const tempId = `pending_${Date.now()}`;
     const newAgent: AgentData = {
       id: tempId,
       alias: `new_agent_${Date.now()}`,
       name: 'New Agent',
-      summary: '',
+      summary: '请填写agent简介（至少10个字符）',
       tags: [],
       systemPrompt: '',
       model: 'default',
@@ -91,28 +92,44 @@ export function useAgentManagement() {
     };
     setAgents(prev => [newAgent, ...prev]);
     setSelectedId(tempId);
-    addToast('创建中...', 'info');
-    try {
-      const created = await createAgent(newAgent);
-      setAgents(prev => prev.map(a => a.id === tempId ? { ...a, id: created.id } : a));
-      setSelectedId(created.id);
-      addToast('创建成功', 'success');
-    } catch {
-      setAgents(prev => prev.filter(a => a.id !== tempId));
-      addToast('创建失败', 'error');
-    }
+    addToast('已创建草稿，请编辑后保存', 'info');
   }, [addToast]);
 
-  const saveAgent = useCallback(async () => {
+  const handleSaveAgent = useCallback(async () => {
     if (!selectedAgent) return;
     addToast('保存中...', 'info');
     try {
-      await saveAgent(selectedAgent);
+      if (selectedAgent.id.startsWith('pending_')) {
+        const created = await createAgent(selectedAgent);
+        setAgents(prev => prev.map(a => a.id === selectedAgent.id ? { ...a, id: created.id } : a));
+        setSelectedId(created.id);
+      } else {
+        await saveAgent(selectedAgent);
+      }
       addToast('保存成功', 'success');
     } catch {
       addToast('保存失败', 'error');
     }
   }, [selectedAgent, addToast]);
+
+  const handleDeleteAgent = useCallback(async (agentId: string) => {
+    if (agentId.startsWith('pending_')) {
+      // 还没保存到后端的，直接从本地列表移除
+      setAgents(prev => prev.filter(a => a.id !== agentId));
+      setSelectedId(prev => prev === agentId ? '' : prev);
+      return;
+    }
+
+    addToast('删除中...', 'info');
+    try {
+      await deleteAgent(agentId);
+      setAgents(prev => prev.filter(a => a.id !== agentId));
+      setSelectedId(prev => prev === agentId ? '' : prev);
+      addToast('删除成功', 'success');
+    } catch {
+      addToast('删除失败', 'error');
+    }
+  }, [addToast]);
 
   const toggleTool = useCallback((toolId: string) => {
     const allIds = AVAILABLE_TOOLS.map(t => t.id);
@@ -147,8 +164,9 @@ export function useAgentManagement() {
     setSearchQuery,
     loading: backendLoading,
     updateAgent,
-    createAgent,
-    saveAgent,
+    createAgent: handleCreateAgent,
+    saveAgent: handleSaveAgent,
+    deleteAgent: handleDeleteAgent,
     toggleTool,
   };
 }

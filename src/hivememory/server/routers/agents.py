@@ -67,7 +67,7 @@ async def list_agents(system: PatchouliSystem = Depends(get_system)):
     """列出所有 Agent Profile"""
     try:
         atoms = system.storage.get_all_memories(
-            filters={"memory_type": "AGENT_PROFILE"},
+            filters={"index.memory_type": "AGENT_PROFILE"},
             limit=100,
         )
         return [

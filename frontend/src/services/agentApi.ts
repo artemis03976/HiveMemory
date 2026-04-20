@@ -35,3 +35,10 @@ export async function saveAgent(agent: AgentData) {
   });
   if (!res.ok) throw new Error(await res.text());
 }
+
+export async function deleteAgent(agentId: string) {
+  const res = await fetch(`/api/v1/memories/${agentId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(await res.text());
+}

@@ -1,13 +1,14 @@
-import { Bot, Power, Save, Hash } from 'lucide-react';
+import { Bot, Power, Save, Hash, Trash2 } from 'lucide-react';
 import type { AgentData } from '@/types/agent';
 
 interface AgentEditorHeaderProps {
   agent: AgentData;
   onUpdate: (updates: Partial<AgentData>) => void;
   onSave: () => void;
+  onDelete: () => void;
 }
 
-export function AgentEditorHeader({ agent, onUpdate, onSave }: AgentEditorHeaderProps) {
+export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete }: AgentEditorHeaderProps) {
   return (
     <header className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0 z-10 backdrop-blur-md">
       <div className="flex items-center gap-4">
@@ -46,6 +47,18 @@ export function AgentEditorHeader({ agent, onUpdate, onSave }: AgentEditorHeader
       </div>
 
       <div className="flex items-center gap-3">
+        <button
+          onClick={() => {
+            if (window.confirm('确定要删除此 Agent 吗？此操作不可撤销。')) {
+              onDelete();
+            }
+          }}
+          className="flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-all border border-transparent hover:border-red-400/20"
+          title="Delete Agent"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+
         <button
           onClick={() => onUpdate({ status: agent.status === 'Active' ? 'Inactive' : 'Active' })}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
