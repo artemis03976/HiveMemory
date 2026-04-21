@@ -1,4 +1,4 @@
-import { Bot, Power, Save, Hash, Trash2 } from 'lucide-react';
+import { Bot, Power, Save, Hash, Trash2, RotateCcw, Check } from 'lucide-react';
 import type { AgentData } from '@/types/agent';
 
 interface AgentEditorHeaderProps {
@@ -6,9 +6,12 @@ interface AgentEditorHeaderProps {
   onUpdate: (updates: Partial<AgentData>) => void;
   onSave: () => void;
   onDelete: () => void;
+  isDirty?: boolean;
+  isSaving?: boolean;
+  onReset?: () => void;
 }
 
-export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete }: AgentEditorHeaderProps) {
+export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, isSaving, onReset }: AgentEditorHeaderProps) {
   return (
     <header className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0 z-10 backdrop-blur-md">
       <div className="flex items-center gap-4">
@@ -71,12 +74,36 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete }: AgentEd
           {agent.status}
         </button>
 
+        {isDirty && onReset && (
+          <button
+            onClick={onReset}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-slate-400 hover:text-slate-200 transition-colors text-sm font-medium"
+            title="Undo changes"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Reset</span>
+          </button>
+        )}
+
         <button
           onClick={onSave}
-          className="flex items-center gap-2 px-4 py-1.5 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all shadow-[0_0_15px_rgba(197,154,255,0.2)]"
+          disabled={!isDirty || isSaving}
+          className={`flex items-center gap-2 px-4 py-1.5 rounded-xl border transition-all ${
+            isDirty
+              ? 'bg-primary/20 hover:bg-primary/30 text-primary border-primary/30 shadow-[0_0_15px_rgba(197,154,255,0.2)]'
+              : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed'
+          }`}
         >
-          <Save className="w-4 h-4" />
-          <span className="text-sm font-bold tracking-wide">Save</span>
+          {isSaving ? (
+            <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          ) : isDirty ? (
+            <Save className="w-4 h-4" />
+          ) : (
+            <Check className="w-4 h-4" />
+          )}
+          <span className="text-sm font-bold tracking-wide">
+            {isSaving ? 'Saving...' : isDirty ? 'Save' : 'Saved'}
+          </span>
         </button>
       </div>
     </header>

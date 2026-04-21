@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { HiveMemoryConfig, ValidationError } from '../types/config';
 import { validateConfig } from '../utils/configValidation';
 import { fetchConfig, updateConfig as updateConfigApi, fetchDefaultConfig } from '../services/configApi';
+import { useDraft } from './useDraft';
 
 // Mock data for development when backend is offline
 import { MOCK_CONFIG } from '@/constants/settings';
@@ -12,6 +13,7 @@ interface UseSettingsReturn {
   error: string | null;
   validationErrors: ValidationError[];
   isDirty: boolean;
+  isSaving: boolean;
   updateConfig: (path: string, value: unknown) => void;
   saveConfig: () => Promise<void>;
   resetConfig: () => void;
@@ -19,12 +21,26 @@ interface UseSettingsReturn {
 }
 
 export const useSettings = (): UseSettingsReturn => {
-  const [config, setConfig] = useState<HiveMemoryConfig | null>(null);
   const [originalConfig, setOriginalConfig] = useState<HiveMemoryConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
-  const [isDirty, setIsDirty] = useState(false);
+
+  const { draft: config, isDirty, isSaving, updateDraft, save: saveConfigDraft, reset } = useDraft<HiveMemoryConfig | null>({
+    initialData: originalConfig,
+    onSave: async (draftData) => {
+      if (!draftData) return;
+      const errors = validateConfig(draftData);
+      const criticalErrors = errors.filter((e) => e.severity === 'error');
+      
+      if (criticalErrors.length > 0) {
+        throw new Error('Cannot save configuration with validation errors');
+      }
+
+      await updateConfigApi(draftData);
+      setOriginalConfig(JSON.parse(JSON.stringify(draftData)));
+    },
+  });
 
   // Load configuration from backend
   useEffect(() => {
@@ -32,12 +48,10 @@ export const useSettings = (): UseSettingsReturn => {
       try {
         setLoading(true);
         const data = await fetchConfig();
-        setConfig(data);
         setOriginalConfig(JSON.parse(JSON.stringify(data)));
         setValidationErrors(validateConfig(data));
       } catch (err) {
         console.warn('Failed to load config from backend, using mock data:', err);
-        setConfig(MOCK_CONFIG);
         setOriginalConfig(JSON.parse(JSON.stringify(MOCK_CONFIG)));
         setValidationErrors(validateConfig(MOCK_CONFIG));
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -48,6 +62,13 @@ export const useSettings = (): UseSettingsReturn => {
 
     loadConfig();
   }, []);
+
+  // 监听 config 变化更新校验错误
+  useEffect(() => {
+    if (config) {
+      setValidationErrors(validateConfig(config));
+    }
+  }, [config]);
 
   // Update a specific configuration value
   const updateConfig = (path: string, value: unknown) => {
@@ -68,42 +89,7 @@ export const useSettings = (): UseSettingsReturn => {
 
     current[keys[keys.length - 1]] = value;
 
-    setConfig(newConfig);
-    setValidationErrors(validateConfig(newConfig));
-    setIsDirty(JSON.stringify(newConfig) !== JSON.stringify(originalConfig));
-  };
-
-  // Save configuration to backend
-  const saveConfig = async () => {
-    if (!config) return;
-
-    const errors = validateConfig(config);
-    const criticalErrors = errors.filter((e) => e.severity === 'error');
-
-    if (criticalErrors.length > 0) {
-      throw new Error('Cannot save configuration with validation errors');
-    }
-
-    try {
-      setLoading(true);
-      await updateConfigApi(config);
-      setOriginalConfig(JSON.parse(JSON.stringify(config)));
-      setIsDirty(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Reset to original configuration
-  const resetConfig = () => {
-    if (originalConfig) {
-      setConfig(JSON.parse(JSON.stringify(originalConfig)));
-      setValidationErrors(validateConfig(originalConfig));
-      setIsDirty(false);
-    }
+    updateDraft(newConfig);
   };
 
   // Reset to default configuration
@@ -111,14 +97,10 @@ export const useSettings = (): UseSettingsReturn => {
     try {
       setLoading(true);
       const data = await fetchDefaultConfig();
-      setConfig(data);
-      setValidationErrors(validateConfig(data));
-      setIsDirty(JSON.stringify(data) !== JSON.stringify(originalConfig));
+      updateDraft(data);
     } catch (err) {
       console.warn('Failed to load defaults from backend, using mock data:', err);
-      setConfig(MOCK_CONFIG);
-      setValidationErrors(validateConfig(MOCK_CONFIG));
-      setIsDirty(JSON.stringify(MOCK_CONFIG) !== JSON.stringify(originalConfig));
+      updateDraft(MOCK_CONFIG);
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
@@ -131,9 +113,10 @@ export const useSettings = (): UseSettingsReturn => {
     error,
     validationErrors,
     isDirty,
+    isSaving,
     updateConfig,
-    saveConfig,
-    resetConfig,
+    saveConfig: saveConfigDraft,
+    resetConfig: reset,
     resetToDefaults,
   };
 };

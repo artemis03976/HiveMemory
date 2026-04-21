@@ -31,6 +31,7 @@ export default function Settings() {
     loading,
     validationErrors,
     isDirty,
+    isSaving,
     updateConfig,
     saveConfig,
     resetConfig,
@@ -101,15 +102,19 @@ export default function Settings() {
           )}
           <button 
             onClick={handleSave}
-            disabled={!isDirty || hasErrors}
+            disabled={!isDirty || hasErrors || isSaving}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all ${
-              !isDirty || hasErrors
+              !isDirty || hasErrors || isSaving
                 ? 'bg-primary/5 text-primary/50 border-primary/10 cursor-not-allowed'
                 : 'bg-primary/20 hover:bg-primary/30 text-primary border-primary/30 shadow-[0_0_15px_rgba(197,154,255,0.2)] hover:shadow-[0_0_25px_rgba(197,154,255,0.4)]'
             }`}
           >
-            <Save className="w-4 h-4" />
-            <span className="text-sm font-bold tracking-wide">保存更改</span>
+            {isSaving ? (
+              <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            <span className="text-sm font-bold tracking-wide">{isSaving ? '保存中...' : '保存更改'}</span>
           </button>
         </div>
       </header>
@@ -144,12 +149,12 @@ export default function Settings() {
             {activeCategory === 'general' && <GeneralSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'models' && <ModelSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'infrastructure' && <InfrastructureSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'gateway' && <GatewaySettings config={config} updateConfig={updateConfig} />}
+            {activeCategory === 'gateway' && <GatewaySettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'perception' && <PerceptionSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'generation' && <GenerationSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'retrieval' && <RetrievalSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'lifecycle' && <LifecycleSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'koakuma' && <KoakumaSettings config={config} updateConfig={updateConfig} />}
+            {activeCategory === 'koakuma' && <KoakumaSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
           </div>
         </div>
       </div>

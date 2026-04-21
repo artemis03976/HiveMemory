@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAgents, type BackendAgent } from './useAgents';
-import { MOCK_AGENT_CONFIGS, AVAILABLE_TOOLS } from '@/constants/agents';
+import { MOCK_AGENT_CONFIGS } from '@/constants/agents';
 import type { AgentData, AgentProfileConfig, MTPVerb } from '@/types';
 import { useToastStore } from '@/stores/toastStore';
 import { createAgent, saveAgent, deleteAgent } from '@/services/agentApi';
@@ -72,10 +72,6 @@ export function useAgentManagement() {
     [agents, selectedId],
   );
 
-  const updateAgent = useCallback((updates: Partial<AgentData>) => {
-    setAgents(prev => prev.map(a => a.id === selectedId ? { ...a, ...updates } : a));
-  }, [selectedId]);
-
   const handleCreateAgent = useCallback(() => {
     const tempId = `pending_${Date.now()}`;
     const newAgent: AgentData = {
@@ -95,22 +91,23 @@ export function useAgentManagement() {
     addToast('已创建草稿，请编辑后保存', 'info');
   }, [addToast]);
 
-  const handleSaveAgent = useCallback(async () => {
-    if (!selectedAgent) return;
+  const handleSaveAgent = useCallback(async (draftData: AgentData) => {
     addToast('保存中...', 'info');
     try {
-      if (selectedAgent.id.startsWith('pending_')) {
-        const created = await createAgent(selectedAgent);
-        setAgents(prev => prev.map(a => a.id === selectedAgent.id ? { ...a, id: created.id } : a));
+      if (draftData.id.startsWith('pending_')) {
+        const created = await createAgent(draftData);
+        setAgents(prev => prev.map(a => (a.id === draftData.id ? { ...draftData, id: created.id } : a)));
         setSelectedId(created.id);
       } else {
-        await saveAgent(selectedAgent);
+        await saveAgent(draftData);
+        setAgents(prev => prev.map(a => (a.id === draftData.id ? draftData : a)));
       }
       addToast('保存成功', 'success');
-    } catch {
+    } catch (err) {
       addToast('保存失败', 'error');
+      throw err;
     }
-  }, [selectedAgent, addToast]);
+  }, [addToast]);
 
   const handleDeleteAgent = useCallback(async (agentId: string) => {
     if (agentId.startsWith('pending_')) {
@@ -131,29 +128,6 @@ export function useAgentManagement() {
     }
   }, [addToast]);
 
-  const toggleTool = useCallback((toolId: string) => {
-    const allIds = AVAILABLE_TOOLS.map(t => t.id);
-    setAgents(prev => prev.map(a => {
-      if (a.id !== selectedId) return a;
-      const isAllAllowed = a.tools.length === 0;
-
-      if (isAllAllowed) {
-        // 全部允许 → 展开为完整列表后移除被点击的工具
-        return { ...a, tools: allIds.filter(t => t !== toolId) };
-      }
-
-      const has = a.tools.includes(toolId);
-      if (has) {
-        // 移除工具
-        return { ...a, tools: a.tools.filter(t => t !== toolId) };
-      } else {
-        // 添加工具；如果全部选中则回到空列表（全部允许）
-        const next = [...a.tools, toolId];
-        return { ...a, tools: next.length === allIds.length ? [] : next };
-      }
-    }));
-  }, [selectedId]);
-
   return {
     agents,
     filteredAgents,
@@ -163,10 +137,8 @@ export function useAgentManagement() {
     searchQuery,
     setSearchQuery,
     loading: backendLoading,
-    updateAgent,
     createAgent: handleCreateAgent,
     saveAgent: handleSaveAgent,
     deleteAgent: handleDeleteAgent,
-    toggleTool,
   };
 }
