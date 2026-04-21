@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Bot, Power, Save, Hash, Trash2, RotateCcw, Check } from 'lucide-react';
 import type { AgentData } from '@/types/agent';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 
 interface AgentEditorHeaderProps {
   agent: AgentData;
@@ -12,6 +14,8 @@ interface AgentEditorHeaderProps {
 }
 
 export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, isSaving, onReset }: AgentEditorHeaderProps) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   return (
     <header className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0 z-10 backdrop-blur-md">
       <div className="flex items-center gap-4">
@@ -51,16 +55,21 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
 
       <div className="flex items-center gap-3">
         <button
-          onClick={() => {
-            if (window.confirm('确定要删除此 Agent 吗？此操作不可撤销。')) {
-              onDelete();
-            }
-          }}
+          onClick={() => setShowDeleteConfirm(true)}
           className="flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-all border border-transparent hover:border-red-400/20"
           title="Delete Agent"
         >
           <Trash2 className="w-4 h-4" />
         </button>
+
+        <ConfirmDialog
+          isOpen={showDeleteConfirm}
+          title="删除 Agent"
+          message="确定要删除此 Agent 吗？此操作不可撤销。"
+          confirmText="删除"
+          onConfirm={onDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
 
         <button
           onClick={() => onUpdate({ status: agent.status === 'Active' ? 'Inactive' : 'Active' })}
