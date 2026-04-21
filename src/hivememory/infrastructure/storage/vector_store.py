@@ -8,7 +8,7 @@ Qdrant 向量存储层封装
 - 批量操作
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from uuid import UUID
 import logging
 
@@ -68,6 +68,7 @@ class QdrantMemoryStore:
         client_kwargs = {
             "host": self.qdrant_config.host,
             "port": self.qdrant_config.port,
+            "grpc_port": self.qdrant_config.grpc_port,
             "timeout": 60,
         }
 
@@ -76,6 +77,29 @@ class QdrantMemoryStore:
             client_kwargs["api_key"] = self.qdrant_config.api_key
 
         self.client = QdrantClient(**client_kwargs)
+
+        # 部分环境下 Qdrant HTTP 端点可能被网关拦截返回 502，
+        # 这里探测一次并自动回退到 gRPC 以保证读写链路可用。
+        try:
+            self.client.get_collections()
+        except Exception as e:
+            err_text = str(e)
+            if "Unexpected Response: 502" in err_text:
+                logger.warning(
+                    "Qdrant HTTP endpoint returned 502, fallback to gRPC client. "
+                    "host=%s port=%s grpc_port=%s",
+                    self.qdrant_config.host,
+                    self.qdrant_config.port,
+                    self.qdrant_config.grpc_port,
+                )
+                grpc_kwargs = {
+                    **client_kwargs,
+                    "prefer_grpc": True,
+                    "check_compatibility": False,
+                }
+                self.client = QdrantClient(**grpc_kwargs)
+            else:
+                raise
 
         # 初始化 BGE-M3 Embedding 服务 (支持 Dense + Sparse)
         logger.info(f"加载 BGE-M3 Embedding 服务")
@@ -296,7 +320,7 @@ class QdrantMemoryStore:
         query_text: str,
         top_k: int = 5,
         score_threshold: float = 0.0,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[Union[Dict[str, Any], Filter]] = None,
         mode: str = "dense",
     ) -> List[Dict[str, Any]]:
         """
@@ -313,8 +337,11 @@ class QdrantMemoryStore:
             检索结果列表: [{"memory": MemoryAtom, "score": float}, ...]
         """
         try:
-            # 构建过滤条件
-            filter_obj = self._build_filter(filters) if filters else None
+            # 构建过滤条件 (支持 Dict 或 qdrant Filter 对象)
+            if isinstance(filters, Filter):
+                filter_obj = filters
+            else:
+                filter_obj = self._build_filter(filters) if filters else None
 
             if mode == "sparse":
                 # BM25 检索 - 使用 Qdrant 原生 BM25 Document 查询

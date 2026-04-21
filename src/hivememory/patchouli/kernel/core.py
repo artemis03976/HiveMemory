@@ -30,7 +30,7 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from hivememory.core.models import Identity, MemoryAtom
+from hivememory.core.models import Identity, MemoryAtom, AgentProfileConfig, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.engines.perception.models import InteractionPayload
 from hivememory.patchouli.protocol.models import (
@@ -44,6 +44,7 @@ from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+from hivememory.patchouli.kernel.cache import AgentProfileCache
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus
@@ -55,7 +56,7 @@ class PatchouliKernel:
     """
     帕秋莉内核 (Patchouli Kernel) - v3.0
 
-    星形拓扑的中心调度器，管理 Retrieval 和 Librarian 两个微服务。
+    星形拓扑的中心调度器，管理 RetrievalFamiliar, LibrarianCore, KoakumaRuntime 三个微服务。
     不持有 TheEye (Gateway)，TheEye 独立于 Kernel 之外运行。
 
     职责:
@@ -103,6 +104,9 @@ class PatchouliKernel:
         # 4. 注册总线路由（如果有 bus）
         if self._bus:
             self._register_bus_routes()
+
+        # 5. 人偶图纸缓存 (多智能体系统)
+        self._agent_profile_cache = AgentProfileCache()
 
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")
 
@@ -385,6 +389,48 @@ class PatchouliKernel:
         """访问小恶魔 MTP 运行时服务"""
         return self._services["koakuma"]
 
+    # ========== 多智能体调度 (Phase 1) ==========
+
+    @property
+    def agent_profile_cache(self) -> AgentProfileCache:
+        """访问人偶图纸缓存"""
+        return self._agent_profile_cache
+
+    def load_agent_profile(self, agent_alias: str) -> AgentProfileConfig:
+        """
+        加载人偶图纸配置：缓存优先 → storage 冷查询 → omni_doll 兜底
+
+        Args:
+            agent_alias: 人偶别名 (如 "coder_doll")
+
+        Returns:
+            AgentProfileConfig: 人偶配置（永不返回 None）
+        """
+        if not agent_alias or agent_alias == "default":
+            return OMNI_DOLL_PROFILE
+
+        profile = self._agent_profile_cache.load(agent_alias, self.storage)
+        if profile is not None:
+            return profile
+
+        logger.info(f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE.")
+        return OMNI_DOLL_PROFILE
+
+    def get_agent_persona(self, agent_alias: str) -> str:
+        """
+        获取人偶的灵魂文本 (payload.content)
+
+        Args:
+            agent_alias: 人偶别名
+
+        Returns:
+            str: 人偶的角色设定文本，未找到返回空字符串
+        """
+        atom = self._agent_profile_cache.get_atom(agent_alias)
+        if atom is not None:
+            return atom.payload.content
+        return ""
+
     # ========== 健康检查 ==========
 
     def check_storage_health(self) -> bool:
@@ -482,18 +528,18 @@ class PatchouliKernel:
         except Exception as e:
             logger.warning(f"Interaction submission failed: {e}")
 
-    def get_mtp_prompt(self) -> str:
+    def get_mtp_prompt(
+        self,
+        profile: Optional[AgentProfileConfig] = None,
+    ) -> str:
         """
-        获取 MTP System Prompt 片段 (Section 5.1)
+        获取 MTP 协议教学 System Prompt 片段
 
-        返回组装好的 MTP 协议教学文本，供 Worker Agent 追加到
-        自身的 System Prompt 中。
+        仅包含 MTP 协议语法教学，不包含角色设定（persona）。
+        当传入 AgentProfileConfig 时，根据权限白名单动态过滤可用指令和工具。
 
-        片段内容由 KoakumaConfig.mtp_prompt 配置控制:
-        - language: 语言 (zh/en)
-        - role: Agent 角色 (coder/chat/default)
-        - include_demo: 是否包含演示
-        - include_kernel_tools: 是否包含工具列表
+        Args:
+            profile: 人偶图纸配置（可选），用于权限过滤
 
         Returns:
             str: MTP prompt 片段。MTP 未启用时返回空字符串。
@@ -505,14 +551,23 @@ class PatchouliKernel:
         if not prompt_config.enabled:
             return ""
 
-        from hivememory.prompts.mtp import MTPPromptBuilder, AgentRole
+        from hivememory.prompts.mtp import MTPPromptBuilder
+
+        # 从 profile 提取权限过滤参数
+        # None = 全部允许, [] = 禁止所有, [...] = 白名单
+        allowed_verbs = None
+        allowed_kernel_tools = None
+        if profile and profile.allowed_mtp_verbs is not None:
+            allowed_verbs = profile.allowed_mtp_verbs
+        if profile and profile.allowed_sys_tools is not None:
+            allowed_kernel_tools = profile.allowed_sys_tools
 
         builder = MTPPromptBuilder(
-            role=AgentRole(prompt_config.role),
             language=prompt_config.language,
             include_demo=prompt_config.include_demo,
             include_error_handling=prompt_config.include_error_handling,
-            include_kernel_tools=prompt_config.include_kernel_tools,
+            allowed_verbs=allowed_verbs,
+            allowed_kernel_tools=allowed_kernel_tools,
         )
         return builder.build()
 
@@ -552,8 +607,10 @@ class PatchouliKernel:
         return RetrievalRequest(
             semantic_query=gaze_result.rewritten_query,
             keywords=gaze_result.search_keywords,
-            user_id=gaze_result.identity.user_id,
+            identity=gaze_result.identity,
         )
+
+    # ========== 总线方法代理 ==========
 
     async def manual_trigger(self, topic_id: Optional[str] = None) -> Dict[str, Any]:
         """

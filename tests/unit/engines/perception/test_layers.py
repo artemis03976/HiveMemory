@@ -76,6 +76,7 @@ class TestSemanticFlowPerceptionLayer:
         # Verify: block 应该已完成并加入 buffer
         buffer = self.layer.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
+        assert buffer.blocks[0].identity.agent_id == "a1"
 
     @pytest.mark.asyncio
     async def test_semantic_drift_flush(self):

@@ -2,231 +2,10 @@ import { useState, useEffect } from 'react';
 import type { HiveMemoryConfig, ValidationError } from '../types/config';
 import { validateConfig } from '../utils/configValidation';
 import { fetchConfig, updateConfig as updateConfigApi, fetchDefaultConfig } from '../services/configApi';
+import { useDraft } from './useDraft';
 
 // Mock data for development when backend is offline
-const MOCK_CONFIG: HiveMemoryConfig = {
-  system: {
-    name: 'HiveMemory',
-    version: '0.1.0',
-    debug: true,
-  },
-  logging: {
-    level: 'INFO',
-    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    file_path: null,
-    console_output: true,
-  },
-  llm: {
-    gateway: {
-      provider: 'litellm',
-      model: 'deepseek/deepseek-chat',
-      api_key: null,
-      api_base: null,
-      temperature: 0.7,
-      max_tokens: 4096,
-    },
-    librarian: {
-      provider: 'litellm',
-      model: 'deepseek/deepseek-chat',
-      api_key: null,
-      api_base: null,
-      temperature: 0.3,
-      max_tokens: 2048,
-    },
-    worker: {
-      provider: 'litellm',
-      model: 'deepseek/deepseek-chat',
-      api_key: null,
-      api_base: null,
-      temperature: 0.7,
-      max_tokens: 4096,
-    },
-  },
-  embedding: {
-    default: {
-      model_name: 'BAAI/bge-m3',
-      device: 'cpu',
-      cache_dir: null,
-      batch_size: 32,
-      normalize_embeddings: true,
-      dimension: 1024,
-    },
-    perception: {
-      model_name: 'BAAI/bge-m3',
-      device: 'cpu',
-      cache_dir: null,
-      batch_size: 32,
-      normalize_embeddings: true,
-      dimension: 1024,
-    },
-  },
-  qdrant: {
-    host: 'localhost',
-    port: 6333,
-    grpc_port: 6334,
-    api_key: null,
-    collection_name: 'hivememory_main',
-    vector_dimension: 1024,
-    distance_metric: 'Cosine',
-    on_disk_payload: true,
-  },
-  gateway: {
-    interceptor: {
-      enabled: true,
-      enable_system: true,
-      enable_chat: true,
-      custom_system_patterns: [],
-      custom_chat_patterns: [],
-    },
-    analyzer: {
-      enabled: true,
-      context_window: 5,
-      prompt_variant: 'default',
-      prompt_language: 'zh',
-    },
-  },
-  perception: {
-    engine: {
-      type: 'semantic_flow',
-      idle_timeout_seconds: 900,
-      scan_interval_seconds: 30,
-      fold_token_threshold: 32768,
-      fold_retain_recent_blocks: 5,
-      max_resident_topics: 10,
-      relay: {
-        engine: {
-          type: 'simple',
-          max_processing_tokens: 8192,
-        },
-      },
-      adsorber: {
-        semantic_threshold_high: 0.55,
-        semantic_threshold_low: 0.45,
-        short_text_threshold: 0.6,
-        ema_alpha: 0.3,
-        arbiter: {
-          enabled: true,
-          engine: {
-            type: 'reranker',
-            threshold: 0.7,
-          },
-        },
-      },
-    },
-  },
-  generation: {
-    extractor: {
-      enabled: true,
-      system_prompt: null,
-      user_prompt: null,
-    },
-    deduplicator: {
-      enabled: true,
-      high_similarity_threshold: 0.95,
-      low_similarity_threshold: 0.75,
-      content_similarity_threshold: 0.85,
-      enable_vitality_tracking: true,
-    },
-  },
-  retrieval: {
-    renderer: {
-      type: 'full',
-      render_format: 'markdown',
-      max_tokens: 2000,
-      max_content_length: 500,
-      show_artifacts: false,
-      stale_days: 90,
-    },
-    retriever: {
-      type: 'hybrid',
-      top_k: 5,
-      score_threshold: 0.5,
-      enable_parallel: true,
-      dense: {
-        enabled: true,
-        top_k: 10,
-        score_threshold: 0.5,
-        enable_time_decay: true,
-        time_decay_days: 30,
-        enable_confidence_boost: true,
-      },
-      sparse: {
-        enabled: true,
-        top_k: 10,
-        score_threshold: 0.3,
-      },
-      fusion: {
-        type: 'rrf',
-        rrf_k: 60,
-        dense_weight: 1.0,
-        sparse_weight: 0.3,
-        final_top_k: 5,
-      },
-      reranker: {
-        enabled: true,
-        model_name: 'BAAI/bge-reranker-v2-m3',
-        device: 'cpu',
-        use_fp16: false,
-        batch_size: 16,
-        top_k: 5,
-        normalize_scores: true,
-      },
-    },
-  },
-  lifecycle: {
-    high_watermark: 100000,
-    vitality_calculator: {
-      code_snippet_weight: 1.0,
-      fact_weight: 0.9,
-      url_resource_weight: 0.8,
-      reflection_weight: 1.2,
-      user_profile_weight: 1.5,
-      work_in_progress_weight: 1.5,
-      default_weight: 1.0,
-      max_access_boost: 5.0,
-      points_per_access: 0.1,
-      decay_lambda: 0.01,
-    },
-    reinforcement: {
-      enable_event_history: true,
-      event_history_limit: 10,
-      hit_boost: 5.0,
-      citation_boost: 20.0,
-      positive_feedback_boost: 50.0,
-      negative_feedback_penalty: 50.0,
-      negative_confidence_multiplier: 0.8,
-    },
-    archiver: {
-      archive_dir: 'data/archives',
-      compression: true,
-    },
-    garbage_collector: {
-      low_watermark: 20.0,
-      batch_size: 100,
-      enable_schedule: false,
-      interval_hours: 24,
-    },
-  },
-  koakuma: {
-    enabled: true,
-    execution_timeout_seconds: 300,
-    max_recursion_depth: 5,
-    tool_cache_size: 100,
-    python_repl_timeout_seconds: 30,
-    workspace_path: './workspace',
-    file_read_max_bytes: 1048576,
-    file_write_max_bytes: 1048576,
-    web_search_timeout_seconds: 15,
-    mtp_prompt: {
-      enabled: true,
-      language: 'zh',
-      role: 'default',
-      include_demo: true,
-      include_error_handling: true,
-      include_kernel_tools: true,
-    },
-  },
-};
+import { MOCK_CONFIG } from '@/constants/settings';
 
 interface UseSettingsReturn {
   config: HiveMemoryConfig | null;
@@ -234,6 +13,7 @@ interface UseSettingsReturn {
   error: string | null;
   validationErrors: ValidationError[];
   isDirty: boolean;
+  isSaving: boolean;
   updateConfig: (path: string, value: unknown) => void;
   saveConfig: () => Promise<void>;
   resetConfig: () => void;
@@ -241,12 +21,26 @@ interface UseSettingsReturn {
 }
 
 export const useSettings = (): UseSettingsReturn => {
-  const [config, setConfig] = useState<HiveMemoryConfig | null>(null);
   const [originalConfig, setOriginalConfig] = useState<HiveMemoryConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
-  const [isDirty, setIsDirty] = useState(false);
+
+  const { draft: config, isDirty, isSaving, updateDraft, save: saveConfigDraft, reset } = useDraft<HiveMemoryConfig | null>({
+    initialData: originalConfig,
+    onSave: async (draftData) => {
+      if (!draftData) return;
+      const errors = validateConfig(draftData);
+      const criticalErrors = errors.filter((e) => e.severity === 'error');
+      
+      if (criticalErrors.length > 0) {
+        throw new Error('Cannot save configuration with validation errors');
+      }
+
+      await updateConfigApi(draftData);
+      setOriginalConfig(JSON.parse(JSON.stringify(draftData)));
+    },
+  });
 
   // Load configuration from backend
   useEffect(() => {
@@ -254,12 +48,10 @@ export const useSettings = (): UseSettingsReturn => {
       try {
         setLoading(true);
         const data = await fetchConfig();
-        setConfig(data);
         setOriginalConfig(JSON.parse(JSON.stringify(data)));
         setValidationErrors(validateConfig(data));
       } catch (err) {
         console.warn('Failed to load config from backend, using mock data:', err);
-        setConfig(MOCK_CONFIG);
         setOriginalConfig(JSON.parse(JSON.stringify(MOCK_CONFIG)));
         setValidationErrors(validateConfig(MOCK_CONFIG));
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -270,6 +62,13 @@ export const useSettings = (): UseSettingsReturn => {
 
     loadConfig();
   }, []);
+
+  // 监听 config 变化更新校验错误
+  useEffect(() => {
+    if (config) {
+      setValidationErrors(validateConfig(config));
+    }
+  }, [config]);
 
   // Update a specific configuration value
   const updateConfig = (path: string, value: unknown) => {
@@ -290,42 +89,7 @@ export const useSettings = (): UseSettingsReturn => {
 
     current[keys[keys.length - 1]] = value;
 
-    setConfig(newConfig);
-    setValidationErrors(validateConfig(newConfig));
-    setIsDirty(JSON.stringify(newConfig) !== JSON.stringify(originalConfig));
-  };
-
-  // Save configuration to backend
-  const saveConfig = async () => {
-    if (!config) return;
-
-    const errors = validateConfig(config);
-    const criticalErrors = errors.filter((e) => e.severity === 'error');
-
-    if (criticalErrors.length > 0) {
-      throw new Error('Cannot save configuration with validation errors');
-    }
-
-    try {
-      setLoading(true);
-      await updateConfigApi(config);
-      setOriginalConfig(JSON.parse(JSON.stringify(config)));
-      setIsDirty(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Reset to original configuration
-  const resetConfig = () => {
-    if (originalConfig) {
-      setConfig(JSON.parse(JSON.stringify(originalConfig)));
-      setValidationErrors(validateConfig(originalConfig));
-      setIsDirty(false);
-    }
+    updateDraft(newConfig);
   };
 
   // Reset to default configuration
@@ -333,14 +97,10 @@ export const useSettings = (): UseSettingsReturn => {
     try {
       setLoading(true);
       const data = await fetchDefaultConfig();
-      setConfig(data);
-      setValidationErrors(validateConfig(data));
-      setIsDirty(JSON.stringify(data) !== JSON.stringify(originalConfig));
+      updateDraft(data);
     } catch (err) {
       console.warn('Failed to load defaults from backend, using mock data:', err);
-      setConfig(MOCK_CONFIG);
-      setValidationErrors(validateConfig(MOCK_CONFIG));
-      setIsDirty(JSON.stringify(MOCK_CONFIG) !== JSON.stringify(originalConfig));
+      updateDraft(MOCK_CONFIG);
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
@@ -353,9 +113,10 @@ export const useSettings = (): UseSettingsReturn => {
     error,
     validationErrors,
     isDirty,
+    isSaving,
     updateConfig,
-    saveConfig,
-    resetConfig,
+    saveConfig: saveConfigDraft,
+    resetConfig: reset,
     resetToDefaults,
   };
 };

@@ -38,6 +38,7 @@ MEMORY_TYPE_ALIAS_PREFIX: Dict[str, str] = {
     "REFLECTION": "ref",
     "USER_PROFILE": "user",
     "WORK_IN_PROGRESS": "wip",
+    "AGENT_PROFILE": "agent",
 }
 
 

@@ -7,6 +7,7 @@ import GlobalNavBar from './components/GlobalNavBar';
 import ChatLayout from './components/ChatLayout';
 import MemoryLibrary from './components/MemoryLibrary';
 import SettingsPanel from './components/SettingsPanel';
+import AgentManagement from './components/AgentManagement';
 import DynamicToast from './components/common/DynamicToast';
 import { useChatUiStore } from './stores/chatUiStore';
 
@@ -23,6 +24,9 @@ export default function App() {
         )}
         {activeNavTab === 'database' && (
           <MemoryLibrary />
+        )}
+        {activeNavTab === 'agents' && (
+          <AgentManagement />
         )}
         {activeNavTab === 'settings' && (
           <SettingsPanel />

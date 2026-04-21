@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import MemoryType
+from hivememory.core.models import MemoryType, Identity
 from hivememory.engines.retrieval.models import QueryFilters
 
 logger = logging.getLogger(__name__)
@@ -478,10 +478,13 @@ class MTPFilterParser:
                     logger.warning(f"MTP filter: 未知 key '{key}'，已忽略")
 
             # 构建 QueryFilters，全空则返回 None
+            # source_agent_id 来自 MTP filter (如 agent:coder_doll)，
+            # 包装为 Identity 以统一过滤接口
+            mtp_identity = Identity(agent_id=source_agent_id) if source_agent_id else None
             filters = QueryFilters(
+                identity=mtp_identity,
                 memory_type=memory_type,
                 tags=tags,
-                source_agent_id=source_agent_id,
                 min_confidence=min_confidence,
             )
 

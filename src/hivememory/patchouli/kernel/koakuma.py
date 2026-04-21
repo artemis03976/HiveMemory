@@ -17,10 +17,6 @@
     ├── LibrarianCore (馆长本体 - 记忆写入)
     └── Koakuma (小恶魔 - MTP 运行时)
 
-    依赖关系：
-    Koakuma 不持有 Kernel 引用，而是直接注入所需的兄弟服务。
-    这避免了循环依赖，并遵循最小权限原则。
-
 对应设计文档: MemoryToolProtocol.md Chapter 3 & 4
 
 作者: HiveMemory Team
@@ -57,6 +53,7 @@ from hivememory.patchouli.protocol.exceptions import (
     StorageOfflineError,
     StorageReadError,
     BusRouteUnavailableError,
+    PermissionDeniedError,
 )
 from hivememory.engines.generation.models import WriteFocus, UpdateFocus
 from hivememory.engines.perception.models import TraceItem
@@ -113,8 +110,8 @@ class KoakumaRuntime:
         self._formatter = MTPFormatter()
         self._atom_cache = KoakumaAtomCache()
 
-        # 当前会话的用户 ID (由 Kernel 在会话开始时设置)
-        self._current_user_id: str = "default"
+        # 当前会话的身份标识 (由 Kernel 在会话开始时设置)
+        self._current_identity: Identity = Identity()
 
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
@@ -134,6 +131,29 @@ class KoakumaRuntime:
         self._current_write_focus: Optional[WriteFocus] = None
         self._current_update_focus: Optional[UpdateFocus] = None
 
+        # ========== 多智能体权限沙箱 (Phase 1) ==========
+        # 由 PatchouliSystem 在每轮 chat/stream 开始时通过 set_active_profile() 设置
+        self._active_profile: Optional[Any] = None  # AgentProfileConfig
+
+    def set_current_identity(self, identity: Identity) -> None:
+        """
+        设置当前会话的完整身份标识
+
+        由 Kernel 在会话开始时调用，支持 user_id + agent_id + team_id。
+        新会话时清空缓存。
+
+        Args:
+            identity: 完整身份标识
+        """
+        if identity.user_id != self._current_identity.user_id:
+            self._atom_cache.clear()
+            logger.info(f"New session started for identity {identity.buffer_key}, cache cleared")
+        self._current_identity = identity
+
+    def _get_current_identity(self) -> Identity:
+        """获取当前身份标识"""
+        return self._current_identity
+
     # ========== 交互状态管理 (v3.0) ==========
 
     def reset_interaction_state(self) -> None:
@@ -141,6 +161,54 @@ class KoakumaRuntime:
         self._current_traces = []
         self._current_write_focus = None
         self._current_update_focus = None
+
+    # ========== 多智能体权限沙箱 (Phase 1) ==========
+
+    def set_active_profile(self, profile) -> None:
+        """
+        设置当前活跃的人偶图纸配置
+
+        由 PatchouliSystem 在每轮 chat/stream 开始时调用。
+        设置后，所有 MTP 指令执行前都会进行权限校验。
+
+        Args:
+            profile: AgentProfileConfig 实例（或 None 表示无限制）
+        """
+        self._active_profile = profile
+
+    def _check_verb_permission(self, verb: str) -> None:
+        """
+        校验 MTP 动词权限 (O(1) set lookup)
+
+        Args:
+            verb: MTP 动词 (如 "WRITE", "RUN")
+
+        Raises:
+            PermissionDeniedError: 当前人偶无权执行此动词
+        """
+        if self._active_profile is None:
+            return
+        if not self._active_profile.is_verb_allowed(verb):
+            raise PermissionDeniedError(
+                f"You do not have permission to use the '{verb}' command."
+            )
+
+    def _check_tool_permission(self, tool_alias: str) -> None:
+        """
+        校验系统工具权限 (O(1) set lookup)
+
+        Args:
+            tool_alias: 工具别名 (如 "sys_write_file")
+
+        Raises:
+            PermissionDeniedError: 当前人偶无权使用此工具
+        """
+        if self._active_profile is None:
+            return
+        if not self._active_profile.is_tool_allowed(tool_alias):
+            raise PermissionDeniedError(
+                f"You do not have access to tool '{tool_alias}'."
+            )
 
     def get_interaction_traces(self) -> List[TraceItem]:
         """获取当前轮次记录的 TraceItem 列表"""
@@ -248,25 +316,6 @@ class KoakumaRuntime:
 
         return self.execute_mtp(mtp_fragment)
 
-    def set_current_user(self, user_id: str) -> None:
-        """
-        设置当前会话的用户 ID
-
-        由 Kernel 在会话开始时调用。
-        新会话时清空缓存。
-
-        Args:
-            user_id: 用户 ID
-        """
-        if user_id != self._current_user_id:
-            self._atom_cache.clear()
-            logger.info(f"New session started for user {user_id}, cache cleared")
-        self._current_user_id = user_id
-
-    def _get_current_user_id(self) -> str:
-        """获取当前用户 ID"""
-        return self._current_user_id
-
     # ========== 别名管理 ==========
 
     @property
@@ -308,6 +357,8 @@ class KoakumaRuntime:
             )
 
         try:
+            # 权限沙箱：校验 MTP 动词权限 (Phase 1 多智能体)
+            self._check_verb_permission(command.verb.value)
             return handler(command)
 
         except StorageOfflineError as e:
@@ -384,7 +435,7 @@ class KoakumaRuntime:
             "retrieval.retrieve",
             request=RetrievalRequest(
                 semantic_query=query,
-                user_id=self._current_user_id,
+                identity=self._current_identity,
                 filters=parsed_filters,
             ),
         )
@@ -527,6 +578,8 @@ class KoakumaRuntime:
                         f"Use SEARCH to discover available tools.",
             )
         if syscall is not None:
+            # 权限沙箱：校验系统工具权限 (Phase 1 多智能体)
+            self._check_tool_permission(alias)
             try:
                 result = syscall.handler(command.args)
                 # 记录 TraceItem (摘要: 记录副作用操作及状态)
@@ -606,7 +659,7 @@ class KoakumaRuntime:
             content=content,
             reason=reason or None,
             title=title or None,
-            identity=Identity(user_id=self._current_user_id),
+            identity=self._current_identity,
         )
 
         self._current_write_focus = write_focus
@@ -673,7 +726,7 @@ class KoakumaRuntime:
             content=content if content else None,
             target_uuid=uuid,
             target_alias=alias,
-            identity=Identity(user_id=self._current_user_id),
+            identity=self._current_identity,
         )
 
         self._current_update_focus = update_focus
@@ -761,7 +814,7 @@ class KoakumaRuntime:
         try:
             memory = self._bus.request(
                 "storage.get_memory_by_alias",
-                alias=alias, user_id=self._current_user_id,
+                alias=alias, user_id=self._current_identity.user_id,
             )
             if memory is None:
                 logger.debug(f"L2 cold-lookup miss: alias='{alias}'")

@@ -29,10 +29,10 @@ from hivememory.patchouli.config import KoakumaConfig
 from hivememory.patchouli.protocol.mtp import MTP_LEFT_DELIMITER
 from hivememory.patchouli.protocol.models import RetrievalResponse
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.prompts.mtp import MTPPromptBuilder, AgentRole
+from hivememory.prompts.mtp import MTPPromptBuilder
 
 # 复用 MTPLoopRunner 和 LLM fixture 工厂
-from tests.unit.engines.mtp.test_syscall_scenario_live import (
+from .test_syscall_scenario_live import (
     MTPLoopRunner,
     _get_llm_config,
     _create_llm_service,
@@ -94,7 +94,6 @@ def _build_full_system_prompt(language: str = "en") -> str:
         ("sys_python_repl", "Execute Python code for calculation or data processing."),
     ]
     mtp_fragment = MTPPromptBuilder(
-        role=AgentRole.DEFAULT,
         language=language,
         kernel_tools=available_tools,
     ).build()
@@ -151,7 +150,7 @@ class TestSearchScenario:
             storage=MagicMock(),
             config=KoakumaConfig(),
         )
-        koakuma.set_current_user("test_user")
+        koakuma.set_current_identity(Identity(user_id="test_user"))
         return koakuma
 
     def test_search_triggered_for_memory_query(
@@ -221,7 +220,7 @@ class TestReadScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_user("test_user")
+        koakuma.set_current_identity(Identity(user_id="test_user"))
         return koakuma
 
     def test_search_then_read_two_rounds(
@@ -286,7 +285,7 @@ class TestWriteScenario:
             storage=MagicMock(),
             config=KoakumaConfig(),
         )
-        koakuma.set_current_user("test_user")
+        koakuma.set_current_identity(Identity(user_id="test_user"))
         return koakuma
 
     def test_write_triggered_for_remember_request(
@@ -339,7 +338,7 @@ class TestUpdateScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_user("test_user")
+        koakuma.set_current_identity(Identity(user_id="test_user"))
         # 预注册 alias (模拟之前 SEARCH 过)
         koakuma.atom_cache.ingest_atom(updated_mem)
         return koakuma
@@ -391,7 +390,7 @@ class TestMultiVerbScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_user("test_user")
+        koakuma.set_current_identity(Identity(user_id="test_user"))
         return koakuma
 
     def test_search_then_read_multi_verb(

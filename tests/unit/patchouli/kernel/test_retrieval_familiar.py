@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import Mock, MagicMock
 from uuid import uuid4
 
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.protocol.models import RetrievalRequest, RetrievalResponse
@@ -45,7 +45,7 @@ def _make_engine_result(memories=None, rendered="<ctx>", is_empty=False):
 
 
 def _make_request(query="测试查询", user_id="u1", filters=None):
-    return RetrievalRequest(semantic_query=query, user_id=user_id, filters=filters)
+    return RetrievalRequest(semantic_query=query, identity=Identity(user_id=user_id), filters=filters)
 
 class TestRetrievalFamiliarRetrieve:
     """retrieve() 方法测试"""
@@ -193,6 +193,67 @@ class TestRetrievalFamiliarRetrieve:
 
         assert response.memories_count == 0
         assert response.latency_ms >= 0
+
+
+class TestRetrievalFamiliarIdentityPropagation:
+    """§3.3 identity 完整传播测试"""
+
+    def setup_method(self):
+        self.mock_storage = Mock()
+        self.mock_engine = Mock()
+        self.familiar = RetrievalFamiliar(
+            storage=self.mock_storage,
+            engine=self.mock_engine,
+        )
+
+    def _get_query_filters(self) -> QueryFilters:
+        return self.mock_engine.retrieve.call_args[1]["query"].filters
+
+    def test_identity_propagated_to_engine(self):
+        """完整 identity 对象传播到 engine 的 QueryFilters"""
+        identity = Identity(user_id="u1", agent_id="coder_doll", team_id="team_a")
+        self.mock_engine.retrieve.return_value = _make_engine_result()
+
+        self.familiar.retrieve(RetrievalRequest(
+            semantic_query="test", identity=identity,
+        ))
+
+        qf = self._get_query_filters()
+        assert qf.identity.user_id == "u1"
+        assert qf.identity.agent_id == "coder_doll"
+        assert qf.identity.team_id == "team_a"
+
+    def test_team_id_none_propagated(self):
+        """team_id=None 时 identity 仍正确传播"""
+        identity = Identity(user_id="u1", agent_id="default", team_id=None)
+        self.mock_engine.retrieve.return_value = _make_engine_result()
+
+        self.familiar.retrieve(RetrievalRequest(
+            semantic_query="test", identity=identity,
+        ))
+
+        qf = self._get_query_filters()
+        assert qf.identity.team_id is None
+
+    def test_mtp_filter_cannot_override_identity(self):
+        """MTP filter 不能覆盖 identity 安全基线"""
+        identity = Identity(user_id="u1", agent_id="coder_doll")
+        mtp_filters = QueryFilters(
+            identity=Identity(user_id="hacker", agent_id="evil"),
+            memory_type=MemoryType.CODE_SNIPPET,
+        )
+        self.mock_engine.retrieve.return_value = _make_engine_result()
+
+        self.familiar.retrieve(RetrievalRequest(
+            semantic_query="test", identity=identity, filters=mtp_filters,
+        ))
+
+        qf = self._get_query_filters()
+        # identity 来自 request，不被 mtp_filters 覆盖
+        assert qf.identity.user_id == "u1"
+        assert qf.identity.agent_id == "coder_doll"
+        # 但 memory_type 被合并
+        assert qf.memory_type == MemoryType.CODE_SNIPPET
 
 
 class TestRetrievalFamiliarAccessStats:

@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Code2, Wrench, Link as LinkIcon, User, Check } from 'lucide-react';
+import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Code2, Wrench, Link as LinkIcon, User, Check, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { motion, AnimatePresence } from 'motion/react';
 import { memoryTypeColors } from '../../types/memory';
+import { useDraft } from '../../hooks/useDraft';
 
 interface MemoryDetailModalProps {
   atom: MemoryAtom | null;
@@ -26,8 +27,27 @@ const typeIcons: Record<string, LucideIcon> = {
 
 export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDelete }: MemoryDetailModalProps) {
   const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState({ title: '', summary: '', content: '', alias: '', tags: '' });
+
+  const { draft, isDirty, isSaving, updateDraft, save, reset } = useDraft({
+    initialData: {
+      title: atom?.title || '',
+      summary: atom?.summary || '',
+      content: atom?.content || '',
+      alias: atom?.alias || '',
+      tags: atom?.tags.join(', ') || '',
+    },
+    onSave: async (draftData) => {
+      if (!atom) return;
+      await onEdit(atom.id, {
+        title: draftData.title,
+        summary: draftData.summary,
+        content: draftData.content,
+        alias: draftData.alias || null,
+        tags: draftData.tags.split(',').map(t => t.trim()).filter(Boolean),
+      });
+    },
+    onSuccess: () => setEditing(false),
+  });
 
   if (!atom) return null;
 
@@ -35,32 +55,13 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
   const TypeIcon = typeIcons[atom.memory_type] || FileText;
 
   const startEdit = () => {
-    setDraft({
-      title: atom.title,
-      summary: atom.summary,
-      content: atom.content,
-      alias: atom.alias ?? '',
-      tags: atom.tags.join(', '),
-    });
+    reset(); // 确保每次进入编辑模式时，草稿数据是最新的
     setEditing(true);
   };
 
-  const cancelEdit = () => setEditing(false);
-
-  const saveEdit = async () => {
-    setSaving(true);
-    try {
-      await onEdit(atom.id, {
-        title: draft.title,
-        summary: draft.summary,
-        content: draft.content,
-        alias: draft.alias || null,
-        tags: draft.tags.split(',').map(t => t.trim()).filter(Boolean),
-      });
-      setEditing(false);
-    } finally {
-      setSaving(false);
-    }
+  const cancelEdit = () => {
+    setEditing(false);
+    reset();
   };
 
   return (
@@ -101,7 +102,7 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                       className="w-full text-lg font-bold bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
                       placeholder="记忆标题..."
                       value={draft.title}
-                      onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
+                      onChange={e => updateDraft({ title: e.target.value })}
                     />
                   </div>
                 ) : (
@@ -126,7 +127,7 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                           className="flex-1 text-sm font-mono bg-transparent text-primary/90 placeholder:text-slate-600 focus:outline-none"
                           placeholder="e.g. user-preferences"
                           value={draft.alias}
-                          onChange={e => setDraft(d => ({ ...d, alias: e.target.value }))}
+                          onChange={e => updateDraft({ alias: e.target.value })}
                         />
                       </div>
                     </div>
@@ -156,7 +157,7 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                       rows={2}
                       placeholder="简短描述这段记忆的核心内容..."
                       value={draft.summary}
-                      onChange={e => setDraft(d => ({ ...d, summary: e.target.value }))}
+                      onChange={e => updateDraft({ summary: e.target.value })}
                     />
                   </div>
                 ) : (
@@ -168,16 +169,33 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
             <div className="flex items-start gap-2 shrink-0">
               {editing ? (
                 <div className="flex items-center gap-2 mr-2 mt-6">
+                  {isDirty && (
+                    <button
+                      onClick={reset}
+                      className="px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors"
+                      title="重置修改"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                  )}
                   <button onClick={cancelEdit} className="px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">
                     取消
                   </button>
-                  <button onClick={saveEdit} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                    {saving ? (
+                  <button
+                    onClick={save}
+                    disabled={!isDirty || isSaving}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                      isDirty
+                        ? 'bg-primary/10 hover:bg-primary/20 text-primary border-primary/20'
+                        : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed'
+                    }`}
+                  >
+                    {isSaving ? (
                       <span className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                     ) : (
                       <Check className="w-3.5 h-3.5" />
                     )}
-                    {saving ? '保存中...' : '保存'}
+                    {isSaving ? '保存中...' : '保存'}
                   </button>
                 </div>
               ) : (
@@ -224,7 +242,7 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                     className="w-full h-full bg-transparent text-slate-300 text-sm leading-relaxed font-mono focus:outline-none resize-none placeholder:text-slate-600 scrollbar-hide"
                     value={draft.content}
                     placeholder="支持 Markdown 格式..."
-                    onChange={e => setDraft(d => ({ ...d, content: e.target.value }))}
+                    onChange={e => updateDraft({ content: e.target.value })}
                   />
                 ) : (
                   <div className="overflow-y-auto scrollbar-hide h-full">
@@ -291,7 +309,7 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                         className="w-full text-xs font-mono bg-black/20 border border-white/10 rounded-lg px-2.5 py-2 text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
                         placeholder="e.g. react, ui, bugs"
                         value={draft.tags}
-                        onChange={e => setDraft(d => ({ ...d, tags: e.target.value }))}
+                        onChange={e => updateDraft({ tags: e.target.value })}
                       />
                       <span className="text-[10px] text-slate-500 ml-1">以逗号分隔多个标签</span>
                     </div>

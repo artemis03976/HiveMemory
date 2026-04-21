@@ -1,6 +1,10 @@
+export * from './types/agent';
 export * from './types/chat';
 export * from './types/kernel';
 export * from './types/memory';
+export * from './types/mtp';
+
+import type { MTPVerb } from './types/mtp';
 
 export type NavTab = 'chat' | 'database' | 'agents' | 'theme' | 'terminal' | 'settings';
 
@@ -19,7 +23,7 @@ export interface Topic {
 
 export interface MtpAction {
   id?: string;
-  type: 'RUN' | 'READ' | 'WRITE' | 'SEARCH' | 'UPDATE' | 'UNKNOWN';
+  type: MTPVerb | 'UNKNOWN';
   command: string;
   target?: string;
   params?: Record<string, unknown> | string;
@@ -51,4 +55,5 @@ export interface Message {
   timestamp?: number;
   isStreaming?: boolean;
   error?: string;
+  agent_id?: string;
 }

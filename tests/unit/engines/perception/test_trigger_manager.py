@@ -139,7 +139,11 @@ class TestTriggerManagerResolveTopic:
 
     def _create_buffer_with_blocks(self, block_count: int = 3) -> SemanticBuffer:
         """辅助方法：创建带有 blocks 的 buffer"""
-        buffer = SemanticBuffer(identity=self.identity, topic_id=self.topic_id)
+        buffer = SemanticBuffer(
+            user_id=self.identity.user_id,
+            current_agent_id=self.identity.agent_id,
+            topic_id=self.topic_id,
+        )
         for i in range(block_count):
             block = LogicalBlock(
                 user_query=f"Query {i}",
@@ -165,7 +169,11 @@ class TestTriggerManagerResolveTopic:
     @pytest.mark.asyncio
     async def test_resolve_topic_buffer_no_blocks(self):
         """测试无 blocks 的 buffer 跳过结算"""
-        buffer = SemanticBuffer(identity=self.identity, topic_id=self.topic_id)
+        buffer = SemanticBuffer(
+            user_id=self.identity.user_id,
+            current_agent_id=self.identity.agent_id,
+            topic_id=self.topic_id,
+        )
         self.mock_buffer_manager.get_buffer.return_value = buffer
 
         await self.manager.resolve_topic(self.topic_id, FlushReason.IDLE_TIMEOUT)
@@ -185,7 +193,7 @@ class TestTriggerManagerResolveTopic:
         # 验证 Archive 被调用
         self.mock_callback.assert_called_once()
         call_args = self.mock_callback.call_args
-        assert call_args[0][0]["identity"] == self.identity
+        assert call_args[0][0].user_id == self.identity.user_id
 
         # 验证 Evict 被调用
         self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
@@ -309,10 +317,11 @@ class TestTriggerManagerArchiveTopic:
         ]
 
         await self.manager._archive_topic(self.topic_id, blocks, "summary", None)
+        await asyncio.sleep(0)
 
         # 验证只发射了 2 个 block (worth_saving=True 和 None)
         call_args = self.mock_callback.call_args
-        emitted_blocks = call_args[0][0]["blocks"]
+        emitted_blocks = call_args[0][0].blocks
         assert len(emitted_blocks) == 2
 
     @pytest.mark.asyncio
@@ -322,11 +331,12 @@ class TestTriggerManagerArchiveTopic:
         ]
 
         await self.manager._archive_topic(
-            self.topic_id, blocks, "summary", None, FlushReason.IDLE_TIMEOUT, self.identity
+            self.topic_id, blocks, "summary", None, FlushReason.IDLE_TIMEOUT, self.identity.user_id
         )
+        await asyncio.sleep(0)
 
         call_args = self.mock_callback.call_args
-        assert call_args[0][0]["identity"] == self.identity
+        assert call_args[0][0].user_id == self.identity.user_id
 
     @pytest.mark.asyncio
     async def test_archive_skips_all_filtered(self):
@@ -336,6 +346,7 @@ class TestTriggerManagerArchiveTopic:
         ]
 
         await self.manager._archive_topic(self.topic_id, blocks, "summary", None)
+        await asyncio.sleep(0)
 
         self.mock_callback.assert_not_called()
 
@@ -359,7 +370,11 @@ class TestTriggerManagerCompactTopic:
     @pytest.mark.asyncio
     async def test_compact_updates_state_summary(self):
         """测试 Compact 更新 state_summary"""
-        buffer = SemanticBuffer(identity=self.identity, topic_id=self.topic_id)
+        buffer = SemanticBuffer(
+            user_id=self.identity.user_id,
+            current_agent_id=self.identity.agent_id,
+            topic_id=self.topic_id,
+        )
         self.mock_buffer_manager.get_buffer.return_value = buffer
         self.mock_relay_controller.generate_summary.return_value = "New summary"
 

@@ -603,10 +603,8 @@ class MTPPromptConfig(BaseModel):
     """
     enabled: bool = Field(default=True, description="是否启用 MTP System Prompt 注入")
     language: str = Field(default="zh", description="Prompt 语言 (zh/en)")
-    role: str = Field(default="default", description="Agent 角色 (coder/chat/default)")
     include_demo: bool = Field(default=True, description="是否包含 One-Shot 演示")
     include_error_handling: bool = Field(default=True, description="是否包含错误恢复指令")
-    include_kernel_tools: bool = Field(default=True, description="是否包含内核工具列表")
 
     model_config = ConfigDict(extra="ignore")
 

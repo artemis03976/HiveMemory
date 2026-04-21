@@ -47,7 +47,7 @@ class SemanticBufferManager:
         active_topics = _buffers
 
     架构变更 (Phase 4.5):
-        - _buffers 的 key 从 buffer_key 改为 topic_id
+        - _buffers 的 key 改为 topic_id
         - 新增 _user_index 索引：user_id:agent_id -> Set[topic_id]
         - 所有 CRUD 操作通过 topic_id 完成
 
@@ -70,7 +70,7 @@ class SemanticBufferManager:
             max_resident_topics: 最大驻留话题数，超过此数量将触发 LRU 驱逐
         """
         # 活跃话题池 (L1 Cache / 驻留内存): key -> SemanticBuffer (TopicSegment)
-        # Phase 4.5: key 从 buffer_key 改为 topic_id
+        # Phase 4.5: key 使用 topic_id
         self._buffers: Dict[str, SemanticBuffer] = {}
 
         # 用户索引: user_id:agent_id -> Set[topic_id]
@@ -117,22 +117,21 @@ class SemanticBufferManager:
 
     # ========== 内部辅助方法 ==========
 
-    def _get_owner_key(self, identity: Identity) -> str:
+    def _get_owner_key(self, user_id: str) -> str:
         """获取 owner key"""
-        return f"{identity.user_id}:{identity.agent_id}"
+        return user_id
 
-    def _update_user_index(self, identity: Identity, topic_id: str, remove: bool = False) -> None:
+    def _update_user_index(self, user_id: str, topic_id: str, remove: bool = False) -> None:
         """更新用户索引"""
-        owner_key = self._get_owner_key(identity)
-        if owner_key not in self._user_index:
-            self._user_index[owner_key] = set()
+        if user_id not in self._user_index:
+            self._user_index[user_id] = set()
 
         if remove:
-            self._user_index[owner_key].discard(topic_id)
-            if not self._user_index[owner_key]:
-                del self._user_index[owner_key]
+            self._user_index[user_id].discard(topic_id)
+            if not self._user_index[user_id]:
+                del self._user_index[user_id]
         else:
-            self._user_index[owner_key].add(topic_id)
+            self._user_index[user_id].add(topic_id)
 
     # ========== 基于 topic_id 的 CRUD (Phase 4.5 新接口) ==========
 
@@ -158,27 +157,27 @@ class SemanticBufferManager:
                 return buf
             return None
 
-    def create_buffer(self, identity: Identity, title: str = "新建话题") -> SemanticBuffer:
+    def create_buffer(self, user_id: str, title: str = "新建话题") -> SemanticBuffer:
         """
         创建新话题段
 
         唯一的 Create 方法，创建时生成新的 topic_id。
 
         Args:
-            identity: 归属身份标识
+            user_id: 用户标识
             title: 话题标题
 
         Returns:
             新创建的 SemanticBuffer（包含新生成的 topic_id）
         """
         with self._lock:
-            buf = SemanticBuffer(identity=identity, title=title)
+            buf = SemanticBuffer(user_id=user_id, title=title)
             topic_id = buf.topic_id
 
             self._buffers[topic_id] = buf
-            self._update_user_index(identity, topic_id)
+            self._update_user_index(user_id, topic_id)
 
-            logger.debug(f"创建新话题段: topic_id={topic_id}, title='{title}', owner={identity.buffer_key}")
+            logger.debug(f"创建新话题段: topic_id={topic_id}, title='{title}', owner={user_id}")
             return buf
 
     def pop_buffer(self, topic_id: str) -> Optional[SemanticBuffer]:
@@ -196,7 +195,7 @@ class SemanticBufferManager:
                 return None
 
             buf = self._buffers.pop(topic_id)
-            self._update_user_index(buf.identity, topic_id, remove=True)
+            self._update_user_index(buf.user_id, topic_id, remove=True)
 
             logger.info(f"移除话题段: topic_id={topic_id}, title='{buf.title}'")
             return buf
@@ -329,19 +328,18 @@ class SemanticBufferManager:
 
     # ========== 所有者查询 ==========
 
-    def get_buffers_by_owner(self, identity: Identity) -> List[SemanticBuffer]:
+    def get_buffers_by_owner(self, user_id: str) -> List[SemanticBuffer]:
         """
         获取指定用户的所有活跃话题
 
         Args:
-            identity: 身份标识
+            user_id: 用户标识
 
         Returns:
             话题列表
         """
         with self._lock:
-            owner_key = self._get_owner_key(identity)
-            topic_ids = self._user_index.get(owner_key, set())
+            topic_ids = self._user_index.get(user_id, set())
             return [self._buffers[tid] for tid in topic_ids if tid in self._buffers]
 
     # ========== LRU 与生命周期管理 ==========
@@ -384,8 +382,6 @@ class SemanticBufferManager:
         with self._lock:
             return list(self._buffers.values())
 
-    # ========== MMU 路由 ==========
-
     def needs_eviction(self) -> bool:
         """检查是否需要 LRU 驱逐"""
         with self._lock:
@@ -408,7 +404,6 @@ class SemanticBufferManager:
                 return {
                     "exists": True,
                     "topic_id": buffer.topic_id,
-                    "buffer_key": buffer.identity.buffer_key,
                     "block_count": len(buffer.blocks),
                     "total_tokens": buffer.total_tokens,
                     "state": buffer.state.value if hasattr(buffer.state, 'value') else buffer.state,

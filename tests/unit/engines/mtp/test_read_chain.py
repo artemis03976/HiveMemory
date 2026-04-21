@@ -49,7 +49,7 @@ def _make_memory(
 
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
-    from tests.unit.engines.mtp.conftest import make_mock_bus
+    from .conftest import make_mock_bus
     bus = make_mock_bus()
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 

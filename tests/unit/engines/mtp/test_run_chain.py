@@ -69,7 +69,7 @@ def _make_fact_memory(mem_id=None, alias: str = "fact_not_tool") -> MemoryAtom:
 
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
-    from tests.unit.engines.mtp.conftest import make_mock_bus
+    from .conftest import make_mock_bus
     bus = make_mock_bus()
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 

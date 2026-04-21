@@ -8,10 +8,12 @@ import MemoryAtomListItem from './memory/MemoryAtomListItem';
 import MemoryHeader from './memory/MemoryHeader';
 import CommandBar from './memory/CommandBar';
 import MemoryDetailModal from './memory/MemoryDetailModal';
+import { ConfirmDialog } from './common/ConfirmDialog';
 
 export default function MemoryLibrary() {
   const { addToast } = useToastStore();
   const [selectedAtom, setSelectedAtom] = useState<MemoryAtom | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const {
     memories,
@@ -48,10 +50,16 @@ export default function MemoryLibrary() {
     }
   };
   const handlePin = () => addToast('Pin 功能施工中', 'info');
-  const handleDelete = (id: string) => {
-    deleteMemory(id);
-    if (selectedAtom?.id === id) {
-      setSelectedAtom(null);
+  const confirmDelete = (id: string) => {
+    setDeleteId(id);
+  };
+  const executeDelete = () => {
+    if (deleteId) {
+      deleteMemory(deleteId);
+      if (selectedAtom?.id === deleteId) {
+        setSelectedAtom(null);
+      }
+      setDeleteId(null);
     }
   };
 
@@ -124,7 +132,7 @@ export default function MemoryLibrary() {
                       onView={() => handleView(atom.id)}
                       onEdit={handleEdit}
                       onPin={handlePin}
-                      onDelete={handleDelete}
+                      onDelete={confirmDelete}
                     />
                   ) : (
                     <MemoryAtomListItem
@@ -132,7 +140,7 @@ export default function MemoryLibrary() {
                       onView={() => handleView(atom.id)}
                       onEdit={handleEdit}
                       onPin={handlePin}
-                      onDelete={handleDelete}
+                      onDelete={confirmDelete}
                     />
                   )}
                 </motion.div>
@@ -148,9 +156,19 @@ export default function MemoryLibrary() {
           onClose={() => setSelectedAtom(null)}
           onEdit={handleModalEdit}
           onPin={handlePin}
-          onDelete={handleDelete}
+          onDelete={confirmDelete}
         />
       )}
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        isOpen={deleteId !== null}
+        title="删除记忆"
+        message="确定要删除这条记忆吗？此操作不可撤销。"
+        confirmText="删除"
+        onConfirm={executeDelete}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }

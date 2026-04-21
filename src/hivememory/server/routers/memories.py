@@ -25,9 +25,9 @@ async def list_memories(
     if query:
         filters = {}
         if user_id:
-            filters["user_id"] = user_id
+            filters["meta.user_id"] = user_id
         if memory_type:
-            filters["memory_type"] = memory_type
+            filters["index.memory_type"] = memory_type
 
         results = storage.search_memories(
             query_text=query,
@@ -37,20 +37,20 @@ async def list_memories(
         memories = [
             MemoryResponse.from_atom(r["memory"])
             for r in results
-            if "memory" in r
+            if "memory" in r and r["memory"].index.memory_type != "AGENT_PROFILE"
         ]
     else:
         filters = {}
         if user_id:
-            filters["user_id"] = user_id
+            filters["meta.user_id"] = user_id
         if memory_type:
-            filters["memory_type"] = memory_type
+            filters["index.memory_type"] = memory_type
 
         atoms = storage.get_all_memories(
             filters=filters if filters else None,
             limit=limit,
         )
-        memories = [MemoryResponse.from_atom(a) for a in atoms]
+        memories = [MemoryResponse.from_atom(a) for a in atoms if a.index.memory_type != "AGENT_PROFILE"]
 
     return MemoryListResponse(memories=memories, total=len(memories))
 
@@ -100,6 +100,8 @@ async def update_memory(
         atom.index.alias = body.alias or None
     if body.tags is not None:
         atom.index.tags = body.tags
+    if body.agent_config is not None:
+        atom.payload.artifacts.agent_config = body.agent_config
     atom.meta.updated_at = datetime.now(timezone.utc)
 
     system.storage.upsert_memory(atom)

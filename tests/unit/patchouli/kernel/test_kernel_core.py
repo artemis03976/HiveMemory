@@ -64,7 +64,6 @@ def _create_kernel(bus=None):
         mock_config.koakuma.mtp_prompt.language = "zh"
         mock_config.koakuma.mtp_prompt.include_demo = False
         mock_config.koakuma.mtp_prompt.include_error_handling = False
-        mock_config.koakuma.mtp_prompt.include_kernel_tools = False
 
         kernel = PatchouliKernel(config=mock_config, bus=bus)
         # 手动注入 mock services

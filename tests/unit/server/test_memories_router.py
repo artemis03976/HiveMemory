@@ -67,6 +67,20 @@ class TestMemoriesRouter:
         data = response.json()
         assert data["total"] == 1
 
+    def test_list_memories_filters_map_to_payload_paths(self):
+        mock_system = MagicMock()
+        mock_system.storage.get_all_memories.return_value = []
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.get("/api/v1/memories?user_id=u1&memory_type=FACT&limit=10")
+        assert response.status_code == 200
+        mock_system.storage.get_all_memories.assert_called_once_with(
+            filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
+            limit=10,
+        )
+
     def test_get_memory_by_id(self):
         atom = _make_atom()
         mock_system = MagicMock()

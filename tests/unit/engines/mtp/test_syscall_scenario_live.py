@@ -39,7 +39,6 @@ from hivememory.patchouli.protocol.models import MTPExecutionResult
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.prompts.mtp import (
     MTPPromptBuilder,
-    AgentRole,
 )
 
 logger = logging.getLogger(__name__)
@@ -283,7 +282,6 @@ def _build_mtp_system_prompt(language: str = "en") -> str:
         ("sys_python_repl", "Execute Python code for calculation or data processing."),
     ]
     mtp_fragment = MTPPromptBuilder(
-        role=AgentRole.DEFAULT,
         language=language,
         kernel_tools=available_tools,
     ).build()
@@ -615,7 +613,6 @@ def _build_mtp_system_prompt_with_file_io(language: str = "en") -> str:
         ("sys_write_file", "Write content to a file in the workspace directory. Args: path (relative path), content (text to write), mode (overwrite|append, default overwrite)."),
     ]
     mtp_fragment = MTPPromptBuilder(
-        role=AgentRole.DEFAULT,
         language=language,
         kernel_tools=available_tools,
     ).build()

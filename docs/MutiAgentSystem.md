@@ -24,7 +24,7 @@
 
 #### 1.2 Phase 1 核心目标 (Core Objectives)
 
-本阶段的核心任务是**“造模具”**与**“建沙箱”**，主要包含以下三大交付目标：
+本阶段的核心任务是 **“造模具”** 与 **“建沙箱”**，主要包含以下三大交付目标：
 
 *   **目标一：静态编排与虚拟记忆原子化 (Static Orchestration & Virtual Atomization)**
     *   将 Agent 的设定抽象为一种特殊的数据结构——**“人偶图纸 (Agent Profile)”**。
@@ -156,7 +156,7 @@ HiveMemory 摒弃了这种低效模式，采用 **“单话题多角色挂载（
     *   `LogicalBlock` 和 `SemanticTrace` 增加 `source_agent_id` 戳。
     *   Kernel 在将 `InteractionPayload` 投递给感知层时，必须强制携带当前的 `Identity(user_id, active_agent_id)`。
 *   **归档阶段**:
-    *   当话题触发 Flush（如超时休眠）交由帕秋莉 (Librarian) 总结时，Librarian 会查阅这些带有明确身份戳的剧本。
+    *   当话题触发 Archive (Librarian) 总结时，Librarian 会查阅这些带有明确身份戳的剧本。
     *   Librarian 生成的最终 `MemoryAtom`，其 `meta.source_agent_id` 将继承该知识的直接产出者，建立高可信度的知识溯源体系。
 
 #### 3.2 MTP 权限运行时拦截 (Runtime Permission Enforcement)
@@ -190,7 +190,7 @@ Filter:
 ```
 
 **3.3.2 默认策略 (Phase 1 Default Policy)**
-*   为了简化初期多智能体协作的阻力，**默认所有人偶生成的记忆原子，其作用域均为 `Workspace`（团队共享）**。
+*   为了简化初期多智能体协作的阻力，**默认所有人偶生成的记忆原子，其作用域均为 `Global`（全局共享）**。
 *   这意味着，`coder_doll` 解决的 Bug 经验，后续的 `reviewer_doll` 可以毫无障碍地 `SEARCH` 到。
 *   仅当系统捕获到纯粹的、无有效产出的“错误报错堆栈”或“混沌思考链”时，才由帕秋莉判定为 `Private` 予以隔离。
 
@@ -231,7 +231,7 @@ Kernel 提取图纸中的 `payload.content` (灵魂) 与 `artifacts.permissions`
 
 *   **识别**：Kernel 遍历当前 Topic Buffer 中的所有 `LogicalBlock`。对比 block 的 `source_agent_id` 与当前的 `active_agent_id`。
 *   **渲染规则**：
-    *   *情况 A (是自己说的)*：原样保留 `role: "assistant"`。
+    *   *情况 A (是自己说的)*：原样保留 `role: "assistant"` 的消息。
     *   *情况 B (是其他同事说的)*：在 `content` 头部追加明确的**身份标识前缀**。
 
 **渲染示例 (Rendering Example)**：
@@ -242,9 +242,9 @@ Kernel 提取图纸中的 `payload.content` (灵魂) 与 `artifacts.permissions`
   {"role": "user", "content": "帮我写个登录接口，然后找人 review 一下。"},
   
   // 过去由 Coder_Doll 生成的消息，Kernel 进行动态重写：
-  {"role": "assistant", "content": "[From Colleague: Coder_Doll]\n我已经完成了登录接口的编写。代码如下：\n```python\n...\n```"},
+  {"role": "assistant", "content": "[From: Coder_Doll]\n我已经完成了登录接口的编写。代码如下：\n```python\n...\n```"},
   
-  {"role": "user", "content": "请 Reviewer_Doll 检查一下上面的代码。"}
+  {"role": "user", "content": "请检查一下上面的代码。"}
 ]
 ```
 
@@ -261,7 +261,7 @@ Kernel 提取图纸中的 `payload.content` (灵魂) 与 `artifacts.permissions`
 
 当这个包含多角色互动的话题 Buffer 最终超时触发 Flush，被送给帕秋莉（Librarian）进行长期记忆提取时：
 *   帕秋莉看到的是最原始的 `LogicalBlock` 数组，每个 block 本身就带有干净的 `source_agent_id` 元数据。
-*   帕秋莉不需要依赖 `[From Colleague:...]` 这种文本前缀，她可以直接根据元数据提炼出高质量的团队协作总结（例如：“Coder_Doll 编写了接口，Reviewer_Doll 发现了注入漏洞并由 Coder_Doll 修复”）。
+*   帕秋莉不需要依赖 `[From:...]` 这种文本前缀，她可以直接根据元数据提炼出高质量的团队协作总结（例如：“Coder_Doll 编写了接口，Reviewer_Doll 发现了注入漏洞并由 Coder_Doll 修复”）。
 
 这保证了**短期工作记忆的人性化（防幻觉）**与**长期沉淀记忆的结构化（高保真）**并行不悖。
 
@@ -349,7 +349,7 @@ HiveMemory 必须保持其作为“外挂记忆中间件”的价值。对于通
     *   **任务**: 解决多角色协作的“认领幻觉”。
     *   **行动**:
         *   实现“三明治结构”的 System Prompt 动态拼装逻辑。
-        *   在 Kernel 投递 `History` 给 Worker Agent 之前，增加一个过滤渲染步骤：检查历史中的 `assistant` 消息，若 `source_agent_id` 与当前不符，则在文本前追加 `[From Colleague: {source_agent_id}]\n` 的身份标识。
+        *   在 Kernel 投递 `History` 给 Worker Agent 之前，增加一个过滤渲染步骤：检查历史中的 `assistant` 消息，若 `source_agent_id` 与当前不符，则在文本前追加 `[From: {source_agent_id}]\n` 的身份标识。
 
 #### 6.2 核心验收标准 (Acceptance Criteria / E2E Tests)
 

@@ -42,8 +42,6 @@ class FlushReason(str, Enum):
     TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
     MANUAL = "manual"  # 手动触发
-    SHORT_TEXT_ADSORB = "short_text_adsorb"  # 短文本强吸附
-    MESSAGE_COUNT = "message_count"  # 消息数量达到阈值（兼容旧版本）
     MTP_WRITE = "mtp_write"  # MTP WRITE 指令触发的强制刷新
     MTP_UPDATE = "mtp_update"  # MTP UPDATE 指令触发的强制刷新
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
@@ -194,7 +192,7 @@ class Triplet(BaseModel):
 
 class LogicalBlock(BaseModel):
     """
-    逻辑原子块 - 语义流感知层的最小处理单元
+    逻辑原子块 - 感知层的最小处理单元
 
     结构：
         1. user_block: 用户意图（必须）
@@ -215,6 +213,8 @@ class LogicalBlock(BaseModel):
         total_tokens: 总 Token 数
         block_id: 块唯一标识
     """
+    block_id: str = Field(default_factory=lambda: str(uuid4()))
+
     user_block: Optional[StreamMessage] = None
     execution_chain: List[Triplet] = Field(default_factory=list)
     response_block: Optional[StreamMessage] = None
@@ -222,7 +222,13 @@ class LogicalBlock(BaseModel):
     # 辅助信息
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     total_tokens: int = 0
-    block_id: str = Field(default_factory=lambda: str(uuid4()))
+
+    # ========== 多智能体身份溯源 (Phase 1) ==========
+    #: 产出此 Block 的完整身份标识，用于跨角色记忆归属与历史渲染
+    identity: Identity = Field(
+        default_factory=Identity,
+        description="产出此 Block 的完整身份标识 (user_id, agent_id, team_id)"
+    )
 
     # ========== v2.0 新增字段 (Gateway 集成) ==========
 
@@ -236,7 +242,7 @@ class LogicalBlock(BaseModel):
     #: Gateway 意图分类结果
     gateway_intent: Optional[str] = Field(
         default=None,
-        description="Gateway 意图分类 (RAG/CHAT/TOOL/SYSTEM)"
+        description="Gateway 意图分类 (RAG/CHAT/SYSTEM)"
     )
 
     #: Gateway 记忆价值信号
@@ -330,7 +336,7 @@ class LogicalBlock(BaseModel):
         """检查是否有未完成的三元组"""
         return any(t.is_pending for t in self.execution_chain)
 
-    def to_stream_messages(self, identity: Identity) -> List[StreamMessage]:
+    def to_stream_messages(self) -> List[StreamMessage]:
         """
         转换为 StreamMessage 列表
 
@@ -338,8 +344,7 @@ class LogicalBlock(BaseModel):
             - Kernel 模式 (v3.0): 从 user_query + clean_response 构建
             - Legacy 模式: 从 user_block + execution_chain + response_block 构建
 
-        Args:
-            identity: 身份标识对象
+        使用 self.identity 作为所有消息的身份标识。
 
         Returns:
             List[StreamMessage]: 转换后的消息列表
@@ -352,20 +357,20 @@ class LogicalBlock(BaseModel):
                 message_type=StreamMessageType.USER,
                 content=self.user_query,
                 timestamp=self.created_at,
-                identity=identity,
+                identity=self.identity,
             ))
             messages.append(StreamMessage(
                 message_type=StreamMessageType.ASSISTANT,
                 content=self.clean_response,
                 timestamp=self.created_at,
-                identity=identity,
+                identity=self.identity,
             ))
             return messages
 
         # Legacy 模式: 使用 user_block + execution_chain + response_block
         if self.user_block:
             msg = self.user_block.model_copy()
-            msg.identity = identity
+            msg.identity = self.identity
             messages.append(msg)
 
         for triplet in self.execution_chain:
@@ -374,7 +379,7 @@ class LogicalBlock(BaseModel):
                     message_type=StreamMessageType.THOUGHT,
                     content=triplet.thought,
                     timestamp=self.created_at,
-                    identity=identity
+                    identity=self.identity
                 ))
             if triplet.tool_name:
                 messages.append(StreamMessage(
@@ -383,7 +388,7 @@ class LogicalBlock(BaseModel):
                     tool_name=triplet.tool_name,
                     tool_args=triplet.tool_args,
                     timestamp=self.created_at,
-                    identity=identity
+                    identity=self.identity
                 ))
             if triplet.observation:
                 messages.append(StreamMessage(
@@ -391,12 +396,12 @@ class LogicalBlock(BaseModel):
                     content=triplet.observation,
                     tool_name=triplet.tool_name,
                     timestamp=self.created_at,
-                    identity=identity
+                    identity=self.identity
                 ))
 
         if self.response_block:
             msg = self.response_block.model_copy()
-            msg.identity = identity
+            msg.identity = self.identity
             messages.append(msg)
 
         return messages
@@ -404,7 +409,7 @@ class LogicalBlock(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
 
-# ============ 语义缓冲区 ============
+# ============ 话题上下文缓冲区 ============
 
 class SemanticBuffer(BaseModel):
     """
@@ -425,7 +430,7 @@ class SemanticBuffer(BaseModel):
 
     Attributes:
         topic_id: 话题唯一标识（主键），由 PerceptionLayer 创建时生成
-        identity: 身份标识（归属元数据，用于权限控制）
+        user_id: 用户标识（归属元数据，用于权限控制）
         title: 话题标题，由 TheEye 或 Kernel 异步生成，用于菜单展示
         state_summary: 页折叠后的状态摘要，伪无限上下文基底
         blocks: 已闭合的 LogicalBlock 列表（页表）
@@ -436,17 +441,14 @@ class SemanticBuffer(BaseModel):
         total_tokens: 总 Token 数（水位线监控）
     """
     topic_id: str = Field(default_factory=lambda: str(uuid4()), description="话题唯一标识")
-    identity: Identity = Field(default_factory=Identity, description="归属元数据")
+    user_id: str = Field(default="default", description="用户标识")
 
-    @property
-    def buffer_id(self) -> str:
-        """向后兼容：返回 topic_id"""
-        return self.topic_id
-
-    @property
-    def buffer_key(self) -> str:
-        """向后兼容：返回 identity.buffer_key"""
-        return self.identity.buffer_key
+    # --- 多智能体调度 (Phase 1) ---
+    #: 当前话题挂载的活跃人偶别名，Kernel 切换 Agent 时更新此指针
+    current_agent_id: str = Field(
+        default="default",
+        description="当前话题挂载的活跃 Agent 别名 (如 coder_doll)"
+    )
 
     # --- 话题元数据 (TopicSegment, Phase 4.5 新增) ---
     title: str = Field(default="新建话题", description="话题标题，由 TheEye 或 Kernel 异步生成")
@@ -534,7 +536,7 @@ class TopicSnapshot(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
 
-# ============ 交互载荷 (v3.0 新增) ============
+# ============ 对话交互载荷 (v3.0 新增) ============
 
 class InteractionPayload(BaseModel):
     """
@@ -547,7 +549,7 @@ class InteractionPayload(BaseModel):
 
     Attributes:
         user_message: 原始用户消息
-        assistant_message: ���含 MTP 指令的完整 assistant 文本
+        assistant_message: 包含 MTP 指令的完整 assistant 文本
         mtp_traces: 由 Koakuma 在执行过程中记录的 Trace 列表
         write_focus: WRITE 指令的核心素材 (挂载在 Payload 上，而非独立传输)
         update_focus: UPDATE 指令的修改意图
@@ -572,8 +574,9 @@ class InteractionPayload(BaseModel):
         description="UPDATE 指令的修改意图 (UpdateFocus)"
     )
 
-    # 上下文元数据
+    # 身份元数据
     identity: Identity = Field(default_factory=Identity, description="归属元数据")
+
     rewritten_query: Optional[str] = Field(
         default=None,
         description="Gateway 重写后的查询"
@@ -581,6 +584,41 @@ class InteractionPayload(BaseModel):
     worth_saving: Optional[bool] = Field(
         default=None,
         description="Gateway 价值判断"
+    )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# ============ 归档载荷 (Perception -> Librarian) ============
+
+class ArchivePayload(BaseModel):
+    """
+    Perception -> GenerationEngine 的归档传输包
+
+    当 TriggerManager 触发 Archive 操作时，将 buffer 中的 blocks 打包为此结构
+    发送给 GenerationEngine 进行记忆生成。
+
+    每个 LogicalBlock 自行携带 identity，无需在 payload 层面统一标识。
+
+    Attributes:
+        topic_id: 话题 ID
+        user_id: 用户 ID（可选，用于兼容性）
+        blocks: 从 buffer flush 出的 LogicalBlock 列表（每个 block 携带自己的 identity）
+        state_summary: 话题状态摘要（如果有折叠）
+        focus: write_focus 或 update_focus（仅 MTP_WRITE/UPDATE 时有值）
+        reason: flush 触发原因
+    """
+    topic_id: str = Field(..., description="话题 ID")
+    user_id: Optional[str] = Field(default=None, description="用户 ID")
+    blocks: List[LogicalBlock] = Field(default_factory=list, description="从 buffer flush 出的 blocks")
+    state_summary: str = Field(default="", description="话题状态摘要")
+    focus: Optional[Any] = Field(
+        default=None,
+        description="write_focus 或 update_focus（仅 MTP_WRITE/UPDATE 时有值）"
+    )
+    reason: FlushReason = Field(
+        default=FlushReason.IDLE_TIMEOUT,
+        description="flush 触发原因"
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -595,4 +633,5 @@ __all__ = [
     "LogicalBlock",
     "InteractionPayload",
     "SemanticBuffer",
+    "ArchivePayload",
 ]

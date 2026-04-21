@@ -94,6 +94,20 @@ class InvalidArgumentError(AgentFault):
     suggestion = "Check the required arguments for this command and retry."
 
 
+class PermissionDeniedError(AgentFault):
+    """
+    权限越权拦截 (多智能体沙箱)
+
+    当 Agent 尝试执行超出其人偶图纸权限范围的 MTP 指令或系统工具时触发。
+    利用 In-Context Learning 迫使 Agent 放弃危险尝试，转而使用权限内的替代方案。
+    """
+    category = "Permission Denied"
+    suggestion = (
+        "This operation is not allowed for your current role. "
+        "Try a different approach using only your authorized tools and commands."
+    )
+
+
 # ==========================================
 # 系统级异常 (System Faults) - 基础设施故障，禁止重试
 # ==========================================
@@ -150,6 +164,7 @@ __all__ = [
     "MemoryNotFoundError",
     "MemoryTypeMismatchError",
     "InvalidArgumentError",
+    "PermissionDeniedError",
     "StorageOfflineError",
     "StorageReadError",
     "BusRouteUnavailableError",

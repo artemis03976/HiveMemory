@@ -39,7 +39,6 @@ from hivememory.patchouli.protocol.mtp import (
 from hivememory.patchouli.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import (
     MTPPromptBuilder,
-    AgentRole,
 )
 
 
@@ -48,7 +47,7 @@ from hivememory.prompts.mtp import (
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
     """标准 KoakumaRuntime (真实 syscalls, mock 兄弟服务)"""
-    from tests.unit.engines.mtp.conftest import make_mock_bus
+    from .conftest import make_mock_bus
     bus = make_mock_bus()
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 
@@ -56,13 +55,13 @@ def koakuma() -> KoakumaRuntime:
 @pytest.fixture
 def mtp_prompt_en() -> str:
     """英文 MTP System Prompt"""
-    return MTPPromptBuilder(language="en", role=AgentRole.DEFAULT).build()
+    return MTPPromptBuilder(language="en").build()
 
 
 @pytest.fixture
 def mtp_prompt_zh() -> str:
     """中文 MTP System Prompt"""
-    return MTPPromptBuilder(language="zh", role=AgentRole.DEFAULT).build()
+    return MTPPromptBuilder(language="zh").build()
 
 
 # ========== Helpers ==========
@@ -494,7 +493,7 @@ class TestFileIOViaMTP:
 
     @pytest.fixture
     def file_koakuma(self, workspace):
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus()
         return KoakumaRuntime(
             bus=bus,

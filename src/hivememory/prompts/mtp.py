@@ -2,25 +2,23 @@
 MTP System Prompt 构建器
 
 生成 MTP 协议的 System Prompt 片段，教导 Worker Agent 使用 MTP 语法。
+该片段仅包含协议教学内容，不包含角色设定（persona）或工作区状态。
 
-四大模块 (Section 5.1.1):
-1. 角色定义 (Role Definition)
-2. 协议规格 (Protocol Specification)
-3. 负面约束 (Negative Constraints)
-4. 高密度演示 (Dense Demo)
+模块结构:
+1. 协议规格 (Protocol Specification, 含内核上下文 header)
+2. 负面约束 (Negative Constraints)
+3. 行为准则 (Behavioral Guidelines)
+4. 内核工具列表 (Kernel Tools, optional)
+5. 高密度演示 (Dense Demo, optional)
+6. 错误恢复 (Error Recovery, optional)
 
-附加模块:
-5. 错误恢复 (Error Handling, Section 5.3)
-6. 内核工具列表 (Kernel Tools, Chapter 8.7)
-
-对应设计文档: MemoryToolProtocol.md Chapter 5 & 8.7
+对应设计文档: MemoryToolProtocol.md Chapter 5
 
 作者: HiveMemory Team
-版本: 1.0
+版本: 2.1
 """
 
 import logging
-from enum import Enum
 from typing import List, Optional, Tuple
 
 from hivememory.patchouli.protocol.mtp import (
@@ -29,22 +27,6 @@ from hivememory.patchouli.protocol.mtp import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# ========== Agent 角色枚举 ==========
-
-class AgentRole(str, Enum):
-    """
-    Worker Agent 角色类型 (Section 5.2.2)
-
-    控制 MTP 触发倾向:
-    - CODER: 激进查阅，必须先查阅已有代码库再编写新代码
-    - CHAT: 保守查阅，仅在必要时查阅记忆
-    - DEFAULT: 平衡模式
-    """
-    CODER = "coder"
-    CHAT = "chat"
-    DEFAULT = "default"
 
 
 # ========== MVP 默认内核工具列表 (Chapter 8.6) ==========
@@ -58,39 +40,42 @@ DEFAULT_KERNEL_TOOLS: List[Tuple[str, str]] = [
 ]
 
 
+# ========== MTP 动词定义注册表 ==========
+
+_VERB_DEFS_EN = {
+    "SEARCH": 'Discover unknown memories. Target=`*`. Args: `query="..."`, optional `filter="type:CODE"` (types: CODE, FACT, URL, REFLECTION, PROFILE, WIP).',
+    "READ": "Fetch full content. Target=`alias` or `[alias1, alias2]` (use LIST for batching).",
+    "RUN": 'Execute a kernel tool. Target=`tool_alias`. Args: `key="value"`.',
+    "WRITE": "Save valuable insights. Target=`*`. Args: `title=\"...\" content=`...``.",
+    "UPDATE": "Patch existing memory. Target=`alias`. Args: `patch=`...``.",
+}
+
+_VERB_DEFS_ZH = {
+    "SEARCH": '发现未知记忆。Target=`*`。参数: `query="..."`，可选 `filter="type:CODE"` (类型: CODE, FACT, URL, REFLECTION, PROFILE, WIP)。',
+    "READ": "获取完整内容。Target=`alias` 或 `[alias1, alias2]` (使用列表批量读取)。",
+    "RUN": '执行内核工具。Target=`tool_alias`。参数: `key="value"`。',
+    "WRITE": "保存有价值的洞察。Target=`*`。参数: `title=\"...\" content=`...``。",
+    "UPDATE": "修正已有记忆。Target=`alias`。参数: `patch=`...``。",
+}
+
+# 默认全量动词顺序
+_VERB_ORDER = ["SEARCH", "READ", "RUN", "WRITE", "UPDATE"]
+
+
 # ========== 英文模板 ==========
 
-_ROLE_DEFINITION_EN = """\
+_PROTOCOL_SPEC_EN = """\
 ### HIVE MEMORY KERNEL CONTEXT ###
 
 You are an intelligent Agent running on HiveOS. You have access to a persistent memory kernel via the Memory Tool Protocol (MTP).
-{role_instruction}"""
 
-_ROLE_INSTRUCTION_CODER_EN = (
-    "You are a rigorous engineer. You MUST consult existing code and documentation "
-    "in HiveMemory before writing new code. Always verify facts via SEARCH/READ."
-)
-_ROLE_INSTRUCTION_CHAT_EN = (
-    "You are a helpful assistant. Consult HiveMemory only when necessary "
-    "to answer factual questions or retrieve specific information."
-)
-_ROLE_INSTRUCTION_DEFAULT_EN = (
-    "When you lack context to answer truthfully, consult HiveMemory. "
-    "Do not guess about facts, code, or configurations that may exist in memory."
-)
-
-_PROTOCOL_SPEC_EN = """\
 [PROTOCOL RULES]
 1. INTERACTION: Do NOT use JSON or Function Calling. Use MTP syntax directly in your text flow.
 2. SYNTAX: `{left_delim} VERB | TARGET | ARGS {right_delim}`
    - Delimiters: `{left_delim}` (open) and `{right_delim}` (close).
    - Separator: `|` (pipe).
 3. VERBS:
-   - SEARCH: Discover unknown memories. Target=`*`. Args: `query="..."`, optional `filter="type:CODE"` (types: CODE, FACT, URL, REFLECTION, PROFILE, WIP).
-   - READ: Fetch full content. Target=`alias` or `[alias1, alias2]` (use LIST for batching).
-   - RUN: Execute a kernel tool. Target=`tool_alias`. Args: `key="value"`.
-   - WRITE: Save valuable insights. Target=`*`. Args: `title="..." content=`...``.
-   - UPDATE: Patch existing memory. Target=`alias`. Args: `patch=`...``.
+{verb_list}
 4. RESPONSE: Results appear in `<mtp_response>` XML blocks immediately after your command."""
 
 _NEGATIVE_CONSTRAINTS_EN = """\
@@ -147,36 +132,18 @@ Rule: If the category says "Do NOT retry", you MUST stop issuing MTP commands an
 
 # ========== 中文模板 ==========
 
-_ROLE_DEFINITION_ZH = """\
+_PROTOCOL_SPEC_ZH = """\
 ### HIVE MEMORY 内核上下文 ###
 
 你是运行在 HiveOS 上的智能 Agent。你可以通过 Memory Tool Protocol (MTP) 访问持久化记忆内核。
-{role_instruction}"""
 
-_ROLE_INSTRUCTION_CODER_ZH = (
-    "你是严谨的工程师。在编写新代码之前，你必须先通过 SEARCH/READ 查阅 HiveMemory 中已有的代码和文档。"
-    "始终通过记忆验证事实。"
-)
-_ROLE_INSTRUCTION_CHAT_ZH = (
-    "你是得力的助手。仅在需要回答事实性问题或检索特定信息时查阅 HiveMemory。"
-)
-_ROLE_INSTRUCTION_DEFAULT_ZH = (
-    "当你缺乏上下文来如实回答时，请查阅 HiveMemory。"
-    "不要猜测可能存在于记忆中的事实、代码或配置。"
-)
-
-_PROTOCOL_SPEC_ZH = """\
 [协议规则]
 1. 交互方式: 不要使用 JSON 或 Function Calling。直接在文本流中使用 MTP 语法。
 2. 语法: `{left_delim} VERB | TARGET | ARGS {right_delim}`
    - 定界符: `{left_delim}` (开) 和 `{right_delim}` (闭)。
    - 分隔符: `|` (管道符)。
 3. 指令集:
-   - SEARCH: 发现未知记忆。Target=`*`。参数: `query="..."`，可选 `filter="type:CODE"` (类型: CODE, FACT, URL, REFLECTION, PROFILE, WIP)。
-   - READ: 获取完整内容。Target=`alias` 或 `[alias1, alias2]` (使用列表批量读取)。
-   - RUN: 执行内核工具。Target=`tool_alias`。参数: `key="value"`。
-   - WRITE: 保存有价值的洞察。Target=`*`。参数: `title="..." content=`...``。
-   - UPDATE: 修正已有记忆。Target=`alias`。参数: `patch=`...``。
+{verb_list}
 4. 响应: 执行结果会以 `<mtp_response>` XML 块的形式出现在你的指令之后。"""
 
 _NEGATIVE_CONSTRAINTS_ZH = """\
@@ -238,122 +205,99 @@ _KERNEL_TOOLS_TEMPLATE = """\
 {tool_list}"""
 
 
-# ========== 角色指令映射 ==========
-
-_ROLE_INSTRUCTIONS = {
-    "en": {
-        AgentRole.CODER: _ROLE_INSTRUCTION_CODER_EN,
-        AgentRole.CHAT: _ROLE_INSTRUCTION_CHAT_EN,
-        AgentRole.DEFAULT: _ROLE_INSTRUCTION_DEFAULT_EN,
-    },
-    "zh": {
-        AgentRole.CODER: _ROLE_INSTRUCTION_CODER_ZH,
-        AgentRole.CHAT: _ROLE_INSTRUCTION_CHAT_ZH,
-        AgentRole.DEFAULT: _ROLE_INSTRUCTION_DEFAULT_ZH,
-    },
-}
-
-
 # ========== Prompt 构建器 ==========
 
 class MTPPromptBuilder:
     """
-    MTP System Prompt 构建器 (Section 5.1)
+    MTP 协议 System Prompt 构建器
 
-    组装 MTP 协议的 System Prompt 片段。该片段追加到 Worker Agent
-    的基础 System Prompt 之后，教导 LLM 使用 MTP 语法。
-
-    六大模块:
-    1. 角色定义 (Role Definition)
-    2. 协议规格 (Protocol Specification)
-    3. 负面约束 (Negative Constraints)
-    4. 行为准则 (Behavioral Guidelines)
-    5. 内核工具列表 (Kernel Tools, optional)
-    6. 高密度演示 (Dense Demo, optional)
-    7. 错误恢复 (Error Handling, optional)
+    仅负责生成 MTP 协议教学片段。不包含角色设定（persona）、
+    预检索记忆或话题状态 — 这些由上层 SystemPromptBuilder 编排。
 
     使用示例:
-        >>> builder = MTPPromptBuilder(role=AgentRole.CODER, language="en")
-        >>> fragment = builder.build()
-        >>> full_prompt = base_prompt + "\\n\\n" + fragment
+        >>> builder = MTPPromptBuilder(language="en")
+        >>> mtp_fragment = builder.build()
     """
 
     def __init__(
         self,
-        role: AgentRole = AgentRole.DEFAULT,
         language: str = "zh",
         kernel_tools: Optional[List[Tuple[str, str]]] = None,
         include_demo: bool = True,
         include_error_handling: bool = True,
-        include_kernel_tools: bool = True,
+        allowed_verbs: Optional[List[str]] = None,
+        allowed_kernel_tools: Optional[List[str]] = None,
     ):
         """
         Args:
-            role: Agent 角色类型，控制触发倾向
             language: 语言 ("zh" 或 "en")
-            kernel_tools: 可用的内核工具列表 [(alias, description), ...]
+            kernel_tools: 内核工具注册表 [(alias, description), ...]
                          如果为 None，使用 DEFAULT_KERNEL_TOOLS
             include_demo: 是否包含 One-Shot 演示
             include_error_handling: 是否包含错误恢复指令
-            include_kernel_tools: 是否包含内核工具列表
+            allowed_verbs: MTP 动词白名单，None=全量渲染
+            allowed_kernel_tools: 系统工具白名单，None=全量渲染，
+                                  空列表=不渲染工具列表
         """
-        self.role = role
         self.language = language
-        self.kernel_tools = kernel_tools if kernel_tools is not None else DEFAULT_KERNEL_TOOLS
         self.include_demo = include_demo
         self.include_error_handling = include_error_handling
-        self.include_kernel_tools = include_kernel_tools
+
+        # 权限过滤：根据白名单过滤工具列表
+        base_tools = kernel_tools if kernel_tools is not None else DEFAULT_KERNEL_TOOLS
+        if allowed_kernel_tools is not None:
+            allowed_set = set(allowed_kernel_tools)
+            self.kernel_tools = [(a, d) for a, d in base_tools if a in allowed_set]
+        else:
+            self.kernel_tools = base_tools
+
+        # 权限过滤：MTP 动词白名单 (用于协议规格渲染)
+        self.allowed_verbs = set(v.upper() for v in allowed_verbs) if allowed_verbs else None
 
     def build(self) -> str:
         """
-        构建完整的 MTP System Prompt 片段
+        构建 MTP 协议教学 System Prompt 片段
 
         Returns:
-            str: 可直接追加到 Worker Agent System Prompt 的文本片段
+            str: MTP 协议教学文本
         """
         sections = []
 
-        # 1. 角色定义
-        sections.append(self._build_role_definition())
-
-        # 2. 协议规格
+        # 1. 协议规格 (含内核上下文 header)
         sections.append(self._build_protocol_spec())
 
-        # 3. 负面约束
+        # 2. 负面约束
         sections.append(self._build_negative_constraints())
 
-        # 4. 行为准则
+        # 3. 行为准则
         sections.append(self._build_behavioral_guidelines())
 
-        # 5. 内核工具列表 (可选)
-        if self.include_kernel_tools and self.kernel_tools:
+        # 4. 内核工具列表 (有工具时渲染)
+        if self.kernel_tools:
             sections.append(self._build_kernel_tools())
 
-        # 6. 高密度演示 (可选)
+        # 5. 高密度演示 (可选)
         if self.include_demo:
             sections.append(self._build_dense_demo())
 
-        # 7. 错误恢复 (可选)
+        # 6. 错误恢复 (可选)
         if self.include_error_handling:
             sections.append(self._build_error_handling())
 
         return "\n\n".join(sections)
 
-    def _build_role_definition(self) -> str:
-        """构建角色定义模块"""
-        template = _ROLE_DEFINITION_ZH if self.language == "zh" else _ROLE_DEFINITION_EN
-
-        lang_instructions = _ROLE_INSTRUCTIONS.get(self.language, _ROLE_INSTRUCTIONS["en"])
-        role_instruction = lang_instructions.get(self.role, lang_instructions[AgentRole.DEFAULT])
-
-        return template.format(role_instruction=role_instruction)
-
     def _build_protocol_spec(self) -> str:
-        """构建协议规格模块"""
+        """构建协议规格模块，根据 allowed_verbs 动态渲染指令集"""
         template = _PROTOCOL_SPEC_ZH if self.language == "zh" else _PROTOCOL_SPEC_EN
+        verb_defs = _VERB_DEFS_ZH if self.language == "zh" else _VERB_DEFS_EN
+
+        verbs = [v for v in _VERB_ORDER if self.allowed_verbs is None or v in self.allowed_verbs]
+        verb_lines = [f"   - {v}: {verb_defs[v]}" for v in verbs]
+
         return template.format(
             left_delim=MTP_LEFT_DELIMITER,
             right_delim=MTP_RIGHT_DELIMITER,
+            verb_list="\n".join(verb_lines),
         )
 
     def _build_negative_constraints(self) -> str:
@@ -388,7 +332,6 @@ class MTPPromptBuilder:
 # ========== 便捷函数 ==========
 
 def get_mtp_prompt(
-    role: AgentRole = AgentRole.DEFAULT,
     language: str = "zh",
     kernel_tools: Optional[List[Tuple[str, str]]] = None,
 ) -> str:
@@ -396,7 +339,6 @@ def get_mtp_prompt(
     便捷函数: 获取 MTP System Prompt 片段
 
     Args:
-        role: Agent 角色类型
         language: 语言 ("zh" 或 "en")
         kernel_tools: 可用的内核工具列表
 
@@ -404,7 +346,6 @@ def get_mtp_prompt(
         str: MTP System Prompt 片段
     """
     builder = MTPPromptBuilder(
-        role=role,
         language=language,
         kernel_tools=kernel_tools,
     )
@@ -414,6 +355,5 @@ def get_mtp_prompt(
 __all__ = [
     "MTPPromptBuilder",
     "get_mtp_prompt",
-    "AgentRole",
     "DEFAULT_KERNEL_TOOLS",
 ]

@@ -13,7 +13,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
-from hivememory.core.models import MemoryAtom, MemoryType
+from hivememory.core.models import MemoryAtom, MemoryType, Identity
 from hivememory.utils.memory_atom_renderer import RenderFormat
 
 
@@ -27,29 +27,44 @@ class QueryFilters(BaseModel):
     用于检索引擎的过滤条件传递。
     定义了检索时可用的所有过滤维度。
 
+    identity 统一承载请求者身份 (user_id, agent_id, team_id)，
+    用于 Visibility Scope Filtering (MutiAgentSystem.md §3.3):
+      - PUBLIC: 全局可见
+      - WORKSPACE: team_id 匹配时可见
+      - PRIVATE: source_agent_id 匹配当前 agent_id 时可见
+
     Attributes:
+        identity: 请求者身份标识 (替代原 user_id + source_agent_id)
         memory_type: 记忆类型过滤
         time_range: 时间范围过滤
         tags: 标签过滤
-        source_agent_id: 来源 Agent ID 过滤
-        user_id: 用户 ID 过滤
         min_confidence: 最小置信度过滤
     """
+    identity: Optional[Identity] = None
     memory_type: Optional[MemoryType] = None
     time_range: Optional[Tuple[datetime, datetime]] = None
     tags: List[str] = Field(default_factory=list)
-    source_agent_id: Optional[str] = None
-    user_id: Optional[str] = None
     min_confidence: float = 0.0
+
+    # ---- 向后兼容属性 ----
+
+    @property
+    def user_id(self) -> Optional[str]:
+        """兼容属性: 从 identity 中提取 user_id"""
+        return self.identity.user_id if self.identity else None
+
+    @property
+    def source_agent_id(self) -> Optional[str]:
+        """兼容属性: 从 identity 中提取 agent_id"""
+        return self.identity.agent_id if self.identity else None
 
     def is_empty(self) -> bool:
         """检查过滤条件是否为空"""
         return (
-            self.memory_type is None
+            self.identity is None
+            and self.memory_type is None
             and self.time_range is None
             and len(self.tags) == 0
-            and self.source_agent_id is None
-            and self.user_id is None
             and self.min_confidence == 0.0
         )
 
