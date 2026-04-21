@@ -295,8 +295,6 @@ class TestTriggerManagerArchiveTopic:
 
     @pytest.mark.asyncio
     async def test_archive_without_callback(self):
-    @pytest.mark.asyncio
-    async def test_archive_without_callback(self):
         """测试无回调时跳过 Archive"""
         manager = TriggerManager(buffer_manager=self.mock_buffer_manager)
 
@@ -304,7 +302,6 @@ class TestTriggerManagerArchiveTopic:
             LogicalBlock(user_query="test", clean_response="test", total_tokens=10)
         ]
 
-        await manager._archive_topic(self.topic_id, blocks, "summary", None)
         await manager._archive_topic(self.topic_id, blocks, "summary", None)
 
         # 不应该抛出异常

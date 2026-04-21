@@ -463,7 +463,7 @@ class TestFlushCallbackModesUpdate:
         # 使用 AsyncMock 模拟异步方法
         mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus(mock_storage=mock_storage, mock_generation=mock_generation)
         core = LibrarianCore(
             storage=mock_storage,
@@ -520,7 +520,7 @@ class TestFlushCallbackModesUpdate:
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
@@ -562,7 +562,7 @@ class TestFlushCallbackModesUpdate:
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
@@ -609,7 +609,7 @@ class TestKoakumaUpdateE2E:
         mock_librarian = MagicMock()
         mock_librarian.handle_update_signal.return_value = [existing_memory]
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
         koakuma.set_current_identity(Identity(user_id="test_user"))
@@ -659,7 +659,7 @@ class TestKoakumaUpdateValidation:
 
     @pytest.fixture
     def validation_koakuma(self) -> KoakumaRuntime:
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
         koakuma.set_current_identity(Identity(user_id="test_user"))
@@ -709,7 +709,7 @@ class TestKoakumaUpdateValidation:
 
     def test_update_deferred_capture_always_ack(self, existing_memory):
         """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
         koakuma.set_current_identity(Identity(user_id="test_user"))

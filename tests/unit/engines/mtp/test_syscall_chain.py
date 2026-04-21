@@ -47,7 +47,7 @@ from hivememory.prompts.mtp import (
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
     """标准 KoakumaRuntime (真实 syscalls, mock 兄弟服务)"""
-    from tests.unit.engines.mtp.conftest import make_mock_bus
+    from .conftest import make_mock_bus
     bus = make_mock_bus()
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 
@@ -493,7 +493,7 @@ class TestFileIOViaMTP:
 
     @pytest.fixture
     def file_koakuma(self, workspace):
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus()
         return KoakumaRuntime(
             bus=bus,

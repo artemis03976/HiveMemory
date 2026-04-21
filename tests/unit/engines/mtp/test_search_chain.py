@@ -59,7 +59,7 @@ def _make_retrieval_response(memories=None) -> RetrievalResponse:
 
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
-    from tests.unit.engines.mtp.conftest import make_mock_bus
+    from .conftest import make_mock_bus
     mock_retrieval = MagicMock()
     mock_retrieval.retrieve.return_value = _make_retrieval_response()
     bus = make_mock_bus(mock_retrieval=mock_retrieval)

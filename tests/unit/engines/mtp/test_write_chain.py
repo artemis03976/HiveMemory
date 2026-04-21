@@ -255,7 +255,7 @@ class TestFlushCallbackModes:
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
@@ -304,7 +304,7 @@ class TestFlushCallbackModes:
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
@@ -348,7 +348,7 @@ class TestFlushCallbackModes:
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
@@ -391,7 +391,7 @@ class TestFlushCallbackModes:
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
@@ -438,7 +438,7 @@ class TestKoakumaWriteE2E:
         mock_librarian = MagicMock()
         mock_librarian.handle_write_signal.return_value = [sample_memory]
 
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
         koakuma.set_current_identity(Identity(user_id="test_user"))
@@ -485,7 +485,7 @@ class TestKoakumaWriteE2E:
 
     def test_write_deferred_capture_always_ack(self):
         """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""
-        from tests.unit.engines.mtp.conftest import make_mock_bus
+        from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
         koakuma.set_current_identity(Identity(user_id="test_user"))

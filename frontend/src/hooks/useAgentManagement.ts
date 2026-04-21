@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useAgents, type BackendAgent } from './useAgents';
 import { MOCK_AGENT_CONFIGS } from '@/constants/agents';
 import type { AgentData, AgentProfileConfig, MTPVerb } from '@/types';
@@ -41,22 +41,24 @@ export function useAgentManagement() {
   const [agents, setAgents] = useState<AgentData[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [initialized, setInitialized] = useState(false);
+  const initialized = useRef(false);
   const addToast = useToastStore(s => s.addToast);
 
   useEffect(() => {
-    if (backendLoading || initialized) return;
-    setInitialized(true);
-    if (fetchError) {
-      // 后端连接失败，fallback 到 mock 数据
-      setAgents(MOCK_AGENT_CONFIGS);
-      setSelectedId(MOCK_AGENT_CONFIGS[0]?.id ?? '');
-      return;
-    }
-    const backendData = rawAgents.map(backendToAgentData);
-    setAgents(backendData);
-    setSelectedId(backendData[0]?.id ?? '');
-  }, [rawAgents, backendLoading, fetchError, initialized]);
+    if (backendLoading || initialized.current) return;
+    initialized.current = true;
+    queueMicrotask(() => {
+      if (fetchError) {
+        // 后端连接失败，fallback 到 mock 数据
+        setAgents(MOCK_AGENT_CONFIGS);
+        setSelectedId(MOCK_AGENT_CONFIGS[0]?.id ?? '');
+        return;
+      }
+      const backendData = rawAgents.map(backendToAgentData);
+      setAgents(backendData);
+      setSelectedId(backendData[0]?.id ?? '');
+    });
+  }, [rawAgents, backendLoading, fetchError]);
 
   const filteredAgents = useMemo(
     () => agents.filter(a =>

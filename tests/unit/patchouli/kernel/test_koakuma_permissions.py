@@ -26,8 +26,8 @@ def _make_profile(allowed_verbs=None, allowed_tools=None):
     return AgentProfileConfig(
         model_name="test-model",
         temperature=0.7,
-        allowed_mtp_verbs=allowed_verbs or [],
-        allowed_sys_tools=allowed_tools or [],
+        allowed_mtp_verbs=allowed_verbs,
+        allowed_sys_tools=allowed_tools,
         language="zh",
     )
 
@@ -84,18 +84,15 @@ class TestCheckVerbPermission:
         koakuma._check_verb_permission("RUN")
         koakuma._check_verb_permission("SEARCH")
 
-    def test_empty_verb_list_allows_all(self):
-        """空白名单（omni_doll 模式）允许所有动词"""
+    def test_empty_verb_list_denies_all(self):
+        """空白名单（[]）禁止所有动词"""
         koakuma = _create_koakuma()
-        profile = _make_profile(allowed_verbs=[])  # 空列表 = 全部允许
+        profile = _make_profile(allowed_verbs=[])  # 空列表 = 全部禁止
         koakuma.set_active_profile(profile)
 
-        # 应该不抛异常
-        koakuma._check_verb_permission("READ")
-        koakuma._check_verb_permission("WRITE")
-        koakuma._check_verb_permission("UPDATE")
-        koakuma._check_verb_permission("RUN")
-        koakuma._check_verb_permission("SEARCH")
+        for verb in ["READ", "WRITE", "UPDATE", "RUN", "SEARCH"]:
+            with pytest.raises(PermissionDeniedError):
+                koakuma._check_verb_permission(verb)
 
 
 class TestCheckToolPermission:
@@ -147,17 +144,15 @@ class TestCheckToolPermission:
         koakuma._check_tool_permission("sys_web_search")
         koakuma._check_tool_permission("sys_python_repl")
 
-    def test_empty_tool_list_allows_all(self):
-        """空白名单（omni_doll 模式）允许所有工具"""
+    def test_empty_tool_list_denies_all(self):
+        """空白名单（[]）禁止所有工具"""
         koakuma = _create_koakuma()
-        profile = _make_profile(allowed_tools=[])  # 空列表 = 全部允许
+        profile = _make_profile(allowed_tools=[])  # 空列表 = 全部禁止
         koakuma.set_active_profile(profile)
 
-        # 应该不抛异常
-        koakuma._check_tool_permission("sys_clock")
-        koakuma._check_tool_permission("sys_bash_exec")
-        koakuma._check_tool_permission("sys_web_search")
-        koakuma._check_tool_permission("sys_python_repl")
+        for tool in ["sys_clock", "sys_bash_exec", "sys_web_search", "sys_python_repl"]:
+            with pytest.raises(PermissionDeniedError):
+                koakuma._check_tool_permission(tool)
 
 
 class TestSetActiveProfile:

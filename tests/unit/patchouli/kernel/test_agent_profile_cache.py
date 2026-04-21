@@ -44,8 +44,8 @@ def _make_profile_atom(
                 "agent_config": {
                     "model_name": "gpt-4",
                     "temperature": 0.7,
-                    "allowed_mtp_verbs": allowed_verbs or ["READ", "SEARCH"],
-                    "allowed_sys_tools": allowed_tools or ["sys_clock"],
+                    "allowed_mtp_verbs": ["READ", "SEARCH"] if allowed_verbs is None else allowed_verbs,
+                    "allowed_sys_tools": ["sys_clock"] if allowed_tools is None else allowed_tools,
                 }
             },
         ),
@@ -253,16 +253,16 @@ class TestProfilePermissions:
         assert profile.is_verb_allowed("WRITE") is False
         assert profile.is_verb_allowed("UPDATE") is False
 
-    def test_is_verb_allowed_empty_list_allows_all(self):
-        """空列表：允许所有动词"""
+    def test_is_verb_allowed_empty_list_denies_all(self):
+        """空列表：禁止所有动词"""
         profile = AgentProfileConfig(
             allowed_mtp_verbs=[],
             allowed_sys_tools=[],
         )
 
-        assert profile.is_verb_allowed("READ") is True
-        assert profile.is_verb_allowed("WRITE") is True
-        assert profile.is_verb_allowed("UPDATE") is True
+        assert profile.is_verb_allowed("READ") is False
+        assert profile.is_verb_allowed("WRITE") is False
+        assert profile.is_verb_allowed("UPDATE") is False
 
     def test_is_tool_allowed_with_whitelist(self):
         """白名单模式：只允许列表中的工具"""
@@ -276,13 +276,13 @@ class TestProfilePermissions:
         assert profile.is_tool_allowed("sys_write_file") is False
         assert profile.is_tool_allowed("sys_bash_exec") is False
 
-    def test_is_tool_allowed_empty_list_allows_all(self):
-        """空列表：允许所有工具"""
+    def test_is_tool_allowed_empty_list_denies_all(self):
+        """空列表：禁止所有工具"""
         profile = AgentProfileConfig(
             allowed_mtp_verbs=[],
             allowed_sys_tools=[],
         )
 
-        assert profile.is_tool_allowed("sys_clock") is True
-        assert profile.is_tool_allowed("sys_bash_exec") is True
-        assert profile.is_tool_allowed("sys_python_repl") is True
+        assert profile.is_tool_allowed("sys_clock") is False
+        assert profile.is_tool_allowed("sys_bash_exec") is False
+        assert profile.is_tool_allowed("sys_python_repl") is False
