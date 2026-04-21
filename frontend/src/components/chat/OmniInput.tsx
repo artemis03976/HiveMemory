@@ -103,12 +103,16 @@ export default function OmniInput() {
     if (mentionQuery !== null) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setMentionIndex((prev) => (prev + 1) % filteredAgents.length);
+        if (filteredAgents.length > 0) {
+          setMentionIndex((prev) => (prev + 1) % filteredAgents.length);
+        }
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setMentionIndex((prev) => (prev - 1 + filteredAgents.length) % filteredAgents.length);
+        if (filteredAgents.length > 0) {
+          setMentionIndex((prev) => (prev - 1 + filteredAgents.length) % filteredAgents.length);
+        }
         return;
       }
       if (e.key === 'Enter') {
@@ -155,26 +159,32 @@ export default function OmniInput() {
               className="absolute bottom-full left-0 mb-2 w-64 bg-surface-container-highest border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 origin-bottom-left"
             >
               <div className="p-1">
-                {agents.map((agent) => (
-                  <button
-                    key={agent.id}
-                    onClick={() => {
-                      setCurrentAgentId(agent.id);
-                      setIsAgentMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                      currentAgentId === agent.id ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-slate-300'
-                    }`}
-                  >
-                    <div className={`p-1.5 rounded-md ${currentAgentId === agent.id ? 'bg-primary/20' : 'bg-white/5'}`}>
-                      <agent.avatarIcon className={`w-4 h-4 ${agent.colorClass}`} />
-                    </div>
-                    <div className="flex-1 overflow-hidden">
-                      <div className="text-sm font-medium truncate">{agent.name}</div>
-                      <div className="text-xs text-slate-500 truncate mt-0.5">{agent.description}</div>
-                    </div>
-                  </button>
-                ))}
+                {agents.length > 0 ? (
+                  agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      onClick={() => {
+                        setCurrentAgentId(agent.id);
+                        setIsAgentMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                        currentAgentId === agent.id ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-slate-300'
+                      }`}
+                    >
+                      <div className={`p-1.5 rounded-md ${currentAgentId === agent.id ? 'bg-primary/20' : 'bg-white/5'}`}>
+                        <agent.avatarIcon className={`w-4 h-4 ${agent.colorClass}`} />
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <div className="text-sm font-medium truncate">{agent.name}</div>
+                        <div className="text-xs text-slate-500 truncate mt-0.5">{agent.description}</div>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3 py-4 text-center text-sm text-slate-400">
+                    当前还没有自定义Agent
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -185,7 +195,7 @@ export default function OmniInput() {
         
         {/* @ Mention Popup */}
         <AnimatePresence>
-          {mentionQuery !== null && filteredAgents.length > 0 && (
+          {mentionQuery !== null && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -197,23 +207,33 @@ export default function OmniInput() {
                 {mentionQuery && <span className="text-primary truncate">@{mentionQuery}</span>}
               </div>
               <div className="p-1 max-h-[240px] overflow-y-auto scrollbar-hide">
-                {filteredAgents.map((agent, idx) => (
-                  <button
-                    key={agent.id}
-                    onClick={() => applyMention(agent.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                      mentionIndex === idx ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-slate-300'
-                    }`}
-                  >
-                    <div className={`p-1.5 rounded-md ${mentionIndex === idx ? 'bg-primary/20' : 'bg-white/5'}`}>
-                      <agent.avatarIcon className={`w-4 h-4 ${agent.colorClass}`} />
-                    </div>
-                    <div className="flex-1 overflow-hidden">
-                      <div className="text-sm font-medium truncate">{agent.name}</div>
-                      <div className="text-xs text-slate-500 truncate mt-0.5">{agent.description}</div>
-                    </div>
-                  </button>
-                ))}
+                {agents.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-sm text-slate-400">
+                    当前还没有自定义Agent
+                  </div>
+                ) : filteredAgents.length > 0 ? (
+                  filteredAgents.map((agent, idx) => (
+                    <button
+                      key={agent.id}
+                      onClick={() => applyMention(agent.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                        mentionIndex === idx ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-slate-300'
+                      }`}
+                    >
+                      <div className={`p-1.5 rounded-md ${mentionIndex === idx ? 'bg-primary/20' : 'bg-white/5'}`}>
+                        <agent.avatarIcon className={`w-4 h-4 ${agent.colorClass}`} />
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <div className="text-sm font-medium truncate">{agent.name}</div>
+                        <div className="text-xs text-slate-500 truncate mt-0.5">{agent.description}</div>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3 py-4 text-center text-sm text-slate-400">
+                    未找到匹配的Agent
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
