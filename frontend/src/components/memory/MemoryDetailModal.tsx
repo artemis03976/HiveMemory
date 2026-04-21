@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Code2, Wrench, Link as LinkIcon, User, Check, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
@@ -27,15 +27,16 @@ const typeIcons: Record<string, LucideIcon> = {
 
 export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDelete }: MemoryDetailModalProps) {
   const [editing, setEditing] = useState(false);
+  const initialDraftData = useMemo(() => ({
+    title: atom?.title || '',
+    summary: atom?.summary || '',
+    content: atom?.content || '',
+    alias: atom?.alias || '',
+    tags: atom?.tags.join(', ') || '',
+  }), [atom]);
 
   const { draft, isDirty, isSaving, updateDraft, save, reset } = useDraft({
-    initialData: {
-      title: atom?.title || '',
-      summary: atom?.summary || '',
-      content: atom?.content || '',
-      alias: atom?.alias || '',
-      tags: atom?.tags.join(', ') || '',
-    },
+    initialData: initialDraftData,
     onSave: async (draftData) => {
       if (!atom) return;
       await onEdit(atom.id, {
@@ -71,7 +72,11 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6 md:p-12 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
       >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}

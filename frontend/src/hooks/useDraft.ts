@@ -37,7 +37,7 @@ export function useDraft<T>({ initialData, onSave, onSuccess, onError }: UseDraf
 
   // 当外部传入的初始数据变化时，同步更新草稿（例如切换了选中的 Agent）
   useEffect(() => {
-    setDraft(initialData);
+    setDraft((prevDraft) => (deepEqual(prevDraft, initialData) ? prevDraft : initialData));
   }, [initialData]);
 
   // 自动计算是否被修改过
