@@ -1,4 +1,4 @@
-import { Bot, Code2, CheckCircle, Palette, Globe, Terminal, Database, FileCode, Clock, type LucideIcon } from 'lucide-react';
+import { Bot, Code2, CheckCircle, Palette, Globe, Terminal, FileCode, Clock, type LucideIcon } from 'lucide-react';
 import type { AgentData, AgentTool } from '@/types/agent';
 
 export interface AgentProfile {
@@ -77,8 +77,8 @@ export const MOCK_AGENT_CONFIGS: AgentData[] = [
     config: {
       model_name: 'Claude 3.5 Sonnet',
       temperature: 0.7,
-      allowed_mtp_verbs: [],
-      allowed_sys_tools: [],
+      allowed_mtp_verbs: null,
+      allowed_sys_tools: null,
       language: 'zh',
     },
     tools: ['sys_web_search', 'sys_python_repl', 'sys_write_file'],

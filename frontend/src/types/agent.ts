@@ -5,8 +5,8 @@ import type { MTPVerb } from './mtp';
 export interface AgentProfileConfig {
   model_name: string;
   temperature: number;
-  allowed_mtp_verbs: MTPVerb[];
-  allowed_sys_tools: string[];
+  allowed_mtp_verbs: MTPVerb[] | null;
+  allowed_sys_tools: string[] | null;
   language: string;
 }
 
@@ -28,5 +28,5 @@ export interface AgentData {
   model: string;       // config.model_name
   status: AgentStatus;
   config: AgentProfileConfig;
-  tools: string[];     // config.allowed_sys_tools
+  tools: string[] | null;     // config.allowed_sys_tools，null=全部允许
 }

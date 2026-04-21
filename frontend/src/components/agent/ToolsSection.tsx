@@ -2,29 +2,20 @@ import { FileCode, CheckCircle2, Circle } from 'lucide-react';
 import { AVAILABLE_TOOLS } from '@/constants/agents';
 
 interface ToolsSectionProps {
-  selectedTools: string[];
+  selectedTools: string[] | null;
   onToggleTool: (toolId: string) => void;
 }
 
 export function ToolsSection({ selectedTools, onToggleTool }: ToolsSectionProps) {
-  const isAllAllowed = selectedTools.length === 0;
-
   const isToolSelected = (toolId: string) =>
-    isAllAllowed || selectedTools.includes(toolId);
+    selectedTools === null || (selectedTools?.includes(toolId) ?? false);
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
-          <FileCode className="w-4 h-4 text-primary" />
-          Kernel Syscall Tools
-        </label>
-        {isAllAllowed && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            全部允许
-          </span>
-        )}
-      </div>
+      <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
+        <FileCode className="w-4 h-4 text-primary" />
+        Kernel Syscall Tools
+      </label>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {AVAILABLE_TOOLS.map(tool => {
           const selected = isToolSelected(tool.id);

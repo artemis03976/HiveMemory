@@ -69,7 +69,7 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
                   {agent.model}
                 </span>
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/30 text-slate-500 border border-white/5">
-                  {agent.tools.length} Tools
+                  {agent.tools === null ? 'All' : agent.tools.length} Tools
                 </span>
                 {agent.tags.length > 0 && (
                   <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/60 border border-primary/10">

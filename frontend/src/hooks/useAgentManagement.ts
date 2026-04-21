@@ -9,8 +9,8 @@ import { createAgent, saveAgent, deleteAgent } from '@/services/agentApi';
 const DEFAULT_CONFIG: AgentProfileConfig = {
   model_name: 'default',
   temperature: 0.7,
-  allowed_mtp_verbs: [],
-  allowed_sys_tools: [],
+  allowed_mtp_verbs: null,
+  allowed_sys_tools: null,
   language: 'zh',
 };
 
@@ -28,18 +28,18 @@ function backendToAgentData(b: BackendAgent): AgentData {
     config: {
       model_name: cfg?.model_name ?? 'default',
       temperature: cfg?.temperature ?? 0.7,
-      allowed_mtp_verbs: (cfg?.allowed_mtp_verbs ?? []) as MTPVerb[],
-      allowed_sys_tools: cfg?.allowed_sys_tools ?? [],
+      allowed_mtp_verbs: cfg?.allowed_mtp_verbs !== undefined ? (cfg.allowed_mtp_verbs as MTPVerb[] | null) : null,
+      allowed_sys_tools: cfg?.allowed_sys_tools ?? null,
       language: cfg?.language ?? 'zh',
     },
-    tools: cfg?.allowed_sys_tools ?? [],
+    tools: cfg?.allowed_sys_tools ?? null,
   };
 }
 
 export function useAgentManagement() {
   const { rawAgents, loading: backendLoading, fetchError } = useAgents();
-  const [agents, setAgents] = useState<AgentData[]>(MOCK_AGENT_CONFIGS);
-  const [selectedId, setSelectedId] = useState<string>(MOCK_AGENT_CONFIGS[0]?.id ?? '');
+  const [agents, setAgents] = useState<AgentData[]>([]);
+  const [selectedId, setSelectedId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [initialized, setInitialized] = useState(false);
   const addToast = useToastStore(s => s.addToast);
@@ -48,10 +48,11 @@ export function useAgentManagement() {
     if (backendLoading || initialized) return;
     setInitialized(true);
     if (fetchError) {
-      // 后端连接失败，使用 mock 数据
+      // 后端连接失败，fallback 到 mock 数据
+      setAgents(MOCK_AGENT_CONFIGS);
+      setSelectedId(MOCK_AGENT_CONFIGS[0]?.id ?? '');
       return;
     }
-    // 后端正常但无数据，清空列表（显示占位）
     const backendData = rawAgents.map(backendToAgentData);
     setAgents(backendData);
     setSelectedId(backendData[0]?.id ?? '');
@@ -84,7 +85,7 @@ export function useAgentManagement() {
       model: 'default',
       status: 'Inactive',
       config: { ...DEFAULT_CONFIG },
-      tools: [],
+      tools: null,
     };
     setAgents(prev => [newAgent, ...prev]);
     setSelectedId(tempId);

@@ -554,11 +554,12 @@ class PatchouliKernel:
         from hivememory.prompts.mtp import MTPPromptBuilder
 
         # 从 profile 提取权限过滤参数
+        # None = 全部允许, [] = 禁止所有, [...] = 白名单
         allowed_verbs = None
         allowed_kernel_tools = None
-        if profile and profile.allowed_mtp_verbs:
+        if profile and profile.allowed_mtp_verbs is not None:
             allowed_verbs = profile.allowed_mtp_verbs
-        if profile and profile.allowed_sys_tools:
+        if profile and profile.allowed_sys_tools is not None:
             allowed_kernel_tools = profile.allowed_sys_tools
 
         builder = MTPPromptBuilder(

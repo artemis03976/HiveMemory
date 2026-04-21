@@ -21,11 +21,11 @@ const DEFAULT_AGENT: AgentData = {
   config: {
     model_name: 'default',
     temperature: 0.7,
-    allowed_mtp_verbs: [],
-    allowed_sys_tools: [],
+    allowed_mtp_verbs: null,
+    allowed_sys_tools: null,
     language: 'zh',
   },
-  tools: [],
+  tools: null,
 };
 
 export default function AgentManagement() {
@@ -163,16 +163,11 @@ export default function AgentManagement() {
               <ToolsSection
                 selectedTools={draft.tools}
                 onToggleTool={(toolId) => {
-                  const allIds = AVAILABLE_TOOLS.map(t => t.id);
-                  const isAllAllowed = draft.tools.length === 0;
-                  
-                  if (isAllAllowed) {
-                    updateDraft({ tools: allIds.filter(t => t !== toolId) });
-                  } else if (draft.tools.includes(toolId)) {
-                    updateDraft({ tools: draft.tools.filter(t => t !== toolId) });
+                  const current = draft.tools ?? AVAILABLE_TOOLS.map(t => t.id);
+                  if (current.includes(toolId)) {
+                    updateDraft({ tools: current.filter(t => t !== toolId) });
                   } else {
-                    const next = [...draft.tools, toolId];
-                    updateDraft({ tools: next.length === allIds.length ? [] : next });
+                    updateDraft({ tools: [...current, toolId] });
                   }
                 }}
               />

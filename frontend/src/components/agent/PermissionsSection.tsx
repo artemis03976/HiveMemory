@@ -17,37 +17,27 @@ const MTP_VERB_META: Record<MTPVerb, { label: string; description: string; icon:
 };
 
 export function PermissionsSection({ config, onChange }: PermissionsSectionProps) {
-  const isAllAllowed = config.allowed_mtp_verbs.length === 0;
-
   const isVerbAllowed = (verb: MTPVerb) =>
-    isAllAllowed || config.allowed_mtp_verbs.includes(verb);
+    config.allowed_mtp_verbs === null || (config.allowed_mtp_verbs?.includes(verb) ?? false);
 
   const toggleVerb = (verb: MTPVerb, enabled: boolean) => {
-    if (isAllAllowed) {
-      // 从全部允许切换到白名单模式：移除该 verb
-      onChange({ ...config, allowed_mtp_verbs: ALL_MTP_VERBS.filter(v => v !== verb) });
-    } else if (enabled) {
-      const next = [...config.allowed_mtp_verbs, verb];
-      // 如果全部选中，回到空列表（全部允许）
-      onChange({ ...config, allowed_mtp_verbs: next.length === ALL_MTP_VERBS.length ? [] : next });
+    if (enabled) {
+      // 添加到白名单
+      const current = config.allowed_mtp_verbs ?? [];
+      onChange({ ...config, allowed_mtp_verbs: [...current, verb] });
     } else {
-      onChange({ ...config, allowed_mtp_verbs: config.allowed_mtp_verbs.filter(v => v !== verb) });
+      // 从白名单移除
+      const current = config.allowed_mtp_verbs ?? ALL_MTP_VERBS;
+      onChange({ ...config, allowed_mtp_verbs: current.filter(v => v !== verb) });
     }
   };
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-primary" />
-          MTP 指令权限
-        </label>
-        {isAllAllowed && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            全部允许
-          </span>
-        )}
-      </div>
+      <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
+        <Shield className="w-4 h-4 text-primary" />
+        MTP 指令权限
+      </label>
       <div className="grid grid-cols-2 gap-3">
         {ALL_MTP_VERBS.map(verb => {
           const meta = MTP_VERB_META[verb];
