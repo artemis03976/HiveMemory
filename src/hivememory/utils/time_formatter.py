@@ -87,8 +87,7 @@ class TimeFormatter:
         Returns:
             Formatted relative time string, e.g., "5 天前" or "2 months ago"
         """
-        if reference is None:
-            reference = datetime.now()
+        dt, reference = self._normalize_datetimes(dt=dt, reference=reference)
 
         delta = reference - dt
         total_days = delta.days
@@ -109,6 +108,29 @@ class TimeFormatter:
             return t["hours_ago"].format(hours=hours)
         else:
             return t["recently"]
+
+    @staticmethod
+    def _normalize_datetimes(dt: datetime, reference: Optional[datetime]) -> tuple[datetime, datetime]:
+        """
+        Normalize datetime timezone awareness to avoid naive/aware subtraction errors.
+
+        Rules:
+        - If `reference` is None, derive it with the same awareness as `dt`.
+        - If one is naive and the other is aware, align the naive one to the aware one's tzinfo.
+        """
+        if reference is None:
+            if dt.tzinfo is not None:
+                return dt, datetime.now(dt.tzinfo)
+            return dt, datetime.now()
+
+        dt_is_aware = dt.tzinfo is not None
+        ref_is_aware = reference.tzinfo is not None
+
+        if dt_is_aware and not ref_is_aware:
+            return dt, reference.replace(tzinfo=dt.tzinfo)
+        if not dt_is_aware and ref_is_aware:
+            return dt.replace(tzinfo=reference.tzinfo), reference
+        return dt, reference
 
 
 def format_time_ago(

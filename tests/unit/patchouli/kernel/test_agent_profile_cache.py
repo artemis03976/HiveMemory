@@ -185,6 +185,16 @@ class TestLoadAgentProfile:
         assert profile is OMNI_DOLL_PROFILE
         mock_storage.get_memory_by_alias.assert_not_called()
 
+    def test_load_profile_omni_alias_returns_omni_doll(self):
+        """别名为 'omni_doll' 时直接返回 OMNI_DOLL_PROFILE"""
+        mock_storage = Mock()
+        kernel = _create_kernel_with_storage(mock_storage)
+
+        profile = kernel.load_agent_profile("omni_doll")
+
+        assert profile is OMNI_DOLL_PROFILE
+        mock_storage.get_memory_by_alias.assert_not_called()
+
     def test_load_profile_empty_alias_returns_omni_doll(self):
         """空别名时直接返回 OMNI_DOLL_PROFILE"""
         mock_storage = Mock()

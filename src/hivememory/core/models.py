@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
+from hivememory.core.constants import DEFAULT_USER_ID, DEFAULT_AGENT_ID, DEFAULT_TEAM_ID
 from hivememory.utils.token_estimator import estimate_tokens
 
 
@@ -68,9 +69,9 @@ class Identity(BaseModel):
         >>> identity.buffer_key  # "user123:chatbot"
         >>> identity.is_valid   # True
     """
-    user_id: str = Field(default="default", description="用户 ID")
-    agent_id: str = Field(default="default", description="Agent ID")
-    team_id: Optional[str] = Field(default=None, description="团队 ID（用于 Workspace 作用域过滤）")
+    user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
+    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
+    team_id: Optional[str] = Field(default=DEFAULT_TEAM_ID, description="团队 ID（用于 Workspace 作用域过滤）")
     session_id: Optional[str] = Field(default=None, description="会话 ID（兼容字段）")
 
     @property

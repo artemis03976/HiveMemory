@@ -20,7 +20,7 @@ export default function OmniInput() {
   const { sendMessage, isStreaming, currentAgentId, setCurrentAgentId } = useChatStore();
 
   const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
-  const { agents } = useAgents();
+  const { agents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -30,6 +30,22 @@ export default function OmniInput() {
   const filteredAgents = agents.filter(a =>
     mentionQuery === null || a.name.toLowerCase().includes(mentionQuery.toLowerCase())
   );
+
+  // 若本地持久化的 agent_id 不在后端返回列表中，自动回退到 omni_doll
+  useEffect(() => {
+    if (agentsLoading) return;
+    const validAgentIds = new Set(agents.map((a) => a.id));
+    const shouldFallback =
+      currentAgentId !== 'omni_doll'
+      && (agentsFetchError || agents.length === 0 || !validAgentIds.has(currentAgentId));
+
+    if (shouldFallback) {
+      console.warn('[AgentDebug][OmniInput] invalid persisted currentAgentId, fallback to omni_doll', {
+        currentAgentId,
+      });
+      setCurrentAgentId('omni_doll');
+    }
+  }, [agents, agentsLoading, agentsFetchError, currentAgentId, setCurrentAgentId]);
 
   // Handle outside click for agent menu
   useEffect(() => {

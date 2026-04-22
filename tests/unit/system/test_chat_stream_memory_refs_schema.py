@@ -119,3 +119,82 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     assert "index" not in memory
     assert "payload" not in memory
     assert "meta" not in memory
+
+
+def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
+    system = MagicMock(spec=PatchouliSystem)
+    system.config = MagicMock()
+    system.config.koakuma.max_recursion_depth = 3
+
+    system.eye = MagicMock()
+    system.eye.gaze = AsyncMock(
+        return_value=EyeGazeResult(
+            intent=GatewayIntent.CHAT,
+            rewritten_query="hello",
+            search_keywords=[],
+            worth_saving=True,
+            raw_query="hello",
+            identity=Identity(user_id="user-1"),
+            target_topic="NEW_TOPIC",
+        )
+    )
+
+    system.kernel = MagicMock()
+    system.kernel.get_topic_snapshots = AsyncMock(return_value=[])
+    system.kernel.prepare_topic = AsyncMock(
+        return_value=(
+            "topic-1",
+            {"topics": [], "max_resident_topics": 5, "current_count": 1},
+            {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
+        )
+    )
+    system.kernel.handle_hot = AsyncMock(
+        return_value=KernelHotResult(
+            intent="Chat",
+            rewritten="hello",
+            keywords=[],
+            worth_saving=True,
+            rendered_memory_context=None,
+            retrieved_memories=[],
+        )
+    )
+    system.kernel.submit_interaction = AsyncMock(return_value=None)
+    system.kernel.koakuma = MagicMock()
+    system.kernel.koakuma.set_current_identity = MagicMock()
+    system.kernel.koakuma.reset_interaction_state = MagicMock()
+    system.kernel.koakuma.get_interaction_traces = MagicMock(return_value=[])
+    system.kernel.koakuma.get_write_focus = MagicMock(return_value=None)
+    system.kernel.koakuma.get_update_focus = MagicMock(return_value=None)
+
+    async def fake_stream(_messages):
+        yield StreamChunk(
+            is_final=True,
+            result=GenerationResult(
+                text="ok",
+                finish_reason="stop",
+                was_mtp_interrupted=False,
+                prefix_text="ok",
+                mtp_fragment="",
+            ),
+        )
+
+    system._worker_agent = MagicMock()
+    system._worker_agent.generate_stream = fake_stream
+    system._assemble_messages_from_context = types.MethodType(
+        PatchouliSystem._assemble_messages_from_context, system
+    )
+    system._reconstruct_raw_assistant_text = PatchouliSystem._reconstruct_raw_assistant_text
+    system.chat_stream = types.MethodType(PatchouliSystem.chat_stream, system)
+
+    async def _collect():
+        events = []
+        async for event in system.chat_stream(
+            user_message="hello",
+            user_id="user-1",
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    memory_event = next(e for e in events if e["event"] == "memory_refs")
+    assert memory_event["data"]["memories"] == []

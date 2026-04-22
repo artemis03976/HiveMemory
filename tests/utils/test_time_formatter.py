@@ -12,6 +12,7 @@ TimeFormatter 单元测试
 
 import pytest
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from hivememory.utils import TimeFormatter, Language, format_time_ago
 
@@ -178,3 +179,11 @@ class TestTimeFormatter:
         # 1小时显示小时
         result = formatter.format(now - timedelta(hours=1))
         assert "1 小时前" in result
+
+    def test_mixed_naive_and_aware_datetime(self):
+        """测试 naive/aware 混用时不会抛异常"""
+        formatter = TimeFormatter(language=Language.CHINESE)
+
+        aware_dt = datetime.now(ZoneInfo("UTC")) - timedelta(hours=2)
+        result = formatter.format(aware_dt)
+        assert result == "2 小时前"

@@ -4,9 +4,8 @@
  * Handles HTTP requests to the backend topic management API.
  */
 
+import { DEFAULT_USER_ID } from '@/constants/identity';
 import type { Topic } from '@/types';
-
-const DEFAULT_USER_ID = 'default';
 
 interface TopicListResponse {
   topics: Array<{

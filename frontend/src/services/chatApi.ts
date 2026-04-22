@@ -5,6 +5,7 @@
  * Uses fetch + ReadableStream for manual SSE parsing with better control.
  */
 
+import { DEFAULT_USER_ID, DEFAULT_AGENT_ID } from '@/constants/identity';
 import type {
   ChatRequestParams,
   SSECallbacks,
@@ -32,20 +33,21 @@ export class ChatSSEClient {
       this.abortController = new AbortController();
 
       // Make POST request to initiate SSE stream
+      const requestBody = {
+        message: params.message,
+        user_id: params.user_id || DEFAULT_USER_ID,
+        agent_id: params.agent_id || DEFAULT_AGENT_ID,
+        session_id: params.session_id || null,
+        enable_memory_retrieval: params.enable_memory_retrieval ?? true,
+        generation_options: params.generation_options,
+      };
       const response = await fetch('/api/v1/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
         },
-        body: JSON.stringify({
-          message: params.message,
-          user_id: params.user_id || 'default',
-          agent_id: params.agent_id || 'default',
-          session_id: params.session_id || null,
-          enable_memory_retrieval: params.enable_memory_retrieval ?? true,
-          generation_options: params.generation_options,
-        }),
+        body: JSON.stringify(requestBody),
         signal: this.abortController.signal,
       });
 
