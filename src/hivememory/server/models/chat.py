@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from hivememory.core.constants import DEFAULT_USER_ID, DEFAULT_AGENT_ID
+
 
 class GenerationOptions(BaseModel):
     model: Optional[str] = Field(default=None, min_length=1, description="模型名称")
@@ -14,8 +16,8 @@ class GenerationOptions(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., description="用户消息")
-    user_id: str = Field(default="default", description="用户 ID")
-    agent_id: str = Field(default="default", description="Agent ID")
+    user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
+    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
     session_id: Optional[str] = Field(default=None, description="会话 ID")
     enable_memory_retrieval: bool = Field(default=True, description="是否启用记忆检索")
     generation_options: Optional[GenerationOptions] = Field(default=None, description="本次请求的生成参数覆盖")

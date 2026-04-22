@@ -54,7 +54,7 @@ class PerceptionContextConverter:
             # 多角色历史渲染：非当前 Agent 的发言追加身份前缀
             content = block.clean_response
             if (block.identity.agent_id
-                    and block.identity.agent_id != "default"
+                    and block.identity.agent_id not in ("default", "omni_doll")
                     and block.identity.agent_id != current_agent_id):
                 content = f"[From: {block.identity.agent_id}]\n{content}"
 

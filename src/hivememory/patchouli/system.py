@@ -187,7 +187,7 @@ class PatchouliSystem:
         role: str,
         content: str,
         user_id: str,
-        agent_id: str = "default",
+        agent_id: str = "omni_doll",
         session_id: Optional[str] = None,
         context: Optional[List[StreamMessage]] = None,
     ) -> Dict[str, Any]:
@@ -270,7 +270,7 @@ class PatchouliSystem:
     async def flush_observer_session(
         self,
         user_id: str,
-        agent_id: str = "default",
+        agent_id: str = "omni_doll",
         session_id: Optional[str] = None,
     ) -> bool:
         """
@@ -357,7 +357,7 @@ class PatchouliSystem:
         self,
         user_message: str,
         user_id: str,
-        agent_id: str = "default",
+        agent_id: str = "omni_doll",
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
@@ -537,7 +537,7 @@ class PatchouliSystem:
         self,
         user_message: str,
         user_id: str,
-        agent_id: str = "default",
+        agent_id: str = "omni_doll",
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
@@ -607,16 +607,15 @@ class PatchouliSystem:
                 gaze_result, enable_retrieval=enable_memory_retrieval,
             )
 
-            if hot_result.retrieved_memories:
-                yield {
-                    "event": "memory_refs",
-                    "data": {
-                        "memories": [
-                            MemoryResponse.from_atom(m).model_dump(mode="json")
-                            for m in hot_result.retrieved_memories
-                        ],
-                    },
-                }
+            yield {
+                "event": "memory_refs",
+                "data": {
+                    "memories": [
+                        MemoryResponse.from_atom(m).model_dump(mode="json")
+                        for m in hot_result.retrieved_memories
+                    ],
+                },
+            }
 
             # 5. 组装 messages
             messages = self._assemble_messages_from_context(
@@ -819,7 +818,7 @@ class PatchouliSystem:
         user_message: str,
         profile=None,  # AgentProfileConfig (Phase 1)
         persona: str = "",
-        current_agent_id: str = "default",
+        current_agent_id: str = "omni_doll",
     ) -> List[Dict[str, str]]:
         """
         从感知层上下文组装 LLM messages

@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import Header
 
+from hivememory.core.constants import DEFAULT_USER_ID
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
@@ -40,7 +41,7 @@ def get_system() -> PatchouliSystem:
     return _system
 
 
-def get_user_id(x_user_id: str = Header(default="default")) -> str:
+def get_user_id(x_user_id: str = Header(default=DEFAULT_USER_ID)) -> str:
     """从请求头 x-user-id 提取用户 ID"""
     return x_user_id
 

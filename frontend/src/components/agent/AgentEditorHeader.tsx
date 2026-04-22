@@ -29,7 +29,7 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
             value={agent.name}
             onChange={e => onUpdate({ name: e.target.value })}
             className="bg-transparent border-none text-2xl font-black tracking-tighter text-white focus:outline-none focus:ring-0 p-0 m-0"
-            placeholder="Agent Name"
+            placeholder="Agent 名称"
           />
           {/* Alias — index.alias */}
           <div className="flex items-center gap-1.5">
@@ -38,7 +38,7 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
               type="text"
               value={agent.alias}
               onChange={e => onUpdate({ alias: e.target.value })}
-              placeholder="alias_identifier"
+              placeholder="别名标识_如_omni_doll"
               className="bg-transparent border-none text-xs text-slate-500 font-mono focus:outline-none focus:ring-0 p-0 w-48"
             />
           </div>
@@ -47,7 +47,7 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
             type="text"
             value={agent.summary}
             onChange={e => onUpdate({ summary: e.target.value })}
-            placeholder="One-line description of this agent..."
+            placeholder="一句话描述该 Agent..."
             className="bg-transparent border-none text-sm text-primary/80 focus:outline-none focus:ring-0 p-0 mt-0.5 w-full min-w-[320px]"
           />
         </div>
@@ -57,7 +57,7 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
         <button
           onClick={() => setShowDeleteConfirm(true)}
           className="flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-all border border-transparent hover:border-red-400/20"
-          title="Delete Agent"
+          title="删除 Agent"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -80,17 +80,17 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
           }`}
         >
           <Power className="w-3.5 h-3.5" />
-          {agent.status}
+          {agent.status === 'Active' ? '已启用' : '已停用'}
         </button>
 
         {isDirty && onReset && (
           <button
             onClick={onReset}
             className="flex items-center gap-1.5 px-3 py-1.5 text-slate-400 hover:text-slate-200 transition-colors text-sm font-medium"
-            title="Undo changes"
+            title="撤销更改"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>Reset</span>
+            <span>重置</span>
           </button>
         )}
 
@@ -111,7 +111,7 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
             <Check className="w-4 h-4" />
           )}
           <span className="text-sm font-bold tracking-wide">
-            {isSaving ? 'Saving...' : isDirty ? 'Save' : 'Saved'}
+            {isSaving ? '保存中...' : isDirty ? '保存' : '已保存'}
           </span>
         </button>
       </div>

@@ -161,7 +161,11 @@ class DenseRetriever(BaseMemoryRetriever):
         Returns:
             衰减系数 (0-1)，越新越接近 1
         """
-        now = datetime.now()
+        # 对齐时区感知状态，避免 naive/aware datetime 相减报错
+        if updated_at.tzinfo is not None:
+            now = datetime.now(updated_at.tzinfo)
+        else:
+            now = datetime.now()
         delta = now - updated_at
         days_elapsed = delta.total_seconds() / (24 * 3600)
 

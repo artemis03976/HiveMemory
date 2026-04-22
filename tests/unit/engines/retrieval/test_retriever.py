@@ -11,6 +11,7 @@ MemoryRetriever 单元测试
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import time
 
 from hivememory.core.models import Identity, MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
@@ -124,6 +125,19 @@ class TestDenseRetriever:
         results = self.retriever.retrieve(query)
         
         assert "Dense" in results.results[0].match_reason
+
+    def test_time_decay_with_aware_datetime(self):
+        """测试 aware datetime 时间衰减不抛异常"""
+        self.memory1.meta.updated_at = datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
+        self.mock_storage.search_memories.return_value = [
+            {"memory": self.memory1, "score": 0.9}
+        ]
+
+        query = RetrievalQuery(semantic_query="test")
+        results = self.retriever.retrieve(query)
+
+        assert len(results.results) == 1
+        assert results.results[0].score > 0
 
 
 class TestHybridRetriever:

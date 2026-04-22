@@ -406,7 +406,7 @@ class PatchouliKernel:
         Returns:
             AgentProfileConfig: 人偶配置（永不返回 None）
         """
-        if not agent_alias or agent_alias == "default":
+        if not agent_alias or agent_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
         profile = self._agent_profile_cache.load(agent_alias, self.storage)

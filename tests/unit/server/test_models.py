@@ -40,7 +40,7 @@ class TestChatRequest:
         req = ChatRequest(message="hello")
         assert req.message == "hello"
         assert req.user_id == "default"
-        assert req.agent_id == "default"
+        assert req.agent_id == "omni_doll"
         assert req.session_id is None
         assert req.enable_memory_retrieval is True
 
@@ -96,7 +96,7 @@ class TestSSEEventModels:
 class TestIngestModels:
     def test_request(self):
         req = IngestRequest(role="user", content="hi", user_id="u1")
-        assert req.agent_id == "default"
+        assert req.agent_id == "omni_doll"
 
     def test_response(self):
         resp = IngestResponse(

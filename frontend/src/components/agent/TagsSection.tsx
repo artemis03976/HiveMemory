@@ -32,7 +32,7 @@ export function TagsSection({ tags, onChange }: TagsSectionProps) {
     <section className="space-y-3">
       <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
         <Tag className="w-4 h-4 text-primary" />
-        Tags
+        标签
       </label>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -57,7 +57,7 @@ export function TagsSection({ tags, onChange }: TagsSectionProps) {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="add tag..."
+            placeholder="添加标签..."
             className="bg-transparent border-none text-xs text-white placeholder-slate-500 focus:outline-none w-20 font-mono"
           />
           <button

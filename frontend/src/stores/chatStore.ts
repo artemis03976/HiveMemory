@@ -13,6 +13,7 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { ChatSSEClient } from '@/services/chatApi';
 import { useTopicStore } from '@/stores/topicStore';
+import { DEFAULT_AGENT_ID } from '@/constants/identity';
 import type {
   Message,
   MtpAction,
@@ -193,7 +194,7 @@ export const useChatStore = create<ChatStore>()(
         },
         isStreaming: false,
         currentTopicId: null,
-        currentAgentId: 'default',
+        currentAgentId: DEFAULT_AGENT_ID,
         retrievedMemories: [],
         _sseClient: null,
         _currentStreamingMessageId: null,
@@ -226,6 +227,8 @@ export const useChatStore = create<ChatStore>()(
             messages: [...state.messages, userMessage],
             isStreaming: true,
             connection: { status: 'connecting', error: null },
+            // 新一轮对话开始时先清空旧的引用记忆，避免后端无 memory_refs 事件时显示陈旧数据
+            retrievedMemories: [],
           });
 
           // Create streaming assistant message
@@ -417,6 +420,7 @@ export const useChatStore = create<ChatStore>()(
           set({
             messages: [],
             currentTopicId: null,
+            retrievedMemories: [],
           });
         },
 
@@ -445,7 +449,7 @@ export const useChatStore = create<ChatStore>()(
       }),
       {
         name: 'chat-store',
-        version: 2,
+        version: 3,
         partialize: (state) => ({
           messages: [],
           currentTopicId: null,
@@ -458,7 +462,12 @@ export const useChatStore = create<ChatStore>()(
           if (version < 2) {
             migrated.messages = [];
             migrated.currentTopicId = null;
-            migrated.currentAgentId = 'default';
+            migrated.currentAgentId = DEFAULT_AGENT_ID;
+          }
+          if (version < 3) {
+            if (migrated.currentAgentId === 'default' || !migrated.currentAgentId) {
+              migrated.currentAgentId = DEFAULT_AGENT_ID;
+            }
           }
           return migrated;
         },

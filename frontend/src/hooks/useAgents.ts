@@ -52,7 +52,10 @@ export function useAgents() {
         setRawAgents(data);
         setAgents(data.map(toAgentProfile));
       })
-      .catch(() => setFetchError(true))
+      .catch((err) => {
+        console.error('[AgentDebug][useAgents] failed to fetch /api/v1/agents', err);
+        setFetchError(true);
+      })
       .finally(() => setLoading(false));
   }, []);
 
