@@ -75,9 +75,12 @@ class MTPLogParser:
 
     @classmethod
     def _clean_text(cls, raw_text: str) -> str:
-        """移除所有 MTP 指令和 XML 响应标签"""
+        """移除 MTP 指令 (⟪...⟫)
+
+        注: 角色分离注入后，<mtp_response> 已隔离在独立的 user 消息中，
+        此处只需清理 MTP 指令本身
+        """
         text = cls._MTP_COMMAND_PATTERN.sub('', raw_text)
-        text = cls._MTP_RESPONSE_PATTERN.sub('', text)
         # 清理多余空行
         text = re.sub(r'\n{3,}', '\n\n', text)
         return text.strip()

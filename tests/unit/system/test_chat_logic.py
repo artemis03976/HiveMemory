@@ -644,8 +644,8 @@ class TestMTPFalsePositive:
 class TestPhaseDResumeMessage:
     """验证 Phase D fake assistant history 拼接"""
 
-    def test_fake_assistant_contains_mtp_response(self, sys):
-        """Phase D 追加的 assistant message 包含 MTP 指令 + XML 响应"""
+    def test_role_separation_injection(self, sys):
+        """角色分离注入：assistant 消息只含 MTP 指令，XML 响应在独立的 user 消息中"""
         sys._worker_agent.generate_async.side_effect = [
             _mtp_gen("Searching. "),
             _normal_gen("Found it."),
@@ -655,13 +655,20 @@ class TestPhaseDResumeMessage:
 
         sys.chat(user_message="find", user_id="u1")
 
-        # 第二次 generate 调用时 messages 应包含 fake assistant
         second_call = sys._worker_agent.generate_async.call_args_list[1]
         sent_messages = second_call.args[0]
         assistant_msgs = [m for m in sent_messages if m["role"] == "assistant"]
+        user_msgs = [m for m in sent_messages if m["role"] == "user"]
+
+        # assistant 消息只含 MTP 指令，不含 XML 响应
         assert len(assistant_msgs) == 1
-        # fake assistant 应包含 formatted_response
-        assert "<mtp_response>results</mtp_response>" in assistant_msgs[0]["content"]
+        assert "<mtp_response>" not in assistant_msgs[0]["content"]
+        assert "⟫" in assistant_msgs[0]["content"]
+
+        # XML 响应在独立的 user 消息中
+        system_feedback = [m for m in user_msgs if m["content"].startswith("[System MTP Execution Result]")]
+        assert len(system_feedback) == 1
+        assert "<mtp_response>results</mtp_response>" in system_feedback[0]["content"]
 
     def test_multi_mtp_accumulates_history(self, sys):
         """多次 MTP 中断累积多条 fake assistant history"""
