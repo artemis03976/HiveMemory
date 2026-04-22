@@ -521,8 +521,11 @@ class PatchouliSystem:
                 if mtp_result.command else "UNKNOWN"
             )
 
-            fake_assistant = result.text + mtp_result.formatted_response
-            messages.append({"role": "assistant", "content": fake_assistant})
+            messages.append({"role": "assistant", "content": result.text + "⟫"})
+            messages.append({
+                "role": "user",
+                "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
+            })
 
         return ChatResult(
             final_text="".join(text_segments),
@@ -729,8 +732,11 @@ class PatchouliSystem:
                     },
                 }
 
-                fake_assistant = gen_result.text + mtp_result.formatted_response
-                messages.append({"role": "assistant", "content": fake_assistant})
+                messages.append({"role": "assistant", "content": gen_result.text + "⟫"})
+                messages.append({
+                    "role": "user",
+                    "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
+                })
 
             # 7. 构建最终结果
             loop_result = ChatResult(

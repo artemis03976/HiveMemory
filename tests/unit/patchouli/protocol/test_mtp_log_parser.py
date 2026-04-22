@@ -100,14 +100,12 @@ class TestMTPLogParserParse:
         assert traces[1].action == "SEARCH"
         assert traces[2].action == "RUN"
 
-    def test_mtp_response_tags_stripped(self):
-        """<mtp_response> 标签被移除"""
-        text = "正文<mtp_response>这是响应内容</mtp_response>后续"
-        clean, traces = MTPLogParser.parse(text)
-        assert "<mtp_response>" not in clean
-        assert "这是响应内容" not in clean
-        assert "正文" in clean
-        assert "后续" in clean
+    def test_mtp_response_not_in_assistant_text(self):
+        """角色分离注入后，<mtp_response> 隔离在独立的 user 消息中，
+        不再出现在 assistant 文本里，MTPLogParser 只需清理 MTP 指令"""
+        text = "正文后续"
+        clean, _ = MTPLogParser.parse(text)
+        assert clean == "正文后续"
 
     def test_excessive_newlines_collapsed(self):
         """3+ 空行折叠为 2 行"""
