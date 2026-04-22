@@ -16,14 +16,14 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
     <div className="w-80 flex flex-col border-r border-white/5 bg-surface-dim/40 backdrop-blur-xl shrink-0">
       <div className="p-6 border-b border-white/5 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-black tracking-tighter text-white flex items-center gap-2">
-            <Bot className="w-5 h-5 text-primary" />
-            Agents
+          <h2 className="text-xl font-black tracking-tighter text-primary drop-shadow-[0_0_12px_rgba(197,154,255,0.3)] flex items-center gap-3">
+            <Bot className="w-6 h-6" />
+            Agent 列表
           </h2>
           <button
             onClick={onCreate}
-            className="p-1.5 bg-primary/20 hover:bg-primary/30 text-primary rounded-lg transition-colors border border-primary/30"
-            title="Create New Agent"
+            className="mt-1 p-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all shadow-[0_0_15px_rgba(197,154,255,0.2)] hover:shadow-[0_0_25px_rgba(197,154,255,0.4)] group"
+            title="新建 Agent"
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -32,7 +32,7 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
         <div className="relative">
           <input
             type="text"
-            placeholder="Search agents..."
+            placeholder="搜索 Agent..."
             value={searchQuery}
             onChange={e => onSearch(e.target.value)}
             className="w-full bg-black/20 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-primary/50 transition-colors"
@@ -69,11 +69,11 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
                   {agent.model}
                 </span>
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/30 text-slate-500 border border-white/5">
-                  {agent.tools === null ? 'All' : agent.tools.length} Tools
+                  {agent.tools === null ? '全部' : agent.tools.length} 工具
                 </span>
                 {agent.tags.length > 0 && (
                   <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/60 border border-primary/10">
-                    {agent.tags.length} Tags
+                    {agent.tags.length} 标签
                   </span>
                 )}
               </div>

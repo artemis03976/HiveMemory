@@ -14,7 +14,7 @@ export function ToolsSection({ selectedTools, onToggleTool }: ToolsSectionProps)
     <section className="space-y-4">
       <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
         <FileCode className="w-4 h-4 text-primary" />
-        Kernel Syscall Tools
+        内核系统调用工具
       </label>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {AVAILABLE_TOOLS.map(tool => {

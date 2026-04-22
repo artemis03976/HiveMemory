@@ -87,7 +87,7 @@ export default function AgentManagement() {
               <section className="space-y-3">
                 <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
                   <Terminal className="w-4 h-4 text-primary" />
-                  System Instructions
+                  系统指令
                 </label>
                 <div className="relative group">
                   <textarea
@@ -95,10 +95,10 @@ export default function AgentManagement() {
                     onChange={e => updateDraft({ systemPrompt: e.target.value })}
                     rows={8}
                     className="w-full bg-black/20 border border-white/10 rounded-2xl p-4 text-sm text-slate-300 font-mono resize-y focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all leading-relaxed shadow-inner"
-                    placeholder="Enter the core system prompt that defines this agent's persona and behavior..."
+                    placeholder="输入定义该 Agent 人设与行为的核心系统提示词..."
                   />
                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-xs text-slate-500 font-mono">{draft.systemPrompt.length} chars</span>
+                    <span className="text-xs text-slate-500 font-mono">{draft.systemPrompt.length} 字符</span>
                   </div>
                 </div>
               </section>
@@ -110,7 +110,7 @@ export default function AgentManagement() {
                 <div className="space-y-3">
                   <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
                     <Zap className="w-4 h-4 text-primary" />
-                    Model
+                    模型
                   </label>
                   <input
                     type="text"
@@ -122,14 +122,14 @@ export default function AgentManagement() {
                         config: { ...draft.config, model_name: model },
                       });
                     }}
-                    placeholder="e.g. deepseek/deepseek-chat, gpt-4o, claude-sonnet-4-20250514"
+                    placeholder="例如：deepseek/deepseek-chat, gpt-4o"
                     className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-mono"
                   />
                 </div>
                 <div className="space-y-3">
                   <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
                     <Thermometer className="w-4 h-4 text-primary" />
-                    Temperature
+                    模型温度
                   </label>
                   <div className="flex items-center gap-3">
                     <input
@@ -177,7 +177,7 @@ export default function AgentManagement() {
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center bg-surface-container-lowest text-slate-500">
           <Bot className="w-16 h-16 mb-4 opacity-20" />
-          <p>Select an agent from the list to view details</p>
+          <p>从列表中选择一个 Agent 以查看详情</p>
         </div>
       )}
     </div>
