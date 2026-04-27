@@ -1,5 +1,5 @@
 """
-HiveMemory 核心数据模型
+HiveMemory 核心数据模型 - 记忆领域
 
 基于 PROJECT.md 3.1 节的"记忆原子模型"设计
 采用冰山存储架构:
@@ -10,16 +10,11 @@ HiveMemory 核心数据模型
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Set, Dict, Any
+from typing import List, Optional, Dict, Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from hivememory.core.constants import DEFAULT_USER_ID, DEFAULT_AGENT_ID, DEFAULT_TEAM_ID
-from hivememory.utils.token_estimator import estimate_tokens
-
-
-# ============ 枚举类型定义 ============
 
 class MemoryType(str, Enum):
     """记忆类型枚举 - 用于区分记忆的应用场景"""
@@ -45,125 +40,6 @@ class VerificationStatus(str, Enum):
     UNVERIFIED = "UNVERIFIED"  # 未验证(LLM推理)
     DEPRECATED = "DEPRECATED"  # 已过时
     HALLUCINATION = "HALLUCINATION"  # 确认为幻觉
-
-
-class Identity(BaseModel):
-    """
-    身份标识组合 - 统一管理用户、Agent 两个核心ID
-
-    用于替代散落的 user_id, agent_id 参数，
-    提供统一的身份标识和便捷的操作方法。
-
-    注意：session_id 已被移除，其功能被 topic_id 替代。
-    话题的生命周期由 PerceptionLayer 的 topic_id 管理。
-
-    Attributes:
-        user_id: 用户标识符
-        agent_id: Agent 标识符
-
-    Examples:
-        >>> identity = Identity(
-        ...     user_id="user123",
-        ...     agent_id="chatbot",
-        ... )
-        >>> identity.buffer_key  # "user123:chatbot"
-        >>> identity.is_valid   # True
-    """
-    user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
-    team_id: Optional[str] = Field(default=DEFAULT_TEAM_ID, description="团队 ID（用于 Workspace 作用域过滤）")
-    session_id: Optional[str] = Field(default=None, description="会话 ID（兼容字段）")
-
-    @property
-    def buffer_key(self) -> str:
-        """生成用于缓冲区的唯一键"""
-        return f"{self.user_id}:{self.agent_id}"
-
-    @property
-    def is_valid(self) -> bool:
-        """检查身份标识是否有效"""
-        return bool(self.user_id and self.agent_id)
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "user_id": "user123",
-                "agent_id": "chatbot",
-                "session_id": "sess_456"
-            }
-        }
-    )
-  
-
-class StreamMessageType(str, Enum):
-    """流式消息类型枚举"""
-    USER = "user"             # 用户查询
-    SYSTEM = "system"         # 系统消息
-    ASSISTANT = "assistant"   # 助手消息
-    TOOL = "tool"             # 工具输出
-    THOUGHT = "thought"       # 思考过程 (Internal)
-    TOOL_CALL = "tool_call"   # 工具调用 (Internal)
-
-
-class StreamMessage(BaseModel):
-    """
-    统一流式消息模型
-
-    职责：抹平不同 Agent 框架的消息格式差异，统一系统内的消息流转
-    """
-    message_type: StreamMessageType
-    content: str
-    timestamp: float = Field(default_factory=lambda: datetime.now().timestamp())
-
-    # 身份标识
-    identity: Identity = Field(default_factory=Identity, description="身份标识")
-
-    # 工具调用相关字段（可选）
-    tool_name: Optional[str] = None
-    tool_args: Optional[Dict[str, Any]] = None
-    tool_result: Optional[str] = None
-
-    @property
-    def user_id(self) -> str:
-        """获取用户 ID (兼容属性)"""
-        return self.identity.user_id
-
-    @property
-    def agent_id(self) -> str:
-        """获取 Agent ID (兼容属性)"""
-        return self.identity.agent_id
-
-    @property
-    def session_id(self) -> Optional[str]:
-        """获取会话 ID (兼容属性)"""
-        return self.identity.session_id
-
-    @property
-    def role(self) -> str:
-        """映射消息类型到 OpenAI 角色"""
-        mapping = {
-            StreamMessageType.USER: "user",
-            StreamMessageType.ASSISTANT: "assistant",
-            StreamMessageType.SYSTEM: "system",
-            StreamMessageType.THOUGHT: "assistant",
-            StreamMessageType.TOOL_CALL: "assistant",
-            StreamMessageType.TOOL: "tool",
-        }
-        return mapping.get(self.message_type, "assistant")
-
-    @property
-    def token_count(self) -> int:
-        """估算消息的 Token 数量"""
-        return estimate_tokens(self.content)
-
-    def to_langchain_message(self) -> Dict[str, str]:
-        """转换为 LangChain 消息格式"""
-        return {
-            "role": self.role,
-            "content": self.content
-        }
-
-    model_config = ConfigDict(use_enum_values=True)
 
 
 # ============ Layer 1: Meta (元数据层) ============
@@ -402,83 +278,3 @@ class MemoryAtom(BaseModel):
             }
         }
     )
-
-
-class AgentProfileConfig(BaseModel):
-    """
-    人偶图纸配置 - 从 MemoryAtom.payload.artifacts.agent_config 解析
-
-    灵魂 (Persona): 由 MemoryAtom.payload.content 承载，不在此处重复
-    骨架 (Skeleton): 模型参数 + 权限控制表
-
-    权限语义：
-    - None = 全部允许（omni_doll 默认行为）
-    - [] 空列表 = 禁止所有
-    - 非空列表 = 白名单模式，仅允许列表中的项目
-    """
-    model_name: str = Field(default="default", description="基底模型名称")
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="推理温度")
-
-    allowed_mtp_verbs: Optional[List[str]] = Field(
-        default=None,
-        description="允许的 MTP 指令动词白名单，None=全部允许，[]=禁止所有"
-    )
-    allowed_sys_tools: Optional[List[str]] = Field(
-        default=None,
-        description="允许的系统工具白名单，None=全部允许，[]=禁止所有"
-    )
-
-    language: str = Field(default="zh", description="提示词语言 (zh/en)")
-
-    _verb_set: Optional[Set[str]] = None
-    _tool_set: Optional[Set[str]] = None
-
-    def get_verb_set(self) -> Set[str]:
-        """获取 MTP 动词白名单的 set 版本（惰性构建）"""
-        if self._verb_set is None:
-            self._verb_set = set(v.upper() for v in self.allowed_mtp_verbs) if self.allowed_mtp_verbs else set()
-        return self._verb_set
-
-    def get_tool_set(self) -> Set[str]:
-        """获取系统工具白名单的 set 版本（惰性构建）"""
-        if self._tool_set is None:
-            self._tool_set = set(self.allowed_sys_tools) if self.allowed_sys_tools else set()
-        return self._tool_set
-
-    def is_verb_allowed(self, verb: str) -> bool:
-        """检查 MTP 动词是否被允许
-
-        权限判断：
-        - None: 全部允许
-        - []: 禁止所有
-        - ["X", "Y"]: 仅允许白名单中的项目
-        """
-        if self.allowed_mtp_verbs is None:
-            return True
-        if len(self.allowed_mtp_verbs) == 0:
-            return False
-        return verb.upper() in self.get_verb_set()
-
-    def is_tool_allowed(self, tool_alias: str) -> bool:
-        """检查系统工具是否被允许
-
-        权限判断：
-        - None: 全部允许
-        - []: 禁止所有
-        - ["X", "Y"]: 仅允许白名单中的项目
-        """
-        if self.allowed_sys_tools is None:
-            return True
-        if len(self.allowed_sys_tools) == 0:
-            return False
-        return tool_alias in self.get_tool_set()
-
-
-OMNI_DOLL_PROFILE = AgentProfileConfig(
-    model_name="default",
-    temperature=0.7,
-    allowed_mtp_verbs=None,
-    allowed_sys_tools=None,
-    language="zh",
-)
-"""全能人偶 (Omni-Doll) 默认配置 - 拥有完整权限，无特定人设"""

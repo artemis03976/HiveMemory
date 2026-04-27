@@ -139,6 +139,23 @@ def sys():
     s.kernel.submit_interaction = AsyncMock(return_value=None)
     s.kernel.librarian_core = MagicMock()
 
+    # Frame scheduler (Phase 2) — 使用真实的 FrameScheduler 行为
+    from hivememory.patchouli.kernel.execution_frame import ExecutionFrame
+    from hivememory.core.models import Identity as _Identity
+
+    def _mock_create_main_frame(agent_profile, messages, topic_id, identity):
+        return ExecutionFrame(
+            process_id="pid_main_test",
+            agent_profile=agent_profile,
+            working_history=messages,
+            depth=0,
+            topic_id=topic_id,
+            identity=identity if isinstance(identity, _Identity) else _Identity(user_id="u1"),
+        )
+
+    s.kernel.frame_scheduler = MagicMock()
+    s.kernel.frame_scheduler.create_main_frame = MagicMock(side_effect=_mock_create_main_frame)
+
     # Worker Agent
     s._worker_agent = MagicMock()
     s._worker_agent.generate_async = AsyncMock(return_value=_normal_gen())
@@ -153,6 +170,10 @@ def sys():
     s._recursive_generation_loop = types.MethodType(
         Real._recursive_generation_loop, s
     )
+    s._execute_frame = types.MethodType(Real._execute_frame, s)
+    s._handle_call_suspend = types.MethodType(Real._handle_call_suspend, s)
+    s._assemble_ipc_return = types.MethodType(Real._assemble_ipc_return, s)
+    s._try_harvest_alias = types.MethodType(Real._try_harvest_alias, s)
     s._reconstruct_raw_assistant_text = Real._reconstruct_raw_assistant_text
     s._assemble_messages_from_context = types.MethodType(Real._assemble_messages_from_context, s)
 

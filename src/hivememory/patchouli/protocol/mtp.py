@@ -51,12 +51,16 @@ class MTPVerb(str, Enum):
     特权信号 (异步):
         WRITE  - 记录，向帕秋莉发送高优先级保存信号
         UPDATE - 修正，请求更新已有记忆
+
+    进程间通信 (Phase 2):
+        CALL   - 调用，派生子代理执行任务
     """
     SEARCH = "SEARCH"
     READ = "READ"
     RUN = "RUN"
     WRITE = "WRITE"
     UPDATE = "UPDATE"
+    CALL = "CALL"
 
 
 class MTPResponseStatus(str, Enum):
@@ -67,11 +71,13 @@ class MTPResponseStatus(str, Enum):
     ERROR   - 执行失败
     ACK     - 异步信号已确认 (用于 WRITE/UPDATE)
     WARNING - 部分成功，附带警告 (如 filter 降级)
+    SUSPEND - 挂起主进程 (Phase 2: 用于 CALL 指令)
     """
     SUCCESS = "success"
     ERROR = "error"
     ACK = "ack"
     WARNING = "warning"
+    SUSPEND = "suspend"
 
 
 # ========== 数据模型 ==========
@@ -177,6 +183,11 @@ class MTPParser:
     _RAW_PATTERN = re.compile(
         r'(\w+)\s*=\s*`(.*?)`',
         re.DOTALL,
+    )
+
+    # 解析 key=["item1", "item2"] 列表参数 (Phase 2: 用于 context_refs)
+    _LIST_ARG_PATTERN = re.compile(
+        r'(\w+)\s*=\s*\[\s*([^\]]*)\s*\]'
     )
 
     # 解析列表目标 [a, b, c]
@@ -336,28 +347,44 @@ class MTPParser:
         """
         解析 ARGS 字段 (Section 2.1)
 
-        支持两种格式:
+        支持三种格式:
         - key="value" (双引号包裹)
         - key=`raw content` (反引号包裹，支持多行)
+        - key=["item1", "item2"] (列表，Phase 2: 用于 context_refs)
 
         Args:
             args_str: ARGS 字段文本
 
         Returns:
-            参数字典
+            参数字典 (列表参数会被序列化为 JSON 字符串)
         """
         if not args_str:
             return {}
 
         args: Dict[str, str] = {}
 
-        # 先解析反引号参数 (可能包含双引号)
+        # 1. 先解析列表参数 (Phase 2)
+        for match in self._LIST_ARG_PATTERN.finditer(args_str):
+            key, list_content = match.group(1), match.group(2)
+            # 解析列表项 (支持 "item1", "item2" 或 item1, item2)
+            items = []
+            for item in list_content.split(","):
+                item = item.strip().strip('"').strip("'")
+                if item:
+                    items.append(item)
+            # 序列化为 JSON 字符串
+            import json
+            args[key] = json.dumps(items)
+
+        # 2. 解析反引号参数 (可能包含双引号)
         for match in self._RAW_PATTERN.finditer(args_str):
             key, value = match.group(1), match.group(2)
-            args[key] = value.strip()
+            if key not in args:
+                args[key] = value.strip()
 
-        # 移除已解析的反引号参数，再解析双引号参数
-        remaining = self._RAW_PATTERN.sub("", args_str)
+        # 3. 移除已解析的列表和反引号参数，再解析双引号参数
+        remaining = self._LIST_ARG_PATTERN.sub("", args_str)
+        remaining = self._RAW_PATTERN.sub("", remaining)
         for match in self._KV_PATTERN.finditer(remaining):
             key, value = match.group(1), match.group(2)
             if key not in args:
@@ -380,6 +407,8 @@ _FILTER_TYPE_MAP: Dict[str, MemoryType] = {
     "user_profile": MemoryType.USER_PROFILE,
     "wip": MemoryType.WORK_IN_PROGRESS,
     "work_in_progress": MemoryType.WORK_IN_PROGRESS,
+    "agent_profile": MemoryType.AGENT_PROFILE,  # Phase 2: 子代理服务发现
+    "agent": MemoryType.AGENT_PROFILE,  # 别名
 }
 
 class MTPFilterParser:

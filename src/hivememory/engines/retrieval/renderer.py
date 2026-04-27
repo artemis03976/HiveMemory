@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple, Union
 import logging
 
 from hivememory.patchouli.config import FullRendererConfig, CascadeRendererConfig, CompactRendererConfig
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.utils import estimate_tokens
@@ -44,6 +44,54 @@ def _extract_memories(results: List) -> List[MemoryAtom]:
         else:
             logger.warning(f"未知的结果类型: {type(item)}")
     return memories
+
+
+def _separate_agent_profiles(
+    memories: List[MemoryAtom],
+) -> tuple[List[MemoryAtom], List[MemoryAtom]]:
+    """
+    分离 AGENT_PROFILE 和普通记忆 (Phase 2: 子代理服务发现)
+
+    Returns:
+        (regular_memories, agent_profiles)
+    """
+    regular = []
+    agents = []
+    for m in memories:
+        if hasattr(m, 'index') and hasattr(m.index, 'memory_type') and m.index.memory_type == MemoryType.AGENT_PROFILE:
+            agents.append(m)
+        else:
+            regular.append(m)
+    return regular, agents
+
+
+def _render_agent_menu(agents: List[MemoryAtom]) -> str:
+    """
+    渲染子代理服务菜单 (Phase 2)
+
+    格式:
+    [Available Sub-Agents (Ready to CALL)]
+    1. [ID: coder_doll] "Backend Developer" - 擅长 Python/FastAPI 后端开发
+    2. [ID: translator_doll] "EN Translator" - 中英互译专家
+
+    Args:
+        agents: AGENT_PROFILE 类型的记忆原子列表
+
+    Returns:
+        str: 渲染后的菜单文本
+    """
+    if not agents:
+        return ""
+
+    lines = ["\n[Available Sub-Agents (Ready to CALL)]"]
+    for i, agent in enumerate(agents, 1):
+        alias = agent.index.alias if hasattr(agent.index, 'alias') and agent.index.alias else f"agent_{i}"
+        title = agent.index.title if hasattr(agent.index, 'title') and agent.index.title else "(untitled)"
+        summary = ""
+        if hasattr(agent.index, 'summary') and agent.index.summary:
+            summary = agent.index.summary[:80]
+        lines.append(f'{i}. [ID: {alias}] "{title}" - {summary}')
+    return "\n".join(lines)
 
 
 class FullContextRenderer(BaseContextRenderer):
@@ -116,9 +164,12 @@ class CascadeContextRenderer(BaseContextRenderer):
         if not results:
             return ""
 
-        memories = _extract_memories(results)
-        if not memories:
+        all_memories = _extract_memories(results)
+        if not all_memories:
             return ""
+
+        # Phase 2: 分离 AGENT_PROFILE 和普通记忆
+        memories, agent_profiles = _separate_agent_profiles(all_memories)
 
         header_footer_tokens = estimate_tokens(MEMORY_HEADER) + estimate_tokens(MEMORY_FOOTER)
         available_budget = self.config.max_memory_tokens - header_footer_tokens
@@ -129,10 +180,17 @@ class CascadeContextRenderer(BaseContextRenderer):
 
         rendered_blocks, _ = self._render_with_budget(memories, available_budget)
 
-        if not rendered_blocks:
+        if not rendered_blocks and not agent_profiles:
             return ""
 
-        return MEMORY_HEADER + "".join(rendered_blocks) + MEMORY_FOOTER
+        result = MEMORY_HEADER + "".join(rendered_blocks)
+
+        # Phase 2: 追加子代理服务菜单
+        if agent_profiles:
+            result += _render_agent_menu(agent_profiles)
+
+        result += MEMORY_FOOTER
+        return result
 
     def _render_with_budget(
         self,

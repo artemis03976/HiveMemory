@@ -83,6 +83,12 @@ class SystemPromptBuilder:
             self._sections.append(rendered_memory)
         return self
 
+    def with_shared_context(self, shared_context: str) -> "SystemPromptBuilder":
+        """注入共享上下文 (Phase 2: 来自父 Agent 的 context_refs)"""
+        if shared_context:
+            self._sections.append(shared_context)
+        return self
+
     def with_topic_state(self, state_summary: str) -> "SystemPromptBuilder":
         """注入话题状态摘要"""
         if state_summary:

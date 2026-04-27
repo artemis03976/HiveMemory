@@ -108,6 +108,10 @@ class PatchouliKernel:
         # 5. 人偶图纸缓存 (多智能体系统)
         self._agent_profile_cache = AgentProfileCache()
 
+        # 6. 帧调度器 (Phase 2 多智能体子代理调用)
+        from hivememory.patchouli.kernel.frame_scheduler import FrameScheduler
+        self._frame_scheduler = FrameScheduler(self)
+
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")
 
         # 模型预热状态
@@ -395,6 +399,11 @@ class PatchouliKernel:
     def agent_profile_cache(self) -> AgentProfileCache:
         """访问人偶图纸缓存"""
         return self._agent_profile_cache
+
+    @property
+    def frame_scheduler(self) -> "FrameScheduler":
+        """访问帧调度器 (Phase 2 多智能体子代理调用)"""
+        return self._frame_scheduler
 
     def load_agent_profile(self, agent_alias: str) -> AgentProfileConfig:
         """

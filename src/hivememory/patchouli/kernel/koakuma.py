@@ -115,7 +115,7 @@ class KoakumaRuntime:
 
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
-        from hivememory.patchouli.kernel.syscalls import build_kernel_registry
+        from hivememory.patchouli.tools.syscalls import build_kernel_registry
         self._kernel_registry = build_kernel_registry(
             python_repl_timeout=self._config.python_repl_timeout_seconds,
             workspace_path=self._config.workspace_path,
@@ -176,6 +176,27 @@ class KoakumaRuntime:
         """
         self._active_profile = profile
 
+    def set_current_depth(self, depth: int) -> None:
+        """
+        设置当前执行深度 (Phase 2: 用于硬限制检查)
+
+        由 PatchouliSystem 在执行帧时调用。
+        子 Agent (depth >= 1) 被禁止调用 CALL 指令。
+
+        Args:
+            depth: 调用栈深度 (主 Agent = 0, 子 Agent = 1)
+        """
+        self._current_depth = depth
+
+    def get_current_depth(self) -> int:
+        """
+        获取当前执行深度
+
+        Returns:
+            int: 调用栈深度 (0 = 主 Agent, 1 = 子 Agent)
+        """
+        return getattr(self, '_current_depth', 0)
+
     def _check_verb_permission(self, verb: str) -> None:
         """
         校验 MTP 动词权限 (O(1) set lookup)
@@ -221,6 +242,30 @@ class KoakumaRuntime:
     def get_update_focus(self) -> Optional[UpdateFocus]:
         """获取延迟捕获的 UpdateFocus (如果有)"""
         return self._current_update_focus
+
+    def get_last_generated_alias(self) -> Optional[str]:
+        """
+        获取最后一次 WRITE/UPDATE 生成的别名 (Phase 2: 用于自动收割)
+
+        从延迟捕获的 WriteFocus/UpdateFocus 中提取别名。
+        WRITE 的别名需要等待 Librarian 生成后才能获取，
+        UPDATE 的别名可以直接从 UpdateFocus 中获取。
+
+        Returns:
+            str: 别名，如果没有则返回 None
+
+        Note:
+            由于 WRITE 使用延迟捕获，别名在 InteractionPayload 提交后才会生成。
+            因此，此方法主要用于 UPDATE 的别名收割。
+            对于 WRITE，需要在 Librarian 处理后从响应中提取别名。
+        """
+        # UPDATE 的别名可以直接获取
+        if self._current_update_focus:
+            return self._current_update_focus.target_alias
+
+        # WRITE 的别名需要等待 Librarian 生成
+        # 这里返回 None，实际别名需要从 Librarian 的响应中提取
+        return None
 
     # ========== 公开 API ==========
 
@@ -344,6 +389,7 @@ class KoakumaRuntime:
             MTPVerb.RUN: self._handle_run,
             MTPVerb.WRITE: self._handle_write,
             MTPVerb.UPDATE: self._handle_update,
+            MTPVerb.CALL: self._handle_call,  # Phase 2: 子代理调用
         }
 
         handler = handlers.get(command.verb)
@@ -743,6 +789,79 @@ class KoakumaRuntime:
             content=f"Memory '{alias}' updated successfully.",
         )
 
+    def _handle_call(self, command: MTPCommand) -> MTPResponse:
+        """
+        处理 CALL 指令 - 触发子代理调用 (Phase 2)
+
+        此方法仅负责验证参数和权限，实际调用由 Kernel 的 FrameScheduler 处理。
+        返回特殊的 SUSPEND 状态，通知 Kernel 挂起当前帧。
+
+        Args:
+            command: CALL 指令 (target=agent_alias, args: task="...", context_refs=["..."])
+
+        Returns:
+            MTPResponse: SUSPEND 状态，携带 CALL 参数
+
+        Raises:
+            PermissionDeniedError: 如果子 Agent 尝试调用 CALL (depth >= 1)
+        """
+        from hivememory.patchouli.protocol.exceptions import PermissionDeniedError
+        import json
+
+        # 1. 深度检查 (硬限制)
+        if hasattr(self, '_current_depth') and self._current_depth >= 1:
+            raise PermissionDeniedError(
+                "Sub-agents are not allowed to invoke CALL. "
+                "Only the main agent can call sub-agents."
+            )
+
+        # 2. 验证 target (必须是单个别名)
+        target_alias = command.target.single_alias
+        if not target_alias:
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content="CALL requires a single agent alias as target. "
+                        "Example: ⟪ CALL | coder_doll | task=\"...\" ⟫",
+            )
+
+        # 3. 验证 task (必填)
+        task = command.args.get("task", "")
+        if not task:
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content='CALL requires a "task" argument. '
+                        'Example: ⟪ CALL | coder_doll | task="Write unit tests" ⟫',
+            )
+
+        # 4. 解析 context_refs (选填)
+        context_refs_str = command.args.get("context_refs", "")
+        context_refs = []
+        if context_refs_str:
+            try:
+                # context_refs 已被 MTPParser 序列化为 JSON 字符串
+                context_refs = json.loads(context_refs_str)
+                if not isinstance(context_refs, list):
+                    context_refs = [context_refs]
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse context_refs: {context_refs_str}")
+                # 降级为逗号分隔
+                context_refs = [ref.strip() for ref in context_refs_str.split(",") if ref.strip()]
+
+        logger.info(
+            f"MTP CALL: target={target_alias}, task='{task[:50]}...', "
+            f"context_refs={context_refs}"
+        )
+
+        # 5. 返回 SUSPEND 信号 (由 Kernel 拦截处理)
+        return MTPResponse(
+            status=MTPResponseStatus.SUSPEND,
+            content=json.dumps({
+                "target_alias": target_alias,
+                "task": task,
+                "context_refs": context_refs,
+            }),
+        )
+
     # ========== 辅助方法 ==========
 
     def _format_cached_atoms(
@@ -860,7 +979,7 @@ class KoakumaRuntime:
         Returns:
             MTPResponse: 执行结果
         """
-        from hivememory.patchouli.kernel.syscalls import execute_sandboxed
+        from hivememory.patchouli.tools.syscalls import execute_sandboxed
 
         result = execute_sandboxed(
             code,
