@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 from hivememory.core.models import AgentProfileConfig
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.protocol.exceptions import PermissionDeniedError
+from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
 
 
 def _create_koakuma():
@@ -203,7 +203,7 @@ class TestPermissionDeniedError:
 
     def test_error_is_agent_fault(self):
         """PermissionDeniedError 是 AgentFault 子类"""
-        from hivememory.patchouli.protocol.exceptions import AgentFault
+        from hivememory.patchouli.mtp.exceptions import AgentFault
 
         koakuma = _create_koakuma()
         profile = _make_profile(allowed_verbs=["READ"])

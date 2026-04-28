@@ -25,8 +25,8 @@ from hivememory.core.models import (
     MemoryType,
     OMNI_DOLL_PROFILE,
 )
-from hivememory.patchouli.kernel.execution_frame import ExecutionFrame
-from hivememory.patchouli.protocol.mtp import (
+from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
+from hivememory.patchouli.mtp import (
     MTPVerb,
     MTPResponseStatus,
     MTPParser,
@@ -176,7 +176,7 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "another_doll"
         cmd.args = {"task": "Forbidden task"}
 
-        from hivememory.patchouli.protocol.exceptions import PermissionDeniedError
+        from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
         with pytest.raises(PermissionDeniedError):
             koakuma._handle_call(cmd)
 
@@ -253,7 +253,7 @@ class TestFrameScheduler:
 
     def test_create_main_frame(self):
         """创建主帧"""
-        from hivememory.patchouli.kernel.frame_scheduler import FrameScheduler
+        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -271,7 +271,7 @@ class TestFrameScheduler:
 
     def test_suspend_resume(self):
         """帧挂起/恢复"""
-        from hivememory.patchouli.kernel.frame_scheduler import FrameScheduler
+        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -292,7 +292,7 @@ class TestFrameScheduler:
 
     def test_resume_empty_stack_returns_none(self):
         """空栈恢复返回 None"""
-        from hivememory.patchouli.kernel.frame_scheduler import FrameScheduler
+        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -302,7 +302,7 @@ class TestFrameScheduler:
     @pytest.mark.asyncio
     async def test_fork_sub_frame(self):
         """派生子帧"""
-        from hivememory.patchouli.kernel.frame_scheduler import FrameScheduler
+        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -330,7 +330,7 @@ class TestFrameScheduler:
 
     def test_strip_call_from_prompt(self):
         """从 MTP prompt 中移除 CALL 教学"""
-        from hivememory.patchouli.kernel.frame_scheduler import FrameScheduler
+        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -396,13 +396,13 @@ class TestMTPFilterTypeMap:
 
     def test_agent_profile_filter(self):
         """type:AGENT_PROFILE 过滤器"""
-        from hivememory.patchouli.protocol.mtp import _FILTER_TYPE_MAP
+        from hivememory.patchouli.mtp.parser import _FILTER_TYPE_MAP
         assert "agent_profile" in _FILTER_TYPE_MAP
         assert _FILTER_TYPE_MAP["agent_profile"] == MemoryType.AGENT_PROFILE
 
     def test_agent_alias_filter(self):
         """type:agent 过滤器 (别名)"""
-        from hivememory.patchouli.protocol.mtp import _FILTER_TYPE_MAP
+        from hivememory.patchouli.mtp.parser import _FILTER_TYPE_MAP
         assert "agent" in _FILTER_TYPE_MAP
         assert _FILTER_TYPE_MAP["agent"] == MemoryType.AGENT_PROFILE
 

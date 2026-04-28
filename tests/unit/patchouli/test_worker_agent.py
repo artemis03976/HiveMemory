@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.patchouli.config import LLMConfig
-from hivememory.patchouli.protocol.mtp import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
+from hivememory.patchouli.mtp import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
 
 
 def _make_config() -> LLMConfig:

@@ -34,7 +34,7 @@ from hivememory.patchouli.protocol.models import (
     ChatResult, KernelHotResult, EyeGazeResult, MTPExecutionResult,
 )
 from hivememory.patchouli.worker_agent import GenerationResult
-from hivememory.patchouli.protocol.mtp import MTPVerb
+from hivememory.patchouli.mtp import MTPVerb
 from hivememory.engines.gateway.models import GatewayIntent
 
 
@@ -140,7 +140,7 @@ def sys():
     s.kernel.librarian_core = MagicMock()
 
     # Frame scheduler (Phase 2) — 使用真实的 FrameScheduler 行为
-    from hivememory.patchouli.kernel.execution_frame import ExecutionFrame
+    from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
     from hivememory.core.models import Identity as _Identity
 
     def _mock_create_main_frame(agent_profile, messages, topic_id, identity):

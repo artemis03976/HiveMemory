@@ -44,7 +44,7 @@ from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.kernel.cache import AgentProfileCache
+from hivememory.patchouli.kernel.runtime.cache import AgentProfileCache
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus
@@ -109,7 +109,7 @@ class PatchouliKernel:
         self._agent_profile_cache = AgentProfileCache()
 
         # 6. 帧调度器 (Phase 2 多智能体子代理调用)
-        from hivememory.patchouli.kernel.frame_scheduler import FrameScheduler
+        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
         self._frame_scheduler = FrameScheduler(self)
 
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")

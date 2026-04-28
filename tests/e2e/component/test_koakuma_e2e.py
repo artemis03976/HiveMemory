@@ -16,7 +16,7 @@ pytestmark = pytest.mark.e2e
 from unittest.mock import MagicMock, patch
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.protocol.mtp import (
+from hivememory.patchouli.mtp import (
     MTPVerb,
     MTPResponseStatus,
     MTPCommand,

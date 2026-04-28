@@ -7,7 +7,7 @@ from qdrant_client.models import Document
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.config import QdrantConfig, EmbeddingConfig
-from hivememory.patchouli.protocol.exceptions import StorageReadError
+from hivememory.patchouli.mtp.exceptions import StorageReadError
 
 class TestQdrantMemoryStore:
     @pytest.fixture

@@ -9,8 +9,8 @@ MTPLogParser 单元测试
 
 import pytest
 
-from hivememory.patchouli.protocol.mtp_log_parser import MTPLogParser
-from hivememory.patchouli.protocol.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
+from hivememory.patchouli.mtp.log_parser import MTPLogParser
+from hivememory.patchouli.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 
 
 L = MTP_LEFT_DELIMITER  # ⟪

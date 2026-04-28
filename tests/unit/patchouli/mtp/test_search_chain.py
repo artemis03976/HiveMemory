@@ -26,7 +26,7 @@ from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.patchouli.protocol.models import RetrievalResponse
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.config import KoakumaConfig
-from hivememory.patchouli.protocol.mtp import MTPResponseStatus
+from hivememory.patchouli.mtp import MTPResponseStatus
 
 
 # ========== Helpers ==========
@@ -68,7 +68,7 @@ def koakuma() -> KoakumaRuntime:
 
 # ========== Test 1: _parse_mtp_filter ==========
 
-from hivememory.patchouli.protocol.mtp import MTPFilterParser
+from hivememory.patchouli.mtp import MTPFilterParser
 
 class TestParseFilter:
     """测试 _parse_mtp_filter 方法"""

@@ -31,7 +31,7 @@ from typing import AsyncGenerator, List, Optional, Dict, Any
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import InteractionPayload, TraceItem
 from hivememory.patchouli.protocol.models import ChatResult
-from hivememory.patchouli.protocol.mtp import MTPVerb
+from hivememory.patchouli.mtp.models import MTPVerb
 from hivememory.infrastructure.trace_context import (
     generate_trace_id, set_trace_context, reset_trace_context
 )
@@ -42,7 +42,7 @@ from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.kernel.execution_frame import ExecutionFrame
+from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.server.models.memory import MemoryResponse
 
@@ -966,7 +966,7 @@ class PatchouliSystem:
                 args_hint = {}
                 raw_hint = gen_result.mtp_fragment
                 try:
-                    from hivememory.patchouli.protocol.mtp import MTPParser
+                    from hivememory.patchouli.mtp.parser import MTPParser
                     parsed_hint = MTPParser().complete_and_parse(gen_result.text)
                     verb_hint = parsed_hint.verb.value
                     if parsed_hint.target.is_wildcard:

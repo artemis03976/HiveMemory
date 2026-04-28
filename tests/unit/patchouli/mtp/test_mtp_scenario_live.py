@@ -26,13 +26,13 @@ from hivememory.core.models import (
     Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
 from hivememory.patchouli.config import KoakumaConfig
-from hivememory.patchouli.protocol.mtp import MTP_LEFT_DELIMITER
+from hivememory.patchouli.mtp.models import MTP_LEFT_DELIMITER
 from hivememory.patchouli.protocol.models import RetrievalResponse
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 # 复用 MTPLoopRunner 和 LLM fixture 工厂
-from .test_syscall_scenario_live import (
+from tests.unit.patchouli.tools.syscalls.live_support import (
     MTPLoopRunner,
     _get_llm_config,
     _create_llm_service,
@@ -447,7 +447,7 @@ class TestNoMTPScenario:
             {"role": "system", "content": full_system_prompt},
             {"role": "user", "content": "What is 2 + 2?"},
         ]
-        from hivememory.patchouli.protocol.mtp import MTP_STOP_SEQUENCE
+        from hivememory.patchouli.mtp.models import MTP_STOP_SEQUENCE
         response = llm_service.complete(
             messages, temperature=0.0, max_tokens=256,
             stop=[MTP_STOP_SEQUENCE],
@@ -465,7 +465,7 @@ class TestNoMTPScenario:
             {"role": "system", "content": full_system_prompt},
             {"role": "user", "content": "Hello! How are you?"},
         ]
-        from hivememory.patchouli.protocol.mtp import MTP_STOP_SEQUENCE
+        from hivememory.patchouli.mtp.models import MTP_STOP_SEQUENCE
         response = llm_service.complete(
             messages, temperature=0.0, max_tokens=256,
             stop=[MTP_STOP_SEQUENCE],

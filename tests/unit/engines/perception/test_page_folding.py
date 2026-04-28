@@ -67,7 +67,7 @@ class TestBlockTokenComputation:
         self.mock_relay.should_relay.return_value = None
         self.layer = SemanticFlowPerceptionLayer(config=self.config, relay_controller=self.mock_relay)
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_block_total_tokens_computed(self, mock_parser_cls):
         """ingest_payload 后 block.total_tokens 应 > 0"""
@@ -86,7 +86,7 @@ class TestBlockTokenComputation:
         assert buffer.blocks[0].total_tokens > 0
         assert buffer.total_tokens > 0
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_block_tokens_include_traces(self, mock_parser_cls):
         """traces 中的 query/target 也应计入 total_tokens"""
@@ -113,7 +113,7 @@ class TestBlockTokenComputation:
 class TestPageFoldingThreshold:
     """验证 Page Folding 阈值逻辑"""
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_fold_not_triggered_below_threshold(self, mock_parser_cls):
         """低于阈值时 state_summary 保持为空"""
@@ -141,7 +141,7 @@ class TestPageFoldingThreshold:
         assert len(buffer.blocks) == 5
         assert buffer.state_summary == ""
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_fold_triggered_above_threshold(self, mock_parser_cls):
         """超阈值后旧 blocks 被丢弃，state_summary 被写入，保留最近 N 个"""
@@ -181,7 +181,7 @@ class TestPageFoldingThreshold:
         # state_summary 应被写入
         assert buffer.state_summary == "Test summary"
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_fold_does_not_trigger_generation_callback(self, mock_parser_cls):
         """折叠过程中不应触发 generation_callback"""
@@ -224,7 +224,7 @@ class TestPageFoldingThreshold:
 class TestPageFoldingCumulative:
     """验证连续折叠时 state_summary 累积"""
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_fold_cumulative_summary(self, mock_parser_cls):
         """连续两次折叠，验证 state_summary 以 --- 分隔累积"""

@@ -34,7 +34,7 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.config import KoakumaConfig
-from hivememory.patchouli.protocol.mtp import MTPResponseStatus
+from hivememory.patchouli.mtp import MTPResponseStatus
 
 
 # ========== Fixtures ==========

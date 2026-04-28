@@ -21,7 +21,7 @@ MTP System Prompt 构建器
 import logging
 from typing import List, Optional, Tuple
 
-from hivememory.patchouli.protocol.mtp import (
+from hivememory.patchouli.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
 )

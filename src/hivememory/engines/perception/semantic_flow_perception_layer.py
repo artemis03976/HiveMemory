@@ -170,7 +170,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             payload: Kernel → Perception 的原子传输包
             topic_id: 目标话题 ID
         """
-        from hivememory.patchouli.protocol.mtp_log_parser import MTPLogParser
+        from hivememory.patchouli.mtp.log_parser import MTPLogParser
 
         # 1. 清洗 MTP 噪音
         clean_text, fallback_traces = MTPLogParser.parse(payload.assistant_message)

@@ -17,7 +17,7 @@ from hivememory.prompts.mtp import (
     get_mtp_prompt,
     DEFAULT_KERNEL_TOOLS,
 )
-from hivememory.patchouli.protocol.mtp import (
+from hivememory.patchouli.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
 )
