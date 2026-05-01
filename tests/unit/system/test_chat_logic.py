@@ -107,7 +107,7 @@ def _mtp_exec() -> MTPExecutionResult:
 def sys():
     """
     构建最小化 PatchouliSystem mock:
-    mock Eye, Kernel, WorkerAgent — 绑定真实 chat() 和递归生成循环
+    mock Eye, Kernel, WorkerAgent — 绑定真实 chat() 与后处理逻辑
     """
     from hivememory.patchouli.system import PatchouliSystem
 
@@ -178,9 +178,7 @@ def sys():
     from hivememory.patchouli.system import PatchouliSystem as Real
     _chat_async = types.MethodType(Real.chat, s)
     s.chat = lambda *args, **kwargs: asyncio.run(_chat_async(*args, **kwargs))
-    s._recursive_generation_loop = types.MethodType(
-        Real._recursive_generation_loop, s
-    )
+    s._chat_post_process = types.MethodType(Real._chat_post_process, s)
     s._reconstruct_raw_assistant_text = Real._reconstruct_raw_assistant_text
     s._assemble_messages_from_context = types.MethodType(Real._assemble_messages_from_context, s)
 

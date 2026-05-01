@@ -433,33 +433,43 @@ class TestRAGMenuRendering:
         assert agents[0] == agent_atom
 
     def test_render_agent_menu(self):
-        """渲染子代理服务菜单"""
-        from hivememory.engines.retrieval.renderer import _render_agent_menu
+        """渲染子代理区域"""
+        from hivememory.engines.retrieval.renderer import _render_agent_profiles_section
+        from unittest.mock import MagicMock
+        from hivememory.core.models import MemoryAtom
 
         agent1 = MagicMock(spec=MemoryAtom)
+        agent1.get_alias = MagicMock(return_value="coder_doll")
         agent1.index = MagicMock()
-        agent1.index.alias = "coder_doll"
         agent1.index.title = "Backend Developer"
         agent1.index.summary = "Specializes in Python/FastAPI development"
 
         agent2 = MagicMock(spec=MemoryAtom)
+        agent2.get_alias = MagicMock(return_value="translator_doll")
         agent2.index = MagicMock()
-        agent2.index.alias = "translator_doll"
         agent2.index.title = "EN Translator"
         agent2.index.summary = "Chinese-English translation expert"
 
-        menu = _render_agent_menu([agent1, agent2])
+        section = _render_agent_profiles_section([agent1, agent2], has_memories=True)
 
-        assert "[Available Sub-Agents (Ready to CALL)]" in menu
-        assert '[ID: coder_doll]' in menu
-        assert '"Backend Developer"' in menu
-        assert '[ID: translator_doll]' in menu
-        assert '"EN Translator"' in menu
+        assert "可用子代理" in section
+        assert "coder_doll" in section
+        assert "Backend Developer" in section
+        assert "translator_doll" in section
+        assert "EN Translator" in section
 
     def test_render_agent_menu_empty(self):
-        """空列表返回空字符串"""
-        from hivememory.engines.retrieval.renderer import _render_agent_menu
-        assert _render_agent_menu([]) == ""
+        """无子代理且有记忆时渲染占位提示"""
+        from hivememory.engines.retrieval.renderer import _render_agent_profiles_section, _AGENT_EMPTY_HINT
+
+        section = _render_agent_profiles_section([], has_memories=True)
+        assert _AGENT_EMPTY_HINT in section
+
+    def test_render_agent_section_empty_no_memories(self):
+        """无子代理且无记忆时返回空字符串"""
+        from hivememory.engines.retrieval.renderer import _render_agent_profiles_section
+
+        assert _render_agent_profiles_section([], has_memories=False) == ""
 
     def test_separate_no_agents(self):
         """无 AGENT_PROFILE 时分离正常"""
