@@ -24,14 +24,12 @@
 版本: 3.0
 """
 
-import json
 import logging
 from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
-from hivememory.engines.perception.models import InteractionPayload, TraceItem
+from hivememory.engines.perception.models import InteractionPayload
 from hivememory.patchouli.protocol.models import ChatResult
-from hivememory.patchouli.mtp.models import MTPVerb
 from hivememory.infrastructure.trace_context import (
     generate_trace_id, set_trace_context, reset_trace_context
 )
@@ -42,7 +40,7 @@ from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
+from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.server.models.memory import MemoryResponse
 
@@ -113,6 +111,12 @@ class PatchouliSystem:
 
         # 4. 初始化 Worker Agent (LLM 文本生成引擎)
         self._worker_agent = WorkerAgentService(config=self.config.llm.worker)
+
+        # 4.5 初始化 Loop Executor (帧执行循环管理器)
+        self._loop_executor = KernelLoopExecutor(
+            kernel=self.kernel,
+            worker_agent=self._worker_agent,
+        )
 
         # 5. System 级 Pub/Sub 订阅
         # 注意: 回调中使用 asyncio.create_task 启动异步任务
@@ -501,17 +505,7 @@ class PatchouliSystem:
         """
         帧栈驱动的递归生成循环 (Phase 2 重构)
 
-        支持:
-        - 主 Agent 递归 MTP 执行
-        - 子 Agent 调用 (CALL 指令 → 帧挂起/恢复)
-        - 自动收割 (WRITE/UPDATE 别名跟踪)
-        - 黑盒隔离 (子 Agent 细节不污染主 Agent)
-
-        Phase A→B→C→D 循环:
-        A. LLM 生成
-        B. MTP 拦截检测
-        C. MTP 执行 (可能触发 CALL → 子帧派生)
-        D. 回填 & 继续
+        委托给 KernelLoopExecutor 执行。
 
         Args:
             messages: 初始 messages
@@ -525,310 +519,16 @@ class PatchouliSystem:
         Returns:
             ChatResult: 递归生成循环的完整结果
         """
-        max_iter = max_iterations or self.config.koakuma.max_recursion_depth
-
-        # 构建身份 (兼容旧接口)
         _identity = identity or Identity(user_id=user_id)
 
-        # 创建主帧
-        main_frame = self.kernel.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or self.kernel.load_agent_profile("omni_doll"),
+        return await self._loop_executor.execute_main_frame(
             messages=messages,
-            topic_id=topic_id or "",
+            max_iterations=max_iterations,
+            generation_options=generation_options,
+            agent_profile=agent_profile,
+            topic_id=topic_id,
             identity=_identity,
         )
-
-        # 执行主帧
-        return await self._execute_frame(
-            frame=main_frame,
-            max_iterations=max_iter,
-            generation_options=generation_options,
-        )
-
-    async def _execute_frame(
-        self,
-        frame: ExecutionFrame,
-        max_iterations: int,
-        generation_options: Optional[Dict[str, Any]] = None,
-    ) -> ChatResult:
-        """
-        执行单个帧的递归循环
-
-        这是 Phase 2 的核心方法，同时服务于主 Agent 和子 Agent。
-        子 Agent 的 CALL 触发递归调用此方法。
-
-        Phase A→B→C→D:
-        A. LLM 生成
-        B. 自然停止检测
-        C. MTP 执行 (SUSPEND → 子帧派生)
-        D. 回填 & 继续
-
-        Args:
-            frame: 执行帧
-            max_iterations: 最大递归次数
-            generation_options: LLM 生成选项
-
-        Returns:
-            ChatResult: 执行结果
-        """
-        text_segments: List[str] = []
-        mtp_commands: List[str] = []
-        iteration = 0
-
-        # 设置 Koakuma 上下文
-        self.kernel.koakuma.set_current_identity(frame.identity)
-        self.kernel.koakuma.set_active_profile(frame.agent_profile)
-        self.kernel.koakuma.set_current_depth(frame.depth)
-        self.kernel.koakuma.reset_interaction_state()
-
-        while iteration < max_iterations:
-            iteration += 1
-
-            # Phase A: LLM 生成
-            result = await self._worker_agent.generate_async(
-                frame.working_history,
-                **(generation_options or {}),
-            )
-
-            # Phase B: 自然停止
-            if not result.was_mtp_interrupted:
-                text_segments.append(result.text)
-                break
-
-            text_segments.append(result.prefix_text)
-
-            # Phase C: MTP 执行
-            mtp_result = await self.kernel.handle_mtp(result.text)
-
-            if mtp_result is None:
-                text_segments.append(result.mtp_fragment)
-                break
-
-            # Phase C.1: 检测 CALL 指令 (SUSPEND 状态)
-            if mtp_result.response_status == "suspend":
-                ipc_response = await self._handle_call_suspend(
-                    frame=frame,
-                    mtp_result=mtp_result,
-                    assistant_text=result.text,
-                    max_iterations=max_iterations,
-                    generation_options=generation_options,
-                )
-
-                # 回填到帧
-                frame.working_history.append(
-                    {"role": "assistant", "content": result.text + "⟫"}
-                )
-                frame.working_history.append({
-                    "role": "user",
-                    "content": f"[System IPC Return]\n{ipc_response}",
-                })
-                mtp_commands.append("CALL")
-                continue
-
-            # Phase C.2: 常规 MTP 指令
-            mtp_commands.append(
-                mtp_result.command.verb.value
-                if mtp_result.command else "UNKNOWN"
-            )
-
-            # Phase D: 回填
-            frame.working_history.append(
-                {"role": "assistant", "content": result.text + "⟫"}
-            )
-            frame.working_history.append({
-                "role": "user",
-                "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
-            })
-
-            # 自动收割 (仅子帧)
-            if frame.is_sub_frame() and mtp_result.command:
-                self._try_harvest_alias(frame, mtp_result)
-
-        return ChatResult(
-            final_text="".join(text_segments),
-            mtp_iterations=max(0, iteration - 1),
-            total_iterations=iteration,
-            mtp_commands_executed=mtp_commands,
-        )
-
-    async def _handle_call_suspend(
-        self,
-        frame: ExecutionFrame,
-        mtp_result,
-        assistant_text: str,
-        max_iterations: int,
-        generation_options: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """
-        处理 CALL 指令的 SUSPEND 状态
-
-        流程:
-        1. 解析 CALL 参数
-        2. 挂起当前帧
-        3. 派生子帧
-        4. 递归执行子帧
-        5. 恢复父帧
-        6. 组装 IPC 返回 payload
-
-        Args:
-            frame: 当前帧 (将被挂起)
-            mtp_result: MTP 执行结果 (含 CALL 参数)
-            assistant_text: LLM 生成的文本
-            max_iterations: 最大递归次数
-            generation_options: LLM 生成选项
-
-        Returns:
-            str: 格式化的 IPC 返回 payload (XML 格式)
-        """
-        call_params = json.loads(mtp_result.response_content)
-        target_alias = call_params["target_alias"]
-        task = call_params["task"]
-        context_refs = call_params.get("context_refs", [])
-
-        logger.info(
-            f"CALL suspend: target={target_alias}, task='{task[:80]}...'"
-        )
-
-        # 1. 挂起当前帧
-        self.kernel.frame_scheduler.suspend_frame(frame)
-
-        try:
-            # 2. 派生子帧
-            sub_frame = await self.kernel.frame_scheduler.fork_sub_frame(
-                parent_frame=frame,
-                target_alias=target_alias,
-                task=task,
-                context_refs=context_refs,
-            )
-
-            # 3. 递归执行子帧
-            sub_result = await self._execute_frame(
-                frame=sub_frame,
-                max_iterations=max_iterations,
-                generation_options=generation_options,
-            )
-
-            # 4. 恢复父帧 (弹出栈)
-            self.kernel.frame_scheduler.resume_frame()
-
-            # 5. 恢复父帧的 Koakuma 上下文
-            self.kernel.koakuma.set_current_identity(frame.identity)
-            self.kernel.koakuma.set_active_profile(frame.agent_profile)
-            self.kernel.koakuma.set_current_depth(frame.depth)
-
-            # 6. 记录 CALL 到 TraceItem (轨迹折叠)
-            self.kernel.koakuma._current_traces.append(TraceItem(
-                action="CALL",
-                target=target_alias,
-                status="success",
-            ))
-
-            # 7. 组装 IPC 返回 payload
-            return self._assemble_ipc_return(
-                sub_result=sub_result,
-                harvested_aliases=sub_frame.harvested_aliases,
-            )
-
-        except Exception as e:
-            logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
-
-            # 恢复父帧
-            self.kernel.frame_scheduler.resume_frame()
-            self.kernel.koakuma.set_current_identity(frame.identity)
-            self.kernel.koakuma.set_active_profile(frame.agent_profile)
-            self.kernel.koakuma.set_current_depth(frame.depth)
-
-            # 记录失败轨迹
-            self.kernel.koakuma._current_traces.append(TraceItem(
-                action="CALL",
-                target=target_alias,
-                status="error",
-            ))
-
-            return (
-                '<mtp_response status="error" type="ipc_return">\n'
-                f'[Sub-Agent Error]: The sub-agent "{target_alias}" encountered '
-                f'an error and could not complete the task.\n'
-                f'Action: Try a different approach or continue without the sub-agent.\n'
-                '</mtp_response>'
-            )
-
-    def _assemble_ipc_return(
-        self,
-        sub_result: ChatResult,
-        harvested_aliases: List[str],
-    ) -> str:
-        """
-        组装 IPC 返回 payload (XML 格式)
-
-        将子 Agent 的自然语言回复与自动收割的记忆指针混合打包。
-
-        格式:
-        <mtp_response status="success" type="ipc_return">
-        [Sub-Agent Reply]:
-        登录接口的代码已编写完毕。
-
-        [Artifacts Generated / Updated]:
-        - mem_login_api_spec (API 接口逻辑代码)
-        </mtp_response>
-
-        Args:
-            sub_result: 子 Agent 执行结果
-            harvested_aliases: 子 Agent 生成的记忆别名列表
-
-        Returns:
-            str: 格式化的 IPC 返回 payload
-        """
-        lines = ['<mtp_response status="success" type="ipc_return">']
-        lines.append("[Sub-Agent Reply]:")
-        lines.append(sub_result.final_text)
-
-        if harvested_aliases:
-            lines.append("")
-            lines.append("[Artifacts Generated / Updated]:")
-            for alias in harvested_aliases:
-                # 尝试获取记忆摘要
-                atom = self.kernel.koakuma.atom_cache.get_atom_by_alias(alias)
-                if atom and hasattr(atom, 'index') and atom.index.summary:
-                    summary = atom.index.summary[:60]
-                    lines.append(f"- {alias} ({summary})")
-                else:
-                    lines.append(f"- {alias}")
-
-        lines.append("</mtp_response>")
-        return "\n".join(lines)
-
-    def _try_harvest_alias(self, frame: ExecutionFrame, mtp_result) -> None:
-        """
-        尝试从 MTP 执行结果中收割别名 (仅子帧)
-
-        当子 Agent 执行 WRITE/UPDATE 时，提取生成的别名并
-        添加到帧的 harvested_aliases 列表中。
-
-        Args:
-            frame: 当前子帧
-            mtp_result: MTP 执行结果
-        """
-        if not mtp_result.command:
-            return
-
-        verb = mtp_result.command.verb
-        if verb not in (MTPVerb.WRITE, MTPVerb.UPDATE):
-            return
-
-        # UPDATE 的别名可以直接从 target 获取
-        if verb == MTPVerb.UPDATE:
-            alias = mtp_result.command.target.single_alias
-            if alias:
-                frame.add_harvested_alias(alias)
-                logger.debug(f"Harvested UPDATE alias: {alias}")
-
-        # WRITE 使用延迟捕获，别名需要从 Koakuma 获取
-        elif verb == MTPVerb.WRITE:
-            alias = self.kernel.koakuma.get_last_generated_alias()
-            if alias:
-                frame.add_harvested_alias(alias)
-                logger.debug(f"Harvested WRITE alias: {alias}")
 
     # ========== 流式对话 API (SSE) ==========
 
@@ -926,179 +626,28 @@ class PatchouliSystem:
                 current_agent_id=agent_id,
             )
 
-            # 6. 流式递归生成循环
-            max_iter = self.config.koakuma.max_recursion_depth
-            text_segments: List[str] = []
-            mtp_commands: List[str] = []
-            iteration = 0
-
-            self.kernel.koakuma.set_current_identity(identity)
+            # 6. 流式递归生成循环（委托给 KernelLoopExecutor）
             self.kernel.koakuma.set_active_profile(agent_profile)
-            self.kernel.koakuma.set_current_depth(0)  # Phase 2: 主 Agent depth=0
-            self.kernel.koakuma.reset_interaction_state()
+            loop_result = None
 
-            while iteration < max_iter:
-                iteration += 1
-                gen_result = None
+            async for event in self._loop_executor.execute_main_frame_stream(
+                messages=messages,
+                max_iterations=None,
+                generation_options=generation_options,
+                agent_profile=agent_profile,
+                topic_id=real_topic_id,
+                identity=identity,
+            ):
+                if event["event"] == "done":
+                    from hivememory.patchouli.protocol.models import ChatResult
+                    loop_result = ChatResult(**event["data"])
+                else:
+                    yield event
 
-                async for chunk in self._worker_agent.generate_stream(
-                    messages,
-                    **(generation_options or {}),
-                ):
-                    if chunk.is_final:
-                        gen_result = chunk.result
-                        break
-                    if not chunk.mtp_detected and chunk.delta:
-                        yield {"event": "token", "data": {"content": chunk.delta}}
+            if loop_result is None:
+                raise RuntimeError("Stream ended without done event")
 
-                if gen_result is None:
-                    break
-
-                if not gen_result.was_mtp_interrupted:
-                    text_segments.append(gen_result.text)
-                    break
-
-                # MTP 中断
-                text_segments.append(gen_result.prefix_text)
-
-                verb_hint = "UNKNOWN"
-                target_hint = ""
-                args_hint = {}
-                raw_hint = gen_result.mtp_fragment
-                try:
-                    from hivememory.patchouli.mtp.parser import MTPParser
-                    parsed_hint = MTPParser().complete_and_parse(gen_result.text)
-                    verb_hint = parsed_hint.verb.value
-                    if parsed_hint.target.is_wildcard:
-                        target_hint = "*"
-                    elif parsed_hint.target.aliases:
-                        target_hint = ",".join(parsed_hint.target.aliases)
-                    args_hint = dict(parsed_hint.args)
-                    raw_hint = parsed_hint.raw_text or raw_hint
-                except Exception:
-                    pass
-                yield {
-                    "event": "mtp_start",
-                    "data": {
-                        "verb": verb_hint,
-                        "target": target_hint,
-                        "args": args_hint,
-                        "raw_text": raw_hint,
-                        "iteration": iteration,
-                    },
-                }
-
-                mtp_result = await self.kernel.handle_mtp(gen_result.text)
-
-                if mtp_result is None:
-                    text_segments.append(gen_result.mtp_fragment)
-                    yield {
-                        "event": "mtp_result",
-                        "data": {
-                            "verb": verb_hint,
-                            "target": target_hint,
-                            "args": args_hint,
-                            "raw_text": raw_hint,
-                            "status": "failed",
-                            "iteration": iteration,
-                        },
-                    }
-                    break
-
-                # Phase 2: CALL 指令处理 (SUSPEND 状态)
-                if mtp_result.response_status == "suspend":
-                    call_params = json.loads(mtp_result.response_content)
-                    yield {
-                        "event": "mtp_result",
-                        "data": {
-                            "verb": "CALL",
-                            "target": call_params["target_alias"],
-                            "args": {"task": call_params["task"][:100]},
-                            "raw_text": raw_hint,
-                            "status": "suspend",
-                            "iteration": iteration,
-                        },
-                    }
-
-                    # 子 Agent 非流式执行 (黑盒原则)
-                    # 构建一个临时主帧用于 suspend/resume
-                    temp_frame = ExecutionFrame(
-                        process_id=f"pid_stream_main_{iteration}",
-                        agent_profile=agent_profile,
-                        working_history=messages,
-                        depth=0,
-                        topic_id=real_topic_id,
-                        identity=identity,
-                    )
-                    ipc_response = await self._handle_call_suspend(
-                        frame=temp_frame,
-                        mtp_result=mtp_result,
-                        assistant_text=gen_result.text,
-                        max_iterations=max_iter,
-                        generation_options=generation_options,
-                    )
-
-                    messages.append(
-                        {"role": "assistant", "content": gen_result.text + "⟫"}
-                    )
-                    messages.append({
-                        "role": "user",
-                        "content": f"[System IPC Return]\n{ipc_response}",
-                    })
-                    mtp_commands.append("CALL")
-
-                    yield {
-                        "event": "mtp_result",
-                        "data": {
-                            "verb": "CALL",
-                            "target": call_params["target_alias"],
-                            "args": {"task": call_params["task"][:100]},
-                            "raw_text": raw_hint,
-                            "status": "success" if '<mtp_response status="success"' in ipc_response else "error",
-                            "iteration": iteration,
-                        },
-                    }
-                    continue
-
-                verb = mtp_result.command.verb.value if mtp_result.command else "UNKNOWN"
-                mtp_commands.append(verb)
-                if mtp_result.command and mtp_result.command.target:
-                    if mtp_result.command.target.is_wildcard:
-                        target_hint = "*"
-                    elif mtp_result.command.target.aliases:
-                        target_hint = ",".join(mtp_result.command.target.aliases)
-                    else:
-                        target_hint = ""
-                    args_hint = dict(mtp_result.command.args or {})
-                    raw_hint = mtp_result.command.raw_text or raw_hint
-
-                yield {
-                    "event": "mtp_result",
-                    "data": {
-                        "verb": verb,
-                        "target": target_hint,
-                        "args": args_hint,
-                        "raw_text": raw_hint,
-                        "status": mtp_result.response_status,
-                        "iteration": iteration,
-                    },
-                }
-
-                messages.append({"role": "assistant", "content": gen_result.text + "⟫"})
-                messages.append({
-                    "role": "user",
-                    "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
-                })
-
-            # 7. 构建最终结果
-            loop_result = ChatResult(
-                final_text="".join(text_segments),
-                mtp_iterations=max(0, iteration - 1),
-                total_iterations=iteration,
-                mtp_commands_executed=mtp_commands,
-            )
-
-            # 8. 提交 InteractionPayload
+            # 7. 提交 InteractionPayload
             raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
 
             try:

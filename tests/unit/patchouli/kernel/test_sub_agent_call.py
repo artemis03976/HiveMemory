@@ -350,16 +350,17 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_no_artifacts(self):
         """成功返回，无 artifacts"""
-        from hivememory.patchouli.system import PatchouliSystem
+        from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
 
-        sys = MagicMock(spec=PatchouliSystem)
+        executor = MagicMock(spec=KernelLoopExecutor)
+        executor.kernel = MagicMock()
         import types
-        sys._assemble_ipc_return = types.MethodType(
-            PatchouliSystem._assemble_ipc_return, sys
+        executor._assemble_ipc_return = types.MethodType(
+            KernelLoopExecutor._assemble_ipc_return, executor
         )
 
         result = ChatResult(final_text="Task completed successfully.")
-        payload = sys._assemble_ipc_return(result, [])
+        payload = executor._assemble_ipc_return(result, [])
 
         assert '<mtp_response status="success" type="ipc_return">' in payload
         assert "[Sub-Agent Reply]:" in payload
@@ -369,19 +370,19 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_with_artifacts(self):
         """成功返回，含 artifacts"""
-        from hivememory.patchouli.system import PatchouliSystem
+        from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
 
-        sys = MagicMock(spec=PatchouliSystem)
-        sys.kernel = MagicMock()
-        sys.kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
+        executor = MagicMock(spec=KernelLoopExecutor)
+        executor.kernel = MagicMock()
+        executor.kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
 
         import types
-        sys._assemble_ipc_return = types.MethodType(
-            PatchouliSystem._assemble_ipc_return, sys
+        executor._assemble_ipc_return = types.MethodType(
+            KernelLoopExecutor._assemble_ipc_return, executor
         )
 
         result = ChatResult(final_text="Code written.")
-        payload = sys._assemble_ipc_return(result, ["mem_code_1", "mem_code_2"])
+        payload = executor._assemble_ipc_return(result, ["mem_code_1", "mem_code_2"])
 
         assert "[Artifacts Generated / Updated]:" in payload
         assert "- mem_code_1" in payload

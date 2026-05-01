@@ -123,6 +123,7 @@ def sys():
 
     # Kernel
     s.kernel = MagicMock()
+    s.kernel.config = s.config  # 共享 config 对象
     s.kernel.handle_hot = AsyncMock(return_value=_make_hot_result())
     s.kernel.handle_mtp = AsyncMock(return_value=None)
     s.kernel.get_topic_snapshots = AsyncMock(return_value=[])
@@ -163,6 +164,13 @@ def sys():
     # SystemBus (optional)
     s._bus = None
 
+    # Loop Executor (Phase 2 重构) - 使用真实实例但注入 mock 依赖
+    from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+    s._loop_executor = KernelLoopExecutor(
+        kernel=s.kernel,
+        worker_agent=s._worker_agent,
+    )
+
     # 绑定真实方法
     from hivememory.patchouli.system import PatchouliSystem as Real
     _chat_async = types.MethodType(Real.chat, s)
@@ -170,10 +178,6 @@ def sys():
     s._recursive_generation_loop = types.MethodType(
         Real._recursive_generation_loop, s
     )
-    s._execute_frame = types.MethodType(Real._execute_frame, s)
-    s._handle_call_suspend = types.MethodType(Real._handle_call_suspend, s)
-    s._assemble_ipc_return = types.MethodType(Real._assemble_ipc_return, s)
-    s._try_harvest_alias = types.MethodType(Real._try_harvest_alias, s)
     s._reconstruct_raw_assistant_text = Real._reconstruct_raw_assistant_text
     s._assemble_messages_from_context = types.MethodType(Real._assemble_messages_from_context, s)
 
