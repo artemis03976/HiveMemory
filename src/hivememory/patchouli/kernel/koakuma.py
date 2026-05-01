@@ -133,7 +133,7 @@ class KoakumaRuntime:
 
         # ========== 多智能体权限沙箱 (Phase 1) ==========
         # 由 PatchouliSystem 在每轮 chat/stream 开始时通过 set_active_profile() 设置
-        self._active_profile: Optional[Any] = None  # AgentProfileConfig
+        self._active_profile: Optional[Any] = None  # AgentProfile
 
     def set_current_identity(self, identity: Identity) -> None:
         """
@@ -172,7 +172,7 @@ class KoakumaRuntime:
         设置后，所有 MTP 指令执行前都会进行权限校验。
 
         Args:
-            profile: AgentProfileConfig 实例（或 None 表示无限制）
+            profile: AgentProfile 实例（或 None 表示无限制）
         """
         self._active_profile = profile
 

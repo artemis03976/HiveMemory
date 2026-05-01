@@ -10,7 +10,7 @@ Phase 2 多智能体子代理调用核心数据结构。
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from hivememory.core.models import AgentProfileConfig, Identity
+from hivememory.core.models import AgentProfile, Identity
 
 
 @dataclass
@@ -32,7 +32,7 @@ class ExecutionFrame:
         harvested_aliases: 自动收割的 WRITE/UPDATE 别名列表
     """
     process_id: str
-    agent_profile: AgentProfileConfig
+    agent_profile: AgentProfile
     working_history: List[Dict[str, str]]
     depth: int
     topic_id: Optional[str]

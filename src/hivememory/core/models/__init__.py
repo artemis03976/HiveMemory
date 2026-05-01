@@ -21,7 +21,7 @@ from .interaction import (
     StreamMessage,
 )
 from .agent import (
-    AgentProfileConfig,
+    AgentProfile,
     OMNI_DOLL_PROFILE,
 )
 
@@ -38,6 +38,6 @@ __all__ = [
     "Identity",
     "StreamMessageType",
     "StreamMessage",
-    "AgentProfileConfig",
+    "AgentProfile",
     "OMNI_DOLL_PROFILE",
 ]

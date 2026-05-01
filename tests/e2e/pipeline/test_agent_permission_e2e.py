@@ -12,7 +12,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from uuid import uuid4
 
-from hivememory.core.models import AgentProfileConfig, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import AgentProfile, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.patchouli.kernel.core import PatchouliKernel
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
@@ -166,11 +166,7 @@ class TestPromptToKoakumaEnforcement:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.load_agent_profile("reader_only")
-        profile_config = AgentProfileConfig(
-            allowed_mtp_verbs=profile.allowed_mtp_verbs,
-            allowed_sys_tools=profile.allowed_sys_tools,
-        )
-        koakuma.set_active_profile(profile_config)
+        koakuma.set_active_profile(profile)
 
         # 允许的动词应该通过
         koakuma._check_verb_permission("READ")
@@ -195,11 +191,7 @@ class TestPromptToKoakumaEnforcement:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.load_agent_profile("safe_agent")
-        profile_config = AgentProfileConfig(
-            allowed_mtp_verbs=profile.allowed_mtp_verbs,
-            allowed_sys_tools=profile.allowed_sys_tools,
-        )
-        koakuma.set_active_profile(profile_config)
+        koakuma.set_active_profile(profile)
 
         # 允许的工具应该通过
         koakuma._check_tool_permission("sys_clock")
@@ -236,11 +228,7 @@ class TestEndToEndPermissionChain:
         assert "- UPDATE:" not in mtp_prompt
 
         # 2. Runtime 层：Koakuma 拦截 WRITE
-        profile_config = AgentProfileConfig(
-            allowed_mtp_verbs=profile.allowed_mtp_verbs,
-            allowed_sys_tools=profile.allowed_sys_tools,
-        )
-        koakuma.set_active_profile(profile_config)
+        koakuma.set_active_profile(profile)
 
         with pytest.raises(PermissionDeniedError) as exc_info:
             koakuma._check_verb_permission("WRITE")
@@ -268,11 +256,7 @@ class TestEndToEndPermissionChain:
         assert "sys_write_file" in mtp_prompt
 
         # 2. Runtime 层：Koakuma 允许 WRITE
-        profile_config = AgentProfileConfig(
-            allowed_mtp_verbs=profile.allowed_mtp_verbs,
-            allowed_sys_tools=profile.allowed_sys_tools,
-        )
-        koakuma.set_active_profile(profile_config)
+        koakuma.set_active_profile(profile)
 
         # 应该不抛异常
         koakuma._check_verb_permission("WRITE")
@@ -319,11 +303,7 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.load_agent_profile("restricted")
-        profile_config = AgentProfileConfig(
-            allowed_mtp_verbs=profile.allowed_mtp_verbs,
-            allowed_sys_tools=profile.allowed_sys_tools,
-        )
-        koakuma.set_active_profile(profile_config)
+        koakuma.set_active_profile(profile)
 
         # 即使 LLM 幻觉输出了 WRITE 指令，运行时也会拦截
         with pytest.raises(PermissionDeniedError):
@@ -341,11 +321,7 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.load_agent_profile("limited")
-        profile_config = AgentProfileConfig(
-            allowed_mtp_verbs=profile.allowed_mtp_verbs,
-            allowed_sys_tools=profile.allowed_sys_tools,
-        )
-        koakuma.set_active_profile(profile_config)
+        koakuma.set_active_profile(profile)
 
         # sys_clock 应该通过
         koakuma._check_tool_permission("sys_clock")
@@ -367,11 +343,7 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=restrictive_atom)
 
         profile1 = kernel.load_agent_profile("restrictive")
-        config1 = AgentProfileConfig(
-            allowed_mtp_verbs=profile1.allowed_mtp_verbs,
-            allowed_sys_tools=profile1.allowed_sys_tools,
-        )
-        koakuma.set_active_profile(config1)
+        koakuma.set_active_profile(profile1)
 
         # WRITE 应该被拒绝
         with pytest.raises(PermissionDeniedError):
@@ -386,11 +358,7 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=permissive_atom)
 
         profile2 = kernel.load_agent_profile("permissive")
-        config2 = AgentProfileConfig(
-            allowed_mtp_verbs=profile2.allowed_mtp_verbs,
-            allowed_sys_tools=profile2.allowed_sys_tools,
-        )
-        koakuma.set_active_profile(config2)
+        koakuma.set_active_profile(profile2)
 
         # WRITE 现在应该通过
         koakuma._check_verb_permission("WRITE")

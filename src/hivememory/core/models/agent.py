@@ -9,18 +9,19 @@ from typing import List, Optional, Set
 from pydantic import BaseModel, Field
 
 
-class AgentProfileConfig(BaseModel):
+class AgentProfile(BaseModel):
     """
-    人偶图纸配置 - 从 MemoryAtom.payload.artifacts.agent_config 解析
+    人偶图纸配置 - Agent 运行时的完整配置信息
 
-    灵魂 (Persona): 由 MemoryAtom.payload.content 承载，不在此处重复
-    骨架 (Skeleton): 模型参数 + 权限控制表
+    灵魂 (Persona): 由 persona 字段承载，来自 MemoryAtom.payload.content
+    骨架 (Skeleton): 模型参数 + 权限控制表，来自 MemoryAtom.payload.artifacts.agent_config
 
     权限语义：
     - None = 全部允许（omni_doll 默认行为）
     - [] 空列表 = 禁止所有
     - 非空列表 = 白名单模式，仅允许列表中的项目
     """
+    persona: str = Field(default="", description="Agent 人设提示词")
     model_name: str = Field(default="default", description="基底模型名称")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="推理温度")
 
@@ -79,7 +80,8 @@ class AgentProfileConfig(BaseModel):
         return tool_alias in self.get_tool_set()
 
 
-OMNI_DOLL_PROFILE = AgentProfileConfig(
+OMNI_DOLL_PROFILE = AgentProfile(
+    persona="",
     model_name="default",
     temperature=0.7,
     allowed_mtp_verbs=None,

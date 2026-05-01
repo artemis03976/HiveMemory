@@ -8,7 +8,7 @@ Phase 2 多智能体子代理调用的核心调度组件。
 import logging
 from typing import TYPE_CHECKING, List, Optional
 
-from hivememory.core.models import AgentProfileConfig, Identity
+from hivememory.core.models import AgentProfile, Identity
 from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ class FrameScheduler:
 
     def create_main_frame(
         self,
-        agent_profile: AgentProfileConfig,
+        agent_profile: AgentProfile,
         messages: List[dict],
         topic_id: str,
         identity: Identity,
@@ -80,7 +80,6 @@ class FrameScheduler:
         4. 创建瞬态帧 (topic_id=None)
         """
         sub_profile = self.kernel.load_agent_profile(target_alias)
-        sub_persona = self.kernel.get_agent_persona(target_alias)
 
         logger.info(
             f"Forking sub-frame: target={target_alias}, "
@@ -89,7 +88,7 @@ class FrameScheduler:
 
         system_prompt = await self._build_sub_agent_system_prompt(
             profile=sub_profile,
-            persona=sub_persona,
+            persona=sub_profile.persona,
             context_refs=context_refs,
             depth=1,
         )
@@ -115,7 +114,7 @@ class FrameScheduler:
 
     async def _build_sub_agent_system_prompt(
         self,
-        profile: AgentProfileConfig,
+        profile: AgentProfile,
         persona: str,
         context_refs: List[str],
         depth: int,

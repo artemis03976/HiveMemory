@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from hivememory.core.models import (
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, AgentProfileConfig, OMNI_DOLL_PROFILE
+    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, AgentProfile, OMNI_DOLL_PROFILE
 )
 from hivememory.patchouli.kernel.core import PatchouliKernel
 
@@ -91,7 +91,8 @@ class TestLoadAgentProfile:
         profile = kernel.load_agent_profile("coder_doll")
 
         assert profile is not None
-        assert isinstance(profile, AgentProfileConfig)
+        assert isinstance(profile, AgentProfile)
+        assert profile.persona == "You are a senior Python developer."
         assert profile.allowed_mtp_verbs == ["READ", "SEARCH", "RUN"]
         assert profile.allowed_sys_tools == ["sys_read_file", "sys_write_file"]
         mock_storage.get_memory_by_alias.assert_called_once_with("coder_doll")
@@ -206,54 +207,12 @@ class TestLoadAgentProfile:
         mock_storage.get_memory_by_alias.assert_not_called()
 
 
-class TestGetAgentPersona:
-    """get_agent_persona() 测试"""
-
-    def test_get_persona_from_cached_profile(self):
-        """从缓存的图纸提取 persona"""
-        profile_atom = _make_profile_atom(
-            agent_id="test_agent",
-            persona="You are a helpful assistant specialized in testing.",
-        )
-
-        mock_storage = Mock()
-        mock_storage.get_memory_by_alias = Mock(return_value=profile_atom)
-        kernel = _create_kernel_with_storage(mock_storage)
-
-        # 先加载 profile（触发缓存）
-        kernel.load_agent_profile("test_agent")
-
-        # 获取 persona
-        persona = kernel.get_agent_persona("test_agent")
-
-        assert persona == "You are a helpful assistant specialized in testing."
-
-    def test_get_persona_not_found_returns_empty(self):
-        """图纸不存在时返回空字符串"""
-        mock_storage = Mock()
-        mock_storage.get_memory_by_alias = Mock(return_value=None)
-        kernel = _create_kernel_with_storage(mock_storage)
-
-        persona = kernel.get_agent_persona("nonexistent_agent")
-
-        assert persona == ""
-
-    def test_get_persona_default_alias_returns_empty(self):
-        """default 别名返回空字符串"""
-        mock_storage = Mock()
-        kernel = _create_kernel_with_storage(mock_storage)
-
-        persona = kernel.get_agent_persona("default")
-
-        assert persona == ""
-
-
 class TestProfilePermissions:
-    """AgentProfileConfig 权限方法测试"""
+    """AgentProfile 权限方法测试"""
 
     def test_is_verb_allowed_with_whitelist(self):
         """白名单模式：只允许列表中的动词"""
-        profile = AgentProfileConfig(
+        profile = AgentProfile(
             allowed_mtp_verbs=["READ", "SEARCH"],
             allowed_sys_tools=[],
         )
@@ -265,7 +224,7 @@ class TestProfilePermissions:
 
     def test_is_verb_allowed_empty_list_denies_all(self):
         """空列表：禁止所有动词"""
-        profile = AgentProfileConfig(
+        profile = AgentProfile(
             allowed_mtp_verbs=[],
             allowed_sys_tools=[],
         )
@@ -276,7 +235,7 @@ class TestProfilePermissions:
 
     def test_is_tool_allowed_with_whitelist(self):
         """白名单模式：只允许列表中的工具"""
-        profile = AgentProfileConfig(
+        profile = AgentProfile(
             allowed_mtp_verbs=[],
             allowed_sys_tools=["sys_clock", "sys_read_file"],
         )
@@ -288,7 +247,7 @@ class TestProfilePermissions:
 
     def test_is_tool_allowed_empty_list_denies_all(self):
         """空列表：禁止所有工具"""
-        profile = AgentProfileConfig(
+        profile = AgentProfile(
             allowed_mtp_verbs=[],
             allowed_sys_tools=[],
         )

@@ -405,7 +405,6 @@ class PatchouliSystem:
 
             # 1.5 Load agent profile (Phase 1 多智能体)
             agent_profile = self.kernel.load_agent_profile(agent_id)
-            persona = self.kernel.get_agent_persona(agent_id)
 
             # 2. Get topic snapshots from perception layer
             topic_snapshots = await self.kernel.get_topic_snapshots(identity)
@@ -432,57 +431,35 @@ class PatchouliSystem:
                 enable_retrieval=enable_memory_retrieval,
             )
 
-            # 7. Assemble messages from perception layer context
+            # 6. Assemble messages from perception layer context
             messages = self._assemble_messages_from_context(
                 topic_context=topic_context,
                 hot_result=hot_result,
                 user_message=user_message,
                 profile=agent_profile,
-                persona=persona,
                 current_agent_id=agent_id,
             )
 
-            # 8. 递归生成循环
+            # 7. 递归生成循环
             # 设置 Koakuma 权限沙箱 (Phase 1 多智能体)
             self.kernel.koakuma.set_active_profile(agent_profile)
 
-            loop_result = await self._recursive_generation_loop(
-                messages,
-                user_id,
+            loop_result = await self._loop_executor.execute_main_frame(
+                messages=messages,
+                max_iterations=None,
                 generation_options=generation_options,
-                identity=identity,
                 agent_profile=agent_profile,
                 topic_id=real_topic_id,
-            )
-
-            # 9. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
-            raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
-
-            # Koakuma 离线 fallback: 降级为空 traces / None focus
-            try:
-                mtp_traces = self.kernel.koakuma.get_interaction_traces()
-                write_focus = self.kernel.koakuma.get_write_focus()
-                update_focus = self.kernel.koakuma.get_update_focus()
-            except Exception as e:
-                logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
-                mtp_traces = []
-                write_focus = None
-                update_focus = None
-
-            payload = InteractionPayload(
-                user_message=user_message,
-                assistant_message=raw_assistant_text,
-                mtp_traces=mtp_traces,
-                write_focus=write_focus,
-                update_focus=update_focus,
                 identity=identity,
-                rewritten_query=hot_result.rewritten,
-                worth_saving=hot_result.worth_saving,
             )
 
-            # 阻塞等待提交完成，确保 token 溢出压缩等操作完成后再返回
-            await self.kernel.submit_interaction(
-                payload, target_topic=real_topic_id
+            await self._chat_post_process(
+                messages=messages,
+                loop_result=loop_result,
+                hot_result=hot_result,
+                identity=identity,
+                topic_id=real_topic_id,
+                user_message=user_message,
             )
 
             logger.info("Chat completed successfully")
@@ -490,45 +467,6 @@ class PatchouliSystem:
 
         finally:
             reset_trace_context(tokens)
-
-    async def _recursive_generation_loop(
-        self,
-        messages: List[Dict[str, str]],
-        user_id: str,
-        max_iterations: Optional[int] = None,
-        generation_options: Optional[Dict[str, Any]] = None,
-        *,
-        identity: Optional[Identity] = None,
-        agent_profile=None,
-        topic_id: Optional[str] = None,
-    ) -> ChatResult:
-        """
-        帧栈驱动的递归生成循环 (Phase 2 重构)
-
-        委托给 KernelLoopExecutor 执行。
-
-        Args:
-            messages: 初始 messages
-            user_id: 用户 ID
-            max_iterations: 最大递归次数
-            generation_options: LLM 生成选项
-            identity: 完整身份标识 (Phase 2)
-            agent_profile: 人偶图纸配置 (Phase 2)
-            topic_id: 话题 ID (Phase 2)
-
-        Returns:
-            ChatResult: 递归生成循环的完整结果
-        """
-        _identity = identity or Identity(user_id=user_id)
-
-        return await self._loop_executor.execute_main_frame(
-            messages=messages,
-            max_iterations=max_iterations,
-            generation_options=generation_options,
-            agent_profile=agent_profile,
-            topic_id=topic_id,
-            identity=_identity,
-        )
 
     # ========== 流式对话 API (SSE) ==========
 
@@ -571,7 +509,6 @@ class PatchouliSystem:
 
             # Load agent profile (Phase 1 多智能体)
             agent_profile = self.kernel.load_agent_profile(agent_id)
-            persona = self.kernel.get_agent_persona(agent_id)
 
             # 1. 获取话题快照
             topic_snapshots = await self.kernel.get_topic_snapshots(identity)
@@ -622,7 +559,6 @@ class PatchouliSystem:
                 hot_result=hot_result,
                 user_message=user_message,
                 profile=agent_profile,
-                persona=persona,
                 current_agent_id=agent_id,
             )
 
@@ -647,31 +583,13 @@ class PatchouliSystem:
             if loop_result is None:
                 raise RuntimeError("Stream ended without done event")
 
-            # 7. 提交 InteractionPayload
-            raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
-
-            try:
-                mtp_traces = self.kernel.koakuma.get_interaction_traces()
-                write_focus = self.kernel.koakuma.get_write_focus()
-                update_focus = self.kernel.koakuma.get_update_focus()
-            except Exception:
-                mtp_traces = []
-                write_focus = None
-                update_focus = None
-
-            interaction_payload = InteractionPayload(
-                user_message=user_message,
-                assistant_message=raw_assistant_text,
-                mtp_traces=mtp_traces,
-                write_focus=write_focus,
-                update_focus=update_focus,
+            await self._chat_post_process(
+                messages=messages,
+                loop_result=loop_result,
+                hot_result=hot_result,
                 identity=identity,
-                rewritten_query=hot_result.rewritten,
-                worth_saving=hot_result.worth_saving,
-            )
-
-            await self.kernel.submit_interaction(
-                interaction_payload, target_topic=real_topic_id
+                topic_id=real_topic_id,
+                user_message=user_message,
             )
 
             logger.info("Stream completed successfully")
@@ -723,8 +641,7 @@ class PatchouliSystem:
         topic_context: Dict[str, Any],
         hot_result,  # KernelHotResult
         user_message: str,
-        profile=None,  # AgentProfileConfig (Phase 1)
-        persona: str = "",
+        profile=None,  # AgentProfile (Phase 1)
         current_agent_id: str = "omni_doll",
     ) -> List[Dict[str, str]]:
         """
@@ -733,7 +650,7 @@ class PatchouliSystem:
         三明治结构 (Phase 1):
         1. System prompt:
            - Top: MTP 协议教学 + 存储降级通知
-           - Middle: 灵魂注入 (persona)
+           - Middle: 灵魂注入 (persona from profile)
            - Bottom: 预检索记忆 + 话题状态
         2. Topic history (from blocks, 含多角色渲染)
         3. Current user message
@@ -742,8 +659,7 @@ class PatchouliSystem:
             topic_context: 话题上下文（来自感知层）
             hot_result: Kernel hot path 结果（包含检索到的记忆）
             user_message: 当前用户消息
-            profile: 人偶图纸配置（Phase 1 权限过滤）
-            persona: 人偶灵魂文本（Phase 1 灵魂注入）
+            profile: 人偶图纸配置（Phase 1 权限过滤 + 灵魂注入）
             current_agent_id: 当前活跃 Agent 别名（Phase 1 多角色渲染）
 
         Returns:
@@ -767,8 +683,8 @@ class PatchouliSystem:
             builder.with_storage_offline_notice()
 
         # Middle: 灵魂注入
-        if profile and persona:
-            builder.with_persona(persona)
+        if profile and profile.persona:
+            builder.with_persona(profile.persona)
 
         # Bottom: 预检索记忆
         builder.with_memory_context(hot_result.rendered_memory_context)
@@ -824,6 +740,60 @@ class PatchouliSystem:
 
         # Fallback: 如果没有 assistant messages (不应发生)，使用 final_text
         return loop_result.final_text
+
+    async def _chat_post_process(
+        self,
+        messages: List[Dict[str, str]],
+        loop_result: ChatResult,
+        hot_result,
+        identity: Identity,
+        topic_id: str,
+        user_message: str,
+    ) -> None:
+        """
+        Chat 后处理通用函数
+
+        统一处理:
+        1. 重建原始 assistant 文本
+        2. 获取 MTP traces 和 focus
+        3. 构建 InteractionPayload
+        4. 提交到感知层
+
+        Args:
+            messages: 递归循环结束后的完整消息列表
+            loop_result: 循环结果
+            hot_result: KernelHotResult (包含 rewritten 和 worth_saving)
+            identity: 身份标识
+            topic_id: 话题 ID
+            user_message: 用户原始消息
+
+        Returns:
+            None: 无返回值
+        """
+        raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
+
+        try:
+            mtp_traces = self.kernel.koakuma.get_interaction_traces()
+            write_focus = self.kernel.koakuma.get_write_focus()
+            update_focus = self.kernel.koakuma.get_update_focus()
+        except Exception as e:
+            logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
+            mtp_traces = []
+            write_focus = None
+            update_focus = None
+
+        payload = InteractionPayload(
+            user_message=user_message,
+            assistant_message=raw_assistant_text,
+            mtp_traces=mtp_traces,
+            write_focus=write_focus,
+            update_focus=update_focus,
+            identity=identity,
+            rewritten_query=hot_result.rewritten,
+            worth_saving=hot_result.worth_saving,
+        )
+
+        await self.kernel.submit_interaction(payload, target_topic=topic_id)
 
 
 __all__ = [

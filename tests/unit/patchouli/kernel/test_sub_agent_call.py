@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from hivememory.core.models import (
     Identity,
-    AgentProfileConfig,
+    AgentProfile,
     MemoryAtom,
     MemoryType,
     OMNI_DOLL_PROFILE,
@@ -238,7 +238,6 @@ class TestFrameScheduler:
     def _make_kernel_mock(self):
         kernel = MagicMock()
         kernel.load_agent_profile = MagicMock(return_value=OMNI_DOLL_PROFILE)
-        kernel.get_agent_persona = MagicMock(return_value="I am a test agent")
         kernel.get_mtp_prompt = MagicMock(return_value="### MTP Instructions\n## CALL\nCALL instructions here\n## READ\nREAD instructions")
         kernel.check_storage_health = MagicMock(return_value=True)
         kernel.config = MagicMock()

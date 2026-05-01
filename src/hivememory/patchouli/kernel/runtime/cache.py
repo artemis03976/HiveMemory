@@ -15,7 +15,7 @@ import logging
 from collections import OrderedDict
 from typing import Dict, List, Optional
 
-from hivememory.core.models import AgentProfileConfig, MemoryAtom, MemoryType
+from hivememory.core.models import AgentProfile, MemoryAtom, MemoryType
 
 logger = logging.getLogger(__name__)
 
@@ -97,9 +97,9 @@ class AgentProfileCache:
     def __init__(self, max_size: int = 32):
         """初始化图纸缓存，默认最大 32 条。"""
         self._max_size = max_size
-        self._cache: OrderedDict[str, tuple[MemoryAtom, AgentProfileConfig]] = OrderedDict()
+        self._cache: OrderedDict[str, tuple[MemoryAtom, AgentProfile]] = OrderedDict()
 
-    def get(self, alias: str) -> Optional[AgentProfileConfig]:
+    def get(self, alias: str) -> Optional[AgentProfile]:
         """从缓存获取配置（不触发 storage 查询）。"""
         entry = self._cache.get(alias)
         if entry is not None:
@@ -115,7 +115,7 @@ class AgentProfileCache:
             return entry[0]
         return None
 
-    def load(self, alias: str, storage) -> Optional[AgentProfileConfig]:
+    def load(self, alias: str, storage) -> Optional[AgentProfile]:
         """加载人偶图纸：缓存优先，未命中时回源 storage。"""
         cached = self.get(alias)
         if cached is not None:
@@ -145,8 +145,8 @@ class AgentProfileCache:
         logger.info(f"Agent profile '{alias}' loaded and cached.")
         return config
 
-    def parse_config(self, atom: MemoryAtom) -> Optional[AgentProfileConfig]:
-        """从 MemoryAtom.payload.artifacts 解析 AgentProfileConfig。"""
+    def parse_config(self, atom: MemoryAtom) -> Optional[AgentProfile]:
+        """从 MemoryAtom 解析 AgentProfile（包含 persona 和 config）。"""
         raw = atom.payload.artifacts.agent_config
         if raw is None:
             logger.warning(
@@ -155,7 +155,12 @@ class AgentProfileCache:
             return None
 
         try:
-            return AgentProfileConfig(**raw)
+            # 从 artifacts.agent_config 解析配置，从 payload.content 获取 persona
+            config = AgentProfile(
+                persona=atom.payload.content,
+                **raw
+            )
+            return config
         except Exception as e:
             logger.error(f"Failed to parse agent_config for '{atom.get_alias()}': {e}")
             return None
@@ -168,7 +173,7 @@ class AgentProfileCache:
         """清空全部图纸缓存。"""
         self._cache.clear()
 
-    def _put(self, alias: str, atom: MemoryAtom, config: AgentProfileConfig) -> None:
+    def _put(self, alias: str, atom: MemoryAtom, config: AgentProfile) -> None:
         """写入缓存并维护 LRU 淘汰策略。"""
         if alias in self._cache:
             self._cache.move_to_end(alias)

@@ -134,8 +134,11 @@ def sys():
     ))
     s.kernel.get_mtp_prompt = MagicMock(return_value="")
     s.kernel.check_storage_health = MagicMock(return_value=True)
-    s.kernel.load_agent_profile = MagicMock(return_value=None)
-    s.kernel.get_agent_persona = MagicMock(return_value="")
+
+    # Mock load_agent_profile to return OMNI_DOLL_PROFILE
+    from hivememory.core.models import OMNI_DOLL_PROFILE
+    s.kernel.load_agent_profile = MagicMock(return_value=OMNI_DOLL_PROFILE)
+
     s.kernel.koakuma = MagicMock()
     s.kernel.submit_interaction = AsyncMock(return_value=None)
     s.kernel.librarian_core = MagicMock()
