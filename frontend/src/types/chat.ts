@@ -9,11 +9,18 @@ import type { MemoryAtom } from './memory';
 
 // ========== SSE Event Data Types ==========
 
-export interface ChatTokenEvent {
+export interface StreamNamespace {
+  scope?: 'main' | 'sub';
+  depth?: number;
+  agent_id?: string;
+  frame_id?: string;
+}
+
+export interface ChatTokenEvent extends StreamNamespace {
   content: string;
 }
 
-export interface MTPStartEvent {
+export interface MTPStartEvent extends StreamNamespace {
   verb: string;
   target?: string;
   args?: Record<string, unknown>;
@@ -21,7 +28,7 @@ export interface MTPStartEvent {
   iteration: number;
 }
 
-export interface MTPResultEvent {
+export interface MTPResultEvent extends StreamNamespace {
   verb: string;
   target?: string;
   args?: Record<string, unknown>;
@@ -63,13 +70,27 @@ export interface ChatErrorEvent {
   detail?: string;
 }
 
+export interface SubAgentStartEvent extends StreamNamespace {
+  agent_id: string;
+  task: string;
+  iteration: number;
+}
+
+export interface SubAgentEndEvent extends StreamNamespace {
+  status: 'success' | 'error';
+  final_text?: string;
+  iteration: number;
+}
+
 export interface MemoryRefsEvent {
   memories: MemoryAtom[];
 }
 
 // ========== SSE Event Union Type ==========
 
-export type SSEEventType = 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'memory_refs' | 'done' | 'error';
+export type SSEEventType =
+  | 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'memory_refs' | 'done' | 'error'
+  | 'sub_agent_start' | 'sub_agent_end';
 
 export interface SSEEvent {
   event: SSEEventType;
@@ -114,4 +135,9 @@ export interface SSECallbacks {
   onDone: (data: ChatDoneEvent) => void;
   onError: (data: ChatErrorEvent) => void;
   onConnectionError: (error: Error) => void;
+  onSubAgentStart: (data: SubAgentStartEvent) => void;
+  onSubAgentToken: (data: ChatTokenEvent) => void;
+  onSubAgentMTPStart: (data: MTPStartEvent) => void;
+  onSubAgentMTPResult: (data: MTPResultEvent) => void;
+  onSubAgentEnd: (data: SubAgentEndEvent) => void;
 }

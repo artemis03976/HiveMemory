@@ -12,12 +12,12 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { ChatSSEClient } from '@/services/chatApi';
+import { createChatSSECallbacks } from '@/stores/chatStore.callbacks';
+import { applyDone, applyStreamError } from '@/stores/chatStore.updaters';
 import { useTopicStore } from '@/stores/topicStore';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
 import type {
   Message,
-  MtpAction,
-  ContentBlock,
   ChatConnectionState,
   ChatRequestParams,
   MemoryAtom,
@@ -43,141 +43,6 @@ interface ChatStore {
   // Internal
   _sseClient: ChatSSEClient | null;
   _currentStreamingMessageId: string | null;
-}
-
-// ========== Helpers ==========
-
-/** Get or create the trailing TextBlock in contentBlocks */
-function appendTokenToBlocks(blocks: ContentBlock[], token: string): ContentBlock[] {
-  const updated = [...blocks];
-  const last = updated[updated.length - 1];
-  if (last && last.kind === 'text') {
-    updated[updated.length - 1] = { kind: 'text', text: last.text + token };
-  } else {
-    updated.push({ kind: 'text', text: token });
-  }
-  return updated;
-}
-
-/** Normalize stream delta to avoid duplicated prefix/overlap chunks */
-function normalizeStreamDelta(currentText: string, incoming: string): string {
-  if (!incoming) return '';
-  if (!currentText) return incoming;
-  if (currentText.endsWith(incoming)) return '';
-  if (incoming.startsWith(currentText)) return incoming.slice(currentText.length);
-
-  const maxOverlap = Math.min(currentText.length, incoming.length);
-  for (let k = maxOverlap; k > 0; k--) {
-    if (currentText.slice(-k) === incoming.slice(0, k)) {
-      return incoming.slice(k);
-    }
-  }
-  return incoming;
-}
-
-/** Push a new MTP block, cutting the current text segment */
-function pushMtpBlock(blocks: ContentBlock[], action: MtpAction): ContentBlock[] {
-  return [...blocks, { kind: 'mtp', action }];
-}
-
-/** Update the last MTP block's action status */
-function updateLastMtpStatus(
-  blocks: ContentBlock[],
-  payload: { 
-    status: string; 
-    verb?: string; 
-    target?: string; 
-    args?: Record<string, unknown>; 
-    raw_text?: string;
-    result_message?: string;
-    stats?: Record<string, unknown>;
-  }
-): ContentBlock[] {
-  const updated = [...blocks];
-  for (let i = updated.length - 1; i >= 0; i--) {
-    const b = updated[i];
-    if (b.kind === 'mtp') {
-      const verb = normalizeVerb(payload.verb || b.action.type || 'UNKNOWN');
-      const command = payload.raw_text || [verb, payload.target].filter(Boolean).join(' | ') || b.action.command;
-      updated[i] = {
-        kind: 'mtp',
-        action: {
-          ...b.action,
-          type: verb,
-          command,
-          target: payload.target ?? b.action.target,
-          params: payload.args ?? b.action.params,
-          status: normalizeMtpStatus(payload.status),
-          resultMessage: payload.result_message ?? b.action.resultMessage,
-          stats: payload.stats ?? b.action.stats,
-        },
-      };
-      break;
-    }
-  }
-  return updated;
-}
-
-function normalizeVerb(verb?: string): MtpAction['type'] {
-  const upper = (verb || '').toUpperCase();
-  if (['RUN', 'READ', 'SEARCH', 'WRITE', 'UPDATE'].includes(upper)) {
-    return upper as MtpAction['type'];
-  }
-  return 'UNKNOWN';
-}
-
-function normalizeMtpStatus(status?: string): MtpAction['status'] {
-  const lower = (status || '').toLowerCase();
-  if (lower === 'pending' || lower === 'executing' || lower === 'success' || lower === 'error') {
-    return lower;
-  }
-  return 'executing';
-}
-
-/** Rebuild contentBlocks from final_text while preserving MTP blocks in-place */
-function rebuildBlocksWithFinalText(blocks: ContentBlock[], finalText: string): ContentBlock[] {
-  // If no MTP blocks exist, just return a single text block
-  const hasMtp = blocks.some((b) => b.kind === 'mtp');
-  if (!hasMtp) {
-    return [{ kind: 'text', text: finalText }];
-  }
-
-  // Simpler approach: keep MTP blocks in their positions, distribute final_text
-  // across the text slots proportionally by their streaming lengths.
-  const textSlots: { index: number; streamLen: number }[] = [];
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i];
-    if (block.kind === 'text') {
-      textSlots.push({ index: i, streamLen: block.text.length });
-    }
-  }
-
-  const totalStreamLen = textSlots.reduce((s, t) => s + t.streamLen, 0);
-
-  // If streaming accumulated nothing, put all final text in last slot
-  if (totalStreamLen === 0) {
-    const result: ContentBlock[] = blocks.map((b) =>
-      b.kind === 'text' ? { kind: 'text', text: '' } : b
-    );
-    // Append final text after last mtp block
-    result.push({ kind: 'text', text: finalText });
-    return result;
-  }
-
-  // Distribute final_text proportionally
-  const result: ContentBlock[] = [...blocks];
-  let cursor = 0;
-  for (let si = 0; si < textSlots.length; si++) {
-    const slot = textSlots[si];
-    const isLast = si === textSlots.length - 1;
-    const charCount = isLast
-      ? finalText.length - cursor
-      : Math.round((slot.streamLen / totalStreamLen) * finalText.length);
-    result[slot.index] = { kind: 'text', text: finalText.slice(cursor, cursor + charCount) };
-    cursor += charCount;
-  }
-
-  return result;
 }
 
 // ========== Store Implementation ==========
@@ -253,158 +118,47 @@ export const useChatStore = create<ChatStore>()(
           set({ _sseClient: client });
 
           try {
+            const callbacks = createChatSSECallbacks({
+              assistantMessageId,
+              updateMessages: (updater) => {
+                set((s) => ({ messages: updater(s.messages) }));
+              },
+              setTopicInfo: (data) => {
+                set({ currentTopicId: data.topic_id });
+                if (data.pool) {
+                  useTopicStore.getState().setTopicsFromPool(data.pool, data.topic_id);
+                } else {
+                  useTopicStore.getState().fetchTopics();
+                }
+              },
+              setRetrievedMemories: (memories) => {
+                set({ retrievedMemories: memories });
+              },
+              finalizeSuccess: (data) => {
+                set((s) => ({
+                  messages: applyDone(s.messages, assistantMessageId, data.final_text),
+                  isStreaming: false,
+                  connection: { status: 'connected', error: null },
+                  _currentStreamingMessageId: null,
+                }));
+              },
+              finalizeError: (errorMessage, errorDetail) => {
+                set((s) => ({
+                  messages: applyStreamError(s.messages, assistantMessageId, errorMessage, errorDetail),
+                  isStreaming: false,
+                  connection: { status: 'error', error: errorMessage },
+                  _currentStreamingMessageId: null,
+                }));
+              },
+            });
+
             await client.connect(
               {
                 message: content,
                 agent_id: currentAgentId,
                 ...options,
               },
-              {
-                // Token event: append to the trailing TextBlock
-                onToken: (data) => {
-                  set((state) => ({
-                    messages: state.messages.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? (() => {
-                            const delta = normalizeStreamDelta(msg.content, data.content);
-                            if (!delta) return msg;
-                            return {
-                              ...msg,
-                              content: msg.content + delta,
-                              contentBlocks: appendTokenToBlocks(msg.contentBlocks || [], delta),
-                            };
-                          })()
-                        : msg
-                    ),
-                  }));
-                },
-
-                // MTP Start event: push a new MtpBlock (cuts the text stream)
-                onMTPStart: (data) => {
-                  const verb = normalizeVerb(data.verb);
-                  const newAction: MtpAction = {
-                    id: crypto.randomUUID(),
-                    type: verb,
-                    command: data.raw_text || [verb, data.target].filter(Boolean).join(' | ') || verb,
-                    target: data.target,
-                    params: data.args,
-                    status: 'executing',
-                    timestamp: Date.now(),
-                  };
-
-                  set((state) => ({
-                    messages: state.messages.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? {
-                            ...msg,
-                            contentBlocks: pushMtpBlock(msg.contentBlocks || [], newAction),
-                          }
-                        : msg
-                    ),
-                  }));
-                },
-
-                // MTP Result event: update the last MTP block's status
-                onMTPResult: (data) => {
-                  set((state) => ({
-                    messages: state.messages.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? {
-                            ...msg,
-                            contentBlocks: updateLastMtpStatus(msg.contentBlocks || [], {
-                              status: data.status,
-                              verb: normalizeVerb(data.verb),
-                              target: data.target,
-                              args: data.args,
-                              raw_text: data.raw_text,
-                              result_message: data.result_message,
-                              stats: data.stats,
-                            }),
-                          }
-                        : msg
-                    ),
-                  }));
-                },
-
-                // Topic Info event: store topic ID and hydrate topic list from pool
-                onTopicInfo: (data) => {
-                  set({ currentTopicId: data.topic_id });
-                  if (data.pool) {
-                    useTopicStore.getState().setTopicsFromPool(data.pool, data.topic_id);
-                  } else {
-                    useTopicStore.getState().fetchTopics();
-                  }
-                },
-
-                // Memory Refs event: update retrieved memories in sidebar
-                onMemoryRefs: (data) => {
-                  const memories = Array.isArray(data.memories) ? data.memories : [];
-                  set({ retrievedMemories: memories });
-                },
-
-                // Done event: finalize message, rebuild text blocks from final_text
-                onDone: (data) => {
-                  set((state) => ({
-                    messages: state.messages.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? {
-                            ...msg,
-                            content: data.final_text,
-                            contentBlocks: (msg.contentBlocks || []).some((b) => b.kind === 'mtp')
-                              ? msg.contentBlocks
-                              : rebuildBlocksWithFinalText(msg.contentBlocks || [], data.final_text),
-                            isStreaming: false,
-                          }
-                        : msg
-                    ),
-                    isStreaming: false,
-                    connection: { status: 'connected', error: null },
-                    _currentStreamingMessageId: null,
-                  }));
-                },
-
-                // Error event: mark message with error
-                onError: (data) => {
-                  const errorMessage = data.message || '系统错误，请检查后端服务器';
-                  set((state) => ({
-                    messages: state.messages.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? {
-                            ...msg,
-                            content: errorMessage,
-                            contentBlocks: [{ kind: 'text', text: errorMessage }],
-                            isStreaming: false,
-                            error: errorMessage,
-                          }
-                        : msg
-                    ),
-                    isStreaming: false,
-                    connection: { status: 'error', error: errorMessage },
-                    _currentStreamingMessageId: null,
-                  }));
-                },
-
-                // Connection Error: handle connection failures
-                onConnectionError: (error) => {
-                  const errorMessage = '系统错误，请检查后端服务器';
-                  set((state) => ({
-                    messages: state.messages.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? {
-                            ...msg,
-                            content: errorMessage,
-                            contentBlocks: [{ kind: 'text', text: errorMessage }],
-                            isStreaming: false,
-                            error: error.message,
-                          }
-                        : msg
-                    ),
-                    isStreaming: false,
-                    connection: { status: 'error', error: errorMessage },
-                    _currentStreamingMessageId: null,
-                  }));
-                },
-              }
+              callbacks
             );
           } catch (error) {
             console.error('[ChatStore] Failed to send message:', error);

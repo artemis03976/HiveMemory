@@ -2,6 +2,7 @@ import { User, Copy, ThumbsUp, RefreshCw, BrainCircuit } from 'lucide-react';
 import type { Message, ContentBlock } from '@/types';
 import { motion } from 'motion/react';
 import MTPCard from './MTPCard';
+import SubAgentCard from './SubAgentCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { MOCK_AGENTS } from '@/constants/agents';
 
@@ -23,7 +24,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       : [{ kind: 'text', text: message.content }]
   ) as ContentBlock[];
 
-  const hasContent = blocks.some(b => (b.kind === 'text' && b.text) || (b.kind === 'mtp' && b.action));
+  const hasContent = blocks.some(b => (b.kind === 'text' && b.text) || (b.kind === 'mtp' && b.action) || b.kind === 'sub_agent');
   const isProcessing = isAgent && message.isStreaming && !hasContent;
 
   let lastTextIdx = -1;
@@ -78,6 +79,9 @@ export default function ChatMessage({ message }: ChatMessageProps) {
             }
             if (block.kind === 'mtp' && block.action) {
               return <MTPCard key={idx} action={block.action} />;
+            }
+            if (block.kind === 'sub_agent') {
+              return <SubAgentCard key={idx} block={block} />;
             }
             return null;
           })}

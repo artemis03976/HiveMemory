@@ -19,7 +19,8 @@ Phase A→B→C→D 循环：
 
 import json
 import logging
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+import asyncio
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
 from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
@@ -59,6 +60,18 @@ class KernelLoopExecutor:
         self.kernel = kernel
         self.worker_agent = worker_agent
 
+    def _namespace_for_frame(self, frame: ExecutionFrame) -> Dict[str, Any]:
+        """构造事件命名空间元数据。"""
+        # 统一事件命名空间：前端通过 scope/depth 区分主/子 Agent，
+        # 不再依赖 sub_token/sub_mtp_* 这类事件名分叉。
+        agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
+        return {
+            "scope": "sub" if frame.is_sub_frame() else "main",
+            "depth": frame.depth,
+            "agent_id": agent_id,
+            "frame_id": frame.process_id,
+        }
+
     async def execute_main_frame(
         self,
         messages: List[Dict[str, str]],
@@ -95,103 +108,6 @@ class KernelLoopExecutor:
             frame=main_frame,
             max_iterations=max_iter,
             generation_options=generation_options,
-        )
-
-    async def execute_frame(
-        self,
-        frame: ExecutionFrame,
-        max_iterations: int,
-        generation_options: Optional[Dict[str, Any]] = None,
-    ) -> ChatResult:
-        """
-        执行单个帧的递归循环
-
-        这是 Phase 2 的核心方法，同时服务于主 Agent 和子 Agent。
-        子 Agent 的 CALL 触发递归调用此方法。
-
-        Phase A→B→C→D:
-        A. LLM 生成
-        B. 自然停止检测
-        C. MTP 执行 (SUSPEND → 子帧派生)
-        D. 回填 & 继续
-
-        Args:
-            frame: 执行帧
-            max_iterations: 最大递归次数
-            generation_options: LLM 生成选项
-
-        Returns:
-            ChatResult: 执行结果
-        """
-        text_segments: List[str] = []
-        mtp_commands: List[str] = []
-        iteration = 0
-
-        self.kernel.koakuma.set_current_identity(frame.identity)
-        self.kernel.koakuma.set_active_profile(frame.agent_profile)
-        self.kernel.koakuma.set_current_depth(frame.depth)
-        self.kernel.koakuma.reset_interaction_state()
-
-        while iteration < max_iterations:
-            iteration += 1
-
-            result = await self.worker_agent.generate_async(
-                frame.working_history,
-                **(generation_options or {}),
-            )
-
-            if not result.was_mtp_interrupted:
-                text_segments.append(result.text)
-                break
-
-            text_segments.append(result.prefix_text)
-
-            mtp_result = await self.kernel.handle_mtp(result.text)
-
-            if mtp_result is None:
-                text_segments.append(result.mtp_fragment)
-                break
-
-            if mtp_result.response_status == "suspend":
-                ipc_response = await self._handle_call_suspend(
-                    frame=frame,
-                    mtp_result=mtp_result,
-                    assistant_text=result.text,
-                    max_iterations=max_iterations,
-                    generation_options=generation_options,
-                )
-
-                frame.working_history.append(
-                    {"role": "assistant", "content": result.text + "⟫"}
-                )
-                frame.working_history.append({
-                    "role": "user",
-                    "content": f"[System IPC Return]\n{ipc_response}",
-                })
-                mtp_commands.append("CALL")
-                continue
-
-            mtp_commands.append(
-                mtp_result.command.verb.value
-                if mtp_result.command else "UNKNOWN"
-            )
-
-            frame.working_history.append(
-                {"role": "assistant", "content": result.text + "⟫"}
-            )
-            frame.working_history.append({
-                "role": "user",
-                "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
-            })
-
-            if frame.is_sub_frame() and mtp_result.command:
-                self._try_harvest_alias(frame, mtp_result)
-
-        return ChatResult(
-            final_text="".join(text_segments),
-            mtp_iterations=max(0, iteration - 1),
-            total_iterations=iteration,
-            mtp_commands_executed=mtp_commands,
         )
 
     async def execute_main_frame_stream(
@@ -235,6 +151,214 @@ class KernelLoopExecutor:
         ):
             yield event
 
+    async def execute_frame(
+        self,
+        frame: ExecutionFrame,
+        max_iterations: int,
+        generation_options: Optional[Dict[str, Any]] = None,
+        stream_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+        use_stream_generation: bool = False,
+    ) -> ChatResult:
+        """
+        执行单个帧的递归循环
+
+        这是 Phase 2 的核心方法，同时服务于主 Agent 和子 Agent。
+        子 Agent 的 CALL 触发递归调用此方法。
+
+        Phase A→B→C→D:
+        A. LLM 生成
+        B. 自然停止检测
+        C. MTP 执行 (SUSPEND → 子帧派生)
+        D. 回填 & 继续
+
+        Args:
+            frame: 执行帧
+            max_iterations: 最大递归次数
+            generation_options: LLM 生成选项
+            stream_emitter: 可选事件发射器（用于 SSE 流式输出）
+            use_stream_generation: 是否使用 generate_stream（流式模式）
+
+        Returns:
+            ChatResult: 执行结果
+        """
+        text_segments: List[str] = []
+        mtp_commands: List[str] = []
+        iteration = 0
+
+        self.kernel.koakuma.set_current_identity(frame.identity)
+        self.kernel.koakuma.set_active_profile(frame.agent_profile)
+        self.kernel.koakuma.set_current_depth(frame.depth)
+        self.kernel.koakuma.reset_interaction_state()
+
+        while iteration < max_iterations:
+            iteration += 1
+
+            result = None
+            if use_stream_generation:
+                # 流式模式：逐 chunk 推送 token，但最终仍收敛为一个 result，
+                # 后续 MTP 拦截/执行逻辑与非流式共用同一骨架。
+                async for chunk in self.worker_agent.generate_stream(
+                    frame.working_history,
+                    **(generation_options or {}),
+                ):
+                    if chunk.is_final:
+                        result = chunk.result
+                        break
+                    if (
+                        stream_emitter is not None
+                        and not chunk.mtp_detected
+                        and chunk.delta
+                    ):
+                        token_data = {"content": chunk.delta}
+                        token_data.update(self._namespace_for_frame(frame))
+                        await stream_emitter(
+                            {"event": "token", "data": token_data}
+                        )
+                if result is None:
+                    break
+            else:
+                result = await self.worker_agent.generate_async(
+                    frame.working_history,
+                    **(generation_options or {}),
+                )
+
+            if not result.was_mtp_interrupted:
+                text_segments.append(result.text)
+                break
+
+            text_segments.append(result.prefix_text)
+            raw_hint = result.mtp_fragment
+            verb_hint = "UNKNOWN"
+            target_hint = ""
+            args_hint: Dict[str, Any] = {}
+
+            # MTP 的语义解析以 KoakumaRuntime 返回结果为唯一真相来源。
+            # LoopExecutor 不再自行 parse 指令字符串，避免双真相漂移。
+            mtp_result = await self.kernel.handle_mtp(result.text)
+            if mtp_result is not None and mtp_result.command:
+                verb_hint = mtp_result.command.verb.value
+                target_hint, args_hint, raw_hint = self._extract_command_info(
+                    mtp_result.command, raw_hint
+                )
+            if stream_emitter is not None:
+                mtp_start_data = {
+                    "verb": verb_hint,
+                    "target": target_hint,
+                    "args": args_hint,
+                    "raw_text": raw_hint,
+                    "iteration": iteration,
+                }
+                mtp_start_data.update(self._namespace_for_frame(frame))
+                await stream_emitter(
+                    {
+                        "event": "mtp_start",
+                        "data": mtp_start_data,
+                    }
+                )
+
+            if mtp_result is None:
+                text_segments.append(result.mtp_fragment)
+                if stream_emitter is not None:
+                    mtp_failed_data = {
+                        "verb": verb_hint,
+                        "target": target_hint,
+                        "args": args_hint,
+                        "raw_text": raw_hint,
+                        "status": "failed",
+                        "iteration": iteration,
+                    }
+                    mtp_failed_data.update(self._namespace_for_frame(frame))
+                    await stream_emitter(
+                        {
+                            "event": "mtp_result",
+                            "data": mtp_failed_data,
+                        }
+                    )
+                break
+
+            if mtp_result.response_status == "suspend":
+                if stream_emitter is not None:
+                    mtp_suspend_data = {
+                        "verb": verb_hint,
+                        "target": target_hint,
+                        "args": args_hint,
+                        "raw_text": raw_hint,
+                        "status": mtp_result.response_status,
+                        "iteration": iteration,
+                    }
+                    mtp_suspend_data.update(self._namespace_for_frame(frame))
+                    await stream_emitter(
+                        {
+                            "event": "mtp_result",
+                            "data": mtp_suspend_data,
+                        }
+                    )
+                stream_events: Optional[List[Dict[str, Any]]] = (
+                    [] if stream_emitter is not None else None
+                )
+                # CALL 的挂起/恢复与子帧执行统一交给 _execute_call，
+                # execute_frame 仅负责主循环编排与历史回填。
+                ipc_response = await self._execute_call(
+                    frame=frame,
+                    mtp_result=mtp_result,
+                    max_iterations=max_iterations,
+                    generation_options=generation_options,
+                    stream_events=stream_events,
+                    iteration=iteration,
+                )
+                if stream_emitter is not None and stream_events:
+                    for event in stream_events:
+                        await stream_emitter(event)
+
+                frame.working_history.append(
+                    {"role": "assistant", "content": result.text + "⟫"}
+                )
+                frame.working_history.append({
+                    "role": "user",
+                    "content": f"[System IPC Return]\n{ipc_response}",
+                })
+                mtp_commands.append("CALL")
+                continue
+
+            mtp_commands.append(verb_hint)
+            if stream_emitter is not None:
+                mtp_result_data = {
+                    "verb": verb_hint,
+                    "target": target_hint,
+                    "args": args_hint,
+                    "raw_text": raw_hint,
+                    "status": mtp_result.response_status,
+                    "iteration": iteration,
+                }
+                mtp_result_data.update(self._namespace_for_frame(frame))
+                await stream_emitter(
+                    {
+                        "event": "mtp_result",
+                        "data": mtp_result_data,
+                    }
+                )
+
+            frame.working_history.append(
+                {"role": "assistant", "content": result.text + "⟫"}
+            )
+            frame.working_history.append({
+                "role": "user",
+                "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
+            })
+
+            if frame.is_sub_frame() and mtp_result.command:
+                self._try_harvest_alias(frame, mtp_result)
+
+        loop_result = ChatResult(
+            final_text="".join(text_segments),
+            mtp_iterations=max(0, iteration - 1),
+            total_iterations=iteration,
+            mtp_commands_executed=mtp_commands,
+        )
+        if stream_emitter is not None:
+            await stream_emitter({"event": "done", "data": loop_result.model_dump()})
+        return loop_result
+
     async def execute_frame_stream(
         self,
         frame: ExecutionFrame,
@@ -251,170 +375,39 @@ class KernelLoopExecutor:
                 - {"event": "token", "data": {"content": str}}
                 - {"event": "mtp_start", "data": {...}}
                 - {"event": "mtp_result", "data": {...}}
+                - {"event": "sub_agent_start", "data": {...}}
+                - {"event": "sub_agent_end", "data": {...}}
+                - 所有 token/mtp* 事件通过 data.scope 区分 main/sub
                 - {"event": "done", "data": ChatResult}
         """
-        text_segments: List[str] = []
-        mtp_commands: List[str] = []
-        iteration = 0
+        queue: asyncio.Queue = asyncio.Queue()
 
-        self.kernel.koakuma.set_current_identity(frame.identity)
-        self.kernel.koakuma.set_active_profile(frame.agent_profile)
-        self.kernel.koakuma.set_current_depth(frame.depth)
-        self.kernel.koakuma.reset_interaction_state()
+        async def _emit(event: Dict[str, Any]) -> None:
+            await queue.put(event)
 
-        while iteration < max_iterations:
-            iteration += 1
-            gen_result = None
-
-            async for chunk in self.worker_agent.generate_stream(
-                frame.working_history,
-                **(generation_options or {}),
-            ):
-                if chunk.is_final:
-                    gen_result = chunk.result
-                    break
-                if not chunk.mtp_detected and chunk.delta:
-                    yield {"event": "token", "data": {"content": chunk.delta}}
-
-            if gen_result is None:
-                break
-
-            if not gen_result.was_mtp_interrupted:
-                text_segments.append(gen_result.text)
-                break
-
-            text_segments.append(gen_result.prefix_text)
-
-            verb_hint, target_hint, args_hint, raw_hint = self._extract_mtp_hints(gen_result)
-            yield {
-                "event": "mtp_start",
-                "data": {
-                    "verb": verb_hint,
-                    "target": target_hint,
-                    "args": args_hint,
-                    "raw_text": raw_hint,
-                    "iteration": iteration,
-                },
-            }
-
-            mtp_result = await self.kernel.handle_mtp(gen_result.text)
-
-            if mtp_result is None:
-                text_segments.append(gen_result.mtp_fragment)
-                yield {
-                    "event": "mtp_result",
-                    "data": {
-                        "verb": verb_hint,
-                        "target": target_hint,
-                        "args": args_hint,
-                        "raw_text": raw_hint,
-                        "status": "failed",
-                        "iteration": iteration,
-                    },
-                }
-                break
-
-            if mtp_result.response_status == "suspend":
-                call_params = json.loads(mtp_result.response_content)
-                yield {
-                    "event": "mtp_result",
-                    "data": {
-                        "verb": "CALL",
-                        "target": call_params["target_alias"],
-                        "args": {"task": call_params["task"][:100]},
-                        "raw_text": raw_hint,
-                        "status": "suspend",
-                        "iteration": iteration,
-                    },
-                }
-
-                ipc_response = await self._handle_call_suspend(
+        async def _runner() -> None:
+            try:
+                # 关键设计：流式仅是 execute_frame 的“输出策略”，
+                # 不再维护第二套循环实现。
+                await self.execute_frame(
                     frame=frame,
-                    mtp_result=mtp_result,
-                    assistant_text=gen_result.text,
                     max_iterations=max_iterations,
                     generation_options=generation_options,
+                    stream_emitter=_emit,
+                    use_stream_generation=True,
                 )
+            finally:
+                await queue.put(None)
 
-                frame.working_history.append(
-                    {"role": "assistant", "content": gen_result.text + "⟫"}
-                )
-                frame.working_history.append({
-                    "role": "user",
-                    "content": f"[System IPC Return]\n{ipc_response}",
-                })
-                mtp_commands.append("CALL")
-
-                yield {
-                    "event": "mtp_result",
-                    "data": {
-                        "verb": "CALL",
-                        "target": call_params["target_alias"],
-                        "args": {"task": call_params["task"][:100]},
-                        "raw_text": raw_hint,
-                        "status": "success" if '<mtp_response status="success"' in ipc_response else "error",
-                        "iteration": iteration,
-                    },
-                }
-                continue
-
-            verb = mtp_result.command.verb.value if mtp_result.command else "UNKNOWN"
-            mtp_commands.append(verb)
-
-            if mtp_result.command and mtp_result.command.target:
-                target_hint, args_hint, raw_hint = self._extract_command_info(mtp_result.command, raw_hint)
-
-            yield {
-                "event": "mtp_result",
-                "data": {
-                    "verb": verb,
-                    "target": target_hint,
-                    "args": args_hint,
-                    "raw_text": raw_hint,
-                    "status": mtp_result.response_status,
-                    "iteration": iteration,
-                },
-            }
-
-            frame.working_history.append({"role": "assistant", "content": gen_result.text + "⟫"})
-            frame.working_history.append({
-                "role": "user",
-                "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
-            })
-
-            if frame.is_sub_frame() and mtp_result.command:
-                self._try_harvest_alias(frame, mtp_result)
-
-        loop_result = ChatResult(
-            final_text="".join(text_segments),
-            mtp_iterations=max(0, iteration - 1),
-            total_iterations=iteration,
-            mtp_commands_executed=mtp_commands,
-        )
-
-        yield {"event": "done", "data": loop_result.model_dump()}
-
-    def _extract_mtp_hints(self, gen_result):
-        """从生成结果中提取 MTP 提示信息"""
-        verb_hint = "UNKNOWN"
-        target_hint = ""
-        args_hint = {}
-        raw_hint = gen_result.mtp_fragment
-
+        task = asyncio.create_task(_runner())
         try:
-            from hivememory.patchouli.mtp.parser import MTPParser
-            parsed_hint = MTPParser().complete_and_parse(gen_result.text)
-            verb_hint = parsed_hint.verb.value
-            if parsed_hint.target.is_wildcard:
-                target_hint = "*"
-            elif parsed_hint.target.aliases:
-                target_hint = ",".join(parsed_hint.target.aliases)
-            args_hint = dict(parsed_hint.args)
-            raw_hint = parsed_hint.raw_text or raw_hint
-        except Exception:
-            pass
-
-        return verb_hint, target_hint, args_hint, raw_hint
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield event
+        finally:
+            await task
 
     def _extract_command_info(self, command, raw_hint):
         """从 MTP 命令中提取信息"""
@@ -428,31 +421,28 @@ class KernelLoopExecutor:
         raw_hint = command.raw_text or raw_hint
         return target_hint, args_hint, raw_hint
 
-    async def _handle_call_suspend(
+    async def _execute_call(
         self,
         frame: ExecutionFrame,
         mtp_result,
-        assistant_text: str,
         max_iterations: int,
         generation_options: Optional[Dict[str, Any]] = None,
+        stream_events: Optional[List[Dict[str, Any]]] = None,
+        iteration: Optional[int] = None,
     ) -> str:
         """
-        处理 CALL 指令的 SUSPEND 状态
+        执行 CALL 指令并返回 IPC payload（统一的流式/非流式实现）
 
-        流程:
-        1. 解析 CALL 参数
-        2. 挂起当前帧
-        3. 派生子帧
-        4. 递归执行子帧
-        5. 恢复父帧
-        6. 组装 IPC 返回 payload
+        当提供 stream_events 时，会额外写入子 Agent 的流式事件：
+        sub_agent_start / sub_* / sub_agent_end。
 
         Args:
-            frame: 当前帧 (将被挂起)
-            mtp_result: MTP 执行结果 (含 CALL 参数)
-            assistant_text: LLM 生成的文本
+            frame: 当前帧（将被挂起）
+            mtp_result: MTP 执行结果（含 CALL 参数）
             max_iterations: 最大递归次数
             generation_options: LLM 生成选项
+            stream_events: 可选事件容器（流式模式）
+            iteration: 当前迭代次数（流式事件展示用）
 
         Returns:
             str: 格式化的 IPC 返回 payload (XML 格式)
@@ -466,6 +456,17 @@ class KernelLoopExecutor:
             f"CALL suspend: target={target_alias}, task='{task[:80]}...'"
         )
 
+        if stream_events is not None:
+            sub_start_data = {
+                "agent_id": target_alias,
+                "task": task,
+                "iteration": iteration,
+                "scope": "sub",
+                "depth": frame.depth + 1,
+                "frame_id": None,
+            }
+            stream_events.append({"event": "sub_agent_start", "data": sub_start_data})
+
         self.kernel.frame_scheduler.suspend_frame(frame)
 
         try:
@@ -476,11 +477,27 @@ class KernelLoopExecutor:
                 context_refs=context_refs,
             )
 
-            sub_result = await self.execute_frame(
-                frame=sub_frame,
-                max_iterations=max_iterations,
-                generation_options=generation_options,
-            )
+            if stream_events is None:
+                sub_result = await self.execute_frame(
+                    frame=sub_frame,
+                    max_iterations=max_iterations,
+                    generation_options=generation_options,
+                )
+            else:
+                async def _sub_emit(sub_event: Dict[str, Any]) -> None:
+                    if sub_event["event"] == "done":
+                        return
+                    # 子帧事件不再改名为 sub_token/sub_mtp_*，
+                    # 统一沿用 token/mtp_*，通过 data.scope=sub 区分。
+                    stream_events.append(sub_event)
+
+                sub_result = await self.execute_frame(
+                    frame=sub_frame,
+                    max_iterations=max_iterations,
+                    generation_options=generation_options,
+                    stream_emitter=_sub_emit,
+                    use_stream_generation=True,
+                )
 
             self.kernel.frame_scheduler.resume_frame()
 
@@ -493,6 +510,18 @@ class KernelLoopExecutor:
                 target=target_alias,
                 status="success",
             ))
+
+            if stream_events is not None:
+                sub_end_data = {
+                    "status": "success",
+                    "final_text": sub_result.final_text,
+                    "iteration": iteration,
+                    "scope": "sub",
+                    "depth": frame.depth + 1,
+                    "frame_id": sub_frame.process_id,
+                    "agent_id": target_alias,
+                }
+                stream_events.append({"event": "sub_agent_end", "data": sub_end_data})
 
             return self._assemble_ipc_return(
                 sub_result=sub_result,
@@ -512,6 +541,17 @@ class KernelLoopExecutor:
                 target=target_alias,
                 status="error",
             ))
+
+            if stream_events is not None:
+                sub_end_err_data = {
+                    "status": "error",
+                    "iteration": iteration,
+                    "scope": "sub",
+                    "depth": frame.depth + 1,
+                    "frame_id": None,
+                    "agent_id": target_alias,
+                }
+                stream_events.append({"event": "sub_agent_end", "data": sub_end_err_data})
 
             return (
                 '<mtp_response status="error" type="ipc_return">\n'

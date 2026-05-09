@@ -23,9 +23,11 @@ async def chat(
     主动对话接口 — SSE 流式响应
 
     SSE 事件类型:
-    - token: {"content": "..."} — LLM 生成的文本增量
-    - mtp_start: {"verb": "...", "iteration": N} — MTP 指令被拦截
-    - mtp_result: {"verb": "...", "status": "...", "iteration": N} — MTP 执行完成
+    - token: {"content": "...", "scope": "main|sub", ...} — LLM 文本增量
+    - mtp_start: {"verb": "...", "iteration": N, "scope": "..."} — MTP 指令被拦截
+    - mtp_result: {"verb": "...", "status": "...", "iteration": N, "scope": "..."} — MTP 执行完成
+    - sub_agent_start: {"agent_id": "...", "task": "..."} — 子 Agent 生命周期开始
+    - sub_agent_end: {"status": "success|error", ...} — 子 Agent 生命周期结束
     - topic_info: {"topic_id": "...", "is_new": bool} — 话题路由结果
     - done: {"final_text": "...", ...} — 生成完成
     - error: {"message": "..."} — 错误发生
