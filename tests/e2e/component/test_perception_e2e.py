@@ -142,8 +142,8 @@ def setup_test_env(max_tokens: int = 2048) -> SemanticFlowPerceptionLayer:
     # 加载配置
     app_config = load_app_config()
 
-    # 1. 创建 Embedding 服务（使用 perception 配置）
-    embedding_config = app_config.embedding.perception
+    # 1. 创建 Embedding 服务（使用 default 配置）
+    embedding_config = app_config.embedding.default
     console.print(f"[dim]Embedding 模型: {embedding_config.model_name}[/dim]")
     _shared_embedding_service = get_perception_embedding_service(embedding_config)
 

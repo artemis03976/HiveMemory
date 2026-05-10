@@ -280,7 +280,7 @@ class SystemScenarioTestSystem:
 
         from hivememory.infrastructure.embedding import get_perception_embedding_service
         self.perception_embedding_service = get_perception_embedding_service(
-            config=self.config.embedding.perception
+            config=self.config.embedding.default
         )
 
         from hivememory.infrastructure.llm import get_gateway_llm_service, get_librarian_llm_service

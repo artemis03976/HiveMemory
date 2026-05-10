@@ -98,7 +98,6 @@ class EmbeddingConfig(BaseModel):
 class EmbeddingGlobalConfig(BaseModel):
     """Embedding 全局配置集合"""
     default: EmbeddingConfig = Field(default_factory=EmbeddingConfig, description="默认/存储层 Embedding 配置")
-    perception: EmbeddingConfig = Field(default_factory=EmbeddingConfig, description="感知层 Embedding 配置")
 
     model_config = ConfigDict(extra="allow")
 
