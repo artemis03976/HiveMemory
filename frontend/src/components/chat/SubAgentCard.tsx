@@ -5,8 +5,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import type { SubAgentBlock } from '@/types';
 import { MOCK_AGENTS } from '@/constants/agents';
-import MarkdownRenderer from '../common/MarkdownRenderer';
-import MTPCard from './MTPCard';
+import InlineBlockList from './InlineBlockList';
 
 interface SubAgentCardProps {
   block: SubAgentBlock;
@@ -108,19 +107,10 @@ export default function SubAgentCard({ block }: SubAgentCardProps) {
                 </div>
               )}
 
-              {block.contentBlocks.map((sub, idx) => {
-                if (sub.kind === 'text' && sub.text) {
-                  return (
-                    <div key={idx} className="text-sm leading-relaxed text-on-surface/80">
-                      <MarkdownRenderer content={sub.text} />
-                    </div>
-                  );
-                }
-                if (sub.kind === 'mtp' && sub.action) {
-                  return <MTPCard key={idx} action={sub.action} />;
-                }
-                return null;
-              })}
+              <InlineBlockList
+                blocks={block.contentBlocks}
+                textClassName="text-sm leading-relaxed text-on-surface/80"
+              />
 
               {block.contentBlocks.length === 0 && block.status === 'error' && (
                 <div className="flex items-center gap-2 text-magic-fire/70 text-sm">

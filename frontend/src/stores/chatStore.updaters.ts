@@ -1,4 +1,4 @@
-import type { ContentBlock, Message, MtpAction, SubAgentBlock } from '@/types';
+import type { ContentBlock, InlineBlock, Message, MtpAction, SubAgentBlock } from '@/types';
 
 function updateAssistantMessage(
   messages: Message[],
@@ -8,8 +8,30 @@ function updateAssistantMessage(
   return messages.map((msg) => (msg.id === assistantMessageId ? updater(msg) : msg));
 }
 
-/** Get or create the trailing TextBlock in contentBlocks */
-export function appendTokenToBlocks(blocks: ContentBlock[], token: string): ContentBlock[] {
+type MtpResultPayload = {
+  status: string;
+  verb?: string;
+  target?: string;
+  args?: Record<string, unknown>;
+  raw_text?: string;
+  result_message?: string;
+  stats?: Record<string, unknown>;
+};
+
+/** 向顶层消息块末尾追加 token，仅用于 assistant 主消息流。 */
+export function appendContentToken(blocks: ContentBlock[], token: string): ContentBlock[] {
+  const updated = [...blocks];
+  const last = updated[updated.length - 1];
+  if (last && last.kind === 'text') {
+    updated[updated.length - 1] = { kind: 'text', text: last.text + token };
+  } else {
+    updated.push({ kind: 'text', text: token });
+  }
+  return updated;
+}
+
+/** 向子代理线性内容流末尾追加 token，仅允许 text/mtp。 */
+export function appendInlineToken(blocks: InlineBlock[], token: string): InlineBlock[] {
   const updated = [...blocks];
   const last = updated[updated.length - 1];
   if (last && last.kind === 'text') {
@@ -36,24 +58,52 @@ export function normalizeStreamDelta(currentText: string, incoming: string): str
   return incoming;
 }
 
-/** Push a new MTP block, cutting the current text segment */
-export function pushMtpBlock(blocks: ContentBlock[], action: MtpAction): ContentBlock[] {
+/** 在顶层消息块中追加 MTP 卡片。 */
+export function pushContentMtpBlock(blocks: ContentBlock[], action: MtpAction): ContentBlock[] {
   return [...blocks, { kind: 'mtp', action }];
 }
 
-/** Update the last MTP block's action status */
-export function updateLastMtpStatus(
+/** 在子代理线性内容流中追加 MTP 卡片。 */
+export function pushInlineMtpBlock(blocks: InlineBlock[], action: MtpAction): InlineBlock[] {
+  return [...blocks, { kind: 'mtp', action }];
+}
+
+/** 更新顶层消息块中最后一个 MTP 卡片状态。 */
+export function updateLastContentMtpStatus(
   blocks: ContentBlock[],
-  payload: {
-    status: string;
-    verb?: string;
-    target?: string;
-    args?: Record<string, unknown>;
-    raw_text?: string;
-    result_message?: string;
-    stats?: Record<string, unknown>;
-  },
+  payload: MtpResultPayload,
 ): ContentBlock[] {
+  const updated = [...blocks];
+  for (let i = updated.length - 1; i >= 0; i--) {
+    const b = updated[i];
+    if (b.kind === 'mtp') {
+      const verb = normalizeVerb(payload.verb || b.action.type || 'UNKNOWN');
+      const command =
+        payload.raw_text || [verb, payload.target].filter(Boolean).join(' | ') || b.action.command;
+      updated[i] = {
+        kind: 'mtp',
+        action: {
+          ...b.action,
+          type: verb,
+          command,
+          target: payload.target ?? b.action.target,
+          params: payload.args ?? b.action.params,
+          status: normalizeMtpStatus(payload.status),
+          resultMessage: payload.result_message ?? b.action.resultMessage,
+          stats: payload.stats ?? b.action.stats,
+        },
+      };
+      break;
+    }
+  }
+  return updated;
+}
+
+/** 更新子代理线性内容流中最后一个 MTP 卡片状态。 */
+export function updateLastInlineMtpStatus(
+  blocks: InlineBlock[],
+  payload: MtpResultPayload,
+): InlineBlock[] {
   const updated = [...blocks];
   for (let i = updated.length - 1; i >= 0; i--) {
     const b = updated[i];
@@ -161,7 +211,7 @@ export function applyAssistantToken(messages: Message[], assistantMessageId: str
     return {
       ...msg,
       content: msg.content + delta,
-      contentBlocks: appendTokenToBlocks(msg.contentBlocks || [], delta),
+      contentBlocks: appendContentToken(msg.contentBlocks || [], delta),
     };
   });
 }
@@ -183,7 +233,7 @@ export function applyAssistantMtpStart(
   };
   return updateAssistantMessage(messages, assistantMessageId, (msg) => ({
     ...msg,
-    contentBlocks: pushMtpBlock(msg.contentBlocks || [], newAction),
+    contentBlocks: pushContentMtpBlock(msg.contentBlocks || [], newAction),
   }));
 }
 
@@ -202,7 +252,7 @@ export function applyAssistantMtpResult(
 ): Message[] {
   return updateAssistantMessage(messages, assistantMessageId, (msg) => ({
     ...msg,
-    contentBlocks: updateLastMtpStatus(msg.contentBlocks || [], {
+    contentBlocks: updateLastContentMtpStatus(msg.contentBlocks || [], {
       ...payload,
       verb: normalizeVerb(payload.verb),
     }),
@@ -225,7 +275,7 @@ export function applySubAgentToken(messages: Message[], assistantMessageId: stri
     ...msg,
     contentBlocks: updateLastSubAgentBlock(msg.contentBlocks || [], (sub) => ({
       ...sub,
-      contentBlocks: appendTokenToBlocks(sub.contentBlocks, incoming),
+      contentBlocks: appendInlineToken(sub.contentBlocks, incoming),
     })),
   }));
 }
@@ -250,7 +300,7 @@ export function applySubAgentMtpStart(
     ...msg,
     contentBlocks: updateLastSubAgentBlock(msg.contentBlocks || [], (sub) => ({
       ...sub,
-      contentBlocks: pushMtpBlock(sub.contentBlocks, newAction),
+      contentBlocks: pushInlineMtpBlock(sub.contentBlocks, newAction),
     })),
   }));
 }
@@ -272,7 +322,7 @@ export function applySubAgentMtpResult(
     ...msg,
     contentBlocks: updateLastSubAgentBlock(msg.contentBlocks || [], (sub) => ({
       ...sub,
-      contentBlocks: updateLastMtpStatus(sub.contentBlocks, {
+      contentBlocks: updateLastInlineMtpStatus(sub.contentBlocks, {
         ...payload,
         verb: normalizeVerb(payload.verb),
       }),
