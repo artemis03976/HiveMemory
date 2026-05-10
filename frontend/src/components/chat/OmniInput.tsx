@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from 'react';
-import { Paperclip, Hash, Send, BrainCircuit, ChevronDown } from 'lucide-react';
+import { Paperclip, Hash, Send, Square, BrainCircuit, ChevronDown } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
 import { useChatRuntimeConfigStore } from '@/stores/chatRuntimeConfigStore';
 import { useChatUiStore } from '@/stores/chatUiStore';
@@ -17,7 +17,7 @@ export default function OmniInput() {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
 
-  const { sendMessage, isStreaming, currentAgentId, setCurrentAgentId } = useChatStore();
+  const { sendMessage, stopStreaming, isStreaming, currentAgentId, setCurrentAgentId } = useChatStore();
 
   const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
   const { agents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
@@ -296,18 +296,28 @@ export default function OmniInput() {
             </div>
           </div>
 
-          {/* 右侧：发送按钮 (有输入内容时点亮为主色调) */}
-          <button 
-            disabled={!message.trim() || isStreaming}
-            onClick={handleSend}
-            className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
-              message.trim() && !isStreaming
-                ? 'bg-primary-dim text-on-primary-container shadow-[0_0_10px_rgba(149,71,247,0.4)] hover:shadow-[0_0_10px_rgba(149,71,247,0.6)] hover:bg-primary/90' 
-                : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
-            }`}
-          >
-            <Send className="w-4 h-4" />
-          </button>
+          {/* 右侧：发送按钮 / 停止按钮 */}
+          {isStreaming ? (
+            <button
+              onClick={stopStreaming}
+              className="p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 bg-red-500/20 text-red-400 hover:bg-red-500/30 hover:text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.3)]"
+              title="停止生成"
+            >
+              <Square className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              disabled={!message.trim()}
+              onClick={handleSend}
+              className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
+                message.trim()
+                  ? 'bg-primary-dim text-on-primary-container shadow-[0_0_10px_rgba(149,71,247,0.4)] hover:shadow-[0_0_10px_rgba(149,71,247,0.6)] hover:bg-primary/90'
+                  : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
+              }`}
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
       

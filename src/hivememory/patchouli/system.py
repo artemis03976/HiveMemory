@@ -24,7 +24,9 @@
 版本: 3.0
 """
 
+import asyncio
 import logging
+import uuid
 from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
@@ -122,6 +124,9 @@ class PatchouliSystem:
         # 注意: 回调中使用 asyncio.create_task 启动异步任务
         self._shutdown_drain_started = False
 
+        # 6. 取消注册表：generation_id → asyncio.Event
+        self._active_generations: Dict[str, asyncio.Event] = {}
+
         async def _on_observer_idle_flushed(payload):
             import asyncio
             asyncio.create_task(self.kernel.submit_interaction(payload))
@@ -186,6 +191,23 @@ class PatchouliSystem:
     def storage(self):
         """访问存储层（代理到 Kernel）"""
         return self.kernel.storage
+
+    # ========== 生成取消 API ==========
+
+    def register_generation(self, generation_id: str) -> asyncio.Event:
+        event = asyncio.Event()
+        self._active_generations[generation_id] = event
+        return event
+
+    def cancel_generation(self, generation_id: str) -> bool:
+        event = self._active_generations.get(generation_id)
+        if event:
+            event.set()
+            return True
+        return False
+
+    def unregister_generation(self, generation_id: str) -> None:
+        self._active_generations.pop(generation_id, None)
 
     # ========== 被动消息流处理 API (Passive Observer Mode) ==========
     # TODO: 参考chat方法重置话题路由时序流
@@ -500,8 +522,16 @@ class PatchouliSystem:
         trace_id = generate_trace_id("stream")
         tokens = set_trace_context(trace_id, "PatchouliSystem.Stream", "foreground")
 
+        generation_id = str(uuid.uuid4())
+        cancel_event = self.register_generation(generation_id)
+
         try:
             logger.info("Processing user stream message")
+
+            yield {
+                "event": "generation_id",
+                "data": {"generation_id": generation_id},
+            }
 
             identity = Identity(
                 user_id=user_id, agent_id=agent_id, session_id=session_id
@@ -573,6 +603,7 @@ class PatchouliSystem:
                 agent_profile=agent_profile,
                 topic_id=real_topic_id,
                 identity=identity,
+                cancel_event=cancel_event,
             ):
                 if event["event"] == "done":
                     from hivememory.patchouli.protocol.models import ChatResult
@@ -583,17 +614,24 @@ class PatchouliSystem:
             if loop_result is None:
                 raise RuntimeError("Stream ended without done event")
 
-            await self._chat_post_process(
-                messages=messages,
-                loop_result=loop_result,
-                hot_result=hot_result,
-                identity=identity,
-                topic_id=real_topic_id,
-                user_message=user_message,
-            )
+            if not cancel_event.is_set():
+                await self._chat_post_process(
+                    messages=messages,
+                    loop_result=loop_result,
+                    hot_result=hot_result,
+                    identity=identity,
+                    topic_id=real_topic_id,
+                    user_message=user_message,
+                )
 
             logger.info("Stream completed successfully")
-            yield {"event": "done", "data": loop_result.model_dump()}
+            yield {
+                "event": "done",
+                "data": {
+                    **loop_result.model_dump(),
+                    "stopped": cancel_event.is_set(),
+                },
+            }
 
         except Exception as e:
             logger.error(f"chat_stream 异常: {e}", exc_info=True)
@@ -609,6 +647,7 @@ class PatchouliSystem:
             yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
 
         finally:
+            self.unregister_generation(generation_id)
             reset_trace_context(tokens)
 
     async def manual_trigger(

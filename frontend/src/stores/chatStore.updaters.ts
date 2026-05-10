@@ -345,15 +345,18 @@ export function applySubAgentEnd(
   }));
 }
 
-export function applyDone(messages: Message[], assistantMessageId: string, finalText: string): Message[] {
-  return updateAssistantMessage(messages, assistantMessageId, (msg) => ({
-    ...msg,
-    content: finalText,
-    contentBlocks: (msg.contentBlocks || []).some((b) => b.kind === 'mtp' || b.kind === 'sub_agent')
-      ? msg.contentBlocks
-      : rebuildBlocksWithFinalText(msg.contentBlocks || [], finalText),
-    isStreaming: false,
-  }));
+export function applyDone(messages: Message[], assistantMessageId: string, finalText: string | null): Message[] {
+  return updateAssistantMessage(messages, assistantMessageId, (msg) => {
+    const text = finalText ?? msg.content;
+    return {
+      ...msg,
+      content: text,
+      contentBlocks: (msg.contentBlocks || []).some((b) => b.kind === 'mtp' || b.kind === 'sub_agent')
+        ? msg.contentBlocks
+        : rebuildBlocksWithFinalText(msg.contentBlocks || [], text),
+      isStreaming: false,
+    };
+  });
 }
 
 export function applyStreamError(
