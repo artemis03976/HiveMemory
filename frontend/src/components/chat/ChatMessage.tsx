@@ -1,38 +1,72 @@
 import { User, Copy, ThumbsUp, RefreshCw, BrainCircuit } from 'lucide-react';
-import type { Message, ContentBlock } from '@/types';
+import type { Message, ContentBlock, InlineBlock, SubAgentBlock } from '@/types';
 import { motion } from 'motion/react';
-import MTPCard from './MTPCard';
-import MarkdownRenderer from '../common/MarkdownRenderer';
+import SubAgentCard from './SubAgentCard';
+import InlineBlockList from './InlineBlockList';
 import { MOCK_AGENTS } from '@/constants/agents';
 
 interface ChatMessageProps {
   message: Message;
 }
 
+type MessageSegment =
+  | { kind: 'inline'; blocks: InlineBlock[] }
+  | { kind: 'sub_agent'; block: SubAgentBlock };
+
+function getMessageBlocks(message: Message): ContentBlock[] {
+  if (message.contentBlocks) {
+    return message.contentBlocks;
+  }
+
+  if (message.mtpAction) {
+    return [
+      { kind: 'text', text: message.content },
+      { kind: 'mtp', action: message.mtpAction },
+    ];
+  }
+
+  return [{ kind: 'text', text: message.content }];
+}
+
+function buildMessageSegments(blocks: ContentBlock[]): MessageSegment[] {
+  const segments: MessageSegment[] = [];
+  let currentInline: InlineBlock[] = [];
+
+  const flushInline = () => {
+    if (currentInline.length > 0) {
+      segments.push({ kind: 'inline', blocks: currentInline });
+      currentInline = [];
+    }
+  };
+
+  for (const block of blocks) {
+    if (block.kind === 'sub_agent') {
+      flushInline();
+      segments.push({ kind: 'sub_agent', block });
+      continue;
+    }
+    currentInline.push(block);
+  }
+
+  flushInline();
+  return segments;
+}
+
 export default function ChatMessage({ message }: ChatMessageProps) {
   const isAgent = message.role === 'agent' || message.role === 'assistant';
   const isUser = message.role === 'user';
-  
-  const agent = isAgent 
+
+  const agent = isAgent
     ? (MOCK_AGENTS.find(a => a.id === message.agent_id) || MOCK_AGENTS[0])
     : null;
-  
-  const blocks = message.contentBlocks || (
-    message.mtpAction 
-      ? [{ kind: 'text', text: message.content }, { kind: 'mtp', action: message.mtpAction }]
-      : [{ kind: 'text', text: message.content }]
-  ) as ContentBlock[];
 
-  const hasContent = blocks.some(b => (b.kind === 'text' && b.text) || (b.kind === 'mtp' && b.action));
+  const blocks = getMessageBlocks(message);
+  const segments = buildMessageSegments(blocks);
+  const lastInlineSegmentIdx = segments.map((segment) => segment.kind).lastIndexOf('inline');
+  const hasContent = blocks.some(
+    (b) => (b.kind === 'text' && b.text) || b.kind === 'mtp' || b.kind === 'sub_agent',
+  );
   const isProcessing = isAgent && message.isStreaming && !hasContent;
-
-  let lastTextIdx = -1;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i].kind === 'text') {
-      lastTextIdx = i;
-      break;
-    }
-  }
 
   return (
     <motion.div
@@ -67,20 +101,19 @@ export default function ChatMessage({ message }: ChatMessageProps) {
               <span>思考中<span className="thinking-dots"></span></span>
             </div>
           )}
-          {blocks.map((block, idx) => {
-            if (block.kind === 'text') {
-              if (!block.text) return null;
-              return (
-                <div key={idx} className={`text-sm leading-relaxed text-on-surface ${isAgent ? 'nebula-glow' : ''} ${message.isStreaming && idx === lastTextIdx ? 'typing-cursor' : ''}`}>
-                  <MarkdownRenderer content={message.isStreaming && idx === lastTextIdx ? block.text + '\u200B' : block.text} />
-                </div>
-              );
-            }
-            if (block.kind === 'mtp' && block.action) {
-              return <MTPCard key={idx} action={block.action} />;
-            }
-            return null;
-          })}
+          {segments.map((segment, idx) => (
+            segment.kind === 'inline' ? (
+              <InlineBlockList
+                key={idx}
+                blocks={segment.blocks}
+                isStreaming={message.isStreaming}
+                animateLastTextCursor={idx === lastInlineSegmentIdx}
+                textClassName={`text-sm leading-relaxed text-on-surface ${isAgent ? 'nebula-glow' : ''}`}
+              />
+            ) : (
+              <SubAgentCard key={idx} block={segment.block} />
+            )
+          ))}
         </div>
 
         {/* Agent 消息工具按钮 */}

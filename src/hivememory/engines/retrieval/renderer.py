@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple, Union
 import logging
 
 from hivememory.patchouli.config import FullRendererConfig, CascadeRendererConfig, CompactRendererConfig
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.utils import estimate_tokens
@@ -31,7 +31,19 @@ from hivememory.utils.memory_atom_renderer import (
 logger = logging.getLogger(__name__)
 
 
+# ========== 空结果提示 ==========
+
+_EMPTY_CONTEXT_NOTICE = (
+    "[System Guidance]: 帕秋莉在本次预检索中未发现强相关的历史记忆或子代理。\n"
+    "(提示: 如果你需要了解历史记忆或寻找特定帮手，请随时使用 ⟪ SEARCH ⟫ 协议指令进行全局模糊搜索。)"
+)
+
+_MEMORY_EMPTY_HINT = "当前检索结果为空。若需查阅历史记忆，请使用 ⟪ SEARCH ⟫。"
+
+_AGENT_EMPTY_HINT = '当前未发现相关的专业子代理。若需其他代理协助，请使用 ⟪ SEARCH | * | filter="type:AGENT_PROFILE" ⟫。'
+
 # ========== 辅助函数 ==========
+
 
 def _extract_memories(results: List) -> List[MemoryAtom]:
     """从结果列表中提取 MemoryAtom"""
@@ -44,6 +56,62 @@ def _extract_memories(results: List) -> List[MemoryAtom]:
         else:
             logger.warning(f"未知的结果类型: {type(item)}")
     return memories
+
+
+def _separate_agent_profiles(
+    memories: List[MemoryAtom],
+) -> tuple[List[MemoryAtom], List[MemoryAtom]]:
+    """
+    分离 AGENT_PROFILE 和普通记忆 (Phase 2: 子代理服务发现)
+
+    Returns:
+        (regular_memories, agent_profiles)
+    """
+    regular = []
+    agents = []
+    for m in memories:
+        if hasattr(m, 'index') and hasattr(m.index, 'memory_type') and m.index.memory_type == MemoryType.AGENT_PROFILE:
+            agents.append(m)
+        else:
+            regular.append(m)
+    return regular, agents
+
+
+def _render_agent_profiles_section(agents: List[MemoryAtom], *, has_memories: bool) -> str:
+    """
+    渲染可用子代理区域 (Phase 2)
+
+    - 有 agents: 渲染 <agent_profile> 块列表
+    - 无 agents 但有记忆 (场景 3): 渲染占位提示
+    - 无 agents 且无记忆 (场景 1): 由调用方处理，此处返回空
+    """
+    if agents:
+        lines = ["\n### 可用子代理 (Available Sub-Agents)"]
+        for agent in agents:
+            lines.append(MemoryAtomRenderer.for_agent_profile(agent))
+        return "\n".join(lines)
+
+    if has_memories:
+        return f"\n### 可用子代理 (Available Sub-Agents)\n{_AGENT_EMPTY_HINT}"
+
+    return ""
+
+
+def _render_memories_section(blocks: List[str], *, has_agents: bool) -> str:
+    """
+    将已渲染的普通记忆块包裹在区域 title 下
+
+    - 有 blocks: 渲染记忆列表
+    - 无 blocks 但有子代理 (场景 2): 渲染占位提示
+    - 无 blocks 且无子代理 (场景 1): 由调用方处理，此处返回空
+    """
+    if blocks:
+        return "\n### 相关记忆 (Relevant Memories)\n" + "".join(blocks)
+
+    if has_agents:
+        return f"\n### 相关记忆 (Relevant Memories)\n{_MEMORY_EMPTY_HINT}"
+
+    return ""
 
 
 class FullContextRenderer(BaseContextRenderer):
@@ -64,28 +132,31 @@ class FullContextRenderer(BaseContextRenderer):
         results: List,
         render_format: Optional[RenderFormat] = None
     ) -> str:
-        if not results:
-            return ""
+        all_memories = _extract_memories(results) if results else []
+        memories, agent_profiles = _separate_agent_profiles(all_memories)
 
-        memories = _extract_memories(results)
-        if not memories:
-            return ""
-
-        blocks = [MEMORY_HEADER]
+        memory_blocks = []
         total_length = len(MEMORY_HEADER) + len(MEMORY_FOOTER)
 
         for memory in memories:
             block = self._render_memory(memory)
 
             if total_length + len(block) > self.max_tokens:
-                logger.debug(f"达到长度限制，截断至 {len(blocks) - 1} 条记忆")
+                logger.debug(f"达到长度限制，截断至 {len(memory_blocks)} 条记忆")
                 break
 
-            blocks.append(block)
+            memory_blocks.append(block)
             total_length += len(block)
 
-        blocks.append(MEMORY_FOOTER)
-        return "".join(blocks)
+        # 场景 1: 两者均空，返回精简闭环提示
+        if not memory_blocks and not agent_profiles:
+            return _EMPTY_CONTEXT_NOTICE
+
+        result = MEMORY_HEADER
+        result += _render_memories_section(memory_blocks, has_agents=bool(agent_profiles))
+        result += _render_agent_profiles_section(agent_profiles, has_memories=bool(memory_blocks))
+        result += MEMORY_FOOTER
+        return result
 
     def _render_memory(self, memory: MemoryAtom) -> str:
         return MemoryAtomRenderer.for_full_context(
@@ -113,12 +184,10 @@ class CascadeContextRenderer(BaseContextRenderer):
         results: List,
         render_format: Optional[RenderFormat] = None
     ) -> str:
-        if not results:
-            return ""
+        all_memories = _extract_memories(results) if results else []
 
-        memories = _extract_memories(results)
-        if not memories:
-            return ""
+        # Phase 2: 分离 AGENT_PROFILE 和普通记忆
+        memories, agent_profiles = _separate_agent_profiles(all_memories)
 
         header_footer_tokens = estimate_tokens(MEMORY_HEADER) + estimate_tokens(MEMORY_FOOTER)
         available_budget = self.config.max_memory_tokens - header_footer_tokens
@@ -129,10 +198,15 @@ class CascadeContextRenderer(BaseContextRenderer):
 
         rendered_blocks, _ = self._render_with_budget(memories, available_budget)
 
-        if not rendered_blocks:
-            return ""
+        # 场景 1: 两者均空，返回精简闭环提示
+        if not rendered_blocks and not agent_profiles:
+            return _EMPTY_CONTEXT_NOTICE
 
-        return MEMORY_HEADER + "".join(rendered_blocks) + MEMORY_FOOTER
+        result = MEMORY_HEADER
+        result += _render_memories_section(rendered_blocks, has_agents=bool(agent_profiles))
+        result += _render_agent_profiles_section(agent_profiles, has_memories=bool(rendered_blocks))
+        result += MEMORY_FOOTER
+        return result
 
     def _render_with_budget(
         self,
@@ -190,12 +264,8 @@ class CompactContextRenderer(BaseContextRenderer):
         results: List,
         render_format: Optional[RenderFormat] = None
     ) -> str:
-        if not results:
-            return ""
-
-        memories = _extract_memories(results)
-        if not memories:
-            return ""
+        all_memories = _extract_memories(results) if results else []
+        memories, agent_profiles = _separate_agent_profiles(all_memories)
 
         header_footer_tokens = estimate_tokens(MEMORY_HEADER) + estimate_tokens(MEMORY_FOOTER)
         available_budget = self.config.max_memory_tokens - header_footer_tokens
@@ -221,10 +291,15 @@ class CompactContextRenderer(BaseContextRenderer):
                 logger.debug(f"预算耗尽，停止渲染 (已渲染 {len(blocks)} 条)")
                 break
 
-        if not blocks:
-            return ""
+        # 场景 1: 两者均空，返回精简闭环提示
+        if not blocks and not agent_profiles:
+            return _EMPTY_CONTEXT_NOTICE
 
-        return MEMORY_HEADER + "".join(blocks) + MEMORY_FOOTER
+        result = MEMORY_HEADER
+        result += _render_memories_section(blocks, has_agents=bool(agent_profiles))
+        result += _render_agent_profiles_section(agent_profiles, has_memories=bool(blocks))
+        result += MEMORY_FOOTER
+        return result
 
 
 # ========== 工厂函数 ==========

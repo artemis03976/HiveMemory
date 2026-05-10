@@ -45,7 +45,7 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None):
 class TestIdleHibernateSwapOut:
     """验证空闲超时后话题被 swap-out"""
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_idle_flush_swaps_out_topic(self, mock_parser_cls):
         """设置短超时，触发扫描，验证话题从活跃池移除"""
@@ -78,7 +78,7 @@ class TestIdleHibernateSwapOut:
         active_after = layer.list_active_buffers()
         assert len(active_after) == 0
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_idle_flush_triggers_generation_callback(self, mock_parser_cls):
         """验证空闲 flush 会触发 generation_callback"""
@@ -108,7 +108,7 @@ class TestIdleHibernateSwapOut:
         assert payload.topic_id is not None
         assert len(payload.blocks) > 0
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_idle_flush_frees_slot(self, mock_parser_cls):
         """swap-out 后坑位释放，新话题可正常创建"""
@@ -143,7 +143,7 @@ class TestIdleHibernateSwapOut:
         active = layer.list_active_buffers()
         assert len(active) == 1
 
-    @patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
     async def test_shutdown_flush_archives_and_swaps_out_all_topics(self, mock_parser_cls):
         """验证 shutdown flush 会归档并驱逐所有活跃话题"""

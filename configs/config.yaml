@@ -63,15 +63,7 @@ embedding:
   default:
     model_name: "Xenova/bge-m3"
     device: "cpu"  # 可选: cpu, cuda, mps
-    cache_dir: null
-    batch_size: 32
-    normalize_embeddings: true
-    dimension: 1024
-
-  perception:
-    model_name: "Xenova/bge-m3"
-    device: "cpu"
-    cache_dir: null
+    cache_dir: "data/model_cache"
     batch_size: 32
     normalize_embeddings: true
     dimension: 1024

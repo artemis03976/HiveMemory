@@ -44,7 +44,18 @@ export interface MtpBlock {
   action: MtpAction;
 }
 
-export type ContentBlock = TextBlock | MtpBlock;
+export type InlineBlock = TextBlock | MtpBlock;
+
+export interface SubAgentBlock {
+  kind: 'sub_agent';
+  agentId: string;
+  task: string;
+  status: 'running' | 'completed' | 'error';
+  contentBlocks: InlineBlock[];
+  finalText?: string;
+}
+
+export type ContentBlock = InlineBlock | SubAgentBlock;
 
 export interface Message {
   id: string;

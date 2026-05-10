@@ -26,7 +26,7 @@ from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.patchouli.protocol.exceptions import StorageOfflineError, StorageReadError
+from hivememory.patchouli.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.patchouli.protocol.models import RetrievalRequest, RetrievalResponse
 
 logger = logging.getLogger(__name__)

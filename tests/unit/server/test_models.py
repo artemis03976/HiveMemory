@@ -60,7 +60,8 @@ class TestSSEEventModels:
     def test_token_event(self):
         e = ChatTokenEvent(content="hello")
         d = e.model_dump()
-        assert d == {"content": "hello"}
+        assert d["content"] == "hello"
+        assert d["scope"] is None
 
     def test_mtp_start_event(self):
         e = MTPStartEvent(verb="SEARCH", iteration=1)

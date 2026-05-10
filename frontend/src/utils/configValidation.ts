@@ -37,13 +37,6 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
       severity: 'error',
     });
   }
-  if (!validDevices.includes(config.embedding.perception.device)) {
-    errors.push({
-      field: 'embedding.perception.device',
-      message: `Device must be one of: ${validDevices.join(', ')}`,
-      severity: 'error',
-    });
-  }
 
   // Validate Qdrant distance metric
   const validMetrics = ['Cosine', 'Euclidean', 'Dot'];

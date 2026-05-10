@@ -25,12 +25,21 @@ class ChatRequest(BaseModel):
 
 # ========== SSE 事件数据模型 ==========
 
-class ChatTokenEvent(BaseModel):
+class StreamNamespace(BaseModel):
+    """流式事件命名空间：用于区分主/子 Agent 输出来源。"""
+
+    scope: Optional[str] = Field(default=None, description="事件作用域：main 或 sub")
+    depth: Optional[int] = Field(default=None, description="当前执行深度，主帧通常为 0")
+    agent_id: Optional[str] = Field(default=None, description="当前输出的 agent 标识")
+    frame_id: Optional[str] = Field(default=None, description="当前执行帧 ID")
+
+
+class ChatTokenEvent(StreamNamespace):
     """token 事件: LLM 生成的文本增量"""
     content: str
 
 
-class MTPStartEvent(BaseModel):
+class MTPStartEvent(StreamNamespace):
     """mtp_start 事件: MTP 指令被拦截"""
     verb: str
     target: str = ""
@@ -39,13 +48,29 @@ class MTPStartEvent(BaseModel):
     iteration: int
 
 
-class MTPResultEvent(BaseModel):
+class MTPResultEvent(StreamNamespace):
     """mtp_result 事件: MTP 执行完成"""
     verb: str
     target: str = ""
     args: dict = Field(default_factory=dict)
     raw_text: str = ""
     status: str
+    iteration: int
+
+
+class SubAgentStartEvent(StreamNamespace):
+    """sub_agent_start 事件: 子 Agent 生命周期开始。"""
+
+    agent_id: str
+    task: str
+    iteration: int
+
+
+class SubAgentEndEvent(StreamNamespace):
+    """sub_agent_end 事件: 子 Agent 生命周期结束。"""
+
+    status: str
+    final_text: Optional[str] = None
     iteration: int
 
 

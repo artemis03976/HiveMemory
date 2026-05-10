@@ -30,7 +30,7 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from hivememory.core.models import Identity, MemoryAtom, AgentProfileConfig, OMNI_DOLL_PROFILE
+from hivememory.core.models import Identity, MemoryAtom, AgentProfile, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.engines.perception.models import InteractionPayload
 from hivememory.patchouli.protocol.models import (
@@ -44,7 +44,7 @@ from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.kernel.cache import AgentProfileCache
+from hivememory.patchouli.kernel.runtime.cache import AgentProfileCache
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus
@@ -107,6 +107,10 @@ class PatchouliKernel:
 
         # 5. 人偶图纸缓存 (多智能体系统)
         self._agent_profile_cache = AgentProfileCache()
+
+        # 6. 帧调度器 (Phase 2 多智能体子代理调用)
+        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        self._frame_scheduler = FrameScheduler(self)
 
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")
 
@@ -396,7 +400,12 @@ class PatchouliKernel:
         """访问人偶图纸缓存"""
         return self._agent_profile_cache
 
-    def load_agent_profile(self, agent_alias: str) -> AgentProfileConfig:
+    @property
+    def frame_scheduler(self) -> "FrameScheduler":
+        """访问帧调度器 (Phase 2 多智能体子代理调用)"""
+        return self._frame_scheduler
+
+    def load_agent_profile(self, agent_alias: str) -> AgentProfile:
         """
         加载人偶图纸配置：缓存优先 → storage 冷查询 → omni_doll 兜底
 
@@ -404,7 +413,7 @@ class PatchouliKernel:
             agent_alias: 人偶别名 (如 "coder_doll")
 
         Returns:
-            AgentProfileConfig: 人偶配置（永不返回 None）
+            AgentProfile: 人偶配置（永不返回 None）
         """
         if not agent_alias or agent_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
@@ -415,21 +424,6 @@ class PatchouliKernel:
 
         logger.info(f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE.")
         return OMNI_DOLL_PROFILE
-
-    def get_agent_persona(self, agent_alias: str) -> str:
-        """
-        获取人偶的灵魂文本 (payload.content)
-
-        Args:
-            agent_alias: 人偶别名
-
-        Returns:
-            str: 人偶的角色设定文本，未找到返回空字符串
-        """
-        atom = self._agent_profile_cache.get_atom(agent_alias)
-        if atom is not None:
-            return atom.payload.content
-        return ""
 
     # ========== 健康检查 ==========
 
@@ -530,13 +524,13 @@ class PatchouliKernel:
 
     def get_mtp_prompt(
         self,
-        profile: Optional[AgentProfileConfig] = None,
+        profile: Optional[AgentProfile] = None,
     ) -> str:
         """
         获取 MTP 协议教学 System Prompt 片段
 
         仅包含 MTP 协议语法教学，不包含角色设定（persona）。
-        当传入 AgentProfileConfig 时，根据权限白名单动态过滤可用指令和工具。
+        当传入 AgentProfile 时，根据权限白名单动态过滤可用指令和工具。
 
         Args:
             profile: 人偶图纸配置（可选），用于权限过滤

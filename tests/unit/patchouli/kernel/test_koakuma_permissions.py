@@ -11,9 +11,9 @@ Koakuma 运行时权限拦截单元测试
 import pytest
 from unittest.mock import Mock, patch
 
-from hivememory.core.models import AgentProfileConfig
+from hivememory.core.models import AgentProfile
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.protocol.exceptions import PermissionDeniedError
+from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
 
 
 def _create_koakuma():
@@ -22,8 +22,8 @@ def _create_koakuma():
 
 
 def _make_profile(allowed_verbs=None, allowed_tools=None):
-    """构建 AgentProfileConfig"""
-    return AgentProfileConfig(
+    """构建 AgentProfile"""
+    return AgentProfile(
         model_name="test-model",
         temperature=0.7,
         allowed_mtp_verbs=allowed_verbs,
@@ -203,7 +203,7 @@ class TestPermissionDeniedError:
 
     def test_error_is_agent_fault(self):
         """PermissionDeniedError 是 AgentFault 子类"""
-        from hivememory.patchouli.protocol.exceptions import AgentFault
+        from hivememory.patchouli.mtp.exceptions import AgentFault
 
         koakuma = _create_koakuma()
         profile = _make_profile(allowed_verbs=["READ"])

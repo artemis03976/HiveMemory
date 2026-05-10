@@ -7,7 +7,7 @@ from hivememory.engines.perception.semantic_flow_perception_layer import Semanti
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
 
 
-@patch("hivememory.patchouli.protocol.mtp_log_parser.MTPLogParser")
+@patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
 @pytest.mark.asyncio
 async def test_ingest_payload_uses_identity_agent_id(mock_parser_cls):
     mock_parser_cls.parse.return_value = ("clean", [])

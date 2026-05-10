@@ -21,7 +21,7 @@ MTP System Prompt 构建器
 import logging
 from typing import List, Optional, Tuple
 
-from hivememory.patchouli.protocol.mtp import (
+from hivememory.patchouli.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
 )
@@ -48,6 +48,7 @@ _VERB_DEFS_EN = {
     "RUN": 'Execute a kernel tool. Target=`tool_alias`. Args: `key="value"`.',
     "WRITE": "Save valuable insights. Target=`*`. Args: `title=\"...\" content=`...``.",
     "UPDATE": "Patch existing memory. Target=`alias`. Args: `patch=`...``.",
+    "CALL": 'Delegate to a sub-agent. Target=`agent_alias` (from Available Sub-Agents list). Args: `topic="..."`, optional `context_refs="[alias1, alias2]"` to share memories.',
 }
 
 _VERB_DEFS_ZH = {
@@ -56,10 +57,11 @@ _VERB_DEFS_ZH = {
     "RUN": '执行内核工具。Target=`tool_alias`。参数: `key="value"`。',
     "WRITE": "保存有价值的洞察。Target=`*`。参数: `title=\"...\" content=`...``。",
     "UPDATE": "修正已有记忆。Target=`alias`。参数: `patch=`...``。",
+    "CALL": '委托子代理执行专项任务。Target=`agent_alias` (来自可用子代理列表)。参数: `topic="..."`，可选 `context_refs="[alias1, alias2]"` 共享记忆。',
 }
 
 # 默认全量动词顺序
-_VERB_ORDER = ["SEARCH", "READ", "RUN", "WRITE", "UPDATE"]
+_VERB_ORDER = ["SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"]
 
 
 # ========== 英文模板 ==========
@@ -88,7 +90,8 @@ _BEHAVIORAL_GUIDELINES_EN = """\
 [BEHAVIORAL GUIDELINES]
 - Verify First: If asked about specific facts, code, or configurations, SEARCH/READ memory first. Do not guess.
 - Batch Operations: Always group multiple READ requests into one list `[a, b, c]` to save IO cycles.
-- Inline Flow: Execute protocol commands as part of your thought process. Do not stop to ask for permission."""
+- Inline Flow: Execute protocol commands as part of your thought process. Do not stop to ask for permission.
+- Delegate to Sub-Agents: When the memory context lists Available Sub-Agents and the task matches their specialty, issue CALL to delegate instead of handling it yourself. Pass relevant memory aliases via `context_refs` to share context."""
 
 _DENSE_DEMO_EN = """\
 [ONE-SHOT DEMONSTRATION]
@@ -156,7 +159,8 @@ _BEHAVIORAL_GUIDELINES_ZH = """\
 [行为准则]
 - 先验证: 当被问及具体事实、代码或配置时，先 SEARCH/READ 记忆。不要猜测。
 - 批量操作: 将多个 READ 请求合并为一个列表 `[a, b, c]`，节省 IO 开销。
-- 行内执行: 将协议指令作为思考过程的一部分执行，不要停下来请求许可。"""
+- 行内执行: 将协议指令作为思考过程的一部分执行，不要停下来请求许可。
+- 优先委托: 若记忆上下文中列出了可用子代理，且任务契合其专项能力，应优先使用 CALL 委托子代理执行，而非自行承担。可通过 `context_refs` 传递相关记忆别名以共享上下文。"""
 
 _DENSE_DEMO_ZH = """\
 [示例演示]

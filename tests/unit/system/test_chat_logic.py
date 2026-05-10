@@ -34,7 +34,7 @@ from hivememory.patchouli.protocol.models import (
     ChatResult, KernelHotResult, EyeGazeResult, MTPExecutionResult,
 )
 from hivememory.patchouli.worker_agent import GenerationResult
-from hivememory.patchouli.protocol.mtp import MTPVerb
+from hivememory.patchouli.mtp import MTPVerb
 from hivememory.engines.gateway.models import GatewayIntent
 
 
@@ -107,7 +107,7 @@ def _mtp_exec() -> MTPExecutionResult:
 def sys():
     """
     构建最小化 PatchouliSystem mock:
-    mock Eye, Kernel, WorkerAgent — 绑定真实 chat() 和递归生成循环
+    mock Eye, Kernel, WorkerAgent — 绑定真实 chat() 与后处理逻辑
     """
     from hivememory.patchouli.system import PatchouliSystem
 
@@ -123,6 +123,7 @@ def sys():
 
     # Kernel
     s.kernel = MagicMock()
+    s.kernel.config = s.config  # 共享 config 对象
     s.kernel.handle_hot = AsyncMock(return_value=_make_hot_result())
     s.kernel.handle_mtp = AsyncMock(return_value=None)
     s.kernel.get_topic_snapshots = AsyncMock(return_value=[])
@@ -133,11 +134,31 @@ def sys():
     ))
     s.kernel.get_mtp_prompt = MagicMock(return_value="")
     s.kernel.check_storage_health = MagicMock(return_value=True)
-    s.kernel.load_agent_profile = MagicMock(return_value=None)
-    s.kernel.get_agent_persona = MagicMock(return_value="")
+
+    # Mock load_agent_profile to return OMNI_DOLL_PROFILE
+    from hivememory.core.models import OMNI_DOLL_PROFILE
+    s.kernel.load_agent_profile = MagicMock(return_value=OMNI_DOLL_PROFILE)
+
     s.kernel.koakuma = MagicMock()
     s.kernel.submit_interaction = AsyncMock(return_value=None)
     s.kernel.librarian_core = MagicMock()
+
+    # Frame scheduler (Phase 2) — 使用真实的 FrameScheduler 行为
+    from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
+    from hivememory.core.models import Identity as _Identity
+
+    def _mock_create_main_frame(agent_profile, messages, topic_id, identity):
+        return ExecutionFrame(
+            process_id="pid_main_test",
+            agent_profile=agent_profile,
+            working_history=messages,
+            depth=0,
+            topic_id=topic_id,
+            identity=identity if isinstance(identity, _Identity) else _Identity(user_id="u1"),
+        )
+
+    s.kernel.frame_scheduler = MagicMock()
+    s.kernel.frame_scheduler.create_main_frame = MagicMock(side_effect=_mock_create_main_frame)
 
     # Worker Agent
     s._worker_agent = MagicMock()
@@ -146,13 +167,18 @@ def sys():
     # SystemBus (optional)
     s._bus = None
 
+    # Loop Executor (Phase 2 重构) - 使用真实实例但注入 mock 依赖
+    from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+    s._loop_executor = KernelLoopExecutor(
+        kernel=s.kernel,
+        worker_agent=s._worker_agent,
+    )
+
     # 绑定真实方法
     from hivememory.patchouli.system import PatchouliSystem as Real
     _chat_async = types.MethodType(Real.chat, s)
     s.chat = lambda *args, **kwargs: asyncio.run(_chat_async(*args, **kwargs))
-    s._recursive_generation_loop = types.MethodType(
-        Real._recursive_generation_loop, s
-    )
+    s._chat_post_process = types.MethodType(Real._chat_post_process, s)
     s._reconstruct_raw_assistant_text = Real._reconstruct_raw_assistant_text
     s._assemble_messages_from_context = types.MethodType(Real._assemble_messages_from_context, s)
 

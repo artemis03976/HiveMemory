@@ -48,14 +48,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
       normalize_embeddings: true,
       dimension: 1024,
     },
-    perception: {
-      model_name: 'BAAI/bge-m3',
-      device: 'cpu',
-      cache_dir: null,
-      batch_size: 32,
-      normalize_embeddings: true,
-      dimension: 1024,
-    },
   },
   qdrant: {
     host: 'localhost',

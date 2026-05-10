@@ -67,8 +67,9 @@ class TestFullContextRenderer:
         )
 
     def test_empty_results(self):
-        """测试空结果"""
-        assert self.renderer.render([]) == ""
+        """测试空结果返回精简闭环提示"""
+        from hivememory.engines.retrieval.renderer import _EMPTY_CONTEXT_NOTICE
+        assert self.renderer.render([]) == _EMPTY_CONTEXT_NOTICE
 
     def test_content_truncation(self):
         """测试内容截断"""
@@ -229,7 +230,7 @@ class TestCascadeContextRenderer:
     def test_budget_truncation(self):
         """测试超出预算时降级为 Index 渲染"""
         config = CascadeRendererConfig(
-            max_memory_tokens=300,
+            max_memory_tokens=600,
             full_payload_count=1,
         )
         renderer = CascadeContextRenderer(config)
@@ -241,7 +242,8 @@ class TestCascadeContextRenderer:
         assert "memory_index" in output
 
     def test_budget_exhausted(self):
-        """测试预算耗尽时停止渲染"""
+        """测试预算耗尽时返回精简闭环提示"""
+        from hivememory.engines.retrieval.renderer import _EMPTY_CONTEXT_NOTICE
         config = CascadeRendererConfig(
             max_memory_tokens=200,
             full_payload_count=0,
@@ -250,13 +252,14 @@ class TestCascadeContextRenderer:
 
         output = renderer.render([self.memory1, self.memory2, self.memory3])
 
-        assert "<memory_context>" in output
+        assert output == _EMPTY_CONTEXT_NOTICE
 
     def test_empty_results(self):
-        """测试空结果处理"""
+        """测试空结果返回精简闭环提示"""
+        from hivememory.engines.retrieval.renderer import _EMPTY_CONTEXT_NOTICE
         config = CascadeRendererConfig()
         renderer = CascadeContextRenderer(config)
-        assert renderer.render([]) == ""
+        assert renderer.render([]) == _EMPTY_CONTEXT_NOTICE
 
     def test_all_full_payload(self):
         """测试所有记忆都完整渲染"""
@@ -372,13 +375,14 @@ class TestCompactContextRenderer:
         assert "⟪ READ" in output
 
     def test_empty_results(self):
-        """测试空结果处理"""
+        """测试空结果返回精简闭环提示"""
+        from hivememory.engines.retrieval.renderer import _EMPTY_CONTEXT_NOTICE
         renderer = CompactContextRenderer(CompactRendererConfig())
-        output = renderer.render([])
-        assert output == ""
+        assert renderer.render([]) == _EMPTY_CONTEXT_NOTICE
 
     def test_budget_exhausted(self):
-        """测试预算耗尽时停止渲染"""
+        """测试预算耗尽时返回精简闭环提示"""
+        from hivememory.engines.retrieval.renderer import _EMPTY_CONTEXT_NOTICE
         config = CompactRendererConfig(
             max_memory_tokens=200,
         )
@@ -386,7 +390,7 @@ class TestCompactContextRenderer:
 
         output = renderer.render([self.memory1, self.memory2])
 
-        assert "<memory_context>" in output
+        assert output == _EMPTY_CONTEXT_NOTICE
 
     def test_summary_truncation(self):
         """测试摘要截断"""

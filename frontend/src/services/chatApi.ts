@@ -16,6 +16,8 @@ import type {
   MemoryRefsEvent,
   ChatDoneEvent,
   ChatErrorEvent,
+  SubAgentStartEvent,
+  SubAgentEndEvent,
 } from '@/types';
 
 export class ChatSSEClient {
@@ -128,18 +130,41 @@ export class ChatSSEClient {
     data: unknown,
     callbacks: SSECallbacks
   ): void {
+    const isSubScoped = (payload: unknown): boolean => {
+      if (!payload || typeof payload !== 'object') return false;
+      return (payload as { scope?: string }).scope === 'sub';
+    };
+
     switch (eventType) {
-      case 'token':
-        callbacks.onToken(data as ChatTokenEvent);
+      case 'token': {
+        const tokenData = data as ChatTokenEvent;
+        if (isSubScoped(tokenData)) {
+          callbacks.onSubAgentToken(tokenData);
+        } else {
+          callbacks.onToken(tokenData);
+        }
         break;
+      }
 
-      case 'mtp_start':
-        callbacks.onMTPStart(data as MTPStartEvent);
+      case 'mtp_start': {
+        const mtpStartData = data as MTPStartEvent;
+        if (isSubScoped(mtpStartData)) {
+          callbacks.onSubAgentMTPStart(mtpStartData);
+        } else {
+          callbacks.onMTPStart(mtpStartData);
+        }
         break;
+      }
 
-      case 'mtp_result':
-        callbacks.onMTPResult(data as MTPResultEvent);
+      case 'mtp_result': {
+        const mtpResultData = data as MTPResultEvent;
+        if (isSubScoped(mtpResultData)) {
+          callbacks.onSubAgentMTPResult(mtpResultData);
+        } else {
+          callbacks.onMTPResult(mtpResultData);
+        }
         break;
+      }
 
       case 'topic_info':
         callbacks.onTopicInfo(data as TopicInfoEvent);
@@ -155,6 +180,14 @@ export class ChatSSEClient {
 
       case 'error':
         callbacks.onError(data as ChatErrorEvent);
+        break;
+
+      case 'sub_agent_start':
+        callbacks.onSubAgentStart(data as SubAgentStartEvent);
+        break;
+
+      case 'sub_agent_end':
+        callbacks.onSubAgentEnd(data as SubAgentEndEvent);
         break;
 
       default:

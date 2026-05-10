@@ -30,7 +30,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import litellm
 
 from hivememory.patchouli.config import LLMConfig
-from hivememory.patchouli.protocol.mtp import (
+from hivememory.patchouli.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_STOP_SEQUENCE,
 )

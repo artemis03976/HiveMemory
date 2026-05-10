@@ -39,7 +39,6 @@ export interface EmbeddingConfig {
 
 export interface EmbeddingsConfig {
   default: EmbeddingConfig;
-  perception: EmbeddingConfig;
 }
 
 export interface QdrantConfig {

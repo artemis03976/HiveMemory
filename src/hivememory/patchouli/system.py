@@ -40,6 +40,7 @@ from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.server.models.memory import MemoryResponse
 
@@ -110,6 +111,12 @@ class PatchouliSystem:
 
         # 4. 初始化 Worker Agent (LLM 文本生成引擎)
         self._worker_agent = WorkerAgentService(config=self.config.llm.worker)
+
+        # 4.5 初始化 Loop Executor (帧执行循环管理器)
+        self._loop_executor = KernelLoopExecutor(
+            kernel=self.kernel,
+            worker_agent=self._worker_agent,
+        )
 
         # 5. System 级 Pub/Sub 订阅
         # 注意: 回调中使用 asyncio.create_task 启动异步任务
@@ -398,7 +405,6 @@ class PatchouliSystem:
 
             # 1.5 Load agent profile (Phase 1 多智能体)
             agent_profile = self.kernel.load_agent_profile(agent_id)
-            persona = self.kernel.get_agent_persona(agent_id)
 
             # 2. Get topic snapshots from perception layer
             topic_snapshots = await self.kernel.get_topic_snapshots(identity)
@@ -425,54 +431,35 @@ class PatchouliSystem:
                 enable_retrieval=enable_memory_retrieval,
             )
 
-            # 7. Assemble messages from perception layer context
+            # 6. Assemble messages from perception layer context
             messages = self._assemble_messages_from_context(
                 topic_context=topic_context,
                 hot_result=hot_result,
                 user_message=user_message,
                 profile=agent_profile,
-                persona=persona,
                 current_agent_id=agent_id,
             )
 
-            # 8. 递归生成循环
+            # 7. 递归生成循环
             # 设置 Koakuma 权限沙箱 (Phase 1 多智能体)
             self.kernel.koakuma.set_active_profile(agent_profile)
 
-            loop_result = await self._recursive_generation_loop(
-                messages,
-                user_id,
+            loop_result = await self._loop_executor.execute_main_frame(
+                messages=messages,
+                max_iterations=None,
                 generation_options=generation_options,
-            )
-
-            # 9. 构建 InteractionPayload 并提交 (v3.0 统一摄入管道)
-            raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
-
-            # Koakuma 离线 fallback: 降级为空 traces / None focus
-            try:
-                mtp_traces = self.kernel.koakuma.get_interaction_traces()
-                write_focus = self.kernel.koakuma.get_write_focus()
-                update_focus = self.kernel.koakuma.get_update_focus()
-            except Exception as e:
-                logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
-                mtp_traces = []
-                write_focus = None
-                update_focus = None
-
-            payload = InteractionPayload(
-                user_message=user_message,
-                assistant_message=raw_assistant_text,
-                mtp_traces=mtp_traces,
-                write_focus=write_focus,
-                update_focus=update_focus,
+                agent_profile=agent_profile,
+                topic_id=real_topic_id,
                 identity=identity,
-                rewritten_query=hot_result.rewritten,
-                worth_saving=hot_result.worth_saving,
             )
 
-            # 阻塞等待提交完成，确保 token 溢出压缩等操作完成后再返回
-            await self.kernel.submit_interaction(
-                payload, target_topic=real_topic_id
+            await self._chat_post_process(
+                messages=messages,
+                loop_result=loop_result,
+                hot_result=hot_result,
+                identity=identity,
+                topic_id=real_topic_id,
+                user_message=user_message,
             )
 
             logger.info("Chat completed successfully")
@@ -480,59 +467,6 @@ class PatchouliSystem:
 
         finally:
             reset_trace_context(tokens)
-
-    async def _recursive_generation_loop(
-        self,
-        messages: List[Dict[str, str]],
-        user_id: str,
-        max_iterations: Optional[int] = None,
-        generation_options: Optional[Dict[str, Any]] = None,
-    ) -> ChatResult:
-        max_iter = max_iterations or self.config.koakuma.max_recursion_depth
-        text_segments: List[str] = []
-        mtp_commands: List[str] = []
-        iteration = 0
-
-        self.kernel.koakuma.set_current_identity(Identity(user_id=user_id))
-        self.kernel.koakuma.reset_interaction_state()
-
-        while iteration < max_iter:
-            iteration += 1
-
-            result = await self._worker_agent.generate_async(
-                messages,
-                **(generation_options or {}),
-            )
-
-            if not result.was_mtp_interrupted:
-                text_segments.append(result.text)
-                break
-
-            text_segments.append(result.prefix_text)
-
-            mtp_result = await self.kernel.handle_mtp(result.text)
-
-            if mtp_result is None:
-                text_segments.append(result.mtp_fragment)
-                break
-
-            mtp_commands.append(
-                mtp_result.command.verb.value
-                if mtp_result.command else "UNKNOWN"
-            )
-
-            messages.append({"role": "assistant", "content": result.text + "⟫"})
-            messages.append({
-                "role": "user",
-                "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
-            })
-
-        return ChatResult(
-            final_text="".join(text_segments),
-            mtp_iterations=max(0, iteration - 1),
-            total_iterations=iteration,
-            mtp_commands_executed=mtp_commands,
-        )
 
     # ========== 流式对话 API (SSE) ==========
 
@@ -575,7 +509,6 @@ class PatchouliSystem:
 
             # Load agent profile (Phase 1 多智能体)
             agent_profile = self.kernel.load_agent_profile(agent_id)
-            persona = self.kernel.get_agent_persona(agent_id)
 
             # 1. 获取话题快照
             topic_snapshots = await self.kernel.get_topic_snapshots(identity)
@@ -626,151 +559,37 @@ class PatchouliSystem:
                 hot_result=hot_result,
                 user_message=user_message,
                 profile=agent_profile,
-                persona=persona,
                 current_agent_id=agent_id,
             )
 
-            # 6. 流式递归生成循环
-            max_iter = self.config.koakuma.max_recursion_depth
-            text_segments: List[str] = []
-            mtp_commands: List[str] = []
-            iteration = 0
-
-            self.kernel.koakuma.set_current_identity(identity)
+            # 6. 流式递归生成循环（委托给 KernelLoopExecutor）
             self.kernel.koakuma.set_active_profile(agent_profile)
-            self.kernel.koakuma.reset_interaction_state()
+            loop_result = None
 
-            while iteration < max_iter:
-                iteration += 1
-                gen_result = None
-
-                async for chunk in self._worker_agent.generate_stream(
-                    messages,
-                    **(generation_options or {}),
-                ):
-                    if chunk.is_final:
-                        gen_result = chunk.result
-                        break
-                    if not chunk.mtp_detected and chunk.delta:
-                        yield {"event": "token", "data": {"content": chunk.delta}}
-
-                if gen_result is None:
-                    break
-
-                if not gen_result.was_mtp_interrupted:
-                    text_segments.append(gen_result.text)
-                    break
-
-                # MTP 中断
-                text_segments.append(gen_result.prefix_text)
-
-                verb_hint = "UNKNOWN"
-                target_hint = ""
-                args_hint = {}
-                raw_hint = gen_result.mtp_fragment
-                try:
-                    from hivememory.patchouli.protocol.mtp import MTPParser
-                    parsed_hint = MTPParser().complete_and_parse(gen_result.text)
-                    verb_hint = parsed_hint.verb.value
-                    if parsed_hint.target.is_wildcard:
-                        target_hint = "*"
-                    elif parsed_hint.target.aliases:
-                        target_hint = ",".join(parsed_hint.target.aliases)
-                    args_hint = dict(parsed_hint.args)
-                    raw_hint = parsed_hint.raw_text or raw_hint
-                except Exception:
-                    pass
-                yield {
-                    "event": "mtp_start",
-                    "data": {
-                        "verb": verb_hint,
-                        "target": target_hint,
-                        "args": args_hint,
-                        "raw_text": raw_hint,
-                        "iteration": iteration,
-                    },
-                }
-
-                mtp_result = await self.kernel.handle_mtp(gen_result.text)
-
-                if mtp_result is None:
-                    text_segments.append(gen_result.mtp_fragment)
-                    yield {
-                        "event": "mtp_result",
-                        "data": {
-                            "verb": verb_hint,
-                            "target": target_hint,
-                            "args": args_hint,
-                            "raw_text": raw_hint,
-                            "status": "failed",
-                            "iteration": iteration,
-                        },
-                    }
-                    break
-
-                verb = mtp_result.command.verb.value if mtp_result.command else "UNKNOWN"
-                mtp_commands.append(verb)
-                if mtp_result.command and mtp_result.command.target:
-                    if mtp_result.command.target.is_wildcard:
-                        target_hint = "*"
-                    elif mtp_result.command.target.aliases:
-                        target_hint = ",".join(mtp_result.command.target.aliases)
-                    else:
-                        target_hint = ""
-                    args_hint = dict(mtp_result.command.args or {})
-                    raw_hint = mtp_result.command.raw_text or raw_hint
-
-                yield {
-                    "event": "mtp_result",
-                    "data": {
-                        "verb": verb,
-                        "target": target_hint,
-                        "args": args_hint,
-                        "raw_text": raw_hint,
-                        "status": mtp_result.response_status,
-                        "iteration": iteration,
-                    },
-                }
-
-                messages.append({"role": "assistant", "content": gen_result.text + "⟫"})
-                messages.append({
-                    "role": "user",
-                    "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
-                })
-
-            # 7. 构建最终结果
-            loop_result = ChatResult(
-                final_text="".join(text_segments),
-                mtp_iterations=max(0, iteration - 1),
-                total_iterations=iteration,
-                mtp_commands_executed=mtp_commands,
-            )
-
-            # 8. 提交 InteractionPayload
-            raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
-
-            try:
-                mtp_traces = self.kernel.koakuma.get_interaction_traces()
-                write_focus = self.kernel.koakuma.get_write_focus()
-                update_focus = self.kernel.koakuma.get_update_focus()
-            except Exception:
-                mtp_traces = []
-                write_focus = None
-                update_focus = None
-
-            interaction_payload = InteractionPayload(
-                user_message=user_message,
-                assistant_message=raw_assistant_text,
-                mtp_traces=mtp_traces,
-                write_focus=write_focus,
-                update_focus=update_focus,
+            async for event in self._loop_executor.execute_main_frame_stream(
+                messages=messages,
+                max_iterations=None,
+                generation_options=generation_options,
+                agent_profile=agent_profile,
+                topic_id=real_topic_id,
                 identity=identity,
-                rewritten_query=hot_result.rewritten,
-                worth_saving=hot_result.worth_saving,
-            )
+            ):
+                if event["event"] == "done":
+                    from hivememory.patchouli.protocol.models import ChatResult
+                    loop_result = ChatResult(**event["data"])
+                else:
+                    yield event
 
-            await self.kernel.submit_interaction(
-                interaction_payload, target_topic=real_topic_id
+            if loop_result is None:
+                raise RuntimeError("Stream ended without done event")
+
+            await self._chat_post_process(
+                messages=messages,
+                loop_result=loop_result,
+                hot_result=hot_result,
+                identity=identity,
+                topic_id=real_topic_id,
+                user_message=user_message,
             )
 
             logger.info("Stream completed successfully")
@@ -822,8 +641,7 @@ class PatchouliSystem:
         topic_context: Dict[str, Any],
         hot_result,  # KernelHotResult
         user_message: str,
-        profile=None,  # AgentProfileConfig (Phase 1)
-        persona: str = "",
+        profile=None,  # AgentProfile (Phase 1)
         current_agent_id: str = "omni_doll",
     ) -> List[Dict[str, str]]:
         """
@@ -832,7 +650,7 @@ class PatchouliSystem:
         三明治结构 (Phase 1):
         1. System prompt:
            - Top: MTP 协议教学 + 存储降级通知
-           - Middle: 灵魂注入 (persona)
+           - Middle: 灵魂注入 (persona from profile)
            - Bottom: 预检索记忆 + 话题状态
         2. Topic history (from blocks, 含多角色渲染)
         3. Current user message
@@ -841,8 +659,7 @@ class PatchouliSystem:
             topic_context: 话题上下文（来自感知层）
             hot_result: Kernel hot path 结果（包含检索到的记忆）
             user_message: 当前用户消息
-            profile: 人偶图纸配置（Phase 1 权限过滤）
-            persona: 人偶灵魂文本（Phase 1 灵魂注入）
+            profile: 人偶图纸配置（Phase 1 权限过滤 + 灵魂注入）
             current_agent_id: 当前活跃 Agent 别名（Phase 1 多角色渲染）
 
         Returns:
@@ -866,8 +683,8 @@ class PatchouliSystem:
             builder.with_storage_offline_notice()
 
         # Middle: 灵魂注入
-        if profile and persona:
-            builder.with_persona(persona)
+        if profile and profile.persona:
+            builder.with_persona(profile.persona)
 
         # Bottom: 预检索记忆
         builder.with_memory_context(hot_result.rendered_memory_context)
@@ -892,6 +709,7 @@ class PatchouliSystem:
 
         return messages
 
+    # TODO: 检查此逻辑在MTP指令结果通过 role=user 返回的重构后是否需要调整
     @staticmethod
     def _reconstruct_raw_assistant_text(
         messages: List[Dict[str, str]],
@@ -922,6 +740,60 @@ class PatchouliSystem:
 
         # Fallback: 如果没有 assistant messages (不应发生)，使用 final_text
         return loop_result.final_text
+
+    async def _chat_post_process(
+        self,
+        messages: List[Dict[str, str]],
+        loop_result: ChatResult,
+        hot_result,
+        identity: Identity,
+        topic_id: str,
+        user_message: str,
+    ) -> None:
+        """
+        Chat 后处理通用函数
+
+        统一处理:
+        1. 重建原始 assistant 文本
+        2. 获取 MTP traces 和 focus
+        3. 构建 InteractionPayload
+        4. 提交到感知层
+
+        Args:
+            messages: 递归循环结束后的完整消息列表
+            loop_result: 循环结果
+            hot_result: KernelHotResult (包含 rewritten 和 worth_saving)
+            identity: 身份标识
+            topic_id: 话题 ID
+            user_message: 用户原始消息
+
+        Returns:
+            None: 无返回值
+        """
+        raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
+
+        try:
+            mtp_traces = self.kernel.koakuma.get_interaction_traces()
+            write_focus = self.kernel.koakuma.get_write_focus()
+            update_focus = self.kernel.koakuma.get_update_focus()
+        except Exception as e:
+            logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
+            mtp_traces = []
+            write_focus = None
+            update_focus = None
+
+        payload = InteractionPayload(
+            user_message=user_message,
+            assistant_message=raw_assistant_text,
+            mtp_traces=mtp_traces,
+            write_focus=write_focus,
+            update_focus=update_focus,
+            identity=identity,
+            rewritten_query=hot_result.rewritten,
+            worth_saving=hot_result.worth_saving,
+        )
+
+        await self.kernel.submit_interaction(payload, target_topic=topic_id)
 
 
 __all__ = [

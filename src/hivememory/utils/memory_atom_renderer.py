@@ -27,14 +27,15 @@ from hivememory.utils.time_formatter import TimeFormatter, Language
 # ==========================================
 
 MEMORY_HEADER = """<memory_context>
-[System Guidance]: 帕秋莉 (记忆库的管理者) 为你取回了以下相关的历史记忆与可用工具。
-你可以将这些信息视为你脑海里自然而然浮现的"潜意识"，作为背景知识直接融合到你的思考中，无需刻意生硬地声明"根据记忆显示"。
+[System Guidance]: 帕秋莉 (记忆库的管理者) 为你取回了以下相关的历史记忆与可用子代理。
+你可以将记忆信息视为你脑海里自然而然浮现的"潜意识"，作为背景知识直接融合到你的思考中，无需刻意生硬地声明"根据记忆显示"。
 """
 
 MEMORY_FOOTER = """
 \n[System Guidance]:
-- 若上述记忆摘要符合当前用户意图，但摘要信息不足，希望查看完整的记忆内容，请立即使用 `⟪ READ | alias | ⟫` 指令（**严谨自行猜测或编造**）。
+- 若上述记忆摘要符合当前用户意图，但摘要信息不足，希望查看完整的记忆内容，请立即使用 `⟪ READ | alias | ⟫` 指令（**严禁自行猜测或编造**）。
 - 带有 [未验证] 或 (警告：陈旧) 状态的记忆可能包含错误或过时信息，请结合常识注意甄别。
+- 若任务需要专项能力（如数据分析、代码生成等），且上方列出了对应子代理，请优先使用 `⟪ CALL | agent_alias | topic="..." ⟫` 委托给子代理执行，不要自行承担。
 </memory_context>
 """
 
@@ -64,6 +65,16 @@ INDEX_ITEM_TEMPLATE = """
 - **标签**:  {tags}
 - **内容摘要**: {summary}
 </memory_index>"""
+
+# ==========================================
+# Agent Profile 模板 (Phase 2: 子代理服务发现)
+# ==========================================
+
+AGENT_PROFILE_ITEM_TEMPLATE = """
+<agent_profile alias="{alias}">
+- **角色**: {title}
+- **能力特长**: {summary}
+</agent_profile>"""
 
 
 class RenderFormat(str, Enum):
@@ -294,6 +305,29 @@ class MemoryAtomRenderer:
 
         return truncated + "\n\n[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"
 
+    @staticmethod
+    def for_agent_profile(memory: MemoryAtom) -> str:
+        """
+        渲染 AGENT_PROFILE 类型记忆原子为子代理菜单条目
+
+        使用专用的 AGENT_PROFILE_ITEM_TEMPLATE，与普通记忆渲染格式隔离。
+
+        Args:
+            memory: AGENT_PROFILE 类型的记忆原子
+
+        Returns:
+            渲染后的单条子代理文本
+        """
+        alias = memory.get_alias()
+        title = memory.index.title if memory.index.title else "(未命名子代理)"
+        summary = memory.index.summary if memory.index.summary else ""
+
+        return AGENT_PROFILE_ITEM_TEMPLATE.format(
+            alias=alias,
+            title=title,
+            summary=summary,
+        )
+
 
 __all__ = [
     "MemoryAtomRenderer",
@@ -302,4 +336,5 @@ __all__ = [
     "MEMORY_FOOTER",
     "FULL_ITEM_TEMPLATE",
     "INDEX_ITEM_TEMPLATE",
+    "AGENT_PROFILE_ITEM_TEMPLATE",
 ]
