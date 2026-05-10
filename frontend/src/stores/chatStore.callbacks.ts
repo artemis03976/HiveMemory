@@ -10,6 +10,7 @@ import {
 } from '@/stores/chatStore.updaters';
 import type {
   ChatDoneEvent,
+  GenerationIdEvent,
   MemoryAtom,
   MemoryRefsEvent,
   Message,
@@ -26,6 +27,7 @@ interface CreateChatSSECallbacksDeps {
   updateMessages: (updater: (messages: Message[]) => Message[]) => void;
   setTopicInfo: (data: TopicInfoEvent) => void;
   setRetrievedMemories: (memories: MemoryAtom[]) => void;
+  setGenerationId: (data: GenerationIdEvent) => void;
   finalizeSuccess: (data: ChatDoneEvent) => void;
   finalizeError: (errorMessage: string, errorDetail?: string) => void;
 }
@@ -87,6 +89,10 @@ export function createChatSSECallbacks(deps: CreateChatSSECallbacksDeps): SSECal
     onConnectionError: (error) => {
       const errorMessage = '系统错误，请检查后端服务器';
       deps.finalizeError(errorMessage, error.message);
+    },
+
+    onGenerationId: (data: GenerationIdEvent) => {
+      deps.setGenerationId(data);
     },
   };
 }

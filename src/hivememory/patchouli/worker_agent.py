@@ -27,6 +27,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+import asyncio
 import litellm
 
 from hivememory.patchouli.config import LLMConfig
@@ -170,6 +171,7 @@ class WorkerAgentService:
     async def generate_stream(
         self,
         messages: List[Dict[str, str]],
+        cancel_event: Optional[asyncio.Event] = None,
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
         """
@@ -213,6 +215,11 @@ class WorkerAgentService:
         delimiter_tail = max(0, len(MTP_LEFT_DELIMITER) - 1)
 
         async for chunk in response:
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("LLM 流式生成被用户取消")
+                finish_reason = "cancelled"
+                break
+
             choice = chunk.choices[0] if chunk.choices else None
             if choice is None:
                 continue

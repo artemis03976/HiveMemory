@@ -18,6 +18,7 @@ import type {
   ChatErrorEvent,
   SubAgentStartEvent,
   SubAgentEndEvent,
+  GenerationIdEvent,
 } from '@/types';
 
 export class ChatSSEClient {
@@ -190,6 +191,10 @@ export class ChatSSEClient {
         callbacks.onSubAgentEnd(data as SubAgentEndEvent);
         break;
 
+      case 'generation_id':
+        callbacks.onGenerationId(data as GenerationIdEvent);
+        break;
+
       default:
         console.warn('[ChatSSEClient] Unknown SSE event type:', eventType);
     }
@@ -210,5 +215,17 @@ export class ChatSSEClient {
    */
   isConnected(): boolean {
     return this.abortController !== null;
+  }
+}
+
+export async function stopGeneration(generationId: string): Promise<void> {
+  try {
+    await fetch('/api/v1/chat/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ generation_id: generationId }),
+    });
+  } catch {
+    // fire-and-forget: 网络错误不影响前端停止流程
   }
 }

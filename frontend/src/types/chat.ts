@@ -86,11 +86,15 @@ export interface MemoryRefsEvent {
   memories: MemoryAtom[];
 }
 
+export interface GenerationIdEvent {
+  generation_id: string;
+}
+
 // ========== SSE Event Union Type ==========
 
 export type SSEEventType =
   | 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'memory_refs' | 'done' | 'error'
-  | 'sub_agent_start' | 'sub_agent_end';
+  | 'sub_agent_start' | 'sub_agent_end' | 'generation_id';
 
 export interface SSEEvent {
   event: SSEEventType;
@@ -140,4 +144,5 @@ export interface SSECallbacks {
   onSubAgentMTPStart: (data: MTPStartEvent) => void;
   onSubAgentMTPResult: (data: MTPResultEvent) => void;
   onSubAgentEnd: (data: SubAgentEndEvent) => void;
+  onGenerationId: (data: GenerationIdEvent) => void;
 }

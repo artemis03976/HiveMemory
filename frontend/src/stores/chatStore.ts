@@ -11,7 +11,7 @@
 
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
-import { ChatSSEClient } from '@/services/chatApi';
+import { ChatSSEClient, stopGeneration } from '@/services/chatApi';
 import { createChatSSECallbacks } from '@/stores/chatStore.callbacks';
 import { applyDone, applyStreamError } from '@/stores/chatStore.updaters';
 import { useTopicStore } from '@/stores/topicStore';
@@ -36,6 +36,7 @@ interface ChatStore {
 
   // Actions
   sendMessage: (content: string, options?: Partial<ChatRequestParams>) => Promise<void>;
+  stopStreaming: () => void;
   clearMessages: () => void;
   retryMessage: (messageId: string) => Promise<void>;
   setCurrentAgentId: (id: string) => void;
@@ -43,6 +44,7 @@ interface ChatStore {
   // Internal
   _sseClient: ChatSSEClient | null;
   _currentStreamingMessageId: string | null;
+  _currentGenerationId: string | null;
 }
 
 // ========== Store Implementation ==========
@@ -63,9 +65,44 @@ export const useChatStore = create<ChatStore>()(
         retrievedMemories: [],
         _sseClient: null,
         _currentStreamingMessageId: null,
+        _currentGenerationId: null,
 
         // Agent Action
         setCurrentAgentId: (id: string) => set({ currentAgentId: id }),
+
+        // Stop streaming action
+        stopStreaming: () => {
+          const state = get();
+          if (!state.isStreaming) return;
+
+          const generationId = state._currentGenerationId;
+          if (generationId) {
+            stopGeneration(generationId);
+          }
+
+          if (state._sseClient) {
+            state._sseClient.disconnect();
+          }
+
+          const messageId = state._currentStreamingMessageId;
+          if (messageId) {
+            set((s) => ({
+              messages: applyDone(s.messages, messageId, null),
+              isStreaming: false,
+              connection: { status: 'connected' as const, error: null },
+              _currentStreamingMessageId: null,
+              _currentGenerationId: null,
+              _sseClient: null,
+            }));
+          } else {
+            set({
+              isStreaming: false,
+              connection: { status: 'connected', error: null },
+              _currentGenerationId: null,
+              _sseClient: null,
+            });
+          }
+        },
 
         // Send message action
         sendMessage: async (content: string, options = {}) => {
@@ -134,12 +171,16 @@ export const useChatStore = create<ChatStore>()(
               setRetrievedMemories: (memories) => {
                 set({ retrievedMemories: memories });
               },
+              setGenerationId: (data) => {
+                set({ _currentGenerationId: data.generation_id });
+              },
               finalizeSuccess: (data) => {
                 set((s) => ({
                   messages: applyDone(s.messages, assistantMessageId, data.final_text),
                   isStreaming: false,
                   connection: { status: 'connected', error: null },
                   _currentStreamingMessageId: null,
+                  _currentGenerationId: null,
                 }));
               },
               finalizeError: (errorMessage, errorDetail) => {
@@ -148,6 +189,7 @@ export const useChatStore = create<ChatStore>()(
                   isStreaming: false,
                   connection: { status: 'error', error: errorMessage },
                   _currentStreamingMessageId: null,
+                  _currentGenerationId: null,
                 }));
               },
             });

@@ -80,6 +80,7 @@ class KernelLoopExecutor:
         agent_profile=None,
         topic_id: Optional[str] = None,
         identity=None,
+        cancel_event: Optional[asyncio.Event] = None,
     ) -> ChatResult:
         """
         执行主帧的递归生成循环
@@ -108,6 +109,7 @@ class KernelLoopExecutor:
             frame=main_frame,
             max_iterations=max_iter,
             generation_options=generation_options,
+            cancel_event=cancel_event,
         )
 
     async def execute_main_frame_stream(
@@ -118,6 +120,7 @@ class KernelLoopExecutor:
         agent_profile=None,
         topic_id: Optional[str] = None,
         identity=None,
+        cancel_event: Optional[asyncio.Event] = None,
     ):
         """
         执行主帧的流式递归生成循环
@@ -148,6 +151,7 @@ class KernelLoopExecutor:
             frame=main_frame,
             max_iterations=max_iter,
             generation_options=generation_options,
+            cancel_event=cancel_event,
         ):
             yield event
 
@@ -158,6 +162,7 @@ class KernelLoopExecutor:
         generation_options: Optional[Dict[str, Any]] = None,
         stream_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
         use_stream_generation: bool = False,
+        cancel_event: Optional[asyncio.Event] = None,
     ) -> ChatResult:
         """
         执行单个帧的递归循环
@@ -191,6 +196,10 @@ class KernelLoopExecutor:
         self.kernel.koakuma.reset_interaction_state()
 
         while iteration < max_iterations:
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("Generation cancelled by user")
+                break
+
             iteration += 1
 
             result = None
@@ -199,6 +208,7 @@ class KernelLoopExecutor:
                 # 后续 MTP 拦截/执行逻辑与非流式共用同一骨架。
                 async for chunk in self.worker_agent.generate_stream(
                     frame.working_history,
+                    cancel_event=cancel_event,
                     **(generation_options or {}),
                 ):
                     if chunk.is_final:
@@ -364,6 +374,7 @@ class KernelLoopExecutor:
         frame: ExecutionFrame,
         max_iterations: int,
         generation_options: Optional[Dict[str, Any]] = None,
+        cancel_event: Optional[asyncio.Event] = None,
     ):
         """
         执行单个帧的流式递归循环
@@ -395,6 +406,7 @@ class KernelLoopExecutor:
                     generation_options=generation_options,
                     stream_emitter=_emit,
                     use_stream_generation=True,
+                    cancel_event=cancel_event,
                 )
             finally:
                 await queue.put(None)
@@ -407,6 +419,8 @@ class KernelLoopExecutor:
                     break
                 yield event
         finally:
+            if cancel_event is not None:
+                cancel_event.set()
             await task
 
     def _extract_command_info(self, command, raw_hint):

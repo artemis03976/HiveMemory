@@ -8,7 +8,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.server.deps import get_system
-from hivememory.server.models.chat import ChatRequest
+from hivememory.server.models.chat import ChatRequest, StopChatRequest
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -57,3 +57,13 @@ async def chat(
             }
 
     return EventSourceResponse(event_generator())
+
+
+@router.post("/chat/stop")
+async def stop_chat(
+    request: StopChatRequest,
+    system: PatchouliSystem = Depends(get_system),
+):
+    """停止正在进行的流式生成"""
+    cancelled = system.cancel_generation(request.generation_id)
+    return {"success": cancelled}

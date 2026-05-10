@@ -23,6 +23,10 @@ class ChatRequest(BaseModel):
     generation_options: Optional[GenerationOptions] = Field(default=None, description="本次请求的生成参数覆盖")
 
 
+class StopChatRequest(BaseModel):
+    generation_id: str = Field(..., description="要停止的生成任务 ID")
+
+
 # ========== SSE 事件数据模型 ==========
 
 class StreamNamespace(BaseModel):
