@@ -31,6 +31,7 @@ from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import InteractionPayload
+from hivememory.patchouli.message_assembler import MessageAssembler
 from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.infrastructure.trace_context import (
     generate_trace_id, set_trace_context, reset_trace_context
@@ -119,6 +120,7 @@ class PatchouliSystem:
             kernel=self.kernel,
             worker_agent=self._worker_agent,
         )
+        self._message_assembler = MessageAssembler(self.kernel)
 
         # 5. System 级 Pub/Sub 订阅
         # 注意: 回调中使用 asyncio.create_task 启动异步任务
@@ -704,49 +706,19 @@ class PatchouliSystem:
         Returns:
             List[Dict]: OpenAI 格式的 messages
         """
-        from hivememory.engines.perception.context_converter import PerceptionContextConverter
-        from hivememory.prompts.system_prompt import SystemPromptBuilder
+        assembler = getattr(self, "_message_assembler", None)
+        if assembler is None:
+            # 兼容绕过 __init__ 的单测夹具，按需懒加载组装器。
+            assembler = MessageAssembler(self.kernel)
+            self._message_assembler = assembler
 
-        messages = []
-
-        # 1. Assemble system prompt via SystemPromptBuilder
-        language = self.kernel.config.koakuma.mtp_prompt.language if self.kernel.config.koakuma.mtp_prompt else "zh"
-        builder = SystemPromptBuilder(language=language)
-
-        # Top: MTP 协议教学
-        mtp_prompt = self.kernel.get_mtp_prompt(profile=profile)
-        builder.with_mtp_prompt(mtp_prompt)
-
-        # Top: 存储降级通知
-        if mtp_prompt and not self.kernel.check_storage_health():
-            builder.with_storage_offline_notice()
-
-        # Middle: 灵魂注入
-        if profile and profile.persona:
-            builder.with_persona(profile.persona)
-
-        # Bottom: 预检索记忆
-        builder.with_memory_context(hot_result.rendered_memory_context)
-
-        # Bottom: 话题状态
-        builder.with_topic_state(topic_context.get("state_summary", ""))
-
-        system_prompt = builder.build()
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-
-        # 2. Add topic history from blocks (with multi-agent role rendering)
-        history_messages = PerceptionContextConverter.blocks_to_messages(
-            blocks=topic_context["blocks"],
-            include_state_summary=False,  # Already included in system prompt
+        return assembler.assemble(
+            topic_context=topic_context,
+            hot_result=hot_result,
+            user_message=user_message,
+            profile=profile,
             current_agent_id=current_agent_id,
         )
-        messages.extend(history_messages)
-
-        # 3. Add current user message
-        messages.append({"role": "user", "content": user_message})
-
-        return messages
 
     # TODO: 检查此逻辑在MTP指令结果通过 role=user 返回的重构后是否需要调整
     @staticmethod
