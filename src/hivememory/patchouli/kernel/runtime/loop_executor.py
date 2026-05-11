@@ -25,7 +25,7 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
 from hivememory.patchouli.mtp.models import MTPVerb
-from hivememory.engines.perception.models import TraceItem, TurnEvent
+from hivememory.core.models import TraceItem, TurnEvent
 
 if TYPE_CHECKING:
     from hivememory.patchouli.kernel import PatchouliKernel
@@ -237,7 +237,7 @@ class KernelLoopExecutor:
             if not result.was_mtp_interrupted:
                 text_segments.append(result.text)
                 turn_events.append(TurnEvent(
-                    kind="assistant_text",
+                    kind="assistant_message",
                     sequence=_seq,
                     role="assistant",
                     content=result.text,
@@ -248,7 +248,7 @@ class KernelLoopExecutor:
             text_segments.append(result.prefix_text)
             if result.prefix_text:
                 turn_events.append(TurnEvent(
-                    kind="assistant_text",
+                    kind="assistant_message",
                     sequence=_seq,
                     role="assistant",
                     content=result.prefix_text,
@@ -267,12 +267,16 @@ class KernelLoopExecutor:
                 target_hint, args_hint, raw_hint = self._extract_command_info(
                     mtp_result.command, raw_hint
                 )
+            action_id = f"action_{iteration}_{_seq}"
             command_event = TurnEvent(
-                kind="mtp_command",
+                kind="tool_call",
                 sequence=_seq,
                 role="assistant",
                 content=result.text,
-                verb=verb_hint,
+                action_id=action_id,
+                tool_kind=verb_hint,
+                tool_name=target_hint if target_hint else None,
+                tool_args=args_hint or None,
                 target=target_hint if target_hint else None,
             )
             turn_events.append(command_event)
@@ -297,11 +301,13 @@ class KernelLoopExecutor:
                 text_segments.append(result.mtp_fragment)
                 command_event.status = "failed"
                 turn_events.append(TurnEvent(
-                    kind="mtp_result",
+                    kind="tool_result",
                     sequence=_seq,
                     role="user",
                     content=result.mtp_fragment,
-                    verb=verb_hint,
+                    action_id=action_id,
+                    tool_kind=verb_hint,
+                    tool_name=target_hint if target_hint else None,
                     status="failed",
                 ))
                 _seq += 1
@@ -366,11 +372,13 @@ class KernelLoopExecutor:
                 })
                 command_event.status = "success"
                 turn_events.append(TurnEvent(
-                    kind="mtp_result",
+                    kind="tool_result",
                     sequence=_seq,
                     role="user",
                     content=ipc_response,
-                    verb="CALL",
+                    action_id=action_id,
+                    tool_kind="CALL",
+                    tool_name=target_hint if target_hint else None,
                     status="success",
                     render_as="system_ipc_return",
                 ))
@@ -405,14 +413,16 @@ class KernelLoopExecutor:
                 "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
             })
             turn_events.append(TurnEvent(
-                kind="mtp_result",
+                kind="tool_result",
                 sequence=_seq,
                 role="user",
                 content=mtp_result.formatted_response,
-                verb=verb_hint,
+                action_id=action_id,
+                tool_kind=verb_hint,
+                tool_name=target_hint if target_hint else None,
                 target=target_hint if target_hint else None,
                 status=mtp_result.response_status,
-                render_as="system_mtp_result",
+                render_as="system_tool_result",
             ))
             _seq += 1
 

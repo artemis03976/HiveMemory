@@ -488,16 +488,9 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
-                    identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                user_query=msg.content,
+                assistant_final_text=msg.content if i % 2 == 1 else "",
+                identity=msg.identity,
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -545,16 +538,9 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
-                    identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                user_query=msg.content,
+                assistant_final_text=msg.content if i % 2 == 1 else "",
+                identity=msg.identity,
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -587,16 +573,9 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
-                    identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                user_query=msg.content,
+                assistant_final_text=msg.content if i % 2 == 1 else "",
+                identity=msg.identity,
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -749,4 +728,3 @@ class TestFlushReasonMTPUpdate:
     def test_enum_member(self):
         assert hasattr(FlushReason, "MTP_UPDATE")
         assert FlushReason("mtp_update") == FlushReason.MTP_UPDATE
-

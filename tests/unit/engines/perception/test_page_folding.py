@@ -17,7 +17,7 @@ Note:
 import pytest
 from unittest.mock import Mock, AsyncMock
 
-from hivememory.core.models import Identity, StreamMessage, StreamMessageType
+from hivememory.core.models import Identity, StreamMessage, StreamMessageType, TurnEvent
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
@@ -26,7 +26,6 @@ from hivememory.engines.perception.models import (
     TraceItem,
     FlushReason,
     LogicalBlock,
-    TurnEvent,
 )
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
 
@@ -44,7 +43,7 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None, traces
         assistant_final_text=assistant_msg,
         turn_events=[
             TurnEvent(
-                kind="assistant_text",
+                kind="assistant_message",
                 sequence=0,
                 role="assistant",
                 content=assistant_msg,
@@ -163,11 +162,9 @@ class TestPageFoldingThreshold:
 
         # 添加多个小 blocks，总 token 会超过阈值
         for i in range(10):
-            user_msg = StreamMessage(message_type=StreamMessageType.USER, content=f"question {i}")
-            response_msg = StreamMessage(message_type=StreamMessageType.ASSISTANT, content=f"answer {i}")
             block = LogicalBlock(
-                user_block=user_msg,
-                response_block=response_msg,
+                user_query=f"question {i}",
+                assistant_final_text=f"answer {i}",
                 total_tokens=20,  # 每个 block 20 tokens
             )
             layer._buffer_manager.add_block(topic_id, block)
@@ -203,11 +200,9 @@ class TestPageFoldingThreshold:
 
         # 添加多个小 blocks
         for i in range(10):
-            user_msg = StreamMessage(message_type=StreamMessageType.USER, content=f"question {i}")
-            response_msg = StreamMessage(message_type=StreamMessageType.ASSISTANT, content=f"answer {i}")
             block = LogicalBlock(
-                user_block=user_msg,
-                response_block=response_msg,
+                user_query=f"question {i}",
+                assistant_final_text=f"answer {i}",
                 total_tokens=20,
             )
             layer._buffer_manager.add_block(topic_id, block)

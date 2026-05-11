@@ -2,9 +2,8 @@
 HiveMemory 感知层数据模型
 
 定义统一语义流架构中的核心数据结构：
-- TraceItem: MTP 操作语义轨迹项 (v3.0 新增，替代 Triplet 中的执行细节)
+- TraceItem: MTP 操作语义轨迹项 (v3.0 新增，替代旧执行链的执行细节)
 - InteractionPayload: Kernel → Perception 的原子传输包 (v3.0 新增)
-- Triplet: 执行链三元组 (Thought -> Tool Call -> Observation) [向后兼容]
 - LogicalBlock: 逻辑原子块（最小语义单元）
 - SemanticBuffer: 语义缓冲区
 
@@ -21,12 +20,14 @@ from enum import Enum
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 from hivememory.core.models import (
+    AgentAction,
     Identity,
-    StreamMessage,
-    StreamMessageType,
+    TraceItem,
+    TurnEvent,
+    TurnRecord,
 )
 from hivememory.utils.token_estimator import estimate_tokens
 
@@ -105,176 +106,29 @@ class FlushEvent(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-# ============ 语义轨迹项 (v3.0 新增) ============
-
-class TraceItem(BaseModel):
-    """
-    MTP 操作的语义轨迹项 (替代 Triplet 中的执行细节)
-
-    清洗策略 (对齐 PerceptionLayerRefactoring.md §2.2):
-        READ   -> 折叠:   仅记录查阅动作和目标
-        SEARCH -> 保留:   记录 Agent 的探索意图
-        RUN    -> 摘要:   记录副作用操作及状态
-        WRITE/UPDATE -> 不生成 TraceItem (作为控制信号处理)
-        XML 响应 -> 丢弃
-
-    Attributes:
-        action: 操作类型 (READ / SEARCH / RUN)
-        target: READ 目标别名
-        query: SEARCH 查询文本
-        tool: RUN 工具名称
-        status: RUN 执行状态 (success / error)
-    """
-    action: str = Field(..., description="操作类型: READ / SEARCH / RUN")
-    target: Optional[str] = Field(default=None, description="READ 目标别名")
-    query: Optional[str] = Field(default=None, description="SEARCH 查询文本")
-    tool: Optional[str] = Field(default=None, description="RUN 工具名称")
-    status: Optional[str] = Field(default=None, description="RUN 执行状态")
-
-    model_config = ConfigDict(use_enum_values=True)
-
-
-# ============ 结构化轮次事件 (Phase 1 新增) ============
-
-class TurnEvent(BaseModel):
-    """
-    单次 LLM 生成轮次的结构化记录
-
-    由 LoopExecutor 在每次循环迭代中实时收集，
-    作为 MTPLogParser 文本解析的结构化替代来源。
-
-    kind 分类:
-        assistant_text  — 自然语言段落（不含 MTP 指令）
-        mtp_command     — LLM 发出的 MTP 指令原文（含定界符）
-        mtp_result      — 内核回填的执行结果（[System MTP Execution Result] 消息）
-
-    Attributes:
-        kind: 事件类型
-        sequence: 从 0 开始的全局序号（用于排序与调试）
-        role: 产出此事件的角色（assistant / user）
-        content: 事件内容文本
-        verb: MTP 动词（仅 kind=mtp_command/mtp_result 时有值）
-        target: MTP 目标（仅 kind=mtp_command 时有值）
-        status: 执行状态（常见于 mtp_command/mtp_result，对齐 MTPResponseStatus）
-        render_as: 历史重放时的轻量渲染提示
-    """
-    kind: Literal["assistant_text", "mtp_command", "mtp_result"]
-    sequence: int
-    role: Literal["assistant", "user"]
-    content: str
-    verb: Optional[str] = None
-    target: Optional[str] = None
-    status: Optional[str] = None
-    render_as: Literal["plain", "system_mtp_result", "system_ipc_return"] = "plain"
-
-    model_config = ConfigDict(use_enum_values=True)
-
-
-# ============ 执行链三元组 ============
-
-class Triplet(BaseModel):
-    """
-    执行链三元组：Thought -> Tool Call -> Observation
-
-    约束：三个元素中 tool_name 和 observation 必须存在才算完整
-
-    Attributes:
-        thought: 思考过程（可选）
-        tool_name: 工具名称
-        tool_args: 工具参数
-        observation: 执行结果
-    """
-    thought: Optional[str] = None
-    tool_name: Optional[str] = None
-    tool_args: Optional[Dict[str, Any]] = None
-    observation: Optional[str] = None
-
-    @property
-    def is_complete(self) -> bool:
-        """
-        检查三元组是否完整
-
-        三元组完整定义：
-            - 至少有 tool_name（表明发生了工具调用）
-            - 有 observation（表明工具调用已完成）
-        """
-        return self.tool_name is not None and self.observation is not None
-
-    @property
-    def is_pending(self) -> bool:
-        """
-        检查三元组是否处于待完成状态
-
-        即：有 tool_name 但还没有 observation
-        """
-        return self.tool_name is not None and self.observation is None
-
-    @property
-    def total_tokens(self) -> int:
-        """估算三元组的 Token 数量"""
-        tokens = 0
-        if self.thought:
-            tokens += estimate_tokens(self.thought)
-        if self.tool_name:
-            tokens += estimate_tokens(self.tool_name)
-        if self.tool_args:
-            tokens += estimate_tokens(str(self.tool_args))
-        if self.observation:
-            tokens += estimate_tokens(self.observation)
-        return tokens
-
-
 # ============ 逻辑原子块 ============
 
 class LogicalBlock(BaseModel):
     """
     逻辑原子块 - 感知层的最小处理单元
 
-    结构：
-        1. user_block: 用户意图（必须）
-        2. execution_chain: 执行链（可选，三元组列表）
-        3. response_block: 最终响应（必须）
-
-    状态机逻辑：
-        1. State: IDLE -> 收到 User Message -> 创建新 LogicalBlock
-        2. State: PROCESSING -> 收到 Thought/Tool Call/Tool Output -> 暂存入 execution_chain
-        3. State: PROCESSING -> 收到 Assistant Message -> 填入 response_block
-        4. Block 闭合 (Sealed) -> is_complete = True
-
     Attributes:
-        user_block: 用户消息块
-        execution_chain: 执行链（三元组列表）
-        response_block: 响应消息块
+        turn: 单轮内容真相记录
         created_at: 创建时间
         total_tokens: 总 Token 数
         block_id: 块唯一标识
     """
     block_id: str = Field(default_factory=lambda: str(uuid4()))
-
-    user_block: Optional[StreamMessage] = None
-    execution_chain: List[Triplet] = Field(default_factory=list)
-    response_block: Optional[StreamMessage] = None
+    turn: TurnRecord = Field(
+        default_factory=TurnRecord,
+        description="本块承载的单轮内容真相"
+    )
 
     # 辅助信息
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     total_tokens: int = 0
 
     # ========== 多智能体身份溯源 (Phase 1) ==========
-    #: 产出此 Block 的完整身份标识，用于跨角色记忆归属与历史渲染
-    identity: Identity = Field(
-        default_factory=Identity,
-        description="产出此 Block 的完整身份标识 (user_id, agent_id, team_id)"
-    )
-
-    # ========== v2.0 新增字段 (Gateway 集成) ==========
-
-    #: Gateway 重写后的查询（指代消解后的完整查询）
-    #: 这是 Gateway 的核心输出之一，用于替代 raw query 做语义锚点
-    rewritten_query: Optional[str] = Field(
-        default=None,
-        description="Gateway 重写后的查询（指代消解与上下文补全）"
-    )
-
     #: Gateway 意图分类结果
     gateway_intent: Optional[str] = Field(
         default=None,
@@ -285,45 +139,6 @@ class LogicalBlock(BaseModel):
     worth_saving: Optional[bool] = Field(
         default=None,
         description="Gateway 记忆价值判断"
-    )
-
-    # ========== v3.0 新增字段 (Kernel/MTP 模式) ==========
-    # 参考: PerceptionLayerRefactoring.md §2.1
-
-    #: 原始用户问题 (Kernel 模式下替代 user_block)
-    user_query: str = Field(
-        default="",
-        description="原始用户问题"
-    )
-
-    #: 语义轨迹 (替代 execution_chain)
-    semantic_traces: List[TraceItem] = Field(
-        default_factory=list,
-        description="经过清洗和降维的 MTP 操作摘要"
-    )
-
-    #: 包含 MTP 指令和 XML 的完整原始文本 (用于 Debug/Context)
-    raw_response: str = Field(
-        default="",
-        description="包含 MTP 噪音的完整原始 assistant 文本"
-    )
-
-    #: LoopExecutor 产出的最终自然语言回复
-    assistant_final_text: str = Field(
-        default="",
-        description="LoopExecutor 产出的最终自然语言回复"
-    )
-
-    #: LoopExecutor 收集的结构化轮次事件
-    turn_events: List[TurnEvent] = Field(
-        default_factory=list,
-        description="LoopExecutor 收集的结构化轮次事件"
-    )
-
-    #: 去除 MTP 噪音后的纯净回复 (用户可见版本)
-    clean_response: str = Field(
-        default="",
-        description="去除 MTP 噪音后的纯净回复"
     )
 
     #: 优先级控制信号
@@ -344,115 +159,98 @@ class LogicalBlock(BaseModel):
         description="携带 UPDATE 指令的修改意图 (UpdateFocus)"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_flat_fields_to_turn(cls, data: Any) -> Any:
+        """兼容旧构造方式：将扁平内容字段自动提升为 TurnRecord。"""
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        turn = normalized.get("turn")
+        if isinstance(turn, TurnRecord):
+            return normalized
+
+        turn_payload = {}
+        for field_name in (
+            "identity",
+            "user_query",
+            "rewritten_query",
+            "assistant_final_text",
+            "turn_events",
+            "actions",
+            "semantic_traces",
+        ):
+            if field_name in normalized:
+                turn_payload[field_name] = normalized.pop(field_name)
+
+        if turn is not None:
+            turn_payload = {**turn_payload, **turn}
+
+        if turn_payload:
+            normalized["turn"] = turn_payload
+
+        return normalized
+
     @property
     def is_complete(self) -> bool:
         """
         Block 是否闭合
 
         闭合条件 (双模式):
-            - Legacy 模式: user_block 和 response_block 都不为空
-            - Kernel 模式: user_query 和 clean_response 都不为空
+            - 有 user_query
+            - 且满足以下任一项:
+              - assistant_final_text 非空
+              - turn_events 非空
+              - actions 非空
+              - write_focus / update_focus 存在
         """
-        # Legacy mode
-        if self.user_block is not None and self.response_block is not None:
-            return True
-        # Kernel mode (v3.0)
-        if self.user_query and self.clean_response:
-            return True
-        return False
+        return bool(self.turn.user_query) and bool(
+            self.turn.assistant_final_text
+            or self.turn.turn_events
+            or self.turn.actions
+            or self.write_focus is not None
+            or self.update_focus is not None
+        )
 
     @property
     def anchor_text(self) -> str:
         """
         获取语义锚点文本
 
-        锚点对齐策略 (v3.0 更新):
-            1. 优先使用 rewritten_query（Gateway 指代消解后的查询）
-            2. 回退到 user_query（Kernel 模式原始查询）
-            3. 回退到 user_block.content（Legacy 模式原始查询）
+        锚点对齐策略:
+            1. 优先使用 rewritten_query
+            2. 回退到 user_query
         """
-        if self.rewritten_query:
-            return self.rewritten_query
-        if self.user_query:
-            return self.user_query
-        if self.user_block:
-            return self.user_block.content
-        return ""
+        return self.turn.anchor_text
 
     @property
-    def has_pending_triplet(self) -> bool:
-        """检查是否有未完成的三元组"""
-        return any(t.is_pending for t in self.execution_chain)
+    def identity(self) -> Identity:
+        return self.turn.identity
 
-    def to_stream_messages(self) -> List[StreamMessage]:
-        """
-        转换为 StreamMessage 列表
+    @property
+    def rewritten_query(self) -> Optional[str]:
+        return self.turn.rewritten_query
 
-        支持双模式:
-            - Kernel 模式 (v3.0): 从 user_query + clean_response 构建
-            - Legacy 模式: 从 user_block + execution_chain + response_block 构建
+    @property
+    def user_query(self) -> str:
+        return self.turn.user_query
 
-        使用 self.identity 作为所有消息的身份标识。
+    @property
+    def assistant_final_text(self) -> str:
+        return self.turn.assistant_final_text
 
-        Returns:
-            List[StreamMessage]: 转换后的消息列表
-        """
-        messages = []
+    @property
+    def turn_events(self) -> List[TurnEvent]:
+        return self.turn.turn_events
 
-        # Kernel 模式 (v3.0): 使用 user_query + clean_response
-        if self.user_query and self.clean_response:
-            messages.append(StreamMessage(
-                message_type=StreamMessageType.USER,
-                content=self.user_query,
-                timestamp=self.created_at,
-                identity=self.identity,
-            ))
-            messages.append(StreamMessage(
-                message_type=StreamMessageType.ASSISTANT,
-                content=self.clean_response,
-                timestamp=self.created_at,
-                identity=self.identity,
-            ))
-            return messages
+    @property
+    def actions(self) -> List[AgentAction]:
+        return self.turn.actions
 
-        # Legacy 模式: 使用 user_block + execution_chain + response_block
-        if self.user_block:
-            msg = self.user_block.model_copy()
-            msg.identity = self.identity
-            messages.append(msg)
-
-        for triplet in self.execution_chain:
-            if triplet.thought:
-                messages.append(StreamMessage(
-                    message_type=StreamMessageType.THOUGHT,
-                    content=triplet.thought,
-                    timestamp=self.created_at,
-                    identity=self.identity
-                ))
-            if triplet.tool_name:
-                messages.append(StreamMessage(
-                    message_type=StreamMessageType.TOOL_CALL,
-                    content=f"Calling {triplet.tool_name}",
-                    tool_name=triplet.tool_name,
-                    tool_args=triplet.tool_args,
-                    timestamp=self.created_at,
-                    identity=self.identity
-                ))
-            if triplet.observation:
-                messages.append(StreamMessage(
-                    message_type=StreamMessageType.TOOL,
-                    content=triplet.observation,
-                    tool_name=triplet.tool_name,
-                    timestamp=self.created_at,
-                    identity=self.identity
-                ))
-
-        if self.response_block:
-            msg = self.response_block.model_copy()
-            msg.identity = self.identity
-            messages.append(msg)
-
-        return messages
+    @property
+    def semantic_traces(self) -> List[TraceItem]:
+        return self.turn.semantic_traces
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -693,7 +491,6 @@ __all__ = [
     "FlushEvent",
     "TurnEvent",
     "TraceItem",
-    "Triplet",
     "LogicalBlock",
     "InteractionPayload",
     "SemanticBuffer",

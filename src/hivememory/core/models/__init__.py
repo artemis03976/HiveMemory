@@ -16,9 +16,15 @@ from .memory import (
     MemoryAtom,
 )
 from .interaction import (
+    ActionReducer,
+    TraceReducer,
     Identity,
     StreamMessageType,
     StreamMessage,
+    TurnEvent,
+    AgentAction,
+    TraceItem,
+    TurnRecord,
 )
 from .agent import (
     AgentProfile,
@@ -35,9 +41,15 @@ __all__ = [
     "PayloadLayer",
     "RelationLayer",
     "MemoryAtom",
+    "ActionReducer",
+    "TraceReducer",
     "Identity",
     "StreamMessageType",
     "StreamMessage",
+    "TurnEvent",
+    "AgentAction",
+    "TraceItem",
+    "TurnRecord",
     "AgentProfile",
     "OMNI_DOLL_PROFILE",
 ]

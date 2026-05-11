@@ -14,15 +14,16 @@ GenerationTranscriptBuilder / GenerationContext 单测
 import pytest
 from unittest.mock import MagicMock
 
-from hivememory.core.models import Identity, StreamMessage, StreamMessageType
+from hivememory.core.models import Identity
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
     WriteFocus,
 )
+from hivememory.core.models import TraceItem
 from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
-from hivememory.engines.perception.models import LogicalBlock, TraceItem
+from hivememory.engines.perception.models import LogicalBlock
 
 
 # ============ 辅助工厂 ============
@@ -33,13 +34,11 @@ def _identity(agent_id: str = "a1") -> Identity:
 
 def _block(
     user_query: str = "问题",
-    clean_response: str = "",
     assistant_final_text: str = "",
     traces: list = None,
 ) -> LogicalBlock:
     return LogicalBlock(
         user_query=user_query,
-        clean_response=clean_response,
         assistant_final_text=assistant_final_text,
         semantic_traces=traces or [],
         identity=_identity(),
@@ -52,16 +51,9 @@ def _trace(action: str, **kwargs) -> TraceItem:
 
 def _legacy_block_with_message_identities() -> LogicalBlock:
     return LogicalBlock(
-        user_block=StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="legacy user",
-            identity=Identity(user_id="legacy_u", agent_id="legacy_user_agent"),
-        ),
-        response_block=StreamMessage(
-            message_type=StreamMessageType.ASSISTANT,
-            content="legacy assistant",
-            identity=Identity(user_id="legacy_u", agent_id="legacy_agent"),
-        ),
+        user_query="legacy user",
+        assistant_final_text="legacy assistant",
+        identity=Identity(user_id="legacy_u", agent_id="legacy_agent"),
     )
 
 
@@ -80,19 +72,19 @@ class TestBuildContextBasic:
         assert ctx.state_summary == "话题摘要"
 
     def test_single_block_produces_one_turn(self):
-        blocks = [_block("你好", clean_response="你好呀")]
+        blocks = [_block("你好", assistant_final_text="你好呀")]
         ctx = builder.build_context(blocks)
         assert len(ctx.turns) == 1
         assert ctx.turns[0].user_query == "你好"
 
     def test_multiple_blocks_produce_multiple_turns(self):
-        blocks = [_block(f"问题{i}", clean_response=f"答案{i}") for i in range(3)]
+        blocks = [_block(f"问题{i}", assistant_final_text=f"答案{i}") for i in range(3)]
         ctx = builder.build_context(blocks)
         assert len(ctx.turns) == 3
 
     def test_block_with_only_user_query_is_kept(self):
         """user_query 非空即保留（即使无 final_text）"""
-        blocks = [_block("只有问题", clean_response="")]
+        blocks = [_block("只有问题", assistant_final_text="")]
         ctx = builder.build_context(blocks)
         assert len(ctx.turns) == 1
         assert ctx.turns[0].user_query == "只有问题"
@@ -107,24 +99,13 @@ class TestBuildContextBasic:
 # ============ 2. assistant_final_text 优先级 ============
 
 class TestFinalTextPriority:
-    def test_prefers_assistant_final_text_over_clean_response(self):
-        block = _block(
-            clean_response="旧的 clean_response",
-            assistant_final_text="新的 final_text",
-        )
+    def test_prefers_assistant_final_text(self):
+        block = _block(assistant_final_text="新的 final_text")
         ctx = builder.build_context([block])
         assert ctx.turns[0].assistant_final_text == "新的 final_text"
 
-    def test_fallback_to_clean_response_when_final_text_empty(self):
-        block = _block(
-            clean_response="clean_response 内容",
-            assistant_final_text="",
-        )
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].assistant_final_text == "clean_response 内容"
-
     def test_both_empty_produces_empty_final_text(self):
-        block = _block(clean_response="", assistant_final_text="")
+        block = _block(assistant_final_text="")
         ctx = builder.build_context([block])
         assert ctx.turns[0].assistant_final_text == ""
 

@@ -492,7 +492,7 @@ class TestInteractionPayloadSubmission:
 
     def test_payload_carries_mtp_traces(self, sys):
         """payload 携带 koakuma 的 mtp_traces"""
-        from hivememory.engines.perception.models import TraceItem
+        from hivememory.core.models import TraceItem
         fake_traces = [
             TraceItem(action="SEARCH", query="test query"),
             TraceItem(action="READ", target="fact_api_port"),

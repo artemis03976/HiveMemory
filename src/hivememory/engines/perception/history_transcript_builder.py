@@ -8,13 +8,12 @@ HistoryTranscriptBuilder — 基于 TurnEvent 事件流的历史消息视图构�
     - 若为真正的 legacy block，再薄兼容到 user_block/response_block
 
 渲染规则:
-    - assistant_text  → role="assistant", content 原样输出（可附身份前缀）
-    - mtp_command     → role="assistant", content 原样输出（可附身份前缀）
-    - mtp_result      → role="user", 按 render_as 补系统前缀（不附身份前缀）
+    - assistant_message / thought / tool_call → role 原样输出（可附身份前缀）
+    - tool_result / system_message            → 按 render_as 补系统前缀（不附身份前缀）
 
 render_as 前缀策略:
     - "plain"               → 原样输出 content
-    - "system_mtp_result"   → "[System MTP Execution Result]\\n{content}"
+    - "system_tool_result"  → "[System Tool Result]\\n{content}"
     - "system_ipc_return"   → "[System IPC Return]\\n{content}"
 
 多智能体身份前缀:
@@ -28,11 +27,12 @@ render_as 前缀策略:
 
 from typing import Dict, List
 
-from hivememory.engines.perception.models import LogicalBlock, TurnEvent
+from hivememory.core.models import TurnEvent
+from hivememory.engines.perception.models import LogicalBlock
 
 
 _SYSTEM_PREFIXES: Dict[str, str] = {
-    "system_mtp_result": "[System MTP Execution Result]",
+    "system_tool_result": "[System Tool Result]",
     "system_ipc_return": "[System IPC Return]",
 }
 
@@ -79,7 +79,7 @@ class HistoryTranscriptBuilder:
         out: List[Dict[str, str]],
     ) -> None:
         """渲染单个 LogicalBlock，追加到 out。"""
-        user_content = self._resolve_user_content(block)
+        user_content = block.user_query
         if user_content:
             out.append({"role": "user", "content": user_content})
 
@@ -90,29 +90,13 @@ class HistoryTranscriptBuilder:
                 if msg is not None:
                     out.append(msg)
         else:
-            assistant_content = self._resolve_assistant_content(block)
+            assistant_content = block.assistant_final_text
             if not assistant_content:
                 return
             content = self._apply_agent_prefix(
                 assistant_content, block, current_agent_id
             )
             out.append({"role": "assistant", "content": content})
-
-    def _resolve_user_content(self, block: LogicalBlock) -> str:
-        """解析历史视图中的用户消息内容。"""
-        if block.user_query:
-            return block.user_query
-        if block.user_block:
-            return block.user_block.content
-        return ""
-
-    def _resolve_assistant_content(self, block: LogicalBlock) -> str:
-        """解析历史视图中的 assistant 内容，逐步移除对 clean_response 的依赖。"""
-        if block.assistant_final_text:
-            return block.assistant_final_text
-        if block.response_block:
-            return block.response_block.content
-        return ""
 
     def _render_event(
         self,

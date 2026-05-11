@@ -11,17 +11,24 @@ MTPTraceReducer 单测
 """
 
 import pytest
-from hivememory.engines.perception.models import TurnEvent, TraceItem
+from hivememory.core.models import TraceItem, TurnEvent
 from hivememory.patchouli.mtp.trace_reducer import MTPTraceReducer
 
 
 def _event(kind, verb=None, target=None, status=None, content=""):
+    normalized_kind = {
+        "assistant_text": "assistant_message",
+        "mtp_command": "tool_call",
+        "mtp_result": "tool_result",
+    }.get(kind, kind)
+    normalized_role = "assistant" if normalized_kind != "tool_result" else "user"
     return TurnEvent(
-        kind=kind,
+        kind=normalized_kind,
         sequence=0,
-        role="assistant" if kind != "mtp_result" else "user",
+        role=normalized_role,
         content=content,
-        verb=verb,
+        tool_kind=verb,
+        tool_name=target if verb == "RUN" else None,
         target=target,
         status=status,
     )
@@ -32,17 +39,17 @@ class TestMTPTraceReducerEmpty:
         assert MTPTraceReducer.reduce([]) == []
 
     def test_all_assistant_text(self):
-        events = [_event("assistant_text"), _event("assistant_text")]
+        events = [_event("assistant_message"), _event("assistant_message")]
         assert MTPTraceReducer.reduce(events) == []
 
     def test_all_mtp_result(self):
-        events = [_event("mtp_result", verb="READ", status="success")]
+        events = [_event("tool_result", verb="READ", status="success")]
         assert MTPTraceReducer.reduce(events) == []
 
 
 class TestMTPTraceReducerCommandMapping:
     def test_read_command(self):
-        events = [_event("mtp_command", verb="READ", target="my_alias")]
+        events = [_event("tool_call", verb="READ", target="my_alias")]
         traces = MTPTraceReducer.reduce(events)
         assert len(traces) == 1
         assert traces[0].action == "READ"
@@ -50,7 +57,7 @@ class TestMTPTraceReducerCommandMapping:
 
     def test_search_command_no_query(self):
         # content が空なので query は None になるはず
-        events = [_event("mtp_command", verb="SEARCH", target="*", content="")]
+        events = [_event("tool_call", verb="SEARCH", target="*", content="")]
         traces = MTPTraceReducer.reduce(events)
         assert len(traces) == 1
         assert traces[0].action == "SEARCH"
@@ -58,14 +65,14 @@ class TestMTPTraceReducerCommandMapping:
 
     def test_search_command_with_full_mtp_content(self):
         content = '⟪ SEARCH | * | query="authentication flow" ⟫'
-        events = [_event("mtp_command", verb="SEARCH", target="*", content=content)]
+        events = [_event("tool_call", verb="SEARCH", target="*", content=content)]
         traces = MTPTraceReducer.reduce(events)
         assert len(traces) == 1
         assert traces[0].action == "SEARCH"
         assert traces[0].query == "authentication flow"
 
     def test_run_command(self):
-        events = [_event("mtp_command", verb="RUN", target="git_log", status="success")]
+        events = [_event("tool_call", verb="RUN", target="git_log", status="success")]
         traces = MTPTraceReducer.reduce(events)
         assert len(traces) == 1
         assert traces[0].action == "RUN"
@@ -73,7 +80,7 @@ class TestMTPTraceReducerCommandMapping:
         assert traces[0].status == "success"
 
     def test_run_command_no_status(self):
-        events = [_event("mtp_command", verb="RUN", target="tool_x")]
+        events = [_event("tool_call", verb="RUN", target="tool_x")]
         traces = MTPTraceReducer.reduce(events)
         assert traces[0].status == "unknown"
 
@@ -81,11 +88,11 @@ class TestMTPTraceReducerCommandMapping:
 class TestMTPTraceReducerFiltered:
     @pytest.mark.parametrize("verb", ["WRITE", "UPDATE", "CALL"])
     def test_filtered_verbs(self, verb):
-        events = [_event("mtp_command", verb=verb, target="something")]
+        events = [_event("tool_call", verb=verb, target="something")]
         assert MTPTraceReducer.reduce(events) == []
 
     def test_unknown_verb(self):
-        events = [_event("mtp_command", verb="UNKNOWN")]
+        events = [_event("tool_call", verb="UNKNOWN")]
         assert MTPTraceReducer.reduce(events) == []
 
 
@@ -94,11 +101,11 @@ class TestMTPTraceReducerDictInput:
 
     def test_dict_read(self):
         event_dict = {
-            "kind": "mtp_command",
+            "kind": "tool_call",
             "sequence": 0,
             "role": "assistant",
             "content": "",
-            "verb": "READ",
+            "tool_kind": "READ",
             "target": "alias_x",
             "status": None,
         }
@@ -109,11 +116,12 @@ class TestMTPTraceReducerDictInput:
 
     def test_dict_run(self):
         event_dict = {
-            "kind": "mtp_command",
+            "kind": "tool_call",
             "sequence": 0,
             "role": "assistant",
             "content": "",
-            "verb": "RUN",
+            "tool_kind": "RUN",
+            "tool_name": "my_tool",
             "target": "my_tool",
             "status": "error",
         }
@@ -122,23 +130,23 @@ class TestMTPTraceReducerDictInput:
         assert traces[0].status == "error"
 
     def test_dict_assistant_text_filtered(self):
-        event_dict = {"kind": "assistant_text", "sequence": 0, "role": "assistant", "content": "hi"}
+        event_dict = {"kind": "assistant_message", "sequence": 0, "role": "assistant", "content": "hi"}
         assert MTPTraceReducer.reduce([event_dict]) == []
 
     def test_dict_write_filtered(self):
-        event_dict = {"kind": "mtp_command", "sequence": 0, "role": "assistant", "content": "", "verb": "WRITE"}
+        event_dict = {"kind": "tool_call", "sequence": 0, "role": "assistant", "content": "", "tool_kind": "WRITE"}
         assert MTPTraceReducer.reduce([event_dict]) == []
 
 
 class TestMTPTraceReducerMixedList:
     def test_mixed_events_order_preserved(self):
         events = [
-            _event("assistant_text"),
-            _event("mtp_command", verb="READ", target="a1"),
-            _event("mtp_result", verb="READ", status="success"),
-            _event("mtp_command", verb="SEARCH", target="*", content='⟪ SEARCH | * | query="test" ⟫'),
-            _event("mtp_command", verb="WRITE"),
-            _event("mtp_command", verb="RUN", target="tool_a", status="success"),
+            _event("assistant_message"),
+            _event("tool_call", verb="READ", target="a1"),
+            _event("tool_result", verb="READ", status="success"),
+            _event("tool_call", verb="SEARCH", target="*", content='⟪ SEARCH | * | query="test" ⟫'),
+            _event("tool_call", verb="WRITE"),
+            _event("tool_call", verb="RUN", target="tool_a", status="success"),
         ]
         traces = MTPTraceReducer.reduce(events)
         assert len(traces) == 3

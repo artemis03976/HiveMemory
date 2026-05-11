@@ -32,7 +32,7 @@ Note:
 import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from hivememory.core.models import Identity
+from hivememory.core.models import ActionReducer, Identity, TraceReducer, TurnRecord
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
@@ -170,8 +170,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             payload: Kernel → Perception 的原子传输包
             topic_id: 目标话题 ID
         """
-        from hivememory.patchouli.mtp.trace_reducer import MTPTraceReducer
-
+        actions = []
         # =========================================================
         # Phase 4B 双路径: 结构化优先 → legacy assistant_message 降级
         # =========================================================
@@ -181,15 +180,18 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             # 结构化路径: 直接使用 LoopExecutor 收集的轮次事件
             clean_text = payload.assistant_final_text or ""
 
-            # Traces 优先级: Koakuma 透传 > TurnEvent 结构化提取
+            actions = ActionReducer.reduce(payload.turn_events)
+
+            # Traces 优先级: Koakuma 透传 > AgentAction 结构化提取
             if payload.mtp_traces:
                 traces = payload.mtp_traces
             else:
-                traces = MTPTraceReducer.reduce(payload.turn_events)
+                traces = TraceReducer.reduce(actions)
 
             logger.debug(
                 "ingest_payload: 结构化路径, "
-                f"turn_events={len(payload.turn_events)}, traces={len(traces)}"
+                f"turn_events={len(payload.turn_events)}, traces={len(traces)}, "
+                f"actions={len(actions)}"
             )
         else:
             # legacy 降级路径: 直接消费 assistant_message（被动 ingest / observer buffer）
@@ -202,25 +204,26 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             )
         # =========================================================
 
-        # 2. 构建 LogicalBlock (v3.0 字段)
+        # 2. 构建 LogicalBlock
         block = LogicalBlock(
-            user_query=payload.user_message,
-            rewritten_query=payload.rewritten_query,
-            semantic_traces=traces,
-            raw_response=payload.assistant_message,
-            assistant_final_text=payload.assistant_final_text or clean_text,
-            turn_events=payload.turn_events,
-            clean_response=clean_text,
+            turn=TurnRecord(
+                identity=payload.identity,
+                user_query=payload.user_message,
+                rewritten_query=payload.rewritten_query,
+                assistant_final_text=payload.assistant_final_text or clean_text,
+                turn_events=payload.turn_events,
+                actions=actions,
+                semantic_traces=traces,
+            ),
             worth_saving=payload.worth_saving,
             write_focus=payload.write_focus,
             update_focus=payload.update_focus,
-            identity=payload.identity,
         )
 
         # 2.5 计算 block 的 total_tokens
         block.total_tokens = (
             estimate_tokens(block.user_query)
-            + estimate_tokens(block.clean_response)
+            + estimate_tokens(block.assistant_final_text)
             + sum(
                 estimate_tokens(t.query or "") + estimate_tokens(t.target or "")
                 for t in block.semantic_traces
@@ -461,11 +464,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             # 获取最后一个 block
             last_block = buffer.blocks[-1]
             last_turn = {
-                "user": last_block.user_query or (last_block.user_block.content if last_block.user_block else ""),
-                "assistant": (
-                    last_block.assistant_final_text
-                    or (last_block.response_block.content if last_block.response_block else "")
-                ),
+                "user": last_block.user_query,
+                "assistant": last_block.assistant_final_text,
             }
 
             snapshot = TopicSnapshot(

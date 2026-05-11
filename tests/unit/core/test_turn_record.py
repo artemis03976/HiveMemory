@@ -1,0 +1,71 @@
+"""
+TurnRecord 与 LogicalBlock 收敛测试
+
+覆盖:
+- TurnRecord 基本属性
+- LogicalBlock 旧扁平构造自动提升到 turn
+- block 兼容属性继续可读
+"""
+
+from hivememory.core.models import AgentAction, Identity, TraceItem, TurnEvent, TurnRecord
+from hivememory.engines.perception.models import LogicalBlock
+
+
+def _identity() -> Identity:
+    return Identity(user_id="u1", agent_id="a1")
+
+
+def test_turn_record_anchor_text():
+    turn = TurnRecord(
+        identity=_identity(),
+        user_query="原始问题",
+        rewritten_query="重写问题",
+    )
+    assert turn.anchor_text == "重写问题"
+
+
+def test_logical_block_lifts_flat_fields_to_turn():
+    event = TurnEvent(
+        kind="assistant_message",
+        sequence=0,
+        role="assistant",
+        content="hello",
+    )
+    action = AgentAction(action_id="a1", tool_kind="READ", tool_name="alias_x")
+    trace = TraceItem(action="READ", action_id="a1", target="alias_x")
+
+    block = LogicalBlock(
+        identity=_identity(),
+        user_query="问题",
+        rewritten_query="重写问题",
+        assistant_final_text="回答",
+        turn_events=[event],
+        actions=[action],
+        semantic_traces=[trace],
+    )
+
+    assert block.turn.user_query == "问题"
+    assert block.turn.rewritten_query == "重写问题"
+    assert block.turn.assistant_final_text == "回答"
+    assert len(block.turn.turn_events) == 1
+    assert len(block.turn.actions) == 1
+    assert len(block.turn.semantic_traces) == 1
+
+    # 兼容属性
+    assert block.user_query == "问题"
+    assert block.rewritten_query == "重写问题"
+    assert block.assistant_final_text == "回答"
+    assert block.identity.agent_id == "a1"
+    assert block.actions[0].action_id == "a1"
+
+
+def test_logical_block_accepts_turn_record_directly():
+    turn = TurnRecord(
+        identity=_identity(),
+        user_query="hello",
+        assistant_final_text="world",
+    )
+    block = LogicalBlock(turn=turn)
+    assert block.turn is turn
+    assert block.user_query == "hello"
+    assert block.assistant_final_text == "world"

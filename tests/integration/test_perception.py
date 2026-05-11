@@ -254,14 +254,14 @@ class TestTokenManagement:
         """测试 Block Token 计数"""
         block = LogicalBlock(
             user_query="Test query",
-            clean_response="Test response",
+            assistant_final_text="Test response",
             total_tokens=0,
         )
 
         from hivememory.utils.token_estimator import estimate_tokens
         block.total_tokens = (
             estimate_tokens(block.user_query) +
-            estimate_tokens(block.clean_response)
+            estimate_tokens(block.assistant_final_text)
         )
 
         assert block.total_tokens > 0

@@ -2,9 +2,9 @@
 LoopExecutor TurnEvent 采集单测
 
 验证 Phase 1 新增的结构化事件采集行为:
-1. 自然停止 → 1 个 assistant_text 事件
-2. 单次 MTP → prefix + mtp_command + mtp_result，sequence 递增
-3. CALL 路径 → 父 frame 只有 kind=mtp_result verb=CALL 事件，无子 frame 事件
+1. 自然停止 → 1 个 assistant_message 事件
+2. 单次 MTP → prefix + tool_call + tool_result，sequence 递增
+3. CALL 路径 → 父 frame 只有 kind=tool_result tool_kind=CALL 事件，无子 frame 事件
 4. 无 MTP 时 ChatResult.turn_events 正常，final_text 正确
 """
 
@@ -14,8 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
-from hivememory.engines.perception.models import TurnEvent
+from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
 from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
 from hivememory.patchouli.protocol.models import MTPExecutionResult
@@ -115,7 +114,7 @@ def _build_executor(generate_async_side_effect) -> KernelLoopExecutor:
 
 @pytest.mark.asyncio
 async def test_natural_stop_produces_one_assistant_text_event():
-    """自然停止: 1 个 assistant_text 事件，sequence=0，role=assistant"""
+    """自然停止: 1 个 assistant_message 事件，sequence=0，role=assistant"""
     frame = _make_frame()
     executor, kernel = _build_executor([_natural_result("Hello world")])
     kernel.handle_mtp = AsyncMock(return_value=None)
@@ -126,11 +125,11 @@ async def test_natural_stop_produces_one_assistant_text_event():
     assert len(result.turn_events) == 1
 
     ev: TurnEvent = result.turn_events[0]
-    assert ev.kind == "assistant_text"
+    assert ev.kind == "assistant_message"
     assert ev.sequence == 0
     assert ev.role == "assistant"
     assert ev.content == "Hello world"
-    assert ev.verb is None
+    assert ev.tool_kind is None
 
 
 @pytest.mark.asyncio
@@ -143,14 +142,14 @@ async def test_natural_stop_no_prefix_no_extra_events():
     result = await executor.execute_frame(frame, max_iterations=5)
 
     assert len(result.turn_events) == 1
-    assert result.turn_events[0].kind == "assistant_text"
+    assert result.turn_events[0].kind == "assistant_message"
 
 
 # ============ 单次 MTP 场景 ============
 
 @pytest.mark.asyncio
 async def test_single_mtp_produces_four_events():
-    """单次 MTP: prefix(assistant_text) + mtp_command + mtp_result + final(assistant_text)"""
+    """单次 MTP: prefix(assistant_message) + tool_call + tool_result + final(assistant_message)"""
     frame = _make_frame()
 
     gen_results = [
@@ -168,24 +167,24 @@ async def test_single_mtp_produces_four_events():
     assert len(events) == 4
 
     prefix_ev, cmd_ev, res_ev, final_ev = events
-    assert prefix_ev.kind == "assistant_text"
+    assert prefix_ev.kind == "assistant_message"
     assert prefix_ev.sequence == 0
     assert prefix_ev.role == "assistant"
     assert prefix_ev.content == "查找中"
 
-    assert cmd_ev.kind == "mtp_command"
+    assert cmd_ev.kind == "tool_call"
     assert cmd_ev.sequence == 1
     assert cmd_ev.role == "assistant"
-    assert cmd_ev.verb == "READ"
+    assert cmd_ev.tool_kind == "READ"
 
-    assert res_ev.kind == "mtp_result"
+    assert res_ev.kind == "tool_result"
     assert res_ev.sequence == 2
     assert res_ev.role == "user"
-    assert res_ev.verb == "READ"
+    assert res_ev.tool_kind == "READ"
     assert res_ev.status == "success"
-    assert res_ev.render_as == "system_mtp_result"
+    assert res_ev.render_as == "system_tool_result"
 
-    assert final_ev.kind == "assistant_text"
+    assert final_ev.kind == "assistant_message"
     assert final_ev.sequence == 3
     assert final_ev.content == "找到了"
 
@@ -215,7 +214,7 @@ async def test_sequence_is_monotonically_increasing_across_iterations():
 
 @pytest.mark.asyncio
 async def test_empty_prefix_text_not_recorded():
-    """prefix_text 为空时，不生成 assistant_text 事件"""
+    """prefix_text 为空时，不生成 assistant_message 事件"""
     frame = _make_frame()
 
     gen_results = [
@@ -228,19 +227,19 @@ async def test_empty_prefix_text_not_recorded():
     result = await executor.execute_frame(frame, max_iterations=5)
 
     kinds = [ev.kind for ev in result.turn_events]
-    # 不应有来自空 prefix 的 assistant_text
-    assert "assistant_text" not in kinds or all(
-        ev.content != "" for ev in result.turn_events if ev.kind == "assistant_text"
+    # 不应有来自空 prefix 的 assistant_message
+    assert "assistant_message" not in kinds or all(
+        ev.content != "" for ev in result.turn_events if ev.kind == "assistant_message"
     )
-    assert "mtp_command" in kinds
-    assert "mtp_result" in kinds
+    assert "tool_call" in kinds
+    assert "tool_result" in kinds
 
 
 # ============ CALL 路径场景 ============
 
 @pytest.mark.asyncio
 async def test_call_path_produces_mtp_result_event_with_call_verb():
-    """CALL 路径: 父 frame 产出 kind=mtp_result, verb=CALL, role=user"""
+    """CALL 路径: 父 frame 产出 kind=tool_result, tool_kind=CALL, role=user"""
     main_frame = _make_frame(depth=0)
     sub_frame = ExecutionFrame(
         process_id="sub_pid",
@@ -279,8 +278,8 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
     result = await executor.execute_frame(main_frame, max_iterations=5)
 
-    call_events = [ev for ev in result.turn_events if ev.kind == "mtp_result" and ev.verb == "CALL"]
-    assert len(call_events) == 1, f"应有 1 个 CALL mtp_result 事件，实际: {result.turn_events}"
+    call_events = [ev for ev in result.turn_events if ev.kind == "tool_result" and ev.tool_kind == "CALL"]
+    assert len(call_events) == 1, f"应有 1 个 CALL tool_result 事件，实际: {result.turn_events}"
     call_ev = call_events[0]
     assert call_ev.role == "user"
     assert call_ev.status == "success"
@@ -289,7 +288,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     # 子帧自己的事件不应污染主帧
     sub_kinds = [ev.kind for ev in result.turn_events if ev.verb not in ("CALL", None)]
     # 所有 verb 为 CALL 的来自主帧，子帧事件不透传
-    assert all(ev.verb in (None, "CALL") for ev in result.turn_events if ev.kind == "mtp_result")
+    assert all(ev.tool_kind in (None, "CALL") for ev in result.turn_events if ev.kind == "tool_result")
 
 
 # ============ turn_events 在 ChatResult 中的默认值 ============
@@ -303,7 +302,7 @@ def test_chat_result_default_turn_events():
 
 @pytest.mark.asyncio
 async def test_run_command_event_carries_execution_status_for_reducer():
-    """RUN 指令的 mtp_command 事件应带上执行状态，避免 reducer 降级为 unknown"""
+    """RUN 指令的 tool_call 事件应带上执行状态，避免 reducer 降级为 unknown"""
     frame = _make_frame()
     gen_results = [
         _mtp_result("", "⟪ RUN | tool_x | cmd=\"echo hi\" ⟫"),
@@ -314,6 +313,6 @@ async def test_run_command_event_carries_execution_status_for_reducer():
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
-    run_commands = [ev for ev in result.turn_events if ev.kind == "mtp_command" and ev.verb == "RUN"]
+    run_commands = [ev for ev in result.turn_events if ev.kind == "tool_call" and ev.tool_kind == "RUN"]
     assert len(run_commands) == 1
     assert run_commands[0].status == "success"

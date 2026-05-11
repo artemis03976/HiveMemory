@@ -12,7 +12,7 @@ MTP log parser。
 import re
 from typing import List, Optional, Tuple
 
-from hivememory.engines.perception.models import TraceItem
+from hivememory.core.models import TraceItem
 from hivememory.patchouli.mtp.exceptions import MTPParseError
 from hivememory.patchouli.mtp.models import (
     MTP_LEFT_DELIMITER,

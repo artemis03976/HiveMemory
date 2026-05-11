@@ -11,7 +11,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 from uuid import uuid4
 
-from hivememory.core.models import StreamMessage, StreamMessageType, Identity
+from hivememory.core.models import Identity
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, WriteFocus, UpdateFocus
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
@@ -23,22 +23,12 @@ def _make_identity() -> Identity:
 
 def _make_logical_blocks(n=2):
     """创建测试用的 LogicalBlock 列表"""
-    identity = _make_identity()
     blocks = []
     for i in range(n):
-        user_msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content=f"user_msg_{i}",
-            identity=identity,
-        )
-        assistant_msg = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT,
-            content=f"assistant_msg_{i}",
-            identity=identity,
-        )
         block = LogicalBlock(
-            user_block=user_msg,
-            response_block=assistant_msg,
+            user_query=f"user_msg_{i}",
+            assistant_final_text=f"assistant_msg_{i}",
+            identity=_make_identity(),
         )
         blocks.append(block)
     return blocks
@@ -49,7 +39,7 @@ def _make_kernel_logical_blocks(n=2):
     for i in range(n):
         block = LogicalBlock(
             user_query=f"user_query_{i}",
-            clean_response=f"assistant_response_{i}",
+            assistant_final_text=f"assistant_response_{i}",
         )
         blocks.append(block)
     return blocks
@@ -304,16 +294,8 @@ class TestLibrarianCoreGenerateMemory:
 
     @pytest.mark.asyncio
     async def test_generate_memory_blocks_with_only_user(self):
-        """只有 user_block 的 blocks，Phase 3: 产出 1 个 turn（user_query 非空）"""
-        identity = _make_identity()
-        block = LogicalBlock(
-            user_block=StreamMessage(
-                message_type=StreamMessageType.USER,
-                content="user message",
-                identity=identity,
-            ),
-            response_block=None,
-        )
+        """只有 user_query 的 blocks，Phase 3: 产出 1 个 turn（user_query 非空）"""
+        block = LogicalBlock(user_query="user message", identity=_make_identity())
         payload = ArchivePayload(
             topic_id="topic_test",
             blocks=[block],

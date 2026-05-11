@@ -73,26 +73,23 @@ class SimpleRelayController(BaseRelayController):
         """
         summary_parts = []
 
-        # 1. 统计用户请求（兼容 v3.0 和 legacy 模式）
+        # 1. 统计用户请求
         user_queries = []
         for b in blocks:
-            # v3.0 模式：优先使用 rewritten_query 或 user_query
             if b.rewritten_query or b.user_query:
                 user_queries.append(b.rewritten_query or b.user_query)
-            # Legacy 模式：回退到 user_block.content
-            elif b.user_block:
-                user_queries.append(b.user_block.content)
 
         if user_queries:
             summary_parts.append(f"处理了 {len(user_queries)} 个用户请求")
 
-        # 2. 提取使用的工具 (兼容 legacy execution_chain + v3.0 semantic_traces)
+        # 2. 提取使用的工具 (兼容 actions + v3.0 semantic_traces)
         tool_names = set()
         for b in blocks:
-            # Legacy path: Triplet.tool_name
-            for t in b.execution_chain:
-                if t.tool_name:
-                    tool_names.add(t.tool_name)
+            for action in b.actions:
+                if action.tool_name:
+                    tool_names.add(action.tool_name)
+                elif action.tool_kind:
+                    tool_names.add(action.tool_kind.lower())
             # v3.0 path: TraceItem.tool (RUN) / TraceItem.action (READ/SEARCH)
             for t in b.semantic_traces:
                 if t.tool:
@@ -182,15 +179,11 @@ class LLMRelayController(BaseRelayController):
 
             # Add user query
             user_query = block.rewritten_query or block.user_query
-            if not user_query and block.user_block:
-                user_query = block.user_block.content
             if user_query:
                 lines.append(f"User: {user_query}")
 
             # Add assistant response
-            response = block.clean_response
-            if not response and block.response_block:
-                response = block.response_block.content
+            response = block.assistant_final_text
             if response:
                 lines.append(f"Agent: {response}")
 
