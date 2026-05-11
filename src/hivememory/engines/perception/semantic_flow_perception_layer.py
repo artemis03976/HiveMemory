@@ -170,20 +170,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             payload: Kernel → Perception 的原子传输包
             topic_id: 目标话题 ID
         """
-        from hivememory.patchouli.mtp.log_parser import MTPLogParser
         from hivememory.patchouli.mtp.trace_reducer import MTPTraceReducer
 
         # =========================================================
-        # Phase 1 双路径: 结构化优先 → MTPLogParser 降级
+        # Phase 4B 双路径: 结构化优先 → legacy assistant_message 降级
         # =========================================================
         has_structured = bool(payload.turn_events)
 
         if has_structured:
             # 结构化路径: 直接使用 LoopExecutor 收集的轮次事件
             clean_text = payload.assistant_final_text or ""
-            if not clean_text:
-                # 防御性回退：若 final_text 未填充则用 parser
-                clean_text, _ = MTPLogParser.parse(payload.assistant_message)
 
             # Traces 优先级: Koakuma 透传 > TurnEvent 结构化提取
             if payload.mtp_traces:
@@ -196,12 +192,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 f"turn_events={len(payload.turn_events)}, traces={len(traces)}"
             )
         else:
-            # 降级路径: MTPLogParser 文本解析（Phase 1 之前的全量行为）
-            clean_text, fallback_traces = MTPLogParser.parse(payload.assistant_message)
-            traces = payload.mtp_traces if payload.mtp_traces else fallback_traces
+            # legacy 降级路径: 直接消费 assistant_message（被动 ingest / observer buffer）
+            clean_text = payload.assistant_message or ""
+            traces = payload.mtp_traces
 
             logger.debug(
-                "ingest_payload: fallback 路径 (MTPLogParser), "
+                "ingest_payload: fallback 路径 (legacy assistant_message), "
                 f"mtp_traces={len(payload.mtp_traces)}"
             )
         # =========================================================
@@ -465,8 +461,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             # 获取最后一个 block
             last_block = buffer.blocks[-1]
             last_turn = {
-                "user": last_block.user_query,
-                "assistant": last_block.clean_response,
+                "user": last_block.user_query or (last_block.user_block.content if last_block.user_block else ""),
+                "assistant": (
+                    last_block.assistant_final_text
+                    or (last_block.response_block.content if last_block.response_block else "")
+                ),
             }
 
             snapshot = TopicSnapshot(

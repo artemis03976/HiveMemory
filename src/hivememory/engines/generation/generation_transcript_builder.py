@@ -30,6 +30,8 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
 
 from typing import List, Optional
 
+from hivememory.core.constants import DEFAULT_AGENT_ID, DEFAULT_USER_ID
+from hivememory.core.models import Identity
 from hivememory.engines.perception.models import LogicalBlock, TraceItem
 from hivememory.engines.generation.models import GenerationContext, GenerationTurn
 
@@ -105,6 +107,9 @@ class GenerationTranscriptBuilder:
             or (block.response_block.content if block.response_block else "")
         )
 
+        # identity: block.identity 优先，legacy block 回退到 response/user message identity
+        identity = self._resolve_identity(block)
+
         # 动作摘要：优先从 semantic_traces 派生
         trace_summaries = self._traces_to_summaries(block.semantic_traces)
 
@@ -112,8 +117,21 @@ class GenerationTranscriptBuilder:
             user_query=user_query,
             assistant_final_text=final_text,
             trace_summaries=trace_summaries,
-            identity=block.identity,
+            identity=identity,
         )
+
+    def _resolve_identity(self, block: LogicalBlock) -> Identity:
+        """解析 block 的最终 identity，兼容 legacy block 的消息级身份。"""
+        if (
+            block.identity.user_id != DEFAULT_USER_ID
+            or block.identity.agent_id != DEFAULT_AGENT_ID
+        ):
+            return block.identity
+        if block.response_block and block.response_block.identity:
+            return block.response_block.identity
+        if block.user_block and block.user_block.identity:
+            return block.user_block.identity
+        return Identity()
 
     def _traces_to_summaries(self, traces: List[TraceItem]) -> List[str]:
         """将 TraceItem 列表转换为可读的动作摘要字符串列表。"""

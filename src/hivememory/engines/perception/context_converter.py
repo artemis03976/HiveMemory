@@ -31,9 +31,10 @@ class PerceptionContextConverter:
         """
         将 LogicalBlock 列表转换为 OpenAI messages 格式
 
-        Phase 2 重构：委托 HistoryTranscriptBuilder 处理历史消息视图。
+        Phase 2/4C 重构：委托 HistoryTranscriptBuilder 处理历史消息视图。
         - 若 block 有 turn_events，按事件流重放（保留 MTP 指令与结果）
-        - 若 block 无 turn_events，回退到 clean_response（兼容旧数据）
+        - 若 block 无 turn_events，优先使用 assistant_final_text
+        - 若为真正 legacy block，再薄兼容 user_block/response_block
 
         多角色历史渲染 (Phase 1):
         当 block.identity.agent_id 与 current_agent_id 不同时，

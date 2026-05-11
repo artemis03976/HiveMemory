@@ -4,7 +4,8 @@ HistoryTranscriptBuilder — 基于 TurnEvent 事件流的历史消息视图构�
 职责:
     从 LogicalBlock 列表构建"历史消息视图"（用于下轮 Agent 对话上下文）。
     - 若 block 有 turn_events，按 sequence 顺序重放结构化事件
-    - 若 block 无 turn_events，回退到 clean_response（兼容旧数据）
+    - 若 block 无 turn_events，优先回退到 assistant_final_text
+    - 若为真正的 legacy block，再薄兼容到 user_block/response_block
 
 渲染规则:
     - assistant_text  → role="assistant", content 原样输出（可附身份前缀）
@@ -43,7 +44,8 @@ class HistoryTranscriptBuilder:
     历史消息视图构建器
 
     从 LogicalBlock 列表生成可直接送入下轮 LLM 的 OpenAI-style messages。
-    优先消费 block.turn_events，兼容旧 block 的 clean_response 路径。
+    优先消费 block.turn_events，其次使用 assistant_final_text，
+    最后薄兼容 legacy user_block/response_block。
     """
 
     def build_messages(
@@ -77,8 +79,9 @@ class HistoryTranscriptBuilder:
         out: List[Dict[str, str]],
     ) -> None:
         """渲染单个 LogicalBlock，追加到 out。"""
-        if block.user_query:
-            out.append({"role": "user", "content": block.user_query})
+        user_content = self._resolve_user_content(block)
+        if user_content:
+            out.append({"role": "user", "content": user_content})
 
         if block.turn_events:
             # 结构化路径：按 sequence 重放事件流
@@ -86,12 +89,30 @@ class HistoryTranscriptBuilder:
                 msg = self._render_event(event, block, current_agent_id)
                 if msg is not None:
                     out.append(msg)
-        elif block.clean_response:
-            # 旧数据兼容路径：只有 clean_response
+        else:
+            assistant_content = self._resolve_assistant_content(block)
+            if not assistant_content:
+                return
             content = self._apply_agent_prefix(
-                block.clean_response, block, current_agent_id
+                assistant_content, block, current_agent_id
             )
             out.append({"role": "assistant", "content": content})
+
+    def _resolve_user_content(self, block: LogicalBlock) -> str:
+        """解析历史视图中的用户消息内容。"""
+        if block.user_query:
+            return block.user_query
+        if block.user_block:
+            return block.user_block.content
+        return ""
+
+    def _resolve_assistant_content(self, block: LogicalBlock) -> str:
+        """解析历史视图中的 assistant 内容，逐步移除对 clean_response 的依赖。"""
+        if block.assistant_final_text:
+            return block.assistant_final_text
+        if block.response_block:
+            return block.response_block.content
+        return ""
 
     def _render_event(
         self,

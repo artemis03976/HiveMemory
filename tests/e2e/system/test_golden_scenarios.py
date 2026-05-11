@@ -263,8 +263,29 @@ class SystemScenarioTestSystem:
         def wrapped_flush_callback(messages: List[StreamMessage], reason: FlushReason):
             self.flush_recorder(messages, reason)
             if messages:
-                from hivememory.engines.generation.models import GenerationRequest
-                self._generation_engine.process(GenerationRequest(context_messages=messages))
+                from hivememory.engines.generation.models import (
+                    GenerationContext,
+                    GenerationRequest,
+                    GenerationTurn,
+                )
+                turns = []
+                for i in range(0, len(messages), 2):
+                    user_msg = messages[i] if i < len(messages) else None
+                    assistant_msg = messages[i + 1] if i + 1 < len(messages) else None
+                    turns.append(
+                        GenerationTurn(
+                            user_query=user_msg.content if user_msg else "",
+                            assistant_final_text=assistant_msg.content if assistant_msg else "",
+                            identity=(
+                                assistant_msg.identity
+                                if assistant_msg and assistant_msg.identity
+                                else (user_msg.identity if user_msg and user_msg.identity else Identity())
+                            ),
+                        )
+                    )
+                self._generation_engine.process(
+                    GenerationRequest(context=GenerationContext(turns=turns))
+                )
 
         self._perception_layer.set_flush_callback(wrapped_flush_callback)
 

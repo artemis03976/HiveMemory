@@ -20,6 +20,8 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine, MEMORY_
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationRequest,
+    GenerationContext,
+    GenerationTurn,
     WriteFocus,
     UpdateFocus,
     MergeResult,
@@ -42,6 +44,25 @@ def _make_messages(n=2) -> list:
         msg_type = StreamMessageType.USER if i % 2 == 0 else StreamMessageType.ASSISTANT
         msgs.append(StreamMessage(message_type=msg_type, content=f"msg_{i}", identity=identity))
     return msgs
+
+
+def _make_context_from_messages(messages: list[StreamMessage]) -> GenerationContext:
+    turns = []
+    for i in range(0, len(messages), 2):
+        user_msg = messages[i] if i < len(messages) else None
+        assistant_msg = messages[i + 1] if i + 1 < len(messages) else None
+        turns.append(
+            GenerationTurn(
+                user_query=user_msg.content if user_msg else "",
+                assistant_final_text=assistant_msg.content if assistant_msg else "",
+                identity=(
+                    assistant_msg.identity
+                    if assistant_msg and assistant_msg.identity
+                    else (user_msg.identity if user_msg and user_msg.identity else _make_identity())
+                ),
+            )
+        )
+    return GenerationContext(turns=turns)
 
 
 def _make_draft(has_value=True, title="测试记忆", alias_suffix="test_alias") -> ExtractedMemoryDraft:
@@ -80,7 +101,7 @@ class TestGenerationEngineRouting:
 
     def test_empty_messages_no_focus_returns_empty(self):
         """空消息且无 focus 时早返回"""
-        request = GenerationRequest(context_messages=[])
+        request = GenerationRequest()
         result = self.engine.process(request)
         assert result == []
         self.mock_extractor.extract.assert_not_called()
@@ -93,7 +114,7 @@ class TestGenerationEngineRouting:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         self.mock_storage.upsert_memory = Mock()
 
-        request = GenerationRequest(context_messages=msgs)
+        request = GenerationRequest(context=_make_context_from_messages(msgs))
         result = self.engine.process(request)
 
         self.mock_extractor.extract.assert_called_once()
@@ -107,7 +128,7 @@ class TestGenerationEngineRouting:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         self.mock_storage.upsert_memory = Mock()
 
-        request = GenerationRequest(context_messages=[], write_focus=focus)
+        request = GenerationRequest(context=GenerationContext(), write_focus=focus)
         result = self.engine.process(request)
 
         call_kwargs = self.mock_extractor.extract.call_args
@@ -127,7 +148,7 @@ class TestGenerationEngineRouting:
         self.mock_extractor.merge.return_value = merge_result
         self.mock_storage.upsert_memory = Mock()
 
-        request = GenerationRequest(context_messages=[], update_focus=uf)
+        request = GenerationRequest(context=GenerationContext(), update_focus=uf)
         result = self.engine.process(request)
 
         self.mock_extractor.merge.assert_called_once()
@@ -155,7 +176,7 @@ class TestGenerationEngineModeA:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         self.mock_storage.upsert_memory = Mock()
 
-        request = GenerationRequest(context_messages=msgs)
+        request = GenerationRequest(context=_make_context_from_messages(msgs))
         result = self.engine.process(request)
 
         assert len(result) == 1
@@ -167,7 +188,7 @@ class TestGenerationEngineModeA:
         draft = _make_draft(has_value=False)
         self.mock_extractor.extract.return_value = draft
 
-        request = GenerationRequest(context_messages=msgs)
+        request = GenerationRequest(context=_make_context_from_messages(msgs))
         result = self.engine.process(request)
 
         assert result == []
@@ -178,14 +199,14 @@ class TestGenerationEngineModeA:
         msgs = _make_messages()
         self.mock_extractor.extract.return_value = None
 
-        request = GenerationRequest(context_messages=msgs)
+        request = GenerationRequest(context=_make_context_from_messages(msgs))
         result = self.engine.process(request)
 
         assert result == []
 
     def test_mode_a_empty_messages(self):
         """Mode A 空消息列表返回空"""
-        request = GenerationRequest(context_messages=[])
+        request = GenerationRequest()
         result = self.engine.process(request)
         assert result == []
 
@@ -211,7 +232,7 @@ class TestGenerationEngineModeB:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         self.mock_storage.upsert_memory = Mock()
 
-        request = GenerationRequest(context_messages=[], write_focus=focus)
+        request = GenerationRequest(context=GenerationContext(), write_focus=focus)
         result = self.engine.process(request)
 
         assert len(result) == 1
@@ -223,7 +244,7 @@ class TestGenerationEngineModeB:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         self.mock_storage.upsert_memory = Mock()
 
-        request = GenerationRequest(context_messages=[], write_focus=focus)
+        request = GenerationRequest(context=GenerationContext(), write_focus=focus)
         result = self.engine.process(request)
 
         # fallback 应保证内容不丢失
@@ -273,7 +294,7 @@ class TestGenerationEngineModeC:
             existing_memory=existing,
             identity=_make_identity(),
         )
-        return GenerationRequest(context_messages=[], update_focus=uf)
+        return GenerationRequest(context=GenerationContext(), update_focus=uf)
 
     def test_mode_c_merge_success(self):
         """正常 UPDATE 合并流程"""
@@ -296,7 +317,7 @@ class TestGenerationEngineModeC:
             existing_memory=None,
             identity=_make_identity(),
         )
-        request = GenerationRequest(context_messages=[], update_focus=uf)
+        request = GenerationRequest(context=GenerationContext(), update_focus=uf)
         result = self.engine.process(request)
 
         assert result == []
@@ -451,13 +472,19 @@ class TestGenerationEngineHelpers:
             storage=Mock(), extractor=Mock(), deduplicator=Mock(),
         )
 
-    def test_format_transcript(self):
-        """格式化对话文本"""
-        msgs = _make_messages(2)
-        transcript = self.engine._format_transcript(msgs)
+    def test_render_transcript(self):
+        """统一 transcript 渲染入口"""
+        transcript = self.engine._render_transcript(
+            GenerationRequest(context=_make_context_from_messages(_make_messages(2)))
+        )
 
         assert "[User]:" in transcript
         assert "[Assistant]:" in transcript
+
+    def test_render_transcript_empty_context_placeholder(self):
+        """空上下文返回统一占位文本"""
+        transcript = self.engine._render_transcript(GenerationRequest())
+        assert transcript == "(无背景对话)"
 
     def test_draft_to_memory(self):
         """草稿转换为 MemoryAtom"""

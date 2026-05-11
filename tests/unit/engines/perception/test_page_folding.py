@@ -15,7 +15,7 @@ Note:
 """
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, AsyncMock
 
 from hivememory.core.models import Identity, StreamMessage, StreamMessageType
 from hivememory.engines.perception.semantic_flow_perception_layer import (
@@ -26,6 +26,7 @@ from hivememory.engines.perception.models import (
     TraceItem,
     FlushReason,
     LogicalBlock,
+    TurnEvent,
 )
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
 
@@ -40,6 +41,15 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None, traces
     return InteractionPayload(
         user_message=user_msg,
         assistant_message=assistant_msg,
+        assistant_final_text=assistant_msg,
+        turn_events=[
+            TurnEvent(
+                kind="assistant_text",
+                sequence=0,
+                role="assistant",
+                content=assistant_msg,
+            )
+        ],
         identity=identity,
         mtp_traces=traces or [],
     )
@@ -67,11 +77,9 @@ class TestBlockTokenComputation:
         self.mock_relay.should_relay.return_value = None
         self.layer = SemanticFlowPerceptionLayer(config=self.config, relay_controller=self.mock_relay)
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_block_total_tokens_computed(self, mock_parser_cls):
+    async def test_block_total_tokens_computed(self):
         """ingest_payload 后 block.total_tokens 应 > 0"""
-        mock_parser_cls.parse.return_value = ("clean reply", [])
 
         identity = _make_identity()
         payload = _make_payload("What is Python?", "Python is a language", identity)
@@ -86,11 +94,9 @@ class TestBlockTokenComputation:
         assert buffer.blocks[0].total_tokens > 0
         assert buffer.total_tokens > 0
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_block_tokens_include_traces(self, mock_parser_cls):
+    async def test_block_tokens_include_traces(self):
         """traces 中的 query/target 也应计入 total_tokens"""
-        mock_parser_cls.parse.return_value = ("clean", [])
 
         traces = [
             TraceItem(action="SEARCH", query="how to sort a list"),
@@ -113,12 +119,9 @@ class TestBlockTokenComputation:
 class TestPageFoldingThreshold:
     """验证 Page Folding 阈值逻辑"""
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_fold_not_triggered_below_threshold(self, mock_parser_cls):
+    async def test_fold_not_triggered_below_threshold(self):
         """低于阈值时 state_summary 保持为空"""
-        mock_parser_cls.parse.return_value = ("reply", [])
-
         config = SemanticFlowPerceptionConfig(
             fold_token_threshold=999999,
         )
@@ -141,12 +144,9 @@ class TestPageFoldingThreshold:
         assert len(buffer.blocks) == 5
         assert buffer.state_summary == ""
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_fold_triggered_above_threshold(self, mock_parser_cls):
+    async def test_fold_triggered_above_threshold(self):
         """超阈值后旧 blocks 被丢弃，state_summary 被写入，保留最近 N 个"""
-        mock_parser_cls.parse.return_value = ("reply", [])
-
         config = SemanticFlowPerceptionConfig(
             fold_token_threshold=100,  # 较低阈值
             fold_retain_recent_blocks=2,
@@ -181,12 +181,9 @@ class TestPageFoldingThreshold:
         # state_summary 应被写入
         assert buffer.state_summary == "Test summary"
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_fold_does_not_trigger_generation_callback(self, mock_parser_cls):
+    async def test_fold_does_not_trigger_generation_callback(self):
         """折叠过程中不应触发 generation_callback"""
-        mock_parser_cls.parse.return_value = ("reply", [])
-
         config = SemanticFlowPerceptionConfig(
             fold_token_threshold=100,
             fold_retain_recent_blocks=2,
@@ -224,12 +221,9 @@ class TestPageFoldingThreshold:
 class TestPageFoldingCumulative:
     """验证连续折叠时 state_summary 累积"""
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_fold_cumulative_summary(self, mock_parser_cls):
+    async def test_fold_cumulative_summary(self):
         """连续两次折叠，验证 state_summary 以 --- 分隔累积"""
-        mock_parser_cls.parse.return_value = ("reply", [])
-
         config = SemanticFlowPerceptionConfig(
             fold_token_threshold=50,
             fold_retain_recent_blocks=1,
@@ -241,14 +235,9 @@ class TestPageFoldingCumulative:
         identity = _make_identity()
 
         # 第一波：触发第一次折叠
-        topic_id = None
+        topic_id = await layer.create_new_topic(identity)
         for i in range(4):
-            if topic_id is None:
-                await layer.route_and_ingest("NEW_TOPIC", _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity))
-                snapshots = layer.get_active_topics_snapshots(identity)
-                topic_id = snapshots[0].topic_id
-            else:
-                await layer.route_and_ingest(topic_id, _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity))
+            await layer.route_and_ingest(topic_id, _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity))
 
         buffer = layer.get_buffer(topic_id)
         first_summary = buffer.state_summary

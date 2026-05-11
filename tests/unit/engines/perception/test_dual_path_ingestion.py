@@ -1,16 +1,15 @@
 """
 ingest_payload 双路径单测
 
-验证 Phase 1 新增的结构化优先路径与 MTPLogParser 降级路径:
-1. turn_events=[] → MTPLogParser 被调用（fallback）
-2. turn_events=[...] → MTPLogParser.parse 不被调用，clean_response == assistant_final_text
+验证 Phase 4B 后的双路径:
+1. turn_events=[] → 直接消费 legacy assistant_message
+2. turn_events=[...] → clean_response == assistant_final_text，且不依赖 assistant_message
 3. turn_events=[...] + mtp_traces=[item] → 优先用 mtp_traces，不调用 MTPTraceReducer
 4. turn_events=[...] + mtp_traces=[] → 调用 MTPTraceReducer
-5. turn_events=[...] + assistant_final_text="" → 防御性回退到 MTPLogParser
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from hivememory.core.models import Identity
 from hivememory.engines.perception.models import (
@@ -50,28 +49,29 @@ def _trace_item() -> TraceItem:
     return TraceItem(action="READ", target="alias_x")
 
 
-# ============ Fallback 路径 ============
+# ============ Legacy fallback 路径 ============
 
 @pytest.mark.asyncio
-async def test_fallback_path_calls_mtp_log_parser_when_no_turn_events():
-    """turn_events=[] → MTPLogParser.parse 被调用"""
+async def test_fallback_path_uses_legacy_assistant_message_when_no_turn_events():
+    """turn_events=[] → 直接消费 assistant_message，不再依赖 parser"""
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="⟪ READ | alias_x ⟫ 找到了",
+        assistant_message="legacy assistant text",
         identity=_identity(),
         turn_events=[],  # 空 → fallback
     )
+    await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    with patch("hivememory.patchouli.mtp.log_parser.MTPLogParser.parse",
-               return_value=("找到了", [_trace_item()])) as mock_parse:
-        await layer.route_and_ingest("NEW_TOPIC", payload)
-        mock_parse.assert_called_once_with(payload.assistant_message)
+    snapshots = layer.get_active_topics_snapshots(_identity())
+    buffer = layer.get_buffer(snapshots[0].topic_id)
+    block = buffer.blocks[0]
+    assert block.clean_response == "legacy assistant text"
 
 
 @pytest.mark.asyncio
 async def test_fallback_uses_mtp_traces_over_parser_traces():
-    """fallback 路径: mtp_traces 优先于 parser 的 fallback_traces"""
+    """legacy fallback 路径: 仅消费 payload.mtp_traces"""
     layer = _make_layer()
     koakuma_trace = TraceItem(action="SEARCH", query="koakuma query")
     payload = InteractionPayload(
@@ -81,26 +81,20 @@ async def test_fallback_uses_mtp_traces_over_parser_traces():
         mtp_traces=[koakuma_trace],
         turn_events=[],
     )
-
-    parser_trace = TraceItem(action="READ", target="parser_target")
-    with patch("hivememory.patchouli.mtp.log_parser.MTPLogParser.parse",
-               return_value=("clean text", [parser_trace])):
-        await layer.route_and_ingest("NEW_TOPIC", payload)
+    await layer.route_and_ingest("NEW_TOPIC", payload)
 
     snapshots = layer.get_active_topics_snapshots(_identity())
     buffer = layer.get_buffer(snapshots[0].topic_id)
     block = buffer.blocks[0]
 
-    # 应用 koakuma_trace，不是 parser_trace
     assert any(t.action == "SEARCH" for t in block.semantic_traces)
-    assert not any(t.action == "READ" for t in block.semantic_traces)
 
 
 # ============ 结构化路径 ============
 
 @pytest.mark.asyncio
 async def test_structured_path_skips_mtp_log_parser():
-    """turn_events 有值时，MTPLogParser.parse 不被调用"""
+    """turn_events 有值时，结构化路径不依赖 assistant_message"""
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
@@ -109,11 +103,7 @@ async def test_structured_path_skips_mtp_log_parser():
         identity=_identity(),
         turn_events=[_turn_event()],
     )
-
-    with patch("hivememory.patchouli.mtp.log_parser.MTPLogParser.parse",
-               return_value=("should not be called", [])) as mock_parse:
-        await layer.route_and_ingest("NEW_TOPIC", payload)
-        mock_parse.assert_not_called()
+    await layer.route_and_ingest("NEW_TOPIC", payload)
 
 
 @pytest.mark.asyncio
@@ -188,26 +178,23 @@ async def test_structured_path_calls_reducer_when_no_mtp_traces():
 
 
 @pytest.mark.asyncio
-async def test_structured_path_defensive_fallback_when_final_text_empty():
-    """结构化路径 + assistant_final_text 为空: 防御性回退调用 MTPLogParser"""
+async def test_structured_path_empty_final_text_keeps_clean_response_empty():
+    """结构化路径 + assistant_final_text 为空: 不再回退到 parser"""
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         assistant_message="raw text",
-        assistant_final_text="",   # 空 → 触发防御性回退
+        assistant_final_text="",
         identity=_identity(),
         turn_events=[_turn_event()],
     )
 
-    with patch("hivememory.patchouli.mtp.log_parser.MTPLogParser.parse",
-               return_value=("fallback clean", [])) as mock_parse:
-        await layer.route_and_ingest("NEW_TOPIC", payload)
-        mock_parse.assert_called_once()
+    await layer.route_and_ingest("NEW_TOPIC", payload)
 
     snapshots = layer.get_active_topics_snapshots(_identity())
     buffer = layer.get_buffer(snapshots[0].topic_id)
     block = buffer.blocks[0]
-    assert block.clean_response == "fallback clean"
+    assert block.clean_response == ""
 
 
 # ============ 兼容性验证 ============

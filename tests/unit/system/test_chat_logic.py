@@ -179,7 +179,6 @@ def sys():
     _chat_async = types.MethodType(Real.chat, s)
     s.chat = lambda *args, **kwargs: asyncio.run(_chat_async(*args, **kwargs))
     s._chat_post_process = types.MethodType(Real._chat_post_process, s)
-    s._reconstruct_raw_assistant_text = Real._reconstruct_raw_assistant_text
     s._assemble_messages_from_context = types.MethodType(Real._assemble_messages_from_context, s)
 
     # Mock perception layer methods
@@ -374,7 +373,7 @@ class TestAsyncPerception:
     """异步感知投递"""
 
     def test_assistant_reply_submitted_via_payload(self, sys):
-        """chat() 结束后 assistant 回复通过 InteractionPayload 提交"""
+        """chat() 结束后 assistant 回复通过 assistant_final_text 提交"""
         sys._worker_agent.generate_async.return_value = _normal_gen("Hi there!")
 
         result = sys.chat(
@@ -383,10 +382,10 @@ class TestAsyncPerception:
             user_id="u1",
         )
 
-        # submit_interaction 被调用，payload 包含 assistant 文本
+        # submit_interaction 被调用，payload 包含结构化 assistant 最终文本
         sys.kernel.submit_interaction.assert_called_once()
         payload = sys.kernel.submit_interaction.call_args[0][0]
-        assert "Hi there!" in payload.assistant_message
+        assert payload.assistant_final_text == "Hi there!"
 
     def test_handle_hot_called_for_user_perception(self, sys):
         """handle_hot 内部负责 user 消息的异步感知投递"""
@@ -478,7 +477,7 @@ class TestInteractionPayloadSubmission:
         sys.kernel.submit_interaction.assert_called_once()
 
     def test_payload_contains_user_and_assistant(self, sys):
-        """payload 包含正确的 user_message 和 assistant_message"""
+        """payload 包含正确的 user_message 和 assistant_final_text"""
         sys._worker_agent.generate_async.return_value = _normal_gen("Reply!")
 
         sys.chat(
@@ -489,7 +488,7 @@ class TestInteractionPayloadSubmission:
 
         payload = sys.kernel.submit_interaction.call_args[0][0]
         assert payload.user_message == "hello"
-        assert "Reply!" in payload.assistant_message
+        assert payload.assistant_final_text == "Reply!"
 
     def test_payload_carries_mtp_traces(self, sys):
         """payload 携带 koakuma 的 mtp_traces"""
@@ -736,7 +735,7 @@ class TestMultiAgentScenarioB:
         reviewer_identity = Identity(user_id="u1", agent_id="reviewer_doll")
         coder_block = LogicalBlock(
             user_query="写一个 Python 冒泡排序",
-            clean_response="def bubble_sort(arr): return arr",
+            assistant_final_text="def bubble_sort(arr): return arr",
             identity=coder_identity,
         )
 

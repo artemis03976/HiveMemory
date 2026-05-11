@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import Identity, StreamMessage
+from hivememory.core.models import Identity
 
 
 # ============ 提取结果模型 ============
@@ -121,51 +121,6 @@ class MergeResult(BaseModel):
     changelog: str
 
 
-class GenerationRequest(BaseModel):
-    """
-    Generation Engine 统一输入协议
-
-    封装感知层 flush 产生的上下文消息和可选的指令聚焦内容。
-    - Mode A (被动观察): write_focus=None, update_focus=None
-    - Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
-    - Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
-
-    Phase 3 新增:
-        context: GenerationContext — 结构化生成视图（优先于 context_messages）
-        context_messages 保留为向后兼容字段。
-
-    Attributes:
-        context_messages: 兼容字段，旧路径使用的 StreamMessage 列表
-        context: Phase 3 新增，结构化生成上下文（优先消费）
-        write_focus: WRITE 指令的聚焦内容 (None 表示非 Mode B)
-        update_focus: UPDATE 指令的聚焦内容 (None 表示非 Mode C)
-    """
-    context_messages: List[StreamMessage] = Field(default_factory=list)
-    context: Optional["GenerationContext"] = Field(
-        default=None,
-        description="Phase 3: 结构化生成上下文，优先于 context_messages"
-    )
-    write_focus: Optional[WriteFocus] = None
-    update_focus: Optional[UpdateFocus] = None
-
-    @property
-    def is_focused(self) -> bool:
-        """是否为 Mode B (主动响应模式)"""
-        return self.write_focus is not None
-
-    @property
-    def is_update(self) -> bool:
-        """是否为 Mode C (合并更新模式)"""
-        return self.update_focus is not None
-
-    @property
-    def has_context(self) -> bool:
-        """是否携带结构化生成上下文"""
-        return self.context is not None and bool(self.context.turns)
-
-    model_config = {"arbitrary_types_allowed": True}
-
-
 # ============ Phase 3: 记忆生成视图数据模型 ============
 
 class GenerationTurn(BaseModel):
@@ -191,7 +146,7 @@ class GenerationContext(BaseModel):
     记忆生成视图的完整上下文
 
     以结构化方式承载一次 buffer flush 的语义内容，
-    替代 context_messages（StreamMessage 列表）作为 GenerationEngine 的主输入。
+    作为 GenerationEngine 的主输入。
 
     Attributes:
         state_summary: 话题状态摘要（page folding 后的语义快照）
@@ -199,6 +154,64 @@ class GenerationContext(BaseModel):
     """
     state_summary: str = ""
     turns: List[GenerationTurn] = Field(default_factory=list)
+
+
+class GenerationRequest(BaseModel):
+    """
+    Generation Engine 统一输入协议
+
+    封装感知层 flush 产生的结构化生成上下文和可选的指令聚焦内容。
+    - Mode A (被动观察): write_focus=None, update_focus=None
+    - Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
+    - Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
+
+    Attributes:
+        context: 结构化生成上下文
+        write_focus: WRITE 指令的聚焦内容 (None 表示非 Mode B)
+        update_focus: UPDATE 指令的聚焦内容 (None 表示非 Mode C)
+    """
+    context: GenerationContext = Field(
+        default_factory=lambda: GenerationContext(),
+        description="结构化生成上下文"
+    )
+    write_focus: Optional[WriteFocus] = None
+    update_focus: Optional[UpdateFocus] = None
+
+    @property
+    def is_write(self) -> bool:
+        """是否为 Mode B (主动响应模式)"""
+        return self.write_focus is not None
+
+    @property
+    def is_update(self) -> bool:
+        """是否为 Mode C (合并更新模式)"""
+        return self.update_focus is not None
+
+    @property
+    def has_context(self) -> bool:
+        """是否携带结构化生成上下文"""
+        return bool(self.context.turns)
+
+    @property
+    def identity(self) -> Identity:
+        """
+        获取本次 generation 请求的标准身份标识。
+
+        优先级：
+            1. write_focus.identity
+            2. update_focus.identity
+            3. context.turns[0].identity
+            4. 默认 Identity()
+        """
+        if self.write_focus is not None:
+            return self.write_focus.identity
+        if self.update_focus is not None:
+            return self.update_focus.identity
+        if self.context.turns:
+            return self.context.turns[0].identity
+        return Identity()
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 __all__ = [

@@ -20,7 +20,7 @@ import logging
 import inspect
 from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
-from hivememory.core.models import Identity, StreamMessage
+from hivememory.core.models import Identity
 from hivememory.engines.perception.models import FlushReason, InteractionPayload, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, GenerationContext
 from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
@@ -136,8 +136,7 @@ class LibrarianCore:
         感知层 Archive 回调（TriggerManager 触发）
 
         接收 TriggerManager 通过 asyncio.create_task() 调用。
-        Phase 3: 优先使用 GenerationContext（结构化生成视图），
-        兼容旧路径（context_messages）。
+        Phase 3: 使用 GenerationContext（结构化生成视图）作为 generation 主路径。
 
         根据 focus 信号选择 GenerationEngine 的处理模式:
             - Mode A (默认): 无 focus，普通记忆提取
@@ -156,8 +155,6 @@ class LibrarianCore:
                 - user_id: Optional[str] - 用户 ID
         """
         try:
-            blocks = payload.blocks
-            state_summary = payload.state_summary
             focus = payload.focus
             reason = payload.reason
 
@@ -170,7 +167,7 @@ class LibrarianCore:
                 update_focus = focus
 
             # Phase 3: 构建结构化生成上下文（主路径）
-            gen_context = self._build_generation_context(blocks, state_summary)
+            gen_context = self._build_generation_context(payload.blocks, payload.state_summary)
 
             # 只有纯 Mode A 且无上下文时才跳过；Mode B/C 允许空背景走 focus fallback
             if not gen_context.turns and write_focus is None and update_focus is None:
@@ -255,26 +252,6 @@ class LibrarianCore:
         """
         builder = GenerationTranscriptBuilder()
         return builder.build_context(blocks, state_summary=state_summary)
-
-    def _blocks_to_messages(
-        self,
-        blocks: List[Any],
-    ) -> List[StreamMessage]:
-        """
-        [兼容路径] 将 LogicalBlock 列表转换为 StreamMessage 列表
-
-        Phase 3 后此方法不再是主路径。保留用于向后兼容或降级场景。
-
-        Args:
-            blocks: LogicalBlock 列表
-
-        Returns:
-            List[StreamMessage]: 转换后的消息列表
-        """
-        messages: List[StreamMessage] = []
-        for block in blocks:
-            messages.extend(block.to_stream_messages())
-        return messages
 
     # ========== 生命周期管理 API (未来扩展) ==========
 

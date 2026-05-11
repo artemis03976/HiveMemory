@@ -597,7 +597,7 @@ class InteractionPayload(BaseModel):
 
     Attributes:
         user_message: 原始用户消息
-        assistant_message: 包含 MTP 指令的完整 assistant 文本
+        assistant_message: legacy 文本兼容字段，主要用于被动 ingest / observer buffer
         mtp_traces: 由 Koakuma 在执行过程中记录的 Trace 列表
         write_focus: WRITE 指令的核心素材 (挂载在 Payload 上，而非独立传输)
         update_focus: UPDATE 指令的修改意图
@@ -606,7 +606,10 @@ class InteractionPayload(BaseModel):
         worth_saving: Gateway 价值判断
     """
     user_message: str = Field(..., description="原始用户消息")
-    assistant_message: str = Field(..., description="包含 MTP 指令的完整 assistant 文本")
+    assistant_message: str = Field(
+        default="",
+        description="legacy 文本兼容字段，主要用于被动 ingest / observer buffer"
+    )
     mtp_traces: List[TraceItem] = Field(
         default_factory=list,
         description="由 Koakuma 在执行过程中记录的 Trace 列表"

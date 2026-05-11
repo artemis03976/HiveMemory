@@ -14,7 +14,7 @@ GenerationTranscriptBuilder / GenerationContext 单测
 import pytest
 from unittest.mock import MagicMock
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, StreamMessage, StreamMessageType
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
@@ -48,6 +48,21 @@ def _block(
 
 def _trace(action: str, **kwargs) -> TraceItem:
     return TraceItem(action=action, **kwargs)
+
+
+def _legacy_block_with_message_identities() -> LogicalBlock:
+    return LogicalBlock(
+        user_block=StreamMessage(
+            message_type=StreamMessageType.USER,
+            content="legacy user",
+            identity=Identity(user_id="legacy_u", agent_id="legacy_user_agent"),
+        ),
+        response_block=StreamMessage(
+            message_type=StreamMessageType.ASSISTANT,
+            content="legacy assistant",
+            identity=Identity(user_id="legacy_u", agent_id="legacy_agent"),
+        ),
+    )
 
 
 builder = GenerationTranscriptBuilder()
@@ -255,6 +270,63 @@ class TestGenerationRequestHasContext:
         assert req.has_context
 
 
+class TestGenerationRequestIdentity:
+    def test_identity_defaults_when_request_empty(self):
+        req = GenerationRequest()
+        assert req.identity.user_id == "default"
+        assert req.identity.agent_id == "omni_doll"
+
+    def test_identity_prefers_context_turn(self):
+        ctx = GenerationContext(turns=[
+            GenerationTurn(user_query="q", identity=_identity("context_agent"))
+        ])
+        req = GenerationRequest(context=ctx)
+        assert req.identity.agent_id == "context_agent"
+
+    def test_identity_prefers_update_over_context(self):
+        from hivememory.engines.generation.models import UpdateFocus
+        ctx = GenerationContext(turns=[
+            GenerationTurn(user_query="q", identity=_identity("context_agent"))
+        ])
+        req = GenerationRequest(
+            context=ctx,
+            update_focus=UpdateFocus(
+                instruction="update",
+                target_uuid="uuid-1",
+                target_alias="alias",
+                identity=_identity("update_agent"),
+            ),
+        )
+        assert req.identity.agent_id == "update_agent"
+
+    def test_identity_prefers_write_over_update_and_context(self):
+        from hivememory.engines.generation.models import UpdateFocus
+        ctx = GenerationContext(turns=[
+            GenerationTurn(user_query="q", identity=_identity("context_agent"))
+        ])
+        req = GenerationRequest(
+            context=ctx,
+            update_focus=UpdateFocus(
+                instruction="update",
+                target_uuid="uuid-1",
+                target_alias="alias",
+                identity=_identity("update_agent"),
+            ),
+            write_focus=WriteFocus(
+                content="write",
+                identity=_identity("write_agent"),
+            ),
+        )
+        assert req.identity.agent_id == "write_agent"
+
+
+class TestLegacyIdentityFallback:
+    def test_prefers_legacy_response_block_identity_when_block_identity_empty(self):
+        ctx = builder.build_context([_legacy_block_with_message_identities()])
+        assert len(ctx.turns) == 1
+        assert ctx.turns[0].identity.agent_id == "legacy_agent"
+
+
 # ============ 6. MemoryGenerationEngine 新路径集成测试 ============
 
 class TestEngineWithGenerationContext:
@@ -300,18 +372,13 @@ class TestEngineWithGenerationContext:
         assert result == []
         extractor.extract.assert_not_called()
 
-    def test_process_fallback_to_context_messages(self):
-        """无 context 时回退到 context_messages"""
-        from hivememory.core.models import StreamMessage, StreamMessageType
+    def test_process_without_context_and_focus_skipped(self):
+        """无上下文且无 focus 时直接跳过"""
         engine, extractor, _ = self._make_engine()
-        msgs = [StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="hello",
-            identity=_identity(),
-        )]
-        req = GenerationRequest(context_messages=msgs)
-        engine.process(req)
-        extractor.extract.assert_called_once()
+        req = GenerationRequest()
+        result = engine.process(req)
+        assert result == []
+        extractor.extract.assert_not_called()
 
     def test_process_mode_b_with_context(self):
         """Mode B (write_focus) + context 兼容"""

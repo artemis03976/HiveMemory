@@ -1,9 +1,9 @@
 """
 HistoryTranscriptBuilder 单测
 
-覆盖 Phase 2 实施方案清单 §15.7 要求的所有测试场景：
+覆盖 Phase 2 / Phase 4C 实施方案清单要求的所有测试场景：
 
-1. 无 turn_events 的旧 block → 回退到 clean_response
+1. 无 turn_events 的 block → 优先回退到 assistant_final_text
 2. 结构化重放: assistant_text + mtp_command + mtp_result + assistant_text
 3. render_as 前缀渲染:
    - system_mtp_result → "[System MTP Execution Result]\\n{content}"
@@ -11,11 +11,12 @@ HistoryTranscriptBuilder 单测
 4. 多智能体前缀:
    - 非当前 agent 的 assistant 事件带 [From: ...]
    - mtp_result 不带 [From: ...]
-5. 混合兼容: 旧 block + 新 block 混合输入时顺序正确
+5. 混合兼容: assistant_final_text block + structured block 混合输入时顺序正确
+6. 真正 legacy user_block/response_block 仍有薄兼容
 """
 
 import pytest
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, StreamMessage, StreamMessageType
 from hivememory.engines.perception.models import LogicalBlock, TurnEvent
 from hivememory.engines.perception.history_transcript_builder import HistoryTranscriptBuilder
 
@@ -26,11 +27,28 @@ def _identity(agent_id: str = "default") -> Identity:
     return Identity(user_id="u1", agent_id=agent_id)
 
 
-def _block_legacy(user_query: str, clean_response: str, agent_id: str = "default") -> LogicalBlock:
-    """旧数据 block（无 turn_events）"""
+def _block_fallback(user_query: str, assistant_final_text: str, agent_id: str = "default") -> LogicalBlock:
+    """无 turn_events 的 fallback block（Phase 4C 使用 assistant_final_text）"""
     return LogicalBlock(
         user_query=user_query,
-        clean_response=clean_response,
+        assistant_final_text=assistant_final_text,
+        identity=_identity(agent_id),
+    )
+
+
+def _block_true_legacy(user_query: str, response: str, agent_id: str = "default") -> LogicalBlock:
+    """真正 legacy block（user_block/response_block）"""
+    return LogicalBlock(
+        user_block=StreamMessage(
+            message_type=StreamMessageType.USER,
+            content=user_query,
+            identity=_identity(agent_id),
+        ),
+        response_block=StreamMessage(
+            message_type=StreamMessageType.ASSISTANT,
+            content=response,
+            identity=_identity(agent_id),
+        ),
         identity=_identity(agent_id),
     )
 
@@ -59,24 +77,32 @@ def _ev(kind: str, seq: int, role: str, content: str,
 builder = HistoryTranscriptBuilder()
 
 
-# ============ 1. 旧 block fallback ============
+# ============ 1. fallback / legacy 路径 ============
 
-class TestLegacyFallback:
-    def test_no_turn_events_uses_clean_response(self):
-        block = _block_legacy("你好", "你好，有什么可以帮你？")
+class TestFallbackPaths:
+    def test_no_turn_events_uses_assistant_final_text(self):
+        block = _block_fallback("你好", "你好，有什么可以帮你？")
         msgs = builder.build_messages([block])
         assert msgs == [
             {"role": "user", "content": "你好"},
             {"role": "assistant", "content": "你好，有什么可以帮你？"},
         ]
 
-    def test_no_turn_events_and_no_clean_response_emits_only_user(self):
+    def test_true_legacy_block_uses_response_block(self):
+        block = _block_true_legacy("legacy hi", "legacy hello")
+        msgs = builder.build_messages([block])
+        assert msgs == [
+            {"role": "user", "content": "legacy hi"},
+            {"role": "assistant", "content": "legacy hello"},
+        ]
+
+    def test_no_turn_events_and_no_assistant_text_emits_only_user(self):
         block = LogicalBlock(user_query="hello", identity=_identity())
         msgs = builder.build_messages([block])
         assert msgs == [{"role": "user", "content": "hello"}]
 
     def test_empty_user_query_skipped(self):
-        block = LogicalBlock(user_query="", clean_response="hi", identity=_identity())
+        block = LogicalBlock(user_query="", assistant_final_text="hi", identity=_identity())
         msgs = builder.build_messages([block])
         # user_query 为空，不应产生 user 消息
         assert not any(m["role"] == "user" for m in msgs)
@@ -86,8 +112,8 @@ class TestLegacyFallback:
 
     def test_multiple_legacy_blocks_order(self):
         blocks = [
-            _block_legacy("问题1", "答案1"),
-            _block_legacy("问题2", "答案2"),
+            _block_fallback("问题1", "答案1"),
+            _block_fallback("问题2", "答案2"),
         ]
         msgs = builder.build_messages(blocks)
         assert [m["content"] for m in msgs] == ["问题1", "答案1", "问题2", "答案2"]
@@ -141,11 +167,11 @@ class TestStructuredReplay:
         contents = [m["content"] for m in msgs[1:]]  # 跳过 user
         assert contents == ["第一", "中间", "最后"]
 
-    def test_turn_events_takes_priority_over_clean_response(self):
-        """有 turn_events 时不走 clean_response"""
+    def test_turn_events_takes_priority_over_assistant_final_text(self):
+        """有 turn_events 时不走 assistant_final_text fallback"""
         block = LogicalBlock(
             user_query="测试",
-            clean_response="旧回复（不应出现）",
+            assistant_final_text="旧回复（不应出现）",
             turn_events=[_ev("assistant_text", 0, "assistant", "新事件回复")],
             identity=_identity(),
         )
@@ -239,8 +265,14 @@ class TestAgentPrefix:
         assert msgs[1]["content"] == "omni_doll 回复"
 
     def test_legacy_block_different_agent(self):
-        """旧 block（无 turn_events）的 clean_response 也应加前缀"""
-        block = _block_legacy("q", "旧回复", agent_id="coder_doll")
+        """无 turn_events 的 fallback block 也应加前缀"""
+        block = _block_fallback("q", "旧回复", agent_id="coder_doll")
+        msgs = builder.build_messages([block], current_agent_id="omni_doll")
+        assert msgs[1]["content"] == "[From: coder_doll]\n旧回复"
+
+    def test_true_legacy_block_different_agent(self):
+        """真正 legacy block 也应加前缀"""
+        block = _block_true_legacy("q", "旧回复", agent_id="coder_doll")
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         assert msgs[1]["content"] == "[From: coder_doll]\n旧回复"
 
@@ -249,8 +281,8 @@ class TestAgentPrefix:
 
 class TestMixedBlocks:
     def test_old_block_then_new_block(self):
-        """旧 block + 新 block 顺序正确"""
-        old_block = _block_legacy("旧问题", "旧答案")
+        """fallback block + 新 block 顺序正确"""
+        old_block = _block_fallback("旧问题", "旧答案")
         new_events = [
             _ev("assistant_text", 0, "assistant", "新回复（前缀）"),
             _ev("mtp_command", 1, "assistant", "⟪ READ | x ⟫"),
@@ -306,7 +338,7 @@ class TestContextConverterDelegation:
 
     def test_delegation_produces_same_result(self):
         from hivememory.engines.perception.context_converter import PerceptionContextConverter
-        blocks = [_block_legacy("hi", "hello")]
+        blocks = [_block_fallback("hi", "hello")]
         direct = builder.build_messages(blocks)
         via_converter = PerceptionContextConverter.blocks_to_messages(blocks)
         assert direct == via_converter

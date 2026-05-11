@@ -153,7 +153,7 @@ class TestLibrarianCoreGenerateMemory:
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
         assert isinstance(request, GenerationRequest)
-        # Phase 3: context 是主字段，context_messages 不再填充
+        # Phase 4A: context 是 generation 唯一主字段
         assert request.context is not None
         assert isinstance(request.context, GenerationContext)
         assert len(request.context.turns) == 2

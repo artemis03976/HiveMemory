@@ -720,40 +720,6 @@ class PatchouliSystem:
             current_agent_id=current_agent_id,
         )
 
-    # [Phase 1 兼容路径] 此方法已降级为兼容层，不再是感知层主入口依赖。
-    # 感知层现优先消费 InteractionPayload.assistant_final_text + turn_events。
-    # 此方法保留用于 assistant_message 字段（调试/历史兼容），长期将移除。
-    @staticmethod
-    def _reconstruct_raw_assistant_text(
-        messages: List[Dict[str, str]],
-        loop_result: ChatResult,
-    ) -> str:
-        """
-        从 messages 历史中重建完整的 assistant 文本 (含 MTP 噪音)
-
-        递归循环中每次 MTP 中断都会追加一条 fake assistant message 到 messages，
-        包含 MTP 指令 + XML 响应。最终的 final_text 是纯净文本。
-        此方法将所有 assistant 片段拼接为完整的原始文本。
-
-        Args:
-            messages: 递归循环结束后的完整消息列表
-            loop_result: 循环结果
-
-        Returns:
-            str: 包含 MTP 指令和 XML 响应的完整原始 assistant 文本
-        """
-        # 收集循环中追加的所有 assistant messages
-        assistant_parts = []
-        for msg in messages:
-            if msg.get("role") == "assistant":
-                assistant_parts.append(msg["content"])
-
-        if assistant_parts:
-            return "\n".join(assistant_parts)
-
-        # Fallback: 如果没有 assistant messages (不应发生)，使用 final_text
-        return loop_result.final_text
-
     async def _chat_post_process(
         self,
         messages: List[Dict[str, str]],
@@ -783,8 +749,6 @@ class PatchouliSystem:
         Returns:
             None: 无返回值
         """
-        raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
-
         try:
             mtp_traces = self.kernel.koakuma.get_interaction_traces()
             write_focus = self.kernel.koakuma.get_write_focus()
@@ -797,7 +761,6 @@ class PatchouliSystem:
 
         payload = InteractionPayload(
             user_message=user_message,
-            assistant_message=raw_assistant_text,
             mtp_traces=mtp_traces,
             write_focus=write_focus,
             update_focus=update_focus,

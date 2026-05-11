@@ -268,7 +268,7 @@ class GenerationRequest(BaseModel):
     update_focus: Optional[UpdateFocus]    # Mode C: UPDATE 指令聚焦内容
 
     @property
-    def is_focused(self) -> bool: ...  # 是否为 Mode B
+    def is_write(self) -> bool: ...  # 是否为 Mode B
     @property
     def is_update(self) -> bool: ...   # 是否为 Mode C
 ```

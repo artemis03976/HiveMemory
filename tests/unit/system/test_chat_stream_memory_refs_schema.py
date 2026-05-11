@@ -94,7 +94,6 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     system._assemble_messages_from_context = types.MethodType(
         PatchouliSystem._assemble_messages_from_context, system
     )
-    system._reconstruct_raw_assistant_text = PatchouliSystem._reconstruct_raw_assistant_text
     system.chat_stream = types.MethodType(PatchouliSystem.chat_stream, system)
 
     async def _collect():
@@ -183,7 +182,6 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
     system._assemble_messages_from_context = types.MethodType(
         PatchouliSystem._assemble_messages_from_context, system
     )
-    system._reconstruct_raw_assistant_text = PatchouliSystem._reconstruct_raw_assistant_text
     system.chat_stream = types.MethodType(PatchouliSystem.chat_stream, system)
 
     async def _collect():
