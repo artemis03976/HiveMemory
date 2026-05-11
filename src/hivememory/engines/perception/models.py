@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -130,6 +130,42 @@ class TraceItem(BaseModel):
     query: Optional[str] = Field(default=None, description="SEARCH 查询文本")
     tool: Optional[str] = Field(default=None, description="RUN 工具名称")
     status: Optional[str] = Field(default=None, description="RUN 执行状态")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+# ============ 结构化轮次事件 (Phase 1 新增) ============
+
+class TurnEvent(BaseModel):
+    """
+    单次 LLM 生成轮次的结构化记录
+
+    由 LoopExecutor 在每次循环迭代中实时收集，
+    作为 MTPLogParser 文本解析的结构化替代来源。
+
+    kind 分类:
+        assistant_text  — 自然语言段落（不含 MTP 指令）
+        mtp_command     — LLM 发出的 MTP 指令原文（含定界符）
+        mtp_result      — 内核回填的执行结果（[System MTP Execution Result] 消息）
+
+    Attributes:
+        kind: 事件类型
+        sequence: 从 0 开始的全局序号（用于排序与调试）
+        role: 产出此事件的角色（assistant / user）
+        content: 事件内容文本
+        verb: MTP 动词（仅 kind=mtp_command/mtp_result 时有值）
+        target: MTP 目标（仅 kind=mtp_command 时有值）
+        status: 执行状态（常见于 mtp_command/mtp_result，对齐 MTPResponseStatus）
+        render_as: 历史重放时的轻量渲染提示
+    """
+    kind: Literal["assistant_text", "mtp_command", "mtp_result"]
+    sequence: int
+    role: Literal["assistant", "user"]
+    content: str
+    verb: Optional[str] = None
+    target: Optional[str] = None
+    status: Optional[str] = None
+    render_as: Literal["plain", "system_mtp_result", "system_ipc_return"] = "plain"
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -270,6 +306,18 @@ class LogicalBlock(BaseModel):
     raw_response: str = Field(
         default="",
         description="包含 MTP 噪音的完整原始 assistant 文本"
+    )
+
+    #: LoopExecutor 产出的最终自然语言回复
+    assistant_final_text: str = Field(
+        default="",
+        description="LoopExecutor 产出的最终自然语言回复"
+    )
+
+    #: LoopExecutor 收集的结构化轮次事件
+    turn_events: List[TurnEvent] = Field(
+        default_factory=list,
+        description="LoopExecutor 收集的结构化轮次事件"
     )
 
     #: 去除 MTP 噪音后的纯净回复 (用户可见版本)
@@ -586,6 +634,18 @@ class InteractionPayload(BaseModel):
         description="Gateway 价值判断"
     )
 
+    # ========== Phase 1: 结构化轮次事件 ==========
+    #: LoopExecutor 最终自然语言回复（等价于 loop_result.final_text）
+    assistant_final_text: Optional[str] = Field(
+        default=None,
+        description="去除 MTP 噪音后的最终自然语言回复（loop_result.final_text 直传）"
+    )
+    #: LoopExecutor 收集的结构化轮次事件列表
+    turn_events: List[TurnEvent] = Field(
+        default_factory=list,
+        description="LoopExecutor 收集的结构化轮次事件列表，有值时感知层优先走结构化路径"
+    )
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -628,6 +688,7 @@ __all__ = [
     "FlushReason",
     "BufferState",
     "FlushEvent",
+    "TurnEvent",
     "TraceItem",
     "Triplet",
     "LogicalBlock",

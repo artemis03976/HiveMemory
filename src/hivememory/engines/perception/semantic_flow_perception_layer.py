@@ -171,12 +171,40 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             topic_id: 目标话题 ID
         """
         from hivememory.patchouli.mtp.log_parser import MTPLogParser
+        from hivememory.patchouli.mtp.trace_reducer import MTPTraceReducer
 
-        # 1. 清洗 MTP 噪音
-        clean_text, fallback_traces = MTPLogParser.parse(payload.assistant_message)
+        # =========================================================
+        # Phase 1 双路径: 结构化优先 → MTPLogParser 降级
+        # =========================================================
+        has_structured = bool(payload.turn_events)
 
-        # 优先使用 Kernel 传入的 traces，回退到 parser 解析的
-        traces = payload.mtp_traces if payload.mtp_traces else fallback_traces
+        if has_structured:
+            # 结构化路径: 直接使用 LoopExecutor 收集的轮次事件
+            clean_text = payload.assistant_final_text or ""
+            if not clean_text:
+                # 防御性回退：若 final_text 未填充则用 parser
+                clean_text, _ = MTPLogParser.parse(payload.assistant_message)
+
+            # Traces 优先级: Koakuma 透传 > TurnEvent 结构化提取
+            if payload.mtp_traces:
+                traces = payload.mtp_traces
+            else:
+                traces = MTPTraceReducer.reduce(payload.turn_events)
+
+            logger.debug(
+                "ingest_payload: 结构化路径, "
+                f"turn_events={len(payload.turn_events)}, traces={len(traces)}"
+            )
+        else:
+            # 降级路径: MTPLogParser 文本解析（Phase 1 之前的全量行为）
+            clean_text, fallback_traces = MTPLogParser.parse(payload.assistant_message)
+            traces = payload.mtp_traces if payload.mtp_traces else fallback_traces
+
+            logger.debug(
+                "ingest_payload: fallback 路径 (MTPLogParser), "
+                f"mtp_traces={len(payload.mtp_traces)}"
+            )
+        # =========================================================
 
         # 2. 构建 LogicalBlock (v3.0 字段)
         block = LogicalBlock(
@@ -184,6 +212,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             rewritten_query=payload.rewritten_query,
             semantic_traces=traces,
             raw_response=payload.assistant_message,
+            assistant_final_text=payload.assistant_final_text or clean_text,
+            turn_events=payload.turn_events,
             clean_response=clean_text,
             worth_saving=payload.worth_saving,
             write_focus=payload.write_focus,

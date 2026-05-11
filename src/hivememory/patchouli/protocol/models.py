@@ -254,3 +254,5 @@ class ChatResult(BaseModel):
     mtp_iterations: int = Field(default=0, description="MTP 中断次数")
     total_iterations: int = Field(default=1, description="总生成轮次")
     mtp_commands_executed: List[str] = Field(default_factory=list, description="执行过的 MTP 指令摘要")
+    # LoopExecutor 收集的结构化轮次事件（序列化为 dict 避免循环导入）
+    turn_events: List[Any] = Field(default_factory=list, description="LoopExecutor 收集的 TurnEvent 列表")

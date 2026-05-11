@@ -720,7 +720,9 @@ class PatchouliSystem:
             current_agent_id=current_agent_id,
         )
 
-    # TODO: 检查此逻辑在MTP指令结果通过 role=user 返回的重构后是否需要调整
+    # [Phase 1 兼容路径] 此方法已降级为兼容层，不再是感知层主入口依赖。
+    # 感知层现优先消费 InteractionPayload.assistant_final_text + turn_events。
+    # 此方法保留用于 assistant_message 字段（调试/历史兼容），长期将移除。
     @staticmethod
     def _reconstruct_raw_assistant_text(
         messages: List[Dict[str, str]],
@@ -802,6 +804,8 @@ class PatchouliSystem:
             identity=identity,
             rewritten_query=hot_result.rewritten,
             worth_saving=hot_result.worth_saving,
+            assistant_final_text=loop_result.final_text,
+            turn_events=loop_result.turn_events,
         )
 
         await self.kernel.submit_interaction(payload, target_topic=topic_id)

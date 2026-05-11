@@ -8,11 +8,14 @@ HiveMemory 感知层上下文转换器
     - 将 TopicSnapshot 列表转换为文本格式供 TheEye 使用
 
 作者: HiveMemory Team
-版本: 1.0.0
+版本: 2.0.0 (Phase 2: 历史视图委托 HistoryTranscriptBuilder)
 """
 
 from typing import List, Dict
 from hivememory.engines.perception.models import LogicalBlock, TopicSnapshot
+from hivememory.engines.perception.history_transcript_builder import HistoryTranscriptBuilder
+
+_builder = HistoryTranscriptBuilder()
 
 
 class PerceptionContextConverter:
@@ -28,42 +31,25 @@ class PerceptionContextConverter:
         """
         将 LogicalBlock 列表转换为 OpenAI messages 格式
 
+        Phase 2 重构：委托 HistoryTranscriptBuilder 处理历史消息视图。
+        - 若 block 有 turn_events，按事件流重放（保留 MTP 指令与结果）
+        - 若 block 无 turn_events，回退到 clean_response（兼容旧数据）
+
         多角色历史渲染 (Phase 1):
         当 block.identity.agent_id 与 current_agent_id 不同时，
         在 assistant 消息头部追加身份标识前缀，防止"认领幻觉"。
 
         Args:
             blocks: LogicalBlock 列表
-            include_state_summary: 是否在开头包含状态摘要（已废弃，保留用于兼容）
-            state_summary: 话题状态摘要（已废弃，保留用于兼容）
+            include_state_summary: 已废弃，保留用于兼容
+            state_summary: 已废弃，保留用于兼容
             current_agent_id: 当前活跃的 Agent 别名，用于多角色渲染
 
         Returns:
             List[Dict]: OpenAI 格式的 messages
                 [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]
         """
-        messages = []
-
-        # 转换每个 block
-        for block in blocks:
-            messages.append({
-                "role": "user",
-                "content": block.user_query
-            })
-
-            # 多角色历史渲染：非当前 Agent 的发言追加身份前缀
-            content = block.clean_response
-            if (block.identity.agent_id
-                    and block.identity.agent_id not in ("default", "omni_doll")
-                    and block.identity.agent_id != current_agent_id):
-                content = f"[From: {block.identity.agent_id}]\n{content}"
-
-            messages.append({
-                "role": "assistant",
-                "content": content
-            })
-
-        return messages
+        return _builder.build_messages(blocks, current_agent_id=current_agent_id)
 
     @staticmethod
     def snapshots_to_context_text(
