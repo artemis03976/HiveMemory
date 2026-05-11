@@ -22,7 +22,8 @@ from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.engines.perception.models import FlushReason, InteractionPayload, ArchivePayload
-from hivememory.engines.generation.models import GenerationRequest
+from hivememory.engines.generation.models import GenerationRequest, GenerationContext
+from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
 if TYPE_CHECKING:
@@ -135,7 +136,9 @@ class LibrarianCore:
         感知层 Archive 回调（TriggerManager 触发）
 
         接收 TriggerManager 通过 asyncio.create_task() 调用。
-        Payload 包含从 buffer flush 出的 blocks，转换为 StreamMessage 后
+        Phase 3: 优先使用 GenerationContext（结构化生成视图），
+        兼容旧路径（context_messages）。
+
         根据 focus 信号选择 GenerationEngine 的处理模式:
             - Mode A (默认): 无 focus，普通记忆提取
             - Mode B (WRITE): 携带 write_focus，定向记忆生成
@@ -158,12 +161,6 @@ class LibrarianCore:
             focus = payload.focus
             reason = payload.reason
 
-            messages = self._blocks_to_messages(blocks)
-
-            if not messages:
-                logger.warning("空消息列表，跳过处理")
-                return
-
             # 提取 write_focus / update_focus
             write_focus = None
             update_focus = None
@@ -172,21 +169,29 @@ class LibrarianCore:
             elif reason == FlushReason.MTP_UPDATE:
                 update_focus = focus
 
+            # Phase 3: 构建结构化生成上下文（主路径）
+            gen_context = self._build_generation_context(blocks, state_summary)
+
+            # 只有纯 Mode A 且无上下文时才跳过；Mode B/C 允许空背景走 focus fallback
+            if not gen_context.turns and write_focus is None and update_focus is None:
+                logger.warning("空对话轮次，跳过处理")
+                return
+
             # 根据 focus 信号构建对应模式的 GenerationRequest
             if reason == FlushReason.MTP_WRITE and write_focus is not None:
                 logger.info(
                     f"LibrarianCore 处理 MTP_WRITE flush: "
-                    f"{len(messages)} 条上下文消息"
+                    f"{len(gen_context.turns)} 轮对话上下文"
                 )
                 request = GenerationRequest(
-                    context_messages=messages,
+                    context=gen_context,
                     write_focus=write_focus,
                 )
             elif reason == FlushReason.MTP_UPDATE and update_focus is not None:
                 logger.info(
                     f"LibrarianCore 处理 MTP_UPDATE flush: "
                     f"alias='{update_focus.target_alias}', "
-                    f"{len(messages)} 条上下文消息"
+                    f"{len(gen_context.turns)} 轮对话上下文"
                 )
                 # 加载目标记忆
                 from uuid import UUID as _UUID
@@ -203,15 +208,15 @@ class LibrarianCore:
                     return
                 update_focus.existing_memory = existing
                 request = GenerationRequest(
-                    context_messages=messages,
+                    context=gen_context,
                     update_focus=update_focus,
                 )
             else:
                 # Mode A: 普通记忆提取
                 logger.info(
-                    f"LibrarianCore 开始处理 {len(messages)} 条消息..."
+                    f"LibrarianCore 开始处理 {len(gen_context.turns)} 轮对话..."
                 )
-                request = GenerationRequest(context_messages=messages)
+                request = GenerationRequest(context=gen_context)
 
             # 直接调用生成引擎
             if self.generation_engine:
@@ -233,14 +238,32 @@ class LibrarianCore:
         except Exception as e:
             logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
 
+    def _build_generation_context(
+        self,
+        blocks: List[Any],
+        state_summary: str = "",
+    ) -> "GenerationContext":
+        """
+        Phase 3 主路径: 构建结构化记忆生成上下文。
+
+        Args:
+            blocks: LogicalBlock 列表
+            state_summary: 话题状态摘要
+
+        Returns:
+            GenerationContext: 结构化生成视图
+        """
+        builder = GenerationTranscriptBuilder()
+        return builder.build_context(blocks, state_summary=state_summary)
+
     def _blocks_to_messages(
         self,
         blocks: List[Any],
     ) -> List[StreamMessage]:
         """
-        将 LogicalBlock 列表转换为 StreamMessage 列表
+        [兼容路径] 将 LogicalBlock 列表转换为 StreamMessage 列表
 
-        每个 block 自行携带 identity，直接调用 block.to_stream_messages()。
+        Phase 3 后此方法不再是主路径。保留用于向后兼容或降级场景。
 
         Args:
             blocks: LogicalBlock 列表

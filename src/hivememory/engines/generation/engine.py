@@ -21,7 +21,8 @@ from datetime import datetime
 
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, StreamMessage, Identity
-from hivememory.engines.generation.models import ExtractedMemoryDraft, GenerationRequest, WriteFocus, UpdateFocus, MergeResult
+from hivememory.engines.generation.models import ExtractedMemoryDraft, GenerationRequest, GenerationContext, WriteFocus, UpdateFocus, MergeResult
+from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
 from hivememory.engines.generation.interfaces import (
     BaseMemoryExtractor,
     BaseDeduplicator,
@@ -93,7 +94,7 @@ class MemoryGenerationEngine:
         Returns:
             List[MemoryAtom]: 提取的记忆原子列表
         """
-        if not request.context_messages and not request.is_focused and not request.is_update:
+        if not request.context_messages and not request.has_context and not request.is_focused and not request.is_update:
             logger.debug("空消息列表且无 write_focus/update_focus，跳过处理")
             return []
 
@@ -110,17 +111,17 @@ class MemoryGenerationEngine:
         Mode A: 被动观察模式 (默认)
 
         从对话中被动提取有价值的记忆。
+        Phase 3: 优先使用 GenerationContext，fallback 到 context_messages。
         """
-        messages = request.context_messages
-        if not messages:
+        identity = self._extract_identity(request)
+
+        logger.info(f"[Mode A] 开始处理...")
+
+        # Step 1: 渲染 transcript（Phase 3 优先路径）
+        transcript = self._render_transcript(request)
+        if not transcript:
             return []
 
-        identity = messages[0].identity
-
-        logger.info(f"[Mode A] 开始处理 {len(messages)} 条消息...")
-
-        # Step 1: LLM 提取
-        transcript = self._format_transcript(messages)
         draft = self.extractor.extract(
             transcript=transcript,
             metadata={}
@@ -139,14 +140,15 @@ class MemoryGenerationEngine:
 
         Agent 明确要求保存，以 WriteFocus 为核心，对话历史为背景。
         包含 fallback 机制：LLM 提取失败时直接从 WriteFocus 构建草稿。
+        Phase 3: 优先使用 GenerationContext 作为背景对话。
         """
         focus = request.write_focus
         identity = focus.identity
 
         logger.info(f"[Mode B] WRITE 主动响应: content='{focus.content[:50]}...'")
 
-        # 格式化背景对话
-        transcript = self._format_transcript(request.context_messages) if request.context_messages else "(无背景对话)"
+        # 格式化背景对话（Phase 3 优先路径）
+        transcript = self._render_transcript(request) or "(无背景对话)"
 
         # Step 1: LLM 提取 (Mode B prompt)
         draft = self.extractor.extract(
@@ -207,8 +209,8 @@ class MemoryGenerationEngine:
             f"instruction='{uf.instruction[:50]}...'"
         )
 
-        # 格式化对话上下文
-        transcript = self._format_transcript(request.context_messages) if request.context_messages else "(无背景对话)"
+        # 格式化对话上下文（Phase 3 优先路径）
+        transcript = self._render_transcript(request) or "(无背景对话)"
 
         # Step 1: 调用 extractor.merge() (Mode C Merge Prompt)
         merge_result = self.extractor.merge(
@@ -336,9 +338,50 @@ class MemoryGenerationEngine:
             logger.info("低质量重复，丢弃")
             return []
 
+    def _render_transcript(self, request: GenerationRequest) -> str:
+        """
+        Phase 3 统一 transcript 渲染入口。
+
+        优先路径: request.context（GenerationContext）→ _format_generation_context()
+        兼容路径: request.context_messages → _format_transcript()
+
+        Returns:
+            str: 渲染后的 transcript 文本，无有效内容时返回 ""
+        """
+        if request.has_context:
+            return self._format_generation_context(request.context)
+        if request.context_messages:
+            return self._format_transcript(request.context_messages)
+        return ""
+
+    def _format_generation_context(self, context: GenerationContext) -> str:
+        """
+        将 GenerationContext 渲染为 transcript 文本。
+
+        委托给 GenerationTranscriptBuilder，保持单一职责。
+        """
+        builder = GenerationTranscriptBuilder()
+        return builder.build_transcript(context)
+
+    def _extract_identity(self, request: GenerationRequest) -> "Identity":
+        """
+        从 request 中提取用于持久化的 identity。
+
+        优先级: context.turns[0].identity > context_messages[0].identity > 默认值
+        """
+        from hivememory.core.models import Identity as _Identity
+        if request.has_context and request.context.turns:
+            return request.context.turns[0].identity
+        if request.context_messages:
+            return request.context_messages[0].identity
+        return _Identity()
+
     def _format_transcript(self, messages: List[StreamMessage]) -> str:
         """
-        格式化对话为文本
+        [兼容路径] 格式化对话为文本
+
+        Phase 3 后主路径改为 _format_generation_context()。
+        保留用于 context_messages fallback 场景。
 
         Args:
             messages: 对话消息列表

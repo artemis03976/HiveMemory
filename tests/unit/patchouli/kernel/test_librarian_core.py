@@ -137,7 +137,8 @@ class TestLibrarianCoreGenerateMemory:
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_a_default(self):
-        """普通 flush，构建 GenerationRequest(context_messages=msgs)"""
+        """普通 flush，Phase 3: 构建 GenerationRequest(context=GenerationContext)"""
+        from hivememory.engines.generation.models import GenerationContext
         blocks = _make_logical_blocks(2)
         payload = ArchivePayload(
             topic_id="topic_test",
@@ -152,8 +153,11 @@ class TestLibrarianCoreGenerateMemory:
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
         assert isinstance(request, GenerationRequest)
-        # 每个 LogicalBlock 有 user_block 和 response_block
-        assert len(request.context_messages) == 4
+        # Phase 3: context 是主字段，context_messages 不再填充
+        assert request.context is not None
+        assert isinstance(request.context, GenerationContext)
+        assert len(request.context.turns) == 2
+        assert request.context.state_summary == "测试摘要"
         assert request.write_focus is None
         assert request.update_focus is None
 
@@ -174,6 +178,27 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
+        assert request.write_focus is write_focus
+        assert request.update_focus is None
+
+    @pytest.mark.asyncio
+    async def test_generate_memory_mode_b_write_without_context_still_runs(self):
+        """MTP_WRITE 不应依赖上下文轮次，空背景也应进入 generation fallback"""
+        write_focus = WriteFocus(content="测试写入内容")
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=[],
+            state_summary="",
+            focus=write_focus,
+            reason=FlushReason.MTP_WRITE,
+        )
+
+        await self.core._on_generate_memory(payload)
+
+        self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
+        assert request.context is not None
+        assert request.context.turns == []
         assert request.write_focus is write_focus
         assert request.update_focus is None
 
@@ -205,6 +230,34 @@ class TestLibrarianCoreGenerateMemory:
 
         assert update_focus.existing_memory is existing_memory
         self.mock_generation.process.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_memory_mode_c_update_without_context_still_runs(self):
+        """MTP_UPDATE 不应依赖上下文轮次，空背景也应进入 generation fallback"""
+        update_focus = UpdateFocus(
+            instruction="更新测试",
+            target_uuid=str(uuid4()),
+            target_alias="fact_test",
+            identity=_make_identity(),
+        )
+        existing_memory = Mock()
+        self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=[],
+            state_summary="",
+            focus=update_focus,
+            reason=FlushReason.MTP_UPDATE,
+        )
+
+        await self.core._on_generate_memory(payload)
+
+        self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
+        assert request.context is not None
+        assert request.context.turns == []
+        assert request.update_focus is update_focus
+        assert update_focus.existing_memory is existing_memory
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_c_update_memory_not_found(self):
@@ -251,7 +304,7 @@ class TestLibrarianCoreGenerateMemory:
 
     @pytest.mark.asyncio
     async def test_generate_memory_blocks_with_only_user(self):
-        """只有 user_block 的 blocks"""
+        """只有 user_block 的 blocks，Phase 3: 产出 1 个 turn（user_query 非空）"""
         identity = _make_identity()
         block = LogicalBlock(
             user_block=StreamMessage(
@@ -273,7 +326,9 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
-        assert len(request.context_messages) == 1
+        # Phase 3: context 字段包含 1 个 turn（有 user_query，被保留）
+        assert request.context is not None
+        assert len(request.context.turns) == 1
 
     @pytest.mark.asyncio
     async def test_generate_memory_generation_exception(self):
@@ -367,7 +422,9 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
-        assert len(request.context_messages) == 4
+        # Phase 3: context 是主字段
+        assert request.context is not None
+        assert len(request.context.turns) == 2
 
     @pytest.mark.asyncio
     async def test_generate_memory_kernel_blocks_with_payload_identity(self):
@@ -386,4 +443,6 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
-        assert len(request.context_messages) == 4
+        # Phase 3: context 是主字段
+        assert request.context is not None
+        assert len(request.context.turns) == 2

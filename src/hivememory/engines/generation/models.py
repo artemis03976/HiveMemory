@@ -130,12 +130,21 @@ class GenerationRequest(BaseModel):
     - Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
     - Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
 
+    Phase 3 新增:
+        context: GenerationContext — 结构化生成视图（优先于 context_messages）
+        context_messages 保留为向后兼容字段。
+
     Attributes:
-        context_messages: 感知层 buffer flush 产生的上下文消息
+        context_messages: 兼容字段，旧路径使用的 StreamMessage 列表
+        context: Phase 3 新增，结构化生成上下文（优先消费）
         write_focus: WRITE 指令的聚焦内容 (None 表示非 Mode B)
         update_focus: UPDATE 指令的聚焦内容 (None 表示非 Mode C)
     """
     context_messages: List[StreamMessage] = Field(default_factory=list)
+    context: Optional["GenerationContext"] = Field(
+        default=None,
+        description="Phase 3: 结构化生成上下文，优先于 context_messages"
+    )
     write_focus: Optional[WriteFocus] = None
     update_focus: Optional[UpdateFocus] = None
 
@@ -149,7 +158,47 @@ class GenerationRequest(BaseModel):
         """是否为 Mode C (合并更新模式)"""
         return self.update_focus is not None
 
+    @property
+    def has_context(self) -> bool:
+        """是否携带结构化生成上下文"""
+        return self.context is not None and bool(self.context.turns)
+
     model_config = {"arbitrary_types_allowed": True}
+
+
+# ============ Phase 3: 记忆生成视图数据模型 ============
+
+class GenerationTurn(BaseModel):
+    """
+    记忆生成视图中的单轮对话记录
+
+    保留语义摘要，丢弃 MTP 执行细节，供 GenerationEngine 提取记忆使用。
+
+    Attributes:
+        user_query: 用户的原始问题
+        assistant_final_text: Agent 最终自然语言回复（已去除 MTP 噪音）
+        trace_summaries: 本轮动作摘要（如 SEARCH: "..." / READ: alias_x）
+        identity: 产出此轮的身份标识
+    """
+    user_query: str
+    assistant_final_text: str = ""
+    trace_summaries: List[str] = Field(default_factory=list)
+    identity: Identity = Field(default_factory=Identity)
+
+
+class GenerationContext(BaseModel):
+    """
+    记忆生成视图的完整上下文
+
+    以结构化方式承载一次 buffer flush 的语义内容，
+    替代 context_messages（StreamMessage 列表）作为 GenerationEngine 的主输入。
+
+    Attributes:
+        state_summary: 话题状态摘要（page folding 后的语义快照）
+        turns: 本次 flush 包含的对话轮次列表
+    """
+    state_summary: str = ""
+    turns: List[GenerationTurn] = Field(default_factory=list)
 
 
 __all__ = [
@@ -159,4 +208,6 @@ __all__ = [
     "UpdateFocus",
     "MergeResult",
     "GenerationRequest",
+    "GenerationTurn",
+    "GenerationContext",
 ]

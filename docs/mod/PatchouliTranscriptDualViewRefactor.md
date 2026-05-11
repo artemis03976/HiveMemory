@@ -1492,7 +1492,463 @@ Phase 2 完成后，系统会进入一个更清晰的中间态：
 
 ---
 
-## 16. 总结
+## 16. Phase 3 实施方案清单
+
+Phase 3 的目标是**正式落地记忆生成视图**，让 generation 链路不再复用历史消息视图，也不再依赖 `LogicalBlock.to_stream_messages()` 这种面向 user/assistant 二元投影的旧接口。
+
+在当前代码状态下，Phase 2 已完成：
+
+- `HistoryTranscriptBuilder` 已接管历史消息主路径
+- `PerceptionContextConverter.blocks_to_messages()` 已基于 `turn_events` 构建历史视图
+- `LogicalBlock` 已保存：
+  - `assistant_final_text`
+  - `turn_events`
+  - `semantic_traces`
+  - `state_summary` 仍在 `ArchivePayload` 层
+
+但 generation 链路当前仍然是：
+
+```text
+LibrarianCore._on_generate_memory()
+    -> _blocks_to_messages()
+    -> block.to_stream_messages()
+    -> GenerationRequest(context_messages)
+    -> MemoryGenerationEngine._format_transcript(messages)
+```
+
+这会继续丢掉：
+
+- `state_summary`
+- `semantic_traces`
+- `assistant_final_text` 与历史视图的语义区分
+- generation 视图与历史视图的边界
+
+因此，Phase 3 的核心目标是：
+
+- 新增 `GenerationTranscriptBuilder`
+- 将 generation 输入从 `context_messages` 升级为 generation 专用 context
+- 把 `state_summary + semantic_traces + assistant_final_text` 正式接入 generation 主路径
+- 保持 Mode A / B / C 的行为兼容
+
+### 16.1 Phase 3 范围
+
+#### In Scope
+
+- 新增 `GenerationTranscriptBuilder`
+- 新增 generation 专用 context 模型
+- 改造 `LibrarianCore._on_generate_memory()`
+- 改造 `GenerationRequest`
+- 改造 `MemoryGenerationEngine` 的 transcript 构建入口
+- 保持 `write_focus` / `update_focus` 三模式语义不变
+
+#### Out of Scope
+
+- 删除 `LogicalBlock.to_stream_messages()`
+- `LogicalBlock.turn = TurnRecord` 的模型收敛
+- Phase 4 的兼容字段清理
+- 重写 extractor / deduplicator 的业务逻辑
+
+### 16.2 当前 generation 链路的主要问题
+
+根据当前实现：
+
+- [`librarian_core.py`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/kernel/librarian_core.py#L161-L214) 仍通过 `_blocks_to_messages()` 产出 `List[StreamMessage]`
+- [`_blocks_to_messages()`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/kernel/librarian_core.py#L236-L254) 直接调用 `block.to_stream_messages()`
+- [`LogicalBlock.to_stream_messages()`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/engines/perception/models.py#L387-L455) 在 Kernel 模式下仍只输出 `user_query + clean_response`
+- [`GenerationRequest`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/engines/generation/models.py#L124-L152) 当前只接收 `context_messages`
+- [`MemoryGenerationEngine._format_transcript()`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/engines/generation/engine.py#L339-L365) 也只把 `StreamMessage` 扁平化成 transcript
+
+这意味着当前 generation 仍看不到：
+
+- 话题 `state_summary`
+- `semantic_traces`
+- `assistant_final_text` 作为 generation 专用响应字段
+
+### 16.3 Phase 3 的设计目标
+
+Phase 3 的设计目标不是把历史视图再包装一层，而是提供**generation 专用的去噪语义上下文**。
+
+generation 视图应满足：
+
+- 保留：
+  - `state_summary`
+  - `user_query`
+  - `semantic_traces`
+  - `assistant_final_text`
+- 丢弃：
+  - `mtp_result` 全量正文
+  - `READ` 返回原文
+  - `SEARCH` 结果正文
+  - XML / IPC 回填原文
+
+也就是说：
+
+- 历史视图强调“模型当时看到了什么”
+- generation 视图强调“这一轮发生了什么语义动作，以及最终说了什么”
+
+### 16.4 建议新增的模型
+
+建议在 [`generation/models.py`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/engines/generation/models.py) 中新增：
+
+```python
+class GenerationTurn(BaseModel):
+    user_query: str
+    assistant_final_text: str = ""
+    trace_summaries: list[str] = Field(default_factory=list)
+    identity: Identity
+
+class GenerationContext(BaseModel):
+    state_summary: str = ""
+    turns: list[GenerationTurn] = Field(default_factory=list)
+```
+
+字段职责：
+
+- `GenerationTurn`
+  - generation 视图中的最小“回合”单位
+- `trace_summaries`
+  - 从 `semantic_traces` 或 `turn_events` 降维出来的动作摘要
+- `GenerationContext`
+  - generation 链路的主上下文模型
+  - 显式携带 `state_summary`
+
+### 16.5 对 `GenerationRequest` 的建议调整
+
+当前 `GenerationRequest`：
+
+- `context_messages: List[StreamMessage]`
+- `write_focus`
+- `update_focus`
+
+建议演化为兼容式双入口：
+
+```python
+class GenerationRequest(BaseModel):
+    context_messages: List[StreamMessage] = Field(default_factory=list)  # 兼容字段
+    context: Optional[GenerationContext] = None
+    write_focus: Optional[WriteFocus] = None
+    update_focus: Optional[UpdateFocus] = None
+```
+
+推荐读取优先级：
+
+1. `context`
+2. `context_messages`
+
+这样可以避免：
+
+- 一步到位破坏所有现有调用点
+- Phase 3 和 Phase 4 被绑死在同一次大改里
+
+### 16.6 建议新增的模块
+
+建议新增：
+
+- `src/hivememory/engines/generation/generation_transcript_builder.py`
+
+职责：
+
+- 从 `LogicalBlock[] + state_summary` 构建 `GenerationContext`
+- 或直接渲染 generation transcript
+
+建议接口：
+
+```python
+class GenerationTranscriptBuilder:
+    def build_context(
+        self,
+        blocks: list[LogicalBlock],
+        state_summary: str = "",
+    ) -> GenerationContext:
+        ...
+
+    def build_transcript(self, context: GenerationContext) -> str:
+        ...
+```
+
+### 16.7 generation 视图的渲染规则
+
+#### Block -> GenerationTurn
+
+每个 block 生成一个 `GenerationTurn`：
+
+- `user_query` <- `block.user_query`
+- `assistant_final_text` <- `block.assistant_final_text or block.clean_response`
+- `trace_summaries` <- 从 `block.semantic_traces` 生成
+- `identity` <- `block.identity`
+
+#### `state_summary`
+
+- 不再丢弃
+- 直接进入 `GenerationContext.state_summary`
+
+#### `trace_summaries` 建议格式
+
+建议维持简洁、去噪、稳定：
+
+- `SEARCH: "authentication flow"`
+- `READ: alias_x`
+- `RUN: tool_x (success)`
+
+建议：
+
+- Phase 3 优先使用 `semantic_traces`
+- 不直接从 `turn_events` 再次拼 generation 视图
+- 避免 generation builder 和 history builder 又重新共享同一渲染逻辑
+
+### 16.8 建议的 transcript 格式
+
+当前 `MemoryGenerationEngine._format_transcript()` 是把 `StreamMessage` 扁平化成：
+
+```text
+[User]: ...
+[Assistant]: ...
+```
+
+Phase 3 建议改成 generation 专用文本格式：
+
+```text
+[Topic State]
+{state_summary}
+
+[Turn 1]
+[User]: ...
+[Actions]:
+- SEARCH: "..."
+- READ: alias_x
+[Assistant]: ...
+
+[Turn 2]
+[User]: ...
+[Actions]:
+- RUN: tool_x (success)
+[Assistant]: ...
+```
+
+这样做的收益：
+
+- `state_summary` 正式进入提取上下文
+- action 语义进入 transcript
+- 不会把大量系统结果正文重新塞回 generation
+
+### 16.9 需要修改的文件
+
+建议按以下顺序推进：
+
+1. generation 模型层
+   - `src/hivememory/engines/generation/models.py`
+2. 新增 builder
+   - `src/hivememory/engines/generation/generation_transcript_builder.py`
+3. perception -> generation 入口
+   - `src/hivememory/patchouli/kernel/librarian_core.py`
+4. generation engine
+   - `src/hivememory/engines/generation/engine.py`
+5. 测试
+   - `tests/unit/generation/test_generation_transcript_builder.py`
+   - `tests/unit/patchouli/kernel/test_librarian_core_generation_context.py`
+   - 相关 generation engine 单测
+
+### 16.10 详细实施步骤
+
+#### Step 1：新增 `GenerationContext` / `GenerationTurn`
+
+文件：
+
+- `src/hivememory/engines/generation/models.py`
+
+工作项：
+
+- 新增 `GenerationTurn`
+- 新增 `GenerationContext`
+- 扩展 `GenerationRequest`，支持 `context`
+
+验收标准：
+
+- 新模型可被单独实例化
+- 不破坏现有仅传 `context_messages` 的调用
+
+#### Step 2：实现 `GenerationTranscriptBuilder`
+
+文件：
+
+- `src/hivememory/engines/generation/generation_transcript_builder.py`
+
+最小职责：
+
+- `build_context(blocks, state_summary)`
+- `build_transcript(context)`
+
+建议内部拆分：
+
+- `_block_to_turn()`
+- `_trace_to_summary()`
+- `_format_context()`
+
+最小伪代码：
+
+```python
+def build_context(blocks, state_summary=""):
+    turns = []
+    for block in blocks:
+        turns.append(
+            GenerationTurn(
+                user_query=block.user_query,
+                assistant_final_text=block.assistant_final_text or block.clean_response,
+                trace_summaries=[self._trace_to_summary(t) for t in block.semantic_traces],
+                identity=block.identity,
+            )
+        )
+    return GenerationContext(state_summary=state_summary, turns=turns)
+```
+
+#### Step 3：改造 `LibrarianCore`
+
+文件：
+
+- `src/hivememory/patchouli/kernel/librarian_core.py`
+
+目标：
+
+- `_on_generate_memory()` 不再优先调用 `_blocks_to_messages()`
+- 改为优先构建 `GenerationContext`
+
+建议：
+
+- 保留 `_blocks_to_messages()` 作为兼容壳
+- 新增：
+  - `_build_generation_context()`
+
+新的处理路径建议为：
+
+```python
+context = self._build_generation_context(blocks, state_summary)
+request = GenerationRequest(
+    context=context,
+    write_focus=...,
+    update_focus=...,
+)
+```
+
+验收标准：
+
+- Mode A / B / C 都能成功构造带 `context` 的 request
+- `state_summary` 不再在 LibrarianCore 被丢弃
+
+#### Step 4：改造 `MemoryGenerationEngine`
+
+文件：
+
+- `src/hivememory/engines/generation/engine.py`
+
+目标：
+
+- `process()` 优先消费 `request.context`
+- `_format_transcript()` 支持 generation 专用 context
+
+建议实现方式：
+
+- 新增：
+  - `_format_generation_context(context: GenerationContext) -> str`
+- 保留：
+  - `_format_transcript(messages: List[StreamMessage]) -> str`
+
+推荐优先级：
+
+1. 若 `request.context` 存在，则走 `_format_generation_context()`
+2. 否则回退到旧 `_format_transcript()`
+
+这样可以平滑兼容：
+
+- 旧调用点
+- README 示例
+- 可能存在的未迁移测试
+
+#### Step 5：保守处理 `LogicalBlock.to_stream_messages()`
+
+Phase 3 不建议立刻修改 [`LogicalBlock.to_stream_messages()`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/engines/perception/models.py#L387-L455)。
+
+理由：
+
+- 它仍可作为兼容壳存在
+- 它不是 Phase 3 的目标接口
+- 直接改它容易让历史视图和 generation 视图再次耦合
+
+### 16.11 测试清单
+
+#### 必补单测
+
+1. `GenerationTranscriptBuilder` 基础构建
+   - block -> turn
+   - state_summary 正常进入 context
+
+2. trace 摘要映射
+   - `SEARCH` -> `SEARCH: "..."`
+   - `READ` -> `READ: alias_x`
+   - `RUN` -> `RUN: tool_x (success)`
+
+3. `LibrarianCore` 新路径
+   - `_on_generate_memory()` 构建 `GenerationRequest(context=...)`
+   - `state_summary` 未丢失
+
+4. `MemoryGenerationEngine` 新入口
+   - `request.context` 存在时走新格式化路径
+   - `request.context_messages` 仍可兼容旧路径
+
+5. Mode B / C 兼容
+   - WRITE / UPDATE 模式下仍能携带 `write_focus` / `update_focus`
+   - transcript 使用 generation context
+
+#### 推荐回归测试
+
+- generation engine 现有单测
+- `tests/unit/system/test_chat_logic.py`
+- 任何依赖 `LibrarianCore._on_generate_memory()` 的测试
+
+### 16.12 实施顺序建议
+
+建议按下列顺序推进：
+
+1. 先扩展 `GenerationRequest`
+2. 先写 `GenerationTranscriptBuilder` 单测
+3. 再改 `LibrarianCore`
+4. 再改 `MemoryGenerationEngine`
+5. 最后跑 Mode A / B / C 回归
+
+这样可以把风险集中在：
+
+- generation 上下文建模
+- 而不是先改底层 block / perception 模型
+
+### 16.13 Phase 3 完成标准
+
+满足以下条件，可认为 Phase 3 完成：
+
+1. generation 主路径已不再依赖 `block.to_stream_messages()`
+2. `state_summary` 已正式进入 generation transcript
+3. `semantic_traces` 已转化为 generation action 摘要
+4. `assistant_final_text` 已替代 `clean_response` 成为 generation 视图主响应字段
+5. `GenerationRequest` 同时兼容 `context` 与 `context_messages`
+6. Mode A / B / C 回归测试通过
+
+### 16.14 Phase 3 结束后的预期状态
+
+Phase 3 完成后，系统会进入一个真正“双视图落地”的状态：
+
+- 历史视图由 `HistoryTranscriptBuilder` 负责
+- generation 视图由 `GenerationTranscriptBuilder` 负责
+- 历史回放与记忆提取不再共享同一套消息构造逻辑
+- `state_summary`、`semantic_traces`、`assistant_final_text` 都进入了 generation 主路径
+
+这时再进入 Phase 4，会更合理：
+
+- 清理 `raw_response`
+- 清理 `clean_response`
+- 清理 `assistant_message`
+- 收敛 `context_messages` 兼容层
+
+---
+
+## 17. 总结
 
 本次重构的关键结论是：
 
