@@ -63,7 +63,6 @@ class MessageAssembler:
 
         history_messages = PerceptionContextConverter.blocks_to_messages(
             blocks=topic_context["blocks"],
-            include_state_summary=False,
             current_agent_id=current_agent_id,
         )
         messages.extend(history_messages)
