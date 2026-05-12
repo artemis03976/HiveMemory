@@ -113,7 +113,7 @@ def _build_executor(generate_async_side_effect) -> KernelLoopExecutor:
 # ============ 自然停止场景 ============
 
 @pytest.mark.asyncio
-async def test_natural_stop_produces_one_assistant_text_event():
+async def test_natural_stop_produces_one_assistant_message_event():
     """自然停止: 1 个 assistant_message 事件，sequence=0，role=assistant"""
     frame = _make_frame()
     executor, kernel = _build_executor([_natural_result("Hello world")])
@@ -286,7 +286,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     assert call_ev.render_as == "system_ipc_return"
 
     # 子帧自己的事件不应污染主帧
-    sub_kinds = [ev.kind for ev in result.turn_events if ev.verb not in ("CALL", None)]
+    sub_kinds = [ev.kind for ev in result.turn_events if ev.tool_kind not in ("CALL", None)]
     # 所有 verb 为 CALL 的来自主帧，子帧事件不透传
     assert all(ev.tool_kind in (None, "CALL") for ev in result.turn_events if ev.kind == "tool_result")
 

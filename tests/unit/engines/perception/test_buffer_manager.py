@@ -16,7 +16,7 @@ import pytest
 from unittest.mock import Mock
 from datetime import datetime
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnRecord
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.models import (
     BufferState,
@@ -77,8 +77,10 @@ class TestSemanticBufferManagerCRUD:
     def _create_block(self, content: str = "Hello") -> LogicalBlock:
         """辅助方法：创建一个完整的 block"""
         return LogicalBlock(
-            user_query=content,
-            assistant_final_text="Response",
+            turn=TurnRecord(
+                user_query=content,
+                assistant_final_text="Response",
+            ),
             total_tokens=100,
         )
 
@@ -278,8 +280,10 @@ class TestSemanticBufferManagerInfo:
         buffer = self.manager.create_buffer(self.identity.user_id)
 
         block = LogicalBlock(
-            user_query="Hello",
-            assistant_final_text="Hi",
+            turn=TurnRecord(
+                user_query="Hello",
+                assistant_final_text="Hi",
+            ),
             total_tokens=50,
         )
 
@@ -321,8 +325,10 @@ class TestSemanticBufferActiveTopics:
 
         # 添加 blocks 以使话题出现在菜单中
         block = LogicalBlock(
-            user_query="test",
-            assistant_final_text="test",
+            turn=TurnRecord(
+                user_query="test",
+                assistant_final_text="test",
+            ),
             total_tokens=10
         )
         self.manager.add_block(buf1.topic_id, block)

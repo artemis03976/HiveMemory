@@ -18,7 +18,7 @@ Note:
 import pytest
 from unittest.mock import Mock, MagicMock
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnRecord
 from hivememory.engines.perception.semantic_adsorber import (
     SemanticBoundaryAdsorber,
     DEFAULT_SHORT_TEXT_STOP_WORDS,
@@ -110,8 +110,10 @@ class TestSemanticBoundaryAdsorberBasic:
 
         # 添加一个 block
         block = LogicalBlock(
-            user_query="初始话题",
-            assistant_final_text="回复",
+            turn=TurnRecord(
+                user_query="初始话题",
+                assistant_final_text="回复",
+            )
         )
         buffer.blocks.append(block)
 
@@ -120,10 +122,12 @@ class TestSemanticBoundaryAdsorberBasic:
     def _create_complete_block(self, content: str, total_tokens: int) -> LogicalBlock:
         """创建已闭合的 LogicalBlock"""
         return LogicalBlock(
-            user_query=content,
-            assistant_final_text="回复内容",
+            turn=TurnRecord(
+                user_query=content,
+                assistant_final_text="回复内容",
+                rewritten_query=content,
+            ),
             total_tokens=total_tokens,
-            rewritten_query=content,
         )
 
 
@@ -182,19 +186,20 @@ class TestSemanticBoundaryAdsorberThresholds:
         identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
         buffer = SemanticBuffer(identity=identity)
         buffer.topic_kernel_vector = kernel_vector
-        buffer.blocks.append(LogicalBlock(
-            user_query="初始",
-            assistant_final_text="回复",
-        ))
+        buffer.blocks.append(
+            LogicalBlock(turn=TurnRecord(user_query="初始", assistant_final_text="回复"))
+        )
         return buffer
 
     def _create_complete_block(self, content: str, total_tokens: int) -> LogicalBlock:
         """创建已闭合的 LogicalBlock"""
         return LogicalBlock(
-            user_query=content,
-            assistant_final_text="回复",
+            turn=TurnRecord(
+                user_query=content,
+                assistant_final_text="回复",
+                rewritten_query=content,
+            ),
             total_tokens=total_tokens,
-            rewritten_query=content,
         )
 
 
@@ -260,19 +265,20 @@ class TestSemanticBoundaryAdsorberArbiter:
         identity = Identity(user_id="user1", agent_id="agent1", session_id="sess1")
         buffer = SemanticBuffer(identity=identity)
         buffer.topic_kernel_vector = kernel_vector
-        buffer.blocks.append(LogicalBlock(
-            user_query="初始",
-            assistant_final_text="回复",
-        ))
+        buffer.blocks.append(
+            LogicalBlock(turn=TurnRecord(user_query="初始", assistant_final_text="回复"))
+        )
         return buffer
 
     def _create_complete_block(self, content: str, total_tokens: int) -> LogicalBlock:
         """创建已闭合的 LogicalBlock"""
         return LogicalBlock(
-            user_query=content,
-            assistant_final_text="回复",
+            turn=TurnRecord(
+                user_query=content,
+                assistant_final_text="回复",
+                rewritten_query=content,
+            ),
             total_tokens=total_tokens,
-            rewritten_query=content,
         )
 
 
@@ -294,8 +300,7 @@ class TestSemanticBoundaryAdsorberTopicKernel:
         buffer.topic_kernel_vector = None  # 无现有核心
 
         new_block = LogicalBlock(
-            user_query="新话题",
-            assistant_final_text="回复",
+            turn=TurnRecord(user_query="新话题", assistant_final_text="回复"),
         )
 
         result = self.adsorber.compute_new_topic_kernel(buffer, new_block)
@@ -310,8 +315,7 @@ class TestSemanticBoundaryAdsorberTopicKernel:
         buffer.topic_kernel_vector = [0.0, 1.0]  # 现有核心
 
         new_block = LogicalBlock(
-            user_query="更新",
-            assistant_final_text="回复",
+            turn=TurnRecord(user_query="更新", assistant_final_text="回复"),
         )
 
         # encode 返回 [1.0, 0.0]
@@ -343,8 +347,7 @@ class TestSemanticBoundaryAdsorberTopicKernel:
         buffer.topic_kernel_vector = original_kernel.copy()
 
         new_block = LogicalBlock(
-            user_query="更新",
-            assistant_final_text="回复",
+            turn=TurnRecord(user_query="更新", assistant_final_text="回复"),
         )
 
         self.adsorber.compute_new_topic_kernel(buffer, new_block)
@@ -376,20 +379,20 @@ class TestFlushEventContent:
 
         # 添加两个 blocks
         block1 = LogicalBlock(
-            user_query="话题1",
-            assistant_final_text="回复1",
+            turn=TurnRecord(user_query="话题1", assistant_final_text="回复1"),
         )
         block2 = LogicalBlock(
-            user_query="话题2",
-            assistant_final_text="回复2",
+            turn=TurnRecord(user_query="话题2", assistant_final_text="回复2"),
         )
         buffer.blocks.extend([block1, block2])
 
         new_block = LogicalBlock(
-            user_query="新话题",
-            assistant_final_text="回复",
+            turn=TurnRecord(
+                user_query="新话题",
+                assistant_final_text="回复",
+                rewritten_query="新话题",
+            ),
             total_tokens=100,
-            rewritten_query="新话题",
         )
 
         result = self.adsorber.should_adsorb(buffer, new_block)

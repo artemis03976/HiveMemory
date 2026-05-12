@@ -24,7 +24,7 @@ from datetime import datetime
 
 from hivememory.core.models import (
     Identity, StreamMessage, StreamMessageType,
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts,
+    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts, TurnRecord,
 )
 from hivememory.engines.generation.models import (
     UpdateFocus, MergeResult, GenerationRequest, GenerationContext, GenerationTurn, WriteFocus,
@@ -488,9 +488,11 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_query=msg.content,
-                assistant_final_text=msg.content if i % 2 == 1 else "",
-                identity=msg.identity,
+                turn=TurnRecord(
+                    identity=msg.identity,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -538,9 +540,11 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_query=msg.content,
-                assistant_final_text=msg.content if i % 2 == 1 else "",
-                identity=msg.identity,
+                turn=TurnRecord(
+                    identity=msg.identity,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -573,9 +577,11 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_query=msg.content,
-                assistant_final_text=msg.content if i % 2 == 1 else "",
-                identity=msg.identity,
+                turn=TurnRecord(
+                    identity=msg.identity,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]

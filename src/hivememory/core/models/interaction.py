@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Optional, Dict, Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ConfigDict
 
 from hivememory.core.constants import DEFAULT_USER_ID, DEFAULT_AGENT_ID, DEFAULT_TEAM_ID
 from hivememory.utils.token_estimator import estimate_tokens
@@ -142,10 +142,7 @@ class TurnEvent(BaseModel):
     - 通过 action_id 维护一次完整 Agent Action 的结构边界
     - 为主动模式（MTP）与被动模式（JSON function call）提供相同事件语义
 
-    兼容策略：
-    - 兼容旧 kind: assistant_text / mtp_command / mtp_result
-    - 兼容旧字段 verb -> tool_kind
-    - 兼容旧 render_as: system_mtp_result -> system_tool_result
+    当前仅接受标准化后的事件语义与字段命名。
     """
 
     kind: Literal[
@@ -172,41 +169,6 @@ class TurnEvent(BaseModel):
 
     # 历史视图渲染提示
     render_as: Literal["plain", "system_tool_result", "system_ipc_return"] = "plain"
-
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize_legacy_payload(cls, data: Any) -> Any:
-        """兼容旧 TurnEvent 形态，统一映射到通用事件语义。"""
-        if not isinstance(data, dict):
-            return data
-
-        normalized = dict(data)
-
-        legacy_kind = normalized.get("kind")
-        kind_mapping = {
-            "assistant_text": "assistant_message",
-            "mtp_command": "tool_call",
-            "mtp_result": "tool_result",
-        }
-        normalized["kind"] = kind_mapping.get(legacy_kind, legacy_kind)
-
-        if "verb" in normalized and "tool_kind" not in normalized:
-            normalized["tool_kind"] = normalized.pop("verb")
-
-        legacy_render_as = normalized.get("render_as")
-        if legacy_render_as == "system_mtp_result":
-            normalized["render_as"] = "system_tool_result"
-
-        return normalized
-
-    @property
-    def verb(self) -> Optional[str]:
-        """兼容旧代码中的 verb 访问，语义等价于 tool_kind。"""
-        return self.tool_kind
-
-    @verb.setter
-    def verb(self, value: Optional[str]) -> None:
-        self.tool_kind = value
 
     model_config = ConfigDict(use_enum_values=True)
 

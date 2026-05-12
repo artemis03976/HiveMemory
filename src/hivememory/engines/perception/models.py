@@ -19,7 +19,7 @@ from enum import Enum
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ConfigDict
 
 from hivememory.core.models import (
     AgentAction,
@@ -157,39 +157,6 @@ class LogicalBlock(BaseModel):
         description="携带 UPDATE 指令的修改意图 (UpdateFocus)"
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _lift_flat_fields_to_turn(cls, data: Any) -> Any:
-        """兼容旧构造方式：将扁平内容字段自动提升为 TurnRecord。"""
-        if not isinstance(data, dict):
-            return data
-
-        normalized = dict(data)
-        turn = normalized.get("turn")
-        if isinstance(turn, TurnRecord):
-            return normalized
-
-        turn_payload = {}
-        for field_name in (
-            "identity",
-            "user_query",
-            "rewritten_query",
-            "assistant_final_text",
-            "turn_events",
-            "actions",
-            "semantic_traces",
-        ):
-            if field_name in normalized:
-                turn_payload[field_name] = normalized.pop(field_name)
-
-        if turn is not None:
-            turn_payload = {**turn_payload, **turn}
-
-        if turn_payload:
-            normalized["turn"] = turn_payload
-
-        return normalized
-
     @property
     def is_complete(self) -> bool:
         """
@@ -250,7 +217,7 @@ class LogicalBlock(BaseModel):
     def semantic_traces(self) -> List[TraceItem]:
         return self.turn.semantic_traces
 
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
 
 # ============ 话题上下文缓冲区 ============

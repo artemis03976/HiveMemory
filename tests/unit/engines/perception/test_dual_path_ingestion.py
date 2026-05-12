@@ -12,11 +12,9 @@ import pytest
 from unittest.mock import Mock, patch
 
 from hivememory.core.models import Identity, TraceItem, TurnEvent
-from hivememory.engines.perception.models import (
-    InteractionPayload,
-)
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.patchouli.protocol import InteractionPayload
 
 
 def _make_layer() -> SemanticFlowPerceptionLayer:
@@ -32,14 +30,14 @@ def _identity() -> Identity:
     return Identity(user_id="u1", agent_id="a1")
 
 
-def _turn_event(kind="tool_call", verb="READ", target="alias_x") -> TurnEvent:
+def _turn_event(kind="tool_call", tool_kind="READ", target="alias_x") -> TurnEvent:
     return TurnEvent(
         kind=kind,
         sequence=0,
         role="assistant",
         content="",
-        tool_kind=verb,
-        tool_name=target if verb == "RUN" else None,
+        tool_kind=tool_kind,
+        tool_name=target if tool_kind == "RUN" else None,
         target=target,
     )
 
@@ -99,7 +97,7 @@ async def test_structured_path_persists_assistant_final_text():
     assert block.assistant_final_text == "干净回复"
     assert len(block.turn_events) == 1
     assert block.turn_events[0].kind == turn_event.kind
-    assert block.turn_events[0].verb == turn_event.verb
+    assert block.turn_events[0].tool_kind == turn_event.tool_kind
 
 
 @pytest.mark.asyncio

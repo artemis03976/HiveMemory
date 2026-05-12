@@ -14,7 +14,7 @@ GenerationTranscriptBuilder / GenerationContext 单测
 import pytest
 from unittest.mock import MagicMock
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnRecord
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
@@ -38,10 +38,12 @@ def _block(
     traces: list = None,
 ) -> LogicalBlock:
     return LogicalBlock(
-        user_query=user_query,
-        assistant_final_text=assistant_final_text,
-        semantic_traces=traces or [],
-        identity=_identity(),
+        turn=TurnRecord(
+            identity=_identity(),
+            user_query=user_query,
+            assistant_final_text=assistant_final_text,
+            semantic_traces=traces or [],
+        )
     )
 
 
@@ -51,9 +53,11 @@ def _trace(action: str, **kwargs) -> TraceItem:
 
 def _legacy_block_with_message_identities() -> LogicalBlock:
     return LogicalBlock(
-        user_query="legacy user",
-        assistant_final_text="legacy assistant",
-        identity=Identity(user_id="legacy_u", agent_id="legacy_agent"),
+        turn=TurnRecord(
+            identity=Identity(user_id="legacy_u", agent_id="legacy_agent"),
+            user_query="legacy user",
+            assistant_final_text="legacy assistant",
+        )
     )
 
 
@@ -91,7 +95,7 @@ class TestBuildContextBasic:
 
     def test_block_with_no_query_and_no_text_is_filtered(self):
         """user_query 和 assistant_final_text 都为空的 block 被过滤"""
-        blocks = [LogicalBlock(identity=_identity())]  # 全空
+        blocks = [LogicalBlock(turn=TurnRecord(identity=_identity()))]  # 全空
         ctx = builder.build_context(blocks)
         assert len(ctx.turns) == 0
 

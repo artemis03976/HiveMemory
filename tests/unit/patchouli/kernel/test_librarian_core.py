@@ -11,7 +11,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 from uuid import uuid4
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnRecord
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, WriteFocus, UpdateFocus
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
@@ -26,9 +26,11 @@ def _make_logical_blocks(n=2):
     blocks = []
     for i in range(n):
         block = LogicalBlock(
-            user_query=f"user_msg_{i}",
-            assistant_final_text=f"assistant_msg_{i}",
-            identity=_make_identity(),
+            turn=TurnRecord(
+                identity=_make_identity(),
+                user_query=f"user_msg_{i}",
+                assistant_final_text=f"assistant_msg_{i}",
+            )
         )
         blocks.append(block)
     return blocks
@@ -38,8 +40,10 @@ def _make_kernel_logical_blocks(n=2):
     blocks = []
     for i in range(n):
         block = LogicalBlock(
-            user_query=f"user_query_{i}",
-            assistant_final_text=f"assistant_response_{i}",
+            turn=TurnRecord(
+                user_query=f"user_query_{i}",
+                assistant_final_text=f"assistant_response_{i}",
+            )
         )
         blocks.append(block)
     return blocks
@@ -295,7 +299,7 @@ class TestLibrarianCoreGenerateMemory:
     @pytest.mark.asyncio
     async def test_generate_memory_blocks_with_only_user(self):
         """只有 user_query 的 blocks，Phase 3: 产出 1 个 turn（user_query 非空）"""
-        block = LogicalBlock(user_query="user message", identity=_make_identity())
+        block = LogicalBlock(turn=TurnRecord(identity=_make_identity(), user_query="user message"))
         payload = ArchivePayload(
             topic_id="topic_test",
             blocks=[block],

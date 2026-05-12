@@ -28,7 +28,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 import types
 
-from hivememory.core.models import Identity, StreamMessage
+from hivememory.core.models import Identity, StreamMessage, TurnRecord
 from hivememory.engines.perception.models import LogicalBlock
 from hivememory.patchouli.protocol.models import (
     ChatResult, KernelHotResult, EyeGazeResult, MTPExecutionResult,
@@ -734,9 +734,11 @@ class TestMultiAgentScenarioB:
         coder_identity = Identity(user_id="u1", agent_id="coder_doll")
         reviewer_identity = Identity(user_id="u1", agent_id="reviewer_doll")
         coder_block = LogicalBlock(
-            user_query="写一个 Python 冒泡排序",
-            assistant_final_text="def bubble_sort(arr): return arr",
-            identity=coder_identity,
+            turn=TurnRecord(
+                identity=coder_identity,
+                user_query="写一个 Python 冒泡排序",
+                assistant_final_text="def bubble_sort(arr): return arr",
+            )
         )
 
         sys.eye.gaze.side_effect = [

@@ -12,11 +12,11 @@ HistoryTranscriptBuilder 单测
    - 非当前 agent 的 assistant 事件带 [From: ...]
    - tool_result 不带 [From: ...]
 5. 混合兼容: assistant_final_text block + structured block 混合输入时顺序正确
-6. 真正 legacy user_block/response_block 仍有薄兼容
+6. 无结构化事件的 fallback block 仍能正确回放
 """
 
 import pytest
-from hivememory.core.models import Identity, TurnEvent
+from hivememory.core.models import Identity, TurnEvent, TurnRecord
 from hivememory.engines.perception.models import LogicalBlock
 from hivememory.engines.perception.history_transcript_builder import HistoryTranscriptBuilder
 
@@ -30,47 +30,45 @@ def _identity(agent_id: str = "default") -> Identity:
 def _block_fallback(user_query: str, assistant_final_text: str, agent_id: str = "default") -> LogicalBlock:
     """无 turn_events 的 fallback block（Phase 4C 使用 assistant_final_text）"""
     return LogicalBlock(
-        user_query=user_query,
-        assistant_final_text=assistant_final_text,
-        identity=_identity(agent_id),
+        turn=TurnRecord(
+            identity=_identity(agent_id),
+            user_query=user_query,
+            assistant_final_text=assistant_final_text,
+        )
     )
 
 
 def _block_true_legacy(user_query: str, response: str, agent_id: str = "default") -> LogicalBlock:
     """兼容历史命名的 block helper，现已直接构造 TurnRecord 风格字段"""
     return LogicalBlock(
-        user_query=user_query,
-        assistant_final_text=response,
-        identity=_identity(agent_id)
+        turn=TurnRecord(
+            identity=_identity(agent_id),
+            user_query=user_query,
+            assistant_final_text=response,
+        )
     )
 
 
 def _block_structured(user_query: str, events: list, agent_id: str = "default") -> LogicalBlock:
     """新数据 block（有 turn_events）"""
     return LogicalBlock(
-        user_query=user_query,
-        turn_events=events,
-        identity=_identity(agent_id),
+        turn=TurnRecord(
+            identity=_identity(agent_id),
+            user_query=user_query,
+            turn_events=events,
+        )
     )
 
 
 def _ev(kind: str, seq: int, role: str, content: str,
-        verb: str = None, render_as: str = "plain") -> TurnEvent:
-    normalized_kind = {
-        "assistant_text": "assistant_message",
-        "mtp_command": "tool_call",
-        "mtp_result": "tool_result",
-    }.get(kind, kind)
-    normalized_render_as = {
-        "system_mtp_result": "system_tool_result",
-    }.get(render_as, render_as)
+        tool_kind: str = None, render_as: str = "plain") -> TurnEvent:
     return TurnEvent(
-        kind=normalized_kind,
+        kind=kind,
         sequence=seq,
         role=role,
         content=content,
-        tool_kind=verb,
-        render_as=normalized_render_as,
+        tool_kind=tool_kind,
+        render_as=render_as,
     )
 
 
@@ -88,7 +86,7 @@ class TestFallbackPaths:
             {"role": "assistant", "content": "你好，有什么可以帮你？"},
         ]
 
-    def test_true_legacy_block_uses_response_block(self):
+    def test_fallback_block_uses_assistant_final_text(self):
         block = _block_true_legacy("legacy hi", "legacy hello")
         msgs = builder.build_messages([block])
         assert msgs == [
@@ -96,13 +94,15 @@ class TestFallbackPaths:
             {"role": "assistant", "content": "legacy hello"},
         ]
 
-    def test_no_turn_events_and_no_assistant_text_emits_only_user(self):
-        block = LogicalBlock(user_query="hello", identity=_identity())
+    def test_no_turn_events_and_no_assistant_final_text_emits_only_user(self):
+        block = LogicalBlock(turn=TurnRecord(identity=_identity(), user_query="hello"))
         msgs = builder.build_messages([block])
         assert msgs == [{"role": "user", "content": "hello"}]
 
     def test_empty_user_query_skipped(self):
-        block = LogicalBlock(user_query="", assistant_final_text="hi", identity=_identity())
+        block = LogicalBlock(
+            turn=TurnRecord(identity=_identity(), user_query="", assistant_final_text="hi")
+        )
         msgs = builder.build_messages([block])
         # user_query 为空，不应产生 user 消息
         assert not any(m["role"] == "user" for m in msgs)
@@ -122,7 +122,7 @@ class TestFallbackPaths:
 # ============ 2. 结构化事件重放 ============
 
 class TestStructuredReplay:
-    def test_assistant_text_event(self):
+    def test_assistant_message_event(self):
         events = [_ev("assistant_message", 0, "assistant", "这是自然语言回复")]
         block = _block_structured("问题", events)
         msgs = builder.build_messages([block])
@@ -132,7 +132,7 @@ class TestStructuredReplay:
         ]
 
     def test_tool_call_event(self):
-        events = [_ev("tool_call", 0, "assistant", "⟪ READ | alias_x ⟫", verb="READ")]
+        events = [_ev("tool_call", 0, "assistant", "⟪ READ | alias_x ⟫", tool_kind="READ")]
         block = _block_structured("查找", events)
         msgs = builder.build_messages([block])
         assert msgs[1] == {"role": "assistant", "content": "⟪ READ | alias_x ⟫"}
@@ -141,9 +141,9 @@ class TestStructuredReplay:
         """prefix + tool_call + tool_result + final_text"""
         events = [
             _ev("assistant_message", 0, "assistant", "正在查找"),
-            _ev("tool_call", 1, "assistant", "⟪ READ | alias_x ⟫", verb="READ"),
+            _ev("tool_call", 1, "assistant", "⟪ READ | alias_x ⟫", tool_kind="READ"),
             _ev("tool_result", 2, "user", "<xml>result</xml>",
-                verb="READ", render_as="system_tool_result"),
+                tool_kind="READ", render_as="system_tool_result"),
             _ev("assistant_message", 3, "assistant", "找到了！"),
         ]
         block = _block_structured("帮我找一下", events)
@@ -170,10 +170,12 @@ class TestStructuredReplay:
     def test_turn_events_takes_priority_over_assistant_final_text(self):
         """有 turn_events 时不走 assistant_final_text fallback"""
         block = LogicalBlock(
-            user_query="测试",
-            assistant_final_text="旧回复（不应出现）",
-            turn_events=[_ev("assistant_message", 0, "assistant", "新事件回复")],
-            identity=_identity(),
+            turn=TurnRecord(
+                identity=_identity(),
+                user_query="测试",
+                assistant_final_text="旧回复（不应出现）",
+                turn_events=[_ev("assistant_message", 0, "assistant", "新事件回复")],
+            )
         )
         msgs = builder.build_messages([block])
         assert all("旧回复" not in m["content"] for m in msgs)
@@ -243,7 +245,7 @@ class TestAgentPrefix:
     def test_tool_call_from_different_agent_has_prefix(self):
         """非当前 agent 发出的 tool call 也应加前缀"""
         block = _block_structured("q", [
-            _ev("tool_call", 0, "assistant", "⟪ READ | x ⟫", verb="READ")
+            _ev("tool_call", 0, "assistant", "⟪ READ | x ⟫", tool_kind="READ")
         ], agent_id="coder_doll")
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         assert msgs[1]["content"].startswith("[From: coder_doll]")
@@ -270,8 +272,8 @@ class TestAgentPrefix:
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         assert msgs[1]["content"] == "[From: coder_doll]\n旧回复"
 
-    def test_true_legacy_block_different_agent(self):
-        """真正 legacy block 也应加前缀"""
+    def test_fallback_block_different_agent(self):
+        """fallback block 也应加前缀"""
         block = _block_true_legacy("q", "旧回复", agent_id="coder_doll")
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         assert msgs[1]["content"] == "[From: coder_doll]\n旧回复"
@@ -321,9 +323,9 @@ class TestMixedBlocks:
         """单个 block 同时含有 system_ipc_return 和 system_tool_result"""
         events = [
             _ev("tool_result", 0, "user", "sub response",
-                verb="CALL", render_as="system_ipc_return"),
+                tool_kind="CALL", render_as="system_ipc_return"),
             _ev("tool_result", 1, "user", "read result",
-                verb="READ", render_as="system_tool_result"),
+                tool_kind="READ", render_as="system_tool_result"),
         ]
         block = _block_structured("复杂场景", events)
         msgs = builder.build_messages([block])
@@ -346,7 +348,7 @@ class TestContextConverterDelegation:
     def test_delegation_passes_current_agent_id(self):
         from hivememory.engines.perception.context_converter import PerceptionContextConverter
         block = _block_structured("q", [
-            _ev("assistant_text", 0, "assistant", "content")
+            _ev("assistant_message", 0, "assistant", "content")
         ], agent_id="coder_doll")
         result = PerceptionContextConverter.blocks_to_messages(
             [block], current_agent_id="omni_doll"
