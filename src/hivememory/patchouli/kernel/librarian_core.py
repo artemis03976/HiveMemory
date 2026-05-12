@@ -21,10 +21,11 @@ import inspect
 from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
 from hivememory.core.models import Identity
-from hivememory.engines.perception.models import FlushReason, InteractionPayload, ArchivePayload
+from hivememory.engines.perception.models import FlushReason, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, GenerationContext
 from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
 from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.patchouli.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus

@@ -16,9 +16,9 @@ Note:
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, MagicMock
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnEvent
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.engines.perception.models import (
     FlushEvent,
@@ -37,7 +37,15 @@ def _make_payload(user_msg="msg", assistant_msg="reply", identity=None):
         identity = Identity(user_id="u1", agent_id="a1")
     return InteractionPayload(
         user_message=user_msg,
-        assistant_message=assistant_msg,
+        assistant_final_text=assistant_msg,
+        turn_events=[
+            TurnEvent(
+                kind="assistant_message",
+                sequence=0,
+                role="assistant",
+                content=assistant_msg,
+            )
+        ],
         identity=identity,
     )
 

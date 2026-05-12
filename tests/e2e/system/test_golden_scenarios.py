@@ -73,7 +73,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 # 核心模型
-from hivememory.core.models import Identity, StreamMessage, StreamMessageType, MemoryAtom
+from hivememory.core.models import Identity, StreamMessage, StreamMessageType, MemoryAtom, TurnEvent
 
 # 感知层组件
 from hivememory.engines.perception.models import FlushReason
@@ -454,11 +454,19 @@ class SystemScenarioTestSystem:
                 context.append(StreamMessage(message_type=StreamMessageType.USER, content=content))
 
             elif role == "assistant":
-                from hivememory.engines.perception.models import InteractionPayload
+                from hivememory.patchouli.protocol.models import InteractionPayload
                 user_msg = pending_user["content"] if pending_user else ""
                 payload = InteractionPayload(
                     user_message=user_msg,
-                    assistant_message=content,
+                    assistant_final_text=content,
+                    turn_events=[
+                        TurnEvent(
+                            kind="assistant_message",
+                            sequence=0,
+                            role="assistant",
+                            content=content,
+                        )
+                    ],
                     identity=identity,
                     rewritten_query=pending_user.get("rewritten_query") if pending_user else None,
                     worth_saving=pending_user.get("worth_saving") if pending_user else None,

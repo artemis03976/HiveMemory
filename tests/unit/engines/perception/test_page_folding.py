@@ -39,7 +39,6 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None, traces
         identity = _make_identity()
     return InteractionPayload(
         user_message=user_msg,
-        assistant_message=assistant_msg,
         assistant_final_text=assistant_msg,
         turn_events=[
             TurnEvent(

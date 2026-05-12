@@ -541,7 +541,7 @@ class TestPassiveMultiSessionIsolation:
 
         验证链路:
             ObserverBufferManager.get_buffer(identity)
-            → Identity.buffer_key 隔离
+            → PassiveSessionKey 分桶隔离
             → flush 只影响目标 session
         """
         user_id = clean_user()

@@ -3,7 +3,6 @@ HiveMemory 感知层数据模型
 
 定义统一语义流架构中的核心数据结构：
 - TraceItem: MTP 操作语义轨迹项 (v3.0 新增，替代旧执行链的执行细节)
-- InteractionPayload: Kernel → Perception 的原子传输包 (v3.0 新增)
 - LogicalBlock: 逻辑原子块（最小语义单元）
 - SemanticBuffer: 语义缓冲区
 
@@ -17,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Literal
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
@@ -29,7 +28,6 @@ from hivememory.core.models import (
     TurnEvent,
     TurnRecord,
 )
-from hivememory.utils.token_estimator import estimate_tokens
 
 if TYPE_CHECKING:
     from hivememory.engines.generation.models import WriteFocus, UpdateFocus
@@ -382,74 +380,6 @@ class TopicSnapshot(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
 
-# ============ 对话交互载荷 (v3.0 新增) ============
-
-class InteractionPayload(BaseModel):
-    """
-    Kernel -> Perception 的原子传输包
-
-    在 Kernel 完成一轮递归生成循环后，将所有相关数据封装为一个原子包提交给感知层。
-    这消除了 WRITE/UPDATE 旁路触发导致的上下文丢失问题。
-
-    参考: PerceptionLayerRefactoring.md §3.1
-
-    Attributes:
-        user_message: 原始用户消息
-        assistant_message: legacy 文本兼容字段，主要用于被动 ingest / observer buffer
-        mtp_traces: 由 Koakuma 在执行过程中记录的 Trace 列表
-        write_focus: WRITE 指令的核心素材 (挂载在 Payload 上，而非独立传输)
-        update_focus: UPDATE 指令的修改意图
-        identity: 身份标识（归属元数据）
-        rewritten_query: Gateway 重写后的查询
-        worth_saving: Gateway 价值判断
-    """
-    user_message: str = Field(..., description="原始用户消息")
-    assistant_message: str = Field(
-        default="",
-        description="legacy 文本兼容字段，主要用于被动 ingest / observer buffer"
-    )
-    mtp_traces: List[TraceItem] = Field(
-        default_factory=list,
-        description="由 Koakuma 在执行过程中记录的 Trace 列表"
-    )
-
-    # 控制信号 (挂载在 Payload 上，而非独立传输)
-    write_focus: Optional[Any] = Field(
-        default=None,
-        description="WRITE 指令的核心素材 (WriteFocus)"
-    )
-    update_focus: Optional[Any] = Field(
-        default=None,
-        description="UPDATE 指令的修改意图 (UpdateFocus)"
-    )
-
-    # 身份元数据
-    identity: Identity = Field(default_factory=Identity, description="归属元数据")
-
-    rewritten_query: Optional[str] = Field(
-        default=None,
-        description="Gateway 重写后的查询"
-    )
-    worth_saving: Optional[bool] = Field(
-        default=None,
-        description="Gateway 价值判断"
-    )
-
-    # ========== Phase 1: 结构化轮次事件 ==========
-    #: LoopExecutor 最终自然语言回复（等价于 loop_result.final_text）
-    assistant_final_text: Optional[str] = Field(
-        default=None,
-        description="去除 MTP 噪音后的最终自然语言回复（loop_result.final_text 直传）"
-    )
-    #: LoopExecutor 收集的结构化轮次事件列表
-    turn_events: List[TurnEvent] = Field(
-        default_factory=list,
-        description="LoopExecutor 收集的结构化轮次事件列表，有值时感知层优先走结构化路径"
-    )
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
 # ============ 归档载荷 (Perception -> Librarian) ============
 
 class ArchivePayload(BaseModel):
@@ -492,7 +422,6 @@ __all__ = [
     "TurnEvent",
     "TraceItem",
     "LogicalBlock",
-    "InteractionPayload",
     "SemanticBuffer",
     "ArchivePayload",
 ]

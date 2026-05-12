@@ -40,11 +40,11 @@ from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
     BufferState,
     FlushReason,
-    InteractionPayload,
     LogicalBlock,
     SemanticBuffer,
 )
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.patchouli.protocol.models import InteractionPayload
 from hivememory.utils.token_estimator import estimate_tokens
 
 logger = logging.getLogger(__name__)
@@ -170,39 +170,26 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             payload: Kernel → Perception 的原子传输包
             topic_id: 目标话题 ID
         """
-        actions = []
-        # =========================================================
-        # Phase 4B 双路径: 结构化优先 → legacy assistant_message 降级
-        # =========================================================
-        has_structured = bool(payload.turn_events)
-
-        if has_structured:
-            # 结构化路径: 直接使用 LoopExecutor 收集的轮次事件
-            clean_text = payload.assistant_final_text or ""
-
-            actions = ActionReducer.reduce(payload.turn_events)
-
-            # Traces 优先级: Koakuma 透传 > AgentAction 结构化提取
-            if payload.mtp_traces:
-                traces = payload.mtp_traces
-            else:
-                traces = TraceReducer.reduce(actions)
-
-            logger.debug(
-                "ingest_payload: 结构化路径, "
-                f"turn_events={len(payload.turn_events)}, traces={len(traces)}, "
-                f"actions={len(actions)}"
+        if not payload.turn_events:
+            raise ValueError(
+                "InteractionPayload.turn_events is required; "
+                "legacy assistant_message fallback has been removed."
             )
-        else:
-            # legacy 降级路径: 直接消费 assistant_message（被动 ingest / observer buffer）
-            clean_text = payload.assistant_message or ""
+
+        clean_text = payload.assistant_final_text or ""
+        actions = ActionReducer.reduce(payload.turn_events)
+
+        # Traces 优先级: Koakuma 透传 > AgentAction 结构化提取
+        if payload.mtp_traces:
             traces = payload.mtp_traces
+        else:
+            traces = TraceReducer.reduce(actions)
 
-            logger.debug(
-                "ingest_payload: fallback 路径 (legacy assistant_message), "
-                f"mtp_traces={len(payload.mtp_traces)}"
-            )
-        # =========================================================
+        logger.debug(
+            "ingest_payload: 结构化单路径, "
+            f"turn_events={len(payload.turn_events)}, traces={len(traces)}, "
+            f"actions={len(actions)}"
+        )
 
         # 2. 构建 LogicalBlock
         block = LogicalBlock(

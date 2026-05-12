@@ -1,8 +1,8 @@
 """
-ingest_payload 双路径单测
+ingest_payload 结构化单路径单测
 
-验证当前双路径:
-1. turn_events=[] → 直接消费 legacy assistant_message
+验证当前单路径:
+1. turn_events=[] → 直接报错，不再接受 legacy assistant_message
 2. turn_events=[...] → assistant_final_text 落盘，且不依赖 assistant_message
 3. turn_events=[...] + mtp_traces=[item] → 优先用 mtp_traces，不调用 reducer
 4. turn_events=[...] + mtp_traces=[] → 调用 reducer
@@ -48,45 +48,19 @@ def _trace_item() -> TraceItem:
     return TraceItem(action="READ", target="alias_x")
 
 
-# ============ Legacy fallback 路径 ============
+# ============ 非结构化输入拒绝 ============
 
 @pytest.mark.asyncio
-async def test_fallback_path_uses_legacy_assistant_message_when_no_turn_events():
-    """turn_events=[] → 直接消费 assistant_message，不再依赖 parser"""
+async def test_missing_turn_events_raises_error():
+    """turn_events=[] → perception 不再接受 legacy assistant_message fallback"""
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="legacy assistant text",
         identity=_identity(),
-        turn_events=[],  # 空 → fallback
-    )
-    await layer.route_and_ingest("NEW_TOPIC", payload)
-
-    snapshots = layer.get_active_topics_snapshots(_identity())
-    buffer = layer.get_buffer(snapshots[0].topic_id)
-    block = buffer.blocks[0]
-    assert block.assistant_final_text == "legacy assistant text"
-
-
-@pytest.mark.asyncio
-async def test_fallback_uses_mtp_traces_over_parser_traces():
-    """legacy fallback 路径: 仅消费 payload.mtp_traces"""
-    layer = _make_layer()
-    koakuma_trace = TraceItem(action="SEARCH", query="koakuma query")
-    payload = InteractionPayload(
-        user_message="hello",
-        assistant_message="raw text",
-        identity=_identity(),
-        mtp_traces=[koakuma_trace],
         turn_events=[],
     )
-    await layer.route_and_ingest("NEW_TOPIC", payload)
-
-    snapshots = layer.get_active_topics_snapshots(_identity())
-    buffer = layer.get_buffer(snapshots[0].topic_id)
-    block = buffer.blocks[0]
-
-    assert any(t.action == "SEARCH" for t in block.semantic_traces)
+    with pytest.raises(ValueError, match="turn_events is required"):
+        await layer.route_and_ingest("NEW_TOPIC", payload)
 
 
 # ============ 结构化路径 ============
@@ -97,7 +71,6 @@ async def test_structured_path_skips_mtp_log_parser():
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="raw text with ⟪ MTP ⟫",
         assistant_final_text="干净回复",
         identity=_identity(),
         turn_events=[_turn_event()],
@@ -112,7 +85,6 @@ async def test_structured_path_persists_assistant_final_text():
     turn_event = _turn_event()
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="raw noisy text",
         assistant_final_text="干净回复",
         identity=_identity(),
         turn_events=[turn_event],
@@ -136,7 +108,6 @@ async def test_structured_path_reduces_turn_events_to_actions():
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="raw noisy text",
         assistant_final_text="干净回复",
         identity=_identity(),
         turn_events=[
@@ -184,7 +155,6 @@ async def test_structured_path_mtp_traces_takes_priority_over_reducer():
     koakuma_trace = TraceItem(action="SEARCH", query="my query")
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="raw",
         assistant_final_text="clean",
         identity=_identity(),
         mtp_traces=[koakuma_trace],
@@ -207,7 +177,6 @@ async def test_structured_path_calls_reducer_when_no_mtp_traces():
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="raw",
         assistant_final_text="clean",
         identity=_identity(),
         mtp_traces=[],
@@ -228,7 +197,6 @@ async def test_structured_path_empty_final_text_stays_empty():
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="raw text",
         assistant_final_text="",
         identity=_identity(),
         turn_events=[_turn_event()],
@@ -250,7 +218,6 @@ async def test_assistant_message_no_longer_persists_as_block_field():
     layer = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        assistant_message="⟪ RAW ⟫ text",
         assistant_final_text="clean",
         identity=_identity(),
         turn_events=[_turn_event()],

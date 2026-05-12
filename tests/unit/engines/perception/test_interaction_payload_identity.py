@@ -1,16 +1,14 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
-from hivememory.core.models import Identity
-from hivememory.engines.perception.models import InteractionPayload
+from hivememory.core.models import Identity, TurnEvent
+from hivememory.patchouli.protocol.models import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
 
 
-@patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
 @pytest.mark.asyncio
-async def test_ingest_payload_uses_identity_agent_id(mock_parser_cls):
-    mock_parser_cls.parse.return_value = ("clean", [])
+async def test_ingest_payload_uses_identity_agent_id():
     layer = SemanticFlowPerceptionLayer(
         config=SemanticFlowPerceptionConfig(),
         relay_controller=Mock(),
@@ -21,7 +19,15 @@ async def test_ingest_payload_uses_identity_agent_id(mock_parser_cls):
     )
     payload = InteractionPayload(
         user_message="u",
-        assistant_message="a",
+        assistant_final_text="a",
+        turn_events=[
+            TurnEvent(
+                kind="assistant_message",
+                sequence=0,
+                role="assistant",
+                content="a",
+            )
+        ],
         identity=Identity(user_id="u1", agent_id="coder_doll"),
     )
 

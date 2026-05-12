@@ -72,12 +72,13 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 # 核心模型
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnEvent
 
 # 感知层组件
-from hivememory.engines.perception.models import FlushReason, FlushEvent, InteractionPayload
+from hivememory.engines.perception.models import FlushReason, FlushEvent
+from hivememory.patchouli.protocol.models import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
-from hivememory.engines.perception.relay_controller import RelayController
+from hivememory.engines.perception.relay_controller import SimpleRelayController
 from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber, create_adsorber
 
 # 配置
@@ -148,9 +149,7 @@ def setup_test_env(max_tokens: int = 2048) -> SemanticFlowPerceptionLayer:
     _shared_embedding_service = get_perception_embedding_service(embedding_config)
 
     # 2. 创建 RelayController
-    relay_controller = RelayController(
-        max_processing_tokens=max_tokens,
-    )
+    relay_controller = SimpleRelayController()
 
     # 3. 创建 FlushRecorder
     _shared_flush_recorder = FlushRecorder()
@@ -249,7 +248,15 @@ def add_message_to_perception(
         rq = pending.get("rewritten_query") if pending else None
         payload = InteractionPayload(
             user_message=user_msg,
-            assistant_message=content,
+            assistant_final_text=content,
+            turn_events=[
+                TurnEvent(
+                    kind="assistant_message",
+                    sequence=0,
+                    role="assistant",
+                    content=content,
+                )
+            ],
             identity=identity,
             rewritten_query=rq,
         )

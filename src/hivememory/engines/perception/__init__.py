@@ -41,7 +41,6 @@ from hivememory.engines.perception.interfaces import (
 )
 from hivememory.engines.perception.models import (
     TraceItem,
-    InteractionPayload,
     LogicalBlock,
     BufferState,
     SemanticBuffer,
@@ -122,7 +121,6 @@ __all__ = [
     "BasePerceptionLayer",
     # 数据模型
     "TraceItem",
-    "InteractionPayload",
     "LogicalBlock",
     "BufferState",
     "SemanticBuffer",

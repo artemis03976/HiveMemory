@@ -30,15 +30,15 @@ import uuid
 from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
-from hivememory.engines.perception.models import InteractionPayload
 from hivememory.patchouli.message_assembler import MessageAssembler
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.patchouli.protocol.models import ChatResult, InteractionPayload
 from hivememory.infrastructure.trace_context import (
     generate_trace_id, set_trace_context, reset_trace_context
 )
 
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.eye import TheEye
+from hivememory.patchouli.passive_ingest import PassiveObserverIngressor, PassiveIngressEvent
 from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
@@ -106,9 +106,15 @@ class PatchouliSystem:
         # 2. 初始化 Gateway
         self._init_gateway()
 
-        # 3. 构建 TheEye (通过 bus 访问感知层，Phase 4.5 Agentic Dispatcher)
+        # 3. 构建 TheEye (Phase 4.5 Agentic Dispatcher — 仅保留 gaze 职责)
         self.eye = TheEye(
             engine=self._gateway_engine,
+            bus=self.bus,
+        )
+
+        # 3.5 被动 ingest 编排器 (Phase P1 — 从 TheEye 独立)
+        self._passive_ingressor = PassiveObserverIngressor(
+            eye=self.eye,
             bus=self.bus,
         )
 
@@ -129,9 +135,11 @@ class PatchouliSystem:
         # 6. 取消注册表：generation_id → asyncio.Event
         self._active_generations: Dict[str, asyncio.Event] = {}
 
-        async def _on_observer_idle_flushed(payload):
+        async def _on_observer_idle_flushed(payload, target_topic=None):
             import asyncio
-            asyncio.create_task(self.kernel.submit_interaction(payload))
+            asyncio.create_task(
+                self.kernel.submit_interaction(payload, target_topic=target_topic)
+            )
 
         self.bus.subscribe(
             "observer.idle_flushed",
@@ -212,39 +220,26 @@ class PatchouliSystem:
         self._active_generations.pop(generation_id, None)
 
     # ========== 被动消息流处理 API (Passive Observer Mode) ==========
-    # TODO: 参考chat方法重置话题路由时序流
-    async def ingest(
+
+    async def ingest_event(
         self,
-        role: str,
-        content: str,
+        event: PassiveIngressEvent,
         user_id: str,
         agent_id: str = "omni_doll",
         session_id: Optional[str] = None,
-        context: Optional[List[StreamMessage]] = None,
     ) -> Dict[str, Any]:
         """
-        被动消息流处理入口 (Passive Observer Mode) - 异步版本
+        被动消息流处理入口 (Passive Observer Mode) — 统一事件版本
 
-        接收外部系统（Discord Bot、微信机器人、传统 Agent 框架）的离散消息，
-        通过 TheEye 的 ObserverSessionBuffer 缓冲配对后，构建完整的 InteractionPayload
+        接收外部系统的离散事件（user / assistant / tool_call / tool_result），
+        通过 PassiveObserverIngressor 缓冲配对后，构建完整的 InteractionPayload
         提交给感知层进行记忆沉淀。
 
-        与 chat() 的区别:
-            - chat(): Kernel 主动驱动 LLM 递归生成循环 (Active/AIOS Mode)
-            - ingest(): 被动接收消息，缓冲配对 + Eye 分析 + 检索降级 (Passive Mode)
-
-        数据流 (参考 Passive.md):
-            - User: Eye 分析 + 缓冲(自动 flush 上一轮) → 被动模式检索
-            - Assistant: 缓冲配对(等待 flush 触发)
-            - 其他: 忽略
-
         Args:
-            role: 消息角色 (user/assistant)
-            content: 消息内容
+            event: 统一事件输入模型
             user_id: 用户 ID
             agent_id: Agent ID
             session_id: 会话 ID
-            context: 对话历史上下文 (仅 User 消息需要，用于指代消解)
 
         Returns:
             Dict: 处理结果
@@ -253,18 +248,17 @@ class PatchouliSystem:
             user_id=user_id, agent_id=agent_id, session_id=session_id
         )
 
-        if role == "user":
-            # 1. Eye 分析 + 缓冲 (自动 flush 上一轮)
-            gaze_result, flushed_payload = await self.eye.ingest_user_async(
-                content=content, identity=identity, context=context or [],
+        if event.role == "user":
+            gaze_result, flushed = await self._passive_ingressor.ingest_user_async(
+                content=event.content, identity=identity,
             )
-            if flushed_payload:
+            if flushed:
+                flushed_payload, flushed_target_topic = flushed
                 await self.kernel.submit_interaction(
                     flushed_payload,
-                    target_topic=gaze_result.target_topic,
+                    target_topic=flushed_target_topic,
                 )
 
-            # 2. 被动模式检索 (使用 FullContextRenderer 降级渲染)
             hot_result = await self.kernel.handle_hot(
                 gaze_result,
                 mode="passive",
@@ -278,8 +272,44 @@ class PatchouliSystem:
                 "memory": hot_result.rendered_memory_context,
             }
 
-        elif role == "assistant":
-            self.eye.ingest_assistant(content=content, identity=identity)
+        elif event.role == "assistant":
+            self._passive_ingressor.ingest_assistant(
+                content=event.content, identity=identity,
+            )
+
+            return {
+                "intent": "buffered",
+                "rewritten": None,
+                "keywords": [],
+                "worth_saving": True,
+                "memory": None,
+            }
+
+        elif event.role == "tool_call":
+            self._passive_ingressor.ingest_tool_call(
+                event.content, identity,
+                action_id=event.action_id,
+                tool_name=event.tool_name,
+                tool_kind=event.tool_kind,
+                tool_args=event.tool_args,
+                target=event.target,
+            )
+
+            return {
+                "intent": "buffered",
+                "rewritten": None,
+                "keywords": [],
+                "worth_saving": True,
+                "memory": None,
+            }
+
+        elif event.role == "tool_result":
+            self._passive_ingressor.ingest_tool_result(
+                event.content, identity,
+                action_id=event.action_id,
+                status=event.status,
+                render_as=event.render_as,
+            )
 
             return {
                 "intent": "buffered",
@@ -297,6 +327,37 @@ class PatchouliSystem:
                 "worth_saving": False,
                 "memory": None,
             }
+
+    async def ingest(
+        self,
+        role: str,
+        content: str,
+        user_id: str,
+        agent_id: str = "omni_doll",
+        session_id: Optional[str] = None,
+        context: Optional[List[StreamMessage]] = None,
+    ) -> Dict[str, Any]:
+        """
+        被动消息流处理入口 — 向后兼容版本
+
+        委托给 ingest_event()。新代码应直接使用 ingest_event()。
+        """
+        _VALID_ROLES = {"user", "assistant", "tool_call", "tool_result"}
+        if role not in _VALID_ROLES:
+            return {
+                "intent": "ignored",
+                "rewritten": None,
+                "keywords": [],
+                "worth_saving": False,
+                "memory": None,
+            }
+        event = PassiveIngressEvent(role=role, content=content)
+        return await self.ingest_event(
+            event=event,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
 
     async def flush_observer_session(
         self,
@@ -318,9 +379,12 @@ class PatchouliSystem:
         identity = Identity(
             user_id=user_id, agent_id=agent_id, session_id=session_id
         )
-        payload = self.eye.flush_session(identity)
-        if payload:
-            await self.kernel.submit_interaction(payload)
+        flushed = self._passive_ingressor.flush_session(identity)
+        if flushed:
+            payload, target_topic = flushed
+            await self.kernel.submit_interaction(
+                payload, target_topic=target_topic,
+            )
             return True
         return False
 
@@ -331,8 +395,8 @@ class PatchouliSystem:
         idle_shutdown_seconds: Optional[float] = None,
         lazy_start: bool = False,
     ) -> None:
-        """启动 Observer Buffer 空闲超时监控 (委托给 TheEye，flush 事件通过 bus 路由)"""
-        self.eye.start_observer_idle_monitor(
+        """启动 Observer Buffer 空闲超时监控 (委托给 PassiveObserverIngressor)"""
+        self._passive_ingressor.start_idle_monitor(
             timeout_seconds=timeout_seconds,
             scan_interval_seconds=scan_interval_seconds,
             idle_shutdown_seconds=idle_shutdown_seconds,
@@ -340,8 +404,8 @@ class PatchouliSystem:
         )
 
     def stop_observer_idle_monitor(self) -> None:
-        """停止 Observer Buffer 空闲超时监控 (委托给 TheEye)"""
-        self.eye.stop_observer_idle_monitor()
+        """停止 Observer Buffer 空闲超时监控 (委托给 PassiveObserverIngressor)"""
+        self._passive_ingressor.stop_idle_monitor()
 
     async def shutdown_drain(self) -> Dict[str, Any]:
         """服务关闭前排空 observer buffer 并强制归档所有活跃话题。"""
@@ -365,19 +429,21 @@ class PatchouliSystem:
 
         self.stop_observer_idle_monitor()
 
-        observer_payloads = self.eye.flush_all_pending_sessions()
-        for payload in observer_payloads:
-            await self.kernel.submit_interaction(payload)
+        flushed_rounds = self._passive_ingressor.flush_all_pending_sessions()
+        for payload, target_topic in flushed_rounds:
+            await self.kernel.submit_interaction(
+                payload, target_topic=target_topic,
+            )
 
         perception_result = await self.kernel.librarian_core.perception_layer.flush_all_for_shutdown()
         result = {
             "success": True,
-            "observer_payloads_submitted": len(observer_payloads),
+            "observer_payloads_submitted": len(flushed_rounds),
             "perception": perception_result,
             "reentrant": False,
         }
         logger.info(
-            f"shutdown drain 完成: observer_payloads={len(observer_payloads)}, "
+            f"shutdown drain 完成: observer_payloads={len(flushed_rounds)}, "
             f"flushed_topics={len(perception_result['flushed_topics'])}"
         )
         return result

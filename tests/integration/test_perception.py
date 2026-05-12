@@ -15,7 +15,7 @@ import asyncio
 from unittest.mock import Mock, AsyncMock
 from datetime import datetime
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnEvent
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.models import (
     BufferState,
@@ -31,7 +31,15 @@ def _make_payload(user_msg: str, assistant_msg: str, identity: Identity) -> Inte
     """辅助方法：创建测试用 Payload"""
     return InteractionPayload(
         user_message=user_msg,
-        assistant_message=assistant_msg,
+        assistant_final_text=assistant_msg,
+        turn_events=[
+            TurnEvent(
+                kind="assistant_message",
+                sequence=0,
+                role="assistant",
+                content=assistant_msg,
+            )
+        ],
         identity=identity,
     )
 

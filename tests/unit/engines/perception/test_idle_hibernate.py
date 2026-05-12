@@ -15,9 +15,9 @@ Note:
 import pytest
 import time
 import asyncio
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, AsyncMock
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnEvent
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
@@ -37,7 +37,15 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None):
         identity = _make_identity()
     return InteractionPayload(
         user_message=user_msg,
-        assistant_message=assistant_msg,
+        assistant_final_text=assistant_msg,
+        turn_events=[
+            TurnEvent(
+                kind="assistant_message",
+                sequence=0,
+                role="assistant",
+                content=assistant_msg,
+            )
+        ],
         identity=identity,
     )
 
@@ -45,12 +53,9 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None):
 class TestIdleHibernateSwapOut:
     """验证空闲超时后话题被 swap-out"""
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_idle_flush_swaps_out_topic(self, mock_parser_cls):
+    async def test_idle_flush_swaps_out_topic(self):
         """设置短超时，触发扫描，验证话题从活跃池移除"""
-        mock_parser_cls.parse.return_value = ("reply", [])
-
         config = SemanticFlowPerceptionConfig(
             idle_timeout_seconds=1,  # 1 秒超时
             fold_token_threshold=999999,
@@ -78,12 +83,9 @@ class TestIdleHibernateSwapOut:
         active_after = layer.list_active_buffers()
         assert len(active_after) == 0
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_idle_flush_triggers_generation_callback(self, mock_parser_cls):
+    async def test_idle_flush_triggers_generation_callback(self):
         """验证空闲 flush 会触发 generation_callback"""
-        mock_parser_cls.parse.return_value = ("reply", [])
-
         config = SemanticFlowPerceptionConfig(
             idle_timeout_seconds=1,
             fold_token_threshold=999999,
@@ -108,12 +110,9 @@ class TestIdleHibernateSwapOut:
         assert payload.topic_id is not None
         assert len(payload.blocks) > 0
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_idle_flush_frees_slot(self, mock_parser_cls):
+    async def test_idle_flush_frees_slot(self):
         """swap-out 后坑位释放，新话题可正常创建"""
-        mock_parser_cls.parse.return_value = ("reply", [])
-
         config = SemanticFlowPerceptionConfig(
             idle_timeout_seconds=1,
             max_resident_topics=2,
@@ -143,12 +142,9 @@ class TestIdleHibernateSwapOut:
         active = layer.list_active_buffers()
         assert len(active) == 1
 
-    @patch("hivememory.patchouli.mtp.log_parser.MTPLogParser")
     @pytest.mark.asyncio
-    async def test_shutdown_flush_archives_and_swaps_out_all_topics(self, mock_parser_cls):
+    async def test_shutdown_flush_archives_and_swaps_out_all_topics(self):
         """验证 shutdown flush 会归档并驱逐所有活跃话题"""
-        mock_parser_cls.parse.return_value = ("reply", [])
-
         config = SemanticFlowPerceptionConfig(
             idle_timeout_seconds=999,
             fold_token_threshold=999999,
