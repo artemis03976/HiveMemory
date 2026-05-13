@@ -661,12 +661,14 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     # ========== Idle Hibernate (§5.1) ==========
 
-    async def scan_idle_buffers_now(self) -> List[str]:
+    async def scan_idle_buffers_once(self) -> List[str]:
         """
-        立即执行一次空闲 Buffer 扫描（手动触发）
+        扫描并 flush 所有空闲超时的 buffer（供 SystemAsyncScheduler 调用）
+
+        统一使用 FlushReason.IDLE_TIMEOUT（archive + evict, 无 compact）。
 
         Returns:
-            List[str]: 被刷新的 topic_id 列表
+            List[str]: 被 flush 的 topic_id 列表
         """
         flushed_keys = []
         all_buffers = self._buffer_manager.get_all_buffers()
@@ -678,7 +680,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                     f"idle_time={(datetime.now().timestamp() - buffer.last_update):.1f}s"
                 )
 
-                # 调用统一调度器（Archive + Evict）
                 await self._trigger_manager.resolve_topic(
                     topic_id=buffer.topic_id,
                     trigger_reason=FlushReason.IDLE_TIMEOUT,

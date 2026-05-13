@@ -6,7 +6,7 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
     负责话题路由(route)、换入(swap-in)、换出(swap-out)和 LRU 驱逐。
 
 核心组件:
-    - BasePerceptionLayer: 感知层基类，提供空闲超时监控功能
+    - BasePerceptionLayer: 感知层基类
     - SemanticFlowPerceptionLayer: 语义流感知层 / MMU（多话题并发管理）
     - SemanticBufferManager: 话题管理器 (TopicManager) - 纯状态管理
     - TriggerManager: 话题结算调度器 - Flush 触发逻辑
@@ -14,11 +14,9 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
     - LogicalBlock: 页 (Page)
     - BaseRelayController: Token 溢出接力控制器 / Page Folding 摘要生成器
 
-空闲超时监控:
-    所有感知层实现都继承了基类的空闲超时监控功能：
-    - start_idle_monitor(): 启动监控
-    - stop_idle_monitor(): 停止监控
-    - scan_idle_buffers_now(): 立即扫描一次
+定时调度:
+    空闲超时扫描由 SystemAsyncScheduler 统一管理，
+    感知层只暴露 scan_idle_buffers_once() 供调度器调用。
 
 .. deprecated::
     Phase 4.5 重构后，以下组件已废弃：
@@ -29,7 +27,7 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 4.5.1
+版本: 5.0.0 (Phase S2 — 统一调度器接入)
 """
 from hivememory.patchouli.config import (
     MemoryPerceptionConfig,
@@ -103,12 +101,6 @@ def create_perception_layer(
     perception = SemanticFlowPerceptionLayer(
         config=impl_config,
         relay_controller=relay_controller,
-    )
-
-    # 启动空闲超时监控
-    perception.start_idle_monitor(
-        idle_timeout_seconds=impl_config.idle_timeout_seconds,
-        scan_interval_seconds=impl_config.scan_interval_seconds,
     )
 
     return perception

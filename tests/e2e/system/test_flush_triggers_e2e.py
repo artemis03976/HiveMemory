@@ -323,7 +323,7 @@ class TestIdleHibernate:
             time.sleep(3)
 
             # 手动触发扫描
-            flushed_keys = _run(layer.scan_idle_buffers_now())
+            flushed_keys = _run(layer.scan_idle_buffers_once())
 
             # 验证话题被 flush
             assert topic_id in flushed_keys, (
@@ -389,7 +389,7 @@ class TestIdleHibernate:
 
             # 等待超时并扫描
             time.sleep(2)
-            flushed = _run(layer.scan_idle_buffers_now())
+            flushed = _run(layer.scan_idle_buffers_once())
             assert len(flushed) >= 2, f"应 flush 2 个话题, 实际 {len(flushed)}"
 
             active_after_flush = layer.list_active_buffers()

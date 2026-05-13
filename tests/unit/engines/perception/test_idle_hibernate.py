@@ -76,7 +76,7 @@ class TestIdleHibernateSwapOut:
         time.sleep(1.5)
 
         # 手动触发扫描（异步方法需要 await）
-        flushed = await layer.scan_idle_buffers_now()
+        flushed = await layer.scan_idle_buffers_once()
 
         # 验证话题已被 flush 并 swap-out
         assert len(flushed) == 1
@@ -100,7 +100,7 @@ class TestIdleHibernateSwapOut:
         await layer.route_and_ingest("NEW_TOPIC", _make_payload("question", "answer", identity))
 
         time.sleep(1.5)
-        await layer.scan_idle_buffers_now()
+        await layer.scan_idle_buffers_once()
         await asyncio.sleep(0)
 
         mock_callback.assert_called()
@@ -132,7 +132,7 @@ class TestIdleHibernateSwapOut:
 
         # 等待超时并扫描
         time.sleep(1.5)
-        flushed = await layer.scan_idle_buffers_now()
+        flushed = await layer.scan_idle_buffers_once()
         assert len(flushed) == 2
 
         # 坑位已释放，新话题可正常创建（不触发 LRU 驱逐）

@@ -244,6 +244,16 @@ class PatchouliSystem:
             self._passive_ingressor.scan_idle_sessions_once,
         )
 
+        # B. Perception idle flush
+        self._scheduler.register(
+            MaintenanceTaskSpec(
+                name="perception_idle_flush",
+                interval_seconds=tasks_config.perception_idle_flush_interval_seconds,
+                enabled=tasks_config.enable_perception_idle_flush,
+            ),
+            self.kernel.librarian_core.perception_layer.scan_idle_buffers_once,
+        )
+
     async def _observer_idle_flush_callback(
         self, payload, target_topic=None,
     ) -> None:

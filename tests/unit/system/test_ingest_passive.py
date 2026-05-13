@@ -509,6 +509,8 @@ class TestSystemSchedulerIntegration:
         tasks.observer_idle_flush_timeout_seconds = 0.01
         tasks.observer_idle_flush_interval_seconds = 0.01
         tasks.enable_observer_idle_flush = True
+        tasks.perception_idle_flush_interval_seconds = 30.0
+        tasks.enable_perception_idle_flush = False
 
         sys_passive.config = MagicMock()
         sys_passive.config.scheduler = MagicMock(enabled=True, tasks=tasks)
@@ -554,6 +556,51 @@ class TestSystemSchedulerIntegration:
         payload = sys_passive.kernel.submit_interaction.await_args.args[0]
         assert payload.user_message == "q1"
         assert payload.assistant_final_text == "a1"
+
+    @pytest.mark.asyncio
+    async def test_scheduler_drives_perception_idle_flush(self, sys_passive):
+        from hivememory.patchouli.system import PatchouliSystem as Real
+
+        tasks = MagicMock()
+        tasks.observer_idle_flush_timeout_seconds = 30.0
+        tasks.observer_idle_flush_interval_seconds = 30.0
+        tasks.enable_observer_idle_flush = False
+        tasks.perception_idle_flush_interval_seconds = 0.01
+        tasks.enable_perception_idle_flush = True
+
+        sys_passive.config = MagicMock()
+        sys_passive.config.scheduler = MagicMock(enabled=True, tasks=tasks)
+        sys_passive._scheduler = SystemAsyncScheduler(
+            tick_seconds=0.01,
+            shutdown_wait_seconds=0.2,
+        )
+        sys_passive.kernel.librarian_core = MagicMock()
+        sys_passive.kernel.librarian_core.perception_layer = MagicMock()
+        sys_passive.kernel.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock(
+            return_value=["topic_001"]
+        )
+
+        sys_passive._observer_idle_flush_callback = types.MethodType(
+            Real._observer_idle_flush_callback, sys_passive
+        )
+        sys_passive._setup_maintenance_tasks = types.MethodType(
+            Real._setup_maintenance_tasks, sys_passive
+        )
+        sys_passive.start_scheduler = types.MethodType(
+            Real.start_scheduler, sys_passive
+        )
+        sys_passive.stop_scheduler = types.MethodType(
+            Real.stop_scheduler, sys_passive
+        )
+
+        sys_passive._setup_maintenance_tasks()
+
+        sys_passive.start_scheduler()
+        await asyncio.sleep(0.05)
+        await sys_passive.stop_scheduler()
+
+        sys_passive.kernel.librarian_core.perception_layer.scan_idle_buffers_once.assert_awaited()
+        sys_passive.kernel.submit_interaction.assert_not_awaited()
 
 
 class TestShutdownDrain:

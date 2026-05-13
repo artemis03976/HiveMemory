@@ -10,7 +10,6 @@ HiveMemory 感知层抽象接口
 """
 
 import logging
-import datetime
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Dict, Callable, TYPE_CHECKING
 from hivememory.core.models import StreamMessage
@@ -84,33 +83,28 @@ class BasePerceptionLayer(ABC):
     """
     感知层抽象基类
 
-    定义所有类型的 PerceptionLayer 的统一接口，并提供空闲超时监控的默认实现。
+    定义所有类型的 PerceptionLayer 的统一接口。
 
     实现策略：
         - SemanticFlowPerceptionLayer: 语义流策略（LogicalBlock + 语义吸附 + MMU）
 
-    空闲超时监控：
-        所有子类都继承统一的空闲超时监控功能，通过 start_idle_monitor() 启动。
+    定时调度由 SystemAsyncScheduler 统一管理，
+    本组件只暴露 scan_idle_buffers_once() 供调度器调用。
 
     Examples:
         >>> perception = SemanticFlowPerceptionLayer()
-        >>> perception.start_idle_monitor()  # 启动空闲监控
         >>> perception.ingest_payload(payload)
         >>> result = await perception.manual_trigger()
     """
 
     def __init__(self, *args, **kwargs):
         """
-        基类构造函数，初始化空闲超时监控相关属性。
+        基类构造函数。
 
         注意：使用 *args, **kwargs 以兼容子类的不同构造函数签名。
         """
         super().__init__(*args, **kwargs)
-        # 空闲超时监控配置
-        self._idle_timeout_seconds: int = 900  # 15 分钟默认
-        self._scan_interval_seconds: int = 30  # 扫描间隔 30 秒
-        self._idle_monitor_scheduler = None
-        self._idle_monitor_running: bool = False
+        self._idle_timeout_seconds: int = 900
 
     def set_flush_callback(self, callback: Callable[[List[StreamMessage], FlushReason], None]) -> None:
         """
@@ -121,169 +115,19 @@ class BasePerceptionLayer(ABC):
         """
         self.on_flush_callback = callback
 
-    # ========== 空闲超时监控（默认实现）==========
+    # ========== 调度器调用接口 ==========
 
-    def start_idle_monitor(
-        self,
-        idle_timeout_seconds: int = 900,
-        scan_interval_seconds: int = 30,
-    ) -> None:
+    async def scan_idle_buffers_once(self) -> List[str]:
         """
-        启动空闲超时监控器
+        扫描并 flush 所有空闲超时的 buffer（供 SystemAsyncScheduler 调用）
 
-        使用 APScheduler 后台定时扫描所有 Buffer，
-        对超时的 Buffer 自动触发 Flush。
-
-        Args:
-            idle_timeout_seconds: 空闲超时时间（秒），默认 900（15 分钟）
-            scan_interval_seconds: 扫描间隔（秒），默认 30
-
-        Examples:
-            >>> perception = SemanticFlowPerceptionLayer()
-            >>> perception.start_idle_monitor()
-            >>> # 后台自动监控空闲 Buffer
-        """
-        if self._idle_monitor_running:
-            logger.warning("空闲超时监控器已在运行中")
-            return
-
-        self._idle_timeout_seconds = idle_timeout_seconds
-        self._scan_interval_seconds = scan_interval_seconds
-
-        try:
-            from apscheduler.schedulers.background import BackgroundScheduler
-
-            self._idle_monitor_scheduler = BackgroundScheduler()
-
-            # 添加定时任务
-            self._idle_monitor_scheduler.add_job(
-                self._scan_and_flush_idle_buffers,
-                "interval",
-                seconds=self._scan_interval_seconds,
-                id="idle_timeout_scan",
-                replace_existing=True,
-            )
-
-            self._idle_monitor_scheduler.start()
-            self._idle_monitor_running = True
-
-            logger.info(
-                f"空闲超时监控器已启动: "
-                f"timeout={idle_timeout_seconds}s, "
-                f"interval={scan_interval_seconds}s"
-            )
-
-        except ImportError:
-            logger.warning(
-                "apscheduler 未安装，空闲超时监控器已禁用。"
-                "安装方式: pip install apscheduler"
-            )
-
-    def stop_idle_monitor(self) -> None:
-        """
-        停止空闲超时监控器
-
-        Examples:
-            >>> perception.stop_idle_monitor()
-        """
-        if self._idle_monitor_scheduler:
-            self._idle_monitor_scheduler.shutdown(wait=False)
-            self._idle_monitor_scheduler = None
-            self._idle_monitor_running = False
-            logger.info("空闲超时监控器已停止")
-
-    def scan_idle_buffers_now(self) -> List[str]:
-        """
-        立即执行一次空闲 Buffer 扫描（手动触发）
-
-        用于测试或立即检查空闲 Buffer。
+        子类应重写此方法以实现具体扫描逻辑。
+        默认实现返回空列表。
 
         Returns:
-            List[str]: 被刷新的 topic_id 列表
-
-        Examples:
-            >>> flushed_keys = perception.scan_idle_buffers_now()
-            >>> print(f"刷新了 {len(flushed_keys)} 个 Buffer")
+            List[str]: 被 flush 的 topic_id 列表
         """
-        logger.info("手动触发空闲 Buffer 扫描")
-        return self._scan_and_flush_idle_buffers()
-
-    def _scan_and_flush_idle_buffers(self) -> List[str]:
-        """
-        扫描所有 Buffer 并刷新超时的 Buffer（内部方法）
-
-        子类可以重写此方法以定制扫描逻辑。
-
-        Returns:
-            List[str]: 被刷新的 Buffer key 列表
-        """
-        flushed_keys = []
-        current_time = datetime.datetime.now().timestamp()
-
-        try:
-            # 获取所有活跃 topic_id
-            topic_ids = self.list_active_buffers()
-
-            logger.debug(f"开始扫描 {len(topic_ids)} 个 Buffer")
-
-            for topic_id in topic_ids:
-                try:
-                    buffer = self.get_buffer(topic_id)
-
-                    if buffer is None:
-                        continue
-
-                    # 检查是否有内容需要 Flush
-                    # SemanticBuffer: 检查 blocks
-                    has_content = False
-                    if hasattr(buffer, "blocks"):
-                        has_content = len(buffer.blocks) > 0
-
-                    if not has_content:
-                        continue
-
-                    # 检查是否超时
-                    if hasattr(buffer, "is_idle"):
-                        is_timeout = buffer.is_idle(self._idle_timeout_seconds)
-                    else:
-                        # 回退方案：直接检查 last_update
-                        idle_duration = current_time - buffer.last_update
-                        is_timeout = idle_duration > self._idle_timeout_seconds
-
-                    if is_timeout:
-                        logger.info(
-                            f"Buffer 超时: {topic_id}, "
-                            f"空闲时长={current_time - buffer.last_update:.1f}s"
-                        )
-
-                        import asyncio
-                        try:
-                            loop = asyncio.get_running_loop()
-                            loop.create_task(self.manual_trigger(topic_id))
-                        except RuntimeError:
-                            asyncio.run(self.manual_trigger(topic_id))
-                        flushed_keys.append(topic_id)
-
-                except Exception as e:
-                    logger.error(f"处理 Buffer {topic_id} 时出错: {e}")
-
-            if flushed_keys:
-                logger.info(f"本次扫描刷新了 {len(flushed_keys)} 个 Buffer")
-
-        except Exception as e:
-            logger.error(f"扫描 Buffer 时出错: {e}")
-
-        return flushed_keys
-
-    @property
-    def idle_monitor_running(self) -> bool:
-        """
-        监控器是否正在运行
-
-        Returns:
-            bool: 是否运行中
-        """
-        return self._idle_monitor_running
+        return []
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
