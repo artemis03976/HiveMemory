@@ -8,7 +8,7 @@ PassiveObserverIngressor + ObserverTurnBuffer 单元测试
 - turn_events 结构化事件流 (Phase P2)
 - accept_tool_call / accept_tool_result 工具事件
 - assistant_final_text 构建 (仅 assistant_message, 不含 tool 事件)
-- PassiveObserverIngressor: ingest_user / ingest_assistant / ingest_tool_* / flush / idle monitor
+- PassiveObserverIngressor: ingest_user / ingest_assistant / ingest_tool_* / flush / scan_idle_sessions_once
 """
 
 import pytest
@@ -452,10 +452,10 @@ class TestPassiveObserverIngressorIngest:
 
 
 # ============================================================
-# F. Idle Monitor 测试
+# F. scan_idle_sessions_once 测试 (Phase S1)
 # ============================================================
 
-class TestPassiveObserverIngressorIdleMonitor:
+class TestPassiveObserverIngressorScanIdle:
 
     def setup_method(self):
         self.mock_eye = MagicMock()
@@ -463,91 +463,55 @@ class TestPassiveObserverIngressorIdleMonitor:
             return_value=_make_gaze_result(target_topic="topic_001")
         )
 
-    @patch("apscheduler.schedulers.background.BackgroundScheduler")
-    def test_start_idle_monitor(self, MockScheduler):
-        mock_sched = MockScheduler.return_value
-        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=None)
-        ingressor.start_idle_monitor(timeout_seconds=10.0)
-
-        MockScheduler.assert_called_once()
-        mock_sched.add_job.assert_called_once()
-        mock_sched.start.assert_called_once()
-
-    @patch("apscheduler.schedulers.background.BackgroundScheduler")
-    def test_start_idle_monitor_double_guard(self, MockScheduler):
-        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=None)
-        ingressor.start_idle_monitor()
-        ingressor.start_idle_monitor()
-
-        assert MockScheduler.call_count == 1
-
-    @patch("apscheduler.schedulers.background.BackgroundScheduler")
-    def test_stop_idle_monitor(self, MockScheduler):
-        mock_sched = MockScheduler.return_value
-        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=None)
-        ingressor.start_idle_monitor()
-        ingressor.stop_idle_monitor()
-
-        mock_sched.shutdown.assert_called_once_with(wait=False)
-        assert ingressor._idle_scheduler is None
-
     @pytest.mark.asyncio
-    async def test_scan_auto_stop_after_global_idle(self):
-        mock_bus = Mock()
-        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=mock_bus)
-        ingressor._idle_monitor_enabled = True
-        ingressor._idle_scheduler = Mock()
-        ingressor._idle_timeout = 9999.0
-        ingressor._monitor_idle_shutdown_seconds = 1.0
-
-        identity = _make_identity()
-        await ingressor.ingest_user_async("消息", identity)
-        ingressor.ingest_assistant("回复", identity)
-        ingressor._last_message_ts = 0.0
-
-        ingressor._scan_idle_buffers()
-
-        mock_bus.emit.assert_called_once()
-        assert ingressor._idle_scheduler is None
-
-    @pytest.mark.asyncio
-    async def test_scan_with_bus(self):
-        mock_bus = Mock()
-        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=mock_bus)
+    async def test_scan_idle_sessions_once_flushes_and_calls_callback(self):
+        mock_cb = AsyncMock()
+        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=None)
+        ingressor.configure_idle_flush(
+            timeout_seconds=1.0,
+            on_flush_callback=mock_cb,
+        )
 
         identity = _make_identity()
         await ingressor.ingest_user_async("消息", identity)
         ingressor.ingest_assistant("回复", identity)
         buf = ingressor.buffers.get_buffer(identity)
         buf._last_activity = 0.0
-        ingressor._idle_timeout = 1.0
 
-        ingressor._scan_idle_buffers()
+        count = await ingressor.scan_idle_sessions_once()
 
-        mock_bus.emit.assert_called_once()
-        call_args = mock_bus.emit.call_args
-        assert call_args[0][0] == "observer.idle_flushed"
-        assert "target_topic" in call_args[1]
-
-    @pytest.mark.asyncio
-    async def test_scan_with_callback(self):
-        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=None)
-        mock_cb = Mock()
-        ingressor._on_flush_callback = mock_cb
-
-        identity = _make_identity()
-        await ingressor.ingest_user_async("消息", identity)
-        ingressor.ingest_assistant("回复", identity)
-        buf = ingressor.buffers.get_buffer(identity)
-        buf._last_activity = 0.0
-        ingressor._idle_timeout = 1.0
-
-        ingressor._scan_idle_buffers()
-
+        assert count == 1
         mock_cb.assert_called_once()
         call_args = mock_cb.call_args[0]
         assert isinstance(call_args[0], InteractionPayload)
-        assert call_args[1] is not None  # target_topic
+        assert call_args[1] is not None
+
+    @pytest.mark.asyncio
+    async def test_scan_idle_sessions_once_no_idle_returns_zero(self):
+        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=None)
+        ingressor.configure_idle_flush(timeout_seconds=9999.0)
+
+        identity = _make_identity()
+        await ingressor.ingest_user_async("消息", identity)
+        ingressor.ingest_assistant("回复", identity)
+
+        count = await ingressor.scan_idle_sessions_once()
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_scan_idle_sessions_once_no_callback_still_flushes(self):
+        ingressor = PassiveObserverIngressor(eye=self.mock_eye, bus=None)
+        ingressor.configure_idle_flush(timeout_seconds=1.0)
+
+        identity = _make_identity()
+        await ingressor.ingest_user_async("消息", identity)
+        ingressor.ingest_assistant("回复", identity)
+        buf = ingressor.buffers.get_buffer(identity)
+        buf._last_activity = 0.0
+
+        count = await ingressor.scan_idle_sessions_once()
+        assert count == 1
+        assert buf.is_idle
 
 
 # ============================================================

@@ -11,6 +11,12 @@
 
 本次草案讨论的是**调度基础设施**，不是直接改写各组件的 flush / GC 业务规则。
 
+本草案中的几个关键约束在全文中均视为硬约束：
+
+- 统一调度器命名为 `SystemAsyncScheduler`
+- `PatchouliSystem` 持有唯一的 `SystemAsyncScheduler`
+- 调度器必须采用**纯 `asyncio` 实现**，不再引入或依赖 `apscheduler`
+
 ---
 
 ## 2. 当前实现现状
@@ -230,6 +236,21 @@ BackgroundScheduler(thread)
 
 所有后台维护任务最终都应在**系统主事件循环**中执行，而不是各自在线程里临时创建 loop。
 
+### 5.1.1 纯 asyncio 实现
+
+统一调度器必须使用纯 `asyncio` 能力实现，例如：
+
+- `asyncio.create_task()`
+- `asyncio.sleep()`
+- `asyncio.Lock()`
+- `asyncio.Event()`
+
+明确不再使用：
+
+- `apscheduler`
+- `BackgroundScheduler`
+- 任何额外线程中的 interval 调度器
+
 ### 5.2 调度归调度，业务归业务
 
 调度器只负责：
@@ -267,19 +288,19 @@ BackgroundScheduler(thread)
 
 ## 6. 方案总览
 
-建议新增一个全局组件，暂定命名：
+建议新增一个全局组件，命名固定为：
 
-- `AsyncMaintenanceScheduler`
+- `SystemAsyncScheduler`
 
 建议放置位置：
 
 - `src/hivememory/patchouli/kernel/runtime/maintenance_scheduler.py`
 
-它是一个**系统级异步维护调度器**，由 `PatchouliSystem` 或 `PatchouliKernel` 在主 loop 中持有。
+它是一个**系统级异步维护调度器**，由 `PatchouliSystem` 在主 loop 中唯一持有。
 
 ### 6.1 责任边界
 
-`AsyncMaintenanceScheduler` 负责：
+`SystemAsyncScheduler` 负责：
 
 - 维护任务注册表
 - 维护每个任务的 interval / next_run_at / running 状态
@@ -298,8 +319,8 @@ BackgroundScheduler(thread)
 ### 6.2 与现有组件的关系
 
 ```text
-PatchouliSystem / PatchouliKernel
-  -> AsyncMaintenanceScheduler
+PatchouliSystem
+  -> SystemAsyncScheduler
        -> ObserverIdleFlushTask
        -> PerceptionIdleFlushTask
        -> MemoryGarbageCollectionTask
@@ -392,8 +413,9 @@ async def _run_loop(self) -> None:
 
 关键点：
 
-- 调度器自己运行在主 loop
+- 调度器自己运行在 `PatchouliSystem` 所在的主 loop
 - 它不创建额外事件循环
+- 它不依赖 `apscheduler`
 - 它只负责“到点了，安排一次 run”
 - 真正任务执行也回到主 loop 内
 
@@ -436,7 +458,7 @@ async def _run_loop(self) -> None:
 
 ### 当前问题
 
-- `PassiveObserverIngressor` 自己持有 APScheduler
+- `PassiveObserverIngressor` 自己持有 `apscheduler`
 - 结果通过 `SystemBus.emit()` 回发
 - 触发链路跨线程跨 loop
 
@@ -477,7 +499,7 @@ async def scan_idle_sessions_once(self) -> int:
 
 ### 当前问题
 
-- `BasePerceptionLayer` 自己持有 APScheduler
+- `BasePerceptionLayer` 自己持有 `apscheduler`
 - 基类后台扫描与语义流层手动扫描在语义上并不一致
 
 ### 目标改造
@@ -553,7 +575,7 @@ async def run_gardening_once(self) -> GardeningResult:
 
 1. 构建 Kernel / System
 2. 构建各业务组件
-3. 构建 `AsyncMaintenanceScheduler`
+3. 由 `PatchouliSystem` 构建唯一的 `SystemAsyncScheduler`
 4. 注册维护任务
 5. 系统进入 ready 后统一 `scheduler.start()`
 
@@ -627,7 +649,7 @@ observer 当前的 lazy start 是一种“绕开冲突”的策略，而不是�
 建议在系统配置中新增统一维护调度配置，例如：
 
 ```python
-class MaintenanceSchedulerConfig(BaseModel):
+class SystemAsyncSchedulerConfig(BaseModel):
     enabled: bool = True
     tick_seconds: float = 1.0
     shutdown_wait_seconds: float = 5.0
@@ -653,7 +675,7 @@ class MaintenanceTasksConfig(BaseModel):
 
 目标：
 
-- observer 不再自持 APScheduler
+- observer 不再自持 `apscheduler`
 - observer idle flush 直接在主 loop 中提交 `kernel.submit_interaction()`
 
 步骤：
@@ -668,7 +690,7 @@ class MaintenanceTasksConfig(BaseModel):
 
 目标：
 
-- 感知层不再自持 APScheduler
+- 感知层不再自持 `apscheduler`
 - idle 扫描统一走 `FlushReason.IDLE_TIMEOUT`
 
 步骤：
@@ -723,7 +745,7 @@ class MaintenanceTasksConfig(BaseModel):
 - 清晰的生命周期边界
 - 统一的重入与异常处理
 
-一个轻量的 async maintenance scheduler 已足够。
+一个轻量的纯 `asyncio` 调度器已足够。
 
 ---
 
@@ -731,8 +753,10 @@ class MaintenanceTasksConfig(BaseModel):
 
 我建议本项目采用以下方向：
 
-- 建立一套全局 `AsyncMaintenanceScheduler`
+- 建立一套全局 `SystemAsyncScheduler`
+- 由 `PatchouliSystem` 唯一持有该调度器
 - observer / perception / lifecycle 三类任务统一接入该调度器
+- 调度器实现严格基于纯 `asyncio`，不再引入 `apscheduler`
 - 业务组件不再自持 `BackgroundScheduler`
 - 所有定时维护任务统一回到主 `asyncio` loop 执行
 - 感知层 idle timeout 语义统一到 `FlushReason.IDLE_TIMEOUT`
@@ -750,7 +774,7 @@ class MaintenanceTasksConfig(BaseModel):
 
 1. 先改 observer idle flush，消除当前跨线程跨 loop 风险
 2. 再统一 perception idle timeout 语义
-3. 再引入 `AsyncMaintenanceScheduler` 并让前两者接入
+3. 再引入 `SystemAsyncScheduler` 并让前两者接入
 4. 最后接通 `LibrarianCore.start_gardening()` 与 lifecycle GC
 
 这个顺序的优点是：

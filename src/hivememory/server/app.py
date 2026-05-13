@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     loop.set_exception_handler(_loop_exception_handler)
     logger.info("正在初始化 PatchouliSystem...")
     system = init_system()
-    system.start_observer_idle_monitor(lazy_start=True)
+    system.start_scheduler()
 
     # 初始化 WebSocket 日志广播
     ws_manager = init_websocket_log_broadcasting(system.config)

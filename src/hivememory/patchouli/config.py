@@ -657,6 +657,33 @@ class SystemConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+# ========== 统一维护调度器配置 ==========
+
+class MaintenanceTasksConfig(BaseModel):
+    """各维护任务参数"""
+    observer_idle_flush_interval_seconds: float = Field(default=5.0, description="Observer 空闲扫描间隔（秒）")
+    observer_idle_flush_timeout_seconds: float = Field(default=30.0, description="Observer 空闲超时（秒）")
+    enable_observer_idle_flush: bool = Field(default=True, description="是否启用 Observer 空闲扫描")
+
+    perception_idle_flush_interval_seconds: float = Field(default=30.0, description="感知层空闲扫描间隔（秒）")
+    enable_perception_idle_flush: bool = Field(default=True, description="是否启用感知层空闲扫描")
+
+    lifecycle_gc_interval_hours: int = Field(default=24, description="生命周期 GC 间隔（小时）")
+    enable_lifecycle_gc: bool = Field(default=False, description="是否启用定时 GC")
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class SchedulerConfig(BaseModel):
+    """SystemAsyncScheduler 系统级调度参数"""
+    enabled: bool = Field(default=True, description="是否启用统一维护调度器")
+    tick_seconds: float = Field(default=1.0, description="调度循环 tick 间隔（秒）")
+    shutdown_wait_seconds: float = Field(default=5.0, description="关闭时等待任务完成的超时（秒）")
+    tasks: MaintenanceTasksConfig = Field(default_factory=MaintenanceTasksConfig, description="各维护任务配置")
+
+    model_config = ConfigDict(extra="ignore")
+
+
 # ========== 主配置类 ==========
 
 class HiveMemoryConfig(BaseSettings):
@@ -682,6 +709,7 @@ class HiveMemoryConfig(BaseSettings):
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
     koakuma: KoakumaConfig = Field(default_factory=KoakumaConfig)
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),

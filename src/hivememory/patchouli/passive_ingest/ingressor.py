@@ -11,15 +11,14 @@ PassiveObserverIngressor — 被动观测模式编排器
 TheEye 不再持有 ObserverBufferManager，只保留 gaze() 职责。
 
 作者: HiveMemory Team
-版本: 2.0.0 (Phase P2 — 结构化事件缓冲)
+版本: 3.0.0 (Phase S1 — 统一调度器接入)
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Coroutine, Dict, List, Optional, TYPE_CHECKING
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.patchouli.passive_ingest.models import (
@@ -48,7 +47,9 @@ class PassiveObserverIngressor:
     - buffer 池管理
     - ingest user/assistant
     - flush (Next User Turn / Idle Timeout / Explicit EOF)
-    - idle monitor 调度
+
+    定时调度由 SystemAsyncScheduler 统一管理，
+    本组件只暴露 scan_idle_sessions_once() 供调度器调用。
     """
 
     def __init__(
@@ -59,21 +60,27 @@ class PassiveObserverIngressor:
         self._eye = eye
         self._bus = bus
         self._buffers = ObserverTurnBufferManager()
-
-        # idle monitor 状态
-        self._idle_scheduler = None
-        self._idle_monitor_enabled: bool = False
-        self._scan_interval_seconds: float = 10.0
-        self._monitor_idle_shutdown_seconds: float = 60.0
-        self._last_message_ts: Optional[float] = None
         self._idle_timeout: float = 30.0
-        self._on_flush_callback = None
+        self._on_flush_callback: Optional[
+            Callable[[InteractionPayload, Optional[str]], Coroutine[Any, Any, None]]
+        ] = None
 
         logger.info("PassiveObserverIngressor 初始化完成")
 
     @property
     def buffers(self) -> ObserverTurnBufferManager:
         return self._buffers
+
+    def configure_idle_flush(
+        self,
+        timeout_seconds: float = 30.0,
+        on_flush_callback: Optional[
+            Callable[[InteractionPayload, Optional[str]], Coroutine[Any, Any, None]]
+        ] = None,
+    ) -> None:
+        """配置 idle flush 参数（供 SystemAsyncScheduler 任务使用）"""
+        self._idle_timeout = timeout_seconds
+        self._on_flush_callback = on_flush_callback
 
     # ========== 事件接收 ==========
 
@@ -93,7 +100,6 @@ class PassiveObserverIngressor:
         gaze_result = asyncio.run(
             self._eye.gaze(query=content, topic_snapshots=None, identity=identity)
         )
-        self._on_message_received()
         buffer = self._buffers.get_buffer(identity)
         flushed = buffer.accept_user(content=content, gaze_result=gaze_result)
         return gaze_result, flushed
@@ -114,7 +120,6 @@ class PassiveObserverIngressor:
         gaze_result = await self._eye.gaze(
             query=content, topic_snapshots=None, identity=identity
         )
-        self._on_message_received()
         buffer = self._buffers.get_buffer(identity)
         flushed = buffer.accept_user(content=content, gaze_result=gaze_result)
         return gaze_result, flushed
@@ -125,7 +130,6 @@ class PassiveObserverIngressor:
         identity: Identity,
     ) -> None:
         """被动模式: 接收 assistant 消息，缓冲等待 flush"""
-        self._on_message_received()
         buffer = self._buffers.get_buffer(identity)
         buffer.accept_assistant(content)
 
@@ -141,7 +145,6 @@ class PassiveObserverIngressor:
         target: Optional[str] = None,
     ) -> None:
         """被动模式: 接收 tool_call 事件，缓冲等待 flush"""
-        self._on_message_received()
         buffer = self._buffers.get_buffer(identity)
         buffer.accept_tool_call(
             content,
@@ -162,7 +165,6 @@ class PassiveObserverIngressor:
         render_as: str = "plain",
     ) -> None:
         """被动模式: 接收 tool_result 事件，缓冲等待 flush"""
-        self._on_message_received()
         buffer = self._buffers.get_buffer(identity)
         buffer.accept_tool_result(
             content,
@@ -242,119 +244,26 @@ class PassiveObserverIngressor:
         """强制 flush 所有仍有 pending round 的 buffer"""
         return self._buffers.flush_idle_buffers(-1.0)
 
-    # ========== Idle Monitor ==========
+    # ========== 调度器调用接口 ==========
 
-    def start_idle_monitor(
-        self,
-        timeout_seconds: float = 30.0,
-        scan_interval_seconds: float = 10.0,
-        idle_shutdown_seconds: Optional[float] = None,
-        lazy_start: bool = False,
-        on_flush_callback=None,
-    ) -> None:
-        if self._idle_scheduler is not None:
-            logger.warning("Observer idle monitor 已在运行")
-            return
+    async def scan_idle_sessions_once(self) -> int:
+        """
+        扫描并提交所有空闲超时的 session（供 SystemAsyncScheduler 调用）
 
-        self._idle_timeout = timeout_seconds
-        self._scan_interval_seconds = scan_interval_seconds
-        self._monitor_idle_shutdown_seconds = (
-            idle_shutdown_seconds
-            if idle_shutdown_seconds is not None
-            else max(timeout_seconds, scan_interval_seconds * 3)
-        )
-        self._on_flush_callback = on_flush_callback
-        self._idle_monitor_enabled = True
-        if lazy_start:
-            logger.info(
-                f"Observer idle monitor 已配置为惰性启动: "
-                f"timeout={timeout_seconds}s, interval={scan_interval_seconds}s, "
-                f"idle_shutdown={self._monitor_idle_shutdown_seconds}s"
-            )
-            return
-        self._ensure_idle_monitor_started()
+        在主 asyncio loop 中执行，不跨线程，不跨事件循环。
 
-    def stop_idle_monitor(self) -> None:
-        if self._idle_scheduler is not None:
-            self._idle_scheduler.shutdown(wait=False)
-            self._idle_scheduler = None
-            logger.info("Observer idle monitor 已停止")
-
-    def _ensure_idle_monitor_started(self) -> None:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
-
-        if self._idle_scheduler is not None:
-            return
-        self._idle_scheduler = BackgroundScheduler()
-        self._idle_scheduler.add_job(
-            self._scan_idle_buffers,
-            "interval",
-            seconds=self._scan_interval_seconds,
-        )
-        self._idle_scheduler.add_listener(
-            self._on_scheduler_event,
-            EVENT_JOB_ERROR | EVENT_JOB_MISSED,
-        )
-        self._idle_scheduler.start()
-        logger.info(
-            f"Observer idle monitor 已启动: "
-            f"timeout={self._idle_timeout}s, "
-            f"interval={self._scan_interval_seconds}s, "
-            f"idle_shutdown={self._monitor_idle_shutdown_seconds}s"
-        )
-
-    def _on_scheduler_event(self, event) -> None:
-        if getattr(event, "exception", None):
-            logger.error(
-                f"Observer idle monitor 任务异常: "
-                f"job_id={getattr(event, 'job_id', 'unknown')}, "
-                f"error={event.exception}, "
-                f"traceback={getattr(event, 'traceback', '')}"
-            )
-            return
-        logger.warning(
-            f"Observer idle monitor 错过调度: "
-            f"job_id={getattr(event, 'job_id', 'unknown')}"
-        )
-
-    def _on_message_received(self) -> None:
-        self._last_message_ts = time.time()
-        if self._idle_monitor_enabled:
-            self._ensure_idle_monitor_started()
-
-    def _dispatch_flush_results(self, results: List[FlushResult]) -> None:
+        Returns:
+            int: 本次扫描 flush 并提交的 session 数量
+        """
+        results = self._buffers.flush_idle_buffers(self._idle_timeout)
         if not results:
-            return
-        if self._bus:
-            for payload, target_topic in results:
-                self._bus.emit(
-                    "observer.idle_flushed",
-                    payload=payload,
-                    target_topic=target_topic,
-                )
-            return
-        if self._on_flush_callback:
-            for payload, target_topic in results:
-                self._on_flush_callback(payload, target_topic)
+            return 0
 
-    def _scan_idle_buffers(self) -> None:
-        try:
-            results = self._buffers.flush_idle_buffers(self._idle_timeout)
-            self._dispatch_flush_results(results)
-            if self._last_message_ts is None:
-                return
-            idle_duration = time.time() - self._last_message_ts
-            if idle_duration < self._monitor_idle_shutdown_seconds:
-                return
-            final_results = self._buffers.flush_idle_buffers(-1.0)
-            self._dispatch_flush_results(final_results)
-            self.stop_idle_monitor()
-            logger.info(
-                f"Observer idle monitor 自动关闭: idle={idle_duration:.1f}s"
-            )
-        except Exception as e:
-            logger.error(f"Observer idle monitor 扫描失败: {e}", exc_info=True)
+        for payload, target_topic in results:
+            if self._on_flush_callback:
+                await self._on_flush_callback(payload, target_topic)
+
+        return len(results)
 
 
 __all__ = [

@@ -44,6 +44,10 @@ from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+from hivememory.patchouli.kernel.runtime.maintenance_scheduler import (
+    SystemAsyncScheduler,
+    MaintenanceTaskSpec,
+)
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.server.models.memory import MemoryResponse
 
@@ -129,22 +133,18 @@ class PatchouliSystem:
         self._message_assembler = MessageAssembler(self.kernel)
 
         # 5. System 级 Pub/Sub 订阅
-        # 注意: 回调中使用 asyncio.create_task 启动异步任务
         self._shutdown_drain_started = False
 
         # 6. 取消注册表：generation_id → asyncio.Event
         self._active_generations: Dict[str, asyncio.Event] = {}
 
-        async def _on_observer_idle_flushed(payload, target_topic=None):
-            import asyncio
-            asyncio.create_task(
-                self.kernel.submit_interaction(payload, target_topic=target_topic)
-            )
-
-        self.bus.subscribe(
-            "observer.idle_flushed",
-            _on_observer_idle_flushed,
+        # 7. 统一维护调度器 (Phase S1)
+        sched_config = self.config.scheduler
+        self._scheduler = SystemAsyncScheduler(
+            tick_seconds=sched_config.tick_seconds,
+            shutdown_wait_seconds=sched_config.shutdown_wait_seconds,
         )
+        self._setup_maintenance_tasks()
 
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
 
@@ -218,6 +218,53 @@ class PatchouliSystem:
 
     def unregister_generation(self, generation_id: str) -> None:
         self._active_generations.pop(generation_id, None)
+
+    # ========== 统一维护调度器 (Phase S1) ==========
+
+    @property
+    def scheduler(self) -> SystemAsyncScheduler:
+        """访问统一维护调度器"""
+        return self._scheduler
+
+    def _setup_maintenance_tasks(self) -> None:
+        """注册所有维护任务到统一调度器"""
+        tasks_config = self.config.scheduler.tasks
+
+        # A. Observer idle flush
+        self._passive_ingressor.configure_idle_flush(
+            timeout_seconds=tasks_config.observer_idle_flush_timeout_seconds,
+            on_flush_callback=self._observer_idle_flush_callback,
+        )
+        self._scheduler.register(
+            MaintenanceTaskSpec(
+                name="observer_idle_flush",
+                interval_seconds=tasks_config.observer_idle_flush_interval_seconds,
+                enabled=tasks_config.enable_observer_idle_flush,
+            ),
+            self._passive_ingressor.scan_idle_sessions_once,
+        )
+
+    async def _observer_idle_flush_callback(
+        self, payload, target_topic=None,
+    ) -> None:
+        """Observer idle flush 结果直接提交到 Kernel（在主 loop 中执行）"""
+        await self.kernel.submit_interaction(payload, target_topic=target_topic)
+
+    def start_scheduler(self) -> None:
+        """启动统一维护调度器（在主 asyncio loop 中调用）"""
+        if not self.config.scheduler.enabled:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "PatchouliSystem.start_scheduler() 必须在运行中的 asyncio 事件循环内调用"
+            ) from exc
+        self._scheduler.start()
+
+    async def stop_scheduler(self) -> None:
+        """停止统一维护调度器"""
+        await self._scheduler.stop()
 
     # ========== 被动消息流处理 API (Passive Observer Mode) ==========
 
@@ -319,25 +366,6 @@ class PatchouliSystem:
             return True
         return False
 
-    def start_observer_idle_monitor(
-        self,
-        timeout_seconds: float = 30.0,
-        scan_interval_seconds: float = 10.0,
-        idle_shutdown_seconds: Optional[float] = None,
-        lazy_start: bool = False,
-    ) -> None:
-        """启动 Observer Buffer 空闲超时监控 (委托给 PassiveObserverIngressor)"""
-        self._passive_ingressor.start_idle_monitor(
-            timeout_seconds=timeout_seconds,
-            scan_interval_seconds=scan_interval_seconds,
-            idle_shutdown_seconds=idle_shutdown_seconds,
-            lazy_start=lazy_start,
-        )
-
-    def stop_observer_idle_monitor(self) -> None:
-        """停止 Observer Buffer 空闲超时监控 (委托给 PassiveObserverIngressor)"""
-        self._passive_ingressor.stop_idle_monitor()
-
     async def shutdown_drain(self) -> Dict[str, Any]:
         """服务关闭前排空 observer buffer 并强制归档所有活跃话题。"""
         if self._shutdown_drain_started:
@@ -358,7 +386,7 @@ class PatchouliSystem:
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
 
-        self.stop_observer_idle_monitor()
+        await self.stop_scheduler()
 
         flushed_rounds = self._passive_ingressor.flush_all_pending_sessions()
         for payload, target_topic in flushed_rounds:
