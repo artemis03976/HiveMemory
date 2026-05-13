@@ -26,6 +26,7 @@ from hivememory.patchouli.passive_ingest.observer_turn_buffer import (
 from hivememory.patchouli.passive_ingest.ingressor import (
     PassiveObserverIngressor,
 )
+from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
 
 
 def _make_identity(user_id="u1", agent_id="a1", session_id="s1") -> Identity:
@@ -415,6 +416,39 @@ class TestPassiveObserverIngressorIngest:
         payload, _ = results[0]
         assert payload.user_message == "消息"
         assert payload.assistant_final_text == "回复"
+
+    @pytest.mark.asyncio
+    async def test_route_event_user_returns_user_outcome(self):
+        identity = _make_identity()
+
+        outcome = await self.ingressor.route_event(
+            PassiveIngressEvent(role="user", content="你好"),
+            identity,
+        )
+
+        assert outcome.kind == "user"
+        assert isinstance(outcome.gaze_result, EyeGazeResult)
+        assert outcome.flushed is None
+
+    @pytest.mark.asyncio
+    async def test_route_event_tool_call_returns_buffered_outcome(self):
+        identity = _make_identity()
+        await self.ingressor.ingest_user_async("请查天气", identity)
+
+        outcome = await self.ingressor.route_event(
+            PassiveIngressEvent(
+                role="tool_call",
+                content="get_weather",
+                action_id="a1",
+                tool_name="weather_api",
+                tool_kind="function_call",
+            ),
+            identity,
+        )
+
+        assert outcome.kind == "buffered"
+        assert outcome.gaze_result is None
+        assert outcome.flushed is None
 
 
 # ============================================================

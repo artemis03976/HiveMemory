@@ -25,10 +25,10 @@ from hivememory.engines.perception.models import (
     SemanticBuffer,
     LogicalBlock,
     FlushReason,
-    InteractionPayload,
 )
 from hivememory.core.models import StreamMessage, StreamMessageType
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.patchouli.protocol import InteractionPayload
 
 
 def _make_payload(user_msg="msg", assistant_msg="reply", identity=None):

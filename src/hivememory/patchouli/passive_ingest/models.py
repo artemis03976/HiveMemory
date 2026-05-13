@@ -2,7 +2,7 @@
 被动接入事件模型 (Passive Ingest Event Models)
 
 定义被动模式的统一事件输入模型 PassiveIngressEvent，
-用于替代 system.ingest() 的散装参数。
+用于替代旧的散装被动 ingest 入参。
 
 作者: HiveMemory Team
 版本: 1.0.0
@@ -16,6 +16,7 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel
 
 from hivememory.core.models import Identity
+from hivememory.patchouli.protocol.models import EyeGazeResult, InteractionPayload
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,7 @@ class PassiveIngressEvent(BaseModel):
     被动模式统一事件输入模型
 
     将 user / assistant / tool_call / tool_result 四种事件
-    统一为一个结构化输入，替代 system.ingest() 的散装参数。
+    统一为一个结构化输入，替代旧的散装被动 ingest 入参。
 
     使用示例:
         # 普通用户消息
@@ -89,7 +90,22 @@ class PassiveIngressEvent(BaseModel):
     render_as: str = "plain"
 
 
+@dataclass(frozen=True)
+class PassiveIngressOutcome:
+    """
+    被动事件路由结果。
+
+    ingressor 负责将离散事件分派到具体缓冲逻辑，并返回统一结果；
+    system 层再决定是否提交 flush 结果、是否继续执行 hot 路由以及如何组织外部 API 返回值。
+    """
+
+    kind: Literal["user", "buffered", "ignored"]
+    gaze_result: Optional[EyeGazeResult] = None
+    flushed: Optional[tuple[InteractionPayload, Optional[str]]] = None
+
+
 __all__ = [
     "PassiveSessionKey",
     "PassiveIngressEvent",
+    "PassiveIngressOutcome",
 ]

@@ -20,6 +20,7 @@ from hivememory.patchouli.passive_ingest.ingressor import (
 )
 from hivememory.patchouli.passive_ingest.models import (
     PassiveIngressEvent,
+    PassiveIngressOutcome,
     PassiveSessionKey,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "ObserverTurnBufferManager",
     "PassiveObserverIngressor",
     "PassiveIngressEvent",
+    "PassiveIngressOutcome",
     "PassiveSessionKey",
 ]

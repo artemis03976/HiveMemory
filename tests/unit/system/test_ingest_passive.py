@@ -4,7 +4,7 @@
 覆盖:
     A. ObserverTurnBuffer 单元测试 — 状态机、flush 触发器、target_topic 绑定
     B. ObserverTurnBufferManager 单元测试 — 多 session 隔离、idle timeout
-    C. PatchouliSystem.ingest() 集成测试 — 完整 user→assistant→user 流程
+    C. PatchouliSystem.ingest_event() 集成测试 — 完整 user→assistant→user 流程
 
 作者: HiveMemory Team
 版本: 2.0 (Phase P1 — PassiveObserverIngressor)
@@ -20,6 +20,7 @@ from datetime import datetime
 
 from hivememory.core.models import Identity
 from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
 from hivememory.patchouli.passive_ingest.observer_turn_buffer import (
     ObserverBufferState,
     ObserverTurnBuffer,
@@ -65,6 +66,31 @@ def _make_hot_result(rendered_memory_context=None) -> KernelHotResult:
         keywords=[],
         worth_saving=True,
         rendered_memory_context=rendered_memory_context,
+    )
+
+
+def _ingest_event(
+    system,
+    *,
+    role: str,
+    content: str,
+    user_id: str,
+    agent_id: str = "omni_doll",
+    session_id=None,
+    **event_kwargs,
+):
+    event = PassiveIngressEvent(
+        role=role,
+        content=content,
+        **event_kwargs,
+    )
+    return asyncio.run(
+        system.ingest_event(
+            event=event,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
     )
 
 
@@ -321,14 +347,14 @@ class TestObserverTurnBufferManagerThreadSafety:
 
 
 # ============================================================
-# C. PatchouliSystem.ingest() 集成测试
+# C. PatchouliSystem.ingest_event() 集成测试
 # ============================================================
 
 @pytest.fixture
 def sys_passive():
     """
     构建最小化 PatchouliSystem mock (被动模式):
-    mock Eye (gaze), Kernel — 绑定真实 ingest() / flush_observer_session()
+    mock Eye (gaze), Kernel — 绑定真实 ingest_event() / flush_observer_session()
     PassiveObserverIngressor 持有真实的 ObserverTurnBufferManager
     """
     from hivememory.patchouli.system import PatchouliSystem
@@ -356,11 +382,8 @@ def sys_passive():
 
     # 绑定真实方法
     from hivememory.patchouli.system import PatchouliSystem as Real
-    # ingest_event 保留为 async — ingest() 内部 await 它
     s.ingest_event = types.MethodType(Real.ingest_event, s)
-    _ingest_async = types.MethodType(Real.ingest, s)
     _flush_async = types.MethodType(Real.flush_observer_session, s)
-    s.ingest = lambda *args, **kwargs: asyncio.run(_ingest_async(*args, **kwargs))
     s.flush_observer_session = lambda *args, **kwargs: asyncio.run(
         _flush_async(*args, **kwargs)
     )
@@ -369,10 +392,11 @@ def sys_passive():
 
 
 class TestIngestUserFlow:
-    """ingest(role='user') 流程"""
+    """ingest_event(role='user') 流程"""
 
     def test_user_ingest_returns_expected_keys(self, sys_passive):
-        result = sys_passive.ingest(
+        result = _ingest_event(
+            sys_passive,
             role="user", content="hello", user_id="u1",
         )
 
@@ -383,7 +407,8 @@ class TestIngestUserFlow:
         assert "memory" in result
 
     def test_user_ingest_calls_eye_gaze(self, sys_passive):
-        sys_passive.ingest(
+        _ingest_event(
+            sys_passive,
             role="user", content="test query", user_id="u1",
         )
 
@@ -392,7 +417,8 @@ class TestIngestUserFlow:
         assert call_kwargs["query"] == "test query"
 
     def test_user_ingest_calls_handle_hot_passive(self, sys_passive):
-        sys_passive.ingest(
+        _ingest_event(
+            sys_passive,
             role="user", content="q", user_id="u1",
         )
 
@@ -405,14 +431,16 @@ class TestIngestUserFlow:
             rendered_memory_context="<memory>relevant</memory>"
         )
 
-        result = sys_passive.ingest(
+        result = _ingest_event(
+            sys_passive,
             role="user", content="q", user_id="u1",
         )
 
         assert result["memory"] == "<memory>relevant</memory>"
 
     def test_identity_constructed_correctly(self, sys_passive):
-        sys_passive.ingest(
+        _ingest_event(
+            sys_passive,
             role="user", content="q",
             user_id="ux", agent_id="ax", session_id="sx",
         )
@@ -424,12 +452,13 @@ class TestIngestUserFlow:
 
 
 class TestIngestAssistantFlow:
-    """ingest(role='assistant') 流程"""
+    """ingest_event(role='assistant') 流程"""
 
     def test_assistant_ingest_returns_buffered(self, sys_passive):
-        sys_passive.ingest(role="user", content="q", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q", user_id="u1")
 
-        result = sys_passive.ingest(
+        result = _ingest_event(
+            sys_passive,
             role="assistant", content="answer", user_id="u1",
         )
 
@@ -437,18 +466,19 @@ class TestIngestAssistantFlow:
         assert result["worth_saving"] is True
 
     def test_assistant_ingest_does_not_submit(self, sys_passive):
-        sys_passive.ingest(role="user", content="q", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
 
         sys_passive.kernel.submit_interaction.assert_not_called()
 
-    def test_other_role_returns_ignored(self, sys_passive):
-        result = sys_passive.ingest(
-            role="system", content="sys msg", user_id="u1",
-        )
-
-        assert result["intent"] == "ignored"
-        assert result["worth_saving"] is False
+    def test_invalid_role_rejected_by_event_model(self, sys_passive):
+        with pytest.raises(Exception):
+            _ingest_event(
+                sys_passive,
+                role="system",
+                content="sys msg",
+                user_id="u1",
+            )
 
 
 class TestShutdownDrain:
@@ -470,8 +500,8 @@ class TestShutdownDrain:
             }
         )
 
-        sys_passive.ingest(role="user", content="q", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
 
         result = asyncio.run(Real.shutdown_drain(sys_passive))
 
@@ -510,10 +540,10 @@ class TestIngestFullRoundTrip:
 
     def test_next_user_triggers_submit(self, sys_passive):
         """第二个 user 消息触发上一轮 payload 提交"""
-        sys_passive.ingest(role="user", content="q1", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a1", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q1", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a1", user_id="u1")
 
-        sys_passive.ingest(role="user", content="q2", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q2", user_id="u1")
 
         sys_passive.kernel.submit_interaction.assert_called_once()
         payload = sys_passive.kernel.submit_interaction.call_args[0][0]
@@ -526,17 +556,17 @@ class TestIngestFullRoundTrip:
         gaze2 = _make_gaze_result(target_topic="topic_round2")
         sys_passive.eye.gaze.side_effect = [gaze1, gaze2]
 
-        sys_passive.ingest(role="user", content="q1", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a1", user_id="u1")
-        sys_passive.ingest(role="user", content="q2", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q1", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a1", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q2", user_id="u1")
 
         call_kwargs = sys_passive.kernel.submit_interaction.call_args[1]
         assert call_kwargs["target_topic"] == "topic_round1"
 
     def test_explicit_flush_submits_payload(self, sys_passive):
         """flush_observer_session() 显式提交当前轮"""
-        sys_passive.ingest(role="user", content="q", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
 
         flushed = sys_passive.flush_observer_session(user_id="u1")
 
@@ -554,10 +584,10 @@ class TestIngestFullRoundTrip:
 
     def test_multi_round_submits_each_round(self, sys_passive):
         """多轮对话，每轮都被正确提交"""
-        sys_passive.ingest(role="user", content="q1", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a1", user_id="u1")
-        sys_passive.ingest(role="user", content="q2", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a2", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q1", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a1", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q2", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a2", user_id="u1")
         sys_passive.flush_observer_session(user_id="u1")
 
         assert sys_passive.kernel.submit_interaction.call_count == 2
@@ -571,8 +601,8 @@ class TestIngestFullRoundTrip:
         gaze = _make_gaze_result(rewritten="resolved", worth_saving=True)
         sys_passive.eye.gaze.return_value = gaze
 
-        sys_passive.ingest(role="user", content="q1", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a1", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q1", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a1", user_id="u1")
         sys_passive.flush_observer_session(user_id="u1")
 
         payload = sys_passive.kernel.submit_interaction.call_args[0][0]
@@ -582,8 +612,8 @@ class TestIngestFullRoundTrip:
 
     def test_submitted_payload_contains_turn_events(self, sys_passive):
         """提交的 payload 包含 turn_events (Phase P2)"""
-        sys_passive.ingest(role="user", content="q", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
         sys_passive.flush_observer_session(user_id="u1")
 
         payload = sys_passive.kernel.submit_interaction.call_args[0][0]
@@ -595,8 +625,8 @@ class TestIngestFullRoundTrip:
 
     def test_submitted_payload_contains_assistant_final_text(self, sys_passive):
         """提交的 payload 包含 assistant_final_text (Phase P2)"""
-        sys_passive.ingest(role="user", content="q", user_id="u1")
-        sys_passive.ingest(role="assistant", content="a", user_id="u1")
+        _ingest_event(sys_passive, role="user", content="q", user_id="u1")
+        _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
         sys_passive.flush_observer_session(user_id="u1")
 
         payload = sys_passive.kernel.submit_interaction.call_args[0][0]
@@ -727,10 +757,3 @@ class TestIngestEvent:
         assert payload.turn_events[2].status == "success"
         assert payload.turn_events[3].kind == "assistant_message"
         assert payload.assistant_final_text == "北京25度。"
-
-    def test_old_ingest_delegates_to_ingest_event(self, sys_passive):
-        """旧 ingest() 正确委托给 ingest_event()"""
-        result = sys_passive.ingest(role="user", content="hello", user_id="u1")
-
-        assert "intent" in result
-        sys_passive.eye.gaze.assert_called_once()

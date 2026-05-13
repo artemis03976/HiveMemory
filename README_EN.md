@@ -24,7 +24,7 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 
 - **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, driven by `PatchouliSystem.chat_stream()` with the full generation loop and MTP execution
 - `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
-- **Passive mode**: `POST /api/v1/ingest` accepts discrete messages from external frameworks, and `PatchouliSystem.ingest()` handles buffering, analysis, retrieval, and later memory consolidation
+- **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks, and `PatchouliSystem.ingest_event()` handles buffering, analysis, retrieval, and later memory consolidation
 
 ### Memory and Topic Management
 
@@ -264,7 +264,7 @@ If you want to integrate the system directly in Python, the main entrypoint is:
 It currently exposes two primary integration modes:
 
 - `chat()` / `chat_stream()`: active mode, where the system drives generation and the MTP loop directly
-- `ingest()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
+- `ingest_event()` / `flush_observer_session()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
 
 If you only need HTTP APIs, use the FastAPI service directly. If you want to embed HiveMemory into an existing agent framework, passive ingest mode is often the most natural starting point.
 

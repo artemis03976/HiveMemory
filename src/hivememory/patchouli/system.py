@@ -247,20 +247,21 @@ class PatchouliSystem:
         identity = Identity(
             user_id=user_id, agent_id=agent_id, session_id=session_id
         )
+        outcome = await self._passive_ingressor.route_event(
+            event=event,
+            identity=identity,
+        )
 
-        if event.role == "user":
-            gaze_result, flushed = await self._passive_ingressor.ingest_user_async(
-                content=event.content, identity=identity,
+        if outcome.flushed:
+            flushed_payload, flushed_target_topic = outcome.flushed
+            await self.kernel.submit_interaction(
+                flushed_payload,
+                target_topic=flushed_target_topic,
             )
-            if flushed:
-                flushed_payload, flushed_target_topic = flushed
-                await self.kernel.submit_interaction(
-                    flushed_payload,
-                    target_topic=flushed_target_topic,
-                )
 
+        if outcome.kind == "user":
             hot_result = await self.kernel.handle_hot(
-                gaze_result,
+                outcome.gaze_result,
                 mode="passive",
             )
 
@@ -272,11 +273,7 @@ class PatchouliSystem:
                 "memory": hot_result.rendered_memory_context,
             }
 
-        elif event.role == "assistant":
-            self._passive_ingressor.ingest_assistant(
-                content=event.content, identity=identity,
-            )
-
+        if outcome.kind == "buffered":
             return {
                 "intent": "buffered",
                 "rewritten": None,
@@ -285,79 +282,13 @@ class PatchouliSystem:
                 "memory": None,
             }
 
-        elif event.role == "tool_call":
-            self._passive_ingressor.ingest_tool_call(
-                event.content, identity,
-                action_id=event.action_id,
-                tool_name=event.tool_name,
-                tool_kind=event.tool_kind,
-                tool_args=event.tool_args,
-                target=event.target,
-            )
-
-            return {
-                "intent": "buffered",
-                "rewritten": None,
-                "keywords": [],
-                "worth_saving": True,
-                "memory": None,
-            }
-
-        elif event.role == "tool_result":
-            self._passive_ingressor.ingest_tool_result(
-                event.content, identity,
-                action_id=event.action_id,
-                status=event.status,
-                render_as=event.render_as,
-            )
-
-            return {
-                "intent": "buffered",
-                "rewritten": None,
-                "keywords": [],
-                "worth_saving": True,
-                "memory": None,
-            }
-
-        else:
-            return {
-                "intent": "ignored",
-                "rewritten": None,
-                "keywords": [],
-                "worth_saving": False,
-                "memory": None,
-            }
-
-    async def ingest(
-        self,
-        role: str,
-        content: str,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
-        context: Optional[List[StreamMessage]] = None,
-    ) -> Dict[str, Any]:
-        """
-        被动消息流处理入口 — 向后兼容版本
-
-        委托给 ingest_event()。新代码应直接使用 ingest_event()。
-        """
-        _VALID_ROLES = {"user", "assistant", "tool_call", "tool_result"}
-        if role not in _VALID_ROLES:
-            return {
-                "intent": "ignored",
-                "rewritten": None,
-                "keywords": [],
-                "worth_saving": False,
-                "memory": None,
-            }
-        event = PassiveIngressEvent(role=role, content=content)
-        return await self.ingest_event(
-            event=event,
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
+        return {
+            "intent": "ignored",
+            "rewritten": None,
+            "keywords": [],
+            "worth_saving": False,
+            "memory": None,
+        }
 
     async def flush_observer_session(
         self,

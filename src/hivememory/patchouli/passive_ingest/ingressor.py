@@ -22,6 +22,10 @@ import time
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from hivememory.core.models import Identity, StreamMessage
+from hivememory.patchouli.passive_ingest.models import (
+    PassiveIngressEvent,
+    PassiveIngressOutcome,
+)
 from hivememory.patchouli.passive_ingest.observer_turn_buffer import (
     ObserverTurnBuffer,
     ObserverTurnBufferManager,
@@ -166,6 +170,59 @@ class PassiveObserverIngressor:
             status=status,
             render_as=render_as,
         )
+
+    async def route_event(
+        self,
+        event: PassiveIngressEvent,
+        identity: Identity,
+    ) -> PassiveIngressOutcome:
+        """
+        将统一被动事件路由到对应 ingest 分支。
+
+        该方法只负责被动入口侧的事件分发与缓冲结果归一化，
+        不负责 kernel 提交、hot 路由或外部 API 返回值组织。
+        """
+        if event.role == "user":
+            gaze_result, flushed = await self.ingest_user_async(
+                content=event.content,
+                identity=identity,
+            )
+            return PassiveIngressOutcome(
+                kind="user",
+                gaze_result=gaze_result,
+                flushed=flushed,
+            )
+
+        if event.role == "assistant":
+            self.ingest_assistant(
+                content=event.content,
+                identity=identity,
+            )
+            return PassiveIngressOutcome(kind="buffered")
+
+        if event.role == "tool_call":
+            self.ingest_tool_call(
+                event.content,
+                identity,
+                action_id=event.action_id,
+                tool_name=event.tool_name,
+                tool_kind=event.tool_kind,
+                tool_args=event.tool_args,
+                target=event.target,
+            )
+            return PassiveIngressOutcome(kind="buffered")
+
+        if event.role == "tool_result":
+            self.ingest_tool_result(
+                event.content,
+                identity,
+                action_id=event.action_id,
+                status=event.status,
+                render_as=event.render_as,
+            )
+            return PassiveIngressOutcome(kind="buffered")
+
+        return PassiveIngressOutcome(kind="ignored")
 
     # ========== Flush ==========
 

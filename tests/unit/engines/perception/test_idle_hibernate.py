@@ -22,10 +22,10 @@ from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
 from hivememory.engines.perception.models import (
-    InteractionPayload,
     FlushReason,
 )
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.patchouli.protocol import InteractionPayload
 
 
 def _make_identity(user="u1", agent="a1"):

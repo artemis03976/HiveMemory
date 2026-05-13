@@ -28,6 +28,7 @@ import pytest
 
 from hivememory.core.models import Identity
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
 
 from tests.e2e.conftest import wait_for_memory_persistence
 
@@ -154,13 +155,15 @@ def _passive_ingest_round(
         user_msg: 用户消息内容
         assistant_msg: 助手消息内容
     """
-    _run(system.ingest(
-        role="user", content=user_msg,
-        user_id=user_id, agent_id=agent_id,
+    _run(system.ingest_event(
+        event=PassiveIngressEvent(role="user", content=user_msg),
+        user_id=user_id,
+        agent_id=agent_id,
     ))
-    _run(system.ingest(
-        role="assistant", content=assistant_msg,
-        user_id=user_id, agent_id=agent_id,
+    _run(system.ingest_event(
+        event=PassiveIngressEvent(role="assistant", content=assistant_msg),
+        user_id=user_id,
+        agent_id=agent_id,
     ))
     _run(system.flush_observer_session(user_id=user_id, agent_id=agent_id))
     # 等待 daemon thread 完成 submit_interaction
