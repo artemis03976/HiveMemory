@@ -25,7 +25,7 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
 from hivememory.patchouli.mtp.models import MTPVerb
-from hivememory.engines.perception.models import TraceItem
+from hivememory.core.models import TraceItem, TurnEvent
 
 if TYPE_CHECKING:
     from hivememory.patchouli.kernel import PatchouliKernel
@@ -188,6 +188,8 @@ class KernelLoopExecutor:
         """
         text_segments: List[str] = []
         mtp_commands: List[str] = []
+        turn_events: List[TurnEvent] = []
+        _seq = 0
         iteration = 0
 
         self.kernel.koakuma.set_current_identity(frame.identity)
@@ -234,9 +236,24 @@ class KernelLoopExecutor:
 
             if not result.was_mtp_interrupted:
                 text_segments.append(result.text)
+                turn_events.append(TurnEvent(
+                    kind="assistant_message",
+                    sequence=_seq,
+                    role="assistant",
+                    content=result.text,
+                ))
+                _seq += 1
                 break
 
             text_segments.append(result.prefix_text)
+            if result.prefix_text:
+                turn_events.append(TurnEvent(
+                    kind="assistant_message",
+                    sequence=_seq,
+                    role="assistant",
+                    content=result.prefix_text,
+                ))
+                _seq += 1
             raw_hint = result.mtp_fragment
             verb_hint = "UNKNOWN"
             target_hint = ""
@@ -250,6 +267,20 @@ class KernelLoopExecutor:
                 target_hint, args_hint, raw_hint = self._extract_command_info(
                     mtp_result.command, raw_hint
                 )
+            action_id = f"action_{iteration}_{_seq}"
+            command_event = TurnEvent(
+                kind="tool_call",
+                sequence=_seq,
+                role="assistant",
+                content=result.text,
+                action_id=action_id,
+                tool_kind=verb_hint,
+                tool_name=target_hint if target_hint else None,
+                tool_args=args_hint or None,
+                target=target_hint if target_hint else None,
+            )
+            turn_events.append(command_event)
+            _seq += 1
             if stream_emitter is not None:
                 mtp_start_data = {
                     "verb": verb_hint,
@@ -268,6 +299,18 @@ class KernelLoopExecutor:
 
             if mtp_result is None:
                 text_segments.append(result.mtp_fragment)
+                command_event.status = "failed"
+                turn_events.append(TurnEvent(
+                    kind="tool_result",
+                    sequence=_seq,
+                    role="user",
+                    content=result.mtp_fragment,
+                    action_id=action_id,
+                    tool_kind=verb_hint,
+                    tool_name=target_hint if target_hint else None,
+                    status="failed",
+                ))
+                _seq += 1
                 if stream_emitter is not None:
                     mtp_failed_data = {
                         "verb": verb_hint,
@@ -327,10 +370,24 @@ class KernelLoopExecutor:
                     "role": "user",
                     "content": f"[System IPC Return]\n{ipc_response}",
                 })
+                command_event.status = "success"
+                turn_events.append(TurnEvent(
+                    kind="tool_result",
+                    sequence=_seq,
+                    role="user",
+                    content=ipc_response,
+                    action_id=action_id,
+                    tool_kind="CALL",
+                    tool_name=target_hint if target_hint else None,
+                    status="success",
+                    render_as="system_ipc_return",
+                ))
+                _seq += 1
                 mtp_commands.append("CALL")
                 continue
 
             mtp_commands.append(verb_hint)
+            command_event.status = mtp_result.response_status
             if stream_emitter is not None:
                 mtp_result_data = {
                     "verb": verb_hint,
@@ -355,6 +412,19 @@ class KernelLoopExecutor:
                 "role": "user",
                 "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
             })
+            turn_events.append(TurnEvent(
+                kind="tool_result",
+                sequence=_seq,
+                role="user",
+                content=mtp_result.formatted_response,
+                action_id=action_id,
+                tool_kind=verb_hint,
+                tool_name=target_hint if target_hint else None,
+                target=target_hint if target_hint else None,
+                status=mtp_result.response_status,
+                render_as="system_tool_result",
+            ))
+            _seq += 1
 
             if frame.is_sub_frame() and mtp_result.command:
                 self._try_harvest_alias(frame, mtp_result)
@@ -364,6 +434,7 @@ class KernelLoopExecutor:
             mtp_iterations=max(0, iteration - 1),
             total_iterations=iteration,
             mtp_commands_executed=mtp_commands,
+            turn_events=turn_events,
         )
         if stream_emitter is not None:
             await stream_emitter({"event": "done", "data": loop_result.model_dump()})

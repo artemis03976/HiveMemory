@@ -16,7 +16,7 @@ import pytest
 from unittest.mock import Mock
 from datetime import datetime
 
-from hivememory.core.models import Identity, StreamMessage, StreamMessageType
+from hivememory.core.models import Identity, TurnRecord
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.models import (
     BufferState,
@@ -76,17 +76,11 @@ class TestSemanticBufferManagerCRUD:
 
     def _create_block(self, content: str = "Hello") -> LogicalBlock:
         """辅助方法：创建一个完整的 block"""
-        user_msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content=content
-        )
-        response_msg = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT,
-            content="Response"
-        )
         return LogicalBlock(
-            user_block=user_msg,
-            response_block=response_msg,
+            turn=TurnRecord(
+                user_query=content,
+                assistant_final_text="Response",
+            ),
             total_tokens=100,
         )
 
@@ -285,17 +279,11 @@ class TestSemanticBufferManagerInfo:
         """测试获取有 blocks 的 buffer 信息"""
         buffer = self.manager.create_buffer(self.identity.user_id)
 
-        user_msg = StreamMessage(
-            message_type=StreamMessageType.USER,
-            content="Hello"
-        )
-        response_msg = StreamMessage(
-            message_type=StreamMessageType.ASSISTANT,
-            content="Hi"
-        )
         block = LogicalBlock(
-            user_block=user_msg,
-            response_block=response_msg,
+            turn=TurnRecord(
+                user_query="Hello",
+                assistant_final_text="Hi",
+            ),
             total_tokens=50,
         )
 
@@ -337,8 +325,10 @@ class TestSemanticBufferActiveTopics:
 
         # 添加 blocks 以使话题出现在菜单中
         block = LogicalBlock(
-            user_query="test",
-            clean_response="test",
+            turn=TurnRecord(
+                user_query="test",
+                assistant_final_text="test",
+            ),
             total_tokens=10
         )
         self.manager.add_block(buf1.topic_id, block)

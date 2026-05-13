@@ -1,32 +1,28 @@
 """
-HiveMemory 感知层上下文转换器
+HiveMemory 感知层上下文转换门面
 
-将感知层数据转换为 LLM 可用的格式。
-
-职责:
-    - 将 LogicalBlock 列表转换为 OpenAI messages 格式
-    - 将 TopicSnapshot 列表转换为文本格式供 TheEye 使用
-
-作者: HiveMemory Team
-版本: 1.0.0
+当前文件只保留轻量门面职责：
+    - `blocks_to_messages()` 委托 `HistoryTranscriptBuilder`
+    - `snapshots_to_context_text()` 将 topic snapshots 渲染为 TheEye 菜单文本
 """
 
 from typing import List, Dict
 from hivememory.engines.perception.models import LogicalBlock, TopicSnapshot
+from hivememory.engines.perception.history_transcript_builder import HistoryTranscriptBuilder
+
+_history_builder = HistoryTranscriptBuilder()
 
 
 class PerceptionContextConverter:
-    """将感知层数据转换为 LLM 可用的格式"""
+    """感知层上下文转换门面。"""
 
     @staticmethod
     def blocks_to_messages(
         blocks: List[LogicalBlock],
-        include_state_summary: bool = False,
-        state_summary: str = "",
         current_agent_id: str = "default",
     ) -> List[Dict[str, str]]:
         """
-        将 LogicalBlock 列表转换为 OpenAI messages 格式
+        将 LogicalBlock 列表转换为 OpenAI messages 格式。
 
         多角色历史渲染 (Phase 1):
         当 block.identity.agent_id 与 current_agent_id 不同时，
@@ -34,36 +30,13 @@ class PerceptionContextConverter:
 
         Args:
             blocks: LogicalBlock 列表
-            include_state_summary: 是否在开头包含状态摘要（已废弃，保留用于兼容）
-            state_summary: 话题状态摘要（已废弃，保留用于兼容）
             current_agent_id: 当前活跃的 Agent 别名，用于多角色渲染
 
         Returns:
             List[Dict]: OpenAI 格式的 messages
                 [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]
         """
-        messages = []
-
-        # 转换每个 block
-        for block in blocks:
-            messages.append({
-                "role": "user",
-                "content": block.user_query
-            })
-
-            # 多角色历史渲染：非当前 Agent 的发言追加身份前缀
-            content = block.clean_response
-            if (block.identity.agent_id
-                    and block.identity.agent_id not in ("default", "omni_doll")
-                    and block.identity.agent_id != current_agent_id):
-                content = f"[From: {block.identity.agent_id}]\n{content}"
-
-            messages.append({
-                "role": "assistant",
-                "content": content
-            })
-
-        return messages
+        return _history_builder.build_messages(blocks, current_agent_id=current_agent_id)
 
     @staticmethod
     def snapshots_to_context_text(

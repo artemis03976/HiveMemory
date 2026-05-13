@@ -362,7 +362,7 @@ HiveMemory/
 
 1. 阅读 [README.md](../README.md) 了解项目整体能力
 2. 阅读 [PROJECT.md](PROJECT.md) 了解 Patchouli 架构与设计背景
-3. 通过 `/api/v1/chat` 或 `/api/v1/ingest` 接入你的 Agent 工作流
+3. 通过 `/api/v1/chat` 或 `/api/v1/ingest`（被动事件入口）接入你的 Agent 工作流
 4. 修改 `configs/config.yaml` 调整检索、感知和生命周期参数
 
 ---

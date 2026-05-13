@@ -56,7 +56,7 @@ from hivememory.patchouli.mtp.exceptions import (
     PermissionDeniedError,
 )
 from hivememory.engines.generation.models import WriteFocus, UpdateFocus
-from hivememory.engines.perception.models import TraceItem
+from hivememory.core.models import TraceItem
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus

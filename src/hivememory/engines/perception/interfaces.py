@@ -16,8 +16,8 @@ from typing import List, Optional, Any, Dict, Callable, TYPE_CHECKING
 from hivememory.core.models import StreamMessage
 from hivememory.engines.perception.models import (
     FlushReason,
-    InteractionPayload,
 )
+from hivememory.patchouli.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
     from hivememory.core.models import Identity

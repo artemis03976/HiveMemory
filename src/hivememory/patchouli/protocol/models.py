@@ -12,83 +12,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from hivememory.engines.retrieval.models import QueryFilters
-from hivememory.core.models import MemoryAtom, Identity
+from hivememory.core.models import MemoryAtom, Identity, TraceItem, TurnEvent
 from hivememory.engines.gateway.models import GatewayIntent
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
 from hivememory.engines.retrieval.models import QueryFilters
-
-class EyeGazeResult(BaseModel):
-    """
-    TheEye 的统一输出模型
-
-    TheEye 作为 Agentic Dispatcher，负责信息重整与话题路由。
-    数据格式转换由 PatchouliKernel 负责。
-
-    Attributes:
-        intent: Gateway 意图分类
-        rewritten_query: 指代消解后的完整查询
-        search_keywords: 稀疏检索关键词列表
-        worth_saving: 是否值得保存
-        raw_query: 原始用户查询
-        identity: 身份标识
-        processing_time_ms: Eye 处理耗时（毫秒）
-        is_fallback: 是否为 fallback 结果
-        target_topic: 路由目标话题 ID 或 "NEW_TOPIC"
-    """
-    intent: GatewayIntent = Field(..., description="意图分类")
-    rewritten_query: str = Field(..., description="指代消解后的查询")
-    search_keywords: List[str] = Field(default_factory=list, description="检索关键词")
-    worth_saving: bool = Field(..., description="是否值得保存")
-    raw_query: str = Field(..., description="原始用户查询")
-    identity: Identity = Field(default_factory=Identity, description="身份标识")
-    processing_time_ms: float = Field(default=0.0, description="处理耗时")
-    is_fallback: bool = Field(default=False, description="是否为 fallback 结果")
-
-    #: 路由目标话题 (MMU Agentic Routing, Phase 4.5)
-    target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID 或 NEW_TOPIC")
-
-    #: 新话题标题（仅 NEW_TOPIC 时由 Gateway 生成）
-    new_topic_title: Optional[str] = Field(default=None, description="新话题标题")
-
-    #: 新话题摘要（仅 NEW_TOPIC 时由 Gateway 生成）
-    new_topic_summary: Optional[str] = Field(default=None, description="新话题摘要")
-
-
-class KernelHotResult(BaseModel):
-    """
-    PatchouliKernel 热路径的统一输出模型
-
-    替代 handle_hot() 返回的 bare Dict[str, Any]，提供类型安全的返回值。
-
-    Attributes:
-        intent: 意图分类字符串
-        rewritten: 重写后的查询
-        keywords: 关键词列表
-        worth_saving: 是否值得保存
-        rendered_memory_context: 检索到的记忆上下文（可能为 None）
-    """
-    intent: str = Field(..., description="意图")
-    rewritten: Optional[str] = Field(default=None, description="重写后的查询")
-    keywords: List[str] = Field(default_factory=list, description="关键词列表")
-    worth_saving: bool = Field(default=False, description="是否值得保存")
-    rendered_memory_context: Optional[str] = Field(default=None, description="渲染后的记忆上下文")
-    retrieved_memories: List[MemoryAtom] = Field(default_factory=list, description="预检索到的记忆列表")
-
-
-__all__ = [
-    "MessageType",
-    "ProtocolMessage",
-    "QueryFilters",
-    "RetrievalRequest",
-    "RetrievalResponse",
-    "EyeGazeResult",
-    "KernelHotResult",
-    "MTPExecutionResult",
-]
 
 
 class MessageType(str, Enum):
@@ -254,3 +185,137 @@ class ChatResult(BaseModel):
     mtp_iterations: int = Field(default=0, description="MTP 中断次数")
     total_iterations: int = Field(default=1, description="总生成轮次")
     mtp_commands_executed: List[str] = Field(default_factory=list, description="执行过的 MTP 指令摘要")
+    # LoopExecutor 收集的结构化轮次事件（序列化为 dict 避免循环导入）
+    turn_events: List[Any] = Field(default_factory=list, description="LoopExecutor 收集的 TurnEvent 列表")
+
+
+class EyeGazeResult(BaseModel):
+    """
+    TheEye 的统一输出模型
+
+    TheEye 作为 Agentic Dispatcher，负责信息重整与话题路由。
+    数据格式转换由 PatchouliKernel 负责。
+
+    Attributes:
+        intent: Gateway 意图分类
+        rewritten_query: 指代消解后的完整查询
+        search_keywords: 稀疏检索关键词列表
+        worth_saving: 是否值得保存
+        raw_query: 原始用户查询
+        identity: 身份标识
+        processing_time_ms: Eye 处理耗时（毫秒）
+        is_fallback: 是否为 fallback 结果
+        target_topic: 路由目标话题 ID 或 "NEW_TOPIC"
+    """
+    intent: GatewayIntent = Field(..., description="意图分类")
+    rewritten_query: str = Field(..., description="指代消解后的查询")
+    search_keywords: List[str] = Field(default_factory=list, description="检索关键词")
+    worth_saving: bool = Field(..., description="是否值得保存")
+    raw_query: str = Field(..., description="原始用户查询")
+    identity: Identity = Field(default_factory=Identity, description="身份标识")
+    processing_time_ms: float = Field(default=0.0, description="处理耗时")
+    is_fallback: bool = Field(default=False, description="是否为 fallback 结果")
+
+    #: 路由目标话题 (MMU Agentic Routing, Phase 4.5)
+    target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID 或 NEW_TOPIC")
+
+    #: 新话题标题（仅 NEW_TOPIC 时由 Gateway 生成）
+    new_topic_title: Optional[str] = Field(default=None, description="新话题标题")
+
+    #: 新话题摘要（仅 NEW_TOPIC 时由 Gateway 生成）
+    new_topic_summary: Optional[str] = Field(default=None, description="新话题摘要")
+
+
+class InteractionPayload(BaseModel):
+    """
+    PatchouliSystem / Kernel -> Perception 的原子交互传输包
+
+    作为系统级数据传输协议存在，承载单轮交互在进入感知层前的完整结构化结果。
+
+    Attributes:
+        user_message: 原始用户消息
+        mtp_traces: Koakuma 执行期记录的 Trace 列表
+        write_focus: WRITE 指令核心素材
+        update_focus: UPDATE 指令修改意图
+        identity: 归属身份元数据
+        rewritten_query: Gateway 重写后的查询
+        worth_saving: Gateway 价值判断
+        assistant_final_text: 最终自然语言回复
+        turn_events: 结构化轮次事件列表
+    """
+    # 身份元数据
+    identity: Identity = Field(default_factory=Identity, description="归属元数据")
+
+    user_message: str = Field(..., description="原始用户消息")
+
+    rewritten_query: Optional[str] = Field(
+        default=None,
+        description="Gateway 重写后的查询"
+    )
+
+    # ========== 结构化轮次事件 ==========
+    # 模型最终自然语言回复
+    assistant_final_text: Optional[str] = Field(
+        default=None,
+        description="去除 MTP 噪音后的最终自然语言回复（loop_result.final_text 直传）"
+    )
+    # 收集的结构化轮次事件列表
+    turn_events: List[TurnEvent] = Field(
+        default_factory=list,
+        description="LoopExecutor 收集的结构化轮次事件列表，有值时感知层优先走结构化路径"
+    )
+    mtp_traces: List[TraceItem] = Field(
+        default_factory=list,
+        description="由 Koakuma 在执行过程中记录的 Trace 列表"
+    )
+
+    # 控制信号 (挂载在 Payload 上，而非独立传输)
+    write_focus: Optional[Any] = Field(
+        default=None,
+        description="WRITE 指令的核心素材 (WriteFocus)"
+    )
+    update_focus: Optional[Any] = Field(
+        default=None,
+        description="UPDATE 指令的修改意图 (UpdateFocus)"
+    )
+
+    worth_saving: Optional[bool] = Field(
+        default=None,
+        description="Gateway 价值判断"
+    )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class KernelHotResult(BaseModel):
+    """
+    PatchouliKernel 热路径的统一输出模型
+
+    替代 handle_hot() 返回的 bare Dict[str, Any]，提供类型安全的返回值。
+
+    Attributes:
+        intent: 意图分类字符串
+        rewritten: 重写后的查询
+        keywords: 关键词列表
+        worth_saving: 是否值得保存
+        rendered_memory_context: 检索到的记忆上下文（可能为 None）
+    """
+    intent: str = Field(..., description="意图")
+    rewritten: Optional[str] = Field(default=None, description="重写后的查询")
+    keywords: List[str] = Field(default_factory=list, description="关键词列表")
+    worth_saving: bool = Field(default=False, description="是否值得保存")
+    rendered_memory_context: Optional[str] = Field(default=None, description="渲染后的记忆上下文")
+    retrieved_memories: List[MemoryAtom] = Field(default_factory=list, description="预检索到的记忆列表")
+
+
+__all__ = [
+    "MessageType",
+    "ProtocolMessage",
+    "QueryFilters",
+    "RetrievalRequest",
+    "RetrievalResponse",
+    "EyeGazeResult",
+    "InteractionPayload",
+    "KernelHotResult",
+    "MTPExecutionResult",
+]

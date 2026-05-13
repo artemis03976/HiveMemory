@@ -30,14 +30,15 @@ import uuid
 from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
-from hivememory.engines.perception.models import InteractionPayload
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.patchouli.message_assembler import MessageAssembler
+from hivememory.patchouli.protocol.models import ChatResult, InteractionPayload
 from hivememory.infrastructure.trace_context import (
     generate_trace_id, set_trace_context, reset_trace_context
 )
 
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.eye import TheEye
+from hivememory.patchouli.passive_ingest import PassiveObserverIngressor, PassiveIngressEvent
 from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
@@ -105,9 +106,15 @@ class PatchouliSystem:
         # 2. 初始化 Gateway
         self._init_gateway()
 
-        # 3. 构建 TheEye (通过 bus 访问感知层，Phase 4.5 Agentic Dispatcher)
+        # 3. 构建 TheEye (Phase 4.5 Agentic Dispatcher — 仅保留 gaze 职责)
         self.eye = TheEye(
             engine=self._gateway_engine,
+            bus=self.bus,
+        )
+
+        # 3.5 被动 ingest 编排器 (Phase P1 — 从 TheEye 独立)
+        self._passive_ingressor = PassiveObserverIngressor(
+            eye=self.eye,
             bus=self.bus,
         )
 
@@ -119,6 +126,7 @@ class PatchouliSystem:
             kernel=self.kernel,
             worker_agent=self._worker_agent,
         )
+        self._message_assembler = MessageAssembler(self.kernel)
 
         # 5. System 级 Pub/Sub 订阅
         # 注意: 回调中使用 asyncio.create_task 启动异步任务
@@ -127,9 +135,11 @@ class PatchouliSystem:
         # 6. 取消注册表：generation_id → asyncio.Event
         self._active_generations: Dict[str, asyncio.Event] = {}
 
-        async def _on_observer_idle_flushed(payload):
+        async def _on_observer_idle_flushed(payload, target_topic=None):
             import asyncio
-            asyncio.create_task(self.kernel.submit_interaction(payload))
+            asyncio.create_task(
+                self.kernel.submit_interaction(payload, target_topic=target_topic)
+            )
 
         self.bus.subscribe(
             "observer.idle_flushed",
@@ -210,39 +220,26 @@ class PatchouliSystem:
         self._active_generations.pop(generation_id, None)
 
     # ========== 被动消息流处理 API (Passive Observer Mode) ==========
-    # TODO: 参考chat方法重置话题路由时序流
-    async def ingest(
+
+    async def ingest_event(
         self,
-        role: str,
-        content: str,
+        event: PassiveIngressEvent,
         user_id: str,
         agent_id: str = "omni_doll",
         session_id: Optional[str] = None,
-        context: Optional[List[StreamMessage]] = None,
     ) -> Dict[str, Any]:
         """
-        被动消息流处理入口 (Passive Observer Mode) - 异步版本
+        被动消息流处理入口 (Passive Observer Mode) — 统一事件版本
 
-        接收外部系统（Discord Bot、微信机器人、传统 Agent 框架）的离散消息，
-        通过 TheEye 的 ObserverSessionBuffer 缓冲配对后，构建完整的 InteractionPayload
+        接收外部系统的离散事件（user / assistant / tool_call / tool_result），
+        通过 PassiveObserverIngressor 缓冲配对后，构建完整的 InteractionPayload
         提交给感知层进行记忆沉淀。
 
-        与 chat() 的区别:
-            - chat(): Kernel 主动驱动 LLM 递归生成循环 (Active/AIOS Mode)
-            - ingest(): 被动接收消息，缓冲配对 + Eye 分析 + 检索降级 (Passive Mode)
-
-        数据流 (参考 Passive.md):
-            - User: Eye 分析 + 缓冲(自动 flush 上一轮) → 被动模式检索
-            - Assistant: 缓冲配对(等待 flush 触发)
-            - 其他: 忽略
-
         Args:
-            role: 消息角色 (user/assistant)
-            content: 消息内容
+            event: 统一事件输入模型
             user_id: 用户 ID
             agent_id: Agent ID
             session_id: 会话 ID
-            context: 对话历史上下文 (仅 User 消息需要，用于指代消解)
 
         Returns:
             Dict: 处理结果
@@ -250,21 +247,21 @@ class PatchouliSystem:
         identity = Identity(
             user_id=user_id, agent_id=agent_id, session_id=session_id
         )
+        outcome = await self._passive_ingressor.route_event(
+            event=event,
+            identity=identity,
+        )
 
-        if role == "user":
-            # 1. Eye 分析 + 缓冲 (自动 flush 上一轮)
-            gaze_result, flushed_payload = await self.eye.ingest_user_async(
-                content=content, identity=identity, context=context or [],
+        if outcome.flushed:
+            flushed_payload, flushed_target_topic = outcome.flushed
+            await self.kernel.submit_interaction(
+                flushed_payload,
+                target_topic=flushed_target_topic,
             )
-            if flushed_payload:
-                await self.kernel.submit_interaction(
-                    flushed_payload,
-                    target_topic=gaze_result.target_topic,
-                )
 
-            # 2. 被动模式检索 (使用 FullContextRenderer 降级渲染)
+        if outcome.kind == "user":
             hot_result = await self.kernel.handle_hot(
-                gaze_result,
+                outcome.gaze_result,
                 mode="passive",
             )
 
@@ -276,9 +273,7 @@ class PatchouliSystem:
                 "memory": hot_result.rendered_memory_context,
             }
 
-        elif role == "assistant":
-            self.eye.ingest_assistant(content=content, identity=identity)
-
+        if outcome.kind == "buffered":
             return {
                 "intent": "buffered",
                 "rewritten": None,
@@ -287,14 +282,13 @@ class PatchouliSystem:
                 "memory": None,
             }
 
-        else:
-            return {
-                "intent": "ignored",
-                "rewritten": None,
-                "keywords": [],
-                "worth_saving": False,
-                "memory": None,
-            }
+        return {
+            "intent": "ignored",
+            "rewritten": None,
+            "keywords": [],
+            "worth_saving": False,
+            "memory": None,
+        }
 
     async def flush_observer_session(
         self,
@@ -316,9 +310,12 @@ class PatchouliSystem:
         identity = Identity(
             user_id=user_id, agent_id=agent_id, session_id=session_id
         )
-        payload = self.eye.flush_session(identity)
-        if payload:
-            await self.kernel.submit_interaction(payload)
+        flushed = self._passive_ingressor.flush_session(identity)
+        if flushed:
+            payload, target_topic = flushed
+            await self.kernel.submit_interaction(
+                payload, target_topic=target_topic,
+            )
             return True
         return False
 
@@ -329,8 +326,8 @@ class PatchouliSystem:
         idle_shutdown_seconds: Optional[float] = None,
         lazy_start: bool = False,
     ) -> None:
-        """启动 Observer Buffer 空闲超时监控 (委托给 TheEye，flush 事件通过 bus 路由)"""
-        self.eye.start_observer_idle_monitor(
+        """启动 Observer Buffer 空闲超时监控 (委托给 PassiveObserverIngressor)"""
+        self._passive_ingressor.start_idle_monitor(
             timeout_seconds=timeout_seconds,
             scan_interval_seconds=scan_interval_seconds,
             idle_shutdown_seconds=idle_shutdown_seconds,
@@ -338,8 +335,8 @@ class PatchouliSystem:
         )
 
     def stop_observer_idle_monitor(self) -> None:
-        """停止 Observer Buffer 空闲超时监控 (委托给 TheEye)"""
-        self.eye.stop_observer_idle_monitor()
+        """停止 Observer Buffer 空闲超时监控 (委托给 PassiveObserverIngressor)"""
+        self._passive_ingressor.stop_idle_monitor()
 
     async def shutdown_drain(self) -> Dict[str, Any]:
         """服务关闭前排空 observer buffer 并强制归档所有活跃话题。"""
@@ -363,19 +360,21 @@ class PatchouliSystem:
 
         self.stop_observer_idle_monitor()
 
-        observer_payloads = self.eye.flush_all_pending_sessions()
-        for payload in observer_payloads:
-            await self.kernel.submit_interaction(payload)
+        flushed_rounds = self._passive_ingressor.flush_all_pending_sessions()
+        for payload, target_topic in flushed_rounds:
+            await self.kernel.submit_interaction(
+                payload, target_topic=target_topic,
+            )
 
         perception_result = await self.kernel.librarian_core.perception_layer.flush_all_for_shutdown()
         result = {
             "success": True,
-            "observer_payloads_submitted": len(observer_payloads),
+            "observer_payloads_submitted": len(flushed_rounds),
             "perception": perception_result,
             "reentrant": False,
         }
         logger.info(
-            f"shutdown drain 完成: observer_payloads={len(observer_payloads)}, "
+            f"shutdown drain 完成: observer_payloads={len(flushed_rounds)}, "
             f"flushed_topics={len(perception_result['flushed_topics'])}"
         )
         return result
@@ -704,81 +703,19 @@ class PatchouliSystem:
         Returns:
             List[Dict]: OpenAI 格式的 messages
         """
-        from hivememory.engines.perception.context_converter import PerceptionContextConverter
-        from hivememory.prompts.system_prompt import SystemPromptBuilder
+        assembler = getattr(self, "_message_assembler", None)
+        if assembler is None:
+            # 兼容绕过 __init__ 的单测夹具，按需懒加载组装器。
+            assembler = MessageAssembler(self.kernel)
+            self._message_assembler = assembler
 
-        messages = []
-
-        # 1. Assemble system prompt via SystemPromptBuilder
-        language = self.kernel.config.koakuma.mtp_prompt.language if self.kernel.config.koakuma.mtp_prompt else "zh"
-        builder = SystemPromptBuilder(language=language)
-
-        # Top: MTP 协议教学
-        mtp_prompt = self.kernel.get_mtp_prompt(profile=profile)
-        builder.with_mtp_prompt(mtp_prompt)
-
-        # Top: 存储降级通知
-        if mtp_prompt and not self.kernel.check_storage_health():
-            builder.with_storage_offline_notice()
-
-        # Middle: 灵魂注入
-        if profile and profile.persona:
-            builder.with_persona(profile.persona)
-
-        # Bottom: 预检索记忆
-        builder.with_memory_context(hot_result.rendered_memory_context)
-
-        # Bottom: 话题状态
-        builder.with_topic_state(topic_context.get("state_summary", ""))
-
-        system_prompt = builder.build()
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-
-        # 2. Add topic history from blocks (with multi-agent role rendering)
-        history_messages = PerceptionContextConverter.blocks_to_messages(
-            blocks=topic_context["blocks"],
-            include_state_summary=False,  # Already included in system prompt
+        return assembler.assemble(
+            topic_context=topic_context,
+            hot_result=hot_result,
+            user_message=user_message,
+            profile=profile,
             current_agent_id=current_agent_id,
         )
-        messages.extend(history_messages)
-
-        # 3. Add current user message
-        messages.append({"role": "user", "content": user_message})
-
-        return messages
-
-    # TODO: 检查此逻辑在MTP指令结果通过 role=user 返回的重构后是否需要调整
-    @staticmethod
-    def _reconstruct_raw_assistant_text(
-        messages: List[Dict[str, str]],
-        loop_result: ChatResult,
-    ) -> str:
-        """
-        从 messages 历史中重建完整的 assistant 文本 (含 MTP 噪音)
-
-        递归循环中每次 MTP 中断都会追加一条 fake assistant message 到 messages，
-        包含 MTP 指令 + XML 响应。最终的 final_text 是纯净文本。
-        此方法将所有 assistant 片段拼接为完整的原始文本。
-
-        Args:
-            messages: 递归循环结束后的完整消息列表
-            loop_result: 循环结果
-
-        Returns:
-            str: 包含 MTP 指令和 XML 响应的完整原始 assistant 文本
-        """
-        # 收集循环中追加的所有 assistant messages
-        assistant_parts = []
-        for msg in messages:
-            if msg.get("role") == "assistant":
-                assistant_parts.append(msg["content"])
-
-        if assistant_parts:
-            return "\n".join(assistant_parts)
-
-        # Fallback: 如果没有 assistant messages (不应发生)，使用 final_text
-        return loop_result.final_text
 
     async def _chat_post_process(
         self,
@@ -809,8 +746,6 @@ class PatchouliSystem:
         Returns:
             None: 无返回值
         """
-        raw_assistant_text = self._reconstruct_raw_assistant_text(messages, loop_result)
-
         try:
             mtp_traces = self.kernel.koakuma.get_interaction_traces()
             write_focus = self.kernel.koakuma.get_write_focus()
@@ -823,13 +758,14 @@ class PatchouliSystem:
 
         payload = InteractionPayload(
             user_message=user_message,
-            assistant_message=raw_assistant_text,
             mtp_traces=mtp_traces,
             write_focus=write_focus,
             update_focus=update_focus,
             identity=identity,
             rewritten_query=hot_result.rewritten,
             worth_saving=hot_result.worth_saving,
+            assistant_final_text=loop_result.final_text,
+            turn_events=loop_result.turn_events,
         )
 
         await self.kernel.submit_interaction(payload, target_topic=topic_id)

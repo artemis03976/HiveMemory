@@ -24,7 +24,7 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 
 - **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话，由 `PatchouliSystem.chat_stream()` 驱动完整生成循环与 MTP 执行
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
-- **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散消息，由 `PatchouliSystem.ingest()` 负责缓冲、分析、检索和后续记忆沉淀
+- **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散事件，由 `PatchouliSystem.ingest_event()` 负责缓冲、分析、检索和后续记忆沉淀
 
 ### 记忆与话题管理
 
@@ -264,7 +264,7 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 它当前提供两种主要接入方式：
 
 - `chat()` / `chat_stream()`：主动模式，系统直接驱动生成与 MTP 循环
-- `ingest()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
+- `ingest_event()` / `flush_observer_session()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
 
 如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要把 HiveMemory 嵌入已有 Agent 框架，通常从 passive ingest 模式开始会更自然。
 

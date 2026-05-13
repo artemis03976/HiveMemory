@@ -3,7 +3,7 @@ server/models 单元测试
 
 测试覆盖:
     1. ChatRequest 默认值和必填字段
-    2. IngestRequest/IngestResponse 序列化
+    2. PassiveIngressRequest/PassiveIngressResponse 序列化
     3. MemoryResponse.from_atom() 转换
     4. TopicSnapshotResponse 序列化
     5. SSE 事件模型序列化
@@ -23,7 +23,10 @@ from hivememory.server.models.chat import (
     ChatDoneEvent,
     ChatErrorEvent,
 )
-from hivememory.server.models.ingest import IngestRequest, IngestResponse
+from hivememory.server.models.ingest import (
+    PassiveIngressRequest,
+    PassiveIngressResponse,
+)
 from hivememory.server.models.memory import MemoryResponse, MemoryListResponse
 from hivememory.server.models.topic import (
     TopicSnapshotResponse,
@@ -96,11 +99,11 @@ class TestSSEEventModels:
 
 class TestIngestModels:
     def test_request(self):
-        req = IngestRequest(role="user", content="hi", user_id="u1")
+        req = PassiveIngressRequest(role="user", content="hi", user_id="u1")
         assert req.agent_id == "omni_doll"
 
     def test_response(self):
-        resp = IngestResponse(
+        resp = PassiveIngressResponse(
             intent="Chat",
             rewritten="hi rewritten",
             keywords=["hi"],

@@ -1,19 +1,19 @@
 """
 Passive Mode E2E Pipeline Tests - 被动模式 Pipeline 端到端测试
 
-测试 PatchouliSystem.ingest() / flush_observer_session() 的完整链路，使用真实服务:
+测试 PatchouliSystem.ingest_event() / flush_observer_session() 的完整链路，使用真实服务:
     LiteLLM, Qdrant, BGE-M3, FlagReranker
 
 正确的数据流理解:
     Passive Mode 下，TheEye 有一个 ObserverBuffer 用来缓冲用户与 assistant 的对话流数据。
 
     数据流:
-    1. ingest(role="user"):
+    1. ingest_event(role="user"):
        - TheEye.ingest_user() → Eye 分析 (intent/rewritten/keywords/worth_saving)
        - ObserverBuffer.accept_user() → 缓冲 user 消息
        - 如果有上一轮数据，触发 Next-User-Turn flush → kernel.submit_interaction()
 
-    2. ingest(role="assistant"):
+    2. ingest_event(role="assistant"):
        - TheEye.ingest_assistant() → 仅缓冲到 ObserverBuffer
        - 返回 {"intent": "buffered", ...}
 
@@ -55,6 +55,7 @@ from typing import List, Dict, Any, Optional
 import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
 from hivememory.patchouli.protocol.models import ChatResult
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
@@ -78,6 +79,25 @@ def build_messages(
         msgs.extend(history)
     msgs.append({"role": "user", "content": user_message})
     return msgs
+
+
+async def _ingest_event(
+    system: PatchouliSystem,
+    *,
+    role: str,
+    content: str,
+    user_id: str,
+    agent_id: str = "omni_doll",
+    session_id: Optional[str] = None,
+    **event_kwargs,
+) -> Dict[str, Any]:
+    event = PassiveIngressEvent(role=role, content=content, **event_kwargs)
+    return await system.ingest_event(
+        event=event,
+        user_id=user_id,
+        agent_id=agent_id,
+        session_id=session_id,
+    )
 
 
 def _get_perception_layer(system: PatchouliSystem):
@@ -147,8 +167,8 @@ class TestPassiveBasicFlow:
     验证最基础的 Passive 链路
 
     数据流:
-        ingest(user) → TheEye 分析 + ObserverBuffer 缓冲
-        ingest(assistant) → ObserverBuffer 缓冲
+        ingest_event(user) → TheEye 分析 + ObserverBuffer 缓冲
+        ingest_event(assistant) → ObserverBuffer 缓冲
         flush_observer_session() → 构建 Payload → 提交到感知层
         [感知层处理] → 进入 topic Buffer（是否持久化由触发器决定）
     """
@@ -156,16 +176,17 @@ class TestPassiveBasicFlow:
     @pytest.mark.asyncio
     async def test_basic_ingest_flush_persist(self, e2e_system, clean_user):
         """
-        1. ingest(user, ...) → 返回含 intent/rewritten/keywords/worth_saving
-        2. ingest(assistant, ...) → 返回 {"intent": "buffered"}
+        1. ingest_event(user, ...) → 返回含 intent/rewritten/keywords/worth_saving
+        2. ingest_event(assistant, ...) → 返回 {"intent": "buffered"}
         3. flush_observer_session() → 提交 Payload 到感知层 → 返回 True
         4. wait → 验证 payload 已进入感知层 topic Buffer
         """
         user_id = clean_user()
         session_id = "pas-basic-session"
 
-        # Step 1: ingest user → TheEye 分析 + 缓冲
-        user_result = await e2e_system.ingest(
+        # Step 1: ingest_event user → TheEye 分析 + 缓冲
+        user_result = await _ingest_event(
+            e2e_system,
             role="user",
             content="我的项目使用 FastAPI 框架，部署在 8080 端口",
             user_id=user_id,
@@ -175,8 +196,9 @@ class TestPassiveBasicFlow:
         assert "worth_saving" in user_result
         logger.info(f"PAS-E2E-001: user ingest result = {user_result}")
 
-        # Step 2: ingest assistant → 仅缓冲
-        assistant_result = await e2e_system.ingest(
+        # Step 2: ingest_event assistant → 仅缓冲
+        assistant_result = await _ingest_event(
+            e2e_system,
             role="assistant",
             content="好的，我记住了你的项目使用 FastAPI 部署在 8080 端口",
             user_id=user_id,
@@ -217,8 +239,8 @@ class TestPassiveAutoFlush:
     @pytest.mark.asyncio
     async def test_next_user_triggers_flush(self, e2e_system, clean_user):
         """
-        1. ingest(user, "Python 后端") + ingest(assistant, ...) → Round 1 SEALED
-        2. ingest(user, "React 前端") → 自动触发 Round 1 flush → 提交到感知层
+        1. ingest_event(user, "Python 后端") + ingest_event(assistant, ...) → Round 1 SEALED
+        2. ingest_event(user, "React 前端") → 自动触发 Round 1 flush → 提交到感知层
         3. wait → 感知层处理 → Round 1 进入 topic Buffer
         4. flush Round 2 → wait → 验证 "React 前端" 也进入 topic Buffer
         """
@@ -226,13 +248,15 @@ class TestPassiveAutoFlush:
         session_id = "pas-autoflush-session"
 
         # Round 1: user + assistant → SEALED
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="user",
             content="我喜欢用 Python 写后端服务",
             user_id=user_id,
             session_id=session_id,
         )
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="assistant",
             content="Python 是很好的后端语言选择，生态丰富",
             user_id=user_id,
@@ -240,7 +264,8 @@ class TestPassiveAutoFlush:
         )
 
         # Round 2: 新 user 消息 → 自动 flush Round 1 到感知层
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="user",
             content="前端我用 React 和 TypeScript",
             user_id=user_id,
@@ -259,7 +284,8 @@ class TestPassiveAutoFlush:
         logger.info(f"PAS-E2E-002: Round 1 自动 flush 成功, {len(blocks)} 个 block")
 
         # 补充 Round 2 assistant + flush
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="assistant",
             content="React + TypeScript 是主流的前端技术栈",
             user_id=user_id,
@@ -302,11 +328,13 @@ class TestPassiveMultiRound:
         ]
 
         for user_msg, assistant_msg in rounds:
-            await e2e_system.ingest(
+            await _ingest_event(
+                e2e_system,
                 role="user", content=user_msg,
                 user_id=user_id, session_id=session_id,
             )
-            await e2e_system.ingest(
+            await _ingest_event(
+                e2e_system,
                 role="assistant", content=assistant_msg,
                 user_id=user_id, session_id=session_id,
             )
@@ -336,7 +364,7 @@ class TestPassiveThenActiveRetrieval:
     async def test_passive_ingest_then_chat_retrieval(self, e2e_system, clean_user):
         """
         Phase 1 (Passive):
-            ingest(user) → ingest(assistant) → flush_observer_session()
+            ingest_event(user) → ingest_event(assistant) → flush_observer_session()
             → 提交到感知层 → 验证进入 topic Buffer
         Phase 2 (Active):
             chat() → Eye RAG → Retrieval → 注入 → LLM 回复
@@ -345,13 +373,15 @@ class TestPassiveThenActiveRetrieval:
         user_id = clean_user()
 
         # Phase 1: Passive 写入
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="user",
             content="API 网关部署在 api.example.com，使用 Kong 作为网关，配置了限流和鉴权",
             user_id=user_id,
             session_id="passive-seed",
         )
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="assistant",
             content="好的，我记住了 API 网关的部署信息",
             user_id=user_id,
@@ -402,8 +432,8 @@ class TestPassiveWorthSavingFilter:
     @pytest.mark.asyncio
     async def test_chitchat_not_persisted(self, e2e_system, clean_user):
         """
-        1. ingest(user, "你好") → 返回 worth_saving=False (预期)
-        2. ingest(assistant, "你好！有什么可以帮你的？")
+        1. ingest_event(user, "你好") → 返回 worth_saving=False (预期)
+        2. ingest_event(assistant, "你好！有什么可以帮你的？")
         3. flush → 提交到感知层 → [感知层处理]
         4. wait → 查询感知层 Buffer → 闲聊轮次应携带 worth_saving=False 标记
 
@@ -414,8 +444,9 @@ class TestPassiveWorthSavingFilter:
         user_id = clean_user()
         session_id = "pas-chitchat-session"
 
-        # Step 1: ingest 闲聊 user 消息
-        user_result = await e2e_system.ingest(
+        # Step 1: ingest_event 闲聊 user 消息
+        user_result = await _ingest_event(
+            e2e_system,
             role="user",
             content="你好",
             user_id=user_id,
@@ -427,8 +458,9 @@ class TestPassiveWorthSavingFilter:
         worth_saving = user_result.get("worth_saving", None)
         logger.info(f"PAS-E2E-006: worth_saving = {worth_saving}")
 
-        # Step 2: ingest assistant
-        await e2e_system.ingest(
+        # Step 2: ingest_event assistant
+        await _ingest_event(
+            e2e_system,
             role="assistant",
             content="你好！有什么可以帮你的？",
             user_id=user_id,
@@ -470,22 +502,26 @@ class TestPassiveWorthSavingFilter:
         session_id = "pas-mixed-session"
 
         # Round 1: 闲聊
-        r1 = await e2e_system.ingest(
+        r1 = await _ingest_event(
+            e2e_system,
             role="user", content="谢谢你的帮助",
             user_id=user_id, session_id=session_id,
         )
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="assistant", content="不客气！随时可以问我",
             user_id=user_id, session_id=session_id,
         )
 
         # Round 2: 事实 (触发 Round 1 auto flush)
-        r2 = await e2e_system.ingest(
+        r2 = await _ingest_event(
+            e2e_system,
             role="user",
             content="生产环境的数据库密码是 SuperSecret789，每季度轮换一次",
             user_id=user_id, session_id=session_id,
         )
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="assistant",
             content="好的，我记住了数据库密码信息",
             user_id=user_id, session_id=session_id,
@@ -534,39 +570,43 @@ class TestPassiveMultiSessionIsolation:
     @pytest.mark.asyncio
     async def test_two_sessions_isolated_flush(self, e2e_system, clean_user):
         """
-        Session A: ingest "项目 Alpha 用 Rust"
-        Session B: ingest "项目 Beta 用 Java"
+        Session A: ingest_event "项目 Alpha 用 Rust"
+        Session B: ingest_event "项目 Beta 用 Java"
         flush Session A only → 提交到感知层 → wait
         验证: Session A 内容已进入感知层 Buffer, Session B 的数据仍隔离
 
         验证链路:
             ObserverBufferManager.get_buffer(identity)
-            → Identity.buffer_key 隔离
+            → PassiveSessionKey 分桶隔离
             → flush 只影响目标 session
         """
         user_id = clean_user()
         session_a = "isolation-session-a"
         session_b = "isolation-session-b"
 
-        # Session A: ingest
-        await e2e_system.ingest(
+        # Session A: ingest_event
+        await _ingest_event(
+            e2e_system,
             role="user",
             content="项目 Alpha 使用 Rust 语言，Tokio 异步运行时",
             user_id=user_id, session_id=session_a,
         )
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="assistant",
             content="好的，Alpha 项目: Rust + Tokio",
             user_id=user_id, session_id=session_a,
         )
 
-        # Session B: ingest
-        await e2e_system.ingest(
+        # Session B: ingest_event
+        await _ingest_event(
+            e2e_system,
             role="user",
             content="项目 Beta 使用 Java 17，Spring Boot 3.0 框架",
             user_id=user_id, session_id=session_b,
         )
-        await e2e_system.ingest(
+        await _ingest_event(
+            e2e_system,
             role="assistant",
             content="好的，Beta 项目: Java 17 + Spring Boot 3.0",
             user_id=user_id, session_id=session_b,

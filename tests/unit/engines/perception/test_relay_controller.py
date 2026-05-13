@@ -13,13 +13,12 @@ Note:
 import pytest
 from unittest.mock import Mock
 
-from hivememory.core.models import Identity
+from hivememory.core.models import AgentAction, Identity, TraceItem, TurnRecord
 from hivememory.engines.perception.relay_controller import SimpleRelayController
 from hivememory.engines.perception.models import (
     FlushEvent,
     LogicalBlock,
     SemanticBuffer,
-    Triplet,
     FlushReason,
 )
 from hivememory.core.models import StreamMessage, StreamMessageType
@@ -35,19 +34,20 @@ class TestRelayController:
         """测试简单摘要生成"""
         # 构造 Block 链
         block1 = LogicalBlock(
-            user_block=StreamMessage(
-                message_type=StreamMessageType.USER,
-                content="查询天气"
-            )
+            turn=TurnRecord(user_query="查询天气"),
         )
 
         block2 = LogicalBlock(
-            execution_chain=[
-                Triplet(
-                    tool_name="weather_api",
-                    observation="晴天"
-                )
-            ]
+            turn=TurnRecord(
+                actions=[
+                    AgentAction(
+                        action_id="action_1",
+                        tool_name="weather_api",
+                        results=[],
+                        status="success",
+                    )
+                ]
+            )
         )
 
         summary = self.controller.generate_summary([block1, block2])
@@ -70,7 +70,6 @@ class TestLLMRelayController:
     def test_llm_summary_generation(self):
         """测试 LLM 摘要生成"""
         from hivememory.engines.perception.relay_controller import LLMRelayController
-        from hivememory.engines.perception.models import TraceItem
 
         # Mock LLM service
         mock_llm = Mock()
@@ -91,11 +90,13 @@ class TestLLMRelayController:
 
         # 构造带 semantic_traces 的 blocks
         block = LogicalBlock(
-            user_query="创建认证模块",
-            clean_response="已创建 auth.py",
-            semantic_traces=[
-                TraceItem(action="RUN", tool="sys_write_file", status="success")
-            ],
+            turn=TurnRecord(
+                user_query="创建认证模块",
+                assistant_final_text="已创建 auth.py",
+                semantic_traces=[
+                    TraceItem(action="RUN", tool="sys_write_file", status="success")
+                ],
+            ),
             total_tokens=50
         )
 
@@ -119,8 +120,7 @@ class TestLLMRelayController:
         controller = LLMRelayController(summary_llm=None)
 
         block = LogicalBlock(
-            user_query="测试查询",
-            clean_response="测试响应",
+            turn=TurnRecord(user_query="测试查询", assistant_final_text="测试响应"),
             total_tokens=50
         )
 
@@ -139,8 +139,7 @@ class TestLLMRelayController:
         controller = LLMRelayController(summary_llm=mock_llm)
 
         block = LogicalBlock(
-            user_query="测试",
-            clean_response="响应",
+            turn=TurnRecord(user_query="测试", assistant_final_text="响应"),
             total_tokens=50
         )
 
@@ -152,19 +151,20 @@ class TestLLMRelayController:
     def test_build_recent_events_with_traces(self):
         """测试 recent_events 构建包含 MTP 轨迹"""
         from hivememory.engines.perception.relay_controller import LLMRelayController
-        from hivememory.engines.perception.models import TraceItem
 
         controller = LLMRelayController()
 
         blocks = [
             LogicalBlock(
-                user_query="搜索代码",
-                clean_response="找到了",
-                semantic_traces=[
-                    TraceItem(action="SEARCH", query="auth code"),
-                    TraceItem(action="READ", target="mem_123"),
-                    TraceItem(action="RUN", tool="sys_write_file", status="success")
-                ],
+                turn=TurnRecord(
+                    user_query="搜索代码",
+                    assistant_final_text="找到了",
+                    semantic_traces=[
+                        TraceItem(action="SEARCH", query="auth code"),
+                        TraceItem(action="READ", target="mem_123"),
+                        TraceItem(action="RUN", tool="sys_write_file", status="success")
+                    ],
+                ),
                 total_tokens=30
             )
         ]

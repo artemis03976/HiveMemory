@@ -24,10 +24,10 @@ from datetime import datetime
 
 from hivememory.core.models import (
     Identity, StreamMessage, StreamMessageType,
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts,
+    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts, TurnRecord,
 )
 from hivememory.engines.generation.models import (
-    UpdateFocus, MergeResult, GenerationRequest, WriteFocus,
+    UpdateFocus, MergeResult, GenerationRequest, GenerationContext, GenerationTurn, WriteFocus,
 )
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
@@ -49,6 +49,19 @@ def sample_messages(identity) -> list:
         StreamMessage(message_type=StreamMessageType.USER, content="帮我把 API 端口改成 9090", identity=identity),
         StreamMessage(message_type=StreamMessageType.ASSISTANT, content="好的，已修改端口配置", identity=identity),
     ]
+
+
+@pytest.fixture
+def sample_context(sample_messages, identity) -> GenerationContext:
+    return GenerationContext(
+        turns=[
+            GenerationTurn(
+                user_query=sample_messages[0].content,
+                assistant_final_text=sample_messages[1].content,
+                identity=identity,
+            )
+        ]
+    )
 
 
 @pytest.fixture
@@ -172,26 +185,26 @@ class TestGenerationRequestUpdate:
         )
         req = GenerationRequest(update_focus=uf)
         assert req.is_update
-        assert not req.is_focused
+        assert not req.is_write
 
-    def test_is_focused_with_write_focus(self):
+    def test_is_write_with_write_focus(self):
         wf = WriteFocus(content="test")
         req = GenerationRequest(write_focus=wf)
-        assert req.is_focused
+        assert req.is_write
         assert not req.is_update
 
     def test_default_neither(self):
         req = GenerationRequest()
         assert not req.is_update
-        assert not req.is_focused
+        assert not req.is_write
 
-    def test_update_with_context(self, sample_messages):
+    def test_update_with_context(self, sample_context):
         uf = UpdateFocus(
             instruction="test", target_uuid="uuid-123", target_alias="alias",
         )
-        req = GenerationRequest(context_messages=sample_messages, update_focus=uf)
+        req = GenerationRequest(context=sample_context, update_focus=uf)
         assert req.is_update
-        assert len(req.context_messages) == 2
+        assert len(req.context.turns) == 1
 
 
 # ========== Test 4: Mode C Merge Prompt ==========
@@ -199,7 +212,7 @@ class TestGenerationRequestUpdate:
 class TestModeCMergePrompt:
     """验证 Generation Engine Mode C 路径调用 extractor.merge()"""
 
-    def test_mode_c_calls_merge_not_extract(self, identity, sample_messages, existing_memory):
+    def test_mode_c_calls_merge_not_extract(self, identity, sample_context, existing_memory):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = MergeResult(
             new_content="端口改为 9090", changelog="更新端口",
@@ -220,7 +233,7 @@ class TestModeCMergePrompt:
         )
         uf.existing_memory = existing_memory
 
-        request = GenerationRequest(context_messages=sample_messages, update_focus=uf)
+        request = GenerationRequest(context=sample_context, update_focus=uf)
         result = engine.process(request=request)
 
         # merge() 被调用，extract() 不被调用
@@ -475,16 +488,11 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
+                turn=TurnRecord(
                     identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -532,16 +540,11 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
+                turn=TurnRecord(
                     identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -574,16 +577,11 @@ class TestFlushCallbackModesUpdate:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
+                turn=TurnRecord(
                     identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -736,4 +734,3 @@ class TestFlushReasonMTPUpdate:
     def test_enum_member(self):
         assert hasattr(FlushReason, "MTP_UPDATE")
         assert FlushReason("mtp_update") == FlushReason.MTP_UPDATE
-

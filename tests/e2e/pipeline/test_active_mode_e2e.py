@@ -39,6 +39,7 @@ from typing import List, Dict, Any
 import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
 from hivememory.patchouli.protocol.models import ChatResult
 
 from tests.e2e.conftest import wait_for_memory_persistence_async
@@ -128,13 +129,19 @@ async def passive_ingest_memory(
     通过 Passive 模式预埋一条记忆
 
     流程:
-    1. ingest(user) → TheEye 分析 + ObserverBuffer 缓冲
-    2. ingest(assistant) → ObserverBuffer 缓冲
+    1. ingest_event(user) → TheEye 分析 + ObserverBuffer 缓冲
+    2. ingest_event(assistant) → ObserverBuffer 缓冲
     3. flush_observer_session() → 提交 Payload 到感知层
     4. manual_trigger() → 强制感知层归档+压缩并持久化到 Qdrant
     """
-    await system.ingest(role="user", content=user_msg, user_id=user_id)
-    await system.ingest(role="assistant", content=assistant_msg, user_id=user_id)
+    await system.ingest_event(
+        event=PassiveIngressEvent(role="user", content=user_msg),
+        user_id=user_id,
+    )
+    await system.ingest_event(
+        event=PassiveIngressEvent(role="assistant", content=assistant_msg),
+        user_id=user_id,
+    )
     await system.flush_observer_session(user_id=user_id)
 
     # 手动触发话题结算（Archive + Compact），确保持久化到 Qdrant

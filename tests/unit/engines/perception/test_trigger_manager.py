@@ -15,7 +15,7 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, Mock
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnRecord
 from hivememory.engines.perception.trigger_manager import TriggerManager, DECISION_MATRIX
 from hivememory.engines.perception.models import (
     FlushReason,
@@ -146,8 +146,10 @@ class TestTriggerManagerResolveTopic:
         )
         for i in range(block_count):
             block = LogicalBlock(
-                user_query=f"Query {i}",
-                clean_response=f"Response {i}",
+                turn=TurnRecord(
+                    user_query=f"Query {i}",
+                    assistant_final_text=f"Response {i}",
+                ),
                 total_tokens=100,
             )
             buffer.blocks.append(block)
@@ -299,7 +301,10 @@ class TestTriggerManagerArchiveTopic:
         manager = TriggerManager(buffer_manager=self.mock_buffer_manager)
 
         blocks = [
-            LogicalBlock(user_query="test", clean_response="test", total_tokens=10)
+            LogicalBlock(
+                turn=TurnRecord(user_query="test", assistant_final_text="test"),
+                total_tokens=10,
+            )
         ]
 
         await manager._archive_topic(self.topic_id, blocks, "summary", None)
@@ -311,9 +316,21 @@ class TestTriggerManagerArchiveTopic:
     async def test_archive_filters_worth_saving_false(self):
         """测试过滤 worth_saving=False 的 block"""
         blocks = [
-            LogicalBlock(user_query="test1", clean_response="test1", worth_saving=True, total_tokens=10),
-            LogicalBlock(user_query="test2", clean_response="test2", worth_saving=False, total_tokens=10),
-            LogicalBlock(user_query="test3", clean_response="test3", worth_saving=None, total_tokens=10),
+            LogicalBlock(
+                turn=TurnRecord(user_query="test1", assistant_final_text="test1"),
+                worth_saving=True,
+                total_tokens=10,
+            ),
+            LogicalBlock(
+                turn=TurnRecord(user_query="test2", assistant_final_text="test2"),
+                worth_saving=False,
+                total_tokens=10,
+            ),
+            LogicalBlock(
+                turn=TurnRecord(user_query="test3", assistant_final_text="test3"),
+                worth_saving=None,
+                total_tokens=10,
+            ),
         ]
 
         await self.manager._archive_topic(self.topic_id, blocks, "summary", None)
@@ -327,7 +344,10 @@ class TestTriggerManagerArchiveTopic:
     @pytest.mark.asyncio
     async def test_archive_payload_contains_identity(self):
         blocks = [
-            LogicalBlock(user_query="test", clean_response="test", total_tokens=10)
+            LogicalBlock(
+                turn=TurnRecord(user_query="test", assistant_final_text="test"),
+                total_tokens=10,
+            )
         ]
 
         await self.manager._archive_topic(
@@ -342,7 +362,11 @@ class TestTriggerManagerArchiveTopic:
     async def test_archive_skips_all_filtered(self):
         """测试所有 blocks 被过滤时跳过 Archive"""
         blocks = [
-            LogicalBlock(user_query="test", clean_response="test", worth_saving=False, total_tokens=10)
+            LogicalBlock(
+                turn=TurnRecord(user_query="test", assistant_final_text="test"),
+                worth_saving=False,
+                total_tokens=10,
+            )
         ]
 
         await self.manager._archive_topic(self.topic_id, blocks, "summary", None)
@@ -379,7 +403,10 @@ class TestTriggerManagerCompactTopic:
         self.mock_relay_controller.generate_summary.return_value = "New summary"
 
         blocks = [
-            LogicalBlock(user_query="test", clean_response="test", total_tokens=10)
+            LogicalBlock(
+                turn=TurnRecord(user_query="test", assistant_final_text="test"),
+                total_tokens=10,
+            )
         ]
 
         await self.manager._compact_topic(self.topic_id, blocks, "previous summary")
@@ -394,7 +421,10 @@ class TestTriggerManagerCompactTopic:
         manager = TriggerManager(buffer_manager=self.mock_buffer_manager)
 
         blocks = [
-            LogicalBlock(user_query="test", clean_response="test", total_tokens=10)
+            LogicalBlock(
+                turn=TurnRecord(user_query="test", assistant_final_text="test"),
+                total_tokens=10,
+            )
         ]
 
         await manager._compact_topic(self.topic_id, blocks, "summary")
@@ -408,7 +438,10 @@ class TestTriggerManagerCompactTopic:
         self.mock_buffer_manager.get_buffer.return_value = None
 
         blocks = [
-            LogicalBlock(user_query="test", clean_response="test", total_tokens=10)
+            LogicalBlock(
+                turn=TurnRecord(user_query="test", assistant_final_text="test"),
+                total_tokens=10,
+            )
         ]
 
         await self.manager._compact_topic(self.topic_id, blocks, "summary")

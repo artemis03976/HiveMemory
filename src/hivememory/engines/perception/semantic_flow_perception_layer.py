@@ -32,7 +32,7 @@ Note:
 import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from hivememory.core.models import Identity
+from hivememory.core.models import ActionReducer, Identity, TraceReducer, TurnRecord
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
@@ -40,11 +40,11 @@ from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
     BufferState,
     FlushReason,
-    InteractionPayload,
     LogicalBlock,
     SemanticBuffer,
 )
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.patchouli.protocol.models import InteractionPayload
 from hivememory.utils.token_estimator import estimate_tokens
 
 logger = logging.getLogger(__name__)
@@ -170,31 +170,47 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             payload: Kernel → Perception 的原子传输包
             topic_id: 目标话题 ID
         """
-        from hivememory.patchouli.mtp.log_parser import MTPLogParser
+        if not payload.turn_events:
+            raise ValueError(
+                "InteractionPayload.turn_events is required; "
+                "legacy assistant_message fallback has been removed."
+            )
 
-        # 1. 清洗 MTP 噪音
-        clean_text, fallback_traces = MTPLogParser.parse(payload.assistant_message)
+        clean_text = payload.assistant_final_text or ""
+        actions = ActionReducer.reduce(payload.turn_events)
 
-        # 优先使用 Kernel 传入的 traces，回退到 parser 解析的
-        traces = payload.mtp_traces if payload.mtp_traces else fallback_traces
+        # Traces 优先级: Koakuma 透传 > AgentAction 结构化提取
+        if payload.mtp_traces:
+            traces = payload.mtp_traces
+        else:
+            traces = TraceReducer.reduce(actions)
 
-        # 2. 构建 LogicalBlock (v3.0 字段)
+        logger.debug(
+            "ingest_payload: 结构化单路径, "
+            f"turn_events={len(payload.turn_events)}, traces={len(traces)}, "
+            f"actions={len(actions)}"
+        )
+
+        # 2. 构建 LogicalBlock
         block = LogicalBlock(
-            user_query=payload.user_message,
-            rewritten_query=payload.rewritten_query,
-            semantic_traces=traces,
-            raw_response=payload.assistant_message,
-            clean_response=clean_text,
+            turn=TurnRecord(
+                identity=payload.identity,
+                user_query=payload.user_message,
+                rewritten_query=payload.rewritten_query,
+                assistant_final_text=payload.assistant_final_text or clean_text,
+                turn_events=payload.turn_events,
+                actions=actions,
+                semantic_traces=traces,
+            ),
             worth_saving=payload.worth_saving,
             write_focus=payload.write_focus,
             update_focus=payload.update_focus,
-            identity=payload.identity,
         )
 
         # 2.5 计算 block 的 total_tokens
         block.total_tokens = (
             estimate_tokens(block.user_query)
-            + estimate_tokens(block.clean_response)
+            + estimate_tokens(block.assistant_final_text)
             + sum(
                 estimate_tokens(t.query or "") + estimate_tokens(t.target or "")
                 for t in block.semantic_traces
@@ -436,7 +452,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             last_block = buffer.blocks[-1]
             last_turn = {
                 "user": last_block.user_query,
-                "assistant": last_block.clean_response,
+                "assistant": last_block.assistant_final_text,
             }
 
             snapshot = TopicSnapshot(

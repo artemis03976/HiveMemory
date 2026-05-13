@@ -22,6 +22,7 @@ from hivememory.patchouli.mtp.exceptions import (
 )
 from hivememory.patchouli.mtp.formatter import MTPFormatter
 from hivememory.patchouli.mtp.log_parser import MTPLogParser
+from hivememory.patchouli.mtp.trace_reducer import MTPTraceReducer
 from hivememory.patchouli.mtp.models import (
     MTPCommand,
     MTP_LEFT_DELIMITER,
@@ -60,6 +61,7 @@ __all__ = [
     "MTPFilterParser",
     "MTPFormatter",
     "MTPLogParser",
+    "MTPTraceReducer",
     "MTPError",
     "AgentFault",
     "SystemFault",

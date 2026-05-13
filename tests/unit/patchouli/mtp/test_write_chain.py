@@ -18,10 +18,12 @@ import pytest
 from unittest.mock import MagicMock, patch, call
 from datetime import datetime
 
-from hivememory.core.models import Identity, StreamMessage, StreamMessageType, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import Identity, StreamMessage, StreamMessageType, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, TurnRecord
 from hivememory.engines.generation.models import (
     WriteFocus,
     GenerationRequest,
+    GenerationContext,
+    GenerationTurn,
     ExtractedMemoryDraft,
     DuplicateDecision,
 )
@@ -46,6 +48,19 @@ def sample_messages(identity) -> list:
         StreamMessage(message_type=StreamMessageType.USER, content="帮我修复 CORS 问题", identity=identity),
         StreamMessage(message_type=StreamMessageType.ASSISTANT, content="已修复，端口从 8080 改为 9090", identity=identity),
     ]
+
+
+@pytest.fixture
+def sample_context(sample_messages, identity) -> GenerationContext:
+    return GenerationContext(
+        turns=[
+            GenerationTurn(
+                user_query=sample_messages[0].content,
+                assistant_final_text=sample_messages[1].content,
+                identity=identity,
+            )
+        ]
+    )
 
 @pytest.fixture
 def sample_memory(identity) -> MemoryAtom:
@@ -102,28 +117,28 @@ class TestWriteFocusModel:
 class TestGenerationRequest:
     """GenerationRequest 数据模型测试"""
 
-    def test_mode_a_default(self, sample_messages):
-        req = GenerationRequest(context_messages=sample_messages)
-        assert not req.is_focused
+    def test_mode_a_default(self, sample_context):
+        req = GenerationRequest(context=sample_context)
+        assert not req.is_write
         assert req.write_focus is None
-        assert len(req.context_messages) == 2
+        assert len(req.context.turns) == 1
 
-    def test_mode_b_with_focus(self, sample_messages):
+    def test_mode_b_with_focus(self, sample_context):
         focus = WriteFocus(content="test content")
-        req = GenerationRequest(context_messages=sample_messages, write_focus=focus)
-        assert req.is_focused
+        req = GenerationRequest(context=sample_context, write_focus=focus)
+        assert req.is_write
         assert req.write_focus.content == "test content"
 
     def test_empty_request(self):
         req = GenerationRequest()
-        assert not req.is_focused
-        assert len(req.context_messages) == 0
+        assert not req.is_write
+        assert len(req.context.turns) == 0
 
     def test_focus_only_no_context(self):
         focus = WriteFocus(content="standalone write")
         req = GenerationRequest(write_focus=focus)
-        assert req.is_focused
-        assert len(req.context_messages) == 0
+        assert req.is_write
+        assert len(req.context.turns) == 0
 
 
 # ========== Test 3: Engine Mode B Extraction ==========
@@ -131,7 +146,7 @@ class TestGenerationRequest:
 class TestModeBExtraction:
     """验证 Generation Engine Mode B 路径"""
 
-    def test_mode_b_calls_extractor_with_write_metadata(self, identity, sample_messages):
+    def test_mode_b_calls_extractor_with_write_metadata(self, identity, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
             title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"],
@@ -147,7 +162,7 @@ class TestModeBExtraction:
         )
 
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS", identity=identity)
-        request = GenerationRequest(context_messages=sample_messages, write_focus=focus)
+        request = GenerationRequest(context=sample_context, write_focus=focus)
 
         result = engine.process(request=request)
 
@@ -159,7 +174,7 @@ class TestModeBExtraction:
         assert metadata["write_reason"] == "修复 CORS"
         assert len(result) == 1
 
-    def test_mode_a_no_write_metadata(self, sample_messages):
+    def test_mode_a_no_write_metadata(self, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
             title="Test Memory", summary="这是一条测试记忆，用于验证 Mode A 路径", tags=["test"],
@@ -174,7 +189,7 @@ class TestModeBExtraction:
             storage=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
-        request = GenerationRequest(context_messages=sample_messages)
+        request = GenerationRequest(context=sample_context)
         result = engine.process(request)
 
         call_args = mock_extractor.extract.call_args
@@ -187,7 +202,7 @@ class TestModeBExtraction:
 class TestModeBFallback:
     """验证 LLM 提取失败时的 fallback 草稿构建"""
 
-    def test_fallback_when_extractor_returns_none(self, identity, sample_messages):
+    def test_fallback_when_extractor_returns_none(self, identity, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None  # LLM 失败
         mock_dedup = MagicMock()
@@ -204,7 +219,7 @@ class TestModeBFallback:
             title="Fix CORS Port",
             identity=identity,
         )
-        request = GenerationRequest(context_messages=sample_messages, write_focus=focus)
+        request = GenerationRequest(context=sample_context, write_focus=focus)
 
         result = engine.process(request=request)
 
@@ -267,16 +282,11 @@ class TestFlushCallbackModes:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
+                turn=TurnRecord(
                     identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -316,16 +326,11 @@ class TestFlushCallbackModes:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
+                turn=TurnRecord(
                     identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -360,16 +365,11 @@ class TestFlushCallbackModes:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
+                turn=TurnRecord(
                     identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -403,16 +403,11 @@ class TestFlushCallbackModes:
         # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
-                user_block=StreamMessage(
-                    message_type=StreamMessageType.USER,
-                    content=msg.content,
+                turn=TurnRecord(
                     identity=msg.identity,
-                ),
-                response_block=StreamMessage(
-                    message_type=StreamMessageType.ASSISTANT,
-                    content=msg.content,
-                    identity=msg.identity,
-                ) if i % 2 == 1 else None,
+                    user_query=msg.content,
+                    assistant_final_text=msg.content if i % 2 == 1 else "",
+                )
             )
             for i, msg in enumerate(sample_messages)
         ]
@@ -518,7 +513,7 @@ class TestFlushReasonMTPWrite:
 class TestEngineUnifiedAPI:
     """验证 process() 统一使用 GenerationRequest"""
 
-    def test_request_param_mode_a(self, sample_messages):
+    def test_request_param_mode_a(self, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None
         mock_dedup = MagicMock()
@@ -528,7 +523,7 @@ class TestEngineUnifiedAPI:
             storage=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
-        request = GenerationRequest(context_messages=sample_messages)
+        request = GenerationRequest(context=sample_context)
         result = engine.process(request)
         assert result == []
         mock_extractor.extract.assert_called_once()

@@ -15,23 +15,31 @@ import asyncio
 from unittest.mock import Mock, AsyncMock
 from datetime import datetime
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, TurnEvent, TurnRecord
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.models import (
     BufferState,
     LogicalBlock,
     SemanticBuffer,
-    InteractionPayload,
 )
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.patchouli.protocol import InteractionPayload
 
 
 def _make_payload(user_msg: str, assistant_msg: str, identity: Identity) -> InteractionPayload:
     """辅助方法：创建测试用 Payload"""
     return InteractionPayload(
         user_message=user_msg,
-        assistant_message=assistant_msg,
+        assistant_final_text=assistant_msg,
+        turn_events=[
+            TurnEvent(
+                kind="assistant_message",
+                sequence=0,
+                role="assistant",
+                content=assistant_msg,
+            )
+        ],
         identity=identity,
     )
 
@@ -253,15 +261,17 @@ class TestTokenManagement:
     def test_block_token_count(self):
         """测试 Block Token 计数"""
         block = LogicalBlock(
-            user_query="Test query",
-            clean_response="Test response",
+            turn=TurnRecord(
+                user_query="Test query",
+                assistant_final_text="Test response",
+            ),
             total_tokens=0,
         )
 
         from hivememory.utils.token_estimator import estimate_tokens
         block.total_tokens = (
             estimate_tokens(block.user_query) +
-            estimate_tokens(block.clean_response)
+            estimate_tokens(block.assistant_final_text)
         )
 
         assert block.total_tokens > 0

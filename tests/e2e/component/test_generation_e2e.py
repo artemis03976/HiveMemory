@@ -88,7 +88,13 @@ from hivememory.core.models import (
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
-from hivememory.engines.generation.models import ExtractedMemoryDraft, DuplicateDecision, GenerationRequest
+from hivememory.engines.generation.models import (
+    ExtractedMemoryDraft,
+    DuplicateDecision,
+    GenerationContext,
+    GenerationRequest,
+    GenerationTurn,
+)
 
 # 配置
 from hivememory.patchouli.config import (
@@ -260,6 +266,25 @@ def create_stream_messages(
         )
         for msg in messages
     ]
+
+
+def create_generation_context(
+    messages: List[Dict[str, str]],
+    identity: Identity,
+) -> GenerationContext:
+    """将测试消息转换为 generation 主路径使用的 GenerationContext。"""
+    turns: List[GenerationTurn] = []
+    for i in range(0, len(messages), 2):
+        user_msg = messages[i] if i < len(messages) else None
+        assistant_msg = messages[i + 1] if i + 1 < len(messages) else None
+        turns.append(
+            GenerationTurn(
+                user_query=user_msg["content"] if user_msg else "",
+                assistant_final_text=assistant_msg["content"] if assistant_msg else "",
+                identity=identity,
+            )
+        )
+    return GenerationContext(turns=turns)
 
 
 def create_memory_from_data(data: Dict[str, Any], identity: Identity) -> MemoryAtom:
@@ -1060,17 +1085,15 @@ class TestEndToEndFlow:
         # 准备测试数据
         test_case = EXTRACTION_TEST_CASES[0]  # 使用标准信息提取测试数据
 
-        # 创建 StreamMessage 列表
-        messages = create_stream_messages(test_case["messages"], self.identity)
-
         # 调用引擎处理
-        memories = self.engine.process(GenerationRequest(context_messages=messages))
+        context = create_generation_context(test_case["messages"], self.identity)
+        memories = self.engine.process(GenerationRequest(context=context))
 
         # 验证结果
         success = len(memories) > 0
 
         print_test_result(console, "E2E-001: 完整生成流程", success)
-        console.print(f"    [dim]输入消息数: {len(messages)}[/dim]")
+        console.print(f"    [dim]输入消息数: {len(test_case['messages'])}[/dim]")
         console.print(f"    [dim]生成记忆数: {len(memories)}[/dim]")
 
         if memories:
@@ -1091,17 +1114,15 @@ class TestEndToEndFlow:
         # 准备噪音测试数据
         test_case = EXTRACTION_TEST_CASES[1]  # 噪音过滤测试数据
 
-        # 创建 StreamMessage 列表
-        messages = create_stream_messages(test_case["messages"], self.identity)
-
         # 调用引擎处理
-        memories = self.engine.process(GenerationRequest(context_messages=messages))
+        context = create_generation_context(test_case["messages"], self.identity)
+        memories = self.engine.process(GenerationRequest(context=context))
 
         # 验证结果：噪音对话不应产生记忆
         success = len(memories) == 0
 
         print_test_result(console, "E2E-002: 噪音拒绝流程", success)
-        console.print(f"    [dim]输入消息数: {len(messages)}[/dim]")
+        console.print(f"    [dim]输入消息数: {len(test_case['messages'])}[/dim]")
         console.print(f"    [dim]生成记忆数: {len(memories)} (预期: 0)[/dim]")
 
         assert success, "噪音对话不应产生记忆"

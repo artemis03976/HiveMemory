@@ -25,6 +25,8 @@ HiveMemory - 分布式记忆管理系统
 """
 
 from hivememory.core.models import (
+    ActionReducer,
+    AgentAction,
     MemoryAtom,
     MemoryType,
     MemoryVisibility,
@@ -32,6 +34,8 @@ from hivememory.core.models import (
     Identity,
     StreamMessage,
     StreamMessageType,
+    TurnEvent,
+    TurnRecord,
     MetaData,
     IndexLayer,
     PayloadLayer,
@@ -99,10 +103,9 @@ from hivememory.engines.gateway import (
     create_interceptor,
     LLMAnalyzer,
     create_semantic_analyzer,
-    ObserverBufferState,
-    ObserverSessionBuffer,
-    ObserverBufferManager,
 )
+
+from hivememory.patchouli.passive_ingest import ObserverBufferState
 
 from hivememory.engines.generation import (
     MemoryGenerationEngine,
@@ -172,8 +175,6 @@ from hivememory.engines.perception import (
     SemanticFlowPerceptionLayer,
     BasePerceptionLayer,
     TraceItem,
-    InteractionPayload,
-    Triplet,
     LogicalBlock,
     BufferState,
     SemanticBuffer,
@@ -188,6 +189,7 @@ from hivememory.engines.perception import (
     create_relay_controller,
     create_perception_layer,
 )
+from hivememory.patchouli.protocol import InteractionPayload
 
 from hivememory.server.models import (
     ErrorResponse,
@@ -199,8 +201,8 @@ from hivememory.server.models import (
     TopicInfoEvent,
     ChatDoneEvent,
     ChatErrorEvent,
-    IngestRequest,
-    IngestResponse,
+    PassiveIngressRequest,
+    PassiveIngressResponse,
     MemoryResponse,
     MemoryListResponse,
     TopicSnapshotResponse,
@@ -241,6 +243,10 @@ __all__ = [
     "MemoryType",
     "MemoryVisibility",
     "VerificationStatus",
+    "ActionReducer",
+    "TurnEvent",
+    "AgentAction",
+    "TurnRecord",
     "Identity",
     "StreamMessage",
     "StreamMessageType",
@@ -303,8 +309,6 @@ __all__ = [
     "LLMAnalyzer",
     "create_semantic_analyzer",
     "ObserverBufferState",
-    "ObserverSessionBuffer",
-    "ObserverBufferManager",
     # ========== Generation Engine ==========
     "MemoryGenerationEngine",
     "BaseMemoryExtractor",
@@ -368,7 +372,6 @@ __all__ = [
     "BasePerceptionLayer",
     "TraceItem",
     "InteractionPayload",
-    "Triplet",
     "LogicalBlock",
     "BufferState",
     "SemanticBuffer",
@@ -392,8 +395,8 @@ __all__ = [
     "TopicInfoEvent",
     "ChatDoneEvent",
     "ChatErrorEvent",
-    "IngestRequest",
-    "IngestResponse",
+    "PassiveIngressRequest",
+    "PassiveIngressResponse",
     "MemoryResponse",
     "MemoryListResponse",
     "TopicSnapshotResponse",

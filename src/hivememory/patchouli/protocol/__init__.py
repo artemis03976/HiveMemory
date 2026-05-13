@@ -8,12 +8,14 @@
 """
 
 from hivememory.patchouli.protocol.models import (
+    InteractionPayload,
     MessageType,
     ProtocolMessage,
     RetrievalRequest,
 )
 
 __all__ = [
+    "InteractionPayload",
     "MessageType",
     "ProtocolMessage",
     "RetrievalRequest",

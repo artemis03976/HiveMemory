@@ -32,9 +32,9 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from hivememory.core.models import Identity, MemoryAtom, AgentProfile, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.engines.perception.models import InteractionPayload
 from hivememory.patchouli.protocol.models import (
     EyeGazeResult,
+    InteractionPayload,
     KernelHotResult,
     MTPExecutionResult,
     RetrievalRequest,

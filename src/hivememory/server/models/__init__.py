@@ -10,7 +10,10 @@ from hivememory.server.models.chat import (
     ChatDoneEvent,
     ChatErrorEvent,
 )
-from hivememory.server.models.ingest import IngestRequest, IngestResponse
+from hivememory.server.models.ingest import (
+    PassiveIngressRequest,
+    PassiveIngressResponse,
+)
 from hivememory.server.models.memory import MemoryResponse, MemoryListResponse
 from hivememory.server.models.topic import (
     TopicSnapshotResponse,
@@ -28,8 +31,8 @@ __all__ = [
     "TopicInfoEvent",
     "ChatDoneEvent",
     "ChatErrorEvent",
-    "IngestRequest",
-    "IngestResponse",
+    "PassiveIngressRequest",
+    "PassiveIngressResponse",
     "MemoryResponse",
     "MemoryListResponse",
     "TopicSnapshotResponse",

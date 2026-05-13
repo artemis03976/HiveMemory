@@ -20,8 +20,9 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, StreamMessage, Identity
-from hivememory.engines.generation.models import ExtractedMemoryDraft, GenerationRequest, WriteFocus, UpdateFocus, MergeResult
+from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Identity
+from hivememory.engines.generation.models import ExtractedMemoryDraft, GenerationRequest, GenerationContext, WriteFocus, UpdateFocus, MergeResult
+from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
 from hivememory.engines.generation.interfaces import (
     BaseMemoryExtractor,
     BaseDeduplicator,
@@ -84,7 +85,7 @@ class MemoryGenerationEngine:
         处理对话片段，提取记忆原子 (三模式)
 
         Mode A (被动观察): request.write_focus=None, request.update_focus=None
-        Mode B (主动响应): request.is_focused=True (WRITE 指令触发)
+        Mode B (主动响应): request.is_write=True (WRITE 指令触发)
         Mode C (合并更新): request.is_update=True (UPDATE 指令触发)
 
         Args:
@@ -93,14 +94,14 @@ class MemoryGenerationEngine:
         Returns:
             List[MemoryAtom]: 提取的记忆原子列表
         """
-        if not request.context_messages and not request.is_focused and not request.is_update:
-            logger.debug("空消息列表且无 write_focus/update_focus，跳过处理")
+        if not request.has_context and not request.is_write and not request.is_update:
+            logger.debug("空生成上下文且无 write_focus/update_focus，跳过处理")
             return []
 
         # 路由到对应模式
         if request.is_update:
             return self._process_mode_c(request)
-        elif request.is_focused:
+        elif request.is_write:
             return self._process_mode_b(request)
         else:
             return self._process_mode_a(request)
@@ -111,16 +112,15 @@ class MemoryGenerationEngine:
 
         从对话中被动提取有价值的记忆。
         """
-        messages = request.context_messages
-        if not messages:
+        identity = request.identity
+
+        logger.info(f"[Mode A] 开始处理...")
+
+        # Step 1: 渲染 transcript（Phase 3 优先路径）
+        transcript = self._render_transcript(request)
+        if not transcript:
             return []
 
-        identity = messages[0].identity
-
-        logger.info(f"[Mode A] 开始处理 {len(messages)} 条消息...")
-
-        # Step 1: LLM 提取
-        transcript = self._format_transcript(messages)
         draft = self.extractor.extract(
             transcript=transcript,
             metadata={}
@@ -141,12 +141,12 @@ class MemoryGenerationEngine:
         包含 fallback 机制：LLM 提取失败时直接从 WriteFocus 构建草稿。
         """
         focus = request.write_focus
-        identity = focus.identity
+        identity = request.identity
 
         logger.info(f"[Mode B] WRITE 主动响应: content='{focus.content[:50]}...'")
 
-        # 格式化背景对话
-        transcript = self._format_transcript(request.context_messages) if request.context_messages else "(无背景对话)"
+        # 格式化背景对话；空上下文时由 _render_transcript() 统一返回占位文本
+        transcript = self._render_transcript(request)
 
         # Step 1: LLM 提取 (Mode B prompt)
         draft = self.extractor.extract(
@@ -196,6 +196,9 @@ class MemoryGenerationEngine:
         包含 fallback 机制：LLM 合并失败时直接拼接。
         """
         uf = request.update_focus
+        identity = request.identity
+
+        # 从内存索引中获取原始记忆
         existing = uf.existing_memory
 
         if existing is None:
@@ -207,8 +210,8 @@ class MemoryGenerationEngine:
             f"instruction='{uf.instruction[:50]}...'"
         )
 
-        # 格式化对话上下文
-        transcript = self._format_transcript(request.context_messages) if request.context_messages else "(无背景对话)"
+        # 格式化对话上下文；空上下文时由 _render_transcript() 统一返回占位文本
+        transcript = self._render_transcript(request)
 
         # Step 1: 调用 extractor.merge() (Mode C Merge Prompt)
         merge_result = self.extractor.merge(
@@ -336,33 +339,17 @@ class MemoryGenerationEngine:
             logger.info("低质量重复，丢弃")
             return []
 
-    def _format_transcript(self, messages: List[StreamMessage]) -> str:
+    def _render_transcript(self, request: GenerationRequest) -> str:
         """
-        格式化对话为文本
-
-        Args:
-            messages: 对话消息列表
+        统一 transcript 渲染入口。
 
         Returns:
-            str: 格式化的对话文本
-
-        Examples:
-            >>> transcript = orchestrator._format_transcript(messages)
-            >>> print(transcript)
-            [User]: 你好
-            [Assistant]: 你好！
+            str: 渲染后的 transcript 文本，无有效内容时返回 "(无背景对话)"
         """
-        lines = []
-        for msg in messages:
-            role_display = {
-                "user": "[User]",
-                "assistant": "[Assistant]",
-                "system": "[System]"
-            }.get(msg.role, msg.role)
-
-            lines.append(f"{role_display}: {msg.content}")
-
-        return "\n".join(lines)
+        if not request.context.turns and not request.context.state_summary:
+            return "(无背景对话)"
+        builder = GenerationTranscriptBuilder()
+        return builder.build_transcript(request.context)
 
     def _draft_to_memory(
         self,
