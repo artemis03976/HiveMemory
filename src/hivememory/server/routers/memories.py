@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
 from hivememory.server.models.memory import MemoryResponse, MemoryListResponse, MemoryUpdateRequest
 
@@ -17,7 +17,7 @@ async def list_memories(
     user_id: str = Query(default=None, description="按用户 ID 过滤"),
     memory_type: str = Query(default=None, description="按记忆类型过滤"),
     limit: int = Query(default=20, le=100, description="最大返回数量"),
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """检索记忆 — 支持语义搜索和过滤"""
     storage = system.storage
@@ -58,7 +58,7 @@ async def list_memories(
 @router.get("/memories/{memory_id}", response_model=MemoryResponse)
 async def get_memory(
     memory_id: str,
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """获取单条记忆详情"""
     try:
@@ -77,7 +77,7 @@ async def get_memory(
 async def update_memory(
     memory_id: str,
     body: MemoryUpdateRequest,
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """更新记忆的可编辑字段"""
     try:
@@ -111,7 +111,7 @@ async def update_memory(
 @router.delete("/memories/{memory_id}")
 async def delete_memory(
     memory_id: str,
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """删除记忆"""
     try:

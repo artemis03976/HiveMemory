@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system, get_user_id
 from hivememory.server.models.topic import (
     TopicSnapshotResponse,
@@ -18,7 +18,7 @@ router = APIRouter(tags=["topics"])
 @router.get("/topics", response_model=TopicListResponse)
 async def list_topics(
     user_id: str = Depends(get_user_id),
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """获取活跃话题列表"""
     identity = Identity(user_id=user_id)
@@ -41,7 +41,7 @@ async def list_topics(
 @router.post("/topics/{topic_id}/trigger", response_model=TriggerResponse)
 async def trigger_topic(
     topic_id: str,
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """手动触发话题结算"""
     result = await system.manual_trigger(topic_id=topic_id)
@@ -51,7 +51,7 @@ async def trigger_topic(
 @router.delete("/topics/{topic_id}", response_model=DeleteResponse)
 async def delete_topic(
     topic_id: str,
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """从活跃池驱逐话题（不归档，不写长期记忆）"""
     buf = system.kernel.librarian_core.perception_layer.buffer_manager.pop_buffer(topic_id)

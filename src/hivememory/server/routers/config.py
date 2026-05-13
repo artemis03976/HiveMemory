@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, ValidationError
 
 from hivememory.patchouli.config import HiveMemoryConfig, get_config_file_path
-from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def _persist_config_atomically(config: HiveMemoryConfig) -> Path:
 
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """
     获取当前系统配置
@@ -98,7 +98,7 @@ async def get_config(
 @router.post("/config")
 async def update_config(
     new_config: Dict[str, Any],
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """
     更新系统配置

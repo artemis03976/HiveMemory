@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理 — 初始化/销毁 PatchouliSystem 单例"""
+    """应用生命周期管理 — 初始化/销毁 HiveMemorySystem 单例"""
     loop = asyncio.get_running_loop()
 
     def _loop_exception_handler(_loop, context):
@@ -36,9 +36,9 @@ async def lifespan(app: FastAPI):
         logger.error(f"事件循环未处理异常: {context.get('message', 'unknown')}")
 
     loop.set_exception_handler(_loop_exception_handler)
-    logger.info("正在初始化 PatchouliSystem...")
+    logger.info("正在初始化 HiveMemorySystem...")
     system = init_system()
-    system.start_scheduler()
+    await system.start()
 
     # 初始化 WebSocket 日志广播
     ws_manager = init_websocket_log_broadcasting(system.config)
@@ -47,14 +47,14 @@ async def lifespan(app: FastAPI):
     # 后台预热推理模型（不阻塞服务启动）
     asyncio.create_task(system.kernel.warmup_models())
 
-    logger.info("PatchouliSystem 就绪，服务启动完成")
+    logger.info("HiveMemorySystem 就绪，服务启动完成")
     yield
 
     await shutdown_system()
 
     # 清理 WebSocket 连接
     await shutdown_websocket_log_broadcasting(ws_manager)
-    logger.info("PatchouliSystem 已关闭")
+    logger.info("HiveMemorySystem 已关闭")
 
 
 app = FastAPI(

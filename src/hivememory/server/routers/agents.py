@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
-from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
 
 router = APIRouter(tags=["agents"])
@@ -30,7 +30,7 @@ class AgentProfileResponse(BaseModel):
 
 
 @router.post("/agents", response_model=AgentProfileResponse, status_code=201)
-async def create_agent(body: AgentCreateRequest, system: PatchouliSystem = Depends(get_system)):
+async def create_agent(body: AgentCreateRequest, system: HiveMemorySystem = Depends(get_system)):
     """创建新的 Agent Profile"""
     from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, Artifacts, MemoryType
     atom = MemoryAtom(
@@ -63,7 +63,7 @@ async def create_agent(body: AgentCreateRequest, system: PatchouliSystem = Depen
 
 
 @router.get("/agents", response_model=List[AgentProfileResponse])
-async def list_agents(system: PatchouliSystem = Depends(get_system)):
+async def list_agents(system: HiveMemorySystem = Depends(get_system)):
     """列出所有 Agent Profile"""
     try:
         atoms = system.storage.get_all_memories(

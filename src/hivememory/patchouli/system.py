@@ -32,6 +32,7 @@ from typing import AsyncGenerator, List, Optional, Dict, Any
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.patchouli.message_assembler import MessageAssembler
 from hivememory.patchouli.protocol.models import ChatResult, InteractionPayload
+from hivememory.infrastructure.system_bus import SystemBus
 from hivememory.infrastructure.trace_context import (
     generate_trace_id, set_trace_context, reset_trace_context
 )
@@ -84,6 +85,7 @@ class PatchouliSystem:
     def __init__(
         self,
         config: Optional[HiveMemoryConfig] = None,
+        bus: Optional[SystemBus] = None,
     ):
         """
         初始化帕秋莉系统
@@ -100,9 +102,8 @@ class PatchouliSystem:
         """
         self.config = config or load_app_config()
 
-        # 0. 创建 SystemBus（系统总线 — 主板）
-        from hivememory.infrastructure.system_bus import SystemBus
-        self.bus = SystemBus()
+        # 0. 创建/注入 SystemBus（系统总线 — 主板）
+        self.bus = bus or SystemBus()
 
         # 1. 初始化 Kernel（内核管理 Retrieval + Librarian + MTP 微服务，注册总线路由）
         self.kernel = PatchouliKernel(config=self.config, bus=self.bus)
