@@ -15,6 +15,7 @@ from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 
 
 @pytest.fixture
@@ -119,15 +120,19 @@ class TestPassiveIngressService:
     def bus(self):
         return GlobalSystemBus()
 
+    @pytest.fixture
+    def scheduler(self):
+        return GlobalMaintenanceScheduler(tick_seconds=0.01, shutdown_wait_seconds=0.1)
+
     @pytest.mark.asyncio
-    async def test_ingest_event_passes_through_bus(self, bus, passive_config):
+    async def test_ingest_event_passes_through_bus(self, bus, passive_config, scheduler):
         submit_interaction = AsyncMock(return_value=None)
         bus.register(
             GlobalRoutes.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE,
             AsyncMock(return_value=_make_analysis_result(memory="<memory>relevant</memory>")),
         )
         bus.register(GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION, submit_interaction)
-        svc = PassiveIngressService(bus=bus, config=passive_config)
+        svc = PassiveIngressService(bus=bus, config=passive_config, scheduler=scheduler)
         event = PassiveIngressEvent(role="user", content="hello")
         result = await svc.ingest_event(
             event=event,
@@ -140,14 +145,14 @@ class TestPassiveIngressService:
         submit_interaction.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_flush_observer_session(self, bus, passive_config):
+    async def test_flush_observer_session(self, bus, passive_config, scheduler):
         bus.register(
             GlobalRoutes.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE,
             AsyncMock(return_value=_make_analysis_result(target_topic="topic_1")),
         )
         submit_interaction = AsyncMock(return_value=None)
         bus.register(GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION, submit_interaction)
-        svc = PassiveIngressService(bus=bus, config=passive_config)
+        svc = PassiveIngressService(bus=bus, config=passive_config, scheduler=scheduler)
         await svc.ingest_event(
             event=PassiveIngressEvent(role="user", content="q"),
             user_id="u1",
@@ -163,3 +168,18 @@ class TestPassiveIngressService:
         result = await svc.flush_observer_session(user_id="u1", agent_id="a", session_id="s")
         assert result is True
         submit_interaction.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_start_and_stop_register_tasks_on_global_scheduler(
+        self, bus, passive_config, scheduler
+    ):
+        passive_config.scheduler.enabled = True
+        svc = PassiveIngressService(bus=bus, config=passive_config, scheduler=scheduler)
+
+        await svc.start()
+        task_keys = {spec.task_key for spec in scheduler.list_tasks()}
+        assert "system.passive_ingress.observer_idle_flush" in task_keys
+
+        await svc.stop()
+        task_keys = {spec.task_key for spec in scheduler.list_tasks()}
+        assert "system.passive_ingress.observer_idle_flush" not in task_keys

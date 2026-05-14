@@ -5,47 +5,60 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from hivememory.core.models import Identity
 from hivememory.system.application.passive_message_ingressor import PassiveMessageIngressor
 from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime import MaintenanceTaskSpec, SystemAsyncScheduler
+from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 
 if TYPE_CHECKING:
     from hivememory.patchouli.config import HiveMemoryConfig
     from hivememory.patchouli.passive_ingest import PassiveIngressEvent
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+    from hivememory.system.runtime.scheduler.async_scheduler import (
+        AsyncMaintenanceScheduler,
+    )
 
 
 class PassiveIngressService:
     """顶层被动接入应用服务 — 持有独立的被动消息编排器。"""
 
+    _MAINTENANCE_OWNER = "system.passive_ingress"
+    _OBSERVER_IDLE_FLUSH_TASK = "observer_idle_flush"
+
     def __init__(
         self,
         bus: GlobalSystemBus,
         config: HiveMemoryConfig,
+        scheduler: AsyncMaintenanceScheduler,
     ) -> None:
         self._bus = bus
         self._config = config
+        self._scheduler = scheduler
         self._ingressor = PassiveMessageIngressor(bus=bus)
-        self._scheduler_started = False
-        sched_config = config.scheduler
-        self._scheduler = SystemAsyncScheduler(
-            tick_seconds=sched_config.tick_seconds,
-            shutdown_wait_seconds=sched_config.shutdown_wait_seconds,
-        )
-        self._setup_maintenance_tasks()
+        self._maintenance_registered = False
+        self._configure_idle_flush()
 
-    def _setup_maintenance_tasks(self) -> None:
+    def _configure_idle_flush(self) -> None:
         tasks_config = self._config.scheduler.tasks
         self._ingressor.configure_idle_flush(
             timeout_seconds=tasks_config.observer_idle_flush_timeout_seconds,
             on_flush_callback=self._observer_idle_flush_callback,
         )
+
+    def _register_maintenance_tasks(self) -> bool:
+        if not self._config.scheduler.enabled:
+            return False
+        tasks_config = self._config.scheduler.tasks
         self._scheduler.register(
             MaintenanceTaskSpec(
-                name="observer_idle_flush",
+                owner=self._MAINTENANCE_OWNER,
+                name=self._OBSERVER_IDLE_FLUSH_TASK,
                 interval_seconds=tasks_config.observer_idle_flush_interval_seconds,
                 enabled=tasks_config.enable_observer_idle_flush,
             ),
             self._ingressor.scan_idle_sessions_once,
         )
+        return True
+
+    def _unregister_maintenance_tasks(self) -> int:
+        return self._scheduler.unregister_owner(self._MAINTENANCE_OWNER)
 
     async def _observer_idle_flush_callback(
         self,
@@ -66,15 +79,15 @@ class PassiveIngressService:
         )
 
     async def start(self) -> None:
-        if self._scheduler_started or not self._config.scheduler.enabled:
+        if self._maintenance_registered:
             return
-        self._scheduler.start()
-        self._scheduler_started = True
+        self._maintenance_registered = self._register_maintenance_tasks()
 
     async def stop(self) -> None:
-        if self._scheduler_started:
-            await self._scheduler.stop()
-            self._scheduler_started = False
+        if not self._maintenance_registered:
+            return
+        self._unregister_maintenance_tasks()
+        self._maintenance_registered = False
 
     async def shutdown_drain(self) -> Dict[str, Any]:
         await self.stop()

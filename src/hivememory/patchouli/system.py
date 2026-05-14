@@ -49,10 +49,7 @@ from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
-from hivememory.patchouli.kernel.runtime.maintenance_scheduler import (
-    SystemAsyncScheduler,
-    MaintenanceTaskSpec,
-)
+from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.server.models.memory import MemoryResponse
 
@@ -143,14 +140,6 @@ class PatchouliSystem:
         # 6. 取消注册表：generation_id → asyncio.Event
         self._active_generations: Dict[str, asyncio.Event] = {}
 
-        # 7. 统一维护调度器 (Phase S1)
-        sched_config = self.config.scheduler
-        self._scheduler = SystemAsyncScheduler(
-            tick_seconds=sched_config.tick_seconds,
-            shutdown_wait_seconds=sched_config.shutdown_wait_seconds,
-        )
-        self._setup_maintenance_tasks()
-
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
 
     def _init_gateway(self) -> None:
@@ -224,62 +213,29 @@ class PatchouliSystem:
     def unregister_generation(self, generation_id: str) -> None:
         self._active_generations.pop(generation_id, None)
 
-    # ========== 统一维护调度器 (Phase S1) ==========
+    # ========== 维护任务注册 ==========
 
-    @property
-    def scheduler(self) -> SystemAsyncScheduler:
-        """访问统一维护调度器"""
-        return self._scheduler
+    _MAINTENANCE_OWNER = "patchouli"
 
-    def _setup_maintenance_tasks(self) -> None:
-        """注册所有维护任务到统一调度器"""
+    def register_maintenance_tasks(self, scheduler) -> bool:
+        """向全局维护器注册 Patchouli 子系统的维护任务。"""
+        if not self.config.scheduler.enabled:
+            return False
         tasks_config = self.config.scheduler.tasks
-
-        # A. Observer idle flush
-        self._passive_ingressor.configure_idle_flush(
-            timeout_seconds=tasks_config.observer_idle_flush_timeout_seconds,
-            on_flush_callback=self._observer_idle_flush_callback,
-        )
-        self._scheduler.register(
+        scheduler.register(
             MaintenanceTaskSpec(
-                name="observer_idle_flush",
-                interval_seconds=tasks_config.observer_idle_flush_interval_seconds,
-                enabled=tasks_config.enable_observer_idle_flush,
-            ),
-            self._passive_ingressor.scan_idle_sessions_once,
-        )
-
-        # B. Perception idle flush
-        self._scheduler.register(
-            MaintenanceTaskSpec(
+                owner=self._MAINTENANCE_OWNER,
                 name="perception_idle_flush",
                 interval_seconds=tasks_config.perception_idle_flush_interval_seconds,
                 enabled=tasks_config.enable_perception_idle_flush,
             ),
             self.kernel.librarian_core.perception_layer.scan_idle_buffers_once,
         )
+        return True
 
-    async def _observer_idle_flush_callback(
-        self, payload, target_topic=None,
-    ) -> None:
-        """Observer idle flush 结果直接提交到 Kernel（在主 loop 中执行）"""
-        await self.kernel.submit_interaction(payload, target_topic=target_topic)
-
-    def start_scheduler(self) -> None:
-        """启动统一维护调度器（在主 asyncio loop 中调用）"""
-        if not self.config.scheduler.enabled:
-            return
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError as exc:
-            raise RuntimeError(
-                "PatchouliSystem.start_scheduler() 必须在运行中的 asyncio 事件循环内调用"
-            ) from exc
-        self._scheduler.start()
-
-    async def stop_scheduler(self) -> None:
-        """停止统一维护调度器"""
-        await self._scheduler.stop()
+    def unregister_maintenance_tasks(self, scheduler) -> int:
+        """从全局维护器卸载 Patchouli 子系统的维护任务。"""
+        return scheduler.unregister_owner(self._MAINTENANCE_OWNER)
 
     async def analyze_and_retrieve(
         self,
@@ -310,106 +266,6 @@ class PatchouliSystem:
             hot_result=hot_result,
         )
 
-    # ========== 被动消息流处理 API (Passive Observer Mode) ==========
-
-    async def ingest_event(
-        self,
-        event: PassiveIngressEvent,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        被动消息流处理入口 (Passive Observer Mode) — 统一事件版本
-
-        接收外部系统的离散事件（user / assistant / tool_call / tool_result），
-        通过 PassiveObserverIngressor 缓冲配对后，构建完整的 InteractionPayload
-        提交给感知层进行记忆沉淀。
-
-        Args:
-            event: 统一事件输入模型
-            user_id: 用户 ID
-            agent_id: Agent ID
-            session_id: 会话 ID
-
-        Returns:
-            Dict: 处理结果
-        """
-        identity = Identity(
-            user_id=user_id, agent_id=agent_id, session_id=session_id
-        )
-        outcome = await self._passive_ingressor.route_event(
-            event=event,
-            identity=identity,
-        )
-
-        if outcome.flushed:
-            flushed_payload, flushed_target_topic = outcome.flushed
-            await self.kernel.submit_interaction(
-                flushed_payload,
-                target_topic=flushed_target_topic,
-            )
-
-        if outcome.kind == "user":
-            hot_result = await self.kernel.handle_hot(
-                outcome.gaze_result,
-                mode="passive",
-            )
-
-            return {
-                "intent": hot_result.intent,
-                "rewritten": hot_result.rewritten,
-                "keywords": hot_result.keywords,
-                "worth_saving": hot_result.worth_saving,
-                "memory": hot_result.rendered_memory_context,
-            }
-
-        if outcome.kind == "buffered":
-            return {
-                "intent": "buffered",
-                "rewritten": None,
-                "keywords": [],
-                "worth_saving": True,
-                "memory": None,
-            }
-
-        return {
-            "intent": "ignored",
-            "rewritten": None,
-            "keywords": [],
-            "worth_saving": False,
-            "memory": None,
-        }
-
-    async def flush_observer_session(
-        self,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
-    ) -> bool:
-        """
-        显式 flush 指定 session 的 Observer Buffer (Explicit EOF 触发器) - 异步版本
-
-        Args:
-            user_id: 用户 ID
-            agent_id: Agent ID
-            session_id: 会话 ID
-
-        Returns:
-            bool: 是否有数据被 flush
-        """
-        identity = Identity(
-            user_id=user_id, agent_id=agent_id, session_id=session_id
-        )
-        flushed = self._passive_ingressor.flush_session(identity)
-        if flushed:
-            payload, target_topic = flushed
-            await self.kernel.submit_interaction(
-                payload, target_topic=target_topic,
-            )
-            return True
-        return False
-
     async def shutdown_drain(self) -> Dict[str, Any]:
         """服务关闭前排空 observer buffer 并强制归档所有活跃话题。"""
         if self._shutdown_drain_started:
@@ -429,8 +285,6 @@ class PatchouliSystem:
 
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
-
-        await self.stop_scheduler()
 
         flushed_rounds = self._passive_ingressor.flush_all_pending_sessions()
         for payload, target_topic in flushed_rounds:

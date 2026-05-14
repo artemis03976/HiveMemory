@@ -7,6 +7,7 @@ from hivememory.system.system import HiveMemorySystem
 from hivememory.system.lifecycle import SystemLifecycleManager
 from hivememory.system.runtime.host import RuntimeHost
 from hivememory.system.runtime.registry import SubsystemRegistry
+from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.infrastructure.system_bus import SystemBus
 
 
@@ -24,9 +25,11 @@ def mock_patchouli():
 def system(mock_patchouli):
     config = MagicMock()
     registry = SubsystemRegistry()
-    runtime = RuntimeHost(bus=SystemBus(), registry=registry)
+    scheduler = GlobalMaintenanceScheduler(tick_seconds=0.05, shutdown_wait_seconds=0.5)
+    runtime = RuntimeHost(bus=SystemBus(), registry=registry, scheduler=scheduler)
     lifecycle = MagicMock(spec=SystemLifecycleManager)
     lifecycle.start = AsyncMock()
+    lifecycle.stop_scheduler = AsyncMock()
     lifecycle.stop = AsyncMock()
     lifecycle.is_running = True
     chat_service = MagicMock()
@@ -37,6 +40,7 @@ def system(mock_patchouli):
     ingress_service.start = AsyncMock()
     ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
     ingress_service.ingest_event = AsyncMock(return_value={"buffered": True})
+    ingress_service.flush_observer_session = AsyncMock(return_value=True)
     return HiveMemorySystem(
         config=config,
         patchouli=mock_patchouli,
@@ -56,7 +60,26 @@ class TestHiveMemorySystem:
 
     @pytest.mark.asyncio
     async def test_stop_delegates_to_lifecycle(self, system):
+        calls = []
+
+        async def stop_scheduler_side_effect():
+            calls.append("stop_scheduler")
+
+        async def shutdown_drain_side_effect():
+            calls.append("shutdown_drain")
+            return {"success": True}
+
+        async def stop_side_effect():
+            calls.append("stop")
+
+        system._lifecycle.stop_scheduler.side_effect = stop_scheduler_side_effect
+        system._ingress_service.shutdown_drain.side_effect = shutdown_drain_side_effect
+        system._lifecycle.stop.side_effect = stop_side_effect
+
         await system.stop()
+
+        assert calls == ["stop_scheduler", "shutdown_drain", "stop"]
+        system._lifecycle.stop_scheduler.assert_called_once()
         system._ingress_service.shutdown_drain.assert_called_once()
         system._lifecycle.stop.assert_called_once()
 
@@ -84,6 +107,16 @@ class TestHiveMemorySystem:
         )
         system._ingress_service.ingest_event.assert_called_once()
         assert result == {"buffered": True}
+
+    @pytest.mark.asyncio
+    async def test_flush_observer_session_delegates(self, system):
+        result = await system.flush_observer_session(user_id="u1")
+        system._ingress_service.flush_observer_session.assert_called_once_with(
+            user_id="u1",
+            agent_id="omni_doll",
+            session_id=None,
+        )
+        assert result is True
 
     def test_cancel_generation_delegates(self, system, mock_patchouli):
         mock_patchouli.cancel_generation = MagicMock(return_value=True)

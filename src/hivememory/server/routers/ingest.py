@@ -18,7 +18,7 @@ async def ingest_event(
     request: PassiveIngressRequest,
     system: HiveMemorySystem = Depends(get_system),
 ):
-    """被动消息事件接入 HTTP 入口，转调 PatchouliSystem.ingest_event()。"""
+    """被动消息事件接入 HTTP 入口，转调 HiveMemorySystem.ingest_event()。"""
     event = PassiveIngressEvent(
         role=request.role,
         content=request.content,

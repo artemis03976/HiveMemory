@@ -42,6 +42,7 @@ class HiveMemorySystem:
         await self._ingress_service.start()
 
     async def stop(self) -> None:
+        await self._lifecycle.stop_scheduler()
         await self._ingress_service.shutdown_drain()
         await self._lifecycle.stop()
 
@@ -103,6 +104,18 @@ class HiveMemorySystem:
     ) -> Dict[str, Any]:
         return await self._ingress_service.ingest_event(
             event=event,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
+
+    async def flush_observer_session(
+        self,
+        user_id: str,
+        agent_id: str = "omni_doll",
+        session_id: Optional[str] = None,
+    ) -> bool:
+        return await self._ingress_service.flush_observer_session(
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,

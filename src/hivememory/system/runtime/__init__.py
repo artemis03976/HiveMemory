@@ -5,14 +5,23 @@ from hivememory.system.runtime.bus import (
 )
 from hivememory.system.runtime.host import RuntimeHost
 from hivememory.system.runtime.registry import SubsystemRegistry
-from hivememory.system.runtime.scheduler import MaintenanceTaskSpec, SystemAsyncScheduler
+from hivememory.system.runtime.scheduler import (
+    AsyncMaintenanceScheduler,
+    GlobalMaintenanceScheduler,
+    MaintenanceTaskSpec,
+    SystemAsyncScheduler,
+    TaskRuntimeState,
+)
 
 __all__ = [
+    "AsyncMaintenanceScheduler",
     "AsyncSystemBus",
+    "GlobalMaintenanceScheduler",
     "GlobalSystemBus",
     "MaintenanceTaskSpec",
     "RuntimeHost",
     "SubsystemBridge",
     "SubsystemRegistry",
     "SystemAsyncScheduler",
+    "TaskRuntimeState",
 ]

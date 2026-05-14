@@ -21,7 +21,8 @@ class _FakePatchouliSystem:
         self.storage = MagicMock()
         self.eye = MagicMock()
         self.eye.gaze = AsyncMock(return_value="gaze_result")
-        self.start_scheduler = MagicMock()
+        self.register_maintenance_tasks = MagicMock(return_value=True)
+        self.unregister_maintenance_tasks = MagicMock(return_value=1)
         self.shutdown_drain = AsyncMock(return_value={"success": True})
 
 

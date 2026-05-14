@@ -6,6 +6,9 @@ if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus
     from hivememory.patchouli.system import PatchouliSystem
     from hivememory.system.runtime.bus.bridge import SubsystemBridge
+    from hivememory.system.runtime.scheduler.async_scheduler import (
+        AsyncMaintenanceScheduler,
+    )
 
 
 class PatchouliSubsystemAdapter:
@@ -18,23 +21,32 @@ class PatchouliSubsystemAdapter:
         patchouli: PatchouliSystem,
         local_bus: PatchouliBus | None = None,
         bridge: SubsystemBridge | None = None,
+        scheduler: AsyncMaintenanceScheduler | None = None,
     ) -> None:
         self._patchouli = patchouli
         self._local_bus = local_bus
         self._bridge = bridge
+        self._scheduler = scheduler
         self._local_routes_registered = False
         self._bridge_mounted = False
+        self._maintenance_registered = False
 
     async def start(self) -> None:
         if self._local_bus and not self._local_routes_registered:
             self._register_local_routes()
             self._local_routes_registered = True
+        if self._scheduler and not self._maintenance_registered:
+            self._maintenance_registered = self._patchouli.register_maintenance_tasks(
+                self._scheduler
+            )
         if self._bridge and not self._bridge_mounted:
             self._bridge.mount()
             self._bridge_mounted = True
-        self._patchouli.start_scheduler()
 
     async def stop(self) -> None:
+        if self._scheduler and self._maintenance_registered:
+            self._patchouli.unregister_maintenance_tasks(self._scheduler)
+            self._maintenance_registered = False
         await self._patchouli.shutdown_drain()
         if self._bridge and self._bridge_mounted:
             self._bridge.unmount()

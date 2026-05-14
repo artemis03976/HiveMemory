@@ -23,11 +23,17 @@ class SystemBootstrap:
         from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
         from hivememory.system.runtime.host import RuntimeHost
         from hivememory.system.runtime.registry import SubsystemRegistry
+        from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
         from hivememory.system.system import HiveMemorySystem
 
         config = config or load_app_config()
 
         global_bus = GlobalSystemBus()
+        scheduler = GlobalMaintenanceScheduler(
+            tick_seconds=config.scheduler.tick_seconds,
+            shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
+        )
+
         patchouli = PatchouliSystem(config=config)
         patchouli_bus = PatchouliBus()
         patchouli_bridge = PatchouliBridge(
@@ -41,14 +47,19 @@ class SystemBootstrap:
                 patchouli=patchouli,
                 local_bus=patchouli_bus,
                 bridge=patchouli_bridge,
+                scheduler=scheduler,
             )
         )
-        runtime = RuntimeHost(bus=global_bus, registry=registry)
+        runtime = RuntimeHost(bus=global_bus, registry=registry, scheduler=scheduler)
 
         lifecycle = SystemLifecycleManager(runtime=runtime)
 
         chat_service = ChatApplicationService(patchouli=patchouli)
-        ingress_service = PassiveIngressService(bus=global_bus, config=config)
+        ingress_service = PassiveIngressService(
+            bus=global_bus,
+            config=config,
+            scheduler=scheduler,
+        )
 
         return HiveMemorySystem(
             config=config,
