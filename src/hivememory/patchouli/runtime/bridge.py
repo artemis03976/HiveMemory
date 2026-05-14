@@ -13,8 +13,8 @@ from typing import Any, Awaitable, Callable
 from hivememory.patchouli.contracts.domain_events import PatchouliEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.runtime.bridge import SubsystemBridge
-from hivememory.system.runtime.global_bus import GlobalSystemBus
+from hivememory.system.runtime.bus.bridge import SubsystemBridge
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 logger = logging.getLogger(__name__)
 

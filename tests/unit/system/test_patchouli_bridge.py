@@ -16,7 +16,7 @@ from hivememory.patchouli.contracts.domain_events import PatchouliEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bridge import PatchouliBridge
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.runtime.global_bus import GlobalSystemBus
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 class TestPatchouliBridgeRoutes:

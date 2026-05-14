@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.lifecycle import SystemLifecycleManager
 from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
-from hivememory.system.runtime.global_bus import GlobalSystemBus
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.host import RuntimeHost
 from hivememory.system.runtime.registry import SubsystemRegistry
 

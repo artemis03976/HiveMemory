@@ -6,7 +6,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.system.bootstrap import SystemBootstrap
 from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
-from hivememory.system.runtime.global_bus import GlobalSystemBus
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 class _FakePatchouliSystem:

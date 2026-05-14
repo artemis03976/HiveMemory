@@ -64,8 +64,6 @@ class AsyncSystemBus:
                     exc_info=True,
                 )
 
-    # ========== Introspection ==========
-
     def list_routes(self) -> list[str]:
         return sorted(self._handlers.keys())
 

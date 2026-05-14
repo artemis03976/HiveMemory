@@ -10,7 +10,7 @@ from hivememory.system.runtime import MaintenanceTaskSpec, SystemAsyncScheduler
 if TYPE_CHECKING:
     from hivememory.patchouli.config import HiveMemoryConfig
     from hivememory.patchouli.passive_ingest import PassiveIngressEvent
-    from hivememory.system.runtime.global_bus import GlobalSystemBus
+    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 class PassiveIngressService:

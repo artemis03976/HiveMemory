@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus
     from hivememory.patchouli.system import PatchouliSystem
-    from hivememory.system.runtime.bridge import SubsystemBridge
+    from hivememory.system.runtime.bus.bridge import SubsystemBridge
 
 
 class PatchouliSubsystemAdapter:

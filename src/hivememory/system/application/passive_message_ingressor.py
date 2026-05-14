@@ -14,7 +14,7 @@ from hivememory.patchouli.passive_ingest.observer_turn_buffer import (
 )
 from hivememory.patchouli.protocol.models import AnalyzeAndRetrieveResult, InteractionPayload
 from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.global_bus import GlobalSystemBus
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 logger = logging.getLogger(__name__)
 

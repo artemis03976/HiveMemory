@@ -353,7 +353,7 @@ class SystemRuntimeHost:
 
 Phase A 中建议先完成以下动作：
 
-- 在 `system/runtime/scheduler.py` 中建立正式归属
+- 在 `system/runtime/scheduler/` 中建立正式归属
 - 允许先通过 re-export 或兼容导入方式复用当前实现
 - 不要求本阶段立刻重写全部依赖方
 
@@ -366,7 +366,7 @@ Phase A 中建议先完成以下动作：
 
 对 `SystemBus`，Phase A 中建议完成：
 
-- 新建 `system/runtime/bus.py`
+- 新建 `system/runtime/bus/`
 - 定义 `GlobalSystemBus` 最小骨架
 - 定义与未来 `PatchouliBus` / `AliceBus` 配套的抽象接口
 - 保留与旧 `SystemBus` 的过渡兼容壳

@@ -20,7 +20,7 @@ class SystemBootstrap:
         from hivememory.system.application.chat_service import ChatApplicationService
         from hivememory.system.application.passive_ingress_service import PassiveIngressService
         from hivememory.system.lifecycle import SystemLifecycleManager
-        from hivememory.system.runtime.global_bus import GlobalSystemBus
+        from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
         from hivememory.system.runtime.host import RuntimeHost
         from hivememory.system.runtime.registry import SubsystemRegistry
         from hivememory.system.system import HiveMemorySystem

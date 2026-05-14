@@ -455,9 +455,11 @@ Phase B 之后，`ChatApplicationService` 不应直接绑定 `PatchouliSystem`�
 ```text
 src/hivememory/system/runtime
 │  __init__.py
-│  async_bus.py          # AsyncSystemBus 基类
-│  global_bus.py         # GlobalSystemBus
-│  bridge.py             # Bridge 抽象 / 通用桥接辅助
+└─bus
+   │  __init__.py
+   │  async_bus.py       # AsyncSystemBus 基类
+   │  global_bus.py      # GlobalSystemBus
+   └─bridge.py           # Bridge 抽象 / 通用桥接辅助
 └─contracts
    routes.py
    events.py

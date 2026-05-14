@@ -1,6 +1,6 @@
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.system.runtime.bridge import SubsystemBridge
-from hivememory.system.runtime.global_bus import GlobalSystemBus
+from hivememory.system.runtime.bus.bridge import SubsystemBridge
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 class AliceBridge(SubsystemBridge):

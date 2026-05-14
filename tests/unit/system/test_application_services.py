@@ -14,7 +14,7 @@ from hivememory.patchouli.protocol.models import (
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.global_bus import GlobalSystemBus
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 @pytest.fixture

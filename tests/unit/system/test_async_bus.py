@@ -11,7 +11,7 @@ AsyncSystemBus 单元测试
 import pytest
 from unittest.mock import AsyncMock
 
-from hivememory.system.runtime.async_bus import AsyncSystemBus
+from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 
 class TestAsyncSystemBusRPC:
