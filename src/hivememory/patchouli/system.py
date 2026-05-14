@@ -31,7 +31,11 @@ from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from hivememory.core.models import Identity, StreamMessage
 from hivememory.patchouli.message_assembler import MessageAssembler
-from hivememory.patchouli.protocol.models import ChatResult, InteractionPayload
+from hivememory.patchouli.protocol.models import (
+    AnalyzeAndRetrieveResult,
+    ChatResult,
+    InteractionPayload,
+)
 from hivememory.infrastructure.system_bus import SystemBus
 from hivememory.infrastructure.trace_context import (
     generate_trace_id, set_trace_context, reset_trace_context
@@ -276,6 +280,35 @@ class PatchouliSystem:
     async def stop_scheduler(self) -> None:
         """停止统一维护调度器"""
         await self._scheduler.stop()
+
+    async def analyze_and_retrieve(
+        self,
+        query: str,
+        identity: Identity,
+        topic_snapshots: Any = None,
+        enable_retrieval: bool = True,
+        mode: str = "active",
+    ) -> AnalyzeAndRetrieveResult:
+        """
+        执行 Patchouli 的标准分析与预检索入口。
+
+        用于将 TheEye 的入口分析与 Kernel 的预检索整合为一个
+        可公开暴露的子系统能力，便于通过总线对接顶层应用服务。
+        """
+        gaze_result = await self.eye.gaze(
+            query=query,
+            topic_snapshots=topic_snapshots,
+            identity=identity,
+        )
+        hot_result = await self.kernel.handle_hot(
+            gaze_result,
+            enable_retrieval=enable_retrieval,
+            mode=mode,
+        )
+        return AnalyzeAndRetrieveResult(
+            gaze_result=gaze_result,
+            hot_result=hot_result,
+        )
 
     # ========== 被动消息流处理 API (Passive Observer Mode) ==========
 

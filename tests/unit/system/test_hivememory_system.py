@@ -4,8 +4,6 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from hivememory.system.system import HiveMemorySystem
-from hivememory.system.application.chat_service import ChatApplicationService
-from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.lifecycle import SystemLifecycleManager
 from hivememory.system.runtime.host import RuntimeHost
 from hivememory.system.runtime.registry import SubsystemRegistry
@@ -31,8 +29,14 @@ def system(mock_patchouli):
     lifecycle.start = AsyncMock()
     lifecycle.stop = AsyncMock()
     lifecycle.is_running = True
-    chat_service = ChatApplicationService(patchouli=mock_patchouli)
-    ingress_service = PassiveIngressService(patchouli=mock_patchouli)
+    chat_service = MagicMock()
+    chat_service.chat = AsyncMock(return_value="result")
+    chat_service.chat_stream = MagicMock()
+    chat_service.cancel_generation = MagicMock(return_value=True)
+    ingress_service = MagicMock()
+    ingress_service.start = AsyncMock()
+    ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
+    ingress_service.ingest_event = AsyncMock(return_value={"buffered": True})
     return HiveMemorySystem(
         config=config,
         patchouli=mock_patchouli,
@@ -48,10 +52,12 @@ class TestHiveMemorySystem:
     async def test_start_delegates_to_lifecycle(self, system):
         await system.start()
         system._lifecycle.start.assert_called_once()
+        system._ingress_service.start.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_stop_delegates_to_lifecycle(self, system):
         await system.stop()
+        system._ingress_service.shutdown_drain.assert_called_once()
         system._lifecycle.stop.assert_called_once()
 
     @pytest.mark.asyncio
@@ -63,22 +69,20 @@ class TestHiveMemorySystem:
 
     @pytest.mark.asyncio
     async def test_chat_delegates(self, system, mock_patchouli):
-        mock_patchouli.chat = AsyncMock(return_value="result")
         result = await system.chat(
             user_message="hello",
             user_id="u1",
         )
-        mock_patchouli.chat.assert_called_once()
+        system._chat_service.chat.assert_called_once()
         assert result == "result"
 
     @pytest.mark.asyncio
     async def test_ingest_event_delegates(self, system, mock_patchouli):
-        mock_patchouli.ingest_event = AsyncMock(return_value={"buffered": True})
         result = await system.ingest_event(
             event=MagicMock(),
             user_id="u1",
         )
-        mock_patchouli.ingest_event.assert_called_once()
+        system._ingress_service.ingest_event.assert_called_once()
         assert result == {"buffered": True}
 
     def test_cancel_generation_delegates(self, system, mock_patchouli):

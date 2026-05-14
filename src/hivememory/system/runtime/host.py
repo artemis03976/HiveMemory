@@ -1,4 +1,4 @@
-from hivememory.system.runtime.bus import GlobalSystemBus
+from hivememory.system.runtime.global_bus import GlobalSystemBus
 from hivememory.system.runtime.registry import SubsystemRegistry
 
 

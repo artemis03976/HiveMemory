@@ -308,6 +308,13 @@ class KernelHotResult(BaseModel):
     retrieved_memories: List[MemoryAtom] = Field(default_factory=list, description="预检索到的记忆列表")
 
 
+class AnalyzeAndRetrieveResult(BaseModel):
+    """Patchouli 标准分析与预检索组合结果。"""
+
+    gaze_result: EyeGazeResult = Field(..., description="入口分析结果")
+    hot_result: KernelHotResult = Field(..., description="热路径预检索结果")
+
+
 __all__ = [
     "MessageType",
     "ProtocolMessage",
@@ -317,5 +324,6 @@ __all__ = [
     "EyeGazeResult",
     "InteractionPayload",
     "KernelHotResult",
+    "AnalyzeAndRetrieveResult",
     "MTPExecutionResult",
 ]

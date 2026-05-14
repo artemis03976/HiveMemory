@@ -39,8 +39,10 @@ class HiveMemorySystem:
 
     async def start(self) -> None:
         await self._lifecycle.start()
+        await self._ingress_service.start()
 
     async def stop(self) -> None:
+        await self._ingress_service.shutdown_drain()
         await self._lifecycle.stop()
 
     async def health(self) -> dict[str, Any]:

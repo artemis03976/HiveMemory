@@ -16,7 +16,12 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.protocol.models import EyeGazeResult, InteractionPayload
+from hivememory.patchouli.protocol.models import (
+    AnalyzeAndRetrieveResult,
+    EyeGazeResult,
+    InteractionPayload,
+    KernelHotResult,
+)
 
 
 @dataclass(frozen=True)
@@ -100,8 +105,15 @@ class PassiveIngressOutcome:
     """
 
     kind: Literal["user", "buffered", "ignored"]
+    analysis_result: Optional[AnalyzeAndRetrieveResult] = None
     gaze_result: Optional[EyeGazeResult] = None
     flushed: Optional[tuple[InteractionPayload, Optional[str]]] = None
+
+    @property
+    def hot_result(self) -> Optional[KernelHotResult]:
+        if self.analysis_result is None:
+            return None
+        return self.analysis_result.hot_result
 
 
 __all__ = [

@@ -3,8 +3,18 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from hivememory.core.models import Identity
+from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+from hivememory.patchouli.protocol.models import (
+    AnalyzeAndRetrieveResult,
+    EyeGazeResult,
+    KernelHotResult,
+)
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.global_bus import GlobalSystemBus
 
 
 @pytest.fixture
@@ -13,9 +23,53 @@ def mock_patchouli():
     p.chat = AsyncMock(return_value="chat_result")
     p.chat_stream = MagicMock()
     p.cancel_generation = MagicMock(return_value=True)
-    p.ingest_event = AsyncMock(return_value={"buffered": True})
-    p.flush_observer_session = AsyncMock(return_value=True)
     return p
+
+
+@pytest.fixture
+def passive_config():
+    scheduler_tasks = MagicMock()
+    scheduler_tasks.observer_idle_flush_timeout_seconds = 30.0
+    scheduler_tasks.observer_idle_flush_interval_seconds = 30.0
+    scheduler_tasks.enable_observer_idle_flush = True
+
+    scheduler = MagicMock()
+    scheduler.tick_seconds = 0.01
+    scheduler.shutdown_wait_seconds = 0.1
+    scheduler.enabled = False
+    scheduler.tasks = scheduler_tasks
+
+    config = MagicMock()
+    config.scheduler = scheduler
+    return config
+
+
+def _make_analysis_result(
+    *,
+    target_topic: str = "NEW_TOPIC",
+    memory: str | None = "<mem>ctx</mem>",
+    worth_saving: bool = True,
+) -> AnalyzeAndRetrieveResult:
+    gaze_result = EyeGazeResult(
+        intent=GatewayIntent.RAG,
+        rewritten_query="resolved query",
+        search_keywords=["resolved"],
+        worth_saving=worth_saving,
+        raw_query="raw query",
+        identity=Identity(user_id="u1"),
+        target_topic=target_topic,
+    )
+    hot_result = KernelHotResult(
+        intent="RAG",
+        rewritten="resolved query",
+        keywords=["resolved"],
+        worth_saving=worth_saving,
+        rendered_memory_context=memory,
+    )
+    return AnalyzeAndRetrieveResult(
+        gaze_result=gaze_result,
+        hot_result=hot_result,
+    )
 
 
 class TestChatApplicationService:
@@ -61,29 +115,51 @@ class TestChatApplicationService:
 
 
 class TestPassiveIngressService:
+    @pytest.fixture
+    def bus(self):
+        return GlobalSystemBus()
+
     @pytest.mark.asyncio
-    async def test_ingest_event_passes_args(self, mock_patchouli):
-        svc = PassiveIngressService(patchouli=mock_patchouli)
-        event = MagicMock()
+    async def test_ingest_event_passes_through_bus(self, bus, passive_config):
+        submit_interaction = AsyncMock(return_value=None)
+        bus.register(
+            GlobalRoutes.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE,
+            AsyncMock(return_value=_make_analysis_result(memory="<memory>relevant</memory>")),
+        )
+        bus.register(GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION, submit_interaction)
+        svc = PassiveIngressService(bus=bus, config=passive_config)
+        event = PassiveIngressEvent(role="user", content="hello")
         result = await svc.ingest_event(
             event=event,
             user_id="u1",
             agent_id="agent_y",
             session_id="s2",
         )
-        mock_patchouli.ingest_event.assert_called_once_with(
-            event=event,
-            user_id="u1",
-            agent_id="agent_y",
-            session_id="s2",
-        )
-        assert result == {"buffered": True}
+        assert result["intent"] == "RAG"
+        assert result["memory"] == "<memory>relevant</memory>"
+        submit_interaction.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_flush_observer_session(self, mock_patchouli):
-        svc = PassiveIngressService(patchouli=mock_patchouli)
-        result = await svc.flush_observer_session(user_id="u1", agent_id="a", session_id="s")
-        mock_patchouli.flush_observer_session.assert_called_once_with(
-            user_id="u1", agent_id="a", session_id="s"
+    async def test_flush_observer_session(self, bus, passive_config):
+        bus.register(
+            GlobalRoutes.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE,
+            AsyncMock(return_value=_make_analysis_result(target_topic="topic_1")),
         )
+        submit_interaction = AsyncMock(return_value=None)
+        bus.register(GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION, submit_interaction)
+        svc = PassiveIngressService(bus=bus, config=passive_config)
+        await svc.ingest_event(
+            event=PassiveIngressEvent(role="user", content="q"),
+            user_id="u1",
+            agent_id="a",
+            session_id="s",
+        )
+        await svc.ingest_event(
+            event=PassiveIngressEvent(role="assistant", content="a"),
+            user_id="u1",
+            agent_id="a",
+            session_id="s",
+        )
+        result = await svc.flush_observer_session(user_id="u1", agent_id="a", session_id="s")
         assert result is True
+        submit_interaction.assert_awaited_once()
