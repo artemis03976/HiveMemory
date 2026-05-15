@@ -123,6 +123,32 @@ Alice 负责多智能体域内部的：
 
 第四次演进必须为未来 Alice 的真正接入提前铺路，避免第三阶段开发再次建立在错误的顶层归属之上。
 
+### 3.6 当前已经明确的三项基础设施结论
+
+随着配套设计逐步完成，第四次演进中已经有 3 组结论可以视为当前总文档中的已定前置条件：
+
+- 顶层宿主层已经明确
+  - `HiveMemorySystem`、`SystemBootstrap`、`SystemLifecycleManager`、`RuntimeHost`、`SubsystemRegistry` 已是正式骨架
+  - `server/` 应只依赖顶层 system
+  - `system/application/` 是主动 `chat` 与被动 `ingest` 的正式入口编排层
+- 通信骨架已经明确
+  - 统一异步总线基类为 `AsyncSystemBus`
+  - 顶层持有 `GlobalSystemBus`
+  - 子系统持有自己的私有总线
+  - 跨域能力通过桥接器与公开契约暴露
+- 维护调度骨架已经明确
+  - 顶层 runtime 持有唯一的 `GlobalMaintenanceScheduler`
+  - application 与 subsystem 只注册任务，不再各自持有项目级 scheduler
+  - stop 顺序中应先停 scheduler，再执行业务 drain
+
+对应设计文档：
+
+- [SystemArchitecture_v4_PhaseA_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_PhaseA_Design.md)
+- [SystemArchitecture_v4_BusFoundation_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_BusFoundation_Design.md)
+- [SystemArchitecture_v4_MaintenanceFoundation_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_MaintenanceFoundation_Design.md)
+
+这意味着第四次演进接下来的重点，已经不再是“继续补顶层 system 骨架”，而是“让各子系统真正接入并内化这套骨架”，其中最优先的就是 `Patchouli` 子系统规范化。
+
 ***
 
 ## 4. 目标架构图
@@ -324,6 +350,30 @@ Alice 建议负责多智能体子系统范围内的职责：
 - 将“事件广播”作为跨子系统通信主语义
 - 将“显式接口调用”保留给强同步、强耦合、需要返回值的场景
 
+### 5.9 系统级维护调度骨架应如何分层
+
+与总线一样，维护调度在第四次演进中也应被视为系统级 runtime 原语，而不是某个业务类内部的普通工具对象。
+
+当前已经明确的方向是：
+
+- 统一抽象为 `AsyncMaintenanceScheduler`
+- 顶层 runtime 持有唯一的 `GlobalMaintenanceScheduler`
+- application / subsystem 只注册任务，不再各自持有项目级 scheduler
+- 维护任务以 owner 维度分域，例如：
+  - `system.passive_ingress.*`
+  - `patchouli.*`
+  - `alice.*`
+
+### 5.10 维护调度分层原则
+
+- 顶层 lifecycle 统一控制 scheduler 的 start/stop
+- application 层维护任务归 application 自己定义与注册
+- 子系统内部维护任务归对应 subsystem 自己定义与注册
+- stop 顺序必须先停 scheduler，再执行业务 drain
+- `Patchouli` 不再承担项目级 scheduler 宿主职责，只保留记忆域内部 task callback
+
+这意味着后续任何新的迁移工作，只要需要定时维护能力，都应优先接入 `GlobalMaintenanceScheduler`，而不是重新在局部 `new` 一个自己的维护器。
+
 ***
 
 ## 6. 目录草图建议
@@ -347,10 +397,18 @@ src/hivememory
 │  │
 │  ├─runtime
 │  │  │  __init__.py
-│  │  │  scheduler.py             # SystemAsyncScheduler
-│  │  │  bus.py                   # GlobalSystemBus / LocalBus / EventBridge
 │  │  │  host.py                  # 全局 runtime host
 │  │  └─registry.py               # 子系统注册/发现/依赖装配
+│  │  ├─bus
+│  │  │  │  __init__.py
+│  │  │  │  async_bus.py
+│  │  │  │  global_bus.py
+│  │  │  └─bridge.py
+│  │  └─scheduler
+│  │     │  __init__.py
+│  │     │  async_scheduler.py
+│  │     │  global_scheduler.py
+│  │     └─models.py
 │  │
 │  └─contracts
 │     │  __init__.py
@@ -359,12 +417,16 @@ src/hivememory
 │
 ├─patchouli/                      # [REFOCUS] 记忆子系统
 │  │  __init__.py
-│  │  system.py                   # Patchouli 子系统门面
-│  │  bootstrap.py                # Patchouli 内部装配
+│  │  system.py                   # PatchouliSystem
+│  │  service.py                  # PatchouliService
 │  │
 │  ├─kernel                       # 记忆域执行中枢
 │  ├─runtime                      # Patchouli 专属 runtime
-│  │  └─bus.py                    # PatchouliBus / PatchouliEventBridge
+│  │  │  bootstrap.py             # PatchouliBootstrap
+│  │  │  host.py                  # PatchouliRuntimeHost
+│  │  │  lifecycle.py             # PatchouliLifecycleManager
+│  │  │  bus.py                   # PatchouliBus
+│  │  └─bridge.py                 # PatchouliBridge
 │  ├─services                     # 记忆域应用服务
 │  ├─protocol                     # Patchouli 相关协议与模型
 │  └─contracts
@@ -427,7 +489,7 @@ infrastructure -> (不反向依赖业务子系统)
 ### 7.2 重要限制
 
 - 不允许把 `Alice` 作为 `patchouli/` 的子目录引入
-- 不允许让 `PatchouliSystem` 继续承担项目级总控职责
+- 不允许让当前代码中的 `PatchouliSystem` 继续承担项目级总控职责
 - 不允许把系统级 runtime 继续长期寄居在 `patchouli/` 中
 - 不允许把 `SystemBus` 继续作为 `infrastructure` 中的全局万能总线无限扩张
 
@@ -454,20 +516,69 @@ infrastructure -> (不反向依赖业务子系统)
 - 子系统私有总线与事件桥接机制的最小接口定义
 - `system/application/` 骨架，以及 `ChatApplicationService` / `PassiveIngressService` 的职责占位
 
-### Phase B：Patchouli 回归记忆子系统
+### Phase B0：Bus Foundation
 
 目标：
 
-- 将 `PatchouliSystem` 降格为 Patchouli 子系统门面
-- 将项目级 lifecycle / scheduler / bootstrap 从 Patchouli 中抽离
-- 将主动 `chat` 与被动 `ingest` 的顶层入口编排迁移到 `system/application/`
-- 明确 Patchouli 只承接记忆域职责
+- 建立 `AsyncSystemBus`
+- 明确 `GlobalSystemBus / PatchouliBus / AliceBus`
+- 建立 `PatchouliBridge / AliceBridge` 的最小模型
+- 固化“全局公开契约”与“子系统私有通信”的分层
+
+产出：
+
+- `system/runtime/bus/`
+- `patchouli/runtime/bus.py`
+- `patchouli/runtime/bridge.py`
+- `alice/runtime/bus.py`
+- `alice/runtime/bridge.py`
+
+### Phase B0.5：Maintenance Foundation
+
+目标：
+
+- 建立 `AsyncMaintenanceScheduler`
+- 建立 `GlobalMaintenanceScheduler`
+- 将定时维护从业务类内部持有迁移为顶层 runtime 原语
+- 固化 owner 化任务注册与 stop 顺序
+
+产出：
+
+- `system/runtime/scheduler/`
+- `GlobalMaintenanceScheduler`
+- owner 化 maintenance task 模型
+- application / subsystem 级任务注册边界
+
+### Phase B1：Patchouli System Normalization
+
+目标：
+
+- 建立新的 `PatchouliSystem` 作为 Patchouli 子系统宿主
+- 让 Patchouli 真正以正式子系统身份接入 `HiveMemorySystem`
+- 让当前 `PatchouliSystem` 收缩并重命名为 `PatchouliService`，不再承担私有装配与生命周期宿主职责
+- 为后续继续收缩 `shutdown_drain()`、`_passive_ingressor` 等残留提供稳定宿主层
 
 产出：
 
 - `patchouli/system.py`
-- `patchouli/bootstrap.py`
-- Patchouli 专属 runtime 边界
+- `patchouli/service.py`
+- `patchouli/runtime/bootstrap.py`
+- `patchouli/runtime/host.py`
+- `patchouli/runtime/lifecycle.py`
+
+### Phase B2：顶层应用服务迁移
+
+目标：
+
+- 将主动 `chat` 与被动 `ingest` 的顶层入口编排稳定迁移到 `system/application/`
+- 明确顶层应用服务只依赖全局公开契约，不直接理解 Patchouli 私有 runtime
+- 在 Patchouli 子系统边界稳定后继续收缩 façade 兼容层
+
+产出：
+
+- `ChatApplicationService` 的正式编排骨架
+- `PassiveIngressService` 的正式编排骨架
+- 对旧 Patchouli 入口兼容层的进一步收口
 
 ### Phase C：为 Alice 铺设同级子系统入口
 
@@ -541,7 +652,19 @@ infrastructure -> (不反向依赖业务子系统)
 - 事件 payload schema
 - 是否支持 request-reply，还是纯事件广播优先
 
-### 9.5 系统生命周期设计
+### 9.5 Patchouli 子系统规范化设计
+
+当前最优先缺失的正式设计之一，就是 Patchouli 子系统自身的规范化设计，即：
+
+- 新的 `PatchouliSystem` 子系统宿主
+- 子系统自己的 bootstrap
+- 子系统自己的 runtime host
+- 子系统自己的 lifecycle manager
+- 当前 `PatchouliSystem` 收缩为 `PatchouliService` 的最终职责边界
+
+这部分已在 [SystemArchitecture_v4_PatchouliSubsystemNormalization_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_PatchouliSubsystemNormalization_Design.md) 中单独展开。
+
+### 9.6 系统生命周期设计
 
 顶层 system 成立后，需要一份明确的启动/关闭时序设计：
 
@@ -551,7 +674,7 @@ infrastructure -> (不反向依赖业务子系统)
 - 出错后的回滚策略
 - 子系统启动失败时的降级与中止策略
 
-### 9.6 运行时归属设计
+### 9.7 运行时归属设计
 
 目前文档只给出了方向，但对以下对象还缺正式归属判断：
 
@@ -562,7 +685,7 @@ infrastructure -> (不反向依赖业务子系统)
 - 哪些 runtime 应升格到 system
 - 哪些 runtime 属于 Alice
 
-### 9.7 配置与装配设计
+### 9.8 配置与装配设计
 
 正式设计文档还应说明：
 
@@ -572,7 +695,7 @@ infrastructure -> (不反向依赖业务子系统)
 - 测试环境如何替换子系统实现
 - 是否需要 registry / plugin 风格的子系统注册机制
 
-### 9.8 迁移与兼容设计
+### 9.9 迁移与兼容设计
 
 由于第四次演进是破坏性更新，正式设计文档还必须补一份迁移策略：
 
@@ -588,6 +711,7 @@ infrastructure -> (不反向依赖业务子系统)
 - 顶层系统接口设计
 - 子系统契约设计
 - 应用服务编排设计
+- Patchouli 子系统规范化设计
 - 系统生命周期设计
 
 因为这 4 项会直接决定你后面代码迁移时最核心的骨架是否稳定。

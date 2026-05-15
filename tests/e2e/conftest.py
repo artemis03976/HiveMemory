@@ -22,7 +22,6 @@ from hivememory.core.models import Identity, MemoryAtom
 from hivememory.patchouli.config import load_app_config
 from hivememory.patchouli.protocol.models import RetrievalRequest
 from hivememory.system import HiveMemorySystem
-from hivememory.system.bootstrap import SystemBootstrap
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ def e2e_system(e2e_config):
     使用真实的 LLM, Qdrant, Embedding, Reranker 服务。
     整个测试 session 共享同一个实例以避免重复初始化开销。
     """
-    system = SystemBootstrap.build(config=e2e_config)
+    system = HiveMemorySystem.build(config=e2e_config)
     asyncio.run(system.start())
     logger.info("E2E HiveMemorySystem 初始化完成")
     yield system

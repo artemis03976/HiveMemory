@@ -2,4 +2,4 @@ from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenance
 
 
 class GlobalMaintenanceScheduler(AsyncMaintenanceScheduler):
-    """Global maintenance scheduler — held by RuntimeHost, serves all subsystems and application services."""
+    """Global maintenance scheduler — held by HiveMemorySystem, serves subsystems and application services."""

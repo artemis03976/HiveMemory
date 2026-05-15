@@ -1,14 +1,12 @@
-"""SystemLifecycleManager 测试"""
+"""系统生命周期与 Patchouli 子系统适配测试"""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.lifecycle import SystemLifecycleManager
 from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
+from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.host import RuntimeHost
-from hivememory.system.runtime.registry import SubsystemRegistry
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 
 
@@ -24,60 +22,99 @@ def mock_patchouli():
 
 
 @pytest.fixture
-def runtime(mock_patchouli):
-    bus = GlobalSystemBus()
-    scheduler = GlobalMaintenanceScheduler(tick_seconds=0.05, shutdown_wait_seconds=0.5)
-    registry = SubsystemRegistry()
-    registry.register(PatchouliSubsystemAdapter(mock_patchouli, scheduler=scheduler))
-    return RuntimeHost(bus=bus, registry=registry, scheduler=scheduler)
+def global_bus():
+    return GlobalSystemBus()
 
 
 @pytest.fixture
-def lifecycle(runtime, mock_patchouli):
-    return SystemLifecycleManager(runtime=runtime)
+def scheduler():
+    return GlobalMaintenanceScheduler(tick_seconds=0.05, shutdown_wait_seconds=0.5)
 
 
-class TestSystemLifecycleManager:
-    @pytest.mark.asyncio
-    async def test_start_calls_scheduler(self, lifecycle, mock_patchouli):
-        await lifecycle.start()
-        mock_patchouli.register_maintenance_tasks.assert_called_once_with(
-            lifecycle._runtime.scheduler
+@pytest.fixture
+def patchouli_subsystem(mock_patchouli, scheduler):
+    return PatchouliSubsystemAdapter(mock_patchouli, scheduler=scheduler)
+
+
+@pytest.fixture
+def system_factory(mock_patchouli, global_bus, scheduler, patchouli_subsystem):
+    def _build(**kwargs):
+        ingress_service = kwargs.pop("ingress_service", MagicMock())
+        chat_service = kwargs.pop("chat_service", MagicMock())
+        return HiveMemorySystem(
+            config=MagicMock(),
+            patchouli=mock_patchouli,
+            global_bus=global_bus,
+            scheduler=scheduler,
+            patchouli_subsystem=patchouli_subsystem,
+            chat_service=chat_service,
+            ingress_service=ingress_service,
+            **kwargs,
         )
-        assert lifecycle._runtime.scheduler.is_running
-        assert lifecycle.is_running
+
+    return _build
+
+
+class TestHiveMemorySystemLifecycle:
+    @pytest.mark.asyncio
+    async def test_start_calls_scheduler(
+        self, system_factory, mock_patchouli, scheduler
+    ):
+        ingress_service = MagicMock()
+        ingress_service.start = AsyncMock()
+        system = system_factory(ingress_service=ingress_service)
+
+        await system.start()
+
+        mock_patchouli.register_maintenance_tasks.assert_called_once_with(scheduler)
+        ingress_service.start.assert_called_once()
+        assert scheduler.is_running
+        assert system._started
 
     @pytest.mark.asyncio
-    async def test_start_is_idempotent(self, lifecycle, mock_patchouli):
-        await lifecycle.start()
-        await lifecycle.start()
+    async def test_start_is_idempotent(self, system_factory, mock_patchouli):
+        system = system_factory(ingress_service=MagicMock(start=AsyncMock()))
+        await system.start()
+        await system.start()
         mock_patchouli.register_maintenance_tasks.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stop_scheduler_only_stops_global_scheduler(self, lifecycle, mock_patchouli):
-        await lifecycle.start()
+    async def test_stop_scheduler_only_stops_global_scheduler(
+        self, system_factory, mock_patchouli, scheduler
+    ):
+        system = system_factory(ingress_service=MagicMock(start=AsyncMock()))
+        await system.start()
 
-        await lifecycle.stop_scheduler()
+        await system._stop_scheduler()
 
-        assert lifecycle._runtime.scheduler.is_running is False
+        assert scheduler.is_running is False
         mock_patchouli.unregister_maintenance_tasks.assert_not_called()
         mock_patchouli.shutdown_drain.assert_not_called()
-        assert lifecycle.is_running
+        assert system._started
 
     @pytest.mark.asyncio
-    async def test_stop_calls_drain_and_scheduler(self, lifecycle, mock_patchouli):
-        await lifecycle.start()
-        await lifecycle.stop()
-        mock_patchouli.unregister_maintenance_tasks.assert_called_once_with(
-            lifecycle._runtime.scheduler
-        )
+    async def test_stop_calls_drain_and_scheduler(
+        self, system_factory, mock_patchouli, scheduler
+    ):
+        ingress_service = MagicMock()
+        ingress_service.start = AsyncMock()
+        ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
+        system = system_factory(ingress_service=ingress_service)
+
+        await system.start()
+        await system.stop()
+
+        mock_patchouli.unregister_maintenance_tasks.assert_called_once_with(scheduler)
         mock_patchouli.shutdown_drain.assert_called_once()
-        assert not lifecycle._runtime.scheduler.is_running
-        assert not lifecycle.is_running
+        assert not scheduler.is_running
+        assert not system._started
 
     @pytest.mark.asyncio
-    async def test_stop_without_start_is_noop(self, lifecycle, mock_patchouli):
-        await lifecycle.stop()
+    async def test_stop_without_start_is_noop(self, system_factory, mock_patchouli):
+        ingress_service = MagicMock()
+        ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
+        system = system_factory(ingress_service=ingress_service)
+        await system.stop()
         mock_patchouli.shutdown_drain.assert_not_called()
 
 

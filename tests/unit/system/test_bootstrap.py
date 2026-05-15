@@ -1,10 +1,10 @@
-"""SystemBootstrap 组装闭环测试"""
+"""HiveMemorySystem.build 组装闭环测试"""
 
 import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
-from hivememory.system.bootstrap import SystemBootstrap
+from hivememory.system import HiveMemorySystem
 from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
@@ -44,35 +44,32 @@ def _make_config():
 def test_build_registers_patchouli_and_uses_global_bus_runtime():
     config = _make_config()
 
-    with patch("hivememory.patchouli.system.PatchouliSystem", _FakePatchouliSystem):
-        system = SystemBootstrap.build(config=config)
+    with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
+        system = HiveMemorySystem.build(config=config)
 
-    assert isinstance(system._runtime.bus, GlobalSystemBus)
+    assert isinstance(system._global_bus, GlobalSystemBus)
     assert system.patchouli.bus is None
 
-    registered = system._runtime.registry.get("patchouli")
-    assert isinstance(registered, PatchouliSubsystemAdapter)
-    assert registered._patchouli is system.patchouli
-
-    health = system._runtime.registry._subsystems["patchouli"]
-    assert health.name == "patchouli"
+    assert isinstance(system._patchouli_subsystem, PatchouliSubsystemAdapter)
+    assert system._patchouli_subsystem._patchouli is system.patchouli
+    assert system._patchouli_subsystem.name == "patchouli"
 
 
 @pytest.mark.asyncio
 async def test_start_mounts_patchouli_bridge_routes_on_global_bus():
     config = _make_config()
 
-    with patch("hivememory.patchouli.system.PatchouliSystem", _FakePatchouliSystem):
-        system = SystemBootstrap.build(config=config)
+    with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
+        system = HiveMemorySystem.build(config=config)
 
-    assert PatchouliRoutes.PASSIVE_HANDLE_HOT not in system._runtime.bus.list_routes()
+    assert PatchouliRoutes.PASSIVE_HANDLE_HOT not in system._global_bus.list_routes()
 
     await system.start()
 
-    assert PatchouliRoutes.PASSIVE_HANDLE_HOT in system._runtime.bus.list_routes()
-    assert PatchouliRoutes.SUBMIT_INTERACTION in system._runtime.bus.list_routes()
+    assert PatchouliRoutes.PASSIVE_HANDLE_HOT in system._global_bus.list_routes()
+    assert PatchouliRoutes.SUBMIT_INTERACTION in system._global_bus.list_routes()
 
-    result = await system._runtime.bus.request(
+    result = await system._global_bus.request(
         PatchouliRoutes.PASSIVE_HANDLE_HOT,
         query="hello",
         identity=MagicMock(),
@@ -84,4 +81,4 @@ async def test_start_mounts_patchouli_bridge_routes_on_global_bus():
     )
 
     await system.stop()
-    assert PatchouliRoutes.PASSIVE_HANDLE_HOT not in system._runtime.bus.list_routes()
+    assert PatchouliRoutes.PASSIVE_HANDLE_HOT not in system._global_bus.list_routes()

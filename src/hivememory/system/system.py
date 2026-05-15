@@ -5,10 +5,13 @@ from typing import Any, AsyncGenerator, Dict, Optional
 from hivememory.patchouli.config import HiveMemoryConfig
 from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.system.lifecycle import SystemLifecycleManager
-from hivememory.system.runtime.host import RuntimeHost
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.scheduler.global_scheduler import (
+    GlobalMaintenanceScheduler,
+)
 
 
 class HiveMemorySystem:
@@ -23,33 +26,102 @@ class HiveMemorySystem:
         self,
         config: HiveMemoryConfig,
         patchouli: PatchouliSystem,
-        runtime: RuntimeHost,
-        lifecycle: SystemLifecycleManager,
+        global_bus: GlobalSystemBus,
+        scheduler: GlobalMaintenanceScheduler,
+        patchouli_subsystem: PatchouliSubsystemAdapter,
         chat_service: ChatApplicationService,
         ingress_service: PassiveIngressService,
     ) -> None:
         self._config = config
         self._patchouli = patchouli
-        self._runtime = runtime
-        self._lifecycle = lifecycle
+        self._global_bus = global_bus
+        self._scheduler = scheduler
+        self._patchouli_subsystem = patchouli_subsystem
         self._chat_service = chat_service
         self._ingress_service = ingress_service
+        self._started = False
+        self._scheduler_stopped = False
+
+    @classmethod
+    def build(
+        cls,
+        config: Optional[HiveMemoryConfig] = None,
+    ) -> "HiveMemorySystem":
+        from hivememory.patchouli.config import load_app_config
+        from hivememory.patchouli.runtime.bridge import PatchouliBridge
+        from hivememory.patchouli.runtime.bus import PatchouliBus
+
+        config = config or load_app_config()
+
+        global_bus = GlobalSystemBus()
+        scheduler = GlobalMaintenanceScheduler(
+            tick_seconds=config.scheduler.tick_seconds,
+            shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
+        )
+
+        patchouli = PatchouliSystem(config=config)
+        patchouli_bus = PatchouliBus()
+        patchouli_bridge = PatchouliBridge(
+            local_bus=patchouli_bus,
+            global_bus=global_bus,
+        )
+
+        patchouli_subsystem = PatchouliSubsystemAdapter(
+            patchouli=patchouli,
+            local_bus=patchouli_bus,
+            bridge=patchouli_bridge,
+            scheduler=scheduler,
+        )
+
+        chat_service = ChatApplicationService(patchouli=patchouli)
+        ingress_service = PassiveIngressService(
+            bus=global_bus,
+            config=config,
+            scheduler=scheduler,
+        )
+
+        return cls(
+            config=config,
+            patchouli=patchouli,
+            global_bus=global_bus,
+            scheduler=scheduler,
+            patchouli_subsystem=patchouli_subsystem,
+            chat_service=chat_service,
+            ingress_service=ingress_service,
+        )
 
     # ========== 生命周期 ==========
 
     async def start(self) -> None:
-        await self._lifecycle.start()
+        if self._started:
+            return
+        await self._patchouli_subsystem.start()
+        self._scheduler.start()
+        self._started = True
+        self._scheduler_stopped = False
         await self._ingress_service.start()
 
     async def stop(self) -> None:
-        await self._lifecycle.stop_scheduler()
+        await self._stop_scheduler()
         await self._ingress_service.shutdown_drain()
-        await self._lifecycle.stop()
+        if not self._started:
+            return
+        await self._patchouli_subsystem.stop()
+        self._started = False
+        self._scheduler_stopped = False
+
+    async def _stop_scheduler(self) -> None:
+        if not self._started or self._scheduler_stopped:
+            return
+        await self._scheduler.stop()
+        self._scheduler_stopped = True
 
     async def health(self) -> dict[str, Any]:
-        subsystem_health = await self._runtime.registry.health_all()
+        subsystem_health = {
+            self._patchouli_subsystem.name: await self._patchouli_subsystem.health()
+        }
         return {
-            "status": "ok" if self._lifecycle.is_running else "stopped",
+            "status": "ok" if self._started else "stopped",
             "subsystems": subsystem_health,
             "models_ready": self._patchouli.kernel.is_models_ready(),
         }

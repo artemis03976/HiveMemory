@@ -10,7 +10,7 @@ from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
 from hivememory.patchouli.config import HiveMemoryConfig
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system import HiveMemorySystem, SystemBootstrap
+from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ _ws_manager: Optional[WebSocketConnectionManager] = None
 def init_system(config: Optional[HiveMemoryConfig] = None) -> HiveMemorySystem:
     """lifespan startup 时调用，组装并返回 HiveMemorySystem"""
     global _system
-    _system = SystemBootstrap.build(config=config)
+    _system = HiveMemorySystem.build(config=config)
     logger.info("HiveMemorySystem 组装完成")
     return _system
 

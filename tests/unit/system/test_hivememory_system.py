@@ -1,14 +1,12 @@
 """HiveMemorySystem 门面委托测试"""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
+from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
 from hivememory.system.system import HiveMemorySystem
-from hivememory.system.lifecycle import SystemLifecycleManager
-from hivememory.system.runtime.host import RuntimeHost
-from hivememory.system.runtime.registry import SubsystemRegistry
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.infrastructure.system_bus import SystemBus
 
 
 @pytest.fixture
@@ -24,14 +22,9 @@ def mock_patchouli():
 @pytest.fixture
 def system(mock_patchouli):
     config = MagicMock()
-    registry = SubsystemRegistry()
+    global_bus = GlobalSystemBus()
     scheduler = GlobalMaintenanceScheduler(tick_seconds=0.05, shutdown_wait_seconds=0.5)
-    runtime = RuntimeHost(bus=SystemBus(), registry=registry, scheduler=scheduler)
-    lifecycle = MagicMock(spec=SystemLifecycleManager)
-    lifecycle.start = AsyncMock()
-    lifecycle.stop_scheduler = AsyncMock()
-    lifecycle.stop = AsyncMock()
-    lifecycle.is_running = True
+    patchouli_subsystem = PatchouliSubsystemAdapter(mock_patchouli, scheduler=scheduler)
     chat_service = MagicMock()
     chat_service.chat = AsyncMock(return_value="result")
     chat_service.chat_stream = MagicMock()
@@ -44,8 +37,9 @@ def system(mock_patchouli):
     return HiveMemorySystem(
         config=config,
         patchouli=mock_patchouli,
-        runtime=runtime,
-        lifecycle=lifecycle,
+        global_bus=global_bus,
+        scheduler=scheduler,
+        patchouli_subsystem=patchouli_subsystem,
         chat_service=chat_service,
         ingress_service=ingress_service,
     )
@@ -53,38 +47,48 @@ def system(mock_patchouli):
 
 class TestHiveMemorySystem:
     @pytest.mark.asyncio
-    async def test_start_delegates_to_lifecycle(self, system):
+    async def test_start_starts_subsystem_and_ingress(self, system):
+        system._patchouli_subsystem.start = AsyncMock()
+        system._scheduler.start = MagicMock()
         await system.start()
-        system._lifecycle.start.assert_called_once()
+        system._patchouli_subsystem.start.assert_called_once()
+        system._scheduler.start.assert_called_once()
         system._ingress_service.start.assert_called_once()
+        assert system._started is True
 
     @pytest.mark.asyncio
-    async def test_stop_delegates_to_lifecycle(self, system):
+    async def test_stop_stops_scheduler_then_drain_then_registry(self, system):
         calls = []
 
-        async def stop_scheduler_side_effect():
+        async def scheduler_stop_side_effect():
             calls.append("stop_scheduler")
 
         async def shutdown_drain_side_effect():
             calls.append("shutdown_drain")
             return {"success": True}
 
-        async def stop_side_effect():
+        async def stop_subsystem_side_effect():
             calls.append("stop")
 
-        system._lifecycle.stop_scheduler.side_effect = stop_scheduler_side_effect
+        system._patchouli_subsystem.start = AsyncMock()
+        system._scheduler.start = MagicMock()
+        system._scheduler.stop = AsyncMock(side_effect=scheduler_stop_side_effect)
+        system._patchouli_subsystem.stop = AsyncMock(side_effect=stop_subsystem_side_effect)
         system._ingress_service.shutdown_drain.side_effect = shutdown_drain_side_effect
-        system._lifecycle.stop.side_effect = stop_side_effect
+
+        await system.start()
 
         await system.stop()
 
         assert calls == ["stop_scheduler", "shutdown_drain", "stop"]
-        system._lifecycle.stop_scheduler.assert_called_once()
+        system._scheduler.stop.assert_called_once()
         system._ingress_service.shutdown_drain.assert_called_once()
-        system._lifecycle.stop.assert_called_once()
+        system._patchouli_subsystem.stop.assert_called_once()
+        assert system._started is False
 
     @pytest.mark.asyncio
     async def test_health_returns_structure(self, system):
+        system._started = True
         h = await system.health()
         assert h["status"] == "ok"
         assert "subsystems" in h
