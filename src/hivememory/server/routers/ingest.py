@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 
 from hivememory.system import HiveMemorySystem
-from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+from hivememory.system.application.passive import PassiveIngressEvent
 from hivememory.server.deps import get_system
 from hivememory.server.models.ingest import (
     PassiveIngressRequest,

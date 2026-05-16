@@ -5,13 +5,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
 from hivememory.patchouli.protocol.models import (
     AnalyzeAndRetrieveResult,
     EyeGazeResult,
     KernelHotResult,
 )
 from hivememory.system.application.chat_service import ChatApplicationService
+from hivememory.system.application.passive import PassiveIngressEvent
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus

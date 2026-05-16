@@ -105,7 +105,7 @@ from hivememory.engines.gateway import (
     create_semantic_analyzer,
 )
 
-from hivememory.patchouli.passive_ingest import ObserverBufferState
+from hivememory.system.application.passive import ObserverBufferState
 
 from hivememory.engines.generation import (
     MemoryGenerationEngine,

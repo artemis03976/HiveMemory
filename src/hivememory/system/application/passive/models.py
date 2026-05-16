@@ -1,11 +1,7 @@
 """
-被动接入事件模型 (Passive Ingest Event Models)
+被动接入事件模型
 
-定义被动模式的统一事件输入模型 PassiveIngressEvent，
-用于替代旧的散装被动 ingest 入参。
-
-作者: HiveMemory Team
-版本: 1.0.0
+定义顶层 passive ingress 使用的统一事件输入模型与路由结果。
 """
 
 from __future__ import annotations
@@ -26,12 +22,7 @@ from hivememory.patchouli.protocol.models import (
 
 @dataclass(frozen=True)
 class PassiveSessionKey:
-    """
-    被动 ingest 专用的会话分桶键。
-
-    该键只用于 observer turn buffer 的事件归并，不进入感知层主链，
-    以避免将外部 session 窗口概念重新污染到 Identity / topic 语义。
-    """
+    """被动 ingress 专用的会话分桶键。"""
 
     user_id: str
     agent_id: str
@@ -52,37 +43,7 @@ class PassiveSessionKey:
 
 
 class PassiveIngressEvent(BaseModel):
-    """
-    被动模式统一事件输入模型
-
-    将 user / assistant / tool_call / tool_result 四种事件
-    统一为一个结构化输入，替代旧的散装被动 ingest 入参。
-
-    使用示例:
-        # 普通用户消息
-        PassiveIngressEvent(role="user", content="你好")
-
-        # 助手回复
-        PassiveIngressEvent(role="assistant", content="你好！有什么可以帮你的？")
-
-        # 工具调用
-        PassiveIngressEvent(
-            role="tool_call",
-            content="get_weather(city='北京')",
-            action_id="act_1",
-            tool_name="weather_api",
-            tool_kind="function_call",
-            tool_args={"city": "北京"},
-        )
-
-        # 工具结果
-        PassiveIngressEvent(
-            role="tool_result",
-            content="北京 25°C 晴",
-            action_id="act_1",
-            status="success",
-        )
-    """
+    """被动模式统一事件输入模型。"""
 
     role: Literal["user", "assistant", "tool_call", "tool_result"]
     content: str
@@ -97,12 +58,7 @@ class PassiveIngressEvent(BaseModel):
 
 @dataclass(frozen=True)
 class PassiveIngressOutcome:
-    """
-    被动事件路由结果。
-
-    ingressor 负责将离散事件分派到具体缓冲逻辑，并返回统一结果；
-    system 层再决定是否提交 flush 结果、是否继续执行 hot 路由以及如何组织外部 API 返回值。
-    """
+    """被动事件路由结果。"""
 
     kind: Literal["user", "buffered", "ignored"]
     analysis_result: Optional[AnalyzeAndRetrieveResult] = None

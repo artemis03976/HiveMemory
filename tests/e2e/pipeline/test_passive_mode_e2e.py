@@ -55,7 +55,7 @@ from typing import List, Dict, Any, Optional
 import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+from hivememory.system.application.passive import PassiveIngressEvent
 from hivememory.patchouli.protocol.models import ChatResult
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]

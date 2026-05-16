@@ -3,13 +3,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from hivememory.core.models import Identity
-from hivememory.system.application.passive_message_ingressor import PassiveMessageIngressor
+from hivememory.system.application.passive import (
+    PassiveIngressEvent,
+    PassiveMessageIngressor,
+)
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 
 if TYPE_CHECKING:
     from hivememory.system.config import HiveMemoryConfig
-    from hivememory.patchouli.passive_ingest import PassiveIngressEvent
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
     from hivememory.system.runtime.scheduler.async_scheduler import (
         AsyncMaintenanceScheduler,

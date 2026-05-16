@@ -1,34 +1,46 @@
+"""
+PassiveObserverIngressor — 旧被动观测模式编排器
+
+该组件已迁入 system/application/passive，作为顶层被动应用层的一部分保留，
+便于过渡期测试与剩余兼容链路继续使用。
+"""
+
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any, Callable, Coroutine, Optional
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.passive_ingest.models import (
+from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.system.application.passive.models import (
     PassiveIngressEvent,
     PassiveIngressOutcome,
 )
-from hivememory.patchouli.passive_ingest.observer_turn_buffer import (
+from hivememory.system.application.passive.observer_turn_buffer import (
     FlushResult,
     ObserverTurnBufferManager,
 )
-from hivememory.patchouli.protocol.models import AnalyzeAndRetrieveResult, InteractionPayload
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+
+if TYPE_CHECKING:
+    from hivememory.patchouli.eye import TheEye
+    from hivememory.patchouli.protocol.models import EyeGazeResult
 
 logger = logging.getLogger(__name__)
 
 
-class PassiveMessageIngressor:
-    """顶层被动消息编排器，通过全局总线请求 Patchouli 分析能力。"""
+class PassiveObserverIngressor:
+    """旧被动观测模式编排器。"""
 
-    def __init__(self, bus: GlobalSystemBus) -> None:
+    def __init__(self, eye: TheEye, bus: Any = None) -> None:
+        self._eye = eye
         self._bus = bus
         self._buffers = ObserverTurnBufferManager()
         self._idle_timeout: float = 30.0
         self._on_flush_callback: Optional[
             Callable[[InteractionPayload, Optional[str]], Coroutine[Any, Any, None]]
         ] = None
+        logger.info("PassiveObserverIngressor 初始化完成")
 
     @property
     def buffers(self) -> ObserverTurnBufferManager:
@@ -44,29 +56,31 @@ class PassiveMessageIngressor:
         self._idle_timeout = timeout_seconds
         self._on_flush_callback = on_flush_callback
 
+    def ingest_user(
+        self,
+        content: str,
+        identity: Identity,
+    ) -> tuple[EyeGazeResult, Optional[FlushResult]]:
+        gaze_result = asyncio.run(
+            self._eye.gaze(query=content, topic_snapshots=None, identity=identity)
+        )
+        buffer = self._buffers.get_buffer(identity)
+        flushed = buffer.accept_user(content=content, gaze_result=gaze_result)
+        return gaze_result, flushed
+
     async def ingest_user_async(
         self,
         content: str,
         identity: Identity,
-    ) -> tuple[AnalyzeAndRetrieveResult, Optional[FlushResult]]:
-        analysis_result = await self._bus.request(
-            GlobalRoutes.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE,
-            query=content,
-            identity=identity,
-            mode="passive",
+    ) -> tuple[EyeGazeResult, Optional[FlushResult]]:
+        gaze_result = await self._eye.gaze(
+            query=content, topic_snapshots=None, identity=identity
         )
         buffer = self._buffers.get_buffer(identity)
-        flushed = buffer.accept_user(
-            content=content,
-            gaze_result=analysis_result.gaze_result,
-        )
-        return analysis_result, flushed
+        flushed = buffer.accept_user(content=content, gaze_result=gaze_result)
+        return gaze_result, flushed
 
-    def ingest_assistant(
-        self,
-        content: str,
-        identity: Identity,
-    ) -> None:
+    def ingest_assistant(self, content: str, identity: Identity) -> None:
         buffer = self._buffers.get_buffer(identity)
         buffer.accept_assistant(content)
 
@@ -78,7 +92,7 @@ class PassiveMessageIngressor:
         action_id: Optional[str] = None,
         tool_name: Optional[str] = None,
         tool_kind: Optional[str] = None,
-        tool_args: Optional[dict[str, Any]] = None,
+        tool_args: Optional[Dict[str, Any]] = None,
         target: Optional[str] = None,
     ) -> None:
         buffer = self._buffers.get_buffer(identity)
@@ -114,14 +128,13 @@ class PassiveMessageIngressor:
         identity: Identity,
     ) -> PassiveIngressOutcome:
         if event.role == "user":
-            analysis_result, flushed = await self.ingest_user_async(
+            gaze_result, flushed = await self.ingest_user_async(
                 content=event.content,
                 identity=identity,
             )
             return PassiveIngressOutcome(
                 kind="user",
-                analysis_result=analysis_result,
-                gaze_result=analysis_result.gaze_result,
+                gaze_result=gaze_result,
                 flushed=flushed,
             )
 
@@ -157,7 +170,11 @@ class PassiveMessageIngressor:
         buffer = self._buffers.get_buffer(identity)
         return buffer.flush()
 
-    def flush_all_pending_sessions(self) -> list[FlushResult]:
+    def flush_idle_sessions(self, timeout_seconds: Optional[float] = None) -> List[FlushResult]:
+        timeout = timeout_seconds or self._idle_timeout
+        return self._buffers.flush_idle_buffers(timeout)
+
+    def flush_all_pending_sessions(self) -> List[FlushResult]:
         return self._buffers.flush_idle_buffers(-1.0)
 
     async def scan_idle_sessions_once(self) -> int:
@@ -170,3 +187,8 @@ class PassiveMessageIngressor:
                 await self._on_flush_callback(payload, target_topic)
 
         return len(results)
+
+
+__all__ = [
+    "PassiveObserverIngressor",
+]

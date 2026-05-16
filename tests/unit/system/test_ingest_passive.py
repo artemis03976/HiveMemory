@@ -20,13 +20,11 @@ from datetime import datetime
 
 from hivememory.core.models import Identity
 from hivememory.patchouli.protocol.models import InteractionPayload
-from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
-from hivememory.patchouli.passive_ingest.observer_turn_buffer import (
+from hivememory.system.application.passive import (
     ObserverBufferState,
     ObserverTurnBuffer,
     ObserverTurnBufferManager,
-)
-from hivememory.patchouli.passive_ingest.ingressor import (
+    PassiveIngressEvent,
     PassiveObserverIngressor,
 )
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
@@ -758,7 +756,7 @@ class TestIngestEvent:
 
     def test_ingest_event_user(self, sys_passive):
         """user 事件通过 ingest_event() 正确处理"""
-        from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+        from hivememory.system.application.passive import PassiveIngressEvent
 
         event = PassiveIngressEvent(role="user", content="hello")
         result = self._run(sys_passive.ingest_event(event=event, user_id="u1"))
@@ -769,7 +767,7 @@ class TestIngestEvent:
 
     def test_ingest_event_assistant(self, sys_passive):
         """assistant 事件通过 ingest_event() 正确缓冲"""
-        from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+        from hivememory.system.application.passive import PassiveIngressEvent
 
         self._run(sys_passive.ingest_event(
             event=PassiveIngressEvent(role="user", content="q"),
@@ -784,7 +782,7 @@ class TestIngestEvent:
 
     def test_ingest_event_tool_call(self, sys_passive):
         """tool_call 事件通过 ingest_event() 正确缓冲"""
-        from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+        from hivememory.system.application.passive import PassiveIngressEvent
 
         self._run(sys_passive.ingest_event(
             event=PassiveIngressEvent(role="user", content="查天气"),
@@ -805,7 +803,7 @@ class TestIngestEvent:
 
     def test_ingest_event_tool_result(self, sys_passive):
         """tool_result 事件通过 ingest_event() 正确缓冲"""
-        from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+        from hivememory.system.application.passive import PassiveIngressEvent
 
         self._run(sys_passive.ingest_event(
             event=PassiveIngressEvent(role="user", content="查天气"),
@@ -825,7 +823,7 @@ class TestIngestEvent:
 
     def test_ingest_event_full_tool_flow_submits(self, sys_passive):
         """完整 user→tool_call→tool_result→assistant→flush 产出结构化 payload"""
-        from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+        from hivememory.system.application.passive import PassiveIngressEvent
 
         self._run(sys_passive.ingest_event(
             event=PassiveIngressEvent(role="user", content="查天气"),

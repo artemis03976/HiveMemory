@@ -18,15 +18,13 @@ from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent, GatewayResult
 from hivememory.patchouli.protocol.models import InteractionPayload
 from hivememory.patchouli.protocol.models import EyeGazeResult
-from hivememory.patchouli.passive_ingest.observer_turn_buffer import (
+from hivememory.system.application.passive import (
     ObserverBufferState,
     ObserverTurnBuffer,
     ObserverTurnBufferManager,
-)
-from hivememory.patchouli.passive_ingest.ingressor import (
     PassiveObserverIngressor,
+    PassiveIngressEvent,
 )
-from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
 
 
 def _make_identity(user_id="u1", agent_id="a1", session_id="s1") -> Identity:
