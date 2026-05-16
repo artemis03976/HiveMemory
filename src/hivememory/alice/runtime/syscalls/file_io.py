@@ -116,4 +116,3 @@ def sys_write_file(
         return "Error: Cannot write file. The path may be read-only or inaccessible."
 
     return f"Success: File '{target.name}' saved ({len(content_bytes)} bytes)."
-

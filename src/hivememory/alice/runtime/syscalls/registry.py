@@ -5,11 +5,11 @@ syscall 注册表构建器。
 from functools import partial
 from typing import Dict
 
-from hivememory.patchouli.tools.syscalls.clock import sys_clock
-from hivememory.patchouli.tools.syscalls.file_io import sys_read_file, sys_write_file
-from hivememory.patchouli.tools.syscalls.repl import sys_python_repl
-from hivememory.patchouli.tools.syscalls.types import KernelSyscall
-from hivememory.patchouli.tools.syscalls.web_search import sys_web_search
+from hivememory.alice.runtime.syscalls.clock import sys_clock
+from hivememory.alice.runtime.syscalls.file_io import sys_read_file, sys_write_file
+from hivememory.alice.runtime.syscalls.repl import sys_python_repl
+from hivememory.alice.runtime.syscalls.types import KernelSyscall
+from hivememory.alice.runtime.syscalls.web_search import sys_web_search
 
 
 def build_kernel_registry(
@@ -59,4 +59,3 @@ def build_kernel_registry(
             description="Write content to a file in the workspace directory.",
         ),
     }
-

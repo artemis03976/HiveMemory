@@ -152,4 +152,3 @@ def sys_python_repl(args: Dict[str, str], *, timeout_seconds: int = 10) -> str:
         return "Error: 'code' argument is required."
 
     return execute_sandboxed(code, timeout_seconds=timeout_seconds)
-

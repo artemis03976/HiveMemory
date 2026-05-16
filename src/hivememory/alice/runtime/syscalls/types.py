@@ -17,4 +17,3 @@ class KernelSyscall:
 
     handler: Callable[[Dict[str, str]], str]
     description: str
-

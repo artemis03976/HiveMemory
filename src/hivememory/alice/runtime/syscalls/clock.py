@@ -30,4 +30,3 @@ def sys_clock(args: Dict[str, str]) -> str:
     utc_offset_hours = now.utcoffset().total_seconds() / 3600
     offset_int = int(utc_offset_hours)
     return f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset_int:+d})"
-

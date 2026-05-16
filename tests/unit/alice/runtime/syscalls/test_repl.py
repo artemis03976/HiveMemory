@@ -1,4 +1,4 @@
-from hivememory.patchouli.tools.syscalls.repl import sys_python_repl
+from hivememory.alice.runtime.syscalls.repl import sys_python_repl
 
 
 class TestSysPythonRepl:
@@ -80,5 +80,3 @@ class TestSysPythonRepl:
     def test_list_comprehension(self):
         result = sys_python_repl({"code": "print([x**2 for x in range(5)])"})
         assert result == "Stdout: [0, 1, 4, 9, 16]"
-
-# ========== Test 3: sys_web_search 直接调用 ==========

@@ -1,4 +1,4 @@
-from hivememory.patchouli.tools.syscalls.file_io import sys_read_file, sys_write_file
+from hivememory.alice.runtime.syscalls.file_io import sys_read_file, sys_write_file
 
 
 class TestSysReadFile:
@@ -43,7 +43,6 @@ class TestSysReadFile:
         result = sys_read_file({"path": "src/main.py"}, workspace=str(tmp_path))
         assert "print('hello')" in result
 
-# ========== Test 5: sys_write_file 直接调用 ==========
 
 class TestSysWriteFile:
     """sys_write_file 函数直接测试"""
@@ -116,5 +115,3 @@ class TestSysWriteFile:
         )
         assert "Success" in result
         assert (tmp_path / "exist.txt").read_text(encoding="utf-8") == "new content"
-
-# ========== Test 6: build_kernel_registry ==========

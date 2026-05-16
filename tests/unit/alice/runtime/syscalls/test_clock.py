@@ -1,6 +1,6 @@
 import re
 
-from hivememory.patchouli.tools.syscalls.clock import sys_clock
+from hivememory.alice.runtime.syscalls.clock import sys_clock
 
 
 class TestSysClock:
@@ -33,6 +33,3 @@ class TestSysClock:
     def test_unknown_format_uses_default(self):
         result = sys_clock({"format": "unknown"})
         assert "UTC" in result
-
-
-# ========== Test 2: sys_python_repl 直接调用 ==========

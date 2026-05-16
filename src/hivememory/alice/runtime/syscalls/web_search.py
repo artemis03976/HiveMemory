@@ -44,4 +44,3 @@ def sys_web_search(args: Dict[str, str], *, timeout_seconds: int = 15) -> str:
         lines.append(f"[{i}] Title: {title}\nSnippet: {snippet}\nURL: {url}")
 
     return "\n\n".join(lines)
-

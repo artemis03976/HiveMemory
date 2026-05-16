@@ -1,5 +1,5 @@
-from hivememory.patchouli.tools.syscalls.registry import build_kernel_registry
-from hivememory.patchouli.tools.syscalls.types import KernelSyscall
+from hivememory.alice.runtime.syscalls.registry import build_kernel_registry
+from hivememory.alice.runtime.syscalls.types import KernelSyscall
 
 
 class TestKernelRegistry:
@@ -31,6 +31,3 @@ class TestKernelRegistry:
     def test_custom_repl_timeout(self):
         registry = build_kernel_registry(python_repl_timeout=5)
         assert "sys_python_repl" in registry
-
-
-# ========== Test 7: Syscall 通过 MTP 集成 ==========
