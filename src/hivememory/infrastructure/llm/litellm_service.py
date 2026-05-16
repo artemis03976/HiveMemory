@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional, Union
 
 import litellm
 
-from hivememory.patchouli.config import LLMConfig
+from hivememory.system.config import LLMConfig
 from hivememory.infrastructure.llm.base import SingletonLLMService
 
 logger = logging.getLogger(__name__)
@@ -262,7 +262,7 @@ def get_librarian_llm_service(
     Returns:
         LiteLLMService: Librarian LLM 服务实例
     """
-    from hivememory.patchouli.config import load_app_config
+    from hivememory.system.config import load_app_config
 
     if config is None:
         config = load_app_config().get_librarian_llm_config()

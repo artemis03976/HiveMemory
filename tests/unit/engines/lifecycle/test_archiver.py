@@ -18,7 +18,7 @@ from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.lifecycle.archiver import FileBasedArchiver
-from hivememory.patchouli.config import ArchiverConfig
+from hivememory.system.config import ArchiverConfig
 
 
 class TestFileBasedArchiver:

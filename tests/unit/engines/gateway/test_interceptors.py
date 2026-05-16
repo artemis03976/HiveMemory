@@ -2,7 +2,7 @@
 import pytest
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.engines.gateway.interceptors import RuleInterceptor
-from hivememory.patchouli.config import RuleInterceptorConfig
+from hivememory.system.config import RuleInterceptorConfig
 
 
 class TestRuleInterceptor:

@@ -10,7 +10,7 @@ L2 语义分析器实现
 import logging
 from typing import Any, Optional
 
-from hivememory.patchouli.config import LLMAnalyzerConfig
+from hivememory.system.config import LLMAnalyzerConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.gateway.interfaces import BaseSemanticAnalyzer
 from hivememory.engines.gateway.models import (

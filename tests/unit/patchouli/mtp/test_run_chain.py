@@ -24,7 +24,7 @@ from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.system.config import KoakumaConfig
 
 
 # ========== Helpers ==========

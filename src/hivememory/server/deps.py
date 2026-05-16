@@ -8,7 +8,7 @@ from fastapi import Header
 from hivememory.core.constants import DEFAULT_USER_ID
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
-from hivememory.patchouli.config import HiveMemoryConfig
+from hivememory.system.config import HiveMemoryConfig
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system import HiveMemorySystem
 

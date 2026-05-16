@@ -24,7 +24,7 @@ from hivememory.engines.perception.semantic_flow_perception_layer import (
 from hivememory.engines.perception.models import (
     FlushReason,
 )
-from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.patchouli.protocol import InteractionPayload
 
 

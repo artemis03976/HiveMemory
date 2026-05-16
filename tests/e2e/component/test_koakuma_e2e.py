@@ -24,7 +24,7 @@ from hivememory.patchouli.mtp import (
 )
 from hivememory.patchouli.protocol.models import MTPExecutionResult
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.system.config import KoakumaConfig
 
 
 # ========== Fixtures ==========

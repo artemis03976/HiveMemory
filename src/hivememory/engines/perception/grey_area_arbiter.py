@@ -26,7 +26,7 @@ from typing import Optional
 from hivememory.infrastructure.llm import BaseLLMService
 from hivememory.infrastructure.rerank.base import BaseRerankService
 from hivememory.engines.perception.interfaces import BaseArbiter
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     ArbiterConfig,
     RerankerArbiterConfig,
     SLMArbiterConfig,
@@ -65,7 +65,7 @@ class RerankerArbiter(BaseArbiter):
 
     Examples:
         >>> from hivememory.infrastructure.rerank import get_reranker_service
-        >>> from hivememory.patchouli.config import RerankerArbiterConfig
+        >>> from hivememory.system.config import RerankerArbiterConfig
         >>> reranker = get_reranker_service()
         >>> config = RerankerArbiterConfig(threshold=0.5)
         >>> arbiter = RerankerArbiter(config, reranker)
@@ -154,7 +154,7 @@ class SLMArbiter(BaseArbiter):
 
     Examples:
         >>> from hivememory.infrastructure.llm import get_llm_service
-        >>> from hivememory.patchouli.config import SLMArbiterConfig
+        >>> from hivememory.system.config import SLMArbiterConfig
         >>> llm = get_llm_service()
         >>> config = SLMArbiterConfig()
         >>> arbiter = SLMArbiter(config, llm)

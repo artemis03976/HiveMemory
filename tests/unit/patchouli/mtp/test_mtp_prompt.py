@@ -21,7 +21,7 @@ from hivememory.patchouli.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
 )
-from hivememory.patchouli.config import MTPPromptConfig, KoakumaConfig
+from hivememory.system.config import MTPPromptConfig, KoakumaConfig
 
 
 # ========== MTPPromptBuilder 单元测试 ==========

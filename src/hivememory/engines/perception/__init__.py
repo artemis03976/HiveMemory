@@ -29,7 +29,7 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
 作者: HiveMemory Team
 版本: 5.0.0 (Phase S2 — 统一调度器接入)
 """
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     MemoryPerceptionConfig,
     SemanticFlowPerceptionConfig,
 )

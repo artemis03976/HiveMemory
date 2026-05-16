@@ -17,7 +17,7 @@ from uuid import uuid4
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 from hivememory.engines.lifecycle.models import MemoryEvent, EventType
-from hivememory.patchouli.config import ReinforcementEngineConfig
+from hivememory.system.config import ReinforcementEngineConfig
 
 
 class TestDynamicReinforcementEngine:

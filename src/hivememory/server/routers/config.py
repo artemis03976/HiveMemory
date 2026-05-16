@@ -9,7 +9,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, ValidationError
 
-from hivememory.patchouli.config import HiveMemoryConfig, get_config_file_path
+from hivememory.system.config import HiveMemoryConfig, get_config_file_path
 from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
 

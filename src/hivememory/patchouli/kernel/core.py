@@ -40,7 +40,7 @@ from hivememory.patchouli.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
 )
-from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
+from hivememory.system.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
@@ -68,7 +68,9 @@ class PatchouliKernel:
     使用示例:
         >>> # 推荐：通过 PatchouliSystem 使用（自动组装 Eye + Kernel）
         >>> from hivememory.patchouli.system import PatchouliSystem
-        >>> system = PatchouliSystem()
+        >>> from hivememory.system.config import load_app_config
+        >>> config = load_app_config()
+        >>> system = PatchouliSystem(config=config)
         >>> kernel = system.kernel
         >>>
         >>> # 高级：直接使用 Kernel（需自行管理 Gateway）
@@ -320,7 +322,7 @@ class PatchouliKernel:
         """
         # 构建被动模式渲染器 (Passive.md §5.2)
         from hivememory.engines.retrieval.renderer import FullContextRenderer
-        from hivememory.patchouli.config import FullRendererConfig
+        from hivememory.system.config import FullRendererConfig
         passive_renderer = FullContextRenderer(FullRendererConfig())
 
         self._services["retrieval"] = RetrievalFamiliar(

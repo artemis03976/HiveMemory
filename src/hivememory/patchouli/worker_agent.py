@@ -30,7 +30,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import asyncio
 import litellm
 
-from hivememory.patchouli.config import LLMConfig
+from hivememory.system.config import LLMConfig
 from hivememory.patchouli.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_STOP_SEQUENCE,
@@ -86,7 +86,7 @@ class WorkerAgentService:
 
     使用示例:
         >>> from hivememory.patchouli.worker_agent import WorkerAgentService
-        >>> from hivememory.patchouli.config import LLMConfig
+        >>> from hivememory.system.config import LLMConfig
         >>>
         >>> service = WorkerAgentService(config=LLMConfig(model="gpt-4o"))
         >>> result = await service.generate_async([{"role": "user", "content": "Hello"}])

@@ -43,7 +43,7 @@ from hivememory.engines.perception.models import (
     LogicalBlock,
     SemanticBuffer,
 )
-from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.patchouli.protocol.models import InteractionPayload
 from hivememory.utils.token_estimator import estimate_tokens
 

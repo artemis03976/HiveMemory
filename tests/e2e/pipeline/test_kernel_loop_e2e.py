@@ -26,7 +26,7 @@ import logging
 import pytest
 from unittest.mock import MagicMock
 
-from hivememory.patchouli.config import LLMConfig, KoakumaConfig
+from hivememory.system.config import LLMConfig, KoakumaConfig
 from hivememory.patchouli.worker_agent import WorkerAgentService
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.protocol.models import ChatResult
@@ -43,7 +43,7 @@ pytestmark = pytest.mark.live_llm
 def _get_llm_config():
     """从环境变量或 config.yaml 获取 LLM 配置"""
     try:
-        from hivememory.patchouli.config import load_app_config
+        from hivememory.system.config import load_app_config
         config = load_app_config()
         worker_config = config.llm.worker
         if worker_config and worker_config.model and worker_config.api_key:

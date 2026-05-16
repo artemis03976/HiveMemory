@@ -11,7 +11,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from hivememory.patchouli.worker_agent import WorkerAgentService
-from hivememory.patchouli.config import LLMConfig
+from hivememory.system.config import LLMConfig
 from hivememory.patchouli.mtp import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
 
 

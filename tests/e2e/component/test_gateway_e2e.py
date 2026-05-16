@@ -82,7 +82,7 @@ from hivememory.engines.gateway.interceptors import RuleInterceptor, create_inte
 from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer, create_semantic_analyzer
 
 # 配置
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     load_app_config,
     RuleInterceptorConfig,
     LLMAnalyzerConfig,

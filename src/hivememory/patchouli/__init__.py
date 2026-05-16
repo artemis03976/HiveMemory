@@ -14,7 +14,8 @@ HiveMemory 的分布式智能架构 v3.0。
     >>> from hivememory.patchouli import PatchouliSystem, load_app_config
     >>>
     >>> # 快速开始
-    >>> system = PatchouliSystem()
+    >>> config = load_app_config()
+    >>> system = PatchouliSystem(config=config)
     >>>
     >>> # 处理查询
     >>> result = system.process_interaction(
@@ -29,7 +30,7 @@ HiveMemory 的分布式智能架构 v3.0。
 """
 
 # 配置 (无循环依赖)
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     load_app_config,
     HiveMemoryConfig,
     MemoryGatewayConfig,

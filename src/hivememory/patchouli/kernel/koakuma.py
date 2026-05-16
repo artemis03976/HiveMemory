@@ -60,7 +60,7 @@ from hivememory.core.models import TraceItem
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus
-    from hivememory.patchouli.config import KoakumaConfig
+    from hivememory.system.config import KoakumaConfig
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class KoakumaRuntime:
             bus: SystemBus 实例，用于跨服务通信（替代 retrieval_familiar + librarian_core + storage）
             config: Koakuma 配置 (可选，使用默认值)
         """
-        from hivememory.patchouli.config import KoakumaConfig
+        from hivememory.system.config import KoakumaConfig
 
         self._bus = bus
 

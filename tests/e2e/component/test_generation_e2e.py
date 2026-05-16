@@ -97,7 +97,7 @@ from hivememory.engines.generation.models import (
 )
 
 # 配置
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     load_app_config,
     DeduplicatorConfig,
 )

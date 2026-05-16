@@ -5,7 +5,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 from unittest.mock import MagicMock
 
-from hivememory.patchouli.config import LLMConfig, KoakumaConfig
+from hivememory.system.config import LLMConfig, KoakumaConfig
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.mtp import (
     MTP_LEFT_DELIMITER,
@@ -112,7 +112,7 @@ def _get_llm_config() -> Optional[LLMConfig]:
             max_tokens=1024,
         )
     try:
-        from hivememory.patchouli.config import load_app_config
+        from hivememory.system.config import load_app_config
 
         config = load_app_config()
         llm_config = config.get_librarian_llm_config()

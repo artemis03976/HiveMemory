@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.system.config import KoakumaConfig
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.mtp.models import MTPVerb
 

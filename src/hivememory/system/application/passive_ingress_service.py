@@ -8,7 +8,7 @@ from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import HiveMemoryConfig
+    from hivememory.system.config import HiveMemoryConfig
     from hivememory.patchouli.passive_ingest import PassiveIngressEvent
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
     from hivememory.system.runtime.scheduler.async_scheduler import (

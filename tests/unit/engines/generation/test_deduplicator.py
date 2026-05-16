@@ -14,7 +14,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.patchouli.config import DeduplicatorConfig
+from hivememory.system.config import DeduplicatorConfig
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator, DuplicateDecision
 from hivememory.engines.generation.extractor import ExtractedMemoryDraft
 from hivememory.infrastructure.storage import QdrantMemoryStore

@@ -10,7 +10,7 @@ from uuid import uuid4, UUID
 
 from hivememory.core.models import MemoryAtom, IndexLayer, MetaData, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
-from hivememory.patchouli.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
+from hivememory.system.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
 from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, AdaptiveWeightedFusion
 
 class TestReciprocalRankFusion:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from hivememory.patchouli.config import HiveMemoryConfig
+from hivememory.system.config import HiveMemoryConfig
 from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.chat_service import ChatApplicationService
@@ -44,7 +44,7 @@ class HiveMemorySystem:
         cls,
         config: Optional[HiveMemoryConfig] = None,
     ) -> "HiveMemorySystem":
-        from hivememory.patchouli.config import load_app_config
+        from hivememory.system.config import load_app_config
 
         config = config or load_app_config()
 

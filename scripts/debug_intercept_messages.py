@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.config import load_app_config
 
 # 1. 保存原始方法
 original_assemble = PatchouliService._assemble_messages_from_context
@@ -48,8 +49,8 @@ def debug_assemble_messages(self, topic_context, hot_result, user_message):
 
 async def main():
     print("初始化系统...")
-    # 实例化 PatchouliSystem，自动加载默认配置
-    system = PatchouliSystem()
+    # 实例化 PatchouliSystem，显式注入配置
+    system = PatchouliSystem(config=load_app_config())
     
     print("\n开始测试对话 (使用拦截器)...")
     # 2. 使用 patch.object 临时替换方法

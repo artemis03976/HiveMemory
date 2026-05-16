@@ -43,7 +43,7 @@ from hivememory.core.models import (
     RelationLayer,
 )
 
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     load_app_config,
     HiveMemoryConfig,
     MemoryGatewayConfig,

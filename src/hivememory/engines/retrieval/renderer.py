@@ -17,7 +17,7 @@
 from typing import List, Optional, Tuple, Union
 import logging
 
-from hivememory.patchouli.config import FullRendererConfig, CascadeRendererConfig, CompactRendererConfig
+from hivememory.system.config import FullRendererConfig, CascadeRendererConfig, CompactRendererConfig
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer

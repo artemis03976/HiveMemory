@@ -85,7 +85,7 @@ from hivememory.patchouli.protocol.models import (
 )
 
 # 配置
-from hivememory.patchouli.config import load_app_config, HiveMemoryConfig
+from hivememory.system.config import load_app_config, HiveMemoryConfig
 
 # 分身
 from hivememory.patchouli.eye import TheEye

@@ -26,7 +26,7 @@ from hivememory.engines.lifecycle.models import (
     ReinforcementResult,
 )
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.patchouli.config import ReinforcementEngineConfig
+from hivememory.system.config import ReinforcementEngineConfig
 
 logger = logging.getLogger(__name__)
 

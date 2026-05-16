@@ -29,7 +29,7 @@ from typing import List, Optional, Dict, TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
-from hivememory.patchouli.config import ArchiverConfig
+from hivememory.system.config import ArchiverConfig
 from hivememory.engines.lifecycle.interfaces import BaseMemoryArchiver
 from hivememory.engines.lifecycle.models import ArchiveRecord, ArchiveStatus
 from hivememory.infrastructure.storage import QdrantMemoryStore

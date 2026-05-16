@@ -18,7 +18,7 @@ import logging
 from typing import Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
 
-from hivememory.patchouli.config import DeduplicatorConfig
+from hivememory.system.config import DeduplicatorConfig
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer
 from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
 from hivememory.engines.generation.interfaces import BaseDeduplicator
@@ -409,7 +409,7 @@ def create_deduplicator(
         >>> dedup = create_deduplicator(storage)
         >>>
         >>> # 使用自定义配置
-        >>> from hivememory.patchouli.config import DeduplicatorConfig
+        >>> from hivememory.system.config import DeduplicatorConfig
         >>> config = DeduplicatorConfig(enabled=False)
         >>> dedup = create_deduplicator(storage, config)
     """

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.system.config import KoakumaConfig
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 
 from .live_support import (

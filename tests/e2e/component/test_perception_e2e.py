@@ -82,7 +82,7 @@ from hivememory.engines.perception.relay_controller import SimpleRelayController
 from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber, create_adsorber
 
 # 配置
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     load_app_config,
     SemanticFlowPerceptionConfig,
     SemanticAdsorberConfig,

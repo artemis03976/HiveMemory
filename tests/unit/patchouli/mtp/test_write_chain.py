@@ -31,7 +31,7 @@ from hivememory.engines.perception.models import FlushReason, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.system.config import KoakumaConfig
 from hivememory.patchouli.mtp import MTPResponseStatus
 
 

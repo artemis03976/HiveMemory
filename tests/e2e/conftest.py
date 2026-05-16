@@ -19,7 +19,7 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import Identity, MemoryAtom
-from hivememory.patchouli.config import load_app_config
+from hivememory.system.config import load_app_config
 from hivememory.patchouli.protocol.models import RetrievalRequest
 from hivememory.system import HiveMemorySystem
 

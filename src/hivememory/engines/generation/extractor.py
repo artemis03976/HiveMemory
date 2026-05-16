@@ -18,7 +18,7 @@ import logging
 import json
 from typing import Dict, Any, Optional
 
-from hivememory.patchouli.config import ExtractorConfig
+from hivememory.system.config import ExtractorConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult
@@ -304,7 +304,7 @@ def create_extractor(
         >>> extractor = create_extractor()
         >>>
         >>> # 使用自定义配置
-        >>> from hivememory.patchouli.config import ExtractorConfig
+        >>> from hivememory.system.config import ExtractorConfig
         >>> config = ExtractorConfig(enabled=False)
         >>> extractor = create_extractor(config)
     """

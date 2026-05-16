@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
 import hivememory.server.routers.config as config_router_module
-from hivememory.patchouli.config import HiveMemoryConfig
+from hivememory.system.config import HiveMemoryConfig
 from hivememory.server import deps
 from hivememory.server.routers.config import router
 

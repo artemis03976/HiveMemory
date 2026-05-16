@@ -13,7 +13,7 @@ Gateway 单元测试
 import pytest
 from unittest.mock import AsyncMock, Mock, MagicMock, patch
 
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     MemoryGatewayConfig,
     RuleInterceptorConfig,
     LLMAnalyzerConfig,

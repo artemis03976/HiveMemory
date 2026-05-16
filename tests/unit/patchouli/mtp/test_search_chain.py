@@ -25,7 +25,7 @@ from hivememory.core.models import (
 from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.patchouli.protocol.models import RetrievalResponse
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.system.config import KoakumaConfig
 from hivememory.patchouli.mtp import MTPResponseStatus
 
 

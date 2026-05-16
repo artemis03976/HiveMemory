@@ -37,7 +37,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationTurn,
 )
-from hivememory.patchouli.config import DeduplicatorConfig, ExtractorConfig
+from hivememory.system.config import DeduplicatorConfig, ExtractorConfig
 from hivememory.engines.generation import (
     LLMMemoryExtractor,
     MemoryDeduplicator,

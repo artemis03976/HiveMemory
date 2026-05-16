@@ -27,7 +27,7 @@ from hivememory.engines.perception.models import (
     FlushReason,
 )
 from hivememory.core.models import StreamMessage, StreamMessageType
-from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.patchouli.protocol import InteractionPayload
 
 

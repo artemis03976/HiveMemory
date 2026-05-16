@@ -13,7 +13,7 @@ from hivememory.engines.retrieval.reranker import (
 )
 from hivememory.engines.retrieval.models import SearchResults, SearchResult, RetrievalQuery
 from hivememory.core.models import MemoryAtom, IndexLayer, MetaData, PayloadLayer, MemoryType, MemoryVisibility
-from hivememory.patchouli.config import RerankerConfig
+from hivememory.system.config import RerankerConfig
 from hivememory.infrastructure.rerank.base import BaseRerankService
 from datetime import datetime
 from uuid import uuid4

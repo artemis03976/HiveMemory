@@ -19,7 +19,7 @@ import time
 import logging
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import MemoryRetrievalConfig
+    from hivememory.system.config import MemoryRetrievalConfig
 
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.retrieval.engine import RetrievalEngine

@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 from hivememory.core.models import Identity, TraceItem, TurnEvent
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
-from hivememory.patchouli.config import SemanticFlowPerceptionConfig
+from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.patchouli.protocol import InteractionPayload
 
 

@@ -28,7 +28,7 @@ from qdrant_client.models import (
 )
 
 from hivememory.core.models import MemoryAtom, IndexLayer
-from hivememory.patchouli.config import QdrantConfig, EmbeddingConfig
+from hivememory.system.config import QdrantConfig, EmbeddingConfig
 from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
 

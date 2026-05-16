@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import LLMConfig
+    from hivememory.system.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 

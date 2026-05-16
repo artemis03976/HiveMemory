@@ -33,7 +33,7 @@ from hivememory.core.models import (
     PayloadLayer,
     Artifacts,
 )
-from hivememory.patchouli.config import load_app_config
+from hivememory.system.config import load_app_config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 from hivememory.core.models import (
     Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.system.config import KoakumaConfig
 from hivememory.patchouli.mtp.models import MTP_LEFT_DELIMITER
 from hivememory.patchouli.protocol.models import RetrievalResponse
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime

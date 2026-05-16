@@ -6,9 +6,9 @@ import logging
 import threading
 from typing import List, Union, Dict, Any, Optional, TYPE_CHECKING
 
-from hivememory.patchouli.config import load_app_config
+from hivememory.system.config import load_app_config
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import EmbeddingConfig
+    from hivememory.system.config import EmbeddingConfig
 from hivememory.infrastructure.embedding.base import SingletonModelService
 
 logger = logging.getLogger(__name__)

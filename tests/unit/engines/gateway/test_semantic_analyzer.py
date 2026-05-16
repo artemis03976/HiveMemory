@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, Mock, MagicMock
 
-from hivememory.patchouli.config import LLMAnalyzerConfig, LLMConfig
+from hivememory.system.config import LLMAnalyzerConfig, LLMConfig
 from hivememory.engines.gateway.models import GatewayIntent, SemanticAnalysisResult
 from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer, GATEWAY_FUNCTION_SCHEMA
 from hivememory.utils.json_parser import JSONParseError

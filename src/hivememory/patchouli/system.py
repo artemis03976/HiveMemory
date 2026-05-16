@@ -32,7 +32,7 @@ from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.patchouli.service import PatchouliService
 from hivememory.infrastructure.system_bus import SystemBus
 
-from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
+from hivememory.system.config import HiveMemoryConfig
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.runtime.bridge import PatchouliBridge
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -69,7 +69,9 @@ class PatchouliSystem(SubsystemProtocol):
     使用示例:
         >>> from hivememory.patchouli.system import PatchouliSystem
         >>>
-        >>> system = PatchouliSystem()
+        >>> from hivememory.system.config import load_app_config
+        >>> config = load_app_config()
+        >>> system = PatchouliSystem(config=config)
         >>>
         >>> result = system.process_interaction(
         ...     role="user",
@@ -81,7 +83,7 @@ class PatchouliSystem(SubsystemProtocol):
 
     def __init__(
         self,
-        config: Optional[HiveMemoryConfig] = None,
+        config: HiveMemoryConfig,
         global_bus: Optional[GlobalSystemBus] = None,
         scheduler: Optional["AsyncMaintenanceScheduler"] = None,
     ):
@@ -89,16 +91,17 @@ class PatchouliSystem(SubsystemProtocol):
         初始化帕秋莉系统
 
         Args:
-            config: 完整的 HiveMemory 配置（可选）
+            config: 由上层装配并注入的 HiveMemory 配置
 
         Examples:
-            >>> system = PatchouliSystem()
+            >>> from hivememory.system.config import load_app_config
+            >>> config = load_app_config()
+            >>> system = PatchouliSystem(config=config)
             >>>
-            >>> from hivememory.patchouli.config import load_app_config
             >>> config = load_app_config("path/to/config.yaml")
             >>> system = PatchouliSystem(config=config)
         """
-        self.config = config or load_app_config()
+        self.config = config
 
         # 0. 创建旧内核仍依赖的内部 SystemBus。
         # 外部已不再允许注入该过渡总线，后续会继续向统一 async bus 体系收敛。

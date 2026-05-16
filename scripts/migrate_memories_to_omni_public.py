@@ -21,7 +21,7 @@ from qdrant_client import QdrantClient
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from hivememory.patchouli.config import load_app_config
+from hivememory.system.config import load_app_config
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

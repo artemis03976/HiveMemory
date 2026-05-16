@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.patchouli.protocol.models import RetrievalResponse
+from hivememory.system.config import load_app_config
 
 @pytest.fixture
 def patch_assemble_messages():
@@ -65,8 +66,8 @@ async def test_debug_messages_with_system(patch_assemble_messages):
             rendered_context=""
         )
 
-        # 实例化 PatchouliSystem，自动加载默认配置
-        system = PatchouliSystem()
+        # 实例化 PatchouliSystem，显式注入配置
+        system = PatchouliSystem(config=load_app_config())
 
         # 这里的调用会被拦截并打印
         result = await system.chat(
