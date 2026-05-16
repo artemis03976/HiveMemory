@@ -16,8 +16,8 @@ from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent, GatewayResult
-from hivememory.patchouli.protocol.models import InteractionPayload
-from hivememory.patchouli.protocol.models import EyeGazeResult
+from hivememory.core.protocol.models import InteractionPayload
+from hivememory.core.protocol.models import EyeGazeResult
 from hivememory.system.application.passive import (
     ObserverBufferState,
     ObserverTurnBuffer,

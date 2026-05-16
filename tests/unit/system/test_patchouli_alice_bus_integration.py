@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus

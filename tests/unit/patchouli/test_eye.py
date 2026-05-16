@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, Mock
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent, GatewayResult
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.protocol.models import EyeGazeResult
+from hivememory.core.protocol.models import EyeGazeResult
 
 
 def _make_identity() -> Identity:

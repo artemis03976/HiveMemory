@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from hivememory.patchouli.mtp.models import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
+from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
 
 from .live_support import (
     MTPLoopRunner,

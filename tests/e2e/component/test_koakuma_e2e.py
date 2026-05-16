@@ -16,13 +16,13 @@ pytestmark = pytest.mark.e2e
 from unittest.mock import MagicMock, patch
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.mtp import (
+from hivememory.core.mtp import (
     MTPVerb,
     MTPResponseStatus,
     MTPCommand,
     MTPTarget,
 )
-from hivememory.patchouli.protocol.models import MTPExecutionResult
+from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
 

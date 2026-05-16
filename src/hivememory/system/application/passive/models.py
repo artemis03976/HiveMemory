@@ -12,7 +12,7 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     EyeGazeResult,
     InteractionPayload,

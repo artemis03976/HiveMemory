@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.alice.system import AliceSystem
 from hivememory.system.application.chat_service import ChatApplicationService

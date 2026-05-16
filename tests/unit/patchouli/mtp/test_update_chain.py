@@ -17,6 +17,7 @@ UPDATE 指令执行链路测试
 版本: 1.0
 """
 
+import asyncio
 import pytest
 from uuid import uuid4
 from unittest.mock import MagicMock, AsyncMock, patch
@@ -34,7 +35,7 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
-from hivememory.patchouli.mtp import MTPResponseStatus
+from hivememory.core.mtp import MTPResponseStatus
 
 
 # ========== Fixtures ==========
@@ -94,6 +95,14 @@ def merge_result() -> MergeResult:
         new_content="API 服务运行在端口 9090，使用 HTTP 协议。",
         changelog="端口从 8080 更新为 9090",
     )
+
+
+def _execute_mtp(koakuma: KoakumaRuntime, text: str):
+    return asyncio.run(koakuma.execute_mtp(text))
+
+
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text))
 
 
 # ========== Test 1: UpdateFocus Model ==========
@@ -618,7 +627,7 @@ class TestKoakumaUpdateE2E:
 
     def test_update_basic(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="把端口改成 9090"'
-        result = update_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text)
 
         assert result is not None
         assert result.success
@@ -632,7 +641,7 @@ class TestKoakumaUpdateE2E:
 
     def test_update_with_content(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="替换端口" content="port = 9090"'
-        result = update_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text)
 
         assert result is not None
         assert result.success
@@ -644,7 +653,7 @@ class TestKoakumaUpdateE2E:
 
     def test_update_response_contains_ack(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test update"'
-        result = update_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text)
 
         assert result is not None
         assert "updated" in result.formatted_response.lower() or "ack" in result.formatted_response.lower()
@@ -679,7 +688,7 @@ class TestKoakumaUpdateValidation:
             )
         )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
-        result = validation_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text)
 
         assert result is not None
         assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
@@ -687,7 +696,7 @@ class TestKoakumaUpdateValidation:
 
     def test_alias_not_found(self, validation_koakuma):
         agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
-        result = validation_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text)
 
         assert result is not None
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
@@ -698,7 +707,7 @@ class TestKoakumaUpdateValidation:
             "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
         )
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = validation_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text)
 
         assert result is not None
         assert not result.success
@@ -714,7 +723,7 @@ class TestKoakumaUpdateValidation:
         koakuma.atom_cache.ingest_atom(existing_memory)
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(koakuma, agent_text)
 
         assert result is not None
         assert result.success

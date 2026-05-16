@@ -30,11 +30,11 @@ import types
 
 from hivememory.core.models import Identity, StreamMessage, TurnRecord
 from hivememory.engines.perception.models import LogicalBlock
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     ChatResult, KernelHotResult, EyeGazeResult, MTPExecutionResult,
 )
 from hivememory.alice.runtime.worker_agent import GenerationResult
-from hivememory.patchouli.mtp import MTPVerb
+from hivememory.core.mtp import MTPVerb
 from hivememory.engines.gateway.models import GatewayIntent
 
 

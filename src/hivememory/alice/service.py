@@ -11,7 +11,7 @@ import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from hivememory.core.models import Identity, MemoryAtom
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult
 
 from hivememory.alice.runtime.host import AgentRuntimeHost
 

@@ -4,7 +4,7 @@ import logging
 from typing import Any, Callable, Coroutine, Optional
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.protocol.models import AnalyzeAndRetrieveResult, InteractionPayload
+from hivememory.core.protocol.models import AnalyzeAndRetrieveResult, InteractionPayload
 from hivememory.system.application.passive.models import (
     PassiveIngressEvent,
     PassiveIngressOutcome,

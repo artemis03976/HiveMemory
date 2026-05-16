@@ -1,4 +1,4 @@
-from hivememory.patchouli.mtp.models import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER, MTPVerb
+from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER, MTPVerb
 
 
 class TestSyscallPromptTeaching:
@@ -43,7 +43,7 @@ class TestSyscallPromptTeaching:
 
     def test_prompt_demo_parseable(self, mtp_prompt_en):
         """Prompt 演示中的 MTP 指令可被解析器正确解析"""
-        from hivememory.patchouli.mtp.parser import MTPParser
+        from hivememory.core.mtp.parser import MTPParser
         parser = MTPParser()
 
         demo_marker = "ONE-SHOT DEMONSTRATION"

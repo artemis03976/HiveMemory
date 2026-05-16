@@ -25,7 +25,7 @@ from hivememory.engines.perception.models import FlushReason, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, GenerationContext
 from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus

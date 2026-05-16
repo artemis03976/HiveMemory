@@ -4,7 +4,7 @@ import pytest
 
 from hivememory.system.config import KoakumaConfig
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.patchouli.mtp.models import MTPVerb
+from hivememory.core.mtp.models import MTPVerb
 
 from .conftest import build_resumed_history, simulate_kernel_loop_single
 

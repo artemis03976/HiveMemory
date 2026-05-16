@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from hivememory.core.models import Identity
 from hivememory.core.models.interaction import TurnEvent
-from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.system.application.passive.models import PassiveSessionKey
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.protocol.models import EyeGazeResult
+    from hivememory.core.protocol.models import EyeGazeResult
 
 logger = logging.getLogger(__name__)
 

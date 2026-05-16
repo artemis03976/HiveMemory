@@ -37,7 +37,7 @@ class MockSystemBus:
         self._mock_retrieval = mock_retrieval or MagicMock()
         self._mock_generation = mock_generation or MagicMock()
 
-    def request(self, route: str, *args, **kwargs):
+    async def request(self, route: str, *args, **kwargs):
         if route == "storage.get_memory":
             return self._mock_storage.get_memory(*args, **kwargs)
         elif route in ("storage.get_memory_by_alias", "memory.get_memory_by_alias"):

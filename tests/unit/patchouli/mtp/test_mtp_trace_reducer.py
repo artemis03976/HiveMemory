@@ -12,7 +12,7 @@ MTPTraceReducer 单测
 
 import pytest
 from hivememory.core.models import TraceItem, TurnEvent
-from hivememory.patchouli.mtp.trace_reducer import MTPTraceReducer
+from hivememory.core.mtp.trace_reducer import MTPTraceReducer
 
 
 def _event(kind, tool_kind=None, target=None, status=None, content="", sequence=0, action_id=None):

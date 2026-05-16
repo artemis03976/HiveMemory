@@ -15,6 +15,7 @@ SEARCH 指令执行链路测试
 版本: 1.0
 """
 
+import asyncio
 import pytest
 from uuid import uuid4
 from unittest.mock import MagicMock, patch
@@ -23,10 +24,10 @@ from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Identity,
 )
 from hivememory.engines.retrieval.models import QueryFilters
-from hivememory.patchouli.protocol.models import RetrievalResponse
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
-from hivememory.patchouli.mtp import MTPResponseStatus
+from hivememory.core.mtp import MTPResponseStatus
 
 
 # ========== Helpers ==========
@@ -66,9 +67,17 @@ def koakuma() -> KoakumaRuntime:
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 
 
+def _execute_mtp(koakuma: KoakumaRuntime, text: str):
+    return asyncio.run(koakuma.execute_mtp(text))
+
+
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text))
+
+
 # ========== Test 1: _parse_mtp_filter ==========
 
-from hivememory.patchouli.mtp import MTPFilterParser
+from hivememory.core.mtp import MTPFilterParser
 
 class TestParseFilter:
     """测试 _parse_mtp_filter 方法"""
@@ -188,7 +197,7 @@ class TestSearchRetrievalRequest:
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
         koakuma.set_current_identity(Identity(user_id="user_42"))
 
-        koakuma.execute_mtp('⟪ SEARCH | * | query="python decorators" ⟫')
+        _execute_mtp(koakuma, '⟪ SEARCH | * | query="python decorators" ⟫')
 
         call_args = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert call_args.semantic_query == "python decorators"
@@ -198,7 +207,7 @@ class TestSearchRetrievalRequest:
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
         koakuma.set_current_identity(Identity(user_id="user_42"))
 
-        koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
+        _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
         call_args = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert call_args.user_id == "user_42"
@@ -207,7 +216,7 @@ class TestSearchRetrievalRequest:
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
-        koakuma.execute_mtp('⟪ SEARCH | * | query="test" filter="type:code" ⟫')
+        _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" filter="type:code" ⟫')
 
         call_args = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert call_args.filters is not None
@@ -217,7 +226,7 @@ class TestSearchRetrievalRequest:
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
-        koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
+        _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
         call_args = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert call_args.filters is None
@@ -292,7 +301,7 @@ class TestSearchAliasRegistration:
         mem = _make_memory(alias="fact_api_spec")
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
-        koakuma.execute_mtp('⟪ SEARCH | * | query="api spec" ⟫')
+        _execute_mtp(koakuma, '⟪ SEARCH | * | query="api spec" ⟫')
 
         assert koakuma._atom_cache.has_alias("fact_api_spec")
         atom = koakuma._atom_cache.get_atom_by_alias("fact_api_spec")
@@ -306,7 +315,7 @@ class TestSearchAliasRegistration:
         ]
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(mems)
 
-        koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
+        _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
         assert koakuma._atom_cache.has_alias("fact_a")
         assert koakuma._atom_cache.has_alias("fact_b")
@@ -318,10 +327,10 @@ class TestSearchAliasRegistration:
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
         # SEARCH 注册 alias
-        koakuma.execute_mtp('⟪ SEARCH | * | query="api" ⟫')
+        _execute_mtp(koakuma, '⟪ SEARCH | * | query="api" ⟫')
 
         # READ 使用注册的 alias
-        result = koakuma.execute_mtp('⟪ READ | fact_api | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | fact_api | ⟫')
         assert result.success
         assert "API documentation content" in result.response_content
 
@@ -335,7 +344,7 @@ class TestKoakumaSearchE2E:
         mem = _make_memory(alias="fact_test", summary="Test summary")
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
         assert result.success
         assert "[Menu]:" in result.response_content
@@ -345,7 +354,7 @@ class TestKoakumaSearchE2E:
         mem = _make_memory(alias="code_sort", memory_type=MemoryType.CODE_SNIPPET)
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="sort" filter="type:code" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="sort" filter="type:code" ⟫')
 
         assert result.success
         # 验证 filter 被传递
@@ -355,7 +364,7 @@ class TestKoakumaSearchE2E:
     def test_search_empty_result(self, koakuma):
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([])
 
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="nonexistent" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="nonexistent" ⟫')
 
         assert result.success
         assert "No memories found" in result.response_content
@@ -363,7 +372,7 @@ class TestKoakumaSearchE2E:
     def test_search_retrieval_exception(self, koakuma):
         koakuma._bus._mock_retrieval.retrieve.side_effect = Exception("Connection error")
 
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
         assert not result.success
         assert "An unexpected error occurred" in result.response_content
@@ -372,7 +381,7 @@ class TestKoakumaSearchE2E:
         mem = _make_memory(alias="fact_test")
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
         assert '<mtp_response status="success"' in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
@@ -383,7 +392,7 @@ class TestKoakumaSearchE2E:
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
         agent_text = 'Let me search for that. ⟪ SEARCH | * | query="test"'
-        result = koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(koakuma, agent_text)
 
         assert result is not None
         assert result.success
@@ -395,12 +404,12 @@ class TestKoakumaSearchValidation:
     """SEARCH 参数校验"""
 
     def test_missing_query(self, koakuma):
-        result = koakuma.execute_mtp('⟪ SEARCH | * | ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | ⟫')
         assert not result.success
         assert "query" in result.response_content.lower()
 
     def test_empty_query(self, koakuma):
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="" ⟫')
         assert not result.success
 
     def test_invalid_filter_degrades_gracefully(self, koakuma):
@@ -408,12 +417,12 @@ class TestKoakumaSearchValidation:
         mem = _make_memory(alias="fact_test")
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="test" filter="invalid:garbage" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" filter="invalid:garbage" ⟫')
 
         # 搜索仍应成功 (filter 被忽略)
         assert result.success
 
     def test_search_with_only_filter_no_query(self, koakuma):
-        result = koakuma.execute_mtp('⟪ SEARCH | * | filter="type:code" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | filter="type:code" ⟫')
         assert not result.success
         assert "query" in result.response_content.lower()

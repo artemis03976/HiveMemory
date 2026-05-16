@@ -28,7 +28,7 @@ import logging
 from uuid import UUID
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-from hivememory.patchouli.mtp import (
+from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
     MTPVerb,
@@ -41,13 +41,13 @@ from hivememory.patchouli.mtp import (
     MTPFormatter,
 )
 from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,
 )
 
 from hivememory.core.models import MemoryType, Identity
-from hivememory.patchouli.mtp.exceptions import (
+from hivememory.core.mtp.exceptions import (
     AgentFault,
     SystemFault,
     StorageOfflineError,
@@ -805,7 +805,7 @@ class KoakumaRuntime:
         Raises:
             PermissionDeniedError: 如果子 Agent 尝试调用 CALL (depth >= 1)
         """
-        from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
+        from hivememory.core.mtp.exceptions import PermissionDeniedError
         import json
 
         # 1. 深度检查 (硬限制)

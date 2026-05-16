@@ -5,7 +5,7 @@ Patchouli MTP 包。
 作为外部模块的稳定入口。
 """
 
-from hivememory.patchouli.mtp.exceptions import (
+from hivememory.core.mtp.exceptions import (
     AgentFault,
     AliasNotFoundError,
     BusRouteUnavailableError,
@@ -20,10 +20,9 @@ from hivememory.patchouli.mtp.exceptions import (
     SyscallInternalError,
     SystemFault,
 )
-from hivememory.patchouli.mtp.formatter import MTPFormatter
-from hivememory.patchouli.mtp.log_parser import MTPLogParser
-from hivememory.patchouli.mtp.trace_reducer import MTPTraceReducer
-from hivememory.patchouli.mtp.models import (
+from hivememory.core.mtp.formatter import MTPFormatter
+from hivememory.core.mtp.trace_reducer import MTPTraceReducer
+from hivememory.core.mtp.models import (
     MTPCommand,
     MTP_LEFT_DELIMITER,
     MTPResponse,
@@ -34,7 +33,7 @@ from hivememory.patchouli.mtp.models import (
     MTPTarget,
     MTPVerb,
 )
-from hivememory.patchouli.mtp.parser import (
+from hivememory.core.mtp.parser import (
     MTPFilterParser,
     MTPParser,
     create_filter_parser,
@@ -60,7 +59,6 @@ __all__ = [
     "MTPParser",
     "MTPFilterParser",
     "MTPFormatter",
-    "MTPLogParser",
     "MTPTraceReducer",
     "MTPError",
     "AgentFault",

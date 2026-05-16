@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 from hivememory.alice.runtime.worker_agent import WorkerAgentService
 from hivememory.system.config import LLMConfig
-from hivememory.patchouli.mtp import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
+from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
 
 
 def _make_config() -> LLMConfig:

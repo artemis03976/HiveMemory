@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.patchouli.protocol.models import ChatResult, EyeGazeResult, KernelHotResult
+from hivememory.core.protocol.models import ChatResult, EyeGazeResult, KernelHotResult
 from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.system import PatchouliSystem
 

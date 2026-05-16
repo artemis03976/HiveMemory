@@ -15,7 +15,7 @@ import pytest
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
 from hivememory.alice.runtime.execution_frame import ExecutionFrame
 from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
-from hivememory.patchouli.protocol.models import MTPExecutionResult
+from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.alice.runtime.worker_agent import GenerationResult, StreamChunk
 
 

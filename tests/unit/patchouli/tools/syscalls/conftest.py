@@ -7,7 +7,7 @@ import pytest
 
 from hivememory.system.config import KoakumaConfig
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.patchouli.protocol.models import MTPExecutionResult
+from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 

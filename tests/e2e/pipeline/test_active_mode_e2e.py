@@ -40,7 +40,7 @@ import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.passive import PassiveIngressEvent
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult
 
 from tests.e2e.conftest import wait_for_memory_persistence_async
 

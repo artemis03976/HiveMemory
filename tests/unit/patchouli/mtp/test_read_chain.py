@@ -14,6 +14,7 @@ READ 指令执行链路测试
 版本: 2.0
 """
 
+import asyncio
 import pytest
 from uuid import uuid4, UUID
 from unittest.mock import MagicMock, patch
@@ -54,18 +55,26 @@ def koakuma() -> KoakumaRuntime:
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 
 
+def _execute_mtp(koakuma: KoakumaRuntime, text: str):
+    return asyncio.run(koakuma.execute_mtp(text))
+
+
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text))
+
+
 # ========== Test 1: Wildcard Rejection ==========
 
 class TestReadWildcardRejection:
     """READ 不支持通配符"""
 
     def test_wildcard_rejected(self, koakuma):
-        result = koakuma.execute_mtp('⟪ READ | * | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | * | ⟫')
         assert not result.success
         assert "SEARCH" in result.response_content
 
     def test_global_rejected(self, koakuma):
-        result = koakuma.execute_mtp('⟪ READ | global | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | global | ⟫')
         # "global" 被解析为单别名，不是通配符
         # 但 alias 不存在，应返回 error
         assert not result.success
@@ -80,14 +89,14 @@ class TestReadAliasResolution:
         mem = _make_memory(content="resolved content", alias="fact_a")
         koakuma._atom_cache.ingest_atom(mem)
 
-        result = koakuma.execute_mtp('⟪ READ | fact_a | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | fact_a | ⟫')
 
         assert result.success
         assert "resolved content" in result.response_content
 
     def test_all_invalid(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss
-        result = koakuma.execute_mtp('⟪ READ | nonexistent_alias | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | nonexistent_alias | ⟫')
 
         assert not result.success
         assert "Alias Not Found" in result.response_content
@@ -98,7 +107,7 @@ class TestReadAliasResolution:
         koakuma._atom_cache.ingest_atom(mem)
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss for bad_alias
 
-        result = koakuma.execute_mtp('⟪ READ | [good_alias, bad_alias] | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | [good_alias, bad_alias] | ⟫')
 
         assert result.success  # 部分成功
         assert "valid content" in result.response_content
@@ -112,7 +121,7 @@ class TestReadAliasResolution:
         koakuma._atom_cache.ingest_atom(mem1)
         koakuma._atom_cache.ingest_atom(mem2)
 
-        result = koakuma.execute_mtp('⟪ READ | [a1, a2] | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | [a1, a2] | ⟫')
 
         assert result.success
         assert "content A" in result.response_content
@@ -128,7 +137,7 @@ class TestKoakumaReadE2E:
         mem = _make_memory(content="API documentation", alias="fact_api")
         koakuma._atom_cache.ingest_atom(mem)
 
-        result = koakuma.execute_mtp('⟪ READ | fact_api | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | fact_api | ⟫')
 
         assert result.success
         assert "API documentation" in result.response_content
@@ -139,7 +148,7 @@ class TestKoakumaReadE2E:
         koakuma._atom_cache.ingest_atom(mem1)
         koakuma._atom_cache.ingest_atom(mem2)
 
-        result = koakuma.execute_mtp('⟪ READ | [a1, a2] | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | [a1, a2] | ⟫')
 
         assert result.success
         assert "Doc A" in result.response_content
@@ -147,7 +156,7 @@ class TestKoakumaReadE2E:
 
     def test_read_alias_not_found(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss
-        result = koakuma.execute_mtp('⟪ READ | unknown_alias | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | unknown_alias | ⟫')
 
         assert not result.success
         assert "not found" in result.response_content
@@ -156,7 +165,7 @@ class TestKoakumaReadE2E:
         mem = _make_memory(content="test", alias="test_alias")
         koakuma._atom_cache.ingest_atom(mem)
 
-        result = koakuma.execute_mtp('⟪ READ | test_alias | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | test_alias | ⟫')
 
         assert "<mtp_response" in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
@@ -166,7 +175,7 @@ class TestKoakumaReadE2E:
         koakuma._atom_cache.ingest_atom(mem)
 
         agent_text = 'Let me read that. ⟪ READ | fact_x |'
-        result = koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(koakuma, agent_text)
 
         assert result is not None
         assert result.success
@@ -177,7 +186,7 @@ class TestKoakumaReadE2E:
         mem = _make_memory(content="cached content", alias="fact_cached")
         koakuma._atom_cache.ingest_atom(mem)
 
-        result = koakuma.execute_mtp('⟪ READ | fact_cached | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | fact_cached | ⟫')
 
         assert result.success
         assert "cached content" in result.response_content
@@ -192,18 +201,18 @@ class TestKoakumaReadValidation:
     """READ 参数校验"""
 
     def test_wildcard_target(self, koakuma):
-        result = koakuma.execute_mtp('⟪ READ | * | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | * | ⟫')
         assert not result.success
         assert "SEARCH" in result.response_content
 
     def test_empty_target(self, koakuma):
         """空 target 解析为无 aliases"""
-        result = koakuma.execute_mtp('⟪ READ | | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | | ⟫')
         assert not result.success or "Error" in result.response_content or "error" in result.response_content
 
     def test_parse_error_returns_error(self, koakuma):
         """无效 MTP 语法"""
-        result = koakuma.execute_mtp('⟪ READ ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ ⟫')
         assert not result.success
 
 
@@ -218,7 +227,7 @@ class TestReadL2Fallback:
         # 不注册到缓存，让 L2 通过 storage.get_memory_by_alias 命中
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
 
-        result = koakuma.execute_mtp('⟪ READ | fact_from_l2 | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | fact_from_l2 | ⟫')
 
         assert result.success
         assert "l2 content" in result.response_content
@@ -230,14 +239,14 @@ class TestReadL2Fallback:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
 
         # 第一次: 缓存 miss → L2 hit → 缓存
-        result1 = koakuma.execute_mtp('⟪ READ | fact_promoted | ⟫')
+        result1 = _execute_mtp(koakuma, '⟪ READ | fact_promoted | ⟫')
         assert result1.success
 
         # 重置 mock 计数
         koakuma._bus._mock_storage.get_memory_by_alias.reset_mock()
 
         # 第二次: 缓存应该命中 (已被缓存)
-        result2 = koakuma.execute_mtp('⟪ READ | fact_promoted | ⟫')
+        result2 = _execute_mtp(koakuma, '⟪ READ | fact_promoted | ⟫')
         assert result2.success
         assert "promoted content" in result2.response_content
 
@@ -248,7 +257,7 @@ class TestReadL2Fallback:
         """L1 和 L2 均未命中"""
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
 
-        result = koakuma.execute_mtp('⟪ READ | totally_unknown | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | totally_unknown | ⟫')
 
         assert not result.success
         assert "not found" in result.response_content
@@ -258,7 +267,7 @@ class TestReadL2Fallback:
             "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
         )
 
-        result = koakuma.execute_mtp('⟪ READ | fact_from_l2 | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | fact_from_l2 | ⟫')
 
         assert not result.success
         assert "Service Unavailable" in result.response_content
@@ -274,7 +283,7 @@ class TestReadL2Fallback:
         # L2 返回
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem_l2
 
-        result = koakuma.execute_mtp('⟪ READ | [alias_l1, alias_l2] | ⟫')
+        result = _execute_mtp(koakuma, '⟪ READ | [alias_l1, alias_l2] | ⟫')
 
         assert result.success
         assert "from cache" in result.response_content

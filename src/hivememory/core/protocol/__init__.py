@@ -7,7 +7,7 @@
 版本: 3.0
 """
 
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     InteractionPayload,
     MessageType,
     ProtocolMessage,

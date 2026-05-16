@@ -31,7 +31,7 @@ import asyncio
 import litellm
 
 from hivememory.system.config import LLMConfig
-from hivememory.patchouli.mtp.models import (
+from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_STOP_SEQUENCE,
 )

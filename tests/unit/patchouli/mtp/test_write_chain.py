@@ -14,6 +14,7 @@ WRITE 指令执行链路测试
 版本: 1.0
 """
 
+import asyncio
 import pytest
 from unittest.mock import MagicMock, patch, call
 from datetime import datetime
@@ -32,7 +33,7 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
-from hivememory.patchouli.mtp import MTPResponseStatus
+from hivememory.core.mtp import MTPResponseStatus
 
 
 # ========== Fixtures ==========
@@ -83,6 +84,14 @@ def sample_draft() -> ExtractedMemoryDraft:
         has_value=True,
         alias_suffix="fix_cors",
     )
+
+
+def _execute_mtp(koakuma: KoakumaRuntime, text: str):
+    return asyncio.run(koakuma.execute_mtp(text))
+
+
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text))
 
 
 # ========== Test 1: WriteFocus Model ==========
@@ -441,7 +450,7 @@ class TestKoakumaWriteE2E:
 
     def test_write_basic(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="端口从 8080 改为 9090" reason="修复 CORS"'
-        result = write_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(write_koakuma, agent_text)
 
         assert result is not None
         assert result.success
@@ -455,7 +464,7 @@ class TestKoakumaWriteE2E:
 
     def test_write_with_title(self, write_koakuma):
         agent_text = '⟪ WRITE | * | title="Fix CORS" content="端口改为 9090" reason="修复"'
-        result = write_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(write_koakuma, agent_text)
 
         assert result is not None
         focus = write_koakuma.get_write_focus()
@@ -464,7 +473,7 @@ class TestKoakumaWriteE2E:
 
     def test_write_missing_content(self, write_koakuma):
         agent_text = '⟪ WRITE | * | reason="no content"'
-        result = write_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(write_koakuma, agent_text)
 
         assert result is not None
         # 应该返回 error，不捕获 WriteFocus
@@ -472,7 +481,7 @@ class TestKoakumaWriteE2E:
 
     def test_write_response_contains_ack(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="test content"'
-        result = write_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(write_koakuma, agent_text)
 
         assert result is not None
         # 响应应包含 status=ack
@@ -486,7 +495,7 @@ class TestKoakumaWriteE2E:
         koakuma.set_current_identity(Identity(user_id="test_user"))
 
         agent_text = '⟪ WRITE | * | content="test"'
-        result = koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(koakuma, agent_text)
 
         assert result is not None
         assert result.success

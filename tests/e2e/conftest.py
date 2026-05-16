@@ -20,7 +20,7 @@ import pytest
 
 from hivememory.core.models import Identity, MemoryAtom
 from hivememory.system.config import load_app_config
-from hivememory.patchouli.protocol.models import RetrievalRequest
+from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)

@@ -22,7 +22,7 @@ from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.engines.gateway.engine import GatewayEngine
 
-from hivememory.patchouli.protocol.models import EyeGazeResult
+from hivememory.core.protocol.models import EyeGazeResult
 
 logger = logging.getLogger(__name__)
 

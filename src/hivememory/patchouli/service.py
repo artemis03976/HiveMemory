@@ -11,7 +11,7 @@ from hivememory.infrastructure.trace_context import (
     set_trace_context,
 )
 from hivememory.patchouli.message_assembler import MessageAssembler
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     ChatResult,
     InteractionPayload,

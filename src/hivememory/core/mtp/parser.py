@@ -14,8 +14,8 @@ from typing import Dict, List, Optional, Tuple
 
 from hivememory.core.models import Identity, MemoryType
 from hivememory.engines.retrieval.models import QueryFilters
-from hivememory.patchouli.mtp.exceptions import MTPParseError
-from hivememory.patchouli.mtp.models import (
+from hivememory.core.mtp.exceptions import MTPParseError
+from hivememory.core.mtp.models import (
     MTPCommand,
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,

@@ -5,7 +5,7 @@ MTP response formatter。
 以便注入 Fake User Message 并继续递归生成。
 """
 
-from hivememory.patchouli.mtp.models import MTPCommand, MTPResponse
+from hivememory.core.mtp.models import MTPCommand, MTPResponse
 
 
 class MTPFormatter:

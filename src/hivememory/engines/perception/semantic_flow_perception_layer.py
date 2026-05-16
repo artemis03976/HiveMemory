@@ -44,7 +44,7 @@ from hivememory.engines.perception.models import (
     SemanticBuffer,
 )
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.utils.token_estimator import estimate_tokens
 
 logger = logging.getLogger(__name__)

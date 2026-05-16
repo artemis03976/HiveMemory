@@ -12,7 +12,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.system.application.passive.models import (
     PassiveIngressEvent,
     PassiveIngressOutcome,
@@ -24,7 +24,7 @@ from hivememory.system.application.passive.observer_turn_buffer import (
 
 if TYPE_CHECKING:
     from hivememory.patchouli.eye import TheEye
-    from hivememory.patchouli.protocol.models import EyeGazeResult
+    from hivememory.core.protocol.models import EyeGazeResult
 
 logger = logging.getLogger(__name__)
 

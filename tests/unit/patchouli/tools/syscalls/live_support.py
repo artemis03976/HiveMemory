@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from hivememory.system.config import LLMConfig, KoakumaConfig
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.patchouli.mtp import (
+from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
     MTP_STOP_SEQUENCE,

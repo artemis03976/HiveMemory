@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     EyeGazeResult,
     KernelHotResult,

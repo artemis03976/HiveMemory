@@ -23,7 +23,7 @@ from hivememory.engines.perception.semantic_flow_perception_layer import (
 )
 from hivememory.engines.perception.models import TraceItem, FlushReason, LogicalBlock
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.patchouli.protocol import InteractionPayload
+from hivememory.core.protocol import InteractionPayload
 
 
 def _make_identity():

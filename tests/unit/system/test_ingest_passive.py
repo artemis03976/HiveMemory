@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.system.application.passive import (
     ObserverBufferState,
     ObserverTurnBuffer,
@@ -31,7 +31,7 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     EyeGazeResult,
     KernelHotResult,

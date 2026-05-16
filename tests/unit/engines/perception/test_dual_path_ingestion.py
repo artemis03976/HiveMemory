@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 from hivememory.core.models import Identity, TraceItem, TurnEvent
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.patchouli.protocol import InteractionPayload
+from hivememory.core.protocol import InteractionPayload
 
 
 def _make_layer() -> SemanticFlowPerceptionLayer:
@@ -159,7 +159,7 @@ async def test_structured_path_mtp_traces_takes_priority_over_reducer():
         turn_events=[_turn_event()],
     )
 
-    with patch("hivememory.patchouli.mtp.trace_reducer.MTPTraceReducer.reduce") as mock_reduce:
+    with patch("hivememory.core.mtp.trace_reducer.MTPTraceReducer.reduce") as mock_reduce:
         await layer.route_and_ingest("NEW_TOPIC", payload)
         mock_reduce.assert_not_called()
 

@@ -11,7 +11,7 @@ MTP 协议解析器与格式化器单元测试
 
 import pytest
 
-from hivememory.patchouli.mtp import (
+from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
     MTP_STOP_SEQUENCE,

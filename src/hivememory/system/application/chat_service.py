@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, Optional
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.protocol.models import ChatResult
+    from hivememory.core.protocol.models import ChatResult
     from hivememory.patchouli.service import PatchouliService
 
 

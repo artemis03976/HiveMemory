@@ -26,14 +26,14 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
 )
 from hivememory.alice.runtime.execution_frame import ExecutionFrame
-from hivememory.patchouli.mtp import (
+from hivememory.core.mtp import (
     MTPVerb,
     MTPResponseStatus,
     MTPParser,
     MTPCommand,
     MTPResponse,
 )
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult
 
 
 # ========== ExecutionFrame Tests ==========
@@ -176,7 +176,7 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "another_doll"
         cmd.args = {"task": "Forbidden task"}
 
-        from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
+        from hivememory.core.mtp.exceptions import PermissionDeniedError
         with pytest.raises(PermissionDeniedError):
             koakuma._handle_call(cmd)
 
@@ -396,13 +396,13 @@ class TestMTPFilterTypeMap:
 
     def test_agent_profile_filter(self):
         """type:AGENT_PROFILE 过滤器"""
-        from hivememory.patchouli.mtp.parser import _FILTER_TYPE_MAP
+        from hivememory.core.mtp.parser import _FILTER_TYPE_MAP
         assert "agent_profile" in _FILTER_TYPE_MAP
         assert _FILTER_TYPE_MAP["agent_profile"] == MemoryType.AGENT_PROFILE
 
     def test_agent_alias_filter(self):
         """type:agent 过滤器 (别名)"""
-        from hivememory.patchouli.mtp.parser import _FILTER_TYPE_MAP
+        from hivememory.core.mtp.parser import _FILTER_TYPE_MAP
         assert "agent" in _FILTER_TYPE_MAP
         assert _FILTER_TYPE_MAP["agent"] == MemoryType.AGENT_PROFILE
 

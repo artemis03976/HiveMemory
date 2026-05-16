@@ -15,8 +15,8 @@ from uuid import uuid4
 from hivememory.core.models import AgentProfile, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.patchouli.kernel.core import PatchouliKernel
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
-from hivememory.patchouli.mtp import MTPCommand, MTPVerb
+from hivememory.core.mtp.exceptions import PermissionDeniedError
+from hivememory.core.mtp import MTPCommand, MTPVerb
 
 
 def _make_profile_atom(

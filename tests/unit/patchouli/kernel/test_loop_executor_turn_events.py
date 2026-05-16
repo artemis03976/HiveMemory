@@ -17,7 +17,7 @@ import pytest
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.alice.runtime.execution_frame import ExecutionFrame
 from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
-from hivememory.patchouli.protocol.models import MTPExecutionResult
+from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.alice.runtime.worker_agent import GenerationResult
 
 
@@ -295,7 +295,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
 def test_chat_result_default_turn_events():
     """ChatResult 新字段有默认值，不破坏现有代码"""
-    from hivememory.patchouli.protocol.models import ChatResult
+    from hivememory.core.protocol.models import ChatResult
     r = ChatResult(final_text="hi")
     assert r.turn_events == []
 

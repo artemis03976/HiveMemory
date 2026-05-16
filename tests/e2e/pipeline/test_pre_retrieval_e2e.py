@@ -94,7 +94,7 @@ from hivememory.core.models import (
 )
 
 # 协议消息
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
     EyeGazeResult,

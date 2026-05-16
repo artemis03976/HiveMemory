@@ -22,9 +22,9 @@ import logging
 import asyncio
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult
 from hivememory.alice.runtime.execution_frame import ExecutionFrame
-from hivememory.patchouli.mtp.models import MTPVerb
+from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TraceItem, TurnEvent
 
 if TYPE_CHECKING:

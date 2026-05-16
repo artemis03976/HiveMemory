@@ -3,7 +3,7 @@ import asyncio
 from unittest.mock import patch, MagicMock
 from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.protocol.models import RetrievalResponse
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.system.config import load_app_config
 
 @pytest.fixture

@@ -7,7 +7,7 @@
 from typing import Any, Dict, List
 
 from hivememory.engines.perception.context_converter import PerceptionContextConverter
-from hivememory.patchouli.protocol.models import KernelHotResult
+from hivememory.core.protocol.models import KernelHotResult
 from hivememory.prompts.system_prompt import SystemPromptBuilder
 
 

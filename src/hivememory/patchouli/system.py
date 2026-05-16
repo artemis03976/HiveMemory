@@ -28,7 +28,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, AsyncGenerator, Optional, Dict, Any
 
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult
 from hivememory.patchouli.service import PatchouliService
 from hivememory.infrastructure.system_bus import SystemBus
 

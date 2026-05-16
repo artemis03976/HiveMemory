@@ -76,7 +76,7 @@ from hivememory.core.models import Identity, TurnEvent
 
 # 感知层组件
 from hivememory.engines.perception.models import FlushReason, FlushEvent
-from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.engines.perception.relay_controller import SimpleRelayController
 from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber, create_adsorber

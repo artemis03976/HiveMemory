@@ -13,7 +13,7 @@ from uuid import uuid4
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
-from hivememory.patchouli.protocol.models import RetrievalRequest, RetrievalResponse
+from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 
 
 def _make_memory(title="测试记忆") -> MemoryAtom:

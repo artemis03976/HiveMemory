@@ -189,7 +189,7 @@ from hivememory.engines.perception import (
     create_relay_controller,
     create_perception_layer,
 )
-from hivememory.patchouli.protocol import InteractionPayload
+from hivememory.core.protocol import InteractionPayload
 
 from hivememory.server.models import (
     ErrorResponse,

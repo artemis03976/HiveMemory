@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from hivememory.core.models import Identity, AgentProfile, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     EyeGazeResult,
     InteractionPayload,
     KernelHotResult,
