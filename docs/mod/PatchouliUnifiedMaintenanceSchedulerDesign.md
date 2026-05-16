@@ -294,7 +294,7 @@ BackgroundScheduler(thread)
 
 建议放置位置：
 
-- `src/hivememory/patchouli/kernel/runtime/maintenance_scheduler.py`
+- `src/hivememory/system/runtime/scheduler/async_scheduler.py`
 
 它是一个**系统级异步维护调度器**，由 `PatchouliSystem` 在主 loop 中唯一持有。
 

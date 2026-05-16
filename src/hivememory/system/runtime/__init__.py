@@ -7,7 +7,6 @@ from hivememory.system.runtime.scheduler import (
     AsyncMaintenanceScheduler,
     GlobalMaintenanceScheduler,
     MaintenanceTaskSpec,
-    SystemAsyncScheduler,
     TaskRuntimeState,
 )
 
@@ -18,6 +17,5 @@ __all__ = [
     "GlobalSystemBus",
     "MaintenanceTaskSpec",
     "SubsystemBridge",
-    "SystemAsyncScheduler",
     "TaskRuntimeState",
 ]
