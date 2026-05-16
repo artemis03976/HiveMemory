@@ -216,6 +216,9 @@ def __getattr__(name: str):
     if name == "PatchouliKernel":
         from hivememory.patchouli.kernel import PatchouliKernel
         return PatchouliKernel
+    if name == "PatchouliService":
+        from hivememory.patchouli.service import PatchouliService
+        return PatchouliService
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
@@ -404,6 +407,7 @@ __all__ = [
     "TriggerResponse",
     # ========== 懒加载组件 ==========
     "PatchouliKernel",
+    "PatchouliService",
     "PatchouliSystem",
     "TheEye",
     "RetrievalFamiliar",

@@ -1,10 +1,10 @@
-"""系统生命周期与 Patchouli 子系统适配测试"""
+"""系统生命周期与 PatchouliSystem 子系统能力测试"""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
+from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
@@ -18,6 +18,24 @@ def mock_patchouli():
     p.shutdown_drain = AsyncMock(return_value={"success": True})
     p.kernel = MagicMock()
     p.kernel.is_models_ready.return_value = True
+    p.name = "patchouli"
+    p._local_bus = None
+    p._bridge = None
+    p._scheduler = None
+    p._local_routes_registered = False
+    p._bridge_mounted = False
+    p._maintenance_registered = False
+    p.service = MagicMock()
+    p.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
+    p.start = PatchouliSystem.start.__get__(p, PatchouliSystem)
+    p.stop = PatchouliSystem.stop.__get__(p, PatchouliSystem)
+    p.health = PatchouliSystem.health.__get__(p, PatchouliSystem)
+    p._register_local_routes = PatchouliSystem._register_local_routes.__get__(
+        p, PatchouliSystem
+    )
+    p._unregister_local_routes = PatchouliSystem._unregister_local_routes.__get__(
+        p, PatchouliSystem
+    )
     return p
 
 
@@ -32,21 +50,16 @@ def scheduler():
 
 
 @pytest.fixture
-def patchouli_subsystem(mock_patchouli, scheduler):
-    return PatchouliSubsystemAdapter(mock_patchouli, scheduler=scheduler)
-
-
-@pytest.fixture
-def system_factory(mock_patchouli, global_bus, scheduler, patchouli_subsystem):
+def system_factory(mock_patchouli, global_bus, scheduler):
     def _build(**kwargs):
         ingress_service = kwargs.pop("ingress_service", MagicMock())
         chat_service = kwargs.pop("chat_service", MagicMock())
+        mock_patchouli._scheduler = scheduler
         return HiveMemorySystem(
             config=MagicMock(),
             patchouli=mock_patchouli,
             global_bus=global_bus,
             scheduler=scheduler,
-            patchouli_subsystem=patchouli_subsystem,
             chat_service=chat_service,
             ingress_service=ingress_service,
             **kwargs,
@@ -118,21 +131,34 @@ class TestHiveMemorySystemLifecycle:
         mock_patchouli.shutdown_drain.assert_not_called()
 
 
-class TestPatchouliSubsystemAdapterLocalRoutes:
+class TestPatchouliSystemLocalRoutes:
     @pytest.mark.asyncio
     async def test_start_registers_local_routes_and_stop_unregisters(self, mock_patchouli):
         local_bus = PatchouliBus()
-        adapter = PatchouliSubsystemAdapter(mock_patchouli, local_bus=local_bus)
+        mock_patchouli._local_bus = local_bus
+        mock_patchouli._bridge = None
+        mock_patchouli._scheduler = None
+        mock_patchouli._local_routes_registered = False
+        mock_patchouli._bridge_mounted = False
+        mock_patchouli._maintenance_registered = False
+        mock_patchouli.start = PatchouliSystem.start.__get__(mock_patchouli, PatchouliSystem)
+        mock_patchouli.stop = PatchouliSystem.stop.__get__(mock_patchouli, PatchouliSystem)
+        mock_patchouli._register_local_routes = PatchouliSystem._register_local_routes.__get__(
+            mock_patchouli, PatchouliSystem
+        )
+        mock_patchouli._unregister_local_routes = PatchouliSystem._unregister_local_routes.__get__(
+            mock_patchouli, PatchouliSystem
+        )
 
         assert "kernel.submit_interaction" not in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" not in local_bus.list_routes()
 
-        await adapter.start()
+        await mock_patchouli.start()
 
         assert "kernel.submit_interaction" in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" in local_bus.list_routes()
 
-        await adapter.stop()
+        await mock_patchouli.stop()
 
         assert "kernel.submit_interaction" not in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" not in local_bus.list_routes()

@@ -175,11 +175,15 @@ def sys():
     )
 
     # 绑定真实方法
+    from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.system import PatchouliSystem as Real
+    s.service = PatchouliService(
+        kernel=s.kernel,
+        eye=s.eye,
+        loop_executor=s._loop_executor,
+    )
     _chat_async = types.MethodType(Real.chat, s)
     s.chat = lambda *args, **kwargs: asyncio.run(_chat_async(*args, **kwargs))
-    s._chat_post_process = types.MethodType(Real._chat_post_process, s)
-    s._assemble_messages_from_context = types.MethodType(Real._assemble_messages_from_context, s)
 
     # Mock perception layer methods
     s.kernel.librarian_core.get_active_topics_snapshots = MagicMock(return_value=[])

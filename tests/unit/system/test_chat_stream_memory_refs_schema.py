@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.patchouli.protocol.models import EyeGazeResult, KernelHotResult
+from hivememory.patchouli.protocol.models import ChatResult, EyeGazeResult, KernelHotResult
+from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.worker_agent import StreamChunk, GenerationResult
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -77,22 +77,27 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     system.kernel.koakuma.get_write_focus = MagicMock(return_value=None)
     system.kernel.koakuma.get_update_focus = MagicMock(return_value=None)
 
-    async def fake_stream(_messages):
-        yield StreamChunk(
-            is_final=True,
-            result=GenerationResult(
-                text="ok",
-                finish_reason="stop",
-                was_mtp_interrupted=False,
-                prefix_text="ok",
-                mtp_fragment="",
-            ),
-        )
+    system.kernel.load_agent_profile = MagicMock(return_value=MagicMock())
+    system._loop_executor = MagicMock()
 
-    system._worker_agent = MagicMock()
-    system._worker_agent.generate_stream = fake_stream
-    system._assemble_messages_from_context = types.MethodType(
-        PatchouliSystem._assemble_messages_from_context, system
+    async def fake_execute_main_frame_stream(**kwargs):
+        yield {
+            "event": "done",
+            "data": ChatResult(
+                final_text="ok",
+                full_messages=[],
+                total_iterations=1,
+                mtp_iterations=0,
+                stopped_reason="completed",
+                turn_events=[],
+            ).model_dump(),
+        }
+
+    system._loop_executor.execute_main_frame_stream = fake_execute_main_frame_stream
+    system.service = PatchouliService(
+        kernel=system.kernel,
+        eye=system.eye,
+        loop_executor=system._loop_executor,
     )
     system.chat_stream = types.MethodType(PatchouliSystem.chat_stream, system)
 
@@ -165,22 +170,27 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
     system.kernel.koakuma.get_write_focus = MagicMock(return_value=None)
     system.kernel.koakuma.get_update_focus = MagicMock(return_value=None)
 
-    async def fake_stream(_messages):
-        yield StreamChunk(
-            is_final=True,
-            result=GenerationResult(
-                text="ok",
-                finish_reason="stop",
-                was_mtp_interrupted=False,
-                prefix_text="ok",
-                mtp_fragment="",
-            ),
-        )
+    system.kernel.load_agent_profile = MagicMock(return_value=MagicMock())
+    system._loop_executor = MagicMock()
 
-    system._worker_agent = MagicMock()
-    system._worker_agent.generate_stream = fake_stream
-    system._assemble_messages_from_context = types.MethodType(
-        PatchouliSystem._assemble_messages_from_context, system
+    async def fake_execute_main_frame_stream(**kwargs):
+        yield {
+            "event": "done",
+            "data": ChatResult(
+                final_text="ok",
+                full_messages=[],
+                total_iterations=1,
+                mtp_iterations=0,
+                stopped_reason="completed",
+                turn_events=[],
+            ).model_dump(),
+        }
+
+    system._loop_executor.execute_main_frame_stream = fake_execute_main_frame_stream
+    system.service = PatchouliService(
+        kernel=system.kernel,
+        eye=system.eye,
+        loop_executor=system._loop_executor,
     )
     system.chat_stream = types.MethodType(PatchouliSystem.chat_stream, system)
 

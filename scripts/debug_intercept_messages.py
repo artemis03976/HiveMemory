@@ -1,10 +1,11 @@
 import asyncio
 from unittest.mock import patch
 
+from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.system import PatchouliSystem
 
 # 1. 保存原始方法
-original_assemble = PatchouliSystem._assemble_messages_from_context
+original_assemble = PatchouliService._assemble_messages_from_context
 
 def debug_assemble_messages(self, topic_context, hot_result, user_message):
     """
@@ -52,7 +53,7 @@ async def main():
     
     print("\n开始测试对话 (使用拦截器)...")
     # 2. 使用 patch.object 临时替换方法
-    with patch.object(PatchouliSystem, '_assemble_messages_from_context', new=debug_assemble_messages):
+    with patch.object(PatchouliService, '_assemble_messages_from_context', new=debug_assemble_messages):
         # 触发 chat 或 chat_stream
         # 这里演示调用普通的 chat，chat_stream 同理，因为底层都调用 _assemble_messages_from_context
         try:

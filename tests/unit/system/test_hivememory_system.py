@@ -3,7 +3,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
@@ -12,10 +11,13 @@ from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenan
 @pytest.fixture
 def mock_patchouli():
     p = MagicMock()
+    p.name = "patchouli"
     p.kernel = MagicMock()
     p.kernel.is_models_ready.return_value = True
+    p.health = AsyncMock(return_value={"status": "ok", "models_ready": True})
     p.storage = MagicMock()
-    p.manual_trigger = AsyncMock(return_value={"archived": 1})
+    p.service = MagicMock()
+    p.service.manual_trigger = AsyncMock(return_value={"archived": 1})
     return p
 
 
@@ -24,7 +26,6 @@ def system(mock_patchouli):
     config = MagicMock()
     global_bus = GlobalSystemBus()
     scheduler = GlobalMaintenanceScheduler(tick_seconds=0.05, shutdown_wait_seconds=0.5)
-    patchouli_subsystem = PatchouliSubsystemAdapter(mock_patchouli, scheduler=scheduler)
     chat_service = MagicMock()
     chat_service.chat = AsyncMock(return_value="result")
     chat_service.chat_stream = MagicMock()
@@ -39,7 +40,6 @@ def system(mock_patchouli):
         patchouli=mock_patchouli,
         global_bus=global_bus,
         scheduler=scheduler,
-        patchouli_subsystem=patchouli_subsystem,
         chat_service=chat_service,
         ingress_service=ingress_service,
     )
@@ -48,10 +48,10 @@ def system(mock_patchouli):
 class TestHiveMemorySystem:
     @pytest.mark.asyncio
     async def test_start_starts_subsystem_and_ingress(self, system):
-        system._patchouli_subsystem.start = AsyncMock()
+        system._patchouli.start = AsyncMock()
         system._scheduler.start = MagicMock()
         await system.start()
-        system._patchouli_subsystem.start.assert_called_once()
+        system._patchouli.start.assert_called_once()
         system._scheduler.start.assert_called_once()
         system._ingress_service.start.assert_called_once()
         assert system._started is True
@@ -70,10 +70,10 @@ class TestHiveMemorySystem:
         async def stop_subsystem_side_effect():
             calls.append("stop")
 
-        system._patchouli_subsystem.start = AsyncMock()
+        system._patchouli.start = AsyncMock()
         system._scheduler.start = MagicMock()
         system._scheduler.stop = AsyncMock(side_effect=scheduler_stop_side_effect)
-        system._patchouli_subsystem.stop = AsyncMock(side_effect=stop_subsystem_side_effect)
+        system._patchouli.stop = AsyncMock(side_effect=stop_subsystem_side_effect)
         system._ingress_service.shutdown_drain.side_effect = shutdown_drain_side_effect
 
         await system.start()
@@ -83,7 +83,7 @@ class TestHiveMemorySystem:
         assert calls == ["stop_scheduler", "shutdown_drain", "stop"]
         system._scheduler.stop.assert_called_once()
         system._ingress_service.shutdown_drain.assert_called_once()
-        system._patchouli_subsystem.stop.assert_called_once()
+        system._patchouli.stop.assert_called_once()
         assert system._started is False
 
     @pytest.mark.asyncio
@@ -141,5 +141,5 @@ class TestHiveMemorySystem:
     @pytest.mark.asyncio
     async def test_manual_trigger_delegates(self, system, mock_patchouli):
         result = await system.manual_trigger(topic_id="t1")
-        mock_patchouli.manual_trigger.assert_called_once_with(topic_id="t1")
+        mock_patchouli.service.manual_trigger.assert_called_once_with(topic_id="t1")
         assert result == {"archived": 1}

@@ -26,37 +26,33 @@
 
 import asyncio
 import logging
-import uuid
-from typing import AsyncGenerator, List, Optional, Dict, Any
+from typing import TYPE_CHECKING, AsyncGenerator, Optional, Dict, Any
 
-from hivememory.core.models import Identity, StreamMessage
-from hivememory.patchouli.message_assembler import MessageAssembler
-from hivememory.patchouli.protocol.models import (
-    AnalyzeAndRetrieveResult,
-    ChatResult,
-    InteractionPayload,
-)
+from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.patchouli.service import PatchouliService
 from hivememory.infrastructure.system_bus import SystemBus
-from hivememory.infrastructure.trace_context import (
-    generate_trace_id, set_trace_context, reset_trace_context
-)
 
 from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.passive_ingest import PassiveObserverIngressor, PassiveIngressEvent
+from hivememory.patchouli.runtime.bridge import PatchouliBridge
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+from hivememory.system.contracts.subsystem import SubsystemProtocol
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 from hivememory.patchouli.worker_agent import WorkerAgentService
-from hivememory.server.models.memory import MemoryResponse
+
+if TYPE_CHECKING:
+    from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
 
 logger = logging.getLogger(__name__)
 
 
-class PatchouliSystem:
+class PatchouliSystem(SubsystemProtocol):
     """
     帕秋莉体系 (The Facility) - HiveMemory 的完整封装 v3.0
 
@@ -86,7 +82,8 @@ class PatchouliSystem:
     def __init__(
         self,
         config: Optional[HiveMemoryConfig] = None,
-        bus: Optional[SystemBus] = None,
+        global_bus: Optional[GlobalSystemBus] = None,
+        scheduler: Optional["AsyncMaintenanceScheduler"] = None,
     ):
         """
         初始化帕秋莉系统
@@ -103,8 +100,9 @@ class PatchouliSystem:
         """
         self.config = config or load_app_config()
 
-        # 0. 创建/注入 SystemBus（系统总线 — 主板）
-        self.bus = bus or SystemBus()
+        # 0. 创建旧内核仍依赖的内部 SystemBus。
+        # 外部已不再允许注入该过渡总线，后续会继续向统一 async bus 体系收敛。
+        self.bus = SystemBus()
 
         # 1. 初始化 Kernel（内核管理 Retrieval + Librarian + MTP 微服务，注册总线路由）
         self.kernel = PatchouliKernel(config=self.config, bus=self.bus)
@@ -118,12 +116,6 @@ class PatchouliSystem:
             bus=self.bus,
         )
 
-        # 3.5 被动 ingest 编排器 (Phase P1 — 从 TheEye 独立)
-        self._passive_ingressor = PassiveObserverIngressor(
-            eye=self.eye,
-            bus=self.bus,
-        )
-
         # 4. 初始化 Worker Agent (LLM 文本生成引擎)
         self._worker_agent = WorkerAgentService(config=self.config.llm.worker)
 
@@ -132,13 +124,26 @@ class PatchouliSystem:
             kernel=self.kernel,
             worker_agent=self._worker_agent,
         )
-        self._message_assembler = MessageAssembler(self.kernel)
 
-        # 5. System 级 Pub/Sub 订阅
+
+        self._service = PatchouliService(
+            kernel=self.kernel,
+            eye=self.eye,
+            loop_executor=self._loop_executor,
+        )
+
+        # 5. 子系统运行时挂载点
+        self._local_bus = PatchouliBus()
+        self._bridge = (
+            PatchouliBridge(local_bus=self._local_bus, global_bus=global_bus)
+            if global_bus is not None
+            else None
+        )
+        self._scheduler = scheduler
+        self._local_routes_registered = False
+        self._bridge_mounted = False
+        self._maintenance_registered = False
         self._shutdown_drain_started = False
-
-        # 6. 取消注册表：generation_id → asyncio.Event
-        self._active_generations: Dict[str, asyncio.Event] = {}
 
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
 
@@ -196,22 +201,19 @@ class PatchouliSystem:
         """访问存储层（代理到 Kernel）"""
         return self.kernel.storage
 
+    @property
+    def service(self) -> PatchouliService:
+        """访问 Patchouli 对外能力门面。"""
+        return self._service
+
+    @property
+    def name(self) -> str:
+        return "patchouli"
+
     # ========== 生成取消 API ==========
 
-    def register_generation(self, generation_id: str) -> asyncio.Event:
-        event = asyncio.Event()
-        self._active_generations[generation_id] = event
-        return event
-
     def cancel_generation(self, generation_id: str) -> bool:
-        event = self._active_generations.get(generation_id)
-        if event:
-            event.set()
-            return True
-        return False
-
-    def unregister_generation(self, generation_id: str) -> None:
-        self._active_generations.pop(generation_id, None)
+        return self.service.cancel_generation(generation_id)
 
     # ========== 维护任务注册 ==========
 
@@ -237,37 +239,39 @@ class PatchouliSystem:
         """从全局维护器卸载 Patchouli 子系统的维护任务。"""
         return scheduler.unregister_owner(self._MAINTENANCE_OWNER)
 
-    async def analyze_and_retrieve(
-        self,
-        query: str,
-        identity: Identity,
-        topic_snapshots: Any = None,
-        enable_retrieval: bool = True,
-        mode: str = "active",
-    ) -> AnalyzeAndRetrieveResult:
-        """
-        执行 Patchouli 的标准分析与预检索入口。
+    async def start(self) -> None:
+        if self._local_bus and not self._local_routes_registered:
+            self._register_local_routes()
+            self._local_routes_registered = True
+        if self._scheduler and not self._maintenance_registered:
+            self._maintenance_registered = self.register_maintenance_tasks(
+                self._scheduler
+            )
+        if self._bridge and not self._bridge_mounted:
+            self._bridge.mount()
+            self._bridge_mounted = True
 
-        用于将 TheEye 的入口分析与 Kernel 的预检索整合为一个
-        可公开暴露的子系统能力，便于通过总线对接顶层应用服务。
-        """
-        gaze_result = await self.eye.gaze(
-            query=query,
-            topic_snapshots=topic_snapshots,
-            identity=identity,
-        )
-        hot_result = await self.kernel.handle_hot(
-            gaze_result,
-            enable_retrieval=enable_retrieval,
-            mode=mode,
-        )
-        return AnalyzeAndRetrieveResult(
-            gaze_result=gaze_result,
-            hot_result=hot_result,
-        )
+    async def stop(self) -> None:
+        if self._scheduler and self._maintenance_registered:
+            self.unregister_maintenance_tasks(self._scheduler)
+            self._maintenance_registered = False
+        await self.shutdown_drain()
+        if self._bridge and self._bridge_mounted:
+            self._bridge.unmount()
+            self._bridge_mounted = False
+        if self._local_bus and self._local_routes_registered:
+            self._unregister_local_routes()
+            self._local_routes_registered = False
+
+    async def health(self) -> dict[str, Any]:
+        models_ready = self.kernel.is_models_ready()
+        return {
+            "status": "ok" if models_ready else "warming_up",
+            "models_ready": models_ready,
+        }
 
     async def shutdown_drain(self) -> Dict[str, Any]:
-        """服务关闭前排空 observer buffer 并强制归档所有活跃话题。"""
+        """服务关闭前强制归档 perception 中的活跃话题。"""
         if self._shutdown_drain_started:
             logger.info("shutdown drain 已执行，跳过重复调用")
             return {
@@ -286,24 +290,32 @@ class PatchouliSystem:
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
 
-        flushed_rounds = self._passive_ingressor.flush_all_pending_sessions()
-        for payload, target_topic in flushed_rounds:
-            await self.kernel.submit_interaction(
-                payload, target_topic=target_topic,
-            )
-
         perception_result = await self.kernel.librarian_core.perception_layer.flush_all_for_shutdown()
         result = {
             "success": True,
-            "observer_payloads_submitted": len(flushed_rounds),
+            "observer_payloads_submitted": 0,
             "perception": perception_result,
             "reentrant": False,
         }
         logger.info(
-            f"shutdown drain 完成: observer_payloads={len(flushed_rounds)}, "
+            f"shutdown drain 完成: observer_payloads=0, "
             f"flushed_topics={len(perception_result['flushed_topics'])}"
         )
         return result
+
+    def _register_local_routes(self) -> None:
+        self._local_bus.register(
+            "kernel.submit_interaction",
+            self.kernel.submit_interaction,
+        )
+        self._local_bus.register(
+            "passive.analyze_and_retrieve",
+            self.service.analyze_and_retrieve,
+        )
+
+    def _unregister_local_routes(self) -> None:
+        self._local_bus.unregister("kernel.submit_interaction")
+        self._local_bus.unregister("passive.analyze_and_retrieve")
 
     # ========== Kernel 驱动的对话 API ==========
 
@@ -316,104 +328,14 @@ class PatchouliSystem:
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
     ) -> ChatResult:
-        """
-        Kernel 驱动的对话入口
-
-        流程:
-        1. [Perception Layer] 获取活跃话题快照
-        2. [The Eye] 意图识别 + 查询重写 + 话题路由
-        3. [Perception Layer] 根据路由决策获取完整话题上下文
-        4. [Kernel.handle_hot] 预检索
-        5. [Prompt Assembly] 从感知层上下文组装 messages
-        6. [The Loop] 递归生成循环 (Phase A→B→C→D)
-        7. [Librarian] 异步记录 assistant 回复到感知层
-
-        Args:
-            user_message: 当前用户消息
-            user_id: 用户 ID
-            agent_id: Agent ID
-            session_id: 会话 ID
-            enable_memory_retrieval: 是否启用记忆预检索
-
-        Returns:
-            ChatResult: 递归生成循环的完整结果
-        """
-        # Set trace context for observability
-        trace_id = generate_trace_id("chat")
-        tokens = set_trace_context(trace_id, "PatchouliSystem.Chat", "foreground")
-
-        try:
-            logger.info(f"Processing user chat message")
-
-            # 1. Create identity
-            identity = Identity(
-                user_id=user_id, agent_id=agent_id, session_id=session_id
-            )
-
-            # 1.5 Load agent profile (Phase 1 多智能体)
-            agent_profile = self.kernel.load_agent_profile(agent_id)
-
-            # 2. Get topic snapshots from perception layer
-            topic_snapshots = await self.kernel.get_topic_snapshots(identity)
-
-            # 3. Eye 分析 (with topic snapshots for routing and coreference)
-            gaze_result = await self.eye.gaze(
-                query=user_message,
-                topic_snapshots=topic_snapshots,
-                identity=identity
-            )
-
-            # 4. 预创建话题 + LRU 驱逐（提前到生成之前）
-            is_new = (gaze_result.target_topic == "NEW_TOPIC")
-            real_topic_id, _, topic_context = await self.kernel.prepare_topic(
-                target_topic_id=gaze_result.target_topic,
-                new_topic_title=gaze_result.new_topic_title,
-                new_topic_summary=gaze_result.new_topic_summary,
-                identity=identity,
-            )
-
-            # 5. Kernel 统一管线: 预检索
-            hot_result = await self.kernel.handle_hot(
-                gaze_result,
-                enable_retrieval=enable_memory_retrieval,
-            )
-
-            # 6. Assemble messages from perception layer context
-            messages = self._assemble_messages_from_context(
-                topic_context=topic_context,
-                hot_result=hot_result,
-                user_message=user_message,
-                profile=agent_profile,
-                current_agent_id=agent_id,
-            )
-
-            # 7. 递归生成循环
-            # 设置 Koakuma 权限沙箱 (Phase 1 多智能体)
-            self.kernel.koakuma.set_active_profile(agent_profile)
-
-            loop_result = await self._loop_executor.execute_main_frame(
-                messages=messages,
-                max_iterations=None,
-                generation_options=generation_options,
-                agent_profile=agent_profile,
-                topic_id=real_topic_id,
-                identity=identity,
-            )
-
-            await self._chat_post_process(
-                messages=messages,
-                loop_result=loop_result,
-                hot_result=hot_result,
-                identity=identity,
-                topic_id=real_topic_id,
-                user_message=user_message,
-            )
-
-            logger.info("Chat completed successfully")
-            return loop_result
-
-        finally:
-            reset_trace_context(tokens)
+        return await self.service.chat(
+            user_message=user_message,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            enable_memory_retrieval=enable_memory_retrieval,
+            generation_options=generation_options,
+        )
 
     # ========== 流式对话 API (SSE) ==========
 
@@ -426,276 +348,24 @@ class PatchouliSystem:
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        流式对话入口 — chat() 的 SSE 流式变体
-
-        逐 token 推送 LLM 生成文本，MTP 执行过程实时推送状态。
-        复用 chat() 的所有私有方法，仅将递归循环改为流式 yield。
-
-        SSE 事件类型:
-            - topic_info: 话题路由结果
-            - token: LLM 生成的文本增量
-            - mtp_start: MTP 指令被拦截
-            - mtp_result: MTP 执行完成
-            - done: 生成完成
-            - error: 错误发生
-
-        Yields:
-            Dict[str, Any]: {"event": str, "data": dict}
-        """
-        # Set trace context for observability
-        trace_id = generate_trace_id("stream")
-        tokens = set_trace_context(trace_id, "PatchouliSystem.Stream", "foreground")
-
-        generation_id = str(uuid.uuid4())
-        cancel_event = self.register_generation(generation_id)
-
-        try:
-            logger.info("Processing user stream message")
-
-            yield {
-                "event": "generation_id",
-                "data": {"generation_id": generation_id},
-            }
-
-            identity = Identity(
-                user_id=user_id, agent_id=agent_id, session_id=session_id
-            )
-
-            # Load agent profile (Phase 1 多智能体)
-            agent_profile = self.kernel.load_agent_profile(agent_id)
-
-            # 1. 获取话题快照
-            topic_snapshots = await self.kernel.get_topic_snapshots(identity)
-
-            # 2. Eye 分析
-            gaze_result = await self.eye.gaze(
-                query=user_message,
-                topic_snapshots=topic_snapshots,
-                identity=identity,
-            )
-
-            # 3. 预创建话题 + LRU 驱逐（提前到生成之前）
-            is_new = (gaze_result.target_topic == "NEW_TOPIC")
-            real_topic_id, pool_snapshot, topic_context = await self.kernel.prepare_topic(
-                target_topic_id=gaze_result.target_topic,
-                new_topic_title=gaze_result.new_topic_title,
-                new_topic_summary=gaze_result.new_topic_summary,
-                identity=identity,
-            )
-
-            yield {
-                "event": "topic_info",
-                "data": {
-                    "topic_id": real_topic_id,
-                    "is_new": is_new,
-                    "pool": pool_snapshot,
-                },
-            }
-
-            # 4. 预检索
-            hot_result = await self.kernel.handle_hot(
-                gaze_result, enable_retrieval=enable_memory_retrieval,
-            )
-
-            yield {
-                "event": "memory_refs",
-                "data": {
-                    "memories": [
-                        MemoryResponse.from_atom(m).model_dump(mode="json")
-                        for m in hot_result.retrieved_memories
-                    ],
-                },
-            }
-
-            # 5. 组装 messages
-            messages = self._assemble_messages_from_context(
-                topic_context=topic_context,
-                hot_result=hot_result,
-                user_message=user_message,
-                profile=agent_profile,
-                current_agent_id=agent_id,
-            )
-
-            # 6. 流式递归生成循环（委托给 KernelLoopExecutor）
-            self.kernel.koakuma.set_active_profile(agent_profile)
-            loop_result = None
-
-            async for event in self._loop_executor.execute_main_frame_stream(
-                messages=messages,
-                max_iterations=None,
-                generation_options=generation_options,
-                agent_profile=agent_profile,
-                topic_id=real_topic_id,
-                identity=identity,
-                cancel_event=cancel_event,
-            ):
-                if event["event"] == "done":
-                    from hivememory.patchouli.protocol.models import ChatResult
-                    loop_result = ChatResult(**event["data"])
-                else:
-                    yield event
-
-            if loop_result is None:
-                raise RuntimeError("Stream ended without done event")
-
-            if not cancel_event.is_set():
-                await self._chat_post_process(
-                    messages=messages,
-                    loop_result=loop_result,
-                    hot_result=hot_result,
-                    identity=identity,
-                    topic_id=real_topic_id,
-                    user_message=user_message,
-                )
-
-            logger.info("Stream completed successfully")
-            yield {
-                "event": "done",
-                "data": {
-                    **loop_result.model_dump(),
-                    "stopped": cancel_event.is_set(),
-                },
-            }
-
-        except Exception as e:
-            logger.error(f"chat_stream 异常: {e}", exc_info=True)
-            # 错误恢复：如果预创建了空的新话题，清理它
-            if 'is_new' in dir() and is_new and 'real_topic_id' in dir():
-                try:
-                    buf = self.kernel.librarian_core.perception_layer.get_buffer(real_topic_id)
-                    if buf and not buf.blocks:
-                        self.kernel.librarian_core.perception_layer.swap_out_topic(real_topic_id)
-                        logger.info(f"已清理预创建的空话题: {real_topic_id}")
-                except Exception:
-                    pass
-            yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
-
-        finally:
-            self.unregister_generation(generation_id)
-            reset_trace_context(tokens)
+        async for event in self.service.chat_stream(
+            user_message=user_message,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            enable_memory_retrieval=enable_memory_retrieval,
+            generation_options=generation_options,
+        ):
+            yield event
 
     async def manual_trigger(
         self,
         topic_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        手动触发话题结算 (Archive + Compact)
+        return await self.service.manual_trigger(topic_id)
 
-        用户主动保存当前对话状态。语义为"立即归档 + 生成摘要并保留内存"。
-        话题不会被驱逐，可以继续接收新的交互。
-
-        Args:
-            topic_id: 目标话题 ID。如果为 None，使用最后活跃的话题。
-
-        Returns:
-            Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
-
-        Examples:
-            >>> # 触发最后活跃话题
-            >>> result = await system.manual_trigger()
-
-            >>> # 触发指定话题
-            >>> result = await system.manual_trigger(topic_id="topic_123")
-        """
-        return await self.kernel.manual_trigger(topic_id)
-
-    def _assemble_messages_from_context(
-        self,
-        topic_context: Dict[str, Any],
-        hot_result,  # KernelHotResult
-        user_message: str,
-        profile=None,  # AgentProfile (Phase 1)
-        current_agent_id: str = "omni_doll",
-    ) -> List[Dict[str, str]]:
-        """
-        从感知层上下文组装 LLM messages
-
-        三明治结构 (Phase 1):
-        1. System prompt:
-           - Top: MTP 协议教学 + 存储降级通知
-           - Middle: 灵魂注入 (persona from profile)
-           - Bottom: 预检索记忆 + 话题状态
-        2. Topic history (from blocks, 含多角色渲染)
-        3. Current user message
-
-        Args:
-            topic_context: 话题上下文（来自感知层）
-            hot_result: Kernel hot path 结果（包含检索到的记忆）
-            user_message: 当前用户消息
-            profile: 人偶图纸配置（Phase 1 权限过滤 + 灵魂注入）
-            current_agent_id: 当前活跃 Agent 别名（Phase 1 多角色渲染）
-
-        Returns:
-            List[Dict]: OpenAI 格式的 messages
-        """
-        assembler = getattr(self, "_message_assembler", None)
-        if assembler is None:
-            # 兼容绕过 __init__ 的单测夹具，按需懒加载组装器。
-            assembler = MessageAssembler(self.kernel)
-            self._message_assembler = assembler
-
-        return assembler.assemble(
-            topic_context=topic_context,
-            hot_result=hot_result,
-            user_message=user_message,
-            profile=profile,
-            current_agent_id=current_agent_id,
-        )
-
-    async def _chat_post_process(
-        self,
-        messages: List[Dict[str, str]],
-        loop_result: ChatResult,
-        hot_result,
-        identity: Identity,
-        topic_id: str,
-        user_message: str,
-    ) -> None:
-        """
-        Chat 后处理通用函数
-
-        统一处理:
-        1. 重建原始 assistant 文本
-        2. 获取 MTP traces 和 focus
-        3. 构建 InteractionPayload
-        4. 提交到感知层
-
-        Args:
-            messages: 递归循环结束后的完整消息列表
-            loop_result: 循环结果
-            hot_result: KernelHotResult (包含 rewritten 和 worth_saving)
-            identity: 身份标识
-            topic_id: 话题 ID
-            user_message: 用户原始消息
-
-        Returns:
-            None: 无返回值
-        """
-        try:
-            mtp_traces = self.kernel.koakuma.get_interaction_traces()
-            write_focus = self.kernel.koakuma.get_write_focus()
-            update_focus = self.kernel.koakuma.get_update_focus()
-        except Exception as e:
-            logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
-            mtp_traces = []
-            write_focus = None
-            update_focus = None
-
-        payload = InteractionPayload(
-            user_message=user_message,
-            mtp_traces=mtp_traces,
-            write_focus=write_focus,
-            update_focus=update_focus,
-            identity=identity,
-            rewritten_query=hot_result.rewritten,
-            worth_saving=hot_result.worth_saving,
-            assistant_final_text=loop_result.final_text,
-            turn_events=loop_result.turn_events,
-        )
-
-        await self.kernel.submit_interaction(payload, target_topic=topic_id)
-
+    async def analyze_and_retrieve(self, *args, **kwargs):
+        return await self.service.analyze_and_retrieve(*args, **kwargs)
 
 __all__ = [
     "PatchouliSystem",

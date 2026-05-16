@@ -1,6 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import patch, MagicMock
+from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.patchouli.protocol.models import RetrievalResponse
 
@@ -10,7 +11,7 @@ def patch_assemble_messages():
     一个可以挂载到任意测试中的 fixture，
     自动拦截 _assemble_messages_from_context 方法并打印 system_prompt 和 user_prompt
     """
-    original_assemble = PatchouliSystem._assemble_messages_from_context
+    original_assemble = PatchouliService._assemble_messages_from_context
 
     def _intercept(self, topic_context, hot_result, user_message):
         messages = original_assemble(self, topic_context, hot_result, user_message)
@@ -36,7 +37,7 @@ def patch_assemble_messages():
         print("="*50 + "\n")
         return messages
 
-    with patch.object(PatchouliSystem, '_assemble_messages_from_context', new=_intercept):
+    with patch.object(PatchouliService, '_assemble_messages_from_context', new=_intercept):
         yield
 
 # 示例测试：

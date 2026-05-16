@@ -53,6 +53,9 @@ def __getattr__(name: str):
     if name == "PatchouliKernel":
         from hivememory.patchouli.kernel import PatchouliKernel
         return PatchouliKernel
+    if name == "PatchouliService":
+        from hivememory.patchouli.service import PatchouliService
+        return PatchouliService
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
@@ -65,6 +68,7 @@ def __getattr__(name: str):
 __all__ = [
     # 统一入口 (懒加载)
     "PatchouliKernel",
+    "PatchouliService",
     "PatchouliSystem",
     "WorkerAgentService",
     # 三位一体

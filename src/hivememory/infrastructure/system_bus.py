@@ -17,11 +17,17 @@ HiveMemory 系统总线 (SystemBus)
 
 作者: HiveMemory Team
 版本: 2.0
+
+废弃说明:
+    - SystemBus 属于旧的过渡期同步/混合总线。
+    - 新代码应优先使用 system.runtime.bus 下的 AsyncSystemBus /
+      GlobalSystemBus，以及子系统私有 local bus。
 """
 
 import asyncio
 import inspect
 import logging
+import warnings
 from typing import Any, Callable, Dict, List
 
 logger = logging.getLogger(__name__)
@@ -30,6 +36,10 @@ logger = logging.getLogger(__name__)
 class SystemBus:
     """
     HiveMemory 系统总线 — 进程内通信的主板
+
+    已废弃:
+        SystemBus 仅保留给仍未完全迁移到 v4 runtime bus 体系的旧内核链路。
+        新代码不要再新增对它的直接依赖。
 
     两种通信模式：
         - RPC: register() + request() / async_request()
@@ -47,6 +57,11 @@ class SystemBus:
     """
 
     def __init__(self):
+        warnings.warn(
+            "SystemBus 已废弃；请改用 AsyncSystemBus / GlobalSystemBus 或子系统私有 local bus。",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._handlers: Dict[str, Callable] = {}
         self._subscribers: Dict[str, List[Callable]] = {}
 

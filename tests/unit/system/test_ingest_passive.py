@@ -432,7 +432,6 @@ def sys_passive():
     harness.scheduler = scheduler
     harness.eye = eye
     harness.kernel = kernel
-    harness._passive_ingressor = service._ingressor
     harness._shutdown_drain_started = False
     harness._MAINTENANCE_OWNER = "patchouli"
     harness.ingest_event = service.ingest_event
@@ -603,7 +602,7 @@ class TestSystemSchedulerIntegration:
 class TestShutdownDrain:
     """shutdown_drain() 编排测试"""
 
-    def test_shutdown_drain_flushes_observer_and_perception(self, sys_passive):
+    def test_shutdown_drain_flushes_perception_only(self, sys_passive):
         from hivememory.patchouli.system import PatchouliSystem as Real
 
         sys_passive.kernel.librarian_core = MagicMock()
@@ -618,14 +617,11 @@ class TestShutdownDrain:
             }
         )
 
-        _ingest_event(sys_passive, role="user", content="q", user_id="u1")
-        _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
-
         result = asyncio.run(Real.shutdown_drain(sys_passive))
 
-        sys_passive.kernel.submit_interaction.assert_called_once()
+        sys_passive.kernel.submit_interaction.assert_not_called()
         sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
-        assert result["observer_payloads_submitted"] == 1
+        assert result["observer_payloads_submitted"] == 0
         assert result["perception"]["trigger_reason"] == "shutdown"
 
     def test_shutdown_drain_is_reentrant(self, sys_passive):

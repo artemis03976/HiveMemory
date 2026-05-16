@@ -5,7 +5,6 @@ from typing import Any, AsyncGenerator, Dict, Optional
 from hivememory.patchouli.config import HiveMemoryConfig
 from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system.patchouli_subsystem import PatchouliSubsystemAdapter
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -28,7 +27,6 @@ class HiveMemorySystem:
         patchouli: PatchouliSystem,
         global_bus: GlobalSystemBus,
         scheduler: GlobalMaintenanceScheduler,
-        patchouli_subsystem: PatchouliSubsystemAdapter,
         chat_service: ChatApplicationService,
         ingress_service: PassiveIngressService,
     ) -> None:
@@ -36,7 +34,6 @@ class HiveMemorySystem:
         self._patchouli = patchouli
         self._global_bus = global_bus
         self._scheduler = scheduler
-        self._patchouli_subsystem = patchouli_subsystem
         self._chat_service = chat_service
         self._ingress_service = ingress_service
         self._started = False
@@ -48,8 +45,6 @@ class HiveMemorySystem:
         config: Optional[HiveMemoryConfig] = None,
     ) -> "HiveMemorySystem":
         from hivememory.patchouli.config import load_app_config
-        from hivememory.patchouli.runtime.bridge import PatchouliBridge
-        from hivememory.patchouli.runtime.bus import PatchouliBus
 
         config = config or load_app_config()
 
@@ -59,21 +54,13 @@ class HiveMemorySystem:
             shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
         )
 
-        patchouli = PatchouliSystem(config=config)
-        patchouli_bus = PatchouliBus()
-        patchouli_bridge = PatchouliBridge(
-            local_bus=patchouli_bus,
+        patchouli = PatchouliSystem(
+            config=config,
             global_bus=global_bus,
-        )
-
-        patchouli_subsystem = PatchouliSubsystemAdapter(
-            patchouli=patchouli,
-            local_bus=patchouli_bus,
-            bridge=patchouli_bridge,
             scheduler=scheduler,
         )
 
-        chat_service = ChatApplicationService(patchouli=patchouli)
+        chat_service = ChatApplicationService(patchouli_service=patchouli.service)
         ingress_service = PassiveIngressService(
             bus=global_bus,
             config=config,
@@ -85,7 +72,6 @@ class HiveMemorySystem:
             patchouli=patchouli,
             global_bus=global_bus,
             scheduler=scheduler,
-            patchouli_subsystem=patchouli_subsystem,
             chat_service=chat_service,
             ingress_service=ingress_service,
         )
@@ -95,7 +81,7 @@ class HiveMemorySystem:
     async def start(self) -> None:
         if self._started:
             return
-        await self._patchouli_subsystem.start()
+        await self._patchouli.start()
         self._scheduler.start()
         self._started = True
         self._scheduler_stopped = False
@@ -106,7 +92,7 @@ class HiveMemorySystem:
         await self._ingress_service.shutdown_drain()
         if not self._started:
             return
-        await self._patchouli_subsystem.stop()
+        await self._patchouli.stop()
         self._started = False
         self._scheduler_stopped = False
 
@@ -118,7 +104,7 @@ class HiveMemorySystem:
 
     async def health(self) -> dict[str, Any]:
         subsystem_health = {
-            self._patchouli_subsystem.name: await self._patchouli_subsystem.health()
+            self._patchouli.name: await self._patchouli.health()
         }
         return {
             "status": "ok" if self._started else "stopped",
@@ -222,4 +208,4 @@ class HiveMemorySystem:
         return self._patchouli.storage
 
     async def manual_trigger(self, topic_id: Optional[str] = None) -> Dict[str, Any]:
-        return await self._patchouli.manual_trigger(topic_id=topic_id)
+        return await self._patchouli.service.manual_trigger(topic_id=topic_id)
