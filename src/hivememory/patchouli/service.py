@@ -17,9 +17,10 @@ from hivememory.patchouli.protocol.models import (
     InteractionPayload,
 )
 from hivememory.server.models.memory import MemoryResponse
+from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 if TYPE_CHECKING:
-    from hivememory.alice.service import AliceService
     from hivememory.patchouli.eye import TheEye
     from hivememory.patchouli.kernel import PatchouliKernel
 
@@ -33,11 +34,11 @@ class PatchouliService:
         self,
         kernel: PatchouliKernel,
         eye: TheEye,
-        alice_service: Optional[AliceService] = None,
+        global_bus: Optional[GlobalSystemBus] = None,
     ) -> None:
         self._kernel = kernel
         self._eye = eye
-        self._alice_service = alice_service
+        self._global_bus = global_bus
         self._message_assembler = MessageAssembler(kernel)
 
     async def analyze_and_retrieve(
@@ -128,7 +129,7 @@ class PatchouliService:
             )
 
             if hot_result.retrieved_memories:
-                self._alice_service.runtime_host.register_preretrieval_aliases(
+                await self._register_preretrieval_aliases(
                     hot_result.retrieved_memories
                 )
 
@@ -140,8 +141,7 @@ class PatchouliService:
                 current_agent_id=agent_id,
             )
 
-            self._alice_service.runtime_host.koakuma.set_active_profile(agent_profile)
-            loop_result = await self._alice_service.run_agent(
+            loop_result = await self._run_agent(
                 messages=messages,
                 identity=identity,
                 agent_id=agent_id,
@@ -241,7 +241,7 @@ class PatchouliService:
             )
 
             if hot_result.retrieved_memories:
-                self._alice_service.runtime_host.register_preretrieval_aliases(
+                await self._register_preretrieval_aliases(
                     hot_result.retrieved_memories
                 )
 
@@ -263,10 +263,9 @@ class PatchouliService:
                 current_agent_id=agent_id,
             )
 
-            self._alice_service.runtime_host.koakuma.set_active_profile(agent_profile)
             loop_result = None
 
-            async for event in self._alice_service.run_agent_stream(
+            stream = await self._run_agent_stream(
                 messages=messages,
                 identity=identity,
                 agent_id=agent_id,
@@ -274,7 +273,8 @@ class PatchouliService:
                 generation_options=generation_options,
                 agent_profile=agent_profile,
                 cancel_event=cancel_event,
-            ):
+            )
+            async for event in stream:
                 if event["event"] == "done":
                     loop_result = ChatResult(**event["data"])
                 else:
@@ -379,9 +379,10 @@ class PatchouliService:
     ) -> None:
         """统一处理 chat/chat_stream 结束后的交互提交。"""
         try:
-            mtp_traces = self._alice_service.runtime_host.koakuma.get_interaction_traces()
-            write_focus = self._alice_service.runtime_host.koakuma.get_write_focus()
-            update_focus = self._alice_service.runtime_host.koakuma.get_update_focus()
+            interaction_state = await self._get_interaction_state()
+            mtp_traces = interaction_state["mtp_traces"]
+            write_focus = interaction_state["write_focus"]
+            update_focus = interaction_state["update_focus"]
         except Exception as e:
             logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
             mtp_traces = []
@@ -405,3 +406,34 @@ class PatchouliService:
     def cancel_generation(self, generation_id: str) -> bool:
         """生成取消逻辑在规范化过程中暂时断开。"""
         return False
+
+    def _require_global_bus(self) -> GlobalSystemBus:
+        if self._global_bus is None:
+            raise RuntimeError("PatchouliService 尚未接入 GlobalSystemBus")
+        return self._global_bus
+
+    async def _register_preretrieval_aliases(self, memories: Any) -> None:
+        await self._require_global_bus().request(
+            GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES,
+            memories,
+        )
+
+    async def _run_agent(self, **kwargs: Any) -> ChatResult:
+        return await self._require_global_bus().request(
+            GlobalRoutes.ALICE_RUN_AGENT,
+            **kwargs,
+        )
+
+    async def _run_agent_stream(
+        self,
+        **kwargs: Any,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        return await self._require_global_bus().request(
+            GlobalRoutes.ALICE_RUN_AGENT_STREAM,
+            **kwargs,
+        )
+
+    async def _get_interaction_state(self) -> Dict[str, Any]:
+        return await self._require_global_bus().request(
+            GlobalRoutes.ALICE_GET_INTERACTION_STATE,
+        )

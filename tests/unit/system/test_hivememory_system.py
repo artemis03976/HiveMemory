@@ -26,6 +26,11 @@ def system(mock_patchouli):
     config = MagicMock()
     global_bus = GlobalSystemBus()
     scheduler = GlobalMaintenanceScheduler(tick_seconds=0.05, shutdown_wait_seconds=0.5)
+    alice = MagicMock()
+    alice.name = "alice"
+    alice.start = AsyncMock()
+    alice.stop = AsyncMock()
+    alice.health = AsyncMock(return_value={"status": "ok"})
     chat_service = MagicMock()
     chat_service.chat = AsyncMock(return_value="result")
     chat_service.chat_stream = MagicMock()
@@ -38,6 +43,7 @@ def system(mock_patchouli):
     return HiveMemorySystem(
         config=config,
         patchouli=mock_patchouli,
+        alice=alice,
         global_bus=global_bus,
         scheduler=scheduler,
         chat_service=chat_service,

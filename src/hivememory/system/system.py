@@ -61,24 +61,19 @@ class HiveMemorySystem:
             shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
         )
 
-        # 1. Patchouli 先创建（提供 bus 和 storage），alice_service 延迟注入
+        # 1. Patchouli 先创建（提供 bus 和 storage，并通过 global bus 调用 Alice）
         patchouli = PatchouliSystem(
             config=config,
             global_bus=global_bus,
             scheduler=scheduler,
-            alice_service=None,
         )
 
-        # 2. Alice 创建（接收 Patchouli 的 bus 和 storage 用于 KoakumaRuntime）
+        # 2. Alice 创建（使用自有 AliceBus，接收 storage 用于冷查询）
         alice = AliceSystem(
             config=config,
-            bus=patchouli.bus,
             storage=patchouli.storage,
             global_bus=global_bus,
         )
-
-        # 3. 延迟注入 AliceService 到 Patchouli（解决循环装配依赖）
-        patchouli.set_alice_service(alice.service)
 
         chat_service = ChatApplicationService(patchouli_service=patchouli.service)
         ingress_service = PassiveIngressService(

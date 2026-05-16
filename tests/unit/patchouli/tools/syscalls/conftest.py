@@ -20,9 +20,9 @@ class MockSystemBus:
     def request(self, route: str, *args, **kwargs):
         if route == "storage.get_memory":
             return self._mock_storage.get_memory(*args, **kwargs)
-        if route == "storage.get_memory_by_alias":
+        if route in ("storage.get_memory_by_alias", "memory.get_memory_by_alias"):
             return self._mock_storage.get_memory_by_alias(**kwargs)
-        if route == "retrieval.retrieve":
+        if route in ("retrieval.retrieve", "memory.retrieve"):
             return self._mock_retrieval.retrieve(**kwargs)
         if route == "generation.process":
             return self._mock_generation.process(*args, **kwargs)

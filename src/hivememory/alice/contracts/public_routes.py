@@ -4,3 +4,5 @@
 class AliceRoutes:
     RUN_AGENT = "alice.run_agent"
     RUN_AGENT_STREAM = "alice.run_agent_stream"
+    REGISTER_PRERETRIEVAL_ALIASES = "alice.runtime.register_preretrieval_aliases"
+    GET_INTERACTION_STATE = "alice.runtime.get_interaction_state"

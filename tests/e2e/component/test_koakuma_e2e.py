@@ -55,9 +55,9 @@ def koakuma(mock_kernel) -> KoakumaRuntime:
     mock_bus = MagicMock()
 
     def _request(route, *args, **kwargs):
-        if route == "retrieval.retrieve":
+        if route in ("retrieval.retrieve", "memory.retrieve"):
             return mock_kernel.retrieval.retrieve(kwargs.get("request"))
-        if route == "storage.get_memory_by_alias":
+        if route in ("storage.get_memory_by_alias", "memory.get_memory_by_alias"):
             return mock_kernel.storage.get_memory_by_alias(*args, **kwargs)
         return None
 

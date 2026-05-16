@@ -92,12 +92,16 @@ class KernelLoopTestHarness:
         self.mock_bus = MagicMock()
 
         def _request(route, *args, **kwargs):
-            if route == "retrieval.retrieve":
+            if route in ("retrieval.retrieve", "memory.retrieve"):
                 empty_result = MagicMock()
                 empty_result.is_empty.return_value = True
                 empty_result.memories = []
                 return empty_result
-            if route in ("storage.get_memory", "storage.get_memory_by_alias"):
+            if route in (
+                "storage.get_memory",
+                "storage.get_memory_by_alias",
+                "memory.get_memory_by_alias",
+            ):
                 return None
             return None
 

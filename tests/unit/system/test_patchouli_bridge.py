@@ -35,6 +35,8 @@ class TestPatchouliBridgeRoutes:
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.PASSIVE_HANDLE_HOT in routes
         assert PatchouliRoutes.SUBMIT_INTERACTION in routes
+        assert PatchouliRoutes.MEMORY_RETRIEVE in routes
+        assert PatchouliRoutes.MEMORY_GET_BY_ALIAS in routes
 
     @pytest.mark.asyncio
     async def test_request_through_bridge_forwards_to_local(self):
@@ -69,6 +71,36 @@ class TestPatchouliBridgeRoutes:
 
         assert result == {"status": "ok"}
         local_handler.assert_awaited_once_with(payload="test")
+
+    @pytest.mark.asyncio
+    async def test_memory_retrieve_forwards(self):
+        local_handler = AsyncMock(return_value={"memories": []})
+        self.local_bus.register("memory.retrieve", local_handler)
+        self.bridge.mount_public_routes()
+
+        result = await self.global_bus.request(
+            PatchouliRoutes.MEMORY_RETRIEVE,
+            request="req",
+            mode="active",
+        )
+
+        assert result == {"memories": []}
+        local_handler.assert_awaited_once_with(request="req", mode="active")
+
+    @pytest.mark.asyncio
+    async def test_memory_get_by_alias_forwards(self):
+        local_handler = AsyncMock(return_value={"alias": "fact_1"})
+        self.local_bus.register("memory.get_memory_by_alias", local_handler)
+        self.bridge.mount_public_routes()
+
+        result = await self.global_bus.request(
+            PatchouliRoutes.MEMORY_GET_BY_ALIAS,
+            alias="fact_1",
+            user_id="u1",
+        )
+
+        assert result == {"alias": "fact_1"}
+        local_handler.assert_awaited_once_with(alias="fact_1", user_id="u1")
 
 
 class TestPatchouliBridgeEvents:

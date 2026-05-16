@@ -59,7 +59,7 @@ from hivememory.engines.generation.models import WriteFocus, UpdateFocus
 from hivememory.core.models import TraceItem
 
 if TYPE_CHECKING:
-    from hivememory.infrastructure.system_bus import SystemBus
+    from hivememory.alice.runtime.bus import AliceBus
     from hivememory.system.config import KoakumaConfig
 
 logger = logging.getLogger(__name__)
@@ -90,14 +90,14 @@ class KoakumaRuntime:
 
     def __init__(
         self,
-        bus: Optional["SystemBus"] = None,
+        bus: Optional["AliceBus"] = None,
         config: Optional["KoakumaConfig"] = None,
     ):
         """
         初始化 Koakuma MTP 运行时
 
         Args:
-            bus: SystemBus 实例，用于跨服务通信（替代 retrieval_familiar + librarian_core + storage）
+            bus: AliceBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
         """
         from hivememory.system.config import KoakumaConfig
@@ -269,7 +269,7 @@ class KoakumaRuntime:
 
     # ========== 公开 API ==========
 
-    def execute_mtp(self, text: str) -> MTPExecutionResult:
+    async def execute_mtp(self, text: str) -> MTPExecutionResult:
         """
         执行 MTP 指令 (主入口)
 
@@ -292,7 +292,7 @@ class KoakumaRuntime:
             command = self._parser.complete_and_parse(text)
 
             # Step 2: 路由执行
-            response = self._route_and_execute(command)
+            response = await self._route_and_execute(command)
             response.execution_time_ms = (time.time() - start_time) * 1000
 
             # Step 3: 格式化回填文本
@@ -327,7 +327,7 @@ class KoakumaRuntime:
                 execution_time_ms=elapsed,
             )
 
-    def intercept_and_execute(
+    async def intercept_and_execute(
         self, assistant_text: str
     ) -> Optional[MTPExecutionResult]:
         """
@@ -359,7 +359,7 @@ class KoakumaRuntime:
         if MTP_RIGHT_DELIMITER not in mtp_fragment:
             mtp_fragment = mtp_fragment.rstrip() + " " + MTP_RIGHT_DELIMITER
 
-        return self.execute_mtp(mtp_fragment)
+        return await self.execute_mtp(mtp_fragment)
 
     # ========== 别名管理 ==========
 
@@ -370,7 +370,7 @@ class KoakumaRuntime:
 
     # ========== 内部路由 ==========
 
-    def _route_and_execute(self, command: MTPCommand) -> MTPResponse:
+    async def _route_and_execute(self, command: MTPCommand) -> MTPResponse:
         """
         路由并执行 MTP 指令 (Section 3)
 
@@ -405,7 +405,7 @@ class KoakumaRuntime:
         try:
             # 权限沙箱：校验 MTP 动词权限 (Phase 1 多智能体)
             self._check_verb_permission(command.verb.value)
-            return handler(command)
+            return await handler(command)
 
         except StorageOfflineError as e:
             logger.warning(f"Storage offline during {command.verb}: {e}")
@@ -447,7 +447,7 @@ class KoakumaRuntime:
 
     # ========== 指令处理器 ==========
 
-    def _handle_search(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_search(self, command: MTPCommand) -> MTPResponse:
         """
         处理 SEARCH 指令 (Section 2.2)
 
@@ -477,8 +477,8 @@ class KoakumaRuntime:
         parsed_filters, filter_warnings = self._filter_parser.parse(filter_str) if filter_str else (None, [])
 
         # Let StorageOfflineError / StorageReadError propagate to _route_and_execute
-        result = self._bus.request(
-            "retrieval.retrieve",
+        result = await self._bus.request(
+            "memory.retrieve",
             request=RetrievalRequest(
                 semantic_query=query,
                 identity=self._current_identity,
@@ -512,7 +512,7 @@ class KoakumaRuntime:
             content=menu,
         )
 
-    def _handle_read(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_read(self, command: MTPCommand) -> MTPResponse:
         """
         处理 READ 指令 (Section 2.2)
 
@@ -546,7 +546,7 @@ class KoakumaRuntime:
         resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
         unresolved: List[str] = []
         for alias in aliases:
-            atom = self._resolve_and_fetch(alias)
+            atom = await self._resolve_and_fetch(alias)
             if atom is None:
                 unresolved.append(alias)
             else:
@@ -588,7 +588,7 @@ class KoakumaRuntime:
             content="\n".join(output_lines),
         )
 
-    def _handle_run(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_run(self, command: MTPCommand) -> MTPResponse:
         """
         处理 RUN 指令 (Section 2.2)
 
@@ -651,7 +651,7 @@ class KoakumaRuntime:
 
         # Level 1: 用户态工具路径 (统一原子缓存)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        atom = self._resolve_and_fetch(alias)
+        atom = await self._resolve_and_fetch(alias)
         if atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -673,7 +673,7 @@ class KoakumaRuntime:
         logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
         return self._execute_user_tool(alias, code, command.args)
 
-    def _handle_write(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_write(self, command: MTPCommand) -> MTPResponse:
         """
         处理 WRITE 指令 (Section 2.2 + 附录B)
 
@@ -719,7 +719,7 @@ class KoakumaRuntime:
             content='Memory saved.',
         )
 
-    def _handle_update(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_update(self, command: MTPCommand) -> MTPResponse:
         """
         处理 UPDATE 指令 (附录 C)
 
@@ -754,7 +754,7 @@ class KoakumaRuntime:
 
         # 3. 解析 alias → MemoryAtom (统一缓存路径)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        atom = self._resolve_and_fetch(alias)
+        atom = await self._resolve_and_fetch(alias)
         if atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -789,7 +789,7 @@ class KoakumaRuntime:
             content=f"Memory '{alias}' updated successfully.",
         )
 
-    def _handle_call(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_call(self, command: MTPCommand) -> MTPResponse:
         """
         处理 CALL 指令 - 触发子代理调用 (Phase 2)
 
@@ -905,7 +905,7 @@ class KoakumaRuntime:
             lines.append(f"{i}. {alias} (Alias) - \"{summary}\"")
         return "\n".join(lines)
 
-    def _resolve_and_fetch(self, alias: str) -> Optional["MemoryAtom"]:
+    async def _resolve_and_fetch(self, alias: str) -> Optional["MemoryAtom"]:
         """
         统一的别名解析与原子获取
 
@@ -931,8 +931,8 @@ class KoakumaRuntime:
 
         # 缓存未命中：查询存储（L2 冷检索）
         try:
-            memory = self._bus.request(
-                "storage.get_memory_by_alias",
+            memory = await self._bus.request(
+                "memory.get_memory_by_alias",
                 alias=alias, user_id=self._current_identity.user_id,
             )
             if memory is None:

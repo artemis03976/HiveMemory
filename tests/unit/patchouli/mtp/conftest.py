@@ -20,8 +20,9 @@ class MockSystemBus:
 
     路由 bus.request(route, ...) 到内部 mock 服务:
       - "storage.get_memory" → _mock_storage.get_memory
-      - "storage.get_memory_by_alias" → _mock_storage.get_memory_by_alias
-      - "retrieval.retrieve" → _mock_retrieval.retrieve
+      - "storage.get_memory_by_alias" / "memory.get_memory_by_alias"
+        → _mock_storage.get_memory_by_alias
+      - "retrieval.retrieve" / "memory.retrieve" → _mock_retrieval.retrieve
 
     测试中通过 bus._mock_storage / bus._mock_retrieval 配置 mock 行为。
     """
@@ -39,9 +40,9 @@ class MockSystemBus:
     def request(self, route: str, *args, **kwargs):
         if route == "storage.get_memory":
             return self._mock_storage.get_memory(*args, **kwargs)
-        elif route == "storage.get_memory_by_alias":
+        elif route in ("storage.get_memory_by_alias", "memory.get_memory_by_alias"):
             return self._mock_storage.get_memory_by_alias(**kwargs)
-        elif route == "retrieval.retrieve":
+        elif route in ("retrieval.retrieve", "memory.retrieve"):
             return self._mock_retrieval.retrieve(**kwargs)
         elif route == "generation.process":
             return self._mock_generation.process(*args, **kwargs)

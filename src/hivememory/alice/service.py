@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, MemoryAtom
 from hivememory.patchouli.protocol.models import ChatResult
 
 from hivememory.alice.runtime.host import AgentRuntimeHost
@@ -82,3 +82,18 @@ class AliceService:
             cancel_event=cancel_event,
         ):
             yield event
+
+    async def register_preretrieval_aliases(
+        self,
+        memories: List[MemoryAtom],
+    ) -> None:
+        """将预检索命中的记忆别名注入 Alice 运行时缓存。"""
+        self._runtime_host.register_preretrieval_aliases(memories)
+
+    async def get_interaction_state(self) -> Dict[str, Any]:
+        """导出当前一轮 Agent 运行积累的 MTP 交互状态。"""
+        return {
+            "mtp_traces": self._runtime_host.koakuma.get_interaction_traces(),
+            "write_focus": self._runtime_host.koakuma.get_write_focus(),
+            "update_focus": self._runtime_host.koakuma.get_update_focus(),
+        }

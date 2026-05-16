@@ -20,7 +20,6 @@ from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 if TYPE_CHECKING:
-    from hivememory.infrastructure.system_bus import SystemBus
     from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 
 logger = logging.getLogger(__name__)
@@ -40,21 +39,21 @@ class AliceSystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
-        bus: Optional["SystemBus"] = None,
         storage: Optional["QdrantMemoryStore"] = None,
         global_bus: Optional[GlobalSystemBus] = None,
     ) -> None:
         self._config = config
 
+        self._local_bus = AliceBus()
+
         self._runtime_host = AgentRuntimeHost(
             config=config,
-            bus=bus,
+            bus=self._local_bus,
             storage=storage,
         )
 
         self._service = AliceService(runtime_host=self._runtime_host)
 
-        self._local_bus = AliceBus()
         self._bridge = (
             AliceBridge(local_bus=self._local_bus, global_bus=global_bus)
             if global_bus is not None
@@ -105,6 +104,25 @@ class AliceSystem(SubsystemProtocol):
             AliceRoutes.RUN_AGENT,
             self._service.run_agent,
         )
+        self._local_bus.register(
+            AliceRoutes.RUN_AGENT_STREAM,
+            self._run_agent_stream_route,
+        )
+        self._local_bus.register(
+            AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES,
+            self._service.register_preretrieval_aliases,
+        )
+        self._local_bus.register(
+            AliceRoutes.GET_INTERACTION_STATE,
+            self._service.get_interaction_state,
+        )
 
     def _unregister_local_routes(self) -> None:
         self._local_bus.unregister(AliceRoutes.RUN_AGENT)
+        self._local_bus.unregister(AliceRoutes.RUN_AGENT_STREAM)
+        self._local_bus.unregister(AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES)
+        self._local_bus.unregister(AliceRoutes.GET_INTERACTION_STATE)
+
+    async def _run_agent_stream_route(self, *args: Any, **kwargs: Any) -> Any:
+        """为 AsyncSystemBus 适配流式 handler，返回 async generator 对象。"""
+        return self._service.run_agent_stream(*args, **kwargs)

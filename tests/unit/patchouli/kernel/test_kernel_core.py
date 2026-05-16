@@ -299,3 +299,5 @@ class TestKernelBusRouteRegistration:
         routes = set(bus.list_routes())
         assert "storage.get_memory" in routes
         assert "storage.get_memory_by_alias" in routes
+        assert "memory.retrieve" in routes
+        assert "memory.get_memory_by_alias" in routes

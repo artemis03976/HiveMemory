@@ -1,5 +1,6 @@
 """全局路由常量 — 跨子系统的公共路由注册表。"""
 
+from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
 
@@ -9,3 +10,9 @@ class GlobalRoutes:
     PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE = PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE
     PATCHOULI_PASSIVE_HANDLE_HOT = PatchouliRoutes.PASSIVE_HANDLE_HOT
     PATCHOULI_SUBMIT_INTERACTION = PatchouliRoutes.SUBMIT_INTERACTION
+    PATCHOULI_MEMORY_RETRIEVE = PatchouliRoutes.MEMORY_RETRIEVE
+    PATCHOULI_MEMORY_GET_BY_ALIAS = PatchouliRoutes.MEMORY_GET_BY_ALIAS
+    ALICE_RUN_AGENT = AliceRoutes.RUN_AGENT
+    ALICE_RUN_AGENT_STREAM = AliceRoutes.RUN_AGENT_STREAM
+    ALICE_REGISTER_PRERETRIEVAL_ALIASES = AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES
+    ALICE_GET_INTERACTION_STATE = AliceRoutes.GET_INTERACTION_STATE

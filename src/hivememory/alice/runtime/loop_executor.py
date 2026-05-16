@@ -254,9 +254,7 @@ class KernelLoopExecutor:
 
             # MTP 的语义解析以 KoakumaRuntime 返回结果为唯一真相来源。
             # LoopExecutor 不再自行 parse 指令字符串，避免双真相漂移。
-            mtp_result = await asyncio.to_thread(
-                self._host.koakuma.intercept_and_execute, result.text
-            )
+            mtp_result = await self._host.koakuma.intercept_and_execute(result.text)
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value
                 target_hint, args_hint, raw_hint = self._extract_command_info(

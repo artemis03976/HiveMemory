@@ -18,7 +18,7 @@ from hivememory.alice.runtime.worker_agent import WorkerAgentService
 from hivememory.system.config import HiveMemoryConfig
 
 if TYPE_CHECKING:
-    from hivememory.infrastructure.system_bus import SystemBus
+    from hivememory.alice.runtime.bus import AliceBus
     from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
     from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
@@ -42,7 +42,7 @@ class AgentRuntimeHost:
     def __init__(
         self,
         config: HiveMemoryConfig,
-        bus: Optional["SystemBus"] = None,
+        bus: Optional["AliceBus"] = None,
         storage: Optional["QdrantMemoryStore"] = None,
     ) -> None:
         self._config = config

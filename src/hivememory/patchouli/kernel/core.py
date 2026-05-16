@@ -355,10 +355,12 @@ class PatchouliKernel:
 
         # --- Retrieval 服务路由 ---
         bus.register("retrieval.retrieve", retrieval_svc.retrieve)
+        bus.register("memory.retrieve", retrieval_svc.retrieve)
 
         # --- Storage 服务路由 ---
         bus.register("storage.get_memory", self.storage.get_memory)
         bus.register("storage.get_memory_by_alias", self.storage.get_memory_by_alias)
+        bus.register("memory.get_memory_by_alias", self.storage.get_memory_by_alias)
 
         logger.info(
             f"SystemBus 路由注册完成: {len(bus.list_routes())} 条路由"
@@ -455,6 +457,30 @@ class PatchouliKernel:
             worth_saving=gaze_result.worth_saving,
             rendered_memory_context=retrieved_context,
             retrieved_memories=retrieved_memories,
+        )
+
+    async def retrieve_memories(
+        self,
+        request: RetrievalRequest,
+        mode: str = "active",
+    ) -> RetrievalResponse:
+        """通过 Patchouli 子系统边界暴露模糊检索能力。"""
+        return await asyncio.to_thread(
+            self.retrieval_familiar.retrieve,
+            request,
+            mode,
+        )
+
+    async def get_memory_by_alias(
+        self,
+        alias: str,
+        user_id: Optional[str] = None,
+    ):
+        """通过 Patchouli 子系统边界暴露按别名精确获取记忆原子的能力。"""
+        return await asyncio.to_thread(
+            self.storage.get_memory_by_alias,
+            alias,
+            user_id,
         )
  
     async def submit_interaction(

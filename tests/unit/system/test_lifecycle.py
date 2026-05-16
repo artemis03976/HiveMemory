@@ -54,10 +54,16 @@ def system_factory(mock_patchouli, global_bus, scheduler):
     def _build(**kwargs):
         ingress_service = kwargs.pop("ingress_service", MagicMock())
         chat_service = kwargs.pop("chat_service", MagicMock())
+        alice = kwargs.pop("alice", MagicMock())
+        alice.name = "alice"
+        alice.start = AsyncMock()
+        alice.stop = AsyncMock()
+        alice.health = AsyncMock(return_value={"status": "ok"})
         mock_patchouli._scheduler = scheduler
         return HiveMemorySystem(
             config=MagicMock(),
             patchouli=mock_patchouli,
+            alice=alice,
             global_bus=global_bus,
             scheduler=scheduler,
             chat_service=chat_service,
@@ -152,13 +158,19 @@ class TestPatchouliSystemLocalRoutes:
 
         assert "kernel.submit_interaction" not in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" not in local_bus.list_routes()
+        assert "memory.retrieve" not in local_bus.list_routes()
+        assert "memory.get_memory_by_alias" not in local_bus.list_routes()
 
         await mock_patchouli.start()
 
         assert "kernel.submit_interaction" in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" in local_bus.list_routes()
+        assert "memory.retrieve" in local_bus.list_routes()
+        assert "memory.get_memory_by_alias" in local_bus.list_routes()
 
         await mock_patchouli.stop()
 
         assert "kernel.submit_interaction" not in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" not in local_bus.list_routes()
+        assert "memory.retrieve" not in local_bus.list_routes()
+        assert "memory.get_memory_by_alias" not in local_bus.list_routes()

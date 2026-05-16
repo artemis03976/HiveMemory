@@ -44,7 +44,6 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 
 if TYPE_CHECKING:
-    from hivememory.alice.service import AliceService
     from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
 
 logger = logging.getLogger(__name__)
@@ -84,14 +83,12 @@ class PatchouliSystem(SubsystemProtocol):
         config: HiveMemoryConfig,
         global_bus: Optional[GlobalSystemBus] = None,
         scheduler: Optional["AsyncMaintenanceScheduler"] = None,
-        alice_service: Optional["AliceService"] = None,
     ):
         """
         初始化帕秋莉系统
 
         Args:
             config: 由上层装配并注入的 HiveMemory 配置
-            alice_service: Alice 子系统能力门面（Phase C 延迟注入）
 
         Examples:
             >>> from hivememory.system.config import load_app_config
@@ -116,13 +113,11 @@ class PatchouliSystem(SubsystemProtocol):
             bus=self.bus,
         )
 
-        # 4. Alice Service (Phase C: Agent 计算由 Alice 子系统托管)
-        self._alice_service = alice_service
-
+        # 4. Patchouli 对外能力门面
         self._service = PatchouliService(
             kernel=self.kernel,
             eye=self.eye,
-            alice_service=alice_service,
+            global_bus=global_bus,
         )
 
         # 5. 子系统运行时挂载点
@@ -193,11 +188,6 @@ class PatchouliSystem(SubsystemProtocol):
     def service(self) -> PatchouliService:
         """访问 Patchouli 对外能力门面。"""
         return self._service
-
-    def set_alice_service(self, alice_service: "AliceService") -> None:
-        """Phase C 过渡期：延迟注入 AliceService (解决循环装配依赖)。"""
-        self._alice_service = alice_service
-        self._service._alice_service = alice_service
 
     @property
     def name(self) -> str:
@@ -305,10 +295,20 @@ class PatchouliSystem(SubsystemProtocol):
             "passive.analyze_and_retrieve",
             self.service.analyze_and_retrieve,
         )
+        self._local_bus.register(
+            "memory.retrieve",
+            self.kernel.retrieve_memories,
+        )
+        self._local_bus.register(
+            "memory.get_memory_by_alias",
+            self.kernel.get_memory_by_alias,
+        )
 
     def _unregister_local_routes(self) -> None:
         self._local_bus.unregister("kernel.submit_interaction")
         self._local_bus.unregister("passive.analyze_and_retrieve")
+        self._local_bus.unregister("memory.retrieve")
+        self._local_bus.unregister("memory.get_memory_by_alias")
 
     # ========== Kernel 驱动的对话 API ==========
 

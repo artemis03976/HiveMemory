@@ -25,6 +25,8 @@ class PatchouliBridge(SubsystemBridge):
     ROUTE_MAP: dict[str, str] = {
         PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE: "passive.analyze_and_retrieve",
         PatchouliRoutes.SUBMIT_INTERACTION: "kernel.submit_interaction",
+        PatchouliRoutes.MEMORY_RETRIEVE: "memory.retrieve",
+        PatchouliRoutes.MEMORY_GET_BY_ALIAS: "memory.get_memory_by_alias",
     }
 
     BRIDGED_EVENTS: list[str] = [

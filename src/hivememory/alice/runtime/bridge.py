@@ -14,6 +14,11 @@ class AliceBridge(SubsystemBridge):
 
     ROUTE_MAP: dict[str, str] = {
         AliceRoutes.RUN_AGENT: AliceRoutes.RUN_AGENT,
+        AliceRoutes.RUN_AGENT_STREAM: AliceRoutes.RUN_AGENT_STREAM,
+        AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES: (
+            AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES
+        ),
+        AliceRoutes.GET_INTERACTION_STATE: AliceRoutes.GET_INTERACTION_STATE,
     }
 
     def __init__(self, local_bus: AliceBus, global_bus: GlobalSystemBus) -> None:
