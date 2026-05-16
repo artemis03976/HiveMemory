@@ -32,7 +32,7 @@ from hivememory.engines.generation.models import (
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
 from hivememory.patchouli.mtp import MTPResponseStatus
 

@@ -12,7 +12,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from hivememory.core.models import AgentProfile
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
 
 

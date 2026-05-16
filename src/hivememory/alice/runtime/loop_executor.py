@@ -23,13 +23,13 @@ import asyncio
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
 from hivememory.patchouli.protocol.models import ChatResult
-from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
+from hivememory.alice.runtime.execution_frame import ExecutionFrame
 from hivememory.patchouli.mtp.models import MTPVerb
 from hivememory.core.models import TraceItem, TurnEvent
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.kernel import PatchouliKernel
-    from hivememory.patchouli.worker_agent import WorkerAgentService
+    from hivememory.alice.runtime.host import AgentRuntimeHost
+    from hivememory.alice.runtime.worker_agent import WorkerAgentService
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +47,10 @@ class KernelLoopExecutor:
 
     def __init__(
         self,
-        kernel: "PatchouliKernel",
+        runtime_host: "AgentRuntimeHost",
         worker_agent: "WorkerAgentService",
     ):
-        """
-        初始化执行器
-
-        Args:
-            kernel: PatchouliKernel 实例
-            worker_agent: WorkerAgentService 实例
-        """
-        self.kernel = kernel
+        self._host = runtime_host
         self.worker_agent = worker_agent
 
     def _namespace_for_frame(self, frame: ExecutionFrame) -> Dict[str, Any]:
@@ -96,10 +89,10 @@ class KernelLoopExecutor:
         Returns:
             ChatResult: 递归生成循环的完整结果
         """
-        max_iter = max_iterations or self.kernel.config.koakuma.max_recursion_depth
+        max_iter = max_iterations or self._host.config.koakuma.max_recursion_depth
 
-        main_frame = self.kernel.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or self.kernel.load_agent_profile("omni_doll"),
+        main_frame = self._host.frame_scheduler.create_main_frame(
+            agent_profile=agent_profile or self._host.load_agent_profile("omni_doll"),
             messages=messages,
             topic_id=topic_id or "",
             identity=identity,
@@ -138,10 +131,10 @@ class KernelLoopExecutor:
         Yields:
             Dict[str, Any]: SSE 事件 {"event": str, "data": dict}
         """
-        max_iter = max_iterations or self.kernel.config.koakuma.max_recursion_depth
+        max_iter = max_iterations or self._host.config.koakuma.max_recursion_depth
 
-        main_frame = self.kernel.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or self.kernel.load_agent_profile("omni_doll"),
+        main_frame = self._host.frame_scheduler.create_main_frame(
+            agent_profile=agent_profile or self._host.load_agent_profile("omni_doll"),
             messages=messages,
             topic_id=topic_id or "",
             identity=identity,
@@ -192,10 +185,10 @@ class KernelLoopExecutor:
         _seq = 0
         iteration = 0
 
-        self.kernel.koakuma.set_current_identity(frame.identity)
-        self.kernel.koakuma.set_active_profile(frame.agent_profile)
-        self.kernel.koakuma.set_current_depth(frame.depth)
-        self.kernel.koakuma.reset_interaction_state()
+        self._host.koakuma.set_current_identity(frame.identity)
+        self._host.koakuma.set_active_profile(frame.agent_profile)
+        self._host.koakuma.set_current_depth(frame.depth)
+        self._host.koakuma.reset_interaction_state()
 
         while iteration < max_iterations:
             if cancel_event is not None and cancel_event.is_set():
@@ -261,7 +254,9 @@ class KernelLoopExecutor:
 
             # MTP 的语义解析以 KoakumaRuntime 返回结果为唯一真相来源。
             # LoopExecutor 不再自行 parse 指令字符串，避免双真相漂移。
-            mtp_result = await self.kernel.handle_mtp(result.text)
+            mtp_result = await asyncio.to_thread(
+                self._host.koakuma.intercept_and_execute, result.text
+            )
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value
                 target_hint, args_hint, raw_hint = self._extract_command_info(
@@ -552,10 +547,10 @@ class KernelLoopExecutor:
             }
             stream_events.append({"event": "sub_agent_start", "data": sub_start_data})
 
-        self.kernel.frame_scheduler.suspend_frame(frame)
+        self._host.frame_scheduler.suspend_frame(frame)
 
         try:
-            sub_frame = await self.kernel.frame_scheduler.fork_sub_frame(
+            sub_frame = await self._host.frame_scheduler.fork_sub_frame(
                 parent_frame=frame,
                 target_alias=target_alias,
                 task=task,
@@ -584,13 +579,13 @@ class KernelLoopExecutor:
                     use_stream_generation=True,
                 )
 
-            self.kernel.frame_scheduler.resume_frame()
+            self._host.frame_scheduler.resume_frame()
 
-            self.kernel.koakuma.set_current_identity(frame.identity)
-            self.kernel.koakuma.set_active_profile(frame.agent_profile)
-            self.kernel.koakuma.set_current_depth(frame.depth)
+            self._host.koakuma.set_current_identity(frame.identity)
+            self._host.koakuma.set_active_profile(frame.agent_profile)
+            self._host.koakuma.set_current_depth(frame.depth)
 
-            self.kernel.koakuma._current_traces.append(TraceItem(
+            self._host.koakuma._current_traces.append(TraceItem(
                 action="CALL",
                 target=target_alias,
                 status="success",
@@ -616,12 +611,12 @@ class KernelLoopExecutor:
         except Exception as e:
             logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
 
-            self.kernel.frame_scheduler.resume_frame()
-            self.kernel.koakuma.set_current_identity(frame.identity)
-            self.kernel.koakuma.set_active_profile(frame.agent_profile)
-            self.kernel.koakuma.set_current_depth(frame.depth)
+            self._host.frame_scheduler.resume_frame()
+            self._host.koakuma.set_current_identity(frame.identity)
+            self._host.koakuma.set_active_profile(frame.agent_profile)
+            self._host.koakuma.set_current_depth(frame.depth)
 
-            self.kernel.koakuma._current_traces.append(TraceItem(
+            self._host.koakuma._current_traces.append(TraceItem(
                 action="CALL",
                 target=target_alias,
                 status="error",
@@ -671,7 +666,7 @@ class KernelLoopExecutor:
             lines.append("")
             lines.append("[Artifacts Generated / Updated]:")
             for alias in harvested_aliases:
-                atom = self.kernel.koakuma.atom_cache.get_atom_by_alias(alias)
+                atom = self._host.koakuma.atom_cache.get_atom_by_alias(alias)
                 if atom and hasattr(atom, 'index') and atom.index.summary:
                     summary = atom.index.summary[:60]
                     lines.append(f"- {alias} ({summary})")
@@ -706,7 +701,7 @@ class KernelLoopExecutor:
                 logger.debug(f"Harvested UPDATE alias: {alias}")
 
         elif verb == MTPVerb.WRITE:
-            alias = self.kernel.koakuma.get_last_generated_alias()
+            alias = self._host.koakuma.get_last_generated_alias()
             if alias:
                 frame.add_harvested_alias(alias)
                 logger.debug(f"Harvested WRITE alias: {alias}")

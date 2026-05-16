@@ -61,7 +61,7 @@ def __getattr__(name: str):
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
     if name == "WorkerAgentService":
-        from hivememory.patchouli.worker_agent import WorkerAgentService
+        from hivememory.alice.runtime.worker_agent import WorkerAgentService
         return WorkerAgentService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

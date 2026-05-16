@@ -61,7 +61,7 @@ class HiveMemorySystem:
             shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
         )
 
-        # 1. Patchouli 先创建（提供 kernel），alice_service 延迟注入
+        # 1. Patchouli 先创建（提供 bus 和 storage），alice_service 延迟注入
         patchouli = PatchouliSystem(
             config=config,
             global_bus=global_bus,
@@ -69,10 +69,11 @@ class HiveMemorySystem:
             alice_service=None,
         )
 
-        # 2. Alice 创建（接收 PatchouliKernel 作为过渡期依赖）
+        # 2. Alice 创建（接收 Patchouli 的 bus 和 storage 用于 KoakumaRuntime）
         alice = AliceSystem(
             config=config,
-            kernel=patchouli.kernel,
+            bus=patchouli.bus,
+            storage=patchouli.storage,
             global_bus=global_bus,
         )
 

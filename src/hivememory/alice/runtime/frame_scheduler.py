@@ -9,10 +9,10 @@ import logging
 from typing import TYPE_CHECKING, List, Optional
 
 from hivememory.core.models import AgentProfile, Identity
-from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
+from hivememory.alice.runtime.execution_frame import ExecutionFrame
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.kernel.core import PatchouliKernel
+    from hivememory.alice.runtime.host import AgentRuntimeHost
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +28,14 @@ class FrameScheduler:
         - System Prompt 动态裁剪 (剥离 CALL 权限)
     """
 
-    def __init__(self, kernel: "PatchouliKernel"):
+    def __init__(self, runtime_host: "AgentRuntimeHost"):
         """
         初始化帧调度器。
 
         Args:
-            kernel: PatchouliKernel 实例（用于访问存储、缓存、配置等）
+            runtime_host: AgentRuntimeHost 实例
         """
-        self.kernel = kernel
+        self._host = runtime_host
         self._frame_stack: List[ExecutionFrame] = []
         self._frame_counter = 0
 
@@ -79,7 +79,7 @@ class FrameScheduler:
         3. 注入 context_refs 内容 (零开销上下文继承)
         4. 创建瞬态帧 (topic_id=None)
         """
-        sub_profile = self.kernel.load_agent_profile(target_alias)
+        sub_profile = self._host.load_agent_profile(target_alias)
 
         logger.info(
             f"Forking sub-frame: target={target_alias}, "
@@ -130,18 +130,18 @@ class FrameScheduler:
         from hivememory.prompts.system_prompt import SystemPromptBuilder
 
         language = (
-            self.kernel.config.koakuma.mtp_prompt.language
-            if self.kernel.config.koakuma.mtp_prompt
+            self._host.config.koakuma.mtp_prompt.language
+            if self._host.config.koakuma.mtp_prompt
             else "zh"
         )
         builder = SystemPromptBuilder(language=language)
 
-        mtp_prompt = self.kernel.get_mtp_prompt(profile=profile)
+        mtp_prompt = self._host.get_mtp_prompt(profile=profile)
         if mtp_prompt and depth >= 1:
             mtp_prompt = self._strip_call_from_prompt(mtp_prompt)
         builder.with_mtp_prompt(mtp_prompt)
 
-        if mtp_prompt and not self.kernel.check_storage_health():
+        if mtp_prompt and not self._host.check_storage_health():
             builder.with_storage_offline_notice()
 
         if persona:
@@ -188,17 +188,17 @@ class FrameScheduler:
         """
         contents = []
         user_id = (
-            self.kernel.koakuma._current_identity.user_id
-            if hasattr(self.kernel.koakuma, "_current_identity")
+            self._host.koakuma._current_identity.user_id
+            if hasattr(self._host.koakuma, "_current_identity")
             else None
         )
 
         for alias in aliases:
-            atom = self.kernel.koakuma.atom_cache.get_atom_by_alias(alias)
+            atom = self._host.koakuma.atom_cache.get_atom_by_alias(alias)
 
             if atom is None and user_id:
                 try:
-                    atom = self.kernel.storage.get_memory_by_alias(
+                    atom = self._host.storage.get_memory_by_alias(
                         alias=alias,
                         user_id=user_id,
                     )

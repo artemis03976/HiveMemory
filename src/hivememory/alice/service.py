@@ -30,6 +30,10 @@ class AliceService:
     def __init__(self, runtime_host: AgentRuntimeHost) -> None:
         self._runtime_host = runtime_host
 
+    @property
+    def runtime_host(self) -> AgentRuntimeHost:
+        return self._runtime_host
+
     async def run_agent(
         self,
         messages: List[Dict[str, str]],

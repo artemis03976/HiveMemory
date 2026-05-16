@@ -13,10 +13,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
-from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
-from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.execution_frame import ExecutionFrame
+from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 from hivememory.patchouli.protocol.models import MTPExecutionResult
-from hivememory.patchouli.worker_agent import GenerationResult, StreamChunk
+from hivememory.alice.runtime.worker_agent import GenerationResult, StreamChunk
 
 
 def _make_call_mtp_result() -> MTPExecutionResult:

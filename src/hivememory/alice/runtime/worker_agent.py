@@ -85,7 +85,7 @@ class WorkerAgentService:
     并对返回结果进行 MTP 中断检测。
 
     使用示例:
-        >>> from hivememory.patchouli.worker_agent import WorkerAgentService
+        >>> from hivememory.alice.runtime.worker_agent import WorkerAgentService
         >>> from hivememory.system.config import LLMConfig
         >>>
         >>> service = WorkerAgentService(config=LLMConfig(model="gpt-4o"))

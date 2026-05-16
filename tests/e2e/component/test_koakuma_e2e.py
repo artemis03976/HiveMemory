@@ -23,7 +23,7 @@ from hivememory.patchouli.mtp import (
     MTPTarget,
 )
 from hivememory.patchouli.protocol.models import MTPExecutionResult
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
 
 

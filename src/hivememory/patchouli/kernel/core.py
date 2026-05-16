@@ -30,21 +30,19 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from hivememory.core.models import Identity, MemoryAtom, AgentProfile, OMNI_DOLL_PROFILE
+from hivememory.core.models import Identity, AgentProfile, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.patchouli.protocol.models import (
     EyeGazeResult,
     InteractionPayload,
     KernelHotResult,
-    MTPExecutionResult,
     RetrievalRequest,
     RetrievalResponse,
 )
 from hivememory.system.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.kernel.runtime.cache import AgentProfileCache
+from hivememory.alice.runtime.cache import AgentProfileCache
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.system_bus import SystemBus
@@ -109,10 +107,6 @@ class PatchouliKernel:
 
         # 5. 人偶图纸缓存 (多智能体系统)
         self._agent_profile_cache = AgentProfileCache()
-
-        # 6. 帧调度器 (Phase 2 多智能体子代理调用)
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
-        self._frame_scheduler = FrameScheduler(self)
 
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")
 
@@ -339,12 +333,6 @@ class PatchouliKernel:
             generation_engine=self._engines["generation"],
         )
 
-        # Koakuma (MTP Runtime Service)
-        self._services["koakuma"] = KoakumaRuntime(
-            bus=self._bus,
-            config=self.config.koakuma,
-        )
-
     # ========== 服务访问器 ==========
 
     def _register_bus_routes(self) -> None:
@@ -358,7 +346,6 @@ class PatchouliKernel:
         bus = self._bus
         retrieval_svc = self._services["retrieval"]
         librarian_svc = self._services["librarian"]
-        koakuma_svc = self._services["koakuma"]
 
         # --- Librarian 服务路由（包含感知层代理接口）---
         bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
@@ -372,9 +359,6 @@ class PatchouliKernel:
         # --- Storage 服务路由 ---
         bus.register("storage.get_memory", self.storage.get_memory)
         bus.register("storage.get_memory_by_alias", self.storage.get_memory_by_alias)
-
-        # --- Koakuma 服务路由 ---
-        bus.register("koakuma.intercept_and_execute", koakuma_svc.intercept_and_execute)
 
         logger.info(
             f"SystemBus 路由注册完成: {len(bus.list_routes())} 条路由"
@@ -390,22 +374,12 @@ class PatchouliKernel:
         """访问馆长本体服务"""
         return self._services["librarian"]
 
-    @property
-    def koakuma(self) -> KoakumaRuntime:
-        """访问小恶魔 MTP 运行时服务"""
-        return self._services["koakuma"]
-
     # ========== 多智能体调度 (Phase 1) ==========
 
     @property
     def agent_profile_cache(self) -> AgentProfileCache:
         """访问人偶图纸缓存"""
         return self._agent_profile_cache
-
-    @property
-    def frame_scheduler(self) -> "FrameScheduler":
-        """访问帧调度器 (Phase 2 多智能体子代理调用)"""
-        return self._frame_scheduler
 
     def load_agent_profile(self, agent_alias: str) -> AgentProfile:
         """
@@ -474,10 +448,6 @@ class PatchouliKernel:
                     retrieved_context = retrieved_result.rendered_context
                     retrieved_memories = retrieved_result.memories
 
-                    # 将预检索记忆的别名注册到 Koakuma 的 L1 热映射，
-                    # 使 Agent 在看到渲染结果后可直接用别名发起 MTP READ
-                    self._register_preretrieval_aliases(retrieved_result.memories)
-
         return KernelHotResult(
             intent=gaze_result.intent.value,
             rewritten=gaze_result.rewritten_query,
@@ -487,19 +457,6 @@ class PatchouliKernel:
             retrieved_memories=retrieved_memories,
         )
  
-    async def handle_mtp(
-        self,
-        assistant_text: str,
-    ) -> Optional[MTPExecutionResult]:
-        if self._bus:
-            return await self._bus.async_request(
-                "koakuma.intercept_and_execute", assistant_text
-            )
-        return await asyncio.to_thread(
-            self.koakuma.intercept_and_execute,
-            assistant_text,
-        )
-
     async def submit_interaction(
         self,
         payload: InteractionPayload,
@@ -523,65 +480,6 @@ class PatchouliKernel:
                 await self.librarian_core.ingest_interaction(payload, target_topic)
         except Exception as e:
             logger.warning(f"Interaction submission failed: {e}")
-
-    def get_mtp_prompt(
-        self,
-        profile: Optional[AgentProfile] = None,
-    ) -> str:
-        """
-        获取 MTP 协议教学 System Prompt 片段
-
-        仅包含 MTP 协议语法教学，不包含角色设定（persona）。
-        当传入 AgentProfile 时，根据权限白名单动态过滤可用指令和工具。
-
-        Args:
-            profile: 人偶图纸配置（可选），用于权限过滤
-
-        Returns:
-            str: MTP prompt 片段。MTP 未启用时返回空字符串。
-        """
-        if not self.config.koakuma.enabled:
-            return ""
-
-        prompt_config = self.config.koakuma.mtp_prompt
-        if not prompt_config.enabled:
-            return ""
-
-        from hivememory.prompts.mtp import MTPPromptBuilder
-
-        # 从 profile 提取权限过滤参数
-        # None = 全部允许, [] = 禁止所有, [...] = 白名单
-        allowed_verbs = None
-        allowed_kernel_tools = None
-        if profile and profile.allowed_mtp_verbs is not None:
-            allowed_verbs = profile.allowed_mtp_verbs
-        if profile and profile.allowed_sys_tools is not None:
-            allowed_kernel_tools = profile.allowed_sys_tools
-
-        builder = MTPPromptBuilder(
-            language=prompt_config.language,
-            include_demo=prompt_config.include_demo,
-            include_error_handling=prompt_config.include_error_handling,
-            allowed_verbs=allowed_verbs,
-            allowed_kernel_tools=allowed_kernel_tools,
-        )
-        return builder.build()
-
-    def _register_preretrieval_aliases(self, memories: List[MemoryAtom]) -> None:
-        """
-        将预检索记忆的完整原子注册到 Koakuma 缓存
-
-        预检索注入的记忆上下文使用别名作为 id，Agent 看到后会直接
-        用别名发起 MTP READ。此方法确保这些别名在 Koakuma 中可解析。
-
-        Args:
-            memories: 预检索返回的 MemoryAtom 列表
-        """
-        self.koakuma.atom_cache.ingest_atoms(memories)
-        if memories:
-            logger.debug(
-                f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma"
-            )
 
     def build_retrieval_request(
         self, gaze_result: EyeGazeResult

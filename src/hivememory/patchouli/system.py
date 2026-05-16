@@ -39,7 +39,6 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
@@ -184,11 +183,6 @@ class PatchouliSystem(SubsystemProtocol):
     def librarian_core(self) -> LibrarianCore:
         """访问帕秋莉本体"""
         return self.kernel.librarian_core
-
-    @property
-    def koakuma(self) -> KoakumaRuntime:
-        """访问小恶魔 MTP 运行时服务"""
-        return self.kernel.koakuma
 
     @property
     def storage(self):

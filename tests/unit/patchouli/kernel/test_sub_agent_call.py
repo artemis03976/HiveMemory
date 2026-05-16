@@ -25,7 +25,7 @@ from hivememory.core.models import (
     MemoryType,
     OMNI_DOLL_PROFILE,
 )
-from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
+from hivememory.alice.runtime.execution_frame import ExecutionFrame
 from hivememory.patchouli.mtp import (
     MTPVerb,
     MTPResponseStatus,
@@ -139,7 +139,7 @@ class TestKoakumaHandleCall:
     """Koakuma _handle_call() 测试"""
 
     def _make_koakuma(self, depth=0):
-        from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+        from hivememory.alice.runtime.koakuma import KoakumaRuntime
 
         koakuma = MagicMock(spec=KoakumaRuntime)
         koakuma._current_depth = depth
@@ -210,7 +210,7 @@ class TestKoakumaDepthTracking:
     """Koakuma 深度跟踪测试"""
 
     def test_set_and_get_depth(self):
-        from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+        from hivememory.alice.runtime.koakuma import KoakumaRuntime
 
         koakuma = MagicMock(spec=KoakumaRuntime)
 
@@ -252,7 +252,7 @@ class TestFrameScheduler:
 
     def test_create_main_frame(self):
         """创建主帧"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -270,7 +270,7 @@ class TestFrameScheduler:
 
     def test_suspend_resume(self):
         """帧挂起/恢复"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -291,7 +291,7 @@ class TestFrameScheduler:
 
     def test_resume_empty_stack_returns_none(self):
         """空栈恢复返回 None"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -301,7 +301,7 @@ class TestFrameScheduler:
     @pytest.mark.asyncio
     async def test_fork_sub_frame(self):
         """派生子帧"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -329,7 +329,7 @@ class TestFrameScheduler:
 
     def test_strip_call_from_prompt(self):
         """从 MTP prompt 中移除 CALL 教学"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel)
@@ -349,7 +349,7 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_no_artifacts(self):
         """成功返回，无 artifacts"""
-        from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+        from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
         executor.kernel = MagicMock()
@@ -369,7 +369,7 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_with_artifacts(self):
         """成功返回，含 artifacts"""
-        from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+        from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
         executor.kernel = MagicMock()

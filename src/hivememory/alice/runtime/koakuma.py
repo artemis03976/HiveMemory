@@ -40,7 +40,7 @@ from hivememory.patchouli.mtp import (
     MTPParseError,
     MTPFormatter,
 )
-from hivememory.patchouli.kernel.runtime.cache import KoakumaAtomCache
+from hivememory.alice.runtime.cache import KoakumaAtomCache
 from hivememory.patchouli.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,

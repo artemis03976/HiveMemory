@@ -28,7 +28,7 @@ from hivememory.core.models import (
 from hivememory.system.config import KoakumaConfig
 from hivememory.patchouli.mtp.models import MTP_LEFT_DELIMITER
 from hivememory.patchouli.protocol.models import RetrievalResponse
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 # 复用 MTPLoopRunner 和 LLM fixture 工厂

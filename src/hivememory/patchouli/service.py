@@ -127,6 +127,11 @@ class PatchouliService:
                 enable_retrieval=enable_memory_retrieval,
             )
 
+            if hot_result.retrieved_memories:
+                self._alice_service.runtime_host.register_preretrieval_aliases(
+                    hot_result.retrieved_memories
+                )
+
             messages = self._assemble_messages_from_context(
                 topic_context=topic_context,
                 hot_result=hot_result,
@@ -135,7 +140,7 @@ class PatchouliService:
                 current_agent_id=agent_id,
             )
 
-            self._kernel.koakuma.set_active_profile(agent_profile)
+            self._alice_service.runtime_host.koakuma.set_active_profile(agent_profile)
             loop_result = await self._alice_service.run_agent(
                 messages=messages,
                 identity=identity,
@@ -235,6 +240,11 @@ class PatchouliService:
                 enable_retrieval=enable_memory_retrieval,
             )
 
+            if hot_result.retrieved_memories:
+                self._alice_service.runtime_host.register_preretrieval_aliases(
+                    hot_result.retrieved_memories
+                )
+
             yield {
                 "event": "memory_refs",
                 "data": {
@@ -253,7 +263,7 @@ class PatchouliService:
                 current_agent_id=agent_id,
             )
 
-            self._kernel.koakuma.set_active_profile(agent_profile)
+            self._alice_service.runtime_host.koakuma.set_active_profile(agent_profile)
             loop_result = None
 
             async for event in self._alice_service.run_agent_stream(
@@ -369,9 +379,9 @@ class PatchouliService:
     ) -> None:
         """统一处理 chat/chat_stream 结束后的交互提交。"""
         try:
-            mtp_traces = self._kernel.koakuma.get_interaction_traces()
-            write_focus = self._kernel.koakuma.get_write_focus()
-            update_focus = self._kernel.koakuma.get_update_focus()
+            mtp_traces = self._alice_service.runtime_host.koakuma.get_interaction_traces()
+            write_focus = self._alice_service.runtime_host.koakuma.get_write_focus()
+            update_focus = self._alice_service.runtime_host.koakuma.get_update_focus()
         except Exception as e:
             logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
             mtp_traces = []

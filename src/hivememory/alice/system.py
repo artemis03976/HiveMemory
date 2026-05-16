@@ -2,7 +2,7 @@
 AliceSystem - 多智能体编排与计算子系统
 
 SubsystemProtocol 实现，持有 AgentRuntimeHost 和 AliceService。
-Phase C 最小骨架：先成为 Agent runtime 的正式宿主。
+不依赖 PatchouliKernel。
 """
 
 from __future__ import annotations
@@ -20,7 +20,8 @@ from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.kernel import PatchouliKernel
+    from hivememory.infrastructure.system_bus import SystemBus
+    from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,8 @@ class AliceSystem(SubsystemProtocol):
     """
     Alice 子系统 - 多智能体编排与计算子系统宿主
 
-    Phase C 职责：
-    - 持有 AgentRuntimeHost (KernelLoopExecutor, WorkerAgentService)
+    职责：
+    - 持有 AgentRuntimeHost (KoakumaRuntime, FrameScheduler, KernelLoopExecutor, WorkerAgentService)
     - 提供 AliceService (run_agent / run_agent_stream)
     - 接入全局 bus / bridge
     - 实现 SubsystemProtocol 生命周期
@@ -39,14 +40,16 @@ class AliceSystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
-        kernel: "PatchouliKernel",
+        bus: Optional["SystemBus"] = None,
+        storage: Optional["QdrantMemoryStore"] = None,
         global_bus: Optional[GlobalSystemBus] = None,
     ) -> None:
         self._config = config
 
         self._runtime_host = AgentRuntimeHost(
-            kernel=kernel,
             config=config,
+            bus=bus,
+            storage=storage,
         )
 
         self._service = AliceService(runtime_host=self._runtime_host)

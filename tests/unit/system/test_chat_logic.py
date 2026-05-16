@@ -33,7 +33,7 @@ from hivememory.engines.perception.models import LogicalBlock
 from hivememory.patchouli.protocol.models import (
     ChatResult, KernelHotResult, EyeGazeResult, MTPExecutionResult,
 )
-from hivememory.patchouli.worker_agent import GenerationResult
+from hivememory.alice.runtime.worker_agent import GenerationResult
 from hivememory.patchouli.mtp import MTPVerb
 from hivememory.engines.gateway.models import GatewayIntent
 
@@ -144,7 +144,7 @@ def sys():
     s.kernel.librarian_core = MagicMock()
 
     # Frame scheduler (Phase 2) — 使用真实的 FrameScheduler 行为
-    from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
+    from hivememory.alice.runtime.execution_frame import ExecutionFrame
     from hivememory.core.models import Identity as _Identity
 
     def _mock_create_main_frame(agent_profile, messages, topic_id, identity):
@@ -168,7 +168,7 @@ def sys():
     s._bus = None
 
     # Loop Executor (Phase 2 重构) - 使用真实实例但注入 mock 依赖
-    from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+    from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
     s._loop_executor = KernelLoopExecutor(
         kernel=s.kernel,
         worker_agent=s._worker_agent,

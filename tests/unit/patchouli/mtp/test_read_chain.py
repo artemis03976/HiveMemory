@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
 
 
