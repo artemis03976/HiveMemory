@@ -19,9 +19,9 @@ from hivememory.patchouli.protocol.models import (
 from hivememory.server.models.memory import MemoryResponse
 
 if TYPE_CHECKING:
+    from hivememory.alice.service import AliceService
     from hivememory.patchouli.eye import TheEye
     from hivememory.patchouli.kernel import PatchouliKernel
-    from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +33,11 @@ class PatchouliService:
         self,
         kernel: PatchouliKernel,
         eye: TheEye,
-        loop_executor: KernelLoopExecutor,
+        alice_service: Optional[AliceService] = None,
     ) -> None:
         self._kernel = kernel
         self._eye = eye
-        self._loop_executor = loop_executor
+        self._alice_service = alice_service
         self._message_assembler = MessageAssembler(kernel)
 
     async def analyze_and_retrieve(
@@ -136,13 +136,13 @@ class PatchouliService:
             )
 
             self._kernel.koakuma.set_active_profile(agent_profile)
-            loop_result = await self._loop_executor.execute_main_frame(
+            loop_result = await self._alice_service.run_agent(
                 messages=messages,
-                max_iterations=None,
+                identity=identity,
+                agent_id=agent_id,
+                topic_id=real_topic_id,
                 generation_options=generation_options,
                 agent_profile=agent_profile,
-                topic_id=real_topic_id,
-                identity=identity,
             )
 
             await self._chat_post_process(
@@ -256,13 +256,13 @@ class PatchouliService:
             self._kernel.koakuma.set_active_profile(agent_profile)
             loop_result = None
 
-            async for event in self._loop_executor.execute_main_frame_stream(
+            async for event in self._alice_service.run_agent_stream(
                 messages=messages,
-                max_iterations=None,
+                identity=identity,
+                agent_id=agent_id,
+                topic_id=real_topic_id,
                 generation_options=generation_options,
                 agent_profile=agent_profile,
-                topic_id=real_topic_id,
-                identity=identity,
                 cancel_event=cancel_event,
             ):
                 if event["event"] == "done":

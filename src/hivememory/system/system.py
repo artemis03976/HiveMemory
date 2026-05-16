@@ -5,6 +5,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.patchouli.protocol.models import ChatResult
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.alice.system import AliceSystem
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -25,17 +26,23 @@ class HiveMemorySystem:
         self,
         config: HiveMemoryConfig,
         patchouli: PatchouliSystem,
+        alice: AliceSystem,
         global_bus: GlobalSystemBus,
         scheduler: GlobalMaintenanceScheduler,
         chat_service: ChatApplicationService,
         ingress_service: PassiveIngressService,
     ) -> None:
         self._config = config
-        self._patchouli = patchouli
+
         self._global_bus = global_bus
         self._scheduler = scheduler
+
+        self._patchouli = patchouli
+        self._alice = alice
+
         self._chat_service = chat_service
         self._ingress_service = ingress_service
+        
         self._started = False
         self._scheduler_stopped = False
 
@@ -54,11 +61,23 @@ class HiveMemorySystem:
             shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
         )
 
+        # 1. Patchouli 先创建（提供 kernel），alice_service 延迟注入
         patchouli = PatchouliSystem(
             config=config,
             global_bus=global_bus,
             scheduler=scheduler,
+            alice_service=None,
         )
+
+        # 2. Alice 创建（接收 PatchouliKernel 作为过渡期依赖）
+        alice = AliceSystem(
+            config=config,
+            kernel=patchouli.kernel,
+            global_bus=global_bus,
+        )
+
+        # 3. 延迟注入 AliceService 到 Patchouli（解决循环装配依赖）
+        patchouli.set_alice_service(alice.service)
 
         chat_service = ChatApplicationService(patchouli_service=patchouli.service)
         ingress_service = PassiveIngressService(
@@ -70,6 +89,7 @@ class HiveMemorySystem:
         return cls(
             config=config,
             patchouli=patchouli,
+            alice=alice,
             global_bus=global_bus,
             scheduler=scheduler,
             chat_service=chat_service,
@@ -82,6 +102,7 @@ class HiveMemorySystem:
         if self._started:
             return
         await self._patchouli.start()
+        await self._alice.start()
         self._scheduler.start()
         self._started = True
         self._scheduler_stopped = False
@@ -92,6 +113,7 @@ class HiveMemorySystem:
         await self._ingress_service.shutdown_drain()
         if not self._started:
             return
+        await self._alice.stop()
         await self._patchouli.stop()
         self._started = False
         self._scheduler_stopped = False
@@ -104,7 +126,8 @@ class HiveMemorySystem:
 
     async def health(self) -> dict[str, Any]:
         subsystem_health = {
-            self._patchouli.name: await self._patchouli.health()
+            self._patchouli.name: await self._patchouli.health(),
+            self._alice.name: await self._alice.health(),
         }
         return {
             "status": "ok" if self._started else "stopped",
@@ -198,6 +221,10 @@ class HiveMemorySystem:
     @property
     def patchouli(self) -> PatchouliSystem:
         return self._patchouli
+
+    @property
+    def alice(self) -> AliceSystem:
+        return self._alice
 
     @property
     def kernel(self):

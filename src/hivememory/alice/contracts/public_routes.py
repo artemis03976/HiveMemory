@@ -1,5 +1,6 @@
-"""Alice 子系统公开路由 — 占位，待后续实现。"""
+"""Alice 子系统公开路由常量 — 可通过桥接器暴露到 GlobalSystemBus 的能力。"""
 
 
 class AliceRoutes:
-    pass
+    RUN_AGENT = "alice.run_agent"
+    RUN_AGENT_STREAM = "alice.run_agent_stream"

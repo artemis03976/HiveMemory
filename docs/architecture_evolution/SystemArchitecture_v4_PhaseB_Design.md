@@ -1,10 +1,15 @@
 # HiveMemory 第四次架构演进 Phase B 设计
 
-**文档状态**: Draft (设计草案)\
+**文档状态**: Draft (历史方案，现顺延至 Phase D 参考)\
 **所属演进**: 第四次架构演进\
-**阶段目标**: 在 Phase A 已建立顶层 `HiveMemorySystem` 宿主层的基础上，推动 `Patchouli` 回归记忆子系统，将主动 `chat` 与被动 `ingest` 的入口级编排逻辑正式迁移到 `system/application/`，并收紧 `PatchouliSystem` 的职责边界。\
-**前置阶段**: [SystemArchitecture\_v4\_PhaseA\_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_PhaseA_Design.md)\
+**阶段目标**: 本文记录的是“顶层应用服务迁移”这条原先曾归入 Phase B 的方案；随着 v4 路线调整，这部分工作现已整体顺延为 `Phase D / 顶层 chat 与 passive ingress 应用服务迁移`。\
+**前置阶段核心结论**: 已回写至 [SystemArchitecture\_v4\_TopLevelSketch.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_TopLevelSketch.md)\
 **配套草图**: [SystemArchitecture\_v4\_TopLevelSketch.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_TopLevelSketch.md)
+
+> **阅读说明**
+>
+> 本文内部保留的 `Phase B` 表述属于历史编号。
+> 在当前路线下，应统一理解为 `Phase D / 顶层应用服务迁移` 的设计参考。
 
 ***
 

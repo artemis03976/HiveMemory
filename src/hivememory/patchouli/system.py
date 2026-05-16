@@ -40,13 +40,12 @@ from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
-from hivememory.patchouli.worker_agent import WorkerAgentService
 
 if TYPE_CHECKING:
+    from hivememory.alice.service import AliceService
     from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
 
 logger = logging.getLogger(__name__)
@@ -86,19 +85,18 @@ class PatchouliSystem(SubsystemProtocol):
         config: HiveMemoryConfig,
         global_bus: Optional[GlobalSystemBus] = None,
         scheduler: Optional["AsyncMaintenanceScheduler"] = None,
+        alice_service: Optional["AliceService"] = None,
     ):
         """
         初始化帕秋莉系统
 
         Args:
             config: 由上层装配并注入的 HiveMemory 配置
+            alice_service: Alice 子系统能力门面（Phase C 延迟注入）
 
         Examples:
             >>> from hivememory.system.config import load_app_config
             >>> config = load_app_config()
-            >>> system = PatchouliSystem(config=config)
-            >>>
-            >>> config = load_app_config("path/to/config.yaml")
             >>> system = PatchouliSystem(config=config)
         """
         self.config = config
@@ -119,20 +117,13 @@ class PatchouliSystem(SubsystemProtocol):
             bus=self.bus,
         )
 
-        # 4. 初始化 Worker Agent (LLM 文本生成引擎)
-        self._worker_agent = WorkerAgentService(config=self.config.llm.worker)
-
-        # 4.5 初始化 Loop Executor (帧执行循环管理器)
-        self._loop_executor = KernelLoopExecutor(
-            kernel=self.kernel,
-            worker_agent=self._worker_agent,
-        )
-
+        # 4. Alice Service (Phase C: Agent 计算由 Alice 子系统托管)
+        self._alice_service = alice_service
 
         self._service = PatchouliService(
             kernel=self.kernel,
             eye=self.eye,
-            loop_executor=self._loop_executor,
+            alice_service=alice_service,
         )
 
         # 5. 子系统运行时挂载点
@@ -208,6 +199,11 @@ class PatchouliSystem(SubsystemProtocol):
     def service(self) -> PatchouliService:
         """访问 Patchouli 对外能力门面。"""
         return self._service
+
+    def set_alice_service(self, alice_service: "AliceService") -> None:
+        """Phase C 过渡期：延迟注入 AliceService (解决循环装配依赖)。"""
+        self._alice_service = alice_service
+        self._service._alice_service = alice_service
 
     @property
     def name(self) -> str:

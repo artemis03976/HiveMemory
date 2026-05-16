@@ -1,8 +1,8 @@
 # HiveMemory 第四次架构演进顶层架构草图
 
-**文档状态**: Draft (草案)\
-**文档目的**: 为第四次架构演进提供顶层边界规划，明确项目级系统层、记忆子系统 Patchouli 与多智能体子系统 Alice 的职责分工与目录归属。\
-**本次文档不直接定义具体实现细节**，而是先回答“谁是顶层系统”“谁拥有运行时”“谁负责什么”这三个架构问题。
+**文档状态**: Living (持续更新)\
+**文档目的**: 作为第四次架构演进的总纲与当前实现基线，统一记录顶层系统层、Patchouli 记忆子系统与未来 Alice 子系统的职责分工、运行时边界与阶段进度。\
+**本次文档同时承担已落地内容的回写职责**，用于沉淀已经完成的主系统、总线基建与维护调度基建结论，并据此判断后续阶段推进重点。
 
 ***
 
@@ -99,6 +99,8 @@ Alice 负责多智能体域内部的：
 
 - Agent 编排
 - Agent 调度
+- Agent runtime 宿主
+- Agent 执行循环与工具运行时
 - Team / session / agent 生命周期
 - 任务分解与高层协调
 
@@ -111,43 +113,60 @@ Alice 负责多智能体域内部的：
 - 顶层装配器 / bootstrap
 - 全局 orchestration host
 
-以下能力则需要进一步甄别边界：
+以下能力在当前路线下，优先按“未来 Alice Agent runtime”看待，并在后续阶段逐步从 Patchouli 中抽离：
 
 - `KernelLoopExecutor`
 - `Koakuma`
 - 与 MTP 执行循环强相关的运行时对象
 
-它们中有些可能仍归属于 Patchouli 记忆域执行中枢，有些则可能在未来被抽象为更通用的 Agent runtime。
+它们的长期归属不再优先视为 Patchouli 记忆域私有运行时，而应逐步收束为 Alice 子系统内部的 Agent 运行时基建。
 
-### 3.5 为后续 Alice Phase 3 提前预留架构位置
+### 3.5 为后续 Alice 第三阶段提前预留架构位置
 
 第四次演进必须为未来 Alice 的真正接入提前铺路，避免第三阶段开发再次建立在错误的顶层归属之上。
 
-### 3.6 当前已经明确的三项基础设施结论
+### 3.6 当前已经落地的三项基础设施结论
 
-随着配套设计逐步完成，第四次演进中已经有 3 组结论可以视为当前总文档中的已定前置条件：
+随着实现推进，第四次演进中已有 3 组基础设施结论可以视为**已落地基线**，不再只是设计前提：
 
-- 顶层宿主层已经明确
-  - `HiveMemorySystem`、`SystemBootstrap`、`SystemLifecycleManager`、`RuntimeHost`、`SubsystemRegistry` 已是正式骨架
-  - `server/` 应只依赖顶层 system
-  - `system/application/` 是主动 `chat` 与被动 `ingest` 的正式入口编排层
-- 通信骨架已经明确
+- 顶层宿主层已经落地并完成第一轮去抽象化
+  - `HiveMemorySystem` 已成为正式顶层门面，并直接承担 `build()`、`start()`、`stop()` 与 `health()` 主路径
+  - `server/` 已切到依赖顶层 `system`
+  - `system/application/` 已成为主动 `chat` 与被动 `ingest` 的正式入口编排层
+  - 早期过渡骨架 `SystemBootstrap`、`SystemLifecycleManager`、`RuntimeHost`、`SubsystemRegistry` 已完成使命并退出主路径
+- 通信骨架已经落地并完成主路径接入
   - 统一异步总线基类为 `AsyncSystemBus`
   - 顶层持有 `GlobalSystemBus`
-  - 子系统持有自己的私有总线
-  - 跨域能力通过桥接器与公开契约暴露
-- 维护调度骨架已经明确
-  - 顶层 runtime 持有唯一的 `GlobalMaintenanceScheduler`
+  - `Patchouli` 已持有自己的 `PatchouliBus`
+  - 跨域能力通过 `PatchouliBridge` 与公开契约暴露
+  - 顶层 application 通过全局公开 route 调用子系统，不再直接理解 Patchouli 私有运行时
+- 维护调度骨架已经落地并完成唯一宿主收敛
+  - 顶层持有唯一的 `GlobalMaintenanceScheduler`
   - application 与 subsystem 只注册任务，不再各自持有项目级 scheduler
-  - stop 顺序中应先停 scheduler，再执行业务 drain
+  - 维护任务已按 owner 分域
+  - stop 顺序已收敛为：先停 scheduler，再执行业务 drain，最后停止子系统
 
-对应设计文档：
+这意味着第四次演进接下来的重点，已经不再是“继续补顶层 system 骨架”，而是“让子系统真正内化这套骨架并收口历史残留”，其中最优先的就是 `Patchouli` 子系统规范化。
 
-- [SystemArchitecture_v4_PhaseA_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_PhaseA_Design.md)
-- [SystemArchitecture_v4_BusFoundation_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_BusFoundation_Design.md)
-- [SystemArchitecture_v4_MaintenanceFoundation_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_MaintenanceFoundation_Design.md)
+### 3.7 当前阶段判断
 
-这意味着第四次演进接下来的重点，已经不再是“继续补顶层 system 骨架”，而是“让各子系统真正接入并内化这套骨架”，其中最优先的就是 `Patchouli` 子系统规范化。
+基于当前实现，第四次演进的阶段状态可暂时判断为：
+
+- `Phase A`
+  - 已基本完成
+  - 顶层 system 层、顶层 façade、application 落点与系统级 runtime 归属已经成立
+  - Bus Foundation 与 Maintenance Foundation 也已在本阶段范围内回写为已落地基线
+- `Phase B / Patchouli Subsystemization`
+  - 已进入收尾阶段
+  - `PatchouliService` 已拆出，`PatchouliSystem` 已直接实现 `SubsystemProtocol` 并承担子系统宿主职责
+  - `PatchouliBus` / `PatchouliBridge` 已回到 Patchouli 内部持有
+  - 但 `PatchouliSystem` 内部初始化与部分历史运行时耦合仍未完全收口
+- `Phase C / Alice Runtime Foundation`
+  - 尚未正式开始
+  - 目标是将 `KernelLoopExecutor`、`Koakuma` 等 Agent 运算服务从 Patchouli 中抽离，收束到 Alice 子系统，建立初步 `run_agent(...)` 能力边界
+- `Phase D / 顶层应用服务迁移`
+  - 明确顺延到 Alice 初步基建之后
+  - `ChatApplicationService` 与 `PassiveIngressService` 现阶段只保留顶层入口落点与部分过渡实现，完整编排迁移延后处理
 
 ***
 
@@ -159,20 +178,24 @@ Alice 负责多智能体域内部的：
 graph TD
     User[User / API / UI] --> HiveMemorySystem[HiveMemorySystem<br/>项目级顶层系统]
 
-    HiveMemorySystem --> SystemRuntime[System Runtime]
-    HiveMemorySystem --> Patchouli[Patchouli Subsystem<br/>记忆子系统]
+    HiveMemorySystem --> GlobalBus[GlobalSystemBus]
+    HiveMemorySystem --> GlobalScheduler[GlobalMaintenanceScheduler]
+    HiveMemorySystem --> ChatApp[ChatApplicationService]
+    HiveMemorySystem --> IngressApp[PassiveIngressService]
+    HiveMemorySystem --> Patchouli[PatchouliSystem<br/>记忆子系统宿主]
     HiveMemorySystem --> Alice[Alice Subsystem<br/>多智能体子系统]
 
-    SystemRuntime --> Scheduler[SystemAsyncScheduler]
-    SystemRuntime --> Lifecycle[Global Lifecycle Host]
-    SystemRuntime --> Bootstrap[Bootstrap / Assembly]
-
-    Patchouli --> PatchouliRuntime[Patchouli Runtime / Kernel]
-    Patchouli --> MemoryEngines[Perception / Retrieval / Generation / Lifecycle]
+    Patchouli --> PatchouliService[PatchouliService<br/>记忆能力门面]
+    Patchouli --> PatchouliBus[PatchouliBus]
+    Patchouli --> PatchouliBridge[PatchouliBridge]
+    Patchouli --> PatchouliRuntime[Patchouli Kernel / Runtime]
 
     Alice --> MultiAgentRuntime[Orchestrator / Team Runtime]
     Alice --> Agents[Worker Agents / Agent Profiles]
 
+    ChatApp --> GlobalBus
+    IngressApp --> GlobalBus
+    PatchouliBridge --> GlobalBus
     Alice --> Patchouli
 ```
 
@@ -180,14 +203,12 @@ graph TD
 
 - `HiveMemorySystem`
   - 项目级顶层系统门面
-  - 持有各子系统与全局 runtime
-- `System Runtime`
-  - 不直接承载业务语义
-  - 负责系统级生命周期、调度、装配、运行时宿主
+  - 持有全局 bus、全局 scheduler、应用服务与已装配子系统
 - `Patchouli Subsystem`
-  - 负责记忆相关业务与记忆域运行时
+  - `PatchouliSystem` 负责记忆子系统宿主职责
+  - `PatchouliService` 负责对外能力门面
 - `Alice Subsystem`
-  - 负责多智能体相关业务与多智能体域编排
+  - 负责多智能体相关业务、多智能体域编排与 Agent runtime 宿主
 
 ***
 
@@ -269,6 +290,9 @@ Alice 建议负责多智能体子系统范围内的职责：
 
 - 顶层任务编排
 - 子 Agent 选择、调度与协调
+- Agent 运行时宿主
+- 单次 agent 计算任务调度，例如 `alice.run_agent(topic_id, ...)`
+- `KernelLoopExecutor` / `Koakuma` 等运算服务的长期归属
 - 团队级策略与资源使用控制
 - 多智能体生命周期管理
 - 跨 Agent 协作图谱与执行状态
@@ -378,7 +402,7 @@ Alice 建议负责多智能体子系统范围内的职责：
 
 ## 6. 目录草图建议
 
-以下目录结构仅作为草图，不要求一次性完全到位。
+以下目录结构以“当前已落地 + 近阶段保留目标”的混合视角给出，其中已删除的过渡骨架不再保留在草图中。
 
 ```text
 src/hivememory
@@ -387,8 +411,6 @@ src/hivememory
 ├─system/                         # [NEW] 项目级顶层系统层
 │  │  __init__.py
 │  │  system.py                   # HiveMemorySystem / 顶层系统门面
-│  │  bootstrap.py                # 系统装配与构建
-│  │  lifecycle.py                # 启动/停止/健康检查/关闭排水
 │  │
 │  ├─application
 │  │  │  __init__.py
@@ -397,8 +419,6 @@ src/hivememory
 │  │
 │  ├─runtime
 │  │  │  __init__.py
-│  │  │  host.py                  # 全局 runtime host
-│  │  └─registry.py               # 子系统注册/发现/依赖装配
 │  │  ├─bus
 │  │  │  │  __init__.py
 │  │  │  │  async_bus.py
@@ -422,9 +442,6 @@ src/hivememory
 │  │
 │  ├─kernel                       # 记忆域执行中枢
 │  ├─runtime                      # Patchouli 专属 runtime
-│  │  │  bootstrap.py             # PatchouliBootstrap
-│  │  │  host.py                  # PatchouliRuntimeHost
-│  │  │  lifecycle.py             # PatchouliLifecycleManager
 │  │  │  bus.py                   # PatchouliBus
 │  │  └─bridge.py                 # PatchouliBridge
 │  ├─services                     # 记忆域应用服务
@@ -435,10 +452,13 @@ src/hivememory
 ├─alice/                          # [NEW] 多智能体子系统
 │  │  __init__.py
 │  │  system.py                   # Alice 子系统门面
-│  │  bootstrap.py                # Alice 内部装配
+│  │  service.py                  # Alice 对外能力门面
 │  │
-│  ├─runtime                      # 多智能体运行时
-│  │  └─bus.py                    # AliceBus / AliceEventBridge
+│  ├─runtime                      # 多智能体运行时 / Agent runtime
+│  │  │  bus.py                   # AliceBus / AliceEventBridge
+│  │  ├─host.py                   # AgentRuntimeHost
+│  │  ├─agent_loop.py             # 未来承接 KernelLoopExecutor
+│  │  └─tool_runtime.py           # 未来承接 Koakuma / 工具执行运行时
 │  ├─orchestration                # 顶层编排、调度、路由
 │  ├─services                     # 多智能体应用服务
 │  ├─protocol                     # Alice 相关协议与模型
@@ -480,7 +500,7 @@ infrastructure -> (不反向依赖业务子系统)
 - `server/` 只依赖顶层系统门面，不直接拼装内部子系统
 - `system/` 可以装配 `patchouli/` 与 `alice/`
 - `system/` 持有全局总线；子系统各自持有私有总线
-- `system/application/` 承接主动 chat 与被动 ingest 的入口级编排逻辑
+- `system/application/` 承接主动 chat 与被动 ingest 的入口级编排逻辑，但完整迁移留待后续阶段
 - `patchouli/` 不应再反向拥有顶层系统
 - `alice/` 可以调用 `patchouli/` 提供的记忆能力，但应通过清晰接口完成
 - `engines/` 保持纯能力实现，不感知顶层编排者是谁
@@ -499,13 +519,14 @@ infrastructure -> (不反向依赖业务子系统)
 
 这次演进是破坏性更新，但建议优先做“结构迁移”，尽量推迟“行为变更”。
 
-### Phase A：建立顶层系统壳
+### Phase A：建立顶层系统壳与基础设施
 
 目标：
 
 - 新建 `system/` 顶层目录
 - 定义 `HiveMemorySystem` 或等价顶层门面
 - 先不大改业务逻辑，只建立新的宿主层与装配层
+- 同步完成 Bus Foundation 与 Maintenance Foundation 两项基础设施建设
 
 产出：
 
@@ -514,97 +535,59 @@ infrastructure -> (不反向依赖业务子系统)
 - `SystemAsyncScheduler` 的新归属位置
 - `SystemBus` 的新归属位置与 `GlobalSystemBus` 骨架
 - 子系统私有总线与事件桥接机制的最小接口定义
+- `AsyncMaintenanceScheduler` / `GlobalMaintenanceScheduler` 与 owner 化维护任务模型
 - `system/application/` 骨架，以及 `ChatApplicationService` / `PassiveIngressService` 的职责占位
 
-### Phase B0：Bus Foundation
+### Phase B：完成 Patchouli 子系统化
 
-目标：
+状态：
 
-- 建立 `AsyncSystemBus`
-- 明确 `GlobalSystemBus / PatchouliBus / AliceBus`
-- 建立 `PatchouliBridge / AliceBridge` 的最小模型
-- 固化“全局公开契约”与“子系统私有通信”的分层
+- 已进入收尾阶段
 
-产出：
+核心结果：
 
-- `system/runtime/bus/`
-- `patchouli/runtime/bus.py`
-- `patchouli/runtime/bridge.py`
-- `alice/runtime/bus.py`
-- `alice/runtime/bridge.py`
+- `PatchouliService` 已拆出，承接 `chat`、`chat_stream`、`manual_trigger`、`analyze_and_retrieve` 等主要对外 API
+- `PatchouliSystem` 已直接实现 `SubsystemProtocol`，承担本地 route、bridge、maintenance task 与子系统生命周期
+- `PatchouliBus` 与 `PatchouliBridge` 已下沉到 `PatchouliSystem` 内部持有
+- `_passive_ingressor` 等旧被动残留已退出主路径
 
-### Phase B0.5：Maintenance Foundation
+仍待处理：
 
-目标：
+- `PatchouliSystem` 初始化段仍偏厚
+- Patchouli 内部仍有历史运行时装配未继续拆清
+- Agent runtime 仍暂时寄居在 Patchouli 内部，尚未进一步抽离
 
-- 建立 `AsyncMaintenanceScheduler`
-- 建立 `GlobalMaintenanceScheduler`
-- 将定时维护从业务类内部持有迁移为顶层 runtime 原语
-- 固化 owner 化任务注册与 stop 顺序
-
-产出：
-
-- `system/runtime/scheduler/`
-- `GlobalMaintenanceScheduler`
-- owner 化 maintenance task 模型
-- application / subsystem 级任务注册边界
-
-### Phase B1：Patchouli System Normalization
-
-目标：
-
-- 建立新的 `PatchouliSystem` 作为 Patchouli 子系统宿主
-- 让 Patchouli 真正以正式子系统身份接入 `HiveMemorySystem`
-- 让当前 `PatchouliSystem` 收缩并重命名为 `PatchouliService`，不再承担私有装配与生命周期宿主职责
-- 为后续继续收缩 `shutdown_drain()`、`_passive_ingressor` 等残留提供稳定宿主层
-
-产出：
-
-- `patchouli/system.py`
-- `patchouli/service.py`
-- `patchouli/runtime/bootstrap.py`
-- `patchouli/runtime/host.py`
-- `patchouli/runtime/lifecycle.py`
-
-### Phase B2：顶层应用服务迁移
-
-目标：
-
-- 将主动 `chat` 与被动 `ingest` 的顶层入口编排稳定迁移到 `system/application/`
-- 明确顶层应用服务只依赖全局公开契约，不直接理解 Patchouli 私有 runtime
-- 在 Patchouli 子系统边界稳定后继续收缩 façade 兼容层
-
-产出：
-
-- `ChatApplicationService` 的正式编排骨架
-- `PassiveIngressService` 的正式编排骨架
-- 对旧 Patchouli 入口兼容层的进一步收口
-
-### Phase C：为 Alice 铺设同级子系统入口
+### Phase C：从 Patchouli 中抽离 Alice 运算服务，搭建初步基建
 
 目标：
 
 - 新建 `alice/` 子系统目录
-- 定义 Alice 的 facade、bootstrap、runtime、orchestration 边界
-- 让 Alice 与 Patchouli 在顶层系统中并列装配
+- 定义 Alice 的 system / service / runtime / orchestration 边界
+- 将 `KernelLoopExecutor`、`Koakuma` 等 Agent 运算服务从 Patchouli 中抽离
+- 让 Alice 作为多智能体编排与计算子系统，承担 Agent runtime 宿主职责
+- 形成通过 `alice.run_agent(topic_id, ...)` 驱动一次 agent 计算的初步能力边界
 
 产出：
 
 - `alice/system.py`
-- `alice/bootstrap.py`
+- `alice/service.py`
+- `alice/runtime/host.py`
 - Alice <-> Patchouli 的接口契约
+- Alice 内部的 Agent runtime 基础设施骨架
+- 逐步替代 Patchouli 内部对 kernel loop / tool runtime 的直接持有
 
-### Phase D：逐步迁移剩余运行时代码
+### Phase D：迁移顶层 chat / passive ingress 应用服务
 
 目标：
 
-- 评估 `KernelLoopExecutor`、`Koakuma`、其他 runtime 对象的真实归属
-- 把项目级 runtime 与记忆域 runtime 进一步拆清
+- 在 Alice 初步基建稳定后，正式构建 `ChatApplicationService`
+- 将 `PassiveIngressService` 收敛为真正的系统级消息接入应用服务
+- 让顶层 chat 主路径逐步转向“入口服务 -> Alice agent runtime -> Patchouli 记忆能力”的新编排模式
 
 注意：
 
-- 这一阶段不应仓促追求“所有 runtime 一次性归位”
-- 对边界不清楚的对象，允许暂时保留过渡层
+- `ChatApplicationService` 与 `PassiveIngressService` 在此之前只保留入口落点与必要过渡实现
+- 这一阶段才处理 chat 深层链路迁移，避免在 Patchouli 子系统化与 Alice 基建未稳时提前触碰全项目最深链路
 
 ***
 
@@ -641,6 +624,11 @@ infrastructure -> (不反向依赖业务子系统)
 - stream 与 non-stream 是否共用同一编排骨架
 - 被动 ingress 的 flush/提交/归档链路如何与顶层总线对接
 
+同时需要注意：
+
+- 顶层 chat 编排的正式迁移已顺延到 `Phase D`
+- 在此之前，必须先由 Alice 提供稳定的 `run_agent(...)` 计算边界
+
 ### 9.4 总线契约与事件清单
 
 当前文档已经确定了总线分层思想，但正式设计还需要补齐：
@@ -664,7 +652,20 @@ infrastructure -> (不反向依赖业务子系统)
 
 这部分已在 [SystemArchitecture_v4_PatchouliSubsystemNormalization_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_PatchouliSubsystemNormalization_Design.md) 中单独展开。
 
-### 9.6 系统生命周期设计
+### 9.6 Alice Runtime Foundation 设计
+
+当前还缺少一份明确回答以下问题的正式设计：
+
+- `KernelLoopExecutor`
+- `Koakuma`
+- `WorkerAgentService`
+- 未来的 Agent runtime host
+- `alice.run_agent(...)` / `run_agent_stream(...)` 的最小契约
+- Alice 与 Patchouli 之间的 prepare / run / finalize 边界
+
+这部分已在 [SystemArchitecture_v4_PhaseC_AliceRuntimeFoundation_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_PhaseC_AliceRuntimeFoundation_Design.md) 中单独展开。
+
+### 9.7 系统生命周期设计
 
 顶层 system 成立后，需要一份明确的启动/关闭时序设计：
 
@@ -674,9 +675,9 @@ infrastructure -> (不反向依赖业务子系统)
 - 出错后的回滚策略
 - 子系统启动失败时的降级与中止策略
 
-### 9.7 运行时归属设计
+### 9.8 运行时归属设计
 
-目前文档只给出了方向，但对以下对象还缺正式归属判断：
+目前文档虽然已有阶段路线，但仍需持续细化以下对象的最终归属与迁移切面：
 
 - `KernelLoopExecutor`
 - `Koakuma`
@@ -685,7 +686,9 @@ infrastructure -> (不反向依赖业务子系统)
 - 哪些 runtime 应升格到 system
 - 哪些 runtime 属于 Alice
 
-### 9.8 配置与装配设计
+当前路线中，`KernelLoopExecutor` / `Koakuma` 的长期归属已优先判给 Alice，但其过渡期依赖与切换顺序仍需结合 Phase C 设计逐步落实。
+
+### 9.9 配置与装配设计
 
 正式设计文档还应说明：
 
@@ -695,7 +698,7 @@ infrastructure -> (不反向依赖业务子系统)
 - 测试环境如何替换子系统实现
 - 是否需要 registry / plugin 风格的子系统注册机制
 
-### 9.9 迁移与兼容设计
+### 9.10 迁移与兼容设计
 
 由于第四次演进是破坏性更新，正式设计文档还必须补一份迁移策略：
 
@@ -710,11 +713,12 @@ infrastructure -> (不反向依赖业务子系统)
 
 - 顶层系统接口设计
 - 子系统契约设计
-- 应用服务编排设计
 - Patchouli 子系统规范化设计
+- Alice Runtime Foundation 设计
+- 应用服务编排设计
 - 系统生命周期设计
 
-因为这 4 项会直接决定你后面代码迁移时最核心的骨架是否稳定。
+因为这 5 项会直接决定你后面代码迁移时最核心的骨架是否稳定。
 
 ***
 

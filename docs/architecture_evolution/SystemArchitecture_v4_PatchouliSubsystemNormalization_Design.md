@@ -2,14 +2,12 @@
 
 **文档状态**: Draft (设计草案)\
 **所属演进**: 第四次架构演进\
-**建议阶段名**: Phase B1 / Patchouli System Normalization\
-**阶段目标**: 在顶层 `HiveMemorySystem`、总线基建与全局维护基建已经建立后，进一步将 `Patchouli` 从“被顶层 system 临时包裹的历史大类”规范化为真正的记忆子系统，建立其独立的 `PatchouliSystem` 宿主、bootstrap、runtime host 与 lifecycle 边界，并将当前承担对外 API 的 `PatchouliSystem` 收缩并重命名为 `PatchouliService`，为后续 `ChatApplicationService`、`PassiveIngressService` 与 `Alice` 子系统迁移提供稳定的记忆域宿主骨架。\
+**建议阶段名**: Phase B / Patchouli Subsystemization\
+**阶段目标**: 在顶层 `HiveMemorySystem`、总线基建与全局维护基建已经建立后，进一步将 `Patchouli` 从“被顶层 system 临时包裹的历史大类”规范化为真正的记忆子系统，建立其独立的 `PatchouliSystem` 宿主、bootstrap、runtime host 与 lifecycle 边界，并将当前承担对外 API 的 `PatchouliSystem` 收缩并重命名为 `PatchouliService`，为后续 `Phase C` 中 Alice 从 Patchouli 抽离 Agent 运算服务、以及 `Phase D` 中顶层 `ChatApplicationService` / `PassiveIngressService` 的正式迁移提供稳定的记忆域宿主骨架。\
 **配套文档**:
 
 - [SystemArchitecture_v4_TopLevelSketch.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_TopLevelSketch.md)
-- [SystemArchitecture_v4_PhaseA_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_PhaseA_Design.md)
-- [SystemArchitecture_v4_BusFoundation_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_BusFoundation_Design.md)
-- [SystemArchitecture_v4_MaintenanceFoundation_Design.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_MaintenanceFoundation_Design.md)
+- Phase A / Bus Foundation / Maintenance Foundation 的已实现核心结论已回写到主文档，无需再单独前置查阅
 
 ***
 
@@ -26,7 +24,7 @@
 - `PatchouliSystem` 一边作为 façade，一边继续承担对象图装配与运行时宿主职责
 - `shutdown_drain()`、本地 routes、maintenance tasks、bridge 生命周期继续散落在 system 层与 patchouli 层之间
 
-因此，这份文档将 “Patchouli 子系统规范化” 定义为第四次架构演进中 **晚于 Phase A / Bus Foundation / Maintenance Foundation，但先于 Patchouli 彻底瘦身** 的关键阶段。
+因此，这份文档将 “Patchouli 子系统规范化” 定义为第四次架构演进中 **晚于 Phase A 基础设施建设、先于 Phase C Alice 运算服务抽离、也先于 Phase D 顶层应用服务迁移** 的关键阶段。
 
 ### 1.1 本文采用的命名映射
 
@@ -55,7 +53,7 @@
 
 - 顶层 system 已经有地方承载项目级 runtime
 - Patchouli 已经不需要继续充当项目级 bus / scheduler 宿主
-- `PassiveIngressService` 与后续 `ChatApplicationService` 的迁移，已经不再缺乏基础设施支撑
+- 后续 `Phase D` 中 `PassiveIngressService` 与 `ChatApplicationService` 的迁移，已经不再缺乏基础设施支撑
 
 但当前 Patchouli 本身仍处于“结构未规范化”的中间态。
 
@@ -80,7 +78,7 @@
 - 顶层结构虽然已经成立
 - 但 Patchouli 还没有真正成为“独立、规范、可演进的子系统”
 
-如果现在继续推进更多入口迁移，只会把 Patchouli 的私有结构继续从侧面暴露给顶层。
+如果现在继续推进更多入口迁移，只会把 Patchouli 的私有结构继续从侧面暴露给顶层，也会阻碍下一阶段将 Agent runtime 抽离到 Alice。
 
 ***
 
@@ -111,6 +109,12 @@ Patchouli System Normalization 只做 4 件事。
 - `PatchouliBus`
 - `PatchouliBridge`
 - shutdown / generation / runtime flags
+
+需要特别说明的是：
+
+- `KernelLoopExecutor` 与后续关联的 `Koakuma` 在 Phase B 中允许暂由 PatchouliRuntimeHost 过渡托管
+- 这种托管只是为了先完成 Patchouli 子系统化，不代表其长期归属仍在 Patchouli
+- 它们在后续 `Phase C / Alice Runtime Foundation` 中应逐步迁入 Alice，成为 Agent runtime 的正式组成部分
 
 ### 3.3 建立 Patchouli 子系统自己的 lifecycle manager
 
@@ -321,6 +325,14 @@ graph TD
 - `PatchouliBridge`
 - generation cancellation registry
 - shutdown / health flags
+
+其中：
+
+- `KernelLoopExecutor`
+- 与其紧耦合的 `Koakuma`
+- 以及未来可能抽出的 Agent runtime 状态
+
+都应被视为“Phase B 过渡期托管对象”，而不是 PatchouliRuntimeHost 的长期边界。
 
 #### 它不应持有
 
@@ -613,6 +625,7 @@ src/hivememory/patchouli
 - `PatchouliService` 不再承担对象图装配与 lifecycle 宿主职责
 - Patchouli 的 route 注册、maintenance 注册、shutdown drain 已归于子系统自身管理
 - 后续 `ChatApplicationService` / `Alice` 接入时，不再需要直接碰 Patchouli 私有 runtime 结构
+- `KernelLoopExecutor` / `Koakuma` 即使在此时仍暂由 Patchouli 托管，也必须已被明确标记为后续 `Phase C` 迁往 Alice 的对象，且不得重新回流到 façade 或顶层 system
 
 如果只是从 `PatchouliSystem` 中挪出几个方法，但顶层仍在拼 Patchouli 私有对象图，这一步就不能算真正完成。
 
