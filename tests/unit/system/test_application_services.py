@@ -1,14 +1,22 @@
 """ChatApplicationService / PassiveIngressService 委托测试"""
 
+import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+from dataclasses import dataclass
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
+    ChatResult,
     EyeGazeResult,
     KernelHotResult,
+)
+from hivememory.patchouli.models import (
+    FinalizeContext,
+    PreparedAgentRun,
+    StreamPrelude,
 )
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive import PassiveIngressEvent
@@ -18,13 +26,75 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 
 
+def _make_prepared_run(**overrides) -> PreparedAgentRun:
+    identity = Identity(user_id="u1", agent_id="omni_doll")
+    hot_result = KernelHotResult(
+        intent="RAG",
+        rewritten="resolved",
+        keywords=["k"],
+        worth_saving=True,
+    )
+    defaults = dict(
+        identity=identity,
+        agent_id="omni_doll",
+        topic_id="topic_1",
+        user_message="hi",
+        messages=[{"role": "user", "content": "hi"}],
+        agent_profile=OMNI_DOLL_PROFILE,
+        stream_prelude=StreamPrelude(
+            topic_id="topic_1",
+            is_new_topic=False,
+            pool_snapshot={},
+            memory_refs=[],
+        ),
+        finalize_context=FinalizeContext(
+            hot_result=hot_result,
+            identity=identity,
+            topic_id="topic_1",
+            user_message="hi",
+        ),
+        generation_options=None,
+    )
+    defaults.update(overrides)
+    return PreparedAgentRun(**defaults)
+
+
+def _make_chat_result() -> ChatResult:
+    return ChatResult(
+        final_text="hello!",
+        mtp_iterations=0,
+        total_iterations=1,
+        mtp_commands_executed=[],
+        turn_events=[],
+    )
+
+
 @pytest.fixture
-def mock_patchouli_service():
-    service = MagicMock()
-    service.chat = AsyncMock(return_value="chat_result")
-    service.chat_stream = MagicMock()
-    service.cancel_generation = MagicMock(return_value=True)
-    return service
+def mock_global_bus():
+    """模拟 GlobalSystemBus，根据路由返回不同结果。"""
+    bus = MagicMock(spec=GlobalSystemBus)
+
+    prepared = _make_prepared_run()
+    chat_result = _make_chat_result()
+
+    async def route_dispatch(route, *args, **kwargs):
+        if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+            return prepared
+        elif route == GlobalRoutes.ALICE_RUN_AGENT:
+            return chat_result
+        elif route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
+            return None
+        elif route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
+            return True
+        elif route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+            async def _stream():
+                yield {"event": "token", "data": {"content": "hi"}}
+                yield {"event": "done", "data": chat_result.model_dump()}
+            return _stream()
+        return None
+
+    bus.request = AsyncMock(side_effect=route_dispatch)
+    return bus
 
 
 @pytest.fixture
@@ -75,45 +145,106 @@ def _make_analysis_result(
 
 class TestChatApplicationService:
     @pytest.mark.asyncio
-    async def test_chat_passes_all_args(self, mock_patchouli_service):
-        svc = ChatApplicationService(patchouli_service=mock_patchouli_service)
+    async def test_chat_calls_prepare_run_finalize(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
         result = await svc.chat(
             user_message="hi",
             user_id="u1",
-            agent_id="agent_x",
+            agent_id="omni_doll",
             session_id="s1",
-            enable_memory_retrieval=False,
+            enable_memory_retrieval=True,
             generation_options={"max_tokens": 100},
         )
-        mock_patchouli_service.chat.assert_called_once_with(
-            user_message="hi",
-            user_id="u1",
-            agent_id="agent_x",
-            session_id="s1",
-            enable_memory_retrieval=False,
-            generation_options={"max_tokens": 100},
-        )
-        assert result == "chat_result"
+        assert result.final_text == "hello!"
+        # 3 bus calls: prepare, run_agent, finalize
+        assert mock_global_bus.request.await_count == 3
+        routes_called = [
+            call.args[0] for call in mock_global_bus.request.await_args_list
+        ]
+        assert GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN in routes_called
+        assert GlobalRoutes.ALICE_RUN_AGENT in routes_called
+        assert GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN in routes_called
 
     @pytest.mark.asyncio
-    async def test_chat_stream_yields_events(self, mock_patchouli_service):
-        async def fake_stream(**kwargs):
-            yield {"event": "token", "data": {"content": "hi"}}
-            yield {"event": "done", "data": {}}
-
-        mock_patchouli_service.chat_stream = fake_stream
-        svc = ChatApplicationService(patchouli_service=mock_patchouli_service)
+    async def test_chat_stream_emits_prelude_and_done(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
         events = []
         async for e in svc.chat_stream(user_message="hi", user_id="u1"):
             events.append(e)
-        assert len(events) == 2
-        assert events[0]["event"] == "token"
 
-    def test_cancel_generation(self, mock_patchouli_service):
-        svc = ChatApplicationService(patchouli_service=mock_patchouli_service)
-        mock_patchouli_service.cancel_generation.return_value = False
+        event_types = [e["event"] for e in events]
+        assert "generation_id" in event_types
+        assert "topic_info" in event_types
+        assert "memory_refs" in event_types
+        assert "token" in event_types
+        assert "done" in event_types
+
+    def test_cancel_generation_returns_false_when_unknown(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
         assert svc.cancel_generation("gen-1") is False
-        mock_patchouli_service.cancel_generation.assert_called_once_with("gen-1")
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_cleans_up_prepared_run_on_runtime_error(self, mock_global_bus):
+        prepared = _make_prepared_run()
+
+        async def route_dispatch(route, *args, **kwargs):
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                raise RuntimeError("boom")
+            if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
+                return True
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        events = []
+        async for e in svc.chat_stream(user_message="hi", user_id="u1"):
+            events.append(e)
+
+        assert events[-1]["event"] == "error"
+        routes_called = [
+            call.args[0] for call in mock_global_bus.request.await_args_list
+        ]
+        assert GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN in routes_called
+
+    @pytest.mark.asyncio
+    async def test_cancel_generation_sets_registered_cancel_event(self, mock_global_bus):
+        observed_cancel_event = None
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        prepared = _make_prepared_run()
+        chat_result = _make_chat_result()
+
+        async def route_dispatch(route, *args, **kwargs):
+            nonlocal observed_cancel_event
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                observed_cancel_event = kwargs["cancel_event"]
+
+                async def _stream():
+                    yield {"event": "token", "data": {"content": "hi"}}
+                    await asyncio.sleep(0)
+                    yield {"event": "done", "data": chat_result.model_dump()}
+
+                return _stream()
+            if route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
+                return None
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        events = []
+        async for e in svc.chat_stream(user_message="hi", user_id="u1"):
+            events.append(e)
+            if e["event"] == "generation_id":
+                assert svc.cancel_generation(e["data"]["generation_id"]) is True
+
+        assert observed_cancel_event is not None
+        assert observed_cancel_event.is_set() is True
+        assert events[-1]["event"] == "done"
+        assert events[-1]["data"]["stopped"] is True
 
 
 class TestPassiveIngressService:

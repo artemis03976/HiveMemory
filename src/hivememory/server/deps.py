@@ -42,11 +42,6 @@ def get_system() -> HiveMemorySystem:
     return _system
 
 
-def get_patchouli() -> PatchouliSystem:
-    """FastAPI Depends 注入 — 获取 PatchouliSystem（兼容性访问器）"""
-    return get_system().patchouli
-
-
 def get_user_id(x_user_id: str = Header(default=DEFAULT_USER_ID)) -> str:
     """从请求头 x-user-id 提取用户 ID"""
     return x_user_id

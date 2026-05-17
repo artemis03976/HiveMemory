@@ -24,11 +24,9 @@
 版本: 3.0
 """
 
-import asyncio
 import logging
-from typing import TYPE_CHECKING, AsyncGenerator, Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
-from hivememory.core.protocol.models import ChatResult
 from hivememory.patchouli.service import PatchouliService
 from hivememory.infrastructure.system_bus import SystemBus
 
@@ -96,7 +94,6 @@ class PatchouliSystem(SubsystemProtocol):
             >>> system = PatchouliSystem(config=config)
         """
         self.config = config
-
         # 0. 创建旧内核仍依赖的内部 SystemBus。
         # 外部已不再允许注入该过渡总线，后续会继续向统一 async bus 体系收敛。
         self.bus = SystemBus()
@@ -192,11 +189,6 @@ class PatchouliSystem(SubsystemProtocol):
     @property
     def name(self) -> str:
         return "patchouli"
-
-    # ========== 生成取消 API ==========
-
-    def cancel_generation(self, generation_id: str) -> bool:
-        return self.service.cancel_generation(generation_id)
 
     # ========== 维护任务注册 ==========
 
@@ -303,53 +295,27 @@ class PatchouliSystem(SubsystemProtocol):
             "memory.get_memory_by_alias",
             self.kernel.get_memory_by_alias,
         )
+        self._local_bus.register(
+            "service.prepare_agent_run",
+            self.service.prepare_agent_run,
+        )
+        self._local_bus.register(
+            "service.finalize_agent_run",
+            self.service.finalize_agent_run,
+        )
+        self._local_bus.register(
+            "service.cleanup_prepared_agent_run",
+            self.service.cleanup_prepared_agent_run,
+        )
 
     def _unregister_local_routes(self) -> None:
         self._local_bus.unregister("kernel.submit_interaction")
         self._local_bus.unregister("passive.analyze_and_retrieve")
         self._local_bus.unregister("memory.retrieve")
         self._local_bus.unregister("memory.get_memory_by_alias")
-
-    # ========== Kernel 驱动的对话 API ==========
-
-    async def chat(
-        self,
-        user_message: str,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
-        enable_memory_retrieval: bool = True,
-        generation_options: Optional[Dict[str, Any]] = None,
-    ) -> ChatResult:
-        return await self.service.chat(
-            user_message=user_message,
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-            enable_memory_retrieval=enable_memory_retrieval,
-            generation_options=generation_options,
-        )
-
-    # ========== 流式对话 API (SSE) ==========
-
-    async def chat_stream(
-        self,
-        user_message: str,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
-        enable_memory_retrieval: bool = True,
-        generation_options: Optional[Dict[str, Any]] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        async for event in self.service.chat_stream(
-            user_message=user_message,
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-            enable_memory_retrieval=enable_memory_retrieval,
-            generation_options=generation_options,
-        ):
-            yield event
+        self._local_bus.unregister("service.prepare_agent_run")
+        self._local_bus.unregister("service.finalize_agent_run")
+        self._local_bus.unregister("service.cleanup_prepared_agent_run")
 
     async def manual_trigger(
         self,

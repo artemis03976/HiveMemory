@@ -75,7 +75,7 @@ class HiveMemorySystem:
             global_bus=global_bus,
         )
 
-        chat_service = ChatApplicationService(patchouli_service=patchouli.service)
+        chat_service = ChatApplicationService(global_bus=global_bus)
         ingress_service = PassiveIngressService(
             bus=global_bus,
             config=config,

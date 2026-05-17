@@ -171,7 +171,7 @@ class MTPExecutionResult(BaseModel):
 
 class ChatResult(BaseModel):
     """
-    PatchouliSystem.chat() 的返回值
+    主动 chat 主链路的统一返回值
 
     封装 Kernel 递归生成循环的完整结果，包含最终文本和 MTP 执行统计。
 

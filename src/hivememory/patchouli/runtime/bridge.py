@@ -27,6 +27,9 @@ class PatchouliBridge(SubsystemBridge):
         PatchouliRoutes.SUBMIT_INTERACTION: "kernel.submit_interaction",
         PatchouliRoutes.MEMORY_RETRIEVE: "memory.retrieve",
         PatchouliRoutes.MEMORY_GET_BY_ALIAS: "memory.get_memory_by_alias",
+        PatchouliRoutes.PREPARE_AGENT_RUN: "service.prepare_agent_run",
+        PatchouliRoutes.FINALIZE_AGENT_RUN: "service.finalize_agent_run",
+        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN: "service.cleanup_prepared_agent_run",
     }
 
     BRIDGED_EVENTS: list[str] = [

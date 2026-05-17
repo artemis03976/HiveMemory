@@ -2,7 +2,7 @@ import asyncio
 from unittest.mock import patch
 
 from hivememory.patchouli.service import PatchouliService
-from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system import HiveMemorySystem
 from hivememory.system.config import load_app_config
 
 # 1. 保存原始方法
@@ -49,14 +49,14 @@ def debug_assemble_messages(self, topic_context, hot_result, user_message):
 
 async def main():
     print("初始化系统...")
-    # 实例化 PatchouliSystem，显式注入配置
-    system = PatchouliSystem(config=load_app_config())
+    # 实例化顶层系统，走 Phase D 主入口
+    system = HiveMemorySystem.build(config=load_app_config())
+    await system.start()
     
     print("\n开始测试对话 (使用拦截器)...")
     # 2. 使用 patch.object 临时替换方法
     with patch.object(PatchouliService, '_assemble_messages_from_context', new=debug_assemble_messages):
         # 触发 chat 或 chat_stream
-        # 这里演示调用普通的 chat，chat_stream 同理，因为底层都调用 _assemble_messages_from_context
         try:
             result = await system.chat(
                 user_message="我是一个正在学习做饭的新手，我想了解一下怎么样才能做出一份标准又好吃的红烧羊肉？",
@@ -66,6 +66,8 @@ async def main():
             print(f"\n✅ [Response]: {result.final_text}")
         except Exception as e:
             print(f"执行出错 (可能是没有配置正确的环境变量): {e}")
+        finally:
+            await system.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())

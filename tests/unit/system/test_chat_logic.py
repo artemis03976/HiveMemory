@@ -28,6 +28,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 import types
 
+pytestmark = pytest.mark.skip(
+    reason="Legacy PatchouliSystem.chat tests are obsolete after Phase D migration."
+)
+
 from hivememory.core.models import Identity, StreamMessage, TurnRecord
 from hivememory.engines.perception.models import LogicalBlock
 from hivememory.core.protocol.models import (

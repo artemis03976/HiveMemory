@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import logging
-import uuid
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from hivememory.core.models import Identity
-from hivememory.infrastructure.trace_context import (
-    generate_trace_id,
-    reset_trace_context,
-    set_trace_context,
-)
 from hivememory.patchouli.message_assembler import MessageAssembler
+from hivememory.patchouli.models import (
+    FinalizeContext,
+    PreparedAgentRun,
+    StreamPrelude,
+)
 from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     ChatResult,
@@ -28,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class PatchouliService:
-    """Patchouli 对外能力门面，承载 chat / stream / trigger / analyze API。"""
+    """Patchouli 对外能力门面，承载记忆域 prepare/finalize/trigger/analyze API。"""
 
     def __init__(
         self,
@@ -65,7 +64,9 @@ class PatchouliService:
             hot_result=hot_result,
         )
 
-    async def chat(
+    # ========== Phase D: prepare / finalize 公开能力 ==========
+
+    async def prepare_agent_run(
         self,
         user_message: str,
         user_id: str,
@@ -73,137 +74,27 @@ class PatchouliService:
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
-    ) -> ChatResult:
+    ) -> PreparedAgentRun:
         """
-        Kernel 驱动的对话入口
+        准备一次 Agent 运行所需的完整记忆上下文。
 
-        流程:
-        1. [Perception Layer] 获取活跃话题快照
-        2. [The Eye] 意图识别 + 查询重写 + 话题路由
-        3. [Perception Layer] 根据路由决策获取完整话题上下文
-        4. [Kernel.handle_hot] 预检索
-        5. [Prompt Assembly] 从感知层上下文组装 messages
-        6. [The Loop] 递归生成循环 (Phase A→B→C→D)
-        7. [Librarian] 异步记录 assistant 回复到感知层
-
-        Args:
-            user_message: 当前用户消息
-            user_id: 用户 ID
-            agent_id: Agent ID
-            session_id: 会话 ID
-            enable_memory_retrieval: 是否启用记忆预检索
+        执行步骤:
+            1. 构造 Identity
+            2. 加载 AgentProfile
+            3. 获取活跃话题快照
+            4. TheEye.gaze — 意图识别 + 查询重写 + 话题路由
+            5. prepare_topic — 预创建/刷新话题
+            6. handle_hot — 预检索
+            7. 注册预检索别名
+            8. 组装 messages
 
         Returns:
-            ChatResult: 递归生成循环的完整结果
+            PreparedAgentRun: 顶层可直接用于调用 Alice 的完整上下文
         """
-        trace_id = generate_trace_id("chat")
-        tokens = set_trace_context(trace_id, "PatchouliService.Chat", "foreground")
+        real_topic_id: Optional[str] = None
+        is_new = False
 
         try:
-            logger.info("Processing user chat message")
-
-            identity = Identity(
-                user_id=user_id,
-                agent_id=agent_id,
-                session_id=session_id,
-            )
-            agent_profile = self._kernel.load_agent_profile(agent_id)
-            topic_snapshots = await self._kernel.get_topic_snapshots(identity)
-
-            gaze_result = await self._eye.gaze(
-                query=user_message,
-                topic_snapshots=topic_snapshots,
-                identity=identity,
-            )
-
-            real_topic_id, _, topic_context = await self._kernel.prepare_topic(
-                target_topic_id=gaze_result.target_topic,
-                new_topic_title=gaze_result.new_topic_title,
-                new_topic_summary=gaze_result.new_topic_summary,
-                identity=identity,
-            )
-
-            hot_result = await self._kernel.handle_hot(
-                gaze_result,
-                enable_retrieval=enable_memory_retrieval,
-            )
-
-            if hot_result.retrieved_memories:
-                await self._register_preretrieval_aliases(
-                    hot_result.retrieved_memories
-                )
-
-            messages = self._assemble_messages_from_context(
-                topic_context=topic_context,
-                hot_result=hot_result,
-                user_message=user_message,
-                profile=agent_profile,
-                current_agent_id=agent_id,
-            )
-
-            loop_result = await self._run_agent(
-                messages=messages,
-                identity=identity,
-                agent_id=agent_id,
-                topic_id=real_topic_id,
-                generation_options=generation_options,
-                agent_profile=agent_profile,
-            )
-
-            await self._chat_post_process(
-                messages=messages,
-                loop_result=loop_result,
-                hot_result=hot_result,
-                identity=identity,
-                topic_id=real_topic_id,
-                user_message=user_message,
-            )
-
-            logger.info("Chat completed successfully")
-            return loop_result
-        finally:
-            reset_trace_context(tokens)
-
-    async def chat_stream(
-        self,
-        user_message: str,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
-        enable_memory_retrieval: bool = True,
-        generation_options: Optional[Dict[str, Any]] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        流式对话入口 — chat() 的 SSE 流式变体
-
-        逐 token 推送 LLM 生成文本，MTP 执行过程实时推送状态。
-        复用 chat() 的所有私有方法，仅将递归循环改为流式 yield。
-
-        SSE 事件类型:
-            - topic_info: 话题路由结果
-            - token: LLM 生成的文本增量
-            - mtp_start: MTP 指令被拦截
-            - mtp_result: MTP 执行完成
-            - done: 生成完成
-            - error: 错误发生
-
-        Yields:
-            Dict[str, Any]: {"event": str, "data": dict}
-        """
-        trace_id = generate_trace_id("stream")
-        tokens = set_trace_context(trace_id, "PatchouliService.Stream", "foreground")
-
-        generation_id = str(uuid.uuid4())
-        cancel_event = None
-
-        try:
-            logger.info("Processing user stream message")
-
-            yield {
-                "event": "generation_id",
-                "data": {"generation_id": generation_id},
-            }
-
             identity = Identity(
                 user_id=user_id,
                 agent_id=agent_id,
@@ -226,34 +117,13 @@ class PatchouliService:
                 identity=identity,
             )
 
-            yield {
-                "event": "topic_info",
-                "data": {
-                    "topic_id": real_topic_id,
-                    "is_new": is_new,
-                    "pool": pool_snapshot,
-                },
-            }
-
             hot_result = await self._kernel.handle_hot(
                 gaze_result,
                 enable_retrieval=enable_memory_retrieval,
             )
 
             if hot_result.retrieved_memories:
-                await self._register_preretrieval_aliases(
-                    hot_result.retrieved_memories
-                )
-
-            yield {
-                "event": "memory_refs",
-                "data": {
-                    "memories": [
-                        MemoryResponse.from_atom(m).model_dump(mode="json")
-                        for m in hot_result.retrieved_memories
-                    ],
-                },
-            }
+                await self._register_preretrieval_aliases(hot_result.retrieved_memories)
 
             messages = self._assemble_messages_from_context(
                 topic_context=topic_context,
@@ -263,63 +133,86 @@ class PatchouliService:
                 current_agent_id=agent_id,
             )
 
-            loop_result = None
-
-            stream = await self._run_agent_stream(
-                messages=messages,
-                identity=identity,
-                agent_id=agent_id,
+            stream_prelude = StreamPrelude(
                 topic_id=real_topic_id,
-                generation_options=generation_options,
-                agent_profile=agent_profile,
-                cancel_event=cancel_event,
+                is_new_topic=is_new,
+                pool_snapshot=pool_snapshot,
+                memory_refs=[
+                    MemoryResponse.from_atom(m).model_dump(mode="json")
+                    for m in hot_result.retrieved_memories
+                ],
             )
-            async for event in stream:
-                if event["event"] == "done":
-                    loop_result = ChatResult(**event["data"])
-                else:
-                    yield event
 
-            if loop_result is None:
-                raise RuntimeError("Stream ended without done event")
-
-            await self._chat_post_process(
-                messages=messages,
-                loop_result=loop_result,
+            finalize_context = FinalizeContext(
                 hot_result=hot_result,
                 identity=identity,
                 topic_id=real_topic_id,
                 user_message=user_message,
             )
 
-            logger.info("Stream completed successfully")
-            yield {
-                "event": "done",
-                "data": {
-                    **loop_result.model_dump(),
-                    "stopped": False,
-                },
-            }
+            return PreparedAgentRun(
+                identity=identity,
+                agent_id=agent_id,
+                topic_id=real_topic_id,
+                user_message=user_message,
+                messages=messages,
+                agent_profile=agent_profile,
+                stream_prelude=stream_prelude,
+                finalize_context=finalize_context,
+                generation_options=generation_options,
+            )
+        except Exception:
+            if is_new and real_topic_id:
+                await self._cleanup_empty_topic_if_needed(real_topic_id)
+            raise
+
+    async def finalize_agent_run(
+        self,
+        prepared_run: PreparedAgentRun,
+        loop_result: ChatResult,
+    ) -> None:
+        """
+        Agent 运行完成后提交 interaction 并执行后处理。
+
+        Args:
+            prepared_run: prepare_agent_run 返回的上下文
+            loop_result: Alice 运行返回的 ChatResult
+        """
+        ctx = prepared_run.finalize_context
+
+        try:
+            interaction_state = await self._get_interaction_state()
+            mtp_traces = interaction_state["mtp_traces"]
+            write_focus = interaction_state["write_focus"]
+            update_focus = interaction_state["update_focus"]
         except Exception as e:
-            logger.error(f"chat_stream 异常: {e}", exc_info=True)
-            if "is_new" in dir() and is_new and "real_topic_id" in dir():
-                try:
-                    buf = self._kernel.librarian_core.perception_layer.get_buffer(
-                        real_topic_id
-                    )
-                    if buf and not buf.blocks:
-                        self._kernel.librarian_core.perception_layer.swap_out_topic(
-                            real_topic_id
-                        )
-                        logger.info(f"已清理预创建的空话题: {real_topic_id}")
-                except Exception:
-                    pass
-            yield {
-                "event": "error",
-                "data": {"message": "系统错误，请检查后端服务器"},
-            }
-        finally:
-            reset_trace_context(tokens)
+            logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
+            mtp_traces = []
+            write_focus = None
+            update_focus = None
+
+        payload = InteractionPayload(
+            user_message=ctx.user_message,
+            mtp_traces=mtp_traces,
+            write_focus=write_focus,
+            update_focus=update_focus,
+            identity=ctx.identity,
+            rewritten_query=ctx.hot_result.rewritten,
+            worth_saving=ctx.hot_result.worth_saving,
+            assistant_final_text=loop_result.final_text,
+            turn_events=loop_result.turn_events,
+        )
+
+        await self._kernel.submit_interaction(payload, target_topic=ctx.topic_id)
+
+    async def cleanup_prepared_agent_run(
+        self,
+        prepared_run: PreparedAgentRun,
+    ) -> bool:
+        """清理已 prepare 但未完成 finalize 的流式运行残留。"""
+        if not prepared_run.stream_prelude.is_new_topic:
+            return False
+        return await self._cleanup_empty_topic_if_needed(prepared_run.topic_id)
 
     async def manual_trigger(
         self,
@@ -368,45 +261,6 @@ class PatchouliService:
             current_agent_id=current_agent_id,
         )
 
-    async def _chat_post_process(
-        self,
-        messages: List[Dict[str, str]],
-        loop_result: ChatResult,
-        hot_result,
-        identity: Identity,
-        topic_id: str,
-        user_message: str,
-    ) -> None:
-        """统一处理 chat/chat_stream 结束后的交互提交。"""
-        try:
-            interaction_state = await self._get_interaction_state()
-            mtp_traces = interaction_state["mtp_traces"]
-            write_focus = interaction_state["write_focus"]
-            update_focus = interaction_state["update_focus"]
-        except Exception as e:
-            logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
-            mtp_traces = []
-            write_focus = None
-            update_focus = None
-
-        payload = InteractionPayload(
-            user_message=user_message,
-            mtp_traces=mtp_traces,
-            write_focus=write_focus,
-            update_focus=update_focus,
-            identity=identity,
-            rewritten_query=hot_result.rewritten,
-            worth_saving=hot_result.worth_saving,
-            assistant_final_text=loop_result.final_text,
-            turn_events=loop_result.turn_events,
-        )
-
-        await self._kernel.submit_interaction(payload, target_topic=topic_id)
-
-    def cancel_generation(self, generation_id: str) -> bool:
-        """生成取消逻辑在规范化过程中暂时断开。"""
-        return False
-
     def _require_global_bus(self) -> GlobalSystemBus:
         if self._global_bus is None:
             raise RuntimeError("PatchouliService 尚未接入 GlobalSystemBus")
@@ -418,22 +272,18 @@ class PatchouliService:
             memories,
         )
 
-    async def _run_agent(self, **kwargs: Any) -> ChatResult:
-        return await self._require_global_bus().request(
-            GlobalRoutes.ALICE_RUN_AGENT,
-            **kwargs,
-        )
-
-    async def _run_agent_stream(
-        self,
-        **kwargs: Any,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        return await self._require_global_bus().request(
-            GlobalRoutes.ALICE_RUN_AGENT_STREAM,
-            **kwargs,
-        )
-
     async def _get_interaction_state(self) -> Dict[str, Any]:
         return await self._require_global_bus().request(
             GlobalRoutes.ALICE_GET_INTERACTION_STATE,
         )
+
+    async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:
+        try:
+            buf = self._kernel.librarian_core.perception_layer.get_buffer(topic_id)
+            if buf and not buf.blocks:
+                self._kernel.librarian_core.perception_layer.swap_out_topic(topic_id)
+                logger.info(f"已清理预创建的空话题: {topic_id}")
+                return True
+        except Exception:
+            logger.warning("清理预创建空话题失败", exc_info=True)
+        return False
