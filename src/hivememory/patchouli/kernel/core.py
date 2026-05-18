@@ -360,7 +360,6 @@ class PatchouliKernel:
 
         # --- Storage 服务路由 ---
         bus.register("storage.get_memory", self._bus_get_memory)
-        bus.register("storage.get_memory_by_alias", self._bus_get_memory_by_alias)
         bus.register("memory.get_memory_by_alias", self._bus_get_memory_by_alias)
 
         logger.info(

@@ -31,7 +31,7 @@ from hivememory.patchouli.service import PatchouliService
 
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.runtime.bridge import PatchouliBridge
+from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.kernel import PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
@@ -96,11 +96,7 @@ class PatchouliSystem(SubsystemProtocol):
 
         # 0. 子系统运行时挂载点
         self._local_bus = PatchouliBus()
-        self._bridge = (
-            PatchouliBridge(local_bus=self._local_bus, global_bus=global_bus)
-            if global_bus is not None
-            else None
-        )
+        self._global_bus = global_bus
 
         # 1. 初始化 Kernel（内核管理 Retrieval + Librarian 微服务，注册内部总线路由）
         self.kernel = PatchouliKernel(config=self.config, bus=self._local_bus)
@@ -122,7 +118,7 @@ class PatchouliSystem(SubsystemProtocol):
 
         self._scheduler = scheduler
         self._local_routes_registered = False
-        self._bridge_mounted = False
+        self._public_routes_registered = False
         self._maintenance_registered = False
         self._shutdown_drain_started = False
 
@@ -218,18 +214,18 @@ class PatchouliSystem(SubsystemProtocol):
             self._maintenance_registered = self.register_maintenance_tasks(
                 self._scheduler
             )
-        if self._bridge and not self._bridge_mounted:
-            self._bridge.mount()
-            self._bridge_mounted = True
+        if self._global_bus and not self._public_routes_registered:
+            self._register_public_routes()
+            self._public_routes_registered = True
 
     async def stop(self) -> None:
         if self._scheduler and self._maintenance_registered:
             self.unregister_maintenance_tasks(self._scheduler)
             self._maintenance_registered = False
         await self.shutdown_drain()
-        if self._bridge and self._bridge_mounted:
-            self._bridge.unmount()
-            self._bridge_mounted = False
+        if self._global_bus and self._public_routes_registered:
+            self._unregister_public_routes()
+            self._public_routes_registered = False
         if self._local_bus and self._local_routes_registered:
             self._unregister_local_routes()
             self._local_routes_registered = False
@@ -312,6 +308,45 @@ class PatchouliSystem(SubsystemProtocol):
         self._local_bus.unregister("service.prepare_agent_run")
         self._local_bus.unregister("service.finalize_agent_run")
         self._local_bus.unregister("service.cleanup_prepared_agent_run")
+
+    def _register_public_routes(self) -> None:
+        self._global_bus.register(
+            PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE,
+            self.service.analyze_and_retrieve,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.SUBMIT_INTERACTION,
+            self.kernel.submit_interaction,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.MEMORY_RETRIEVE,
+            self.kernel.retrieve_memories,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.MEMORY_GET_BY_ALIAS,
+            self.kernel.get_memory_by_alias,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.PREPARE_AGENT_RUN,
+            self.service.prepare_agent_run,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.FINALIZE_AGENT_RUN,
+            self.service.finalize_agent_run,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
+            self.service.cleanup_prepared_agent_run,
+        )
+
+    def _unregister_public_routes(self) -> None:
+        self._global_bus.unregister(PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE)
+        self._global_bus.unregister(PatchouliRoutes.SUBMIT_INTERACTION)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_GET_BY_ALIAS)
+        self._global_bus.unregister(PatchouliRoutes.PREPARE_AGENT_RUN)
+        self._global_bus.unregister(PatchouliRoutes.FINALIZE_AGENT_RUN)
+        self._global_bus.unregister(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN)
 
     async def manual_trigger(
         self,

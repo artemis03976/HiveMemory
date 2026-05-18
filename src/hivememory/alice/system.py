@@ -12,7 +12,6 @@ from typing import Any, Optional
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.bridge import AliceBridge
 from hivememory.alice.runtime.host import AgentRuntimeHost
 from hivememory.alice.service import AliceService
 from hivememory.system.config import HiveMemoryConfig
@@ -29,7 +28,7 @@ class AliceSystem(SubsystemProtocol):
     职责：
     - 持有 AgentRuntimeHost (KoakumaRuntime, FrameScheduler, KernelLoopExecutor, WorkerAgentService)
     - 提供 AliceService (run_agent / run_agent_stream)
-    - 接入全局 bus / bridge
+    - 将公开路由注册到全局总线
     - 实现 SubsystemProtocol 生命周期
     """
 
@@ -39,6 +38,7 @@ class AliceSystem(SubsystemProtocol):
         global_bus: Optional[GlobalSystemBus] = None,
     ) -> None:
         self._config = config
+        self._global_bus = global_bus
 
         self._local_bus = AliceBus()
 
@@ -50,14 +50,8 @@ class AliceSystem(SubsystemProtocol):
 
         self._service = AliceService(runtime_host=self._runtime_host)
 
-        self._bridge = (
-            AliceBridge(local_bus=self._local_bus, global_bus=global_bus)
-            if global_bus is not None
-            else None
-        )
-
         self._local_routes_registered = False
-        self._bridge_mounted = False
+        self._public_routes_registered = False
 
         logger.info("AliceSystem 初始化完成")
 
@@ -77,14 +71,14 @@ class AliceSystem(SubsystemProtocol):
         if not self._local_routes_registered:
             self._register_local_routes()
             self._local_routes_registered = True
-        if self._bridge and not self._bridge_mounted:
-            self._bridge.mount()
-            self._bridge_mounted = True
+        if self._global_bus and not self._public_routes_registered:
+            self._register_public_routes()
+            self._public_routes_registered = True
 
     async def stop(self) -> None:
-        if self._bridge and self._bridge_mounted:
-            self._bridge.unmount()
-            self._bridge_mounted = False
+        if self._global_bus and self._public_routes_registered:
+            self._unregister_public_routes()
+            self._public_routes_registered = False
         if self._local_routes_registered:
             self._unregister_local_routes()
             self._local_routes_registered = False
@@ -94,6 +88,30 @@ class AliceSystem(SubsystemProtocol):
             "status": "ok",
             "runtime": self._runtime_host.health(),
         }
+
+    def _register_public_routes(self) -> None:
+        self._global_bus.register(
+            AliceRoutes.RUN_AGENT,
+            self._service.run_agent,
+        )
+        self._global_bus.register(
+            AliceRoutes.RUN_AGENT_STREAM,
+            self._run_agent_stream_route,
+        )
+        self._global_bus.register(
+            AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES,
+            self._service.register_preretrieval_aliases,
+        )
+        self._global_bus.register(
+            AliceRoutes.GET_INTERACTION_STATE,
+            self._service.get_interaction_state,
+        )
+
+    def _unregister_public_routes(self) -> None:
+        self._global_bus.unregister(AliceRoutes.RUN_AGENT)
+        self._global_bus.unregister(AliceRoutes.RUN_AGENT_STREAM)
+        self._global_bus.unregister(AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES)
+        self._global_bus.unregister(AliceRoutes.GET_INTERACTION_STATE)
 
     def _register_local_routes(self) -> None:
         self._local_bus.register(

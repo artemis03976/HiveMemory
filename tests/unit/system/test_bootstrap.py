@@ -12,17 +12,9 @@ class _FakePatchouliSystem:
     name = "patchouli"
 
     def __init__(self, config, global_bus=None, scheduler=None):
-        from hivememory.patchouli.runtime.bridge import PatchouliBridge
-        from hivememory.patchouli.runtime.bus import PatchouliBus
-
         self.config = config
-        self.bus = PatchouliBus()
-        self._local_bus = PatchouliBus()
-        self._bridge = (
-            PatchouliBridge(local_bus=self._local_bus, global_bus=global_bus)
-            if global_bus is not None
-            else None
-        )
+        self._global_bus = global_bus
+        self._local_bus = MagicMock()
         self._scheduler = scheduler
         self.kernel = MagicMock()
         self.kernel.is_models_ready.return_value = True
@@ -45,29 +37,21 @@ class _FakePatchouliSystem:
         self.health = AsyncMock(return_value={"status": "ok", "models_ready": True})
 
     async def _start_impl(self):
-        if self._local_bus:
-            self._local_bus.register(
-                "kernel.submit_interaction",
-                self.kernel.submit_interaction,
-            )
-            self._local_bus.register(
-                "passive.analyze_and_retrieve",
+        if self._global_bus:
+            self._global_bus.register(
+                PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE,
                 self.service.analyze_and_retrieve,
             )
-        if self._scheduler:
-            self.register_maintenance_tasks(self._scheduler)
-        if self._bridge:
-            self._bridge.mount()
+            self._global_bus.register(
+                PatchouliRoutes.SUBMIT_INTERACTION,
+                self.kernel.submit_interaction,
+            )
 
     async def _stop_impl(self):
-        if self._scheduler:
-            self.unregister_maintenance_tasks(self._scheduler)
         await self.shutdown_drain()
-        if self._bridge:
-            self._bridge.unmount()
-        if self._local_bus:
-            self._local_bus.unregister("kernel.submit_interaction")
-            self._local_bus.unregister("passive.analyze_and_retrieve")
+        if self._global_bus:
+            self._global_bus.unregister(PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE)
+            self._global_bus.unregister(PatchouliRoutes.SUBMIT_INTERACTION)
 
 
 def _make_config():
@@ -92,26 +76,25 @@ def test_build_registers_patchouli_and_uses_global_bus_runtime():
         system = HiveMemorySystem.build(config=config)
 
     assert isinstance(system._global_bus, GlobalSystemBus)
-    assert system.patchouli.bus is not None
     assert system.patchouli.name == "patchouli"
 
 
 @pytest.mark.asyncio
-async def test_start_mounts_patchouli_bridge_routes_on_global_bus():
+async def test_start_mounts_patchouli_public_routes_on_global_bus():
     config = _make_config()
 
     with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
         system = HiveMemorySystem.build(config=config)
 
-    assert PatchouliRoutes.PASSIVE_HANDLE_HOT not in system._global_bus.list_routes()
+    assert PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE not in system._global_bus.list_routes()
 
     await system.start()
 
-    assert PatchouliRoutes.PASSIVE_HANDLE_HOT in system._global_bus.list_routes()
+    assert PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE in system._global_bus.list_routes()
     assert PatchouliRoutes.SUBMIT_INTERACTION in system._global_bus.list_routes()
 
     result = await system._global_bus.request(
-        PatchouliRoutes.PASSIVE_HANDLE_HOT,
+        PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE,
         query="hello",
         identity=MagicMock(),
     )
@@ -122,4 +105,4 @@ async def test_start_mounts_patchouli_bridge_routes_on_global_bus():
     )
 
     await system.stop()
-    assert PatchouliRoutes.PASSIVE_HANDLE_HOT not in system._global_bus.list_routes()
+    assert PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE not in system._global_bus.list_routes()
