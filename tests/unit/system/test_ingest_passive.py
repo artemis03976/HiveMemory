@@ -7,7 +7,7 @@
     C. PatchouliSystem.ingest_event() 集成测试 — 完整 user→assistant→user 流程
 
 作者: HiveMemory Team
-版本: 2.0 (Phase P1 — PassiveObserverIngressor)
+版本: 2.0 (Phase D — PassiveMessageIngressor)
 """
 
 import asyncio
@@ -25,7 +25,6 @@ from hivememory.system.application.passive import (
     ObserverTurnBuffer,
     ObserverTurnBufferManager,
     PassiveIngressEvent,
-    PassiveObserverIngressor,
 )
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.contracts.routes import GlobalRoutes

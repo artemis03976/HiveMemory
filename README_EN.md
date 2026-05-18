@@ -47,7 +47,7 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 ### Core Capabilities
 
 - Patchouli trinity architecture: The Eye / Retrieval Familiar / Librarian Core
-- In-process communication bus: SystemBus
+- In-process runtime buses: AsyncSystemBus / GlobalSystemBus / subsystem-local buses
 - MTP (Memory Tool Protocol) with `SEARCH / READ / RUN / WRITE / UPDATE`
 - Persistent memory storage backed by Qdrant
 - Hybrid Dense + Sparse retrieval path
@@ -61,7 +61,7 @@ The current implementation of HiveMemory is built around the **Patchouli System*
 
 - **PatchouliSystem**: the top-level developer entrypoint that connects The Eye and PatchouliKernel
 - **The Eye**: the interaction gateway responsible for intent recognition, query rewriting, and traffic routing
-- **PatchouliKernel**: the system orchestrator that initializes infrastructure, registers services, and connects SystemBus
+- **PatchouliKernel**: the system orchestrator that initializes infrastructure, registers services, and attaches to the Patchouli local bus
 - **Retrieval Familiar**: the Hot Path retrieval service for hybrid retrieval, reranking, and context rendering
 - **Librarian Core**: the Cold Path memory service for topic perception, memory extraction, and lifecycle management
 - **KoakumaRuntime**: the MTP executor that intercepts and executes memory tool calls during generation
@@ -280,7 +280,7 @@ HiveMemory/
 ├── src/hivememory/
 │   ├── core/                # Core data models
 │   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle
-│   ├── infrastructure/      # Storage / LLM / SystemBus / WebSocket
+│   ├── infrastructure/      # Storage / LLM / WebSocket
 │   ├── patchouli/           # Patchouli system, Kernel, MTP, WorkerAgent
 │   └── server/              # FastAPI app entrypoint and routes
 └── tests/                   # Unit, integration, and end-to-end tests

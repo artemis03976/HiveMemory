@@ -20,7 +20,7 @@ HiveMemory 的前端不仅是给普通用户使用的“聊天窗口（Chat Inte
 
 - **透明性 (Transparency)**：系统在后台做了什么（比如偷偷把话题切到了上一个项目，或者正在检索数据库），必须以某种形式让用户感知到，不能做“黑盒”。
 - **沉浸感 (Immersion)**：复杂的后台操作必须是安静的，不能用弹窗或大段代码阻断用户的思维流。
-- **可观测性 (Observability)**：对于开发者，必须提供随时查看底层数据流（如 SystemBus 广播的事件、各个执行分身的处理结果、MTP 的原始 XML 响应）的渠道。
+- **可观测性 (Observability)**：对于开发者，必须提供随时查看底层数据流（如运行时总线广播的事件、各个执行分身的处理结果、MTP 的原始 XML 响应）的渠道。
 
 #### 1.2 机器态与人类态分离 (Separation of Machine and Human States)
 
@@ -275,7 +275,7 @@ Shadcn UI 采用“复制源码到项目”的模式（而非 npm 安装），�
     - 卡片列表：每张卡片显示 `Alias`（如 `fact_project_env`）、`Tags`（如 `#python` `#config`）和 `Summary`。
     - **交互**：点击卡片可查看该原子的完整 Payload 并在必要时复制 ID 供手动输入 MTP 指令时使用。
 - **Tab 2: 执行终端 (Execution Log/Terminal)**
-  - **功能**：可视化 SystemBus 的事件流和 *Koakuma*（小恶魔）的执行细节。
+  - **功能**：可视化运行时总线的事件流和 *Koakuma*（小恶魔）的执行细节。
   - **UI 元素**：
     - 类似 VS Code Terminal 的黑底绿字/白字风格区。
     - **日志条目**：
@@ -442,4 +442,3 @@ export function MtpActionCard({ status, logContent }) {
 由于 MTP 协议要求拦截 LLM 生成（见内核设计部分），前端收到的流（Stream）可能会出现卡顿。
 
 - *解决策略*：不要直接将后端的 chunk 瞬间渲染上去。在前端维护一个极小的 `Queue (队列)`，以恒定的速率（如每 20ms 出队一个 Token）渲染字符，并在末尾加上一个闪烁的光标 `<span className="animate-pulse bg-primary w-2 h-4 inline-block ml-1" />`。这能完美掩盖后端因为执行 MTP 而产生的零点几秒的网络延迟。
-

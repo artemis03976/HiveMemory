@@ -27,8 +27,9 @@
 """
 
 import asyncio
+import inspect
 import logging
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple
 
 from hivememory.core.models import Identity, AgentProfile, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
@@ -42,10 +43,8 @@ from hivememory.core.protocol.models import (
 from hivememory.system.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.alice.runtime.cache import AgentProfileCache
-
-if TYPE_CHECKING:
-    from hivememory.infrastructure.system_bus import SystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -79,14 +78,14 @@ class PatchouliKernel:
     def __init__(
         self,
         config: Optional[HiveMemoryConfig] = None,
-        bus: Optional["SystemBus"] = None,
+        bus: Optional[PatchouliBus] = None,
     ):
         """
         初始化帕秋莉内核
 
         Args:
             config: 完整的 HiveMemory 配置（可选）
-            bus: SystemBus 实例（可选），用于模块间通信路由
+            bus: Patchouli 子系统内部总线（可选）
         """
         self.config = config or load_app_config()
         self._bus = bus
@@ -327,7 +326,6 @@ class PatchouliKernel:
 
         self._services["librarian"] = LibrarianCore(
             storage=self.storage,
-            bus=self._bus,
             lifecycle_engine=self._engines["lifecycle"],
             perception_layer=self._engines["perception"],
             generation_engine=self._engines["generation"],
@@ -337,7 +335,7 @@ class PatchouliKernel:
 
     def _register_bus_routes(self) -> None:
         """
-        在 SystemBus 上注册外部 RPC 路由
+        在 PatchouliBus 上注册内核协作 RPC 路由
 
         路由命名规范: {service}.{method}
         仅注册外部/分身通信路由，内部模块调用已改为直接调用。
@@ -351,19 +349,22 @@ class PatchouliKernel:
         bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
         bus.register("librarian.manual_trigger", librarian_svc.manual_trigger)
         bus.register("librarian.prepare_topic", librarian_svc.prepare_topic)
-        bus.register("librarian.get_active_topics_snapshots", librarian_svc.get_active_topics_snapshots)
+        bus.register(
+            "librarian.get_active_topics_snapshots",
+            self._bus_get_active_topics_snapshots,
+        )
 
         # --- Retrieval 服务路由 ---
-        bus.register("retrieval.retrieve", retrieval_svc.retrieve)
-        bus.register("memory.retrieve", retrieval_svc.retrieve)
+        bus.register("retrieval.retrieve", self._bus_retrieve)
+        bus.register("memory.retrieve", self._bus_retrieve)
 
         # --- Storage 服务路由 ---
-        bus.register("storage.get_memory", self.storage.get_memory)
-        bus.register("storage.get_memory_by_alias", self.storage.get_memory_by_alias)
-        bus.register("memory.get_memory_by_alias", self.storage.get_memory_by_alias)
+        bus.register("storage.get_memory", self._bus_get_memory)
+        bus.register("storage.get_memory_by_alias", self._bus_get_memory_by_alias)
+        bus.register("memory.get_memory_by_alias", self._bus_get_memory_by_alias)
 
         logger.info(
-            f"SystemBus 路由注册完成: {len(bus.list_routes())} 条路由"
+            f"PatchouliBus 路由注册完成: {len(bus.list_routes())} 条路由"
         )
 
     @property
@@ -437,7 +438,7 @@ class PatchouliKernel:
             retrieval_request = self.build_retrieval_request(gaze_result)
             if retrieval_request:
                 if self._bus:
-                    retrieved_result = await self._bus.async_request(
+                    retrieved_result = await self._bus.request(
                         "retrieval.retrieve", retrieval_request, mode=mode,
                     )
                 else:
@@ -501,7 +502,7 @@ class PatchouliKernel:
         """
         try:
             if self._bus:
-                await self._bus.async_request("librarian.ingest_interaction", payload, target_topic)
+                await self._bus.request("librarian.ingest_interaction", payload, target_topic)
             else:
                 await self.librarian_core.ingest_interaction(payload, target_topic)
         except Exception as e:
@@ -546,7 +547,7 @@ class PatchouliKernel:
             Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
         """
         if self._bus:
-            return await self._bus.async_request("librarian.manual_trigger", topic_id)
+            return await self._bus.request("librarian.manual_trigger", topic_id)
         return await self.librarian_core.manual_trigger(topic_id)
 
     async def get_topic_snapshots(self, identity: "Identity") -> List:
@@ -562,7 +563,7 @@ class PatchouliKernel:
             List[TopicSnapshot]: 话题快照列表
         """
         if self._bus:
-            return await self._bus.async_request(
+            return await self._bus.request(
                 "librarian.get_active_topics_snapshots",
                 identity=identity,
             )
@@ -582,13 +583,39 @@ class PatchouliKernel:
             (real_topic_id, pool_snapshot, topic_context)
         """
         if self._bus:
-            return await self._bus.async_request(
+            return await self._bus.request(
                 "librarian.prepare_topic",
                 target_topic_id, new_topic_title, new_topic_summary, identity,
             )
         return await self.librarian_core.prepare_topic(
             target_topic_id, new_topic_title, new_topic_summary, identity
         )
+
+    async def _bus_retrieve(
+        self,
+        request: RetrievalRequest,
+        mode: str = "active",
+    ) -> RetrievalResponse:
+        return await asyncio.to_thread(self.retrieval_familiar.retrieve, request, mode)
+
+    async def _bus_get_memory(self, *args: Any, **kwargs: Any) -> Any:
+        result = self.storage.get_memory(*args, **kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def _bus_get_memory_by_alias(
+        self,
+        alias: str,
+        user_id: Optional[str] = None,
+    ) -> Any:
+        result = self.storage.get_memory_by_alias(alias, user_id)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def _bus_get_active_topics_snapshots(self, identity: "Identity") -> List:
+        return self.librarian_core.get_active_topics_snapshots(identity)
 
 
 __all__ = [

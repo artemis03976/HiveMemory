@@ -14,7 +14,6 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock
 
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.infrastructure.system_bus import SystemBus
 from hivememory.core.protocol.models import (
     EyeGazeResult,
     KernelHotResult,
@@ -22,6 +21,7 @@ from hivememory.core.protocol.models import (
     RetrievalResponse,
 )
 from hivememory.patchouli.kernel.core import PatchouliKernel
+from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
 def _make_gaze_result(intent=GatewayIntent.RAG, **kwargs):
@@ -123,9 +123,9 @@ class TestKernelHandleHot:
         assert result.rendered_memory_context is None
 
     async def test_handle_hot_with_bus(self):
-        """有 bus 时通过 bus.async_request 调度"""
+        """有 bus 时通过 PatchouliBus.request 调度"""
         mock_bus = Mock()
-        mock_bus.async_request = AsyncMock(
+        mock_bus.request = AsyncMock(
             return_value=_make_retrieval_response(empty=False)
         )
         kernel = _create_kernel(bus=mock_bus)
@@ -133,9 +133,9 @@ class TestKernelHandleHot:
 
         result = await kernel.handle_hot(gaze)
 
-        mock_bus.async_request.assert_called()
+        mock_bus.request.assert_called()
         # 验证调用了 retrieval.retrieve 路由
-        route_calls = [c for c in mock_bus.async_request.call_args_list if c[0][0] == "retrieval.retrieve"]
+        route_calls = [c for c in mock_bus.request.call_args_list if c[0][0] == "retrieval.retrieve"]
         assert len(route_calls) == 1
 
     async def test_handle_hot_without_bus(self):
@@ -150,6 +150,7 @@ class TestKernelHandleHot:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Legacy Koakuma delegation moved to Alice runtime.")
 class TestKernelHandleMTP:
     """handle_mtp() 测试"""
 
@@ -203,6 +204,7 @@ class TestKernelBuildRetrievalRequest:
 class TestKernelGetMTPPrompt:
     """get_mtp_prompt() 测试"""
 
+    @pytest.mark.skip(reason="Legacy Koakuma prompt generation moved to Alice runtime.")
     def test_mtp_prompt_koakuma_disabled(self):
         """koakuma 未启用返回空字符串"""
         kernel = _create_kernel()
@@ -212,6 +214,7 @@ class TestKernelGetMTPPrompt:
 
         assert result == ""
 
+    @pytest.mark.skip(reason="Legacy Koakuma prompt generation moved to Alice runtime.")
     def test_mtp_prompt_prompt_disabled(self):
         """mtp_prompt 未启用返回空字符串"""
         kernel = _create_kernel()
@@ -223,6 +226,7 @@ class TestKernelGetMTPPrompt:
         assert result == ""
 
     @patch("hivememory.prompts.mtp.MTPPromptBuilder")
+    @pytest.mark.skip(reason="Legacy Koakuma prompt generation moved to Alice runtime.")
     def test_mtp_prompt_enabled(self, MockBuilder):
         """正常返回 prompt"""
         kernel = _create_kernel()
@@ -242,12 +246,12 @@ class TestKernelDelegation:
     async def test_manual_trigger_with_bus(self):
         """有 bus 时委托 manual_trigger"""
         mock_bus = Mock()
-        mock_bus.async_request = AsyncMock(return_value={"success": True})
+        mock_bus.request = AsyncMock(return_value={"success": True})
         kernel = _create_kernel(bus=mock_bus)
 
         await kernel.manual_trigger("topic_123")
 
-        route_calls = [c for c in mock_bus.async_request.call_args_list if c[0][0] == "librarian.manual_trigger"]
+        route_calls = [c for c in mock_bus.request.call_args_list if c[0][0] == "librarian.manual_trigger"]
         assert len(route_calls) == 1
         assert route_calls[0][0][1] == "topic_123"
 
@@ -267,13 +271,13 @@ class TestKernelDelegation:
     async def test_get_topic_snapshots_with_bus(self):
         """有 bus 时委托 get_topic_snapshots 路由"""
         mock_bus = Mock()
-        mock_bus.async_request = AsyncMock(return_value=[])
+        mock_bus.request = AsyncMock(return_value=[])
         kernel = _create_kernel(bus=mock_bus)
         identity = Identity(user_id="u1", agent_id="a1")
 
         await kernel.get_topic_snapshots(identity)
 
-        route_calls = [c for c in mock_bus.async_request.call_args_list if c[0][0] == "librarian.get_active_topics_snapshots"]
+        route_calls = [c for c in mock_bus.request.call_args_list if c[0][0] == "librarian.get_active_topics_snapshots"]
         assert len(route_calls) == 1
 
     @pytest.mark.asyncio
@@ -288,10 +292,10 @@ class TestKernelDelegation:
 
 
 class TestKernelBusRouteRegistration:
-    """SystemBus 路由注册测试"""
+    """PatchouliBus 路由注册测试"""
 
     def test_register_storage_routes(self):
-        bus = SystemBus()
+        bus = PatchouliBus()
         kernel = _create_kernel(bus=bus)
 
         kernel._register_bus_routes()

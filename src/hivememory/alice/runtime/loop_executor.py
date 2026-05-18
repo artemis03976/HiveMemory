@@ -92,13 +92,7 @@ class KernelLoopExecutor:
         max_iter = max_iterations or self._host.config.koakuma.max_recursion_depth
 
         main_frame = self._host.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or self._host.load_agent_profile("omni_doll"),
-            messages=messages,
-            topic_id=topic_id or "",
-            identity=identity,
-        )
-
-        return await self.execute_frame(
+            agent_profile=agent_profile or await self._host.load_agent_profile("omni_doll"),
             frame=main_frame,
             max_iterations=max_iter,
             generation_options=generation_options,
@@ -134,7 +128,7 @@ class KernelLoopExecutor:
         max_iter = max_iterations or self._host.config.koakuma.max_recursion_depth
 
         main_frame = self._host.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or self._host.load_agent_profile("omni_doll"),
+            agent_profile=agent_profile or await self._host.load_agent_profile("omni_doll"),
             messages=messages,
             topic_id=topic_id or "",
             identity=identity,

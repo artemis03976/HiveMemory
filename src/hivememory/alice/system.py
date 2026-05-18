@@ -8,7 +8,7 @@ SubsystemProtocol 实现，持有 AgentRuntimeHost 和 AliceService。
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.runtime.bus import AliceBus
@@ -18,9 +18,6 @@ from hivememory.alice.service import AliceService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-
-if TYPE_CHECKING:
-    from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +36,6 @@ class AliceSystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
-        storage: Optional["QdrantMemoryStore"] = None,
         global_bus: Optional[GlobalSystemBus] = None,
     ) -> None:
         self._config = config
@@ -49,7 +45,7 @@ class AliceSystem(SubsystemProtocol):
         self._runtime_host = AgentRuntimeHost(
             config=config,
             bus=self._local_bus,
-            storage=storage,
+            global_bus=global_bus,
         )
 
         self._service = AliceService(runtime_host=self._runtime_host)

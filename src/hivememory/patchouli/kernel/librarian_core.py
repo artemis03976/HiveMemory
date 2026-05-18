@@ -28,7 +28,6 @@ from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
-    from hivememory.infrastructure.system_bus import SystemBus
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
     from hivememory.engines.generation.engine import MemoryGenerationEngine
     from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
@@ -60,7 +59,6 @@ class LibrarianCore:
         >>> # 高级：手动注入组件
         >>> core = LibrarianCore(
         ...     storage=storage,
-        ...     bus=bus,
         ...     lifecycle_engine=lifecycle_engine,
         ... )
     """
@@ -68,7 +66,7 @@ class LibrarianCore:
     def __init__(
         self,
         storage: QdrantMemoryStore,
-        bus: Optional["SystemBus"] = None,
+        bus: Optional[Any] = None,
         lifecycle_engine: Optional["MemoryLifecycleEngine"] = None,
         perception_layer: Optional["BasePerceptionLayer"] = None,
         generation_engine: Optional["MemoryGenerationEngine"] = None,
@@ -78,7 +76,7 @@ class LibrarianCore:
 
         Args:
             storage: Qdrant 存储实例
-            bus: SystemBus 实例（可选，用于外部通信）
+            bus: 兼容保留参数（当前未使用）
             lifecycle_engine: 记忆生命周期引擎（预构建，由 PatchouliKernel 注入）
             perception_layer: 感知层实例（用于直接调用）
             generation_engine: 生成引擎实例（用于直接调用）

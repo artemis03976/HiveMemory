@@ -332,7 +332,7 @@ HiveMemory/
 ├── src/hivememory/
 │   ├── core/                # 核心数据模型
 │   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle
-│   ├── infrastructure/      # Storage / LLM / SystemBus / WebSocket
+│   ├── infrastructure/      # Storage / LLM / WebSocket
 │   ├── patchouli/           # Patchouli 体系、Kernel、MTP、WorkerAgent
 │   └── server/              # FastAPI 服务入口与路由
 └── tests/                   # 单元、集成、端到端测试

@@ -9,36 +9,42 @@ from hivememory.system.config import KoakumaConfig
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
+from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 
-class MockSystemBus:
+class MockAsyncBus(AsyncSystemBus):
     def __init__(self, mock_storage: Optional[MagicMock] = None, mock_retrieval: Optional[MagicMock] = None, mock_generation: Optional[MagicMock] = None):
+        super().__init__()
         self._mock_storage = mock_storage or MagicMock()
         self._mock_retrieval = mock_retrieval or MagicMock()
         self._mock_generation = mock_generation or MagicMock()
 
-    def request(self, route: str, *args, **kwargs):
-        if route == "storage.get_memory":
-            return self._mock_storage.get_memory(*args, **kwargs)
-        if route in ("storage.get_memory_by_alias", "memory.get_memory_by_alias"):
-            return self._mock_storage.get_memory_by_alias(**kwargs)
-        if route in ("retrieval.retrieve", "memory.retrieve"):
-            return self._mock_retrieval.retrieve(**kwargs)
-        if route == "generation.process":
-            return self._mock_generation.process(*args, **kwargs)
-        if route == "perception.route_and_ingest":
-            return None
-        raise ValueError(f"MockSystemBus: unknown route '{route}'")
+        self.register("storage.get_memory", self._handle_get_memory)
+        self.register("storage.get_memory_by_alias", self._handle_get_memory_by_alias)
+        self.register("memory.get_memory_by_alias", self._handle_get_memory_by_alias)
+        self.register("retrieval.retrieve", self._handle_retrieve)
+        self.register("memory.retrieve", self._handle_retrieve)
+        self.register("generation.process", self._handle_generation_process)
+        self.register("perception.route_and_ingest", self._handle_route_and_ingest)
 
-    def subscribe(self, *args, **kwargs):
-        pass
+    async def _handle_get_memory(self, *args, **kwargs):
+        return self._mock_storage.get_memory(*args, **kwargs)
 
-    def emit(self, *args, **kwargs):
-        pass
+    async def _handle_get_memory_by_alias(self, *args, **kwargs):
+        return self._mock_storage.get_memory_by_alias(**kwargs)
+
+    async def _handle_retrieve(self, *args, **kwargs):
+        return self._mock_retrieval.retrieve(**kwargs)
+
+    async def _handle_generation_process(self, *args, **kwargs):
+        return self._mock_generation.process(*args, **kwargs)
+
+    async def _handle_route_and_ingest(self, *args, **kwargs):
+        return None
 
 
-def make_mock_bus(mock_storage: Optional[MagicMock] = None, mock_retrieval: Optional[MagicMock] = None, mock_generation: Optional[MagicMock] = None) -> MockSystemBus:
-    return MockSystemBus(mock_storage=mock_storage, mock_retrieval=mock_retrieval, mock_generation=mock_generation)
+def make_mock_bus(mock_storage: Optional[MagicMock] = None, mock_retrieval: Optional[MagicMock] = None, mock_generation: Optional[MagicMock] = None) -> MockAsyncBus:
+    return MockAsyncBus(mock_storage=mock_storage, mock_retrieval=mock_retrieval, mock_generation=mock_generation)
 
 
 @pytest.fixture

@@ -28,7 +28,6 @@ import logging
 from typing import TYPE_CHECKING, Optional, Dict, Any
 
 from hivememory.patchouli.service import PatchouliService
-from hivememory.infrastructure.system_bus import SystemBus
 
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.patchouli.eye import TheEye
@@ -94,12 +93,17 @@ class PatchouliSystem(SubsystemProtocol):
             >>> system = PatchouliSystem(config=config)
         """
         self.config = config
-        # 0. 创建旧内核仍依赖的内部 SystemBus。
-        # 外部已不再允许注入该过渡总线，后续会继续向统一 async bus 体系收敛。
-        self.bus = SystemBus()
 
-        # 1. 初始化 Kernel（内核管理 Retrieval + Librarian + MTP 微服务，注册总线路由）
-        self.kernel = PatchouliKernel(config=self.config, bus=self.bus)
+        # 0. 子系统运行时挂载点
+        self._local_bus = PatchouliBus()
+        self._bridge = (
+            PatchouliBridge(local_bus=self._local_bus, global_bus=global_bus)
+            if global_bus is not None
+            else None
+        )
+
+        # 1. 初始化 Kernel（内核管理 Retrieval + Librarian 微服务，注册内部总线路由）
+        self.kernel = PatchouliKernel(config=self.config, bus=self._local_bus)
 
         # 2. 初始化 Gateway
         self._init_gateway()
@@ -107,7 +111,6 @@ class PatchouliSystem(SubsystemProtocol):
         # 3. 构建 TheEye (Phase 4.5 Agentic Dispatcher — 仅保留 gaze 职责)
         self.eye = TheEye(
             engine=self._gateway_engine,
-            bus=self.bus,
         )
 
         # 4. Patchouli 对外能力门面
@@ -117,13 +120,6 @@ class PatchouliSystem(SubsystemProtocol):
             global_bus=global_bus,
         )
 
-        # 5. 子系统运行时挂载点
-        self._local_bus = PatchouliBus()
-        self._bridge = (
-            PatchouliBridge(local_bus=self._local_bus, global_bus=global_bus)
-            if global_bus is not None
-            else None
-        )
         self._scheduler = scheduler
         self._local_routes_registered = False
         self._bridge_mounted = False

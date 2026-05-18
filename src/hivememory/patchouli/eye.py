@@ -10,7 +10,7 @@
     - 产出 EyeGazeResult 供 Kernel 进行数据格式转换
 
 作者: HiveMemory Team
-版本: 4.0 (Phase P1 — observer session 管理迁出至 PassiveObserverIngressor)
+版本: 4.0 (Phase P1 — observer session 管理迁出至顶层 passive ingress service)
 """
 
 import logging
@@ -37,10 +37,8 @@ class TheEye:
 
         Args:
             engine: Gateway 引擎实例
-            bus: SystemBus 实例，用于跨服务通信
         """
         self._engine = engine
-        self._bus = bus
 
         logger.info(f"TheEye 真理之眼初始化完成 (Agentic Dispatcher)")
 

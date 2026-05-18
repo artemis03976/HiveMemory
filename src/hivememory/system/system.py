@@ -68,10 +68,9 @@ class HiveMemorySystem:
             scheduler=scheduler,
         )
 
-        # 2. Alice 创建（使用自有 AliceBus，接收 storage 用于冷查询）
+        # 2. Alice 创建（使用自有 AliceBus，通过全局总线访问 Patchouli 记忆能力）
         alice = AliceSystem(
             config=config,
-            storage=patchouli.storage,
             global_bus=global_bus,
         )
 

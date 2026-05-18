@@ -163,7 +163,7 @@ class TestRunUserToolPath:
 
     def test_l2_route_failure_returns_infra_error(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
-            "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
+            "AsyncSystemBus: route 'storage.get_memory_by_alias' not registered"
         )
 
         result = _execute_mtp(koakuma, '⟪ RUN | my_custom_tool | ⟫')

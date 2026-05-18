@@ -156,7 +156,7 @@ graph TD
 - 基础设施初始化：存储层 (Qdrant)、感知层 Embedding、Librarian LLM、Reranker
 - 引擎构建：Perception、Generation、Lifecycle、Retrieval 四大引擎
 - 微服务注册：RetrievalFamiliar、LibrarianCore、KoakumaRuntime
-- SystemBus 路由注册：将所有服务方法暴露为可寻址的 RPC 路由
+- PatchouliBus 路由注册：将内核内部协作能力暴露为可寻址的异步 RPC 路由
 
 **对外 API：**
 
@@ -170,15 +170,15 @@ graph TD
 
 ### 2.5.2 帕秋莉体系 (PatchouliSystem)
 
-`PatchouliSystem` 是**大图书馆的完整设施 (The Facility)**，是开发者唯一需要直接实例化的入口类。它持有 TheEye 和 PatchouliKernel，并负责将两者连接到同一条 SystemBus 上。
+`PatchouliSystem` 是**大图书馆的完整设施 (The Facility)**，是开发者唯一需要直接实例化的入口类。它持有 TheEye 和 PatchouliKernel，并负责将 Patchouli 内部总线与全局运行时总线桥接起来。
 
 **初始化顺序：**
-1. 创建 `SystemBus`（系统总线）
-2. 初始化 `PatchouliKernel`（注册所有内核路由到总线）
+1. 创建 `PatchouliBus`（子系统内部协作总线）
+2. 初始化 `PatchouliKernel`（注册内核内部路由到私有总线）
 3. 初始化 Gateway 基础设施（Gateway LLM、GatewayEngine）
-4. 构建 `TheEye`（接入总线，获得感知层访问能力）
-5. 初始化 `WorkerAgentService`（LLM 文本生成引擎）
-6. 订阅 `observer.idle_flushed` 事件（被动模式空闲超时回调）
+4. 构建 `TheEye`
+5. 初始化 `PatchouliService`
+6. 准备 `local PatchouliBus + PatchouliBridge`，将公开能力桥接到 `GlobalSystemBus`
 
 **两种运行模式：**
 
@@ -187,16 +187,20 @@ graph TD
 | **主动模式 (Active)** | `chat()` / `chat_stream()` | Kernel 直接驱动 LLM 生成 | 完整递归生成循环，含 MTP 执行，阻塞等待 |
 | **被动模式 (Passive)** | `ingest_event()` / `flush_observer_session()` | Discord Bot、微信机器人等外部框架 | 仅缓冲配对 + Eye 分析 + 检索降级，不驱动 LLM |
 
-### 2.5.3 系统总线 (SystemBus)
+### 2.5.3 运行时总线 (AsyncSystemBus / GlobalSystemBus / PatchouliBus)
 
-`SystemBus` 是进程内的**统一通信基础设施**，类比计算机主板，解耦各模块间的直接依赖。
+HiveMemory 当前的进程内通信已统一收敛到纯异步运行时总线体系：
 
-**两种通信模式：**
+- `AsyncSystemBus`：异步 RPC / PubSub 抽象基类
+- `GlobalSystemBus`：顶层系统公开路由总线
+- `PatchouliBus` / `AliceBus`：子系统私有协作总线
 
-- **RPC 模式 (Request-Response)**：`register()` + `request()` / `async_request()`。一个路由对应一个 handler，调用方阻塞等待返回值。用于热链路（如 `retrieval.retrieve`、`librarian.ingest_interaction`）。
-- **Pub/Sub 模式 (Event Broadcast)**：`subscribe()` + `emit()`。一个事件可有多个订阅者，Fire-and-Forget。用于冷链路（如 `observer.idle_flushed` 触发被动模式记忆沉淀）。
+**统一通信模式：**
 
-路由命名规范为 `{service}.{method}`，例如 `librarian.ingest_interaction`、`retrieval.retrieve`、`koakuma.intercept_and_execute`。
+- **RPC 模式 (Request-Response)**：`register()` + `request()`，一个路由对应一个 async handler
+- **Pub/Sub 模式 (Event Broadcast)**：`subscribe()` + `publish()`，异步广播领域事件
+
+公开路由经 `SubsystemBridge` 从子系统私有 bus 暴露到 `GlobalSystemBus`；例如 `patchouli.public.memory.retrieve` 会被桥接到 Patchouli 本地路由 `memory.retrieve`。
 
 ## 2.6 主动模式对话流程 (Active Mode Chat Flow)
 
@@ -232,7 +236,7 @@ MTP 是 HiveMemory 为 Worker Agent 设计的**进程内工具调用协议**，�
 
 **执行器：KoakumaRuntime（小恶魔）**
 
-KoakumaRuntime 是 PatchouliKernel 管理的第三个微服务，负责 MTP 协议的解析、路由和执行。它通过 SystemBus 访问 RetrievalFamiliar 和 LibrarianCore，遵循最小权限原则，不持有 Kernel 引用。
+KoakumaRuntime 负责 MTP 协议的解析、路由和执行。它通过 Alice runtime bus 与 `GlobalSystemBus` 访问 Patchouli 暴露的记忆能力，遵循最小权限原则，不直接持有 PatchouliKernel 引用。
 
 工具分为两层：
 - **内核工具 (KERNEL_REGISTRY)**：`sys_` 前缀，系统启动时硬编码加载，零延迟（Python REPL、文件读写、Web 搜索等）

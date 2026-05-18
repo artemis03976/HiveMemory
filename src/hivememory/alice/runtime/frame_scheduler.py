@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 from hivememory.core.models import AgentProfile, Identity
 from hivememory.alice.runtime.execution_frame import ExecutionFrame
+from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.host import AgentRuntimeHost
@@ -79,7 +80,7 @@ class FrameScheduler:
         3. 注入 context_refs 内容 (零开销上下文继承)
         4. 创建瞬态帧 (topic_id=None)
         """
-        sub_profile = self._host.load_agent_profile(target_alias)
+        sub_profile = await self._host.load_agent_profile(target_alias)
 
         logger.info(
             f"Forking sub-frame: target={target_alias}, "
@@ -141,9 +142,6 @@ class FrameScheduler:
             mtp_prompt = self._strip_call_from_prompt(mtp_prompt)
         builder.with_mtp_prompt(mtp_prompt)
 
-        if mtp_prompt and not self._host.check_storage_health():
-            builder.with_storage_offline_notice()
-
         if persona:
             builder.with_persona(persona)
 
@@ -198,9 +196,10 @@ class FrameScheduler:
 
             if atom is None and user_id:
                 try:
-                    atom = self._host.storage.get_memory_by_alias(
-                        alias=alias,
-                        user_id=user_id,
+                    atom = await self._host._global_bus.request(
+                        PatchouliRoutes.MEMORY_GET_BY_ALIAS,
+                        alias,
+                        user_id,
                     )
                 except Exception as e:
                     logger.warning(f"Failed to fetch context_ref '{alias}': {e}")

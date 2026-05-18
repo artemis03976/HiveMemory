@@ -14,10 +14,9 @@ class _FakePatchouliSystem:
     def __init__(self, config, global_bus=None, scheduler=None):
         from hivememory.patchouli.runtime.bridge import PatchouliBridge
         from hivememory.patchouli.runtime.bus import PatchouliBus
-        from hivememory.infrastructure.system_bus import SystemBus
 
         self.config = config
-        self.bus = SystemBus()
+        self.bus = PatchouliBus()
         self._local_bus = PatchouliBus()
         self._bridge = (
             PatchouliBridge(local_bus=self._local_bus, global_bus=global_bus)

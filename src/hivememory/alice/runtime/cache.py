@@ -141,7 +141,7 @@ class AgentProfileCache:
         if config is None:
             return None
 
-        self._put(alias, atom, config)
+        self.store(alias, atom, config)
         logger.info(f"Agent profile '{alias}' loaded and cached.")
         return config
 
@@ -173,7 +173,7 @@ class AgentProfileCache:
         """清空全部图纸缓存。"""
         self._cache.clear()
 
-    def _put(self, alias: str, atom: MemoryAtom, config: AgentProfile) -> None:
+    def store(self, alias: str, atom: MemoryAtom, config: AgentProfile) -> None:
         """写入缓存并维护 LRU 淘汰策略。"""
         if alias in self._cache:
             self._cache.move_to_end(alias)

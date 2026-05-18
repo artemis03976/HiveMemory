@@ -168,7 +168,7 @@ def sys():
     s._worker_agent = MagicMock()
     s._worker_agent.generate_async = AsyncMock(return_value=_normal_gen())
 
-    # SystemBus (optional)
+    # Legacy bus placeholder (optional)
     s._bus = None
 
     # Loop Executor (Phase 2 重构) - 使用真实实例但注入 mock 依赖

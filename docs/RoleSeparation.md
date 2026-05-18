@@ -89,7 +89,7 @@ if finish_reason == "stop":
         "content": generated_text + "⟫"
     })
     
-    # 3. 交由 Koakuma 执行指令 (通过 SystemBus)
+    # 3. 交由 Koakuma 执行指令 (通过运行时总线)
     mtp_result_xml = await self.bus.request("koakuma.execute", command=command_str)
     
     # ===[关键变更点 2：作为新的 User 消息注入反馈] ===

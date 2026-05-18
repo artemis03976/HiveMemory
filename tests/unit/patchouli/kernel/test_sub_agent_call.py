@@ -237,17 +237,16 @@ class TestFrameScheduler:
 
     def _make_kernel_mock(self):
         kernel = MagicMock()
-        kernel.load_agent_profile = MagicMock(return_value=OMNI_DOLL_PROFILE)
+        kernel.load_agent_profile = AsyncMock(return_value=OMNI_DOLL_PROFILE)
         kernel.get_mtp_prompt = MagicMock(return_value="### MTP Instructions\n## CALL\nCALL instructions here\n## READ\nREAD instructions")
-        kernel.check_storage_health = MagicMock(return_value=True)
         kernel.config = MagicMock()
         kernel.config.koakuma.mtp_prompt.language = "zh"
         kernel.koakuma = MagicMock()
         kernel.koakuma._current_identity = Identity(user_id="u1")
         kernel.koakuma.atom_cache = MagicMock()
         kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
-        kernel.storage = MagicMock()
-        kernel.storage.get_memory_by_alias = MagicMock(return_value=None)
+        kernel._global_bus = AsyncMock()
+        kernel._global_bus.request = AsyncMock(return_value=None)
         return kernel
 
     def test_create_main_frame(self):

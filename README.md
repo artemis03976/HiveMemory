@@ -47,7 +47,7 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 ### 核心能力
 
 - Patchouli 三位一体架构：The Eye / Retrieval Familiar / Librarian Core
-- 进程内通信总线：SystemBus
+- 进程内运行时总线：AsyncSystemBus / GlobalSystemBus / 子系统私有 bus
 - MTP（Memory Tool Protocol）协议，支持 `SEARCH / READ / RUN / WRITE / UPDATE`
 - 基于 Qdrant 的持久化记忆存储
 - Dense + Sparse 的混合检索路径
@@ -61,7 +61,7 @@ HiveMemory 当前实现围绕 **Patchouli System** 展开，它不是单纯的�
 
 - **PatchouliSystem**：开发者直接使用的顶层入口，负责连接 The Eye 与 PatchouliKernel
 - **The Eye**：交互入口与网关，负责意图识别、查询重写、流量分发
-- **PatchouliKernel**：系统编排器，负责初始化基础设施、注册服务、连接 SystemBus
+- **PatchouliKernel**：系统编排器，负责初始化基础设施、注册服务，并挂接 Patchouli 私有总线
 - **Retrieval Familiar**：Hot Path 检索服务，负责混合检索、重排序、上下文渲染
 - **Librarian Core**：Cold Path 记忆服务，负责话题感知、记忆提取、生命周期维护
 - **KoakumaRuntime**：MTP 执行器，负责在生成过程中拦截并执行记忆工具调用
@@ -280,7 +280,7 @@ HiveMemory/
 ├── src/hivememory/
 │   ├── core/                # 核心数据模型
 │   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle
-│   ├── infrastructure/      # Storage / LLM / SystemBus / WebSocket
+│   ├── infrastructure/      # Storage / LLM / WebSocket
 │   ├── patchouli/           # Patchouli 体系、Kernel、MTP、WorkerAgent
 │   └── server/              # FastAPI 服务入口与路由
 └── tests/                   # 单元测试、集成测试、端到端测试

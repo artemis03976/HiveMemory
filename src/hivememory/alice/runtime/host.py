@@ -8,19 +8,20 @@ AgentRuntimeHost - Agent 运算 runtime 对象聚合器
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from hivememory.core.models import AgentProfile, MemoryAtom, OMNI_DOLL_PROFILE
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.alice.runtime.cache import AgentProfileCache
 from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 from hivememory.alice.runtime.worker_agent import WorkerAgentService
+from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.system.config import HiveMemoryConfig
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
-    from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
     from hivememory.alice.runtime.frame_scheduler import FrameScheduler
+    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,10 @@ class AgentRuntimeHost:
         self,
         config: HiveMemoryConfig,
         bus: Optional["AliceBus"] = None,
-        storage: Optional["QdrantMemoryStore"] = None,
+        global_bus: Optional["GlobalSystemBus"] = None,
     ) -> None:
         self._config = config
-        self._storage = storage
+        self._global_bus = global_bus
 
         # 1. KoakumaRuntime (MTP 协议运行时)
         self._koakuma = KoakumaRuntime(
@@ -92,18 +93,30 @@ class AgentRuntimeHost:
     def worker_agent(self) -> WorkerAgentService:
         return self._worker_agent
 
-    @property
-    def storage(self) -> Optional["QdrantMemoryStore"]:
-        return self._storage
-
-    def load_agent_profile(self, agent_alias: str) -> AgentProfile:
-        """加载人偶图纸配置：缓存优先 → storage 冷查询 → omni_doll 兜底。"""
+    async def load_agent_profile(self, agent_alias: str) -> AgentProfile:
+        """加载人偶图纸配置：缓存优先 → 总线冷查询 → omni_doll 兜底。"""
         if not agent_alias or agent_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
-        profile = self._agent_profile_cache.load(agent_alias, self._storage)
-        if profile is not None:
-            return profile
+        cached = self._agent_profile_cache.get(agent_alias)
+        if cached is not None:
+            return cached
+
+        if self._global_bus is not None:
+            try:
+                atom = await self._global_bus.request(
+                    PatchouliRoutes.MEMORY_GET_BY_ALIAS, agent_alias
+                )
+            except Exception as e:
+                logger.warning(f"Failed to load agent profile '{agent_alias}' via bus: {e}")
+                atom = None
+
+            if atom is not None:
+                profile = self._agent_profile_cache.parse_config(atom)
+                if profile is not None:
+                    self._agent_profile_cache.store(agent_alias, atom, profile)
+                    logger.info(f"Agent profile '{agent_alias}' loaded and cached.")
+                    return profile
 
         logger.info(f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE.")
         return OMNI_DOLL_PROFILE
@@ -134,17 +147,6 @@ class AgentRuntimeHost:
             allowed_kernel_tools=allowed_kernel_tools,
         )
         return builder.build()
-
-    def check_storage_health(self) -> bool:
-        """存储层健康检查。"""
-        if self._storage is None:
-            return False
-        try:
-            self._storage.client.get_collections()
-            return True
-        except Exception as e:
-            logger.warning(f"Storage health check failed: {e}")
-            return False
 
     def register_preretrieval_aliases(self, memories: List[MemoryAtom]) -> None:
         """将预检索记忆的完整原子注册到 Koakuma 缓存。"""

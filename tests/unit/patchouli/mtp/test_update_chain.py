@@ -704,7 +704,7 @@ class TestKoakumaUpdateValidation:
 
     def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
         validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
-            "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
+            "AsyncSystemBus: route 'storage.get_memory_by_alias' not registered"
         )
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
         result = _intercept_and_execute(validation_koakuma, agent_text)

@@ -1,7 +1,7 @@
 """
 AsyncSystemBus — 纯异步系统总线基类
 
-第四次架构演进的统一通信骨架。与旧 SystemBus 双轨共存。
+第四次架构演进的统一通信骨架。
 
 设计原则:
     - 纯 asyncio，只接受 async handler，不做 asyncio.run() 回退
