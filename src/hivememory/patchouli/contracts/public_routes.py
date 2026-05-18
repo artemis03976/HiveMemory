@@ -9,3 +9,4 @@ class PatchouliRoutes:
     PREPARE_AGENT_RUN = "patchouli.public.prepare_agent_run"
     FINALIZE_AGENT_RUN = "patchouli.public.finalize_agent_run"
     CLEANUP_PREPARED_AGENT_RUN = "patchouli.public.cleanup_prepared_agent_run"
+    MANUAL_ARCHIVE_TOPIC = "patchouli.public.manual_archive_topic"

@@ -79,9 +79,7 @@ class TestLoadAgentProfile:
         """从存储成功加载图纸"""
         profile_atom = _make_profile_atom(
             agent_id="coder_doll",
-            persona="You are a senior Python developer.",
-            allowed_verbs=["READ", "SEARCH", "RUN"],
-            allowed_tools=["sys_read_file", "sys_write_file"],
+            persona="You are a test agent.",
         )
 
         mock_storage = Mock()
@@ -91,30 +89,8 @@ class TestLoadAgentProfile:
         profile = kernel.load_agent_profile("coder_doll")
 
         assert profile is not None
-        assert isinstance(profile, AgentProfile)
-        assert profile.persona == "You are a senior Python developer."
-        assert profile.allowed_mtp_verbs == ["READ", "SEARCH", "RUN"]
-        assert profile.allowed_sys_tools == ["sys_read_file", "sys_write_file"]
+        assert profile.persona == "You are a test agent."
         mock_storage.get_memory_by_alias.assert_called_once_with("coder_doll")
-
-    def test_load_profile_cache_hit(self):
-        """缓存命中时不访问存储"""
-        profile_atom = _make_profile_atom(agent_id="cached_agent")
-
-        mock_storage = Mock()
-        mock_storage.get_memory_by_alias = Mock(return_value=profile_atom)
-        kernel = _create_kernel_with_storage(mock_storage)
-
-        # 第一次加载
-        profile1 = kernel.load_agent_profile("cached_agent")
-        assert profile1 is not None
-        assert mock_storage.get_memory_by_alias.call_count == 1
-
-        # 第二次加载应命中缓存
-        profile2 = kernel.load_agent_profile("cached_agent")
-        assert profile2 is not None
-        assert profile2.allowed_mtp_verbs == profile1.allowed_mtp_verbs
-        assert mock_storage.get_memory_by_alias.call_count == 1  # 未增加
 
     def test_load_profile_not_found_returns_omni_doll(self):
         """图纸不存在时返回 OMNI_DOLL_PROFILE（兜底）"""

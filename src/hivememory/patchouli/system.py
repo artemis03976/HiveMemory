@@ -1,41 +1,42 @@
 """
-帕秋莉体系 (The Patchouli System / The Facility)
+帕秋莉子系统 (The Patchouli System / The Facility)
 
-系统的外层容器，持有 TheEye (Ingress Gateway) 和 PatchouliKernel (内核调度器)。
-这是用户（开发者）唯一需要 import 的东西。
+定位：记忆存储、检索与感知子系统 (v4 Phase B/C)
+职责：
+    - 持有 TheEye (Ingress Gateway): 意图识别、查询重写、话题路由
+    - 持有 PatchouliKernel: 记忆内核，管理感知 (Perception)、检索 (Retrieval)、生成 (Generation) 与生命周期 (Lifecycle)
+    - 提供记忆能力公开路由 (memory.retrieve, memory.get_memory_by_alias)
+    - 实现 SubsystemProtocol 契约
 
-架构 (v3.0):
-    PatchouliSystem 是"大图书馆"的完整设施 (The Facility)，包含：
-    - TheEye (真理之眼): Ingress Gateway，独立于 Kernel 之外
-    - PatchouliKernel (帕秋莉内核): 中心调度器，管理微服务
-
-    数据流: User → PatchouliSystem → TheEye.gaze() → Kernel.handle_hot() → Services
+数据流:
+    Active: ChatService -> prepare_agent_run (Patchouli) -> run_agent (Alice) -> finalize_agent_run (Patchouli)
+    Passive: PassiveIngressService -> ingest_event -> Patchouli (ingest_interaction)
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
     │                                         │
     │  TheEye (Gateway) ──→ PatchouliKernel   │
+    │                        ├── Perception   │
     │                        ├── Retrieval    │
-    │                        ├── Librarian    │
-    │                        └── Koakuma      │
+    │                        ├── Generation   │
+    │                        └── Lifecycle    │
     └─────────────────────────────────────────┘
 
 作者: HiveMemory Team
-版本: 3.0
+版本: 4.0
 """
 
 import logging
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Any, Optional
 
-from hivememory.patchouli.service import PatchouliService
-
-from hivememory.system.config import HiveMemoryConfig
-from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
-from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.kernel import PatchouliKernel
-from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.service import PatchouliService
+from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
@@ -137,9 +138,11 @@ class PatchouliSystem(SubsystemProtocol):
         )
 
         from hivememory.engines.gateway import (
+            BaseInterceptor,
+            BaseSemanticAnalyzer,
             GatewayEngine,
-            BaseInterceptor, create_interceptor,
-            BaseSemanticAnalyzer, create_semantic_analyzer,
+            create_interceptor,
+            create_semantic_analyzer,
         )
 
         config = self.config.gateway
@@ -210,22 +213,27 @@ class PatchouliSystem(SubsystemProtocol):
         if self._local_bus and not self._local_routes_registered:
             self._register_local_routes()
             self._local_routes_registered = True
+
+        if self._global_bus and not self._public_routes_registered:
+            self._register_public_routes()
+            self._public_routes_registered = True
+
         if self._scheduler and not self._maintenance_registered:
             self._maintenance_registered = self.register_maintenance_tasks(
                 self._scheduler
             )
-        if self._global_bus and not self._public_routes_registered:
-            self._register_public_routes()
-            self._public_routes_registered = True
 
     async def stop(self) -> None:
         if self._scheduler and self._maintenance_registered:
             self.unregister_maintenance_tasks(self._scheduler)
             self._maintenance_registered = False
+
         await self.shutdown_drain()
+
         if self._global_bus and self._public_routes_registered:
             self._unregister_public_routes()
             self._public_routes_registered = False
+
         if self._local_bus and self._local_routes_registered:
             self._unregister_local_routes()
             self._local_routes_registered = False
@@ -237,7 +245,7 @@ class PatchouliSystem(SubsystemProtocol):
             "models_ready": models_ready,
         }
 
-    async def shutdown_drain(self) -> Dict[str, Any]:
+    async def shutdown_drain(self) -> dict[str, Any]:
         """服务关闭前强制归档 perception 中的活跃话题。"""
         if self._shutdown_drain_started:
             logger.info("shutdown drain 已执行，跳过重复调用")
@@ -299,6 +307,10 @@ class PatchouliSystem(SubsystemProtocol):
             "service.cleanup_prepared_agent_run",
             self.service.cleanup_prepared_agent_run,
         )
+        self._local_bus.register(
+            "service.manual_archive_topic",
+            self.service.manual_archive_topic,
+        )
 
     def _unregister_local_routes(self) -> None:
         self._local_bus.unregister("kernel.submit_interaction")
@@ -308,6 +320,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._local_bus.unregister("service.prepare_agent_run")
         self._local_bus.unregister("service.finalize_agent_run")
         self._local_bus.unregister("service.cleanup_prepared_agent_run")
+        self._local_bus.unregister("service.manual_archive_topic")
 
     def _register_public_routes(self) -> None:
         self._global_bus.register(
@@ -338,6 +351,10 @@ class PatchouliSystem(SubsystemProtocol):
             PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
             self.service.cleanup_prepared_agent_run,
         )
+        self._global_bus.register(
+            PatchouliRoutes.MANUAL_ARCHIVE_TOPIC,
+            self.service.manual_archive_topic,
+        )
 
     def _unregister_public_routes(self) -> None:
         self._global_bus.unregister(PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE)
@@ -347,15 +364,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus.unregister(PatchouliRoutes.PREPARE_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.FINALIZE_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN)
-
-    async def manual_trigger(
-        self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        return await self.service.manual_trigger(topic_id)
-
-    async def analyze_and_retrieve(self, *args, **kwargs):
-        return await self.service.analyze_and_retrieve(*args, **kwargs)
+        self._global_bus.unregister(PatchouliRoutes.MANUAL_ARCHIVE_TOPIC)
 
 __all__ = [
     "PatchouliSystem",

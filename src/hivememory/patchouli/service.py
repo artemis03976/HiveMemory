@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import Identity
+from hivememory.core.protocol.models import (
+    AnalyzeAndRetrieveResult,
+    ChatResult,
+    InteractionPayload,
+)
 from hivememory.patchouli.message_assembler import MessageAssembler
 from hivememory.patchouli.models import (
     FinalizeContext,
     PreparedAgentRun,
     StreamPrelude,
-)
-from hivememory.core.protocol.models import (
-    AnalyzeAndRetrieveResult,
-    ChatResult,
-    InteractionPayload,
 )
 from hivememory.server.models.memory import MemoryResponse
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -33,7 +33,7 @@ class PatchouliService:
         self,
         kernel: PatchouliKernel,
         eye: TheEye,
-        global_bus: Optional[GlobalSystemBus] = None,
+        global_bus: GlobalSystemBus | None = None,
     ) -> None:
         self._kernel = kernel
         self._eye = eye
@@ -71,9 +71,9 @@ class PatchouliService:
         user_message: str,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         enable_memory_retrieval: bool = True,
-        generation_options: Optional[Dict[str, Any]] = None,
+        generation_options: dict[str, Any] | None = None,
     ) -> PreparedAgentRun:
         """
         准备一次 Agent 运行所需的完整记忆上下文。
@@ -91,7 +91,7 @@ class PatchouliService:
         Returns:
             PreparedAgentRun: 顶层可直接用于调用 Alice 的完整上下文
         """
-        real_topic_id: Optional[str] = None
+        real_topic_id: str | None = None
         is_new = False
 
         try:
@@ -214,12 +214,12 @@ class PatchouliService:
             return False
         return await self._cleanup_empty_topic_if_needed(prepared_run.topic_id)
 
-    async def manual_trigger(
+    async def manual_archive_topic(
         self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        topic_id: str | None = None,
+    ) -> dict[str, Any]:
         """
-        手动触发话题结算 (Archive + Compact)
+        手动归档话题 (Archive + Compact)
 
         用户主动保存当前对话状态。语义为"立即归档 + 生成摘要并保留内存"。
         话题不会被驱逐，可以继续接收新的交互。
@@ -231,22 +231,22 @@ class PatchouliService:
             Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
 
         Examples:
-            >>> # 触发最后活跃话题
-            >>> result = await system.manual_trigger()
+            >>> # 归档最后活跃话题
+            >>> result = await system.manual_archive_topic()
 
-            >>> # 触发指定话题
-            >>> result = await system.manual_trigger(topic_id="topic_123")
+            >>> # 归档指定话题
+            >>> result = await system.manual_archive_topic(topic_id="topic_123")
         """
         return await self._kernel.manual_trigger(topic_id)
 
     def _assemble_messages_from_context(
         self,
-        topic_context: Dict[str, Any],
+        topic_context: dict[str, Any],
         hot_result,
         user_message: str,
         profile=None,
         current_agent_id: str = "omni_doll",
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """从感知层上下文组装 LLM messages。"""
         assembler = getattr(self, "_message_assembler", None)
         if assembler is None:
@@ -272,7 +272,7 @@ class PatchouliService:
             memories,
         )
 
-    async def _get_interaction_state(self) -> Dict[str, Any]:
+    async def _get_interaction_state(self) -> dict[str, Any]:
         return await self._require_global_bus().request(
             GlobalRoutes.ALICE_GET_INTERACTION_STATE,
         )

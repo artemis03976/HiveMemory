@@ -1,17 +1,16 @@
 """
-帕秋莉内核 (Patchouli Kernel)
+帕秋莉内核 (Patchouli Kernel) - v4.0
 
-定位：系统的 Orchestrator (编排器) 与 State Manager (状态管理器)
+定位：记忆域 Orchestrator (编排器) 与 State Manager (状态管理器)
 职责：
-    - 管理 Retrieval Familiar 和 Librarian Core 两个微服务
-    - 维护服务注册表与调度总线
-    - 基础设施初始化（存储、LLM、Reranker）
+    - 管理 RetrievalFamiliar (检索) 和 LibrarianCore (感知/生成/生命周期)
+    - 维护 Patchouli 子系统内部 RPC 路由
+    - 基础设施初始化（存储、Librarian LLM、Reranker）
     - 引擎构建（Perception、Generation、Lifecycle、Retrieval）
 
 架构定位：
-    PatchouliKernel 是星形拓扑的中心节点，独立于 TheEye (Gateway) 之外。
-    TheEye 作为 Ingress Controller 在 Kernel 外部运行，处理完请求后
-    通过标准化接口将 JobRequest 传入 Kernel。
+    PatchouliKernel 是记忆域的中心节点，负责与存储层 (Qdrant) 的直接交互。
+    计算与智能编排职责已在 Phase C 迁移至 Alice 子系统。
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
@@ -19,11 +18,13 @@
     │  TheEye ──→ PatchouliKernel             │
     │              ├── RetrievalFamiliar      │
     │              ├── LibrarianCore          │
-    │              └── Koakuma                │
+    │              │    ├── Perception        │
+    │              │    ├── Generation        │
+    │              │    └── Lifecycle         │
     └─────────────────────────────────────────┘
 
 作者: HiveMemory Team
-版本: 3.0
+版本: 4.0
 """
 
 import asyncio
@@ -44,7 +45,6 @@ from hivememory.system.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.alice.runtime.cache import AgentProfileCache
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +100,9 @@ class PatchouliKernel:
         self._services: Dict[str, Any] = {}
         self._register_services()
 
-        # 4. 注册总线路由（如果有 bus）
+        # 5. 注册总线路由（如果有 bus）
         if self._bus:
             self._register_bus_routes()
-
-        # 5. 人偶图纸缓存 (多智能体系统)
-        self._agent_profile_cache = AgentProfileCache()
 
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")
 
@@ -376,16 +373,14 @@ class PatchouliKernel:
         """访问馆长本体服务"""
         return self._services["librarian"]
 
-    # ========== 多智能体调度 (Phase 1) ==========
-
-    @property
-    def agent_profile_cache(self) -> AgentProfileCache:
-        """访问人偶图纸缓存"""
-        return self._agent_profile_cache
+    # ========== 智能体配置加载 (供 prepare_agent_run 使用) ==========
 
     def load_agent_profile(self, agent_alias: str) -> AgentProfile:
         """
-        加载人偶图纸配置：缓存优先 → storage 冷查询 → omni_doll 兜底
+        加载人偶图纸配置：storage 冷查询 → omni_doll 兜底
+
+        注意：正式的 Agent 运行时缓存由 Alice 子系统管理。
+        此处仅为 prepare_agent_run 提供必要的配置加载能力。
 
         Args:
             agent_alias: 人偶别名 (如 "coder_doll")
@@ -396,9 +391,14 @@ class PatchouliKernel:
         if not agent_alias or agent_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
-        profile = self._agent_profile_cache.load(agent_alias, self.storage)
-        if profile is not None:
-            return profile
+        try:
+            atom = self.storage.get_memory_by_alias(agent_alias)
+            if atom:
+                profile = AgentProfile.from_atom(atom)
+                if profile:
+                    return profile
+        except Exception as e:
+            logger.warning(f"Failed to load agent profile '{agent_alias}' from storage: {e}")
 
         logger.info(f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE.")
         return OMNI_DOLL_PROFILE

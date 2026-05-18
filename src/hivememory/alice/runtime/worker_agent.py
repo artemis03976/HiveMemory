@@ -1,26 +1,25 @@
 """
 Worker Agent Service - 无状态 LLM 文本生成服务
 
-定位：PatchouliSystem 的"引擎"，纯粹的文本生成器。
+定位：Alice 子系统的生成引擎，纯粹的文本生成器。
 职责：
-    - 封装 LLM API 调用
+    - 封装 LLM API 调用 (via litellm)
     - 使用 MTP Stop Sequence (⟫) 实现生成中断
     - 检测 MTP 指令并返回结构化结果
-    - 不持有任何状态（无 Session、无 Buffer、无业务逻辑）
+    - 不持有任何业务状态（由 AliceRuntimeHost 调度）
 
 架构定位：
-    PatchouliSystem 持有 WorkerAgentService，在递归生成循环中调用。
-    WorkerAgentService 不知道 MTP 协议的语义，只负责检测 ⟪ 定界符。
+    AliceSystem 持有 WorkerAgentService，在 KernelLoopExecutor 中调用。
+    WorkerAgentService 不知道 MTP 协议的具体语义，只负责检测 ⟪ 定界符。
 
-    PatchouliSystem
-    ├── TheEye (Gateway)
-    ├── PatchouliKernel (Orchestrator)
-    └── WorkerAgentService (LLM Engine)  ← 本模块
+    AliceSystem
+    ├── AgentRuntimeHost
+    │   ├── KoakumaRuntime
+    │   ├── KernelLoopExecutor
+    │   └── WorkerAgentService (LLM Engine)  ← 本模块
+    └── AliceService
 
 对应设计文档: MemoryToolProtocol.md Section 3.1 & 6.4
-
-作者: HiveMemory Team
-版本: 1.0
 """
 
 import logging

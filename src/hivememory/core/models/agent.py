@@ -4,9 +4,12 @@ HiveMemory 核心数据模型 - 智能体领域
 定义与多智能体系统（Agentic System）相关的数据模型。
 """
 
-from typing import List, Optional, Set
+from typing import List, Optional, Set, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from hivememory.core.models.memory import MemoryAtom
 
 
 class AgentProfile(BaseModel):
@@ -38,6 +41,23 @@ class AgentProfile(BaseModel):
 
     _verb_set: Optional[Set[str]] = None
     _tool_set: Optional[Set[str]] = None
+
+    @classmethod
+    def from_atom(cls, atom: "MemoryAtom") -> Optional["AgentProfile"]:
+        """从 MemoryAtom 解析 AgentProfile（包含 persona 和 config）。"""
+        raw = atom.payload.artifacts.agent_config
+        if raw is None:
+            return None
+
+        try:
+            # 从 artifacts.agent_config 解析配置，从 payload.content 获取 persona
+            config = cls(
+                persona=atom.payload.content,
+                **raw
+            )
+            return config
+        except Exception:
+            return None
 
     def get_verb_set(self) -> Set[str]:
         """获取 MTP 动词白名单的 set 版本（惰性构建）"""

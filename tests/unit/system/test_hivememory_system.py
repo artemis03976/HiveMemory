@@ -145,7 +145,7 @@ class TestHiveMemorySystem:
         assert system.storage is mock_patchouli.storage
 
     @pytest.mark.asyncio
-    async def test_manual_trigger_delegates(self, system, mock_patchouli):
-        result = await system.manual_trigger(topic_id="t1")
-        mock_patchouli.service.manual_trigger.assert_called_once_with(topic_id="t1")
+    async def test_manual_archive_topic_delegates(self, system, mock_patchouli):
+        result = await system.manual_archive_topic(topic_id="t1")
+        mock_patchouli.service.manual_archive_topic.assert_called_once_with(topic_id="t1")
         assert result == {"archived": 1}

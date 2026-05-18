@@ -137,7 +137,7 @@ class AgentProfileCache:
             )
             return None
 
-        config = self.parse_config(atom)
+        config = AgentProfile.from_atom(atom)
         if config is None:
             return None
 
@@ -146,24 +146,8 @@ class AgentProfileCache:
         return config
 
     def parse_config(self, atom: MemoryAtom) -> Optional[AgentProfile]:
-        """从 MemoryAtom 解析 AgentProfile（包含 persona 和 config）。"""
-        raw = atom.payload.artifacts.agent_config
-        if raw is None:
-            logger.warning(
-                f"Agent profile atom '{atom.get_alias()}' has no agent_config in artifacts."
-            )
-            return None
-
-        try:
-            # 从 artifacts.agent_config 解析配置，从 payload.content 获取 persona
-            config = AgentProfile(
-                persona=atom.payload.content,
-                **raw
-            )
-            return config
-        except Exception as e:
-            logger.error(f"Failed to parse agent_config for '{atom.get_alias()}': {e}")
-            return None
+        """[已废弃] 请改用 AgentProfile.from_atom"""
+        return AgentProfile.from_atom(atom)
 
     def invalidate(self, alias: str) -> None:
         """驱逐指定别名缓存。"""

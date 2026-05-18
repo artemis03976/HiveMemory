@@ -60,9 +60,9 @@ class TestTopicsRouter:
         assert response.status_code == 200
         assert response.json()["topics"] == []
 
-    def test_trigger_topic(self):
+    def test_archive_topic(self):
         mock_system = MagicMock()
-        mock_system.manual_trigger = AsyncMock(return_value={
+        mock_system.manual_archive_topic = AsyncMock(return_value={
             "success": True,
             "topic_id": "t1",
             "message": "Topic settled",
@@ -72,7 +72,7 @@ class TestTopicsRouter:
         app = _create_test_app(mock_system)
         client = TestClient(app)
 
-        response = client.post("/api/v1/topics/t1/trigger")
+        response = client.post("/api/v1/topics/t1/archive")
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True

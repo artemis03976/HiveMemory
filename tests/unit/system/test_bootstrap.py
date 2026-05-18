@@ -24,7 +24,7 @@ class _FakePatchouliSystem:
         self.service.chat = AsyncMock(return_value="chat_result")
         self.service.chat_stream = MagicMock()
         self.service.cancel_generation = MagicMock(return_value=True)
-        self.service.manual_trigger = AsyncMock(return_value={"archived": 1})
+        self.service.manual_archive_topic = AsyncMock(return_value={"archived": 1})
         self.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
         self.storage = MagicMock()
         self.eye = MagicMock()

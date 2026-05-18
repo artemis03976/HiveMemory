@@ -3,14 +3,14 @@
 from fastapi import APIRouter, Depends
 
 from hivememory.core.models import Identity
-from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system, get_user_id
 from hivememory.server.models.topic import (
-    TopicSnapshotResponse,
-    TopicListResponse,
-    TriggerResponse,
     DeleteResponse,
+    TopicListResponse,
+    TopicSnapshotResponse,
+    TriggerResponse,
 )
+from hivememory.system import HiveMemorySystem
 
 router = APIRouter(tags=["topics"])
 
@@ -38,13 +38,13 @@ async def list_topics(
     return TopicListResponse(topics=topics)
 
 
-@router.post("/topics/{topic_id}/trigger", response_model=TriggerResponse)
-async def trigger_topic(
+@router.post("/topics/{topic_id}/archive", response_model=TriggerResponse)
+async def archive_topic(
     topic_id: str,
     system: HiveMemorySystem = Depends(get_system),
 ):
-    """手动触发话题结算"""
-    result = await system.manual_trigger(topic_id=topic_id)
+    """手动归档话题"""
+    result = await system.manual_archive_topic(topic_id=topic_id)
     return TriggerResponse(**result)
 
 

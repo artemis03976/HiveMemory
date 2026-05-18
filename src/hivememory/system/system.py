@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, AsyncGenerator, Dict, Optional
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from hivememory.system.config import HiveMemoryConfig
+from hivememory.alice.system import AliceSystem
 from hivememory.core.protocol.models import ChatResult
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.alice.system import AliceSystem
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import (
     GlobalMaintenanceScheduler,
@@ -42,15 +43,15 @@ class HiveMemorySystem:
 
         self._chat_service = chat_service
         self._ingress_service = ingress_service
-        
+
         self._started = False
         self._scheduler_stopped = False
 
     @classmethod
     def build(
         cls,
-        config: Optional[HiveMemoryConfig] = None,
-    ) -> "HiveMemorySystem":
+        config: HiveMemoryConfig | None = None,
+    ) -> HiveMemorySystem:
         from hivememory.system.config import load_app_config
 
         config = config or load_app_config()
@@ -137,9 +138,9 @@ class HiveMemorySystem:
         user_message: str,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         enable_memory_retrieval: bool = True,
-        generation_options: Optional[Dict[str, Any]] = None,
+        generation_options: dict[str, Any] | None = None,
     ) -> ChatResult:
         return await self._chat_service.chat(
             user_message=user_message,
@@ -155,10 +156,10 @@ class HiveMemorySystem:
         user_message: str,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         enable_memory_retrieval: bool = True,
-        generation_options: Optional[Dict[str, Any]] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        generation_options: dict[str, Any] | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
         async for event in self._chat_service.chat_stream(
             user_message=user_message,
             user_id=user_id,
@@ -176,8 +177,8 @@ class HiveMemorySystem:
         event: Any,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
         return await self._ingress_service.ingest_event(
             event=event,
             user_id=user_id,
@@ -189,7 +190,7 @@ class HiveMemorySystem:
         self,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ) -> bool:
         return await self._ingress_service.flush_observer_session(
             user_id=user_id,
@@ -229,5 +230,8 @@ class HiveMemorySystem:
     def storage(self):
         return self._patchouli.storage
 
-    async def manual_trigger(self, topic_id: Optional[str] = None) -> Dict[str, Any]:
-        return await self._patchouli.service.manual_trigger(topic_id=topic_id)
+    async def manual_archive_topic(self, topic_id: str | None = None) -> dict[str, Any]:
+        return await self._global_bus.request(
+            "patchouli.public.manual_archive_topic",
+            topic_id=topic_id,
+        )
