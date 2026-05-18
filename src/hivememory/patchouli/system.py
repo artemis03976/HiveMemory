@@ -27,6 +27,8 @@
 """
 
 import logging
+import asyncio
+import inspect
 from typing import TYPE_CHECKING, Any, Optional
 
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
@@ -99,8 +101,8 @@ class PatchouliSystem(SubsystemProtocol):
         self._local_bus = PatchouliBus()
         self._global_bus = global_bus
 
-        # 1. 初始化 Kernel（内核管理 Retrieval + Librarian 微服务，注册内部总线路由）
-        self.kernel = PatchouliKernel(config=self.config, bus=self._local_bus)
+        # 1. 初始化 Kernel（内核负责组装 Retrieval + Librarian 运行时）
+        self.kernel = PatchouliKernel(config=self.config)
 
         # 2. 初始化 Gateway
         self._init_gateway()
@@ -115,6 +117,7 @@ class PatchouliSystem(SubsystemProtocol):
             kernel=self.kernel,
             eye=self.eye,
             global_bus=global_bus,
+            local_bus=self._local_bus,
         )
 
         self._scheduler = scheduler
@@ -280,8 +283,8 @@ class PatchouliSystem(SubsystemProtocol):
 
     def _register_local_routes(self) -> None:
         self._local_bus.register(
-            "kernel.submit_interaction",
-            self.kernel.submit_interaction,
+            "librarian.submit_interaction",
+            self.kernel.librarian_core.submit_interaction,
         )
         self._local_bus.register(
             "passive.analyze_and_retrieve",
@@ -289,11 +292,19 @@ class PatchouliSystem(SubsystemProtocol):
         )
         self._local_bus.register(
             "memory.retrieve",
-            self.kernel.retrieve_memories,
+            self._retrieve_memories,
         )
         self._local_bus.register(
             "memory.get_memory_by_alias",
-            self.kernel.get_memory_by_alias,
+            self._get_memory_by_alias,
+        )
+        self._local_bus.register(
+            "librarian.prepare_topic",
+            self.kernel.librarian_core.prepare_topic,
+        )
+        self._local_bus.register(
+            "librarian.get_active_topics_snapshots",
+            self._get_active_topics_snapshots,
         )
         self._local_bus.register(
             "service.prepare_agent_run",
@@ -308,19 +319,21 @@ class PatchouliSystem(SubsystemProtocol):
             self.service.cleanup_prepared_agent_run,
         )
         self._local_bus.register(
-            "service.manual_archive_topic",
-            self.service.manual_archive_topic,
+            "librarian.manual_archive_topic",
+            self.kernel.librarian_core.manual_archive_topic,
         )
 
     def _unregister_local_routes(self) -> None:
-        self._local_bus.unregister("kernel.submit_interaction")
+        self._local_bus.unregister("librarian.submit_interaction")
         self._local_bus.unregister("passive.analyze_and_retrieve")
         self._local_bus.unregister("memory.retrieve")
         self._local_bus.unregister("memory.get_memory_by_alias")
+        self._local_bus.unregister("librarian.prepare_topic")
+        self._local_bus.unregister("librarian.get_active_topics_snapshots")
         self._local_bus.unregister("service.prepare_agent_run")
         self._local_bus.unregister("service.finalize_agent_run")
         self._local_bus.unregister("service.cleanup_prepared_agent_run")
-        self._local_bus.unregister("service.manual_archive_topic")
+        self._local_bus.unregister("librarian.manual_archive_topic")
 
     def _register_public_routes(self) -> None:
         self._global_bus.register(
@@ -329,15 +342,15 @@ class PatchouliSystem(SubsystemProtocol):
         )
         self._global_bus.register(
             PatchouliRoutes.SUBMIT_INTERACTION,
-            self.kernel.submit_interaction,
+            self.kernel.librarian_core.submit_interaction,
         )
         self._global_bus.register(
             PatchouliRoutes.MEMORY_RETRIEVE,
-            self.kernel.retrieve_memories,
+            self._retrieve_memories,
         )
         self._global_bus.register(
             PatchouliRoutes.MEMORY_GET_BY_ALIAS,
-            self.kernel.get_memory_by_alias,
+            self._get_memory_by_alias,
         )
         self._global_bus.register(
             PatchouliRoutes.PREPARE_AGENT_RUN,
@@ -365,6 +378,24 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus.unregister(PatchouliRoutes.FINALIZE_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.MANUAL_ARCHIVE_TOPIC)
+
+    async def _retrieve_memories(self, request, mode: str = "active"):
+        return await asyncio.to_thread(
+            self.kernel.retrieval_familiar.retrieve,
+            request,
+            mode,
+        )
+
+    async def _get_memory_by_alias(
+        self,
+        alias: str,
+        user_id: str | None = None,
+    ):
+        result = self.kernel.storage.get_memory_by_alias(alias, user_id)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
 
 __all__ = [
     "PatchouliSystem",

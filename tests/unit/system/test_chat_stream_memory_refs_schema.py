@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import EyeGazeResult, KernelHotResult
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -47,14 +48,6 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
 
     memory_atom = _build_memory_atom()
     kernel = MagicMock()
-    kernel.get_topic_snapshots = AsyncMock(return_value=[])
-    kernel.prepare_topic = AsyncMock(
-        return_value=(
-            "topic-1",
-            {"topics": [], "max_resident_topics": 5, "current_count": 1},
-            {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
-        )
-    )
     kernel.handle_hot = AsyncMock(
         return_value=KernelHotResult(
             intent="Chat",
@@ -67,12 +60,27 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     )
     kernel.load_agent_profile = MagicMock(return_value=MagicMock())
     bus = GlobalSystemBus()
+    local_bus = PatchouliBus()
+    local_bus.register(
+        "librarian.get_active_topics_snapshots",
+        AsyncMock(return_value=[]),
+    )
+    local_bus.register(
+        "librarian.prepare_topic",
+        AsyncMock(
+            return_value=(
+                "topic-1",
+                {"topics": [], "max_resident_topics": 5, "current_count": 1},
+                {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
+            )
+        ),
+    )
     bus.register(
         GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES,
         AsyncMock(return_value=None),
     )
 
-    service = PatchouliService(kernel=kernel, eye=eye, global_bus=bus)
+    service = PatchouliService(kernel=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
     service._assemble_messages_from_context = MagicMock(
         return_value=[{"role": "user", "content": "hello"}]
     )
@@ -111,14 +119,6 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
     )
 
     kernel = MagicMock()
-    kernel.get_topic_snapshots = AsyncMock(return_value=[])
-    kernel.prepare_topic = AsyncMock(
-        return_value=(
-            "topic-1",
-            {"topics": [], "max_resident_topics": 5, "current_count": 1},
-            {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
-        )
-    )
     kernel.handle_hot = AsyncMock(
         return_value=KernelHotResult(
             intent="Chat",
@@ -130,7 +130,22 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
         )
     )
     kernel.load_agent_profile = MagicMock(return_value=MagicMock())
-    service = PatchouliService(kernel=kernel, eye=eye)
+    local_bus = PatchouliBus()
+    local_bus.register(
+        "librarian.get_active_topics_snapshots",
+        AsyncMock(return_value=[]),
+    )
+    local_bus.register(
+        "librarian.prepare_topic",
+        AsyncMock(
+            return_value=(
+                "topic-1",
+                {"topics": [], "max_resident_topics": 5, "current_count": 1},
+                {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
+            )
+        ),
+    )
+    service = PatchouliService(kernel=kernel, eye=eye, local_bus=local_bus)
     service._assemble_messages_from_context = MagicMock(
         return_value=[{"role": "user", "content": "hello"}]
     )

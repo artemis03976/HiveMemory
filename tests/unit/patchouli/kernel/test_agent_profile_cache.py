@@ -56,8 +56,7 @@ def _create_kernel_with_storage(mock_storage=None):
     """创建带 mock storage 的 PatchouliKernel"""
     with patch.object(PatchouliKernel, "_init_infrastructure"), \
          patch.object(PatchouliKernel, "_build_engines", return_value={}), \
-         patch.object(PatchouliKernel, "_register_services"), \
-         patch.object(PatchouliKernel, "_register_bus_routes"):
+         patch.object(PatchouliKernel, "_register_services"):
 
         mock_config = Mock()
         mock_config.koakuma.enabled = True
@@ -66,7 +65,7 @@ def _create_kernel_with_storage(mock_storage=None):
         mock_config.koakuma.mtp_prompt.include_demo = True
         mock_config.koakuma.mtp_prompt.include_error_handling = True
 
-        kernel = PatchouliKernel(config=mock_config, bus=None)
+        kernel = PatchouliKernel(config=mock_config)
         kernel.storage = mock_storage or Mock()
         kernel._services = {}
         return kernel

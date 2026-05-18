@@ -156,21 +156,30 @@ class TestPatchouliSystemLocalRoutes:
             mock_patchouli, PatchouliSystem
         )
 
-        assert "kernel.submit_interaction" not in local_bus.list_routes()
+        assert "librarian.submit_interaction" not in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" not in local_bus.list_routes()
         assert "memory.retrieve" not in local_bus.list_routes()
         assert "memory.get_memory_by_alias" not in local_bus.list_routes()
+        assert "librarian.prepare_topic" not in local_bus.list_routes()
+        assert "librarian.get_active_topics_snapshots" not in local_bus.list_routes()
+        assert "librarian.manual_archive_topic" not in local_bus.list_routes()
 
         await mock_patchouli.start()
 
-        assert "kernel.submit_interaction" in local_bus.list_routes()
+        assert "librarian.submit_interaction" in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" in local_bus.list_routes()
         assert "memory.retrieve" in local_bus.list_routes()
         assert "memory.get_memory_by_alias" in local_bus.list_routes()
+        assert "librarian.prepare_topic" in local_bus.list_routes()
+        assert "librarian.get_active_topics_snapshots" in local_bus.list_routes()
+        assert "librarian.manual_archive_topic" in local_bus.list_routes()
 
         await mock_patchouli.stop()
 
-        assert "kernel.submit_interaction" not in local_bus.list_routes()
+        assert "librarian.submit_interaction" not in local_bus.list_routes()
         assert "passive.analyze_and_retrieve" not in local_bus.list_routes()
         assert "memory.retrieve" not in local_bus.list_routes()
         assert "memory.get_memory_by_alias" not in local_bus.list_routes()
+        assert "librarian.prepare_topic" not in local_bus.list_routes()
+        assert "librarian.get_active_topics_snapshots" not in local_bus.list_routes()
+        assert "librarian.manual_archive_topic" not in local_bus.list_routes()

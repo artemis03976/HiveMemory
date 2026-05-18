@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.core.protocol.models import ChatResult
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -35,6 +36,7 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
     kernel = MagicMock()
     eye = MagicMock()
     bus = GlobalSystemBus()
+    local_bus = PatchouliBus()
 
     gaze_result = MagicMock(
         target_topic="topic_1",
@@ -49,16 +51,20 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
 
     eye.gaze = AsyncMock(return_value=gaze_result)
     kernel.load_agent_profile = MagicMock(return_value=MagicMock())
-    kernel.get_topic_snapshots = AsyncMock(return_value=[])
-    kernel.prepare_topic = AsyncMock(
-        return_value=("topic_1", {"topics": []}, {"blocks": []})
-    )
     kernel.handle_hot = AsyncMock(return_value=hot_result)
+    local_bus.register(
+        "librarian.get_active_topics_snapshots",
+        AsyncMock(return_value=[]),
+    )
+    local_bus.register(
+        "librarian.prepare_topic",
+        AsyncMock(return_value=("topic_1", {"topics": []}, {"blocks": []})),
+    )
 
     register_aliases = AsyncMock(return_value=None)
     bus.register(GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES, register_aliases)
 
-    service = PatchouliService(kernel=kernel, eye=eye, global_bus=bus)
+    service = PatchouliService(kernel=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
     service._assemble_messages_from_context = MagicMock(return_value=[{"role": "user", "content": "hi"}])
 
     prepared = await service.prepare_agent_run(
@@ -75,7 +81,8 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
 @pytest.mark.asyncio
 async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
     kernel = MagicMock()
-    kernel.submit_interaction = AsyncMock(return_value=None)
+    kernel.librarian_core = MagicMock()
+    kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
     service = PatchouliService(
         kernel=kernel,
         eye=MagicMock(),
@@ -105,4 +112,4 @@ async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
         loop_result=ChatResult(final_text="done"),
     )
 
-    kernel.submit_interaction.assert_awaited_once()
+    kernel.librarian_core.submit_interaction.assert_awaited_once()

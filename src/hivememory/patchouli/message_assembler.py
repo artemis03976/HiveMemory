@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 from hivememory.engines.perception.context_converter import PerceptionContextConverter
 from hivememory.core.protocol.models import KernelHotResult
 from hivememory.prompts.system_prompt import SystemPromptBuilder
+from hivememory.prompts.mtp import MTPPromptBuilder
 
 
 class MessageAssembler:
@@ -45,7 +46,7 @@ class MessageAssembler:
         )
         builder = SystemPromptBuilder(language=language)
 
-        mtp_prompt = self._kernel.get_mtp_prompt(profile=profile)
+        mtp_prompt = self._build_mtp_prompt(profile=profile)
         builder.with_mtp_prompt(mtp_prompt)
 
         if mtp_prompt and not self._kernel.check_storage_health():
@@ -69,6 +70,31 @@ class MessageAssembler:
         messages.append({"role": "user", "content": user_message})
 
         return messages
+
+    def _build_mtp_prompt(self, profile=None) -> str:
+        koakuma_config = getattr(self._kernel.config, "koakuma", None)
+        if koakuma_config is None or not koakuma_config.enabled:
+            return ""
+
+        prompt_config = getattr(koakuma_config, "mtp_prompt", None)
+        if prompt_config is None or not prompt_config.enabled:
+            return ""
+
+        allowed_verbs = None
+        allowed_kernel_tools = None
+        if profile is not None:
+            allowed_verbs = getattr(profile, "allowed_mtp_verbs", None)
+            # 这里沿用 AliceHost 的语义：AgentProfile.allowed_sys_tools 对应 MTP prompt 中的 kernel tools 白名单。
+            allowed_kernel_tools = getattr(profile, "allowed_sys_tools", None)
+
+        builder = MTPPromptBuilder(
+            language=prompt_config.language,
+            include_demo=prompt_config.include_demo,
+            include_error_handling=prompt_config.include_error_handling,
+            allowed_verbs=allowed_verbs,
+            allowed_kernel_tools=allowed_kernel_tools,
+        )
+        return builder.build()
 
 
 __all__ = ["MessageAssembler"]

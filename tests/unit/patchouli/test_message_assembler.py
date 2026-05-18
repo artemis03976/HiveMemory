@@ -1,0 +1,55 @@
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+from hivememory.core.protocol.models import KernelHotResult
+from hivememory.patchouli.message_assembler import MessageAssembler
+
+
+def _make_kernel():
+    mtp_prompt_config = SimpleNamespace(
+        enabled=True,
+        language="zh",
+        include_demo=False,
+        include_error_handling=False,
+    )
+    koakuma_config = SimpleNamespace(
+        enabled=True,
+        mtp_prompt=mtp_prompt_config,
+    )
+    config = SimpleNamespace(koakuma=koakuma_config)
+
+    kernel = MagicMock()
+    kernel.config = config
+    kernel.check_storage_health.return_value = True
+    return kernel
+
+
+def test_assemble_builds_prompt_without_kernel_get_mtp_prompt():
+    kernel = _make_kernel()
+    assembler = MessageAssembler(kernel)
+    profile = SimpleNamespace(
+        persona="你是一个测试人偶。",
+        allowed_mtp_verbs=["SEARCH", "READ"],
+        allowed_sys_tools=["sys_clock"],
+    )
+    hot_result = KernelHotResult(
+        intent="RAG",
+        rewritten="hello",
+        keywords=["kw"],
+        worth_saving=True,
+        rendered_memory_context="<memory>ctx</memory>",
+        retrieved_memories=[],
+    )
+
+    messages = assembler.assemble(
+        topic_context={"state_summary": "state", "blocks": []},
+        hot_result=hot_result,
+        user_message="hello",
+        profile=profile,
+    )
+
+    assert messages[0]["role"] == "system"
+    assert "协议规则" in messages[0]["content"]
+    assert "你是一个测试人偶。" in messages[0]["content"]
+    assert "<memory>ctx</memory>" in messages[0]["content"]
+    assert messages[-1] == {"role": "user", "content": "hello"}

@@ -95,7 +95,7 @@ class LibrarianCore:
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
-    async def ingest_interaction(
+    async def submit_interaction(
         self,
         payload: InteractionPayload,
         target_topic_id: str = "NEW_TOPIC",
@@ -129,6 +129,14 @@ class LibrarianCore:
             await self.perception_layer.route_and_ingest(target_topic_id, payload)
         else:
             logger.warning("perception_layer 未注入，跳过感知处理")
+
+    async def ingest_interaction(
+        self,
+        payload: InteractionPayload,
+        target_topic_id: str = "NEW_TOPIC",
+    ) -> None:
+        """兼容别名：旧代码仍可通过 ingest_interaction 调用。"""
+        await self.submit_interaction(payload, target_topic_id=target_topic_id)
 
     async def _on_generate_memory(self, payload: "ArchivePayload") -> None:
         """
@@ -283,7 +291,7 @@ class LibrarianCore:
         logger.warning("perception_layer 未注入，返回空快照列表")
         return []
 
-    async def manual_trigger(
+    async def manual_archive_topic(
         self,
         topic_id: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -301,13 +309,20 @@ class LibrarianCore:
         if self.perception_layer:
             return await self.perception_layer.manual_trigger(topic_id)
 
-        logger.warning("perception_layer 未注入，manual_trigger 失败")
+        logger.warning("perception_layer 未注入，manual_archive_topic 失败")
         return {
             "success": False,
             "topic_id": topic_id or "unknown",
             "message": "perception_layer 未注入",
             "blocks_archived": 0,
         }
+
+    async def manual_trigger(
+        self,
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """兼容别名：旧代码仍可通过 manual_trigger 调用。"""
+        return await self.manual_archive_topic(topic_id)
 
     async def prepare_topic(
         self,

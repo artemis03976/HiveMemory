@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
@@ -17,7 +18,7 @@ def mock_patchouli():
     p.health = AsyncMock(return_value={"status": "ok", "models_ready": True})
     p.storage = MagicMock()
     p.service = MagicMock()
-    p.service.manual_trigger = AsyncMock(return_value={"archived": 1})
+    p.service.manual_archive_topic = AsyncMock(return_value={"archived": 1})
     return p
 
 
@@ -146,6 +147,10 @@ class TestHiveMemorySystem:
 
     @pytest.mark.asyncio
     async def test_manual_archive_topic_delegates(self, system, mock_patchouli):
+        system._global_bus.register(
+            PatchouliRoutes.MANUAL_ARCHIVE_TOPIC,
+            mock_patchouli.service.manual_archive_topic,
+        )
         result = await system.manual_archive_topic(topic_id="t1")
         mock_patchouli.service.manual_archive_topic.assert_called_once_with(topic_id="t1")
         assert result == {"archived": 1}

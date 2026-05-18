@@ -15,6 +15,7 @@ from hivememory.patchouli.models import (
     PreparedAgentRun,
     StreamPrelude,
 )
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.server.models.memory import MemoryResponse
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -34,10 +35,12 @@ class PatchouliService:
         kernel: PatchouliKernel,
         eye: TheEye,
         global_bus: GlobalSystemBus | None = None,
+        local_bus: PatchouliBus | None = None,
     ) -> None:
         self._kernel = kernel
         self._eye = eye
         self._global_bus = global_bus
+        self._local_bus = local_bus
         self._message_assembler = MessageAssembler(kernel)
 
     async def analyze_and_retrieve(
@@ -101,7 +104,10 @@ class PatchouliService:
                 session_id=session_id,
             )
             agent_profile = self._kernel.load_agent_profile(agent_id)
-            topic_snapshots = await self._kernel.get_topic_snapshots(identity)
+            topic_snapshots = await self._require_local_bus().request(
+                "librarian.get_active_topics_snapshots",
+                identity=identity,
+            )
 
             gaze_result = await self._eye.gaze(
                 query=user_message,
@@ -110,7 +116,8 @@ class PatchouliService:
             )
 
             is_new = gaze_result.target_topic == "NEW_TOPIC"
-            real_topic_id, pool_snapshot, topic_context = await self._kernel.prepare_topic(
+            real_topic_id, pool_snapshot, topic_context = await self._require_local_bus().request(
+                "librarian.prepare_topic",
                 target_topic_id=gaze_result.target_topic,
                 new_topic_title=gaze_result.new_topic_title,
                 new_topic_summary=gaze_result.new_topic_summary,
@@ -203,7 +210,10 @@ class PatchouliService:
             turn_events=loop_result.turn_events,
         )
 
-        await self._kernel.submit_interaction(payload, target_topic=ctx.topic_id)
+        await self._kernel.librarian_core.submit_interaction(
+            payload,
+            target_topic_id=ctx.topic_id,
+        )
 
     async def cleanup_prepared_agent_run(
         self,
@@ -237,7 +247,7 @@ class PatchouliService:
             >>> # 归档指定话题
             >>> result = await system.manual_archive_topic(topic_id="topic_123")
         """
-        return await self._kernel.manual_trigger(topic_id)
+        return await self._kernel.librarian_core.manual_archive_topic(topic_id)
 
     def _assemble_messages_from_context(
         self,
@@ -265,6 +275,11 @@ class PatchouliService:
         if self._global_bus is None:
             raise RuntimeError("PatchouliService 尚未接入 GlobalSystemBus")
         return self._global_bus
+
+    def _require_local_bus(self) -> PatchouliBus:
+        if self._local_bus is None:
+            raise RuntimeError("PatchouliService 尚未接入 PatchouliBus")
+        return self._local_bus
 
     async def _register_preretrieval_aliases(self, memories: Any) -> None:
         await self._require_global_bus().request(

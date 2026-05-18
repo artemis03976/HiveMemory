@@ -4,7 +4,6 @@
 定位：记忆域 Orchestrator (编排器) 与 State Manager (状态管理器)
 职责：
     - 管理 RetrievalFamiliar (检索) 和 LibrarianCore (感知/生成/生命周期)
-    - 维护 Patchouli 子系统内部 RPC 路由
     - 基础设施初始化（存储、Librarian LLM、Reranker）
     - 引擎构建（Perception、Generation、Lifecycle、Retrieval）
 
@@ -17,10 +16,10 @@
     │                                         │
     │  TheEye ──→ PatchouliKernel             │
     │              ├── RetrievalFamiliar      │
-    │              ├── LibrarianCore          │
-    │              │    ├── Perception        │
-    │              │    ├── Generation        │
-    │              │    └── Lifecycle         │
+    │              └── LibrarianCore          │
+    │                   ├── Perception        │
+    │                   ├── Generation        │
+    │                   └── Lifecycle         │
     └─────────────────────────────────────────┘
 
 作者: HiveMemory Team
@@ -28,23 +27,19 @@
 """
 
 import asyncio
-import inspect
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from hivememory.core.models import Identity, AgentProfile, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
     EyeGazeResult,
-    InteractionPayload,
     KernelHotResult,
     RetrievalRequest,
-    RetrievalResponse,
 )
 from hivememory.system.config import HiveMemoryConfig, load_app_config
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.runtime.bus import PatchouliBus
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +48,14 @@ class PatchouliKernel:
     """
     帕秋莉内核 (Patchouli Kernel) - v3.0
 
-    星形拓扑的中心调度器，管理 RetrievalFamiliar, LibrarianCore, KoakumaRuntime 三个微服务。
+    记忆域运行时装配根，管理 RetrievalFamiliar 与 LibrarianCore 两个核心组件。
     不持有 TheEye (Gateway)，TheEye 独立于 Kernel 之外运行。
 
     职责:
         - 基础设施初始化 (storage, LLM, embedding, reranker)
         - 引擎构建 (perception, generation, lifecycle, retrieval)
-        - 服务注册与调度
-        - 处理 Eye 传入的热路径/冷路径请求
+        - 服务注册与持有
+        - 处理 Eye 传入的热路径请求
 
     使用示例:
         >>> # 推荐：通过 PatchouliSystem 使用（自动组装 Eye + Kernel）
@@ -78,17 +73,14 @@ class PatchouliKernel:
     def __init__(
         self,
         config: Optional[HiveMemoryConfig] = None,
-        bus: Optional[PatchouliBus] = None,
     ):
         """
         初始化帕秋莉内核
 
         Args:
             config: 完整的 HiveMemory 配置（可选）
-            bus: Patchouli 子系统内部总线（可选）
         """
         self.config = config or load_app_config()
-        self._bus = bus
 
         # 1. 初始化基础设施（单例服务）
         self._init_infrastructure()
@@ -99,10 +91,6 @@ class PatchouliKernel:
         # 3. 注册微服务
         self._services: Dict[str, Any] = {}
         self._register_services()
-
-        # 5. 注册总线路由（如果有 bus）
-        if self._bus:
-            self._register_bus_routes()
 
         logger.info("PatchouliKernel 帕秋莉内核初始化完成")
 
@@ -307,7 +295,7 @@ class PatchouliKernel:
         """
         注册微服务到内核
 
-        当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore), koakuma (KoakumaRuntime)
+        当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore)
 
         """
         # 构建被动模式渲染器 (Passive.md §5.2)
@@ -326,41 +314,6 @@ class PatchouliKernel:
             lifecycle_engine=self._engines["lifecycle"],
             perception_layer=self._engines["perception"],
             generation_engine=self._engines["generation"],
-        )
-
-    # ========== 服务访问器 ==========
-
-    def _register_bus_routes(self) -> None:
-        """
-        在 PatchouliBus 上注册内核协作 RPC 路由
-
-        路由命名规范: {service}.{method}
-        仅注册外部/分身通信路由，内部模块调用已改为直接调用。
-
-        """
-        bus = self._bus
-        retrieval_svc = self._services["retrieval"]
-        librarian_svc = self._services["librarian"]
-
-        # --- Librarian 服务路由（包含感知层代理接口）---
-        bus.register("librarian.ingest_interaction", librarian_svc.ingest_interaction)
-        bus.register("librarian.manual_trigger", librarian_svc.manual_trigger)
-        bus.register("librarian.prepare_topic", librarian_svc.prepare_topic)
-        bus.register(
-            "librarian.get_active_topics_snapshots",
-            self._bus_get_active_topics_snapshots,
-        )
-
-        # --- Retrieval 服务路由 ---
-        bus.register("retrieval.retrieve", self._bus_retrieve)
-        bus.register("memory.retrieve", self._bus_retrieve)
-
-        # --- Storage 服务路由 ---
-        bus.register("storage.get_memory", self._bus_get_memory)
-        bus.register("memory.get_memory_by_alias", self._bus_get_memory_by_alias)
-
-        logger.info(
-            f"PatchouliBus 路由注册完成: {len(bus.list_routes())} 条路由"
         )
 
     @property
@@ -436,16 +389,11 @@ class PatchouliKernel:
         if enable_retrieval:
             retrieval_request = self.build_retrieval_request(gaze_result)
             if retrieval_request:
-                if self._bus:
-                    retrieved_result = await self._bus.request(
-                        "retrieval.retrieve", retrieval_request, mode=mode,
-                    )
-                else:
-                    retrieved_result = await asyncio.to_thread(
-                        self.retrieval_familiar.retrieve,
-                        retrieval_request,
-                        mode,
-                    )
+                retrieved_result = await asyncio.to_thread(
+                    self.retrieval_familiar.retrieve,
+                    retrieval_request,
+                    mode,
+                )
                 if not retrieved_result.is_empty():
                     retrieved_context = retrieved_result.rendered_context
                     retrieved_memories = retrieved_result.memories
@@ -458,54 +406,6 @@ class PatchouliKernel:
             rendered_memory_context=retrieved_context,
             retrieved_memories=retrieved_memories,
         )
-
-    async def retrieve_memories(
-        self,
-        request: RetrievalRequest,
-        mode: str = "active",
-    ) -> RetrievalResponse:
-        """通过 Patchouli 子系统边界暴露模糊检索能力。"""
-        return await asyncio.to_thread(
-            self.retrieval_familiar.retrieve,
-            request,
-            mode,
-        )
-
-    async def get_memory_by_alias(
-        self,
-        alias: str,
-        user_id: Optional[str] = None,
-    ):
-        """通过 Patchouli 子系统边界暴露按别名精确获取记忆原子的能力。"""
-        return await asyncio.to_thread(
-            self.storage.get_memory_by_alias,
-            alias,
-            user_id,
-        )
- 
-    async def submit_interaction(
-        self,
-        payload: InteractionPayload,
-        target_topic: str = "NEW_TOPIC",
-    ) -> None:
-        """
-        提交交互载荷到 Librarian (阻塞等待)
-
-        并发范式 (参考 Concurrent.md):
-            这是冷链路入口，必须阻塞等待完成。
-            确保 token 溢出压缩等操作完成后再处理下一波请求。
-
-        Args:
-            payload: Kernel → Perception 的原子传输包
-            target_topic: 路由目标话题 ID 或 "NEW_TOPIC" (由 TheEye 决定)
-        """
-        try:
-            if self._bus:
-                await self._bus.request("librarian.ingest_interaction", payload, target_topic)
-            else:
-                await self.librarian_core.ingest_interaction(payload, target_topic)
-        except Exception as e:
-            logger.warning(f"Interaction submission failed: {e}")
 
     def build_retrieval_request(
         self, gaze_result: EyeGazeResult
@@ -529,93 +429,6 @@ class PatchouliKernel:
             keywords=gaze_result.search_keywords,
             identity=gaze_result.identity,
         )
-
-    # ========== 总线方法代理 ==========
-
-    async def manual_trigger(self, topic_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        手动触发话题结算 (Archive + Compact)
-
-        用户主动保存当前对话状态。语义为"立即归档 + 生成摘要并保留内存"。
-        话题不会被驱逐，可以继续接收新的交互。
-
-        Args:
-            topic_id: 目标话题 ID。如果为 None，使用最后活跃的话题。
-
-        Returns:
-            Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
-        """
-        if self._bus:
-            return await self._bus.request("librarian.manual_trigger", topic_id)
-        return await self.librarian_core.manual_trigger(topic_id)
-
-    async def get_topic_snapshots(self, identity: "Identity") -> List:
-        """
-        获取活跃话题快照列表
-
-        从感知层获取所有活跃话题的快照，包含每个话题的最后一轮对话。
-
-        Args:
-            identity: 用户身份标识
-
-        Returns:
-            List[TopicSnapshot]: 话题快照列表
-        """
-        if self._bus:
-            return await self._bus.request(
-                "librarian.get_active_topics_snapshots",
-                identity=identity,
-            )
-        return self.librarian_core.get_active_topics_snapshots(identity)
-
-    async def prepare_topic(
-        self,
-        target_topic_id: str,
-        new_topic_title: Optional[str],
-        new_topic_summary: Optional[str],
-        identity: "Identity",
-    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
-        """
-        预创建/刷新话题，同时获取话题上下文
-
-        Returns:
-            (real_topic_id, pool_snapshot, topic_context)
-        """
-        if self._bus:
-            return await self._bus.request(
-                "librarian.prepare_topic",
-                target_topic_id, new_topic_title, new_topic_summary, identity,
-            )
-        return await self.librarian_core.prepare_topic(
-            target_topic_id, new_topic_title, new_topic_summary, identity
-        )
-
-    async def _bus_retrieve(
-        self,
-        request: RetrievalRequest,
-        mode: str = "active",
-    ) -> RetrievalResponse:
-        return await asyncio.to_thread(self.retrieval_familiar.retrieve, request, mode)
-
-    async def _bus_get_memory(self, *args: Any, **kwargs: Any) -> Any:
-        result = self.storage.get_memory(*args, **kwargs)
-        if inspect.isawaitable(result):
-            return await result
-        return result
-
-    async def _bus_get_memory_by_alias(
-        self,
-        alias: str,
-        user_id: Optional[str] = None,
-    ) -> Any:
-        result = self.storage.get_memory_by_alias(alias, user_id)
-        if inspect.isawaitable(result):
-            return await result
-        return result
-
-    async def _bus_get_active_topics_snapshots(self, identity: "Identity") -> List:
-        return self.librarian_core.get_active_topics_snapshots(identity)
-
 
 __all__ = [
     "PatchouliKernel",
