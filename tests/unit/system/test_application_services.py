@@ -277,7 +277,7 @@ class TestPassiveIngressService:
         submit_interaction.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_flush_observer_session(self, bus, passive_config, scheduler):
+    async def test_flush_ingressor(self, bus, passive_config, scheduler):
         bus.register(
             GlobalRoutes.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE,
             AsyncMock(return_value=_make_analysis_result(target_topic="topic_1")),
@@ -297,7 +297,7 @@ class TestPassiveIngressService:
             agent_id="a",
             session_id="s",
         )
-        result = await svc.flush_observer_session(user_id="u1", agent_id="a", session_id="s")
+        result = await svc.flush_ingressor(user_id="u1", agent_id="a", session_id="s")
         assert result is True
         submit_interaction.assert_awaited_once()
 

@@ -39,7 +39,7 @@ def system(mock_patchouli):
     ingress_service.start = AsyncMock()
     ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
     ingress_service.ingest_event = AsyncMock(return_value={"buffered": True})
-    ingress_service.flush_observer_session = AsyncMock(return_value=True)
+    ingress_service.flush_ingressor = AsyncMock(return_value=True)
     return HiveMemorySystem(
         config=config,
         patchouli=mock_patchouli,
@@ -119,9 +119,9 @@ class TestHiveMemorySystem:
         assert result == {"buffered": True}
 
     @pytest.mark.asyncio
-    async def test_flush_observer_session_delegates(self, system):
-        result = await system.flush_observer_session(user_id="u1")
-        system._ingress_service.flush_observer_session.assert_called_once_with(
+    async def test_flush_ingressor_delegates(self, system):
+        result = await system.flush_ingressor(user_id="u1")
+        system._ingress_service.flush_ingressor.assert_called_once_with(
             user_id="u1",
             agent_id="omni_doll",
             session_id=None,

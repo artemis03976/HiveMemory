@@ -129,9 +129,9 @@ async def passive_ingest_memory(
     通过 Passive 模式预埋一条记忆
 
     流程:
-    1. ingest_event(user) → TheEye 分析 + ObserverBuffer 缓冲
-    2. ingest_event(assistant) → ObserverBuffer 缓冲
-    3. flush_observer_session() → 提交 Payload 到感知层
+    1. ingest_event(user) → TheEye 分析 + MessageTurnBuffer 缓冲
+    2. ingest_event(assistant) → MessageTurnBuffer 缓冲
+    3. flush_ingressor() → 提交 Payload 到感知层
     4. manual_trigger() → 强制感知层归档+压缩并持久化到 Qdrant
     """
     await system.ingest_event(
@@ -142,7 +142,7 @@ async def passive_ingest_memory(
         event=PassiveIngressEvent(role="assistant", content=assistant_msg),
         user_id=user_id,
     )
-    await system.flush_observer_session(user_id=user_id)
+    await system.flush_ingressor(user_id=user_id)
 
     # 手动触发话题结算（Archive + Compact），确保持久化到 Qdrant
     await system.manual_trigger()

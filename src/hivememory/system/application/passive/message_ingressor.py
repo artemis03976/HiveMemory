@@ -9,9 +9,9 @@ from hivememory.system.application.passive.models import (
     PassiveIngressEvent,
     PassiveIngressOutcome,
 )
-from hivememory.system.application.passive.observer_turn_buffer import (
+from hivememory.system.application.passive.message_turn_buffer import (
     FlushResult,
-    ObserverTurnBufferManager,
+    MessageTurnBufferManager,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -24,14 +24,14 @@ class PassiveMessageIngressor:
 
     def __init__(self, bus: GlobalSystemBus) -> None:
         self._bus = bus
-        self._buffers = ObserverTurnBufferManager()
+        self._buffers = MessageTurnBufferManager()
         self._idle_timeout: float = 30.0
         self._on_flush_callback: Optional[
             Callable[[InteractionPayload, Optional[str]], Coroutine[Any, Any, None]]
         ] = None
 
     @property
-    def buffers(self) -> ObserverTurnBufferManager:
+    def buffers(self) -> MessageTurnBufferManager:
         return self._buffers
 
     def configure_idle_flush(

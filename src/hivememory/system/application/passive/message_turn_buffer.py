@@ -1,5 +1,5 @@
 """
-ObserverTurnBuffer — 被动观测模式的单轮结构化事件缓冲器
+MessageTurnBuffer — 被动观测模式的单轮结构化事件缓冲器
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 FlushResult = Tuple[InteractionPayload, Optional[str]]
 
 
-class ObserverBufferState(str, Enum):
+class MessageBufferState(str, Enum):
     IDLE = "idle"
     AWAITING_RESPONSE = "awaiting"
     SEALED = "sealed"
 
 
-class ObserverTurnBuffer:
+class MessageTurnBuffer:
     """单 session / 单轮的结构化事件缓冲器。"""
 
     def __init__(
@@ -42,7 +42,7 @@ class ObserverTurnBuffer:
         self._reset()
 
     def _reset(self) -> None:
-        self._state = ObserverBufferState.IDLE
+        self._state = MessageBufferState.IDLE
         self._user_content: Optional[str] = None
         self._assistant_parts: List[str] = []
         self._turn_events: List[TurnEvent] = []
@@ -57,24 +57,24 @@ class ObserverTurnBuffer:
         return seq
 
     @property
-    def state(self) -> ObserverBufferState:
+    def state(self) -> MessageBufferState:
         return self._state
 
     @property
     def is_idle(self) -> bool:
-        return self._state == ObserverBufferState.IDLE
+        return self._state == MessageBufferState.IDLE
 
     @property
     def is_awaiting(self) -> bool:
-        return self._state == ObserverBufferState.AWAITING_RESPONSE
+        return self._state == MessageBufferState.AWAITING_RESPONSE
 
     @property
     def is_sealed(self) -> bool:
-        return self._state == ObserverBufferState.SEALED
+        return self._state == MessageBufferState.SEALED
 
     @property
     def has_pending_round(self) -> bool:
-        return self._state != ObserverBufferState.IDLE
+        return self._state != MessageBufferState.IDLE
 
     @property
     def last_activity_time(self) -> float:
@@ -102,11 +102,11 @@ class ObserverTurnBuffer:
                 content=content,
             )
         )
-        self._state = ObserverBufferState.AWAITING_RESPONSE
+        self._state = MessageBufferState.AWAITING_RESPONSE
         self._last_activity = datetime.now().timestamp()
 
         logger.debug(
-            "ObserverTurnBuffer 接收 user 消息: "
+            "MessageTurnBuffer 接收 user 消息: "
             f"session={self._session_key.label}, "
             f"target_topic={self._target_topic}, "
             f"flushed_previous={flushed is not None}"
@@ -115,9 +115,9 @@ class ObserverTurnBuffer:
         return flushed
 
     def accept_assistant(self, content: str) -> None:
-        if self._state == ObserverBufferState.IDLE:
+        if self._state == MessageBufferState.IDLE:
             logger.warning(
-                "ObserverTurnBuffer 收到 assistant 消息但无配对的 user 消息，忽略: "
+                "MessageTurnBuffer 收到 assistant 消息但无配对的 user 消息，忽略: "
                 f"session={self._session_key.label}, "
                 f"content='{content[:50]}...'"
             )
@@ -132,7 +132,7 @@ class ObserverTurnBuffer:
                 content=content,
             )
         )
-        self._state = ObserverBufferState.SEALED
+        self._state = MessageBufferState.SEALED
         self._last_activity = datetime.now().timestamp()
 
     def accept_tool_call(
@@ -145,9 +145,9 @@ class ObserverTurnBuffer:
         tool_args: Optional[Dict[str, Any]] = None,
         target: Optional[str] = None,
     ) -> None:
-        if self._state == ObserverBufferState.IDLE:
+        if self._state == MessageBufferState.IDLE:
             logger.warning(
-                "ObserverTurnBuffer 收到 tool_call 但无配对的 user 消息，忽略: "
+                "MessageTurnBuffer 收到 tool_call 但无配对的 user 消息，忽略: "
                 f"session={self._session_key.label}"
             )
             return
@@ -165,7 +165,7 @@ class ObserverTurnBuffer:
                 target=target,
             )
         )
-        self._state = ObserverBufferState.SEALED
+        self._state = MessageBufferState.SEALED
         self._last_activity = datetime.now().timestamp()
 
     def accept_tool_result(
@@ -176,9 +176,9 @@ class ObserverTurnBuffer:
         status: Optional[str] = None,
         render_as: str = "plain",
     ) -> None:
-        if self._state == ObserverBufferState.IDLE:
+        if self._state == MessageBufferState.IDLE:
             logger.warning(
-                "ObserverTurnBuffer 收到 tool_result 但无配对的 user 消息，忽略: "
+                "MessageTurnBuffer 收到 tool_result 但无配对的 user 消息，忽略: "
                 f"session={self._session_key.label}"
             )
             return
@@ -194,16 +194,16 @@ class ObserverTurnBuffer:
                 render_as=render_as,
             )
         )
-        self._state = ObserverBufferState.SEALED
+        self._state = MessageBufferState.SEALED
         self._last_activity = datetime.now().timestamp()
 
     def flush(self) -> Optional[FlushResult]:
-        if self._state == ObserverBufferState.IDLE:
+        if self._state == MessageBufferState.IDLE:
             return None
 
         result = (self._build_payload(), self._target_topic)
         self._reset()
-        logger.debug(f"ObserverTurnBuffer flush: session={self._session_key.label}")
+        logger.debug(f"MessageTurnBuffer flush: session={self._session_key.label}")
         return result
 
     def _build_payload(self) -> InteractionPayload:
@@ -226,24 +226,24 @@ class ObserverTurnBuffer:
         )
 
 
-class ObserverTurnBufferManager:
-    """ObserverTurnBuffer 池管理器。"""
+class MessageTurnBufferManager:
+    """MessageTurnBuffer 池管理器。"""
 
     def __init__(self) -> None:
-        self._buffers: Dict[PassiveSessionKey, ObserverTurnBuffer] = {}
+        self._buffers: Dict[PassiveSessionKey, MessageTurnBuffer] = {}
         self._lock = threading.RLock()
-        logger.info("ObserverTurnBufferManager 初始化完成")
+        logger.info("MessageTurnBufferManager 初始化完成")
 
     @staticmethod
     def key_for_identity(identity: Identity) -> PassiveSessionKey:
         return PassiveSessionKey.from_identity(identity)
 
-    def get_buffer(self, identity: Identity) -> ObserverTurnBuffer:
+    def get_buffer(self, identity: Identity) -> MessageTurnBuffer:
         key = self.key_for_identity(identity)
         with self._lock:
             if key not in self._buffers:
-                self._buffers[key] = ObserverTurnBuffer(identity=identity, session_key=key)
-                logger.debug(f"创建新 ObserverTurnBuffer: {key.label}")
+                self._buffers[key] = MessageTurnBuffer(identity=identity, session_key=key)
+                logger.debug(f"创建新 MessageTurnBuffer: {key.label}")
             return self._buffers[key]
 
     def remove_buffer(self, identity: Identity) -> None:
@@ -251,7 +251,7 @@ class ObserverTurnBufferManager:
         with self._lock:
             self._buffers.pop(key, None)
 
-    def list_active_buffers(self) -> Dict[PassiveSessionKey, ObserverTurnBuffer]:
+    def list_active_buffers(self) -> Dict[PassiveSessionKey, MessageTurnBuffer]:
         with self._lock:
             return dict(self._buffers)
 
@@ -268,7 +268,7 @@ class ObserverTurnBufferManager:
                         if flushed:
                             results.append(flushed)
                             logger.info(
-                                "Observer idle timeout flush: "
+                                "Message idle timeout flush: "
                                 f"session={key}, idle={idle_duration:.1f}s"
                             )
 
@@ -276,8 +276,8 @@ class ObserverTurnBufferManager:
 
 
 __all__ = [
-    "ObserverBufferState",
-    "ObserverTurnBuffer",
-    "ObserverTurnBufferManager",
+    "MessageBufferState",
+    "MessageTurnBuffer",
+    "MessageTurnBufferManager",
     "FlushResult",
 ]

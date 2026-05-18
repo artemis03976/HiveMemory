@@ -1,24 +1,24 @@
 """
 Passive Mode E2E Pipeline Tests - 被动模式 Pipeline 端到端测试
 
-测试 PatchouliSystem.ingest_event() / flush_observer_session() 的完整链路，使用真实服务:
+测试 PatchouliSystem.ingest_event() / flush_ingressor() 的完整链路，使用真实服务:
     LiteLLM, Qdrant, BGE-M3, FlagReranker
 
 正确的数据流理解:
-    Passive Mode 下，TheEye 有一个 ObserverBuffer 用来缓冲用户与 assistant 的对话流数据。
+    Passive Mode 下，TheEye 有一个 MessageTurnBuffer 用来缓冲用户与 assistant 的对话流数据。
 
     数据流:
     1. ingest_event(role="user"):
        - TheEye.ingest_user() → Eye 分析 (intent/rewritten/keywords/worth_saving)
-       - ObserverBuffer.accept_user() → 缓冲 user 消息
+       - MessageTurnBuffer.accept_user() → 缓冲 user 消息
        - 如果有上一轮数据，触发 Next-User-Turn flush → kernel.submit_interaction()
 
     2. ingest_event(role="assistant"):
-       - TheEye.ingest_assistant() → 仅缓冲到 ObserverBuffer
+       - TheEye.ingest_assistant() → 仅缓冲到 MessageTurnBuffer
        - 返回 {"intent": "buffered", ...}
 
-    3. flush_observer_session():
-       - TheEye.flush_session() → 将 ObserverBuffer 数据构建成 InteractionPayload
+    3. flush_ingressor():
+       - TheEye.flush_session() → 将 MessageTurnBuffer 数据构建成 InteractionPayload
        - kernel.submit_interaction() → perception_layer.route_and_ingest()
        - 感知层接收 payload，进入 Buffer 管理
 
@@ -29,7 +29,7 @@ Passive Mode E2E Pipeline Tests - 被动模式 Pipeline 端到端测试
        → GenerationEngine → Qdrant 持久化
 
 注意:
-    - flush_observer_session() 只是提交 payload 到感知层，不是直接持久化
+    - flush_ingressor() 只是提交 payload 到感知层，不是直接持久化
     - 真正的持久化由感知层内部触发器驱动
     - Idle Timeout 触发器测试在 test_flush_triggers_e2e.py
 
@@ -167,9 +167,9 @@ class TestPassiveBasicFlow:
     验证最基础的 Passive 链路
 
     数据流:
-        ingest_event(user) → TheEye 分析 + ObserverBuffer 缓冲
-        ingest_event(assistant) → ObserverBuffer 缓冲
-        flush_observer_session() → 构建 Payload → 提交到感知层
+        ingest_event(user) → TheEye 分析 + MessageTurnBuffer 缓冲
+        ingest_event(assistant) → MessageTurnBuffer 缓冲
+        flush_ingressor() → 构建 Payload → 提交到感知层
         [感知层处理] → 进入 topic Buffer（是否持久化由触发器决定）
     """
 
@@ -178,7 +178,7 @@ class TestPassiveBasicFlow:
         """
         1. ingest_event(user, ...) → 返回含 intent/rewritten/keywords/worth_saving
         2. ingest_event(assistant, ...) → 返回 {"intent": "buffered"}
-        3. flush_observer_session() → 提交 Payload 到感知层 → 返回 True
+        3. flush_ingressor() → 提交 Payload 到感知层 → 返回 True
         4. wait → 验证 payload 已进入感知层 topic Buffer
         """
         user_id = clean_user()
@@ -207,7 +207,7 @@ class TestPassiveBasicFlow:
         assert assistant_result["intent"] == "buffered"
 
         # Step 3: flush → 构建 Payload → 提交到感知层
-        flushed = await e2e_system.flush_observer_session(
+        flushed = await e2e_system.flush_ingressor(
             user_id=user_id, session_id=session_id
         )
         assert flushed is True, "flush 应返回 True (有数据被提交到感知层)"
@@ -232,7 +232,7 @@ class TestPassiveAutoFlush:
     """
     验证 Next-User-Turn 自动 flush
 
-    当 ObserverBuffer 检测到新的 user 消息，且上一轮已完成 (user + assistant)，
+    当 MessageTurnBuffer 检测到新的 user 消息，且上一轮已完成 (user + assistant)，
     自动将上一轮数据 flush 到感知层。
     """
 
@@ -291,7 +291,7 @@ class TestPassiveAutoFlush:
             user_id=user_id,
             session_id=session_id,
         )
-        await e2e_system.flush_observer_session(user_id=user_id, session_id=session_id)
+        await e2e_system.flush_ingressor(user_id=user_id, session_id=session_id)
         time.sleep(FLUSH_SETTLE_SECONDS)
 
         blocks_after = _wait_for_perception_blocks(
@@ -340,7 +340,7 @@ class TestPassiveMultiRound:
             )
 
         # 显式 flush 最后一轮 → 提交到感知层
-        await e2e_system.flush_observer_session(user_id=user_id, session_id=session_id)
+        await e2e_system.flush_ingressor(user_id=user_id, session_id=session_id)
         time.sleep(FLUSH_SETTLE_SECONDS + 3)  # 多轮需要更长等待
 
         blocks = _wait_for_perception_blocks(
@@ -364,7 +364,7 @@ class TestPassiveThenActiveRetrieval:
     async def test_passive_ingest_then_chat_retrieval(self, e2e_system, clean_user):
         """
         Phase 1 (Passive):
-            ingest_event(user) → ingest_event(assistant) → flush_observer_session()
+            ingest_event(user) → ingest_event(assistant) → flush_ingressor()
             → 提交到感知层 → 验证进入 topic Buffer
         Phase 2 (Active):
             chat() → Eye RAG → Retrieval → 注入 → LLM 回复
@@ -387,7 +387,7 @@ class TestPassiveThenActiveRetrieval:
             user_id=user_id,
             session_id="passive-seed",
         )
-        await e2e_system.flush_observer_session(user_id=user_id, session_id="passive-seed")
+        await e2e_system.flush_ingressor(user_id=user_id, session_id="passive-seed")
         time.sleep(FLUSH_SETTLE_SECONDS)
 
         blocks = _wait_for_perception_blocks(
@@ -468,7 +468,7 @@ class TestPassiveWorthSavingFilter:
         )
 
         # Step 3: flush → 提交到感知层
-        await e2e_system.flush_observer_session(
+        await e2e_system.flush_ingressor(
             user_id=user_id, session_id=session_id
         )
         time.sleep(FLUSH_SETTLE_SECONDS + 3)
@@ -528,7 +528,7 @@ class TestPassiveWorthSavingFilter:
         )
 
         # flush Round 2 → 提交到感知层
-        await e2e_system.flush_observer_session(
+        await e2e_system.flush_ingressor(
             user_id=user_id, session_id=session_id
         )
         time.sleep(FLUSH_SETTLE_SECONDS + 3)
@@ -565,7 +565,7 @@ class TestPassiveWorthSavingFilter:
 # ========== PAS-E2E-007: 多 Session 并行隔离 ==========
 
 class TestPassiveMultiSessionIsolation:
-    """验证同一 user 不同 session 的 ObserverBuffer 互不干扰"""
+    """验证同一 user 不同 session 的 MessageTurnBuffer 互不干扰"""
 
     @pytest.mark.asyncio
     async def test_two_sessions_isolated_flush(self, e2e_system, clean_user):
@@ -576,7 +576,7 @@ class TestPassiveMultiSessionIsolation:
         验证: Session A 内容已进入感知层 Buffer, Session B 的数据仍隔离
 
         验证链路:
-            ObserverBufferManager.get_buffer(identity)
+            MessageTurnBufferManager.get_buffer(identity)
             → PassiveSessionKey 分桶隔离
             → flush 只影响目标 session
         """
@@ -613,7 +613,7 @@ class TestPassiveMultiSessionIsolation:
         )
 
         # 只 flush Session A → 提交到感知层
-        flushed_a = await e2e_system.flush_observer_session(
+        flushed_a = await e2e_system.flush_ingressor(
             user_id=user_id, session_id=session_a
         )
         assert flushed_a is True, "Session A flush 应返回 True"
@@ -640,7 +640,7 @@ class TestPassiveMultiSessionIsolation:
             )
 
         # 现在 flush Session B → 提交到感知层
-        flushed_b = await e2e_system.flush_observer_session(
+        flushed_b = await e2e_system.flush_ingressor(
             user_id=user_id, session_id=session_b
         )
         if flushed_b:
@@ -666,7 +666,7 @@ class TestPassiveMultiSessionIsolation:
                 "当 Session B flush 返回 False 时，说明其内容已在前一次 flush 中提交，"
                 "应能在第一次 flush 后观察到 Java/Spring 内容"
             )
-            logger.info("PAS-E2E-007: Session B flush 返回 False，符合共享 ObserverBuffer 行为")
+            logger.info("PAS-E2E-007: Session B flush 返回 False，符合共享 MessageTurnBuffer 行为")
 
     @pytest.mark.asyncio
     async def test_flush_empty_session_returns_false(self, e2e_system, clean_user):
@@ -675,7 +675,7 @@ class TestPassiveMultiSessionIsolation:
         """
         user_id = clean_user()
 
-        flushed = await e2e_system.flush_observer_session(
+        flushed = await e2e_system.flush_ingressor(
             user_id=user_id, session_id="nonexistent-session"
         )
         assert flushed is False, "flush 空 session 应返回 False"

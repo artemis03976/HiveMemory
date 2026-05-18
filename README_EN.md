@@ -264,7 +264,7 @@ If you want to integrate the system directly in Python, the main entrypoint is:
 It currently exposes two primary integration modes:
 
 - `chat()` / `chat_stream()`: active mode, where the system drives generation and the MTP loop directly
-- `ingest_event()` / `flush_observer_session()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
+- `ingest_event()` / `flush_ingressor()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
 
 If you only need HTTP APIs, use the FastAPI service directly. If you want to embed HiveMemory into an existing agent framework, passive ingest mode is often the most natural starting point.
 

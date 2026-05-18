@@ -46,7 +46,7 @@ Phase B 的任务，不是继续给 `HiveMemorySystem` 加功能，而是完成�
 但当前实现仍然保留着明显的“Phase A 过渡特征”：
 
 - `ChatApplicationService` 仍然只是把 `chat` / `chat_stream` 委托给 `PatchouliSystem`
-- `PassiveIngressService` 仍然只是把 `ingest_event` / `flush_observer_session` 委托给 `PatchouliSystem`
+- `PassiveIngressService` 仍然只是把 `ingest_event` / `flush_ingressor` 委托给 `PatchouliSystem`
 - `HiveMemorySystem` 兼容性访问器仍然大量代理 `patchouli.kernel`、`storage` 等旧能力
 - `PatchouliSystem` 依然同时持有：
   - 主动 chat 完整链路
@@ -78,7 +78,7 @@ Phase B 聚焦 5 个目标。
 
 ### 3.2 被动 ingest 入口编排正式迁移到 `system/application/`
 
-需要将当前 `PatchouliSystem.ingest_event()` / `flush_observer_session()` 中属于**系统级消息接入**的部分迁移到顶层应用服务。
+需要将当前 `PatchouliSystem.ingest_event()` / `flush_ingressor()` 中属于**系统级消息接入**的部分迁移到顶层应用服务。
 
 ### 3.3 `PatchouliSystem` 回归子系统 façade
 
@@ -234,7 +234,7 @@ Phase B 中，`PassiveIngressService` 不应再只是被动代理层，而应成
 - 顶层 identity 映射
 - 统一的接入入口
   - `ingest_event`
-  - `flush_observer_session`
+  - `flush_ingressor`
 - 与顶层 bus / scheduler 的接点预留
 - 对外返回结果模型的统一
 

@@ -105,7 +105,7 @@ from hivememory.engines.gateway import (
     create_semantic_analyzer,
 )
 
-from hivememory.system.application.passive import ObserverBufferState
+from hivememory.system.application.passive import MessageBufferState
 
 from hivememory.engines.generation import (
     MemoryGenerationEngine,
@@ -311,7 +311,7 @@ __all__ = [
     "create_interceptor",
     "LLMAnalyzer",
     "create_semantic_analyzer",
-    "ObserverBufferState",
+    "MessageBufferState",
     # ========== Generation Engine ==========
     "MemoryGenerationEngine",
     "BaseMemoryExtractor",

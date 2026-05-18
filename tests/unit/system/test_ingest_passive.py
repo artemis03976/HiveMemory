@@ -2,8 +2,8 @@
 被动观测模式 (Passive Observer Mode) 集成测试
 
 覆盖:
-    A. ObserverTurnBuffer 单元测试 — 状态机、flush 触发器、target_topic 绑定
-    B. ObserverTurnBufferManager 单元测试 — 多 session 隔离、idle timeout
+    A. MessageTurnBuffer 单元测试 — 状态机、flush 触发器、target_topic 绑定
+    B. MessageTurnBufferManager 单元测试 — 多 session 隔离、idle timeout
     C. PatchouliSystem.ingest_event() 集成测试 — 完整 user→assistant→user 流程
 
 作者: HiveMemory Team
@@ -21,9 +21,9 @@ from datetime import datetime
 from hivememory.core.models import Identity
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.system.application.passive import (
-    ObserverBufferState,
-    ObserverTurnBuffer,
-    ObserverTurnBufferManager,
+    MessageBufferState,
+    MessageTurnBuffer,
+    MessageTurnBufferManager,
     PassiveIngressEvent,
 )
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
@@ -98,34 +98,34 @@ def _ingest_event(
 
 
 # ============================================================
-# A. ObserverTurnBuffer 单元测试
+# A. MessageTurnBuffer 单元测试
 # ============================================================
 
-class TestObserverTurnBufferStateMachine:
+class TestMessageBufferStateMachine:
     """状态机转换: IDLE → AWAITING → SEALED → flush → IDLE"""
 
     def test_initial_state_is_idle(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
-        assert buf.state == ObserverBufferState.IDLE
+        buf = MessageTurnBuffer(identity=_make_identity())
+        assert buf.state == MessageBufferState.IDLE
         assert buf.is_idle
         assert not buf.has_pending_round
 
     def test_accept_user_transitions_to_awaiting(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         result = buf.accept_user("hi")
-        assert buf.state == ObserverBufferState.AWAITING_RESPONSE
+        assert buf.state == MessageBufferState.AWAITING_RESPONSE
         assert buf.is_awaiting
         assert result is None
 
     def test_accept_assistant_transitions_to_sealed(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         buf.accept_user("hi")
         buf.accept_assistant("hello!")
-        assert buf.state == ObserverBufferState.SEALED
+        assert buf.state == MessageBufferState.SEALED
         assert buf.is_sealed
 
     def test_flush_sealed_returns_payload_and_resets(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         buf.accept_user("hi")
         buf.accept_assistant("hello!")
         flushed = buf.flush()
@@ -135,18 +135,18 @@ class TestObserverTurnBufferStateMachine:
         assert isinstance(payload, InteractionPayload)
         assert payload.user_message == "hi"
         assert payload.assistant_final_text == "hello!"
-        assert buf.state == ObserverBufferState.IDLE
+        assert buf.state == MessageBufferState.IDLE
 
     def test_flush_idle_returns_none(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         assert buf.flush() is None
 
 
-class TestObserverNextUserTurnTrigger:
+class TestMessageNextUserTurnTrigger:
     """'Next User Turn' 触发器: 第二个 user 消息自动 flush 上一轮"""
 
     def test_second_user_flushes_previous_sealed_round(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         buf.accept_user("q1")
         buf.accept_assistant("a1")
         flushed = buf.accept_user("q2")
@@ -155,10 +155,10 @@ class TestObserverNextUserTurnTrigger:
         payload, _ = flushed
         assert payload.user_message == "q1"
         assert payload.assistant_final_text == "a1"
-        assert buf.state == ObserverBufferState.AWAITING_RESPONSE
+        assert buf.state == MessageBufferState.AWAITING_RESPONSE
 
     def test_second_user_flushes_previous_awaiting_round(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         buf.accept_user("q1")
         flushed = buf.accept_user("q2")
 
@@ -168,11 +168,11 @@ class TestObserverNextUserTurnTrigger:
         assert payload.assistant_final_text is None
         assert buf.is_awaiting
 
-class TestObserverMultiAssistant:
+class TestMessageMultiAssistant:
     """多段 assistant 拼接"""
 
     def test_multiple_assistant_parts_joined(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         buf.accept_user("q")
         buf.accept_assistant("part1")
         buf.accept_assistant("part2")
@@ -182,18 +182,18 @@ class TestObserverMultiAssistant:
         assert payload.assistant_final_text == "part1\npart2\npart3"
 
     def test_assistant_without_user_ignored(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         assert buf.is_idle
         buf.accept_assistant("orphan")
         assert buf.is_idle
         assert buf.flush() is None
 
 
-class TestObserverGazeResultPropagation:
+class TestMessageGazeResultPropagation:
     """EyeGazeResult 元数据正确传递到 InteractionPayload"""
 
     def test_gaze_result_fields_in_payload(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         gaze = _make_gaze_result(rewritten="resolved query", worth_saving=True)
         buf.accept_user("raw q", gaze_result=gaze)
         buf.accept_assistant("answer")
@@ -203,7 +203,7 @@ class TestObserverGazeResultPropagation:
         assert payload.worth_saving is True
 
     def test_no_gaze_result_defaults_to_none(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         buf.accept_user("q")
         buf.accept_assistant("a")
         payload, _ = buf.flush()
@@ -212,7 +212,7 @@ class TestObserverGazeResultPropagation:
         assert payload.worth_saving is None
 
     def test_passive_payload_has_empty_mtp_fields(self):
-        buf = ObserverTurnBuffer(identity=_make_identity())
+        buf = MessageTurnBuffer(identity=_make_identity())
         buf.accept_user("q", gaze_result=_make_gaze_result())
         buf.accept_assistant("a")
         payload, _ = buf.flush()
@@ -223,7 +223,7 @@ class TestObserverGazeResultPropagation:
 
     def test_identity_preserved_in_payload(self):
         identity = _make_identity(user_id="u99", agent_id="bot", session_id="s1")
-        buf = ObserverTurnBuffer(identity=identity)
+        buf = MessageTurnBuffer(identity=identity)
         buf.accept_user("q")
         buf.accept_assistant("a")
         payload, _ = buf.flush()
@@ -233,13 +233,13 @@ class TestObserverGazeResultPropagation:
 
 
 # ============================================================
-# B. ObserverTurnBufferManager 单元测试
+# B. MessageTurnBufferManager 单元测试
 # ============================================================
 
-class TestObserverTurnBufferManagerMultiSession:
+class TestMessageTurnBufferManagerMultiSession:
 
     def test_different_sessions_get_different_buffers(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         id1 = _make_identity(user_id="u1", agent_id="a1", session_id="s1")
         id2 = _make_identity(user_id="u1", agent_id="a1", session_id="s2")
 
@@ -249,7 +249,7 @@ class TestObserverTurnBufferManagerMultiSession:
         assert buf1 is not buf2
 
     def test_same_user_agent_without_session_uses_default_bucket(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         id1 = _make_identity(user_id="u1", agent_id="a1", session_id=None)
         id2 = _make_identity(user_id="u1", agent_id="a1", session_id=None)
 
@@ -259,7 +259,7 @@ class TestObserverTurnBufferManagerMultiSession:
         assert buf1 is buf2
 
     def test_same_session_returns_same_buffer(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         identity = _make_identity(user_id="u1", session_id="s1")
 
         buf1 = mgr.get_buffer(identity)
@@ -268,7 +268,7 @@ class TestObserverTurnBufferManagerMultiSession:
         assert buf1 is buf2
 
     def test_remove_buffer(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         identity = _make_identity(user_id="u1", session_id="s1")
         mgr.get_buffer(identity)
         mgr.remove_buffer(identity)
@@ -277,7 +277,7 @@ class TestObserverTurnBufferManagerMultiSession:
         assert buf.is_idle
 
     def test_list_active_buffers(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         id1 = _make_identity(user_id="u1", session_id="s1")
         id2 = _make_identity(user_id="u2", session_id="s2")
         mgr.get_buffer(id1)
@@ -287,10 +287,10 @@ class TestObserverTurnBufferManagerMultiSession:
         assert len(active) == 2
 
 
-class TestObserverTurnBufferManagerIdleTimeout:
+class TestMessageTurnBufferManagerIdleTimeout:
 
     def test_flush_idle_buffers_respects_timeout(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         identity = _make_identity()
         buf = mgr.get_buffer(identity)
         buf.accept_user("q")
@@ -304,7 +304,7 @@ class TestObserverTurnBufferManagerIdleTimeout:
         assert buf.is_idle
 
     def test_flush_idle_buffers_skips_recent(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         identity = _make_identity()
         buf = mgr.get_buffer(identity)
         buf.accept_user("q")
@@ -315,7 +315,7 @@ class TestObserverTurnBufferManagerIdleTimeout:
         assert buf.is_sealed
 
     def test_flush_idle_skips_idle_buffers(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         identity = _make_identity()
         mgr.get_buffer(identity)
 
@@ -323,10 +323,10 @@ class TestObserverTurnBufferManagerIdleTimeout:
         assert len(results) == 0
 
 
-class TestObserverTurnBufferManagerThreadSafety:
+class TestMessageTurnBufferManagerThreadSafety:
 
     def test_concurrent_get_buffer(self):
-        mgr = ObserverTurnBufferManager()
+        mgr = MessageTurnBufferManager()
         results = []
         errors = []
 
@@ -357,7 +357,7 @@ class TestObserverTurnBufferManagerThreadSafety:
 def sys_passive():
     """
     构建最小化 PassiveIngressService harness (被动模式):
-    - 真实 PassiveMessageIngressor / ObserverTurnBufferManager
+    - 真实 PassiveMessageIngressor / MessageTurnBufferManager
     - 通过全局总线模拟 analyze_and_retrieve 与 submit_interaction
     - 保留 eye / kernel mock，便于沿用原有链路断言
     """
@@ -432,8 +432,8 @@ def sys_passive():
     harness._shutdown_drain_started = False
     harness._MAINTENANCE_OWNER = "patchouli"
     harness.ingest_event = service.ingest_event
-    harness.flush_observer_session = lambda *args, **kwargs: asyncio.run(
-        service.flush_observer_session(*args, **kwargs)
+    harness.flush_ingressor = lambda *args, **kwargs: asyncio.run(
+        service.flush_ingressor(*args, **kwargs)
     )
 
     return harness
@@ -673,11 +673,11 @@ class TestIngestFullRoundTrip:
         assert call_kwargs["target_topic"] == "topic_round1"
 
     def test_explicit_flush_submits_payload(self, sys_passive):
-        """flush_observer_session() 显式提交当前轮"""
+        """flush_ingressor() 显式提交当前轮"""
         _ingest_event(sys_passive, role="user", content="q", user_id="u1")
         _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
 
-        flushed = sys_passive.flush_observer_session(user_id="u1")
+        flushed = sys_passive.flush_ingressor(user_id="u1")
 
         assert flushed is True
         sys_passive.kernel.submit_interaction.assert_called_once()
@@ -687,7 +687,7 @@ class TestIngestFullRoundTrip:
 
     def test_explicit_flush_empty_returns_false(self, sys_passive):
         """空 session flush 返回 False"""
-        flushed = sys_passive.flush_observer_session(user_id="u1")
+        flushed = sys_passive.flush_ingressor(user_id="u1")
         assert flushed is False
         sys_passive.kernel.submit_interaction.assert_not_called()
 
@@ -697,7 +697,7 @@ class TestIngestFullRoundTrip:
         _ingest_event(sys_passive, role="assistant", content="a1", user_id="u1")
         _ingest_event(sys_passive, role="user", content="q2", user_id="u1")
         _ingest_event(sys_passive, role="assistant", content="a2", user_id="u1")
-        sys_passive.flush_observer_session(user_id="u1")
+        sys_passive.flush_ingressor(user_id="u1")
 
         assert sys_passive.kernel.submit_interaction.call_count == 2
         p1 = sys_passive.kernel.submit_interaction.call_args_list[0].kwargs["payload"]
@@ -712,7 +712,7 @@ class TestIngestFullRoundTrip:
 
         _ingest_event(sys_passive, role="user", content="q1", user_id="u1")
         _ingest_event(sys_passive, role="assistant", content="a1", user_id="u1")
-        sys_passive.flush_observer_session(user_id="u1")
+        sys_passive.flush_ingressor(user_id="u1")
 
         payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
         assert payload.rewritten_query == "resolved"
@@ -723,7 +723,7 @@ class TestIngestFullRoundTrip:
         """提交的 payload 包含 turn_events (Phase P2)"""
         _ingest_event(sys_passive, role="user", content="q", user_id="u1")
         _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
-        sys_passive.flush_observer_session(user_id="u1")
+        sys_passive.flush_ingressor(user_id="u1")
 
         payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
         assert len(payload.turn_events) == 2
@@ -736,7 +736,7 @@ class TestIngestFullRoundTrip:
         """提交的 payload 包含 assistant_final_text (Phase P2)"""
         _ingest_event(sys_passive, role="user", content="q", user_id="u1")
         _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
-        sys_passive.flush_observer_session(user_id="u1")
+        sys_passive.flush_ingressor(user_id="u1")
 
         payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
         assert payload.assistant_final_text == "a"
@@ -852,7 +852,7 @@ class TestIngestEvent:
             event=PassiveIngressEvent(role="assistant", content="北京25度。"),
             user_id="u1",
         ))
-        sys_passive.flush_observer_session(user_id="u1")
+        sys_passive.flush_ingressor(user_id="u1")
 
         sys_passive.kernel.submit_interaction.assert_called_once()
         payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]

@@ -186,13 +186,13 @@ class HiveMemorySystem:
             session_id=session_id,
         )
 
-    async def flush_observer_session(
+    async def flush_ingressor(
         self,
         user_id: str,
         agent_id: str = "omni_doll",
         session_id: str | None = None,
     ) -> bool:
-        return await self._ingress_service.flush_observer_session(
+        return await self._ingress_service.flush_ingressor(
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,

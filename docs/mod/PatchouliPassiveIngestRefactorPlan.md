@@ -268,14 +268,14 @@
 
 - 接收外部离散事件
 - 调用 `TheEye.gaze()` 为新一轮 user 建立 route 元数据
-- 管理多个 session 的 `ObserverTurnBuffer`
+- 管理多个 session 的 `MessageTurnBuffer`
 - 执行：
   - Next User Turn flush
   - Idle Timeout flush
   - Explicit EOF flush
 - 产出结构化 `(payload, target_topic)` 对
 
-### 5.1.3 `ObserverTurnBuffer`
+### 5.1.3 `MessageTurnBuffer`
 
 负责：
 
@@ -287,14 +287,14 @@
 
 ## 5.2 数据模型建议
 
-### 5.2.1 `ObserverTurnBuffer` 内部状态
+### 5.2.1 `MessageTurnBuffer` 内部状态
 
 建议内部至少缓存：
 
 ```python
-class ObserverTurnBuffer:
+class MessageTurnBuffer:
     _identity: Identity
-    _state: ObserverBufferState
+    _state: MessageBufferState
 
     _user_content: str | None
     _assistant_parts: list[str]
@@ -496,9 +496,9 @@ async def ingest_event(
 完成标志：
 
 - `PatchouliSystem.ingest()` 不再直接调用 `TheEye.ingest_user_async()`
-- `TheEye` 不再持有 `ObserverBufferManager`
+- `TheEye` 不再持有 `MessageTurnBufferManager`
 
-## 7.2 Phase P2：升级 ObserverTurnBuffer 为结构化事件缓冲器
+## 7.2 Phase P2：升级 MessageTurnBuffer 为结构化事件缓冲器
 
 目标：
 
@@ -506,7 +506,7 @@ async def ingest_event(
 
 要处理的文件：
 
-- `observer_turn_buffer.py`
+- `message_turn_buffer.py`
 - [`core/models/interaction.py`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/core/models/interaction.py)（如需补帮助方法）
 
 具体工作：
@@ -584,7 +584,7 @@ async def ingest_event(
 
 建议新增测试类型：
 
-### P5-A `ObserverTurnBuffer` 单测
+### P5-A `MessageTurnBuffer` 单测
 
 - `user -> assistant -> flush` 产出 `turn_events`
 - `user -> tool_call -> tool_result -> assistant -> flush`
@@ -674,7 +674,7 @@ async def ingest_event(
 为了控制风险，建议按以下顺序推进：
 
 1. 拆出 `PassiveObserverIngressor`
-2. 升级 `ObserverTurnBuffer` 支持 `turn_events`
+2. 升级 `MessageTurnBuffer` 支持 `turn_events`
 3. 让 `system.ingest` 支持 `tool_call/tool_result`
 4. 让被动模式 payload 改填 `assistant_final_text + turn_events`
 5. 删除 perception fallback

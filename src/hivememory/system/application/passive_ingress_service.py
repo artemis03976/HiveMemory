@@ -22,7 +22,6 @@ class PassiveIngressService:
     """顶层被动接入应用服务 — 持有独立的被动消息编排器。"""
 
     _MAINTENANCE_OWNER = "system.passive_ingress"
-    _OBSERVER_IDLE_FLUSH_TASK = "observer_idle_flush"
 
     def __init__(
         self,
@@ -41,7 +40,7 @@ class PassiveIngressService:
         tasks_config = self._config.scheduler.tasks
         self._ingressor.configure_idle_flush(
             timeout_seconds=tasks_config.observer_idle_flush_timeout_seconds,
-            on_flush_callback=self._observer_idle_flush_callback,
+            on_flush_callback=self._submit_interaction,
         )
 
     def _register_maintenance_tasks(self) -> bool:
@@ -51,7 +50,7 @@ class PassiveIngressService:
         self._scheduler.register(
             MaintenanceTaskSpec(
                 owner=self._MAINTENANCE_OWNER,
-                name=self._OBSERVER_IDLE_FLUSH_TASK,
+                name="observer_idle_flush",
                 interval_seconds=tasks_config.observer_idle_flush_interval_seconds,
                 enabled=tasks_config.enable_observer_idle_flush,
             ),
@@ -61,13 +60,6 @@ class PassiveIngressService:
 
     def _unregister_maintenance_tasks(self) -> int:
         return self._scheduler.unregister_owner(self._MAINTENANCE_OWNER)
-
-    async def _observer_idle_flush_callback(
-        self,
-        payload,
-        target_topic=None,
-    ) -> None:
-        await self._submit_interaction(payload, target_topic=target_topic)
 
     async def _submit_interaction(
         self,
@@ -152,7 +144,7 @@ class PassiveIngressService:
             "memory": None,
         }
 
-    async def flush_observer_session(
+    async def flush_ingressor(
         self,
         user_id: str,
         agent_id: str = "omni_doll",

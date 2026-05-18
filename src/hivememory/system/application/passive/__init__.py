@@ -3,7 +3,7 @@
 
 统一收口 system/application 下的 passive ingress 相关实现：
     - PassiveIngressEvent / PassiveIngressOutcome / PassiveSessionKey
-    - ObserverTurnBuffer / ObserverTurnBufferManager
+    - MessageTurnBuffer / MessageTurnBufferManager
     - PassiveMessageIngressor
 """
 
@@ -15,18 +15,18 @@ from hivememory.system.application.passive.models import (
     PassiveIngressOutcome,
     PassiveSessionKey,
 )
-from hivememory.system.application.passive.observer_turn_buffer import (
+from hivememory.system.application.passive.message_turn_buffer import (
     FlushResult,
-    ObserverBufferState,
-    ObserverTurnBuffer,
-    ObserverTurnBufferManager,
+    MessageBufferState,
+    MessageTurnBuffer,
+    MessageTurnBufferManager,
 )
 
 __all__ = [
     "FlushResult",
-    "ObserverBufferState",
-    "ObserverTurnBuffer",
-    "ObserverTurnBufferManager",
+    "MessageBufferState",
+    "MessageTurnBuffer",
+    "MessageTurnBufferManager",
     "PassiveMessageIngressor",
     "PassiveIngressEvent",
     "PassiveIngressOutcome",

@@ -185,7 +185,7 @@ graph TD
 | 模式 | 入口方法 | 适用场景 | 特点 |
 | :--- | :--- | :--- | :--- |
 | **主动模式 (Active)** | `chat()` / `chat_stream()` | Kernel 直接驱动 LLM 生成 | 完整递归生成循环，含 MTP 执行，阻塞等待 |
-| **被动模式 (Passive)** | `ingest_event()` / `flush_observer_session()` | Discord Bot、微信机器人等外部框架 | 仅缓冲配对 + Eye 分析 + 检索降级，不驱动 LLM |
+| **被动模式 (Passive)** | `ingest_event()` / `flush_ingressor()` | Discord Bot、微信机器人等外部框架 | 仅缓冲配对 + Eye 分析 + 检索降级，不驱动 LLM |
 
 ### 2.5.3 运行时总线 (AsyncSystemBus / GlobalSystemBus / PatchouliBus)
 

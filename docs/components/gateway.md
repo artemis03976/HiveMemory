@@ -11,7 +11,7 @@ src/hivememory/engines/gateway/
 ├── engine.py            # GatewayEngine — 纯数据操作层，协调 L1/L2
 ├── interceptors.py      # RuleInterceptor / NoOpInterceptor — L1 规则拦截器
 ├── semantic_analyzer.py # LLMAnalyzer / NoOpSemanticAnalyzer — L2 语义分析器
-├── observer_buffer.py   # ObserverSessionBuffer / ObserverBufferManager — 被动模式缓冲器
+├── message_turn_buffer.py   # MessageTurnBuffer / MessageTurnBufferManager — 被动模式缓冲器
 ├── prompts.py           # 系统提示词模板（标准/简化/调度器/英文变体）
 ├── models.py            # GatewayResult / GatewayIntent / SemanticAnalysisResult 等数据模型
 └── interfaces.py        # BaseInterceptor / BaseSemanticAnalyzer 抽象接口
@@ -318,12 +318,12 @@ InteractionPayload(
 )
 ```
 
-### ObserverBufferManager
+### MessageTurnBufferManager
 
-`ObserverBufferManager` 按 `Identity.buffer_key` 管理多个 `ObserverSessionBuffer`，使用 `threading.RLock` 保证线程安全：
+`MessageTurnBufferManager` 按 `Identity.buffer_key` 管理多个 `MessageTurnBuffer`，使用 `threading.RLock` 保证线程安全：
 
 ```python
-manager = ObserverBufferManager()
+manager = MessageTurnBufferManager()
 buf = manager.get_buffer(identity)          # 获取或创建 buffer
 payloads = manager.flush_idle_buffers(30)   # 扫描并 flush 超时 buffer
 ```

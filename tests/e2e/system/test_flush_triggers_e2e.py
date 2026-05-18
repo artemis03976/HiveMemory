@@ -165,7 +165,7 @@ def _passive_ingest_round(
         user_id=user_id,
         agent_id=agent_id,
     ))
-    _run(system.flush_observer_session(user_id=user_id, agent_id=agent_id))
+    _run(system.flush_ingressor(user_id=user_id, agent_id=agent_id))
     # 等待 daemon thread 完成 submit_interaction
     time.sleep(SUBMIT_SETTLE_SECONDS)
 
