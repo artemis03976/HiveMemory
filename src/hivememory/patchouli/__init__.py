@@ -45,14 +45,14 @@ from hivememory.system.config import (
 
 # 三位一体分身
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
-from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+from hivememory.patchouli.services.librarian import LibrarianCore
 
 
 def __getattr__(name: str):
     """懒加载 Patchouli Runtime / System 组件以避免循环导入"""
     if name == "PatchouliRuntime":
-        from hivememory.patchouli.kernel import PatchouliRuntime
+        from hivememory.patchouli.runtime import PatchouliRuntime
         return PatchouliRuntime
     if name == "PatchouliService":
         from hivememory.patchouli.service import PatchouliService

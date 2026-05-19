@@ -22,9 +22,9 @@ export interface LogEntry {
   id: string; // Generated client-side (UUID)
   timestamp: string; // ISO 8601 format from backend
   level: LogLevel;
-  logger: string; // e.g., "hivememory.patchouli.kernel"
+  logger: string; // e.g., "hivememory.patchouli.runtime.core"
   message: string;
-  module: string; // e.g., "kernel.py"
+  module: string; // e.g., "core.py"
   function: string; // e.g., "handle_hot"
   line: number;
   thread: string; // e.g., "MainThread"

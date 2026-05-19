@@ -38,8 +38,8 @@ from hivememory.core.models import Identity
 from hivememory.core.protocol.models import (
     EyeGazeResult,
 )
-from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.config import HiveMemoryConfig, load_app_config
 
@@ -87,7 +87,7 @@ class PatchouliRuntime:
         >>> runtime = system.runtime
         >>>
         >>> # 高级：直接使用 Runtime（需自行管理 Gateway）
-        >>> from hivememory.patchouli.kernel import PatchouliRuntime
+        >>> from hivememory.patchouli.runtime import PatchouliRuntime
         >>> runtime = PatchouliRuntime()
     """
 

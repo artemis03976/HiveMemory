@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.patchouli.kernel.core import PatchouliRuntime
+from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.system import HiveMemorySystem

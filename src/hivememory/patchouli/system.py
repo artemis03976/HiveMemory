@@ -32,9 +32,9 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.kernel import PatchouliRuntime
-from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.runtime import PatchouliRuntime
+from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol

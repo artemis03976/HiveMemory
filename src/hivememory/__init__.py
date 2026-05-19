@@ -214,7 +214,7 @@ from hivememory.server.models import (
 def __getattr__(name: str):
     """懒加载以避免循环导入"""
     if name == "PatchouliRuntime":
-        from hivememory.patchouli.kernel import PatchouliRuntime
+        from hivememory.patchouli.runtime import PatchouliRuntime
         return PatchouliRuntime
     if name == "PatchouliService":
         from hivememory.patchouli.service import PatchouliService
@@ -226,10 +226,10 @@ def __getattr__(name: str):
         from hivememory.patchouli.eye import TheEye
         return TheEye
     if name == "RetrievalFamiliar":
-        from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+        from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         return RetrievalFamiliar
     if name == "LibrarianCore":
-        from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+        from hivememory.patchouli.services.librarian import LibrarianCore
         return LibrarianCore
     if name == "KoakumaRuntime":
         from hivememory.alice.runtime.koakuma import KoakumaRuntime

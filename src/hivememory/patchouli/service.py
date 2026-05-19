@@ -25,7 +25,7 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 if TYPE_CHECKING:
     from hivememory.patchouli.eye import TheEye
-    from hivememory.patchouli.kernel import PatchouliRuntime
+    from hivememory.patchouli.runtime import PatchouliRuntime
 
 logger = logging.getLogger(__name__)
 

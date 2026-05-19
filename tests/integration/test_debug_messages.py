@@ -58,7 +58,7 @@ async def test_debug_messages_with_system(patch_assemble_messages):
     """
     # Mock 存储层和检索层，避免真实调用 Qdrant
     with patch('hivememory.infrastructure.storage.QdrantMemoryStore') as mock_store_cls, \
-         patch('hivememory.patchouli.kernel.retrieval_familiar.RetrievalFamiliar.retrieve') as mock_retrieve:
+         patch('hivememory.patchouli.services.retrieval.RetrievalFamiliar.retrieve') as mock_retrieve:
 
         # Mock 存储实例
         mock_store = MagicMock()

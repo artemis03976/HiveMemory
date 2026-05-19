@@ -89,8 +89,8 @@ from hivememory.system.config import load_app_config, HiveMemoryConfig
 
 # 分身
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 # 导入 conftest 中的辅助类
 from tests.conftest import FlushRecorder, print_test_result

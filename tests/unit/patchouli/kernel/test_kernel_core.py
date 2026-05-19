@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
 from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.patchouli.kernel.core import PatchouliRuntime
+from hivememory.patchouli.runtime.core import PatchouliRuntime
 
 
 def _make_retrieval_response(empty=False):

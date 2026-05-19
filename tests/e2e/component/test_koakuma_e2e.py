@@ -5,7 +5,7 @@ Koakuma MTP 运行时集成测试
 - KoakumaRuntime 的 MTP 指令端到端执行流程
 - intercept_and_execute 的 Stop Sequence 拦截
 - 各指令处理器的错误处理
-- 与 PatchouliKernel 的集成
+- 与 PatchouliRuntime 的集成
 
 对应设计文档: MemoryToolProtocol.md Chapter 3
 """

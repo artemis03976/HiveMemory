@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
-from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 
 

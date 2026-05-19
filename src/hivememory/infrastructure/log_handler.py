@@ -99,8 +99,8 @@ class WebSocketLogHandler(logging.Handler):
         检查日志记录是否匹配配置的命名空间
 
         支持：
-        - 通配符: 'hivememory.*' 匹配 'hivememory.patchouli.kernel'
-        - 精确匹配: 'hivememory.patchouli.kernel' 只匹配该 logger
+        - 通配符: 'hivememory.*' 匹配 'hivememory.patchouli.runtime.core'
+        - 精确匹配: 'hivememory.patchouli.runtime.core' 只匹配该 logger
 
         Args:
             record: 日志记录

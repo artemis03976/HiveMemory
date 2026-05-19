@@ -26,6 +26,8 @@ from hivememory.core.protocol.models import EyeGazeResult
 
 logger = logging.getLogger(__name__)
 
+
+# TODO: 在多智能体后续阶段开发中，考虑上移至system以对两个子系统都提供支持
 class TheEye:
     def __init__(
         self,

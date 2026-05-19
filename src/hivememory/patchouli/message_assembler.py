@@ -12,6 +12,7 @@ from hivememory.prompts.system_prompt import SystemPromptBuilder
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 
+# TODO: 设置全局i18n以消除局部语言获取
 class MessageAssembler:
     """负责构建 Patchouli 对话使用的 messages。"""
 

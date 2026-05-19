@@ -56,7 +56,7 @@ class RetrievalFamiliar:
 
     使用示例:
         ```python
-        from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+        from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         from hivememory.engines.retrieval.engine import RetrievalEngine
         # ...
         engine = RetrievalEngine(retriever=..., renderer=...)

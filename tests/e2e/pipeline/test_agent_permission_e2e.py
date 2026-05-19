@@ -9,14 +9,16 @@ Agent 权限端到端测试
 """
 
 import pytest
+from types import MethodType
 from unittest.mock import Mock, AsyncMock, patch
 from uuid import uuid4
 
-from hivememory.core.models import AgentProfile, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.patchouli.kernel.core import PatchouliRuntime
+from hivememory.core.models import AgentProfile, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
+from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.core.mtp.exceptions import PermissionDeniedError
 from hivememory.core.mtp import MTPCommand, MTPVerb
+from hivememory.prompts.mtp import MTPPromptBuilder
 
 
 def _make_profile_atom(
@@ -57,8 +59,7 @@ def _create_runtime_with_koakuma():
     """创建带 Koakuma 的 PatchouliRuntime"""
     with patch.object(PatchouliRuntime, "_init_infrastructure"), \
          patch.object(PatchouliRuntime, "_build_engines", return_value={}), \
-         patch.object(PatchouliRuntime, "_register_services"), \
-         patch.object(PatchouliRuntime, "_register_bus_routes"):
+         patch.object(PatchouliRuntime, "_register_services"):
 
         mock_config = Mock()
         mock_config.koakuma.enabled = True
@@ -67,8 +68,29 @@ def _create_runtime_with_koakuma():
         mock_config.koakuma.mtp_prompt.include_demo = True
         mock_config.koakuma.mtp_prompt.include_error_handling = True
 
-        runtime = PatchouliRuntime(config=mock_config, bus=None)
+        runtime = PatchouliRuntime(config=mock_config)
         runtime.storage = Mock()
+
+        def _get_agent_profile(agent_alias: str):
+            atom = runtime.storage.get_memory_by_alias(agent_alias)
+            if atom is None:
+                return OMNI_DOLL_PROFILE
+            profile = AgentProfile.from_atom(atom)
+            return profile or OMNI_DOLL_PROFILE
+
+        def _get_mtp_prompt(self, profile=None):
+            prompt_config = self.config.koakuma.mtp_prompt
+            builder = MTPPromptBuilder(
+                language=prompt_config.language,
+                include_demo=prompt_config.include_demo,
+                include_error_handling=prompt_config.include_error_handling,
+                allowed_verbs=getattr(profile, "allowed_mtp_verbs", None),
+                allowed_runtime_tools=getattr(profile, "allowed_sys_tools", None),
+            )
+            return builder.build()
+
+        runtime.storage.get_agent_profile = Mock(side_effect=_get_agent_profile)
+        runtime.get_mtp_prompt = MethodType(_get_mtp_prompt, runtime)
 
         # 创建真实的 Koakuma 实例
         koakuma = KoakumaRuntime(bus=None, config=None)
