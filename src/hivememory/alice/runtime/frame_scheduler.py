@@ -13,7 +13,7 @@ from hivememory.alice.runtime.execution_frame import ExecutionFrame
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.host import AgentRuntimeHost
+    from hivememory.alice.runtime.runtime import AliceRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +29,14 @@ class FrameScheduler:
         - System Prompt 动态裁剪 (剥离 CALL 权限)
     """
 
-    def __init__(self, runtime_host: "AgentRuntimeHost"):
+    def __init__(self, runtime: "AliceRuntime"):
         """
         初始化帧调度器。
 
         Args:
-            runtime_host: AgentRuntimeHost 实例
+            runtime: AliceRuntime 实例
         """
-        self._host = runtime_host
+        self._runtime = runtime
         self._frame_stack: List[ExecutionFrame] = []
         self._frame_counter = 0
 
@@ -80,7 +80,7 @@ class FrameScheduler:
         3. 注入 context_refs 内容 (零开销上下文继承)
         4. 创建瞬态帧 (topic_id=None)
         """
-        sub_profile = await self._host.get_agent_profile(target_alias)
+        sub_profile = await self._runtime.get_agent_profile(target_alias)
 
         logger.info(
             f"Forking sub-frame: target={target_alias}, "
@@ -131,13 +131,13 @@ class FrameScheduler:
         from hivememory.prompts.system_prompt import SystemPromptBuilder
 
         language = (
-            self._host.config.koakuma.mtp_prompt.language
-            if self._host.config.koakuma.mtp_prompt
+            self._runtime.config.koakuma.mtp_prompt.language
+            if self._runtime.config.koakuma.mtp_prompt
             else "zh"
         )
         builder = SystemPromptBuilder(language=language)
 
-        mtp_prompt = self._host.get_mtp_prompt(profile=profile)
+        mtp_prompt = self._runtime.get_mtp_prompt(profile=profile)
         if mtp_prompt and depth >= 1:
             mtp_prompt = self._strip_call_from_prompt(mtp_prompt)
         builder.with_mtp_prompt(mtp_prompt)
@@ -186,17 +186,19 @@ class FrameScheduler:
         """
         contents = []
         user_id = (
-            self._host.koakuma._current_identity.user_id
-            if hasattr(self._host.koakuma, "_current_identity")
+            self._runtime.koakuma._current_identity.user_id
+            if hasattr(self._runtime.koakuma, "_current_identity")
             else None
         )
 
-        for alias in aliases:
-            atom = self._host.koakuma.atom_cache.get_atom_by_alias(alias)
+        global_bus = self._runtime.global_bus
 
-            if atom is None and user_id:
+        for alias in aliases:
+            atom = self._runtime.koakuma.atom_cache.get_atom_by_alias(alias)
+
+            if atom is None and user_id and global_bus is not None:
                 try:
-                    atom = await self._host._global_bus.request(
+                    atom = await global_bus.request(
                         PatchouliRoutes.MEMORY_GET_BY_ALIAS,
                         alias,
                         user_id,

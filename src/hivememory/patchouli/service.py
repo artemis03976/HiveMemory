@@ -12,6 +12,7 @@ from hivememory.core.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
 )
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.message_assembler import MessageAssembler
 from hivememory.patchouli.models import (
     FinalizeContext,
@@ -38,12 +39,11 @@ class PatchouliService:
         runtime: PatchouliRuntime,
         eye: TheEye,
         global_bus: GlobalSystemBus | None = None,
-        local_bus: PatchouliBus | None = None,
     ) -> None:
         self._runtime = runtime
         self._eye = eye
         self._global_bus = global_bus
-        self._local_bus = local_bus
+        self._local_bus = runtime.local_bus
         self._message_assembler = MessageAssembler(runtime)
 
     async def analyze_and_retrieve(
@@ -107,11 +107,11 @@ class PatchouliService:
                 session_id=session_id,
             )
             agent_profile = await self._require_local_bus().request(
-                "memory.get_agent_profile",
+                PatchouliLocalRoutes.GET_AGENT_PROFILE,
                 agent_id,
             )
             topic_snapshots = await self._require_local_bus().request(
-                "librarian.get_active_topics_snapshots",
+                PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
                 identity=identity,
             )
 
@@ -123,7 +123,7 @@ class PatchouliService:
 
             is_new = gaze_result.target_topic == "NEW_TOPIC"
             real_topic_id, pool_snapshot, topic_context = await self._require_local_bus().request(
-                "librarian.prepare_topic",
+                PatchouliLocalRoutes.PREPARE_TOPIC,
                 target_topic_id=gaze_result.target_topic,
                 new_topic_title=gaze_result.new_topic_title,
                 new_topic_summary=gaze_result.new_topic_summary,
@@ -255,7 +255,7 @@ class PatchouliService:
                 identity=gaze_result.identity,
             )
             retrieved_result = await self._require_local_bus().request(
-                "memory.retrieve",
+                PatchouliLocalRoutes.MEMORY_RETRIEVE,
                 retrieval_request,
                 mode,
             )

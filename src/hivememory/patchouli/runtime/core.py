@@ -38,6 +38,7 @@ from hivememory.core.models import Identity
 from hivememory.core.protocol.models import (
     EyeGazeResult,
 )
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -47,20 +48,6 @@ if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
 
 logger = logging.getLogger(__name__)
-
-_LOCAL_ROUTE_NAMES = (
-    "librarian.submit_interaction",
-    "passive.analyze_and_retrieve",
-    "memory.retrieve",
-    "memory.get_memory_by_alias",
-    "memory.get_agent_profile",
-    "librarian.prepare_topic",
-    "librarian.get_active_topics_snapshots",
-    "service.prepare_agent_run",
-    "service.finalize_agent_run",
-    "service.cleanup_prepared_agent_run",
-    "librarian.manual_archive_topic",
-)
 
 
 class PatchouliRuntime:
@@ -134,47 +121,47 @@ class PatchouliRuntime:
             return
 
         self._local_bus.register(
-            "librarian.submit_interaction",
+            PatchouliLocalRoutes.SUBMIT_INTERACTION,
             self.librarian_core.submit_interaction,
         )
         self._local_bus.register(
-            "passive.analyze_and_retrieve",
+            PatchouliLocalRoutes.ANALYZE_AND_RETRIEVE,
             service.analyze_and_retrieve,
         )
         self._local_bus.register(
-            "memory.retrieve",
+            PatchouliLocalRoutes.MEMORY_RETRIEVE,
             self._retrieve_memories,
         )
         self._local_bus.register(
-            "memory.get_memory_by_alias",
+            PatchouliLocalRoutes.MEMORY_GET_BY_ALIAS,
             self._get_memory_by_alias,
         )
         self._local_bus.register(
-            "memory.get_agent_profile",
+            PatchouliLocalRoutes.GET_AGENT_PROFILE,
             self._get_agent_profile,
         )
         self._local_bus.register(
-            "librarian.prepare_topic",
+            PatchouliLocalRoutes.PREPARE_TOPIC,
             self.librarian_core.prepare_topic,
         )
         self._local_bus.register(
-            "librarian.get_active_topics_snapshots",
+            PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
             self.librarian_core.get_active_topics_snapshots,
         )
         self._local_bus.register(
-            "service.prepare_agent_run",
+            PatchouliLocalRoutes.PREPARE_AGENT_RUN,
             service.prepare_agent_run,
         )
         self._local_bus.register(
-            "service.finalize_agent_run",
+            PatchouliLocalRoutes.FINALIZE_AGENT_RUN,
             service.finalize_agent_run,
         )
         self._local_bus.register(
-            "service.cleanup_prepared_agent_run",
+            PatchouliLocalRoutes.CLEANUP_PREPARED_AGENT_RUN,
             service.cleanup_prepared_agent_run,
         )
         self._local_bus.register(
-            "librarian.manual_archive_topic",
+            PatchouliLocalRoutes.MANUAL_ARCHIVE_TOPIC,
             self.librarian_core.manual_archive_topic,
         )
         self._local_routes_registered = True
@@ -183,7 +170,7 @@ class PatchouliRuntime:
         if not self._local_routes_registered:
             return
 
-        for route in _LOCAL_ROUTE_NAMES:
+        for route in PatchouliLocalRoutes.ALL:
             self._local_bus.unregister(route)
         self._local_routes_registered = False
 

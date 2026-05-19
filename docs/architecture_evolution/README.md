@@ -20,6 +20,9 @@
 - [第四次架构演进补充：SystemArchitecture_v4_RuntimeConvergence_Addendum](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_RuntimeConvergence_Addendum.md)
   - 关键词：PatchouliRuntime、AliceRuntime、System-Service-Runtime、长期收敛、运行环境宿主
 
+- [第四次架构演进补充：SystemArchitecture_v4_AliceRuntimeConvergence_Design](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_AliceRuntimeConvergence_Design.md)
+  - 关键词：AliceRuntime、AgentRuntime、KoakumaRuntime、运行时收敛、双 runtime 分层
+
 ## 约定
 
 - 本目录优先存放“架构演进”级别文档，而不是单个组件或一次局部重构的设计草案

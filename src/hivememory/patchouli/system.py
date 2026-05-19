@@ -87,7 +87,6 @@ class PatchouliSystem(SubsystemProtocol):
             runtime=self.runtime,
             eye=self.eye,
             global_bus=global_bus,
-            local_bus=self.runtime.local_bus,
         )
 
         self._scheduler = scheduler

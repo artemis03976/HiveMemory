@@ -38,7 +38,6 @@ def service_with_local_bus():
     service = PatchouliService(
         runtime=runtime,
         eye=MagicMock(),
-        local_bus=PatchouliBus(),
     )
     return service
 

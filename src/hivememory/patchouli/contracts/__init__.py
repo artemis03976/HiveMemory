@@ -1,0 +1,2 @@
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.public_routes import PatchouliRoutes

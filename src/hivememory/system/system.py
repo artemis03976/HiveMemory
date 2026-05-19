@@ -222,14 +222,6 @@ class HiveMemorySystem:
     def alice(self) -> AliceSystem:
         return self._alice
 
-    @property
-    def runtime(self):
-        return self._patchouli.runtime
-
-    @property
-    def storage(self):
-        return self._patchouli.storage
-
     async def manual_archive_topic(self, topic_id: str | None = None) -> dict[str, Any]:
         return await self._global_bus.request(
             "patchouli.public.manual_archive_topic",
