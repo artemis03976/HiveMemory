@@ -133,7 +133,6 @@ class RetrievalResponse(ProtocolMessage):
     # 元信息
     latency_ms: float = 0.0  # 总耗时
     memories_count: int = 0  # 检索到的数量
-
     
     def is_empty(self) -> bool:
         """检查是否没有检索到任何记忆"""
@@ -287,32 +286,11 @@ class InteractionPayload(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class KernelHotResult(BaseModel):
-    """
-    PatchouliKernel 热路径的统一输出模型
-
-    替代 handle_hot() 返回的 bare Dict[str, Any]，提供类型安全的返回值。
-
-    Attributes:
-        intent: 意图分类字符串
-        rewritten: 重写后的查询
-        keywords: 关键词列表
-        worth_saving: 是否值得保存
-        rendered_memory_context: 检索到的记忆上下文（可能为 None）
-    """
-    intent: str = Field(..., description="意图")
-    rewritten: Optional[str] = Field(default=None, description="重写后的查询")
-    keywords: List[str] = Field(default_factory=list, description="关键词列表")
-    worth_saving: bool = Field(default=False, description="是否值得保存")
-    rendered_memory_context: Optional[str] = Field(default=None, description="渲染后的记忆上下文")
-    retrieved_memories: List[MemoryAtom] = Field(default_factory=list, description="预检索到的记忆列表")
-
-
 class AnalyzeAndRetrieveResult(BaseModel):
     """Patchouli 标准分析与预检索组合结果。"""
 
     gaze_result: EyeGazeResult = Field(..., description="入口分析结果")
-    hot_result: KernelHotResult = Field(..., description="热路径预检索结果")
+    retrieval_result: RetrievalResponse = Field(..., description="热路径预检索结果")
 
 
 __all__ = [
@@ -323,7 +301,6 @@ __all__ = [
     "RetrievalResponse",
     "EyeGazeResult",
     "InteractionPayload",
-    "KernelHotResult",
     "AnalyzeAndRetrieveResult",
     "MTPExecutionResult",
 ]

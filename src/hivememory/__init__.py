@@ -213,6 +213,9 @@ from hivememory.server.models import (
 
 def __getattr__(name: str):
     """懒加载以避免循环导入"""
+    if name == "PatchouliRuntime":
+        from hivememory.patchouli.kernel import PatchouliRuntime
+        return PatchouliRuntime
     if name == "PatchouliKernel":
         from hivememory.patchouli.kernel import PatchouliKernel
         return PatchouliKernel
@@ -406,6 +409,7 @@ __all__ = [
     "TopicListResponse",
     "TriggerResponse",
     # ========== 懒加载组件 ==========
+    "PatchouliRuntime",
     "PatchouliKernel",
     "PatchouliService",
     "PatchouliSystem",

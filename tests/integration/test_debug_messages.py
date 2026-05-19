@@ -14,8 +14,15 @@ def patch_assemble_messages():
     """
     original_assemble = PatchouliService._assemble_messages_from_context
 
-    def _intercept(self, topic_context, hot_result, user_message):
-        messages = original_assemble(self, topic_context, hot_result, user_message)
+    def _intercept(self, topic_context, retrieval_result, user_message, profile=None, current_agent_id="omni_doll"):
+        messages = original_assemble(
+            self,
+            topic_context,
+            retrieval_result,
+            user_message,
+            profile=profile,
+            current_agent_id=current_agent_id,
+        )
         
         print("\n" + "="*50)
         print("🚀 [TEST DEBUG] Intercepted Messages Before Kernel Loop")

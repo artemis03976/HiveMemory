@@ -97,7 +97,7 @@ class AgentProfileCache:
     def __init__(self, max_size: int = 32):
         """初始化图纸缓存，默认最大 32 条。"""
         self._max_size = max_size
-        self._cache: OrderedDict[str, tuple[MemoryAtom, AgentProfile]] = OrderedDict()
+        self._cache: OrderedDict[str, tuple[Optional[MemoryAtom], AgentProfile]] = OrderedDict()
 
     def get(self, alias: str) -> Optional[AgentProfile]:
         """从缓存获取配置（不触发 storage 查询）。"""
@@ -157,7 +157,7 @@ class AgentProfileCache:
         """清空全部图纸缓存。"""
         self._cache.clear()
 
-    def store(self, alias: str, atom: MemoryAtom, config: AgentProfile) -> None:
+    def store(self, alias: str, atom: Optional[MemoryAtom], config: AgentProfile) -> None:
         """写入缓存并维护 LRU 淘汰策略。"""
         if alias in self._cache:
             self._cache.move_to_end(alias)

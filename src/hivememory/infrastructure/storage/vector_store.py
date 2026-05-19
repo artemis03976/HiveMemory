@@ -27,7 +27,12 @@ from qdrant_client.models import (
     Modifier,
 )
 
-from hivememory.core.models import MemoryAtom, IndexLayer
+from hivememory.core.models import (
+    AgentProfile,
+    IndexLayer,
+    MemoryAtom,
+    OMNI_DOLL_PROFILE,
+)
 from hivememory.system.config import QdrantConfig, EmbeddingConfig
 from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
@@ -314,6 +319,31 @@ class QdrantMemoryStore:
         except Exception as e:
             logger.error(f"Unexpected storage error in get_memory_by_alias (alias={alias}): {e}", exc_info=True)
             raise StorageReadError("Memory storage encountered an unexpected error.") from e
+
+    def get_agent_profile(self, agent_alias: str) -> AgentProfile:
+        """
+        根据 agent alias 加载图纸配置，不存在时回退到 omni_doll。
+
+        这是一个基于 alias 的基础存储能力，供 Patchouli/Alice 等上层运行时复用。
+        """
+        if not agent_alias or agent_alias in ("default", "omni_doll"):
+            return OMNI_DOLL_PROFILE
+
+        try:
+            atom = self.get_memory_by_alias(agent_alias)
+            if atom:
+                profile = AgentProfile.from_atom(atom)
+                if profile:
+                    return profile
+        except Exception as e:
+            logger.warning(
+                f"Failed to load agent profile '{agent_alias}' from storage: {e}"
+            )
+
+        logger.info(
+            f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE."
+        )
+        return OMNI_DOLL_PROFILE
 
     def search_memories(
         self,

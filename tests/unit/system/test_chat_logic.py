@@ -2,14 +2,14 @@
 PatchouliSystem.chat() 端到端测试
 
 验证 chat() 方法的完整调用链:
-    Eye.gaze → Kernel.handle_hot (异步感知 + 可选检索) → Prompt 增强 → 递归生成循环 → 异步 assistant 感知
+    Eye.gaze → RetrievalResponse 预检索 → Prompt 增强 → 递归生成循环 → 异步 assistant 感知
 
 测试覆盖:
-    1. 基本对话 — Eye + handle_hot + 生成循环 + assistant 感知
-    2. 记忆检索注入 — hot_result.rendered_memory_context 注入 system prompt
+    1. 基本对话 — Eye + 预检索 + 生成循环 + assistant 感知
+    2. 记忆检索注入 — retrieval_result.rendered_context 注入 system prompt
     3. 禁用记忆检索 — enable_memory_retrieval=False 跳过检索
     4. MTP 中断 — chat 内部递归循环处理 MTP
-    5. handle_hot 异步感知 — 验证 kernel._safe_perceive 被线程调用
+    5. 预检索异步感知 — 验证相关路径被调用
     6. assistant 回复异步感知 — 验证 assistant observation 被投递
     7. 无 system prompt — messages 不含 system 角色时的降级处理
     8. MTP prompt 注入 — kernel.get_mtp_prompt 内容追加到 system prompt
@@ -35,7 +35,7 @@ pytestmark = pytest.mark.skip(
 from hivememory.core.models import Identity, StreamMessage, TurnRecord
 from hivememory.engines.perception.models import LogicalBlock
 from hivememory.core.protocol.models import (
-    ChatResult, KernelHotResult, EyeGazeResult, MTPExecutionResult,
+    ChatResult, RetrievalResponse, EyeGazeResult, MTPExecutionResult,
 )
 from hivememory.alice.runtime.worker_agent import GenerationResult
 from hivememory.core.mtp import MTPVerb
@@ -61,13 +61,10 @@ def _make_gaze_result(
         identity=Identity(user_id=user_id),
     )
 
-def _make_hot_result(rendered_memory_context: str = None) -> KernelHotResult:
-    return KernelHotResult(
-        intent="Chat",
-        rewritten="hello rewritten",
-        keywords=[],
-        worth_saving=True,
-        rendered_memory_context=rendered_memory_context,
+def _make_retrieval_result(rendered_context: str = None) -> RetrievalResponse:
+    return RetrievalResponse(
+        memories=[],
+        rendered_context=rendered_context or "",
     )
 
 
@@ -128,7 +125,7 @@ def sys():
     # Kernel
     s.kernel = MagicMock()
     s.kernel.config = s.config  # 共享 config 对象
-    s.kernel.handle_hot = AsyncMock(return_value=_make_hot_result())
+    s.kernel.handle_hot = AsyncMock(return_value=_make_retrieval_result())
     s.kernel.handle_mtp = AsyncMock(return_value=None)
     s.kernel.get_topic_snapshots = AsyncMock(return_value=[])
     s.kernel.prepare_topic = AsyncMock(return_value=(
@@ -139,9 +136,9 @@ def sys():
     s.kernel.get_mtp_prompt = MagicMock(return_value="")
     s.kernel.check_storage_health = MagicMock(return_value=True)
 
-    # Mock load_agent_profile to return OMNI_DOLL_PROFILE
+    # Mock get_agent_profile to return OMNI_DOLL_PROFILE
     from hivememory.core.models import OMNI_DOLL_PROFILE
-    s.kernel.load_agent_profile = MagicMock(return_value=OMNI_DOLL_PROFILE)
+    s.kernel.get_agent_profile = MagicMock(return_value=OMNI_DOLL_PROFILE)
 
     s.kernel.koakuma = MagicMock()
     s.kernel.submit_interaction = AsyncMock(return_value=None)
@@ -279,9 +276,9 @@ class TestMemoryRetrieval:
     """记忆检索与注入"""
 
     def test_memory_injected_into_system_prompt(self, sys):
-        """hot_result.rendered_memory_context 被注入到 system prompt"""
-        sys.kernel.handle_hot.return_value = _make_hot_result(
-            rendered_memory_context="<memory>User prefers Python</memory>"
+        """retrieval_result.rendered_context 被注入到 system prompt"""
+        sys.kernel.handle_hot.return_value = _make_retrieval_result(
+            rendered_context="<memory>User prefers Python</memory>"
         )
 
         sys.chat(
@@ -310,8 +307,8 @@ class TestMemoryRetrieval:
         )
 
     def test_no_memory_no_injection(self, sys):
-        """rendered_memory_context 为 None 且 MTP prompt 为空时，不生成 system message"""
-        sys.kernel.handle_hot.return_value = _make_hot_result(rendered_memory_context=None)
+        """rendered_context 为空且 MTP prompt 为空时，不生成 system message"""
+        sys.kernel.handle_hot.return_value = _make_retrieval_result(rendered_context=None)
 
         sys.chat(
             user_message="hi",
@@ -364,9 +361,9 @@ class TestNoSystemPrompt:
         assert result.final_text == "Hi there!"
 
     def test_no_system_message_skips_augmentation(self, sys):
-        """system_prompt 为空时仍可注入 MTP/rendered_memory_context"""
+        """system_prompt 为空时仍可注入 MTP/rendered_context"""
         sys.kernel.get_mtp_prompt.return_value = "[MTP]"
-        sys.kernel.handle_hot.return_value = _make_hot_result(rendered_memory_context="<mem/>")
+        sys.kernel.handle_hot.return_value = _make_retrieval_result(rendered_context="<mem/>")
 
         sys.chat(user_message="hi", user_id="u1")
 
@@ -408,7 +405,7 @@ class TestAsyncPerception:
 
     def test_messages_assembled_internally(self, sys):
         """messages 由内部组装，包含 system+user 两条基础消息"""
-        sys.kernel.handle_hot.return_value = _make_hot_result(rendered_memory_context="<mem/>")
+        sys.kernel.handle_hot.return_value = _make_retrieval_result(rendered_context="<mem/>")
         sys.kernel.get_mtp_prompt.return_value = "[MTP]"
 
         sys.chat(user_message="hi", user_id="u1")
@@ -443,8 +440,8 @@ class TestChatWithMTP:
 
     def test_mtp_with_memory_and_prompt(self, sys):
         """MTP + 记忆 + MTP prompt 全部注入后递归正常"""
-        sys.kernel.handle_hot.return_value = _make_hot_result(
-            rendered_memory_context="<memory>context</memory>"
+        sys.kernel.handle_hot.return_value = _make_retrieval_result(
+            rendered_context="<memory>context</memory>"
         )
         sys.kernel.get_mtp_prompt.return_value = "[MTP Protocol]"
         sys._worker_agent.generate_async.side_effect = [

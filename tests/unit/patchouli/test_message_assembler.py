@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from hivememory.core.protocol.models import KernelHotResult
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.message_assembler import MessageAssembler
 
 
@@ -32,18 +32,14 @@ def test_assemble_builds_prompt_without_kernel_get_mtp_prompt():
         allowed_mtp_verbs=["SEARCH", "READ"],
         allowed_sys_tools=["sys_clock"],
     )
-    hot_result = KernelHotResult(
-        intent="RAG",
-        rewritten="hello",
-        keywords=["kw"],
-        worth_saving=True,
-        rendered_memory_context="<memory>ctx</memory>",
-        retrieved_memories=[],
+    retrieval_result = RetrievalResponse(
+        memories=[],
+        rendered_context="<memory>ctx</memory>",
     )
 
     messages = assembler.assemble(
         topic_context={"state_summary": "state", "blocks": []},
-        hot_result=hot_result,
+        retrieval_result=retrieval_result,
         user_message="hello",
         profile=profile,
     )

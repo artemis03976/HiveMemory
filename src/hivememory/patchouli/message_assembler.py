@@ -7,7 +7,7 @@
 from typing import Any, Dict, List
 
 from hivememory.engines.perception.context_converter import PerceptionContextConverter
-from hivememory.core.protocol.models import KernelHotResult
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.prompts.system_prompt import SystemPromptBuilder
 from hivememory.prompts.mtp import MTPPromptBuilder
 
@@ -21,7 +21,7 @@ class MessageAssembler:
     def assemble(
         self,
         topic_context: Dict[str, Any],
-        hot_result: KernelHotResult,
+        retrieval_result: RetrievalResponse,
         user_message: str,
         profile=None,
         current_agent_id: str = "omni_doll",
@@ -55,7 +55,7 @@ class MessageAssembler:
         if profile and profile.persona:
             builder.with_persona(profile.persona)
 
-        builder.with_memory_context(hot_result.rendered_memory_context)
+        builder.with_memory_context(retrieval_result.rendered_context)
         builder.with_topic_state(topic_context.get("state_summary", ""))
 
         system_prompt = builder.build()

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from hivememory.core.models import AgentProfile, Identity
-from hivememory.core.protocol.models import KernelHotResult
+from hivememory.core.protocol.models import EyeGazeResult
 
 
 @dataclass
@@ -32,7 +32,7 @@ class FinalizeContext:
     顶层不应解读此对象内部字段，只需原样传回 finalize_agent_run。
     """
 
-    hot_result: KernelHotResult
+    gaze_result: EyeGazeResult
     identity: Identity
     topic_id: str
     user_message: str

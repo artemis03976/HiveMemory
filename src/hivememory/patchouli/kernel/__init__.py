@@ -12,11 +12,12 @@
 版本: 4.0 (Phase C)
 """
 
-from hivememory.patchouli.kernel.core import PatchouliKernel
+from hivememory.patchouli.kernel.core import PatchouliRuntime, PatchouliKernel
 from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
 from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 
 __all__ = [
+    "PatchouliRuntime",
     "PatchouliKernel",
     "RetrievalFamiliar",
     "LibrarianCore",

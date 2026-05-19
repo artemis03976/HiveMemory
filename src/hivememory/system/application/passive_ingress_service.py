@@ -117,14 +117,19 @@ class PassiveIngressService:
                 target_topic=flushed_target_topic,
             )
 
-        if outcome.kind == "user" and outcome.hot_result is not None:
-            hot_result = outcome.hot_result
+        if (
+            outcome.kind == "user"
+            and outcome.gaze_result is not None
+            and outcome.retrieval_result is not None
+        ):
+            gaze_result = outcome.gaze_result
+            retrieval_result = outcome.retrieval_result
             return {
-                "intent": hot_result.intent,
-                "rewritten": hot_result.rewritten,
-                "keywords": hot_result.keywords,
-                "worth_saving": hot_result.worth_saving,
-                "memory": hot_result.rendered_memory_context,
+                "intent": gaze_result.intent.value,
+                "rewritten": gaze_result.rewritten_query,
+                "keywords": gaze_result.search_keywords,
+                "worth_saving": gaze_result.worth_saving,
+                "memory": retrieval_result.rendered_context or None,
             }
 
         if outcome.kind == "buffered":

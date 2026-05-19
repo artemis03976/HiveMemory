@@ -4,7 +4,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.core.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult, EyeGazeResult, RetrievalResponse
+from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -38,20 +39,25 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
     bus = GlobalSystemBus()
     local_bus = PatchouliBus()
 
-    gaze_result = MagicMock(
-        target_topic="topic_1",
-        new_topic_title=None,
-        new_topic_summary=None,
-    )
-    hot_result = MagicMock(
-        retrieved_memories=[_build_memory_atom()],
-        rewritten="rewritten query",
+    gaze_result = EyeGazeResult(
+        intent=GatewayIntent.RAG,
+        rewritten_query="rewritten query",
+        search_keywords=["tag"],
         worth_saving=True,
+        raw_query="hi",
+        identity=Identity(user_id="u1"),
+        target_topic="topic_1",
+    )
+    retrieval_result = RetrievalResponse(
+        memories=[_build_memory_atom()],
+        rendered_context="<memory>ctx</memory>",
     )
 
     eye.gaze = AsyncMock(return_value=gaze_result)
-    kernel.load_agent_profile = MagicMock(return_value=MagicMock())
-    kernel.handle_hot = AsyncMock(return_value=hot_result)
+    local_bus.register(
+        "memory.get_agent_profile",
+        AsyncMock(return_value=MagicMock()),
+    )
     local_bus.register(
         "librarian.get_active_topics_snapshots",
         AsyncMock(return_value=[]),
@@ -60,11 +66,17 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
         "librarian.prepare_topic",
         AsyncMock(return_value=("topic_1", {"topics": []}, {"blocks": []})),
     )
+    local_bus.register(
+        "memory.retrieve",
+        AsyncMock(
+            return_value=retrieval_result
+        ),
+    )
 
     register_aliases = AsyncMock(return_value=None)
     bus.register(GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES, register_aliases)
 
-    service = PatchouliService(kernel=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
+    service = PatchouliService(runtime=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
     service._assemble_messages_from_context = MagicMock(return_value=[{"role": "user", "content": "hi"}])
 
     prepared = await service.prepare_agent_run(
@@ -72,7 +84,7 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
         user_id="u1",
     )
 
-    register_aliases.assert_awaited_once_with(hot_result.retrieved_memories)
+    register_aliases.assert_awaited_once_with(retrieval_result.memories)
     assert prepared.identity.user_id == "u1"
     assert prepared.topic_id == "topic_1"
     assert prepared.stream_prelude.memory_refs[0]["alias"] == "mem_alias"
@@ -84,7 +96,7 @@ async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
     kernel.librarian_core = MagicMock()
     kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
     service = PatchouliService(
-        kernel=kernel,
+        runtime=kernel,
         eye=MagicMock(),
         global_bus=GlobalSystemBus(),
     )
@@ -104,7 +116,15 @@ async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
         user_message="hi",
         identity=Identity(user_id="u1", agent_id="omni_doll"),
         topic_id="topic_1",
-        hot_result=MagicMock(rewritten="rewritten", worth_saving=True),
+        gaze_result=EyeGazeResult(
+            intent=GatewayIntent.RAG,
+            rewritten_query="rewritten",
+            search_keywords=[],
+            worth_saving=True,
+            raw_query="hi",
+            identity=Identity(user_id="u1", agent_id="omni_doll"),
+            target_topic="topic_1",
+        ),
     )
 
     await service.finalize_agent_run(

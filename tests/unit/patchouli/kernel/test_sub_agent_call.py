@@ -152,7 +152,8 @@ class TestKoakumaHandleCall:
         )
         return koakuma
 
-    def test_call_returns_suspend(self):
+    @pytest.mark.asyncio
+    async def test_call_returns_suspend(self):
         """CALL 返回 SUSPEND 状态"""
         koakuma = self._make_koakuma(depth=0)
         cmd = MagicMock(spec=MTPCommand)
@@ -160,7 +161,7 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "coder_doll"
         cmd.args = {"task": "Write code", "context_refs": '["mem_spec"]'}
 
-        response = koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd)
 
         assert response.status == MTPResponseStatus.SUSPEND
         payload = json.loads(response.content)
@@ -168,7 +169,8 @@ class TestKoakumaHandleCall:
         assert payload["task"] == "Write code"
         assert payload["context_refs"] == ["mem_spec"]
 
-    def test_call_depth_check_blocks_sub_agent(self):
+    @pytest.mark.asyncio
+    async def test_call_depth_check_blocks_sub_agent(self):
         """子 Agent (depth=1) 被禁止调用 CALL"""
         koakuma = self._make_koakuma(depth=1)
         cmd = MagicMock(spec=MTPCommand)
@@ -178,9 +180,10 @@ class TestKoakumaHandleCall:
 
         from hivememory.core.mtp.exceptions import PermissionDeniedError
         with pytest.raises(PermissionDeniedError):
-            koakuma._handle_call(cmd)
+            await koakuma._handle_call(cmd)
 
-    def test_call_missing_task(self):
+    @pytest.mark.asyncio
+    async def test_call_missing_task(self):
         """CALL 缺少 task 参数返回 ERROR"""
         koakuma = self._make_koakuma(depth=0)
         cmd = MagicMock(spec=MTPCommand)
@@ -188,10 +191,11 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "coder_doll"
         cmd.args = {}  # no task
 
-        response = koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd)
         assert response.status == MTPResponseStatus.ERROR
 
-    def test_call_missing_target(self):
+    @pytest.mark.asyncio
+    async def test_call_missing_target(self):
         """CALL 缺少 target 返回 ERROR"""
         koakuma = self._make_koakuma(depth=0)
         cmd = MagicMock(spec=MTPCommand)
@@ -199,7 +203,7 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = None  # no target
         cmd.args = {"task": "some task"}
 
-        response = koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd)
         assert response.status == MTPResponseStatus.ERROR
 
 
@@ -237,7 +241,7 @@ class TestFrameScheduler:
 
     def _make_kernel_mock(self):
         kernel = MagicMock()
-        kernel.load_agent_profile = AsyncMock(return_value=OMNI_DOLL_PROFILE)
+        kernel.get_agent_profile = AsyncMock(return_value=OMNI_DOLL_PROFILE)
         kernel.get_mtp_prompt = MagicMock(return_value="### MTP Instructions\n## CALL\nCALL instructions here\n## READ\nREAD instructions")
         kernel.config = MagicMock()
         kernel.config.koakuma.mtp_prompt.language = "zh"
@@ -371,8 +375,8 @@ class TestIPCReturnAssembly:
         from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
-        executor.kernel = MagicMock()
-        executor.kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
+        executor._host = MagicMock()
+        executor._host.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
 
         import types
         executor._assemble_ipc_return = types.MethodType(

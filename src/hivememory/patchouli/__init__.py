@@ -50,7 +50,10 @@ from hivememory.patchouli.kernel.librarian_core import LibrarianCore
 
 
 def __getattr__(name: str):
-    """懒加载 PatchouliKernel 和 PatchouliSystem 以避免循环导入"""
+    """懒加载 Patchouli Runtime / System 组件以避免循环导入"""
+    if name == "PatchouliRuntime":
+        from hivememory.patchouli.kernel import PatchouliRuntime
+        return PatchouliRuntime
     if name == "PatchouliKernel":
         from hivememory.patchouli.kernel import PatchouliKernel
         return PatchouliKernel
@@ -68,6 +71,7 @@ def __getattr__(name: str):
 
 __all__ = [
     # 统一入口 (懒加载)
+    "PatchouliRuntime",
     "PatchouliKernel",
     "PatchouliService",
     "PatchouliSystem",

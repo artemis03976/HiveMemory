@@ -80,7 +80,7 @@ class FrameScheduler:
         3. 注入 context_refs 内容 (零开销上下文继承)
         4. 创建瞬态帧 (topic_id=None)
         """
-        sub_profile = await self._host.load_agent_profile(target_alias)
+        sub_profile = await self._host.get_agent_profile(target_alias)
 
         logger.info(
             f"Forking sub-frame: target={target_alias}, "

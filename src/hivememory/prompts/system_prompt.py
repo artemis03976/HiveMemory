@@ -78,7 +78,7 @@ class SystemPromptBuilder:
     # === Bottom 层: 工作区状态 ===
 
     def with_memory_context(self, rendered_memory: str) -> "SystemPromptBuilder":
-        """注入预检索记忆上下文 (来自 KernelHotResult)"""
+        """注入预检索记忆上下文 (来自 RetrievalResponse)"""
         if rendered_memory:
             self._sections.append(rendered_memory)
         return self

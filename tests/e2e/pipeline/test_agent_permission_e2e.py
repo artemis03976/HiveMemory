@@ -93,7 +93,7 @@ class TestProfileToPromptFiltering:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
-        profile = kernel.load_agent_profile("reviewer_doll")
+        profile = kernel.storage.get_agent_profile("reviewer_doll")
         assert profile is not None
 
         # 生成 MTP prompt
@@ -119,7 +119,7 @@ class TestProfileToPromptFiltering:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
-        profile = kernel.load_agent_profile("restricted_agent")
+        profile = kernel.storage.get_agent_profile("restricted_agent")
         mtp_prompt = kernel.get_mtp_prompt(profile=profile)
 
         # 允许的工具应该出现
@@ -165,7 +165,7 @@ class TestPromptToKoakumaEnforcement:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
-        profile = kernel.load_agent_profile("reader_only")
+        profile = kernel.storage.get_agent_profile("reader_only")
         koakuma.set_active_profile(profile)
 
         # 允许的动词应该通过
@@ -190,7 +190,7 @@ class TestPromptToKoakumaEnforcement:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
-        profile = kernel.load_agent_profile("safe_agent")
+        profile = kernel.storage.get_agent_profile("safe_agent")
         koakuma.set_active_profile(profile)
 
         # 允许的工具应该通过
@@ -220,7 +220,7 @@ class TestEndToEndPermissionChain:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=reviewer_atom)
 
-        profile = kernel.load_agent_profile("reviewer_doll")
+        profile = kernel.storage.get_agent_profile("reviewer_doll")
 
         # 1. Prompt 层：WRITE 不应该出现
         mtp_prompt = kernel.get_mtp_prompt(profile=profile)
@@ -247,7 +247,7 @@ class TestEndToEndPermissionChain:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=coder_atom)
 
-        profile = kernel.load_agent_profile("coder_doll")
+        profile = kernel.storage.get_agent_profile("coder_doll")
 
         # 1. Prompt 层：WRITE 应该出现
         mtp_prompt = kernel.get_mtp_prompt(profile=profile)
@@ -302,7 +302,7 @@ class TestSecurityScenarios:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
-        profile = kernel.load_agent_profile("restricted")
+        profile = kernel.storage.get_agent_profile("restricted")
         koakuma.set_active_profile(profile)
 
         # 即使 LLM 幻觉输出了 WRITE 指令，运行时也会拦截
@@ -320,7 +320,7 @@ class TestSecurityScenarios:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
-        profile = kernel.load_agent_profile("limited")
+        profile = kernel.storage.get_agent_profile("limited")
         koakuma.set_active_profile(profile)
 
         # sys_clock 应该通过
@@ -342,7 +342,7 @@ class TestSecurityScenarios:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=restrictive_atom)
 
-        profile1 = kernel.load_agent_profile("restrictive")
+        profile1 = kernel.storage.get_agent_profile("restrictive")
         koakuma.set_active_profile(profile1)
 
         # WRITE 应该被拒绝
@@ -357,7 +357,7 @@ class TestSecurityScenarios:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=permissive_atom)
 
-        profile2 = kernel.load_agent_profile("permissive")
+        profile2 = kernel.storage.get_agent_profile("permissive")
         koakuma.set_active_profile(profile2)
 
         # WRITE 现在应该通过
@@ -376,7 +376,7 @@ class TestProfileLoadingErrors:
         # 模拟 profile 不存在
         kernel.storage.get_memory_by_alias = Mock(return_value=None)
 
-        profile = kernel.load_agent_profile("nonexistent")
+        profile = kernel.storage.get_agent_profile("nonexistent")
         # 应该返回 OMNI_DOLL_PROFILE，不是 None
         from hivememory.core.models import OMNI_DOLL_PROFILE
         assert profile is OMNI_DOLL_PROFILE
@@ -405,6 +405,6 @@ class TestProfileLoadingErrors:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=broken_atom)
 
-        profile = kernel.load_agent_profile("broken")
+        profile = kernel.storage.get_agent_profile("broken")
         from hivememory.core.models import OMNI_DOLL_PROFILE
         assert profile is OMNI_DOLL_PROFILE

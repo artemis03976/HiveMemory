@@ -16,7 +16,7 @@ from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     EyeGazeResult,
     InteractionPayload,
-    KernelHotResult,
+    RetrievalResponse,
 )
 
 
@@ -66,10 +66,10 @@ class PassiveIngressOutcome:
     flushed: Optional[tuple[InteractionPayload, Optional[str]]] = None
 
     @property
-    def hot_result(self) -> Optional[KernelHotResult]:
+    def retrieval_result(self) -> Optional[RetrievalResponse]:
         if self.analysis_result is None:
             return None
-        return self.analysis_result.hot_result
+        return self.analysis_result.retrieval_result
 
 
 __all__ = [

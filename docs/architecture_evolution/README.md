@@ -17,6 +17,9 @@
 - [第四次架构演进：SystemArchitecture_v4_PhaseD_ChatApplicationServiceMigration_Design](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_PhaseD_ChatApplicationServiceMigration_Design.md)
   - 关键词：Phase D、ChatApplicationService、chat 编排迁移、Alice 运行时、Patchouli 记忆域边界
 
+- [第四次架构演进补充：SystemArchitecture_v4_RuntimeConvergence_Addendum](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_RuntimeConvergence_Addendum.md)
+  - 关键词：PatchouliRuntime、AliceRuntime、System-Service-Runtime、长期收敛、运行环境宿主
+
 ## 约定
 
 - 本目录优先存放“架构演进”级别文档，而不是单个组件或一次局部重构的设计草案

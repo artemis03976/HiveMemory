@@ -11,7 +11,7 @@ from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     ChatResult,
     EyeGazeResult,
-    KernelHotResult,
+    RetrievalResponse,
 )
 from hivememory.patchouli.models import (
     FinalizeContext,
@@ -28,11 +28,14 @@ from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenan
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="omni_doll")
-    hot_result = KernelHotResult(
-        intent="RAG",
-        rewritten="resolved",
-        keywords=["k"],
+    gaze_result = EyeGazeResult(
+        intent=GatewayIntent.RAG,
+        rewritten_query="resolved",
+        search_keywords=["k"],
         worth_saving=True,
+        raw_query="hi",
+        identity=identity,
+        target_topic="topic_1",
     )
     defaults = dict(
         identity=identity,
@@ -48,7 +51,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             memory_refs=[],
         ),
         finalize_context=FinalizeContext(
-            hot_result=hot_result,
+            gaze_result=gaze_result,
             identity=identity,
             topic_id="topic_1",
             user_message="hi",
@@ -130,16 +133,13 @@ def _make_analysis_result(
         identity=Identity(user_id="u1"),
         target_topic=target_topic,
     )
-    hot_result = KernelHotResult(
-        intent="RAG",
-        rewritten="resolved query",
-        keywords=["resolved"],
-        worth_saving=worth_saving,
-        rendered_memory_context=memory,
+    retrieval_result = RetrievalResponse(
+        memories=[],
+        rendered_context=memory or "",
     )
     return AnalyzeAndRetrieveResult(
         gaze_result=gaze_result,
-        hot_result=hot_result,
+        retrieval_result=retrieval_result,
     )
 
 

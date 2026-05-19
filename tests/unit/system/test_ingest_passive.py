@@ -30,10 +30,11 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.patchouli.kernel.core import PatchouliRuntime
 from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     EyeGazeResult,
-    KernelHotResult,
+    RetrievalResponse,
 )
 from hivememory.engines.gateway.models import GatewayIntent
 
@@ -62,13 +63,10 @@ def _make_gaze_result(
     )
 
 
-def _make_hot_result(rendered_memory_context=None) -> KernelHotResult:
-    return KernelHotResult(
-        intent="Chat",
-        rewritten="hello rewritten",
-        keywords=[],
-        worth_saving=True,
-        rendered_memory_context=rendered_memory_context,
+def _make_retrieval_result(rendered_context=None) -> RetrievalResponse:
+    return RetrievalResponse(
+        memories=[],
+        rendered_context=rendered_context or "",
     )
 
 
@@ -379,14 +377,10 @@ def sys_passive():
     eye = MagicMock()
     eye.gaze = AsyncMock(return_value=_make_gaze_result())
 
-    kernel = MagicMock()
-    kernel.handle_hot = AsyncMock(
-        return_value=_make_hot_result(rendered_memory_context="<mem>ctx</mem>")
-    )
-    kernel.submit_interaction = AsyncMock(return_value=None)
-    kernel.librarian_core = MagicMock()
-    kernel.librarian_core.perception_layer = MagicMock()
-    kernel.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
+    runtime = MagicMock()
+    runtime.librarian_core = MagicMock()
+    runtime.librarian_core.perception_layer = MagicMock()
+    runtime.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
         return_value={
             "success": True,
             "trigger_reason": "shutdown",
@@ -395,17 +389,34 @@ def sys_passive():
             "archived_blocks": 0,
         }
     )
+    retrieve = AsyncMock(
+        return_value=MagicMock(
+            is_empty=MagicMock(return_value=False),
+            rendered_context="<mem>ctx</mem>",
+            memories=[],
+        )
+    )
+    submit_interaction = AsyncMock(return_value=None)
+    state = {
+        "rendered_context": "<mem>ctx</mem>",
+        "analysis_modes": [],
+    }
 
     async def analyze_and_retrieve(query, identity, **kwargs):
+        state["analysis_modes"].append(kwargs.get("mode"))
         gaze_result = await eye.gaze(
             query=query,
             identity=identity,
             topic_snapshots=kwargs.get("topic_snapshots"),
         )
-        hot_result = await kernel.handle_hot(gaze_result, mode="passive")
+        retrieval_result = _make_retrieval_result(
+            rendered_context=state["rendered_context"]
+        )
+        if gaze_result.intent == GatewayIntent.RAG:
+            await retrieve(MagicMock(), "passive")
         return AnalyzeAndRetrieveResult(
             gaze_result=gaze_result,
-            hot_result=hot_result,
+            retrieval_result=retrieval_result,
         )
 
     bus.register(
@@ -414,7 +425,7 @@ def sys_passive():
     )
     bus.register(
         GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION,
-        kernel.submit_interaction,
+        submit_interaction,
     )
 
     service = PassiveIngressService(
@@ -428,7 +439,15 @@ def sys_passive():
     harness.config = config
     harness.scheduler = scheduler
     harness.eye = eye
-    harness.kernel = kernel
+    harness.kernel = runtime
+    harness.runtime = runtime
+    harness.retrieve = retrieve
+    harness.submit_interaction = submit_interaction
+    harness.hot_state = state
+    harness.runtime._shutdown_drain_started = False
+    harness.runtime.shutdown_drain = PatchouliRuntime.shutdown_drain.__get__(
+        harness.runtime, PatchouliRuntime
+    )
     harness._shutdown_drain_started = False
     harness._MAINTENANCE_OWNER = "patchouli"
     harness.ingest_event = service.ingest_event
@@ -470,14 +489,10 @@ class TestIngestUserFlow:
             role="user", content="q", user_id="u1",
         )
 
-        sys_passive.kernel.handle_hot.assert_called_once()
-        call_kwargs = sys_passive.kernel.handle_hot.call_args
-        assert call_kwargs.kwargs.get("mode") == "passive"
+        assert sys_passive.hot_state["analysis_modes"] == ["passive"]
 
     def test_user_ingest_returns_memory(self, sys_passive):
-        sys_passive.kernel.handle_hot.return_value = _make_hot_result(
-            rendered_memory_context="<memory>relevant</memory>"
-        )
+        sys_passive.hot_state["rendered_context"] = "<memory>relevant</memory>"
 
         result = _ingest_event(
             sys_passive,
@@ -517,7 +532,7 @@ class TestIngestAssistantFlow:
         _ingest_event(sys_passive, role="user", content="q", user_id="u1")
         _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
 
-        sys_passive.kernel.submit_interaction.assert_not_called()
+        sys_passive.submit_interaction.assert_not_called()
 
     def test_invalid_role_rejected_by_event_model(self, sys_passive):
         with pytest.raises(Exception):
@@ -593,7 +608,7 @@ class TestSystemSchedulerIntegration:
         sys_passive.unregister_maintenance_tasks(scheduler)
 
         sys_passive.kernel.librarian_core.perception_layer.scan_idle_buffers_once.assert_awaited()
-        sys_passive.kernel.submit_interaction.assert_not_awaited()
+        sys_passive.submit_interaction.assert_not_awaited()
 
 
 class TestShutdownDrain:
@@ -616,7 +631,7 @@ class TestShutdownDrain:
 
         result = asyncio.run(Real.shutdown_drain(sys_passive))
 
-        sys_passive.kernel.submit_interaction.assert_not_called()
+        sys_passive.submit_interaction.assert_not_called()
         sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
         assert result["observer_payloads_submitted"] == 0
         assert result["perception"]["trigger_reason"] == "shutdown"
@@ -654,8 +669,8 @@ class TestIngestFullRoundTrip:
 
         _ingest_event(sys_passive, role="user", content="q2", user_id="u1")
 
-        sys_passive.kernel.submit_interaction.assert_called_once()
-        payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
+        sys_passive.submit_interaction.assert_called_once()
+        payload = sys_passive.submit_interaction.call_args.kwargs["payload"]
         assert payload.user_message == "q1"
         assert payload.assistant_final_text == "a1"
 
@@ -669,7 +684,7 @@ class TestIngestFullRoundTrip:
         _ingest_event(sys_passive, role="assistant", content="a1", user_id="u1")
         _ingest_event(sys_passive, role="user", content="q2", user_id="u1")
 
-        call_kwargs = sys_passive.kernel.submit_interaction.call_args[1]
+        call_kwargs = sys_passive.submit_interaction.call_args[1]
         assert call_kwargs["target_topic"] == "topic_round1"
 
     def test_explicit_flush_submits_payload(self, sys_passive):
@@ -680,8 +695,8 @@ class TestIngestFullRoundTrip:
         flushed = sys_passive.flush_ingressor(user_id="u1")
 
         assert flushed is True
-        sys_passive.kernel.submit_interaction.assert_called_once()
-        payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
+        sys_passive.submit_interaction.assert_called_once()
+        payload = sys_passive.submit_interaction.call_args.kwargs["payload"]
         assert payload.user_message == "q"
         assert payload.assistant_final_text == "a"
 
@@ -689,7 +704,7 @@ class TestIngestFullRoundTrip:
         """空 session flush 返回 False"""
         flushed = sys_passive.flush_ingressor(user_id="u1")
         assert flushed is False
-        sys_passive.kernel.submit_interaction.assert_not_called()
+        sys_passive.submit_interaction.assert_not_called()
 
     def test_multi_round_submits_each_round(self, sys_passive):
         """多轮对话，每轮都被正确提交"""
@@ -699,9 +714,9 @@ class TestIngestFullRoundTrip:
         _ingest_event(sys_passive, role="assistant", content="a2", user_id="u1")
         sys_passive.flush_ingressor(user_id="u1")
 
-        assert sys_passive.kernel.submit_interaction.call_count == 2
-        p1 = sys_passive.kernel.submit_interaction.call_args_list[0].kwargs["payload"]
-        p2 = sys_passive.kernel.submit_interaction.call_args_list[1].kwargs["payload"]
+        assert sys_passive.submit_interaction.call_count == 2
+        p1 = sys_passive.submit_interaction.call_args_list[0].kwargs["payload"]
+        p2 = sys_passive.submit_interaction.call_args_list[1].kwargs["payload"]
         assert p1.user_message == "q1"
         assert p2.user_message == "q2"
 
@@ -714,7 +729,7 @@ class TestIngestFullRoundTrip:
         _ingest_event(sys_passive, role="assistant", content="a1", user_id="u1")
         sys_passive.flush_ingressor(user_id="u1")
 
-        payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
+        payload = sys_passive.submit_interaction.call_args.kwargs["payload"]
         assert payload.rewritten_query == "resolved"
         assert payload.worth_saving is True
         assert payload.mtp_traces == []
@@ -725,7 +740,7 @@ class TestIngestFullRoundTrip:
         _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
         sys_passive.flush_ingressor(user_id="u1")
 
-        payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
+        payload = sys_passive.submit_interaction.call_args.kwargs["payload"]
         assert len(payload.turn_events) == 2
         assert payload.turn_events[0].kind == "user_message"
         assert payload.turn_events[0].content == "q"
@@ -738,7 +753,7 @@ class TestIngestFullRoundTrip:
         _ingest_event(sys_passive, role="assistant", content="a", user_id="u1")
         sys_passive.flush_ingressor(user_id="u1")
 
-        payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
+        payload = sys_passive.submit_interaction.call_args.kwargs["payload"]
         assert payload.assistant_final_text == "a"
 
 
@@ -798,7 +813,7 @@ class TestIngestEvent:
         ))
 
         assert result["intent"] == "buffered"
-        sys_passive.kernel.submit_interaction.assert_not_called()
+        sys_passive.submit_interaction.assert_not_called()
 
     def test_ingest_event_tool_result(self, sys_passive):
         """tool_result 事件通过 ingest_event() 正确缓冲"""
@@ -854,8 +869,8 @@ class TestIngestEvent:
         ))
         sys_passive.flush_ingressor(user_id="u1")
 
-        sys_passive.kernel.submit_interaction.assert_called_once()
-        payload = sys_passive.kernel.submit_interaction.call_args.kwargs["payload"]
+        sys_passive.submit_interaction.assert_called_once()
+        payload = sys_passive.submit_interaction.call_args.kwargs["payload"]
 
         assert len(payload.turn_events) == 4
         assert payload.turn_events[0].kind == "user_message"

@@ -93,8 +93,8 @@ class AgentRuntimeHost:
     def worker_agent(self) -> WorkerAgentService:
         return self._worker_agent
 
-    async def load_agent_profile(self, agent_alias: str) -> AgentProfile:
-        """加载人偶图纸配置：缓存优先 → 总线冷查询 → omni_doll 兜底。"""
+    async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
+        """加载人偶图纸配置：缓存优先 → 显式 profile 总线冷查询 → omni_doll 兜底。"""
         if not agent_alias or agent_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
@@ -104,19 +104,22 @@ class AgentRuntimeHost:
 
         if self._global_bus is not None:
             try:
-                atom = await self._global_bus.request(
-                    PatchouliRoutes.MEMORY_GET_BY_ALIAS, agent_alias
+                profile = await self._global_bus.request(
+                    PatchouliRoutes.GET_AGENT_PROFILE,
+                    agent_alias,
                 )
             except Exception as e:
                 logger.warning(f"Failed to load agent profile '{agent_alias}' via bus: {e}")
-                atom = None
+                profile = None
 
-            if atom is not None:
-                profile = self._agent_profile_cache.parse_config(atom)
-                if profile is not None:
-                    self._agent_profile_cache.store(agent_alias, atom, profile)
-                    logger.info(f"Agent profile '{agent_alias}' loaded and cached.")
-                    return profile
+            if profile is not None:
+                logger.info(f"Agent profile '{agent_alias}' loaded and cached.")
+                self._agent_profile_cache.store(
+                    agent_alias,
+                    None,
+                    profile,
+                )
+                return profile
 
         logger.info(f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE.")
         return OMNI_DOLL_PROFILE
