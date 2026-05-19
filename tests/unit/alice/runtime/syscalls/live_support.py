@@ -165,7 +165,7 @@ def _build_mtp_system_prompt(language: str = "en") -> str:
     )
     mtp_fragment = MTPPromptBuilder(
         language=language,
-        kernel_tools=[
+        runtime_tools=[
             ("sys_clock", "Get current date, time, and timezone."),
             ("sys_python_repl", "Execute Python code for calculation or data processing."),
         ],
@@ -181,7 +181,7 @@ def _build_mtp_system_prompt_with_file_io(language: str = "en") -> str:
     )
     mtp_fragment = MTPPromptBuilder(
         language=language,
-        kernel_tools=[
+        runtime_tools=[
             ("sys_clock", "Get current date, time, and timezone."),
             ("sys_python_repl", "Execute Python code for calculation or data processing."),
             ("sys_read_file", "Read a file from the workspace directory. Args: path (relative path)."),

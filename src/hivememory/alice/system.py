@@ -2,7 +2,6 @@
 AliceSystem - 多智能体编排与计算子系统
 
 SubsystemProtocol 实现，持有 AgentRuntimeHost 和 AliceService。
-不依赖 PatchouliKernel。
 """
 
 from __future__ import annotations

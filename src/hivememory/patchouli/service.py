@@ -41,7 +41,6 @@ class PatchouliService:
         local_bus: PatchouliBus | None = None,
     ) -> None:
         self._runtime = runtime
-        self._kernel = runtime
         self._eye = eye
         self._global_bus = global_bus
         self._local_bus = local_bus

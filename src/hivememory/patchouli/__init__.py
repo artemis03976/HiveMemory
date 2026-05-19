@@ -3,10 +3,10 @@
 
 HiveMemory 的分布式智能架构 v3.0。
 
-架构 (Eye + Kernel):
-    - PatchouliSystem (The Facility): 外层容器，持有 Eye + Kernel
+架构 (Eye + Runtime):
+    - PatchouliSystem (The Facility): 外层容器，持有 Eye + Runtime
     - TheEye (真理之眼): Ingress Gateway，意图识别、查询重写 (同步阻塞)
-    - PatchouliKernel (帕秋莉内核): 中心调度器，管理微服务
+    - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染 (同步阻塞)
         - LibrarianCore (馆长本体): 话题感知、记忆生成、生命周期管理 (异步非阻塞)
 
@@ -54,9 +54,6 @@ def __getattr__(name: str):
     if name == "PatchouliRuntime":
         from hivememory.patchouli.kernel import PatchouliRuntime
         return PatchouliRuntime
-    if name == "PatchouliKernel":
-        from hivememory.patchouli.kernel import PatchouliKernel
-        return PatchouliKernel
     if name == "PatchouliService":
         from hivememory.patchouli.service import PatchouliService
         return PatchouliService
@@ -72,7 +69,6 @@ def __getattr__(name: str):
 __all__ = [
     # 统一入口 (懒加载)
     "PatchouliRuntime",
-    "PatchouliKernel",
     "PatchouliService",
     "PatchouliSystem",
     "WorkerAgentService",

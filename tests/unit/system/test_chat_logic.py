@@ -12,7 +12,7 @@ PatchouliSystem.chat() 端到端测试
     5. 预检索异步感知 — 验证相关路径被调用
     6. assistant 回复异步感知 — 验证 assistant observation 被投递
     7. 无 system prompt — messages 不含 system 角色时的降级处理
-    8. MTP prompt 注入 — kernel.get_mtp_prompt 内容追加到 system prompt
+    8. MTP prompt 注入 — runtime.get_mtp_prompt 内容追加到 system prompt
     9. InteractionPayload 构建 — 验证 payload 字段与 submit_interaction 调用
     10. Koakuma 离线 fallback — koakuma 异常时降级为空 traces
     11. 递归深度上限 — max_iter 边界终止循环
@@ -108,7 +108,7 @@ def _mtp_exec() -> MTPExecutionResult:
 def sys():
     """
     构建最小化 PatchouliSystem mock:
-    mock Eye, Kernel, WorkerAgent — 绑定真实 chat() 与后处理逻辑
+    mock Eye, Runtime, WorkerAgent — 绑定真实 chat() 与后处理逻辑
     """
     from hivememory.patchouli.system import PatchouliSystem
 

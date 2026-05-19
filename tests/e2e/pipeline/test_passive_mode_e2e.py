@@ -101,7 +101,7 @@ async def _ingest_event(
 
 
 def _get_perception_layer(system: PatchouliSystem):
-    return system.kernel.librarian_core.perception_layer
+    return system.runtime.librarian_core.perception_layer
 
 
 def _collect_user_blocks(

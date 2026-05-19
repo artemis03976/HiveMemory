@@ -72,7 +72,7 @@ def build_messages(
 
 def _get_perception_layer(system: PatchouliSystem):
     """获取感知层实例"""
-    return system.kernel.librarian_core.perception_layer
+    return system.runtime.librarian_core.perception_layer
 
 
 def _collect_user_blocks(

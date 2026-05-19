@@ -339,7 +339,7 @@ def _build_mtp_system_prompt_with_file_io(language: str = "en") -> str:
     ]
     mtp_fragment = MTPPromptBuilder(
         language=language,
-        kernel_tools=available_tools,
+        runtime_tools=available_tools,
     ).build()
     return f"{base_prompt}\n\n{mtp_fragment}"
 

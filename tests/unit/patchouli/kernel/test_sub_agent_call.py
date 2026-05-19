@@ -355,7 +355,7 @@ class TestIPCReturnAssembly:
         from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
-        executor.kernel = MagicMock()
+        executor._host = MagicMock()
         import types
         executor._assemble_ipc_return = types.MethodType(
             KernelLoopExecutor._assemble_ipc_return, executor

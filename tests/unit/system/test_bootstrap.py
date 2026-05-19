@@ -16,10 +16,10 @@ class _FakePatchouliSystem:
         self._global_bus = global_bus
         self._local_bus = MagicMock()
         self._scheduler = scheduler
-        self.kernel = MagicMock()
-        self.kernel.is_models_ready.return_value = True
-        self.kernel.submit_interaction = AsyncMock(return_value={"status": "ok"})
-        self.kernel.handle_hot = AsyncMock(return_value={"intent": "rag"})
+        self.runtime = MagicMock()
+        self.runtime.is_models_ready.return_value = True
+        self.runtime.submit_interaction = AsyncMock(return_value={"status": "ok"})
+        self.runtime.handle_hot = AsyncMock(return_value={"intent": "rag"})
         self.service = MagicMock()
         self.service.chat = AsyncMock(return_value="chat_result")
         self.service.chat_stream = MagicMock()
@@ -44,7 +44,7 @@ class _FakePatchouliSystem:
             )
             self._global_bus.register(
                 PatchouliRoutes.SUBMIT_INTERACTION,
-                self.kernel.submit_interaction,
+                self.runtime.submit_interaction,
             )
 
     async def _stop_impl(self):

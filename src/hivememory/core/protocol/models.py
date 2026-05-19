@@ -193,7 +193,7 @@ class EyeGazeResult(BaseModel):
     TheEye 的统一输出模型
 
     TheEye 作为 Agentic Dispatcher，负责信息重整与话题路由。
-    数据格式转换由 PatchouliKernel 负责。
+    数据格式转换由 PatchouliRuntime 负责。
 
     Attributes:
         intent: Gateway 意图分类

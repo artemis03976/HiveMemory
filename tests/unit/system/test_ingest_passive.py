@@ -30,7 +30,7 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.patchouli.kernel.core import PatchouliRuntime
+from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     EyeGazeResult,
@@ -439,7 +439,6 @@ def sys_passive():
     harness.config = config
     harness.scheduler = scheduler
     harness.eye = eye
-    harness.kernel = runtime
     harness.runtime = runtime
     harness.retrieve = retrieve
     harness.submit_interaction = submit_interaction
@@ -565,9 +564,9 @@ class TestSystemSchedulerIntegration:
         sys_passive.unregister_maintenance_tasks = types.MethodType(
             Real.unregister_maintenance_tasks, sys_passive
         )
-        sys_passive.kernel.librarian_core = MagicMock()
-        sys_passive.kernel.librarian_core.perception_layer = MagicMock()
-        sys_passive.kernel.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock()
+        sys_passive.runtime.librarian_core = MagicMock()
+        sys_passive.runtime.librarian_core.perception_layer = MagicMock()
+        sys_passive.runtime.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock()
 
         assert sys_passive.register_maintenance_tasks(scheduler) is True
         task_names = {spec.name for spec in scheduler.list_tasks()}
@@ -588,9 +587,9 @@ class TestSystemSchedulerIntegration:
         sys_passive.config = MagicMock()
         sys_passive.config.scheduler = MagicMock(enabled=True, tasks=tasks)
         scheduler = GlobalMaintenanceScheduler(tick_seconds=0.01, shutdown_wait_seconds=0.2)
-        sys_passive.kernel.librarian_core = MagicMock()
-        sys_passive.kernel.librarian_core.perception_layer = MagicMock()
-        sys_passive.kernel.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock(
+        sys_passive.runtime.librarian_core = MagicMock()
+        sys_passive.runtime.librarian_core.perception_layer = MagicMock()
+        sys_passive.runtime.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock(
             return_value=["topic_001"]
         )
 
@@ -607,7 +606,7 @@ class TestSystemSchedulerIntegration:
         await scheduler.stop()
         sys_passive.unregister_maintenance_tasks(scheduler)
 
-        sys_passive.kernel.librarian_core.perception_layer.scan_idle_buffers_once.assert_awaited()
+        sys_passive.runtime.librarian_core.perception_layer.scan_idle_buffers_once.assert_awaited()
         sys_passive.submit_interaction.assert_not_awaited()
 
 
@@ -617,9 +616,9 @@ class TestShutdownDrain:
     def test_shutdown_drain_flushes_perception_only(self, sys_passive):
         from hivememory.patchouli.system import PatchouliSystem as Real
 
-        sys_passive.kernel.librarian_core = MagicMock()
-        sys_passive.kernel.librarian_core.perception_layer = MagicMock()
-        sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
+        sys_passive.runtime.librarian_core = MagicMock()
+        sys_passive.runtime.librarian_core.perception_layer = MagicMock()
+        sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
             return_value={
                 "success": True,
                 "trigger_reason": "shutdown",
@@ -632,16 +631,16 @@ class TestShutdownDrain:
         result = asyncio.run(Real.shutdown_drain(sys_passive))
 
         sys_passive.submit_interaction.assert_not_called()
-        sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
+        sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
         assert result["observer_payloads_submitted"] == 0
         assert result["perception"]["trigger_reason"] == "shutdown"
 
     def test_shutdown_drain_is_reentrant(self, sys_passive):
         from hivememory.patchouli.system import PatchouliSystem as Real
 
-        sys_passive.kernel.librarian_core = MagicMock()
-        sys_passive.kernel.librarian_core.perception_layer = MagicMock()
-        sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
+        sys_passive.runtime.librarian_core = MagicMock()
+        sys_passive.runtime.librarian_core.perception_layer = MagicMock()
+        sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
             return_value={
                 "success": True,
                 "trigger_reason": "shutdown",
@@ -656,7 +655,7 @@ class TestShutdownDrain:
 
         assert first["reentrant"] is False
         assert second["reentrant"] is True
-        sys_passive.kernel.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
+        sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
 
 
 class TestIngestFullRoundTrip:

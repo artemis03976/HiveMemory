@@ -3,13 +3,13 @@ MTP Prompt 权限过滤单元测试
 
 测试覆盖:
 - allowed_verbs: 动词白名单过滤 / None 全量渲染 / 空列表边界
-- allowed_kernel_tools: 工具白名单过滤 / None 全量渲染 / 空列表边界
+- allowed_runtime_tools: 工具白名单过滤 / None 全量渲染 / 空列表边界
 - 动态渲染 VERBS 列表的正确性
 """
 
 import pytest
 
-from hivememory.prompts.mtp import MTPPromptBuilder, DEFAULT_KERNEL_TOOLS
+from hivememory.prompts.mtp import MTPPromptBuilder, DEFAULT_RUNTIME_TOOLS
 
 
 class TestAllowedVerbsFiltering:
@@ -114,13 +114,13 @@ class TestAllowedVerbsFiltering:
 
 
 class TestAllowedKernelToolsFiltering:
-    """allowed_kernel_tools 工具白名单过滤测试"""
+    """allowed_runtime_tools 工具白名单过滤测试"""
 
-    def test_allowed_kernel_tools_filters_list(self):
+    def test_allowed_runtime_tools_filters_list(self):
         """白名单过滤：只渲染允许的工具"""
         builder = MTPPromptBuilder(
             language="en",
-            allowed_kernel_tools=["sys_clock", "sys_read_file"],
+            allowed_runtime_tools=["sys_clock", "sys_read_file"],
         )
         output = builder.build()
 
@@ -133,36 +133,36 @@ class TestAllowedKernelToolsFiltering:
         assert "sys_python_repl" not in output
         assert "sys_web_search" not in output
 
-    def test_allowed_kernel_tools_none_renders_all(self):
+    def test_allowed_runtime_tools_none_renders_all(self):
         """None 白名单：渲染全部默认工具"""
         builder = MTPPromptBuilder(
             language="en",
-            allowed_kernel_tools=None,  # 全量渲染
+            allowed_runtime_tools=None,  # 全量渲染
         )
         output = builder.build()
 
         # 所有默认工具都应该出现
-        for tool_alias, _ in DEFAULT_KERNEL_TOOLS:
+        for tool_alias, _ in DEFAULT_RUNTIME_TOOLS:
             assert tool_alias in output
 
-    def test_allowed_kernel_tools_empty_renders_none(self):
+    def test_allowed_runtime_tools_empty_renders_none(self):
         """空白名单：不渲染工具列表"""
         builder = MTPPromptBuilder(
             language="en",
-            allowed_kernel_tools=[],  # 空列表
+            allowed_runtime_tools=[],  # 空列表
         )
         output = builder.build()
 
         # 工具列表部分不应该出现
-        assert "[KERNEL TOOLS]" not in output
+        assert "[RUNTIME TOOLS]" not in output
         assert "sys_clock" not in output
         assert "sys_read_file" not in output
 
-    def test_allowed_kernel_tools_single_tool(self):
+    def test_allowed_runtime_tools_single_tool(self):
         """单个工具白名单"""
         builder = MTPPromptBuilder(
             language="en",
-            allowed_kernel_tools=["sys_clock"],
+            allowed_runtime_tools=["sys_clock"],
         )
         output = builder.build()
 
@@ -174,7 +174,7 @@ class TestAllowedKernelToolsFiltering:
         assert "sys_read_file" not in output
         assert "sys_write_file" not in output
 
-    def test_allowed_kernel_tools_with_custom_registry(self):
+    def test_allowed_runtime_tools_with_custom_registry(self):
         """自定义工具注册表 + 白名单过滤"""
         custom_tools = [
             ("tool_a", "Tool A description"),
@@ -184,8 +184,8 @@ class TestAllowedKernelToolsFiltering:
 
         builder = MTPPromptBuilder(
             language="en",
-            kernel_tools=custom_tools,
-            allowed_kernel_tools=["tool_a", "tool_c"],  # 只允许 a 和 c
+            runtime_tools=custom_tools,
+            allowed_runtime_tools=["tool_a", "tool_c"],  # 只允许 a 和 c
         )
         output = builder.build()
 
@@ -205,7 +205,7 @@ class TestCombinedPermissions:
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=["READ", "SEARCH"],
-            allowed_kernel_tools=["sys_clock"],
+            allowed_runtime_tools=["sys_clock"],
         )
         output = builder.build()
 
@@ -229,7 +229,7 @@ class TestCombinedPermissions:
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=["READ", "SEARCH"],
-            allowed_kernel_tools=["sys_clock"],  # 无写文件权限
+            allowed_runtime_tools=["sys_clock"],  # 无写文件权限
         )
         output = builder.build()
 
@@ -250,7 +250,7 @@ class TestCombinedPermissions:
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=["READ", "SEARCH", "WRITE", "RUN"],
-            allowed_kernel_tools=["sys_clock", "sys_read_file", "sys_write_file", "sys_python_repl"],
+            allowed_runtime_tools=["sys_clock", "sys_read_file", "sys_write_file", "sys_python_repl"],
         )
         output = builder.build()
 
@@ -269,7 +269,7 @@ class TestCombinedPermissions:
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=None,  # 全部动词
-            allowed_kernel_tools=None,  # 全部工具
+            allowed_runtime_tools=None,  # 全部工具
         )
         output = builder.build()
 
@@ -281,7 +281,7 @@ class TestCombinedPermissions:
         assert "- UPDATE:" in output
 
         # 所有默认工具都应该出现
-        for tool_alias, _ in DEFAULT_KERNEL_TOOLS:
+        for tool_alias, _ in DEFAULT_RUNTIME_TOOLS:
             assert tool_alias in output
 
 
@@ -293,7 +293,7 @@ class TestPromptStructureIntegrity:
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=["READ"],
-            allowed_kernel_tools=["sys_clock"],
+            allowed_runtime_tools=["sys_clock"],
         )
         output = builder.build()
 
@@ -302,7 +302,7 @@ class TestPromptStructureIntegrity:
         assert "PROTOCOL RULES" in output
         assert "CONSTRAINTS" in output
         assert "BEHAVIORAL GUIDELINES" in output
-        assert "[KERNEL TOOLS]" in output
+        assert "[RUNTIME TOOLS]" in output
         assert "ONE-SHOT DEMONSTRATION" in output
         assert "ERROR RECOVERY" in output
 
@@ -311,7 +311,7 @@ class TestPromptStructureIntegrity:
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=[],
-            allowed_kernel_tools=[],
+            allowed_runtime_tools=[],
         )
         output = builder.build()
 
@@ -321,7 +321,7 @@ class TestPromptStructureIntegrity:
         assert "CONSTRAINTS" in output
 
         # 工具列表不应该出现（空列表）
-        assert "[KERNEL TOOLS]" not in output
+        assert "[RUNTIME TOOLS]" not in output
 
     def test_filtered_prompt_no_leaked_verbs(self):
         """确保禁止的动词不会在其他部分泄露"""
@@ -361,14 +361,14 @@ class TestEdgeCases:
         """白名单中的未知工具被忽略"""
         builder = MTPPromptBuilder(
             language="en",
-            allowed_kernel_tools=["sys_clock", "unknown_tool"],
+            allowed_runtime_tools=["sys_clock", "unknown_tool"],
         )
         output = builder.build()
 
         # 已知工具应该出现
         assert "sys_clock" in output
 
-        # 未知工具不应该出现（因为不在 DEFAULT_KERNEL_TOOLS 中）
+        # 未知工具不应该出现（因为不在 DEFAULT_RUNTIME_TOOLS 中）
         assert "unknown_tool" not in output
 
     def test_duplicate_verbs_in_whitelist(self):

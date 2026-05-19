@@ -5,10 +5,10 @@ MTP System Prompt 构建器
 该片段仅包含协议教学内容，不包含角色设定（persona）或工作区状态。
 
 模块结构:
-1. 协议规格 (Protocol Specification, 含内核上下文 header)
+1. 协议规格 (Protocol Specification, 含运行时上下文 header)
 2. 负面约束 (Negative Constraints)
 3. 行为准则 (Behavioral Guidelines)
-4. 内核工具列表 (Kernel Tools, optional)
+4. 运行时工具列表 (Runtime Tools, optional)
 5. 高密度演示 (Dense Demo, optional)
 6. 错误恢复 (Error Recovery, optional)
 
@@ -29,9 +29,9 @@ from hivememory.core.mtp.models import (
 logger = logging.getLogger(__name__)
 
 
-# ========== MVP 默认内核工具列表 (Chapter 8.6) ==========
+# ========== MVP 默认运行时工具列表 (Chapter 8.6) ==========
 
-DEFAULT_KERNEL_TOOLS: List[Tuple[str, str]] = [
+DEFAULT_RUNTIME_TOOLS: List[Tuple[str, str]] = [
     ("sys_clock", "Get current date, time, and timezone."),
     ("sys_web_search", "Search the internet for latest information."),
     ("sys_read_file", "Read a file from the workspace."),
@@ -204,8 +204,8 @@ _ERROR_HANDLING_ZH = """\
 
 # ========== 语言无关模板 ==========
 
-_KERNEL_TOOLS_TEMPLATE = """\
-[KERNEL TOOLS] (Available via RUN)
+_RUNTIME_TOOLS_TEMPLATE = """\
+[RUNTIME TOOLS] (Available via RUN)
 {tool_list}"""
 
 
@@ -226,34 +226,33 @@ class MTPPromptBuilder:
     def __init__(
         self,
         language: str = "zh",
-        kernel_tools: Optional[List[Tuple[str, str]]] = None,
+        runtime_tools: Optional[List[Tuple[str, str]]] = None,
         include_demo: bool = True,
         include_error_handling: bool = True,
         allowed_verbs: Optional[List[str]] = None,
-        allowed_kernel_tools: Optional[List[str]] = None,
+        allowed_runtime_tools: Optional[List[str]] = None,
     ):
         """
         Args:
             language: 语言 ("zh" 或 "en")
-            kernel_tools: 内核工具注册表 [(alias, description), ...]
-                         如果为 None，使用 DEFAULT_KERNEL_TOOLS
+            runtime_tools: 运行时工具注册表 [(alias, description), ...]
+                           如果为 None，使用 DEFAULT_RUNTIME_TOOLS
             include_demo: 是否包含 One-Shot 演示
             include_error_handling: 是否包含错误恢复指令
             allowed_verbs: MTP 动词白名单，None=全量渲染
-            allowed_kernel_tools: 系统工具白名单，None=全量渲染，
-                                  空列表=不渲染工具列表
+            allowed_runtime_tools: 系统工具白名单，None=全量渲染，
+                                   空列表=不渲染工具列表
         """
         self.language = language
         self.include_demo = include_demo
         self.include_error_handling = include_error_handling
 
-        # 权限过滤：根据白名单过滤工具列表
-        base_tools = kernel_tools if kernel_tools is not None else DEFAULT_KERNEL_TOOLS
-        if allowed_kernel_tools is not None:
-            allowed_set = set(allowed_kernel_tools)
-            self.kernel_tools = [(a, d) for a, d in base_tools if a in allowed_set]
+        base_tools = runtime_tools if runtime_tools is not None else DEFAULT_RUNTIME_TOOLS
+        if allowed_runtime_tools is not None:
+            allowed_set = set(allowed_runtime_tools)
+            self.runtime_tools = [(a, d) for a, d in base_tools if a in allowed_set]
         else:
-            self.kernel_tools = base_tools
+            self.runtime_tools = base_tools
 
         # 权限过滤：MTP 动词白名单 (用于协议规格渲染)
         self.allowed_verbs = set(v.upper() for v in allowed_verbs) if allowed_verbs else None
@@ -277,8 +276,8 @@ class MTPPromptBuilder:
         sections.append(self._build_behavioral_guidelines())
 
         # 4. 内核工具列表 (有工具时渲染)
-        if self.kernel_tools:
-            sections.append(self._build_kernel_tools())
+        if self.runtime_tools:
+            sections.append(self._build_runtime_tools())
 
         # 5. 高密度演示 (可选)
         if self.include_demo:
@@ -312,13 +311,13 @@ class MTPPromptBuilder:
         """构建行为准则模块"""
         return _BEHAVIORAL_GUIDELINES_ZH if self.language == "zh" else _BEHAVIORAL_GUIDELINES_EN
 
-    def _build_kernel_tools(self) -> str:
-        """构建内核工具列表"""
+    def _build_runtime_tools(self) -> str:
+        """构建运行时工具列表"""
         lines = []
-        for alias, desc in self.kernel_tools:
+        for alias, desc in self.runtime_tools:
             lines.append(f"- `{alias}`: {desc}")
         tool_list = "\n".join(lines)
-        return _KERNEL_TOOLS_TEMPLATE.format(tool_list=tool_list)
+        return _RUNTIME_TOOLS_TEMPLATE.format(tool_list=tool_list)
 
     def _build_dense_demo(self) -> str:
         """构建高密度演示模块"""
@@ -337,21 +336,21 @@ class MTPPromptBuilder:
 
 def get_mtp_prompt(
     language: str = "zh",
-    kernel_tools: Optional[List[Tuple[str, str]]] = None,
+    runtime_tools: Optional[List[Tuple[str, str]]] = None,
 ) -> str:
     """
     便捷函数: 获取 MTP System Prompt 片段
 
     Args:
         language: 语言 ("zh" 或 "en")
-        kernel_tools: 可用的内核工具列表
+        runtime_tools: 可用的运行时工具列表
 
     Returns:
         str: MTP System Prompt 片段
     """
     builder = MTPPromptBuilder(
         language=language,
-        kernel_tools=kernel_tools,
+        runtime_tools=runtime_tools,
     )
     return builder.build()
 
@@ -359,5 +358,5 @@ def get_mtp_prompt(
 __all__ = [
     "MTPPromptBuilder",
     "get_mtp_prompt",
-    "DEFAULT_KERNEL_TOOLS",
+    "DEFAULT_RUNTIME_TOOLS",
 ]

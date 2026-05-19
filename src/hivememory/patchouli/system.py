@@ -130,13 +130,6 @@ class PatchouliSystem(SubsystemProtocol):
             semantic_analyzer=semantic_analyzer,
         )
 
-    # ========== 向后兼容属性 ==========
-
-    @property
-    def kernel(self) -> PatchouliRuntime:
-        """兼容旧命名，代理到 PatchouliRuntime。"""
-        return self.runtime
-
     @property
     def retrieval_familiar(self) -> RetrievalFamiliar:
         """访问检索使魔"""

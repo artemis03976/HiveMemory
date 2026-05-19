@@ -95,7 +95,7 @@ def _build_full_system_prompt(language: str = "en") -> str:
     ]
     mtp_fragment = MTPPromptBuilder(
         language=language,
-        kernel_tools=available_tools,
+        runtime_tools=available_tools,
     ).build()
     return f"{base_prompt}\n\n{mtp_fragment}"
 

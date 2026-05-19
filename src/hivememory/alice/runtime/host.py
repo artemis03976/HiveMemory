@@ -2,7 +2,7 @@
 AgentRuntimeHost - Agent 运算 runtime 对象聚合器
 
 持有 KoakumaRuntime、FrameScheduler、KernelLoopExecutor、WorkerAgentService。
-不依赖 PatchouliKernel，自行管理所有 Agent 计算所需的 runtime 对象。
+不依赖 PatchouliRuntime，自行管理所有 Agent 计算所需的 runtime 对象。
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class AgentRuntimeHost:
     - WorkerAgentService: 无状态 LLM 文本生成引擎
     - AgentProfileCache: 人偶图纸缓存
 
-    不依赖 PatchouliKernel。
+    不依赖 PatchouliRuntime。
     """
 
     def __init__(
@@ -136,18 +136,18 @@ class AgentRuntimeHost:
         from hivememory.prompts.mtp import MTPPromptBuilder
 
         allowed_verbs = None
-        allowed_kernel_tools = None
+        allowed_runtime_tools = None
         if profile and profile.allowed_mtp_verbs is not None:
             allowed_verbs = profile.allowed_mtp_verbs
         if profile and profile.allowed_sys_tools is not None:
-            allowed_kernel_tools = profile.allowed_sys_tools
+            allowed_runtime_tools = profile.allowed_sys_tools
 
         builder = MTPPromptBuilder(
             language=prompt_config.language,
             include_demo=prompt_config.include_demo,
             include_error_handling=prompt_config.include_error_handling,
             allowed_verbs=allowed_verbs,
-            allowed_kernel_tools=allowed_kernel_tools,
+            allowed_runtime_tools=allowed_runtime_tools,
         )
         return builder.build()
 

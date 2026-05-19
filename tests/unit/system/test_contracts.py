@@ -34,8 +34,8 @@ class TestSubsystemProtocol:
 
     def test_patchouli_system_passes_isinstance(self):
         sub = PatchouliSystem.__new__(PatchouliSystem)
-        sub.kernel = MagicMock()
-        sub.kernel.is_models_ready.return_value = True
+        sub.runtime = MagicMock()
+        sub.runtime.is_models_ready.return_value = True
         assert isinstance(sub, SubsystemProtocol)
 
     def test_invalid_subsystem_fails_isinstance(self):

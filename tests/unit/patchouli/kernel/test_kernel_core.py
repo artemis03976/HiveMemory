@@ -1,9 +1,8 @@
 """
-PatchouliRuntime / PatchouliKernel 单元测试
+PatchouliRuntime 单元测试
 
 测试覆盖:
 - shutdown_drain: perception flush 与重入保护
-- 兼容别名: PatchouliKernel -> PatchouliRuntime
 - 旧 Koakuma/MTP 相关用例保留跳过
 """
 
@@ -11,7 +10,7 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
 from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.patchouli.kernel.core import PatchouliKernel, PatchouliRuntime
+from hivememory.patchouli.kernel.core import PatchouliRuntime
 
 
 def _make_retrieval_response(empty=False):
@@ -117,12 +116,7 @@ class TestRuntimeShutdownDrain:
         runtime._services["librarian"].perception_layer.flush_all_for_shutdown.assert_awaited_once()
 
 
-class TestCompatibilityAliases:
-    def test_patchouli_kernel_alias_points_to_runtime(self):
-        assert PatchouliKernel is PatchouliRuntime
-
-
-class TestKernelGetMTPPrompt:
+class TestRuntimeGetMTPPrompt:
     """get_mtp_prompt() 测试"""
 
     @pytest.mark.skip(reason="Legacy Koakuma prompt generation moved to Alice runtime.")

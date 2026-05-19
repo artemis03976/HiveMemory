@@ -13,8 +13,8 @@ from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenan
 def mock_patchouli():
     p = MagicMock()
     p.name = "patchouli"
-    p.kernel = MagicMock()
-    p.kernel.is_models_ready.return_value = True
+    p.runtime = MagicMock()
+    p.runtime.is_models_ready.return_value = True
     p.health = AsyncMock(return_value={"status": "ok", "models_ready": True})
     p.storage = MagicMock()
     p.service = MagicMock()
@@ -139,8 +139,8 @@ class TestHiveMemorySystem:
     def test_patchouli_property(self, system, mock_patchouli):
         assert system.patchouli is mock_patchouli
 
-    def test_kernel_property(self, system, mock_patchouli):
-        assert system.kernel is mock_patchouli.kernel
+    def test_runtime_property(self, system, mock_patchouli):
+        assert system.runtime is mock_patchouli.runtime
 
     def test_storage_property(self, system, mock_patchouli):
         assert system.storage is mock_patchouli.storage

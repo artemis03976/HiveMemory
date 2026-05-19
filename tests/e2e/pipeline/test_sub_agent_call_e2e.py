@@ -57,7 +57,7 @@ def _ensure_coder_doll_profile(system) -> None:
     atom = system.storage.get_memory_by_alias(alias)
 
     if atom is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
-        system.kernel.agent_profile_cache.invalidate(alias)
+        system.runtime.agent_profile_cache.invalidate(alias)
         return
 
     if atom is not None and atom.index.memory_type != MemoryType.AGENT_PROFILE:
@@ -90,7 +90,7 @@ def _ensure_coder_doll_profile(system) -> None:
         ),
     )
     system.storage.upsert_memory(profile_atom)
-    system.kernel.agent_profile_cache.invalidate(alias)
+    system.runtime.agent_profile_cache.invalidate(alias)
     logger.info("已创建 coder_doll profile 以保证子代理 e2e 链路可执行。")
 
 

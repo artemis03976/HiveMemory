@@ -55,7 +55,6 @@ def mock_patchouli():
     runtime.unmount_local_routes = MagicMock(side_effect=lambda: setattr(runtime, "local_routes_registered", False))
     runtime.shutdown_drain = AsyncMock(return_value={"success": True})
     p.runtime = runtime
-    p.kernel = runtime
     p.register_maintenance_tasks = MagicMock(return_value=True)
     p.unregister_maintenance_tasks = MagicMock(return_value=1)
     p.shutdown_drain = PatchouliSystem.shutdown_drain.__get__(p, PatchouliSystem)
@@ -181,7 +180,7 @@ class TestPatchouliSystemLocalRoutes:
         runtime = _build_runtime_with_local_bus()
         patchouli = MagicMock()
         patchouli.runtime = runtime
-        patchouli.kernel = runtime
+        patchouli.runtime = runtime
         patchouli._scheduler = None
         patchouli._global_bus = None
         patchouli._public_routes_registered = False

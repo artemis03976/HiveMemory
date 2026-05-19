@@ -494,10 +494,6 @@ class PatchouliRuntime:
         return result
 
 
-PatchouliKernel = PatchouliRuntime
-
-
 __all__ = [
     "PatchouliRuntime",
-    "PatchouliKernel",
 ]

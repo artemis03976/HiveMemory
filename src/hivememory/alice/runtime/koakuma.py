@@ -9,10 +9,10 @@
     - 别名解析
 
 架构定位：
-    Koakuma 是 PatchouliKernel 管理的第三个微服务，
+    Koakuma 是 PatchouliRuntime 管理的第三个微服务，
     负责处理 Worker Agent 生成的 MTP 指令。
 
-    PatchouliKernel
+    PatchouliRuntime
     ├── RetrievalFamiliar (检索使魔 - 只读检索)
     ├── LibrarianCore (馆长本体 - 记忆写入)
     └── Koakuma (小恶魔 - MTP 运行时)

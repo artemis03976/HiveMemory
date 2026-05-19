@@ -47,7 +47,7 @@ SUBMIT_SETTLE_SECONDS = 3.0  # submit_interaction 是 daemon thread，需等待�
 
 def _get_perception_layer(system: PatchouliSystem):
     """获取感知层引擎实例（直接访问内部引擎）"""
-    return system.kernel._engines["perception"]
+    return system.runtime._engines["perception"]
 
 
 @contextmanager

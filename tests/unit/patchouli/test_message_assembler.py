@@ -5,7 +5,7 @@ from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.message_assembler import MessageAssembler
 
 
-def _make_kernel():
+def _make_runtime():
     mtp_prompt_config = SimpleNamespace(
         enabled=True,
         language="zh",
@@ -18,15 +18,15 @@ def _make_kernel():
     )
     config = SimpleNamespace(koakuma=koakuma_config)
 
-    kernel = MagicMock()
-    kernel.config = config
-    kernel.check_storage_health.return_value = True
-    return kernel
+    runtime = MagicMock()
+    runtime.config = config
+    runtime.check_storage_health.return_value = True
+    return runtime
 
 
-def test_assemble_builds_prompt_without_kernel_get_mtp_prompt():
-    kernel = _make_kernel()
-    assembler = MessageAssembler(kernel)
+def test_assemble_builds_prompt_without_runtime_get_mtp_prompt():
+    runtime = _make_runtime()
+    assembler = MessageAssembler(runtime)
     profile = SimpleNamespace(
         persona="你是一个测试人偶。",
         allowed_mtp_verbs=["SEARCH", "READ"],

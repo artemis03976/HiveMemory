@@ -128,7 +128,7 @@ class HiveMemorySystem:
         return {
             "status": "ok" if self._started else "stopped",
             "subsystems": subsystem_health,
-            "models_ready": self._patchouli.kernel.is_models_ready(),
+            "models_ready": self._patchouli.runtime.is_models_ready(),
         }
 
     # ========== 聊天 ==========
@@ -223,8 +223,8 @@ class HiveMemorySystem:
         return self._alice
 
     @property
-    def kernel(self):
-        return self._patchouli.kernel
+    def runtime(self):
+        return self._patchouli.runtime
 
     @property
     def storage(self):

@@ -15,8 +15,8 @@ from hivememory.prompts.mtp import MTPPromptBuilder
 class MessageAssembler:
     """负责构建 Patchouli 对话使用的 messages。"""
 
-    def __init__(self, kernel) -> None:
-        self._kernel = kernel
+    def __init__(self, runtime) -> None:
+        self._runtime = runtime
 
     def assemble(
         self,
@@ -40,8 +40,8 @@ class MessageAssembler:
         messages: List[Dict[str, str]] = []
 
         language = (
-            self._kernel.config.koakuma.mtp_prompt.language
-            if self._kernel.config.koakuma.mtp_prompt
+            self._runtime.config.koakuma.mtp_prompt.language
+            if self._runtime.config.koakuma.mtp_prompt
             else "zh"
         )
         builder = SystemPromptBuilder(language=language)
@@ -49,7 +49,7 @@ class MessageAssembler:
         mtp_prompt = self._build_mtp_prompt(profile=profile)
         builder.with_mtp_prompt(mtp_prompt)
 
-        if mtp_prompt and not self._kernel.check_storage_health():
+        if mtp_prompt and not self._runtime.check_storage_health():
             builder.with_storage_offline_notice()
 
         if profile and profile.persona:
@@ -72,7 +72,7 @@ class MessageAssembler:
         return messages
 
     def _build_mtp_prompt(self, profile=None) -> str:
-        koakuma_config = getattr(self._kernel.config, "koakuma", None)
+        koakuma_config = getattr(self._runtime.config, "koakuma", None)
         if koakuma_config is None or not koakuma_config.enabled:
             return ""
 
@@ -81,18 +81,17 @@ class MessageAssembler:
             return ""
 
         allowed_verbs = None
-        allowed_kernel_tools = None
+        allowed_runtime_tools = None
         if profile is not None:
             allowed_verbs = getattr(profile, "allowed_mtp_verbs", None)
-            # 这里沿用 AliceHost 的语义：AgentProfile.allowed_sys_tools 对应 MTP prompt 中的 kernel tools 白名单。
-            allowed_kernel_tools = getattr(profile, "allowed_sys_tools", None)
+            allowed_runtime_tools = getattr(profile, "allowed_sys_tools", None)
 
         builder = MTPPromptBuilder(
             language=prompt_config.language,
             include_demo=prompt_config.include_demo,
             include_error_handling=prompt_config.include_error_handling,
             allowed_verbs=allowed_verbs,
-            allowed_kernel_tools=allowed_kernel_tools,
+            allowed_runtime_tools=allowed_runtime_tools,
         )
         return builder.build()
 

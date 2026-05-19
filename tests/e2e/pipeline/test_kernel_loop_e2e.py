@@ -67,7 +67,7 @@ def _build_mtp_system_prompt(language: str = "en") -> str:
     ]
     mtp_fragment = MTPPromptBuilder(
         language=language,
-        kernel_tools=available_tools,
+        runtime_tools=available_tools,
     ).build()
     return f"{base_prompt}\n\n{mtp_fragment}"
 
@@ -114,11 +114,11 @@ class KernelLoopTestHarness:
         # Mock PatchouliSystem with real _recursive_generation_loop
         self.system = MagicMock(spec=PatchouliSystem)
         self.system._worker_agent = self.worker_agent
-        self.system.kernel = MagicMock()
-        self.system.kernel.koakuma = self.koakuma
+        self.system.runtime = MagicMock()
+        self.system.runtime.koakuma = self.koakuma
         async def _handle_mtp(text):
             return self.koakuma.intercept_and_execute(text)
-        self.system.kernel.handle_mtp = _handle_mtp
+        self.system.runtime.handle_mtp = _handle_mtp
         self.system.config = MagicMock()
         self.system.config.koakuma.max_recursion_depth = 10
 

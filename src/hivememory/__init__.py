@@ -1,10 +1,10 @@
 """
 HiveMemory - 分布式记忆管理系统
 
-帕秋莉体系 v3.0 (Eye + Kernel):
-    - PatchouliSystem (The Facility): 外层容器，持有 Eye + Kernel
+帕秋莉体系 v3.0 (Eye + Runtime):
+    - PatchouliSystem (The Facility): 外层容器，持有 Eye + Runtime
     - TheEye (真理之眼): Ingress Gateway，意图识别、查询重写
-    - PatchouliKernel (帕秋莉内核): 中心调度器，管理微服务
+    - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
         - LibrarianCore (馆长本体): 话题感知、记忆生成、生命周期管理
 
@@ -216,9 +216,6 @@ def __getattr__(name: str):
     if name == "PatchouliRuntime":
         from hivememory.patchouli.kernel import PatchouliRuntime
         return PatchouliRuntime
-    if name == "PatchouliKernel":
-        from hivememory.patchouli.kernel import PatchouliKernel
-        return PatchouliKernel
     if name == "PatchouliService":
         from hivememory.patchouli.service import PatchouliService
         return PatchouliService
@@ -410,7 +407,6 @@ __all__ = [
     "TriggerResponse",
     # ========== 懒加载组件 ==========
     "PatchouliRuntime",
-    "PatchouliKernel",
     "PatchouliService",
     "PatchouliSystem",
     "TheEye",

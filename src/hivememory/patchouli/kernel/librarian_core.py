@@ -42,7 +42,7 @@ class LibrarianCore:
     这是帕秋莉的本体，坐在书桌前，一边喝红茶一边处理堆积如山的借阅记录。
 
     遵循显式依赖注入原则：所有子组件必须通过构造函数传入，
-    不在内部实例化依赖项。由 PatchouliKernel 负责组装和注入。
+    不在内部实例化依赖项。由 PatchouliRuntime 负责组装和注入。
 
     职责:
         1. 接收 Eye 传来的感知信号 (Anchors)
@@ -51,10 +51,10 @@ class LibrarianCore:
         4. 调用 Lifecycle 引擎修书
 
     使用示例:
-        >>> # 推荐：通过 PatchouliKernel 使用
-        >>> from hivememory.patchouli import PatchouliKernel
-        >>> kernel = PatchouliKernel()
-        >>> core = kernel.librarian_core
+        >>> # 推荐：通过 PatchouliRuntime 使用
+        >>> from hivememory.patchouli import PatchouliRuntime
+        >>> runtime = PatchouliRuntime()
+        >>> core = runtime.librarian_core
         >>>
         >>> # 高级：手动注入组件
         >>> core = LibrarianCore(
@@ -77,7 +77,7 @@ class LibrarianCore:
         Args:
             storage: Qdrant 存储实例
             bus: 兼容保留参数（当前未使用）
-            lifecycle_engine: 记忆生命周期引擎（预构建，由 PatchouliKernel 注入）
+            lifecycle_engine: 记忆生命周期引擎（预构建，由 PatchouliRuntime 注入）
             perception_layer: 感知层实例（用于直接调用）
             generation_engine: 生成引擎实例（用于直接调用）
 
