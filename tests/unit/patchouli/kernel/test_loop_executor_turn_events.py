@@ -1,4 +1,4 @@
-"""
+﻿"""
 LoopExecutor TurnEvent 采集单测
 
 验证 Phase 1 新增的结构化事件采集行为:
@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 from hivememory.alice.runtime.models import (
     ExecutionFrame,
     GenerationResult,
@@ -361,3 +361,4 @@ async def test_run_command_event_carries_execution_status_for_reducer():
     ]
     assert len(run_commands) == 1
     assert run_commands[0].status == "success"
+

@@ -1,4 +1,4 @@
-"""
+﻿"""
 KernelLoopExecutor 流式事件测试
 
 聚焦 Phase 2 子代理调用与 IPC 相关的流式事件链路：
@@ -14,7 +14,7 @@ import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
 from hivememory.alice.runtime.models import ExecutionFrame, GenerationResult, StreamChunk
-from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 from hivememory.core.protocol.models import MTPExecutionResult
 
 
@@ -244,4 +244,5 @@ async def test_execute_frame_stream_subframe_error_still_emits_sub_agent_end():
 
     done_event = next(e for e in events if e["event"] == "done")
     assert done_event["data"]["final_text"].endswith("主帧恢复并结束")
+
 

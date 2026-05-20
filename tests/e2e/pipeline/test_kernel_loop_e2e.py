@@ -1,4 +1,4 @@
-"""
+﻿"""
 Kernel 递归循环 E2E Pipeline 测试
 
 使用真实 LLM API 验证 PatchouliSystem._recursive_generation_loop() 的完整链路:
@@ -27,7 +27,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from hivememory.system.config import LLMConfig, KoakumaConfig
-from hivememory.alice.runtime.worker_agent import WorkerAgentService
+from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.core.protocol.models import ChatResult
 from hivememory.prompts.mtp import MTPPromptBuilder
@@ -380,3 +380,4 @@ class TestChineseScenario:
             f"commands={commands}, "
             f"text={result.final_text[:200]}"
         )
+

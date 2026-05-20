@@ -118,7 +118,9 @@ class TestMTPTraceReducerFiltered:
     @pytest.mark.parametrize("tool_kind", ["WRITE", "UPDATE", "CALL"])
     def test_filtered_tool_kinds(self, tool_kind):
         events = [_event("tool_call", tool_kind=tool_kind, target="something")]
-        assert MTPTraceReducer.reduce(events) == []
+        traces = MTPTraceReducer.reduce(events)
+        assert len(traces) == 1
+        assert traces[0].action == tool_kind
 
     def test_unknown_tool_kind(self):
         events = [_event("tool_call", tool_kind="UNKNOWN")]
@@ -147,7 +149,9 @@ class TestMTPTraceReducerDictInput:
 
     def test_dict_write_filtered(self):
         event_dict = _event_dict("tool_call", tool_kind="WRITE")
-        assert MTPTraceReducer.reduce([event_dict]) == []
+        traces = MTPTraceReducer.reduce([event_dict])
+        assert len(traces) == 1
+        assert traces[0].action == "WRITE"
 
 
 class TestMTPTraceReducerMixedList:
@@ -168,7 +172,8 @@ class TestMTPTraceReducerMixedList:
             _event("tool_call", tool_kind="RUN", target="tool_a", status="success", sequence=5, action_id="run-1"),
         ]
         traces = MTPTraceReducer.reduce(events)
-        assert len(traces) == 3
+        assert len(traces) == 4
         assert traces[0].action == "READ"
         assert traces[1].action == "SEARCH"
-        assert traces[2].action == "RUN"
+        assert traces[2].action == "WRITE"
+        assert traces[3].action == "RUN"

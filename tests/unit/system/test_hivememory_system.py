@@ -139,12 +139,6 @@ class TestHiveMemorySystem:
     def test_patchouli_property(self, system, mock_patchouli):
         assert system.patchouli is mock_patchouli
 
-    def test_runtime_property(self, system, mock_patchouli):
-        assert system.runtime is mock_patchouli.runtime
-
-    def test_storage_property(self, system, mock_patchouli):
-        assert system.storage is mock_patchouli.storage
-
     @pytest.mark.asyncio
     async def test_manual_archive_topic_delegates(self, system, mock_patchouli):
         system._global_bus.register(

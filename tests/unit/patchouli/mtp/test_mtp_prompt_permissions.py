@@ -58,11 +58,13 @@ class TestAllowedVerbsFiltering:
         # VERBS 部分应该存在
         assert "3. VERBS:" in output
 
-        # 由于空列表被当作 falsy，实际会渲染全部动词
-        # 这是当前实现的行为 - 空列表 = 全权限
-        # 如果需要真正的"无动词"，应该传递一个特殊标记
-        # 当前测试验证实际行为
-        assert "- SEARCH:" in output or "- READ:" in output
+        # 空白名单表示没有 MTP 动词权限。
+        assert "- SEARCH:" not in output
+        assert "- READ:" not in output
+        assert "- RUN:" not in output
+        assert "- WRITE:" not in output
+        assert "- UPDATE:" not in output
+        assert "- CALL:" not in output
 
     def test_allowed_verbs_case_insensitive(self):
         """动词白名单大小写不敏感"""

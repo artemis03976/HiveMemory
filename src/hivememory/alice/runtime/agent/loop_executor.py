@@ -31,10 +31,10 @@ from hivememory.system.config import AgentRuntimeConfig
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
-    from hivememory.alice.runtime.frame_scheduler import FrameScheduler
-    from hivememory.alice.runtime.mtp_executor import MTPExecutor
-    from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
-    from hivememory.alice.runtime.worker_agent import WorkerAgentService
+    from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
+    from hivememory.alice.runtime.agent.mtp_executor import MTPExecutor
+    from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+    from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
 
 logger = logging.getLogger(__name__)
 

@@ -38,10 +38,8 @@ class AliceSystem(SubsystemProtocol):
         self._config = config
         self._global_bus = global_bus
 
-        self._runtime = AliceRuntime(
-            config=config,
-            global_bus=global_bus,
-        )
+        self._runtime = AliceRuntime(config=config)
+        
         self._service = AliceService(runtime=self._runtime)
 
         self._public_routes_registered = False

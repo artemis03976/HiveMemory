@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, Optional
 from hivememory.core.models import AgentProfile
 from hivememory.core.protocol.models import ChatResult
 
-from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
-from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
-from hivememory.alice.runtime.worker_agent import WorkerAgentService
-from hivememory.alice.runtime.frame_scheduler import FrameScheduler
+from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
+from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
-    from hivememory.alice.runtime.mtp_executor import MTPExecutor
+    from hivememory.alice.runtime.agent.mtp_executor import MTPExecutor
     from hivememory.prompts.assembler import AgentPromptAssembler
     from hivememory.system.config import HiveMemoryConfig
 
@@ -46,26 +46,6 @@ class AgentRuntime:
             mtp_executor=self._mtp_executor,
             config=config.agent_runtime,
         )
-
-    @property
-    def frame_scheduler(self) -> "FrameScheduler":
-        return self._frame_scheduler
-
-    @property
-    def loop_executor(self) -> KernelLoopExecutor:
-        return self._loop_executor
-
-    @property
-    def worker_agent(self) -> WorkerAgentService:
-        return self._worker_agent
-
-    @property
-    def mtp_executor(self) -> "MTPExecutor":
-        return self._mtp_executor
-
-    @property
-    def agent_profile_resolver(self) -> AgentProfileResolver:
-        return self._agent_profile_resolver
 
     async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
         return await self._agent_profile_resolver.resolve(agent_alias)

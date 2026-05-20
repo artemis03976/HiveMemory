@@ -2,6 +2,7 @@
 
 import logging
 import os
+import asyncio
 from typing import Dict, List, Optional, Tuple
 from unittest.mock import MagicMock
 
@@ -81,9 +82,11 @@ class MTPLoopRunner:
 
             if MTP_LEFT_DELIMITER in response_text:
                 round_info["mtp_triggered"] = True
-                result = self.koakuma.intercept_and_execute(
-                    accumulated_text,
-                    context=self.context,
+                result = asyncio.run(
+                    self.koakuma.intercept_and_execute(
+                        accumulated_text,
+                        context=self.context,
+                    )
                 )
                 if result is not None and result.formatted_response:
                     round_info["mtp_result"] = {

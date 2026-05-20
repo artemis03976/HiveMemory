@@ -1,4 +1,4 @@
-"""
+﻿"""
 HiveMemory - 分布式记忆管理系统
 
 帕秋莉体系 v3.0 (Eye + Runtime):
@@ -231,12 +231,6 @@ def __getattr__(name: str):
     if name == "LibrarianCore":
         from hivememory.patchouli.services.librarian import LibrarianCore
         return LibrarianCore
-    if name == "KoakumaRuntime":
-        from hivememory.alice.runtime.koakuma import KoakumaRuntime
-        return KoakumaRuntime
-    if name == "WorkerAgentService":
-        from hivememory.alice.runtime.worker_agent import WorkerAgentService
-        return WorkerAgentService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -412,9 +406,8 @@ __all__ = [
     "TheEye",
     "RetrievalFamiliar",
     "LibrarianCore",
-    "KoakumaRuntime",
-    "WorkerAgentService",
 ]
 
 
 __version__ = "0.1.0"
+

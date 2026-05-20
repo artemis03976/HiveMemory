@@ -1,5 +1,6 @@
 """syscalls 测试共享 fixture 与 helper。"""
 
+import asyncio
 from typing import Optional
 from unittest.mock import MagicMock
 
@@ -63,7 +64,7 @@ def mtp_prompt_zh() -> str:
 
 
 def simulate_kernel_loop_single(koakuma: KoakumaRuntime, agent_text: str) -> MTPExecutionResult:
-    result = koakuma.intercept_and_execute(agent_text)
+    result = asyncio.run(koakuma.intercept_and_execute(agent_text))
     assert result is not None, f"Kernel Loop 未检测到 MTP 指令。Agent 文本: {agent_text!r}"
     return result
 

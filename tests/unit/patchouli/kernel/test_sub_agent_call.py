@@ -1,4 +1,4 @@
-"""
+﻿"""
 Phase 2 多智能体子代理调用集成测试
 
 测试覆盖:
@@ -230,7 +230,7 @@ class TestFrameScheduler:
 
     def test_create_main_frame(self):
         """创建主帧"""
-        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel.prompt_assembler)
@@ -248,7 +248,7 @@ class TestFrameScheduler:
 
     def test_suspend_resume(self):
         """帧挂起/恢复"""
-        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel.prompt_assembler)
@@ -269,7 +269,7 @@ class TestFrameScheduler:
 
     def test_resume_empty_stack_returns_none(self):
         """空栈恢复返回 None"""
-        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel.prompt_assembler)
@@ -279,7 +279,7 @@ class TestFrameScheduler:
     @pytest.mark.asyncio
     async def test_fork_sub_frame(self):
         """派生子帧"""
-        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
         scheduler = FrameScheduler(kernel.prompt_assembler)
@@ -327,7 +327,7 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_no_artifacts(self):
         """成功返回，无 artifacts"""
-        from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
+        from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
         executor._host = MagicMock()
@@ -347,7 +347,7 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_with_artifacts(self):
         """成功返回，含 artifacts"""
-        from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
+        from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
 
@@ -458,3 +458,4 @@ class TestRAGMenuRendering:
         regular, agents = _separate_agent_profiles([atom])
         assert len(regular) == 1
         assert len(agents) == 0
+

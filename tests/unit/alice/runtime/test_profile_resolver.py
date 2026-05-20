@@ -1,8 +1,8 @@
-from unittest.mock import AsyncMock, MagicMock
+﻿from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
 from hivememory.core.models import AgentProfile, OMNI_DOLL_PROFILE
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
@@ -60,3 +60,4 @@ async def test_resolve_bus_error_falls_back_to_default():
     profile = await resolver.resolve("coder_doll")
 
     assert profile is OMNI_DOLL_PROFILE
+

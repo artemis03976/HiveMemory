@@ -1,4 +1,4 @@
-"""
+﻿"""
 帕秋莉体系 (The Patchouli System)
 
 HiveMemory 的分布式智能架构 v3.0。
@@ -60,9 +60,6 @@ def __getattr__(name: str):
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
-    if name == "WorkerAgentService":
-        from hivememory.alice.runtime.worker_agent import WorkerAgentService
-        return WorkerAgentService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -71,7 +68,6 @@ __all__ = [
     "PatchouliRuntime",
     "PatchouliService",
     "PatchouliSystem",
-    "WorkerAgentService",
     # 三位一体
     "TheEye",
     "RetrievalFamiliar",
@@ -88,3 +84,4 @@ __all__ = [
     "EmbeddingConfig",
     "QdrantConfig",
 ]
+

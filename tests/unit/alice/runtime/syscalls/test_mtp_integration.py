@@ -1,4 +1,8 @@
 import re
+import asyncio
+import shutil
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -54,7 +58,7 @@ class TestSyscallViaMTP:
             "print(f'Sum 1-100: {total}')\n"
             "` ⟫"
         )
-        result = koakuma.execute_mtp(agent_text)
+        result = asyncio.run(koakuma.execute_mtp(agent_text))
         assert result.success is True
         assert "5050" in result.response_content
 
@@ -96,10 +100,13 @@ class TestFileIOViaMTP:
     """sys_read_file / sys_write_file 通过 MTP 集成测试"""
 
     @pytest.fixture
-    def workspace(self, tmp_path):
-        ws = tmp_path / "workspace"
+    def workspace(self):
+        ws = Path.cwd() / ".test_tmp" / f"hivememory-mtp-{uuid4().hex}"
         ws.mkdir()
-        return ws
+        try:
+            yield ws
+        finally:
+            shutil.rmtree(ws, ignore_errors=True)
 
     @pytest.fixture
     def file_koakuma(self, workspace):
@@ -193,7 +200,7 @@ class TestSyscallErrorRecovery:
         assert "SEARCH" in result.response_content
 
     def test_invalid_verb_error(self, koakuma):
-        result = koakuma.execute_mtp("⟪ DELETE | * | ⟫")
+        result = asyncio.run(koakuma.execute_mtp("⟪ DELETE | * | ⟫"))
         assert result.success is False
         assert result.command is None
         assert "syntax error" in result.response_content.lower()
@@ -204,21 +211,21 @@ class TestSyscallErrorRecovery:
         assert "code" in result.response_content.lower()
 
     def test_error_response_xml_format(self, koakuma):
-        result = koakuma.execute_mtp("⟪ RUN | fake_tool | ⟫")
+        result = asyncio.run(koakuma.execute_mtp("⟪ RUN | fake_tool | ⟫"))
         assert '<mtp_response status="error"' in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
 
     def test_error_recovery_retry(self, koakuma):
         """Round 1: 错误工具 → Round 2: 纠正"""
-        r1 = koakuma.execute_mtp("⟪ RUN | sys_clok | ⟫")
+        r1 = asyncio.run(koakuma.execute_mtp("⟪ RUN | sys_clok | ⟫"))
         assert r1.success is False
 
-        r2 = koakuma.execute_mtp("⟪ RUN | sys_clock | ⟫")
+        r2 = asyncio.run(koakuma.execute_mtp("⟪ RUN | sys_clock | ⟫"))
         assert r2.success is True
         assert "UTC" in r2.response_content
 
     def test_no_mtp_in_normal_text(self, koakuma):
-        result = koakuma.intercept_and_execute("普通回答，没有 MTP 指令。")
+        result = asyncio.run(koakuma.intercept_and_execute("普通回答，没有 MTP 指令。"))
         assert result is None
 
 # ========== Test 10: 多轮递归 ==========
