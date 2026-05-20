@@ -12,7 +12,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from hivememory.core.models import Identity, MemoryAtom
 from hivememory.core.protocol.models import ChatResult
 
-from hivememory.alice.runtime.runtime import AliceRuntime
+from hivememory.alice.runtime.core import AliceRuntime
 
 
 class AliceService:
@@ -26,10 +26,6 @@ class AliceService:
 
     def __init__(self, runtime: AliceRuntime) -> None:
         self._runtime = runtime
-
-    @property
-    def runtime(self) -> AliceRuntime:
-        return self._runtime
 
     async def run_agent(
         self,

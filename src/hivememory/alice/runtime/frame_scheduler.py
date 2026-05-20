@@ -13,7 +13,7 @@ from hivememory.alice.runtime.execution_frame import ExecutionFrame
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.runtime import AliceRuntime
+    from hivememory.alice.runtime.core import AliceRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class FrameScheduler:
         3. 注入 context_refs 内容 (零开销上下文继承)
         4. 创建瞬态帧 (topic_id=None)
         """
-        sub_profile = await self._runtime.get_agent_profile(target_alias)
+        sub_profile = await self._runtime.agent_runtime.get_agent_profile(target_alias)
 
         logger.info(
             f"Forking sub-frame: target={target_alias}, "

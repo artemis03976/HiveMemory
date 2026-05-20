@@ -241,7 +241,8 @@ class TestFrameScheduler:
 
     def _make_kernel_mock(self):
         kernel = MagicMock()
-        kernel.get_agent_profile = AsyncMock(return_value=OMNI_DOLL_PROFILE)
+        kernel.agent_runtime = MagicMock()
+        kernel.agent_runtime.get_agent_profile = AsyncMock(return_value=OMNI_DOLL_PROFILE)
         kernel.get_mtp_prompt = MagicMock(return_value="### MTP Instructions\n## CALL\nCALL instructions here\n## READ\nREAD instructions")
         kernel.config = MagicMock()
         kernel.config.koakuma.mtp_prompt.language = "zh"

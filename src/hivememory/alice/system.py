@@ -10,7 +10,7 @@ import logging
 from typing import Any, Optional
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
-from hivememory.alice.runtime.runtime import AliceRuntime
+from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.service import AliceService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol

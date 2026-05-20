@@ -28,7 +28,7 @@ from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TraceItem, TurnEvent
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.runtime import AliceRuntime
+    from hivememory.alice.runtime.core import AliceRuntime
     from hivememory.alice.runtime.worker_agent import WorkerAgentService
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ class KernelLoopExecutor:
         max_iter = max_iterations or self._runtime.config.koakuma.max_recursion_depth
 
         main_frame = self._runtime.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or await self._runtime.get_agent_profile("omni_doll"),
+            agent_profile=agent_profile or await self._runtime.agent_runtime.get_agent_profile("omni_doll"),            
             messages=messages,
             topic_id=topic_id or "",
             identity=identity,
@@ -134,8 +134,7 @@ class KernelLoopExecutor:
         max_iter = max_iterations or self._runtime.config.koakuma.max_recursion_depth
 
         main_frame = self._runtime.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or await self._runtime.get_agent_profile("omni_doll"),
-            messages=messages,
+            agent_profile=agent_profile or await self._runtime.agent_runtime.get_agent_profile("omni_doll"),            messages=messages,
             topic_id=topic_id or "",
             identity=identity,
         )
