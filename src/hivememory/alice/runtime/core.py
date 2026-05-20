@@ -48,12 +48,6 @@ class AliceRuntime:
                 f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma"
             )
 
-    def export_interaction_state(self) -> dict[str, Any]:
-        return {
-            "write_focus": self._koakuma.get_write_focus(),
-            "update_focus": self._koakuma.get_update_focus(),
-        }
-
     def mount_local_routes(self) -> None:
         if self._local_routes_registered:
             return
@@ -69,10 +63,6 @@ class AliceRuntime:
         self._local_bus.register(
             AliceLocalRoutes.REGISTER_PRERETRIEVAL_ALIASES,
             self.register_preretrieval_aliases,
-        )
-        self._local_bus.register(
-            AliceLocalRoutes.GET_INTERACTION_STATE,
-            self.export_interaction_state(),
         )
         self._local_routes_registered = True
 

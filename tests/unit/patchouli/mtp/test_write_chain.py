@@ -456,8 +456,8 @@ class TestKoakumaWriteE2E:
         assert result is not None
         assert result.success
 
-        # v3.0 延迟捕获: 验证 WriteFocus 被暂存而非直接调用 librarian
-        focus = write_koakuma.get_write_focus()
+        # v3.0 延迟捕获: 验证 WriteFocus 随执行结果返回而非暂存在 Koakuma
+        focus = result.write_focus
         assert focus is not None
         assert focus.content == "端口从 8080 改为 9090"
         assert focus.reason == "修复 CORS"
@@ -468,7 +468,7 @@ class TestKoakumaWriteE2E:
         result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
-        focus = write_koakuma.get_write_focus()
+        focus = result.write_focus
         assert focus is not None
         assert focus.title == "Fix CORS"
 
@@ -478,7 +478,7 @@ class TestKoakumaWriteE2E:
 
         assert result is not None
         # 应该返回 error，不捕获 WriteFocus
-        assert write_koakuma.get_write_focus() is None
+        assert result.write_focus is None
 
     def test_write_response_contains_ack(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="test content"'
@@ -500,8 +500,8 @@ class TestKoakumaWriteE2E:
 
         assert result is not None
         assert result.success
-        assert koakuma.get_write_focus() is not None
-        assert koakuma.get_write_focus().content == "test"
+        assert result.write_focus is not None
+        assert result.write_focus.content == "test"
 
 
 # ========== Test 8: FlushReason.MTP_WRITE ==========

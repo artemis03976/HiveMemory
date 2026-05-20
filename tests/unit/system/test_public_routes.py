@@ -32,7 +32,6 @@ class TestAlicePublicRoutes:
         assert AliceRoutes.RUN_AGENT in routes
         assert AliceRoutes.RUN_AGENT_STREAM in routes
         assert AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES in routes
-        assert AliceRoutes.GET_INTERACTION_STATE in routes
 
     @pytest.mark.asyncio
     async def test_stop_removes_public_routes_from_global_bus(self):
@@ -109,4 +108,3 @@ class TestPatchouliPublicRoutes:
         assert AliceRoutes.RUN_AGENT == "alice.public.run_agent"
         assert AliceRoutes.RUN_AGENT_STREAM == "alice.public.run_agent_stream"
         assert AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES == "alice.public.register_preretrieval_aliases"
-        assert AliceRoutes.GET_INTERACTION_STATE == "alice.public.get_interaction_state"

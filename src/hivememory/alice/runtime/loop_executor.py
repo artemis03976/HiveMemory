@@ -184,10 +184,10 @@ class KernelLoopExecutor:
         """
         text_segments: List[str] = []
         turn_events: List[TurnEvent] = []
+        write_focus: Optional[Any] = None
+        update_focus: Optional[Any] = None
         _seq = 0
         iteration = 0
-
-        self._runtime.koakuma.reset_interaction_state()
 
         while iteration < max_iterations:
             if cancel_event is not None and cancel_event.is_set():
@@ -262,6 +262,11 @@ class KernelLoopExecutor:
                 result.text,
                 context=mtp_context,
             )
+            if mtp_result is not None:
+                if mtp_result.write_focus is not None:
+                    write_focus = mtp_result.write_focus
+                if mtp_result.update_focus is not None:
+                    update_focus = mtp_result.update_focus
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value
                 target_hint, args_hint, raw_hint = self._extract_command_info(
@@ -351,7 +356,7 @@ class KernelLoopExecutor:
                 )
                 # CALL 的挂起/恢复与子帧执行统一交给 _execute_call，
                 # execute_frame 仅负责主循环编排与历史回填。
-                ipc_response = await self._execute_call(
+                ipc_response, sub_result = await self._execute_call(
                     frame=frame,
                     mtp_result=mtp_result,
                     max_iterations=max_iterations,
@@ -359,6 +364,11 @@ class KernelLoopExecutor:
                     stream_events=stream_events,
                     iteration=iteration,
                 )
+                if sub_result is not None:
+                    if sub_result.write_focus is not None:
+                        write_focus = sub_result.write_focus
+                    if sub_result.update_focus is not None:
+                        update_focus = sub_result.update_focus
                 if stream_emitter is not None and stream_events:
                     for event in stream_events:
                         await stream_emitter(event)
@@ -432,6 +442,8 @@ class KernelLoopExecutor:
             mtp_iterations=max(0, iteration - 1),
             total_iterations=iteration,
             turn_events=turn_events,
+            write_focus=write_focus,
+            update_focus=update_focus,
         )
         if stream_emitter is not None:
             await stream_emitter({"event": "done", "data": loop_result.model_dump()})
@@ -511,7 +523,7 @@ class KernelLoopExecutor:
         generation_options: Optional[Dict[str, Any]] = None,
         stream_events: Optional[List[Dict[str, Any]]] = None,
         iteration: Optional[int] = None,
-    ) -> str:
+    ) -> tuple[str, Optional[ChatResult]]:
         """
         执行 CALL 指令并返回 IPC payload（统一的流式/非流式实现）
 
@@ -580,7 +592,6 @@ class KernelLoopExecutor:
                     stream_emitter=_sub_emit,
                     use_stream_generation=True,
                 )
-
             self._runtime.frame_scheduler.resume_frame()
 
             if stream_events is not None:
@@ -595,9 +606,12 @@ class KernelLoopExecutor:
                 }
                 stream_events.append({"event": "sub_agent_end", "data": sub_end_data})
 
-            return self._assemble_ipc_return(
-                sub_result=sub_result,
-                harvested_aliases=sub_frame.harvested_aliases,
+            return (
+                self._assemble_ipc_return(
+                    sub_result=sub_result,
+                    harvested_aliases=sub_frame.harvested_aliases,
+                ),
+                sub_result,
             )
 
         except Exception as e:
@@ -621,7 +635,8 @@ class KernelLoopExecutor:
                 f'[Sub-Agent Error]: The sub-agent "{target_alias}" encountered '
                 f'an error and could not complete the task.\n'
                 f'Action: Try a different approach or continue without the sub-agent.\n'
-                '</mtp_response>'
+                '</mtp_response>',
+                None,
             )
 
     def _assemble_ipc_return(
@@ -684,7 +699,7 @@ class KernelLoopExecutor:
                 logger.debug(f"Harvested UPDATE alias: {alias}")
 
         elif verb == MTPVerb.WRITE:
-            alias = self._runtime.koakuma.get_last_generated_alias()
+            alias = None
             if alias:
                 frame.add_harvested_alias(alias)
                 logger.debug(f"Harvested WRITE alias: {alias}")

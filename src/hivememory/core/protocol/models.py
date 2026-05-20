@@ -180,6 +180,14 @@ class MTPExecutionResult(BaseModel):
     formatted_response: str = Field(default="", description="格式化后的回填文本")
     success: bool = Field(default=False, description="是否执行成功")
     execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
+    write_focus: Optional[Any] = Field(
+        default=None,
+        description="WRITE 指令产生的后处理聚焦信号",
+    )
+    update_focus: Optional[Any] = Field(
+        default=None,
+        description="UPDATE 指令产生的后处理聚焦信号",
+    )
 
 
 class ChatResult(BaseModel):
@@ -198,6 +206,14 @@ class ChatResult(BaseModel):
     total_iterations: int = Field(default=1, description="总生成轮次")
     # LoopExecutor 收集的结构化轮次事件（序列化为 dict 避免循环导入）
     turn_events: List[Any] = Field(default_factory=list, description="LoopExecutor 收集的 TurnEvent 列表")
+    write_focus: Optional[Any] = Field(
+        default=None,
+        description="本轮 Agent run 中最后一个 WRITE 后处理聚焦信号",
+    )
+    update_focus: Optional[Any] = Field(
+        default=None,
+        description="本轮 Agent run 中最后一个 UPDATE 后处理聚焦信号",
+    )
 
 
 class EyeGazeResult(BaseModel):

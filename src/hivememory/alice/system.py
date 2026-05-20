@@ -91,16 +91,11 @@ class AliceSystem(SubsystemProtocol):
             AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES,
             self._service.register_preretrieval_aliases,
         )
-        self._global_bus.register(
-            AliceRoutes.GET_INTERACTION_STATE,
-            self._service.get_interaction_state,
-        )
 
     def _unregister_public_routes(self) -> None:
         self._global_bus.unregister(AliceRoutes.RUN_AGENT)
         self._global_bus.unregister(AliceRoutes.RUN_AGENT_STREAM)
         self._global_bus.unregister(AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES)
-        self._global_bus.unregister(AliceRoutes.GET_INTERACTION_STATE)
 
     async def _run_agent_stream_route(self, *args: Any, **kwargs: Any) -> Any:
         """为 AsyncSystemBus 适配流式 handler，返回 async generator 对象。"""

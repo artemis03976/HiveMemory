@@ -123,15 +123,6 @@ class KoakumaRuntime:
 
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
 
-        # ========== 交互状态 (v3.0 延迟捕获) ==========
-        self._current_write_focus: Optional[WriteFocus] = None
-        self._current_update_focus: Optional[UpdateFocus] = None
-
-    def reset_interaction_state(self) -> None:
-        """每轮递归循环前重置交互状态"""
-        self._current_write_focus = None
-        self._current_update_focus = None
-
     # ========== 多智能体权限沙箱 (Phase 1) ==========
 
     def _check_verb_permission(
@@ -177,38 +168,6 @@ class KoakumaRuntime:
             raise PermissionDeniedError(
                 f"You do not have access to tool '{tool_alias}'."
             )
-
-    def get_write_focus(self) -> Optional[WriteFocus]:
-        """获取延迟捕获的 WriteFocus (如果有)"""
-        return self._current_write_focus
-
-    def get_update_focus(self) -> Optional[UpdateFocus]:
-        """获取延迟捕获的 UpdateFocus (如果有)"""
-        return self._current_update_focus
-
-    def get_last_generated_alias(self) -> Optional[str]:
-        """
-        获取最后一次 WRITE/UPDATE 生成的别名 (Phase 2: 用于自动收割)
-
-        从延迟捕获的 WriteFocus/UpdateFocus 中提取别名。
-        WRITE 的别名需要等待 Librarian 生成后才能获取，
-        UPDATE 的别名可以直接从 UpdateFocus 中获取。
-
-        Returns:
-            str: 别名，如果没有则返回 None
-
-        Note:
-            由于 WRITE 使用延迟捕获，别名在 InteractionPayload 提交后才会生成。
-            因此，此方法主要用于 UPDATE 的别名收割。
-            对于 WRITE，需要在 Librarian 处理后从响应中提取别名。
-        """
-        # UPDATE 的别名可以直接获取
-        if self._current_update_focus:
-            return self._current_update_focus.target_alias
-
-        # WRITE 的别名需要等待 Librarian 生成
-        # 这里返回 None，实际别名需要从 Librarian 的响应中提取
-        return None
 
     # ========== 公开 API ==========
 
@@ -257,6 +216,8 @@ class KoakumaRuntime:
                 formatted_response=formatted,
                 success=(response.status != MTPResponseStatus.ERROR),
                 execution_time_ms=response.execution_time_ms,
+                write_focus=response.write_focus,
+                update_focus=response.update_focus,
             )
 
         except MTPParseError as e:
@@ -629,7 +590,7 @@ class KoakumaRuntime:
         处理 WRITE 指令 (Section 2.2 + 附录B)
 
         v3.0 延迟捕获模式:
-        将 WRITE 内容打包为 WriteFocus 并暂存到 _current_write_focus，
+        将 WRITE 内容打包为 WriteFocus，随 MTPExecutionResult 返回给 LoopExecutor，
         实际记忆生成延迟到 InteractionPayload 提交时执行。
         ACK 响应文案保持不变，对 Agent 完全透明。
 
@@ -651,15 +612,13 @@ class KoakumaRuntime:
         reason = command.args.get("reason", "")
         title = command.args.get("title", "")
 
-        # 构建 WriteFocus 并延迟捕获 (不再直接调用 Librarian)
+        # 构建 WriteFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
         write_focus = WriteFocus(
             content=content,
             reason=reason or None,
             title=title or None,
             identity=context.identity,
         )
-
-        self._current_write_focus = write_focus
 
         logger.info(
             f"MTP WRITE 延迟捕获: content='{content[:50]}...', reason='{reason}'"
@@ -668,6 +627,7 @@ class KoakumaRuntime:
         return MTPResponse(
             status=MTPResponseStatus.ACK,
             content='Memory saved.',
+            write_focus=write_focus,
         )
 
     async def _handle_update(
@@ -679,7 +639,7 @@ class KoakumaRuntime:
         处理 UPDATE 指令 (附录 C)
 
         v3.0 延迟捕获模式:
-        将 UPDATE 意图打包为 UpdateFocus 并暂存到 _current_update_focus，
+        将 UPDATE 意图打包为 UpdateFocus，随 MTPExecutionResult 返回给 LoopExecutor，
         实际记忆更新延迟到 InteractionPayload 提交时执行。
         ACK 响应文案保持不变，对 Agent 完全透明。
 
@@ -721,7 +681,7 @@ class KoakumaRuntime:
         # 4. 获取可选的 content
         content = command.args.get("content", None)
 
-        # 5. 构建 UpdateFocus 并延迟捕获 (不再直接调用 Librarian)
+        # 5. 构建 UpdateFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
         update_focus = UpdateFocus(
             instruction=instruction,
             content=content if content else None,
@@ -729,8 +689,6 @@ class KoakumaRuntime:
             target_alias=alias,
             identity=context.identity,
         )
-
-        self._current_update_focus = update_focus
 
         # 6. 使缓存失效，防止脏读
         self._atom_cache.invalidate_alias(alias)
@@ -742,6 +700,7 @@ class KoakumaRuntime:
         return MTPResponse(
             status=MTPResponseStatus.ACK,
             content=f"Memory '{alias}' updated successfully.",
+            update_focus=update_focus,
         )
 
     async def _handle_call(
@@ -842,6 +801,7 @@ class KoakumaRuntime:
             results[alias] = f"[{alias}]:\n{atom.payload.content}"
         return results
 
+    # TODO:将渲染逻辑统一由已有renderer处理
     def _render_search_menu(self, result) -> str:
         """
         将检索结果渲染为 Index 菜单格式 (Section 2.4 场景5)

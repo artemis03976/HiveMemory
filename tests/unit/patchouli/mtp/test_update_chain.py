@@ -620,7 +620,7 @@ class TestKoakumaUpdateE2E:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
 
         # 注册 alias 到缓存
         koakuma.atom_cache.ingest_atom(existing_memory)
@@ -633,8 +633,8 @@ class TestKoakumaUpdateE2E:
         assert result is not None
         assert result.success
 
-        # v3.0 延迟捕获: 验证 UpdateFocus 被暂存
-        focus = update_koakuma.get_update_focus()
+        # v3.0 延迟捕获: 验证 UpdateFocus 随执行结果返回
+        focus = result.update_focus
         assert focus is not None
         assert isinstance(focus, UpdateFocus)
         assert focus.instruction == "把端口改成 9090"
@@ -647,7 +647,7 @@ class TestKoakumaUpdateE2E:
         assert result is not None
         assert result.success
 
-        focus = update_koakuma.get_update_focus()
+        focus = result.update_focus
         assert focus is not None
         assert focus.content == "port = 9090"
         assert focus.instruction == "替换端口"
@@ -670,7 +670,7 @@ class TestKoakumaUpdateValidation:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_missing_instruction(self, validation_koakuma):
@@ -689,31 +689,31 @@ class TestKoakumaUpdateValidation:
             )
         )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
-        result = _intercept_and_execute(validation_koakuma, agent_text, context=context)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        assert validation_koakuma.get_update_focus() is None
+        assert result.update_focus is None
 
     def test_alias_not_found(self, validation_koakuma):
         agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
-        result = _intercept_and_execute(validation_koakuma, agent_text, context=context)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        assert validation_koakuma.get_update_focus() is None
+        assert result.update_focus is None
 
     def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
         validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
             "AsyncSystemBus: route 'storage.get_memory_by_alias' not registered"
         )
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = _intercept_and_execute(validation_koakuma, agent_text, context=context)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert not result.success
         assert "Service Unavailable" in result.response_content
-        assert validation_koakuma.get_update_focus() is None
+        assert result.update_focus is None
 
     def test_update_deferred_capture_always_ack(self, existing_memory):
         """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
@@ -728,8 +728,8 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert result.success
-        assert koakuma.get_update_focus() is not None
-        assert koakuma.get_update_focus().instruction == "test"
+        assert result.update_focus is not None
+        assert result.update_focus.instruction == "test"
 
 
 # ========== Test 11: FlushReason.MTP_UPDATE ==========

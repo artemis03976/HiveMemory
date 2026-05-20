@@ -506,8 +506,10 @@ class TestInteractionPayloadSubmission:
     def test_payload_carries_write_focus(self, sys):
         """WRITE 场景下 payload 携带 write_focus"""
         fake_wf = MagicMock()
-        sys.kernel.koakuma.get_write_focus.return_value = fake_wf
-        sys.kernel.koakuma.get_update_focus.return_value = None
+        sys._worker_agent.generate_async.return_value = _normal_gen("Reply!")
+        sys._loop_executor.execute_frame = AsyncMock(
+            return_value=ChatResult(final_text="Reply!", write_focus=fake_wf)
+        )
 
         sys.chat(
             user_message="save this",
@@ -521,8 +523,10 @@ class TestInteractionPayloadSubmission:
     def test_payload_carries_update_focus(self, sys):
         """UPDATE 场景下 payload 携带 update_focus"""
         fake_uf = MagicMock()
-        sys.kernel.koakuma.get_write_focus.return_value = None
-        sys.kernel.koakuma.get_update_focus.return_value = fake_uf
+        sys._worker_agent.generate_async.return_value = _normal_gen("Reply!")
+        sys._loop_executor.execute_frame = AsyncMock(
+            return_value=ChatResult(final_text="Reply!", update_focus=fake_uf)
+        )
 
         sys.chat(
             user_message="update port",
@@ -554,9 +558,7 @@ class TestKoakumaOfflineFallback:
     """验证 Koakuma 离线时的降级处理"""
 
     def test_koakuma_exception_degrades_gracefully(self, sys):
-        """koakuma 抛异常时降级为 None focus"""
-        sys.kernel.koakuma.get_write_focus.side_effect = RuntimeError("offline")
-        sys.kernel.koakuma.get_update_focus.side_effect = RuntimeError("offline")
+        """loop result 无 focus 时 payload 使用 None"""
 
         result = sys.chat(
             user_message="hi",

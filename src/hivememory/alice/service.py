@@ -7,7 +7,7 @@ AliceService - Alice 子系统对外能力门面
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional
 
 from hivememory.core.models import Identity, MemoryAtom
 from hivememory.core.protocol.models import AgentRunContext, ChatResult
@@ -68,7 +68,3 @@ class AliceService:
     ) -> None:
         """将预检索命中的记忆别名注入 Alice 运行时缓存。"""
         self._runtime.register_preretrieval_aliases(memories)
-
-    async def get_interaction_state(self) -> Dict[str, Any]:
-        """导出当前一轮 Agent 运行积累的 MTP 交互状态。"""
-        return self._runtime.export_interaction_state()

@@ -6,7 +6,7 @@ MTP request/response models 与协议常量。
 """
 
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -112,6 +112,8 @@ class MTPResponse(BaseModel):
     status: MTPResponseStatus = Field(..., description="响应状态")
     content: str = Field(default="", description="响应内容")
     execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
+    write_focus: Optional[Any] = Field(default=None, exclude=True)
+    update_focus: Optional[Any] = Field(default=None, exclude=True)
 
 
 __all__ = [

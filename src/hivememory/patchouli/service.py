@@ -185,20 +185,11 @@ class PatchouliService:
         actions = ActionReducer.reduce(loop_result.turn_events)
         mtp_traces = TraceReducer.reduce(actions)
 
-        try:
-            interaction_state = await self._get_interaction_state()
-            write_focus = interaction_state["write_focus"]
-            update_focus = interaction_state["update_focus"]
-        except Exception as e:
-            logger.warning(f"Alice interaction state unavailable, focus degraded: {e}")
-            write_focus = None
-            update_focus = None
-
         payload = InteractionPayload(
             user_message=agent_context.user_message,
             mtp_traces=mtp_traces,
-            write_focus=write_focus,
-            update_focus=update_focus,
+            write_focus=loop_result.write_focus,
+            update_focus=loop_result.update_focus,
             identity=agent_context.identity,
             rewritten_query=gaze_result.rewritten_query,
             worth_saving=gaze_result.worth_saving,
@@ -267,11 +258,6 @@ class PatchouliService:
         await self._require_global_bus().request(
             GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES,
             memories,
-        )
-
-    async def _get_interaction_state(self) -> dict[str, Any]:
-        return await self._require_global_bus().request(
-            GlobalRoutes.ALICE_GET_INTERACTION_STATE,
         )
 
     async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:

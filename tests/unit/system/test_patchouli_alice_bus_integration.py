@@ -95,7 +95,7 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
 
 
 @pytest.mark.asyncio
-async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
+async def test_finalize_agent_run_reads_focus_from_loop_result():
     kernel = MagicMock()
     kernel.librarian_core = MagicMock()
     kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
@@ -103,15 +103,6 @@ async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
         runtime=kernel,
         eye=MagicMock(),
         global_bus=GlobalSystemBus(),
-    )
-
-    interaction_state = {
-        "write_focus": None,
-        "update_focus": None,
-    }
-    service._global_bus.register(
-        GlobalRoutes.ALICE_GET_INTERACTION_STATE,
-        AsyncMock(return_value=interaction_state),
     )
 
     identity = Identity(user_id="u1", agent_id="omni_doll")
@@ -175,3 +166,5 @@ async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
     payload = kernel.librarian_core.submit_interaction.await_args.args[0]
     assert payload.mtp_traces
     assert payload.mtp_traces[0].action == "SEARCH"
+    assert payload.write_focus is None
+    assert payload.update_focus is None
