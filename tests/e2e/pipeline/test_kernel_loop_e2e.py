@@ -40,6 +40,13 @@ pytestmark = pytest.mark.live_llm
 
 # ========== Helpers ==========
 
+def _mtp_commands(result: ChatResult) -> list[str]:
+    return [
+        event.tool_kind
+        for event in result.turn_events
+        if getattr(event, "kind", None) == "tool_result" and event.tool_kind
+    ]
+
 def _get_llm_config():
     """从环境变量或 config.yaml 获取 LLM 配置"""
     try:
@@ -178,7 +185,7 @@ class TestNormalConversation:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations == 0
-        assert result.mtp_commands_executed == []
+        assert _mtp_commands(result) == []
         logger.info(f"[test_simple_greeting] final_text={result.final_text[:200]}")
 
 
@@ -197,10 +204,11 @@ class TestSingleMTPInterrupt:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
-        assert "RUN" in result.mtp_commands_executed
+        commands = _mtp_commands(result)
+        assert "RUN" in commands
         logger.info(
             f"[test_sys_clock] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}, "
+            f"commands={commands}, "
             f"text={result.final_text[:200]}"
         )
 
@@ -214,7 +222,7 @@ class TestSingleMTPInterrupt:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
-        assert "RUN" in result.mtp_commands_executed
+        assert "RUN" in _mtp_commands(result)
         # 验证计算结果出现在回复中
         assert "480" in result.final_text
         logger.info(
@@ -239,12 +247,13 @@ class TestMultiRoundMTPChain:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 2
-        assert len(result.mtp_commands_executed) >= 2
+        commands = _mtp_commands(result)
+        assert len(commands) >= 2
         # 验证 2**10 = 1024 出现在回复中
         assert "1024" in result.final_text
         logger.info(
             f"[test_clock_then_calc] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}, "
+            f"commands={commands}, "
             f"text={result.final_text[:300]}"
         )
 
@@ -315,9 +324,10 @@ class TestErrorRecovery:
 
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
+        commands = _mtp_commands(result)
         logger.info(
             f"[test_error_recovery] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}, "
+            f"commands={commands}, "
             f"text={result.final_text[:200]}"
         )
 
@@ -339,10 +349,11 @@ class TestStopSequenceDetection:
             f"Expected at least 1 MTP iteration, got {result.mtp_iterations}. "
             f"LLM may not have used MTP. Text: {result.final_text[:200]}"
         )
-        assert "RUN" in result.mtp_commands_executed
+        commands = _mtp_commands(result)
+        assert "RUN" in commands
         logger.info(
             f"[test_stop_sequence] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}"
+            f"commands={commands}"
         )
 
 
@@ -360,11 +371,12 @@ class TestChineseScenario:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
-        assert "RUN" in result.mtp_commands_executed
+        commands = _mtp_commands(result)
+        assert "RUN" in commands
         # 123 * 456 = 56088
         assert "56088" in result.final_text
         logger.info(
             f"[test_chinese] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}, "
+            f"commands={commands}, "
             f"text={result.final_text[:200]}"
         )

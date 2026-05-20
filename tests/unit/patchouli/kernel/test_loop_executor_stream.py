@@ -71,7 +71,6 @@ def _build_executor_with_stream(worker_stream_impl):
     kernel = MagicMock()
     kernel.koakuma = MagicMock()
     kernel.koakuma.intercept_and_execute = AsyncMock(return_value=_make_call_mtp_result())
-    kernel.koakuma._current_traces = []
     kernel.koakuma.atom_cache = MagicMock()
     kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
     kernel.config = MagicMock()
@@ -178,7 +177,10 @@ async def test_execute_frame_stream_emits_scoped_events_for_call():
     assert sub_end["data"]["status"] == "success"
 
     done_event = next(e for e in events if e["event"] == "done")
-    assert "CALL" in done_event["data"]["mtp_commands_executed"]
+    assert any(
+        event["kind"] == "tool_result" and event.get("tool_kind") == "CALL"
+        for event in done_event["data"]["turn_events"]
+    )
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from hivememory.core.models import Identity
+from hivememory.core.models import ActionReducer, Identity, TraceReducer
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -182,15 +182,15 @@ class PatchouliService:
         """
         agent_context = prepared_run.agent_run_context
         gaze_result = prepared_run.gaze_result
+        actions = ActionReducer.reduce(loop_result.turn_events)
+        mtp_traces = TraceReducer.reduce(actions)
 
         try:
             interaction_state = await self._get_interaction_state()
-            mtp_traces = interaction_state["mtp_traces"]
             write_focus = interaction_state["write_focus"]
             update_focus = interaction_state["update_focus"]
         except Exception as e:
-            logger.warning(f"Koakuma 离线，降级为空 traces: {e}")
-            mtp_traces = []
+            logger.warning(f"Alice interaction state unavailable, focus degraded: {e}")
             write_focus = None
             update_focus = None
 

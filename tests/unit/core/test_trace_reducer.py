@@ -58,7 +58,7 @@ def test_reduce_unknown_status_defaults_for_run():
     assert traces[0].status == "unknown"
 
 
-def test_reduce_filters_control_actions():
+def test_reduce_keeps_control_actions():
     traces = TraceReducer.reduce(
         [
             _action("a5", "WRITE", tool_name="memo"),
@@ -66,4 +66,6 @@ def test_reduce_filters_control_actions():
             _action("a7", "CALL", tool_name="sub_agent"),
         ]
     )
-    assert traces == []
+    assert [trace.action for trace in traces] == ["WRITE", "UPDATE", "CALL"]
+    assert [trace.target for trace in traces] == ["memo", "memo", "sub_agent"]
+    assert all(trace.status == "unknown" for trace in traces)

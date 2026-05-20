@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
+from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.protocol.models import AgentRunContext, ChatResult, EyeGazeResult, RetrievalResponse
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
@@ -106,7 +106,6 @@ async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
     )
 
     interaction_state = {
-        "mtp_traces": [],
         "write_focus": None,
         "update_focus": None,
     }
@@ -145,7 +144,34 @@ async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
 
     await service.finalize_agent_run(
         prepared_run=prepared_run,
-        loop_result=ChatResult(final_text="done"),
+        loop_result=ChatResult(
+            final_text="done",
+            turn_events=[
+                TurnEvent(
+                    kind="tool_call",
+                    sequence=0,
+                    role="assistant",
+                    content="searching",
+                    action_id="a1",
+                    tool_kind="SEARCH",
+                    tool_name="*",
+                    tool_args={"query": "rewritten"},
+                ),
+                TurnEvent(
+                    kind="tool_result",
+                    sequence=1,
+                    role="user",
+                    content="result",
+                    action_id="a1",
+                    tool_kind="SEARCH",
+                    tool_name="*",
+                    status="success",
+                ),
+            ],
+        ),
     )
 
     kernel.librarian_core.submit_interaction.assert_awaited_once()
+    payload = kernel.librarian_core.submit_interaction.await_args.args[0]
+    assert payload.mtp_traces
+    assert payload.mtp_traces[0].action == "SEARCH"

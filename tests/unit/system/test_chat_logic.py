@@ -14,7 +14,7 @@ PatchouliSystem.chat() 端到端测试
     7. 无 system prompt — messages 不含 system 角色时的降级处理
     8. MTP prompt 注入 — runtime.get_mtp_prompt 内容追加到 system prompt
     9. InteractionPayload 构建 — 验证 payload 字段与 submit_interaction 调用
-    10. Koakuma 离线 fallback — koakuma 异常时降级为空 traces
+    10. Koakuma 离线 fallback — koakuma 异常时降级为空 focus
     11. 递归深度上限 — max_iter 边界终止循环
     12. MTP 误判 — handle_mtp 返回 None 时的 fallback 处理
     13. Phase D resume — fake assistant history 拼接验证
@@ -439,7 +439,12 @@ class TestChatWithMTP:
         assert "Searching... " in result.final_text
         assert "Found the answer." in result.final_text
         assert result.mtp_iterations == 1
-        assert result.mtp_commands_executed == ["SEARCH"]
+        commands = [
+            event.tool_kind
+            for event in result.turn_events
+            if getattr(event, "kind", None) == "tool_result" and event.tool_kind
+        ]
+        assert commands == ["SEARCH"]
 
     def test_mtp_with_memory_and_prompt(self, sys):
         """MTP + 记忆 + MTP prompt 全部注入后递归正常"""
@@ -498,30 +503,9 @@ class TestInteractionPayloadSubmission:
         assert payload.user_message == "hello"
         assert payload.assistant_final_text == "Reply!"
 
-    def test_payload_carries_mtp_traces(self, sys):
-        """payload 携带 koakuma 的 mtp_traces"""
-        from hivememory.core.models import TraceItem
-        fake_traces = [
-            TraceItem(action="SEARCH", query="test query"),
-            TraceItem(action="READ", target="fact_api_port"),
-        ]
-        sys.kernel.koakuma.get_interaction_traces.return_value = fake_traces
-        sys.kernel.koakuma.get_write_focus.return_value = None
-        sys.kernel.koakuma.get_update_focus.return_value = None
-
-        sys.chat(
-            user_message="hi",
-            
-            user_id="u1",
-        )
-
-        payload = sys.kernel.submit_interaction.call_args[0][0]
-        assert payload.mtp_traces == fake_traces
-
     def test_payload_carries_write_focus(self, sys):
         """WRITE 场景下 payload 携带 write_focus"""
         fake_wf = MagicMock()
-        sys.kernel.koakuma.get_interaction_traces.return_value = []
         sys.kernel.koakuma.get_write_focus.return_value = fake_wf
         sys.kernel.koakuma.get_update_focus.return_value = None
 
@@ -537,7 +521,6 @@ class TestInteractionPayloadSubmission:
     def test_payload_carries_update_focus(self, sys):
         """UPDATE 场景下 payload 携带 update_focus"""
         fake_uf = MagicMock()
-        sys.kernel.koakuma.get_interaction_traces.return_value = []
         sys.kernel.koakuma.get_write_focus.return_value = None
         sys.kernel.koakuma.get_update_focus.return_value = fake_uf
 
@@ -571,8 +554,7 @@ class TestKoakumaOfflineFallback:
     """验证 Koakuma 离线时的降级处理"""
 
     def test_koakuma_exception_degrades_gracefully(self, sys):
-        """koakuma 抛异常时降级为空 traces / None focus"""
-        sys.kernel.koakuma.get_interaction_traces.side_effect = RuntimeError("offline")
+        """koakuma 抛异常时降级为 None focus"""
         sys.kernel.koakuma.get_write_focus.side_effect = RuntimeError("offline")
         sys.kernel.koakuma.get_update_focus.side_effect = RuntimeError("offline")
 
@@ -587,7 +569,6 @@ class TestKoakumaOfflineFallback:
 
         # payload 应使用降级值
         payload = sys.kernel.submit_interaction.call_args[0][0]
-        assert payload.mtp_traces == []
         assert payload.write_focus is None
         assert payload.update_focus is None
 

@@ -65,7 +65,6 @@ def _make_chat_result() -> ChatResult:
         final_text="hello!",
         mtp_iterations=0,
         total_iterations=1,
-        mtp_commands_executed=[],
         turn_events=[],
     )
 

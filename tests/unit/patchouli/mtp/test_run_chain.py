@@ -284,30 +284,25 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory.assert_not_called()
         koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
 
-    def test_trace_recorded_on_success(self, koakuma):
-        """成功执行后记录 TraceItem"""
+    def test_user_tool_success_returns_execution_result(self, koakuma):
+        """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
         mem = _make_code_memory(code="print('traced')", alias="tool_trace")
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        _execute_mtp(koakuma, '⟪ RUN | tool_trace | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_trace | ⟫')
 
-        traces = koakuma.get_interaction_traces()
-        run_traces = [t for t in traces if t.action == "RUN"]
-        assert len(run_traces) == 1
-        assert run_traces[0].tool == "tool_trace"
-        assert run_traces[0].status == "success"
+        assert result.success
+        assert "traced" in result.response_content
 
-    def test_trace_recorded_on_error(self, koakuma):
-        """执行失败也记录 TraceItem"""
+    def test_user_tool_error_returns_execution_failure(self, koakuma):
+        """执行失败时返回错误响应，trace 由 TurnEvent reducer 负责生成。"""
         mem = _make_code_memory(code="raise ValueError('boom')", alias="tool_err")
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        _execute_mtp(koakuma, '⟪ RUN | tool_err | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_err | ⟫')
 
-        traces = koakuma.get_interaction_traces()
-        run_traces = [t for t in traces if t.action == "RUN"]
-        assert len(run_traces) == 1
-        assert run_traces[0].status == "error"
+        assert not result.success
+        assert "Error" in result.response_content
 

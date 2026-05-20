@@ -85,10 +85,9 @@ class TestSSEEventModels:
             final_text="result",
             mtp_iterations=1,
             total_iterations=2,
-            mtp_commands_executed=["SEARCH"],
         )
         assert e.final_text == "result"
-        assert e.mtp_commands_executed == ["SEARCH"]
+        assert e.mtp_iterations == 1
 
     def test_error_event(self):
         e = ChatErrorEvent(message="fail")

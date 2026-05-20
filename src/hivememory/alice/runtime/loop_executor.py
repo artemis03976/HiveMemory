@@ -25,7 +25,7 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 from hivememory.core.protocol.models import ChatResult
 from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.core.mtp.models import MTPVerb
-from hivememory.core.models import TraceItem, TurnEvent
+from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
 
 if TYPE_CHECKING:
@@ -183,7 +183,6 @@ class KernelLoopExecutor:
             ChatResult: 执行结果
         """
         text_segments: List[str] = []
-        mtp_commands: List[str] = []
         turn_events: List[TurnEvent] = []
         _seq = 0
         iteration = 0
@@ -384,10 +383,8 @@ class KernelLoopExecutor:
                     render_as="system_ipc_return",
                 ))
                 _seq += 1
-                mtp_commands.append("CALL")
                 continue
 
-            mtp_commands.append(verb_hint)
             command_event.status = mtp_result.response_status
             if stream_emitter is not None:
                 mtp_result_data = {
@@ -434,7 +431,6 @@ class KernelLoopExecutor:
             final_text="".join(text_segments),
             mtp_iterations=max(0, iteration - 1),
             total_iterations=iteration,
-            mtp_commands_executed=mtp_commands,
             turn_events=turn_events,
         )
         if stream_emitter is not None:
@@ -587,12 +583,6 @@ class KernelLoopExecutor:
 
             self._runtime.frame_scheduler.resume_frame()
 
-            self._runtime.koakuma._current_traces.append(TraceItem(
-                action="CALL",
-                target=target_alias,
-                status="success",
-            ))
-
             if stream_events is not None:
                 sub_end_data = {
                     "status": "success",
@@ -614,12 +604,6 @@ class KernelLoopExecutor:
             logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
 
             self._runtime.frame_scheduler.resume_frame()
-
-            self._runtime.koakuma._current_traces.append(TraceItem(
-                action="CALL",
-                target=target_alias,
-                status="error",
-            ))
 
             if stream_events is not None:
                 sub_end_err_data = {

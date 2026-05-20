@@ -55,7 +55,7 @@ class TestChatRouter:
         mock_system = MagicMock()
 
         async def fake_stream(**kwargs):
-            yield {"event": "done", "data": {"final_text": "ok", "mtp_iterations": 0, "total_iterations": 1, "mtp_commands_executed": []}}
+            yield {"event": "done", "data": {"final_text": "ok", "mtp_iterations": 0, "total_iterations": 1}}
 
         mock_system.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
@@ -99,7 +99,6 @@ class TestChatRouter:
                     "final_text": "Hello world!",
                     "mtp_iterations": 0,
                     "total_iterations": 1,
-                    "mtp_commands_executed": [],
                 },
             }
 
@@ -139,7 +138,6 @@ class TestChatRouter:
                     "final_text": "Let me search. Found it!",
                     "mtp_iterations": 1,
                     "total_iterations": 2,
-                    "mtp_commands_executed": ["SEARCH"],
                 },
             }
 

@@ -50,7 +50,6 @@ class AliceRuntime:
 
     def export_interaction_state(self) -> dict[str, Any]:
         return {
-            "mtp_traces": self._koakuma.get_interaction_traces(),
             "write_focus": self._koakuma.get_write_focus(),
             "update_focus": self._koakuma.get_update_focus(),
         }

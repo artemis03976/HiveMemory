@@ -238,7 +238,7 @@ class TraceItem(BaseModel):
     - RUN    -> 工具与状态
 
     注意：
-    - WRITE / UPDATE 等控制信号默认不转成 TraceItem
+    - WRITE / UPDATE / CALL 等控制信号会保留为 TraceItem，但摘要渲染层可选择跳过
     - tool_result 正文与系统回填文本不进入 TraceItem
     """
 
@@ -461,7 +461,31 @@ class TraceReducer:
                 status=action.status or "unknown",
             )
 
-        # WRITE / UPDATE / CALL / UNKNOWN -> 默认不进入摘要轨迹
+        if verb == "CALL":
+            return TraceItem(
+                action="CALL",
+                action_id=action.action_id,
+                target=action.tool_name or None,
+                status=action.status or "unknown",
+            )
+
+        if verb == "WRITE":
+            return TraceItem(
+                action="WRITE",
+                action_id=action.action_id,
+                target=action.tool_name or None,
+                status=action.status or "unknown",
+            )
+
+        if verb == "UPDATE":
+            return TraceItem(
+                action="UPDATE",
+                action_id=action.action_id,
+                target=action.tool_name or None,
+                status=action.status or "unknown",
+            )
+
+        # UNKNOWN -> 默认不进入摘要轨迹
         return None
 
     @staticmethod

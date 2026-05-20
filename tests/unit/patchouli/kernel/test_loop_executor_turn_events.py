@@ -100,7 +100,6 @@ def _make_frame(depth: int = 0) -> ExecutionFrame:
 def _build_executor(generate_async_side_effect) -> KernelLoopExecutor:
     kernel = MagicMock()
     kernel.koakuma = MagicMock()
-    kernel.koakuma._current_traces = []
     kernel.koakuma.atom_cache = MagicMock()
     kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
     kernel.config = MagicMock()

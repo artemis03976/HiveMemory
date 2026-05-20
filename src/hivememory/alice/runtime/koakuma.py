@@ -57,7 +57,6 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
 )
 from hivememory.engines.generation.models import WriteFocus, UpdateFocus
-from hivememory.core.models import TraceItem
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
@@ -111,8 +110,6 @@ class KoakumaRuntime:
         self._formatter = MTPFormatter()
         self._atom_cache = KoakumaAtomCache()
 
-        # 当前会话的身份标识 (由 Kernel 在会话开始时设置)
-
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
         from hivememory.alice.runtime.syscalls import build_kernel_registry
@@ -127,13 +124,11 @@ class KoakumaRuntime:
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
 
         # ========== 交互状态 (v3.0 延迟捕获) ==========
-        self._current_traces: List[TraceItem] = []
         self._current_write_focus: Optional[WriteFocus] = None
         self._current_update_focus: Optional[UpdateFocus] = None
 
     def reset_interaction_state(self) -> None:
         """每轮递归循环前重置交互状态"""
-        self._current_traces = []
         self._current_write_focus = None
         self._current_update_focus = None
 
@@ -182,10 +177,6 @@ class KoakumaRuntime:
             raise PermissionDeniedError(
                 f"You do not have access to tool '{tool_alias}'."
             )
-
-    def get_interaction_traces(self) -> List[TraceItem]:
-        """获取当前轮次记录的 TraceItem 列表"""
-        return self._current_traces.copy()
 
     def get_write_focus(self) -> Optional[WriteFocus]:
         """获取延迟捕获的 WriteFocus (如果有)"""
@@ -471,11 +462,6 @@ class KoakumaRuntime:
         # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
         self._atom_cache.ingest_atoms(result.memories)
 
-        # 记录 TraceItem
-        self._current_traces.append(TraceItem(
-            action="SEARCH", query=query,
-        ))
-
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content=menu,
@@ -550,12 +536,6 @@ class KoakumaRuntime:
                 f"Use SEARCH to discover the correct alias first."
             )
 
-        # 记录 TraceItem (折叠: 仅记录查阅动作和目标)
-        for alias, _ in resolved:
-            self._current_traces.append(TraceItem(
-                action="READ", target=alias,
-            ))
-
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="\n".join(output_lines),
@@ -592,9 +572,6 @@ class KoakumaRuntime:
         syscall = self._kernel_registry.get(alias)
         if syscall is None and alias.startswith("sys_"):
             # sys_ 前缀保留给内核工具，不走 L1/L2 用户态解析
-            self._current_traces.append(TraceItem(
-                action="RUN", tool=alias, status="error",
-            ))
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=f"[Alias Not Found] Kernel tool '{alias}' not found. "
@@ -605,10 +582,6 @@ class KoakumaRuntime:
             self._check_tool_permission(alias, context=context)
             try:
                 result = syscall.handler(command.args)
-                # 记录 TraceItem (摘要: 记录副作用操作及状态)
-                self._current_traces.append(TraceItem(
-                    action="RUN", tool=alias, status="success",
-                ))
                 return MTPResponse(
                     status=MTPResponseStatus.SUCCESS,
                     content=result,
@@ -617,9 +590,6 @@ class KoakumaRuntime:
                 logger.error(
                     f"Kernel syscall '{alias}' failed: {e}", exc_info=True
                 )
-                self._current_traces.append(TraceItem(
-                    action="RUN", tool=alias, status="error",
-                ))
                 return MTPResponse(
                     status=MTPResponseStatus.ERROR,
                     content=f"[Tool Error] Tool '{alias}' execution failed. "
@@ -983,11 +953,6 @@ class KoakumaRuntime:
         )
 
         is_error = result.startswith("Error")
-        status = "error" if is_error else "success"
-
-        self._current_traces.append(TraceItem(
-            action="RUN", tool=alias, status=status,
-        ))
 
         return MTPResponse(
             status=MTPResponseStatus.ERROR if is_error else MTPResponseStatus.SUCCESS,

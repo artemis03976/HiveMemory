@@ -75,6 +75,14 @@ def _get_perception_layer(system: PatchouliSystem):
     return system.runtime.librarian_core.perception_layer
 
 
+def _mtp_commands(result: ChatResult) -> list[str]:
+    return [
+        event.tool_kind
+        for event in result.turn_events
+        if getattr(event, "kind", None) == "tool_result" and event.tool_kind
+    ]
+
+
 def _collect_user_blocks(
     system: PatchouliSystem,
     user_id: str,
@@ -386,7 +394,8 @@ class TestActiveMTPWriteDirected:
         assert isinstance(result, ChatResult)
         assert len(result.final_text.strip()) > 0
 
-        if "WRITE" in result.mtp_commands_executed:
+        commands = _mtp_commands(result)
+        if "WRITE" in commands:
             # WRITE 触发了 → 等待记忆持久化
             await asyncio.sleep(FLUSH_SETTLE_SECONDS)
             try:
@@ -398,7 +407,7 @@ class TestActiveMTPWriteDirected:
                 logger.warning("ACT-E2E-004: WRITE 执行但记忆未在超时内持久化")
         else:
             logger.warning(
-                f"ACT-E2E-004: LLM 未触发 WRITE, commands={result.mtp_commands_executed}"
+                f"ACT-E2E-004: LLM 未触发 WRITE, commands={commands}"
             )
 
 
@@ -453,7 +462,8 @@ class TestActiveMTPUpdateDirected:
         assert isinstance(result, ChatResult)
         assert len(result.final_text.strip()) > 0
 
-        if "UPDATE" in result.mtp_commands_executed:
+        commands = _mtp_commands(result)
+        if "UPDATE" in commands:
             # Phase 3: 等待更新持久化
             await asyncio.sleep(FLUSH_SETTLE_SECONDS)
             # 手动触发话题结算（Archive + Compact）
@@ -483,7 +493,7 @@ class TestActiveMTPUpdateDirected:
         else:
             logger.warning(
                 f"ACT-E2E-005: LLM 未触发 UPDATE, "
-                f"commands={result.mtp_commands_executed}, "
+                f"commands={commands}, "
                 f"response: {result.final_text[:150]}"
             )
 
