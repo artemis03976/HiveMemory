@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from hivememory.system.config import LLMConfig, KoakumaConfig
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
@@ -25,12 +26,14 @@ class MTPLoopRunner:
         max_rounds: int = 5,
         temperature: float = 0.0,
         max_tokens: int = 1024,
+        context: Optional[MTPExecutionContext] = None,
     ):
         self.llm_service = llm_service
         self.koakuma = koakuma
         self.max_rounds = max_rounds
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.context = context or MTPExecutionContext()
         self.round_log: List[Dict] = []
 
     @staticmethod
@@ -78,7 +81,10 @@ class MTPLoopRunner:
 
             if MTP_LEFT_DELIMITER in response_text:
                 round_info["mtp_triggered"] = True
-                result = self.koakuma.intercept_and_execute(accumulated_text)
+                result = self.koakuma.intercept_and_execute(
+                    accumulated_text,
+                    context=self.context,
+                )
                 if result is not None and result.formatted_response:
                     round_info["mtp_result"] = {
                         "success": result.success,

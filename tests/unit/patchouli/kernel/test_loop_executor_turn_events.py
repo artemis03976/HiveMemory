@@ -15,10 +15,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, TurnEvent
-from hivememory.alice.runtime.execution_frame import ExecutionFrame
 from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.models import (
+    ExecutionFrame,
+    GenerationResult,
+    MTPExecutionContext,
+)
 from hivememory.core.protocol.models import MTPExecutionResult
-from hivememory.alice.runtime.worker_agent import GenerationResult
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -101,12 +104,16 @@ def _build_executor(generate_async_side_effect) -> KernelLoopExecutor:
     kernel.koakuma.atom_cache = MagicMock()
     kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
     kernel.config = MagicMock()
-    kernel.config.koakuma.max_recursion_depth = 10
+    kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
 
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=generate_async_side_effect)
 
-    executor = KernelLoopExecutor(kernel=kernel, worker_agent=worker_agent)
+    executor = KernelLoopExecutor(
+        runtime=kernel,
+        worker_agent=worker_agent,
+        config=kernel.config.agent_runtime,
+    )
     return executor, kernel
 
 
@@ -117,7 +124,7 @@ async def test_natural_stop_produces_one_assistant_message_event():
     """自然停止: 1 个 assistant_message 事件，sequence=0，role=assistant"""
     frame = _make_frame()
     executor, kernel = _build_executor([_natural_result("Hello world")])
-    kernel.handle_mtp = AsyncMock(return_value=None)
+    kernel.koakuma.intercept_and_execute = AsyncMock(return_value=None)
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
@@ -137,7 +144,7 @@ async def test_natural_stop_no_prefix_no_extra_events():
     """没有 MTP 的情况下，turn_events 只有一个事件"""
     frame = _make_frame()
     executor, kernel = _build_executor([_natural_result("Simple reply")])
-    kernel.handle_mtp = AsyncMock(return_value=None)
+    kernel.koakuma.intercept_and_execute = AsyncMock(return_value=None)
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
@@ -157,7 +164,7 @@ async def test_single_mtp_produces_four_events():
         _natural_result("找到了"),
     ]
     executor, kernel = _build_executor(gen_results)
-    kernel.handle_mtp = AsyncMock(return_value=_mtp_exec_result("READ"))
+    kernel.koakuma.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
@@ -188,6 +195,23 @@ async def test_single_mtp_produces_four_events():
     assert final_ev.sequence == 3
     assert final_ev.content == "找到了"
 
+@pytest.mark.asyncio
+async def test_mtp_execution_receives_frame_context():
+    frame = _make_frame(depth=1)
+
+    gen_results = [_mtp_result("", "READ alias_x"), _natural_result("done")]
+    executor, kernel = _build_executor(gen_results)
+    kernel.koakuma.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
+
+    await executor.execute_frame(frame, max_iterations=5)
+
+    _, kwargs = kernel.koakuma.intercept_and_execute.await_args
+    context = kwargs["context"]
+    assert isinstance(context, MTPExecutionContext)
+    assert context.identity == frame.identity
+    assert context.agent_profile is frame.agent_profile
+    assert context.depth == frame.depth
+
 
 @pytest.mark.asyncio
 async def test_sequence_is_monotonically_increasing_across_iterations():
@@ -200,7 +224,7 @@ async def test_sequence_is_monotonically_increasing_across_iterations():
         _natural_result("done"),
     ]
     executor, kernel = _build_executor(gen_results)
-    kernel.handle_mtp = AsyncMock(side_effect=[
+    kernel.koakuma.intercept_and_execute = AsyncMock(side_effect=[
         _mtp_exec_result("SEARCH"),
         _mtp_exec_result("READ"),
     ])
@@ -222,7 +246,7 @@ async def test_empty_prefix_text_not_recorded():
         _natural_result("done"),
     ]
     executor, kernel = _build_executor(gen_results)
-    kernel.handle_mtp = AsyncMock(return_value=_mtp_exec_result("READ"))
+    kernel.koakuma.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
@@ -268,7 +292,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     worker_agent.generate_async = AsyncMock(side_effect=gen_async_side)
     executor.worker_agent = worker_agent
 
-    kernel.handle_mtp = AsyncMock(return_value=_call_mtp_exec_result())
+    kernel.koakuma.intercept_and_execute = AsyncMock(return_value=_call_mtp_exec_result())
 
     # frame_scheduler mock
     kernel.frame_scheduler = MagicMock()
@@ -309,7 +333,7 @@ async def test_run_command_event_carries_execution_status_for_reducer():
         _natural_result("done"),
     ]
     executor, kernel = _build_executor(gen_results)
-    kernel.handle_mtp = AsyncMock(return_value=_mtp_exec_result("RUN"))
+    kernel.koakuma.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("RUN"))
 
     result = await executor.execute_frame(frame, max_iterations=5)
 

@@ -143,7 +143,6 @@ class AliceRuntime:
         return await self._agent_runtime.run_agent(
             messages=messages,
             identity=agent_run_context.identity,
-            agent_id=agent_run_context.identity.agent_id,
             topic_id=agent_run_context.topic_id,
             generation_options=generation_options,
             agent_profile=agent_run_context.agent_profile,
@@ -160,7 +159,6 @@ class AliceRuntime:
         async for event in self._agent_runtime.run_agent_stream(
             messages=messages,
             identity=agent_run_context.identity,
-            agent_id=agent_run_context.identity.agent_id,
             topic_id=agent_run_context.topic_id,
             generation_options=generation_options,
             agent_profile=agent_run_context.agent_profile,

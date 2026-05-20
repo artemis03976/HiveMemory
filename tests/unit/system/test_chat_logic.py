@@ -37,7 +37,7 @@ from hivememory.engines.perception.models import LogicalBlock
 from hivememory.core.protocol.models import (
     ChatResult, RetrievalResponse, EyeGazeResult, MTPExecutionResult,
 )
-from hivememory.alice.runtime.worker_agent import GenerationResult
+from hivememory.alice.runtime.models import GenerationResult
 from hivememory.core.mtp import MTPVerb
 from hivememory.engines.gateway.models import GatewayIntent
 
@@ -116,7 +116,7 @@ def sys():
 
     # config
     s.config = MagicMock()
-    s.config.koakuma.max_recursion_depth = 5
+    s.config.agent_runtime = MagicMock(max_loop_iterations=5)
 
     # Eye
     s.eye = MagicMock()
@@ -147,7 +147,7 @@ def sys():
     s.kernel.librarian_core = MagicMock()
 
     # Frame scheduler (Phase 2) — 使用真实的 FrameScheduler 行为
-    from hivememory.alice.runtime.execution_frame import ExecutionFrame
+    from hivememory.alice.runtime.models import ExecutionFrame
     from hivememory.core.models import Identity as _Identity
 
     def _mock_create_main_frame(agent_profile, messages, topic_id, identity):
@@ -175,6 +175,7 @@ def sys():
     s._loop_executor = KernelLoopExecutor(
         kernel=s.kernel,
         worker_agent=s._worker_agent,
+        config=s.config.agent_runtime,
     )
 
     # 绑定真实方法
@@ -598,7 +599,7 @@ class TestRecursionDepthLimit:
 
     def test_max_iterations_stops_loop(self, sys):
         """MTP 持续中断达到上限时循环终止"""
-        sys.config.koakuma.max_recursion_depth = 3
+        sys.config.agent_runtime.max_loop_iterations = 3
 
         # 每次都返回 MTP 中断，永不停止
         sys._worker_agent.generate_async.return_value = _mtp_gen("loop ")
@@ -616,8 +617,8 @@ class TestRecursionDepthLimit:
         assert sys._worker_agent.generate_async.call_count == 3
 
     def test_depth_1_means_no_recursion(self, sys):
-        """max_recursion_depth=1 时只执行一次生成，不递归"""
-        sys.config.koakuma.max_recursion_depth = 1
+        """max_loop_iterations=1 时只执行一次生成，不递归"""
+        sys.config.agent_runtime.max_loop_iterations = 1
 
         sys._worker_agent.generate_async.return_value = _mtp_gen("once ")
         sys.kernel.handle_mtp.return_value = _mtp_exec()
@@ -731,7 +732,6 @@ class TestUserIdPropagation:
             user_id="user_abc",
         )
 
-        sys.kernel.koakuma.set_current_identity.assert_called_once_with(Identity(user_id="user_abc"))
 
 
 class TestMultiAgentScenarioB:

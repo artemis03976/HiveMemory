@@ -13,10 +13,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
-from hivememory.alice.runtime.execution_frame import ExecutionFrame
+from hivememory.alice.runtime.models import ExecutionFrame, GenerationResult, StreamChunk
 from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 from hivememory.core.protocol.models import MTPExecutionResult
-from hivememory.alice.runtime.worker_agent import GenerationResult, StreamChunk
 
 
 def _make_call_mtp_result() -> MTPExecutionResult:
@@ -70,16 +69,22 @@ def _make_frames():
 
 def _build_executor_with_stream(worker_stream_impl):
     kernel = MagicMock()
-    kernel.handle_mtp = AsyncMock(return_value=_make_call_mtp_result())
     kernel.koakuma = MagicMock()
+    kernel.koakuma.intercept_and_execute = AsyncMock(return_value=_make_call_mtp_result())
     kernel.koakuma._current_traces = []
     kernel.koakuma.atom_cache = MagicMock()
     kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
+    kernel.config = MagicMock()
+    kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
 
     worker_agent = MagicMock()
     worker_agent.generate_stream = worker_stream_impl
 
-    return KernelLoopExecutor(kernel=kernel, worker_agent=worker_agent), kernel
+    return KernelLoopExecutor(
+        runtime=kernel,
+        worker_agent=worker_agent,
+        config=kernel.config.agent_runtime,
+    ), kernel
 
 
 @pytest.mark.asyncio

@@ -120,7 +120,7 @@ class KernelLoopTestHarness:
             return self.koakuma.intercept_and_execute(text)
         self.system.runtime.handle_mtp = _handle_mtp
         self.system.config = MagicMock()
-        self.system.config.koakuma.max_recursion_depth = 10
+        self.system.config.agent_runtime = MagicMock(max_loop_iterations=10)
 
         # Bind real method
         self.system._recursive_generation_loop = types.MethodType(

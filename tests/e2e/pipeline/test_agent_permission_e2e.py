@@ -16,6 +16,7 @@ from uuid import uuid4
 from hivememory.core.models import AgentProfile, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.core.mtp.exceptions import PermissionDeniedError
 from hivememory.core.mtp import MTPCommand, MTPVerb
 from hivememory.prompts.mtp import MTPPromptBuilder
@@ -188,18 +189,18 @@ class TestPromptToKoakumaEnforcement:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.storage.get_agent_profile("reader_only")
-        koakuma.set_active_profile(profile)
+        context = MTPExecutionContext(agent_profile=profile)
 
         # 允许的动词应该通过
-        koakuma._check_verb_permission("READ")
-        koakuma._check_verb_permission("SEARCH")
+        koakuma._check_verb_permission("READ", context=context)
+        koakuma._check_verb_permission("SEARCH", context=context)
 
         # 禁止的动词应该被拦截
         with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE")
+            koakuma._check_verb_permission("WRITE", context=context)
 
         with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("UPDATE")
+            koakuma._check_verb_permission("UPDATE", context=context)
 
     async def test_koakuma_enforces_tool_permission(self):
         """Koakuma 运行时拦截越权工具"""
@@ -213,17 +214,17 @@ class TestPromptToKoakumaEnforcement:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.storage.get_agent_profile("safe_agent")
-        koakuma.set_active_profile(profile)
+        context = MTPExecutionContext(agent_profile=profile)
 
         # 允许的工具应该通过
         koakuma._check_tool_permission("sys_clock")
 
         # 禁止的工具应该被拦截
         with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("sys_write_file")
+            koakuma._check_tool_permission("sys_write_file", context=context)
 
         with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("sys_bash_exec")
+            koakuma._check_tool_permission("sys_bash_exec", context=context)
 
 
 @pytest.mark.asyncio
@@ -250,10 +251,10 @@ class TestEndToEndPermissionChain:
         assert "- UPDATE:" not in mtp_prompt
 
         # 2. Runtime 层：Koakuma 拦截 WRITE
-        koakuma.set_active_profile(profile)
+        context = MTPExecutionContext(agent_profile=profile)
 
         with pytest.raises(PermissionDeniedError) as exc_info:
-            koakuma._check_verb_permission("WRITE")
+            koakuma._check_verb_permission("WRITE", context=context)
 
         assert "WRITE" in str(exc_info.value)
 
@@ -278,12 +279,12 @@ class TestEndToEndPermissionChain:
         assert "sys_write_file" in mtp_prompt
 
         # 2. Runtime 层：Koakuma 允许 WRITE
-        koakuma.set_active_profile(profile)
+        context = MTPExecutionContext(agent_profile=profile)
 
         # 应该不抛异常
-        koakuma._check_verb_permission("WRITE")
-        koakuma._check_verb_permission("RUN")
-        koakuma._check_tool_permission("sys_write_file")
+        koakuma._check_verb_permission("WRITE", context=context)
+        koakuma._check_verb_permission("RUN", context=context)
+        koakuma._check_tool_permission("sys_write_file", context=context)
 
     async def test_no_profile_allows_all_operations(self):
         """无 profile 时：prompt 显示全部，运行时允许全部"""
@@ -298,14 +299,14 @@ class TestEndToEndPermissionChain:
         assert "- RUN:" in mtp_prompt
 
         # 2. Runtime 层：Koakuma 允许全部（无 profile）
-        koakuma.set_active_profile(None)
+        context = MTPExecutionContext()
 
         # 应该不抛异常
-        koakuma._check_verb_permission("WRITE")
-        koakuma._check_verb_permission("UPDATE")
-        koakuma._check_verb_permission("RUN")
-        koakuma._check_tool_permission("sys_write_file")
-        koakuma._check_tool_permission("sys_bash_exec")
+        koakuma._check_verb_permission("WRITE", context=context)
+        koakuma._check_verb_permission("UPDATE", context=context)
+        koakuma._check_verb_permission("RUN", context=context)
+        koakuma._check_tool_permission("sys_write_file", context=context)
+        koakuma._check_tool_permission("sys_bash_exec", context=context)
 
 
 @pytest.mark.asyncio
@@ -325,11 +326,11 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.storage.get_agent_profile("restricted")
-        koakuma.set_active_profile(profile)
+        context = MTPExecutionContext(agent_profile=profile)
 
         # 即使 LLM 幻觉输出了 WRITE 指令，运行时也会拦截
         with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE")
+            koakuma._check_verb_permission("WRITE", context=context)
 
     async def test_tool_permission_exact_match(self):
         """工具权限精确匹配（防止前缀攻击）"""
@@ -343,7 +344,7 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.storage.get_agent_profile("limited")
-        koakuma.set_active_profile(profile)
+        context = MTPExecutionContext(agent_profile=profile)
 
         # sys_clock 应该通过
         koakuma._check_tool_permission("sys_clock")
@@ -365,11 +366,11 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=restrictive_atom)
 
         profile1 = kernel.storage.get_agent_profile("restrictive")
-        koakuma.set_active_profile(profile1)
+        context1 = MTPExecutionContext(agent_profile=profile1)
 
         # WRITE 应该被拒绝
         with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE")
+            koakuma._check_verb_permission("WRITE", context=context)
 
         # 切换到第二个 profile：宽松
         permissive_atom = _make_profile_atom(
@@ -380,11 +381,11 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=permissive_atom)
 
         profile2 = kernel.storage.get_agent_profile("permissive")
-        koakuma.set_active_profile(profile2)
+        context2 = MTPExecutionContext(agent_profile=profile2)
 
         # WRITE 现在应该通过
-        koakuma._check_verb_permission("WRITE")
-        koakuma._check_tool_permission("sys_write_file")
+        koakuma._check_verb_permission("WRITE", context=context)
+        koakuma._check_tool_permission("sys_write_file", context=context)
 
 
 @pytest.mark.asyncio
@@ -404,9 +405,9 @@ class TestProfileLoadingErrors:
         assert profile is OMNI_DOLL_PROFILE
 
         # OMNI_DOLL 允许全部操作
-        koakuma.set_active_profile(profile)
-        koakuma._check_verb_permission("WRITE")
-        koakuma._check_tool_permission("sys_bash_exec")
+        context = MTPExecutionContext(agent_profile=profile)
+        koakuma._check_verb_permission("WRITE", context=context)
+        koakuma._check_tool_permission("sys_bash_exec", context=context)
 
     async def test_malformed_profile_returns_none(self):
         """格式错误的 profile 返回 OMNI_DOLL_PROFILE（兜底）"""

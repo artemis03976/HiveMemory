@@ -25,7 +25,7 @@ from hivememory.core.models import (
     MemoryType,
     OMNI_DOLL_PROFILE,
 )
-from hivememory.alice.runtime.execution_frame import ExecutionFrame
+from hivememory.alice.runtime.models import ExecutionFrame
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import (
@@ -142,10 +142,14 @@ class TestKoakumaHandleCall:
 
     def _make_koakuma(self, depth=0):
         from hivememory.alice.runtime.koakuma import KoakumaRuntime
+        from hivememory.alice.runtime.models import MTPExecutionContext
 
         koakuma = MagicMock(spec=KoakumaRuntime)
-        koakuma._current_depth = depth
-        koakuma._active_profile = OMNI_DOLL_PROFILE
+        koakuma.context = MTPExecutionContext(
+            identity=Identity(user_id="u1", agent_id="omni_doll"),
+            agent_profile=OMNI_DOLL_PROFILE,
+            depth=depth,
+        )
 
         # 绑定真实方法
         import types
@@ -163,7 +167,7 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "coder_doll"
         cmd.args = {"task": "Write code", "context_refs": '["mem_spec"]'}
 
-        response = await koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd, context=koakuma.context)
 
         assert response.status == MTPResponseStatus.SUSPEND
         payload = json.loads(response.content)
@@ -182,7 +186,7 @@ class TestKoakumaHandleCall:
 
         from hivememory.core.mtp.exceptions import PermissionDeniedError
         with pytest.raises(PermissionDeniedError):
-            await koakuma._handle_call(cmd)
+            await koakuma._handle_call(cmd, context=koakuma.context)
 
     @pytest.mark.asyncio
     async def test_call_missing_task(self):
@@ -193,7 +197,7 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "coder_doll"
         cmd.args = {}  # no task
 
-        response = await koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd, context=koakuma.context)
         assert response.status == MTPResponseStatus.ERROR
 
     @pytest.mark.asyncio
@@ -205,34 +209,8 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = None  # no target
         cmd.args = {"task": "some task"}
 
-        response = await koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd, context=koakuma.context)
         assert response.status == MTPResponseStatus.ERROR
-
-
-# ========== Koakuma Depth Tracking Tests ==========
-
-
-class TestKoakumaDepthTracking:
-    """Koakuma 深度跟踪测试"""
-
-    def test_set_and_get_depth(self):
-        from hivememory.alice.runtime.koakuma import KoakumaRuntime
-
-        koakuma = MagicMock(spec=KoakumaRuntime)
-
-        import types
-        koakuma.set_current_depth = types.MethodType(
-            KoakumaRuntime.set_current_depth, koakuma
-        )
-        koakuma.get_current_depth = types.MethodType(
-            KoakumaRuntime.get_current_depth, koakuma
-        )
-
-        koakuma.set_current_depth(0)
-        assert koakuma.get_current_depth() == 0
-
-        koakuma.set_current_depth(1)
-        assert koakuma.get_current_depth() == 1
 
 
 # ========== FrameScheduler Tests ==========
@@ -249,7 +227,6 @@ class TestFrameScheduler:
         kernel.config.koakuma.mtp_prompt.language = "zh"
         kernel.prompt_assembler = AgentPromptAssembler(KoakumaConfig())
         kernel.koakuma = MagicMock()
-        kernel.koakuma._current_identity = Identity(user_id="u1")
         kernel.koakuma.atom_cache = MagicMock()
         kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
         kernel._global_bus = AsyncMock()

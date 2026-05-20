@@ -26,6 +26,7 @@ from hivememory.core.models import (
 from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import MTPResponseStatus
 
@@ -67,12 +68,12 @@ def koakuma() -> KoakumaRuntime:
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 
 
-def _execute_mtp(koakuma: KoakumaRuntime, text: str):
-    return asyncio.run(koakuma.execute_mtp(text))
+def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+    return asyncio.run(koakuma.execute_mtp(text, context=context))
 
 
-def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str):
-    return asyncio.run(koakuma.intercept_and_execute(assistant_text))
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
 
 
 # ========== Test 1: _parse_mtp_filter ==========
@@ -195,7 +196,7 @@ class TestSearchRetrievalRequest:
     def test_query_passed_to_retrieval(self, koakuma):
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-        koakuma.set_current_identity(Identity(user_id="user_42"))
+        context = MTPExecutionContext(identity=Identity(user_id="user_42"))
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="python decorators" ⟫')
 
@@ -205,7 +206,7 @@ class TestSearchRetrievalRequest:
     def test_user_id_injected(self, koakuma):
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-        koakuma.set_current_identity(Identity(user_id="user_42"))
+        context = MTPExecutionContext(identity=Identity(user_id="user_42"))
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 

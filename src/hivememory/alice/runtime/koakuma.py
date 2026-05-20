@@ -41,12 +41,13 @@ from hivememory.core.mtp import (
     MTPFormatter,
 )
 from hivememory.alice.runtime.cache import KoakumaAtomCache
+from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.core.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,
 )
 
-from hivememory.core.models import MemoryType, Identity
+from hivememory.core.models import MemoryType
 from hivememory.core.mtp.exceptions import (
     AgentFault,
     SystemFault,
@@ -111,7 +112,6 @@ class KoakumaRuntime:
         self._atom_cache = KoakumaAtomCache()
 
         # 当前会话的身份标识 (由 Kernel 在会话开始时设置)
-        self._current_identity: Identity = Identity()
 
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
@@ -131,31 +131,6 @@ class KoakumaRuntime:
         self._current_write_focus: Optional[WriteFocus] = None
         self._current_update_focus: Optional[UpdateFocus] = None
 
-        # ========== 多智能体权限沙箱 (Phase 1) ==========
-        # 由 PatchouliSystem 在每轮 chat/stream 开始时通过 set_active_profile() 设置
-        self._active_profile: Optional[Any] = None  # AgentProfile
-
-    def set_current_identity(self, identity: Identity) -> None:
-        """
-        设置当前会话的完整身份标识
-
-        由 Kernel 在会话开始时调用，支持 user_id + agent_id + team_id。
-        新会话时清空缓存。
-
-        Args:
-            identity: 完整身份标识
-        """
-        if identity.user_id != self._current_identity.user_id:
-            self._atom_cache.clear()
-            logger.info(f"New session started for identity {identity.buffer_key}, cache cleared")
-        self._current_identity = identity
-
-    def _get_current_identity(self) -> Identity:
-        """获取当前身份标识"""
-        return self._current_identity
-
-    # ========== 交互状态管理 (v3.0) ==========
-
     def reset_interaction_state(self) -> None:
         """每轮递归循环前重置交互状态"""
         self._current_traces = []
@@ -164,40 +139,11 @@ class KoakumaRuntime:
 
     # ========== 多智能体权限沙箱 (Phase 1) ==========
 
-    def set_active_profile(self, profile) -> None:
-        """
-        设置当前活跃的人偶图纸配置
-
-        由 PatchouliSystem 在每轮 chat/stream 开始时调用。
-        设置后，所有 MTP 指令执行前都会进行权限校验。
-
-        Args:
-            profile: AgentProfile 实例（或 None 表示无限制）
-        """
-        self._active_profile = profile
-
-    def set_current_depth(self, depth: int) -> None:
-        """
-        设置当前执行深度 (Phase 2: 用于硬限制检查)
-
-        由 PatchouliSystem 在执行帧时调用。
-        子 Agent (depth >= 1) 被禁止调用 CALL 指令。
-
-        Args:
-            depth: 调用栈深度 (主 Agent = 0, 子 Agent = 1)
-        """
-        self._current_depth = depth
-
-    def get_current_depth(self) -> int:
-        """
-        获取当前执行深度
-
-        Returns:
-            int: 调用栈深度 (0 = 主 Agent, 1 = 子 Agent)
-        """
-        return getattr(self, '_current_depth', 0)
-
-    def _check_verb_permission(self, verb: str) -> None:
+    def _check_verb_permission(
+        self,
+        verb: str,
+        context: Optional[MTPExecutionContext] = None,
+    ) -> None:
         """
         校验 MTP 动词权限 (O(1) set lookup)
 
@@ -207,14 +153,19 @@ class KoakumaRuntime:
         Raises:
             PermissionDeniedError: 当前人偶无权执行此动词
         """
-        if self._active_profile is None:
+        profile = context.agent_profile if context is not None else None
+        if profile is None:
             return
-        if not self._active_profile.is_verb_allowed(verb):
+        if not profile.is_verb_allowed(verb):
             raise PermissionDeniedError(
                 f"You do not have permission to use the '{verb}' command."
             )
 
-    def _check_tool_permission(self, tool_alias: str) -> None:
+    def _check_tool_permission(
+        self,
+        tool_alias: str,
+        context: Optional[MTPExecutionContext] = None,
+    ) -> None:
         """
         校验系统工具权限 (O(1) set lookup)
 
@@ -224,9 +175,10 @@ class KoakumaRuntime:
         Raises:
             PermissionDeniedError: 当前人偶无权使用此工具
         """
-        if self._active_profile is None:
+        profile = context.agent_profile if context is not None else None
+        if profile is None:
             return
-        if not self._active_profile.is_tool_allowed(tool_alias):
+        if not profile.is_tool_allowed(tool_alias):
             raise PermissionDeniedError(
                 f"You do not have access to tool '{tool_alias}'."
             )
@@ -269,7 +221,11 @@ class KoakumaRuntime:
 
     # ========== 公开 API ==========
 
-    async def execute_mtp(self, text: str) -> MTPExecutionResult:
+    async def execute_mtp(
+        self,
+        text: str,
+        context: Optional[MTPExecutionContext] = None,
+    ) -> MTPExecutionResult:
         """
         执行 MTP 指令 (主入口)
 
@@ -292,7 +248,10 @@ class KoakumaRuntime:
             command = self._parser.complete_and_parse(text)
 
             # Step 2: 路由执行
-            response = await self._route_and_execute(command)
+            response = await self._route_and_execute(
+                command,
+                context or MTPExecutionContext(),
+            )
             response.execution_time_ms = (time.time() - start_time) * 1000
 
             # Step 3: 格式化回填文本
@@ -328,7 +287,9 @@ class KoakumaRuntime:
             )
 
     async def intercept_and_execute(
-        self, assistant_text: str
+        self,
+        assistant_text: str,
+        context: Optional[MTPExecutionContext] = None,
     ) -> Optional[MTPExecutionResult]:
         """
         拦截检测 + 执行 (Section 3.1.2 Stop Sequence 场景)
@@ -359,7 +320,7 @@ class KoakumaRuntime:
         if MTP_RIGHT_DELIMITER not in mtp_fragment:
             mtp_fragment = mtp_fragment.rstrip() + " " + MTP_RIGHT_DELIMITER
 
-        return await self.execute_mtp(mtp_fragment)
+        return await self.execute_mtp(mtp_fragment, context=context)
 
     # ========== 别名管理 ==========
 
@@ -370,7 +331,11 @@ class KoakumaRuntime:
 
     # ========== 内部路由 ==========
 
-    async def _route_and_execute(self, command: MTPCommand) -> MTPResponse:
+    async def _route_and_execute(
+        self,
+        command: MTPCommand,
+        context: MTPExecutionContext,
+    ) -> MTPResponse:
         """
         路由并执行 MTP 指令 (Section 3)
 
@@ -404,8 +369,8 @@ class KoakumaRuntime:
 
         try:
             # 权限沙箱：校验 MTP 动词权限 (Phase 1 多智能体)
-            self._check_verb_permission(command.verb.value)
-            return await handler(command)
+            self._check_verb_permission(command.verb.value, context=context)
+            return await handler(command, context)
 
         except StorageOfflineError as e:
             logger.warning(f"Storage offline during {command.verb}: {e}")
@@ -447,7 +412,11 @@ class KoakumaRuntime:
 
     # ========== 指令处理器 ==========
 
-    async def _handle_search(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_search(
+        self,
+        command: MTPCommand,
+        context: MTPExecutionContext,
+    ) -> MTPResponse:
         """
         处理 SEARCH 指令 (Section 2.2)
 
@@ -481,7 +450,7 @@ class KoakumaRuntime:
             "memory.retrieve",
             request=RetrievalRequest(
                 semantic_query=query,
-                identity=self._current_identity,
+                identity=context.identity,
                 filters=parsed_filters,
             ),
         )
@@ -512,7 +481,11 @@ class KoakumaRuntime:
             content=menu,
         )
 
-    async def _handle_read(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_read(
+        self,
+        command: MTPCommand,
+        context: MTPExecutionContext,
+    ) -> MTPResponse:
         """
         处理 READ 指令 (Section 2.2)
 
@@ -546,7 +519,7 @@ class KoakumaRuntime:
         resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
         unresolved: List[str] = []
         for alias in aliases:
-            atom = await self._resolve_and_fetch(alias)
+            atom = await self._resolve_and_fetch(alias, context=context)
             if atom is None:
                 unresolved.append(alias)
             else:
@@ -588,7 +561,11 @@ class KoakumaRuntime:
             content="\n".join(output_lines),
         )
 
-    async def _handle_run(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_run(
+        self,
+        command: MTPCommand,
+        context: MTPExecutionContext,
+    ) -> MTPResponse:
         """
         处理 RUN 指令 (Section 2.2)
 
@@ -625,7 +602,7 @@ class KoakumaRuntime:
             )
         if syscall is not None:
             # 权限沙箱：校验系统工具权限 (Phase 1 多智能体)
-            self._check_tool_permission(alias)
+            self._check_tool_permission(alias, context=context)
             try:
                 result = syscall.handler(command.args)
                 # 记录 TraceItem (摘要: 记录副作用操作及状态)
@@ -651,7 +628,7 @@ class KoakumaRuntime:
 
         # Level 1: 用户态工具路径 (统一原子缓存)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        atom = await self._resolve_and_fetch(alias)
+        atom = await self._resolve_and_fetch(alias, context=context)
         if atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -673,7 +650,11 @@ class KoakumaRuntime:
         logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
         return self._execute_user_tool(alias, code, command.args)
 
-    async def _handle_write(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_write(
+        self,
+        command: MTPCommand,
+        context: MTPExecutionContext,
+    ) -> MTPResponse:
         """
         处理 WRITE 指令 (Section 2.2 + 附录B)
 
@@ -705,7 +686,7 @@ class KoakumaRuntime:
             content=content,
             reason=reason or None,
             title=title or None,
-            identity=self._current_identity,
+            identity=context.identity,
         )
 
         self._current_write_focus = write_focus
@@ -719,7 +700,11 @@ class KoakumaRuntime:
             content='Memory saved.',
         )
 
-    async def _handle_update(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_update(
+        self,
+        command: MTPCommand,
+        context: MTPExecutionContext,
+    ) -> MTPResponse:
         """
         处理 UPDATE 指令 (附录 C)
 
@@ -754,7 +739,7 @@ class KoakumaRuntime:
 
         # 3. 解析 alias → MemoryAtom (统一缓存路径)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        atom = await self._resolve_and_fetch(alias)
+        atom = await self._resolve_and_fetch(alias, context=context)
         if atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -772,7 +757,7 @@ class KoakumaRuntime:
             content=content if content else None,
             target_uuid=uuid,
             target_alias=alias,
-            identity=self._current_identity,
+            identity=context.identity,
         )
 
         self._current_update_focus = update_focus
@@ -789,7 +774,11 @@ class KoakumaRuntime:
             content=f"Memory '{alias}' updated successfully.",
         )
 
-    async def _handle_call(self, command: MTPCommand) -> MTPResponse:
+    async def _handle_call(
+        self,
+        command: MTPCommand,
+        context: Optional[MTPExecutionContext] = None,
+    ) -> MTPResponse:
         """
         处理 CALL 指令 - 触发子代理调用 (Phase 2)
 
@@ -809,7 +798,7 @@ class KoakumaRuntime:
         import json
 
         # 1. 深度检查 (硬限制)
-        if hasattr(self, '_current_depth') and self._current_depth >= 1:
+        if context is not None and context.depth >= 1:
             raise PermissionDeniedError(
                 "Sub-agents are not allowed to invoke CALL. "
                 "Only the main agent can call sub-agents."
@@ -905,7 +894,11 @@ class KoakumaRuntime:
             lines.append(f"{i}. {alias} (Alias) - \"{summary}\"")
         return "\n".join(lines)
 
-    async def _resolve_and_fetch(self, alias: str) -> Optional["MemoryAtom"]:
+    async def _resolve_and_fetch(
+        self,
+        alias: str,
+        context: Optional[MTPExecutionContext] = None,
+    ) -> Optional["MemoryAtom"]:
         """
         统一的别名解析与原子获取
 
@@ -931,9 +924,11 @@ class KoakumaRuntime:
 
         # 缓存未命中：查询存储（L2 冷检索）
         try:
+            identity = context.identity if context is not None else MTPExecutionContext().identity
             memory = await self._bus.request(
                 "memory.get_memory_by_alias",
-                alias=alias, user_id=self._current_identity.user_id,
+                alias=alias,
+                user_id=identity.user_id,
             )
             if memory is None:
                 logger.debug(f"L2 cold-lookup miss: alias='{alias}'")

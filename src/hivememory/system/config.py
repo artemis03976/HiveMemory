@@ -616,7 +616,6 @@ class KoakumaConfig(BaseModel):
     """
     enabled: bool = Field(default=True, description="是否启用 Koakuma MTP 运行时")
     execution_timeout_seconds: int = Field(default=30, description="单指令超时熔断 (秒)")
-    max_recursion_depth: int = Field(default=10, description="最大递归中断深度")
     tool_cache_size: int = Field(default=64, description="用户态工具 LRU 缓存大小")
     python_repl_timeout_seconds: int = Field(default=10, description="sys_python_repl 超时 (秒)")
     workspace_path: str = Field(default="./workspace", description="工作区根目录路径 (sys_read_file/sys_write_file)")
@@ -624,6 +623,14 @@ class KoakumaConfig(BaseModel):
     file_write_max_bytes: int = Field(default=102400, description="sys_write_file 最大写入字节数 (100KB)")
     web_search_timeout_seconds: int = Field(default=15, description="sys_web_search 超时 (秒)")
     mtp_prompt: MTPPromptConfig = Field(default_factory=MTPPromptConfig, description="MTP System Prompt 配置")
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class AgentRuntimeConfig(BaseModel):
+    """AgentRuntime execution loop configuration."""
+
+    max_loop_iterations: int = Field(default=10, description="Agent generation loop max iterations")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -708,6 +715,7 @@ class HiveMemoryConfig(BaseSettings):
     generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
+    agent_runtime: AgentRuntimeConfig = Field(default_factory=AgentRuntimeConfig)
     koakuma: KoakumaConfig = Field(default_factory=KoakumaConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
 

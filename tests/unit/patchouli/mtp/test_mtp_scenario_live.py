@@ -29,6 +29,7 @@ from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp.models import MTP_LEFT_DELIMITER
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 # 复用 MTPLoopRunner 和 LLM fixture 工厂
@@ -150,7 +151,7 @@ class TestSearchScenario:
             storage=MagicMock(),
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_search_triggered_for_memory_query(
@@ -220,7 +221,7 @@ class TestReadScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_search_then_read_two_rounds(
@@ -285,7 +286,7 @@ class TestWriteScenario:
             storage=MagicMock(),
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_write_triggered_for_remember_request(
@@ -338,7 +339,7 @@ class TestUpdateScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         # 预注册 alias (模拟之前 SEARCH 过)
         koakuma.atom_cache.ingest_atom(updated_mem)
         return koakuma
@@ -390,7 +391,7 @@ class TestMultiVerbScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_search_then_read_multi_verb(

@@ -23,9 +23,10 @@ import asyncio
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
 from hivememory.core.protocol.models import ChatResult
-from hivememory.alice.runtime.execution_frame import ExecutionFrame
+from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TraceItem, TurnEvent
+from hivememory.system.config import AgentRuntimeConfig
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.core import AliceRuntime
@@ -49,9 +50,11 @@ class KernelLoopExecutor:
         self,
         runtime: "AliceRuntime",
         worker_agent: "WorkerAgentService",
+        config: AgentRuntimeConfig,
     ):
         self._runtime = runtime
         self.worker_agent = worker_agent
+        self.config = config
 
     def _namespace_for_frame(self, frame: ExecutionFrame) -> Dict[str, Any]:
         """构造事件命名空间元数据。"""
@@ -89,10 +92,10 @@ class KernelLoopExecutor:
         Returns:
             ChatResult: 递归生成循环的完整结果
         """
-        max_iter = max_iterations or self._runtime.config.koakuma.max_recursion_depth
+        max_iter = max_iterations or self.config.max_loop_iterations
 
         main_frame = self._runtime.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or await self._runtime.agent_runtime.get_agent_profile("omni_doll"),            
+            agent_profile=agent_profile,            
             messages=messages,
             topic_id=topic_id or "",
             identity=identity,
@@ -131,10 +134,11 @@ class KernelLoopExecutor:
         Yields:
             Dict[str, Any]: SSE 事件 {"event": str, "data": dict}
         """
-        max_iter = max_iterations or self._runtime.config.koakuma.max_recursion_depth
+        max_iter = max_iterations or self.config.max_loop_iterations
 
         main_frame = self._runtime.frame_scheduler.create_main_frame(
-            agent_profile=agent_profile or await self._runtime.agent_runtime.get_agent_profile("omni_doll"),            messages=messages,
+            agent_profile=agent_profile,            
+            messages=messages,
             topic_id=topic_id or "",
             identity=identity,
         )
@@ -184,9 +188,6 @@ class KernelLoopExecutor:
         _seq = 0
         iteration = 0
 
-        self._runtime.koakuma.set_current_identity(frame.identity)
-        self._runtime.koakuma.set_active_profile(frame.agent_profile)
-        self._runtime.koakuma.set_current_depth(frame.depth)
         self._runtime.koakuma.reset_interaction_state()
 
         while iteration < max_iterations:
@@ -253,7 +254,15 @@ class KernelLoopExecutor:
 
             # MTP 的语义解析以 KoakumaRuntime 返回结果为唯一真相来源。
             # LoopExecutor 不再自行 parse 指令字符串，避免双真相漂移。
-            mtp_result = await self._runtime.koakuma.intercept_and_execute(result.text)
+            mtp_context = MTPExecutionContext(
+                identity=frame.identity,
+                agent_profile=frame.agent_profile,
+                depth=frame.depth,
+            )
+            mtp_result = await self._runtime.koakuma.intercept_and_execute(
+                result.text,
+                context=mtp_context,
+            )
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value
                 target_hint, args_hint, raw_hint = self._extract_command_info(
@@ -578,10 +587,6 @@ class KernelLoopExecutor:
 
             self._runtime.frame_scheduler.resume_frame()
 
-            self._runtime.koakuma.set_current_identity(frame.identity)
-            self._runtime.koakuma.set_active_profile(frame.agent_profile)
-            self._runtime.koakuma.set_current_depth(frame.depth)
-
             self._runtime.koakuma._current_traces.append(TraceItem(
                 action="CALL",
                 target=target_alias,
@@ -609,9 +614,6 @@ class KernelLoopExecutor:
             logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
 
             self._runtime.frame_scheduler.resume_frame()
-            self._runtime.koakuma.set_current_identity(frame.identity)
-            self._runtime.koakuma.set_active_profile(frame.agent_profile)
-            self._runtime.koakuma.set_current_depth(frame.depth)
 
             self._runtime.koakuma._current_traces.append(TraceItem(
                 action="CALL",

@@ -34,6 +34,7 @@ class AgentRuntime:
         self._loop_executor = KernelLoopExecutor(
             runtime=runtime,
             worker_agent=self._worker_agent,
+            config=runtime.config.agent_runtime,
         )
 
     @property
@@ -85,7 +86,6 @@ class AgentRuntime:
         self,
         messages: list[dict[str, str]],
         identity,
-        agent_id: str,
         topic_id: str,
         generation_options: Optional[Dict[str, Any]] = None,
         agent_profile=None,
@@ -104,7 +104,6 @@ class AgentRuntime:
         self,
         messages: list[dict[str, str]],
         identity,
-        agent_id: str,
         topic_id: str,
         generation_options: Optional[Dict[str, Any]] = None,
         agent_profile=None,

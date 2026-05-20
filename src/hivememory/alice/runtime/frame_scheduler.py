@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING, List, Optional
 
 from hivememory.core.models import AgentProfile, Identity
-from hivememory.alice.runtime.execution_frame import ExecutionFrame
+from hivememory.alice.runtime.models import ExecutionFrame
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
 if TYPE_CHECKING:
@@ -95,7 +95,10 @@ class FrameScheduler:
 
         shared_context = ""
         if context_refs:
-            shared_context = await self._fetch_context_refs_content(context_refs)
+            shared_context = await self._fetch_context_refs_content(
+                aliases=context_refs,
+                identity=parent_frame.identity,
+            )
 
         working_history = self._prompt_assembler.build_sub_agent_messages(
             profile=sub_profile,
@@ -118,7 +121,11 @@ class FrameScheduler:
         logger.debug(f"Created sub-frame: {sub_frame}")
         return sub_frame
 
-    async def _fetch_context_refs_content(self, aliases: List[str]) -> str:
+    async def _fetch_context_refs_content(
+        self,
+        aliases: List[str],
+        identity: Identity,
+    ) -> str:
         """
         从存储层批量获取 context_refs 的完整内容。
 
@@ -126,11 +133,7 @@ class FrameScheduler:
         子 Agent 无需再次调用 SEARCH/READ。
         """
         contents = []
-        user_id = (
-            self._runtime.koakuma._current_identity.user_id
-            if hasattr(self._runtime.koakuma, "_current_identity")
-            else None
-        )
+        user_id = identity.user_id
 
         global_bus = self._runtime.global_bus
 

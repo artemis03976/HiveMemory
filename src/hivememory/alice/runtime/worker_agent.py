@@ -24,57 +24,19 @@ Worker Agent Service - 无状态 LLM 文本生成服务
 """
 
 import logging
-from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import asyncio
 import litellm
 
 from hivememory.system.config import LLMConfig
+from hivememory.alice.runtime.models import GenerationResult, StreamChunk
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_STOP_SEQUENCE,
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class GenerationResult:
-    """
-    单次 LLM 生成的结构化结果
-
-    Attributes:
-        text: LLM 生成的完整文本
-        finish_reason: API 返回的停止原因 ("stop" / "length" / "end_turn" 等)
-        was_mtp_interrupted: 是否因 MTP Stop Sequence 中断且文本含 ⟪
-        prefix_text: ⟪ 之前的自然语言文本 (无 MTP 时等于 text)
-        mtp_fragment: 从 ⟪ 开始的 MTP 指令片段 (无 MTP 时为空)
-    """
-    text: str = ""
-    finish_reason: str = "stop"
-    was_mtp_interrupted: bool = False
-    prefix_text: str = ""
-    mtp_fragment: str = ""
-
-
-@dataclass
-class StreamChunk:
-    """
-    流式生成的单个 chunk
-
-    Attributes:
-        delta: 本次增量文本
-        full_text: 累积的完整文本
-        is_final: 是否为最终结果 (流结束)
-        result: 最终结果 (仅 is_final=True 时有值)
-        mtp_detected: 是否已检测到 MTP 定界符 ⟪
-    """
-    delta: str = ""
-    full_text: str = ""
-    is_final: bool = False
-    result: Optional[GenerationResult] = None
-    mtp_detected: bool = False
 
 
 class WorkerAgentService:

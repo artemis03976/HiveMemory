@@ -34,6 +34,7 @@ from hivememory.engines.perception.models import FlushReason, LogicalBlock, Arch
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import MTPResponseStatus
 
@@ -97,12 +98,12 @@ def merge_result() -> MergeResult:
     )
 
 
-def _execute_mtp(koakuma: KoakumaRuntime, text: str):
-    return asyncio.run(koakuma.execute_mtp(text))
+def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+    return asyncio.run(koakuma.execute_mtp(text, context=context))
 
 
-def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str):
-    return asyncio.run(koakuma.intercept_and_execute(assistant_text))
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
 
 
 # ========== Test 1: UpdateFocus Model ==========
@@ -619,7 +620,7 @@ class TestKoakumaUpdateE2E:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
 
         # 注册 alias 到缓存
         koakuma.atom_cache.ingest_atom(existing_memory)
@@ -627,7 +628,7 @@ class TestKoakumaUpdateE2E:
 
     def test_update_basic(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="把端口改成 9090"'
-        result = _intercept_and_execute(update_koakuma, agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert result.success
@@ -641,7 +642,7 @@ class TestKoakumaUpdateE2E:
 
     def test_update_with_content(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="替换端口" content="port = 9090"'
-        result = _intercept_and_execute(update_koakuma, agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert result.success
@@ -653,7 +654,7 @@ class TestKoakumaUpdateE2E:
 
     def test_update_response_contains_ack(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test update"'
-        result = _intercept_and_execute(update_koakuma, agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert "updated" in result.formatted_response.lower() or "ack" in result.formatted_response.lower()
@@ -669,7 +670,7 @@ class TestKoakumaUpdateValidation:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_missing_instruction(self, validation_koakuma):
@@ -688,7 +689,7 @@ class TestKoakumaUpdateValidation:
             )
         )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
-        result = _intercept_and_execute(validation_koakuma, agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=context)
 
         assert result is not None
         assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
@@ -696,7 +697,7 @@ class TestKoakumaUpdateValidation:
 
     def test_alias_not_found(self, validation_koakuma):
         agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
-        result = _intercept_and_execute(validation_koakuma, agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=context)
 
         assert result is not None
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
@@ -707,7 +708,7 @@ class TestKoakumaUpdateValidation:
             "AsyncSystemBus: route 'storage.get_memory_by_alias' not registered"
         )
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = _intercept_and_execute(validation_koakuma, agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=context)
 
         assert result is not None
         assert not result.success
@@ -719,11 +720,11 @@ class TestKoakumaUpdateValidation:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         koakuma.atom_cache.ingest_atom(existing_memory)
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = _intercept_and_execute(koakuma, agent_text)
+        result = _intercept_and_execute(koakuma, agent_text, context=context)
 
         assert result is not None
         assert result.success

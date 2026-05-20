@@ -25,6 +25,7 @@ from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 
 
@@ -75,12 +76,12 @@ def koakuma() -> KoakumaRuntime:
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 
 
-def _execute_mtp(koakuma: KoakumaRuntime, text: str):
-    return asyncio.run(koakuma.execute_mtp(text))
+def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+    return asyncio.run(koakuma.execute_mtp(text, context=context))
 
 
-def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str):
-    return asyncio.run(koakuma.intercept_and_execute(assistant_text))
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
 
 
 # ========== Test 1: Target Validation ==========
