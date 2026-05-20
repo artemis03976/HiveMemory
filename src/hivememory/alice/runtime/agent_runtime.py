@@ -3,17 +3,19 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, Optional
 
-from hivememory.core.models import AgentProfile, OMNI_DOLL_PROFILE
+from hivememory.core.models import AgentProfile
 from hivememory.core.protocol.models import ChatResult
 
-from hivememory.alice.runtime.cache import AgentProfileCache
 from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.alice.runtime.worker_agent import WorkerAgentService
 from hivememory.alice.runtime.frame_scheduler import FrameScheduler
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.core import AliceRuntime
+    from hivememory.alice.runtime.bus import AliceBus
+    from hivememory.alice.runtime.mtp_executor import MTPExecutor
+    from hivememory.prompts.assembler import AgentPromptAssembler
+    from hivememory.system.config import HiveMemoryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -21,20 +23,28 @@ logger = logging.getLogger(__name__)
 class AgentRuntime:
     """Alice 执行态 runtime，持有循环、帧调度与生成引擎。"""
 
-    def __init__(self, runtime: "AliceRuntime") -> None:
-        self._runtime = runtime
-
-        self._agent_profile_cache = AgentProfileCache()
+    def __init__(
+        self,
+        *,
+        local_bus: "AliceBus",
+        prompt_assembler: "AgentPromptAssembler",
+        mtp_executor: "MTPExecutor",
+        config: "HiveMemoryConfig",
+    ) -> None:
+        self._agent_profile_resolver = AgentProfileResolver(local_bus=local_bus)
         
         self._frame_scheduler = FrameScheduler(
-            runtime=runtime,
-            prompt_assembler=runtime.prompt_assembler,
+            prompt_assembler=prompt_assembler,
         )
-        self._worker_agent = WorkerAgentService(config=runtime.config.llm.worker)
+        self._worker_agent = WorkerAgentService(config=config.llm.worker)
+        self._mtp_executor = mtp_executor
         self._loop_executor = KernelLoopExecutor(
-            runtime=runtime,
             worker_agent=self._worker_agent,
-            config=runtime.config.agent_runtime,
+            frame_scheduler=self._frame_scheduler,
+            local_bus=local_bus,
+            agent_profile_resolver=self._agent_profile_resolver,
+            mtp_executor=self._mtp_executor,
+            config=config.agent_runtime,
         )
 
     @property
@@ -49,38 +59,16 @@ class AgentRuntime:
     def worker_agent(self) -> WorkerAgentService:
         return self._worker_agent
 
+    @property
+    def mtp_executor(self) -> "MTPExecutor":
+        return self._mtp_executor
+
+    @property
+    def agent_profile_resolver(self) -> AgentProfileResolver:
+        return self._agent_profile_resolver
+
     async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
-        if not agent_alias or agent_alias in ("default", "omni_doll"):
-            return OMNI_DOLL_PROFILE
-
-        cached = self._agent_profile_cache.get(agent_alias)
-        if cached is not None:
-            return cached
-
-        global_bus = self._runtime.global_bus
-        if global_bus is not None:
-            try:
-                profile = await global_bus.request(
-                    PatchouliRoutes.GET_AGENT_PROFILE,
-                    agent_alias,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to load agent profile '{agent_alias}' via bus: {e}")
-                profile = None
-
-            if profile is not None:
-                logger.info(f"Agent profile '{agent_alias}' loaded and cached.")
-                self._agent_profile_cache.store(
-                    agent_alias,
-                    None,
-                    profile,
-                )
-                return profile
-
-        logger.info(
-            f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE."
-        )
-        return OMNI_DOLL_PROFILE
+        return await self._agent_profile_resolver.resolve(agent_alias)
 
     async def run_agent(
         self,

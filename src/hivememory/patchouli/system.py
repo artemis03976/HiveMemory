@@ -228,6 +228,10 @@ class PatchouliSystem(SubsystemProtocol):
             self.runtime._retrieve_memories,
         )
         self._global_bus.register(
+            PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+            self.runtime._retrieve_memories_by_aliases,
+        )
+        self._global_bus.register(
             PatchouliRoutes.MEMORY_GET_BY_ALIAS,
             self.runtime._get_memory_by_alias,
         )
@@ -256,6 +260,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus.unregister(PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE)
         self._global_bus.unregister(PatchouliRoutes.SUBMIT_INTERACTION)
         self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES)
         self._global_bus.unregister(PatchouliRoutes.MEMORY_GET_BY_ALIAS)
         self._global_bus.unregister(PatchouliRoutes.GET_AGENT_PROFILE)
         self._global_bus.unregister(PatchouliRoutes.PREPARE_AGENT_RUN)

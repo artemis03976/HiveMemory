@@ -21,7 +21,7 @@ import logging
 if TYPE_CHECKING:
     from hivememory.system.config import MemoryRetrievalConfig
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import Identity, MemoryAtom
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
@@ -165,6 +165,57 @@ class RetrievalFamiliar:
             raise  # Must propagate to Koakuma's _route_and_execute
         except Exception as e:
             logger.error(f"检索失败: {e}", exc_info=True)
+            response.latency_ms = (time.time() - start_time) * 1000
+
+        return response
+
+    def retrieve_by_aliases(
+        self,
+        aliases: List[str],
+        identity: Optional[Identity] = None,
+        mode: str = "active",
+    ) -> RetrievalResponse:
+        """
+        精确按 alias 取回记忆并复用 Retrieval renderer 渲染上下文。
+
+        该入口与 retrieve() 并列：retrieve() 负责语义检索，retrieve_by_aliases()
+        负责已知 alias 的精确取回。二者最终都返回 RetrievalResponse.rendered_context。
+        """
+        start_time = time.time()
+        response = RetrievalResponse()
+
+        try:
+            memories: List[MemoryAtom] = []
+            seen_aliases: set[str] = set()
+            user_id = identity.user_id if identity is not None else None
+
+            for alias in aliases:
+                normalized = alias.strip() if alias else ""
+                if not normalized or normalized in seen_aliases:
+                    continue
+                seen_aliases.add(normalized)
+
+                atom = self.storage.get_memory_by_alias(normalized, user_id)
+                if atom is None:
+                    logger.warning(f"Alias not found during alias retrieval: {normalized}")
+                    continue
+                memories.append(atom)
+
+            response.memories = memories
+            response.memories_count = len(memories)
+
+            if memories:
+                if mode == "passive" and self._passive_renderer is not None:
+                    response.rendered_context = self._passive_renderer.render(memories)
+                else:
+                    response.rendered_context = self.engine.render_memories(memories)
+
+            response.latency_ms = (time.time() - start_time) * 1000
+
+        except (StorageOfflineError, StorageReadError):
+            raise
+        except Exception as e:
+            logger.error(f"Alias retrieval failed: {e}", exc_info=True)
             response.latency_ms = (time.time() - start_time) * 1000
 
         return response

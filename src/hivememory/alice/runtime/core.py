@@ -10,6 +10,7 @@ from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent_runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 
@@ -37,7 +38,13 @@ class AliceRuntime:
             config=config.koakuma,
         )
         self._prompt_assembler = AgentPromptAssembler(config.koakuma)
-        self._agent_runtime = AgentRuntime(runtime=self)
+        self._mtp_executor = KoakumaMTPExecutor(self._koakuma)
+        self._agent_runtime = AgentRuntime(
+            local_bus=self._local_bus,
+            prompt_assembler=self._prompt_assembler,
+            mtp_executor=self._mtp_executor,
+            config=config,
+        )
 
         logger.info("AliceRuntime 初始化完成")
 
@@ -109,6 +116,10 @@ class AliceRuntime:
     @property
     def prompt_assembler(self) -> AgentPromptAssembler:
         return self._prompt_assembler
+
+    @property
+    def mtp_executor(self) -> KoakumaMTPExecutor:
+        return self._mtp_executor
 
     @property
     def agent_runtime(self) -> AgentRuntime:

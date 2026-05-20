@@ -133,6 +133,10 @@ class PatchouliRuntime:
             self._retrieve_memories,
         )
         self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+            self._retrieve_memories_by_aliases,
+        )
+        self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_GET_BY_ALIAS,
             self._get_memory_by_alias,
         )
@@ -461,6 +465,19 @@ class PatchouliRuntime:
         return await asyncio.to_thread(
             self.retrieval_familiar.retrieve,
             request,
+            mode,
+        )
+
+    async def _retrieve_memories_by_aliases(
+        self,
+        aliases,
+        identity=None,
+        mode: str = "active",
+    ):
+        return await asyncio.to_thread(
+            self.retrieval_familiar.retrieve_by_aliases,
+            aliases,
+            identity,
             mode,
         )
 

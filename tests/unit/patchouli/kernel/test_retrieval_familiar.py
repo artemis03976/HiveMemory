@@ -256,6 +256,66 @@ class TestRetrievalFamiliarIdentityPropagation:
         assert qf.memory_type == MemoryType.CODE_SNIPPET
 
 
+class TestRetrievalFamiliarRetrieveByAliases:
+    """retrieve_by_aliases() 精确取回并复用统一 renderer。"""
+
+    def setup_method(self):
+        self.mock_storage = Mock()
+        self.mock_engine = Mock()
+        self.mock_passive_renderer = Mock()
+        self.familiar = RetrievalFamiliar(
+            storage=self.mock_storage,
+            engine=self.mock_engine,
+            passive_renderer=self.mock_passive_renderer,
+        )
+
+    def test_retrieve_by_aliases_renders_with_engine(self):
+        mem = _make_memory("alias memory")
+        self.mock_storage.get_memory_by_alias.return_value = mem
+        self.mock_engine.render_memories.return_value = "rendered aliases"
+
+        response = self.familiar.retrieve_by_aliases(
+            aliases=["fact_a"],
+            identity=Identity(user_id="u1"),
+        )
+
+        self.mock_storage.get_memory_by_alias.assert_called_once_with("fact_a", "u1")
+        self.mock_engine.render_memories.assert_called_once_with([mem])
+        assert response.memories == [mem]
+        assert response.memories_count == 1
+        assert response.rendered_context == "rendered aliases"
+
+    def test_retrieve_by_aliases_deduplicates_and_skips_missing(self):
+        mem = _make_memory("alias memory")
+        self.mock_storage.get_memory_by_alias.side_effect = [mem, None]
+        self.mock_engine.render_memories.return_value = "rendered"
+
+        response = self.familiar.retrieve_by_aliases(
+            aliases=["fact_a", "fact_a", "", "fact_missing"],
+            identity=Identity(user_id="u1"),
+        )
+
+        assert self.mock_storage.get_memory_by_alias.call_count == 2
+        self.mock_engine.render_memories.assert_called_once_with([mem])
+        assert response.memories == [mem]
+        assert response.rendered_context == "rendered"
+
+    def test_retrieve_by_aliases_passive_uses_passive_renderer(self):
+        mem = _make_memory("alias memory")
+        self.mock_storage.get_memory_by_alias.return_value = mem
+        self.mock_passive_renderer.render.return_value = "passive rendered"
+
+        response = self.familiar.retrieve_by_aliases(
+            aliases=["fact_a"],
+            identity=Identity(user_id="u1"),
+            mode="passive",
+        )
+
+        self.mock_passive_renderer.render.assert_called_once_with([mem])
+        self.mock_engine.render_memories.assert_not_called()
+        assert response.rendered_context == "passive rendered"
+
+
 class TestRetrievalFamiliarAccessStats:
     """update_access_stats() 测试"""
 

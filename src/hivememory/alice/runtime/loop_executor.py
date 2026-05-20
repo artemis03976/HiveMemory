@@ -26,10 +26,14 @@ from hivememory.core.protocol.models import ChatResult
 from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TurnEvent
+from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.system.config import AgentRuntimeConfig
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.core import AliceRuntime
+    from hivememory.alice.runtime.bus import AliceBus
+    from hivememory.alice.runtime.frame_scheduler import FrameScheduler
+    from hivememory.alice.runtime.mtp_executor import MTPExecutor
+    from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
     from hivememory.alice.runtime.worker_agent import WorkerAgentService
 
 logger = logging.getLogger(__name__)
@@ -48,12 +52,18 @@ class KernelLoopExecutor:
 
     def __init__(
         self,
-        runtime: "AliceRuntime",
         worker_agent: "WorkerAgentService",
+        frame_scheduler: "FrameScheduler",
+        local_bus: "AliceBus",
+        agent_profile_resolver: "AgentProfileResolver",
+        mtp_executor: "MTPExecutor",
         config: AgentRuntimeConfig,
     ):
-        self._runtime = runtime
         self.worker_agent = worker_agent
+        self._frame_scheduler = frame_scheduler
+        self._local_bus = local_bus
+        self._agent_profile_resolver = agent_profile_resolver
+        self._mtp_executor = mtp_executor
         self.config = config
 
     def _namespace_for_frame(self, frame: ExecutionFrame) -> Dict[str, Any]:
@@ -94,7 +104,7 @@ class KernelLoopExecutor:
         """
         max_iter = max_iterations or self.config.max_loop_iterations
 
-        main_frame = self._runtime.frame_scheduler.create_main_frame(
+        main_frame = self._frame_scheduler.create_main_frame(
             agent_profile=agent_profile,            
             messages=messages,
             topic_id=topic_id or "",
@@ -136,7 +146,7 @@ class KernelLoopExecutor:
         """
         max_iter = max_iterations or self.config.max_loop_iterations
 
-        main_frame = self._runtime.frame_scheduler.create_main_frame(
+        main_frame = self._frame_scheduler.create_main_frame(
             agent_profile=agent_profile,            
             messages=messages,
             topic_id=topic_id or "",
@@ -251,14 +261,12 @@ class KernelLoopExecutor:
             target_hint = ""
             args_hint: Dict[str, Any] = {}
 
-            # MTP 的语义解析以 KoakumaRuntime 返回结果为唯一真相来源。
-            # LoopExecutor 不再自行 parse 指令字符串，避免双真相漂移。
             mtp_context = MTPExecutionContext(
                 identity=frame.identity,
                 agent_profile=frame.agent_profile,
                 depth=frame.depth,
             )
-            mtp_result = await self._runtime.koakuma.intercept_and_execute(
+            mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,
                 context=mtp_context,
             )
@@ -561,14 +569,19 @@ class KernelLoopExecutor:
             }
             stream_events.append({"event": "sub_agent_start", "data": sub_start_data})
 
-        self._runtime.frame_scheduler.suspend_frame(frame)
+        self._frame_scheduler.suspend_frame(frame)
 
         try:
-            sub_frame = await self._runtime.frame_scheduler.fork_sub_frame(
+            sub_profile = await self._agent_profile_resolver.resolve(target_alias)
+            shared_context = await self._fetch_context_refs_content(
+                aliases=context_refs,
+                identity=frame.identity,
+            )
+            sub_frame = await self._frame_scheduler.fork_sub_frame(
                 parent_frame=frame,
-                target_alias=target_alias,
+                agent_profile=sub_profile,
                 task=task,
-                context_refs=context_refs,
+                shared_context=shared_context,
             )
 
             if stream_events is None:
@@ -592,7 +605,7 @@ class KernelLoopExecutor:
                     stream_emitter=_sub_emit,
                     use_stream_generation=True,
                 )
-            self._runtime.frame_scheduler.resume_frame()
+            self._frame_scheduler.resume_frame()
 
             if stream_events is not None:
                 sub_end_data = {
@@ -617,7 +630,7 @@ class KernelLoopExecutor:
         except Exception as e:
             logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
 
-            self._runtime.frame_scheduler.resume_frame()
+            self._frame_scheduler.resume_frame()
 
             if stream_events is not None:
                 sub_end_err_data = {
@@ -638,6 +651,31 @@ class KernelLoopExecutor:
                 '</mtp_response>',
                 None,
             )
+
+    async def _fetch_context_refs_content(
+        self,
+        aliases: List[str],
+        identity,
+    ) -> str:
+        if not aliases:
+            return ""
+
+        try:
+            result = await self._local_bus.request(
+                PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+                aliases,
+                identity,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to fetch context_refs {aliases}: {e}")
+            return ""
+
+        rendered_context = getattr(result, "rendered_context", "") or ""
+        if not rendered_context:
+            logger.warning(f"No rendered context returned for context_refs: {aliases}")
+            return ""
+
+        return f"[Shared Context from Parent Agent]\n\n{rendered_context}"
 
     def _assemble_ipc_return(
         self,
@@ -664,12 +702,7 @@ class KernelLoopExecutor:
             lines.append("")
             lines.append("[Artifacts Generated / Updated]:")
             for alias in harvested_aliases:
-                atom = self._runtime.koakuma.atom_cache.get_atom_by_alias(alias)
-                if atom and hasattr(atom, 'index') and atom.index.summary:
-                    summary = atom.index.summary[:60]
-                    lines.append(f"- {alias} ({summary})")
-                else:
-                    lines.append(f"- {alias}")
+                lines.append(f"- {alias}")
 
         lines.append("</mtp_response>")
         return "\n".join(lines)

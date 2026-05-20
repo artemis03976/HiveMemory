@@ -10,10 +10,8 @@ from typing import TYPE_CHECKING, List, Optional
 
 from hivememory.core.models import AgentProfile, Identity
 from hivememory.alice.runtime.models import ExecutionFrame
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.core import AliceRuntime
     from hivememory.prompts.assembler import AgentPromptAssembler
 
 logger = logging.getLogger(__name__)
@@ -32,16 +30,14 @@ class FrameScheduler:
 
     def __init__(
         self,
-        runtime: "AliceRuntime",
         prompt_assembler: "AgentPromptAssembler",
     ):
         """
         初始化帧调度器。
 
         Args:
-            runtime: AliceRuntime 实例
+            prompt_assembler: Agent prompt 组装器
         """
-        self._runtime = runtime
         self._prompt_assembler = prompt_assembler
         self._frame_stack: List[ExecutionFrame] = []
         self._frame_counter = 0
@@ -73,35 +69,25 @@ class FrameScheduler:
     async def fork_sub_frame(
         self,
         parent_frame: ExecutionFrame,
-        target_alias: str,
+        agent_profile: AgentProfile,
         task: str,
-        context_refs: List[str],
+        shared_context: str = "",
     ) -> ExecutionFrame:
         """
         派生子 Agent 帧 (depth=1)。
 
         流程:
-        1. 加载子 Agent 图纸
-        2. 构建 System Prompt (剥离 CALL 指令教学)
-        3. 注入 context_refs 内容 (零开销上下文继承)
-        4. 创建瞬态帧 (topic_id=None)
+        1. 构建 System Prompt (剥离 CALL 指令教学)
+        2. 注入调用方准备好的 shared_context (零开销上下文继承)
+        3. 创建瞬态帧 (topic_id=None)
         """
-        sub_profile = await self._runtime.agent_runtime.get_agent_profile(target_alias)
-
         logger.info(
-            f"Forking sub-frame: target={target_alias}, "
-            f"task='{task[:50]}...', context_refs={context_refs}"
+            f"Forking sub-frame: agent={getattr(agent_profile, 'alias', None) or 'unknown'}, "
+            f"task='{task[:50]}...', has_shared_context={bool(shared_context)}"
         )
 
-        shared_context = ""
-        if context_refs:
-            shared_context = await self._fetch_context_refs_content(
-                aliases=context_refs,
-                identity=parent_frame.identity,
-            )
-
         working_history = self._prompt_assembler.build_sub_agent_messages(
-            profile=sub_profile,
+            profile=agent_profile,
             task=task,
             shared_context=shared_context,
             depth=1,
@@ -110,7 +96,7 @@ class FrameScheduler:
         self._frame_counter += 1
         sub_frame = ExecutionFrame(
             process_id=f"pid_sub_{self._frame_counter}",
-            agent_profile=sub_profile,
+            agent_profile=agent_profile,
             working_history=working_history,
             depth=1,
             topic_id=None,
@@ -120,48 +106,6 @@ class FrameScheduler:
 
         logger.debug(f"Created sub-frame: {sub_frame}")
         return sub_frame
-
-    async def _fetch_context_refs_content(
-        self,
-        aliases: List[str],
-        identity: Identity,
-    ) -> str:
-        """
-        从存储层批量获取 context_refs 的完整内容。
-
-        零开销上下文继承: 直接注入父 Agent 提供的记忆内容，
-        子 Agent 无需再次调用 SEARCH/READ。
-        """
-        contents = []
-        user_id = identity.user_id
-
-        global_bus = self._runtime.global_bus
-
-        for alias in aliases:
-            atom = self._runtime.koakuma.atom_cache.get_atom_by_alias(alias)
-
-            if atom is None and user_id and global_bus is not None:
-                try:
-                    atom = await global_bus.request(
-                        PatchouliRoutes.MEMORY_GET_BY_ALIAS,
-                        alias,
-                        user_id,
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to fetch context_ref '{alias}': {e}")
-                    continue
-
-            if atom:
-                title = atom.index.title or alias
-                content = atom.payload.content if atom.payload else "(empty)"
-                contents.append(f"### [{alias}] {title}\n\n{content}")
-            else:
-                logger.warning(f"Context ref '{alias}' not found")
-
-        if not contents:
-            return ""
-
-        return "[Shared Context from Parent Agent]\n\n" + "\n\n---\n\n".join(contents)
 
     def suspend_frame(self, frame: ExecutionFrame) -> None:
         """挂起当前帧（压栈）。"""

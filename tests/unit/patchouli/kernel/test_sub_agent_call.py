@@ -221,14 +221,9 @@ class TestFrameScheduler:
 
     def _make_kernel_mock(self):
         kernel = MagicMock()
-        kernel.agent_runtime = MagicMock()
-        kernel.agent_runtime.get_agent_profile = AsyncMock(return_value=OMNI_DOLL_PROFILE)
         kernel.config = MagicMock()
         kernel.config.koakuma.mtp_prompt.language = "zh"
         kernel.prompt_assembler = AgentPromptAssembler(KoakumaConfig())
-        kernel.koakuma = MagicMock()
-        kernel.koakuma.atom_cache = MagicMock()
-        kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
         kernel._global_bus = AsyncMock()
         kernel._global_bus.request = AsyncMock(return_value=None)
         return kernel
@@ -238,7 +233,7 @@ class TestFrameScheduler:
         from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel, kernel.prompt_assembler)
+        scheduler = FrameScheduler(kernel.prompt_assembler)
 
         frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -256,7 +251,7 @@ class TestFrameScheduler:
         from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel, kernel.prompt_assembler)
+        scheduler = FrameScheduler(kernel.prompt_assembler)
 
         frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -277,7 +272,7 @@ class TestFrameScheduler:
         from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel, kernel.prompt_assembler)
+        scheduler = FrameScheduler(kernel.prompt_assembler)
 
         assert scheduler.resume_frame() is None
 
@@ -287,7 +282,7 @@ class TestFrameScheduler:
         from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel, kernel.prompt_assembler)
+        scheduler = FrameScheduler(kernel.prompt_assembler)
 
         main_frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -298,9 +293,9 @@ class TestFrameScheduler:
 
         sub_frame = await scheduler.fork_sub_frame(
             parent_frame=main_frame,
-            target_alias="tester_doll",
+            agent_profile=OMNI_DOLL_PROFILE,
             task="Write unit tests",
-            context_refs=[],
+            shared_context="",
         )
 
         assert sub_frame.depth == 1
@@ -355,8 +350,6 @@ class TestIPCReturnAssembly:
         from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
-        executor._runtime = MagicMock()
-        executor._runtime.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
 
         import types
         executor._assemble_ipc_return = types.MethodType(

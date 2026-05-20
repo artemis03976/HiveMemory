@@ -101,6 +101,7 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE == "patchouli.public.passive.analyze_and_retrieve"
         assert PatchouliRoutes.SUBMIT_INTERACTION == "patchouli.public.submit_interaction"
         assert PatchouliRoutes.MEMORY_RETRIEVE == "patchouli.public.memory.retrieve"
+        assert PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES == "patchouli.public.memory.retrieve_by_aliases"
         assert PatchouliRoutes.MEMORY_GET_BY_ALIAS == "patchouli.public.memory.get_memory_by_alias"
         assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
         assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"

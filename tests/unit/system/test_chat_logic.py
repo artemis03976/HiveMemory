@@ -162,6 +162,12 @@ def sys():
 
     s.kernel.frame_scheduler = MagicMock()
     s.kernel.frame_scheduler.create_main_frame = MagicMock(side_effect=_mock_create_main_frame)
+    s.kernel.local_bus = MagicMock()
+    s.kernel.local_bus.request = AsyncMock()
+    s.kernel.agent_profile_resolver = MagicMock()
+    s.kernel.agent_profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
+    s.kernel.mtp_executor = MagicMock()
+    s.kernel.mtp_executor.intercept_and_execute = AsyncMock(return_value=None)
 
     # Worker Agent
     s._worker_agent = MagicMock()
@@ -173,8 +179,11 @@ def sys():
     # Loop Executor (Phase 2 重构) - 使用真实实例但注入 mock 依赖
     from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
     s._loop_executor = KernelLoopExecutor(
-        kernel=s.kernel,
         worker_agent=s._worker_agent,
+        frame_scheduler=s.kernel.frame_scheduler,
+        local_bus=s.kernel.local_bus,
+        agent_profile_resolver=s.kernel.agent_profile_resolver,
+        mtp_executor=s.kernel.mtp_executor,
         config=s.config.agent_runtime,
     )
 

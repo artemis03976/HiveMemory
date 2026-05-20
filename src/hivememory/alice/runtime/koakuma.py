@@ -372,8 +372,8 @@ class KoakumaRuntime:
         """
         处理 SEARCH 指令 (Section 2.2)
 
-        调用 RetrievalFamiliar 进行模糊检索，返回 Index 菜单。
-        不返回具体内容，仅返回别名和摘要列表。
+        调用 RetrievalFamiliar 进行模糊检索，返回 RetrievalResponse.rendered_context。
+        具体渲染由 Retrieval 链路统一完成，Koakuma 只负责执行与缓存别名。
 
         Type A 数据类响应 (Section 3.3.3)
 
@@ -381,7 +381,7 @@ class KoakumaRuntime:
             command: SEARCH 指令 (target=*, args: query="...", filter="...")
 
         Returns:
-            MTPResponse: Index 菜单
+            MTPResponse: RetrievalResponse 渲染后的上下文
         """
         query = command.args.get("query", "")
         if not query:
@@ -416,16 +416,21 @@ class KoakumaRuntime:
                 content=content,
             )
 
-        menu = self._render_search_menu(result)
+        content = result.rendered_context
+        if not content:
+            logger.warning(
+                "RetrievalResponse for MTP SEARCH contains memories but no rendered_context."
+            )
+            content = "Search completed, but no rendered context was returned."
         if filter_warnings:
-            menu += "\n" + "\n".join(filter_warnings)
+            content += "\n" + "\n".join(filter_warnings)
 
         # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
         self._atom_cache.ingest_atoms(result.memories)
 
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
-            content=menu,
+            content=content,
         )
 
     async def _handle_read(
@@ -800,29 +805,6 @@ class KoakumaRuntime:
         for alias, atom in resolved:
             results[alias] = f"[{alias}]:\n{atom.payload.content}"
         return results
-
-    # TODO:将渲染逻辑统一由已有renderer处理
-    def _render_search_menu(self, result) -> str:
-        """
-        将检索结果渲染为 Index 菜单格式 (Section 2.4 场景5)
-
-        格式:
-        [Menu]:
-        1. alias (Alias) - "summary"
-        2. alias (Alias) - "summary"
-
-        Args:
-            result: RetrievalResponse 对象
-
-        Returns:
-            str: 菜单格式文本
-        """
-        lines = ["[Menu]:"]
-        for i, mem in enumerate(result.memories, 1):
-            alias = mem.get_alias()
-            summary = mem.index.summary[:80] if mem.index.summary else "(no summary)"
-            lines.append(f"{i}. {alias} (Alias) - \"{summary}\"")
-        return "\n".join(lines)
 
     async def _resolve_and_fetch(
         self,

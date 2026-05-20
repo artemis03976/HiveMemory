@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
+from hivememory.core.models import MemoryAtom
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer, BaseMemoryRetriever
 from hivememory.engines.retrieval.models import RenderFormat, RetrievalQuery, RetrievalResult
 
@@ -58,6 +59,15 @@ class RetrievalEngine:
             memories_count=len(memories),
             search_results=search_results,
         )
+
+    def render_memories(
+        self,
+        memories: list[MemoryAtom],
+        render_format: Optional[RenderFormat] = None,
+    ) -> str:
+        if not memories:
+            return ""
+        return self.renderer.render(memories, render_format=render_format)
 
 
 __all__ = [
