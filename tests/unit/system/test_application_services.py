@@ -8,13 +8,13 @@ from dataclasses import dataclass
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
+    AgentRunContext,
     AnalyzeAndRetrieveResult,
     ChatResult,
     EyeGazeResult,
     RetrievalResponse,
 )
 from hivememory.patchouli.models import (
-    FinalizeContext,
     PreparedAgentRun,
     StreamPrelude,
 )
@@ -38,24 +38,22 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
         target_topic="topic_1",
     )
     defaults = dict(
-        identity=identity,
-        agent_id="omni_doll",
-        topic_id="topic_1",
-        user_message="hi",
-        messages=[{"role": "user", "content": "hi"}],
-        agent_profile=OMNI_DOLL_PROFILE,
+        agent_run_context=AgentRunContext(
+            identity=identity,
+            topic_id="topic_1",
+            user_message="hi",
+            topic_context={"blocks": [], "state_summary": ""},
+            retrieval_result=RetrievalResponse(),
+            agent_profile=OMNI_DOLL_PROFILE,
+            storage_available=True,
+        ),
         stream_prelude=StreamPrelude(
             topic_id="topic_1",
             is_new_topic=False,
             pool_snapshot={},
             memory_refs=[],
         ),
-        finalize_context=FinalizeContext(
-            gaze_result=gaze_result,
-            identity=identity,
-            topic_id="topic_1",
-            user_message="hi",
-        ),
+        gaze_result=gaze_result,
         generation_options=None,
     )
     defaults.update(overrides)
@@ -164,6 +162,11 @@ class TestChatApplicationService:
         assert GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN in routes_called
         assert GlobalRoutes.ALICE_RUN_AGENT in routes_called
         assert GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN in routes_called
+        run_call = next(
+            call for call in mock_global_bus.request.await_args_list
+            if call.args[0] == GlobalRoutes.ALICE_RUN_AGENT
+        )
+        assert isinstance(run_call.kwargs["agent_run_context"], AgentRunContext)
 
     @pytest.mark.asyncio
     async def test_chat_stream_emits_prelude_and_done(self, mock_global_bus):
@@ -191,6 +194,7 @@ class TestChatApplicationService:
             if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
                 return prepared
             if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                assert "agent_run_context" in kwargs
                 raise RuntimeError("boom")
             if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
                 return True
@@ -221,6 +225,7 @@ class TestChatApplicationService:
             if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
                 return prepared
             if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                assert "agent_run_context" in kwargs
                 observed_cancel_event = kwargs["cancel_event"]
 
                 async def _stream():

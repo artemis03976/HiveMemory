@@ -3,13 +3,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
-from hivememory.core.models import AgentProfile, MemoryAtom
-from hivememory.core.protocol.models import ChatResult
+from hivememory.core.models import MemoryAtom
+from hivememory.core.protocol.models import AgentRunContext, ChatResult
 
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent_runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ class AliceRuntime:
             bus=self._local_bus,
             config=config.koakuma,
         )
+        self._prompt_assembler = AgentPromptAssembler(config.koakuma)
         self._agent_runtime = AgentRuntime(runtime=self)
 
         logger.info("AliceRuntime 初始化完成")
@@ -63,15 +65,15 @@ class AliceRuntime:
         )
         self._local_bus.register(
             AliceLocalRoutes.RUN_AGENT_STREAM,
-            self._run_agent_stream_route,
+            self.run_agent_stream,
         )
         self._local_bus.register(
             AliceLocalRoutes.REGISTER_PRERETRIEVAL_ALIASES,
-            self._register_preretrieval_aliases_route,
+            self.register_preretrieval_aliases,
         )
         self._local_bus.register(
             AliceLocalRoutes.GET_INTERACTION_STATE,
-            self._get_interaction_state_route,
+            self.export_interaction_state(),
         )
         self._local_routes_registered = True
 
@@ -116,6 +118,10 @@ class AliceRuntime:
         return self._koakuma
 
     @property
+    def prompt_assembler(self) -> AgentPromptAssembler:
+        return self._prompt_assembler
+
+    @property
     def agent_runtime(self) -> AgentRuntime:
         return self._agent_runtime
 
@@ -129,79 +135,38 @@ class AliceRuntime:
 
     async def run_agent(
         self,
-        messages: list[dict[str, str]],
-        identity,
-        agent_id: str,
-        topic_id: str,
+        agent_run_context: AgentRunContext,
         generation_options: Optional[dict[str, Any]] = None,
-        agent_profile=None,
         cancel_event=None,
     ) -> ChatResult:
+        messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
         return await self._agent_runtime.run_agent(
             messages=messages,
-            identity=identity,
-            agent_id=agent_id,
-            topic_id=topic_id,
+            identity=agent_run_context.identity,
+            agent_id=agent_run_context.identity.agent_id,
+            topic_id=agent_run_context.topic_id,
             generation_options=generation_options,
-            agent_profile=agent_profile,
+            agent_profile=agent_run_context.agent_profile,
             cancel_event=cancel_event,
         )
 
     async def run_agent_stream(
         self,
-        messages: list[dict[str, str]],
-        identity,
-        agent_id: str,
-        topic_id: str,
+        agent_run_context: AgentRunContext,
         generation_options: Optional[dict[str, Any]] = None,
-        agent_profile=None,
         cancel_event=None,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
         async for event in self._agent_runtime.run_agent_stream(
             messages=messages,
-            identity=identity,
-            agent_id=agent_id,
-            topic_id=topic_id,
+            identity=agent_run_context.identity,
+            agent_id=agent_run_context.identity.agent_id,
+            topic_id=agent_run_context.topic_id,
             generation_options=generation_options,
-            agent_profile=agent_profile,
+            agent_profile=agent_run_context.agent_profile,
             cancel_event=cancel_event,
         ):
             yield event
-
-    def get_mtp_prompt(self, profile: Optional[AgentProfile] = None) -> str:
-        if not self._config.koakuma.enabled:
-            return ""
-
-        prompt_config = self._config.koakuma.mtp_prompt
-        if not prompt_config.enabled:
-            return ""
-
-        from hivememory.prompts.mtp import MTPPromptBuilder
-
-        allowed_verbs = None
-        allowed_runtime_tools = None
-        if profile and profile.allowed_mtp_verbs is not None:
-            allowed_verbs = profile.allowed_mtp_verbs
-        if profile and profile.allowed_sys_tools is not None:
-            allowed_runtime_tools = profile.allowed_sys_tools
-
-        builder = MTPPromptBuilder(
-            language=prompt_config.language,
-            include_demo=prompt_config.include_demo,
-            include_error_handling=prompt_config.include_error_handling,
-            allowed_verbs=allowed_verbs,
-            allowed_runtime_tools=allowed_runtime_tools,
-        )
-        return builder.build()
-
-    async def _run_agent_stream_route(self, *args: Any, **kwargs: Any) -> Any:
-        return self.run_agent_stream(*args, **kwargs)
-
-    async def _register_preretrieval_aliases_route(self, *args: Any, **kwargs: Any) -> None:
-        self.register_preretrieval_aliases(*args, **kwargs)
-
-    async def _get_interaction_state_route(self) -> dict[str, Any]:
-        return self.export_interaction_state()
 
 
 __all__ = ["AliceRuntime"]

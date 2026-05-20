@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
+    AgentRunContext,
     AnalyzeAndRetrieveResult,
     ChatResult,
     InteractionPayload,
@@ -13,9 +14,7 @@ from hivememory.core.protocol.models import (
     RetrievalResponse,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.message_assembler import MessageAssembler
 from hivememory.patchouli.models import (
-    FinalizeContext,
     PreparedAgentRun,
     StreamPrelude,
 )
@@ -39,12 +38,12 @@ class PatchouliService:
         runtime: PatchouliRuntime,
         eye: TheEye,
         global_bus: GlobalSystemBus | None = None,
+        local_bus: PatchouliBus | None = None,
     ) -> None:
         self._runtime = runtime
         self._eye = eye
         self._global_bus = global_bus
-        self._local_bus = runtime.local_bus
-        self._message_assembler = MessageAssembler(runtime)
+        self._local_bus = local_bus or runtime.local_bus
 
     async def analyze_and_retrieve(
         self,
@@ -138,12 +137,14 @@ class PatchouliService:
             if retrieval_result.memories:
                 await self._register_preretrieval_aliases(retrieval_result.memories)
 
-            messages = self._assemble_messages_from_context(
+            agent_run_context = AgentRunContext(
+                identity=identity,
+                topic_id=real_topic_id,
+                user_message=user_message,
                 topic_context=topic_context,
                 retrieval_result=retrieval_result,
-                user_message=user_message,
-                profile=agent_profile,
-                current_agent_id=agent_id,
+                agent_profile=agent_profile,
+                storage_available=self._runtime.check_storage_health(),
             )
 
             stream_prelude = StreamPrelude(
@@ -156,22 +157,10 @@ class PatchouliService:
                 ],
             )
 
-            finalize_context = FinalizeContext(
-                gaze_result=gaze_result,
-                identity=identity,
-                topic_id=real_topic_id,
-                user_message=user_message,
-            )
-
             return PreparedAgentRun(
-                identity=identity,
-                agent_id=agent_id,
-                topic_id=real_topic_id,
-                user_message=user_message,
-                messages=messages,
-                agent_profile=agent_profile,
+                agent_run_context=agent_run_context,
+                gaze_result=gaze_result,
                 stream_prelude=stream_prelude,
-                finalize_context=finalize_context,
                 generation_options=generation_options,
             )
         except Exception:
@@ -191,7 +180,8 @@ class PatchouliService:
             prepared_run: prepare_agent_run 返回的上下文
             loop_result: Alice 运行返回的 ChatResult
         """
-        ctx = prepared_run.finalize_context
+        agent_context = prepared_run.agent_run_context
+        gaze_result = prepared_run.gaze_result
 
         try:
             interaction_state = await self._get_interaction_state()
@@ -205,20 +195,20 @@ class PatchouliService:
             update_focus = None
 
         payload = InteractionPayload(
-            user_message=ctx.user_message,
+            user_message=agent_context.user_message,
             mtp_traces=mtp_traces,
             write_focus=write_focus,
             update_focus=update_focus,
-            identity=ctx.identity,
-            rewritten_query=ctx.gaze_result.rewritten_query,
-            worth_saving=ctx.gaze_result.worth_saving,
+            identity=agent_context.identity,
+            rewritten_query=gaze_result.rewritten_query,
+            worth_saving=gaze_result.worth_saving,
             assistant_final_text=loop_result.final_text,
             turn_events=loop_result.turn_events,
         )
 
         await self._runtime.librarian_core.submit_interaction(
             payload,
-            target_topic_id=ctx.topic_id,
+            target_topic_id=agent_context.topic_id,
         )
 
     async def cleanup_prepared_agent_run(
@@ -262,28 +252,6 @@ class PatchouliService:
             return retrieved_result
 
         return RetrievalResponse()
-
-    def _assemble_messages_from_context(
-        self,
-        topic_context: dict[str, Any],
-        retrieval_result: RetrievalResponse,
-        user_message: str,
-        profile=None,
-        current_agent_id: str = "omni_doll",
-    ) -> list[dict[str, str]]:
-        """从感知层上下文组装 LLM messages。"""
-        assembler = getattr(self, "_message_assembler", None)
-        if assembler is None:
-            assembler = MessageAssembler(self._runtime)
-            self._message_assembler = assembler
-
-        return assembler.assemble(
-            topic_context=topic_context,
-            retrieval_result=retrieval_result,
-            user_message=user_message,
-            profile=profile,
-            current_agent_id=current_agent_id,
-        )
 
     def _require_global_bus(self) -> GlobalSystemBus:
         if self._global_bus is None:

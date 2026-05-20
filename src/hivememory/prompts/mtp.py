@@ -255,7 +255,11 @@ class MTPPromptBuilder:
             self.runtime_tools = base_tools
 
         # 权限过滤：MTP 动词白名单 (用于协议规格渲染)
-        self.allowed_verbs = set(v.upper() for v in allowed_verbs) if allowed_verbs else None
+        self.allowed_verbs = (
+            set(v.upper() for v in allowed_verbs)
+            if allowed_verbs is not None
+            else None
+        )
 
     def build(self) -> str:
         """
@@ -309,7 +313,13 @@ class MTPPromptBuilder:
 
     def _build_behavioral_guidelines(self) -> str:
         """构建行为准则模块"""
-        return _BEHAVIORAL_GUIDELINES_ZH if self.language == "zh" else _BEHAVIORAL_GUIDELINES_EN
+        text = _BEHAVIORAL_GUIDELINES_ZH if self.language == "zh" else _BEHAVIORAL_GUIDELINES_EN
+        if self.allowed_verbs is not None and "CALL" not in self.allowed_verbs:
+            return "\n".join(
+                line for line in text.splitlines()
+                if "CALL" not in line
+            )
+        return text
 
     def _build_runtime_tools(self) -> str:
         """构建运行时工具列表"""

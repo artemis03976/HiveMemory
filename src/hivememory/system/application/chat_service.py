@@ -68,12 +68,8 @@ class ChatApplicationService:
 
             loop_result: ChatResult = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT,
-                messages=prepared.messages,
-                identity=prepared.identity,
-                agent_id=prepared.agent_id,
-                topic_id=prepared.topic_id,
+                agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
-                agent_profile=prepared.agent_profile,
             )
 
             await self._bus.request(
@@ -148,12 +144,8 @@ class ChatApplicationService:
             loop_result = None
             stream = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT_STREAM,
-                messages=prepared.messages,
-                identity=prepared.identity,
-                agent_id=prepared.agent_id,
-                topic_id=prepared.topic_id,
+                agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
-                agent_profile=prepared.agent_profile,
                 cancel_event=cancel_event,
             )
             async for event in stream:

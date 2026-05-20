@@ -14,6 +14,7 @@ from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.core import AliceRuntime
+    from hivememory.prompts.assembler import AgentPromptAssembler
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,11 @@ class FrameScheduler:
         - System Prompt 动态裁剪 (剥离 CALL 权限)
     """
 
-    def __init__(self, runtime: "AliceRuntime"):
+    def __init__(
+        self,
+        runtime: "AliceRuntime",
+        prompt_assembler: "AgentPromptAssembler",
+    ):
         """
         初始化帧调度器。
 
@@ -37,6 +42,7 @@ class FrameScheduler:
             runtime: AliceRuntime 实例
         """
         self._runtime = runtime
+        self._prompt_assembler = prompt_assembler
         self._frame_stack: List[ExecutionFrame] = []
         self._frame_counter = 0
 
@@ -87,17 +93,16 @@ class FrameScheduler:
             f"task='{task[:50]}...', context_refs={context_refs}"
         )
 
-        system_prompt = await self._build_sub_agent_system_prompt(
+        shared_context = ""
+        if context_refs:
+            shared_context = await self._fetch_context_refs_content(context_refs)
+
+        working_history = self._prompt_assembler.build_sub_agent_messages(
             profile=sub_profile,
-            persona=sub_profile.persona,
-            context_refs=context_refs,
+            task=task,
+            shared_context=shared_context,
             depth=1,
         )
-
-        working_history = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": task},
-        ]
 
         self._frame_counter += 1
         sub_frame = ExecutionFrame(
@@ -112,70 +117,6 @@ class FrameScheduler:
 
         logger.debug(f"Created sub-frame: {sub_frame}")
         return sub_frame
-
-    async def _build_sub_agent_system_prompt(
-        self,
-        profile: AgentProfile,
-        persona: str,
-        context_refs: List[str],
-        depth: int,
-    ) -> str:
-        """
-        构建子 Agent 的 System Prompt。
-
-        关键点:
-            - depth>=1 时动态剥离 CALL 指令教学 (软限制)
-            - 不注入 [Available Sub-Agents] 菜单
-            - 注入 context_refs 指针内容 (零开销上下文继承)
-        """
-        from hivememory.prompts.system_prompt import SystemPromptBuilder
-
-        language = (
-            self._runtime.config.koakuma.mtp_prompt.language
-            if self._runtime.config.koakuma.mtp_prompt
-            else "zh"
-        )
-        builder = SystemPromptBuilder(language=language)
-
-        mtp_prompt = self._runtime.get_mtp_prompt(profile=profile)
-        if mtp_prompt and depth >= 1:
-            mtp_prompt = self._strip_call_from_prompt(mtp_prompt)
-        builder.with_mtp_prompt(mtp_prompt)
-
-        if persona:
-            builder.with_persona(persona)
-
-        if context_refs:
-            context_content = await self._fetch_context_refs_content(context_refs)
-            if context_content:
-                builder.with_shared_context(context_content)
-
-        return builder.build()
-
-    def _strip_call_from_prompt(self, prompt: str) -> str:
-        """
-        从 MTP prompt 中移除 CALL 指令教学 (软限制)。
-
-        通过移除 CALL 相关章节降低子 Agent 产生 CALL 幻觉的概率。
-        """
-        lines = prompt.split("\n")
-        filtered_lines = []
-        skip_section = False
-
-        for line in lines:
-            if "CALL" in line and ("##" in line or "###" in line or "**CALL**" in line):
-                skip_section = True
-                continue
-
-            if skip_section and ("##" in line or "###" in line) and "CALL" not in line:
-                skip_section = False
-
-            if not skip_section:
-                filtered_lines.append(line)
-
-        result = "\n".join(filtered_lines)
-        logger.debug(f"Stripped CALL from prompt: {len(prompt)} -> {len(result)} chars")
-        return result
 
     async def _fetch_context_refs_content(self, aliases: List[str]) -> str:
         """

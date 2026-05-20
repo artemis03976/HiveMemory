@@ -10,7 +10,7 @@ import asyncio
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from hivememory.core.models import Identity, MemoryAtom
-from hivememory.core.protocol.models import ChatResult
+from hivememory.core.protocol.models import AgentRunContext, ChatResult
 
 from hivememory.alice.runtime.core import AliceRuntime
 
@@ -29,12 +29,8 @@ class AliceService:
 
     async def run_agent(
         self,
-        messages: List[Dict[str, str]],
-        identity: Identity,
-        agent_id: str,
-        topic_id: str,
+        agent_run_context: AgentRunContext,
         generation_options: Optional[Dict[str, Any]] = None,
-        agent_profile=None,
         cancel_event: Optional[asyncio.Event] = None,
     ) -> ChatResult:
         """
@@ -43,23 +39,15 @@ class AliceService:
         给定已准备好的执行上下文，由 Alice 负责调度 Agent runtime 完成一次计算。
         """
         return await self._runtime.run_agent(
-            messages=messages,
-            identity=identity,
-            agent_id=agent_id,
-            topic_id=topic_id,
+            agent_run_context=agent_run_context,
             generation_options=generation_options,
-            agent_profile=agent_profile,
             cancel_event=cancel_event,
         )
 
     async def run_agent_stream(
         self,
-        messages: List[Dict[str, str]],
-        identity: Identity,
-        agent_id: str,
-        topic_id: str,
+        agent_run_context: AgentRunContext,
         generation_options: Optional[Dict[str, Any]] = None,
-        agent_profile=None,
         cancel_event: Optional[asyncio.Event] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -68,12 +56,8 @@ class AliceService:
         与 run_agent 相同语义，但以 SSE 事件流方式 yield 结果。
         """
         async for event in self._runtime.run_agent_stream(
-            messages=messages,
-            identity=identity,
-            agent_id=agent_id,
-            topic_id=topic_id,
+            agent_run_context=agent_run_context,
             generation_options=generation_options,
-            agent_profile=agent_profile,
             cancel_event=cancel_event,
         ):
             yield event

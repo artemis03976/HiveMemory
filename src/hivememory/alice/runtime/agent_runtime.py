@@ -26,7 +26,10 @@ class AgentRuntime:
 
         self._agent_profile_cache = AgentProfileCache()
         
-        self._frame_scheduler = FrameScheduler(runtime=runtime)
+        self._frame_scheduler = FrameScheduler(
+            runtime=runtime,
+            prompt_assembler=runtime.prompt_assembler,
+        )
         self._worker_agent = WorkerAgentService(config=runtime.config.llm.worker)
         self._loop_executor = KernelLoopExecutor(
             runtime=runtime,

@@ -1,9 +1,9 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.core.protocol.models import EyeGazeResult
+from hivememory.core.protocol.models import EyeGazeResult, RetrievalResponse
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -50,9 +50,11 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     kernel = MagicMock()
     bus = GlobalSystemBus()
     local_bus = PatchouliBus()
+    kernel.local_bus = local_bus
+    kernel.check_storage_health.return_value = True
     local_bus.register(
         "memory.get_agent_profile",
-        AsyncMock(return_value=MagicMock()),
+        AsyncMock(return_value=OMNI_DOLL_PROFILE),
     )
     local_bus.register(
         "librarian.get_active_topics_snapshots",
@@ -71,9 +73,8 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     local_bus.register(
         "memory.retrieve",
         AsyncMock(
-            return_value=MagicMock(
-                is_empty=MagicMock(return_value=False),
-                rendered_context=None,
+            return_value=RetrievalResponse(
+                rendered_context="",
                 memories=[memory_atom],
             )
         ),
@@ -84,9 +85,6 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     )
 
     service = PatchouliService(runtime=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
-    service._assemble_messages_from_context = MagicMock(
-        return_value=[{"role": "user", "content": "hello"}]
-    )
 
     prepared = asyncio.run(
         service.prepare_agent_run(
@@ -123,9 +121,11 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
 
     kernel = MagicMock()
     local_bus = PatchouliBus()
+    kernel.local_bus = local_bus
+    kernel.check_storage_health.return_value = True
     local_bus.register(
         "memory.get_agent_profile",
-        AsyncMock(return_value=MagicMock()),
+        AsyncMock(return_value=OMNI_DOLL_PROFILE),
     )
     local_bus.register(
         "librarian.get_active_topics_snapshots",
@@ -152,9 +152,6 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
         ),
     )
     service = PatchouliService(runtime=kernel, eye=eye, local_bus=local_bus)
-    service._assemble_messages_from_context = MagicMock(
-        return_value=[{"role": "user", "content": "hello"}]
-    )
 
     prepared = asyncio.run(
         service.prepare_agent_run(

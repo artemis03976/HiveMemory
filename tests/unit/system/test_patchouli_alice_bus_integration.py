@@ -3,9 +3,10 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.core.protocol.models import ChatResult, EyeGazeResult, RetrievalResponse
+from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
+from hivememory.core.protocol.models import AgentRunContext, ChatResult, EyeGazeResult, RetrievalResponse
 from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -38,6 +39,8 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
     eye = MagicMock()
     bus = GlobalSystemBus()
     local_bus = PatchouliBus()
+    kernel.local_bus = local_bus
+    kernel.check_storage_health.return_value = True
 
     gaze_result = EyeGazeResult(
         intent=GatewayIntent.RAG,
@@ -56,7 +59,7 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
     eye.gaze = AsyncMock(return_value=gaze_result)
     local_bus.register(
         "memory.get_agent_profile",
-        AsyncMock(return_value=MagicMock()),
+        AsyncMock(return_value=OMNI_DOLL_PROFILE),
     )
     local_bus.register(
         "librarian.get_active_topics_snapshots",
@@ -77,7 +80,6 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
     bus.register(GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES, register_aliases)
 
     service = PatchouliService(runtime=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
-    service._assemble_messages_from_context = MagicMock(return_value=[{"role": "user", "content": "hi"}])
 
     prepared = await service.prepare_agent_run(
         user_message="hi",
@@ -87,6 +89,8 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
     register_aliases.assert_awaited_once_with(retrieval_result.memories)
     assert prepared.identity.user_id == "u1"
     assert prepared.topic_id == "topic_1"
+    assert isinstance(prepared.agent_run_context, AgentRunContext)
+    assert prepared.agent_run_context.retrieval_result is retrieval_result
     assert prepared.stream_prelude.memory_refs[0]["alias"] == "mem_alias"
 
 
@@ -111,19 +115,31 @@ async def test_finalize_agent_run_reads_interaction_state_via_global_bus():
         AsyncMock(return_value=interaction_state),
     )
 
-    prepared_run = MagicMock()
-    prepared_run.finalize_context = MagicMock(
-        user_message="hi",
-        identity=Identity(user_id="u1", agent_id="omni_doll"),
-        topic_id="topic_1",
+    identity = Identity(user_id="u1", agent_id="omni_doll")
+    prepared_run = PreparedAgentRun(
+        agent_run_context=AgentRunContext(
+            identity=identity,
+            topic_id="topic_1",
+            user_message="hi",
+            topic_context={"blocks": [], "state_summary": ""},
+            retrieval_result=RetrievalResponse(),
+            agent_profile=OMNI_DOLL_PROFILE,
+            storage_available=True,
+        ),
         gaze_result=EyeGazeResult(
             intent=GatewayIntent.RAG,
             rewritten_query="rewritten",
             search_keywords=[],
             worth_saving=True,
             raw_query="hi",
-            identity=Identity(user_id="u1", agent_id="omni_doll"),
+            identity=identity,
             target_topic="topic_1",
+        ),
+        stream_prelude=StreamPrelude(
+            topic_id="topic_1",
+            is_new_topic=False,
+            pool_snapshot={},
+            memory_refs=[],
         ),
     )
 

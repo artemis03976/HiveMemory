@@ -26,6 +26,8 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
 )
 from hivememory.alice.runtime.execution_frame import ExecutionFrame
+from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import (
     MTPVerb,
     MTPResponseStatus,
@@ -243,9 +245,9 @@ class TestFrameScheduler:
         kernel = MagicMock()
         kernel.agent_runtime = MagicMock()
         kernel.agent_runtime.get_agent_profile = AsyncMock(return_value=OMNI_DOLL_PROFILE)
-        kernel.get_mtp_prompt = MagicMock(return_value="### MTP Instructions\n## CALL\nCALL instructions here\n## READ\nREAD instructions")
         kernel.config = MagicMock()
         kernel.config.koakuma.mtp_prompt.language = "zh"
+        kernel.prompt_assembler = AgentPromptAssembler(KoakumaConfig())
         kernel.koakuma = MagicMock()
         kernel.koakuma._current_identity = Identity(user_id="u1")
         kernel.koakuma.atom_cache = MagicMock()
@@ -259,7 +261,7 @@ class TestFrameScheduler:
         from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
+        scheduler = FrameScheduler(kernel, kernel.prompt_assembler)
 
         frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -277,7 +279,7 @@ class TestFrameScheduler:
         from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
+        scheduler = FrameScheduler(kernel, kernel.prompt_assembler)
 
         frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -298,7 +300,7 @@ class TestFrameScheduler:
         from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
+        scheduler = FrameScheduler(kernel, kernel.prompt_assembler)
 
         assert scheduler.resume_frame() is None
 
@@ -308,7 +310,7 @@ class TestFrameScheduler:
         from hivememory.alice.runtime.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
+        scheduler = FrameScheduler(kernel, kernel.prompt_assembler)
 
         main_frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -331,18 +333,18 @@ class TestFrameScheduler:
         assert sub_frame.is_transient()
         assert len(sub_frame.working_history) == 2  # system + user
 
-    def test_strip_call_from_prompt(self):
-        """从 MTP prompt 中移除 CALL 教学"""
-        from hivememory.alice.runtime.frame_scheduler import FrameScheduler
-
+    def test_sub_agent_prompt_disables_call(self):
+        """Sub-agent prompt should not render CALL instructions."""
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
 
-        prompt = "### MTP Instructions\n## CALL\nCALL instructions here\n## READ\nREAD instructions"
-        stripped = scheduler._strip_call_from_prompt(prompt)
+        messages = kernel.prompt_assembler.build_sub_agent_messages(
+            profile=OMNI_DOLL_PROFILE,
+            task="Write unit tests",
+            depth=1,
+        )
 
-        assert "CALL instructions here" not in stripped
-        assert "READ instructions" in stripped
+        assert "CALL" not in messages[0]["content"]
+        assert "READ" in messages[0]["content"]
 
 
 # ========== IPC Return Assembly Tests ==========
@@ -376,8 +378,8 @@ class TestIPCReturnAssembly:
         from hivememory.alice.runtime.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
-        executor._host = MagicMock()
-        executor._host.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
+        executor._runtime = MagicMock()
+        executor._runtime.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
 
         import types
         executor._assemble_ipc_return = types.MethodType(

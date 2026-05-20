@@ -35,6 +35,7 @@ def _make_retrieval_response(empty=False):
 @pytest.fixture
 def service_with_local_bus():
     runtime = MagicMock()
+    runtime.local_bus = PatchouliBus()
     service = PatchouliService(
         runtime=runtime,
         eye=MagicMock(),

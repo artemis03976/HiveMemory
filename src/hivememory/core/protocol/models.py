@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 from hivememory.engines.retrieval.models import QueryFilters
-from hivememory.core.models import MemoryAtom, Identity, TraceItem, TurnEvent
+from hivememory.core.models import AgentProfile, MemoryAtom, Identity, TraceItem, TurnEvent
 from hivememory.engines.gateway.models import GatewayIntent
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
@@ -143,6 +143,20 @@ class RetrievalResponse(ProtocolMessage):
         if self.is_empty():
             return ""
         return self.rendered_context
+
+
+class AgentRunContext(BaseModel):
+    """Neutral context prepared for Alice to assemble and execute an Agent run."""
+
+    identity: Identity = Field(default_factory=Identity)
+    topic_id: str = Field(default="")
+    user_message: str = Field(default="")
+    topic_context: Dict[str, Any] = Field(default_factory=dict)
+    retrieval_result: RetrievalResponse = Field(default_factory=RetrievalResponse)
+    agent_profile: AgentProfile
+    storage_available: bool = Field(default=True)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class MTPExecutionResult(BaseModel):
@@ -299,6 +313,7 @@ __all__ = [
     "QueryFilters",
     "RetrievalRequest",
     "RetrievalResponse",
+    "AgentRunContext",
     "EyeGazeResult",
     "InteractionPayload",
     "AnalyzeAndRetrieveResult",
