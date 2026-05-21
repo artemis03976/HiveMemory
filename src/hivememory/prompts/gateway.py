@@ -37,7 +37,8 @@ GATEWAY_SYSTEM_PROMPT = """你是一个 OS 级别的调度网关（Agentic Dispa
    - 值得保存: 技术问答、代码实现、配置方案、用户偏好、重要事实。
    - 不值得保存: 简单寒暄、确认回复、重复提问、情绪宣泄。
 
-请严格按照函数 schema 返回结果。"""
+请严格返回一个 JSON object，不要输出 Markdown、代码块、解释文字或 tool call。JSON 字段必须包含：
+`target_topic`, `rewritten_query`, `search_keywords`, `worth_saving`, `reason`, `new_topic_title`, `new_topic_summary`。"""
 
 
 # 英文版 System Prompt
@@ -68,7 +69,8 @@ GATEWAY_SYSTEM_PROMPT_EN = """You are an OS-level dispatch gateway (Agentic Disp
    - Worth saving: Technical Q&A, code implementations, configurations, user preferences, important facts.
    - Not worth saving: Simple greetings, confirmations, repetitive questions, emotional venting.
 
-Strictly follow the function schema and return the result."""
+Return exactly one JSON object. Do not output markdown, code fences, prose, or tool calls. The JSON fields must include:
+`target_topic`, `rewritten_query`, `search_keywords`, `worth_saving`, `reason`, `new_topic_title`, `new_topic_summary`."""
 
 
 def get_gateway_system_prompt(

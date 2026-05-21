@@ -5,7 +5,7 @@ HiveMemory LiteLLM 服务实现
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 
 import litellm
 
@@ -189,6 +189,48 @@ class LiteLLMService(SingletonLLMService):
             logger.info(f"LLM 调用成功 (model={self.model})")
 
         return response
+
+    async def acomplete_json(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> str:
+        llm_params = {
+            "model": self.model,
+            "messages": messages,
+            "api_key": self.api_key,
+            "api_base": self.api_base,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+        }
+        llm_params.update(kwargs)
+
+        try:
+            response = await litellm.acompletion(
+                **llm_params,
+                response_format={"type": "json_object"},
+            )
+        except Exception as e:
+            logger.warning(
+                "LLM JSON mode failed for model=%s, falling back to prompt-only JSON: %s",
+                self.model,
+                e,
+            )
+            response = await litellm.acompletion(**llm_params)
+
+        content = response.choices[0].message.content
+
+        if hasattr(response, 'usage') and response.usage:
+            logger.info(
+                f"LLM JSON 调用成功 (model={self.model}, "
+                f"tokens={response.usage.total_tokens})"
+            )
+        else:
+            logger.info(f"LLM JSON 调用成功 (model={self.model})")
+
+        return content
 
     def complete_with_retry(
         self,
