@@ -194,7 +194,7 @@ class ChatResult(BaseModel):
     """
     主动 chat 主链路的统一返回值
 
-    封装 Kernel 递归生成循环的完整结果，包含最终文本和 MTP 执行统计。
+    封装 Kernel 递归生成循环的完整结果，包含最终文本、循环统计与结构化轮次事件。
 
     Attributes:
         final_text: 用户可见的最终回复文本 (仅自然语言部分，不含 MTP 指令/XML)
@@ -261,7 +261,7 @@ class InteractionPayload(BaseModel):
 
     Attributes:
         user_message: 原始用户消息
-        mtp_traces: Koakuma 执行期记录的 Trace 列表
+        mtp_traces: Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表
         write_focus: WRITE 指令核心素材
         update_focus: UPDATE 指令修改意图
         identity: 归属身份元数据
@@ -293,7 +293,7 @@ class InteractionPayload(BaseModel):
     )
     mtp_traces: List[TraceItem] = Field(
         default_factory=list,
-        description="由 Koakuma 在执行过程中记录的 Trace 列表"
+        description="由 Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表"
     )
 
     # 控制信号 (挂载在 Payload 上，而非独立传输)

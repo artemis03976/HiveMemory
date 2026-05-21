@@ -13,19 +13,7 @@
 
 - [第四次架构演进最终总纲：SystemArchitecture_v4_TopLevelSketch](./SystemArchitecture_v4_TopLevelSketch.md)
   - 状态：Final (已收敛)
-  - 说明：文件名保留 `TopLevelSketch` 仅为兼容既有链接；该文档已不再是草图。
   - 关键词：HiveMemorySystem、System-Service-Runtime、PatchouliRuntime、AliceRuntime、AgentRuntime、KoakumaRuntime、ChatApplicationService、结构化 turn events
-
-## v4 归档参考
-
-以下文档是第四次架构演进过程中的阶段设计记录，保留用于追溯迁移背景与取舍。若它们与 v4 最终总纲冲突，以最终总纲为准。
-
-- [Phase B 历史方案](./SystemArchitecture_v4_PhaseB_Design.md)
-- [Patchouli Subsystem Normalization 设计](./SystemArchitecture_v4_PatchouliSubsystemNormalization_Design.md)
-- [Phase C Alice Runtime Foundation 设计](./SystemArchitecture_v4_PhaseC_AliceRuntimeFoundation_Design.md)
-- [Phase D ChatApplicationService Migration 设计](./SystemArchitecture_v4_PhaseD_ChatApplicationServiceMigration_Design.md)
-- [Runtime Convergence Addendum](./SystemArchitecture_v4_RuntimeConvergence_Addendum.md)
-- [Alice Runtime Convergence 设计](./SystemArchitecture_v4_AliceRuntimeConvergence_Design.md)
 
 ## 约定
 

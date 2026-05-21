@@ -48,7 +48,7 @@ Gateway 采用两级串行处理机制，形如漏斗：
                  │ 未命中
                  ▼
 ┌─────────────────────────────────┐
-│  L2: 语义分析核心 (Semantic Core)│  ← LLM + Function Calling
+│  L2: 语义分析核心 (Semantic Core)│  ← LLM + JSON mode
 │  输出 → GatewayResult           │
 └─────────────────────────────────┘
 ```
@@ -59,7 +59,7 @@ Gateway 采用两级串行处理机制，形如漏斗：
    - **预期效果**：可拦截约 20-30% 的无效 LLM 调用。
 
 2. **L2: 语义分析核心 (The Semantic Core)**
-   - **机制**：调用高响应速度的通用 LLM（如 GPT-4o-mini / DeepSeek-V3），使用 **Function Calling** 强制结构化输出。
+   - **机制**：调用高响应速度的通用 LLM（如 GPT-4o-mini / DeepSeek），使用 **JSON mode** 与 Prompt 约束获得结构化输出。
    - **职责**：在一个 Prompt 中同时完成 **意图分类**、**指代消解**、**关键词提取** 与 **记忆价值判断**。
 
 ### 4.1.3 乐观检索策略 (Optimistic Retrieval)
@@ -177,20 +177,19 @@ CHAT_PATTERNS = [
 
 ## 4.5 L2 语义分析器
 
-`LLMAnalyzer` 是 L2 的具体实现，通过 **Function Calling** 强制 LLM 输出结构化 JSON，避免自由文本解析的不稳定性。
+`LLMAnalyzer` 是 L2 的具体实现，通过 **JSON mode** 请求 LLM 直接返回结构化 JSON，并由 `SemanticAnalysisResult` 进行解析与兜底，避免自由文本解析的不稳定性，也避免依赖特定模型的 tool call 能力。
 
-### Function Calling Schema
+### JSON 输出契约
 
 ```python
-GATEWAY_FUNCTION_SCHEMA = {
-    "name": "analyze_user_query",
-    "parameters": {
-        "target_topic":      str,   # 活跃话题 ID 或 "NEW_TOPIC"
-        "rewritten_query":   str,   # 指代消解后的完整查询
-        "search_keywords":   list,  # 3-5 个稀疏检索关键词
-        "worth_saving":      bool,  # 是否值得保存为长期记忆
-        "reason":            str,   # 判断理由
-    }
+{
+    "target_topic": "topic-id or NEW_TOPIC",
+    "new_topic_title": "新话题标题，仅 NEW_TOPIC 时需要",
+    "new_topic_summary": "新话题摘要，仅 NEW_TOPIC 时需要",
+    "rewritten_query": "指代消解后的完整查询",
+    "search_keywords": ["3-5 个稀疏检索关键词"],
+    "worth_saving": true,
+    "reason": "判断理由"
 }
 ```
 
@@ -207,13 +206,10 @@ def analyze(query, active_topics_menu=None):
     # 2. 构建消息
     messages = [system, user_query]
 
-    # 3. 调用 LLM with Function Calling
-    response = await llm_service.acomplete_with_tools(
-        messages, tools=[GATEWAY_FUNCTION_SCHEMA],
-        tool_choice={"type": "function", "function": {"name": "analyze_user_query"}}
-    )
+    # 3. 调用 LLM JSON mode
+    content = await llm_service.acomplete_json(messages)
 
-    # 4. 解析 tool_calls 结果 → SemanticAnalysisResult
+    # 4. 解析 JSON 结果 → SemanticAnalysisResult
 ```
 
 ### Prompt 变体
@@ -393,7 +389,7 @@ graph TD
     History[对话历史] -.-> Gateway
 
     L1 -- "Hi/Clear 等" --> Direct[直接返回 CHAT/SYSTEM]
-    L1 -- 未命中 --> Gateway[L2: Global Gateway\nLLM + Function Calling]
+    L1 -- 未命中 --> Gateway[L2: Global Gateway\nLLM JSON mode]
 
     Gateway -->|GatewayResult| Dispatcher[分发逻辑]
 

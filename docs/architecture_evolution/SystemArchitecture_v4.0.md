@@ -2,8 +2,7 @@
 
 **文档状态**: Final (已收敛)\
 **所属演进**: 第四次架构演进 / v4\
-**文档定位**: 第四次架构演进的当前准则与最终结构说明。文件名保留 `TopLevelSketch` 仅为兼容既有链接；本文不再是草图。\
-**收敛范围**: 顶层系统层、Patchouli 记忆子系统、Alice Agent 运行时子系统、主动 chat 编排、运行时归属、总线边界、prompt 与 trace 链路。
+**文档定位**: 第四次架构演进的当前准则与最终结构说明。
 
 ***
 
@@ -392,24 +391,9 @@ src/hivememory/
 
 ***
 
-## 12. 归档文档说明
+## 12. 后续可选收尾
 
-以下文档保留为阶段设计与迁移记录，不再作为当前实现准则：
-
-- `SystemArchitecture_v4_PhaseB_Design.md`
-- `SystemArchitecture_v4_PatchouliSubsystemNormalization_Design.md`
-- `SystemArchitecture_v4_PhaseC_AliceRuntimeFoundation_Design.md`
-- `SystemArchitecture_v4_PhaseD_ChatApplicationServiceMigration_Design.md`
-- `SystemArchitecture_v4_RuntimeConvergence_Addendum.md`
-- `SystemArchitecture_v4_AliceRuntimeConvergence_Design.md`
-
-如这些文档与本文冲突，以本文为准。
-
-***
-
-## 13. 后续可选收尾
-
-v4 主体已完成，剩余工作属于清理与文档同步：
+v4 主体已完成，第四次架构演进的过渡性阶段文档已全部清理。剩余代码工作属于清理与文档同步：
 
 - 清理 `HiveMemorySystem`、`PatchouliSystem` 等少量兼容访问器
 - 将旧文档中的 `PatchouliKernel`、`AgentRuntimeHost`、`chat_stream` 旧路径描述继续替换为 v4 术语

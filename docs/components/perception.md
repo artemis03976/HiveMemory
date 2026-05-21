@@ -114,7 +114,7 @@ class SemanticBuffer(BaseModel):
 class InteractionPayload(BaseModel):
     user_message: str           # 原始用户消息
     assistant_message: str      # 包含 MTP 指令的完整 assistant 文本
-    mtp_traces: List[TraceItem] # 由 Koakuma 记录的 Trace 列表
+    mtp_traces: List[TraceItem] # 由 Patchouli finalize 从结构化轮次事件归约得到
     write_focus: Optional[WriteFocus]   # WRITE 指令素材（挂载在 Payload 上）
     update_focus: Optional[UpdateFocus] # UPDATE 指令意图
     identity: Identity

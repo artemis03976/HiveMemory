@@ -4,18 +4,19 @@
 定位：MTP 协议的运行时执行器
 职责：
     - MTP 指令解析 (委托给 MTPParser)
-    - 指令路由与分发 (直接调用兄弟服务 API)
+    - 指令路由与分发 (通过 Alice local bus 调用公开服务 API)
     - 响应格式化与回填
     - 别名解析
 
 架构定位：
-    Koakuma 是 PatchouliRuntime 管理的第三个微服务，
-    负责处理 Worker Agent 生成的 MTP 指令。
+    Koakuma 是 AliceRuntime 持有的 MTP / 工具执行运行时，
+    负责处理 Worker Agent 生成的 MTP 指令。它不管理 Agent
+    运行循环，也不保存交互 trace；权限、身份与深度信息由
+    AgentRuntime 在执行时通过 MTPExecutionContext 传入。
 
-    PatchouliRuntime
-    ├── RetrievalFamiliar (检索使魔 - 只读检索)
-    ├── LibrarianCore (馆长本体 - 记忆写入)
-    └── Koakuma (小恶魔 - MTP 运行时)
+    AliceRuntime
+    ├── AgentRuntime (Agent 运行循环)
+    └── KoakumaRuntime (MTP / 工具执行)
 
 对应设计文档: MemoryToolProtocol.md Chapter 3 & 4
 
@@ -508,6 +509,7 @@ class KoakumaRuntime:
             content="\n".join(output_lines),
         )
 
+    # TODO:检查run返回的MTP结果为何为误导模型认为执行失败，尽管显示执行成功
     async def _handle_run(
         self,
         command: MTPCommand,
