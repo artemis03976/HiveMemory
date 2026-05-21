@@ -6,7 +6,6 @@ class PatchouliRoutes:
     SUBMIT_INTERACTION = "patchouli.public.submit_interaction"
     MEMORY_RETRIEVE = "patchouli.public.memory.retrieve"
     MEMORY_RETRIEVE_BY_ALIASES = "patchouli.public.memory.retrieve_by_aliases"
-    MEMORY_GET_BY_ALIAS = "patchouli.public.memory.get_memory_by_alias"
     GET_AGENT_PROFILE = "patchouli.public.get_agent_profile"
     PREPARE_AGENT_RUN = "patchouli.public.prepare_agent_run"
     FINALIZE_AGENT_RUN = "patchouli.public.finalize_agent_run"

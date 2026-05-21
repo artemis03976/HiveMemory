@@ -6,7 +6,6 @@ class PatchouliLocalRoutes:
     ANALYZE_AND_RETRIEVE = "passive.analyze_and_retrieve"
     MEMORY_RETRIEVE = "memory.retrieve"
     MEMORY_RETRIEVE_BY_ALIASES = "memory.retrieve_by_aliases"
-    MEMORY_GET_BY_ALIAS = "memory.get_memory_by_alias"
     GET_AGENT_PROFILE = "memory.get_agent_profile"
     PREPARE_TOPIC = "librarian.prepare_topic"
     GET_ACTIVE_TOPICS_SNAPSHOTS = "librarian.get_active_topics_snapshots"
@@ -20,7 +19,6 @@ class PatchouliLocalRoutes:
         ANALYZE_AND_RETRIEVE,
         MEMORY_RETRIEVE,
         MEMORY_RETRIEVE_BY_ALIASES,
-        MEMORY_GET_BY_ALIAS,
         GET_AGENT_PROFILE,
         PREPARE_TOPIC,
         GET_ACTIVE_TOPICS_SNAPSHOTS,

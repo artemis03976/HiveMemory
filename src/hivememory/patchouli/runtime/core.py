@@ -130,15 +130,11 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
-            self._retrieve_memories,
+            self.retrieval_familiar.retrieve_async,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
-            self._retrieve_memories_by_aliases,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_GET_BY_ALIAS,
-            self._get_memory_by_alias,
+            self.retrieval_familiar.retrieve_by_aliases_async,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
@@ -460,36 +456,6 @@ class PatchouliRuntime:
         except Exception as e:
             logger.warning(f"Storage health check failed: {e}")
             return False
-
-    async def _retrieve_memories(self, request, mode: str = "active"):
-        return await asyncio.to_thread(
-            self.retrieval_familiar.retrieve,
-            request,
-            mode,
-        )
-
-    async def _retrieve_memories_by_aliases(
-        self,
-        aliases,
-        identity=None,
-        mode: str = "active",
-    ):
-        return await asyncio.to_thread(
-            self.retrieval_familiar.retrieve_by_aliases,
-            aliases,
-            identity,
-            mode,
-        )
-
-    async def _get_memory_by_alias(
-        self,
-        alias: str,
-        user_id: str | None = None,
-    ):
-        result = self.storage.get_memory_by_alias(alias, user_id)
-        if inspect.isawaitable(result):
-            return await result
-        return result
 
     async def _get_agent_profile(self, agent_alias: str):
         result = self.storage.get_agent_profile(agent_alias)

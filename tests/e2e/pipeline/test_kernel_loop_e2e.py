@@ -29,7 +29,7 @@ from unittest.mock import MagicMock
 from hivememory.system.config import LLMConfig, KoakumaConfig
 from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.core.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult, RetrievalResponse
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.patchouli.system import PatchouliSystem
 
@@ -98,17 +98,15 @@ class KernelLoopTestHarness:
         # Real KoakumaRuntime with mocked bus
         self.mock_bus = MagicMock()
 
-        def _request(route, *args, **kwargs):
+        async def _request(route, *args, **kwargs):
             if route in ("retrieval.retrieve", "memory.retrieve"):
                 empty_result = MagicMock()
                 empty_result.is_empty.return_value = True
                 empty_result.memories = []
                 return empty_result
-            if route in (
-                "storage.get_memory",
-                "storage.get_memory_by_alias",
-                "memory.get_memory_by_alias",
-            ):
+            if route == "memory.retrieve_by_aliases":
+                return RetrievalResponse()
+            if route == "storage.get_memory":
                 return None
             return None
 

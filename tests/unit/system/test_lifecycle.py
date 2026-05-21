@@ -24,8 +24,9 @@ def _build_runtime_with_local_bus():
     runtime.librarian_core.manual_archive_topic = AsyncMock()
     runtime.retrieval_familiar = MagicMock()
     runtime.retrieval_familiar.retrieve = MagicMock()
+    runtime.retrieval_familiar.retrieve_async = AsyncMock()
+    runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
     runtime.storage = MagicMock()
-    runtime.storage.get_memory_by_alias = MagicMock(return_value=None)
     runtime.mount_local_routes = PatchouliRuntime.mount_local_routes.__get__(
         runtime, PatchouliRuntime
     )
@@ -33,12 +34,6 @@ def _build_runtime_with_local_bus():
         runtime, PatchouliRuntime
     )
     runtime.list_local_routes = PatchouliRuntime.list_local_routes.__get__(
-        runtime, PatchouliRuntime
-    )
-    runtime._retrieve_memories = PatchouliRuntime._retrieve_memories.__get__(
-        runtime, PatchouliRuntime
-    )
-    runtime._get_memory_by_alias = PatchouliRuntime._get_memory_by_alias.__get__(
         runtime, PatchouliRuntime
     )
     runtime.shutdown_drain = AsyncMock(return_value={"success": True})
@@ -196,7 +191,6 @@ class TestPatchouliSystemLocalRoutes:
         assert "passive.analyze_and_retrieve" not in runtime.local_bus.list_routes()
         assert "memory.retrieve" not in runtime.local_bus.list_routes()
         assert "memory.retrieve_by_aliases" not in runtime.local_bus.list_routes()
-        assert "memory.get_memory_by_alias" not in runtime.local_bus.list_routes()
         assert "librarian.prepare_topic" not in runtime.local_bus.list_routes()
         assert "librarian.get_active_topics_snapshots" not in runtime.local_bus.list_routes()
         assert "librarian.manual_archive_topic" not in runtime.local_bus.list_routes()
@@ -207,7 +201,6 @@ class TestPatchouliSystemLocalRoutes:
         assert "passive.analyze_and_retrieve" in runtime.local_bus.list_routes()
         assert "memory.retrieve" in runtime.local_bus.list_routes()
         assert "memory.retrieve_by_aliases" in runtime.local_bus.list_routes()
-        assert "memory.get_memory_by_alias" in runtime.local_bus.list_routes()
         assert "librarian.prepare_topic" in runtime.local_bus.list_routes()
         assert "librarian.get_active_topics_snapshots" in runtime.local_bus.list_routes()
         assert "service.prepare_agent_run" in runtime.local_bus.list_routes()
@@ -221,7 +214,6 @@ class TestPatchouliSystemLocalRoutes:
         assert "passive.analyze_and_retrieve" not in runtime.local_bus.list_routes()
         assert "memory.retrieve" not in runtime.local_bus.list_routes()
         assert "memory.retrieve_by_aliases" not in runtime.local_bus.list_routes()
-        assert "memory.get_memory_by_alias" not in runtime.local_bus.list_routes()
         assert "librarian.prepare_topic" not in runtime.local_bus.list_routes()
         assert "librarian.get_active_topics_snapshots" not in runtime.local_bus.list_routes()
         assert "service.prepare_agent_run" not in runtime.local_bus.list_routes()

@@ -21,18 +21,33 @@ class MockAsyncBus(AsyncSystemBus):
         self._mock_generation = mock_generation or MagicMock()
 
         self.register("storage.get_memory", self._handle_get_memory)
-        self.register("storage.get_memory_by_alias", self._handle_get_memory_by_alias)
-        self.register("memory.get_memory_by_alias", self._handle_get_memory_by_alias)
         self.register("retrieval.retrieve", self._handle_retrieve)
         self.register("memory.retrieve", self._handle_retrieve)
+        self.register("memory.retrieve_by_aliases", self._handle_retrieve_by_aliases)
         self.register("generation.process", self._handle_generation_process)
         self.register("perception.route_and_ingest", self._handle_route_and_ingest)
 
     async def _handle_get_memory(self, *args, **kwargs):
         return self._mock_storage.get_memory(*args, **kwargs)
 
-    async def _handle_get_memory_by_alias(self, *args, **kwargs):
-        return self._mock_storage.get_memory_by_alias(**kwargs)
+    async def _handle_retrieve_by_aliases(self, *args, **kwargs):
+        from hivememory.core.protocol.models import RetrievalResponse
+
+        aliases = kwargs.get("aliases")
+        if aliases is None and args:
+            aliases = args[0]
+        identity = kwargs.get("identity")
+        user_id = getattr(identity, "user_id", None)
+
+        memories = []
+        for alias in aliases or []:
+            atom = self._mock_storage.get_memory_by_alias(
+                alias=alias,
+                user_id=user_id,
+            )
+            if atom is not None:
+                memories.append(atom)
+        return RetrievalResponse(memories=memories, memories_count=len(memories))
 
     async def _handle_retrieve(self, *args, **kwargs):
         return self._mock_retrieval.retrieve(**kwargs)

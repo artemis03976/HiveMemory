@@ -22,7 +22,7 @@ from hivememory.core.mtp import (
     MTPCommand,
     MTPTarget,
 )
-from hivememory.core.protocol.models import MTPExecutionResult
+from hivememory.core.protocol.models import MTPExecutionResult, RetrievalResponse
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
 
@@ -54,11 +54,21 @@ def koakuma(mock_kernel) -> KoakumaRuntime:
     config = KoakumaConfig()
     mock_bus = MagicMock()
 
-    def _request(route, *args, **kwargs):
+    async def _request(route, *args, **kwargs):
         if route in ("retrieval.retrieve", "memory.retrieve"):
             return mock_kernel.retrieval.retrieve(kwargs.get("request"))
-        if route in ("storage.get_memory_by_alias", "memory.get_memory_by_alias"):
-            return mock_kernel.storage.get_memory_by_alias(*args, **kwargs)
+        if route == "memory.retrieve_by_aliases":
+            aliases = kwargs.get("aliases")
+            if aliases is None and args:
+                aliases = args[0]
+            identity = kwargs.get("identity")
+            user_id = getattr(identity, "user_id", None)
+            memories = []
+            for alias in aliases or []:
+                atom = mock_kernel.storage.get_memory_by_alias(alias=alias, user_id=user_id)
+                if atom is not None:
+                    memories.append(atom)
+            return RetrievalResponse(memories=memories, memories_count=len(memories))
         return None
 
     mock_bus.request.side_effect = _request

@@ -15,6 +15,7 @@
 """
 
 from typing import List, Optional, TYPE_CHECKING
+import asyncio
 import time
 import logging
 
@@ -31,6 +32,8 @@ from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 
 logger = logging.getLogger(__name__)
 
+
+# TODO: 检索链路完全异步化
 class RetrievalFamiliar:
     """
     帕秋莉·检索使魔 (The Retrieval Familiar of Patchouli)
@@ -169,6 +172,14 @@ class RetrievalFamiliar:
 
         return response
 
+    async def retrieve_async(
+        self,
+        request: RetrievalRequest,
+        mode: str = "active",
+    ) -> RetrievalResponse:
+        """Async bus entrypoint for the currently synchronous retrieval engine."""
+        return await asyncio.to_thread(self.retrieve, request, mode)
+
     def retrieve_by_aliases(
         self,
         aliases: List[str],
@@ -219,6 +230,20 @@ class RetrievalFamiliar:
             response.latency_ms = (time.time() - start_time) * 1000
 
         return response
+
+    async def retrieve_by_aliases_async(
+        self,
+        aliases: List[str],
+        identity: Optional[Identity] = None,
+        mode: str = "active",
+    ) -> RetrievalResponse:
+        """Async bus entrypoint for exact alias retrieval."""
+        return await asyncio.to_thread(
+            self.retrieve_by_aliases,
+            aliases,
+            identity,
+            mode,
+        )
 
     def update_access_stats(self, memories: List[MemoryAtom]) -> None:
         """

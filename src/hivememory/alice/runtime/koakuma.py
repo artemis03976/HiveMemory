@@ -837,11 +837,13 @@ class KoakumaRuntime:
         # 缓存未命中：查询存储（L2 冷检索）
         try:
             identity = context.identity if context is not None else MTPExecutionContext().identity
-            memory = await self._bus.request(
-                "memory.get_memory_by_alias",
-                alias=alias,
-                user_id=identity.user_id,
+            retrieval_response = await self._bus.request(
+                "memory.retrieve_by_aliases",
+                aliases=[alias],
+                identity=identity,
             )
+            memories = getattr(retrieval_response, "memories", []) or []
+            memory = memories[0] if memories else None
             if memory is None:
                 logger.debug(f"L2 cold-lookup miss: alias='{alias}'")
                 return None

@@ -5,7 +5,7 @@
 职责：
     - 持有 TheEye (Ingress Gateway): 意图识别、查询重写、话题路由
     - 持有 PatchouliRuntime: 记忆运行时，管理感知 (Perception)、检索 (Retrieval)、生成 (Generation) 与生命周期 (Lifecycle)
-    - 提供记忆能力公开路由 (memory.retrieve, memory.get_memory_by_alias)
+    - 提供记忆能力公开路由 (memory.retrieve, memory.retrieve_by_aliases)
     - 实现 SubsystemProtocol 契约
 
 数据流:
@@ -228,10 +228,6 @@ class PatchouliSystem(SubsystemProtocol):
             self.runtime._retrieve_memories_by_aliases,
         )
         self._global_bus.register(
-            PatchouliRoutes.MEMORY_GET_BY_ALIAS,
-            self.runtime._get_memory_by_alias,
-        )
-        self._global_bus.register(
             PatchouliRoutes.GET_AGENT_PROFILE,
             self.runtime._get_agent_profile,
         )
@@ -257,7 +253,6 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus.unregister(PatchouliRoutes.SUBMIT_INTERACTION)
         self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE)
         self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_GET_BY_ALIAS)
         self._global_bus.unregister(PatchouliRoutes.GET_AGENT_PROFILE)
         self._global_bus.unregister(PatchouliRoutes.PREPARE_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.FINALIZE_AGENT_RUN)

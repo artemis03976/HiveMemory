@@ -265,7 +265,7 @@ class TestReadL2Fallback:
 
     def test_l2_route_failure_returns_infra_error(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
-            "AsyncSystemBus: route 'storage.get_memory_by_alias' not registered"
+            "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
         )
 
         result = _execute_mtp(koakuma, '⟪ READ | fact_from_l2 | ⟫')
