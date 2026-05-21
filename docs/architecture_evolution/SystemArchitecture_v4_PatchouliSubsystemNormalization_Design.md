@@ -1,6 +1,8 @@
 # HiveMemory 第四次架构演进 Patchouli Subsystem Normalization 设计
 
-**文档状态**: Draft (设计草案)\
+> **归档说明**: 本文是 v4 演进过程中的阶段设计记录，保留用于追溯迁移背景与取舍。v4 当前最终结构、术语与实现准则已统一收敛到 [SystemArchitecture_v4_TopLevelSketch.md](./SystemArchitecture_v4_TopLevelSketch.md)。如本文与最终总纲冲突，以最终总纲为准。
+
+**文档状态**: Archived (阶段设计记录)\
 **所属演进**: 第四次架构演进\
 **建议阶段名**: Phase B / Patchouli Subsystemization\
 **阶段目标**: 在顶层 `HiveMemorySystem`、总线基建与全局维护基建已经建立后，进一步将 `Patchouli` 从“被顶层 system 临时包裹的历史大类”规范化为真正的记忆子系统，建立其独立的 `PatchouliSystem` 宿主、bootstrap、runtime host 与 lifecycle 边界，并将当前承担对外 API 的 `PatchouliSystem` 收缩并重命名为 `PatchouliService`，为后续 `Phase C` 中 Alice 从 Patchouli 抽离 Agent 运算服务、以及 `Phase D` 中顶层 `ChatApplicationService` / `PassiveIngressService` 的正式迁移提供稳定的记忆域宿主骨架。\

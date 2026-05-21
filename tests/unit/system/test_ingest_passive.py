@@ -614,8 +614,6 @@ class TestShutdownDrain:
     """shutdown_drain() 编排测试"""
 
     def test_shutdown_drain_flushes_perception_only(self, sys_passive):
-        from hivememory.patchouli.system import PatchouliSystem as Real
-
         sys_passive.runtime.librarian_core = MagicMock()
         sys_passive.runtime.librarian_core.perception_layer = MagicMock()
         sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
@@ -628,7 +626,7 @@ class TestShutdownDrain:
             }
         )
 
-        result = asyncio.run(Real.shutdown_drain(sys_passive))
+        result = asyncio.run(sys_passive.runtime.shutdown_drain())
 
         sys_passive.submit_interaction.assert_not_called()
         sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
@@ -636,8 +634,6 @@ class TestShutdownDrain:
         assert result["perception"]["trigger_reason"] == "shutdown"
 
     def test_shutdown_drain_is_reentrant(self, sys_passive):
-        from hivememory.patchouli.system import PatchouliSystem as Real
-
         sys_passive.runtime.librarian_core = MagicMock()
         sys_passive.runtime.librarian_core.perception_layer = MagicMock()
         sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
@@ -650,8 +646,8 @@ class TestShutdownDrain:
             }
         )
 
-        first = asyncio.run(Real.shutdown_drain(sys_passive))
-        second = asyncio.run(Real.shutdown_drain(sys_passive))
+        first = asyncio.run(sys_passive.runtime.shutdown_drain())
+        second = asyncio.run(sys_passive.runtime.shutdown_drain())
 
         assert first["reentrant"] is False
         assert second["reentrant"] is True

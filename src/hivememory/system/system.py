@@ -203,7 +203,7 @@ class HiveMemorySystem:
     def cancel_generation(self, generation_id: str) -> bool:
         return self._chat_service.cancel_generation(generation_id)
 
-    # ========== 兼容性访问器 ==========
+    # ========== 配置管理 ==========
 
     @property
     def config(self) -> HiveMemoryConfig:
@@ -213,14 +213,6 @@ class HiveMemorySystem:
     def config(self, value: HiveMemoryConfig) -> None:
         self._config = value
         self._patchouli.config = value
-
-    @property
-    def patchouli(self) -> PatchouliSystem:
-        return self._patchouli
-
-    @property
-    def alice(self) -> AliceSystem:
-        return self._alice
 
     async def manual_archive_topic(self, topic_id: str | None = None) -> dict[str, Any]:
         return await self._global_bus.request(

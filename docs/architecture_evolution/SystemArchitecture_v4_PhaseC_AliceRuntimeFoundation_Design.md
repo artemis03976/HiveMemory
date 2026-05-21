@@ -1,6 +1,8 @@
 # HiveMemory 第四次架构演进 Phase C Alice Runtime Foundation 设计
 
-**文档状态**: Draft (设计草案)\
+> **归档说明**: 本文是 v4 演进过程中的阶段设计记录，保留用于追溯迁移背景与取舍。v4 当前最终结构、术语与实现准则已统一收敛到 [SystemArchitecture_v4_TopLevelSketch.md](./SystemArchitecture_v4_TopLevelSketch.md)。如本文与最终总纲冲突，以最终总纲为准。
+
+**文档状态**: Archived (阶段设计记录)\
 **所属演进**: 第四次架构演进\
 **建议阶段名**: Phase C / Alice Runtime Foundation\
 **阶段目标**: 在 `Phase B / Patchouli Subsystemization` 基本完成后，将当前仍寄居在 `Patchouli` 内部的 Agent 运算服务逐步抽离到 `Alice` 子系统，建立 Alice 作为多智能体编排与计算子系统的最小可用骨架，并形成通过 `alice.run_agent(topic_id, ...)` 驱动单次 agent 计算的初步能力边界。\
@@ -601,4 +603,3 @@ Phase C 中不需要立即扩展很多事件，但应预留至少两类：
 - WRITE / UPDATE / CALL 的 trace 与回填行为不回归
 
 ***
-

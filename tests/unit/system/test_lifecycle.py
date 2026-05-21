@@ -57,7 +57,6 @@ def mock_patchouli():
     p.runtime = runtime
     p.register_maintenance_tasks = MagicMock(return_value=True)
     p.unregister_maintenance_tasks = MagicMock(return_value=1)
-    p.shutdown_drain = PatchouliSystem.shutdown_drain.__get__(p, PatchouliSystem)
     p.name = "patchouli"
     p._global_bus = None
     p._scheduler = None

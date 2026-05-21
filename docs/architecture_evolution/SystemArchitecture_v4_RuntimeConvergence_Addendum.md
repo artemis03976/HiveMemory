@@ -1,6 +1,8 @@
 # HiveMemory 第四次架构演进补充设计
 
-**文档状态**: Draft (设计草案)\
+> **归档说明**: 本文是 v4 演进过程中的阶段设计记录，保留用于追溯迁移背景与取舍。v4 当前最终结构、术语与实现准则已统一收敛到 [SystemArchitecture_v4_TopLevelSketch.md](./SystemArchitecture_v4_TopLevelSketch.md)。如本文与最终总纲冲突，以最终总纲为准。
+
+**文档状态**: Archived (阶段设计记录)\
 **所属演进**: 第四次架构演进补充部分\
 **文档定位**: 在 `Phase B / Phase C / Phase D` 已基本完成的基础上，补充说明 `PatchouliKernel -> PatchouliRuntime` 的长期收敛方向，以及 `Alice` 子系统向 `System = Runtime + Service` 对称结构继续规整的目标。
 
@@ -347,4 +349,3 @@ Runtime = internal runtime environment
 - Alice 侧已能明确表达 `System / Service / Runtime` 三层结构
 
 ***
-

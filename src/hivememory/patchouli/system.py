@@ -210,10 +210,6 @@ class PatchouliSystem(SubsystemProtocol):
             "models_ready": models_ready,
         }
 
-    async def shutdown_drain(self) -> dict[str, Any]:
-        """兼容包装器：委托给 PatchouliRuntime。"""
-        return await self.runtime.shutdown_drain()
-
     def _register_public_routes(self) -> None:
         self._global_bus.register(
             PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE,

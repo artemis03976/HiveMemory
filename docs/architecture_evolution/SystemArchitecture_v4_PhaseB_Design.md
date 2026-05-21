@@ -1,10 +1,12 @@
 # HiveMemory 第四次架构演进 Phase B 设计
 
-**文档状态**: Draft (历史方案，现顺延至 Phase D 参考)\
+> **归档说明**: 本文是 v4 演进过程中的阶段设计记录，保留用于追溯迁移背景与取舍。v4 当前最终结构、术语与实现准则已统一收敛到 [SystemArchitecture_v4_TopLevelSketch.md](./SystemArchitecture_v4_TopLevelSketch.md)。如本文与最终总纲冲突，以最终总纲为准。
+
+**文档状态**: Archived (历史阶段方案)\
 **所属演进**: 第四次架构演进\
 **阶段目标**: 本文记录的是“顶层应用服务迁移”这条原先曾归入 Phase B 的方案；随着 v4 路线调整，这部分工作现已整体顺延为 `Phase D / 顶层 chat 与 passive ingress 应用服务迁移`。\
 **前置阶段核心结论**: 已回写至 [SystemArchitecture\_v4\_TopLevelSketch.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_TopLevelSketch.md)\
-**配套草图**: [SystemArchitecture\_v4\_TopLevelSketch.md](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_TopLevelSketch.md)
+**最终总纲**: [SystemArchitecture\_v4\_TopLevelSketch.md](./SystemArchitecture_v4_TopLevelSketch.md)
 
 > **阅读说明**
 >

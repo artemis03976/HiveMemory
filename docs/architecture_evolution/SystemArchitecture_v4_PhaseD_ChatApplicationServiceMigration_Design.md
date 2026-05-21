@@ -1,6 +1,8 @@
 # HiveMemory 第四次架构演进 Phase D 设计
 
-**文档状态**: Draft (设计草案)\
+> **归档说明**: 本文是 v4 演进过程中的阶段设计记录，保留用于追溯迁移背景与取舍。v4 当前最终结构、术语与实现准则已统一收敛到 [SystemArchitecture_v4_TopLevelSketch.md](./SystemArchitecture_v4_TopLevelSketch.md)。如本文与最终总纲冲突，以最终总纲为准。
+
+**文档状态**: Archived (阶段设计记录)\
 **所属演进**: 第四次架构演进\
 **阶段目标**: 在 `Phase C / Alice Runtime Foundation` 已基本建立稳定 `alice.run_agent(...)` 边界后，将当前仍滞留在 `PatchouliService` 内部的 chat 主链路编排正式上移到顶层 `ChatApplicationService`，完成 v4 目标中的主动 chat 应用服务迁移。\
 **前置文档**:
@@ -638,4 +640,3 @@ ChatApplicationRequest
 届时 `PatchouliService` 可以正式收敛为纯记忆域门面。
 
 ***
-

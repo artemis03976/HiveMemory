@@ -76,7 +76,7 @@ def test_build_registers_patchouli_and_uses_global_bus_runtime():
         system = HiveMemorySystem.build(config=config)
 
     assert isinstance(system._global_bus, GlobalSystemBus)
-    assert system.patchouli.name == "patchouli"
+    assert system._patchouli.name == "patchouli"
 
 
 @pytest.mark.asyncio
@@ -99,7 +99,7 @@ async def test_start_mounts_patchouli_public_routes_on_global_bus():
         identity=MagicMock(),
     )
     assert result == {"intent": "rag"}
-    system.patchouli.service.analyze_and_retrieve.assert_awaited_once_with(
+    system._patchouli.service.analyze_and_retrieve.assert_awaited_once_with(
         query="hello",
         identity=ANY,
     )

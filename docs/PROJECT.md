@@ -144,50 +144,57 @@ graph TD
 - **Hot Path (System 1 - 快思考)**：由 **Eye** 和 **Familiar** 组成。它们如同人的直觉反应，追求极低的延迟与高吞吐量，确保用户在对话时感觉不到停顿。
 - **Cold Path (System 2 - 慢思考)**：由 **Librarian Core** 承载。它如同人的深度逻辑推理，容忍较高的延迟，换取对知识的深度理解与高质量归档。
 
-## 2.5 系统封装层：帕秋莉体系 v3.0 (The Patchouli System)
+## 2.5 系统封装层：v4 System / Service / Runtime
 
-在三位一体的概念模型之上，工程实现引入了两个额外的封装层，将分散的组件组织为一个完整的可部署单元。
+在三位一体的概念模型之上，当前工程实现已经收敛为 v4 的分层结构。顶层 `HiveMemorySystem` 负责装配全局运行时环境，`Patchouli` 退回记忆域能力边界，`Alice` 承接 Agent 执行与 MTP/工具运行时。
 
-### 2.5.1 帕秋莉内核 (PatchouliKernel)
+### 2.5.1 顶层系统 (HiveMemorySystem)
 
-`PatchouliKernel` 是系统的**编排器与状态管理器**，采用**星形拓扑**结构，作为中心节点管理所有微服务。它独立于 TheEye 之外，TheEye 处理完请求后通过标准化接口将结果传入 Kernel。
+`HiveMemorySystem` 是当前推荐的系统宿主。它不直接承担记忆检索、Agent 生成或工具执行细节，而是负责装配：
 
-**核心职责：**
-- 基础设施初始化：存储层 (Qdrant)、感知层 Embedding、Librarian LLM、Reranker
-- 引擎构建：Perception、Generation、Lifecycle、Retrieval 四大引擎
-- 微服务注册：RetrievalFamiliar、LibrarianCore、KoakumaRuntime
-- PatchouliBus 路由注册：将内核内部协作能力暴露为可寻址的异步 RPC 路由
+- `GlobalSystemBus`：顶层公开路由总线
+- `ChatApplicationService`：主动 chat 编排服务
+- `PassiveIngressService`：被动消息摄入编排服务
+- `PatchouliSystem`：记忆子系统
+- `AliceSystem`：Agent 运行时子系统
+- 全局维护调度器与生命周期入口
 
-**对外 API：**
+主动对话不再由 Patchouli 单独驱动，而是由顶层应用服务按 `prepare -> run -> finalize` 三段式流程编排。
 
-| 方法 | 路径 | 说明 |
-| :--- | :--- | :--- |
-| `handle_hot()` | Hot Path | 接收 EyeGazeResult，执行检索，返回 KernelHotResult |
-| `handle_mtp()` | MTP Path | 将 LLM 输出转发给 KoakumaRuntime 执行 MTP 指令 |
-| `submit_interaction()` | Cold Path | 阻塞提交 InteractionPayload 到 LibrarianCore |
-| `manual_trigger()` | 管理 | 手动触发话题结算（归档 + 压缩） |
-| `get_mtp_prompt()` | 配置 | 返回 MTP 协议教学 Prompt 片段，供 Worker Agent 注入 System Prompt |
+### 2.5.2 记忆子系统 (PatchouliSystem / PatchouliRuntime / PatchouliService)
 
-### 2.5.2 帕秋莉体系 (PatchouliSystem)
+`PatchouliSystem` 是**大图书馆设施 (The Facility)** 的子系统宿主。它持有 TheEye、PatchouliRuntime 与 PatchouliService，并将记忆域公开能力挂载到全局总线。
 
-`PatchouliSystem` 是**大图书馆的完整设施 (The Facility)**，是开发者唯一需要直接实例化的入口类。它持有 TheEye 和 PatchouliKernel，并负责将 Patchouli 内部总线与全局运行时总线桥接起来。
+`PatchouliRuntime` 是记忆域的能力运行时，负责：
 
-**初始化顺序：**
-1. 创建 `PatchouliBus`（子系统内部协作总线）
-2. 初始化 `PatchouliKernel`（注册内核内部路由到私有总线）
-3. 初始化 Gateway 基础设施（Gateway LLM、GatewayEngine）
-4. 构建 `TheEye`
-5. 初始化 `PatchouliService`
-6. 准备 `local PatchouliBus + PatchouliBridge`，将公开能力桥接到 `GlobalSystemBus`
+- 基础设施初始化：存储层 (Qdrant)、Embedding、Librarian LLM、Reranker
+- 引擎构建：Perception、Generation、Lifecycle、Retrieval
+- 持有 `RetrievalFamiliar` 与 `LibrarianCore`
+- 管理 Patchouli local bus 与内部路由
+- 提供 warmup、health、shutdown drain 等运行时能力
 
-**两种运行模式：**
+`PatchouliService` 是记忆域用例门面，主要提供：
 
-| 模式 | 入口方法 | 适用场景 | 特点 |
-| :--- | :--- | :--- | :--- |
-| **主动模式 (Active)** | `chat()` / `chat_stream()` | Kernel 直接驱动 LLM 生成 | 完整递归生成循环，含 MTP 执行，阻塞等待 |
-| **被动模式 (Passive)** | `ingest_event()` / `flush_ingressor()` | Discord Bot、微信机器人等外部框架 | 仅缓冲配对 + Eye 分析 + 检索降级，不驱动 LLM |
+| 能力 | 说明 |
+| :--- | :--- |
+| `prepare_agent_run()` | 为一次 Agent 运行准备身份、话题、预检索记忆与运行上下文 |
+| `finalize_agent_run()` | 根据 Alice 返回的结构化事件流提交 interaction，并触发后续记忆处理 |
+| `cleanup_prepared_agent_run()` | 流式链路异常时清理本轮准备状态 |
+| `retrieve_for_gaze()` | 根据 EyeGazeResult 执行检索并渲染记忆上下文 |
+| `manual_archive_topic()` | 手动触发话题结算 |
 
-### 2.5.3 运行时总线 (AsyncSystemBus / GlobalSystemBus / PatchouliBus)
+### 2.5.3 Agent 子系统 (AliceSystem / AliceRuntime)
+
+`AliceSystem` 是 Agent 运行时子系统宿主。它负责将 Alice 的公开能力挂载到 `GlobalSystemBus`，并持有 AliceService 与 AliceRuntime。
+
+`AliceRuntime` 是 Alice 的运行时聚合根，内部显式区分两类运行时：
+
+- `AgentRuntime`：负责 Agent 执行循环、ExecutionFrame 管理、子 Agent 调度、流式与非流式运行
+- `KoakumaRuntime`：负责 MTP 协议解析、权限控制、syscall/tool 执行与结果格式化
+
+这使 Agent 执行环境与工具执行环境形成隔离：Agent runtime 调用 MTP executor，Koakuma 不反向持有 Agent runtime，也不承担顶层 chat 编排职责。
+
+### 2.5.4 运行时总线 (AsyncSystemBus / GlobalSystemBus / Local Bus)
 
 HiveMemory 当前的进程内通信已统一收敛到纯异步运行时总线体系：
 
@@ -200,23 +207,23 @@ HiveMemory 当前的进程内通信已统一收敛到纯异步运行时总线体
 - **RPC 模式 (Request-Response)**：`register()` + `request()`，一个路由对应一个 async handler
 - **Pub/Sub 模式 (Event Broadcast)**：`subscribe()` + `publish()`，异步广播领域事件
 
-公开路由经 `SubsystemBridge` 从子系统私有 bus 暴露到 `GlobalSystemBus`；例如 `patchouli.public.memory.retrieve` 会被桥接到 Patchouli 本地路由 `memory.retrieve`。
+子系统内部通过 local bus 访问私有能力；对外能力由子系统在启动时注册到 `GlobalSystemBus`。顶层应用服务只依赖全局公开路由，不穿透到 PatchouliRuntime、AliceRuntime 或具体执行组件内部。
 
 ## 2.6 主动模式对话流程 (Active Mode Chat Flow)
 
-主动模式下，`PatchouliSystem.chat()` 驱动一次完整的对话轮次，流程如下：
+主动模式下，`ChatApplicationService` 驱动一次完整的对话轮次。Patchouli 负责记忆域准备与后处理，Alice 负责 Agent 生成与 MTP 执行，流程如下：
 
 ```
-1. [感知层]   获取活跃话题快照 (TopicSnapshot 列表)
-2. [TheEye]   意图识别 + 查询重写 + 话题路由 → EyeGazeResult
-3. [感知层]   根据路由决策获取完整话题上下文 (LogicalBlock 历史)
-4. [Kernel]   handle_hot() → 预检索，注入记忆上下文
-5. [System]   组装 LLM messages (System Prompt + 话题历史 + 当前消息)
-6. [递归循环] WorkerAgent 生成 → MTP 拦截 → Koakuma 执行 → 回填 → 继续生成
-7. [Kernel]   submit_interaction() → 阻塞提交 InteractionPayload 到感知层
+1. [ChatApplicationService]  归一化请求参数并注册 generation cancel 事件
+2. [Patchouli.prepare]       TheEye 意图识别 + 查询重写 + 话题路由 → EyeGazeResult
+3. [Patchouli.prepare]       准备话题上下文、预检索记忆、AgentRunContext 与流式 prelude
+4. [Alice.run]               AgentPromptAssembler 组装主 Agent messages
+5. [Alice.run]               WorkerAgent 生成 → MTP 拦截 → Koakuma 执行 → 结果回填 → 继续生成
+6. [Alice.run]               返回 ChatResult，其中包含完整 turn_events 结构化事件流
+7. [Patchouli.finalize]      从 turn_events 聚合 actions/traces，提交 InteractionPayload 到感知层
 ```
 
-**递归生成循环 (The Loop)** 是主动模式的核心机制：每次 LLM 生成遇到 MTP 指令时，循环暂停、执行指令、将结果回填为 fake assistant message，然后继续生成，直到生成完整回复或达到最大迭代深度。
+**生成循环 (The Loop)** 由 Alice 的 AgentRuntime 承载：每次 LLM 生成遇到 MTP 指令时，循环暂停、执行指令、将结果回填为后续上下文，然后继续生成，直到生成完整回复、触发取消或达到最大迭代深度。记忆后处理不依赖 Koakuma 的临时 trace 缓存，而是从 `turn_events -> ActionReducer -> TraceReducer` 的结构化事件链路生成。
 
 ## 2.7 记忆工具协议 (Memory Tool Protocol / MTP)
 
@@ -236,7 +243,7 @@ MTP 是 HiveMemory 为 Worker Agent 设计的**进程内工具调用协议**，�
 
 **执行器：KoakumaRuntime（小恶魔）**
 
-KoakumaRuntime 负责 MTP 协议的解析、路由和执行。它通过 Alice runtime bus 与 `GlobalSystemBus` 访问 Patchouli 暴露的记忆能力，遵循最小权限原则，不直接持有 PatchouliKernel 引用。
+KoakumaRuntime 负责 MTP 协议的解析、路由和执行。它由 AliceRuntime 持有，并通过 Alice local bus 与 `GlobalSystemBus` 访问 Patchouli 暴露的记忆能力，遵循最小权限原则，不直接持有 PatchouliRuntime、PatchouliService 或 AgentRuntime 引用。
 
 工具分为两层：
 - **内核工具 (KERNEL_REGISTRY)**：`sys_` 前缀，系统启动时硬编码加载，零延迟（Python REPL、文件读写、Web 搜索等）
@@ -246,7 +253,7 @@ KoakumaRuntime 负责 MTP 协议的解析、路由和执行。它通过 Alice ru
 - **L1 上下文热映射**：当轮 SEARCH 结果注册的临时别名，O(1) 查找
 - **L2 全局冷检索**：向 Qdrant 发起精确匹配，命中后自动提升到 L1
 
-**WRITE/UPDATE 延迟捕获机制：** v3.0 中，WRITE 和 UPDATE 指令不再在执行时立即调用 Librarian，而是将意图打包为 `WriteFocus` / `UpdateFocus` 暂存，随本轮 `InteractionPayload` 一起提交，由感知层统一处理。这确保了记忆写入与对话上下文的原子性。
+**WRITE/UPDATE 延迟捕获机制：** WRITE 和 UPDATE 指令不在执行时立即调用 Librarian，而是将意图作为 MTP 执行结果的一部分随本轮运行结果回传，并在 Patchouli finalize 阶段与 `InteractionPayload` 一起提交，由感知层统一处理。这确保了记忆写入与对话上下文的原子性。
 
 # 3 数据核心：记忆数据模型设计 (Data Model Design)
 
