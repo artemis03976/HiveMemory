@@ -59,7 +59,7 @@
 
 ### C. 长期记忆生命周期：Gardening / GC
 
-当前 [`LibrarianCore.start_gardening()`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/kernel/librarian_core.py#L259-L266) 仍是占位接口，但长期记忆侧已经存在明确的“定时维护”意图：
+当前 [`LibrarianCore.start_gardening()`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/services/librarian.py#L265-L272) 仍是占位接口，但长期记忆侧已经存在明确的“定时维护”意图：
 
 - `MemoryLifecycleEngine`
 - `ScheduledGarbageCollector`
@@ -68,10 +68,10 @@
 
 相关位置：
 
-- [librarian_core.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/kernel/librarian_core.py#L259-L266)
+- [librarian.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/services/librarian.py#L265-L272)
 - [garbage_collector.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/engines/lifecycle/garbage_collector.py#L218-L318)
 - [config.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/config.py#L569-L588)
-- [core.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/kernel/core.py#L272-L310)
+- [core.py](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/runtime/core.py#L274-L312)
 
 ## 2.2 当前问题不只是“重复写了定时器”
 
@@ -294,7 +294,7 @@ BackgroundScheduler(thread)
 
 建议放置位置：
 
-- `src/hivememory/patchouli/kernel/runtime/maintenance_scheduler.py`
+- `src/hivememory/system/runtime/scheduler/async_scheduler.py`
 
 它是一个**系统级异步维护调度器**，由 `PatchouliSystem` 在主 loop 中唯一持有。
 

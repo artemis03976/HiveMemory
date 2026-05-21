@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
-from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @router.post("/chat")
 async def chat(
     request: ChatRequest,
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """
     主动对话接口 — SSE 流式响应
@@ -62,7 +62,7 @@ async def chat(
 @router.post("/chat/stop")
 async def stop_chat(
     request: StopChatRequest,
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
     """停止正在进行的流式生成"""
     cancelled = system.cancel_generation(request.generation_id)

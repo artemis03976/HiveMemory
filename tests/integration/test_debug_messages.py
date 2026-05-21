@@ -1,8 +1,10 @@
 import pytest
 import asyncio
 from unittest.mock import patch, MagicMock
-from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.protocol.models import RetrievalResponse
+from hivememory.patchouli.service import PatchouliService
+from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.system.config import load_app_config
+from hivememory.system import HiveMemorySystem
 
 @pytest.fixture
 def patch_assemble_messages():
@@ -10,10 +12,17 @@ def patch_assemble_messages():
     一个可以挂载到任意测试中的 fixture，
     自动拦截 _assemble_messages_from_context 方法并打印 system_prompt 和 user_prompt
     """
-    original_assemble = PatchouliSystem._assemble_messages_from_context
+    original_assemble = PatchouliService._assemble_messages_from_context
 
-    def _intercept(self, topic_context, hot_result, user_message):
-        messages = original_assemble(self, topic_context, hot_result, user_message)
+    def _intercept(self, topic_context, retrieval_result, user_message, profile=None, current_agent_id="omni_doll"):
+        messages = original_assemble(
+            self,
+            topic_context,
+            retrieval_result,
+            user_message,
+            profile=profile,
+            current_agent_id=current_agent_id,
+        )
         
         print("\n" + "="*50)
         print("🚀 [TEST DEBUG] Intercepted Messages Before Kernel Loop")
@@ -36,7 +45,7 @@ def patch_assemble_messages():
         print("="*50 + "\n")
         return messages
 
-    with patch.object(PatchouliSystem, '_assemble_messages_from_context', new=_intercept):
+    with patch.object(PatchouliService, '_assemble_messages_from_context', new=_intercept):
         yield
 
 # 示例测试：
@@ -49,7 +58,7 @@ async def test_debug_messages_with_system(patch_assemble_messages):
     """
     # Mock 存储层和检索层，避免真实调用 Qdrant
     with patch('hivememory.infrastructure.storage.QdrantMemoryStore') as mock_store_cls, \
-         patch('hivememory.patchouli.kernel.retrieval_familiar.RetrievalFamiliar.retrieve') as mock_retrieve:
+         patch('hivememory.patchouli.services.retrieval.RetrievalFamiliar.retrieve') as mock_retrieve:
 
         # Mock 存储实例
         mock_store = MagicMock()
@@ -64,13 +73,17 @@ async def test_debug_messages_with_system(patch_assemble_messages):
             rendered_context=""
         )
 
-        # 实例化 PatchouliSystem，自动加载默认配置
-        system = PatchouliSystem()
+        # 实例化顶层系统，使用 Phase D 主入口
+        system = HiveMemorySystem.build(config=load_app_config())
+        await system.start()
 
-        # 这里的调用会被拦截并打印
-        result = await system.chat(
-            user_message="测试拦截功能",
-            user_id="test_user"
-        )
+        try:
+            # 这里的调用会被拦截并打印
+            result = await system.chat(
+                user_message="测试拦截功能",
+                user_id="test_user"
+            )
+        finally:
+            await system.stop()
 
         assert result is not None

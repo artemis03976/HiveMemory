@@ -7,7 +7,7 @@
 
 HiveMemory is a persistent memory system for LLM agent workflows. It is designed to address long-context forgetting, lack of cross-session knowledge reuse, and information silos in multi-agent collaboration. The system turns high-value conversational information into searchable, updatable, reusable memories and injects them back into future tasks through a unified protocol.
 
-The repository already includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and a Patchouli-based runtime that supports active chat, passive message ingestion, memory retrieval, topic management, and runtime configuration.
+The repository already includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and a v4 runtime layout built around a top-level HiveMemory system, the Patchouli memory subsystem, and the Alice agent runtime subsystem.
 
 ## Release Status
 
@@ -22,7 +22,7 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 
 ### Conversation and Integration Modes
 
-- **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, driven by `PatchouliSystem.chat_stream()` with the full generation loop and MTP execution
+- **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, orchestrated by `ChatApplicationService` through Patchouli prepare/finalize and Alice agent execution
 - `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
 - **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks, and `PatchouliSystem.ingest_event()` handles buffering, analysis, retrieval, and later memory consolidation
 
@@ -46,8 +46,9 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 
 ### Core Capabilities
 
+- v4 subsystem architecture: top-level `HiveMemorySystem`, Patchouli memory runtime, and Alice agent/tool runtime
 - Patchouli trinity architecture: The Eye / Retrieval Familiar / Librarian Core
-- In-process communication bus: SystemBus
+- In-process runtime buses: AsyncSystemBus / GlobalSystemBus / subsystem-local buses
 - MTP (Memory Tool Protocol) with `SEARCH / READ / RUN / WRITE / UPDATE`
 - Persistent memory storage backed by Qdrant
 - Hybrid Dense + Sparse retrieval path
@@ -55,16 +56,18 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 
 ## Architecture Overview
 
-The current implementation of HiveMemory is built around the **Patchouli System**. It is not just a chat API, but a runtime that separates real-time conversation from asynchronous memory organization.
+The current implementation of HiveMemory is built around a v4 **System / Service / Runtime** layout. The top-level system owns application orchestration and global routes, Patchouli owns memory-domain capabilities, and Alice owns agent execution plus MTP/tool execution.
 
-### Main Patchouli Components
+### Main Runtime Components
 
-- **PatchouliSystem**: the top-level developer entrypoint that connects The Eye and PatchouliKernel
+- **HiveMemorySystem**: the top-level host that assembles global routes, application services, Patchouli, and Alice
+- **ChatApplicationService**: the active chat orchestrator that runs `prepare -> Alice run -> finalize`
+- **PatchouliSystem / PatchouliRuntime**: the memory subsystem host and runtime for gateway, retrieval, perception, generation, lifecycle, and storage capabilities
 - **The Eye**: the interaction gateway responsible for intent recognition, query rewriting, and traffic routing
-- **PatchouliKernel**: the system orchestrator that initializes infrastructure, registers services, and connects SystemBus
 - **Retrieval Familiar**: the Hot Path retrieval service for hybrid retrieval, reranking, and context rendering
 - **Librarian Core**: the Cold Path memory service for topic perception, memory extraction, and lifecycle management
-- **KoakumaRuntime**: the MTP executor that intercepts and executes memory tool calls during generation
+- **AliceSystem / AliceRuntime**: the agent runtime subsystem that owns the Agent runtime and Koakuma tool runtime
+- **KoakumaRuntime**: the MTP/tool executor used by Alice during agent generation
 
 ### Hot Path / Cold Path
 
@@ -259,12 +262,12 @@ Recommended practice:
 
 If you want to integrate the system directly in Python, the main entrypoint is:
 
-- `hivememory.patchouli.system.PatchouliSystem`
+- `hivememory.system.system.HiveMemorySystem`
 
-It currently exposes two primary integration modes:
+It exposes two primary integration modes:
 
-- `chat()` / `chat_stream()`: active mode, where the system drives generation and the MTP loop directly
-- `ingest_event()` / `flush_observer_session()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
+- `chat()` / `chat_stream()`: active mode, where `ChatApplicationService` coordinates Patchouli memory preparation, Alice agent execution, and Patchouli finalization
+- `ingest_event()` / `flush_ingressor()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
 
 If you only need HTTP APIs, use the FastAPI service directly. If you want to embed HiveMemory into an existing agent framework, passive ingest mode is often the most natural starting point.
 
@@ -280,8 +283,11 @@ HiveMemory/
 ├── src/hivememory/
 │   ├── core/                # Core data models
 │   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle
-│   ├── infrastructure/      # Storage / LLM / SystemBus / WebSocket
-│   ├── patchouli/           # Patchouli system, Kernel, MTP, WorkerAgent
+│   ├── infrastructure/      # Storage / LLM / WebSocket
+│   ├── patchouli/           # Patchouli memory subsystem and runtime
+│   ├── alice/               # Alice agent runtime and Koakuma MTP/tool runtime
+│   ├── system/              # Top-level HiveMemory system, global bus, and application services
+│   ├── prompts/             # System prompts and prompt assembly
 │   └── server/              # FastAPI app entrypoint and routes
 └── tests/                   # Unit, integration, and end-to-end tests
 ```

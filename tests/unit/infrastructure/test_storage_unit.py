@@ -4,12 +4,57 @@ from uuid import uuid4
 
 from qdrant_client.models import Document
 
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    OMNI_DOLL_PROFILE,
+    PayloadLayer,
+)
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.patchouli.config import QdrantConfig, EmbeddingConfig
-from hivememory.patchouli.mtp.exceptions import StorageReadError
+from hivememory.system.config import QdrantConfig, EmbeddingConfig
+from hivememory.core.mtp.exceptions import StorageReadError
 
 class TestQdrantMemoryStore:
+    @staticmethod
+    def _make_profile_atom(
+        agent_id: str = "test_agent",
+        persona: str = "You are a test agent.",
+        allowed_verbs: list | None = None,
+        allowed_tools: list | None = None,
+    ) -> MemoryAtom:
+        return MemoryAtom(
+            id=uuid4(),
+            meta=MetaData(
+                user_id="system",
+                source_agent_id="system",
+                visibility="PUBLIC",
+            ),
+            index=IndexLayer(
+                alias=agent_id,
+                title=f"Agent {agent_id}",
+                summary=f"Profile for {agent_id}",
+                tags=["agent", "profile"],
+                memory_type=MemoryType.AGENT_PROFILE,
+            ),
+            payload=PayloadLayer(
+                content=persona,
+                artifacts={
+                    "agent_config": {
+                        "model_name": "gpt-4",
+                        "temperature": 0.7,
+                        "allowed_mtp_verbs": ["READ", "SEARCH"]
+                        if allowed_verbs is None
+                        else allowed_verbs,
+                        "allowed_sys_tools": ["sys_clock"]
+                        if allowed_tools is None
+                        else allowed_tools,
+                    }
+                },
+            ),
+        )
+
     @pytest.fixture
     def mock_qdrant_client(self):
         with patch('hivememory.infrastructure.storage.vector_store.QdrantClient') as mock:
@@ -200,3 +245,72 @@ class TestQdrantMemoryStore:
 
         with pytest.raises(StorageReadError):
             storage.get_memory_by_alias("broken_alias")
+
+    # ========== get_agent_profile ==========
+
+    def test_get_agent_profile_found(self, storage):
+        profile_atom = self._make_profile_atom(agent_id="coder_doll")
+        storage.get_memory_by_alias = MagicMock(return_value=profile_atom)
+
+        result = storage.get_agent_profile("coder_doll")
+
+        assert result.persona == "You are a test agent."
+        storage.get_memory_by_alias.assert_called_once_with("coder_doll")
+
+    def test_get_agent_profile_not_found_returns_omni(self, storage):
+        storage.get_memory_by_alias = MagicMock(return_value=None)
+
+        result = storage.get_agent_profile("nonexistent_agent")
+
+        assert result is OMNI_DOLL_PROFILE
+        storage.get_memory_by_alias.assert_called_once_with("nonexistent_agent")
+
+    def test_get_agent_profile_wrong_type_returns_omni(self, storage):
+        wrong_atom = MemoryAtom(
+            id=uuid4(),
+            meta=MetaData(user_id="test", source_agent_id="test"),
+            index=IndexLayer(
+                alias="not_a_profile",
+                title="Regular Memory",
+                summary="Not a profile",
+                tags=["fact"],
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="Some content"),
+        )
+        storage.get_memory_by_alias = MagicMock(return_value=wrong_atom)
+
+        result = storage.get_agent_profile("not_a_profile")
+
+        assert result is OMNI_DOLL_PROFILE
+
+    def test_get_agent_profile_broken_atom_returns_omni(self, storage):
+        broken_atom = MemoryAtom(
+            id=uuid4(),
+            meta=MetaData(user_id="system", source_agent_id="system"),
+            index=IndexLayer(
+                alias="broken_agent",
+                title="Broken Profile",
+                summary="Missing config",
+                tags=["agent"],
+                memory_type=MemoryType.AGENT_PROFILE,
+            ),
+            payload=PayloadLayer(
+                content="Some persona",
+                artifacts={},
+            ),
+        )
+        storage.get_memory_by_alias = MagicMock(return_value=broken_atom)
+
+        result = storage.get_agent_profile("broken_agent")
+
+        assert result is OMNI_DOLL_PROFILE
+
+    @pytest.mark.parametrize("alias", ["", "default", "omni_doll"])
+    def test_get_agent_profile_builtin_alias_returns_omni(self, storage, alias):
+        storage.get_memory_by_alias = MagicMock()
+
+        result = storage.get_agent_profile(alias)
+
+        assert result is OMNI_DOLL_PROFILE
+        storage.get_memory_by_alias.assert_not_called()

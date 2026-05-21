@@ -17,6 +17,7 @@ UPDATE 指令执行链路测试
 版本: 1.0
 """
 
+import asyncio
 import pytest
 from uuid import uuid4
 from unittest.mock import MagicMock, AsyncMock, patch
@@ -31,10 +32,11 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
-from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.config import KoakumaConfig
-from hivememory.patchouli.mtp import MTPResponseStatus
+from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.system.config import KoakumaConfig
+from hivememory.core.mtp import MTPResponseStatus
 
 
 # ========== Fixtures ==========
@@ -94,6 +96,14 @@ def merge_result() -> MergeResult:
         new_content="API 服务运行在端口 9090，使用 HTTP 协议。",
         changelog="端口从 8080 更新为 9090",
     )
+
+
+def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+    return asyncio.run(koakuma.execute_mtp(text, context=context))
+
+
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
 
 
 # ========== Test 1: UpdateFocus Model ==========
@@ -610,7 +620,7 @@ class TestKoakumaUpdateE2E:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
 
         # 注册 alias 到缓存
         koakuma.atom_cache.ingest_atom(existing_memory)
@@ -618,13 +628,13 @@ class TestKoakumaUpdateE2E:
 
     def test_update_basic(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="把端口改成 9090"'
-        result = update_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert result.success
 
-        # v3.0 延迟捕获: 验证 UpdateFocus 被暂存
-        focus = update_koakuma.get_update_focus()
+        # v3.0 延迟捕获: 验证 UpdateFocus 随执行结果返回
+        focus = result.update_focus
         assert focus is not None
         assert isinstance(focus, UpdateFocus)
         assert focus.instruction == "把端口改成 9090"
@@ -632,19 +642,19 @@ class TestKoakumaUpdateE2E:
 
     def test_update_with_content(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="替换端口" content="port = 9090"'
-        result = update_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert result.success
 
-        focus = update_koakuma.get_update_focus()
+        focus = result.update_focus
         assert focus is not None
         assert focus.content == "port = 9090"
         assert focus.instruction == "替换端口"
 
     def test_update_response_contains_ack(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test update"'
-        result = update_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert "updated" in result.formatted_response.lower() or "ack" in result.formatted_response.lower()
@@ -660,7 +670,7 @@ class TestKoakumaUpdateValidation:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_missing_instruction(self, validation_koakuma):
@@ -679,47 +689,47 @@ class TestKoakumaUpdateValidation:
             )
         )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
-        result = validation_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        assert validation_koakuma.get_update_focus() is None
+        assert result.update_focus is None
 
     def test_alias_not_found(self, validation_koakuma):
         agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
-        result = validation_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        assert validation_koakuma.get_update_focus() is None
+        assert result.update_focus is None
 
     def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
         validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
-            "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
+            "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
         )
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = validation_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert not result.success
         assert "Service Unavailable" in result.response_content
-        assert validation_koakuma.get_update_focus() is None
+        assert result.update_focus is None
 
     def test_update_deferred_capture_always_ack(self, existing_memory):
         """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         koakuma.atom_cache.ingest_atom(existing_memory)
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(koakuma, agent_text, context=context)
 
         assert result is not None
         assert result.success
-        assert koakuma.get_update_focus() is not None
-        assert koakuma.get_update_focus().instruction == "test"
+        assert result.update_focus is not None
+        assert result.update_focus.instruction == "test"
 
 
 # ========== Test 11: FlushReason.MTP_UPDATE ==========

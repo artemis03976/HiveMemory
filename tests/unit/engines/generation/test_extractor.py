@@ -14,7 +14,7 @@ import json
 from datetime import datetime
 
 from hivememory.core.models import StreamMessage
-from hivememory.patchouli.config import LLMConfig, ExtractorConfig
+from hivememory.system.config import LLMConfig, ExtractorConfig
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft
 

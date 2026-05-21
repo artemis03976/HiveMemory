@@ -1,24 +1,27 @@
-"""
+﻿"""
 LoopExecutor TurnEvent 采集单测
 
 验证 Phase 1 新增的结构化事件采集行为:
-1. 自然停止 → 1 个 assistant_message 事件
-2. 单次 MTP → prefix + tool_call + tool_result，sequence 递增
-3. CALL 路径 → 父 frame 只有 kind=tool_result tool_kind=CALL 事件，无子 frame 事件
+1. 自然停止 -> 1 个 assistant_message 事件
+2. 单次 MTP -> prefix + tool_call + tool_result，sequence 递增
+3. CALL 路径 -> 父 frame 只有 kind=tool_result tool_kind=CALL 事件，无子 frame 事件
 4. 无 MTP 时 ChatResult.turn_events 正常，final_text 正确
 """
 
 import json
-from typing import List
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.models import (
+    ExecutionFrame,
+    GenerationResult,
+    MTPExecutionContext,
+)
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, TurnEvent
-from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
-from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
-from hivememory.patchouli.protocol.models import MTPExecutionResult
-from hivememory.patchouli.worker_agent import GenerationResult
+from hivememory.core.protocol.models import MTPExecutionResult
+from hivememory.system.contracts.routes import GlobalRoutes
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -47,13 +50,13 @@ def _mtp_exec_result(verb: str, status: str = "success") -> MTPExecutionResult:
     cmd.target.is_wildcard = False
     cmd.target.aliases = ["alias_x"]
     cmd.args = {}
-    cmd.raw_text = f"⟪ {verb} | alias_x ⟫"
+    cmd.raw_text = f"<< {verb} | alias_x >>"
 
     return MTPExecutionResult(
         command=cmd,
         response_status=status,
         response_content="",
-        formatted_response=f"<mtp_response status=\"{status}\">{verb} result</mtp_response>",
+        formatted_response=f'<mtp_response status="{status}">{verb} result</mtp_response>',
         success=(status == "success"),
         execution_time_ms=1.0,
     )
@@ -67,7 +70,7 @@ def _call_mtp_exec_result() -> MTPExecutionResult:
     cmd.target.is_wildcard = False
     cmd.target.aliases = ["sub_agent"]
     cmd.args = {}
-    cmd.raw_text = '⟪ CALL | sub_agent | task="do work" ⟫'
+    cmd.raw_text = '<< CALL | sub_agent | task="do work" >>'
 
     return MTPExecutionResult(
         command=cmd,
@@ -94,30 +97,37 @@ def _make_frame(depth: int = 0) -> ExecutionFrame:
     )
 
 
-def _build_executor(generate_async_side_effect) -> KernelLoopExecutor:
+def _build_executor(generate_async_side_effect) -> tuple[KernelLoopExecutor, MagicMock]:
     kernel = MagicMock()
-    kernel.koakuma = MagicMock()
-    kernel.koakuma._current_traces = []
-    kernel.koakuma.atom_cache = MagicMock()
-    kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
     kernel.config = MagicMock()
-    kernel.config.koakuma.max_recursion_depth = 10
+    kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
+    kernel.frame_scheduler = MagicMock()
+    kernel.local_bus = MagicMock()
+    kernel.local_bus.request = AsyncMock()
+    profile_resolver = MagicMock()
+    profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
+    mtp_executor = MagicMock()
+    mtp_executor.intercept_and_execute = AsyncMock(return_value=None)
 
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=generate_async_side_effect)
 
-    executor = KernelLoopExecutor(kernel=kernel, worker_agent=worker_agent)
+    executor = KernelLoopExecutor(
+        worker_agent=worker_agent,
+        frame_scheduler=kernel.frame_scheduler,
+        local_bus=kernel.local_bus,
+        agent_profile_resolver=profile_resolver,
+        mtp_executor=mtp_executor,
+        config=kernel.config.agent_runtime,
+    )
     return executor, kernel
 
-
-# ============ 自然停止场景 ============
 
 @pytest.mark.asyncio
 async def test_natural_stop_produces_one_assistant_message_event():
     """自然停止: 1 个 assistant_message 事件，sequence=0，role=assistant"""
     frame = _make_frame()
-    executor, kernel = _build_executor([_natural_result("Hello world")])
-    kernel.handle_mtp = AsyncMock(return_value=None)
+    executor, _kernel = _build_executor([_natural_result("Hello world")])
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
@@ -136,8 +146,7 @@ async def test_natural_stop_produces_one_assistant_message_event():
 async def test_natural_stop_no_prefix_no_extra_events():
     """没有 MTP 的情况下，turn_events 只有一个事件"""
     frame = _make_frame()
-    executor, kernel = _build_executor([_natural_result("Simple reply")])
-    kernel.handle_mtp = AsyncMock(return_value=None)
+    executor, _kernel = _build_executor([_natural_result("Simple reply")])
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
@@ -145,25 +154,23 @@ async def test_natural_stop_no_prefix_no_extra_events():
     assert result.turn_events[0].kind == "assistant_message"
 
 
-# ============ 单次 MTP 场景 ============
-
 @pytest.mark.asyncio
 async def test_single_mtp_produces_four_events():
     """单次 MTP: prefix(assistant_message) + tool_call + tool_result + final(assistant_message)"""
     frame = _make_frame()
-
     gen_results = [
-        _mtp_result("查找中", "⟪ READ | alias_x ⟫"),
+        _mtp_result("查找中", "<< READ | alias_x >>"),
         _natural_result("找到了"),
     ]
-    executor, kernel = _build_executor(gen_results)
-    kernel.handle_mtp = AsyncMock(return_value=_mtp_exec_result("READ"))
+    executor, _kernel = _build_executor(gen_results)
+    executor._mtp_executor.intercept_and_execute = AsyncMock(
+        return_value=_mtp_exec_result("READ")
+    )
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
     assert result.final_text == "查找中找到了"
     events = result.turn_events
-    # prefix + mtp_command + mtp_result + final natural text
     assert len(events) == 4
 
     prefix_ev, cmd_ev, res_ev, final_ev = events
@@ -190,17 +197,35 @@ async def test_single_mtp_produces_four_events():
 
 
 @pytest.mark.asyncio
+async def test_mtp_execution_receives_frame_context():
+    frame = _make_frame(depth=1)
+    gen_results = [_mtp_result("", "READ alias_x"), _natural_result("done")]
+    executor, _kernel = _build_executor(gen_results)
+    executor._mtp_executor.intercept_and_execute = AsyncMock(
+        return_value=_mtp_exec_result("READ")
+    )
+
+    await executor.execute_frame(frame, max_iterations=5)
+
+    _, kwargs = executor._mtp_executor.intercept_and_execute.await_args
+    context = kwargs["context"]
+    assert isinstance(context, MTPExecutionContext)
+    assert context.identity == frame.identity
+    assert context.agent_profile is frame.agent_profile
+    assert context.depth == frame.depth
+
+
+@pytest.mark.asyncio
 async def test_sequence_is_monotonically_increasing_across_iterations():
     """多次 MTP: sequence 单调递增"""
     frame = _make_frame()
-
     gen_results = [
-        _mtp_result("", "⟪ SEARCH | * | query=\"x\" ⟫"),
-        _mtp_result("", "⟪ READ | alias_y ⟫"),
+        _mtp_result("", '<< SEARCH | * | query="x" >>'),
+        _mtp_result("", "<< READ | alias_y >>"),
         _natural_result("done"),
     ]
-    executor, kernel = _build_executor(gen_results)
-    kernel.handle_mtp = AsyncMock(side_effect=[
+    executor, _kernel = _build_executor(gen_results)
+    executor._mtp_executor.intercept_and_execute = AsyncMock(side_effect=[
         _mtp_exec_result("SEARCH"),
         _mtp_exec_result("READ"),
     ])
@@ -216,26 +241,24 @@ async def test_sequence_is_monotonically_increasing_across_iterations():
 async def test_empty_prefix_text_not_recorded():
     """prefix_text 为空时，不生成 assistant_message 事件"""
     frame = _make_frame()
-
     gen_results = [
-        _mtp_result("", "⟪ READ | alias_x ⟫"),  # empty prefix
+        _mtp_result("", "<< READ | alias_x >>"),
         _natural_result("done"),
     ]
-    executor, kernel = _build_executor(gen_results)
-    kernel.handle_mtp = AsyncMock(return_value=_mtp_exec_result("READ"))
+    executor, _kernel = _build_executor(gen_results)
+    executor._mtp_executor.intercept_and_execute = AsyncMock(
+        return_value=_mtp_exec_result("READ")
+    )
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
     kinds = [ev.kind for ev in result.turn_events]
-    # 不应有来自空 prefix 的 assistant_message
     assert "assistant_message" not in kinds or all(
         ev.content != "" for ev in result.turn_events if ev.kind == "assistant_message"
     )
     assert "tool_call" in kinds
     assert "tool_result" in kinds
 
-
-# ============ CALL 路径场景 ============
 
 @pytest.mark.asyncio
 async def test_call_path_produces_mtp_result_event_with_call_verb():
@@ -251,51 +274,67 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         identity=Identity(user_id="u1", agent_id="sub_agent"),
     )
 
-    # 主帧: CALL → 自然停止
     call_counter = {"n": 0}
 
     async def gen_async_side(*args, **kwargs):
         call_counter["n"] += 1
         if call_counter["n"] == 1:
-            # 主帧第一次生成: CALL 触发
-            return _mtp_result("正在调用", '⟪ CALL | sub_agent | task="do work" ⟫')
-        else:
-            # 子帧或主帧第二次: 自然停止
-            return _natural_result("完成")
+            return _mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')
+        return _natural_result("完成")
 
     executor, kernel = _build_executor([])
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=gen_async_side)
     executor.worker_agent = worker_agent
+    executor._mtp_executor.intercept_and_execute = AsyncMock(
+        return_value=_call_mtp_exec_result()
+    )
 
-    kernel.handle_mtp = AsyncMock(return_value=_call_mtp_exec_result())
-
-    # frame_scheduler mock
-    kernel.frame_scheduler = MagicMock()
     kernel.frame_scheduler.suspend_frame = MagicMock()
     kernel.frame_scheduler.resume_frame = MagicMock()
     kernel.frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
 
     result = await executor.execute_frame(main_frame, max_iterations=5)
 
-    call_events = [ev for ev in result.turn_events if ev.kind == "tool_result" and ev.tool_kind == "CALL"]
+    call_events = [
+        ev
+        for ev in result.turn_events
+        if ev.kind == "tool_result" and ev.tool_kind == "CALL"
+    ]
     assert len(call_events) == 1, f"应有 1 个 CALL tool_result 事件，实际: {result.turn_events}"
     call_ev = call_events[0]
     assert call_ev.role == "user"
     assert call_ev.status == "success"
     assert call_ev.render_as == "system_ipc_return"
+    assert all(
+        ev.tool_kind in (None, "CALL")
+        for ev in result.turn_events
+        if ev.kind == "tool_result"
+    )
 
-    # 子帧自己的事件不应污染主帧
-    sub_kinds = [ev.kind for ev in result.turn_events if ev.tool_kind not in ("CALL", None)]
-    # 所有 verb 为 CALL 的来自主帧，子帧事件不透传
-    assert all(ev.tool_kind in (None, "CALL") for ev in result.turn_events if ev.kind == "tool_result")
 
+@pytest.mark.asyncio
+async def test_context_refs_fetch_uses_injected_local_bus_with_public_route():
+    executor, kernel = _build_executor([])
+    response = MagicMock()
+    response.rendered_context = "<memory_context>ctx</memory_context>"
+    kernel.local_bus.request = AsyncMock(return_value=response)
+    identity = Identity(user_id="u1", agent_id="agent_a")
 
-# ============ turn_events 在 ChatResult 中的默认值 ============
+    result = await executor._fetch_context_refs_content(["fact_a"], identity)
+
+    assert result == "[Shared Context from Parent Agent]\n\n<memory_context>ctx</memory_context>"
+    kernel.local_bus.request.assert_awaited_once_with(
+        GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+        ["fact_a"],
+        identity,
+    )
+
 
 def test_chat_result_default_turn_events():
     """ChatResult 新字段有默认值，不破坏现有代码"""
-    from hivememory.patchouli.protocol.models import ChatResult
+    from hivememory.core.protocol.models import ChatResult
+
     r = ChatResult(final_text="hi")
     assert r.turn_events == []
 
@@ -305,14 +344,21 @@ async def test_run_command_event_carries_execution_status_for_reducer():
     """RUN 指令的 tool_call 事件应带上执行状态，避免 reducer 降级为 unknown"""
     frame = _make_frame()
     gen_results = [
-        _mtp_result("", "⟪ RUN | tool_x | cmd=\"echo hi\" ⟫"),
+        _mtp_result("", '<< RUN | tool_x | cmd="echo hi" >>'),
         _natural_result("done"),
     ]
-    executor, kernel = _build_executor(gen_results)
-    kernel.handle_mtp = AsyncMock(return_value=_mtp_exec_result("RUN"))
+    executor, _kernel = _build_executor(gen_results)
+    executor._mtp_executor.intercept_and_execute = AsyncMock(
+        return_value=_mtp_exec_result("RUN")
+    )
 
     result = await executor.execute_frame(frame, max_iterations=5)
 
-    run_commands = [ev for ev in result.turn_events if ev.kind == "tool_call" and ev.tool_kind == "RUN"]
+    run_commands = [
+        ev
+        for ev in result.turn_events
+        if ev.kind == "tool_call" and ev.tool_kind == "RUN"
+    ]
     assert len(run_commands) == 1
     assert run_commands[0].status == "success"
+

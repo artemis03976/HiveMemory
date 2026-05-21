@@ -43,7 +43,7 @@ class TestMemoriesRouter:
     def test_list_memories_no_query(self):
         atom = _make_atom()
         mock_system = MagicMock()
-        mock_system.storage.get_all_memories.return_value = [atom]
+        mock_system.patchouli.storage.get_all_memories.return_value = [atom]
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -57,7 +57,7 @@ class TestMemoriesRouter:
     def test_list_memories_with_query(self):
         atom = _make_atom()
         mock_system = MagicMock()
-        mock_system.storage.search_memories.return_value = [{"memory": atom, "score": 0.9}]
+        mock_system.patchouli.storage.search_memories.return_value = [{"memory": atom, "score": 0.9}]
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -69,14 +69,14 @@ class TestMemoriesRouter:
 
     def test_list_memories_filters_map_to_payload_paths(self):
         mock_system = MagicMock()
-        mock_system.storage.get_all_memories.return_value = []
+        mock_system.patchouli.storage.get_all_memories.return_value = []
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
 
         response = client.get("/api/v1/memories?user_id=u1&memory_type=FACT&limit=10")
         assert response.status_code == 200
-        mock_system.storage.get_all_memories.assert_called_once_with(
+        mock_system.patchouli.storage.get_all_memories.assert_called_once_with(
             filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
             limit=10,
         )
@@ -84,7 +84,7 @@ class TestMemoriesRouter:
     def test_get_memory_by_id(self):
         atom = _make_atom()
         mock_system = MagicMock()
-        mock_system.storage.get_memory.return_value = atom
+        mock_system.patchouli.storage.get_memory.return_value = atom
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -95,7 +95,7 @@ class TestMemoriesRouter:
 
     def test_get_memory_not_found(self):
         mock_system = MagicMock()
-        mock_system.storage.get_memory.return_value = None
+        mock_system.patchouli.storage.get_memory.return_value = None
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -115,7 +115,7 @@ class TestMemoriesRouter:
     def test_delete_memory(self):
         mid = uuid4()
         mock_system = MagicMock()
-        mock_system.storage.delete_memory.return_value = True
+        mock_system.patchouli.storage.delete_memory.return_value = True
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -126,7 +126,7 @@ class TestMemoriesRouter:
 
     def test_delete_memory_not_found(self):
         mock_system = MagicMock()
-        mock_system.storage.delete_memory.return_value = False
+        mock_system.patchouli.storage.delete_memory.return_value = False
 
         app = _create_test_app(mock_system)
         client = TestClient(app)

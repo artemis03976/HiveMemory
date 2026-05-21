@@ -1,4 +1,4 @@
-"""
+﻿"""
 Phase 2 多智能体子代理调用集成测试
 
 测试覆盖:
@@ -25,15 +25,17 @@ from hivememory.core.models import (
     MemoryType,
     OMNI_DOLL_PROFILE,
 )
-from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
-from hivememory.patchouli.mtp import (
+from hivememory.alice.runtime.models import ExecutionFrame
+from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.system.config import KoakumaConfig
+from hivememory.core.mtp import (
     MTPVerb,
     MTPResponseStatus,
     MTPParser,
     MTPCommand,
     MTPResponse,
 )
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.core.protocol.models import ChatResult
 
 
 # ========== ExecutionFrame Tests ==========
@@ -139,11 +141,15 @@ class TestKoakumaHandleCall:
     """Koakuma _handle_call() 测试"""
 
     def _make_koakuma(self, depth=0):
-        from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+        from hivememory.alice.runtime.koakuma import KoakumaRuntime
+        from hivememory.alice.runtime.models import MTPExecutionContext
 
         koakuma = MagicMock(spec=KoakumaRuntime)
-        koakuma._current_depth = depth
-        koakuma._active_profile = OMNI_DOLL_PROFILE
+        koakuma.context = MTPExecutionContext(
+            identity=Identity(user_id="u1", agent_id="omni_doll"),
+            agent_profile=OMNI_DOLL_PROFILE,
+            depth=depth,
+        )
 
         # 绑定真实方法
         import types
@@ -152,7 +158,8 @@ class TestKoakumaHandleCall:
         )
         return koakuma
 
-    def test_call_returns_suspend(self):
+    @pytest.mark.asyncio
+    async def test_call_returns_suspend(self):
         """CALL 返回 SUSPEND 状态"""
         koakuma = self._make_koakuma(depth=0)
         cmd = MagicMock(spec=MTPCommand)
@@ -160,7 +167,7 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "coder_doll"
         cmd.args = {"task": "Write code", "context_refs": '["mem_spec"]'}
 
-        response = koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd, context=koakuma.context)
 
         assert response.status == MTPResponseStatus.SUSPEND
         payload = json.loads(response.content)
@@ -168,7 +175,8 @@ class TestKoakumaHandleCall:
         assert payload["task"] == "Write code"
         assert payload["context_refs"] == ["mem_spec"]
 
-    def test_call_depth_check_blocks_sub_agent(self):
+    @pytest.mark.asyncio
+    async def test_call_depth_check_blocks_sub_agent(self):
         """子 Agent (depth=1) 被禁止调用 CALL"""
         koakuma = self._make_koakuma(depth=1)
         cmd = MagicMock(spec=MTPCommand)
@@ -176,11 +184,12 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "another_doll"
         cmd.args = {"task": "Forbidden task"}
 
-        from hivememory.patchouli.mtp.exceptions import PermissionDeniedError
+        from hivememory.core.mtp.exceptions import PermissionDeniedError
         with pytest.raises(PermissionDeniedError):
-            koakuma._handle_call(cmd)
+            await koakuma._handle_call(cmd, context=koakuma.context)
 
-    def test_call_missing_task(self):
+    @pytest.mark.asyncio
+    async def test_call_missing_task(self):
         """CALL 缺少 task 参数返回 ERROR"""
         koakuma = self._make_koakuma(depth=0)
         cmd = MagicMock(spec=MTPCommand)
@@ -188,10 +197,11 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = "coder_doll"
         cmd.args = {}  # no task
 
-        response = koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd, context=koakuma.context)
         assert response.status == MTPResponseStatus.ERROR
 
-    def test_call_missing_target(self):
+    @pytest.mark.asyncio
+    async def test_call_missing_target(self):
         """CALL 缺少 target 返回 ERROR"""
         koakuma = self._make_koakuma(depth=0)
         cmd = MagicMock(spec=MTPCommand)
@@ -199,34 +209,8 @@ class TestKoakumaHandleCall:
         cmd.target.single_alias = None  # no target
         cmd.args = {"task": "some task"}
 
-        response = koakuma._handle_call(cmd)
+        response = await koakuma._handle_call(cmd, context=koakuma.context)
         assert response.status == MTPResponseStatus.ERROR
-
-
-# ========== Koakuma Depth Tracking Tests ==========
-
-
-class TestKoakumaDepthTracking:
-    """Koakuma 深度跟踪测试"""
-
-    def test_set_and_get_depth(self):
-        from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-
-        koakuma = MagicMock(spec=KoakumaRuntime)
-
-        import types
-        koakuma.set_current_depth = types.MethodType(
-            KoakumaRuntime.set_current_depth, koakuma
-        )
-        koakuma.get_current_depth = types.MethodType(
-            KoakumaRuntime.get_current_depth, koakuma
-        )
-
-        koakuma.set_current_depth(0)
-        assert koakuma.get_current_depth() == 0
-
-        koakuma.set_current_depth(1)
-        assert koakuma.get_current_depth() == 1
 
 
 # ========== FrameScheduler Tests ==========
@@ -237,25 +221,19 @@ class TestFrameScheduler:
 
     def _make_kernel_mock(self):
         kernel = MagicMock()
-        kernel.load_agent_profile = MagicMock(return_value=OMNI_DOLL_PROFILE)
-        kernel.get_mtp_prompt = MagicMock(return_value="### MTP Instructions\n## CALL\nCALL instructions here\n## READ\nREAD instructions")
-        kernel.check_storage_health = MagicMock(return_value=True)
         kernel.config = MagicMock()
         kernel.config.koakuma.mtp_prompt.language = "zh"
-        kernel.koakuma = MagicMock()
-        kernel.koakuma._current_identity = Identity(user_id="u1")
-        kernel.koakuma.atom_cache = MagicMock()
-        kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
-        kernel.storage = MagicMock()
-        kernel.storage.get_memory_by_alias = MagicMock(return_value=None)
+        kernel.prompt_assembler = AgentPromptAssembler(KoakumaConfig())
+        kernel._global_bus = AsyncMock()
+        kernel._global_bus.request = AsyncMock(return_value=None)
         return kernel
 
     def test_create_main_frame(self):
         """创建主帧"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
+        scheduler = FrameScheduler(kernel.prompt_assembler)
 
         frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -270,10 +248,10 @@ class TestFrameScheduler:
 
     def test_suspend_resume(self):
         """帧挂起/恢复"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
+        scheduler = FrameScheduler(kernel.prompt_assembler)
 
         frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -291,20 +269,20 @@ class TestFrameScheduler:
 
     def test_resume_empty_stack_returns_none(self):
         """空栈恢复返回 None"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
+        scheduler = FrameScheduler(kernel.prompt_assembler)
 
         assert scheduler.resume_frame() is None
 
     @pytest.mark.asyncio
     async def test_fork_sub_frame(self):
         """派生子帧"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
+        from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
+        scheduler = FrameScheduler(kernel.prompt_assembler)
 
         main_frame = scheduler.create_main_frame(
             agent_profile=OMNI_DOLL_PROFILE,
@@ -315,9 +293,9 @@ class TestFrameScheduler:
 
         sub_frame = await scheduler.fork_sub_frame(
             parent_frame=main_frame,
-            target_alias="tester_doll",
+            agent_profile=OMNI_DOLL_PROFILE,
             task="Write unit tests",
-            context_refs=[],
+            shared_context="",
         )
 
         assert sub_frame.depth == 1
@@ -327,18 +305,18 @@ class TestFrameScheduler:
         assert sub_frame.is_transient()
         assert len(sub_frame.working_history) == 2  # system + user
 
-    def test_strip_call_from_prompt(self):
-        """从 MTP prompt 中移除 CALL 教学"""
-        from hivememory.patchouli.kernel.runtime.frame_scheduler import FrameScheduler
-
+    def test_sub_agent_prompt_disables_call(self):
+        """Sub-agent prompt should not render CALL instructions."""
         kernel = self._make_kernel_mock()
-        scheduler = FrameScheduler(kernel)
 
-        prompt = "### MTP Instructions\n## CALL\nCALL instructions here\n## READ\nREAD instructions"
-        stripped = scheduler._strip_call_from_prompt(prompt)
+        messages = kernel.prompt_assembler.build_sub_agent_messages(
+            profile=OMNI_DOLL_PROFILE,
+            task="Write unit tests",
+            depth=1,
+        )
 
-        assert "CALL instructions here" not in stripped
-        assert "READ instructions" in stripped
+        assert "CALL" not in messages[0]["content"]
+        assert "READ" in messages[0]["content"]
 
 
 # ========== IPC Return Assembly Tests ==========
@@ -349,10 +327,10 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_no_artifacts(self):
         """成功返回，无 artifacts"""
-        from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+        from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
-        executor.kernel = MagicMock()
+        executor._host = MagicMock()
         import types
         executor._assemble_ipc_return = types.MethodType(
             KernelLoopExecutor._assemble_ipc_return, executor
@@ -369,11 +347,9 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_with_artifacts(self):
         """成功返回，含 artifacts"""
-        from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
+        from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 
         executor = MagicMock(spec=KernelLoopExecutor)
-        executor.kernel = MagicMock()
-        executor.kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
 
         import types
         executor._assemble_ipc_return = types.MethodType(
@@ -396,13 +372,13 @@ class TestMTPFilterTypeMap:
 
     def test_agent_profile_filter(self):
         """type:AGENT_PROFILE 过滤器"""
-        from hivememory.patchouli.mtp.parser import _FILTER_TYPE_MAP
+        from hivememory.core.mtp.parser import _FILTER_TYPE_MAP
         assert "agent_profile" in _FILTER_TYPE_MAP
         assert _FILTER_TYPE_MAP["agent_profile"] == MemoryType.AGENT_PROFILE
 
     def test_agent_alias_filter(self):
         """type:agent 过滤器 (别名)"""
-        from hivememory.patchouli.mtp.parser import _FILTER_TYPE_MAP
+        from hivememory.core.mtp.parser import _FILTER_TYPE_MAP
         assert "agent" in _FILTER_TYPE_MAP
         assert _FILTER_TYPE_MAP["agent"] == MemoryType.AGENT_PROFILE
 
@@ -482,3 +458,4 @@ class TestRAGMenuRendering:
         regular, agents = _separate_agent_profiles([atom])
         assert len(regular) == 1
         assert len(agents) == 0
+

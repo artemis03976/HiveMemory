@@ -10,7 +10,7 @@
     - 产出 EyeGazeResult 供 Kernel 进行数据格式转换
 
 作者: HiveMemory Team
-版本: 4.0 (Phase P1 — observer session 管理迁出至 PassiveObserverIngressor)
+版本: 4.0 (Phase P1 — observer session 管理迁出至顶层 passive ingress service)
 """
 
 import logging
@@ -22,10 +22,12 @@ from hivememory.core.models import Identity
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.engines.gateway.engine import GatewayEngine
 
-from hivememory.patchouli.protocol.models import EyeGazeResult
+from hivememory.core.protocol.models import EyeGazeResult
 
 logger = logging.getLogger(__name__)
 
+
+# TODO: 在多智能体后续阶段开发中，考虑上移至system以对两个子系统都提供支持
 class TheEye:
     def __init__(
         self,
@@ -37,10 +39,8 @@ class TheEye:
 
         Args:
             engine: Gateway 引擎实例
-            bus: SystemBus 实例，用于跨服务通信
         """
         self._engine = engine
-        self._bus = bus
 
         logger.info(f"TheEye 真理之眼初始化完成 (Agentic Dispatcher)")
 

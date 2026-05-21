@@ -131,7 +131,7 @@ class GenerationTranscriptBuilder:
             status = trace.status or "unknown"
             return f"RUN: {tool} ({status})"
 
-        # CALL 和其他类型（不常见，直接跳过）
+        # CALL / WRITE / UPDATE remain in semantic_traces but are not rendered into generation summaries.
         return None
 
     def _format_context(self, context: GenerationContext) -> str:

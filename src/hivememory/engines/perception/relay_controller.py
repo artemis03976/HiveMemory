@@ -18,7 +18,7 @@ from hivememory.engines.perception.models import LogicalBlock
 from hivememory.engines.perception.interfaces import BaseRelayController
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import SimpleRelayConfig, LLMRelayConfig
+    from hivememory.system.config import SimpleRelayConfig, LLMRelayConfig
 
 logger = logging.getLogger(__name__)
 
@@ -265,13 +265,13 @@ def create_relay_controller(
         BaseRelayController 实例
 
     Examples:
-        >>> from hivememory.patchouli.config import RelayControllerConfig, SimpleRelayConfig
+        >>> from hivememory.system.config import RelayControllerConfig, SimpleRelayConfig
         >>> config = RelayControllerConfig(engine=SimpleRelayConfig())
         >>> controller = create_relay_controller(config)
         >>> isinstance(controller, SimpleRelayController)
         True
     """
-    from hivememory.patchouli.config import SimpleRelayConfig, LLMRelayConfig
+    from hivememory.system.config import SimpleRelayConfig, LLMRelayConfig
 
     impl_config = config.engine
 

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 import time
 
 from hivememory.core.models import Identity, MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     DenseRetrieverConfig,
     SparseRetrieverConfig,
     ReciprocalRankFusionConfig,

@@ -28,7 +28,7 @@ import pytest
 
 from hivememory.core.models import Identity
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+from hivememory.system.application.passive import PassiveIngressEvent
 
 from tests.e2e.conftest import wait_for_memory_persistence
 
@@ -47,7 +47,7 @@ SUBMIT_SETTLE_SECONDS = 3.0  # submit_interaction 是 daemon thread，需等待�
 
 def _get_perception_layer(system: PatchouliSystem):
     """获取感知层引擎实例（直接访问内部引擎）"""
-    return system.kernel._engines["perception"]
+    return system.runtime._engines["perception"]
 
 
 @contextmanager
@@ -165,7 +165,7 @@ def _passive_ingest_round(
         user_id=user_id,
         agent_id=agent_id,
     ))
-    _run(system.flush_observer_session(user_id=user_id, agent_id=agent_id))
+    _run(system.flush_ingressor(user_id=user_id, agent_id=agent_id))
     # 等待 daemon thread 完成 submit_interaction
     time.sleep(SUBMIT_SETTLE_SECONDS)
 

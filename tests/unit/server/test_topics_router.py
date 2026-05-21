@@ -35,7 +35,7 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
 class TestTopicsRouter:
     def test_list_topics(self):
         mock_system = MagicMock()
-        mock_system.kernel.librarian_core.get_active_topics_snapshots.return_value = [
+        mock_system.patchouli.librarian_core.get_active_topics_snapshots.return_value = [
             _make_snapshot("t1", "Topic 1"),
             _make_snapshot("t2", "Topic 2"),
         ]
@@ -51,7 +51,7 @@ class TestTopicsRouter:
 
     def test_list_topics_empty(self):
         mock_system = MagicMock()
-        mock_system.kernel.librarian_core.get_active_topics_snapshots.return_value = []
+        mock_system.patchouli.librarian_core.get_active_topics_snapshots.return_value = []
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -60,9 +60,9 @@ class TestTopicsRouter:
         assert response.status_code == 200
         assert response.json()["topics"] == []
 
-    def test_trigger_topic(self):
+    def test_archive_topic(self):
         mock_system = MagicMock()
-        mock_system.manual_trigger = AsyncMock(return_value={
+        mock_system.manual_archive_topic = AsyncMock(return_value={
             "success": True,
             "topic_id": "t1",
             "message": "Topic settled",
@@ -72,7 +72,7 @@ class TestTopicsRouter:
         app = _create_test_app(mock_system)
         client = TestClient(app)
 
-        response = client.post("/api/v1/topics/t1/trigger")
+        response = client.post("/api/v1/topics/t1/archive")
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True

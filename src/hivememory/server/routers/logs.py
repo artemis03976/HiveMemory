@@ -35,7 +35,7 @@ async def websocket_logs_endpoint(
     {
         "timestamp": "2026-03-15T10:30:45.123456",
         "level": "INFO",
-        "logger": "hivememory.patchouli.kernel",
+        "logger": "hivememory.patchouli.runtime.core",
         "message": "Processing user request",
         "module": "kernel.py",
         "function": "handle_hot",

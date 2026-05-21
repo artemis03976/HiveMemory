@@ -1,11 +1,11 @@
 
 import json
 import pytest
-from unittest.mock import AsyncMock, Mock, MagicMock
+from unittest.mock import AsyncMock, Mock
 
-from hivememory.patchouli.config import LLMAnalyzerConfig, LLMConfig
+from hivememory.system.config import LLMAnalyzerConfig, LLMConfig
 from hivememory.engines.gateway.models import GatewayIntent, SemanticAnalysisResult
-from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer, GATEWAY_FUNCTION_SCHEMA
+from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer
 from hivememory.utils.json_parser import JSONParseError
 from hivememory.prompts.gateway import get_gateway_system_prompt
 
@@ -31,6 +31,7 @@ class TestLLMAnalyzer:
         assert analyzer.llm_service == mock_llm_service
         assert analyzer.config is not None
         assert analyzer.system_prompt is not None
+        assert "JSON object" in analyzer.system_prompt
 
         custom_config = LLMAnalyzerConfig(prompt_variant="simple")
         analyzer_custom = LLMAnalyzer(
@@ -50,23 +51,14 @@ class TestLLMAnalyzer:
             config=config
         )
 
-        # Mock LLM response (乐观检索策略: 不再需要 intent 和 memory_type)
-        mock_response = MagicMock()
-        mock_message = MagicMock()
-        mock_tool_call = MagicMock()
-
         arguments = {
             "rewritten_query": "Rewritten Query",
             "search_keywords": ["keyword1"],
             "worth_saving": True,
-            "reason": "Test Reason"
+            "reason": "Test Reason",
         }
 
-        mock_tool_call.function.arguments = json.dumps(arguments)
-        mock_message.tool_calls = [mock_tool_call]
-        mock_response.choices = [MagicMock(message=mock_message)]
-
-        mock_llm_service.acomplete_with_tools = AsyncMock(return_value=mock_response)
+        mock_llm_service.acomplete_json = AsyncMock(return_value=json.dumps(arguments))
 
         result = await analyzer.analyze("Query")
 
@@ -80,9 +72,8 @@ class TestLLMAnalyzer:
         assert result.model == "mock-model"
 
         # Verify LLM call arguments
-        mock_llm_service.acomplete_with_tools.assert_called_once()
-        call_args = mock_llm_service.acomplete_with_tools.call_args
-        assert call_args.kwargs["tools"] == [GATEWAY_FUNCTION_SCHEMA]
+        mock_llm_service.acomplete_json.assert_called_once()
+        call_args = mock_llm_service.acomplete_json.call_args
         assert call_args.kwargs["messages"] == [
             {"role": "system", "content": analyzer.system_prompt},
             {"role": "user", "content": "Query"},
@@ -97,21 +88,17 @@ class TestLLMAnalyzer:
         config = LLMAnalyzerConfig()
         analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
 
-        mock_response = MagicMock()
-        mock_tool_call = MagicMock()
-        mock_tool_call.function.arguments = json.dumps({
+        mock_llm_service.acomplete_json = AsyncMock(return_value=json.dumps({
             "rewritten_query": "Q",
             "search_keywords": [],
             "worth_saving": False,
             "reason": "R"
-        })
-        mock_response.choices[0].message.tool_calls = [mock_tool_call]
-        mock_llm_service.acomplete_with_tools = AsyncMock(return_value=mock_response)
+        }))
 
         active_topics_menu = '["topic_1: Python学习"]'
         await analyzer.analyze("Query", active_topics_menu=active_topics_menu)
 
-        call_args = mock_llm_service.acomplete_with_tools.call_args
+        call_args = mock_llm_service.acomplete_json.call_args
         messages = call_args.kwargs["messages"]
         assert messages == [
             {
@@ -126,43 +113,27 @@ class TestLLMAnalyzer:
         ]
 
     @pytest.mark.asyncio
-    async def test_parse_response_invalid_structure(self, mock_llm_service):
-        """测试无效响应结构"""
+    async def test_parse_response_missing_required_fields_uses_defaults(self, mock_llm_service):
+        """测试缺失字段时使用保守默认值"""
         config = LLMAnalyzerConfig()
         analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
 
-        # No choices
-        mock_response = MagicMock()
-        mock_response.choices = []
-        mock_llm_service.acomplete_with_tools = AsyncMock(return_value=mock_response)
+        mock_llm_service.acomplete_json = AsyncMock(return_value=json.dumps({}))
 
-        with pytest.raises(ValueError, match="Invalid response structure"):
-            await analyzer.analyze("Query")
-
-    @pytest.mark.asyncio
-    async def test_parse_response_no_tool_calls(self, mock_llm_service):
-        """测试无 tool calls"""
-        config = LLMAnalyzerConfig()
-        analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
-
-        mock_response = MagicMock()
-        mock_response.choices[0].message.tool_calls = []
-        mock_llm_service.acomplete_with_tools = AsyncMock(return_value=mock_response)
-
-        with pytest.raises(ValueError, match="No tool_calls"):
-            await analyzer.analyze("Query")
+        result = await analyzer.analyze("Query")
+        assert result.rewritten_query == "Query"
+        assert result.search_keywords == []
+        assert result.worth_saving is False
+        assert result.reason == ""
+        assert result.target_topic == "NEW_TOPIC"
 
     @pytest.mark.asyncio
     async def test_parse_response_invalid_json(self, mock_llm_service):
-        """测试参数非 JSON"""
+        """测试 content 非 JSON"""
         config = LLMAnalyzerConfig()
         analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
 
-        mock_response = MagicMock()
-        mock_tool_call = MagicMock()
-        mock_tool_call.function.arguments = "invalid-json"
-        mock_response.choices[0].message.tool_calls = [mock_tool_call]
-        mock_llm_service.acomplete_with_tools = AsyncMock(return_value=mock_response)
+        mock_llm_service.acomplete_json = AsyncMock(return_value="no json here")
 
         with pytest.raises(JSONParseError):
             await analyzer.analyze("Query")

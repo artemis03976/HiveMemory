@@ -122,3 +122,21 @@ class TestRetrievalEngine:
         result = self.engine.retrieve(_make_query())
 
         assert result.latency_ms >= 0
+
+    def test_render_memories_uses_renderer(self):
+        mem = _make_memory()
+        self.mock_renderer.render.return_value = "rendered"
+
+        result = self.engine.render_memories([mem], render_format=RenderFormat.XML)
+
+        assert result == "rendered"
+        self.mock_renderer.render.assert_called_once_with(
+            [mem],
+            render_format=RenderFormat.XML,
+        )
+
+    def test_render_memories_empty_skips_renderer(self):
+        result = self.engine.render_memories([])
+
+        assert result == ""
+        self.mock_renderer.render.assert_not_called()

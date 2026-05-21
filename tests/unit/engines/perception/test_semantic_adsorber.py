@@ -23,7 +23,7 @@ from hivememory.engines.perception.semantic_adsorber import (
     SemanticBoundaryAdsorber,
     DEFAULT_SHORT_TEXT_STOP_WORDS,
 )
-from hivememory.patchouli.config import SemanticAdsorberConfig
+from hivememory.system.config import SemanticAdsorberConfig
 from hivememory.engines.perception.models import (
     FlushEvent,
     LogicalBlock,

@@ -5,7 +5,7 @@ Koakuma MTP 运行时集成测试
 - KoakumaRuntime 的 MTP 指令端到端执行流程
 - intercept_and_execute 的 Stop Sequence 拦截
 - 各指令处理器的错误处理
-- 与 PatchouliKernel 的集成
+- 与 PatchouliRuntime 的集成
 
 对应设计文档: MemoryToolProtocol.md Chapter 3
 """
@@ -16,15 +16,15 @@ pytestmark = pytest.mark.e2e
 from unittest.mock import MagicMock, patch
 
 from hivememory.core.models import Identity
-from hivememory.patchouli.mtp import (
+from hivememory.core.mtp import (
     MTPVerb,
     MTPResponseStatus,
     MTPCommand,
     MTPTarget,
 )
-from hivememory.patchouli.protocol.models import MTPExecutionResult
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.core.protocol.models import MTPExecutionResult, RetrievalResponse
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.system.config import KoakumaConfig
 
 
 # ========== Fixtures ==========
@@ -54,11 +54,21 @@ def koakuma(mock_kernel) -> KoakumaRuntime:
     config = KoakumaConfig()
     mock_bus = MagicMock()
 
-    def _request(route, *args, **kwargs):
-        if route == "retrieval.retrieve":
+    async def _request(route, *args, **kwargs):
+        if route in ("retrieval.retrieve", "memory.retrieve"):
             return mock_kernel.retrieval.retrieve(kwargs.get("request"))
-        if route == "storage.get_memory_by_alias":
-            return mock_kernel.storage.get_memory_by_alias(*args, **kwargs)
+        if route == "memory.retrieve_by_aliases":
+            aliases = kwargs.get("aliases")
+            if aliases is None and args:
+                aliases = args[0]
+            identity = kwargs.get("identity")
+            user_id = getattr(identity, "user_id", None)
+            memories = []
+            for alias in aliases or []:
+                atom = mock_kernel.storage.get_memory_by_alias(alias=alias, user_id=user_id)
+                if atom is not None:
+                    memories.append(atom)
+            return RetrievalResponse(memories=memories, memories_count=len(memories))
         return None
 
     mock_bus.request.side_effect = _request

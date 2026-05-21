@@ -39,8 +39,8 @@ from typing import List, Dict, Any
 import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.system.application.passive import PassiveIngressEvent
+from hivememory.core.protocol.models import ChatResult
 
 from tests.e2e.conftest import wait_for_memory_persistence_async
 
@@ -72,7 +72,15 @@ def build_messages(
 
 def _get_perception_layer(system: PatchouliSystem):
     """获取感知层实例"""
-    return system.kernel.librarian_core.perception_layer
+    return system.runtime.librarian_core.perception_layer
+
+
+def _mtp_commands(result: ChatResult) -> list[str]:
+    return [
+        event.tool_kind
+        for event in result.turn_events
+        if getattr(event, "kind", None) == "tool_result" and event.tool_kind
+    ]
 
 
 def _collect_user_blocks(
@@ -129,9 +137,9 @@ async def passive_ingest_memory(
     通过 Passive 模式预埋一条记忆
 
     流程:
-    1. ingest_event(user) → TheEye 分析 + ObserverBuffer 缓冲
-    2. ingest_event(assistant) → ObserverBuffer 缓冲
-    3. flush_observer_session() → 提交 Payload 到感知层
+    1. ingest_event(user) → TheEye 分析 + MessageTurnBuffer 缓冲
+    2. ingest_event(assistant) → MessageTurnBuffer 缓冲
+    3. flush_ingressor() → 提交 Payload 到感知层
     4. manual_trigger() → 强制感知层归档+压缩并持久化到 Qdrant
     """
     await system.ingest_event(
@@ -142,7 +150,7 @@ async def passive_ingest_memory(
         event=PassiveIngressEvent(role="assistant", content=assistant_msg),
         user_id=user_id,
     )
-    await system.flush_observer_session(user_id=user_id)
+    await system.flush_ingressor(user_id=user_id)
 
     # 手动触发话题结算（Archive + Compact），确保持久化到 Qdrant
     await system.manual_trigger()
@@ -386,7 +394,8 @@ class TestActiveMTPWriteDirected:
         assert isinstance(result, ChatResult)
         assert len(result.final_text.strip()) > 0
 
-        if "WRITE" in result.mtp_commands_executed:
+        commands = _mtp_commands(result)
+        if "WRITE" in commands:
             # WRITE 触发了 → 等待记忆持久化
             await asyncio.sleep(FLUSH_SETTLE_SECONDS)
             try:
@@ -398,7 +407,7 @@ class TestActiveMTPWriteDirected:
                 logger.warning("ACT-E2E-004: WRITE 执行但记忆未在超时内持久化")
         else:
             logger.warning(
-                f"ACT-E2E-004: LLM 未触发 WRITE, commands={result.mtp_commands_executed}"
+                f"ACT-E2E-004: LLM 未触发 WRITE, commands={commands}"
             )
 
 
@@ -453,7 +462,8 @@ class TestActiveMTPUpdateDirected:
         assert isinstance(result, ChatResult)
         assert len(result.final_text.strip()) > 0
 
-        if "UPDATE" in result.mtp_commands_executed:
+        commands = _mtp_commands(result)
+        if "UPDATE" in commands:
             # Phase 3: 等待更新持久化
             await asyncio.sleep(FLUSH_SETTLE_SECONDS)
             # 手动触发话题结算（Archive + Compact）
@@ -483,7 +493,7 @@ class TestActiveMTPUpdateDirected:
         else:
             logger.warning(
                 f"ACT-E2E-005: LLM 未触发 UPDATE, "
-                f"commands={result.mtp_commands_executed}, "
+                f"commands={commands}, "
                 f"response: {result.final_text[:150]}"
             )
 

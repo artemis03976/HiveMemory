@@ -14,6 +14,7 @@ WRITE 指令执行链路测试
 版本: 1.0
 """
 
+import asyncio
 import pytest
 from unittest.mock import MagicMock, patch, call
 from datetime import datetime
@@ -29,10 +30,11 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.engines.perception.models import FlushReason, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
-from hivememory.patchouli.kernel.librarian_core import LibrarianCore
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.config import KoakumaConfig
-from hivememory.patchouli.mtp import MTPResponseStatus
+from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.system.config import KoakumaConfig
+from hivememory.core.mtp import MTPResponseStatus
 
 
 # ========== Fixtures ==========
@@ -83,6 +85,14 @@ def sample_draft() -> ExtractedMemoryDraft:
         has_value=True,
         alias_suffix="fix_cors",
     )
+
+
+def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+    return asyncio.run(koakuma.execute_mtp(text, context=context))
+
+
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
 
 
 # ========== Test 1: WriteFocus Model ==========
@@ -436,18 +446,18 @@ class TestKoakumaWriteE2E:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_write_basic(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="端口从 8080 改为 9090" reason="修复 CORS"'
-        result = write_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
         assert result.success
 
-        # v3.0 延迟捕获: 验证 WriteFocus 被暂存而非直接调用 librarian
-        focus = write_koakuma.get_write_focus()
+        # v3.0 延迟捕获: 验证 WriteFocus 随执行结果返回而非暂存在 Koakuma
+        focus = result.write_focus
         assert focus is not None
         assert focus.content == "端口从 8080 改为 9090"
         assert focus.reason == "修复 CORS"
@@ -455,24 +465,24 @@ class TestKoakumaWriteE2E:
 
     def test_write_with_title(self, write_koakuma):
         agent_text = '⟪ WRITE | * | title="Fix CORS" content="端口改为 9090" reason="修复"'
-        result = write_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
-        focus = write_koakuma.get_write_focus()
+        focus = result.write_focus
         assert focus is not None
         assert focus.title == "Fix CORS"
 
     def test_write_missing_content(self, write_koakuma):
         agent_text = '⟪ WRITE | * | reason="no content"'
-        result = write_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
         # 应该返回 error，不捕获 WriteFocus
-        assert write_koakuma.get_write_focus() is None
+        assert result.write_focus is None
 
     def test_write_response_contains_ack(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="test content"'
-        result = write_koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
         # 响应应包含 status=ack
@@ -483,15 +493,15 @@ class TestKoakumaWriteE2E:
         from .conftest import make_mock_bus
         bus = make_mock_bus()
         koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
 
         agent_text = '⟪ WRITE | * | content="test"'
-        result = koakuma.intercept_and_execute(agent_text)
+        result = _intercept_and_execute(koakuma, agent_text, context=context)
 
         assert result is not None
         assert result.success
-        assert koakuma.get_write_focus() is not None
-        assert koakuma.get_write_focus().content == "test"
+        assert result.write_focus is not None
+        assert result.write_focus.content == "test"
 
 
 # ========== Test 8: FlushReason.MTP_WRITE ==========

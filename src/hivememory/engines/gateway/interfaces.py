@@ -71,7 +71,7 @@ class BaseSemanticAnalyzer(ABC):
     定义语义分析的核心接口，负责意图分类、查询重写和元数据提取。
 
     实现类:
-        - LLMAnalyzer: 基于 LLM + Function Calling
+        - LLMAnalyzer: 基于 LLM JSON mode
         - 未来可扩展: HybridAnalyzer, LocalModelAnalyzer 等
 
     示例:

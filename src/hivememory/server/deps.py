@@ -1,4 +1,4 @@
-"""依赖注入 — PatchouliSystem 单例管理"""
+"""依赖注入 — HiveMemorySystem 单例管理"""
 
 import logging
 from typing import Optional
@@ -8,20 +8,21 @@ from fastapi import Header
 from hivememory.core.constants import DEFAULT_USER_ID
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
-from hivememory.patchouli.config import HiveMemoryConfig, load_app_config
+from hivememory.system.config import HiveMemoryConfig
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)
 
-_system: Optional[PatchouliSystem] = None
+_system: Optional[HiveMemorySystem] = None
 _ws_manager: Optional[WebSocketConnectionManager] = None
 
 
-def init_system(config: Optional[HiveMemoryConfig] = None) -> PatchouliSystem:
-    """lifespan startup 时调用，初始化 PatchouliSystem 单例"""
+def init_system(config: Optional[HiveMemoryConfig] = None) -> HiveMemorySystem:
+    """lifespan startup 时调用，组装并返回 HiveMemorySystem"""
     global _system
-    _system = PatchouliSystem(config=config or load_app_config())
-    logger.info("PatchouliSystem 单例初始化完成")
+    _system = HiveMemorySystem.build(config=config)
+    logger.info("HiveMemorySystem 组装完成")
     return _system
 
 
@@ -29,15 +30,15 @@ async def shutdown_system() -> None:
     """lifespan shutdown 时调用"""
     global _system
     if _system:
-        await _system.shutdown_drain()
-        logger.info("PatchouliSystem 已关闭")
+        await _system.stop()
+        logger.info("HiveMemorySystem 已关闭")
     _system = None
 
 
-def get_system() -> PatchouliSystem:
-    """FastAPI Depends 注入 — 获取 PatchouliSystem 单例"""
+def get_system() -> HiveMemorySystem:
+    """FastAPI Depends 注入 — 获取 HiveMemorySystem 单例"""
     if _system is None:
-        raise RuntimeError("PatchouliSystem 未初始化，服务未正确启动")
+        raise RuntimeError("HiveMemorySystem 未初始化，服务未正确启动")
     return _system
 
 

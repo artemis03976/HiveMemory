@@ -1,4 +1,4 @@
-"""
+﻿"""
 Kernel 递归循环 E2E Pipeline 测试
 
 使用真实 LLM API 验证 PatchouliSystem._recursive_generation_loop() 的完整链路:
@@ -26,10 +26,10 @@ import logging
 import pytest
 from unittest.mock import MagicMock
 
-from hivememory.patchouli.config import LLMConfig, KoakumaConfig
-from hivememory.patchouli.worker_agent import WorkerAgentService
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.protocol.models import ChatResult
+from hivememory.system.config import LLMConfig, KoakumaConfig
+from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.core.protocol.models import ChatResult, RetrievalResponse
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.patchouli.system import PatchouliSystem
 
@@ -40,10 +40,17 @@ pytestmark = pytest.mark.live_llm
 
 # ========== Helpers ==========
 
+def _mtp_commands(result: ChatResult) -> list[str]:
+    return [
+        event.tool_kind
+        for event in result.turn_events
+        if getattr(event, "kind", None) == "tool_result" and event.tool_kind
+    ]
+
 def _get_llm_config():
     """从环境变量或 config.yaml 获取 LLM 配置"""
     try:
-        from hivememory.patchouli.config import load_app_config
+        from hivememory.system.config import load_app_config
         config = load_app_config()
         worker_config = config.llm.worker
         if worker_config and worker_config.model and worker_config.api_key:
@@ -67,7 +74,7 @@ def _build_mtp_system_prompt(language: str = "en") -> str:
     ]
     mtp_fragment = MTPPromptBuilder(
         language=language,
-        kernel_tools=available_tools,
+        runtime_tools=available_tools,
     ).build()
     return f"{base_prompt}\n\n{mtp_fragment}"
 
@@ -91,13 +98,15 @@ class KernelLoopTestHarness:
         # Real KoakumaRuntime with mocked bus
         self.mock_bus = MagicMock()
 
-        def _request(route, *args, **kwargs):
-            if route == "retrieval.retrieve":
+        async def _request(route, *args, **kwargs):
+            if route in ("retrieval.retrieve", "memory.retrieve"):
                 empty_result = MagicMock()
                 empty_result.is_empty.return_value = True
                 empty_result.memories = []
                 return empty_result
-            if route in ("storage.get_memory", "storage.get_memory_by_alias"):
+            if route == "memory.retrieve_by_aliases":
+                return RetrievalResponse()
+            if route == "storage.get_memory":
                 return None
             return None
 
@@ -110,13 +119,13 @@ class KernelLoopTestHarness:
         # Mock PatchouliSystem with real _recursive_generation_loop
         self.system = MagicMock(spec=PatchouliSystem)
         self.system._worker_agent = self.worker_agent
-        self.system.kernel = MagicMock()
-        self.system.kernel.koakuma = self.koakuma
+        self.system.runtime = MagicMock()
+        self.system.runtime.koakuma = self.koakuma
         async def _handle_mtp(text):
             return self.koakuma.intercept_and_execute(text)
-        self.system.kernel.handle_mtp = _handle_mtp
+        self.system.runtime.handle_mtp = _handle_mtp
         self.system.config = MagicMock()
-        self.system.config.koakuma.max_recursion_depth = 10
+        self.system.config.agent_runtime = MagicMock(max_loop_iterations=10)
 
         # Bind real method
         self.system._recursive_generation_loop = types.MethodType(
@@ -174,7 +183,7 @@ class TestNormalConversation:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations == 0
-        assert result.mtp_commands_executed == []
+        assert _mtp_commands(result) == []
         logger.info(f"[test_simple_greeting] final_text={result.final_text[:200]}")
 
 
@@ -193,10 +202,11 @@ class TestSingleMTPInterrupt:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
-        assert "RUN" in result.mtp_commands_executed
+        commands = _mtp_commands(result)
+        assert "RUN" in commands
         logger.info(
             f"[test_sys_clock] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}, "
+            f"commands={commands}, "
             f"text={result.final_text[:200]}"
         )
 
@@ -210,7 +220,7 @@ class TestSingleMTPInterrupt:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
-        assert "RUN" in result.mtp_commands_executed
+        assert "RUN" in _mtp_commands(result)
         # 验证计算结果出现在回复中
         assert "480" in result.final_text
         logger.info(
@@ -235,12 +245,13 @@ class TestMultiRoundMTPChain:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 2
-        assert len(result.mtp_commands_executed) >= 2
+        commands = _mtp_commands(result)
+        assert len(commands) >= 2
         # 验证 2**10 = 1024 出现在回复中
         assert "1024" in result.final_text
         logger.info(
             f"[test_clock_then_calc] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}, "
+            f"commands={commands}, "
             f"text={result.final_text[:300]}"
         )
 
@@ -311,9 +322,10 @@ class TestErrorRecovery:
 
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
+        commands = _mtp_commands(result)
         logger.info(
             f"[test_error_recovery] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}, "
+            f"commands={commands}, "
             f"text={result.final_text[:200]}"
         )
 
@@ -335,10 +347,11 @@ class TestStopSequenceDetection:
             f"Expected at least 1 MTP iteration, got {result.mtp_iterations}. "
             f"LLM may not have used MTP. Text: {result.final_text[:200]}"
         )
-        assert "RUN" in result.mtp_commands_executed
+        commands = _mtp_commands(result)
+        assert "RUN" in commands
         logger.info(
             f"[test_stop_sequence] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}"
+            f"commands={commands}"
         )
 
 
@@ -356,11 +369,13 @@ class TestChineseScenario:
         assert isinstance(result, ChatResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
-        assert "RUN" in result.mtp_commands_executed
+        commands = _mtp_commands(result)
+        assert "RUN" in commands
         # 123 * 456 = 56088
         assert "56088" in result.final_text
         logger.info(
             f"[test_chinese] iterations={result.total_iterations}, "
-            f"commands={result.mtp_commands_executed}, "
+            f"commands={commands}, "
             f"text={result.final_text[:200]}"
         )
+

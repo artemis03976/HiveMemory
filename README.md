@@ -7,7 +7,7 @@
 
 HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是解决长上下文遗忘、跨会话知识无法复用、以及多 Agent 协作中的信息孤岛问题。系统会将对话中的高价值信息沉淀为可检索、可更新、可使用的记忆，并通过统一协议将这些记忆重新注入到后续任务中。
 
-当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及围绕 Patchouli 体系构建的主动对话、被动消息摄入、记忆检索、话题管理和运行时配置能力。
+当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及围绕顶层 HiveMemory System、Patchouli 记忆子系统、Alice Agent 运行时子系统构建的 v4 运行时能力。
 
 ## 发布状态
 
@@ -22,7 +22,7 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 
 ### 对话与接入模式
 
-- **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话，由 `PatchouliSystem.chat_stream()` 驱动完整生成循环与 MTP 执行
+- **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话，由 `ChatApplicationService` 编排 Patchouli prepare/finalize 与 Alice Agent 执行
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
 - **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散事件，由 `PatchouliSystem.ingest_event()` 负责缓冲、分析、检索和后续记忆沉淀
 
@@ -46,8 +46,9 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 
 ### 核心能力
 
+- v4 子系统架构：顶层 `HiveMemorySystem`、Patchouli 记忆运行时、Alice Agent/工具运行时
 - Patchouli 三位一体架构：The Eye / Retrieval Familiar / Librarian Core
-- 进程内通信总线：SystemBus
+- 进程内运行时总线：AsyncSystemBus / GlobalSystemBus / 子系统私有 bus
 - MTP（Memory Tool Protocol）协议，支持 `SEARCH / READ / RUN / WRITE / UPDATE`
 - 基于 Qdrant 的持久化记忆存储
 - Dense + Sparse 的混合检索路径
@@ -55,16 +56,18 @@ v0.1.0 的 README 以**当前实现情况**为准，重点提供真实可执行�
 
 ## 架构概览
 
-HiveMemory 当前实现围绕 **Patchouli System** 展开，它不是单纯的聊天接口，而是一套将实时对话与后台记忆整理解耦的运行时系统。
+HiveMemory 当前实现围绕 v4 **System / Service / Runtime** 分层展开。顶层 system 负责应用编排与全局路由，Patchouli 负责记忆域能力，Alice 负责 Agent 执行与 MTP/工具运行时。
 
-### Patchouli 的主要组成
+### 主要运行时组成
 
-- **PatchouliSystem**：开发者直接使用的顶层入口，负责连接 The Eye 与 PatchouliKernel
+- **HiveMemorySystem**：顶层宿主，装配全局总线、应用服务、Patchouli 与 Alice
+- **ChatApplicationService**：主动 chat 编排服务，负责 `prepare -> Alice run -> finalize`
+- **PatchouliSystem / PatchouliRuntime**：记忆子系统宿主与运行时，管理 gateway、retrieval、perception、generation、lifecycle 与 storage 能力
 - **The Eye**：交互入口与网关，负责意图识别、查询重写、流量分发
-- **PatchouliKernel**：系统编排器，负责初始化基础设施、注册服务、连接 SystemBus
 - **Retrieval Familiar**：Hot Path 检索服务，负责混合检索、重排序、上下文渲染
 - **Librarian Core**：Cold Path 记忆服务，负责话题感知、记忆提取、生命周期维护
-- **KoakumaRuntime**：MTP 执行器，负责在生成过程中拦截并执行记忆工具调用
+- **AliceSystem / AliceRuntime**：Agent 运行时子系统，持有 Agent runtime 与 Koakuma 工具 runtime
+- **KoakumaRuntime**：Alice 在 Agent 生成过程中使用的 MTP/工具执行器
 
 ### 热路径 / 冷路径
 
@@ -259,12 +262,12 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 
 如果你希望直接在 Python 中集成系统，主入口是：
 
-- `hivememory.patchouli.system.PatchouliSystem`
+- `hivememory.system.system.HiveMemorySystem`
 
-它当前提供两种主要接入方式：
+它提供两种主要接入方式：
 
-- `chat()` / `chat_stream()`：主动模式，系统直接驱动生成与 MTP 循环
-- `ingest_event()` / `flush_observer_session()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
+- `chat()` / `chat_stream()`：主动模式，由 `ChatApplicationService` 协调 Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
+- `ingest_event()` / `flush_ingressor()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
 
 如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要把 HiveMemory 嵌入已有 Agent 框架，通常从 passive ingest 模式开始会更自然。
 
@@ -280,8 +283,11 @@ HiveMemory/
 ├── src/hivememory/
 │   ├── core/                # 核心数据模型
 │   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle
-│   ├── infrastructure/      # Storage / LLM / SystemBus / WebSocket
-│   ├── patchouli/           # Patchouli 体系、Kernel、MTP、WorkerAgent
+│   ├── infrastructure/      # Storage / LLM / WebSocket
+│   ├── patchouli/           # Patchouli 记忆子系统与运行时
+│   ├── alice/               # Alice Agent runtime 与 Koakuma MTP/工具 runtime
+│   ├── system/              # 顶层 HiveMemory system、全局总线与应用服务
+│   ├── prompts/             # System prompts 与 prompt 组装
 │   └── server/              # FastAPI 服务入口与路由
 └── tests/                   # 单元测试、集成测试、端到端测试
 ```

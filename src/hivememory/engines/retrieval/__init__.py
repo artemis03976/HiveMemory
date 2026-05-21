@@ -27,7 +27,7 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import MemoryRetrievalConfig
+    from hivememory.system.config import MemoryRetrievalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ from hivememory.engines.retrieval.renderer import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import MemoryRetrievalConfig
+    from hivememory.system.config import MemoryRetrievalConfig
 
 
 __all__ = [

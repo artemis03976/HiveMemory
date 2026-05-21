@@ -1,12 +1,12 @@
 import asyncio
-import types
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.patchouli.protocol.models import EyeGazeResult, KernelHotResult
-from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.worker_agent import StreamChunk, GenerationResult
+from hivememory.core.protocol.models import EyeGazeResult, RetrievalResponse
+from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.service import PatchouliService
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -32,14 +32,10 @@ def _build_memory_atom() -> MemoryAtom:
 
 
 def test_chat_stream_memory_refs_uses_flatten_schema():
-    system = MagicMock(spec=PatchouliSystem)
-    system.config = MagicMock()
-    system.config.koakuma.max_recursion_depth = 3
-
-    system.eye = MagicMock()
-    system.eye.gaze = AsyncMock(
+    eye = MagicMock()
+    eye.gaze = AsyncMock(
         return_value=EyeGazeResult(
-            intent=GatewayIntent.CHAT,
+            intent=GatewayIntent.RAG,
             rewritten_query="hello",
             search_keywords=[],
             worth_saving=True,
@@ -50,64 +46,47 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     )
 
     memory_atom = _build_memory_atom()
-    system.kernel = MagicMock()
-    system.kernel.get_topic_snapshots = AsyncMock(return_value=[])
-    system.kernel.prepare_topic = AsyncMock(
-        return_value=(
-            "topic-1",
-            {"topics": [], "max_resident_topics": 5, "current_count": 1},
-            {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
-        )
+    kernel = MagicMock()
+    bus = GlobalSystemBus()
+    local_bus = PatchouliBus()
+    kernel.local_bus = local_bus
+    kernel.check_storage_health.return_value = True
+    local_bus.register(
+        "memory.get_agent_profile",
+        AsyncMock(return_value=OMNI_DOLL_PROFILE),
     )
-    system.kernel.handle_hot = AsyncMock(
-        return_value=KernelHotResult(
-            intent="Chat",
-            rewritten="hello",
-            keywords=[],
-            worth_saving=True,
-            rendered_memory_context=None,
-            retrieved_memories=[memory_atom],
-        )
+    local_bus.register(
+        "librarian.get_active_topics_snapshots",
+        AsyncMock(return_value=[]),
     )
-    system.kernel.submit_interaction = AsyncMock(return_value=None)
-    system.kernel.koakuma = MagicMock()
-    system.kernel.koakuma.set_current_identity = MagicMock()
-    system.kernel.koakuma.reset_interaction_state = MagicMock()
-    system.kernel.koakuma.get_interaction_traces = MagicMock(return_value=[])
-    system.kernel.koakuma.get_write_focus = MagicMock(return_value=None)
-    system.kernel.koakuma.get_update_focus = MagicMock(return_value=None)
-
-    async def fake_stream(_messages):
-        yield StreamChunk(
-            is_final=True,
-            result=GenerationResult(
-                text="ok",
-                finish_reason="stop",
-                was_mtp_interrupted=False,
-                prefix_text="ok",
-                mtp_fragment="",
-            ),
-        )
-
-    system._worker_agent = MagicMock()
-    system._worker_agent.generate_stream = fake_stream
-    system._assemble_messages_from_context = types.MethodType(
-        PatchouliSystem._assemble_messages_from_context, system
+    local_bus.register(
+        "librarian.prepare_topic",
+        AsyncMock(
+            return_value=(
+                "topic-1",
+                {"topics": [], "max_resident_topics": 5, "current_count": 1},
+                {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
+            )
+        ),
     )
-    system.chat_stream = types.MethodType(PatchouliSystem.chat_stream, system)
+    local_bus.register(
+        "memory.retrieve",
+        AsyncMock(
+            return_value=RetrievalResponse(
+                rendered_context="",
+                memories=[memory_atom],
+            )
+        ),
+    )
+    service = PatchouliService(runtime=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
 
-    async def _collect():
-        events = []
-        async for event in system.chat_stream(
+    prepared = asyncio.run(
+        service.prepare_agent_run(
             user_message="hello",
             user_id="user-1",
-        ):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    memory_event = next(e for e in events if e["event"] == "memory_refs")
-    memory = memory_event["data"]["memories"][0]
+        )
+    )
+    memory = prepared.stream_prelude.memory_refs[0]
 
     assert "title" in memory
     assert "summary" in memory
@@ -121,12 +100,8 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
 
 
 def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
-    system = MagicMock(spec=PatchouliSystem)
-    system.config = MagicMock()
-    system.config.koakuma.max_recursion_depth = 3
-
-    system.eye = MagicMock()
-    system.eye.gaze = AsyncMock(
+    eye = MagicMock()
+    eye.gaze = AsyncMock(
         return_value=EyeGazeResult(
             intent=GatewayIntent.CHAT,
             rewritten_query="hello",
@@ -138,61 +113,44 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
         )
     )
 
-    system.kernel = MagicMock()
-    system.kernel.get_topic_snapshots = AsyncMock(return_value=[])
-    system.kernel.prepare_topic = AsyncMock(
-        return_value=(
-            "topic-1",
-            {"topics": [], "max_resident_topics": 5, "current_count": 1},
-            {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
-        )
+    kernel = MagicMock()
+    local_bus = PatchouliBus()
+    kernel.local_bus = local_bus
+    kernel.check_storage_health.return_value = True
+    local_bus.register(
+        "memory.get_agent_profile",
+        AsyncMock(return_value=OMNI_DOLL_PROFILE),
     )
-    system.kernel.handle_hot = AsyncMock(
-        return_value=KernelHotResult(
-            intent="Chat",
-            rewritten="hello",
-            keywords=[],
-            worth_saving=True,
-            rendered_memory_context=None,
-            retrieved_memories=[],
-        )
+    local_bus.register(
+        "librarian.get_active_topics_snapshots",
+        AsyncMock(return_value=[]),
     )
-    system.kernel.submit_interaction = AsyncMock(return_value=None)
-    system.kernel.koakuma = MagicMock()
-    system.kernel.koakuma.set_current_identity = MagicMock()
-    system.kernel.koakuma.reset_interaction_state = MagicMock()
-    system.kernel.koakuma.get_interaction_traces = MagicMock(return_value=[])
-    system.kernel.koakuma.get_write_focus = MagicMock(return_value=None)
-    system.kernel.koakuma.get_update_focus = MagicMock(return_value=None)
-
-    async def fake_stream(_messages):
-        yield StreamChunk(
-            is_final=True,
-            result=GenerationResult(
-                text="ok",
-                finish_reason="stop",
-                was_mtp_interrupted=False,
-                prefix_text="ok",
-                mtp_fragment="",
-            ),
-        )
-
-    system._worker_agent = MagicMock()
-    system._worker_agent.generate_stream = fake_stream
-    system._assemble_messages_from_context = types.MethodType(
-        PatchouliSystem._assemble_messages_from_context, system
+    local_bus.register(
+        "librarian.prepare_topic",
+        AsyncMock(
+            return_value=(
+                "topic-1",
+                {"topics": [], "max_resident_topics": 5, "current_count": 1},
+                {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
+            )
+        ),
     )
-    system.chat_stream = types.MethodType(PatchouliSystem.chat_stream, system)
+    local_bus.register(
+        "memory.retrieve",
+        AsyncMock(
+            return_value=MagicMock(
+                is_empty=MagicMock(return_value=True),
+                rendered_context=None,
+                memories=[],
+            )
+        ),
+    )
+    service = PatchouliService(runtime=kernel, eye=eye, local_bus=local_bus)
 
-    async def _collect():
-        events = []
-        async for event in system.chat_stream(
+    prepared = asyncio.run(
+        service.prepare_agent_run(
             user_message="hello",
             user_id="user-1",
-        ):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_collect())
-    memory_event = next(e for e in events if e["event"] == "memory_refs")
-    assert memory_event["data"]["memories"] == []
+        )
+    )
+    assert prepared.stream_prelude.memory_refs == []

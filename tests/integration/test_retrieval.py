@@ -38,7 +38,7 @@ from hivememory.engines.retrieval import (
     ReciprocalRankFusion,
     create_retriever,
 )
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     RerankerConfig, 
     ReciprocalRankFusionConfig, 
     HybridRetrieverConfig, 
@@ -245,7 +245,7 @@ class TestRendererAndResultsCollaboration:
             for i in range(10)
         ]
 
-        from hivememory.patchouli.config import FullRendererConfig
+        from hivememory.system.config import FullRendererConfig
         config = FullRendererConfig(max_tokens=100)
         renderer = FullContextRenderer(config)
         output = renderer.render(results)

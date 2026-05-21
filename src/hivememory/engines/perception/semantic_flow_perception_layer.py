@@ -32,7 +32,7 @@ Note:
 import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from hivememory.core.models import ActionReducer, Identity, TraceReducer, TurnRecord
+from hivememory.core.models import ActionReducer, Identity, TurnRecord
 from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
@@ -43,8 +43,8 @@ from hivememory.engines.perception.models import (
     LogicalBlock,
     SemanticBuffer,
 )
-from hivememory.patchouli.config import SemanticFlowPerceptionConfig
-from hivememory.patchouli.protocol.models import InteractionPayload
+from hivememory.system.config import SemanticFlowPerceptionConfig
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.utils.token_estimator import estimate_tokens
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         从 InteractionPayload 直接构建 LogicalBlock。
 
         流程:
-            1. MTPLogParser 清洗 → clean_text + fallback_traces
+            1. 消费 Patchouli 后处理完成的结构化 payload 字段
             2. 构建 LogicalBlock (v3.0 字段)
             3. 信号检查:
                - URGENT (write_focus/update_focus): 添加 block → 立即 flush
@@ -178,12 +178,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         clean_text = payload.assistant_final_text or ""
         actions = ActionReducer.reduce(payload.turn_events)
-
-        # Traces 优先级: Koakuma 透传 > AgentAction 结构化提取
-        if payload.mtp_traces:
-            traces = payload.mtp_traces
-        else:
-            traces = TraceReducer.reduce(actions)
+        traces = payload.mtp_traces
 
         logger.debug(
             "ingest_payload: 结构化单路径, "

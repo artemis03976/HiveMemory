@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import LLMConfig
+    from hivememory.system.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,21 @@ class BaseLLMService(ABC):
             NotImplementedError: 子类未实现此方法时抛出
         """
         raise NotImplementedError(f"{self.__class__.__name__} does not support acomplete_with_tools")
+
+    async def acomplete_json(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> str:
+        """
+        异步生成 JSON 内容。
+
+        子类可使用 provider 的 JSON mode / structured output 能力实现；
+        不支持时应降级为普通 completion 并返回文本内容。
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support acomplete_json")
 
     def complete_with_retry(
         self,

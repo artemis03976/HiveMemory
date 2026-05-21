@@ -1,6 +1,6 @@
 """Chat 相关的 Request/Response 模型"""
 
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -89,7 +89,6 @@ class ChatDoneEvent(BaseModel):
     final_text: str
     mtp_iterations: int
     total_iterations: int
-    mtp_commands_executed: List[str]
 
 
 class ChatErrorEvent(BaseModel):

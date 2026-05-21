@@ -1,4 +1,4 @@
-"""
+﻿"""
 KernelLoopExecutor 流式事件测试
 
 聚焦 Phase 2 子代理调用与 IPC 相关的流式事件链路：
@@ -13,10 +13,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
-from hivememory.patchouli.kernel.runtime.execution_frame import ExecutionFrame
-from hivememory.patchouli.kernel.runtime.loop_executor import KernelLoopExecutor
-from hivememory.patchouli.protocol.models import MTPExecutionResult
-from hivememory.patchouli.worker_agent import GenerationResult, StreamChunk
+from hivememory.alice.runtime.models import ExecutionFrame, GenerationResult, StreamChunk
+from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
+from hivememory.core.protocol.models import MTPExecutionResult
 
 
 def _make_call_mtp_result() -> MTPExecutionResult:
@@ -70,16 +69,27 @@ def _make_frames():
 
 def _build_executor_with_stream(worker_stream_impl):
     kernel = MagicMock()
-    kernel.handle_mtp = AsyncMock(return_value=_make_call_mtp_result())
-    kernel.koakuma = MagicMock()
-    kernel.koakuma._current_traces = []
-    kernel.koakuma.atom_cache = MagicMock()
-    kernel.koakuma.atom_cache.get_atom_by_alias = MagicMock(return_value=None)
+    kernel.config = MagicMock()
+    kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
+    kernel.frame_scheduler = MagicMock()
+    kernel.local_bus = MagicMock()
+    kernel.local_bus.request = AsyncMock()
+    profile_resolver = MagicMock()
+    profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
+    mtp_executor = MagicMock()
+    mtp_executor.intercept_and_execute = AsyncMock(return_value=_make_call_mtp_result())
 
     worker_agent = MagicMock()
     worker_agent.generate_stream = worker_stream_impl
 
-    return KernelLoopExecutor(kernel=kernel, worker_agent=worker_agent), kernel
+    return KernelLoopExecutor(
+        worker_agent=worker_agent,
+        frame_scheduler=kernel.frame_scheduler,
+        local_bus=kernel.local_bus,
+        agent_profile_resolver=profile_resolver,
+        mtp_executor=mtp_executor,
+        config=kernel.config.agent_runtime,
+    ), kernel
 
 
 @pytest.mark.asyncio
@@ -138,6 +148,7 @@ async def test_execute_frame_stream_emits_scoped_events_for_call():
     kernel.frame_scheduler.suspend_frame = MagicMock()
     kernel.frame_scheduler.resume_frame = MagicMock(return_value=main_frame)
     kernel.frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
+    executor._frame_scheduler = kernel.frame_scheduler
 
     events: List[Dict[str, Any]] = []
     async for event in executor.execute_frame_stream(main_frame, max_iterations=4):
@@ -173,7 +184,10 @@ async def test_execute_frame_stream_emits_scoped_events_for_call():
     assert sub_end["data"]["status"] == "success"
 
     done_event = next(e for e in events if e["event"] == "done")
-    assert "CALL" in done_event["data"]["mtp_commands_executed"]
+    assert any(
+        event["kind"] == "tool_result" and event.get("tool_kind") == "CALL"
+        for event in done_event["data"]["turn_events"]
+    )
 
 
 @pytest.mark.asyncio
@@ -219,6 +233,7 @@ async def test_execute_frame_stream_subframe_error_still_emits_sub_agent_end():
     kernel.frame_scheduler.suspend_frame = MagicMock()
     kernel.frame_scheduler.resume_frame = MagicMock(return_value=main_frame)
     kernel.frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
+    executor._frame_scheduler = kernel.frame_scheduler
 
     events: List[Dict[str, Any]] = []
     async for event in executor.execute_frame_stream(main_frame, max_iterations=4):
@@ -229,4 +244,5 @@ async def test_execute_frame_stream_subframe_error_still_emits_sub_agent_end():
 
     done_event = next(e for e in events if e["event"] == "done")
     assert done_event["data"]["final_text"].endswith("主帧恢复并结束")
+
 

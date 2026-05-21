@@ -21,7 +21,7 @@ from hivememory.engines.retrieval import create_retriever  # noqa: E402
 from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery, SearchResults  # noqa: E402
 from hivememory.infrastructure.rerank import get_fast_embed_reranker_service  # noqa: E402
 from hivememory.infrastructure.storage import QdrantMemoryStore  # noqa: E402
-from hivememory.patchouli.config import DenseRetrieverConfig, HybridRetrieverConfig, SparseRetrieverConfig, load_app_config  # noqa: E402
+from hivememory.system.config import DenseRetrieverConfig, HybridRetrieverConfig, SparseRetrieverConfig, load_app_config  # noqa: E402
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

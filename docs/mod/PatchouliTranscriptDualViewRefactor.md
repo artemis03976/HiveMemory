@@ -168,7 +168,7 @@ User
 ```text
 External Events
 -> PassiveObserverIngressor
--> ObserverTurnBuffer
+-> MessageTurnBuffer
 -> InteractionPayload
 -> LibrarianCore / Perception
 ```
@@ -176,7 +176,7 @@ External Events
 关键点：
 
 - `PassiveObserverIngressor` 已从 `TheEye` 中独立出来
-- `ObserverTurnBuffer` 会直接构建 `turn_events`
+- `MessageTurnBuffer` 会直接构建 `turn_events`
 - 多 session 分桶通过 `PassiveSessionKey` 处理
 - 被动模式也与主动模式一样提交结构化 `InteractionPayload`
 

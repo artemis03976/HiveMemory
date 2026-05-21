@@ -12,7 +12,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch
 
 from hivememory.engines.perception.interfaces import BaseArbiter
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     ArbiterConfig,
     RerankerArbiterConfig,
     SLMArbiterConfig,

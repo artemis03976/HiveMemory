@@ -16,6 +16,7 @@ RUN 指令执行链路测试
 版本: 3.0
 """
 
+import asyncio
 import pytest
 from uuid import uuid4
 from unittest.mock import MagicMock
@@ -23,8 +24,9 @@ from unittest.mock import MagicMock
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-from hivememory.patchouli.config import KoakumaConfig
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.system.config import KoakumaConfig
 
 
 # ========== Helpers ==========
@@ -74,23 +76,31 @@ def koakuma() -> KoakumaRuntime:
     return KoakumaRuntime(bus=bus, config=KoakumaConfig())
 
 
+def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+    return asyncio.run(koakuma.execute_mtp(text, context=context))
+
+
+def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
+
+
 # ========== Test 1: Target Validation ==========
 
 class TestRunTargetValidation:
     """RUN 指令 target 校验"""
 
     def test_wildcard_rejected(self, koakuma):
-        result = koakuma.execute_mtp('⟪ RUN | * | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | * | ⟫')
         assert not result.success
         assert "single tool alias" in result.response_content.lower() or "requires" in result.response_content.lower()
 
     def test_list_target_rejected(self, koakuma):
         """列表 target 不支持 (single_alias 返回 None)"""
-        result = koakuma.execute_mtp('⟪ RUN | [tool_a, tool_b] | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | [tool_a, tool_b] | ⟫')
         assert not result.success
 
     def test_empty_target(self, koakuma):
-        result = koakuma.execute_mtp('⟪ RUN | | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | | ⟫')
         assert not result.success
 
 
@@ -100,36 +110,36 @@ class TestRunKernelFastPath:
     """Level 0 内核工具快速路径"""
 
     def test_sys_clock_default(self, koakuma):
-        result = koakuma.execute_mtp('⟪ RUN | sys_clock | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | ⟫')
         assert result.success
         assert "UTC" in result.response_content
 
     def test_sys_clock_iso(self, koakuma):
-        result = koakuma.execute_mtp('⟪ RUN | sys_clock | format="iso" ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | format="iso" ⟫')
         assert result.success
         assert "T" in result.response_content
 
     def test_sys_clock_date(self, koakuma):
-        result = koakuma.execute_mtp('⟪ RUN | sys_clock | format="date" ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | format="date" ⟫')
         assert result.success
         # YYYY-MM-DD format
         assert "-" in result.response_content
         assert len(result.response_content.strip()) == 10 or "20" in result.response_content
 
     def test_sys_python_repl_calculation(self, koakuma):
-        result = koakuma.execute_mtp('⟪ RUN | sys_python_repl | code="print(6 * 7)" ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | sys_python_repl | code="print(6 * 7)" ⟫')
         assert result.success
         assert "42" in result.response_content
 
     def test_sys_python_repl_import_blocked(self, koakuma):
-        result = koakuma.execute_mtp('⟪ RUN | sys_python_repl | code="import os" ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | sys_python_repl | code="import os" ⟫')
         assert result.success  # handler 返回 error string, 不是异常
         assert "Error" in result.response_content
         assert "import" in result.response_content.lower()
 
     def test_sys_python_repl_multiline(self, koakuma):
         # 使用反引号语法支持多行代码 (Section 2.1)
-        result = koakuma.execute_mtp('⟪ RUN | sys_python_repl | code=`x = 10\ny = 20\nprint(x + y)` ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | sys_python_repl | code=`x = 10\ny = 20\nprint(x + y)` ⟫')
         assert result.success
         assert "30" in result.response_content
 
@@ -142,22 +152,22 @@ class TestRunUserToolPath:
     def test_unknown_tool_not_found(self, koakuma):
         """L1+L2 均未命中，返回 not found"""
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
-        result = koakuma.execute_mtp('⟪ RUN | nonexistent_tool | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | nonexistent_tool | ⟫')
         assert not result.success
         assert "not found" in result.response_content.lower()
 
     def test_unknown_tool_suggests_search(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
-        result = koakuma.execute_mtp('⟪ RUN | my_custom_tool | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | my_custom_tool | ⟫')
         assert not result.success
         assert "SEARCH" in result.response_content
 
     def test_l2_route_failure_returns_infra_error(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
-            "SystemBus: 路由 'storage.get_memory_by_alias' 未注册"
+            "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
         )
 
-        result = koakuma.execute_mtp('⟪ RUN | my_custom_tool | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | my_custom_tool | ⟫')
 
         assert not result.success
         assert "Service Unavailable" in result.response_content
@@ -168,7 +178,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        result = koakuma.execute_mtp('⟪ RUN | tool_greet | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_greet | ⟫')
 
         assert result.success
         assert "tool output" in result.response_content
@@ -178,7 +188,7 @@ class TestRunUserToolPath:
         mem = _make_code_memory(code="print('from l1')", alias="tool_l1")
         koakuma._atom_cache.ingest_atom(mem)
 
-        result = koakuma.execute_mtp('⟪ RUN | tool_l1 | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_l1 | ⟫')
 
         assert result.success
         assert "from l1" in result.response_content
@@ -190,7 +200,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
         # 第一次调用: L2 命中 → 加载 → 缓存
-        result1 = koakuma.execute_mtp('⟪ RUN | tool_cached | ⟫')
+        result1 = _execute_mtp(koakuma, '⟪ RUN | tool_cached | ⟫')
         assert result1.success
 
         # 重置 mock 调用计数
@@ -198,7 +208,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.reset_mock()
 
         # 第二次调用: 应走 LRU 缓存
-        result2 = koakuma.execute_mtp('⟪ RUN | tool_cached | ⟫')
+        result2 = _execute_mtp(koakuma, '⟪ RUN | tool_cached | ⟫')
         assert result2.success
         assert "cached" in result2.response_content
 
@@ -211,7 +221,7 @@ class TestRunUserToolPath:
         fact_mem = _make_fact_memory()
         koakuma._atom_cache.ingest_atom(fact_mem)
 
-        result = koakuma.execute_mtp('⟪ RUN | fact_not_tool | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | fact_not_tool | ⟫')
 
         assert not result.success
         assert "CODE_SNIPPET" in result.response_content
@@ -227,7 +237,7 @@ class TestRunUserToolPath:
         # 使用极短超时加速测试
         koakuma._config.python_repl_timeout_seconds = 1
 
-        result = koakuma.execute_mtp('⟪ RUN | tool_infinite | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_infinite | ⟫')
 
         assert not result.success
         assert "timed out" in result.response_content.lower()
@@ -241,7 +251,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        result = koakuma.execute_mtp('⟪ RUN | tool_bad_import | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_bad_import | ⟫')
 
         assert not result.success
         assert "import" in result.response_content.lower()
@@ -255,7 +265,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        result = koakuma.execute_mtp('⟪ RUN | tool_params | x="42" y="hello" ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_params | x="42" y="hello" ⟫')
 
         assert result.success
         assert "x=42" in result.response_content
@@ -266,7 +276,7 @@ class TestRunUserToolPath:
         mem = _make_code_memory(code="print('cached')", alias="tool_cached_ingest")
         koakuma._atom_cache.ingest_atom(mem)
 
-        result = koakuma.execute_mtp('⟪ RUN | tool_cached_ingest | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_cached_ingest | ⟫')
 
         assert result.success
         assert "cached" in result.response_content
@@ -274,30 +284,25 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory.assert_not_called()
         koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
 
-    def test_trace_recorded_on_success(self, koakuma):
-        """成功执行后记录 TraceItem"""
+    def test_user_tool_success_returns_execution_result(self, koakuma):
+        """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
         mem = _make_code_memory(code="print('traced')", alias="tool_trace")
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        koakuma.execute_mtp('⟪ RUN | tool_trace | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_trace | ⟫')
 
-        traces = koakuma.get_interaction_traces()
-        run_traces = [t for t in traces if t.action == "RUN"]
-        assert len(run_traces) == 1
-        assert run_traces[0].tool == "tool_trace"
-        assert run_traces[0].status == "success"
+        assert result.success
+        assert "traced" in result.response_content
 
-    def test_trace_recorded_on_error(self, koakuma):
-        """执行失败也记录 TraceItem"""
+    def test_user_tool_error_returns_execution_failure(self, koakuma):
+        """执行失败时返回错误响应，trace 由 TurnEvent reducer 负责生成。"""
         mem = _make_code_memory(code="raise ValueError('boom')", alias="tool_err")
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        koakuma.execute_mtp('⟪ RUN | tool_err | ⟫')
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_err | ⟫')
 
-        traces = koakuma.get_interaction_traces()
-        run_traces = [t for t in traces if t.action == "RUN"]
-        assert len(run_traces) == 1
-        assert run_traces[0].status == "error"
+        assert not result.success
+        assert "Error" in result.response_content
 

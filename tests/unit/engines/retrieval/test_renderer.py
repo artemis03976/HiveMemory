@@ -19,7 +19,7 @@ from hivememory.engines.retrieval.renderer import (
     create_renderer,
 )
 from hivememory.engines.retrieval.models import RenderFormat
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     FullRendererConfig,
     CascadeRendererConfig,
     CompactRendererConfig,

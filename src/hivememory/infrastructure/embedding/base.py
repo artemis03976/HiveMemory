@@ -10,7 +10,7 @@ from typing import List, Union, Optional, TYPE_CHECKING
 from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.config import EmbeddingConfig
+    from hivememory.system.config import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
 

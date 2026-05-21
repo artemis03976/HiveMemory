@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import List, Tuple, TYPE_CHECKING
 from uuid import UUID
 
-from hivememory.patchouli.config import VitalityCalculatorConfig
+from hivememory.system.config import VitalityCalculatorConfig
 from hivememory.core.models import MemoryAtom, MemoryType
 
 if TYPE_CHECKING:

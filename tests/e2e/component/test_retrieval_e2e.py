@@ -72,7 +72,7 @@ from hivememory.engines.retrieval.renderer import FullContextRenderer, CascadeCo
 from hivememory.engines.retrieval.reranker import CrossEncoderReranker, create_reranker
 from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, create_fusion
 from hivememory.engines.retrieval.models import RetrievalQuery, RenderFormat
-from hivememory.patchouli.config import load_app_config, FullRendererConfig, CascadeRendererConfig
+from hivememory.system.config import load_app_config, FullRendererConfig, CascadeRendererConfig
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
 

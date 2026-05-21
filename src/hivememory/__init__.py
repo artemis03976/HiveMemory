@@ -1,10 +1,10 @@
-"""
+﻿"""
 HiveMemory - 分布式记忆管理系统
 
-帕秋莉体系 v3.0 (Eye + Kernel):
-    - PatchouliSystem (The Facility): 外层容器，持有 Eye + Kernel
+帕秋莉体系 v3.0 (Eye + Runtime):
+    - PatchouliSystem (The Facility): 外层容器，持有 Eye + Runtime
     - TheEye (真理之眼): Ingress Gateway，意图识别、查询重写
-    - PatchouliKernel (帕秋莉内核): 中心调度器，管理微服务
+    - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
         - LibrarianCore (馆长本体): 话题感知、记忆生成、生命周期管理
 
@@ -43,7 +43,7 @@ from hivememory.core.models import (
     RelationLayer,
 )
 
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     load_app_config,
     HiveMemoryConfig,
     MemoryGatewayConfig,
@@ -105,7 +105,7 @@ from hivememory.engines.gateway import (
     create_semantic_analyzer,
 )
 
-from hivememory.patchouli.passive_ingest import ObserverBufferState
+from hivememory.system.application.passive import MessageBufferState
 
 from hivememory.engines.generation import (
     MemoryGenerationEngine,
@@ -189,7 +189,7 @@ from hivememory.engines.perception import (
     create_relay_controller,
     create_perception_layer,
 )
-from hivememory.patchouli.protocol import InteractionPayload
+from hivememory.core.protocol import InteractionPayload
 
 from hivememory.server.models import (
     ErrorResponse,
@@ -213,9 +213,12 @@ from hivememory.server.models import (
 
 def __getattr__(name: str):
     """懒加载以避免循环导入"""
-    if name == "PatchouliKernel":
-        from hivememory.patchouli.kernel import PatchouliKernel
-        return PatchouliKernel
+    if name == "PatchouliRuntime":
+        from hivememory.patchouli.runtime import PatchouliRuntime
+        return PatchouliRuntime
+    if name == "PatchouliService":
+        from hivememory.patchouli.service import PatchouliService
+        return PatchouliService
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
@@ -223,17 +226,11 @@ def __getattr__(name: str):
         from hivememory.patchouli.eye import TheEye
         return TheEye
     if name == "RetrievalFamiliar":
-        from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+        from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         return RetrievalFamiliar
     if name == "LibrarianCore":
-        from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+        from hivememory.patchouli.services.librarian import LibrarianCore
         return LibrarianCore
-    if name == "KoakumaRuntime":
-        from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
-        return KoakumaRuntime
-    if name == "WorkerAgentService":
-        from hivememory.patchouli.worker_agent import WorkerAgentService
-        return WorkerAgentService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -308,7 +305,7 @@ __all__ = [
     "create_interceptor",
     "LLMAnalyzer",
     "create_semantic_analyzer",
-    "ObserverBufferState",
+    "MessageBufferState",
     # ========== Generation Engine ==========
     "MemoryGenerationEngine",
     "BaseMemoryExtractor",
@@ -403,14 +400,14 @@ __all__ = [
     "TopicListResponse",
     "TriggerResponse",
     # ========== 懒加载组件 ==========
-    "PatchouliKernel",
+    "PatchouliRuntime",
+    "PatchouliService",
     "PatchouliSystem",
     "TheEye",
     "RetrievalFamiliar",
     "LibrarianCore",
-    "KoakumaRuntime",
-    "WorkerAgentService",
 ]
 
 
 __version__ = "0.1.0"
+

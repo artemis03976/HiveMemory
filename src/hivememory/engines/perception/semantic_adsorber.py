@@ -23,7 +23,7 @@ HiveMemory 语义边界吸附器
 import logging
 from typing import List, Optional
 
-from hivememory.patchouli.config import SemanticAdsorberConfig
+from hivememory.system.config import SemanticAdsorberConfig
 from hivememory.engines.perception.models import (
     FlushEvent,
     FlushReason,

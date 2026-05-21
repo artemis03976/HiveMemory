@@ -94,18 +94,18 @@ from hivememory.core.models import (
 )
 
 # 协议消息
-from hivememory.patchouli.protocol.models import (
+from hivememory.core.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
     EyeGazeResult,
 )
 
 # 配置
-from hivememory.patchouli.config import load_app_config, HiveMemoryConfig
+from hivememory.system.config import load_app_config, HiveMemoryConfig
 
 # 分身
 from hivememory.patchouli.eye import TheEye
-from hivememory.patchouli.kernel.retrieval_familiar import RetrievalFamiliar
+from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 # 导入 conftest 中的辅助类
 from tests.conftest import print_test_result

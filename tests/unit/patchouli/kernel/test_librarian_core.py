@@ -14,7 +14,7 @@ from uuid import uuid4
 from hivememory.core.models import Identity, TurnRecord
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, WriteFocus, UpdateFocus
-from hivememory.patchouli.kernel.librarian_core import LibrarianCore
+from hivememory.patchouli.services.librarian import LibrarianCore
 
 
 def _make_identity() -> Identity:

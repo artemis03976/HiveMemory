@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Depends
 
-from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.passive_ingest.models import PassiveIngressEvent
+from hivememory.system import HiveMemorySystem
+from hivememory.system.application.passive import PassiveIngressEvent
 from hivememory.server.deps import get_system
 from hivememory.server.models.ingest import (
     PassiveIngressRequest,
@@ -16,9 +16,9 @@ router = APIRouter(tags=["ingest"])
 @router.post("/ingest", response_model=PassiveIngressResponse)
 async def ingest_event(
     request: PassiveIngressRequest,
-    system: PatchouliSystem = Depends(get_system),
+    system: HiveMemorySystem = Depends(get_system),
 ):
-    """被动消息事件接入 HTTP 入口，转调 PatchouliSystem.ingest_event()。"""
+    """被动消息事件接入 HTTP 入口，转调 HiveMemorySystem.ingest_event()。"""
     event = PassiveIngressEvent(
         role=request.role,
         content=request.content,

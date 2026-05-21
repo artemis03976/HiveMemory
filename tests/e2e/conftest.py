@@ -2,7 +2,7 @@
 E2E 测试共享 Fixtures
 
 提供:
-    - e2e_system (session-scoped): 真实 PatchouliSystem 实例
+    - e2e_system (session-scoped): 真实 HiveMemorySystem 实例
     - clean_user: 工厂 fixture，创建测试用户并在测试前后清理 Qdrant 中的记忆
     - wait_for_memory_persistence: 轮询 Qdrant 直到记忆持久化
 
@@ -19,14 +19,14 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import Identity, MemoryAtom
-from hivememory.patchouli.system import PatchouliSystem
-from hivememory.patchouli.config import load_app_config
-from hivememory.patchouli.protocol.models import RetrievalRequest
+from hivememory.system.config import load_app_config
+from hivememory.core.protocol.models import RetrievalRequest
+from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)
 
 
-# ========== Session-scoped PatchouliSystem ==========
+# ========== Session-scoped HiveMemorySystem ==========
 
 @pytest.fixture(scope="session")
 def e2e_config():
@@ -37,15 +37,17 @@ def e2e_config():
 @pytest.fixture(scope="session")
 def e2e_system(e2e_config):
     """
-    真实 PatchouliSystem 实例 (session-scoped)
+    真实 HiveMemorySystem 实例 (session-scoped)
 
     使用真实的 LLM, Qdrant, Embedding, Reranker 服务。
     整个测试 session 共享同一个实例以避免重复初始化开销。
     """
-    system = PatchouliSystem(config=e2e_config)
-    logger.info("E2E PatchouliSystem 初始化完成")
+    system = HiveMemorySystem.build(config=e2e_config)
+    asyncio.run(system.start())
+    logger.info("E2E HiveMemorySystem 初始化完成")
     yield system
-    logger.info("E2E PatchouliSystem 清理完成")
+    asyncio.run(system.stop())
+    logger.info("E2E HiveMemorySystem 清理完成")
 
 
 # ========== Clean User Factory ==========
@@ -79,7 +81,7 @@ def clean_user(e2e_system):
             logger.warning(f"清理用户 {uid} 记忆失败: {e}")
 
 
-def _cleanup_user_memories(system: PatchouliSystem, user_id: str) -> None:
+def _cleanup_user_memories(system: HiveMemorySystem, user_id: str) -> None:
     """清理指定用户在 Qdrant 中的所有记忆"""
     try:
         memories = system.storage.get_all_memories(
@@ -97,7 +99,7 @@ def _cleanup_user_memories(system: PatchouliSystem, user_id: str) -> None:
 # ========== Wait for Memory Persistence ==========
 
 def wait_for_memory_persistence(
-    system: PatchouliSystem,
+    system: HiveMemorySystem,
     user_id: str,
     min_count: int = 1,
     timeout: float = 15.0,
@@ -107,7 +109,7 @@ def wait_for_memory_persistence(
     轮询 Qdrant 直到记忆持久化
 
     Args:
-        system: PatchouliSystem 实例
+        system: HiveMemorySystem 实例
         user_id: 用户 ID
         min_count: 最少期望记忆数量
         timeout: 超时时间 (秒)
@@ -144,7 +146,7 @@ def wait_for_memory_persistence(
 
 
 async def wait_for_memory_persistence_async(
-    system: PatchouliSystem,
+    system: HiveMemorySystem,
     user_id: str,
     min_count: int = 1,
     timeout: float = 15.0,

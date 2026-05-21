@@ -15,13 +15,13 @@ import pytest
 from hivememory.prompts.mtp import (
     MTPPromptBuilder,
     get_mtp_prompt,
-    DEFAULT_KERNEL_TOOLS,
+    DEFAULT_RUNTIME_TOOLS,
 )
-from hivememory.patchouli.mtp import (
+from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
 )
-from hivememory.patchouli.config import MTPPromptConfig, KoakumaConfig
+from hivememory.system.config import MTPPromptConfig, KoakumaConfig
 
 
 # ========== MTPPromptBuilder 单元测试 ==========
@@ -42,7 +42,7 @@ class TestMTPPromptBuilder:
         assert MTP_LEFT_DELIMITER in output
         assert MTP_RIGHT_DELIMITER in output
         # 内核工具
-        assert "[KERNEL TOOLS]" in output
+        assert "[RUNTIME TOOLS]" in output
         # 演示部分
         assert "mtp_response" in output
 
@@ -83,13 +83,13 @@ class TestMTPPromptBuilder:
 
     def test_build_without_kernel_tools(self):
         """空白名单不渲染内核工具列表"""
-        output = MTPPromptBuilder(allowed_kernel_tools=[]).build()
-        assert "[KERNEL TOOLS]" not in output
+        output = MTPPromptBuilder(allowed_runtime_tools=[]).build()
+        assert "[RUNTIME TOOLS]" not in output
 
     def test_build_custom_kernel_tools(self):
         """自定义内核工具列表"""
         custom_tools = [("my_tool", "Does something cool")]
-        output = MTPPromptBuilder(kernel_tools=custom_tools).build()
+        output = MTPPromptBuilder(runtime_tools=custom_tools).build()
 
         assert "my_tool" in output
         assert "Does something cool" in output
@@ -98,8 +98,8 @@ class TestMTPPromptBuilder:
 
     def test_build_empty_kernel_tools(self):
         """空工具列表不生成工具部分"""
-        output = MTPPromptBuilder(kernel_tools=[]).build()
-        assert "[KERNEL TOOLS]" not in output
+        output = MTPPromptBuilder(runtime_tools=[]).build()
+        assert "[RUNTIME TOOLS]" not in output
 
     def test_delimiters_are_actual_unicode(self):
         """定界符是实际的 Unicode 字符"""
@@ -130,7 +130,7 @@ class TestMTPPromptBuilder:
         """默认工具列表包含 MVP 工具集"""
         output = MTPPromptBuilder().build()
 
-        for alias, _ in DEFAULT_KERNEL_TOOLS:
+        for alias, _ in DEFAULT_RUNTIME_TOOLS:
             assert alias in output
 
     def test_all_optional_modules_disabled(self):
@@ -138,7 +138,7 @@ class TestMTPPromptBuilder:
         output = MTPPromptBuilder(
             include_demo=False,
             include_error_handling=False,
-            allowed_kernel_tools=[],
+            allowed_runtime_tools=[],
             language="en",
         ).build()
 
@@ -149,7 +149,7 @@ class TestMTPPromptBuilder:
         assert "BEHAVIORAL GUIDELINES" in output
 
         # 可选模块不在
-        assert "[KERNEL TOOLS]" not in output
+        assert "[RUNTIME TOOLS]" not in output
         assert "ONE-SHOT DEMONSTRATION" not in output
         assert "ERROR RECOVERY" not in output
 
@@ -176,7 +176,7 @@ class TestGetMTPPrompt:
     def test_passes_kernel_tools_param(self):
         """工具列表参数正确传递"""
         custom = [("test_tool", "A test tool")]
-        result = get_mtp_prompt(kernel_tools=custom)
+        result = get_mtp_prompt(runtime_tools=custom)
         assert "test_tool" in result
         assert "sys_clock" not in result
 

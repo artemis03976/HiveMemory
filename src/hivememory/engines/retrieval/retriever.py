@@ -15,8 +15,8 @@ from datetime import datetime
 from typing import Optional, Dict, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from hivememory.patchouli.mtp.exceptions import StorageOfflineError, StorageReadError
-from hivememory.patchouli.config import (
+from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
+from hivememory.system.config import (
     DenseRetrieverConfig,
     SparseRetrieverConfig,
     HybridRetrieverConfig,

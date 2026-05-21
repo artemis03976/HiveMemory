@@ -45,6 +45,16 @@ def _event_summary(events: list[dict[str, Any]]) -> str:
     return " -> ".join(rows)
 
 
+def _done_commands(done_event: dict[str, Any] | None) -> list[str]:
+    if not done_event:
+        return []
+    return [
+        event.get("tool_kind")
+        for event in done_event.get("data", {}).get("turn_events", [])
+        if event.get("kind") == "tool_result" and event.get("tool_kind")
+    ]
+
+
 def _ensure_coder_doll_profile(system) -> None:
     """
     确保 coder_doll 的 Agent Profile 存在，避免 CALL 目标缺失导致链路无法触发。
@@ -57,7 +67,7 @@ def _ensure_coder_doll_profile(system) -> None:
     atom = system.storage.get_memory_by_alias(alias)
 
     if atom is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
-        system.kernel.agent_profile_cache.invalidate(alias)
+        system.runtime.agent_profile_cache.invalidate(alias)
         return
 
     if atom is not None and atom.index.memory_type != MemoryType.AGENT_PROFILE:
@@ -90,7 +100,7 @@ def _ensure_coder_doll_profile(system) -> None:
         ),
     )
     system.storage.upsert_memory(profile_atom)
-    system.kernel.agent_profile_cache.invalidate(alias)
+    system.runtime.agent_profile_cache.invalidate(alias)
     logger.info("已创建 coder_doll profile 以保证子代理 e2e 链路可执行。")
 
 
@@ -132,15 +142,13 @@ async def test_live_sub_agent_call_stream_contract(e2e_system):
         user_id = _new_user_id()
         last_events = await _collect_stream_events(e2e_system, prompt, user_id=user_id)
         done = next((e for e in last_events if e.get("event") == "done"), None)
-        if done and "CALL" in done["data"].get("mtp_commands_executed", []):
+        if done and "CALL" in _done_commands(done):
             break
 
     done = next((e for e in last_events if e.get("event") == "done"), None)
     assert done is not None, f"未收到 done 事件。events={_event_summary(last_events)}"
     assert done["data"].get("final_text"), f"done.final_text 为空。events={_event_summary(last_events)}"
-    assert "CALL" in done["data"].get(
-        "mtp_commands_executed", []
-    ), f"未触发 CALL。events={_event_summary(last_events)}"
+    assert "CALL" in _done_commands(done), f"未触发 CALL。events={_event_summary(last_events)}"
 
     sub_start = next((e for e in last_events if e["event"] == "sub_agent_start"), None)
     assert sub_start is not None, f"缺少 sub_agent_start。events={_event_summary(last_events)}"

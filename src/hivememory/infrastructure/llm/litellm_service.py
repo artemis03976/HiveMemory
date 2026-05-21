@@ -5,11 +5,11 @@ HiveMemory LiteLLM 服务实现
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 
 import litellm
 
-from hivememory.patchouli.config import LLMConfig
+from hivememory.system.config import LLMConfig
 from hivememory.infrastructure.llm.base import SingletonLLMService
 
 logger = logging.getLogger(__name__)
@@ -190,6 +190,48 @@ class LiteLLMService(SingletonLLMService):
 
         return response
 
+    async def acomplete_json(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> str:
+        llm_params = {
+            "model": self.model,
+            "messages": messages,
+            "api_key": self.api_key,
+            "api_base": self.api_base,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+        }
+        llm_params.update(kwargs)
+
+        try:
+            response = await litellm.acompletion(
+                **llm_params,
+                response_format={"type": "json_object"},
+            )
+        except Exception as e:
+            logger.warning(
+                "LLM JSON mode failed for model=%s, falling back to prompt-only JSON: %s",
+                self.model,
+                e,
+            )
+            response = await litellm.acompletion(**llm_params)
+
+        content = response.choices[0].message.content
+
+        if hasattr(response, 'usage') and response.usage:
+            logger.info(
+                f"LLM JSON 调用成功 (model={self.model}, "
+                f"tokens={response.usage.total_tokens})"
+            )
+        else:
+            logger.info(f"LLM JSON 调用成功 (model={self.model})")
+
+        return content
+
     def complete_with_retry(
         self,
         messages: List[Dict[str, str]],
@@ -262,7 +304,7 @@ def get_librarian_llm_service(
     Returns:
         LiteLLMService: Librarian LLM 服务实例
     """
-    from hivememory.patchouli.config import load_app_config
+    from hivememory.system.config import load_app_config
 
     if config is None:
         config = load_app_config().get_librarian_llm_config()

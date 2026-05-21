@@ -10,7 +10,7 @@ from typing import Optional, Dict, List, Union, TYPE_CHECKING
 from collections import defaultdict
 import logging
 
-from hivememory.patchouli.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
+from hivememory.system.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
 from hivememory.engines.retrieval.interfaces import BaseFusion
 

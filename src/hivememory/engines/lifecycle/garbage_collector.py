@@ -10,7 +10,7 @@ from uuid import UUID
 from datetime import datetime
 import logging
 
-from hivememory.patchouli.config import GarbageCollectorConfig
+from hivememory.system.config import GarbageCollectorConfig
 from hivememory.engines.lifecycle.interfaces import (
     BaseGarbageCollector,
     BaseMemoryArchiver

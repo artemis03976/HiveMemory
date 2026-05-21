@@ -14,7 +14,7 @@ from datetime import datetime
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.lifecycle.garbage_collector import PeriodicGarbageCollector
-from hivememory.patchouli.config import GarbageCollectorConfig
+from hivememory.system.config import GarbageCollectorConfig
 
 
 class TestPeriodicGarbageCollector:

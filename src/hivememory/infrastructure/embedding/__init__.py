@@ -8,7 +8,7 @@ from typing import Optional
 
 from hivememory.infrastructure.embedding.base import BaseEmbeddingService
 from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService, get_bge_m3_service
-from hivememory.patchouli.config import EmbeddingConfig, load_app_config
+from hivememory.system.config import EmbeddingConfig, load_app_config
 
 
 def get_embedding_service(config: Optional[EmbeddingConfig] = None) -> BaseEmbeddingService:

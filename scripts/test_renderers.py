@@ -17,7 +17,7 @@ from hivememory.engines.retrieval.renderer import (
     CascadeContextRenderer,
     CompactContextRenderer
 )
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     FullRendererConfig,
     CascadeRendererConfig,
     CompactRendererConfig

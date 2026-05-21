@@ -25,14 +25,15 @@ from unittest.mock import MagicMock
 from hivememory.core.models import (
     Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
-from hivememory.patchouli.config import KoakumaConfig
-from hivememory.patchouli.mtp.models import MTP_LEFT_DELIMITER
-from hivememory.patchouli.protocol.models import RetrievalResponse
-from hivememory.patchouli.kernel.koakuma import KoakumaRuntime
+from hivememory.system.config import KoakumaConfig
+from hivememory.core.mtp.models import MTP_LEFT_DELIMITER
+from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 # 复用 MTPLoopRunner 和 LLM fixture 工厂
-from tests.unit.patchouli.tools.syscalls.live_support import (
+from tests.unit.alice.runtime.syscalls.live_support import (
     MTPLoopRunner,
     _get_llm_config,
     _create_llm_service,
@@ -95,7 +96,7 @@ def _build_full_system_prompt(language: str = "en") -> str:
     ]
     mtp_fragment = MTPPromptBuilder(
         language=language,
-        kernel_tools=available_tools,
+        runtime_tools=available_tools,
     ).build()
     return f"{base_prompt}\n\n{mtp_fragment}"
 
@@ -150,7 +151,7 @@ class TestSearchScenario:
             storage=MagicMock(),
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_search_triggered_for_memory_query(
@@ -220,7 +221,7 @@ class TestReadScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_search_then_read_two_rounds(
@@ -285,7 +286,7 @@ class TestWriteScenario:
             storage=MagicMock(),
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_write_triggered_for_remember_request(
@@ -338,7 +339,7 @@ class TestUpdateScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         # 预注册 alias (模拟之前 SEARCH 过)
         koakuma.atom_cache.ingest_atom(updated_mem)
         return koakuma
@@ -390,7 +391,7 @@ class TestMultiVerbScenario:
             storage=mock_storage,
             config=KoakumaConfig(),
         )
-        koakuma.set_current_identity(Identity(user_id="test_user"))
+        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
     def test_search_then_read_multi_verb(
@@ -447,7 +448,7 @@ class TestNoMTPScenario:
             {"role": "system", "content": full_system_prompt},
             {"role": "user", "content": "What is 2 + 2?"},
         ]
-        from hivememory.patchouli.mtp.models import MTP_STOP_SEQUENCE
+        from hivememory.core.mtp.models import MTP_STOP_SEQUENCE
         response = llm_service.complete(
             messages, temperature=0.0, max_tokens=256,
             stop=[MTP_STOP_SEQUENCE],
@@ -465,7 +466,7 @@ class TestNoMTPScenario:
             {"role": "system", "content": full_system_prompt},
             {"role": "user", "content": "Hello! How are you?"},
         ]
-        from hivememory.patchouli.mtp.models import MTP_STOP_SEQUENCE
+        from hivememory.core.mtp.models import MTP_STOP_SEQUENCE
         response = llm_service.complete(
             messages, temperature=0.0, max_tokens=256,
             stop=[MTP_STOP_SEQUENCE],

@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
-from hivememory.patchouli.config import RuleInterceptorConfig
+from hivememory.system.config import RuleInterceptorConfig
 
 logger = logging.getLogger(__name__)
 

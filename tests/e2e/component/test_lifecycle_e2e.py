@@ -75,7 +75,7 @@ from hivememory.engines.lifecycle.models import (
 )
 
 # 配置
-from hivememory.patchouli.config import (
+from hivememory.system.config import (
     VitalityCalculatorConfig,
     ReinforcementEngineConfig,
     ArchiverConfig,
