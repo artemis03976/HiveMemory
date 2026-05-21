@@ -7,9 +7,8 @@ AliceService - Alice 子系统对外能力门面
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 
-from hivememory.core.models import Identity, MemoryAtom
 from hivememory.core.protocol.models import AgentRunContext, ChatResult
 
 from hivememory.alice.runtime.core import AliceRuntime
@@ -61,10 +60,3 @@ class AliceService:
             cancel_event=cancel_event,
         ):
             yield event
-
-    async def register_preretrieval_aliases(
-        self,
-        memories: List[MemoryAtom],
-    ) -> None:
-        """将预检索命中的记忆别名注入 Alice 运行时缓存。"""
-        self._runtime.register_preretrieval_aliases(memories)

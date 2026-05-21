@@ -20,7 +20,6 @@ from hivememory.patchouli.models import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.server.models.memory import MemoryResponse
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 if TYPE_CHECKING:
@@ -90,11 +89,10 @@ class PatchouliService:
             4. TheEye.gaze — 意图识别 + 查询重写 + 话题路由
             5. prepare_topic — 预创建/刷新话题
             6. retrieve_for_gaze — 预检索
-            7. 注册预检索别名
-            8. 组装 messages
+            7. 返回 AgentRunContext 与流式前置信息
 
         Returns:
-            PreparedAgentRun: 顶层可直接用于调用 Alice 的完整上下文
+            PreparedAgentRun: 顶层可直接用于调用 Alice 的运行上下文
         """
         real_topic_id: str | None = None
         is_new = False
@@ -133,9 +131,6 @@ class PatchouliService:
                 gaze_result,
                 enable_retrieval=enable_memory_retrieval,
             )
-
-            if retrieval_result.memories:
-                await self._register_preretrieval_aliases(retrieval_result.memories)
 
             agent_run_context = AgentRunContext(
                 identity=identity,
@@ -253,12 +248,6 @@ class PatchouliService:
         if self._local_bus is None:
             raise RuntimeError("PatchouliService 尚未接入 PatchouliBus")
         return self._local_bus
-
-    async def _register_preretrieval_aliases(self, memories: Any) -> None:
-        await self._require_global_bus().request(
-            GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES,
-            memories,
-        )
 
     async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:
         try:

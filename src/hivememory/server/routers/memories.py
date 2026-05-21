@@ -20,7 +20,7 @@ async def list_memories(
     system: HiveMemorySystem = Depends(get_system),
 ):
     """检索记忆 — 支持语义搜索和过滤"""
-    storage = system.storage
+    storage = system.patchouli.storage
 
     if query:
         filters = {}
@@ -66,7 +66,7 @@ async def get_memory(
     except ValueError:
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
-    atom = system.storage.get_memory(uid)
+    atom = system.patchouli.storage.get_memory(uid)
     if atom is None:
         raise HTTPException(status_code=404, detail="记忆不存在")
 
@@ -85,7 +85,7 @@ async def update_memory(
     except ValueError:
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
-    atom = system.storage.get_memory(uid)
+    atom = system.patchouli.storage.get_memory(uid)
     if atom is None:
         raise HTTPException(status_code=404, detail="记忆不存在")
 
@@ -104,7 +104,7 @@ async def update_memory(
         atom.payload.artifacts.agent_config = body.agent_config
     atom.meta.updated_at = datetime.now(timezone.utc)
 
-    system.storage.upsert_memory(atom)
+    system.patchouli.storage.upsert_memory(atom)
     return MemoryResponse.from_atom(atom)
 
 
@@ -119,7 +119,7 @@ async def delete_memory(
     except ValueError:
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
-    success = system.storage.delete_memory(uid)
+    success = system.patchouli.storage.delete_memory(uid)
     if not success:
         raise HTTPException(status_code=404, detail="记忆不存在或删除失败")
 

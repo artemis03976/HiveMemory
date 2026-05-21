@@ -35,7 +35,7 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
 class TestTopicsRouter:
     def test_list_topics(self):
         mock_system = MagicMock()
-        mock_system.runtime.librarian_core.get_active_topics_snapshots.return_value = [
+        mock_system.patchouli.librarian_core.get_active_topics_snapshots.return_value = [
             _make_snapshot("t1", "Topic 1"),
             _make_snapshot("t2", "Topic 2"),
         ]
@@ -51,7 +51,7 @@ class TestTopicsRouter:
 
     def test_list_topics_empty(self):
         mock_system = MagicMock()
-        mock_system.runtime.librarian_core.get_active_topics_snapshots.return_value = []
+        mock_system.patchouli.librarian_core.get_active_topics_snapshots.return_value = []
 
         app = _create_test_app(mock_system)
         client = TestClient(app)

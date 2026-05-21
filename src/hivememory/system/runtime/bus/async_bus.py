@@ -12,6 +12,7 @@ AsyncSystemBus — 纯异步系统总线基类
 """
 
 import logging
+import inspect
 from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,10 @@ class AsyncSystemBus:
         handler = self._handlers.get(route)
         if handler is None:
             raise KeyError(f"AsyncSystemBus: route '{route}' not registered")
-        return await handler(*args, **kwargs)
+        result = handler(*args, **kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     # ========== Pub/Sub (Event Broadcast) ==========
 

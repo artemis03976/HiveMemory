@@ -48,7 +48,7 @@ async def create_agent(body: AgentCreateRequest, system: HiveMemorySystem = Depe
         ),
     )
     try:
-        system.storage.upsert_memory(atom)
+        system.patchouli.storage.upsert_memory(atom)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return AgentProfileResponse(
@@ -66,7 +66,7 @@ async def create_agent(body: AgentCreateRequest, system: HiveMemorySystem = Depe
 async def list_agents(system: HiveMemorySystem = Depends(get_system)):
     """列出所有 Agent Profile"""
     try:
-        atoms = system.storage.get_all_memories(
+        atoms = system.patchouli.storage.get_all_memories(
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=100,
         )

@@ -6,7 +6,6 @@ from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import EyeGazeResult, RetrievalResponse
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
@@ -79,11 +78,6 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
             )
         ),
     )
-    bus.register(
-        GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES,
-        AsyncMock(return_value=None),
-    )
-
     service = PatchouliService(runtime=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
 
     prepared = asyncio.run(

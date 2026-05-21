@@ -1,13 +1,15 @@
-"""Patchouli 子系统公开路由常量 — 可通过桥接器暴露到 GlobalSystemBus 的能力。"""
+"""Patchouli public routes exposed through GlobalSystemBus."""
+
+from hivememory.system.contracts.route_names import RouteNames
 
 
 class PatchouliRoutes:
-    PASSIVE_ANALYZE_AND_RETRIEVE = "patchouli.public.passive.analyze_and_retrieve"
-    SUBMIT_INTERACTION = "patchouli.public.submit_interaction"
-    MEMORY_RETRIEVE = "patchouli.public.memory.retrieve"
-    MEMORY_RETRIEVE_BY_ALIASES = "patchouli.public.memory.retrieve_by_aliases"
-    GET_AGENT_PROFILE = "patchouli.public.get_agent_profile"
-    PREPARE_AGENT_RUN = "patchouli.public.prepare_agent_run"
-    FINALIZE_AGENT_RUN = "patchouli.public.finalize_agent_run"
-    CLEANUP_PREPARED_AGENT_RUN = "patchouli.public.cleanup_prepared_agent_run"
-    MANUAL_ARCHIVE_TOPIC = "patchouli.public.manual_archive_topic"
+    PASSIVE_ANALYZE_AND_RETRIEVE = RouteNames.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE
+    SUBMIT_INTERACTION = RouteNames.PATCHOULI_SUBMIT_INTERACTION
+    MEMORY_RETRIEVE = RouteNames.PATCHOULI_MEMORY_RETRIEVE
+    MEMORY_RETRIEVE_BY_ALIASES = RouteNames.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES
+    GET_AGENT_PROFILE = RouteNames.PATCHOULI_GET_AGENT_PROFILE
+    PREPARE_AGENT_RUN = RouteNames.PATCHOULI_PREPARE_AGENT_RUN
+    FINALIZE_AGENT_RUN = RouteNames.PATCHOULI_FINALIZE_AGENT_RUN
+    CLEANUP_PREPARED_AGENT_RUN = RouteNames.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN
+    MANUAL_ARCHIVE_TOPIC = RouteNames.PATCHOULI_MANUAL_ARCHIVE_TOPIC

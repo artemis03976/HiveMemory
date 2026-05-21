@@ -4,7 +4,7 @@ import pytest
 
 from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
 from hivememory.core.models import AgentProfile, OMNI_DOLL_PROFILE
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
+from hivememory.system.contracts.routes import GlobalRoutes
 
 
 def _make_profile(alias: str = "coder_doll") -> AgentProfile:
@@ -35,7 +35,7 @@ async def test_resolve_loads_profile_from_bus_and_caches():
     assert first is second
     assert first.persona == "coder_doll persona"
     bus.request.assert_awaited_once_with(
-        PatchouliRoutes.GET_AGENT_PROFILE,
+        GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
         "coder_doll",
     )
 

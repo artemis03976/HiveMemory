@@ -46,6 +46,7 @@ from hivememory.core.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,
 )
+from hivememory.system.contracts.routes import GlobalRoutes
 
 from hivememory.core.models import MemoryType
 from hivememory.core.mtp.exceptions import (
@@ -399,7 +400,7 @@ class KoakumaRuntime:
 
         # Let StorageOfflineError / StorageReadError propagate to _route_and_execute
         result = await self._bus.request(
-            "memory.retrieve",
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request=RetrievalRequest(
                 semantic_query=query,
                 identity=context.identity,
@@ -838,7 +839,7 @@ class KoakumaRuntime:
         try:
             identity = context.identity if context is not None else MTPExecutionContext().identity
             retrieval_response = await self._bus.request(
-                "memory.retrieve_by_aliases",
+                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases=[alias],
                 identity=identity,
             )

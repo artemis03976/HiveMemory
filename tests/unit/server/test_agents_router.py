@@ -22,14 +22,14 @@ def _create_test_app(mock_system):
 
 def test_list_agents_uses_index_memory_type_filter():
     mock_system = MagicMock()
-    mock_system.storage.get_all_memories.return_value = []
+    mock_system.patchouli.storage.get_all_memories.return_value = []
 
     app = _create_test_app(mock_system)
     client = TestClient(app)
 
     response = client.get("/api/v1/agents")
     assert response.status_code == 200
-    mock_system.storage.get_all_memories.assert_called_once_with(
+    mock_system.patchouli.storage.get_all_memories.assert_called_once_with(
         filters={"index.memory_type": "AGENT_PROFILE"},
         limit=100,
     )

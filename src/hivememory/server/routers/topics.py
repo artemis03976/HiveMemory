@@ -22,7 +22,7 @@ async def list_topics(
 ):
     """获取活跃话题列表"""
     identity = Identity(user_id=user_id)
-    snapshots = system.runtime.librarian_core.get_active_topics_snapshots(identity)
+    snapshots = system.patchouli.librarian_core.get_active_topics_snapshots(identity)
 
     topics = [
         TopicSnapshotResponse(
@@ -54,7 +54,7 @@ async def delete_topic(
     system: HiveMemorySystem = Depends(get_system),
 ):
     """从活跃池驱逐话题（不归档，不写长期记忆）"""
-    buf = system.runtime.librarian_core.perception_layer.buffer_manager.pop_buffer(topic_id)
+    buf = system.patchouli.librarian_core.perception_layer.buffer_manager.pop_buffer(topic_id)
     if buf is None:
         return DeleteResponse(success=False, message="话题不存在或已被驱逐")
     return DeleteResponse(success=True, message=f"话题 {topic_id} 已删除")

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from hivememory.alice.runtime.cache import AgentProfileCache
 from hivememory.core.models import AgentProfile, OMNI_DOLL_PROFILE
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
+from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
@@ -30,7 +30,7 @@ class AgentProfileResolver:
 
         try:
             profile = await self._local_bus.request(
-                PatchouliRoutes.GET_AGENT_PROFILE,
+                GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
                 agent_alias,
             )
         except Exception as e:

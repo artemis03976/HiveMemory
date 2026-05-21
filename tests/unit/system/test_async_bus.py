@@ -10,6 +10,7 @@ AsyncSystemBus 单元测试
 
 import pytest
 from unittest.mock import AsyncMock
+from unittest.mock import Mock
 
 from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
@@ -56,6 +57,16 @@ class TestAsyncSystemBusRPC:
         await self.bus.request("svc.method", "arg1", "arg2", key="val")
 
         handler.assert_awaited_once_with("arg1", "arg2", key="val")
+
+    @pytest.mark.asyncio
+    async def test_request_accepts_sync_handler(self):
+        handler = Mock(return_value=["snapshot"])
+        self.bus.register("svc.sync_method", handler)
+
+        result = await self.bus.request("svc.sync_method", key="val")
+
+        handler.assert_called_once_with(key="val")
+        assert result == ["snapshot"]
 
     @pytest.mark.asyncio
     async def test_unregister_removes_handler(self):

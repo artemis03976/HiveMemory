@@ -26,8 +26,8 @@ from hivememory.core.protocol.models import ChatResult
 from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TurnEvent
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.system.config import AgentRuntimeConfig
+from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
@@ -662,7 +662,7 @@ class KernelLoopExecutor:
 
         try:
             result = await self._local_bus.request(
-                PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases,
                 identity,
             )

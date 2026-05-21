@@ -13,6 +13,8 @@ from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.alice.runtime.agent.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +25,10 @@ class AliceRuntime:
     def __init__(
         self,
         config: HiveMemoryConfig,
+        global_bus: Optional[GlobalSystemBus] = None,
     ) -> None:
         self._config = config
+        self._global_bus = global_bus
         self._local_bus = AliceBus()
         self._local_routes_registered = False
 
@@ -62,10 +66,21 @@ class AliceRuntime:
             AliceLocalRoutes.RUN_AGENT_STREAM,
             self.run_agent_stream,
         )
-        self._local_bus.register(
-            AliceLocalRoutes.REGISTER_PRERETRIEVAL_ALIASES,
-            self.register_preretrieval_aliases,
-        )
+
+        if self._global_bus is not None:
+            self._local_bus.register(
+                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+                self._request_patchouli_memory_retrieve,
+            )
+            self._local_bus.register(
+                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+                self._request_patchouli_memory_retrieve_by_aliases,
+            )
+            self._local_bus.register(
+                GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+                self._request_patchouli_get_agent_profile,
+            )
+
         self._local_routes_registered = True
 
     def unmount_local_routes(self) -> None:
@@ -74,7 +89,46 @@ class AliceRuntime:
 
         for route in AliceLocalRoutes.ALL:
             self._local_bus.unregister(route)
+        if self._global_bus is not None:
+            self._local_bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE)
+            self._local_bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
+            self._local_bus.unregister(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
         self._local_routes_registered = False
+
+    async def _request_patchouli_memory_retrieve(self, *args: Any, **kwargs: Any) -> Any:
+        if self._global_bus is None:
+            raise KeyError(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE)
+        return await self._global_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+            *args,
+            **kwargs,
+        )
+
+    async def _request_patchouli_memory_retrieve_by_aliases(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if self._global_bus is None:
+            raise KeyError(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
+        return await self._global_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            *args,
+            **kwargs,
+        )
+
+    async def _request_patchouli_get_agent_profile(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if self._global_bus is None:
+            raise KeyError(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
+        return await self._global_bus.request(
+            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+            *args,
+            **kwargs,
+        )
 
     def health(self) -> dict[str, Any]:
         return {
@@ -106,6 +160,7 @@ class AliceRuntime:
         generation_options: Optional[dict[str, Any]] = None,
         cancel_event=None,
     ) -> ChatResult:
+        self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
         return await self._agent_runtime.run_agent(
             messages=messages,
@@ -122,6 +177,7 @@ class AliceRuntime:
         generation_options: Optional[dict[str, Any]] = None,
         cancel_event=None,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
         async for event in self._agent_runtime.run_agent_stream(
             messages=messages,

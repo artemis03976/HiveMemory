@@ -4,9 +4,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
-from hivememory.alice.runtime.bus import AliceBus
 from hivememory.alice.system import AliceSystem
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
+from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
@@ -31,7 +31,6 @@ class TestAlicePublicRoutes:
         routes = self.global_bus.list_routes()
         assert AliceRoutes.RUN_AGENT in routes
         assert AliceRoutes.RUN_AGENT_STREAM in routes
-        assert AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES in routes
 
     @pytest.mark.asyncio
     async def test_stop_removes_public_routes_from_global_bus(self):
@@ -87,6 +86,44 @@ class TestAlicePublicRoutes:
         await system.start()
         await system.stop()
 
+    @pytest.mark.asyncio
+    async def test_alice_local_bus_bridges_patchouli_memory_routes(self):
+        retrieve = AsyncMock(return_value="retrieved")
+        retrieve_by_aliases = AsyncMock(return_value="aliases")
+        get_agent_profile = AsyncMock(return_value="profile")
+        self.global_bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, retrieve)
+        self.global_bus.register(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            retrieve_by_aliases,
+        )
+        self.global_bus.register(
+            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+            get_agent_profile,
+        )
+
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        await system.start()
+
+        result = await system.runtime.local_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+            request="request",
+        )
+        aliases_result = await system.runtime.local_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            aliases=["a"],
+        )
+        profile_result = await system.runtime.local_bus.request(
+            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+            "coder_doll",
+        )
+
+        assert result == "retrieved"
+        assert aliases_result == "aliases"
+        assert profile_result == "profile"
+        retrieve.assert_awaited_once_with(request="request")
+        retrieve_by_aliases.assert_awaited_once_with(aliases=["a"])
+        get_agent_profile.assert_awaited_once_with("coder_doll")
+
 
 # ========== Patchouli (lightweight — full integration tested in test_bootstrap) ==========
 
@@ -107,4 +144,3 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN == "patchouli.public.cleanup_prepared_agent_run"
         assert AliceRoutes.RUN_AGENT == "alice.public.run_agent"
         assert AliceRoutes.RUN_AGENT_STREAM == "alice.public.run_agent_stream"
-        assert AliceRoutes.REGISTER_PRERETRIEVAL_ALIASES == "alice.public.register_preretrieval_aliases"

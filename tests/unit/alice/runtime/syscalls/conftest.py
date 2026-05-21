@@ -10,6 +10,7 @@ from hivememory.system.config import KoakumaConfig
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
+from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 
@@ -24,6 +25,11 @@ class MockAsyncBus(AsyncSystemBus):
         self.register("retrieval.retrieve", self._handle_retrieve)
         self.register("memory.retrieve", self._handle_retrieve)
         self.register("memory.retrieve_by_aliases", self._handle_retrieve_by_aliases)
+        self.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, self._handle_retrieve)
+        self.register(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            self._handle_retrieve_by_aliases,
+        )
         self.register("generation.process", self._handle_generation_process)
         self.register("perception.route_and_ingest", self._handle_route_and_ingest)
 

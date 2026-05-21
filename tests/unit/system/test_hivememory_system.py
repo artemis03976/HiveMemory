@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
+from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
@@ -139,7 +139,7 @@ class TestHiveMemorySystem:
     @pytest.mark.asyncio
     async def test_manual_archive_topic_delegates(self, system, mock_patchouli):
         system._global_bus.register(
-            PatchouliRoutes.MANUAL_ARCHIVE_TOPIC,
+            GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC,
             mock_patchouli.service.manual_archive_topic,
         )
         result = await system.manual_archive_topic(topic_id="t1")

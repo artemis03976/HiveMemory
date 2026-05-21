@@ -21,7 +21,7 @@ from hivememory.alice.runtime.models import (
 )
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.protocol.models import MTPExecutionResult
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
+from hivememory.system.contracts.routes import GlobalRoutes
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -325,7 +325,7 @@ async def test_context_refs_fetch_uses_injected_local_bus_with_public_route():
 
     assert result == "[Shared Context from Parent Agent]\n\n<memory_context>ctx</memory_context>"
     kernel.local_bus.request.assert_awaited_once_with(
-        PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+        GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
         ["fact_a"],
         identity,
     )

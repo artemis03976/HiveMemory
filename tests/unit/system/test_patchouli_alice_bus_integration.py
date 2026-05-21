@@ -9,7 +9,6 @@ from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
@@ -34,7 +33,7 @@ def _build_memory_atom() -> MemoryAtom:
 
 
 @pytest.mark.asyncio
-async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
+async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result():
     kernel = MagicMock()
     eye = MagicMock()
     bus = GlobalSystemBus()
@@ -76,9 +75,6 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
         ),
     )
 
-    register_aliases = AsyncMock(return_value=None)
-    bus.register(GlobalRoutes.ALICE_REGISTER_PRERETRIEVAL_ALIASES, register_aliases)
-
     service = PatchouliService(runtime=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
 
     prepared = await service.prepare_agent_run(
@@ -86,7 +82,6 @@ async def test_prepare_agent_run_uses_global_bus_for_alias_registration():
         user_id="u1",
     )
 
-    register_aliases.assert_awaited_once_with(retrieval_result.memories)
     assert prepared.identity.user_id == "u1"
     assert prepared.topic_id == "topic_1"
     assert isinstance(prepared.agent_run_context, AgentRunContext)

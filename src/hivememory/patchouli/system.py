@@ -221,11 +221,11 @@ class PatchouliSystem(SubsystemProtocol):
         )
         self._global_bus.register(
             PatchouliRoutes.MEMORY_RETRIEVE,
-            self.runtime._retrieve_memories,
+            self.runtime.retrieval_familiar.retrieve_async,
         )
         self._global_bus.register(
             PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
-            self.runtime._retrieve_memories_by_aliases,
+            self.runtime.retrieval_familiar.retrieve_by_aliases_async,
         )
         self._global_bus.register(
             PatchouliRoutes.GET_AGENT_PROFILE,

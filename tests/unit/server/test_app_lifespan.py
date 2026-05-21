@@ -13,8 +13,8 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
     mock_system = MagicMock()
     mock_system.start = AsyncMock()
     mock_system.config = MagicMock()
-    mock_system.runtime = MagicMock()
-    mock_system.runtime.warmup_models = AsyncMock()
+    mock_system.patchouli = MagicMock()
+    mock_system.patchouli.runtime.warmup_models = AsyncMock()
     ws_manager = object()
 
     with (

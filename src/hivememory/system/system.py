@@ -9,6 +9,7 @@ from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import (
     GlobalMaintenanceScheduler,
@@ -209,6 +210,14 @@ class HiveMemorySystem:
     def config(self) -> HiveMemoryConfig:
         return self._config
 
+    @property
+    def patchouli(self) -> PatchouliSystem:
+        return self._patchouli
+
+    @property
+    def alice(self) -> AliceSystem:
+        return self._alice
+
     @config.setter
     def config(self, value: HiveMemoryConfig) -> None:
         self._config = value
@@ -216,6 +225,6 @@ class HiveMemorySystem:
 
     async def manual_archive_topic(self, topic_id: str | None = None) -> dict[str, Any]:
         return await self._global_bus.request(
-            "patchouli.public.manual_archive_topic",
+            GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC,
             topic_id=topic_id,
         )
