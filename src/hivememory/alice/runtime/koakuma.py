@@ -504,10 +504,13 @@ class KoakumaRuntime:
                 f"Use SEARCH to discover the correct alias first."
             )
 
-        return MTPResponse(
+        response = MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="\n".join(output_lines),
         )
+        for _, atom in resolved:
+            await self._record_memory_citation(atom, "mtp.read")
+        return response
 
     # TODO:检查run返回的MTP结果为何为误导模型认为执行失败，尽管显示执行成功
     async def _handle_run(
@@ -587,7 +590,10 @@ class KoakumaRuntime:
         # 使用缓存的代码执行
         code = atom.payload.content
         logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
-        return self._execute_user_tool(alias, code, command.args)
+        response = self._execute_user_tool(alias, code, command.args)
+        if response.status == MTPResponseStatus.SUCCESS:
+            await self._record_memory_citation(atom, "mtp.run")
+        return response
 
     async def _handle_write(
         self,
@@ -808,6 +814,23 @@ class KoakumaRuntime:
         for alias, atom in resolved:
             results[alias] = f"[{alias}]:\n{atom.payload.content}"
         return results
+
+    async def _record_memory_citation(self, atom: "MemoryAtom", source: str) -> None:
+        if self._bus is None:
+            return
+        try:
+            await self._bus.request(
+                GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
+                memory_id=atom.id,
+                source=source,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to record memory citation for memory_id=%s source=%s",
+                getattr(atom, "id", None),
+                source,
+                exc_info=True,
+            )
 
     async def _resolve_and_fetch(
         self,

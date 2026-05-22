@@ -553,6 +553,8 @@ class TestSystemSchedulerIntegration:
         tasks = MagicMock()
         tasks.perception_idle_flush_interval_seconds = 30.0
         tasks.enable_perception_idle_flush = True
+        tasks.lifecycle_gc_interval_hours = 24
+        tasks.enable_lifecycle_gc = False
 
         sys_passive.config = MagicMock()
         sys_passive.config.scheduler = MagicMock(enabled=True, tasks=tasks)
@@ -567,13 +569,17 @@ class TestSystemSchedulerIntegration:
         sys_passive.runtime.librarian_core = MagicMock()
         sys_passive.runtime.librarian_core.perception_layer = MagicMock()
         sys_passive.runtime.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock()
+        sys_passive.runtime.librarian_core.run_gardening_once = AsyncMock()
 
         assert sys_passive.register_maintenance_tasks(scheduler) is True
-        task_names = {spec.name for spec in scheduler.list_tasks()}
+        task_specs = {spec.name: spec for spec in scheduler.list_tasks()}
+        task_names = set(task_specs)
         assert "perception_idle_flush" in task_names
+        assert "memory_gardening" in task_names
+        assert task_specs["memory_gardening"].enabled is False
 
         removed = sys_passive.unregister_maintenance_tasks(scheduler)
-        assert removed == 1
+        assert removed == 2
         assert scheduler.list_tasks() == []
 
     @pytest.mark.asyncio
@@ -583,6 +589,8 @@ class TestSystemSchedulerIntegration:
         tasks = MagicMock()
         tasks.perception_idle_flush_interval_seconds = 0.01
         tasks.enable_perception_idle_flush = True
+        tasks.lifecycle_gc_interval_hours = 24
+        tasks.enable_lifecycle_gc = False
 
         sys_passive.config = MagicMock()
         sys_passive.config.scheduler = MagicMock(enabled=True, tasks=tasks)
@@ -592,6 +600,7 @@ class TestSystemSchedulerIntegration:
         sys_passive.runtime.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock(
             return_value=["topic_001"]
         )
+        sys_passive.runtime.librarian_core.run_gardening_once = AsyncMock()
 
         sys_passive.register_maintenance_tasks = types.MethodType(
             Real.register_maintenance_tasks, sys_passive

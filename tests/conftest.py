@@ -329,9 +329,6 @@ class MockLifecycleEngine:
     def run_garbage_collection(self, force: bool = False) -> int:
         return 0
 
-    def start_gardening(self) -> None:
-        pass
-
 
 class MockRetrievalFamiliar:
     """

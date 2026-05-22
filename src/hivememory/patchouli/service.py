@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import inspect
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
 from hivememory.engines.gateway.models import GatewayIntent
@@ -196,6 +198,23 @@ class PatchouliService:
             payload,
             target_topic_id=agent_context.topic_id,
         )
+        self._record_retrieval_hits(prepared_run)
+
+    async def record_memory_citation(
+        self,
+        memory_id: str | UUID,
+        source: str = "mtp",
+    ) -> Any:
+        """Record a lifecycle citation event for a memory atom."""
+        lifecycle = getattr(self._runtime.librarian_core, "lifecycle_engine", None)
+        if lifecycle is None:
+            raise RuntimeError("lifecycle_engine is not available")
+
+        normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
+        result = lifecycle.record_citation(normalized_id, source=source)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
     async def cleanup_prepared_agent_run(
         self,
@@ -248,6 +267,31 @@ class PatchouliService:
         if self._local_bus is None:
             raise RuntimeError("PatchouliService 尚未接入 PatchouliBus")
         return self._local_bus
+
+    def _record_retrieval_hits(self, prepared_run: PreparedAgentRun) -> None:
+        lifecycle = getattr(self._runtime.librarian_core, "lifecycle_engine", None)
+        if lifecycle is None:
+            return
+
+        retrieval_result = getattr(prepared_run.agent_run_context, "retrieval_result", None)
+        memories = getattr(retrieval_result, "memories", None) or []
+        seen: set[str] = set()
+        for memory in memories:
+            memory_id = getattr(memory, "id", None)
+            if memory_id is None:
+                continue
+            memory_key = str(memory_id)
+            if memory_key in seen:
+                continue
+            seen.add(memory_key)
+            try:
+                lifecycle.record_hit(memory_id, source="retrieval.finalize")
+            except Exception:
+                logger.warning(
+                    "Failed to record retrieval HIT for memory_id=%s",
+                    memory_id,
+                    exc_info=True,
+                )
 
     async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:
         try:

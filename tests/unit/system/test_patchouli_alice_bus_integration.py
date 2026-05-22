@@ -163,3 +163,111 @@ async def test_finalize_agent_run_reads_focus_from_loop_result():
     assert payload.mtp_traces[0].action == "SEARCH"
     assert payload.write_focus is None
     assert payload.update_focus is None
+
+
+@pytest.mark.asyncio
+async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
+    kernel = MagicMock()
+    kernel.librarian_core = MagicMock()
+    kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
+    kernel.librarian_core.lifecycle_engine = MagicMock()
+    service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
+
+    memory = _build_memory_atom()
+    identity = Identity(user_id="u1", agent_id="omni_doll")
+    prepared_run = PreparedAgentRun(
+        agent_run_context=AgentRunContext(
+            identity=identity,
+            topic_id="topic_1",
+            user_message="hi",
+            topic_context={"blocks": [], "state_summary": ""},
+            retrieval_result=RetrievalResponse(memories=[memory, memory]),
+            agent_profile=OMNI_DOLL_PROFILE,
+            storage_available=True,
+        ),
+        gaze_result=EyeGazeResult(
+            intent=GatewayIntent.RAG,
+            rewritten_query="rewritten",
+            search_keywords=[],
+            worth_saving=True,
+            raw_query="hi",
+            identity=identity,
+            target_topic="topic_1",
+        ),
+        stream_prelude=StreamPrelude(
+            topic_id="topic_1",
+            is_new_topic=False,
+            pool_snapshot={},
+            memory_refs=[],
+        ),
+    )
+
+    await service.finalize_agent_run(prepared_run, ChatResult(final_text="done"))
+
+    kernel.librarian_core.lifecycle_engine.record_hit.assert_called_once_with(
+        memory.id,
+        source="retrieval.finalize",
+    )
+
+
+@pytest.mark.asyncio
+async def test_finalize_agent_run_hit_failure_does_not_fail_finalize():
+    kernel = MagicMock()
+    kernel.librarian_core = MagicMock()
+    kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
+    kernel.librarian_core.lifecycle_engine = MagicMock()
+    kernel.librarian_core.lifecycle_engine.record_hit.side_effect = RuntimeError("boom")
+    service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
+
+    memory = _build_memory_atom()
+    identity = Identity(user_id="u1", agent_id="omni_doll")
+    prepared_run = PreparedAgentRun(
+        agent_run_context=AgentRunContext(
+            identity=identity,
+            topic_id="topic_1",
+            user_message="hi",
+            topic_context={"blocks": [], "state_summary": ""},
+            retrieval_result=RetrievalResponse(memories=[memory]),
+            agent_profile=OMNI_DOLL_PROFILE,
+            storage_available=True,
+        ),
+        gaze_result=EyeGazeResult(
+            intent=GatewayIntent.RAG,
+            rewritten_query="rewritten",
+            search_keywords=[],
+            worth_saving=True,
+            raw_query="hi",
+            identity=identity,
+            target_topic="topic_1",
+        ),
+        stream_prelude=StreamPrelude(
+            topic_id="topic_1",
+            is_new_topic=False,
+            pool_snapshot={},
+            memory_refs=[],
+        ),
+    )
+
+    await service.finalize_agent_run(prepared_run, ChatResult(final_text="done"))
+
+    kernel.librarian_core.submit_interaction.assert_awaited_once()
+    kernel.librarian_core.lifecycle_engine.record_hit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_record_memory_citation_calls_lifecycle():
+    kernel = MagicMock()
+    kernel.librarian_core = MagicMock()
+    kernel.librarian_core.lifecycle_engine = MagicMock()
+    service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
+    memory = _build_memory_atom()
+    expected = {"success": True}
+    kernel.librarian_core.lifecycle_engine.record_citation.return_value = expected
+
+    result = await service.record_memory_citation(str(memory.id), source="mtp.read")
+
+    assert result is expected
+    kernel.librarian_core.lifecycle_engine.record_citation.assert_called_once_with(
+        memory.id,
+        source="mtp.read",
+    )

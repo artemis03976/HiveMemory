@@ -113,6 +113,7 @@ class TestRunKernelFastPath:
         result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | ⟫')
         assert result.success
         assert "UTC" in result.response_content
+        assert koakuma._bus._memory_citations == []
 
     def test_sys_clock_iso(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | format="iso" ⟫')
@@ -182,6 +183,9 @@ class TestRunUserToolPath:
 
         assert result.success
         assert "tool output" in result.response_content
+        assert koakuma._bus._memory_citations == [
+            {"memory_id": mem.id, "source": "mtp.run"}
+        ]
 
     def test_l1_alias_hit_executes(self, koakuma):
         """L1 别名命中 → 加载 → 执行"""
@@ -192,6 +196,9 @@ class TestRunUserToolPath:
 
         assert result.success
         assert "from l1" in result.response_content
+        assert koakuma._bus._memory_citations == [
+            {"memory_id": mem.id, "source": "mtp.run"}
+        ]
 
     def test_cache_hit_skips_qdrant(self, koakuma):
         """第二次调用走 LRU 缓存，不查 Qdrant"""
@@ -225,6 +232,7 @@ class TestRunUserToolPath:
 
         assert not result.success
         assert "CODE_SNIPPET" in result.response_content
+        assert koakuma._bus._memory_citations == []
 
     def test_sandbox_timeout(self, koakuma):
         """死循环代码触发超时"""
@@ -305,4 +313,15 @@ class TestRunUserToolPath:
 
         assert not result.success
         assert "Error" in result.response_content
+        assert koakuma._bus._memory_citations == []
+
+    def test_citation_failure_keeps_user_tool_success_response(self, koakuma):
+        mem = _make_code_memory(code="print('still ok')", alias="tool_cite_fail")
+        koakuma._atom_cache.ingest_atom(mem)
+        koakuma._bus.unregister("patchouli.public.record_memory_citation")
+
+        result = _execute_mtp(koakuma, '⟪ RUN | tool_cite_fail | ⟫')
+
+        assert result.success
+        assert "still ok" in result.response_content
 
