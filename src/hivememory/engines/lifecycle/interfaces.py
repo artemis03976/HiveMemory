@@ -9,7 +9,7 @@ HiveMemory - Lifecycle 模块接口抽象层
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Iterable, List, Optional
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
@@ -104,7 +104,11 @@ class BaseGarbageCollector(ABC):
     """
 
     @abstractmethod
-    def scan_candidates(self, vitality_threshold: float) -> List[UUID]:
+    def scan_candidates(
+        self,
+        memories: Iterable[MemoryAtom],
+        vitality_threshold: float,
+    ) -> List[UUID]:
         """
         扫描低于生命力阈值的记忆
 
@@ -117,7 +121,11 @@ class BaseGarbageCollector(ABC):
         pass
 
     @abstractmethod
-    def collect(self, force: bool = False) -> int:
+    def collect(
+        self,
+        memories: Iterable[MemoryAtom],
+        force: bool = False,
+    ) -> int:
         """
         运行垃圾回收
 

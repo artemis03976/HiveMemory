@@ -5,18 +5,17 @@ HiveMemory - 垃圾回收器
 
 """
 
-from typing import List, Optional, Dict, Any
-from uuid import UUID
 from datetime import datetime
 import logging
+from typing import Any, Dict, Iterable, List, Optional
+from uuid import UUID
 
-from hivememory.system.config import GarbageCollectorConfig
+from hivememory.core.models import MemoryAtom
 from hivememory.engines.lifecycle.interfaces import (
     BaseGarbageCollector,
-    BaseMemoryArchiver
+    BaseMemoryArchiver,
 )
-from hivememory.engines.lifecycle.vitality import VitalityCalculator
-from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.system.config import GarbageCollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,26 +40,11 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
         archiver: BaseMemoryArchiver,
-        vitality_calculator: VitalityCalculator,
-        config: GarbageCollectorConfig
+        config: GarbageCollectorConfig,
     ):
-        """
-        初始化垃圾回收器
-
-        Args:
-            storage: 向量存储实例 (QdrantMemoryStore)
-            archiver: 归档器实例
-            vitality_calculator: 生命力计算器实例
-            config: 垃圾回收器配置
-        """
-        self.storage = storage
         self.archiver = archiver
-        self.vitality_calculator = vitality_calculator
         self.config = config
-
-        # 统计信息
         self._stats: Dict[str, Any] = {
             "last_run": None,
             "total_scanned": 0,
@@ -70,54 +54,48 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         }
 
         logger.info(
-            f"PeriodicGarbageCollector initialized: "
-            f"threshold={config.low_watermark}, batch_size={config.batch_size}"
+            f"PeriodicGarbageCollector initialized: threshold={config.low_watermark}, batch_size={config.batch_size}",
         )
 
-    def scan_candidates(self, vitality_threshold: Optional[float] = None) -> List[UUID]:
+    def scan_candidates(
+        self,
+        memories: Iterable[MemoryAtom],
+        vitality_threshold: Optional[float] = None,
+    ) -> List[UUID]:
         """
-        扫描低于生命力阈值的记忆
-
-        流程:
-            1. 获取所有记忆
-            2. 批量刷新 vitality_score
-            3. 筛选低于阈值的记忆
+        扫描低生命力记忆
 
         Args:
-            vitality_threshold: 自定义阈值 (默认使用配置中的 low_watermark)
+            memories: 记忆迭代器
+            vitality_threshold: 覆盖默认生命力阈值
 
         Returns:
-            List[UUID]: 候选记忆ID列表
+            List[UUID]: 低生命力记忆ID列表
         """
-        threshold = vitality_threshold if vitality_threshold is not None else self.config.low_watermark
-
+        threshold = (
+            vitality_threshold
+            if vitality_threshold is not None
+            else self.config.low_watermark
+        )
         logger.info(f"Scanning for memories with vitality <= {threshold}...")
 
-        # 获取所有记忆
-        all_memories = self.storage.get_all_memories()
-
-        # 批量刷新生命力分数 (更新存储中的缓存值)
-        refreshed = self.vitality_calculator.refresh_batch(all_memories, self.storage)
-
-        # 筛选低于阈值的记忆
         candidates = [
-            (memory_id, vitality)
-            for memory_id, vitality in refreshed
-            if vitality <= threshold
+            (memory.id, memory.meta.vitality_score)
+            for memory in memories
+            if memory.meta.vitality_score is not None
+            and memory.meta.vitality_score <= threshold
         ]
-
-        # 按生命力排序 (最低的优先)
-        candidates.sort(key=lambda x: x[1])
+        candidates.sort(key=lambda item: item[1])
 
         logger.info(f"Found {len(candidates)} candidates for archival")
-
-        return [mid for mid, _ in candidates]
+        return [memory_id for memory_id, _ in candidates]
 
     def collect(
         self,
+        memories: Iterable[MemoryAtom],
         force: bool = False,
         batch_size: Optional[int] = None,
-        vitality_threshold: Optional[float] = None
+        vitality_threshold: Optional[float] = None,
     ) -> int:
         """
         运行垃圾回收
@@ -131,16 +109,17 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
             int: 归档的记忆数量
         """
         logger.info("Starting garbage collection...")
-
-        # 扫描候选
-        candidate_ids = self.scan_candidates(vitality_threshold=vitality_threshold)
+        memories = list(memories)
+        candidate_ids = self.scan_candidates(
+            memories,
+            vitality_threshold=vitality_threshold,
+        )
 
         if not candidate_ids:
             logger.info("No candidates found for archival")
-            self._update_stats(0, 0)
+            self._update_stats(len(memories), 0)
             return 0
 
-        # 限制批量大小
         actual_batch_size = batch_size or self.config.batch_size
         candidate_ids = candidate_ids[:actual_batch_size]
 
@@ -149,29 +128,23 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
         for memory_id in candidate_ids:
             try:
-                # 检查是否已归档
                 if hasattr(self.archiver, "is_archived"):
                     if self.archiver.is_archived(memory_id):
-                        logger.debug(f"Memory {memory_id} already archived")
+                        logger.debug("Memory %s already archived", memory_id)
                         skipped_count += 1
                         continue
 
-                # 执行归档
                 self.archiver.archive(memory_id)
                 archived_count += 1
-
-            except Exception as e:
-                logger.error(f"Failed to archive {memory_id}: {e}")
+                logger.info(f"Successfully archived {memory_id}")
+            except Exception as exc:
+                logger.error(f"Failed to archive {memory_id}: {exc}")
                 skipped_count += 1
 
-        # 更新统计
-        self._update_stats(len(candidate_ids), archived_count, skipped_count)
-
+        self._update_stats(len(memories), archived_count, skipped_count)
         logger.info(
-            f"Garbage collection complete: "
-            f"{archived_count} archived, {skipped_count} skipped"
+            f"Garbage collection complete: {archived_count} archived, {skipped_count} skipped",
         )
-
         return archived_count
 
     def get_stats(self) -> Dict[str, Any]:
@@ -184,7 +157,6 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         return self._stats.copy()
 
     def reset_stats(self) -> None:
-        """重置统计信息"""
         self._stats = {
             "last_run": None,
             "total_scanned": 0,
@@ -198,16 +170,8 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         self,
         scanned: int,
         archived: int,
-        skipped: int = 0
+        skipped: int = 0,
     ) -> None:
-        """
-        更新统计信息
-
-        Args:
-            scanned: 扫描的记忆数量
-            archived: 归档的记忆数量
-            skipped: 跳过的记忆数量
-        """
         self._stats["last_run"] = datetime.now().isoformat()
         self._stats["total_scanned"] += scanned
         self._stats["total_archived"] += archived
@@ -215,87 +179,8 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         self._stats["runs_count"] += 1
 
 
-class ScheduledGarbageCollector(PeriodicGarbageCollector):
-    """
-    支持定时触发的垃圾回收器
-
-    使用 APScheduler 实现定时任务。
-
-    注意: 需要安装 apscheduler 包
-    """
-
-    def __init__(
-        self,
-        storage,
-        archiver: BaseMemoryArchiver,
-        vitality_calculator: VitalityCalculator,
-        config: GarbageCollectorConfig,
-        enable_schedule: bool = False,
-        interval_hours: int = 24,
-    ):
-        """
-        初始化定时垃圾回收器
-
-        Args:
-            storage: 向量存储实例
-            archiver: 归档器实例
-            vitality_calculator: 生命力计算器实例
-            config: 垃圾回收器配置
-            enable_schedule: 是否启用定时执行
-            interval_hours: 执行间隔 (小时)
-        """
-        super().__init__(
-            storage=storage,
-            archiver=archiver,
-            vitality_calculator=vitality_calculator,
-            config=config,
-        )
-
-        self.enable_schedule = enable_schedule
-        self.interval_hours = interval_hours
-        self._scheduler = None
-
-        if enable_schedule:
-            self._setup_schedule()
-
-    def _setup_schedule(self) -> None:
-        """设置定时任务"""
-        try:
-            from apscheduler.schedulers.background import BackgroundScheduler
-
-            self._scheduler = BackgroundScheduler()
-
-            # 添加定时任务
-            self._scheduler.add_job(
-                self.collect,
-                "interval",
-                hours=self.interval_hours,
-                id="garbage_collection",
-                replace_existing=True,
-            )
-
-            self._scheduler.start()
-            logger.info(
-                f"Scheduled garbage collection: interval={self.interval_hours}h"
-            )
-        except ImportError:
-            logger.warning(
-                "apscheduler not installed, scheduled GC disabled. "
-                "Install with: pip install apscheduler"
-            )
-            self.enable_schedule = False
-
-    def shutdown(self) -> None:
-        """关闭调度器"""
-        if self._scheduler:
-            self._scheduler.shutdown()
-            logger.info("Scheduler shutdown")
-
-
 def create_garbage_collector(
-    storage,
     archiver: BaseMemoryArchiver,
-    vitality_calculator: VitalityCalculator,
     config: GarbageCollectorConfig,
 ) -> BaseGarbageCollector:
     """
@@ -311,15 +196,12 @@ def create_garbage_collector(
         BaseGarbageCollector: 垃圾回收器实例
     """
     return PeriodicGarbageCollector(
-        storage=storage,
-        config=config,
         archiver=archiver,
-        vitality_calculator=vitality_calculator,
+        config=config,
     )
 
 
 __all__ = [
     "PeriodicGarbageCollector",
-    "ScheduledGarbageCollector",
     "create_garbage_collector",
 ]

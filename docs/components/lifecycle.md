@@ -208,7 +208,6 @@ A = min(max_access_boost, access_count × points_per_access)
 | 方法 | 说明 |
 | :--- | :--- |
 | `calculate(memory)` | 计算单个记忆的生命力分数（0-100） |
-| `refresh_batch(memories, storage)` | 批量刷新记忆的生命力并更新存储 |
 
 **配置项**（`VitalityCalculatorConfig`）：
 
@@ -309,7 +308,8 @@ data/archived/
 
 | 方法 | 说明 |
 | :--- | :--- |
-| `calculate_vitality(memory_id)` | 计算并返回生命力分数，同时更新存储中的缓存值 |
+| `refresh_vitality(memory, persist=False)` | 刷新单条记忆的生命力分数，可选择是否持久化 |
+| `refresh_vitality_batch(memories, persist=False)` | 刷新调用方提供的一组记忆的生命力分数，可选择是否持久化 |
 | `record_event(event)` | 记录生命周期事件 |
 | `record_hit(memory_id, source)` | 记录检索命中事件（HIT） |
 | `record_citation(memory_id, source)` | 记录主动引用事件（CITATION） |
@@ -373,7 +373,7 @@ class ArchiveStatus(str, Enum):
 | 字段 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `memory_id` | `UUID` | 记忆 ID |
-| `original_vitality` | `float` | 归档时的生命力分数（0-1） |
+| `original_vitality` | `float` | 归档时的生命力分数（0-100） |
 | `archived_at` | `datetime` | 归档时间 |
 | `storage_path` | `str` | 存储路径（文件路径或 S3 key） |
 | `compressed_size_bytes` | `Optional[int]` | 压缩后的大小（字节） |

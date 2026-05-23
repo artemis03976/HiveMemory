@@ -121,7 +121,7 @@ class ArchiveRecord(BaseModel):
 
     Attributes:
         memory_id: 记忆ID
-        original_vitality: 归档时的生命力分数 (0-1)
+        original_vitality: 归档时的生命力分数 (0-100)
         archived_at: 归档时间
         storage_path: 存储路径 (文件路径或S3 key)
         compressed_size_bytes: 压缩后的大小 (字节)

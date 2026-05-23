@@ -7,11 +7,13 @@ RetrievalFamiliar 单元测试
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import AsyncMock, Mock, MagicMock
 from uuid import uuid4
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 
@@ -142,11 +144,54 @@ class TestRetrievalFamiliarRetrieve:
         self.mock_engine.retrieve.return_value = _make_engine_result(
             [mem], rendered="engine_rendered"
         )
+        self.mock_engine.renderer.render.return_value = "engine_rendered"
 
         response = self.familiar.retrieve(_make_request(), mode="active")
 
         assert response.rendered_context == "engine_rendered"
         self.mock_passive_renderer.render.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retrieve_async_refreshes_vitality_through_local_bus_before_render(self):
+        mem = _make_memory()
+        self.mock_engine.retrieve.return_value = _make_engine_result([mem])
+        self.mock_engine.renderer.render.return_value = "stale_rendered"
+        self.mock_engine.render_memories.return_value = "fresh_rendered"
+        bus = PatchouliBus()
+
+        async def _refresh(memories, persist=False):
+            memories[0].meta.vitality_score = 42.0
+            return [(memories[0].id, 42.0)]
+
+        refresh = AsyncMock(side_effect=_refresh)
+        bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, refresh)
+        self.familiar._local_bus = bus
+
+        response = await self.familiar.retrieve_async(_make_request(), mode="active")
+
+        refresh.assert_awaited_once_with([mem], persist=False)
+        self.mock_engine.render_memories.assert_called_once_with([mem])
+        assert response.memories[0].meta.vitality_score == 42.0
+        assert response.rendered_context == "fresh_rendered"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_async_vitality_refresh_failure_keeps_response(self):
+        mem = _make_memory()
+        self.mock_engine.retrieve.return_value = _make_engine_result(
+            [mem], rendered="engine_rendered"
+        )
+        self.mock_engine.renderer.render.return_value = "engine_rendered"
+        self.mock_engine.render_memories.return_value = "rerendered"
+        bus = PatchouliBus()
+        refresh = AsyncMock(side_effect=RuntimeError("refresh failed"))
+        bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, refresh)
+        self.familiar._local_bus = bus
+
+        response = await self.familiar.retrieve_async(_make_request(), mode="active")
+
+        refresh.assert_awaited_once_with([mem], persist=False)
+        assert response.memories == [mem]
+        assert response.rendered_context == "rerendered"
 
     def test_retrieve_passive_mode_uses_passive_renderer(self):
         """passive 模式使用 passive_renderer"""
@@ -170,6 +215,7 @@ class TestRetrievalFamiliarRetrieve:
         self.mock_engine.retrieve.return_value = _make_engine_result(
             [mem], rendered="engine_ctx"
         )
+        self.mock_engine.renderer.render.return_value = "engine_ctx"
 
         response = familiar.retrieve(_make_request(), mode="passive")
 
@@ -284,6 +330,25 @@ class TestRetrievalFamiliarRetrieveByAliases:
         assert response.memories == [mem]
         assert response.memories_count == 1
         assert response.rendered_context == "rendered aliases"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_by_aliases_async_refreshes_vitality_through_local_bus(self):
+        mem = _make_memory("alias memory")
+        self.mock_storage.get_memory_by_alias.return_value = mem
+        self.mock_engine.render_memories.side_effect = ["stale", "fresh aliases"]
+        bus = PatchouliBus()
+        refresh = AsyncMock(return_value=[(mem.id, 41.0)])
+        bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, refresh)
+        self.familiar._local_bus = bus
+
+        response = await self.familiar.retrieve_by_aliases_async(
+            aliases=["fact_a"],
+            identity=Identity(user_id="u1"),
+        )
+
+        refresh.assert_awaited_once_with([mem], persist=False)
+        assert self.mock_engine.render_memories.call_count == 2
+        assert response.rendered_context == "fresh aliases"
 
     def test_retrieve_by_aliases_deduplicates_and_skips_missing(self):
         mem = _make_memory("alias memory")

@@ -14,13 +14,10 @@
 版本: 2.2 (乐观检索策略)
 """
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional
 import asyncio
 import time
 import logging
-
-if TYPE_CHECKING:
-    from hivememory.system.config import MemoryRetrievalConfig
 
 from hivememory.core.models import Identity, MemoryAtom
 from hivememory.engines.retrieval.engine import RetrievalEngine
@@ -29,6 +26,7 @@ from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +72,7 @@ class RetrievalFamiliar:
         storage: QdrantMemoryStore,
         engine: RetrievalEngine,
         passive_renderer: Optional[BaseContextRenderer] = None,
+        local_bus: Optional[Any] = None,
     ):
         """
         初始化检索使魔
@@ -87,6 +86,7 @@ class RetrievalFamiliar:
         self.storage = storage
         self.engine = engine
         self._passive_renderer = passive_renderer
+        self._local_bus = local_bus
 
         logger.info("RetrievalFamiliar (检索使魔) 初始化完成")
 
@@ -155,7 +155,12 @@ class RetrievalFamiliar:
                     engine_result.search_results.results
                 )
             else:
-                response.rendered_context = engine_result.rendered_context
+                if engine_result.search_results and not engine_result.search_results.is_empty():
+                    response.rendered_context = self.engine.renderer.render(
+                        engine_result.search_results.results
+                    )
+                else:
+                    response.rendered_context = engine_result.rendered_context
 
             logger.info(
                 f"检索完成: query='{request.semantic_query[:20]}...', "
@@ -178,7 +183,10 @@ class RetrievalFamiliar:
         mode: str = "active",
     ) -> RetrievalResponse:
         """Async bus entrypoint for the currently synchronous retrieval engine."""
-        return await asyncio.to_thread(self.retrieve, request, mode)
+        response = await asyncio.to_thread(self.retrieve, request, mode)
+        await self._refresh_vitality_for_memories(response.memories)
+        self._rerender_response(response, mode)
+        return response
 
     def retrieve_by_aliases(
         self,
@@ -238,12 +246,15 @@ class RetrievalFamiliar:
         mode: str = "active",
     ) -> RetrievalResponse:
         """Async bus entrypoint for exact alias retrieval."""
-        return await asyncio.to_thread(
+        response = await asyncio.to_thread(
             self.retrieve_by_aliases,
             aliases,
             identity,
             mode,
         )
+        await self._refresh_vitality_for_memories(response.memories)
+        self._rerender_response(response, mode)
+        return response
 
     def update_access_stats(self, memories: List[MemoryAtom]) -> None:
         """
@@ -256,6 +267,27 @@ class RetrievalFamiliar:
                 self.storage.update_access_info(memory.id)
             except Exception as e:
                 logger.warning(f"更新访问统计失败: {memory.id} - {e}")
+
+
+    async def _refresh_vitality_for_memories(self, memories: List[MemoryAtom]) -> None:
+        if not memories or self._local_bus is None:
+            return
+        try:
+            await self._local_bus.request(
+                PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
+                memories,
+                persist=False,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to refresh retrieval vitality scores: {e}")
+
+    def _rerender_response(self, response: RetrievalResponse, mode: str) -> None:
+        if not response.memories:
+            return
+        if mode == "passive" and self._passive_renderer is not None:
+            response.rendered_context = self._passive_renderer.render(response.memories)
+        else:
+            response.rendered_context = self.engine.render_memories(response.memories)
 
 
 __all__ = [

@@ -44,6 +44,11 @@ class TestMemoriesRouter:
         atom = _make_atom()
         mock_system = MagicMock()
         mock_system.patchouli.storage.get_all_memories.return_value = [atom]
+        lifecycle = MagicMock()
+        lifecycle.refresh_vitality_batch.side_effect = (
+            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 33.0)
+        )
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -53,11 +58,18 @@ class TestMemoriesRouter:
         data = response.json()
         assert data["total"] == 1
         assert data["memories"][0]["title"] == "Test"
+        assert data["memories"][0]["vitality_score"] == 33.0
+        lifecycle.refresh_vitality_batch.assert_called_once_with([atom], persist=False)
 
     def test_list_memories_with_query(self):
         atom = _make_atom()
         mock_system = MagicMock()
         mock_system.patchouli.storage.search_memories.return_value = [{"memory": atom, "score": 0.9}]
+        lifecycle = MagicMock()
+        lifecycle.refresh_vitality_batch.side_effect = (
+            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 44.0)
+        )
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -66,6 +78,7 @@ class TestMemoriesRouter:
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 1
+        assert data["memories"][0]["vitality_score"] == 44.0
 
     def test_list_memories_filters_map_to_payload_paths(self):
         mock_system = MagicMock()
@@ -85,6 +98,11 @@ class TestMemoriesRouter:
         atom = _make_atom()
         mock_system = MagicMock()
         mock_system.patchouli.storage.get_memory.return_value = atom
+        lifecycle = MagicMock()
+        lifecycle.refresh_vitality_batch.side_effect = (
+            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 55.0)
+        )
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -92,6 +110,8 @@ class TestMemoriesRouter:
         response = client.get(f"/api/v1/memories/{atom.id}")
         assert response.status_code == 200
         assert response.json()["id"] == str(atom.id)
+        assert response.json()["vitality_score"] == 55.0
+        lifecycle.refresh_vitality_batch.assert_called_once_with([atom], persist=False)
 
     def test_get_memory_not_found(self):
         mock_system = MagicMock()

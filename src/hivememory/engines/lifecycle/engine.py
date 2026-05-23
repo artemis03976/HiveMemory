@@ -8,7 +8,7 @@ HiveMemory - 生命周期管理器
 """
 
 import logging
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
@@ -81,32 +81,33 @@ class MemoryLifecycleEngine:
         self.archiver = archiver
         self.garbage_collector = garbage_collector
 
-        logger.info("MemoryLifecycleManager initialized with all components")
+        logger.info("MemoryLifecycleEngine initialized with all components")
 
-    def calculate_vitality(self, memory_id: UUID) -> float:
-        """
-        计算并返回生命力分数，同时更新存储中的缓存值
-
-        Args:
-            memory_id: 记忆ID
-
-        Returns:
-            float: 生命力分数 (0-100)
-
-        Raises:
-            ValueError: 记忆不存在
-        """
-        memory = self.storage.get_memory(memory_id)
-        if memory is None:
-            raise ValueError(f"Memory {memory_id} not found")
-
+    def refresh_vitality(
+        self,
+        memory: MemoryAtom,
+        *,
+        persist: bool = False,
+    ) -> float:
+        """Refresh a MemoryAtom vitality score in place."""
         vitality = self.vitality_calculator.calculate(memory)
-
-        # 更新存储中的 vitality_score 缓存
-        memory.meta.vitality_score = vitality / 100.0
-        self.storage.upsert_memory(memory)
-
+        memory.meta.vitality_score = vitality
+        if persist:
+            self.storage.upsert_memory(memory)
         return vitality
+
+    def refresh_vitality_batch(
+        self,
+        memories: Iterable[MemoryAtom],
+        *,
+        persist: bool = False,
+    ) -> List[Tuple[UUID, float]]:
+        """Refresh vitality scores for the caller-provided memory collection."""
+        results = []
+        for memory in memories:
+            vitality = self.refresh_vitality(memory, persist=persist)
+            results.append((memory.id, vitality))
+        return results
 
     def record_event(self, event: MemoryEvent) -> ReinforcementResult:
         """
@@ -205,7 +206,9 @@ class MemoryLifecycleEngine:
         Returns:
             int: 归档的记忆数量
         """
-        return self.garbage_collector.collect(force=force)
+        all_memories = self.storage.get_all_memories()
+        self.refresh_vitality_batch(all_memories, persist=True)
+        return self.garbage_collector.collect(all_memories, force=force)
 
     def archive_memory(self, memory_id: UUID) -> None:
         """
@@ -251,16 +254,13 @@ class MemoryLifecycleEngine:
         """
         # 获取所有记忆
         all_memories = self.storage.get_all_memories(limit=10000)
-
-        results = []
-        for memory in all_memories:
-            vitality = self.vitality_calculator.calculate(memory)
-            if vitality <= threshold:
-                results.append((memory.id, vitality))
-
-        # 按生命力排序 (最低的在前)
-        results.sort(key=lambda x: x[1])
-
+        refreshed = self.refresh_vitality_batch(all_memories, persist=False)
+        results = [
+            (memory_id, vitality)
+            for memory_id, vitality in refreshed
+            if vitality <= threshold
+        ]
+        results.sort(key=lambda item: item[1])
         return results[:limit]
 
     def get_event_history(
@@ -307,7 +307,11 @@ class MemoryLifecycleEngine:
             dict: 包含各组件统计信息的字典
         """
         stats = {
-            "garbage_collector": self.garbage_collector.get_stats() if hasattr(self.garbage_collector, "get_stats") else {},
+            "garbage_collector": (
+                self.garbage_collector.get_stats()
+                if hasattr(self.garbage_collector, "get_stats")
+                else {}
+            ),
         }
 
         if hasattr(self.reinforcement_engine, "get_stats"):

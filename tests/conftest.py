@@ -320,8 +320,12 @@ class MockLifecycleEngine:
     def __init__(self):
         pass
 
-    def calculate_vitality(self, memory_id) -> float:
+    def refresh_vitality(self, memory, *, persist: bool = False) -> float:
+        memory.meta.vitality_score = 100.0
         return 100.0
+
+    def refresh_vitality_batch(self, memories, *, persist: bool = False):
+        return [(memory.id, self.refresh_vitality(memory, persist=persist)) for memory in memories]
 
     def record_event(self, event) -> None:
         pass

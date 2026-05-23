@@ -15,7 +15,7 @@ MemoryLifeCycleManagement 模块负责记忆的动态演化、垃圾回收和冷
 本模块已完成核心功能开发，包括：
 - **生命力计算体系**: 基于置信度、固有价值、时间衰减和访问加成的综合评分模型
 - **动态强化引擎**: 支持 HIT、CITATION、FEEDBACK 等事件驱动的分数调整
-- **垃圾回收机制**: 支持周期性和定时触发的低价值记忆清理
+- **垃圾回收机制**: 支持由全局维护调度器触发的低价值记忆清理
 - **冷热分级存储**: 实现基于文件系统的冷存储归档与唤醒机制
 - **统一生命周期管理**: 提供 `MemoryLifecycleEngine` 协调各组件工作
 
@@ -53,8 +53,7 @@ MemoryLifeCycleManagement 模块负责记忆的动态演化、垃圾回收和冷
 **职责**: 扫描低生命力记忆并触发归档。
 
 **核心类**:
-- `PeriodicGarbageCollector`: 基础周期性 GC
-- `ScheduledGarbageCollector`: 基于 APScheduler 的定时 GC (默认 24h)
+- `PeriodicGarbageCollector`: 单次 GC 扫描与归档执行器
 
 **策略**:
 - **低水位线**: 生命力 < 20.0 的记忆将被标记为归档候选
@@ -97,11 +96,9 @@ from hivememory.lifecycle import create_default_lifecycle_engine
 storage = QdrantMemoryStore()
 
 # 2. 创建生命周期引擎
-# 启用定时 GC (每 24 小时运行一次)
+# 定时 GC 由系统级维护调度器注册和驱动
 lifecycle_engine = create_default_lifecycle_engine(
     storage=storage,
-    enable_scheduled_gc=True,
-    gc_interval_hours=24
 )
 ```
 

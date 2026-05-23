@@ -570,8 +570,6 @@ class GarbageCollectorConfig(BaseModel):
     """垃圾回收器配置"""
     low_watermark: float = Field(default=20.0, description="低水位阈值")
     batch_size: int = Field(default=10, description="每次最多归档数量")
-    enable_schedule: bool = Field(default=False, description="是否启用定时垃圾回收")
-    interval_hours: int = Field(default=24, description="执行间隔(小时)")
 
     model_config = ConfigDict(extra="ignore")
 

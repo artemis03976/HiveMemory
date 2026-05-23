@@ -23,7 +23,6 @@ sse-starlette>=1.6.0
 numpy>=1.24.0
 rich>=13.0.0  # For beautiful console output
 httpx>=0.26.0  # For async HTTP requests
-apscheduler>=3.10.0
 
 # Development Tools
 pytest>=8.0.0
