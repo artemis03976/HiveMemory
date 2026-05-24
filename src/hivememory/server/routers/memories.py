@@ -4,11 +4,42 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from hivememory.core.models import MemoryAtom
 from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
-from hivememory.server.models.memory import MemoryResponse, MemoryListResponse, MemoryUpdateRequest
+from hivememory.server.models.memory import (
+    MemoryFeedbackRequest,
+    MemoryFeedbackResponse,
+    MemoryListResponse,
+    MemoryResponse,
+    MemoryUpdateRequest,
+)
 
 router = APIRouter(tags=["memories"])
+
+
+def _get_lifecycle_engine(system: HiveMemorySystem):
+    runtime = getattr(system.patchouli, "runtime", None)
+    if runtime is not None:
+        engines = getattr(runtime, "_engines", {})
+        if isinstance(engines, dict) and engines.get("lifecycle") is not None:
+            return engines["lifecycle"]
+
+    librarian = getattr(system.patchouli, "librarian_core", None)
+    return getattr(librarian, "lifecycle_engine", None)
+
+
+def _refresh_vitality_for_response(
+    system: HiveMemorySystem,
+    atoms: list[MemoryAtom],
+) -> None:
+    lifecycle = _get_lifecycle_engine(system)
+    if lifecycle is None or not atoms:
+        return
+    try:
+        lifecycle.refresh_vitality_batch(atoms, persist=False)
+    except Exception:
+        return
 
 
 @router.get("/memories", response_model=MemoryListResponse)
@@ -34,11 +65,13 @@ async def list_memories(
             top_k=limit,
             filters=filters if filters else None,
         )
-        memories = [
-            MemoryResponse.from_atom(r["memory"])
+        atoms = [
+            r["memory"]
             for r in results
             if "memory" in r and r["memory"].index.memory_type != "AGENT_PROFILE"
         ]
+        _refresh_vitality_for_response(system, atoms)
+        memories = [MemoryResponse.from_atom(a) for a in atoms]
     else:
         filters = {}
         if user_id:
@@ -50,7 +83,9 @@ async def list_memories(
             filters=filters if filters else None,
             limit=limit,
         )
-        memories = [MemoryResponse.from_atom(a) for a in atoms if a.index.memory_type != "AGENT_PROFILE"]
+        atoms = [a for a in atoms if a.index.memory_type != "AGENT_PROFILE"]
+        _refresh_vitality_for_response(system, atoms)
+        memories = [MemoryResponse.from_atom(a) for a in atoms]
 
     return MemoryListResponse(memories=memories, total=len(memories))
 
@@ -70,6 +105,7 @@ async def get_memory(
     if atom is None:
         raise HTTPException(status_code=404, detail="记忆不存在")
 
+    _refresh_vitality_for_response(system, [atom])
     return MemoryResponse.from_atom(atom)
 
 
@@ -106,6 +142,47 @@ async def update_memory(
 
     system.patchouli.storage.upsert_memory(atom)
     return MemoryResponse.from_atom(atom)
+
+
+@router.post("/memories/{memory_id}/feedback", response_model=MemoryFeedbackResponse)
+async def record_memory_feedback(
+    memory_id: str,
+    body: MemoryFeedbackRequest,
+    system: HiveMemorySystem = Depends(get_system),
+):
+    """Record explicit user feedback for a memory."""
+    try:
+        uid = UUID(memory_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="鏃犳晥鐨勮蹇?ID 鏍煎紡")
+
+    lifecycle = _get_lifecycle_engine(system)
+    if lifecycle is None:
+        raise HTTPException(status_code=503, detail="Memory lifecycle engine is unavailable")
+
+    try:
+        result = lifecycle.record_feedback(
+            uid,
+            positive=body.positive,
+            source=body.source,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return MemoryFeedbackResponse(
+        success=True,
+        id=str(result.memory_id),
+        positive=body.positive,
+        previous_vitality=result.previous_vitality,
+        new_vitality=result.new_vitality,
+        previous_confidence=result.previous_confidence,
+        new_confidence=result.new_confidence,
+        event_type=(
+            result.event_type.value
+            if hasattr(result.event_type, "value")
+            else str(result.event_type)
+        ),
+    )
 
 
 @router.delete("/memories/{memory_id}")

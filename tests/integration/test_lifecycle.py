@@ -313,14 +313,12 @@ class TestGarbageCollectorAndVitalityCollaboration:
         mock_gc_config.batch_size = 10
 
         gc = PeriodicGarbageCollector(
-            storage=mock_storage,
             archiver=Mock(), # Mock archiver
-            vitality_calculator=calculator,
             config=mock_gc_config,
         )
 
         # 运行垃圾回收
-        collected = gc.collect()
+        collected = gc.collect(mock_storage.get_all_memories())
 
         # 应该收集低生命力记忆
         assert collected >= 0
@@ -368,7 +366,7 @@ class TestLifecycleEngineCoordination:
         calculator = VitalityCalculator(config=mock_vitality_config)
         reinforcement = DynamicReinforcementEngine(storage=mock_storage, vitality_calculator=calculator, config=mock_reinforcement_config)
         archiver = FileBasedArchiver(storage=mock_storage, config=mock_archiver_config)
-        gc = PeriodicGarbageCollector(storage=mock_storage, archiver=archiver, vitality_calculator=calculator, config=mock_gc_config)
+        gc = PeriodicGarbageCollector(archiver=archiver, config=mock_gc_config)
 
         engine = MemoryLifecycleEngine(
             storage=mock_storage,
@@ -421,7 +419,7 @@ class TestLifecycleEngineCoordination:
         calculator = VitalityCalculator(config=mock_vitality_config)
         reinforcement = DynamicReinforcementEngine(storage=mock_storage, vitality_calculator=calculator, config=mock_reinforcement_config)
         archiver = FileBasedArchiver(storage=mock_storage, config=mock_archiver_config)
-        gc = PeriodicGarbageCollector(storage=mock_storage, archiver=archiver, vitality_calculator=calculator, config=mock_gc_config)
+        gc = PeriodicGarbageCollector(archiver=archiver, config=mock_gc_config)
 
         engine = MemoryLifecycleEngine(
             storage=mock_storage,
@@ -431,10 +429,27 @@ class TestLifecycleEngineCoordination:
             garbage_collector=gc,
         )
 
-        # calculate_vitality should raise ValueError if memory not found
-        from uuid import UUID
-        with pytest.raises(ValueError):
-            engine.calculate_vitality(memory_id=UUID("00000000-0000-0000-0000-000000000000"))
+        # Refreshing vitality is now caller-scoped: the caller supplies the
+        # memory object that needs a fresh score.
+        memory = MemoryAtom(
+            meta=MetaData(
+                source_agent_id="agent1",
+                user_id="user1",
+                confidence_score=0.8,
+                vitality_score=60.0,
+            ),
+            index=IndexLayer(
+                title="Test",
+                summary="Test summary with enough length",
+                tags=["test"],
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="Content"),
+        )
+
+        vitality = engine.refresh_vitality(memory, persist=False)
+
+        assert 0.0 <= vitality <= 100.0
 
 
 class TestVitalityCalculation:
@@ -679,22 +694,25 @@ class TestMemoryLifecycleEngine:
         """清理"""
         pass
 
-    def test_calculate_vitality(self):
+    def test_refresh_vitality(self):
         """测试计算生命力"""
-        self.mock_storage.get_memory.return_value = self.test_memory
         self.engine.vitality_calculator.calculate.return_value = 75.0
 
-        vitality = self.engine.calculate_vitality(self.test_memory.id)
+        vitality = self.engine.refresh_vitality(self.test_memory, persist=False)
 
         assert vitality == 75.0
+        assert self.test_memory.meta.vitality_score == 75.0
         self.engine.vitality_calculator.calculate.assert_called_once_with(self.test_memory)
+        self.mock_storage.upsert_memory.assert_not_called()
 
-    def test_calculate_vitality_memory_not_found(self):
+    def test_refresh_vitality_with_persist(self):
         """测试计算不存在的记忆抛出异常"""
-        self.mock_storage.get_memory.return_value = None
+        self.engine.vitality_calculator.calculate.return_value = 75.0
 
-        with pytest.raises(ValueError, match="not found"):
-            self.engine.calculate_vitality(uuid4())
+        vitality = self.engine.refresh_vitality(self.test_memory, persist=True)
+
+        assert vitality == 75.0
+        self.mock_storage.upsert_memory.assert_called_once_with(self.test_memory)
 
     def test_record_hit_convenience(self):
         """测试 record_hit 便捷方法"""
@@ -746,12 +764,17 @@ class TestMemoryLifecycleEngine:
 
     def test_run_garbage_collection(self):
         """测试运行垃圾回收"""
+        self.mock_storage.get_all_memories.return_value = [self.test_memory]
+        self.engine.vitality_calculator.calculate.return_value = 55.0
         self.engine.garbage_collector.collect.return_value = 5
 
         archived = self.engine.run_garbage_collection(force=True)
 
         assert archived == 5
-        self.engine.garbage_collector.collect.assert_called_once_with(force=True)
+        self.engine.garbage_collector.collect.assert_called_once_with(
+            [self.test_memory],
+            force=True,
+        )
 
     def test_archive_memory(self):
         """测试手动归档记忆"""

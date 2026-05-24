@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
+from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
@@ -91,6 +92,7 @@ class TestAlicePublicRoutes:
         retrieve = AsyncMock(return_value="retrieved")
         retrieve_by_aliases = AsyncMock(return_value="aliases")
         get_agent_profile = AsyncMock(return_value="profile")
+        record_citation = AsyncMock(return_value="citation")
         self.global_bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, retrieve)
         self.global_bus.register(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
@@ -99,6 +101,10 @@ class TestAlicePublicRoutes:
         self.global_bus.register(
             GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
             get_agent_profile,
+        )
+        self.global_bus.register(
+            GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
+            record_citation,
         )
 
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
@@ -116,13 +122,20 @@ class TestAlicePublicRoutes:
             GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
             "coder_doll",
         )
+        citation_result = await system.runtime.local_bus.request(
+            GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
+            memory_id="mid",
+            source="mtp.read",
+        )
 
         assert result == "retrieved"
         assert aliases_result == "aliases"
         assert profile_result == "profile"
+        assert citation_result == "citation"
         retrieve.assert_awaited_once_with(request="request")
         retrieve_by_aliases.assert_awaited_once_with(aliases=["a"])
         get_agent_profile.assert_awaited_once_with("coder_doll")
+        record_citation.assert_awaited_once_with(memory_id="mid", source="mtp.read")
 
 
 # ========== Patchouli (lightweight — full integration tested in test_bootstrap) ==========
@@ -142,5 +155,43 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
         assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"
         assert PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN == "patchouli.public.cleanup_prepared_agent_run"
+        assert PatchouliRoutes.RECORD_MEMORY_CITATION == "patchouli.public.record_memory_citation"
         assert AliceRoutes.RUN_AGENT == "alice.public.run_agent"
         assert AliceRoutes.RUN_AGENT_STREAM == "alice.public.run_agent_stream"
+
+    @pytest.mark.asyncio
+    async def test_patchouli_public_routes_register_and_unregister(self):
+        system = MagicMock()
+        system._global_bus = self.global_bus
+        system.service = MagicMock()
+        system.service.analyze_and_retrieve = AsyncMock()
+        system.service.prepare_agent_run = AsyncMock()
+        system.service.finalize_agent_run = AsyncMock()
+        system.service.cleanup_prepared_agent_run = AsyncMock()
+        system.service.manual_archive_topic = AsyncMock()
+        system.service.record_memory_citation = AsyncMock()
+        system.runtime = MagicMock()
+        system.runtime.librarian_core = MagicMock()
+        system.runtime.librarian_core.submit_interaction = AsyncMock()
+        system.runtime.retrieval_familiar = MagicMock()
+        system.runtime.retrieval_familiar.retrieve_async = AsyncMock()
+        system.runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
+        system.runtime._get_agent_profile = AsyncMock()
+        system._register_public_routes = PatchouliSystem._register_public_routes.__get__(
+            system, PatchouliSystem
+        )
+        system._unregister_public_routes = PatchouliSystem._unregister_public_routes.__get__(
+            system, PatchouliSystem
+        )
+
+        system._register_public_routes()
+
+        routes = self.global_bus.list_routes()
+        assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
+        assert PatchouliRoutes.RECORD_MEMORY_CITATION in routes
+
+        system._unregister_public_routes()
+
+        routes = self.global_bus.list_routes()
+        assert PatchouliRoutes.FINALIZE_AGENT_RUN not in routes
+        assert PatchouliRoutes.RECORD_MEMORY_CITATION not in routes

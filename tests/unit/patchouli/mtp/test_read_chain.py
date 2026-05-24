@@ -94,6 +94,9 @@ class TestReadAliasResolution:
 
         assert result.success
         assert "resolved content" in result.response_content
+        assert koakuma._bus._memory_citations == [
+            {"memory_id": mem.id, "source": "mtp.read"}
+        ]
 
     def test_all_invalid(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss
@@ -101,6 +104,7 @@ class TestReadAliasResolution:
 
         assert not result.success
         assert "Alias Not Found" in result.response_content
+        assert koakuma._bus._memory_citations == []
 
     def test_mixed_valid_invalid(self, koakuma):
         """混合有效/无效别名"""
@@ -127,6 +131,20 @@ class TestReadAliasResolution:
         assert result.success
         assert "content A" in result.response_content
         assert "content B" in result.response_content
+        assert [item["memory_id"] for item in koakuma._bus._memory_citations] == [
+            mem1.id,
+            mem2.id,
+        ]
+
+    def test_citation_failure_keeps_success_response(self, koakuma):
+        mem = _make_memory(content="readable", alias="fact_cite_fail")
+        koakuma._atom_cache.ingest_atom(mem)
+        koakuma._bus.unregister("patchouli.public.record_memory_citation")
+
+        result = _execute_mtp(koakuma, '⟪ READ | fact_cite_fail | ⟫')
+
+        assert result.success
+        assert "readable" in result.response_content
 
 
 # ========== Test 3: Koakuma READ E2E ==========

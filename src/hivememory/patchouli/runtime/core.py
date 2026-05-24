@@ -137,6 +137,10 @@ class PatchouliRuntime:
             self.retrieval_familiar.retrieve_by_aliases_async,
         )
         self._local_bus.register(
+            PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
+            self._refresh_memory_vitality,
+        )
+        self._local_bus.register(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
             self._get_agent_profile,
         )
@@ -388,9 +392,7 @@ class PatchouliRuntime:
         )
 
         garbage_collector: BaseGarbageCollector = create_garbage_collector(
-            self.storage,
             archiver,
-            vitality_calculator,
             self.config.lifecycle.garbage_collector
         )
 
@@ -419,6 +421,7 @@ class PatchouliRuntime:
             storage=self.storage,
             engine=self._engines["retrieval"],
             passive_renderer=passive_renderer,
+            local_bus=self._local_bus,
         )
 
         self._services["librarian"] = LibrarianCore(
@@ -459,6 +462,19 @@ class PatchouliRuntime:
 
     async def _get_agent_profile(self, agent_alias: str):
         result = self.storage.get_agent_profile(agent_alias)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def _refresh_memory_vitality(
+        self,
+        memories,
+        persist: bool = False,
+    ):
+        lifecycle = self._engines.get("lifecycle")
+        if lifecycle is None:
+            raise RuntimeError("lifecycle engine is not available")
+        result = lifecycle.refresh_vitality_batch(memories, persist=persist)
         if inspect.isawaitable(result):
             return await result
         return result

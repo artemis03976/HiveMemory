@@ -117,6 +117,44 @@ class TestLibrarianCorePerceptionDelegation:
         assert result["success"] is False
 
 
+class TestLibrarianCoreGardening:
+    @pytest.mark.asyncio
+    async def test_run_gardening_once_calls_lifecycle_gc(self):
+        lifecycle = Mock()
+        lifecycle.run_garbage_collection.return_value = 3
+        core = LibrarianCore(storage=Mock(), lifecycle_engine=lifecycle)
+
+        result = await core.run_gardening_once()
+
+        assert result["success"] is True
+        assert result["archived_count"] == 3
+        assert result["error"] is None
+        assert result["duration_ms"] >= 0
+        lifecycle.run_garbage_collection.assert_called_once_with(force=False)
+
+    @pytest.mark.asyncio
+    async def test_run_gardening_once_without_lifecycle_returns_failure(self):
+        core = LibrarianCore(storage=Mock(), lifecycle_engine=None)
+
+        result = await core.run_gardening_once()
+
+        assert result["success"] is False
+        assert result["archived_count"] == 0
+        assert "lifecycle_engine" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_run_gardening_once_catches_lifecycle_error(self):
+        lifecycle = Mock()
+        lifecycle.run_garbage_collection.side_effect = RuntimeError("boom")
+        core = LibrarianCore(storage=Mock(), lifecycle_engine=lifecycle)
+
+        result = await core.run_gardening_once()
+
+        assert result["success"] is False
+        assert result["archived_count"] == 0
+        assert result["error"] == "boom"
+
+
 class TestLibrarianCoreGenerateMemory:
     """_on_generate_memory 回调测试"""
 

@@ -80,6 +80,10 @@ class AliceRuntime:
                 GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
                 self._request_patchouli_get_agent_profile,
             )
+            self._local_bus.register(
+                GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
+                self._request_patchouli_record_memory_citation,
+            )
 
         self._local_routes_registered = True
 
@@ -93,6 +97,7 @@ class AliceRuntime:
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE)
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
+            self._local_bus.unregister(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
         self._local_routes_registered = False
 
     async def _request_patchouli_memory_retrieve(self, *args: Any, **kwargs: Any) -> Any:
@@ -126,6 +131,19 @@ class AliceRuntime:
             raise KeyError(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+            *args,
+            **kwargs,
+        )
+
+    async def _request_patchouli_record_memory_citation(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if self._global_bus is None:
+            raise KeyError(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
+        return await self._global_bus.request(
+            GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
             *args,
             **kwargs,
         )

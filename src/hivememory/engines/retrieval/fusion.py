@@ -6,16 +6,13 @@
 对应设计文档: PROJECT.md 5.1.5 节
 """
 
-from typing import Optional, Dict, List, Union, TYPE_CHECKING
+from typing import Optional, Dict, List, Union
 from collections import defaultdict
 import logging
 
 from hivememory.system.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
 from hivememory.engines.retrieval.interfaces import BaseFusion
-
-if TYPE_CHECKING:
-    from hivememory.engines.lifecycle.vitality import VitalityCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -187,18 +184,15 @@ class AdaptiveWeightedFusion(BaseFusion):
 
     def __init__(
         self,
-        config: Optional[AdaptiveWeightedFusionConfig] = None,
-        vitality_calculator: Optional["VitalityCalculator"] = None
+        config: Optional[AdaptiveWeightedFusionConfig] = None
     ):
         """
         初始化自适应加权融合器
 
         Args:
             config: 融合配置，包含各模式的权重和质量乘数参数
-            vitality_calculator: 生命力计算器 (可选)，用于按需刷新生命力分数
         """
         self.config = config or AdaptiveWeightedFusionConfig()
-        self.vitality_calculator = vitality_calculator
 
     def fuse(
         self,
@@ -262,10 +256,6 @@ class AdaptiveWeightedFusion(BaseFusion):
             vitality = result.memory.meta.vitality_score
 
             # 如果提供了计算器，实时刷新生命力
-            if self.vitality_calculator is not None:
-                vitality = self.vitality_calculator.calculate(result.memory)
-                result.memory.meta.vitality_score = vitality
-
             quality_multiplier = self._calculate_quality_multiplier(
                 confidence, vitality, mode_config
             )

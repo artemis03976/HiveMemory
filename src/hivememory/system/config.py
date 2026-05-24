@@ -570,8 +570,6 @@ class GarbageCollectorConfig(BaseModel):
     """垃圾回收器配置"""
     low_watermark: float = Field(default=20.0, description="低水位阈值")
     batch_size: int = Field(default=10, description="每次最多归档数量")
-    enable_schedule: bool = Field(default=False, description="是否启用定时垃圾回收")
-    interval_hours: int = Field(default=24, description="执行间隔(小时)")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -676,7 +674,7 @@ class MaintenanceTasksConfig(BaseModel):
     enable_perception_idle_flush: bool = Field(default=True, description="是否启用感知层空闲扫描")
 
     lifecycle_gc_interval_hours: int = Field(default=24, description="生命周期 GC 间隔（小时）")
-    enable_lifecycle_gc: bool = Field(default=False, description="是否启用定时 GC")
+    enable_lifecycle_gc: bool = Field(default=True, description="是否启用定时 GC")
 
     model_config = ConfigDict(extra="ignore")
 

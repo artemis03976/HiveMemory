@@ -537,7 +537,7 @@ class QdrantMemoryStore:
     def get_memories_by_vitality_range(
         self,
         min_vitality: float = 0.0,
-        max_vitality: float = 1.0,
+        max_vitality: float = 100.0,
         limit: int = 100
     ) -> List[MemoryAtom]:
         """
@@ -546,8 +546,8 @@ class QdrantMemoryStore:
         用于垃圾回收器扫描低生命力记忆。
 
         Args:
-            min_vitality: 最小生命力 (0-1)
-            max_vitality: 最大生命力 (0-1)
+            min_vitality: 最小生命力 (0-100)
+            max_vitality: 最大生命力 (0-100)
             limit: 最大返回数量
 
         Returns:

@@ -49,7 +49,6 @@ from hivememory.engines.lifecycle.archiver import (
 # 具体实现 - 垃圾回收器
 from hivememory.engines.lifecycle.garbage_collector import (
     PeriodicGarbageCollector,
-    ScheduledGarbageCollector,
     create_garbage_collector,
 )
 
@@ -78,7 +77,6 @@ __all__ = [
     "create_archiver",
     # === 垃圾回收器 ===
     "PeriodicGarbageCollector",
-    "ScheduledGarbageCollector",
     "create_garbage_collector",
     # === 生命周期引擎 ===
     "MemoryLifecycleEngine",

@@ -35,7 +35,6 @@ dependencies = [
     "rich>=13.0.0",
     "httpx>=0.26.0",
     "sse-starlette>=1.6.0",
-    "apscheduler>=3.10.0",
 ]
 
 [project.optional-dependencies]

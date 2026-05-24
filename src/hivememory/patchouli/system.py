@@ -171,6 +171,15 @@ class PatchouliSystem(SubsystemProtocol):
             ),
             self.runtime.librarian_core.perception_layer.scan_idle_buffers_once,
         )
+        scheduler.register(
+            MaintenanceTaskSpec(
+                owner=self._MAINTENANCE_OWNER,
+                name="memory_gardening",
+                interval_seconds=tasks_config.lifecycle_gc_interval_hours * 3600,
+                enabled=tasks_config.enable_lifecycle_gc,
+            ),
+            self.runtime.librarian_core.run_gardening_once,
+        )
         return True
 
     def unregister_maintenance_tasks(self, scheduler) -> int:
@@ -247,6 +256,10 @@ class PatchouliSystem(SubsystemProtocol):
             PatchouliRoutes.MANUAL_ARCHIVE_TOPIC,
             self.service.manual_archive_topic,
         )
+        self._global_bus.register(
+            PatchouliRoutes.RECORD_MEMORY_CITATION,
+            self.service.record_memory_citation,
+        )
 
     def _unregister_public_routes(self) -> None:
         self._global_bus.unregister(PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE)
@@ -258,6 +271,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus.unregister(PatchouliRoutes.FINALIZE_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.MANUAL_ARCHIVE_TOPIC)
+        self._global_bus.unregister(PatchouliRoutes.RECORD_MEMORY_CITATION)
 
 
 __all__ = [

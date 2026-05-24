@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import inspect
+from time import monotonic
 from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
 from hivememory.core.models import Identity
@@ -260,16 +261,37 @@ class LibrarianCore:
         builder = GenerationTranscriptBuilder()
         return builder.build_context(blocks, state_summary=state_summary)
 
-    # ========== 生命周期管理 API (未来扩展) ==========
+    # ========== 生命周期管理 API ==========
 
-    def start_gardening(self):
-        """
-        开启定时维护模式
+    async def run_gardening_once(self) -> Dict[str, Any]:
+        """Run one lifecycle garbage-collection pass for the global scheduler."""
+        start = monotonic()
+        result = {
+            "success": False,
+            "archived_count": 0,
+            "duration_ms": 0.0,
+            "error": None,
+        }
 
-        未来实现：调用 MemoryLifecycleEngine 进行定期维护
-        """
-        # TODO: 实现定时维护模式
-        logger.warning("定时维护模式尚未实现")
+        if self.lifecycle_engine is None:
+            result["error"] = "lifecycle_engine is not available"
+            result["duration_ms"] = (monotonic() - start) * 1000
+            logger.warning("Lifecycle gardening skipped: lifecycle_engine is not available")
+            return result
+
+        try:
+            archived = self.lifecycle_engine.run_garbage_collection(force=False)
+            if inspect.isawaitable(archived):
+                archived = await archived
+            result["success"] = True
+            result["archived_count"] = int(archived or 0)
+        except Exception as exc:
+            result["error"] = str(exc)
+            logger.error("Lifecycle gardening failed: %s", exc, exc_info=True)
+        finally:
+            result["duration_ms"] = (monotonic() - start) * 1000
+
+        return result
 
     # ========== 感知层代理 API ==========
 

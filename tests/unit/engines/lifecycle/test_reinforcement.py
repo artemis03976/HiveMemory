@@ -60,7 +60,7 @@ class TestDynamicReinforcementEngine:
     def test_hit_event(self):
         """测试 HIT 事件增加生命力"""
         self.mock_storage.get_memory.return_value = self.test_memory
-        self.mock_vitality_calc.calculate.return_value = 55.0  # 50 + 5
+        self.mock_vitality_calc.calculate.return_value = 50.0
 
         event = MemoryEvent(
             event_type=EventType.HIT,
@@ -71,7 +71,8 @@ class TestDynamicReinforcementEngine:
         result = self.engine.reinforce(self.test_memory.id, event)
 
         assert result.event_type == EventType.HIT
-        assert result.new_vitality > result.previous_vitality
+        assert result.previous_vitality == 50.0
+        assert result.new_vitality == 55.0
         assert self.mock_storage.upsert_memory.called
 
     def test_citation_resets_decay(self):
@@ -131,6 +132,35 @@ class TestDynamicReinforcementEngine:
 
         assert result.event_type == EventType.FEEDBACK_POSITIVE
         assert result.new_vitality > result.previous_vitality
+
+    def test_negative_feedback_applies_vitality_penalty_after_recalculate(self):
+        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_vitality_calc.calculate.return_value = 80.0
+
+        event = MemoryEvent(
+            event_type=EventType.FEEDBACK_NEGATIVE,
+            memory_id=self.test_memory.id,
+            source="user",
+        )
+
+        result = self.engine.reinforce(self.test_memory.id, event)
+
+        assert result.new_vitality == 30.0
+        assert result.new_confidence == pytest.approx(0.4)
+
+    def test_reinforcement_clamps_vitality_to_valid_range(self):
+        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_vitality_calc.calculate.return_value = 90.0
+
+        event = MemoryEvent(
+            event_type=EventType.FEEDBACK_POSITIVE,
+            memory_id=self.test_memory.id,
+            source="user",
+        )
+
+        result = self.engine.reinforce(self.test_memory.id, event)
+
+        assert result.new_vitality == 100.0
 
     def test_memory_not_found(self):
         """测试记忆不存在时抛出异常"""

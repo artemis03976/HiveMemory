@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
+from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.server.routers.memories import router
 
 
@@ -44,6 +45,11 @@ class TestMemoriesRouter:
         atom = _make_atom()
         mock_system = MagicMock()
         mock_system.patchouli.storage.get_all_memories.return_value = [atom]
+        lifecycle = MagicMock()
+        lifecycle.refresh_vitality_batch.side_effect = (
+            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 33.0)
+        )
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -53,11 +59,18 @@ class TestMemoriesRouter:
         data = response.json()
         assert data["total"] == 1
         assert data["memories"][0]["title"] == "Test"
+        assert data["memories"][0]["vitality_score"] == 33.0
+        lifecycle.refresh_vitality_batch.assert_called_once_with([atom], persist=False)
 
     def test_list_memories_with_query(self):
         atom = _make_atom()
         mock_system = MagicMock()
         mock_system.patchouli.storage.search_memories.return_value = [{"memory": atom, "score": 0.9}]
+        lifecycle = MagicMock()
+        lifecycle.refresh_vitality_batch.side_effect = (
+            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 44.0)
+        )
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -66,6 +79,7 @@ class TestMemoriesRouter:
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 1
+        assert data["memories"][0]["vitality_score"] == 44.0
 
     def test_list_memories_filters_map_to_payload_paths(self):
         mock_system = MagicMock()
@@ -85,6 +99,11 @@ class TestMemoriesRouter:
         atom = _make_atom()
         mock_system = MagicMock()
         mock_system.patchouli.storage.get_memory.return_value = atom
+        lifecycle = MagicMock()
+        lifecycle.refresh_vitality_batch.side_effect = (
+            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 55.0)
+        )
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
 
         app = _create_test_app(mock_system)
         client = TestClient(app)
@@ -92,6 +111,8 @@ class TestMemoriesRouter:
         response = client.get(f"/api/v1/memories/{atom.id}")
         assert response.status_code == 200
         assert response.json()["id"] == str(atom.id)
+        assert response.json()["vitality_score"] == 55.0
+        lifecycle.refresh_vitality_batch.assert_called_once_with([atom], persist=False)
 
     def test_get_memory_not_found(self):
         mock_system = MagicMock()
@@ -111,6 +132,112 @@ class TestMemoriesRouter:
 
         response = client.get("/api/v1/memories/not-a-uuid")
         assert response.status_code == 400
+
+    def test_record_memory_feedback_positive(self):
+        mid = uuid4()
+        lifecycle = MagicMock()
+        lifecycle.record_feedback.return_value = ReinforcementResult(
+            memory_id=mid,
+            previous_vitality=40.0,
+            new_vitality=90.0,
+            previous_confidence=0.8,
+            new_confidence=0.8,
+            event_type=EventType.FEEDBACK_POSITIVE,
+        )
+        mock_system = MagicMock()
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            f"/api/v1/memories/{mid}/feedback",
+            json={"positive": True},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["id"] == str(mid)
+        assert data["positive"] is True
+        assert data["event_type"] == "feedback_positive"
+        lifecycle.record_feedback.assert_called_once_with(
+            mid,
+            positive=True,
+            source="ui.memory_ref",
+        )
+
+    def test_record_memory_feedback_negative_custom_source(self):
+        mid = uuid4()
+        lifecycle = MagicMock()
+        lifecycle.record_feedback.return_value = ReinforcementResult(
+            memory_id=mid,
+            previous_vitality=70.0,
+            new_vitality=20.0,
+            previous_confidence=0.8,
+            new_confidence=0.4,
+            event_type=EventType.FEEDBACK_NEGATIVE,
+        )
+        mock_system = MagicMock()
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            f"/api/v1/memories/{mid}/feedback",
+            json={"positive": False, "source": "ui.test"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["event_type"] == "feedback_negative"
+        lifecycle.record_feedback.assert_called_once_with(
+            mid,
+            positive=False,
+            source="ui.test",
+        )
+
+    def test_record_memory_feedback_invalid_id(self):
+        mock_system = MagicMock()
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/memories/not-a-uuid/feedback",
+            json={"positive": True},
+        )
+        assert response.status_code == 400
+
+    def test_record_memory_feedback_lifecycle_unavailable(self):
+        mock_system = MagicMock()
+        mock_system.patchouli.runtime._engines = {}
+        mock_system.patchouli.librarian_core.lifecycle_engine = None
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            f"/api/v1/memories/{uuid4()}/feedback",
+            json={"positive": True},
+        )
+        assert response.status_code == 503
+
+    def test_record_memory_feedback_not_found(self):
+        mid = uuid4()
+        lifecycle = MagicMock()
+        lifecycle.record_feedback.side_effect = ValueError("memory not found")
+        mock_system = MagicMock()
+        mock_system.patchouli.runtime._engines = {"lifecycle": lifecycle}
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            f"/api/v1/memories/{mid}/feedback",
+            json={"positive": True},
+        )
+        assert response.status_code == 404
 
     def test_delete_memory(self):
         mid = uuid4()

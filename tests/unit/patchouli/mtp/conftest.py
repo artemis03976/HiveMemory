@@ -39,6 +39,7 @@ class MockAsyncBus(AsyncSystemBus):
         self._mock_storage = mock_storage or MagicMock()
         self._mock_retrieval = mock_retrieval or MagicMock()
         self._mock_generation = mock_generation or MagicMock()
+        self._memory_citations = []
 
         self.register("storage.get_memory", self._handle_get_memory)
         self.register("retrieval.retrieve", self._handle_retrieve)
@@ -48,6 +49,10 @@ class MockAsyncBus(AsyncSystemBus):
         self.register(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
             self._handle_retrieve_by_aliases,
+        )
+        self.register(
+            GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
+            self._handle_record_memory_citation,
         )
         self.register("generation.process", self._handle_generation_process)
         self.register("perception.route_and_ingest", self._handle_route_and_ingest)
@@ -79,6 +84,15 @@ class MockAsyncBus(AsyncSystemBus):
 
     async def _handle_generation_process(self, *args, **kwargs):
         return self._mock_generation.process(*args, **kwargs)
+
+    async def _handle_record_memory_citation(self, *args, **kwargs):
+        self._memory_citations.append(
+            {
+                "memory_id": kwargs.get("memory_id"),
+                "source": kwargs.get("source"),
+            }
+        )
+        return {"success": True}
 
     async def _handle_route_and_ingest(self, *args, **kwargs):
         return None

@@ -13,19 +13,11 @@ HiveMemory - 生命力分数计算器
 版本: 0.1.0
 """
 
-import logging
 import math
 from datetime import datetime
-from typing import List, Tuple, TYPE_CHECKING
-from uuid import UUID
 
-from hivememory.system.config import VitalityCalculatorConfig
 from hivememory.core.models import MemoryAtom, MemoryType
-
-if TYPE_CHECKING:
-    from hivememory.infrastructure.storage import QdrantMemoryStore
-
-logger = logging.getLogger(__name__)
+from hivememory.system.config import VitalityCalculatorConfig
 
 
 class VitalityCalculator:
@@ -149,36 +141,7 @@ class VitalityCalculator:
         raw_boost = access_count * self.config.points_per_access
         return min(self.config.max_access_boost, raw_boost)
 
-    def refresh_batch(
-        self,
-        memories: List[MemoryAtom],
-        storage: "QdrantMemoryStore"
-    ) -> List[Tuple[UUID, float]]:
-        """
-        批量刷新记忆的生命力分数
 
-        计算每个记忆的当前生命力并更新存储中的缓存值。
-
-        Args:
-            memories: 待刷新的记忆列表
-            storage: 存储实例，用于持久化更新
-
-        Returns:
-            List[Tuple[UUID, float]]: (memory_id, new_vitality) 列表
-        """
-        results = []
-
-        for memory in memories:
-            new_vitality = self.calculate(memory)
-            memory.meta.vitality_score = new_vitality
-            storage.upsert_memory(memory)
-            results.append((memory.id, new_vitality))
-
-        logger.info(f"Batch refreshed vitality for {len(memories)} memories")
-        return results
-
-
-# 固有价值权重常量 (供测试使用)
 INTRINSIC_VALUE_WEIGHTS = {
     MemoryType.CODE_SNIPPET: 1.0,
     MemoryType.FACT: 0.9,

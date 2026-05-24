@@ -12,7 +12,6 @@ def _configure_logging() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    logging.getLogger("apscheduler").setLevel(logging.INFO)
     logging.getLogger("hivememory").setLevel(logging.INFO)
 
 

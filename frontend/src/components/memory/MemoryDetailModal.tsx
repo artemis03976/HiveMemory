@@ -6,6 +6,7 @@ import MarkdownRenderer from '../common/MarkdownRenderer';
 import { motion, AnimatePresence } from 'motion/react';
 import { memoryTypeColors } from '../../types/memory';
 import { useDraft } from '../../hooks/useDraft';
+import { formatVitalityScore } from '../../utils/memoryScores';
 
 interface MemoryDetailModalProps {
   atom: MemoryAtom | null;
@@ -277,7 +278,7 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">生命力分数</span>
-                      <span className="text-amber-400 font-mono">{(atom.vitality_score * 100).toFixed(0)}</span>
+                      <span className="text-amber-400 font-mono">{formatVitalityScore(atom.vitality_score)}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">访问次数</span>

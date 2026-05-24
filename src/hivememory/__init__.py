@@ -167,7 +167,6 @@ from hivememory.engines.lifecycle import (
     FileBasedArchiver,
     create_archiver,
     PeriodicGarbageCollector,
-    ScheduledGarbageCollector,
     create_garbage_collector,
 )
 
@@ -362,7 +361,6 @@ __all__ = [
     "FileBasedArchiver",
     "create_archiver",
     "PeriodicGarbageCollector",
-    "ScheduledGarbageCollector",
     "create_garbage_collector",
     # ========== Perception Engine ==========
     "SemanticFlowPerceptionLayer",

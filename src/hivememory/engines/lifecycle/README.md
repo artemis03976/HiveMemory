@@ -1,183 +1,76 @@
-# MemoryLifeCycleManagement - 记忆生命周期管理模块
+# 记忆生命周期 (Memory Lifecycle)
 
-## 📖 概述
+该包负责处理记忆活跃度（vitality）的计算、强化（reinforcement）、归档（archival）和垃圾回收（garbage collection）。
 
-MemoryLifeCycleManagement 模块负责记忆的动态演化、垃圾回收和冷热数据管理。通过生命力分数（Vitality Score）机制，系统能够自动识别高价值记忆并维持其活跃状态，同时将低价值记忆自动归档，确保系统的高效运行。
+当前的实现以 `MemoryLifecycleEngine` 为核心。除非在构建该引擎，否则调用方不会直接与垃圾回收器或计算器进行交互。
 
-对应设计文档: **PROJECT.md 第 6 章**
+## 分数范围
 
----
+- `confidence_score`（置信度）: `0.0-1.0`
+- `vitality_score`（活跃度）: `0.0-100.0`
 
-## ✅ 当前状态
+活跃度始终以 `0-100` 的范围进行存储和返回。UI 代码和存储过滤逻辑不应将活跃度再乘以 `100`。
 
-**🎉 Stage 3 实现完成**
+## 核心组件
 
-本模块已完成核心功能开发，包括：
-- **生命力计算体系**: 基于置信度、固有价值、时间衰减和访问加成的综合评分模型
-- **动态强化引擎**: 支持 HIT、CITATION、FEEDBACK 等事件驱动的分数调整
-- **垃圾回收机制**: 支持周期性和定时触发的低价值记忆清理
-- **冷热分级存储**: 实现基于文件系统的冷存储归档与唤醒机制
-- **统一生命周期管理**: 提供 `MemoryLifecycleEngine` 协调各组件工作
+- `VitalityCalculator`：针对单个 `MemoryAtom` 的纯计算器。
+- `DynamicReinforcementEngine`：应用生命周期事件并持久化强化后的记忆。
+- `FileBasedArchiver`：将记忆从热存储移动到压缩的本地归档文件中。
+- `PeriodicGarbageCollector`：扫描调用方提供的记忆，并将低活跃度的候选记忆进行归档。
+- `MemoryLifecycleEngine`：负责编排刷新、强化、归档和垃圾回收（GC）的控制层。
 
----
+## 当前事件路径
 
-## 🎯 核心组件
+- `HIT`（命中）：在 `PatchouliService.finalize_agent_run()` 提交交互后记录。它会针对每个最终的检索结果进行去重，并使用 `source="retrieval.finalize"`。
+- `CITATION`（引用）：由 MTP 的 `READ` 指令以及成功的用户记忆 `RUN` 指令通过 Patchouli 公共路由 `patchouli.public.record_memory_citation` 进行记录。
+- `FEEDBACK_POSITIVE` / `FEEDBACK_NEGATIVE`（正/负反馈）：通过 HTTP 接口 `POST /api/v1/memories/{memory_id}/feedback` 进行记录。
 
-### 1. `vitality.py` - 生命力计算器
+强化机制在集成边界上采取“尽力而为（best-effort）”的策略：失败时仅会记录日志，且不应中断聊天或 MTP 响应，除非调用方明确要求严格执行。
 
-**职责**: 计算记忆的生命力分数，决定记忆的存留。
+## 活跃度刷新策略
 
-**核心类**:
-- `VitalityCalculator`: 标准计算器，实现 $V = (C \times I) \times D(t) + A$ 公式
+活跃度刷新由调用方控制其作用域（caller-scoped）：
 
-**评分模型**:
-- **固有价值 (I)**: 代码片段 (1.0) > 事实 (0.9) > URL资源 (0.8) > 反思 (0.7)
-- **时间衰减 D(t)**: $e^{-\lambda \times days}$，随时间指数衰减
-- **访问加成 (A)**: 每次访问 +2.0，封顶 20.0
+- 检索和记忆 API 的读取路径在返回记忆前会刷新它们的活跃度，通常使用 `persist=False`（不持久化）。
+- `MemoryLifecycleEngine.run_garbage_collection()` 会加载所有活跃的记忆，使用 `persist=True` 刷新其活跃度，然后将刷新后的记忆集合传递给 `garbage_collector.collect(...)`。
+- `PeriodicGarbageCollector` 本身不包含 `VitalityCalculator`；它仅处理那些 `meta.vitality_score` 已经被引擎或调用方刷新过的记忆。
 
-### 2. `reinforcement.py` - 动态强化引擎
+这种设计避免了计算器与垃圾回收器之间的循环依赖，并确保引擎始终作为唯一的编排者。
 
-**职责**: 处理记忆交互事件，动态调整生命力。
+## 垃圾回收
 
-**核心类**:
-- `DynamicReinforcementEngine`: 处理事件并更新分数
+生命周期的定期清理（gardening）由全局维护调度器通过 `LibrarianCore.run_gardening_once()` 驱动。Patchouli 注册的任务如下：
 
-**支持事件**:
-- `HIT` (检索命中): +5 生命力
-- `CITATION` (主动引用): +20 生命力，并重置时间衰减
-- `FEEDBACK_POSITIVE` (正面反馈): +50 生命力
-- `FEEDBACK_NEGATIVE` (负面反馈): -50 生命力，置信度减半
+- 归属（owner）: `patchouli`
+- 任务名（name）: `memory_gardening`
+- 回调（callback）: `runtime.librarian_core.run_gardening_once`
 
-### 3. `garbage_collector.py` - 垃圾回收器
+系统不再使用本地生命周期调度器、APScheduler 或 `ScheduledGarbageCollector`。
 
-**职责**: 扫描低生命力记忆并触发归档。
-
-**核心类**:
-- `PeriodicGarbageCollector`: 基础周期性 GC
-- `ScheduledGarbageCollector`: 基于 APScheduler 的定时 GC (默认 24h)
-
-**策略**:
-- **低水位线**: 生命力 < 20.0 的记忆将被标记为归档候选
-- **批量处理**: 每次 GC 限制处理数量，避免阻塞
-
-### 4. `archiver.py` - 冷存储归档器
-
-**职责**: 管理记忆在热存储（Qdrant）和冷存储（文件系统）间的迁移。
-
-**核心类**:
-- `FileBasedMemoryArchiver`: 本地文件系统归档 (JSON + GZIP)
-- `S3MemoryArchiver`: (TODO) S3 对象存储归档
-
-**目录结构**:
-```text
-data/archived/
-├── archive_index.json      # 归档索引
-└── 2025-01/                # 按月份组织
-    ├── {uuid}.json.gz
-```
-
-### 5. `engine.py` - 生命周期引擎
-
-**职责**: 统一门面，协调所有组件。
-
-**核心类**:
-- `MemoryLifecycleEngine`: 提供 `record_event`, `run_garbage_collection` 等统一接口
-
----
-
-## 🚀 快速使用
-
-### 初始化引擎
+手动执行方式：
 
 ```python
-from hivememory.memory.storage import QdrantMemoryStore
-from hivememory.lifecycle import create_default_lifecycle_engine
-
-# 1. 初始化存储
-storage = QdrantMemoryStore()
-
-# 2. 创建生命周期引擎
-# 启用定时 GC (每 24 小时运行一次)
-lifecycle_engine = create_default_lifecycle_engine(
-    storage=storage,
-    enable_scheduled_gc=True,
-    gc_interval_hours=24
-)
-```
-
-### 记录事件
-
-```python
-from hivememory.lifecycle.types import EventType
-
-# 场景 1: 检索命中 (被动)
-lifecycle_engine.record_hit(memory_id="uuid...", source="system")
-
-# 场景 2: 记忆引用 (主动) -> 将重置时间衰减
-lifecycle_engine.record_citation(memory_id="uuid...", source="agent_worker")
-
-# 场景 3: 用户反馈
-lifecycle_engine.record_feedback(
-    memory_id="uuid...", 
-    positive=True, 
-    source="user"
-)
-```
-
-### 手动触发垃圾回收
-
-```python
-# 强制运行 GC，归档生命力 < 20 的记忆
 archived_count = lifecycle_engine.run_garbage_collection(force=True)
-print(f"Archived {archived_count} memories")
 ```
 
-### 记忆唤醒
+## 公共 API 接口
 
 ```python
-# 当检索不到时，尝试从冷存储唤醒
-try:
-    memory = lifecycle_engine.resurrect_memory(memory_id="uuid...")
-    print("Memory resurrected from archive")
-except ValueError:
-    print("Memory not found in archive")
+lifecycle_engine.refresh_vitality(memory, persist=False)
+lifecycle_engine.refresh_vitality_batch(memories, persist=False)
+lifecycle_engine.record_hit(memory_id, source="retrieval.finalize")
+lifecycle_engine.record_citation(memory_id, source="mtp.read")
+lifecycle_engine.record_feedback(memory_id, positive=True, source="ui.memory_ref")
+lifecycle_engine.run_garbage_collection(force=False)
+lifecycle_engine.archive_memory(memory_id)
+lifecycle_engine.resurrect_memory(memory_id)
 ```
 
----
+`VitalityCalculator.calculate(memory)` 保持纯粹：它仅计算分数，不负责持久化。
 
-## 🔧 配置参数
+## 待办事项
 
-可以通过 `config.yaml` 或初始化参数进行配置：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `decay_lambda` | 0.01 | 时间衰减系数 |
-| `low_watermark` | 20.0 | GC 触发阈值 (生命力 < 20) |
-| `gc_batch_size` | 10 | 单次 GC 最大处理数量 |
-| `archive_dir` | `data/archived` | 冷存储路径 |
-| `compress` | `True` | 是否启用 GZIP 压缩 |
-
----
-
-## 🛣️ 未来路线图
-
-- [x] 实现 VitalityCalculator (生命力分数公式)
-- [x] 实现 ReinforcementEngine (事件驱动强化)
-- [x] 实现 GarbageCollector (后台 GC 任务)
-- [x] 实现 MemoryArchiver (文件系统冷存储)
-- [ ] 实现 S3MemoryArchiver (S3 云存储支持)
-- [ ] 增加生命力可视化面板
-- [ ] 支持自定义衰减策略插件
-
----
-
-## 📚 相关文档
-
-- [PROJECT.md 第 6 章](../../docs/PROJECT.md) - 完整设计文档
-- [ROADMAP.md Stage 3](../../docs/ROADMAP.md) - 开发路线图
-
----
-
-**维护者**: HiveMemory Team
-**最后更新**: 2025-12-28
-**版本**: 0.2.0 (Stage 3 完成)
+- 持久化或暴露每个用户的反馈状态，以便 UI 能够在跨会话中显示历史反馈。
+- 添加生命周期事件历史/调试接口，以提高运维可见性。
+- 在活跃度和置信度作为排序质量因子时，继续验证检索融合（retrieval fusion）的实际表现。
+- 更新旧版的高层设计文档，将其中描述的计划中的生命周期行为修正为当前已实现的行为。

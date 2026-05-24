@@ -15,16 +15,16 @@ HiveMemory - 动态强化引擎
 
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.engines.lifecycle.models import (
     MemoryEvent,
     EventType,
     ReinforcementResult,
 )
+from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.system.config import ReinforcementEngineConfig
 
@@ -67,7 +67,6 @@ class DynamicReinforcementEngine:
         """
         self.storage = storage
         self.config = config
-
         self._event_history: List[ReinforcementResult] = []
         
         self.vitality_calculator = vitality_calculator
@@ -101,26 +100,23 @@ class DynamicReinforcementEngine:
             raise ValueError(f"Memory {memory_id} not found")
 
         # 记录当前状态
-        previous_vitality = memory.meta.vitality_score  # 已经是 0-100 范围
+        previous_vitality = memory.meta.vitality_score
         previous_confidence = memory.meta.confidence_score
 
         # 应用事件特定的调整
         if event.event_type == EventType.CITATION:
-            self._handle_citation(memory, event)
+            self._handle_citation(memory)
         elif event.event_type == EventType.FEEDBACK_NEGATIVE:
-            self._handle_negative_feedback(memory, event)
-        else:
-            self._handle_simple_boost(memory, event)
+            self._handle_negative_feedback(memory)
 
         # 更新访问元信息（在计算生命力之前，以便反映本次访问的影响）
         memory.meta.access_count += 1
         memory.meta.last_accessed_at = datetime.now()
         memory.meta.updated_at = datetime.now()
 
-        # 重新计算生命力分数（此时 access_count 已包含本次访问）
-        new_vitality = self.vitality_calculator.calculate(memory)
-
-        # 更新生命力分数 (直接存储 0-100)
+        base_vitality = self.vitality_calculator.calculate(memory)
+        adjustment = self.vitality_adjustments.get(event.event_type, 0.0)
+        new_vitality = self._clamp_vitality(base_vitality + adjustment)
         memory.meta.vitality_score = new_vitality
 
         # 持久化到存储
@@ -150,30 +146,12 @@ class DynamicReinforcementEngine:
 
         return result
 
-    def _handle_citation(self, memory: MemoryAtom, event: MemoryEvent) -> None:
-        """
-        处理引用事件 - 重置时间衰减
-
-        VitalityCalculator 的时间衰减基于 updated_at 计算，
-        因此更新时间戳即可实现衰减重置。
-
-        Args:
-            memory: 记忆对象
-            event: 事件对象
-        """
+    def _handle_citation(self, memory: MemoryAtom) -> None:
+        # Reset decay before recalculating vitality.
         memory.meta.updated_at = datetime.now()
-        logger.debug(f"Citation handled for {memory.id}: decay reset via updated_at")
+        logger.debug("Citation handled for %s: decay reset", memory.id)
 
-    def _handle_negative_feedback(self, memory: MemoryAtom, event: MemoryEvent) -> None:
-        """
-        处理负面反馈
-
-        负面反馈会大幅降低置信度。
-
-        Args:
-            memory: 记忆对象
-            event: 事件对象
-        """
+    def _handle_negative_feedback(self, memory: MemoryAtom) -> None:
         old_confidence = memory.meta.confidence_score
         memory.meta.confidence_score = max(
             0.0,
@@ -181,22 +159,11 @@ class DynamicReinforcementEngine:
         )
 
         logger.debug(
-            f"Negative feedback for {memory.id}: "
-            f"confidence {old_confidence:.2f} -> {memory.meta.confidence_score:.2f}"
+            "Negative feedback for %s: confidence %.2f -> %.2f",
+            memory.id,
+            old_confidence,
+            memory.meta.confidence_score,
         )
-
-    def _handle_simple_boost(self, memory: MemoryAtom, event: MemoryEvent) -> None:
-        """
-        处理简单的生命力加成 (HIT, FEEDBACK_POSITIVE)
-
-        Args:
-            memory: 记忆对象
-            event: 事件对象
-        """
-        boost = self.vitality_adjustments.get(event.event_type, 0.0)
-        # 添加到当前生命力 (稍后会被重新计算覆盖，但可以作为一种瞬时影响)
-        current = memory.meta.vitality_score  # 已经是 0-100 范围
-        memory.meta.vitality_score = max(0.0, min(100.0, current + boost))
 
     def _add_to_history(self, result: ReinforcementResult) -> None:
         """
@@ -209,8 +176,13 @@ class DynamicReinforcementEngine:
 
         # 限制历史大小
         if len(self._event_history) > self.config.event_history_limit:
-            # 移除最旧的记录
-            self._event_history = self._event_history[-self.config.event_history_limit:]
+            self._event_history = self._event_history[
+                -self.config.event_history_limit:
+            ]
+
+    @staticmethod
+    def _clamp_vitality(value: float) -> float:
+        return max(0.0, min(100.0, value))
 
     def get_event_history(
         self,
