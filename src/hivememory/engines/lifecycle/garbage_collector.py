@@ -1,7 +1,7 @@
 """
 HiveMemory - 垃圾回收器
 
-定期扫描低生命力记忆并触发归档。
+扫描低生命力记忆并触发归档。
 
 """
 
@@ -22,19 +22,19 @@ logger = logging.getLogger(__name__)
 
 class PeriodicGarbageCollector(BaseGarbageCollector):
     """
-    周期性垃圾回收器
+    垃圾回收器
 
-    扫描低生命力记忆并批量归档。
+    扫描调用方传入的低生命力记忆并批量归档。
+    生命力刷新由 MemoryLifecycleEngine 或调用方在进入 GC 前完成。
 
     工作流程:
-        1. 扫描所有记忆
-        2. 计算生命力分数
-        3. 筛选低于阈值的记忆
-        4. 批量归档
+        1. 接收已刷新生命力的记忆集合
+        2. 筛选低于阈值的记忆
+        3. 批量归档
 
     Examples:
-        >>> gc = PeriodicGarbageCollector(storage, archiver, vitality_calculator)
-        >>> archived_count = gc.collect(force=True)
+        >>> gc = PeriodicGarbageCollector(archiver, config)
+        >>> archived_count = gc.collect(refreshed_memories, force=True)
         >>> print(f"Archived {archived_count} memories")
     """
 
@@ -187,10 +187,8 @@ def create_garbage_collector(
     创建默认垃圾回收器
 
     Args:
-        storage: 向量存储实例
         archiver: 归档器实例
-        vitality_calculator: 生命力计算器实例
-        config: 垃圾回收器配置 (可选)
+        config: 垃圾回收器配置
 
     Returns:
         BaseGarbageCollector: 垃圾回收器实例

@@ -136,7 +136,7 @@ class ArchiveRecord(BaseModel):
         json_schema_extra={
             "example": {
                 "memory_id": "123e4567-e89b-12d3-a456-426614174000",
-                "original_vitality": 0.15,
+                "original_vitality": 15.0,
                 "archived_at": "2025-01-15T10:30:00",
                 "storage_path": "data/archived/2025-01/123e4567-e89b-12d3-a456-426614174000.json.gz",
                 "compressed_size_bytes": 1024

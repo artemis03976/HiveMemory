@@ -18,13 +18,13 @@
 
 - `HiveMemorySystem` 创建了一个 `GlobalMaintenanceScheduler`。
 - `PatchouliSystem.register_maintenance_tasks()` 注册了 `perception_idle_flush`。
-- `LibrarianCore.start_gardening()` 已存在，但目前仍是一个占位符。
+- `LibrarianCore.run_gardening_once()` 已作为全局调度器回调入口。
 - `MemoryLifecycleEngine` 暴露了 `record_hit`、`record_citation`、`record_feedback` 和 `run_garbage_collection` 方法。
-- `PeriodicGarbageCollector` 可以扫描低活力的记忆并将其归档。
-- 检索过程返回最终的 `RetrievalResponse` / `RetrievalResult`，但尚未强化记忆评分。
-- 前端和 API 层面暴露了记忆引用 (memory refs)，但目前没有一条完整的“用户反馈至生命周期”的路线。
+- `PeriodicGarbageCollector` 扫描调用方传入的、已刷新生命力的记忆并将其归档。
+- 检索过程返回最终的 `RetrievalResponse` / `RetrievalResult`，HIT 已在 `finalize_agent_run()` 中 best-effort 记录。
+- 前端右侧引用记忆栏和 API 已具备单记忆反馈至生命周期的路线。
 
-主要缺失的部分是集成层：调度器注册、事件发射点和 API 接口。
+主要剩余工作是可观测性、反馈语义持久化和检索融合调优。
 
 ## 3. 设计原则
 
@@ -32,7 +32,7 @@
 
 生命周期维护任务必须注册到现有的 `GlobalMaintenanceScheduler` 中。
 
-不要重新启用 `ScheduledGarbageCollector` 或添加 APScheduler。应将 `ScheduledGarbageCollector` 视为旧版兼容组件，后期逐步删除。
+不要重新启用 `ScheduledGarbageCollector` 或添加 APScheduler。旧的 `ScheduledGarbageCollector` 实现已经移除；生命周期维护只通过全局维护调度器驱动。
 
 ### 3.2 将业务逻辑保留在生命周期中
 
@@ -116,13 +116,15 @@ self.runtime.librarian_core.run_gardening_once
 
 在最终记忆被选中用于上下文注入后，记录 `HIT`。
 
-首选集成点：
+当前集成点：
 
-- `PatchouliService.retrieve_for_gaze()`，在 `PatchouliLocalRoutes.MEMORY_RETRIEVE` 返回之后。
+- `PatchouliService.finalize_agent_run()`，在 `submit_interaction()` 完成后，对最终注入上下文的 `retrieval_result.memories` 记录 HIT。
+- 单次 finalize 内按 memory id 去重。
 
-备选方案：
+历史候选点：
 
-- `RetrievalFamiliar.retrieve_async()`，如果它是所有最终检索上下文的唯一返回路径。
+- `PatchouliService.retrieve_for_gaze()` / `prepare_agent_run()`。
+- `RetrievalFamiliar.retrieve_async()`。
 
 避免在密集/稀疏/混合检索器内部记录命中。这些层生成的是候选结果和中间分数，而不是确认的上下文使用情况。
 
@@ -133,7 +135,7 @@ self.runtime.librarian_core.run_gardening_once
 ```python
 for memory in retrieval_result.memories:
     try:
-        self._runtime.librarian_core.lifecycle_engine.record_hit(memory.id, source="retrieval")
+        self._runtime.librarian_core.lifecycle_engine.record_hit(memory.id, source="retrieval.finalize")
     except Exception:
         logger.warning("Failed to record memory hit", exc_info=True)
 ```
@@ -190,10 +192,7 @@ POST /api/v1/memories/{memory_id}/feedback
 ```json
 {
   "positive": true,
-  "source": "user",
-  "reason": "helpful",
-  "message_id": "optional-message-id",
-  "session_id": "optional-session-id"
+  "source": "ui.memory_ref"
 }
 ```
 
@@ -210,7 +209,7 @@ POST /api/v1/memories/{memory_id}/feedback
 }
 ```
 
-### 7.2 响应级别反馈
+### 7.2 响应级别反馈（后续）
 
 聊天 UI 通常接收对助手回答的反馈，而不是对单个记忆的反馈。针对这种情况，未来可以引入第二个端点：
 
@@ -260,7 +259,7 @@ lifecycle:
 
 暴露或记录以下内容：
 
-- `patchouli.lifecycle_gardening` 的调度器状态。
+- `patchouli.memory_gardening` 的调度器状态。
 - 维护结果摘要：归档数量、耗时、成功/失败。
 - 按事件类型分类的强化失败记录。
 - 来自 `MemoryLifecycleEngine.get_stats()` 的生命周期统计信息。
@@ -280,9 +279,9 @@ GET /api/v1/memories/{memory_id}/events
 为以下内容添加或扩展测试：
 
 - `LibrarianCore.run_gardening_once()` 调用生命周期 GC 并返回数量。
-- `PatchouliSystem.register_maintenance_tasks()` 注册了 perception_idle_flush 和 lifecycle_gardening。
+- `PatchouliSystem.register_maintenance_tasks()` 注册了 perception_idle_flush 和 memory_gardening。
 - 根据所选的调度器语义，禁用的生命周期 GC 注册为禁用状态或不运行。
-- 检索命中强化每次返回记忆时调用一次 `record_hit()`。
+- 检索命中强化在 finalize 阶段对最终注入的记忆调用 `record_hit()`，并在单次 finalize 内去重。
 - MTP READ/RUN 引用在成功使用时调用 `record_citation()`。
 - 反馈端点调用 `record_feedback()` 并返回分数增量。
 
@@ -310,12 +309,12 @@ GET /api/v1/memories/{memory_id}/events
 ## 11. 实施顺序
 
 1. 将 `run_gardening_once()` 添加到 `LibrarianCore`。
-2. 在 `PatchouliSystem` 中注册 `patchouli.lifecycle_gardening`。
+2. 在 `PatchouliSystem` 中注册 `patchouli.memory_gardening`。
 3. 添加调度器注册和维护的单元测试。
 4. 在最终的检索响应边界添加检索 HIT 强化。
 5. 为 MTP READ/RUN 添加引用强化。
 6. 添加记忆反馈 API。
-7. 如果消息级别的 UX 需要，添加前端反馈连线。
+7. 添加前端单记忆反馈连线；消息级别反馈留作后续 UX 扩展。
 8. 核心循环稳定后，添加可观测性端点。
 
 ## 12. 未决问题 (Open Questions)

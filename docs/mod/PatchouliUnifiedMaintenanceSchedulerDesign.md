@@ -59,12 +59,14 @@
 
 ### C. 长期记忆生命周期：Gardening / GC
 
-当前 [`LibrarianCore.start_gardening()`](file:///c:/Users/29305/Projects/HiveMemory/src/hivememory/patchouli/services/librarian.py#L265-L272) 仍是占位接口，但长期记忆侧已经存在明确的“定时维护”意图：
+长期记忆生命周期维护已经接入全局维护调度器。当前形态是：
 
 - `MemoryLifecycleEngine`
-- `ScheduledGarbageCollector`
-- `GarbageCollectorConfig.enable_schedule`
-- `GarbageCollectorConfig.interval_hours`
+- `LibrarianCore.run_gardening_once()`
+- `PatchouliSystem.register_maintenance_tasks()`
+- `memory_gardening` maintenance task
+
+旧的 `ScheduledGarbageCollector` 本地调度实现已经移除，不再由 lifecycle 组件自行持有调度循环。
 
 相关位置：
 
@@ -169,7 +171,7 @@ BackgroundScheduler(thread)
 
 - `PassiveObserverIngressor` 既管 observer buffer，又自己管 idle scheduler
 - `BasePerceptionLayer` 既管 topic buffer，又自己管 interval scheduler
-- `ScheduledGarbageCollector` 把“GC 业务”与“如何定时跑 GC”耦在一起
+- 已移除的 `ScheduledGarbageCollector` 曾把“GC 业务”与“如何定时跑 GC”耦在一起
 
 这会让后续改动异常困难：任何一个组件既要理解业务，又要理解调度。
 
@@ -529,41 +531,38 @@ async def scan_idle_buffers_once(self) -> list[str]:
 
 ## 8.3 Lifecycle gardening / GC
 
-### 当前问题
+### 历史问题
 
 - `LibrarianCore.start_gardening()` 只是占位
 - `ScheduledGarbageCollector` 与调度方式耦合
 - `create_garbage_collector()` 目前也未真正选择 scheduled 版本
 
-### 目标改造
+### 当前状态
 
-生命周期侧不再暴露“自己带 scheduler 的 GC 实现”，而是收敛为：
+生命周期侧已经不再暴露“自己带 scheduler 的 GC 实现”，而是收敛为：
 
 - 一个“执行一次 GC”的业务接口
 - 一个由全局调度器注册的任务
 
-建议在 `LibrarianCore` 或 `MemoryLifecycleEngine` 暴露：
+`LibrarianCore` 暴露：
 
 ```python
 async def run_gardening_once(self) -> GardeningResult:
     ...
 ```
 
-其内部可调用：
+其内部调用：
 
 - `lifecycle_engine.run_garbage_collection()`
 - 未来的 reinforcement repair / archive compaction / health scan
 
-这样 `start_gardening()` 的职责就不再是“自己起 scheduler”，而变成：
+`start_gardening()` 保留为兼容入口，不再自己起 scheduler；实际定时由 `PatchouliSystem.register_maintenance_tasks()` 注册 `memory_gardening` 任务。
 
-- 向全局调度器注册 gardening task
-- 或者在系统装配阶段由 Kernel 统一注册
+### 已完成的接口变化
 
-### 建议接口变化
-
-- 将 `ScheduledGarbageCollector` 逐步降级为兼容层或删除
+- 删除 `ScheduledGarbageCollector`
 - `create_garbage_collector()` 只返回纯业务 GC 实现
-- `start_gardening()` 改为注册任务或调用调度器启动，不再直接拥有时间循环
+- `memory_gardening` 由全局维护调度器统一管理
 
 ---
 
@@ -703,14 +702,14 @@ class MaintenanceTasksConfig(BaseModel):
 
 目标：
 
-- `LibrarianCore.start_gardening()` 不再是占位
+- `LibrarianCore.run_gardening_once()` 提供单次 gardening 入口
 - lifecycle 维护统一接入全局调度器
 
 步骤：
 
-1. 为 lifecycle 暴露 `run_gardening_once()`
-2. 让 `start_gardening()` 改为注册/启用任务
-3. 删除 `ScheduledGarbageCollector` 中的自带调度职责
+1. 为 lifecycle 暴露 `run_gardening_once()`（已完成）
+2. 在 Patchouli 系统装配阶段注册 `memory_gardening` 任务（已完成）
+3. 删除 `ScheduledGarbageCollector` 中的自带调度职责（已完成）
 
 ---
 

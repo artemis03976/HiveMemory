@@ -40,7 +40,7 @@ src/hivememory/engines/lifecycle/
 
 ## 8.2 记忆生命力模型 (Memory Vitality Model)
 
-为了量化"哪条记忆该留，哪条该走"，我们定义一个核心指标：**记忆生命力分数 (Vitality Score, $V$)**。帕秋莉每天（或每周期）运行一次计算任务，更新所有记忆的 $V$ 值。
+为了量化"哪条记忆该留，哪条该走"，我们定义一个核心指标：**记忆生命力分数 (Vitality Score, $V$)**。生命力分数按使用点刷新：检索和记忆 API 在返回前刷新命中的记忆，GC 则由 `MemoryLifecycleEngine.run_garbage_collection()` 在归档判断前刷新全量活跃记忆。
 
 ### 8.2.1 评分公式
 
@@ -156,14 +156,15 @@ A = min(max_access_boost, access_count × points_per_access)
 
 ### 8.4.2 归档流程 (The Archiving Process)
 
-当记忆 $V$ 值跌破 20 分时，`PeriodicGarbageCollector` 触发归档：
+当记忆 $V$ 值跌破 20 分时，`MemoryLifecycleEngine` 触发一次 GC 编排：
 
 ```
 扫描候选记忆
         │
-        ├── 获取所有记忆
-        ├── 批量刷新生命力分数
-        └── 筛选 V <= threshold 的记忆
+        ├── 获取所有活跃记忆
+        ├── 由 MemoryLifecycleEngine 批量刷新生命力分数
+        └── 将已刷新记忆传给 PeriodicGarbageCollector
+                └── 筛选 V <= threshold 的记忆
         │
         ▼
 批量归档 (限制 batch_size)
@@ -280,16 +281,16 @@ data/archived/
 | `archive_dir` | `str` | `"data/archived"` | 归档目录路径 |
 | `compression` | `bool` | `True` | 是否使用 GZIP 压缩 |
 
-### 8.5.4 PeriodicGarbageCollector（周期性垃圾回收器）
+### 8.5.4 PeriodicGarbageCollector（垃圾回收器）
 
-**职责**：定期扫描低生命力记忆并批量归档。
+**职责**：扫描调用方传入的、已刷新生命力的记忆并批量归档。它不持有 `VitalityCalculator`，也不负责持久化刷新后的生命力分数；这些编排职责属于 `MemoryLifecycleEngine`。
 
 **核心方法**：
 
 | 方法 | 说明 |
 | :--- | :--- |
-| `scan_candidates(vitality_threshold)` | 扫描低于阈值的记忆，返回候选 ID 列表 |
-| `collect(force, batch_size, vitality_threshold)` | 运行垃圾回收，返回归档数量 |
+| `scan_candidates(memories, vitality_threshold)` | 从调用方传入的记忆中扫描低于阈值的候选 ID |
+| `collect(memories, force, batch_size, vitality_threshold)` | 运行垃圾回收，返回归档数量 |
 | `get_stats()` | 获取统计信息（最后运行时间、总扫描数、总归档数） |
 | `reset_stats()` | 重置统计信息 |
 
@@ -314,7 +315,7 @@ data/archived/
 | `record_hit(memory_id, source)` | 记录检索命中事件（HIT） |
 | `record_citation(memory_id, source)` | 记录主动引用事件（CITATION） |
 | `record_feedback(memory_id, positive, source)` | 记录用户反馈事件 |
-| `run_garbage_collection(force)` | 运行垃圾回收 |
+| `run_garbage_collection(force)` | 获取全量活跃记忆，刷新生命力并运行垃圾回收 |
 | `archive_memory(memory_id)` | 手动归档指定记忆 |
 | `resurrect_memory(memory_id)` | 唤醒归档记忆 |
 | `get_low_vitality_memories(threshold, limit)` | 获取低于阈值的记忆列表 |
