@@ -40,11 +40,11 @@ class MemoryLifecycleEngine:
 
     Examples:
         >>> # 推荐：使用工厂函数
-        >>> from hivememory.engines.lifecycle import create_default_lifecycle_manager
-        >>> manager = create_default_lifecycle_manager(storage)
+        >>> from hivememory.engines.lifecycle import create_default_lifecycle_engine
+        >>> engine = create_default_lifecycle_engine(storage)
         >>>
         >>> # 高级：手动注入组件
-        >>> manager = MemoryLifecycleManager(
+        >>> engine = MemoryLifecycleEngine(
         ...     storage=storage,
         ...     vitality_calculator=my_calculator,
         ...     reinforcement_engine=my_engine,
@@ -73,7 +73,7 @@ class MemoryLifecycleEngine:
 
         Note:
             所有组件参数都是必需的。如需使用默认配置创建组件，
-            请使用 create_default_lifecycle_manager 工厂函数。
+            请使用 create_default_lifecycle_engine 工厂函数。
         """
         self.storage = storage
         self.vitality_calculator = vitality_calculator

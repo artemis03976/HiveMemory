@@ -674,7 +674,7 @@ class MaintenanceTasksConfig(BaseModel):
     enable_perception_idle_flush: bool = Field(default=True, description="是否启用感知层空闲扫描")
 
     lifecycle_gc_interval_hours: int = Field(default=24, description="生命周期 GC 间隔（小时）")
-    enable_lifecycle_gc: bool = Field(default=False, description="是否启用定时 GC")
+    enable_lifecycle_gc: bool = Field(default=True, description="是否启用定时 GC")
 
     model_config = ConfigDict(extra="ignore")
 

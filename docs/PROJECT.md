@@ -303,7 +303,7 @@ KoakumaRuntime 负责 MTP 协议的解析、路由和执行。它由 AliceRuntim
     // 遗忘算法相关字段
     "last_accessed_at": "2025-06-01T12:00:00Z", 
     "access_count": 5, // 引用次数，用于加权
-    "decay_score": 0.85 // 当前生命周期分数 (0-1)，低于阈值将被归档
+    "vitality_score": 85.0 // 当前生命周期分数 (0-100)，低于阈值将被归档
   },
 
   // --- Index: 向量化与检索的目标 ---
