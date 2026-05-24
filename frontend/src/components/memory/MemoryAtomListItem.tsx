@@ -1,6 +1,7 @@
 import { Clock, BrainCircuit, Pin, Flame, Edit2, Trash2, AtSign } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
 import { memoryTypeColors, memoryTypeLabels } from '../../types/memory';
+import { formatVitalityScore, isHighVitality } from '../../utils/memoryScores';
 
 interface MemoryAtomListItemProps {
   atom: MemoryAtom;
@@ -14,6 +15,7 @@ interface MemoryAtomListItemProps {
 export default function MemoryAtomListItem({ atom, onClick, onView, onEdit, onPin, onDelete }: MemoryAtomListItemProps) {
   const typeConfig = memoryTypeColors[atom.memory_type] || { color: 'hsl(220, 10%, 50%)', name: 'unknown' };
   const typeLabel = memoryTypeLabels[atom.memory_type] || atom.memory_type;
+  const highVitality = isHighVitality(atom.vitality_score);
   
   return (
     <div 
@@ -88,9 +90,9 @@ export default function MemoryAtomListItem({ atom, onClick, onView, onEdit, onPi
       {/* 统计信息 */}
       <div className="hidden lg:flex items-center gap-6 shrink-0 text-xs font-mono text-slate-500 w-64 justify-end pr-4">
         <div className="flex items-center gap-1.5" title="活力值 (Vitality Score)">
-          <Flame className={`w-4 h-4 ${atom.vitality_score > 0.8 ? 'text-amber-400' : ''}`} />
-          <span className={atom.vitality_score > 0.8 ? 'text-amber-400/80 font-bold' : ''}>
-            {(atom.vitality_score * 100).toFixed(0)}
+          <Flame className={`w-4 h-4 ${highVitality ? 'text-amber-400' : ''}`} />
+          <span className={highVitality ? 'text-amber-400/80 font-bold' : ''}>
+            {formatVitalityScore(atom.vitality_score)}
           </span>
         </div>
         <div className="flex items-center gap-1.5" title="置信度 (Confidence)">

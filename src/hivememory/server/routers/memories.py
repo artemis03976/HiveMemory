@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from hivememory.core.models import MemoryAtom
 from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
-from hivememory.server.models.memory import MemoryResponse, MemoryListResponse, MemoryUpdateRequest
+from hivememory.server.models.memory import (
+    MemoryFeedbackRequest,
+    MemoryFeedbackResponse,
+    MemoryListResponse,
+    MemoryResponse,
+    MemoryUpdateRequest,
+)
 
 router = APIRouter(tags=["memories"])
 
@@ -136,6 +142,47 @@ async def update_memory(
 
     system.patchouli.storage.upsert_memory(atom)
     return MemoryResponse.from_atom(atom)
+
+
+@router.post("/memories/{memory_id}/feedback", response_model=MemoryFeedbackResponse)
+async def record_memory_feedback(
+    memory_id: str,
+    body: MemoryFeedbackRequest,
+    system: HiveMemorySystem = Depends(get_system),
+):
+    """Record explicit user feedback for a memory."""
+    try:
+        uid = UUID(memory_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="鏃犳晥鐨勮蹇?ID 鏍煎紡")
+
+    lifecycle = _get_lifecycle_engine(system)
+    if lifecycle is None:
+        raise HTTPException(status_code=503, detail="Memory lifecycle engine is unavailable")
+
+    try:
+        result = lifecycle.record_feedback(
+            uid,
+            positive=body.positive,
+            source=body.source,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return MemoryFeedbackResponse(
+        success=True,
+        id=str(result.memory_id),
+        positive=body.positive,
+        previous_vitality=result.previous_vitality,
+        new_vitality=result.new_vitality,
+        previous_confidence=result.previous_confidence,
+        new_confidence=result.new_confidence,
+        event_type=(
+            result.event_type.value
+            if hasattr(result.event_type, "value")
+            else str(result.event_type)
+        ),
+    )
 
 
 @router.delete("/memories/{memory_id}")

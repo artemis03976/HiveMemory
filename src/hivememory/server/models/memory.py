@@ -52,6 +52,22 @@ class MemoryUpdateRequest(BaseModel):
     agent_config: Optional[Dict[str, Any]] = None
 
 
+class MemoryFeedbackRequest(BaseModel):
+    positive: bool
+    source: str = "ui.memory_ref"
+
+
+class MemoryFeedbackResponse(BaseModel):
+    success: bool
+    id: str
+    positive: bool
+    previous_vitality: float
+    new_vitality: float
+    previous_confidence: float
+    new_confidence: float
+    event_type: str
+
+
 class MemoryListResponse(BaseModel):
     memories: List[MemoryResponse]
     total: int
