@@ -2,7 +2,7 @@
 
 import pytest
 
-from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.alice.runtime.models import MTPExecutionContext, RuntimeScope
 from hivememory.alice.runtime.agent.mtp_executor import KoakumaMTPExecutor
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
 from hivememory.core.protocol.models import MTPExecutionResult
@@ -23,7 +23,7 @@ async def test_koakuma_mtp_executor_delegates_to_runtime():
     context = MTPExecutionContext(
         identity=Identity(user_id="u1", agent_id="agent_a"),
         agent_profile=OMNI_DOLL_PROFILE,
-        depth=0,
+        runtime_scope=RuntimeScope(depth=0),
     )
 
     executor = KoakumaMTPExecutor(koakuma)

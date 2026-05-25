@@ -493,10 +493,14 @@ class TestKoakumaWriteE2E:
         from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
+        from hivememory.alice.runtime.models import RuntimeScope
+
         context = MTPExecutionContext(
             identity=Identity(user_id="test_user"),
-            run_id="run_write_test",
-            frame_id="pid_main_write",
+            runtime_scope=RuntimeScope(
+                run_id="run_write_test",
+                frame_id="frame_main_write",
+            ),
         )
 
         agent_text = '⟪ WRITE | * | content="test"'
@@ -508,8 +512,8 @@ class TestKoakumaWriteE2E:
         assert result.write_focus.content == "test"
         pending = koakuma.pending_cache.get(result.pending_alias)
         assert pending is not None
-        assert pending.run_id == "run_write_test"
-        assert pending.frame_id == "pid_main_write"
+        assert pending.runtime_scope.run_id == "run_write_test"
+        assert pending.runtime_scope.frame_id == "frame_main_write"
 
 
 # ========== Test 8: FlushReason.MTP_WRITE ==========

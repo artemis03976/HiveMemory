@@ -14,7 +14,12 @@ import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
 from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
-from hivememory.alice.runtime.models import ExecutionFrame, GenerationResult, StreamChunk
+from hivememory.alice.runtime.models import (
+    ExecutionFrame,
+    GenerationResult,
+    RuntimeScope,
+    StreamChunk,
+)
 from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.core.protocol.models import MTPExecutionResult
@@ -50,20 +55,17 @@ def _make_call_mtp_result() -> MTPExecutionResult:
 
 def _make_frames():
     main_frame = ExecutionFrame(
-        process_id="pid_main_test",
+        runtime_scope=RuntimeScope(frame_id="frame_main_test", depth=0),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "主任务"}],
-        depth=0,
         topic_id="topic_1",
         identity=Identity(user_id="u1", agent_id="omni_doll"),
     )
     sub_frame = ExecutionFrame(
-        process_id="pid_sub_test",
+        runtime_scope=main_frame.runtime_scope.for_child("frame_sub_test"),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "子任务"}],
-        depth=1,
         topic_id=None,
-        parent_frame_id=main_frame.process_id,
         identity=Identity(user_id="u1", agent_id="coder_doll"),
     )
     return main_frame, sub_frame

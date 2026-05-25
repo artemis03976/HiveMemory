@@ -18,6 +18,7 @@ from hivememory.alice.runtime.models import (
     ExecutionFrame,
     GenerationResult,
     MTPExecutionContext,
+    RuntimeScope,
 )
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.protocol.models import MTPExecutionResult
@@ -87,13 +88,15 @@ def _call_mtp_exec_result() -> MTPExecutionResult:
 
 def _make_frame(depth: int = 0) -> ExecutionFrame:
     return ExecutionFrame(
-        process_id="test_pid",
+        runtime_scope=RuntimeScope(
+            run_id="run_test_1",
+            frame_id="test_frame",
+            depth=depth,
+        ),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "hello"}],
-        depth=depth,
         topic_id="topic_1",
         identity=Identity(user_id="u1", agent_id="agent_a"),
-        run_id="run_test_1",
     )
 
 
@@ -214,9 +217,10 @@ async def test_mtp_execution_receives_frame_context():
     assert isinstance(context, MTPExecutionContext)
     assert context.identity == frame.identity
     assert context.agent_profile is frame.agent_profile
-    assert context.run_id == frame.run_id
-    assert context.frame_id == frame.process_id
-    assert context.depth == frame.depth
+    assert context.runtime_scope.run_id == frame.runtime_scope.run_id
+    assert context.runtime_scope.frame_id == frame.runtime_scope.frame_id
+    assert context.runtime_scope.depth == frame.runtime_scope.depth
+    assert context.runtime_scope.action_id == "action_1_0"
 
 
 @pytest.mark.asyncio
@@ -269,12 +273,10 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     """CALL 路径: 父 frame 产出 kind=tool_result, tool_kind=CALL, role=user"""
     main_frame = _make_frame(depth=0)
     sub_frame = ExecutionFrame(
-        process_id="sub_pid",
+        runtime_scope=main_frame.runtime_scope.for_child("sub_frame"),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "sub task"}],
-        depth=1,
         topic_id=None,
-        parent_frame_id=main_frame.process_id,
         identity=Identity(user_id="u1", agent_id="sub_agent"),
     )
 

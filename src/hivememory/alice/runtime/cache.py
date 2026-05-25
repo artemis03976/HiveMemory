@@ -17,7 +17,7 @@ from collections import OrderedDict
 from typing import Dict, List, Optional
 from uuid import uuid4
 
-from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
+from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus, RuntimeScope
 from hivememory.core.models import AgentProfile, Identity, MemoryAtom, MemoryType
 
 logger = logging.getLogger(__name__)
@@ -49,9 +49,7 @@ class PendingAtomCache:
         title: Optional[str],
         reason: Optional[str],
         identity: Identity,
-        run_id: str = "",
-        frame_id: str = "",
-        depth: int = 0,
+        runtime_scope: Optional[RuntimeScope] = None,
     ) -> PendingAtom:
         """注册 WRITE pending atom，返回带有生成 alias 的 PendingAtom。"""
         slug_source = title if title else content[:20]
@@ -69,9 +67,7 @@ class PendingAtomCache:
             title=title,
             reason=reason,
             identity=identity,
-            run_id=run_id,
-            frame_id=frame_id,
-            depth=depth,
+            runtime_scope=runtime_scope or RuntimeScope(),
         )
         self._atoms[pending_alias] = atom
         logger.debug(f"Registered pending WRITE: {pending_alias}")
@@ -84,9 +80,7 @@ class PendingAtomCache:
         instruction: str,
         content: Optional[str],
         identity: Identity,
-        run_id: str = "",
-        frame_id: str = "",
-        depth: int = 0,
+        runtime_scope: Optional[RuntimeScope] = None,
     ) -> PendingAtom:
         """注册 UPDATE pending revision，返回带有生成 alias 的 PendingAtom。"""
         short_id = uuid4().hex[:4]
@@ -101,9 +95,7 @@ class PendingAtomCache:
             target_alias=target_alias,
             target_uuid=target_uuid,
             identity=identity,
-            run_id=run_id,
-            frame_id=frame_id,
-            depth=depth,
+            runtime_scope=runtime_scope or RuntimeScope(),
         )
         self._atoms[pending_alias] = atom
         logger.debug(f"Registered pending UPDATE: {pending_alias}")

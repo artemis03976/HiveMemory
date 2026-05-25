@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, List, Optional
 from uuid import uuid4
 
 from hivememory.core.models import AgentProfile, Identity
-from hivememory.alice.runtime.models import ExecutionFrame
+from hivememory.alice.runtime.models import ExecutionFrame, RuntimeScope
 
 if TYPE_CHECKING:
     from hivememory.prompts.assembler import AgentPromptAssembler
@@ -57,14 +57,17 @@ class FrameScheduler:
         """
         self._frame_counter += 1
         run_id = f"run_{uuid4().hex}"
+        frame_id = f"frame_main_{self._frame_counter}"
         frame = ExecutionFrame(
-            process_id=f"pid_main_{self._frame_counter}",
+            runtime_scope=RuntimeScope(
+                run_id=run_id,
+                frame_id=frame_id,
+                depth=0,
+            ),
             agent_profile=agent_profile,
             working_history=messages,
-            depth=0,
             topic_id=topic_id,
             identity=identity,
-            run_id=run_id,
         )
         logger.debug(f"Created main frame: {frame}")
         return frame
@@ -97,14 +100,12 @@ class FrameScheduler:
         )
 
         self._frame_counter += 1
+        frame_id = f"frame_sub_{self._frame_counter}"
         sub_frame = ExecutionFrame(
-            process_id=f"pid_sub_{self._frame_counter}",
+            runtime_scope=parent_frame.runtime_scope.for_child(frame_id),
             agent_profile=agent_profile,
             working_history=working_history,
-            depth=1,
             topic_id=None,
-            run_id=parent_frame.run_id,
-            parent_frame_id=parent_frame.process_id,
             identity=parent_frame.identity,
         )
 
@@ -115,7 +116,7 @@ class FrameScheduler:
         """挂起当前帧（压栈）。"""
         self._frame_stack.append(frame)
         logger.debug(
-            f"Suspended frame: {frame.process_id}, stack_depth={len(self._frame_stack)}"
+            f"Suspended frame: {frame.runtime_scope.frame_id}, stack_depth={len(self._frame_stack)}"
         )
 
     def resume_frame(self) -> Optional[ExecutionFrame]:
@@ -123,7 +124,7 @@ class FrameScheduler:
         if self._frame_stack:
             frame = self._frame_stack.pop()
             logger.debug(
-                f"Resumed frame: {frame.process_id}, stack_depth={len(self._frame_stack)}"
+                f"Resumed frame: {frame.runtime_scope.frame_id}, stack_depth={len(self._frame_stack)}"
             )
             return frame
         logger.warning("Attempted to resume frame but stack is empty")

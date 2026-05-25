@@ -656,9 +656,7 @@ class KoakumaRuntime:
             title=title or None,
             reason=reason or None,
             identity=context.identity,
-            run_id=context.run_id,
-            frame_id=context.frame_id,
-            depth=context.depth,
+            runtime_scope=context.runtime_scope,
         )
 
         # 构建 WriteFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
@@ -748,9 +746,7 @@ class KoakumaRuntime:
             instruction=instruction,
             content=content,
             identity=context.identity,
-            run_id=context.run_id,
-            frame_id=context.frame_id,
-            depth=context.depth,
+            runtime_scope=context.runtime_scope,
         )
 
         # 6. 构建 UpdateFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
@@ -801,7 +797,7 @@ class KoakumaRuntime:
         import json
 
         # 1. 深度检查 (硬限制)
-        if context is not None and context.depth >= 1:
+        if context is not None and context.runtime_scope.depth >= 1:
             raise PermissionDeniedError(
                 "Sub-agents are not allowed to invoke CALL. "
                 "Only the main agent can call sub-agents."

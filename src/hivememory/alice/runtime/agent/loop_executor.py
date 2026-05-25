@@ -76,9 +76,9 @@ class KernelLoopExecutor:
         agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
         return {
             "scope": "sub" if frame.is_sub_frame() else "main",
-            "depth": frame.depth,
+            "depth": frame.runtime_scope.depth,
             "agent_id": agent_id,
-            "frame_id": frame.process_id,
+            "frame_id": frame.runtime_scope.frame_id,
         }
 
     async def execute_main_frame(
@@ -265,12 +265,11 @@ class KernelLoopExecutor:
             target_hint = ""
             args_hint: Dict[str, Any] = {}
 
+            action_id = f"action_{iteration}_{_seq}"
             mtp_context = MTPExecutionContext(
                 identity=frame.identity,
                 agent_profile=frame.agent_profile,
-                run_id=frame.run_id,
-                frame_id=frame.process_id,
-                depth=frame.depth,
+                runtime_scope=frame.runtime_scope.with_action(action_id),
             )
             mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,
@@ -288,7 +287,6 @@ class KernelLoopExecutor:
                 target_hint, args_hint, raw_hint = self._extract_command_info(
                     mtp_result.command, raw_hint
                 )
-            action_id = f"action_{iteration}_{_seq}"
             command_event = TurnEvent(
                 kind="tool_call",
                 sequence=_seq,
@@ -571,7 +569,7 @@ class KernelLoopExecutor:
                 "task": task,
                 "iteration": iteration,
                 "scope": "sub",
-                "depth": frame.depth + 1,
+                "depth": frame.runtime_scope.depth + 1,
                 "frame_id": None,
             }
             stream_events.append({"event": "sub_agent_start", "data": sub_start_data})
@@ -620,8 +618,8 @@ class KernelLoopExecutor:
                     "final_text": sub_result.final_text,
                     "iteration": iteration,
                     "scope": "sub",
-                    "depth": frame.depth + 1,
-                    "frame_id": sub_frame.process_id,
+                    "depth": frame.runtime_scope.depth + 1,
+                    "frame_id": sub_frame.runtime_scope.frame_id,
                     "agent_id": target_alias,
                 }
                 stream_events.append({"event": "sub_agent_end", "data": sub_end_data})
@@ -644,7 +642,7 @@ class KernelLoopExecutor:
                     "status": "error",
                     "iteration": iteration,
                     "scope": "sub",
-                    "depth": frame.depth + 1,
+                    "depth": frame.runtime_scope.depth + 1,
                     "frame_id": None,
                     "agent_id": target_alias,
                 }
