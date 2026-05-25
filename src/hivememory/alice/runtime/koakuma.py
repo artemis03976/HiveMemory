@@ -26,7 +26,6 @@
 
 import time
 import logging
-from uuid import UUID
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from hivememory.core.mtp import (
@@ -41,8 +40,10 @@ from hivememory.core.mtp import (
     MTPParseError,
     MTPFormatter,
 )
-from hivememory.alice.runtime.cache import KoakumaAtomCache
+from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
 from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.alice.runtime.pending_renderer import PendingAtomRenderer
+from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.core.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,
@@ -55,13 +56,13 @@ from hivememory.core.mtp.exceptions import (
     SystemFault,
     StorageOfflineError,
     StorageReadError,
-    BusRouteUnavailableError,
     PermissionDeniedError,
 )
 from hivememory.engines.generation.models import WriteFocus, UpdateFocus
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
+    from hivememory.alice.runtime.resolver import ResolveResult
     from hivememory.system.config import KoakumaConfig
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,8 @@ class KoakumaRuntime:
         self,
         bus: Optional["AliceBus"] = None,
         config: Optional["KoakumaConfig"] = None,
+        *,
+        alias_resolver: RuntimeAliasResolver,
     ):
         """
         初始化 Koakuma MTP 运行时
@@ -101,6 +104,7 @@ class KoakumaRuntime:
         Args:
             bus: AliceBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
+            pending_cache: 共享的 PendingAtomCache 实例 (由 AliceRuntime 注入)
         """
         from hivememory.system.config import KoakumaConfig
 
@@ -110,7 +114,8 @@ class KoakumaRuntime:
         self._parser = MTPParser()
         self._filter_parser = MTPFilterParser()
         self._formatter = MTPFormatter()
-        self._atom_cache = KoakumaAtomCache()
+
+        self._alias_resolver = alias_resolver
 
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
@@ -220,6 +225,7 @@ class KoakumaRuntime:
                 execution_time_ms=response.execution_time_ms,
                 write_focus=response.write_focus,
                 update_focus=response.update_focus,
+                pending_alias=response.pending_alias,
             )
 
         except MTPParseError as e:
@@ -281,7 +287,12 @@ class KoakumaRuntime:
     @property
     def atom_cache(self) -> KoakumaAtomCache:
         """访问统一原子缓存"""
-        return self._atom_cache
+        return self._alias_resolver.atom_cache
+
+    @property
+    def pending_cache(self) -> PendingAtomCache:
+        """访问运行时 pending atom 缓存"""
+        return self._alias_resolver.pending_cache
 
     # ========== 内部路由 ==========
 
@@ -428,13 +439,14 @@ class KoakumaRuntime:
             content += "\n" + "\n".join(filter_warnings)
 
         # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
-        self._atom_cache.ingest_atoms(result.memories)
+        self.atom_cache.ingest_atoms(result.memories)
 
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content=content,
         )
 
+    # TODO: 由MemoryCompiler统一接管渲染/编译逻辑
     async def _handle_read(
         self,
         command: MTPCommand,
@@ -467,20 +479,20 @@ class KoakumaRuntime:
                 content="READ requires at least one target alias.",
             )
 
-        # 解析别名 → MemoryAtom，分离有效与无效别名
-        # 统一缓存路径: 缓存命中 → L2 冷检索回退
-        # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
+        resolved_pending: List[Tuple[str, Any]] = []  # (alias, PendingAtom)
         unresolved: List[str] = []
         for alias in aliases:
-            atom = await self._resolve_and_fetch(alias, context=context)
-            if atom is None:
-                unresolved.append(alias)
+            result = await self._alias_resolver.resolve(alias, context=context)
+            if result.kind == "pending" and result.pending is not None:
+                resolved_pending.append((alias, result.pending))
+            elif result.kind == "atom" and result.atom is not None:
+                resolved.append((alias, result.atom))
             else:
-                resolved.append((alias, atom))
+                unresolved.append(alias)
 
         # 全部无效：直接返回错误
-        if not resolved:
+        if not resolved and not resolved_pending:
             lines = [
                 f"[{a}]: [Alias Not Found] Alias '{a}' not found. "
                 f"Use SEARCH to discover the correct alias first."
@@ -492,10 +504,12 @@ class KoakumaRuntime:
             )
 
         # 直接从缓存的原子中提取内容（无需查询数据库）
-        read_results = self._format_cached_atoms(resolved)
+        read_results = self._format_cached_atoms(resolved) if resolved else {}
 
         # 组装输出
         output_lines: List[str] = []
+        for alias, pending in resolved_pending:
+            output_lines.append(PendingAtomRenderer.render_read(pending))
         for alias, _ in resolved:
             output_lines.append(read_results[alias])
         for alias in unresolved:
@@ -570,13 +584,23 @@ class KoakumaRuntime:
 
         # Level 1: 用户态工具路径 (统一原子缓存)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        atom = await self._resolve_and_fetch(alias, context=context)
-        if atom is None:
+        resolved = await self._alias_resolver.resolve(alias, context=context)
+        if resolved.kind == "pending":
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=(
+                    f"[Pending Alias Not Runnable] Alias '{alias}' is a runtime "
+                    "pending atom and has not been finalized as a runnable memory. "
+                    "Use READ to inspect it, or wait for the formal memory alias."
+                ),
+            )
+        if resolved.kind != "atom" or resolved.atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=f"[Alias Not Found] Tool alias '{alias}' not found. "
                         f"Use SEARCH to discover the correct alias first.",
             )
+        atom = resolved.atom
 
         # 校验类型必须是 CODE_SNIPPET
         if atom.index.memory_type != MemoryType.CODE_SNIPPET:
@@ -626,6 +650,16 @@ class KoakumaRuntime:
         reason = command.args.get("reason", "")
         title = command.args.get("title", "")
 
+        # 注册 pending atom 并生成 pending alias
+        pending = self.pending_cache.register_write(
+            content=content,
+            title=title or None,
+            reason=reason or None,
+            identity=context.identity,
+            frame_id="",
+            depth=context.depth,
+        )
+
         # 构建 WriteFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
         write_focus = WriteFocus(
             content=content,
@@ -635,13 +669,15 @@ class KoakumaRuntime:
         )
 
         logger.info(
-            f"MTP WRITE 延迟捕获: content='{content[:50]}...', reason='{reason}'"
+            f"MTP WRITE 延迟捕获: content='{content[:50]}...', "
+            f"pending_alias='{pending.pending_alias}'"
         )
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content='Memory saved.',
+            content=PendingAtomRenderer.render_ack(pending),
             write_focus=write_focus,
+            pending_alias=pending.pending_alias,
         )
 
     async def _handle_update(
@@ -683,19 +719,39 @@ class KoakumaRuntime:
 
         # 3. 解析 alias → MemoryAtom (统一缓存路径)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        atom = await self._resolve_and_fetch(alias, context=context)
-        if atom is None:
+        resolved = await self._alias_resolver.resolve(alias, context=context)
+        if resolved.kind == "pending":
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=(
+                    f"[Pending Alias Not Updatable] Alias '{alias}' is a runtime "
+                    "pending atom. UPDATE requires a formal memory alias."
+                ),
+            )
+        if resolved.kind != "atom" or resolved.atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=f"[Alias Not Found] Alias '{alias}' not found. "
                         f"Use SEARCH to discover the correct alias first.",
             )
+        atom = resolved.atom
         uuid = str(atom.id)
 
         # 4. 获取可选的 content
         content = command.args.get("content", None)
 
-        # 5. 构建 UpdateFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
+        # 5. 注册 pending revision
+        pending = self.pending_cache.register_update(
+            target_alias=alias,
+            target_uuid=uuid,
+            instruction=instruction,
+            content=content,
+            identity=context.identity,
+            frame_id="",
+            depth=context.depth,
+        )
+
+        # 6. 构建 UpdateFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
         update_focus = UpdateFocus(
             instruction=instruction,
             content=content if content else None,
@@ -704,17 +760,19 @@ class KoakumaRuntime:
             identity=context.identity,
         )
 
-        # 6. 使缓存失效，防止脏读
-        self._atom_cache.invalidate_alias(alias)
+        # 7. 使缓存失效，防止脏读
+        self.atom_cache.invalidate_alias(alias)
 
         logger.info(
-            f"MTP UPDATE 延迟捕获: alias='{alias}', instruction='{instruction[:50]}'"
+            f"MTP UPDATE 延迟捕获: alias='{alias}', "
+            f"pending_alias='{pending.pending_alias}'"
         )
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=f"Memory '{alias}' updated successfully.",
+            content=PendingAtomRenderer.render_ack(pending),
             update_focus=update_focus,
+            pending_alias=pending.pending_alias,
         )
 
     async def _handle_call(
@@ -831,71 +889,6 @@ class KoakumaRuntime:
                 source,
                 exc_info=True,
             )
-
-    async def _resolve_and_fetch(
-        self,
-        alias: str,
-        context: Optional[MTPExecutionContext] = None,
-    ) -> Optional["MemoryAtom"]:
-        """
-        统一的别名解析与原子获取
-
-        先检查缓存，未命中则查询存储并缓存结果。
-        替代原有的 L1/L2 分离解析模式。
-
-        Raises:
-            StorageOfflineError: 存储层离线
-            StorageReadError: 存储层响应异常
-            BusRouteUnavailableError: 系统总线路由缺失
-
-        Args:
-            alias: 语义化别名
-
-        Returns:
-            MemoryAtom 对象，未命中返回 None
-        """
-        # 检查缓存
-        atom = self._atom_cache.get_atom_by_alias(alias)
-        if atom is not None:
-            logger.debug(f"Atom cache hit: alias='{alias}'")
-            return atom
-
-        # 缓存未命中：查询存储（L2 冷检索）
-        try:
-            identity = context.identity if context is not None else MTPExecutionContext().identity
-            retrieval_response = await self._bus.request(
-                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-                aliases=[alias],
-                identity=identity,
-            )
-            memories = getattr(retrieval_response, "memories", []) or []
-            memory = memories[0] if memories else None
-            if memory is None:
-                logger.debug(f"L2 cold-lookup miss: alias='{alias}'")
-                return None
-
-            uuid_str = str(memory.id)
-            # 校验 UUID 格式有效性，防止脏数据污染缓存
-            UUID(uuid_str)
-
-            # 缓存完整原子
-            self._atom_cache.ingest_atom(memory)
-            logger.debug(
-                f"L2 cold-lookup hit: alias='{alias}' -> {uuid_str}, cached"
-            )
-            return memory
-        except KeyError as e:
-            logger.error(f"L2 cold-lookup route unavailable: alias='{alias}', error={e}")
-            raise BusRouteUnavailableError(
-                "Memory storage service is not available."
-            ) from e
-        except (StorageOfflineError, StorageReadError):
-            raise  # propagate as-is
-        except Exception as e:
-            logger.error(f"L2 cold-lookup infrastructure failure: alias='{alias}', error={e}")
-            raise StorageReadError(
-                "Memory storage encountered an error during alias lookup."
-            ) from e
 
     def _execute_user_tool(
         self, alias: str, code: str, args: Dict[str, str]

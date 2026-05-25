@@ -46,8 +46,8 @@ _VERB_DEFS_EN = {
     "SEARCH": 'Discover unknown memories. Target=`*`. Args: `query="..."`, optional `filter="type:CODE"` (types: CODE, FACT, URL, REFLECTION, PROFILE, WIP).',
     "READ": "Fetch full content. Target=`alias` or `[alias1, alias2]` (use LIST for batching).",
     "RUN": 'Execute a kernel tool. Target=`tool_alias`. Args: `key="value"`.',
-    "WRITE": "Save valuable insights. Target=`*`. Args: `title=\"...\" content=`...``.",
-    "UPDATE": "Patch existing memory. Target=`alias`. Args: `patch=`...``.",
+    "WRITE": 'Save valuable insights. Target=`*`. Args: `title="..." content=`...``. Returns a pending alias (draft_*) readable immediately via READ.',
+    "UPDATE": 'Patch existing memory. Target=`alias`. Args: `instruction="..."`. Returns a pending alias (rev_*) readable immediately via READ.',
     "CALL": 'Delegate to a sub-agent. Target=`agent_alias` (from Available Sub-Agents list). Args: `topic="..."`, optional `context_refs="[alias1, alias2]"` to share memories.',
 }
 
@@ -55,8 +55,8 @@ _VERB_DEFS_ZH = {
     "SEARCH": '发现未知记忆。Target=`*`。参数: `query="..."`，可选 `filter="type:CODE"` (类型: CODE, FACT, URL, REFLECTION, PROFILE, WIP)。',
     "READ": "获取完整内容。Target=`alias` 或 `[alias1, alias2]` (使用列表批量读取)。",
     "RUN": '执行内核工具。Target=`tool_alias`。参数: `key="value"`。',
-    "WRITE": "保存有价值的洞察。Target=`*`。参数: `title=\"...\" content=`...``。",
-    "UPDATE": "修正已有记忆。Target=`alias`。参数: `patch=`...``。",
+    "WRITE": '保存有价值的洞察。Target=`*`。参数: `title="..." content=`...``。返回运行时 pending alias (draft_*)，可立即 READ。',
+    "UPDATE": '修正已有记忆。Target=`alias`。参数: `instruction="..."`。返回运行时 pending alias (rev_*)，可立即 READ。',
     "CALL": '委托子代理执行专项任务。Target=`agent_alias` (来自可用子代理列表)。参数: `topic="..."`，可选 `context_refs="[alias1, alias2]"` 共享记忆。',
 }
 
@@ -91,7 +91,8 @@ _BEHAVIORAL_GUIDELINES_EN = """\
 - Verify First: If asked about specific facts, code, or configurations, SEARCH/READ memory first. Do not guess.
 - Batch Operations: Always group multiple READ requests into one list `[a, b, c]` to save IO cycles.
 - Inline Flow: Execute protocol commands as part of your thought process. Do not stop to ask for permission.
-- Delegate to Sub-Agents: When the memory context lists Available Sub-Agents and the task matches their specialty, issue CALL to delegate instead of handling it yourself. Pass relevant memory aliases via `context_refs` to share context."""
+- Delegate to Sub-Agents: When the memory context lists Available Sub-Agents and the task matches their specialty, issue CALL to delegate instead of handling it yourself. Pass relevant memory aliases via `context_refs` to share context.
+- Pending Aliases: After WRITE/UPDATE, the system returns a pending alias (draft_* or rev_*). You can READ it immediately to verify. Pending aliases are runtime handles, not permanent memory aliases."""
 
 _DENSE_DEMO_EN = """\
 [ONE-SHOT DEMONSTRATION]
@@ -160,7 +161,8 @@ _BEHAVIORAL_GUIDELINES_ZH = """\
 - 先验证: 当被问及具体事实、代码或配置时，先 SEARCH/READ 记忆。不要猜测。
 - 批量操作: 将多个 READ 请求合并为一个列表 `[a, b, c]`，节省 IO 开销。
 - 行内执行: 将协议指令作为思考过程的一部分执行，不要停下来请求许可。
-- 优先委托: 若记忆上下文中列出了可用子代理，且任务契合其专项能力，应优先使用 CALL 委托子代理执行，而非自行承担。可通过 `context_refs` 传递相关记忆别名以共享上下文。"""
+- 优先委托: 若记忆上下文中列出了可用子代理，且任务契合其专项能力，应优先使用 CALL 委托子代理执行，而非自行承担。可通过 `context_refs` 传递相关记忆别名以共享上下文。
+- 运行时句柄: WRITE/UPDATE 后系统返回 pending alias (draft_* 或 rev_*)。可立即 READ 验证。Pending alias 是运行时句柄，非永久记忆别名。"""
 
 _DENSE_DEMO_ZH = """\
 [示例演示]

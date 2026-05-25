@@ -443,9 +443,9 @@ class TestKoakumaWriteE2E:
         mock_librarian = MagicMock()
         mock_librarian.handle_write_signal.return_value = [sample_memory]
 
-        from .conftest import make_mock_bus
+        from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
-        koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
+        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
@@ -490,9 +490,9 @@ class TestKoakumaWriteE2E:
 
     def test_write_deferred_capture_always_ack(self):
         """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""
-        from .conftest import make_mock_bus
+        from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
-        koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
+        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         context = MTPExecutionContext(identity=Identity(user_id="test_user"))
 
         agent_text = '⟪ WRITE | * | content="test"'

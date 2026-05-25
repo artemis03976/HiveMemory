@@ -12,12 +12,123 @@ Kernel Runtime 缓存实现。
 """
 
 import logging
+import re
 from collections import OrderedDict
 from typing import Dict, List, Optional
+from uuid import uuid4
 
-from hivememory.core.models import AgentProfile, MemoryAtom, MemoryType
+from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
+from hivememory.core.models import AgentProfile, Identity, MemoryAtom, MemoryType
 
 logger = logging.getLogger(__name__)
+
+
+def _slugify(text: str, max_len: int = 30) -> str:
+    """将文本转为 alias 友好的 slug 片段。"""
+    slug = text.lower().strip()
+    slug = re.sub(r"[^a-z0-9\s_]", "", slug)
+    slug = re.sub(r"\s+", "_", slug)
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug[:max_len].rstrip("_")
+
+
+class PendingAtomCache:
+    """
+    L0 运行时 pending atom 缓存。
+
+    作为 Alice runtime 共享基础设施，主帧和子帧共享同一实例。
+    子帧 WRITE 后主帧自动可见，无需 merge。
+    """
+
+    def __init__(self) -> None:
+        self._atoms: Dict[str, PendingAtom] = {}
+
+    def register_write(
+        self,
+        content: str,
+        title: Optional[str],
+        reason: Optional[str],
+        identity: Identity,
+        frame_id: str = "",
+        depth: int = 0,
+    ) -> PendingAtom:
+        """注册 WRITE pending atom，返回带有生成 alias 的 PendingAtom。"""
+        slug_source = title if title else content[:20]
+        slug = _slugify(slug_source)
+        if not slug:
+            slug = "untitled"
+        short_id = uuid4().hex[:4]
+        pending_alias = f"draft_{slug}_{short_id}"
+
+        atom = PendingAtom(
+            pending_alias=pending_alias,
+            status=PendingAtomStatus.PENDING,
+            source_verb="WRITE",
+            content=content,
+            title=title,
+            reason=reason,
+            identity=identity,
+            frame_id=frame_id,
+            depth=depth,
+        )
+        self._atoms[pending_alias] = atom
+        logger.debug(f"Registered pending WRITE: {pending_alias}")
+        return atom
+
+    def register_update(
+        self,
+        target_alias: str,
+        target_uuid: str,
+        instruction: str,
+        content: Optional[str],
+        identity: Identity,
+        frame_id: str = "",
+        depth: int = 0,
+    ) -> PendingAtom:
+        """注册 UPDATE pending revision，返回带有生成 alias 的 PendingAtom。"""
+        short_id = uuid4().hex[:4]
+        pending_alias = f"rev_{target_alias}_{short_id}"
+
+        atom = PendingAtom(
+            pending_alias=pending_alias,
+            status=PendingAtomStatus.REVISION,
+            source_verb="UPDATE",
+            content=content or "",
+            instruction=instruction,
+            target_alias=target_alias,
+            target_uuid=target_uuid,
+            identity=identity,
+            frame_id=frame_id,
+            depth=depth,
+        )
+        self._atoms[pending_alias] = atom
+        logger.debug(f"Registered pending UPDATE: {pending_alias}")
+        return atom
+
+    def get(self, pending_alias: str) -> Optional[PendingAtom]:
+        """通过 pending alias 查询。"""
+        return self._atoms.get(pending_alias)
+
+    def has(self, alias: str) -> bool:
+        """检查 alias 是否为已注册的 pending atom。"""
+        return alias in self._atoms
+
+    def all_aliases(self) -> List[str]:
+        """返回所有已注册的 pending alias。"""
+        return list(self._atoms.keys())
+
+    def all_atoms(self) -> List[PendingAtom]:
+        """返回所有已注册的 PendingAtom。"""
+        return list(self._atoms.values())
+
+    def clear(self) -> None:
+        """清空全部 pending atom。"""
+        self._atoms.clear()
+
+    @property
+    def size(self) -> int:
+        """当前缓存的 pending atom 数量。"""
+        return len(self._atoms)
 
 
 class KoakumaAtomCache:

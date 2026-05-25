@@ -161,8 +161,8 @@ async def test_finalize_agent_run_reads_focus_from_loop_result():
     payload = kernel.librarian_core.submit_interaction.await_args.args[0]
     assert payload.mtp_traces
     assert payload.mtp_traces[0].action == "SEARCH"
-    assert payload.write_focus is None
-    assert payload.update_focus is None
+    assert payload.write_focus == []
+    assert payload.update_focus == []
 
 
 @pytest.mark.asyncio

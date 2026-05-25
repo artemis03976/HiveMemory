@@ -13,8 +13,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
+from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
 from hivememory.alice.runtime.models import ExecutionFrame, GenerationResult, StreamChunk
 from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.core.protocol.models import MTPExecutionResult
 
 
@@ -81,6 +83,11 @@ def _build_executor_with_stream(worker_stream_impl):
 
     worker_agent = MagicMock()
     worker_agent.generate_stream = worker_stream_impl
+    alias_resolver = RuntimeAliasResolver(
+        pending_cache=PendingAtomCache(),
+        atom_cache=KoakumaAtomCache(),
+        bus=kernel.local_bus,
+    )
 
     return KernelLoopExecutor(
         worker_agent=worker_agent,
@@ -89,6 +96,7 @@ def _build_executor_with_stream(worker_stream_impl):
         agent_profile_resolver=profile_resolver,
         mtp_executor=mtp_executor,
         config=kernel.config.agent_runtime,
+        alias_resolver=alias_resolver,
     ), kernel
 
 

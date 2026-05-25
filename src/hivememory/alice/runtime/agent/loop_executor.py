@@ -1,4 +1,4 @@
-"""
+﻿"""
 Kernel Loop Executor - 帧栈驱动的递归生成循环执行器
 
 职责：
@@ -24,10 +24,10 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
 from hivememory.core.protocol.models import ChatResult
 from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
+from hivememory.alice.runtime.pending_renderer import PendingAtomRenderer
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
-from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from hivememory.alice.runtime.agent.mtp_executor import MTPExecutor
     from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
     from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
+    from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class KernelLoopExecutor:
         agent_profile_resolver: "AgentProfileResolver",
         mtp_executor: "MTPExecutor",
         config: AgentRuntimeConfig,
+        alias_resolver: "RuntimeAliasResolver",
     ):
         self.worker_agent = worker_agent
         self._frame_scheduler = frame_scheduler
@@ -65,6 +67,7 @@ class KernelLoopExecutor:
         self._agent_profile_resolver = agent_profile_resolver
         self._mtp_executor = mtp_executor
         self.config = config
+        self._alias_resolver = alias_resolver
 
     def _namespace_for_frame(self, frame: ExecutionFrame) -> Dict[str, Any]:
         """构造事件命名空间元数据。"""
@@ -194,8 +197,9 @@ class KernelLoopExecutor:
         """
         text_segments: List[str] = []
         turn_events: List[TurnEvent] = []
-        write_focus: Optional[Any] = None
-        update_focus: Optional[Any] = None
+        write_foci: List[Any] = []
+        update_foci: List[Any] = []
+        pending_aliases: List[str] = []
         _seq = 0
         iteration = 0
 
@@ -272,9 +276,11 @@ class KernelLoopExecutor:
             )
             if mtp_result is not None:
                 if mtp_result.write_focus is not None:
-                    write_focus = mtp_result.write_focus
+                    write_foci.append(mtp_result.write_focus)
                 if mtp_result.update_focus is not None:
-                    update_focus = mtp_result.update_focus
+                    update_foci.append(mtp_result.update_focus)
+                if mtp_result.pending_alias is not None:
+                    pending_aliases.append(mtp_result.pending_alias)
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value
                 target_hint, args_hint, raw_hint = self._extract_command_info(
@@ -373,10 +379,8 @@ class KernelLoopExecutor:
                     iteration=iteration,
                 )
                 if sub_result is not None:
-                    if sub_result.write_focus is not None:
-                        write_focus = sub_result.write_focus
-                    if sub_result.update_focus is not None:
-                        update_focus = sub_result.update_focus
+                    write_foci.extend(sub_result.write_focus)
+                    update_foci.extend(sub_result.update_focus)
                 if stream_emitter is not None and stream_events:
                     for event in stream_events:
                         await stream_emitter(event)
@@ -450,8 +454,9 @@ class KernelLoopExecutor:
             mtp_iterations=max(0, iteration - 1),
             total_iterations=iteration,
             turn_events=turn_events,
-            write_focus=write_focus,
-            update_focus=update_focus,
+            write_focus=write_foci,
+            update_focus=update_foci,
+            pending_aliases=pending_aliases,
         )
         if stream_emitter is not None:
             await stream_emitter({"event": "done", "data": loop_result.model_dump()})
@@ -652,6 +657,7 @@ class KernelLoopExecutor:
                 None,
             )
 
+    # TODO: 由MemoryCompiler统一接管渲染/编译逻辑
     async def _fetch_context_refs_content(
         self,
         aliases: List[str],
@@ -660,22 +666,27 @@ class KernelLoopExecutor:
         if not aliases:
             return ""
 
-        try:
-            result = await self._local_bus.request(
-                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-                aliases,
-                identity,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to fetch context_refs {aliases}: {e}")
-            return ""
+        parts: List[str] = []
+        context = MTPExecutionContext(identity=identity)
+        for alias in aliases:
+            try:
+                resolved = await self._alias_resolver.resolve(alias, context=context)
+            except Exception as e:
+                logger.warning(f"Failed to resolve context_ref {alias}: {e}")
+                continue
 
-        rendered_context = getattr(result, "rendered_context", "") or ""
-        if not rendered_context:
+            if resolved.kind == "pending" and resolved.pending is not None:
+                parts.append(PendingAtomRenderer.render_read(resolved.pending))
+            elif resolved.kind == "atom" and resolved.atom is not None:
+                parts.append(f"[{alias}]:\n{resolved.atom.payload.content}")
+            else:
+                logger.warning(f"Context ref alias not found: {alias}")
+
+        if not parts:
             logger.warning(f"No rendered context returned for context_refs: {aliases}")
             return ""
 
-        return f"[Shared Context from Parent Agent]\n\n{rendered_context}"
+        return f"[Shared Context from Parent Agent]\n\n" + "\n\n".join(parts)
 
     def _assemble_ipc_return(
         self,
@@ -702,7 +713,10 @@ class KernelLoopExecutor:
             lines.append("")
             lines.append("[Artifacts Generated / Updated]:")
             for alias in harvested_aliases:
-                lines.append(f"- {alias}")
+                if alias.startswith("draft_") or alias.startswith("rev_"):
+                    lines.append(f"- {alias} (pending, readable now)")
+                else:
+                    lines.append(f"- {alias}")
 
         lines.append("</mtp_response>")
         return "\n".join(lines)
@@ -726,16 +740,16 @@ class KernelLoopExecutor:
             return
 
         if verb == MTPVerb.UPDATE:
-            alias = mtp_result.command.target.single_alias
+            alias = mtp_result.pending_alias or mtp_result.command.target.single_alias
             if alias:
                 frame.add_harvested_alias(alias)
                 logger.debug(f"Harvested UPDATE alias: {alias}")
 
         elif verb == MTPVerb.WRITE:
-            alias = None
+            alias = mtp_result.pending_alias
             if alias:
                 frame.add_harvested_alias(alias)
-                logger.debug(f"Harvested WRITE alias: {alias}")
+                logger.debug(f"Harvested WRITE pending alias: {alias}")
 
 
 __all__ = ["KernelLoopExecutor"]

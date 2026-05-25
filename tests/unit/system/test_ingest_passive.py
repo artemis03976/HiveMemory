@@ -216,8 +216,8 @@ class TestMessageGazeResultPropagation:
         payload, _ = buf.flush()
 
         assert payload.mtp_traces == []
-        assert payload.write_focus is None
-        assert payload.update_focus is None
+        assert payload.write_focus == []
+        assert payload.update_focus == []
 
     def test_identity_preserved_in_payload(self):
         identity = _make_identity(user_id="u99", agent_id="bot", session_id="s1")

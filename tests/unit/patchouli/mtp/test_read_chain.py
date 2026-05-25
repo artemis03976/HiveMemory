@@ -51,9 +51,9 @@ def _make_memory(
 
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
-    from .conftest import make_mock_bus
+    from .conftest import make_koakuma_runtime, make_mock_bus
     bus = make_mock_bus()
-    return KoakumaRuntime(bus=bus, config=KoakumaConfig())
+    return make_koakuma_runtime(bus, KoakumaConfig())
 
 
 def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
@@ -88,7 +88,7 @@ class TestReadAliasResolution:
 
     def test_all_valid(self, koakuma):
         mem = _make_memory(content="resolved content", alias="fact_a")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         result = _execute_mtp(koakuma, '⟪ READ | fact_a | ⟫')
 
@@ -109,7 +109,7 @@ class TestReadAliasResolution:
     def test_mixed_valid_invalid(self, koakuma):
         """混合有效/无效别名"""
         mem = _make_memory(content="valid content", alias="good_alias")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss for bad_alias
 
         result = _execute_mtp(koakuma, '⟪ READ | [good_alias, bad_alias] | ⟫')
@@ -123,8 +123,8 @@ class TestReadAliasResolution:
         mem1 = _make_memory(content="content A", alias="a1")
         mem2 = _make_memory(content="content B", alias="a2")
 
-        koakuma._atom_cache.ingest_atom(mem1)
-        koakuma._atom_cache.ingest_atom(mem2)
+        koakuma.atom_cache.ingest_atom(mem1)
+        koakuma.atom_cache.ingest_atom(mem2)
 
         result = _execute_mtp(koakuma, '⟪ READ | [a1, a2] | ⟫')
 
@@ -138,7 +138,7 @@ class TestReadAliasResolution:
 
     def test_citation_failure_keeps_success_response(self, koakuma):
         mem = _make_memory(content="readable", alias="fact_cite_fail")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
         koakuma._bus.unregister("patchouli.public.record_memory_citation")
 
         result = _execute_mtp(koakuma, '⟪ READ | fact_cite_fail | ⟫')
@@ -154,7 +154,7 @@ class TestKoakumaReadE2E:
 
     def test_read_single_alias(self, koakuma):
         mem = _make_memory(content="API documentation", alias="fact_api")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         result = _execute_mtp(koakuma, '⟪ READ | fact_api | ⟫')
 
@@ -164,8 +164,8 @@ class TestKoakumaReadE2E:
     def test_read_list_aliases(self, koakuma):
         mem1 = _make_memory(content="Doc A", alias="a1")
         mem2 = _make_memory(content="Doc B", alias="a2")
-        koakuma._atom_cache.ingest_atom(mem1)
-        koakuma._atom_cache.ingest_atom(mem2)
+        koakuma.atom_cache.ingest_atom(mem1)
+        koakuma.atom_cache.ingest_atom(mem2)
 
         result = _execute_mtp(koakuma, '⟪ READ | [a1, a2] | ⟫')
 
@@ -182,7 +182,7 @@ class TestKoakumaReadE2E:
 
     def test_read_formatted_response_xml(self, koakuma):
         mem = _make_memory(content="test", alias="test_alias")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         result = _execute_mtp(koakuma, '⟪ READ | test_alias | ⟫')
 
@@ -191,7 +191,7 @@ class TestKoakumaReadE2E:
 
     def test_read_via_intercept(self, koakuma):
         mem = _make_memory(content="intercepted content", alias="fact_x")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         agent_text = 'Let me read that. ⟪ READ | fact_x |'
         result = _intercept_and_execute(koakuma, agent_text)
@@ -203,7 +203,7 @@ class TestKoakumaReadE2E:
     def test_read_cache_hit_no_db_query(self, koakuma):
         """缓存命中后不查数据库"""
         mem = _make_memory(content="cached content", alias="fact_cached")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         result = _execute_mtp(koakuma, '⟪ READ | fact_cached | ⟫')
 
@@ -297,7 +297,7 @@ class TestReadL2Fallback:
         mem_l2 = _make_memory(content="from L2", alias="alias_l2")
 
         # 缓存注册
-        koakuma._atom_cache.ingest_atom(mem_cached)
+        koakuma.atom_cache.ingest_atom(mem_cached)
 
         # L2 返回
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem_l2

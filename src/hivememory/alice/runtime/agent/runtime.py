@@ -14,6 +14,7 @@ from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
     from hivememory.alice.runtime.agent.mtp_executor import MTPExecutor
+    from hivememory.alice.runtime.resolver import RuntimeAliasResolver
     from hivememory.prompts.assembler import AgentPromptAssembler
     from hivememory.system.config import HiveMemoryConfig
 
@@ -30,9 +31,10 @@ class AgentRuntime:
         prompt_assembler: "AgentPromptAssembler",
         mtp_executor: "MTPExecutor",
         config: "HiveMemoryConfig",
+        alias_resolver: "RuntimeAliasResolver",
     ) -> None:
         self._agent_profile_resolver = AgentProfileResolver(local_bus=local_bus)
-        
+
         self._frame_scheduler = FrameScheduler(
             prompt_assembler=prompt_assembler,
         )
@@ -45,6 +47,7 @@ class AgentRuntime:
             agent_profile_resolver=self._agent_profile_resolver,
             mtp_executor=self._mtp_executor,
             config=config.agent_runtime,
+            alias_resolver=alias_resolver,
         )
 
     async def get_agent_profile(self, agent_alias: str) -> AgentProfile:

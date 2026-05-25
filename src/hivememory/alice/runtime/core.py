@@ -9,7 +9,9 @@ from hivememory.core.protocol.models import AgentRunContext, ChatResult
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
+from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.alice.runtime.agent.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
@@ -32,23 +34,35 @@ class AliceRuntime:
         self._local_bus = AliceBus()
         self._local_routes_registered = False
 
+        self._pending_cache = PendingAtomCache()
+        self._atom_cache = KoakumaAtomCache()
+        self._alias_resolver = RuntimeAliasResolver(
+            pending_cache=self._pending_cache,
+            atom_cache=self._atom_cache,
+            bus=self._local_bus,
+        )
+
         self._koakuma = KoakumaRuntime(
             bus=self._local_bus,
             config=config.koakuma,
+            alias_resolver=self._alias_resolver,
         )
-        self._prompt_assembler = AgentPromptAssembler(config.koakuma)
         self._mtp_executor = KoakumaMTPExecutor(self._koakuma)
+
+        self._prompt_assembler = AgentPromptAssembler(config.koakuma)
+
         self._agent_runtime = AgentRuntime(
             local_bus=self._local_bus,
             prompt_assembler=self._prompt_assembler,
             mtp_executor=self._mtp_executor,
             config=config,
+            alias_resolver=self._alias_resolver,
         )
 
         logger.info("AliceRuntime 初始化完成")
 
     def register_preretrieval_aliases(self, memories: list[MemoryAtom]) -> None:
-        self._koakuma.atom_cache.ingest_atoms(memories)
+        self._atom_cache.ingest_atoms(memories)
         if memories:
             logger.debug(
                 f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma"

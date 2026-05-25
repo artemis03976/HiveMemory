@@ -3,9 +3,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Literal, Optional
 
 from hivememory.core.models import AgentProfile, Identity
+from pydantic import BaseModel, Field
+
+
+class PendingAtomStatus(str, Enum):
+    """Pending atom 的运行时状态。"""
+
+    PENDING = "pending"
+    REVISION = "revision"
+
+
+class PendingAtom(BaseModel):
+    """
+    运行时待物化记忆句柄。
+
+    不是正式 MemoryAtom，不承诺最终落库。
+    在其生命周期内，Agent 可通过 pending_alias 读取本次写入意图的内容。
+    """
+
+    pending_alias: str
+    status: PendingAtomStatus
+    source_verb: Literal["WRITE", "UPDATE"]
+    content: str
+    title: Optional[str] = None
+    reason: Optional[str] = None
+    instruction: Optional[str] = None
+    target_alias: Optional[str] = None
+    target_uuid: Optional[str] = None
+    identity: Identity = Field(default_factory=Identity)
+    frame_id: str = ""
+    depth: int = 0
+    created_at: datetime = Field(default_factory=datetime.now)
 
 
 @dataclass
@@ -90,5 +123,7 @@ __all__ = [
     "ExecutionFrame",
     "GenerationResult",
     "MTPExecutionContext",
+    "PendingAtom",
+    "PendingAtomStatus",
     "StreamChunk",
 ]

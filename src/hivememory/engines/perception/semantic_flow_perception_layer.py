@@ -213,23 +213,27 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         )
 
         # 计算 priority
-        is_urgent = (payload.write_focus is not None or payload.update_focus is not None)
+        write_focuses = payload.write_focus
+        update_focuses = payload.update_focus
+        is_urgent = bool(write_focuses or update_focuses)
         # 3. 信号检查
         if is_urgent:
-            # URGENT: 添加 block → 立即 flush
+            # URGENT: 添加 block -> 立即 flush
             block.priority = "URGENT"
             self._buffer_manager.add_block(topic_id, block)
-            reason = (
-                FlushReason.MTP_WRITE if payload.write_focus is not None
-                else FlushReason.MTP_UPDATE
-            )
 
-            # 调用统一调度器
-            await self._trigger_manager.resolve_topic(
-                topic_id=topic_id,
-                trigger_reason=reason,
-                mtp_focus=payload.write_focus or payload.update_focus,
-            )
+            for focus in write_focuses:
+                await self._trigger_manager.resolve_topic(
+                    topic_id=topic_id,
+                    trigger_reason=FlushReason.MTP_WRITE,
+                    mtp_focus=focus,
+                )
+            for focus in update_focuses:
+                await self._trigger_manager.resolve_topic(
+                    topic_id=topic_id,
+                    trigger_reason=FlushReason.MTP_UPDATE,
+                    mtp_focus=focus,
+                )
         else:
             # NORMAL: 话题路由已由 TheEye 完成，直接添加 block
             self._buffer_manager.add_block(topic_id, block)

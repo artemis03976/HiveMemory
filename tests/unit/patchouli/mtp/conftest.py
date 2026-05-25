@@ -15,6 +15,8 @@ import pytest
 
 from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
+from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 
 
 class MockAsyncBus(AsyncSystemBus):
@@ -108,4 +110,23 @@ def make_mock_bus(
         mock_storage=mock_storage,
         mock_retrieval=mock_retrieval,
         mock_generation=mock_generation,
+    )
+
+
+def make_runtime_alias_resolver(bus: MockAsyncBus) -> RuntimeAliasResolver:
+    return RuntimeAliasResolver(
+        pending_cache=PendingAtomCache(),
+        atom_cache=KoakumaAtomCache(),
+        bus=bus,
+    )
+
+
+def make_koakuma_runtime(bus: MockAsyncBus, config=None):
+    from hivememory.alice.runtime.koakuma import KoakumaRuntime
+    from hivememory.system.config import KoakumaConfig
+
+    return KoakumaRuntime(
+        bus=bus,
+        config=config or KoakumaConfig(),
+        alias_resolver=make_runtime_alias_resolver(bus),
     )

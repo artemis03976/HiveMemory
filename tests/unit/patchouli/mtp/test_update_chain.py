@@ -617,9 +617,9 @@ class TestKoakumaUpdateE2E:
         mock_librarian = MagicMock()
         mock_librarian.handle_update_signal.return_value = [existing_memory]
 
-        from .conftest import make_mock_bus
+        from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
-        koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
+        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
 
         # 注册 alias 到缓存
@@ -667,9 +667,9 @@ class TestKoakumaUpdateValidation:
 
     @pytest.fixture
     def validation_koakuma(self) -> KoakumaRuntime:
-        from .conftest import make_mock_bus
+        from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
-        koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
+        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
@@ -703,6 +703,22 @@ class TestKoakumaUpdateValidation:
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
         assert result.update_focus is None
 
+    def test_pending_alias_rejected(self, validation_koakuma):
+        pending = validation_koakuma.pending_cache.register_write(
+            content="pending content",
+            title="Pending Note",
+            reason=None,
+            identity=validation_koakuma.context.identity,
+        )
+
+        agent_text = f'⟪ UPDATE | {pending.pending_alias} | instruction="test"'
+        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+
+        assert result is not None
+        assert not result.success
+        assert "Pending Alias Not Updatable" in result.response_content
+        assert result.update_focus is None
+
     def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
         validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
             "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
@@ -717,9 +733,9 @@ class TestKoakumaUpdateValidation:
 
     def test_update_deferred_capture_always_ack(self, existing_memory):
         """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
-        from .conftest import make_mock_bus
+        from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
-        koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
+        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         koakuma.atom_cache.ingest_atom(existing_memory)
 

@@ -71,9 +71,9 @@ def _make_fact_memory(mem_id=None, alias: str = "fact_not_tool") -> MemoryAtom:
 
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
-    from .conftest import make_mock_bus
+    from .conftest import make_koakuma_runtime, make_mock_bus
     bus = make_mock_bus()
-    return KoakumaRuntime(bus=bus, config=KoakumaConfig())
+    return make_koakuma_runtime(bus, KoakumaConfig())
 
 
 def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
@@ -190,7 +190,7 @@ class TestRunUserToolPath:
     def test_l1_alias_hit_executes(self, koakuma):
         """L1 别名命中 → 加载 → 执行"""
         mem = _make_code_memory(code="print('from l1')", alias="tool_l1")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_l1 | ⟫')
 
@@ -226,7 +226,7 @@ class TestRunUserToolPath:
     def test_non_code_snippet_rejected(self, koakuma):
         """类型不是 CODE_SNIPPET 时拒绝执行"""
         fact_mem = _make_fact_memory()
-        koakuma._atom_cache.ingest_atom(fact_mem)
+        koakuma.atom_cache.ingest_atom(fact_mem)
 
         result = _execute_mtp(koakuma, '⟪ RUN | fact_not_tool | ⟫')
 
@@ -282,7 +282,7 @@ class TestRunUserToolPath:
     def test_cache_hit_after_ingest(self, koakuma):
         """缓存命中后直接执行，不查 Qdrant"""
         mem = _make_code_memory(code="print('cached')", alias="tool_cached_ingest")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_cached_ingest | ⟫')
 
@@ -317,11 +317,10 @@ class TestRunUserToolPath:
 
     def test_citation_failure_keeps_user_tool_success_response(self, koakuma):
         mem = _make_code_memory(code="print('still ok')", alias="tool_cite_fail")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
         koakuma._bus.unregister("patchouli.public.record_memory_citation")
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_cite_fail | ⟫')
 
         assert result.success
         assert "still ok" in result.response_content
-
