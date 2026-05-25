@@ -656,7 +656,8 @@ class KoakumaRuntime:
             title=title or None,
             reason=reason or None,
             identity=context.identity,
-            frame_id="",
+            run_id=context.run_id,
+            frame_id=context.frame_id,
             depth=context.depth,
         )
 
@@ -747,7 +748,8 @@ class KoakumaRuntime:
             instruction=instruction,
             content=content,
             identity=context.identity,
-            frame_id="",
+            run_id=context.run_id,
+            frame_id=context.frame_id,
             depth=context.depth,
         )
 

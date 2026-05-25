@@ -736,7 +736,11 @@ class TestKoakumaUpdateValidation:
         from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        context = MTPExecutionContext(
+            identity=Identity(user_id="test_user"),
+            run_id="run_update_test",
+            frame_id="pid_main_update",
+        )
         koakuma.atom_cache.ingest_atom(existing_memory)
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
@@ -746,6 +750,10 @@ class TestKoakumaUpdateValidation:
         assert result.success
         assert result.update_focus is not None
         assert result.update_focus.instruction == "test"
+        pending = koakuma.pending_cache.get(result.pending_alias)
+        assert pending is not None
+        assert pending.run_id == "run_update_test"
+        assert pending.frame_id == "pid_main_update"
 
 
 # ========== Test 11: FlushReason.MTP_UPDATE ==========

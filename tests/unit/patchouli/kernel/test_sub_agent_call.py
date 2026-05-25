@@ -58,6 +58,7 @@ class TestExecutionFrame:
         assert not frame.is_sub_frame()
         assert not frame.is_transient()
         assert frame.harvested_aliases == []
+        assert frame.run_id == ""
 
     def test_create_sub_frame(self):
         """depth=1 的子帧（瞬态沙盒）"""
@@ -74,6 +75,7 @@ class TestExecutionFrame:
         assert frame.is_sub_frame()
         assert frame.is_transient()
         assert frame.parent_frame_id == "pid_main_1"
+        assert frame.run_id == ""
 
     def test_harvest_alias(self):
         """别名收割"""
@@ -245,6 +247,7 @@ class TestFrameScheduler:
         assert frame.depth == 0
         assert frame.topic_id == "t1"
         assert frame.is_main_frame()
+        assert frame.run_id.startswith("run_")
 
     def test_suspend_resume(self):
         """帧挂起/恢复"""
@@ -301,6 +304,7 @@ class TestFrameScheduler:
         assert sub_frame.depth == 1
         assert sub_frame.topic_id is None
         assert sub_frame.parent_frame_id == main_frame.process_id
+        assert sub_frame.run_id == main_frame.run_id
         assert sub_frame.is_sub_frame()
         assert sub_frame.is_transient()
         assert len(sub_frame.working_history) == 2  # system + user

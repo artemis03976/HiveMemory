@@ -49,6 +49,7 @@ class PendingAtomCache:
         title: Optional[str],
         reason: Optional[str],
         identity: Identity,
+        run_id: str = "",
         frame_id: str = "",
         depth: int = 0,
     ) -> PendingAtom:
@@ -68,6 +69,7 @@ class PendingAtomCache:
             title=title,
             reason=reason,
             identity=identity,
+            run_id=run_id,
             frame_id=frame_id,
             depth=depth,
         )
@@ -82,6 +84,7 @@ class PendingAtomCache:
         instruction: str,
         content: Optional[str],
         identity: Identity,
+        run_id: str = "",
         frame_id: str = "",
         depth: int = 0,
     ) -> PendingAtom:
@@ -98,6 +101,7 @@ class PendingAtomCache:
             target_alias=target_alias,
             target_uuid=target_uuid,
             identity=identity,
+            run_id=run_id,
             frame_id=frame_id,
             depth=depth,
         )

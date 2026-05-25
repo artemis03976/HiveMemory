@@ -493,7 +493,11 @@ class TestKoakumaWriteE2E:
         from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        context = MTPExecutionContext(
+            identity=Identity(user_id="test_user"),
+            run_id="run_write_test",
+            frame_id="pid_main_write",
+        )
 
         agent_text = '⟪ WRITE | * | content="test"'
         result = _intercept_and_execute(koakuma, agent_text, context=context)
@@ -502,6 +506,10 @@ class TestKoakumaWriteE2E:
         assert result.success
         assert result.write_focus is not None
         assert result.write_focus.content == "test"
+        pending = koakuma.pending_cache.get(result.pending_alias)
+        assert pending is not None
+        assert pending.run_id == "run_write_test"
+        assert pending.frame_id == "pid_main_write"
 
 
 # ========== Test 8: FlushReason.MTP_WRITE ==========

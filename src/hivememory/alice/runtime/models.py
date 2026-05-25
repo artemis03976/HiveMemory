@@ -36,6 +36,7 @@ class PendingAtom(BaseModel):
     target_alias: Optional[str] = None
     target_uuid: Optional[str] = None
     identity: Identity = Field(default_factory=Identity)
+    run_id: str = ""
     frame_id: str = ""
     depth: int = 0
     created_at: datetime = Field(default_factory=datetime.now)
@@ -58,6 +59,7 @@ class ExecutionFrame:
     topic_id: Optional[str]
     identity: Identity
 
+    run_id: str = ""
     parent_frame_id: Optional[str] = None
     harvested_aliases: List[str] = field(default_factory=list)
 
@@ -94,6 +96,8 @@ class MTPExecutionContext:
 
     identity: Identity = field(default_factory=Identity)
     agent_profile: Any = None
+    run_id: str = ""
+    frame_id: str = ""
     depth: int = 0
 
 

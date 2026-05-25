@@ -7,6 +7,7 @@ Phase 2 多智能体子代理调用的核心调度组件。
 
 import logging
 from typing import TYPE_CHECKING, List, Optional
+from uuid import uuid4
 
 from hivememory.core.models import AgentProfile, Identity
 from hivememory.alice.runtime.models import ExecutionFrame
@@ -55,6 +56,7 @@ class FrameScheduler:
         主帧从感知层 TopicBuffer 装载，执行后卸载回 MMU。
         """
         self._frame_counter += 1
+        run_id = f"run_{uuid4().hex}"
         frame = ExecutionFrame(
             process_id=f"pid_main_{self._frame_counter}",
             agent_profile=agent_profile,
@@ -62,6 +64,7 @@ class FrameScheduler:
             depth=0,
             topic_id=topic_id,
             identity=identity,
+            run_id=run_id,
         )
         logger.debug(f"Created main frame: {frame}")
         return frame
@@ -100,6 +103,7 @@ class FrameScheduler:
             working_history=working_history,
             depth=1,
             topic_id=None,
+            run_id=parent_frame.run_id,
             parent_frame_id=parent_frame.process_id,
             identity=parent_frame.identity,
         )

@@ -268,6 +268,8 @@ class KernelLoopExecutor:
             mtp_context = MTPExecutionContext(
                 identity=frame.identity,
                 agent_profile=frame.agent_profile,
+                run_id=frame.run_id,
+                frame_id=frame.process_id,
                 depth=frame.depth,
             )
             mtp_result = await self._mtp_executor.intercept_and_execute(

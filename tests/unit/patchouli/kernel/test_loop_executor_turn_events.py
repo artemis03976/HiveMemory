@@ -93,6 +93,7 @@ def _make_frame(depth: int = 0) -> ExecutionFrame:
         depth=depth,
         topic_id="topic_1",
         identity=Identity(user_id="u1", agent_id="agent_a"),
+        run_id="run_test_1",
     )
 
 
@@ -213,6 +214,8 @@ async def test_mtp_execution_receives_frame_context():
     assert isinstance(context, MTPExecutionContext)
     assert context.identity == frame.identity
     assert context.agent_profile is frame.agent_profile
+    assert context.run_id == frame.run_id
+    assert context.frame_id == frame.process_id
     assert context.depth == frame.depth
 
 
