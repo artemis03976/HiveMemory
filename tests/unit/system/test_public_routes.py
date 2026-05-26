@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
@@ -137,6 +139,17 @@ class TestAlicePublicRoutes:
         get_agent_profile.assert_awaited_once_with("coder_doll")
         record_citation.assert_awaited_once_with(memory_id="mid", source="mtp.read")
 
+    @pytest.mark.asyncio
+    async def test_alice_unmount_unsubscribes_settlement_event(self):
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        await system.start()
+
+        assert GlobalEvents.PENDING_ATOM_SETTLED in self.global_bus.list_events()
+
+        await system.stop()
+
+        assert GlobalEvents.PENDING_ATOM_SETTLED not in self.global_bus.list_events()
+
 
 # ========== Patchouli (lightweight — full integration tested in test_bootstrap) ==========
 
@@ -195,3 +208,46 @@ class TestPatchouliPublicRoutes:
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN not in routes
         assert PatchouliRoutes.RECORD_MEMORY_CITATION not in routes
+
+    @pytest.mark.asyncio
+    async def test_patchouli_local_settlement_event_bridges_to_global_bus(self):
+        system = MagicMock()
+        system._global_bus = self.global_bus
+        system.runtime = MagicMock()
+        system.runtime.local_bus = GlobalSystemBus()
+        system._forward_pending_atom_settled = (
+            PatchouliSystem._forward_pending_atom_settled.__get__(
+                system, PatchouliSystem
+            )
+        )
+        system._register_local_event_bridges = (
+            PatchouliSystem._register_local_event_bridges.__get__(
+                system, PatchouliSystem
+            )
+        )
+        system._unregister_local_event_bridges = (
+            PatchouliSystem._unregister_local_event_bridges.__get__(
+                system, PatchouliSystem
+            )
+        )
+
+        subscriber = AsyncMock()
+        self.global_bus.subscribe(GlobalEvents.PENDING_ATOM_SETTLED, subscriber)
+        settlement = object()
+
+        system._register_local_event_bridges()
+        await system.runtime.local_bus.publish(
+            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
+
+        subscriber.assert_awaited_once_with(settlement=settlement)
+
+        subscriber.reset_mock()
+        system._unregister_local_event_bridges()
+        await system.runtime.local_bus.publish(
+            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
+
+        subscriber.assert_not_awaited()

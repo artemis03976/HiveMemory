@@ -26,6 +26,7 @@ from hivememory.engines.perception.models import FlushReason, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, GenerationContext
 from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
 from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
@@ -195,12 +196,12 @@ class LibrarianCore:
             elif reason == FlushReason.MTP_UPDATE and update_focus is not None:
                 logger.info(
                     f"LibrarianCore 处理 MTP_UPDATE flush: "
-                    f"alias='{update_focus.target_alias}', "
+                    f"alias='{update_focus.base_alias}', "
                     f"{len(gen_context.turns)} 轮对话上下文"
                 )
                 # 加载目标记忆
                 from uuid import UUID as _UUID
-                existing_result = self.storage.get_memory(_UUID(update_focus.target_uuid))
+                existing_result = self.storage.get_memory(_UUID(update_focus.base_uuid))
                 existing = (
                     await existing_result
                     if inspect.isawaitable(existing_result)
@@ -208,13 +209,13 @@ class LibrarianCore:
                 )
                 if existing is None:
                     logger.error(
-                        f"UPDATE 目标记忆不存在: {update_focus.target_uuid}"
+                        f"UPDATE 目标记忆不存在: {update_focus.base_uuid}"
                     )
                     return
-                update_focus.existing_memory = existing
                 request = GenerationRequest(
                     context=gen_context,
                     update_focus=update_focus,
+                    existing_memory=existing,
                 )
             else:
                 # Mode A: 普通记忆提取
@@ -226,7 +227,7 @@ class LibrarianCore:
             # 直接调用生成引擎
             if self.generation_engine:
                 process_result = self.generation_engine.process(request)
-                memories = (
+                results = (
                     await process_result
                     if inspect.isawaitable(process_result)
                     else process_result
@@ -235,10 +236,28 @@ class LibrarianCore:
                 logger.warning("generation_engine 未注入，跳过记忆生成")
                 return
 
+            memories = [r.atom for r in results if r.atom is not None]
+
             if memories:
                 logger.info(f"成功提取 {len(memories)} 条记忆")
             else:
                 logger.info("未提取到记忆（对话可能无价值或被过滤）")
+
+            # Phase 2: 发布 settlement 事件到 Patchouli local bus。
+            # 跨子系统转发由 PatchouliSystem 边界层负责。
+            if self._bus is not None:
+                for r in results:
+                    if r.settlement is not None:
+                        try:
+                            await self._bus.publish(
+                                PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+                                settlement=r.settlement,
+                            )
+                        except Exception as pub_err:
+                            logger.warning(
+                                f"Settlement publish failed for "
+                                f"{r.settlement.pending_alias}: {pub_err}"
+                            )
 
         except Exception as e:
             logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)

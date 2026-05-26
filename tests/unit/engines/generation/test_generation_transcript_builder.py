@@ -277,8 +277,8 @@ class TestGenerationRequestIdentity:
             context=ctx,
             update_focus=UpdateFocus(
                 instruction="update",
-                target_uuid="uuid-1",
-                target_alias="alias",
+                base_uuid="uuid-1",
+                base_alias="alias",
                 identity=_identity("update_agent"),
             ),
         )
@@ -293,8 +293,8 @@ class TestGenerationRequestIdentity:
             context=ctx,
             update_focus=UpdateFocus(
                 instruction="update",
-                target_uuid="uuid-1",
-                target_alias="alias",
+                base_uuid="uuid-1",
+                base_alias="alias",
                 identity=_identity("update_agent"),
             ),
             write_focus=WriteFocus(

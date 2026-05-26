@@ -200,6 +200,68 @@ PendingAtomRegistry
   -> Durable PendingAtomLedger
 ```
 
+## 4.4 Intent Identity 与 Focus 绑定
+
+Phase 2 中，`intent_id` 用于标识一次系统内部的记忆生成意图，`pending_alias` 用于提供给 Agent 的运行时可寻址句柄。二者应在同一时刻生成并绑定，但语义上保持分离。
+
+- `pending_alias` 面向 Agent，可出现在 MTP 回填、`READ`、`context_refs` 和子 Agent artifact transfer 中
+- `intent_id` 面向系统内部，用于贯穿 Koakuma、ArchivePayload、LibrarianCore、GenerationEngine、Deduplicator 和 settlement 回填链路
+- `intent_id` 不从 `pending_alias` 派生，避免 alias canonicalization 后形成不必要耦合
+- `intent_id` 不属于 `RuntimeScope`；`RuntimeScope` 描述执行坐标，`intent_id` 描述记忆生成意图
+
+生成责任应收束在 Alice runtime 的 pending 注册点：
+
+```text
+Koakuma handles WRITE/UPDATE
+  -> PendingAtomCache.register_write/register_update()
+  -> system generates pending_alias + intent_id
+  -> PendingAtom stores pending_alias + intent_id
+  -> Koakuma builds WriteFocus/UpdateFocus with the same pending_alias + intent_id
+  -> Focus travels into Patchouli generation
+  -> Generation result / settlement returns intent_id
+  -> PendingAtomCache resolves intent_id back to pending_alias
+```
+
+Patchouli 侧只消费 `intent_id`，不负责创建或覆盖它。即使未来 MTP 参数中出现同名字段，也应忽略或拒绝，避免 Agent 越权伪造系统内部意图标识。
+
+`WriteFocus` / `UpdateFocus` 应携带该绑定关系：
+
+```python
+class WriteFocus:
+    content: str
+    reason: str | None
+    title: str | None
+    identity: Identity
+    pending_alias: str | None
+    intent_id: str | None
+
+
+class UpdateFocus:
+    instruction: str
+    content: str | None
+    target_uuid: str
+    target_alias: str
+    existing_memory: MemoryAtom | None
+    identity: Identity
+    pending_alias: str | None
+    intent_id: str | None
+```
+
+建议格式：
+
+```text
+intent_id = intent_{short_uuid_or_ulid}
+```
+
+该绑定使 Phase 2 的反向索引可以稳定表达为：
+
+```text
+pending_alias -> intent_id
+intent_id -> pending_alias
+intent_id -> settlement
+canonical_uuid -> [pending_alias...]
+```
+
 ---
 
 ## 5. Alias 策略
@@ -382,8 +444,8 @@ Agent:
 
 Koakuma:
   1. 校验 WRITE 权限与参数
-  2. 生成 pending_alias
-  3. 创建 PendingAtom(status=PENDING)
+  2. 生成 pending_alias / intent_id
+  3. 创建 PendingAtom(status=PENDING)，绑定 pending_alias / intent_id
   4. 写入 PendingAtomCache
   5. 构造 WriteFocus，附带 pending_alias / intent_id
   6. 返回 ACK
@@ -394,13 +456,6 @@ Koakuma:
 ```text
 Memory accepted as pending atom 'draft_login_api_7f3a'.
 It is readable during this run. Final memory generation will complete asynchronously.
-```
-
-`WriteFocus` 建议增加：
-
-```python
-pending_alias: str | None
-intent_id: str | None
 ```
 
 ---
@@ -438,7 +493,7 @@ MVP 建议：
 
 ## 10. RuntimeAliasResolver 与 READ 解析优先级
 
-后续应引入统一的 `RuntimeAliasResolver` 管理运行时 alias 解析。它负责协调三级缓存命中路径，而不是让 `READ`、`RUN`、`UPDATE` 各自维护分散解析逻辑。
+应引入统一的 `RuntimeAliasResolver` 管理运行时 alias 解析。它负责协调三级缓存命中路径，而不是让 `READ`、`RUN`、`UPDATE` 各自维护分散解析逻辑。
 
 目标解析顺序：
 
@@ -615,6 +670,35 @@ class PendingAtomSettlement:
     reason: str | None
 ```
 
+`PendingAtomSettlement` 表示 pending intent 的结算视图，不应替代 generation 的完整返回结果。被动对话整理链路没有 pending alias，也不需要 settlement；只有 MTP `WRITE` / `UPDATE` 触发的主动写入链路，在 `WriteFocus` / `UpdateFocus` 携带 `pending_alias` 与 `intent_id` 时，才会生成 settlement。
+
+因此，GenerationEngine 建议重置返回模型为 `MemoryGenerationResult`，并返回 `list[MemoryGenerationResult]`：
+
+```python
+class MemoryGenerationResult:
+    intent_id: str | None
+    pending_alias: str | None
+
+    atom: MemoryAtom | None
+    canonical_alias: str | None
+    canonical_uuid: str | None
+
+    duplicate_decision: Literal["CREATE", "UPDATE", "TOUCH", "DISCARD"] | None
+    operation: Literal["created", "merged", "touched", "discarded", "updated", "failed"]
+
+    settlement: PendingAtomSettlement | None
+    message: str | None
+    error: str | None
+```
+
+语义约束：
+
+- `GenerationEngine` 是最接近 Deduplicator 决策与持久化结果的组件，应负责产出结构化 `MemoryGenerationResult`
+- `KoakumaRuntime` 不应在事后根据返回 atom 重新推断 settlement
+- `settlement` 是 pending intent 存在时附加产生的结算视图；被动生成结果中 `settlement=None`
+- 现有 `list[MemoryAtom]` 返回值意义有限，可在 Phase 2 中替换为 `list[MemoryGenerationResult]`
+- 为避免与 Alice runtime 中表示 LLM 文本输出的 `GenerationResult` 混淆，生成引擎侧建议使用 `MemoryGenerationResult` 命名
+
 ### 14.1 Deduplicator 决策映射
 
 `PendingAtomCache` 的 settlement 状态与 Deduplicator 决策建议按以下方式映射：
@@ -687,10 +771,50 @@ Pending atom 'draft_login_api_7f3a' was not materialized.
 Reason: content was too low-value or invalid for long-term memory.
 ```
 
-### 14.4 仍需明确的问题
+### 14.4 Settlement 回填方式
 
-- `GenerationEngine.process()` 如何返回 pending settlement
-- `LibrarianCore._on_generate_memory()` 在完成后由谁调用 registry settle
+Settlement 回填应通过系统总线完成，避免 Patchouli 与 Alice runtime 形成直接对象依赖。
+
+现有 `AsyncSystemBus` 已支持 `subscribe()` / `publish()`，因此 Phase 2 可以使用全局事件广播：
+
+```text
+GenerationEngine
+  -> returns list[MemoryGenerationResult]
+
+LibrarianCore / PatchouliRuntime
+  -> extracts result.settlement
+  -> global_bus.publish(PENDING_ATOM_SETTLED, settlement)
+
+AliceRuntime
+  -> subscribes PENDING_ATOM_SETTLED
+  -> PendingAtomCache.apply_settlement(settlement)
+  -> optionally updates KoakumaAtomCache
+
+RuntimeAliasResolver
+  -> reads PendingAtomCache redirect / settlement state during resolve()
+```
+
+建议事件名：
+
+```python
+class GlobalEvents:
+    PENDING_ATOM_SETTLED = "alice.events.pending_atom.settled"
+```
+
+职责划分：
+
+- `GenerationEngine` 不直接持有 bus，只返回 `MemoryGenerationResult`
+- `LibrarianCore` 或 Patchouli runtime 负责把 settlement publish 到 `GlobalSystemBus`
+- `AliceRuntime` 作为 runtime 聚合根负责订阅、退订与异常隔离
+- `RuntimeAliasResolver` 不直接订阅总线；它只在解析 alias 时读取 `PendingAtomCache` 中的 settlement / redirect 状态
+- `PendingAtomCache` 负责根据 settlement 更新状态、反向索引与 canonical redirect
+
+该事件是 runtime 回填事件，不是正式记忆落库的成功判定。正式状态仍以 storage 为准。当前 `publish()` 是内存广播，没有持久化与重放能力；这与 Phase 2 仍以 runtime cache 为主的目标一致。未来引入 `PendingAtomLedger` 或统一事件流后，可将同一 settlement event 接入持久化管道。
+
+如果后续要求 Patchouli 必须确认 Alice 已处理 settlement，可以演进为 RPC route，例如 `alice.public.pending_atom.settle`。但 MVP 更推荐 pub/sub：Alice 不在线或订阅失败时，只影响运行时 redirect，不阻塞正式记忆生成与落库。
+
+### 14.5 仍需明确的问题
+
 - 如果 extraction 阶段从一个 pending intent 中提取出多条 draft，是否允许一个 pending alias 对应多个正式 atom
 
 MVP 可以先做 best-effort settle：
@@ -826,14 +950,16 @@ WRITE accepted -> draft_xxx pending -> mem_xxx committed
 
 范围：
 
-1. `GenerationRequest` 携带 `intent_id` / `pending_alias`
-2. `GenerationEngine` 返回 `PendingAtomSettlement`
+1. `WriteFocus/UpdateFocus` 携带 `intent_id` / `pending_alias`
+2. `GenerationEngine` 返回 `list[MemoryGenerationResult]`
 3. settlement 保留 `duplicate_decision`
-4. `PendingAtomCache` 根据 settlement 更新状态
-5. pending alias 物化后进入 redirect grace period
-6. `READ` / `RUN` / `UPDATE` / `context_refs` 对 redirect alias 做 canonicalization
-7. `SEARCH` 只暴露 canonical alias，不暴露已 redirect 的 pending alias
-8. `READ redirected_alias` 渲染 canonical atom，并提示后续使用 canonical alias
+4. `LibrarianCore` / Patchouli runtime 通过 `GlobalSystemBus.publish()` 回填 settlement
+5. `AliceRuntime` 订阅 settlement event，并调用 `PendingAtomCache.apply_settlement()`
+6. `PendingAtomCache` 根据 settlement 更新状态
+7. pending alias 物化后进入 redirect grace period
+8. `READ` / `RUN` / `UPDATE` / `context_refs` 对 redirect alias 做 canonicalization
+9. `SEARCH` 只暴露 canonical alias，不暴露已 redirect 的 pending alias
+10. `READ redirected_alias` 渲染 canonical atom，并提示后续使用 canonical alias
 
 验收标准：
 

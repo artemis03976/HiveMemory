@@ -8,6 +8,11 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
 from hivememory.core.models import AgentProfile, Identity
+from hivememory.engines.generation.models import (
+    PendingAtomSettlement,
+    UpdateFocus,
+    WriteFocus,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -16,6 +21,13 @@ class PendingAtomStatus(str, Enum):
 
     PENDING = "pending"
     REVISION = "revision"
+    # Phase 2: settlement states
+    COMMITTED = "committed"
+    MERGED = "merged"
+    UPDATED = "updated"
+    TOUCHED = "touched"
+    DISCARDED = "discarded"
+    FAILED = "failed"
 
 
 class RuntimeScope(BaseModel):
@@ -52,17 +64,17 @@ class PendingAtom(BaseModel):
     """
 
     pending_alias: str
+    intent_id: Optional[str] = None
     status: PendingAtomStatus
     source_verb: Literal["WRITE", "UPDATE"]
-    content: str
-    title: Optional[str] = None
-    reason: Optional[str] = None
-    instruction: Optional[str] = None
-    target_alias: Optional[str] = None
-    target_uuid: Optional[str] = None
+
+    focus: WriteFocus | UpdateFocus
     identity: Identity = Field(default_factory=Identity)
     runtime_scope: RuntimeScope = Field(default_factory=RuntimeScope)
     created_at: datetime = Field(default_factory=datetime.now)
+
+    # Phase 2: settlement tracking
+    settlement: Optional[PendingAtomSettlement] = None
 
 
 @dataclass

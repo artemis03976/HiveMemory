@@ -426,6 +426,7 @@ class PatchouliRuntime:
 
         self._services["librarian"] = LibrarianCore(
             storage=self.storage,
+            bus=self._local_bus,
             lifecycle_engine=self._engines["lifecycle"],
             perception_layer=self._engines["perception"],
             generation_engine=self._engines["generation"],

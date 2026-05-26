@@ -115,29 +115,28 @@ class TestUpdateFocusModel:
         focus = UpdateFocus(
             instruction="把端口改成 9090",
             content="port = 9090",
-            target_uuid="uuid-123",
-            target_alias="fact_api_port",
+            base_uuid="uuid-123",
+            base_alias="fact_api_port",
         )
         assert focus.instruction == "把端口改成 9090"
         assert focus.content == "port = 9090"
-        assert focus.target_uuid == "uuid-123"
-        assert focus.target_alias == "fact_api_port"
+        assert focus.base_uuid == "uuid-123"
+        assert focus.base_alias == "fact_api_port"
 
     def test_defaults(self):
         focus = UpdateFocus(
             instruction="修改端口",
-            target_uuid="uuid-123",
-            target_alias="fact_api_port",
+            base_uuid="uuid-123",
+            base_alias="fact_api_port",
         )
         assert focus.content is None
-        assert focus.existing_memory is None
         assert focus.identity is not None
 
     def test_with_identity(self, identity):
         focus = UpdateFocus(
             instruction="test",
-            target_uuid="uuid-123",
-            target_alias="alias",
+            base_uuid="uuid-123",
+            base_alias="alias",
             identity=identity,
         )
         assert focus.identity.user_id == "test_user"
@@ -145,20 +144,20 @@ class TestUpdateFocusModel:
 
     def test_instruction_required(self):
         with pytest.raises(Exception):
-            UpdateFocus(target_uuid="uuid-123", target_alias="alias")
+            UpdateFocus(base_uuid="uuid-123", base_alias="alias")
 
-    def test_target_uuid_required(self):
+    def test_base_uuid_required(self):
         with pytest.raises(Exception):
-            UpdateFocus(instruction="test", target_alias="alias")
+            UpdateFocus(instruction="test", base_alias="alias")
 
-    def test_existing_memory_injection(self, existing_memory):
+    def test_generation_request_existing_memory(self, existing_memory):
         focus = UpdateFocus(
             instruction="test",
-            target_uuid="uuid-123",
-            target_alias="alias",
+            base_uuid="uuid-123",
+            base_alias="alias",
         )
-        focus.existing_memory = existing_memory
-        assert focus.existing_memory.index.title == "API 端口配置"
+        req = GenerationRequest(update_focus=focus, existing_memory=existing_memory)
+        assert req.existing_memory.index.title == "API 端口配置"
 
 
 # ========== Test 2: MergeResult Model ==========
@@ -191,7 +190,7 @@ class TestGenerationRequestUpdate:
 
     def test_is_update_with_update_focus(self):
         uf = UpdateFocus(
-            instruction="test", target_uuid="uuid-123", target_alias="alias",
+            instruction="test", base_uuid="uuid-123", base_alias="alias",
         )
         req = GenerationRequest(update_focus=uf)
         assert req.is_update
@@ -210,7 +209,7 @@ class TestGenerationRequestUpdate:
 
     def test_update_with_context(self, sample_context):
         uf = UpdateFocus(
-            instruction="test", target_uuid="uuid-123", target_alias="alias",
+            instruction="test", base_uuid="uuid-123", base_alias="alias",
         )
         req = GenerationRequest(context=sample_context, update_focus=uf)
         assert req.is_update
@@ -237,13 +236,15 @@ class TestModeCMergePrompt:
 
         uf = UpdateFocus(
             instruction="把端口改成 9090",
-            target_uuid=str(existing_memory.id),
-            target_alias="fact_api_port",
+            base_uuid=str(existing_memory.id),
+            base_alias="fact_api_port",
             identity=identity,
         )
-        uf.existing_memory = existing_memory
-
-        request = GenerationRequest(context=sample_context, update_focus=uf)
+        request = GenerationRequest(
+            context=sample_context,
+            update_focus=uf,
+            existing_memory=existing_memory,
+        )
         result = engine.process(request=request)
 
         # merge() 被调用，extract() 不被调用
@@ -269,16 +270,15 @@ class TestModeCMergePrompt:
         )
 
         uf = UpdateFocus(
-            instruction="更新", target_uuid=str(existing_memory.id),
-            target_alias="fact_api_port", identity=identity,
+            instruction="更新", base_uuid=str(existing_memory.id),
+            base_alias="fact_api_port", identity=identity,
         )
-        uf.existing_memory = existing_memory
-
-        request = GenerationRequest(update_focus=uf)
+        request = GenerationRequest(update_focus=uf, existing_memory=existing_memory)
         result = engine.process(request=request)
 
         assert len(result) == 1
-        assert result[0].payload.content == "新内容"
+        assert result[0].atom.payload.content == "新内容"
+        assert result[0].operation == "updated"
         mock_storage.upsert_memory.assert_called_once()
 
 
@@ -299,21 +299,19 @@ class TestModeCFallback:
         uf = UpdateFocus(
             instruction="追加新内容",
             content="新增的段落",
-            target_uuid=str(existing_memory.id),
-            target_alias="fact_api_port",
+            base_uuid=str(existing_memory.id),
+            base_alias="fact_api_port",
             identity=identity,
         )
-        uf.existing_memory = existing_memory
-
-        request = GenerationRequest(update_focus=uf)
+        request = GenerationRequest(update_focus=uf, existing_memory=existing_memory)
         result = engine.process(request=request)
 
         # fallback 应该保底入库
         assert len(result) == 1
         assert mock_storage.upsert_memory.called
         # fallback 拼接: 旧内容 + 新内容
-        assert "新增的段落" in result[0].payload.content
-        assert existing_memory.payload.content.split("\n")[0] in result[0].payload.content
+        assert "新增的段落" in result[0].atom.payload.content
+        assert existing_memory.payload.content.split("\n")[0] in result[0].atom.payload.content
 
     def test_fallback_content_append(self, existing_memory):
         engine = MemoryGenerationEngine(
@@ -322,8 +320,8 @@ class TestModeCFallback:
         uf = UpdateFocus(
             instruction="追加内容",
             content="新段落文本",
-            target_uuid="uuid-123",
-            target_alias="alias",
+            base_uuid="uuid-123",
+            base_alias="alias",
         )
         result = engine._build_update_fallback(uf, existing_memory)
 
@@ -339,8 +337,8 @@ class TestModeCFallback:
         uf = UpdateFocus(
             instruction="删除过时信息",
             content=None,
-            target_uuid="uuid-123",
-            target_alias="alias",
+            base_uuid="uuid-123",
+            base_alias="alias",
         )
         result = engine._build_update_fallback(uf, existing_memory)
 
@@ -360,8 +358,8 @@ class TestModeCFallback:
 
         uf = UpdateFocus(
             instruction="test",
-            target_uuid="uuid-123",
-            target_alias="alias",
+            base_uuid="uuid-123",
+            base_alias="alias",
             identity=identity,
         )
         # 不注入 existing_memory (默认 None)
@@ -388,7 +386,7 @@ class TestApplyUpdate:
         result = engine._apply_update(existing_memory, merge_result)
 
         assert len(result) == 1
-        assert result[0].meta.version == old_version + 1
+        assert result[0].atom.meta.version == old_version + 1
 
     def test_content_updated(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
@@ -396,7 +394,7 @@ class TestApplyUpdate:
         )
         result = engine._apply_update(existing_memory, merge_result)
 
-        assert result[0].payload.content == merge_result.new_content
+        assert result[0].atom.payload.content == merge_result.new_content
 
     def test_full_history_pushed(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
@@ -406,7 +404,7 @@ class TestApplyUpdate:
 
         result = engine._apply_update(existing_memory, merge_result)
 
-        history = result[0].payload.artifacts.full_history
+        history = result[0].atom.payload.artifacts.full_history
         assert len(history) == 1
         assert history[0]["content"] == old_content
         assert history[0]["reason"] == merge_result.changelog
@@ -418,7 +416,7 @@ class TestApplyUpdate:
         )
         result = engine._apply_update(existing_memory, merge_result)
 
-        summary = result[0].payload.history_summary
+        summary = result[0].atom.payload.history_summary
         assert len(summary) == 1
         assert merge_result.changelog in summary[0]
 
@@ -429,7 +427,7 @@ class TestApplyUpdate:
         )
         result = engine._apply_update(existing_memory, merge_result)
 
-        assert result[0].meta.confidence_score == 1.0
+        assert result[0].atom.meta.confidence_score == 1.0
 
     def test_updated_at_set(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
@@ -438,7 +436,25 @@ class TestApplyUpdate:
         before = datetime.now()
         result = engine._apply_update(existing_memory, merge_result)
 
-        assert result[0].meta.updated_at >= before
+        assert result[0].atom.meta.updated_at >= before
+
+    def test_pending_update_settlement_status_is_updated(self, existing_memory, merge_result):
+        engine = MemoryGenerationEngine(
+            storage=MagicMock(), extractor=MagicMock(), deduplicator=MagicMock(),
+        )
+
+        result = engine._apply_update(
+            existing_memory,
+            merge_result,
+            intent_id="intent_update_1",
+            pending_alias="rev_fact_api_port_1234",
+        )
+
+        assert result[0].operation == "updated"
+        assert result[0].settlement is not None
+        assert result[0].settlement.status == "UPDATED"
+        assert result[0].settlement.duplicate_decision is None
+        assert result[0].settlement.canonical_alias == existing_memory.get_alias()
 
     def test_persisted_to_storage(self, existing_memory, merge_result):
         mock_storage = MagicMock()
@@ -509,8 +525,8 @@ class TestFlushCallbackModesUpdate:
 
         focus = UpdateFocus(
             instruction="把端口改成 9090",
-            target_uuid=str(existing_memory.id),
-            target_alias="fact_api_port",
+            base_uuid=str(existing_memory.id),
+            base_alias="fact_api_port",
             identity=Identity(user_id="test_user"),
         )
 
@@ -530,7 +546,7 @@ class TestFlushCallbackModesUpdate:
         assert request.update_focus.instruction == "把端口改成 9090"
         assert request.write_focus is None
         # existing_memory 应被注入
-        assert request.update_focus.existing_memory is existing_memory
+        assert request.existing_memory is existing_memory
 
     @pytest.mark.asyncio
     async def test_mtp_write_flush_also_triggers(self, sample_messages):
@@ -638,7 +654,7 @@ class TestKoakumaUpdateE2E:
         assert focus is not None
         assert isinstance(focus, UpdateFocus)
         assert focus.instruction == "把端口改成 9090"
-        assert focus.target_alias == "fact_api_port"
+        assert focus.base_alias == "fact_api_port"
 
     def test_update_with_content(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="替换端口" content="port = 9090"'

@@ -29,6 +29,8 @@ from hivememory.engines.generation.models import (
     GenerationRequest,
     UpdateFocus,
     MergeResult,
+    PendingAtomSettlement,
+    MemoryGenerationResult,
 )
 
 from hivememory.engines.generation.extractor import (
@@ -57,6 +59,8 @@ __all__ = [
     "GenerationRequest",
     "UpdateFocus",
     "MergeResult",
+    "PendingAtomSettlement",
+    "MemoryGenerationResult",
     # 记忆提取
     "LLMMemoryExtractor",
     "NoOpMemoryExtractor",

@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus, RuntimeScope
 from hivememory.core.models import AgentProfile, Identity, MemoryAtom, MemoryType
+from hivememory.engines.generation.models import UpdateFocus, WriteFocus
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class PendingAtomCache:
 
     def __init__(self) -> None:
         self._atoms: Dict[str, PendingAtom] = {}
+        self._intent_index: Dict[str, str] = {}
 
     def register_write(
         self,
@@ -58,25 +60,34 @@ class PendingAtomCache:
             slug = "untitled"
         short_id = uuid4().hex[:4]
         pending_alias = f"draft_{slug}_{short_id}"
+        intent_id = f"intent_{uuid4().hex[:12]}"
+        focus = WriteFocus(
+            content=content,
+            reason=reason,
+            title=title,
+            identity=identity,
+            pending_alias=pending_alias,
+            intent_id=intent_id,
+        )
 
         atom = PendingAtom(
             pending_alias=pending_alias,
+            intent_id=intent_id,
             status=PendingAtomStatus.PENDING,
             source_verb="WRITE",
-            content=content,
-            title=title,
-            reason=reason,
+            focus=focus,
             identity=identity,
             runtime_scope=runtime_scope or RuntimeScope(),
         )
         self._atoms[pending_alias] = atom
-        logger.debug(f"Registered pending WRITE: {pending_alias}")
+        self._intent_index[intent_id] = pending_alias
+        logger.debug(f"Registered pending WRITE: {pending_alias} (intent={intent_id})")
         return atom
 
     def register_update(
         self,
-        target_alias: str,
-        target_uuid: str,
+        base_alias: str,
+        base_uuid: str,
         instruction: str,
         content: Optional[str],
         identity: Identity,
@@ -84,26 +95,83 @@ class PendingAtomCache:
     ) -> PendingAtom:
         """注册 UPDATE pending revision，返回带有生成 alias 的 PendingAtom。"""
         short_id = uuid4().hex[:4]
-        pending_alias = f"rev_{target_alias}_{short_id}"
+        pending_alias = f"rev_{base_alias}_{short_id}"
+        intent_id = f"intent_{uuid4().hex[:12]}"
+        focus = UpdateFocus(
+            instruction=instruction,
+            content=content or None,
+            base_alias=base_alias,
+            base_uuid=base_uuid,
+            identity=identity,
+            pending_alias=pending_alias,
+            intent_id=intent_id,
+        )
 
         atom = PendingAtom(
             pending_alias=pending_alias,
+            intent_id=intent_id,
             status=PendingAtomStatus.REVISION,
             source_verb="UPDATE",
-            content=content or "",
-            instruction=instruction,
-            target_alias=target_alias,
-            target_uuid=target_uuid,
+            focus=focus,
             identity=identity,
             runtime_scope=runtime_scope or RuntimeScope(),
         )
         self._atoms[pending_alias] = atom
-        logger.debug(f"Registered pending UPDATE: {pending_alias}")
+        self._intent_index[intent_id] = pending_alias
+        logger.debug(f"Registered pending UPDATE: {pending_alias} (intent={intent_id})")
         return atom
+
+    def apply_settlement(self, settlement) -> None:
+        """
+        Apply a settlement from the generation pipeline to update pending atom state.
+
+        Args:
+            settlement: PendingAtomSettlement instance
+        """
+        pending_alias = settlement.pending_alias
+        atom = self._atoms.get(pending_alias)
+
+        if atom is None and settlement.intent_id:
+            resolved_alias = self._intent_index.get(settlement.intent_id)
+            if resolved_alias:
+                atom = self._atoms.get(resolved_alias)
+
+        if atom is None:
+            logger.warning(
+                f"Settlement for unknown pending atom: "
+                f"alias={settlement.pending_alias}, intent={settlement.intent_id}"
+            )
+            return
+
+        status_map = {
+            "COMMITTED": PendingAtomStatus.COMMITTED,
+            "MERGED": PendingAtomStatus.MERGED,
+            "UPDATED": PendingAtomStatus.UPDATED,
+            "TOUCHED": PendingAtomStatus.TOUCHED,
+            "DISCARDED": PendingAtomStatus.DISCARDED,
+            "FAILED": PendingAtomStatus.FAILED,
+        }
+        new_status = status_map.get(settlement.status)
+        if new_status:
+            atom.status = new_status
+
+        atom.settlement = settlement
+
+        logger.debug(
+            f"Settlement applied to '{atom.pending_alias}': "
+            f"status={atom.status.value}, canonical={settlement.canonical_alias}"
+        )
 
     def get(self, pending_alias: str) -> Optional[PendingAtom]:
         """通过 pending alias 查询。"""
         return self._atoms.get(pending_alias)
+
+    def get_by_intent_id(self, intent_id: str) -> Optional[PendingAtom]:
+        """通过 intent_id 查询 pending atom。"""
+        pending_alias = self._intent_index.get(intent_id)
+        if pending_alias:
+            return self._atoms.get(pending_alias)
+        return None
 
     def has(self, alias: str) -> bool:
         """检查 alias 是否为已注册的 pending atom。"""
@@ -120,6 +188,7 @@ class PendingAtomCache:
     def clear(self) -> None:
         """清空全部 pending atom。"""
         self._atoms.clear()
+        self._intent_index.clear()
 
     @property
     def size(self) -> int:

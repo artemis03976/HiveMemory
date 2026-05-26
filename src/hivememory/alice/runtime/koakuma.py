@@ -58,8 +58,6 @@ from hivememory.core.mtp.exceptions import (
     StorageReadError,
     PermissionDeniedError,
 )
-from hivememory.engines.generation.models import WriteFocus, UpdateFocus
-
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
     from hivememory.alice.runtime.resolver import ResolveResult
@@ -659,14 +657,6 @@ class KoakumaRuntime:
             runtime_scope=context.runtime_scope,
         )
 
-        # 构建 WriteFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
-        write_focus = WriteFocus(
-            content=content,
-            reason=reason or None,
-            title=title or None,
-            identity=context.identity,
-        )
-
         logger.info(
             f"MTP WRITE 延迟捕获: content='{content[:50]}...', "
             f"pending_alias='{pending.pending_alias}'"
@@ -675,7 +665,7 @@ class KoakumaRuntime:
         return MTPResponse(
             status=MTPResponseStatus.ACK,
             content=PendingAtomRenderer.render_ack(pending),
-            write_focus=write_focus,
+            write_focus=pending.focus,
             pending_alias=pending.pending_alias,
         )
 
@@ -741,21 +731,12 @@ class KoakumaRuntime:
 
         # 5. 注册 pending revision
         pending = self.pending_cache.register_update(
-            target_alias=alias,
-            target_uuid=uuid,
+            base_alias=alias,
+            base_uuid=uuid,
             instruction=instruction,
             content=content,
             identity=context.identity,
             runtime_scope=context.runtime_scope,
-        )
-
-        # 6. 构建 UpdateFocus 并交给调用方随本轮结果汇总 (不再直接调用 Librarian)
-        update_focus = UpdateFocus(
-            instruction=instruction,
-            content=content if content else None,
-            target_uuid=uuid,
-            target_alias=alias,
-            identity=context.identity,
         )
 
         # 7. 使缓存失效，防止脏读
@@ -769,7 +750,7 @@ class KoakumaRuntime:
         return MTPResponse(
             status=MTPResponseStatus.ACK,
             content=PendingAtomRenderer.render_ack(pending),
-            update_focus=update_focus,
+            update_focus=pending.focus,
             pending_alias=pending.pending_alias,
         )
 

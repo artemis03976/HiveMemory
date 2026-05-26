@@ -241,8 +241,8 @@ class TestLibrarianCoreGenerateMemory:
         # 使用真正的 UpdateFocus 实例而不是 Mock
         update_focus = UpdateFocus(
             instruction="更新测试",
-            target_uuid=str(uuid4()),
-            target_alias="fact_test",
+            base_uuid=str(uuid4()),
+            base_alias="fact_test",
             identity=_make_identity(),
         )
         existing_memory = Mock()
@@ -260,16 +260,17 @@ class TestLibrarianCoreGenerateMemory:
 
         await self.core._on_generate_memory(payload)
 
-        assert update_focus.existing_memory is existing_memory
         self.mock_generation.process.assert_called_once()
+        request = self.mock_generation.process.call_args[0][0]
+        assert request.existing_memory is existing_memory
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_c_update_without_context_still_runs(self):
         """MTP_UPDATE 不应依赖上下文轮次，空背景也应进入 generation fallback"""
         update_focus = UpdateFocus(
             instruction="更新测试",
-            target_uuid=str(uuid4()),
-            target_alias="fact_test",
+            base_uuid=str(uuid4()),
+            base_alias="fact_test",
             identity=_make_identity(),
         )
         existing_memory = Mock()
@@ -289,7 +290,7 @@ class TestLibrarianCoreGenerateMemory:
         assert request.context is not None
         assert request.context.turns == []
         assert request.update_focus is update_focus
-        assert update_focus.existing_memory is existing_memory
+        assert request.existing_memory is existing_memory
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_c_update_memory_not_found(self):
@@ -298,8 +299,8 @@ class TestLibrarianCoreGenerateMemory:
         # 使用真正的 UpdateFocus 实例
         update_focus = UpdateFocus(
             instruction="更新测试",
-            target_uuid=str(uuid4()),
-            target_alias="fact_test",
+            base_uuid=str(uuid4()),
+            base_alias="fact_test",
             identity=_make_identity(),
         )
 

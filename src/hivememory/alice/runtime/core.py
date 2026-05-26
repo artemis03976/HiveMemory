@@ -15,6 +15,7 @@ from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.alice.runtime.agent.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
@@ -33,6 +34,7 @@ class AliceRuntime:
         self._global_bus = global_bus
         self._local_bus = AliceBus()
         self._local_routes_registered = False
+        self._global_events_registered = False
 
         self._pending_cache = PendingAtomCache()
         self._atom_cache = KoakumaAtomCache()
@@ -68,6 +70,14 @@ class AliceRuntime:
                 f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma"
             )
 
+    async def _on_pending_atom_settled(self, *, settlement) -> None:
+        """Handle settlement event from Patchouli generation pipeline."""
+        self._pending_cache.apply_settlement(settlement)
+        logger.info(
+            f"Settlement applied: {settlement.pending_alias} -> "
+            f"{settlement.status} (canonical={settlement.canonical_alias})"
+        )
+
     def mount_local_routes(self) -> None:
         if self._local_routes_registered:
             return
@@ -98,6 +108,12 @@ class AliceRuntime:
                 GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
                 self._request_patchouli_record_memory_citation,
             )
+            if not self._global_events_registered:
+                self._global_bus.subscribe(
+                    GlobalEvents.PENDING_ATOM_SETTLED,
+                    self._on_pending_atom_settled,
+                )
+                self._global_events_registered = True
 
         self._local_routes_registered = True
 
@@ -112,6 +128,12 @@ class AliceRuntime:
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
+            if self._global_events_registered:
+                self._global_bus.unsubscribe(
+                    GlobalEvents.PENDING_ATOM_SETTLED,
+                    self._on_pending_atom_settled,
+                )
+                self._global_events_registered = False
         self._local_routes_registered = False
 
     async def _request_patchouli_memory_retrieve(self, *args: Any, **kwargs: Any) -> Any:

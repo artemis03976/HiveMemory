@@ -11,6 +11,7 @@ PendingAtom 渲染器。
 from __future__ import annotations
 
 from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
+from hivememory.engines.generation.models import UpdateFocus, WriteFocus
 
 
 class PendingAtomRenderer:
@@ -25,14 +26,18 @@ class PendingAtomRenderer:
 
     @staticmethod
     def _render_draft_read(pending: PendingAtom) -> str:
+        focus = pending.focus
+        if not isinstance(focus, WriteFocus):
+            raise TypeError("WRITE pending atom must carry WriteFocus.")
+
         lines = [f"[{pending.pending_alias}] (runtime pending atom):"]
         lines.append("status: pending")
         lines.append("source: WRITE")
-        if pending.title:
-            lines.append(f"title: {pending.title}")
+        if focus.title:
+            lines.append(f"title: {focus.title}")
         lines.append("")
         lines.append("content:")
-        lines.append(pending.content)
+        lines.append(focus.content)
         lines.append("")
         lines.append(
             "note: This is a runtime pending atom. "
@@ -42,16 +47,20 @@ class PendingAtomRenderer:
 
     @staticmethod
     def _render_revision_read(pending: PendingAtom) -> str:
+        focus = pending.focus
+        if not isinstance(focus, UpdateFocus):
+            raise TypeError("UPDATE pending atom must carry UpdateFocus.")
+
         lines = [
             f"[{pending.pending_alias}] "
-            f"(pending revision of '{pending.target_alias}'):"
+            f"(pending revision of '{focus.base_alias}'):"
         ]
         lines.append("status: revision")
-        if pending.instruction:
-            lines.append(f"instruction: {pending.instruction}")
+        if focus.instruction:
+            lines.append(f"instruction: {focus.instruction}")
         lines.append("")
         lines.append("new content:")
-        lines.append(pending.content)
+        lines.append(focus.content or "")
         lines.append("")
         lines.append(
             "note: This is a pending revision. "
@@ -63,8 +72,11 @@ class PendingAtomRenderer:
     def render_ack(pending: PendingAtom) -> str:
         """渲染 WRITE/UPDATE ACK 回填文案。"""
         if pending.status == PendingAtomStatus.REVISION:
+            focus = pending.focus
+            if not isinstance(focus, UpdateFocus):
+                raise TypeError("UPDATE pending atom must carry UpdateFocus.")
             return (
-                f"Memory '{pending.target_alias}' update accepted as "
+                f"Memory '{focus.base_alias}' update accepted as "
                 f"pending revision '{pending.pending_alias}'.\n"
                 f"It is readable during this run via READ. "
                 f"Final memory update will complete asynchronously."
