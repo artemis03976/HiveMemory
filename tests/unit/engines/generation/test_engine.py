@@ -139,16 +139,19 @@ class TestGenerationEngineRouting:
         existing = _make_memory()
         uf = UpdateFocus(
             instruction="添加错误处理",
-            target_uuid=str(existing.id),
-            target_alias="fact_test",
-            existing_memory=existing,
+            base_uuid=str(existing.id),
+            base_alias="fact_test",
             identity=_make_identity(),
         )
         merge_result = MergeResult(new_content="新内容", changelog="添加了错误处理")
         self.mock_extractor.merge.return_value = merge_result
         self.mock_storage.upsert_memory = Mock()
 
-        request = GenerationRequest(context=GenerationContext(), update_focus=uf)
+        request = GenerationRequest(
+            context=GenerationContext(),
+            update_focus=uf,
+            existing_memory=existing,
+        )
         result = self.engine.process(request)
 
         self.mock_extractor.merge.assert_called_once()
@@ -180,7 +183,7 @@ class TestGenerationEngineModeA:
         result = self.engine.process(request)
 
         assert len(result) == 1
-        assert result[0].index.title == "测试记忆"
+        assert result[0].atom.index.title == "测试记忆"
 
     def test_mode_a_extract_no_value(self):
         """LLM 判断无价值返回空"""
@@ -249,7 +252,7 @@ class TestGenerationEngineModeB:
 
         # fallback 应保证内容不丢失
         assert len(result) == 1
-        assert result[0].payload.content == "重要内容不能丢"
+        assert result[0].atom.payload.content == "重要内容不能丢"
 
     def test_build_fallback_draft(self):
         """fallback 草稿构建逻辑"""
@@ -289,12 +292,15 @@ class TestGenerationEngineModeC:
         uf = UpdateFocus(
             instruction=instruction,
             content=content,
-            target_uuid=str(existing.id),
-            target_alias="fact_test",
-            existing_memory=existing,
+            base_uuid=str(existing.id),
+            base_alias="fact_test",
             identity=_make_identity(),
         )
-        return GenerationRequest(context=GenerationContext(), update_focus=uf)
+        return GenerationRequest(
+            context=GenerationContext(),
+            update_focus=uf,
+            existing_memory=existing,
+        )
 
     def test_mode_c_merge_success(self):
         """正常 UPDATE 合并流程"""
@@ -306,15 +312,14 @@ class TestGenerationEngineModeC:
         result = self.engine.process(request)
 
         assert len(result) == 1
-        assert result[0].payload.content == "合并后内容"
+        assert result[0].atom.payload.content == "合并后内容"
 
     def test_mode_c_no_existing_memory(self):
         """existing_memory=None 时返回空"""
         uf = UpdateFocus(
             instruction="更新",
-            target_uuid=str(uuid4()),
-            target_alias="fact_test",
-            existing_memory=None,
+            base_uuid=str(uuid4()),
+            base_alias="fact_test",
             identity=_make_identity(),
         )
         request = GenerationRequest(context=GenerationContext(), update_focus=uf)
@@ -332,7 +337,7 @@ class TestGenerationEngineModeC:
         result = self.engine.process(request)
 
         assert len(result) == 1
-        assert "追加内容" in result[0].payload.content
+        assert "追加内容" in result[0].atom.payload.content
 
     def test_mode_c_fallback_no_content(self):
         """fallback 仅有 instruction 无 content 时保留旧内容"""
@@ -344,7 +349,7 @@ class TestGenerationEngineModeC:
         result = self.engine.process(request)
 
         assert len(result) == 1
-        assert result[0].payload.content == "旧内容"
+        assert result[0].atom.payload.content == "旧内容"
 
     def test_apply_update_version_history(self):
         """版本历史追踪"""
@@ -355,7 +360,7 @@ class TestGenerationEngineModeC:
         result = self.engine._apply_update(existing, merge_result)
 
         assert len(result) == 1
-        mem = result[0]
+        mem = result[0].atom
         assert mem.payload.content == "新版本"
         assert mem.meta.version >= 2
         assert mem.meta.confidence_score == 1.0
@@ -386,7 +391,8 @@ class TestGenerationEngineDedup:
         result = self.engine._dedup_and_persist(draft, _make_identity())
 
         self.mock_storage.update_access_info.assert_called_once_with(existing.id)
-        assert result == [existing]
+        assert result[0].atom is existing
+        assert result[0].operation == "touched"
 
     def test_dedup_update(self):
         """UPDATE 决策合并内容并重新保存"""
@@ -401,7 +407,8 @@ class TestGenerationEngineDedup:
 
         self.mock_deduplicator.merge_memory.assert_called_once_with(existing, draft)
         self.mock_storage.upsert_memory.assert_called_once()
-        assert result == [merged]
+        assert result[0].atom is merged
+        assert result[0].operation == "merged"
 
     def test_dedup_create(self):
         """CREATE 决策创建新记忆"""
@@ -413,7 +420,7 @@ class TestGenerationEngineDedup:
 
         self.mock_storage.upsert_memory.assert_called_once()
         assert len(result) == 1
-        assert result[0].index.title == "测试记忆"
+        assert result[0].atom.index.title == "测试记忆"
 
     def test_dedup_discard(self):
         """DISCARD 决策返回空"""
@@ -422,7 +429,9 @@ class TestGenerationEngineDedup:
 
         result = self.engine._dedup_and_persist(draft, _make_identity())
 
-        assert result == []
+        assert len(result) == 1
+        assert result[0].atom is None
+        assert result[0].operation == "discarded"
         self.mock_storage.upsert_memory.assert_not_called()
 
 

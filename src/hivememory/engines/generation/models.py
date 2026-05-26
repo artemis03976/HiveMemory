@@ -2,7 +2,7 @@
 HiveMemory Generation 模块数据模型
 """
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from hivememory.core.models import Identity
@@ -72,11 +72,15 @@ class WriteFocus(BaseModel):
         reason: WRITE 指令的 reason 参数 (可选)
         title: WRITE 指令的 title 参数 (可选)
         identity: 当前身份标识
+        pending_alias: 运行时 pending alias (Phase 2)
+        intent_id: 系统内部写入意图 ID (Phase 2)
     """
     content: str
     reason: Optional[str] = None
     title: Optional[str] = None
     identity: Identity = Field(default_factory=Identity)
+    pending_alias: Optional[str] = None
+    intent_id: Optional[str] = None
 
 
 # ============ UPDATE 指令数据模型 ============
@@ -92,17 +96,19 @@ class UpdateFocus(BaseModel):
     Attributes:
         instruction: 修改指令 (必填，自然语言描述)
         content: 新素材 (选填，代码替换或文本追加)
-        target_uuid: 目标记忆 UUID (由 Koakuma 解析 alias 得到)
-        target_alias: 目标记忆 alias
-        existing_memory: 由 LibrarianCore 从 storage 加载后注入
+        base_uuid: 本次 revision 基于的正式记忆 UUID
+        base_alias: 本次 revision 基于的正式记忆 alias
         identity: 当前身份标识
+        pending_alias: 运行时 pending alias (Phase 2)
+        intent_id: 系统内部写入意图 ID (Phase 2)
     """
     instruction: str
     content: Optional[str] = None
-    target_uuid: str
-    target_alias: str
-    existing_memory: Optional[Any] = None
+    base_uuid: str
+    base_alias: str
     identity: Identity = Field(default_factory=Identity)
+    pending_alias: Optional[str] = None
+    intent_id: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -169,6 +175,7 @@ class GenerationRequest(BaseModel):
         context: 结构化生成上下文
         write_focus: WRITE 指令的聚焦内容 (None 表示非 Mode B)
         update_focus: UPDATE 指令的聚焦内容 (None 表示非 Mode C)
+        existing_memory: UPDATE 目标正式记忆，由 LibrarianCore 在构建请求时注入
     """
     context: GenerationContext = Field(
         default_factory=lambda: GenerationContext(),
@@ -176,6 +183,7 @@ class GenerationRequest(BaseModel):
     )
     write_focus: Optional[WriteFocus] = None
     update_focus: Optional[UpdateFocus] = None
+    existing_memory: Optional[Any] = None
 
     @property
     def is_write(self) -> bool:
@@ -214,6 +222,50 @@ class GenerationRequest(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+# ============ Phase 2: Settlement 数据模型 ============
+
+class PendingAtomSettlement(BaseModel):
+    """
+    Pending intent 的结算视图。
+
+    由 GenerationEngine 在生成完成后产出，通过 GlobalSystemBus 回填到 AliceRuntime。
+    只有 MTP WRITE/UPDATE 触发的主动写入链路（携带 intent_id）才会生成 settlement。
+    """
+    pending_alias: str
+    intent_id: str
+    status: Literal["COMMITTED", "MERGED", "UPDATED", "TOUCHED", "DISCARDED", "FAILED"]
+    duplicate_decision: Optional[Literal["CREATE", "UPDATE", "TOUCH", "DISCARD"]] = None
+    canonical_alias: Optional[str] = None
+    canonical_uuid: Optional[str] = None
+    message: str = ""
+    error: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class MemoryGenerationResult(BaseModel):
+    """
+    单次记忆生成操作的结构化结果。
+
+    替代原有 List[MemoryAtom] 返回值，携带 intent 追踪和 settlement 信息。
+    被动生成（Mode A）中 intent_id/pending_alias/settlement 均为 None。
+    """
+    intent_id: Optional[str] = None
+    pending_alias: Optional[str] = None
+
+    atom: Optional[Any] = None
+    canonical_alias: Optional[str] = None
+    canonical_uuid: Optional[str] = None
+
+    duplicate_decision: Optional[Literal["CREATE", "UPDATE", "TOUCH", "DISCARD"]] = None
+    operation: Literal["created", "merged", "touched", "discarded", "updated", "failed"]
+
+    settlement: Optional[PendingAtomSettlement] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
 __all__ = [
     "ExtractedMemoryDraft",
     "DuplicateDecision",
@@ -223,4 +275,6 @@ __all__ = [
     "GenerationRequest",
     "GenerationTurn",
     "GenerationContext",
+    "PendingAtomSettlement",
+    "MemoryGenerationResult",
 ]

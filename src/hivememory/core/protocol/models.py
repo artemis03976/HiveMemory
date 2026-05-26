@@ -188,6 +188,10 @@ class MTPExecutionResult(BaseModel):
         default=None,
         description="UPDATE 指令产生的后处理聚焦信号",
     )
+    pending_alias: Optional[str] = Field(
+        default=None,
+        description="WRITE/UPDATE 生成的 pending alias",
+    )
 
 
 class ChatResult(BaseModel):
@@ -206,13 +210,17 @@ class ChatResult(BaseModel):
     total_iterations: int = Field(default=1, description="总生成轮次")
     # LoopExecutor 收集的结构化轮次事件（序列化为 dict 避免循环导入）
     turn_events: List[Any] = Field(default_factory=list, description="LoopExecutor 收集的 TurnEvent 列表")
-    write_focus: Optional[Any] = Field(
-        default=None,
+    write_focus: List[Any] = Field(
+        default_factory=list,
         description="本轮 Agent run 中最后一个 WRITE 后处理聚焦信号",
     )
-    update_focus: Optional[Any] = Field(
-        default=None,
+    update_focus: List[Any] = Field(
+        default_factory=list,
         description="本轮 Agent run 中最后一个 UPDATE 后处理聚焦信号",
+    )
+    pending_aliases: List[str] = Field(
+        default_factory=list,
+        description="本轮 Agent run 中生成的所有 pending alias",
     )
 
 
@@ -297,12 +305,12 @@ class InteractionPayload(BaseModel):
     )
 
     # 控制信号 (挂载在 Payload 上，而非独立传输)
-    write_focus: Optional[Any] = Field(
-        default=None,
+    write_focus: List[Any] = Field(
+        default_factory=list,
         description="WRITE 指令的核心素材 (WriteFocus)"
     )
-    update_focus: Optional[Any] = Field(
-        default=None,
+    update_focus: List[Any] = Field(
+        default_factory=list,
         description="UPDATE 指令的修改意图 (UpdateFocus)"
     )
 

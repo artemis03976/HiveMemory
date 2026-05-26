@@ -216,8 +216,6 @@ class MessageTurnBuffer:
             assistant_final_text=assistant_final_text or None,
             turn_events=list(self._turn_events),
             mtp_traces=[],
-            write_focus=None,
-            update_focus=None,
             identity=self._identity,
             rewritten_query=(
                 self._gaze_result.rewritten_query if self._gaze_result else None

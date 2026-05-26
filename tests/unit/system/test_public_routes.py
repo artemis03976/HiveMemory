@@ -1,17 +1,44 @@
 """公开路由注册/卸载测试 — 验证 System 门面在生命周期中正确管理全局总线路由。"""
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+)
+from hivememory.engines.generation.models import PendingAtomSettlement
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 # ========== Alice ==========
+
+
+def _make_memory(alias: str, content: str) -> MemoryAtom:
+    return MemoryAtom(
+        id=uuid4(),
+        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        index=IndexLayer(
+            title="Test Memory",
+            summary="A test memory for public route behavior",
+            tags=["test"],
+            memory_type=MemoryType.FACT,
+            alias=alias,
+        ),
+        payload=PayloadLayer(content=content),
+    )
 
 
 class TestAlicePublicRoutes:
@@ -137,6 +164,50 @@ class TestAlicePublicRoutes:
         get_agent_profile.assert_awaited_once_with("coder_doll")
         record_citation.assert_awaited_once_with(memory_id="mid", source="mtp.read")
 
+    @pytest.mark.asyncio
+    async def test_alice_unmount_unsubscribes_settlement_event(self):
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        await system.start()
+
+        assert GlobalEvents.PENDING_ATOM_SETTLED in self.global_bus.list_events()
+
+        await system.stop()
+
+        assert GlobalEvents.PENDING_ATOM_SETTLED not in self.global_bus.list_events()
+
+    @pytest.mark.asyncio
+    async def test_settlement_refreshes_alice_l1_atom_cache(self):
+        stale_atom = _make_memory("fact_canonical", "stale content")
+        fresh_atom = _make_memory("fact_canonical", "fresh content")
+        retrieve_by_aliases = AsyncMock(
+            return_value=SimpleNamespace(memories=[fresh_atom])
+        )
+        self.global_bus.register(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            retrieve_by_aliases,
+        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        await system.start()
+        system.runtime._atom_cache.ingest_atom(stale_atom)
+
+        settlement = PendingAtomSettlement(
+            pending_alias="draft_memory_1234",
+            intent_id="intent_1234",
+            status="COMMITTED",
+            duplicate_decision="CREATE",
+            canonical_alias="fact_canonical",
+            canonical_uuid=str(fresh_atom.id),
+        )
+
+        await self.global_bus.publish(
+            GlobalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
+
+        retrieve_by_aliases.assert_awaited_once_with(aliases=["fact_canonical"])
+        assert system.runtime._atom_cache.get_atom_by_alias("fact_canonical") is fresh_atom
+        assert system.runtime._atom_cache.get_atom_by_uuid(str(stale_atom.id)) is None
+
 
 # ========== Patchouli (lightweight — full integration tested in test_bootstrap) ==========
 
@@ -195,3 +266,46 @@ class TestPatchouliPublicRoutes:
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN not in routes
         assert PatchouliRoutes.RECORD_MEMORY_CITATION not in routes
+
+    @pytest.mark.asyncio
+    async def test_patchouli_local_settlement_event_bridges_to_global_bus(self):
+        system = MagicMock()
+        system._global_bus = self.global_bus
+        system.runtime = MagicMock()
+        system.runtime.local_bus = GlobalSystemBus()
+        system._forward_pending_atom_settled = (
+            PatchouliSystem._forward_pending_atom_settled.__get__(
+                system, PatchouliSystem
+            )
+        )
+        system._register_local_event_bridges = (
+            PatchouliSystem._register_local_event_bridges.__get__(
+                system, PatchouliSystem
+            )
+        )
+        system._unregister_local_event_bridges = (
+            PatchouliSystem._unregister_local_event_bridges.__get__(
+                system, PatchouliSystem
+            )
+        )
+
+        subscriber = AsyncMock()
+        self.global_bus.subscribe(GlobalEvents.PENDING_ATOM_SETTLED, subscriber)
+        settlement = object()
+
+        system._register_local_event_bridges()
+        await system.runtime.local_bus.publish(
+            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
+
+        subscriber.assert_awaited_once_with(settlement=settlement)
+
+        subscriber.reset_mock()
+        system._unregister_local_event_bridges()
+        await system.runtime.local_bus.publish(
+            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
+
+        subscriber.assert_not_awaited()

@@ -443,9 +443,9 @@ class TestKoakumaWriteE2E:
         mock_librarian = MagicMock()
         mock_librarian.handle_write_signal.return_value = [sample_memory]
 
-        from .conftest import make_mock_bus
+        from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
-        koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
+        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
@@ -490,10 +490,18 @@ class TestKoakumaWriteE2E:
 
     def test_write_deferred_capture_always_ack(self):
         """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""
-        from .conftest import make_mock_bus
+        from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
-        koakuma = KoakumaRuntime(bus=bus, config=KoakumaConfig())
-        context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
+        from hivememory.alice.runtime.models import RuntimeScope
+
+        context = MTPExecutionContext(
+            identity=Identity(user_id="test_user"),
+            runtime_scope=RuntimeScope(
+                run_id="run_write_test",
+                frame_id="frame_main_write",
+            ),
+        )
 
         agent_text = '⟪ WRITE | * | content="test"'
         result = _intercept_and_execute(koakuma, agent_text, context=context)
@@ -502,6 +510,10 @@ class TestKoakumaWriteE2E:
         assert result.success
         assert result.write_focus is not None
         assert result.write_focus.content == "test"
+        pending = koakuma.pending_cache.get(result.pending_alias)
+        assert pending is not None
+        assert pending.runtime_scope.run_id == "run_write_test"
+        assert pending.runtime_scope.frame_id == "frame_main_write"
 
 
 # ========== Test 8: FlushReason.MTP_WRITE ==========

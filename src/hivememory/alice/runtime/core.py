@@ -9,10 +9,13 @@ from hivememory.core.protocol.models import AgentRunContext, ChatResult
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
+from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.alice.runtime.agent.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
@@ -31,28 +34,81 @@ class AliceRuntime:
         self._global_bus = global_bus
         self._local_bus = AliceBus()
         self._local_routes_registered = False
+        self._global_events_registered = False
+
+        self._pending_cache = PendingAtomCache()
+        self._atom_cache = KoakumaAtomCache()
+        self._alias_resolver = RuntimeAliasResolver(
+            pending_cache=self._pending_cache,
+            atom_cache=self._atom_cache,
+            bus=self._local_bus,
+        )
 
         self._koakuma = KoakumaRuntime(
             bus=self._local_bus,
             config=config.koakuma,
+            alias_resolver=self._alias_resolver,
         )
-        self._prompt_assembler = AgentPromptAssembler(config.koakuma)
         self._mtp_executor = KoakumaMTPExecutor(self._koakuma)
+
+        self._prompt_assembler = AgentPromptAssembler(config.koakuma)
+
         self._agent_runtime = AgentRuntime(
             local_bus=self._local_bus,
             prompt_assembler=self._prompt_assembler,
             mtp_executor=self._mtp_executor,
             config=config,
+            alias_resolver=self._alias_resolver,
         )
 
         logger.info("AliceRuntime 初始化完成")
 
     def register_preretrieval_aliases(self, memories: list[MemoryAtom]) -> None:
-        self._koakuma.atom_cache.ingest_atoms(memories)
+        self._atom_cache.ingest_atoms(memories)
         if memories:
             logger.debug(
                 f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma"
             )
+
+    async def _on_pending_atom_settled(self, *, settlement) -> None:
+        """Handle settlement event from Patchouli generation pipeline."""
+        self._pending_cache.apply_settlement(settlement)
+        await self._refresh_l1_cache_for_settlement(settlement)
+        logger.info(
+            f"Settlement applied: {settlement.pending_alias} -> "
+            f"{settlement.status} (canonical={settlement.canonical_alias})"
+        )
+
+    async def _refresh_l1_cache_for_settlement(self, settlement) -> None:
+        """Refresh L1 atom cache after a pending atom points to a canonical atom."""
+        canonical_alias = settlement.canonical_alias
+        if not canonical_alias:
+            return
+
+        self._atom_cache.invalidate_alias(canonical_alias)
+
+        try:
+            retrieval_response = await self._local_bus.request(
+                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+                aliases=[canonical_alias],
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Failed to refresh L1 cache for settled atom "
+                f"'{canonical_alias}': {exc}"
+            )
+            return
+
+        memories = getattr(retrieval_response, "memories", []) or []
+        memory = memories[0] if memories else None
+        if memory is None:
+            logger.debug(
+                f"No canonical atom returned while refreshing L1 cache: "
+                f"alias='{canonical_alias}'"
+            )
+            return
+
+        self._atom_cache.ingest_atom(memory)
 
     def mount_local_routes(self) -> None:
         if self._local_routes_registered:
@@ -84,6 +140,12 @@ class AliceRuntime:
                 GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
                 self._request_patchouli_record_memory_citation,
             )
+            if not self._global_events_registered:
+                self._global_bus.subscribe(
+                    GlobalEvents.PENDING_ATOM_SETTLED,
+                    self._on_pending_atom_settled,
+                )
+                self._global_events_registered = True
 
         self._local_routes_registered = True
 
@@ -98,6 +160,12 @@ class AliceRuntime:
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
             self._local_bus.unregister(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
+            if self._global_events_registered:
+                self._global_bus.unsubscribe(
+                    GlobalEvents.PENDING_ATOM_SETTLED,
+                    self._on_pending_atom_settled,
+                )
+                self._global_events_registered = False
         self._local_routes_registered = False
 
     async def _request_patchouli_memory_retrieve(self, *args: Any, **kwargs: Any) -> Any:

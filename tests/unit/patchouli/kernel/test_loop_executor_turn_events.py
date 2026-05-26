@@ -18,10 +18,10 @@ from hivememory.alice.runtime.models import (
     ExecutionFrame,
     GenerationResult,
     MTPExecutionContext,
+    RuntimeScope,
 )
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.protocol.models import MTPExecutionResult
-from hivememory.system.contracts.routes import GlobalRoutes
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -88,10 +88,13 @@ def _call_mtp_exec_result() -> MTPExecutionResult:
 
 def _make_frame(depth: int = 0) -> ExecutionFrame:
     return ExecutionFrame(
-        process_id="test_pid",
+        runtime_scope=RuntimeScope(
+            run_id="run_test_1",
+            frame_id="test_frame",
+            depth=depth,
+        ),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "hello"}],
-        depth=depth,
         topic_id="topic_1",
         identity=Identity(user_id="u1", agent_id="agent_a"),
     )
@@ -108,6 +111,7 @@ def _build_executor(generate_async_side_effect) -> tuple[KernelLoopExecutor, Mag
     profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
     mtp_executor = MagicMock()
     mtp_executor.intercept_and_execute = AsyncMock(return_value=None)
+    alias_resolver = MagicMock()
 
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=generate_async_side_effect)
@@ -119,6 +123,7 @@ def _build_executor(generate_async_side_effect) -> tuple[KernelLoopExecutor, Mag
         agent_profile_resolver=profile_resolver,
         mtp_executor=mtp_executor,
         config=kernel.config.agent_runtime,
+        alias_resolver=alias_resolver,
     )
     return executor, kernel
 
@@ -212,7 +217,10 @@ async def test_mtp_execution_receives_frame_context():
     assert isinstance(context, MTPExecutionContext)
     assert context.identity == frame.identity
     assert context.agent_profile is frame.agent_profile
-    assert context.depth == frame.depth
+    assert context.runtime_scope.run_id == frame.runtime_scope.run_id
+    assert context.runtime_scope.frame_id == frame.runtime_scope.frame_id
+    assert context.runtime_scope.depth == frame.runtime_scope.depth
+    assert context.runtime_scope.action_id == "action_1_0"
 
 
 @pytest.mark.asyncio
@@ -265,12 +273,10 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     """CALL 路径: 父 frame 产出 kind=tool_result, tool_kind=CALL, role=user"""
     main_frame = _make_frame(depth=0)
     sub_frame = ExecutionFrame(
-        process_id="sub_pid",
+        runtime_scope=main_frame.runtime_scope.for_child("sub_frame"),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "sub task"}],
-        depth=1,
         topic_id=None,
-        parent_frame_id=main_frame.process_id,
         identity=Identity(user_id="u1", agent_id="sub_agent"),
     )
 
@@ -314,21 +320,46 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
 
 @pytest.mark.asyncio
-async def test_context_refs_fetch_uses_injected_local_bus_with_public_route():
+async def test_context_refs_fetch_uses_runtime_alias_resolver():
     executor, kernel = _build_executor([])
-    response = MagicMock()
-    response.rendered_context = "<memory_context>ctx</memory_context>"
-    kernel.local_bus.request = AsyncMock(return_value=response)
+    atom = MagicMock()
+    atom.payload.content = "ctx"
+    resolved = MagicMock()
+    resolved.kind = "atom"
+    resolved.atom = atom
+    resolved.pending = None
+    executor._alias_resolver.resolve = AsyncMock(return_value=resolved)
     identity = Identity(user_id="u1", agent_id="agent_a")
 
     result = await executor._fetch_context_refs_content(["fact_a"], identity)
 
-    assert result == "[Shared Context from Parent Agent]\n\n<memory_context>ctx</memory_context>"
-    kernel.local_bus.request.assert_awaited_once_with(
-        GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-        ["fact_a"],
-        identity,
+    assert result == "[Shared Context from Parent Agent]\n\n[fact_a]:\nctx"
+    executor._alias_resolver.resolve.assert_awaited_once()
+    kernel.local_bus.request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
+    executor, kernel = _build_executor([])
+    atom = MagicMock()
+    atom.payload.content = "canonical ctx"
+    atom.get_alias.return_value = "fact_canonical"
+    resolved = MagicMock()
+    resolved.kind = "redirect"
+    resolved.atom = atom
+    resolved.pending = None
+    resolved.canonical_alias = "fact_canonical"
+    executor._alias_resolver.resolve = AsyncMock(return_value=resolved)
+    identity = Identity(user_id="u1", agent_id="agent_a")
+
+    result = await executor._fetch_context_refs_content(["draft_ctx_1234"], identity)
+
+    assert result == (
+        "[Shared Context from Parent Agent]\n\n"
+        "[fact_canonical]:\ncanonical ctx"
     )
+    executor._alias_resolver.resolve.assert_awaited_once()
+    kernel.local_bus.request.assert_not_called()
 
 
 def test_chat_result_default_turn_events():

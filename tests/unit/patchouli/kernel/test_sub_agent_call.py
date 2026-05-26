@@ -25,7 +25,7 @@ from hivememory.core.models import (
     MemoryType,
     OMNI_DOLL_PROFILE,
 )
-from hivememory.alice.runtime.models import ExecutionFrame
+from hivememory.alice.runtime.models import ExecutionFrame, RuntimeScope
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import (
@@ -47,10 +47,9 @@ class TestExecutionFrame:
     def test_create_main_frame(self):
         """depth=0 的主帧"""
         frame = ExecutionFrame(
-            process_id="pid_main_1",
+            runtime_scope=RuntimeScope(frame_id="frame_main_1", depth=0),
             agent_profile=OMNI_DOLL_PROFILE,
             working_history=[{"role": "system", "content": "test"}],
-            depth=0,
             topic_id="topic_123",
             identity=Identity(user_id="u1"),
         )
@@ -58,30 +57,33 @@ class TestExecutionFrame:
         assert not frame.is_sub_frame()
         assert not frame.is_transient()
         assert frame.harvested_aliases == []
+        assert frame.runtime_scope.run_id == ""
 
     def test_create_sub_frame(self):
         """depth=1 的子帧（瞬态沙盒）"""
         frame = ExecutionFrame(
-            process_id="pid_sub_1",
+            runtime_scope=RuntimeScope(
+                frame_id="frame_sub_1",
+                parent_frame_id="frame_main_1",
+                depth=1,
+            ),
             agent_profile=OMNI_DOLL_PROFILE,
             working_history=[{"role": "user", "content": "write tests"}],
-            depth=1,
             topic_id=None,
-            parent_frame_id="pid_main_1",
             identity=Identity(user_id="u1"),
         )
         assert not frame.is_main_frame()
         assert frame.is_sub_frame()
         assert frame.is_transient()
-        assert frame.parent_frame_id == "pid_main_1"
+        assert frame.runtime_scope.parent_frame_id == "frame_main_1"
+        assert frame.runtime_scope.run_id == ""
 
     def test_harvest_alias(self):
         """别名收割"""
         frame = ExecutionFrame(
-            process_id="pid_sub_1",
+            runtime_scope=RuntimeScope(frame_id="frame_sub_1", depth=1),
             agent_profile=OMNI_DOLL_PROFILE,
             working_history=[],
-            depth=1,
             topic_id=None,
             identity=Identity(user_id="u1"),
         )
@@ -148,7 +150,7 @@ class TestKoakumaHandleCall:
         koakuma.context = MTPExecutionContext(
             identity=Identity(user_id="u1", agent_id="omni_doll"),
             agent_profile=OMNI_DOLL_PROFILE,
-            depth=depth,
+            runtime_scope=RuntimeScope(depth=depth),
         )
 
         # 绑定真实方法
@@ -242,9 +244,11 @@ class TestFrameScheduler:
             identity=Identity(user_id="u1"),
         )
 
-        assert frame.depth == 0
+        assert frame.runtime_scope.depth == 0
         assert frame.topic_id == "t1"
         assert frame.is_main_frame()
+        assert frame.runtime_scope.run_id.startswith("run_")
+        assert frame.runtime_scope.frame_id.startswith("frame_main_")
 
     def test_suspend_resume(self):
         """帧挂起/恢复"""
@@ -298,9 +302,11 @@ class TestFrameScheduler:
             shared_context="",
         )
 
-        assert sub_frame.depth == 1
+        assert sub_frame.runtime_scope.depth == 1
         assert sub_frame.topic_id is None
-        assert sub_frame.parent_frame_id == main_frame.process_id
+        assert sub_frame.runtime_scope.frame_id.startswith("frame_sub_")
+        assert sub_frame.runtime_scope.parent_frame_id == main_frame.runtime_scope.frame_id
+        assert sub_frame.runtime_scope.run_id == main_frame.runtime_scope.run_id
         assert sub_frame.is_sub_frame()
         assert sub_frame.is_transient()
         assert len(sub_frame.working_history) == 2  # system + user

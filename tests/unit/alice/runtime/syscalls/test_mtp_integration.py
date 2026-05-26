@@ -102,7 +102,7 @@ class TestFileIOViaMTP:
     @pytest.fixture
     def workspace(self):
         ws = Path.cwd() / ".test_tmp" / f"hivememory-mtp-{uuid4().hex}"
-        ws.mkdir()
+        ws.mkdir(parents=True)
         try:
             yield ws
         finally:
@@ -110,11 +110,11 @@ class TestFileIOViaMTP:
 
     @pytest.fixture
     def file_koakuma(self, workspace):
-        from .conftest import make_mock_bus
+        from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
-        return KoakumaRuntime(
-            bus=bus,
-            config=KoakumaConfig(workspace_path=str(workspace)),
+        return make_koakuma_runtime(
+            bus,
+            KoakumaConfig(workspace_path=str(workspace)),
         )
 
     def test_read_file_via_mtp(self, file_koakuma, workspace):

@@ -67,11 +67,11 @@ def _make_retrieval_response(memories=None, rendered_context=None) -> RetrievalR
 
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
-    from .conftest import make_mock_bus
+    from .conftest import make_koakuma_runtime, make_mock_bus
     mock_retrieval = MagicMock()
     mock_retrieval.retrieve.return_value = _make_retrieval_response()
     bus = make_mock_bus(mock_retrieval=mock_retrieval)
-    return KoakumaRuntime(bus=bus, config=KoakumaConfig())
+    return make_koakuma_runtime(bus, KoakumaConfig())
 
 
 def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
@@ -304,8 +304,8 @@ class TestSearchAliasRegistration:
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="api spec" ⟫')
 
-        assert koakuma._atom_cache.has_alias("fact_api_spec")
-        atom = koakuma._atom_cache.get_atom_by_alias("fact_api_spec")
+        assert koakuma.atom_cache.has_alias("fact_api_spec")
+        atom = koakuma.atom_cache.get_atom_by_alias("fact_api_spec")
         assert atom is not None
         assert str(atom.id) == str(mem.id)
 
@@ -318,8 +318,8 @@ class TestSearchAliasRegistration:
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
-        assert koakuma._atom_cache.has_alias("fact_a")
-        assert koakuma._atom_cache.has_alias("fact_b")
+        assert koakuma.atom_cache.has_alias("fact_a")
+        assert koakuma.atom_cache.has_alias("fact_b")
 
     def test_registered_alias_resolvable_by_read(self, koakuma):
         """SEARCH 注册的 alias 可被 READ 解析"""

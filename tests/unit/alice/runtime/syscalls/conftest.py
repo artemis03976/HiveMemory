@@ -7,7 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from hivememory.system.config import KoakumaConfig
+from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -69,9 +71,26 @@ def make_mock_bus(mock_storage: Optional[MagicMock] = None, mock_retrieval: Opti
     return MockAsyncBus(mock_storage=mock_storage, mock_retrieval=mock_retrieval, mock_generation=mock_generation)
 
 
+def make_runtime_alias_resolver(bus: MockAsyncBus) -> RuntimeAliasResolver:
+    return RuntimeAliasResolver(
+        pending_cache=PendingAtomCache(),
+        atom_cache=KoakumaAtomCache(),
+        bus=bus,
+    )
+
+
+def make_koakuma_runtime(bus: MockAsyncBus, config=None) -> KoakumaRuntime:
+    return KoakumaRuntime(
+        bus=bus,
+        config=config or KoakumaConfig(),
+        alias_resolver=make_runtime_alias_resolver(bus),
+    )
+
+
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
-    return KoakumaRuntime(bus=make_mock_bus(), config=KoakumaConfig())
+    bus = make_mock_bus()
+    return make_koakuma_runtime(bus, KoakumaConfig())
 
 
 @pytest.fixture

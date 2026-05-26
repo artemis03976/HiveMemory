@@ -30,6 +30,7 @@ import logging
 
 from typing import TYPE_CHECKING, Any, Optional
 
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.runtime import PatchouliRuntime
@@ -37,6 +38,7 @@ from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
@@ -92,6 +94,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._scheduler = scheduler
         self._public_routes_registered = False
         self._maintenance_registered = False
+        self._local_events_registered = False
 
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
 
@@ -190,6 +193,10 @@ class PatchouliSystem(SubsystemProtocol):
         if not self.runtime.local_routes_registered:
             self.runtime.mount_local_routes(self.service)
 
+        if self._global_bus and not self._local_events_registered:
+            self._register_local_event_bridges()
+            self._local_events_registered = True
+
         if self._global_bus and not self._public_routes_registered:
             self._register_public_routes()
             self._public_routes_registered = True
@@ -209,6 +216,10 @@ class PatchouliSystem(SubsystemProtocol):
         if self._global_bus and self._public_routes_registered:
             self._unregister_public_routes()
             self._public_routes_registered = False
+
+        if self._global_bus and self._local_events_registered:
+            self._unregister_local_event_bridges()
+            self._local_events_registered = False
 
         self.runtime.unmount_local_routes()
 
@@ -272,6 +283,26 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus.unregister(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.MANUAL_ARCHIVE_TOPIC)
         self._global_bus.unregister(PatchouliRoutes.RECORD_MEMORY_CITATION)
+
+    def _register_local_event_bridges(self) -> None:
+        self.runtime.local_bus.subscribe(
+            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+            self._forward_pending_atom_settled,
+        )
+
+    def _unregister_local_event_bridges(self) -> None:
+        self.runtime.local_bus.unsubscribe(
+            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+            self._forward_pending_atom_settled,
+        )
+
+    async def _forward_pending_atom_settled(self, *, settlement) -> None:
+        if self._global_bus is None:
+            return
+        await self._global_bus.publish(
+            GlobalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
 
 
 __all__ = [

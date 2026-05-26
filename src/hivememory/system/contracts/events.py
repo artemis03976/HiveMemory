@@ -15,3 +15,8 @@ class SystemEvent:
     event_type: SystemEventType
     subsystem_name: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+class GlobalEvents:
+    """Global pub/sub event names for GlobalSystemBus."""
+    PENDING_ATOM_SETTLED = "alice.events.pending_atom.settled"

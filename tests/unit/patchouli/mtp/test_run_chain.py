@@ -26,6 +26,7 @@ from hivememory.core.models import (
 )
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.system.config import KoakumaConfig
 
 
@@ -71,9 +72,9 @@ def _make_fact_memory(mem_id=None, alias: str = "fact_not_tool") -> MemoryAtom:
 
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
-    from .conftest import make_mock_bus
+    from .conftest import make_koakuma_runtime, make_mock_bus
     bus = make_mock_bus()
-    return KoakumaRuntime(bus=bus, config=KoakumaConfig())
+    return make_koakuma_runtime(bus, KoakumaConfig())
 
 
 def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
@@ -190,7 +191,7 @@ class TestRunUserToolPath:
     def test_l1_alias_hit_executes(self, koakuma):
         """L1 别名命中 → 加载 → 执行"""
         mem = _make_code_memory(code="print('from l1')", alias="tool_l1")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_l1 | ⟫')
 
@@ -226,7 +227,7 @@ class TestRunUserToolPath:
     def test_non_code_snippet_rejected(self, koakuma):
         """类型不是 CODE_SNIPPET 时拒绝执行"""
         fact_mem = _make_fact_memory()
-        koakuma._atom_cache.ingest_atom(fact_mem)
+        koakuma.atom_cache.ingest_atom(fact_mem)
 
         result = _execute_mtp(koakuma, '⟪ RUN | fact_not_tool | ⟫')
 
@@ -282,7 +283,7 @@ class TestRunUserToolPath:
     def test_cache_hit_after_ingest(self, koakuma):
         """缓存命中后直接执行，不查 Qdrant"""
         mem = _make_code_memory(code="print('cached')", alias="tool_cached_ingest")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_cached_ingest | ⟫')
 
@@ -291,6 +292,40 @@ class TestRunUserToolPath:
         # 验证没有查 Qdrant
         koakuma._bus._mock_storage.get_memory.assert_not_called()
         koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
+
+    def test_redirected_pending_alias_executes_canonical_tool(self, koakuma):
+        pending = koakuma.pending_cache.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=MTPExecutionContext().identity,
+        )
+        canonical = _make_code_memory(
+            code="print('redirected tool output')",
+            alias="tool_canonical",
+        )
+        koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.pending_cache.apply_settlement(
+            PendingAtomSettlement(
+                pending_alias=pending.pending_alias,
+                intent_id=pending.intent_id,
+                status="COMMITTED",
+                duplicate_decision="CREATE",
+                canonical_alias="tool_canonical",
+                canonical_uuid=str(canonical.id),
+            )
+        )
+
+        result = _execute_mtp(koakuma, f'⟪ RUN | {pending.pending_alias} | ⟫')
+
+        assert result.success
+        assert "[Alias Redirected]" in result.response_content
+        assert f"Requested alias: {pending.pending_alias}" in result.response_content
+        assert "Canonical alias: tool_canonical" in result.response_content
+        assert "redirected tool output" in result.response_content
+        assert koakuma._bus._memory_citations == [
+            {"memory_id": canonical.id, "source": "mtp.run"}
+        ]
 
     def test_user_tool_success_returns_execution_result(self, koakuma):
         """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
@@ -317,11 +352,10 @@ class TestRunUserToolPath:
 
     def test_citation_failure_keeps_user_tool_success_response(self, koakuma):
         mem = _make_code_memory(code="print('still ok')", alias="tool_cite_fail")
-        koakuma._atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem)
         koakuma._bus.unregister("patchouli.public.record_memory_citation")
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_cite_fail | ⟫')
 
         assert result.success
         assert "still ok" in result.response_content
-
