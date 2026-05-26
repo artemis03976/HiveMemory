@@ -162,7 +162,10 @@ class TestMemoryGenerationEngineLogic:
         result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
-        assert result[0].index.title == "Test"
+        assert result[0].operation == "created"
+        assert result[0].duplicate_decision == "CREATE"
+        assert result[0].atom is not None
+        assert result[0].atom.index.title == "Test"
         
         # 验证存储调用
         self.mock_storage.upsert_memory.assert_called_once()
@@ -175,7 +178,9 @@ class TestMemoryGenerationEngineLogic:
         result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
-        assert result[0] == self.memory_atom
+        assert result[0].operation == "touched"
+        assert result[0].duplicate_decision == "TOUCH"
+        assert result[0].atom == self.memory_atom
         
         # 验证只更新访问信息，不重新插入
         self.mock_storage.update_access_info.assert_called_once_with(self.memory_atom.id)
@@ -194,7 +199,10 @@ class TestMemoryGenerationEngineLogic:
         result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
-        assert result[0].index.title == "Merged Title"
+        assert result[0].operation == "merged"
+        assert result[0].duplicate_decision == "UPDATE"
+        assert result[0].atom is not None
+        assert result[0].atom.index.title == "Merged Title"
         
         # 验证调用了合并和存储
         self.mock_deduplicator.merge_memory.assert_called_once()
@@ -207,7 +215,10 @@ class TestMemoryGenerationEngineLogic:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None)
         
         result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
-        assert result == []
+        assert len(result) == 1
+        assert result[0].operation == "discarded"
+        assert result[0].duplicate_decision == "DISCARD"
+        assert result[0].atom is None
         self.mock_storage.upsert_memory.assert_not_called()
 
     def test_draft_to_memory_conversion(self):
@@ -273,7 +284,9 @@ class TestEngineComponentCoordination:
 
         assert result is not None
         assert len(result) == 1
-        assert result[0].index.title == "测试记忆"
+        assert result[0].operation == "created"
+        assert result[0].atom is not None
+        assert result[0].atom.index.title == "测试记忆"
         
         # 验证组件被正确调用
         mock_llm.complete_with_retry.assert_called()

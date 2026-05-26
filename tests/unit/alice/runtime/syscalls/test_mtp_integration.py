@@ -102,7 +102,7 @@ class TestFileIOViaMTP:
     @pytest.fixture
     def workspace(self):
         ws = Path.cwd() / ".test_tmp" / f"hivememory-mtp-{uuid4().hex}"
-        ws.mkdir()
+        ws.mkdir(parents=True)
         try:
             yield ws
         finally:
