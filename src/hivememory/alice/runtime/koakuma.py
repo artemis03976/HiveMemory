@@ -42,8 +42,8 @@ from hivememory.core.mtp import (
 )
 from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
 from hivememory.alice.runtime.models import MTPExecutionContext
-from hivememory.alice.runtime.pending_renderer import PendingAtomRenderer
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
+from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget, MemoryCompileOptions
 from hivememory.core.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,
@@ -125,6 +125,8 @@ class KoakumaRuntime:
             file_write_max_bytes=self._config.file_write_max_bytes,
             web_search_timeout=self._config.web_search_timeout_seconds,
         )
+
+        self._compiler = MemoryCompiler()
 
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
 
@@ -444,7 +446,6 @@ class KoakumaRuntime:
             content=content,
         )
 
-    # TODO: 由MemoryCompiler统一接管渲染/编译逻辑
     async def _handle_read(
         self,
         command: MTPCommand,
@@ -507,32 +508,31 @@ class KoakumaRuntime:
                 content="\n".join(lines),
             )
 
-        # 直接从缓存的原子中提取内容（无需查询数据库）
-        read_results = self._format_cached_atoms(resolved) if resolved else {}
-
-        # 组装输出
+        # 组装输出 — 通过 MemoryCompiler 统一编译
         output_lines: List[str] = []
         for alias, pending in resolved_pending:
-            output_lines.append(PendingAtomRenderer.render_read(pending))
+            artifact = self._compiler.compile(
+                pending, MemoryCompileTarget.MTP_READ,
+            )
+            output_lines.append(artifact.text)
         for alias, result in resolved_redirects:
-            canonical_alias = result.canonical_alias or result.atom.get_alias()
-            output_lines.append(
-                PendingAtomRenderer.render_redirect_read(
-                    requested_alias=alias,
-                    canonical_alias=canonical_alias,
-                    atom=result.atom,
-                    settlement=result.settlement,
-                )
+            artifact = self._compiler.compile(
+                result, MemoryCompileTarget.MTP_READ,
+                MemoryCompileOptions(requested_alias=alias),
             )
+            output_lines.append(artifact.text)
         for alias, result in resolved_settled:
-            output_lines.append(
-                PendingAtomRenderer.render_settled_without_atom(
-                    requested_alias=alias,
-                    settlement=result.settlement,
-                )
+            artifact = self._compiler.compile(
+                result, MemoryCompileTarget.MTP_READ,
+                MemoryCompileOptions(requested_alias=alias),
             )
-        for alias, _ in resolved:
-            output_lines.append(read_results[alias])
+            output_lines.append(artifact.text)
+        for alias, atom in resolved:
+            artifact = self._compiler.compile(
+                atom, MemoryCompileTarget.MTP_READ,
+                MemoryCompileOptions(requested_alias=alias),
+            )
+            output_lines.append(artifact.text)
         for alias in unresolved:
             output_lines.append(
                 f"[{alias}]: [Alias Not Found] Alias '{alias}' not found. "
@@ -620,19 +620,18 @@ class KoakumaRuntime:
             )
         if resolved.kind == "redirect" and resolved.atom is not None:
             canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
-            redirect_notice = PendingAtomRenderer.render_redirect_run_notice(
-                requested_alias=alias,
-                canonical_alias=canonical_alias,
-                settlement=resolved.settlement,
-            )
+            redirect_notice = self._compiler.compile(
+                resolved, MemoryCompileTarget.MTP_REDIRECT_NOTICE,
+                MemoryCompileOptions(requested_alias=alias),
+            ).text
             alias = canonical_alias
         elif resolved.kind in {"discarded", "failed"}:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=PendingAtomRenderer.render_settled_without_atom(
-                    requested_alias=alias,
-                    settlement=resolved.settlement,
-                ),
+                content=self._compiler.compile(
+                    resolved, MemoryCompileTarget.MTP_READ,
+                    MemoryCompileOptions(requested_alias=alias),
+                ).text,
             )
         if resolved.kind not in {"atom", "redirect"} or resolved.atom is None:
             return MTPResponse(
@@ -708,7 +707,7 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=PendingAtomRenderer.render_ack(pending),
+            content=self._compiler.compile(pending, MemoryCompileTarget.MTP_ACK).text,
             write_focus=pending.focus,
             pending_alias=pending.pending_alias,
         )
@@ -793,7 +792,7 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=PendingAtomRenderer.render_ack(pending),
+            content=self._compiler.compile(pending, MemoryCompileTarget.MTP_ACK).text,
             update_focus=pending.focus,
             pending_alias=pending.pending_alias,
         )
@@ -876,25 +875,6 @@ class KoakumaRuntime:
         )
 
     # ========== 辅助方法 ==========
-
-    def _format_cached_atoms(
-        self, resolved: List[Tuple[str, "MemoryAtom"]]
-    ) -> Dict[str, str]:
-        """
-        格式化已缓存的记忆原子内容
-
-        直接使用缓存的原子，无需查询数据库。
-
-        Args:
-            resolved: [(alias, atom), ...] 已解析的别名-原子对
-
-        Returns:
-            {alias: formatted_content} 结果映射
-        """
-        results: Dict[str, str] = {}
-        for alias, atom in resolved:
-            results[alias] = f"[{alias}]:\n{atom.payload.content}"
-        return results
 
     async def _record_memory_citation(self, atom: "MemoryAtom", source: str) -> None:
         if self._bus is None:

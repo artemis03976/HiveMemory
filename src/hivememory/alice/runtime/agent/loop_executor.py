@@ -24,7 +24,7 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
 from hivememory.core.protocol.models import ChatResult
 from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
-from hivememory.alice.runtime.pending_renderer import PendingAtomRenderer
+from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget, MemoryCompileOptions
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
@@ -657,7 +657,6 @@ class KernelLoopExecutor:
                 None,
             )
 
-    # TODO: 由MemoryCompiler统一接管渲染/编译逻辑
     async def _fetch_context_refs_content(
         self,
         aliases: List[str],
@@ -666,6 +665,7 @@ class KernelLoopExecutor:
         if not aliases:
             return ""
 
+        compiler = MemoryCompiler()
         parts: List[str] = []
         context = MTPExecutionContext(identity=identity)
         for alias in aliases:
@@ -675,13 +675,14 @@ class KernelLoopExecutor:
                 logger.warning(f"Failed to resolve context_ref {alias}: {e}")
                 continue
 
-            if resolved.kind == "pending" and resolved.pending is not None:
-                parts.append(PendingAtomRenderer.render_read(resolved.pending))
-            elif resolved.kind == "redirect" and resolved.atom is not None:
-                canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
-                parts.append(f"[{canonical_alias}]:\n{resolved.atom.payload.content}")
-            elif resolved.kind == "atom" and resolved.atom is not None:
-                parts.append(f"[{alias}]:\n{resolved.atom.payload.content}")
+            if resolved.kind in {"pending", "redirect", "atom"} and (
+                resolved.pending is not None or resolved.atom is not None
+            ):
+                artifact = compiler.compile(
+                    resolved, MemoryCompileTarget.SHARED_CONTEXT,
+                    MemoryCompileOptions(requested_alias=alias),
+                )
+                parts.append(artifact.text)
             else:
                 logger.warning(f"Context ref alias not found: {alias}")
 

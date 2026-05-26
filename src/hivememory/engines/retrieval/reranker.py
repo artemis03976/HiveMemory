@@ -17,9 +17,11 @@ from hivememory.engines.retrieval.interfaces import BaseReranker
 from hivememory.engines.retrieval.models import SearchResults, RetrievalQuery
 from hivememory.system.config import RerankerConfig
 from hivememory.infrastructure.rerank.base import BaseRerankService
-from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
+from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 
 logger = logging.getLogger(__name__)
+
+_compiler = MemoryCompiler()
 
 
 class NoopReranker(BaseReranker):
@@ -137,7 +139,7 @@ class CrossEncoderReranker(BaseReranker):
         # 2. 构建 [query, passage] 对
         query_text = query.semantic_query
         pairs = [
-            [query_text, MemoryAtomRenderer.for_dense_embedding(r.memory)]
+            [query_text, _compiler.compile(r.memory, MemoryCompileTarget.DENSE_EMBEDDING).text]
             for r in candidates
         ]
 

@@ -22,13 +22,12 @@ from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.utils import estimate_tokens
-from hivememory.utils.memory_atom_renderer import (
-    MemoryAtomRenderer,
-    MEMORY_HEADER,
-    MEMORY_FOOTER,
-)
+from hivememory.utils.memory_atom_renderer import MEMORY_HEADER, MEMORY_FOOTER
+from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget, MemoryCompileOptions
 
 logger = logging.getLogger(__name__)
+
+_compiler = MemoryCompiler()
 
 
 # ========== 空结果提示 ==========
@@ -88,7 +87,8 @@ def _render_agent_profiles_section(agents: List[MemoryAtom], *, has_memories: bo
     if agents:
         lines = ["\n### 可用子代理 (Available Sub-Agents)"]
         for agent in agents:
-            lines.append(MemoryAtomRenderer.for_agent_profile(agent))
+            artifact = _compiler.compile(agent, MemoryCompileTarget.AGENT_PROFILE_MENU)
+            lines.append(artifact.text)
         return "\n".join(lines)
 
     if has_memories:
@@ -159,11 +159,13 @@ class FullContextRenderer(BaseContextRenderer):
         return result
 
     def _render_memory(self, memory: MemoryAtom) -> str:
-        return MemoryAtomRenderer.for_full_context(
-            memory=memory,
-            max_content_length=self.max_content_length,
-            stale_days=self.stale_days,
-        )
+        return _compiler.compile(
+            memory, MemoryCompileTarget.PROMPT_FULL,
+            MemoryCompileOptions(
+                max_content_length=self.max_content_length,
+                stale_days=self.stale_days,
+            ),
+        ).text
 
 
 class CascadeContextRenderer(BaseContextRenderer):
@@ -219,10 +221,10 @@ class CascadeContextRenderer(BaseContextRenderer):
         for i, memory in enumerate(memories):
             # Top-N 强制完整渲染
             if i < self.config.full_payload_count:
-                full_block = MemoryAtomRenderer.for_full_context(
-                    memory=memory,
-                    max_content_length=self.config.max_content_length,
-                )
+                full_block = _compiler.compile(
+                    memory, MemoryCompileTarget.PROMPT_FULL,
+                    MemoryCompileOptions(max_content_length=self.config.max_content_length),
+                ).text
                 full_tokens = estimate_tokens(full_block)
 
                 if full_tokens <= remaining_budget:
@@ -232,10 +234,10 @@ class CascadeContextRenderer(BaseContextRenderer):
                 # 预算不足，降级为 Index
 
             # 尝试 Index 视图渲染
-            index_block = MemoryAtomRenderer.for_index_context(
-                memory=memory,
-                max_summary_length=self.config.index_max_summary_length,
-            )
+            index_block = _compiler.compile(
+                memory, MemoryCompileTarget.PROMPT_INDEX,
+                MemoryCompileOptions(max_summary_length=self.config.index_max_summary_length),
+            ).text
             index_tokens = estimate_tokens(index_block)
 
             if index_tokens <= remaining_budget:
@@ -278,10 +280,10 @@ class CompactContextRenderer(BaseContextRenderer):
         remaining_budget = available_budget
 
         for memory in memories:
-            block = MemoryAtomRenderer.for_index_context(
-                memory=memory,
-                max_summary_length=self.config.index_max_summary_length,
-            )
+            block = _compiler.compile(
+                memory, MemoryCompileTarget.PROMPT_INDEX,
+                MemoryCompileOptions(max_summary_length=self.config.index_max_summary_length),
+            ).text
             block_tokens = estimate_tokens(block)
 
             if block_tokens <= remaining_budget:
