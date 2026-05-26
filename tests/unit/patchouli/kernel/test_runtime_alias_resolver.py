@@ -14,6 +14,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
+from hivememory.engines.generation.models import PendingAtomSettlement
 
 from tests.unit.patchouli.mtp.conftest import make_mock_bus
 
@@ -60,6 +61,98 @@ async def test_resolve_l0_pending_hit(resolver_parts):
 
     assert result.kind == "pending"
     assert result.pending is pending
+    bus._mock_storage.get_memory_by_alias.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
+    resolver, pending_cache, atom_cache, bus = resolver_parts
+    pending = pending_cache.register_write(
+        content="pending content",
+        title="Pending Note",
+        reason=None,
+        identity=Identity(user_id="test_user"),
+    )
+    canonical = _make_memory(alias="fact_canonical", content="canonical content")
+    atom_cache.ingest_atom(canonical)
+    settlement = PendingAtomSettlement(
+        pending_alias=pending.pending_alias,
+        intent_id=pending.intent_id,
+        status="COMMITTED",
+        duplicate_decision="CREATE",
+        canonical_alias="fact_canonical",
+        canonical_uuid=str(canonical.id),
+    )
+
+    pending_cache.apply_settlement(settlement)
+    result = await resolver.resolve(pending.pending_alias)
+
+    assert result.kind == "redirect"
+    assert result.requested_alias == pending.pending_alias
+    assert result.pending is pending
+    assert result.settlement is settlement
+    assert result.canonical_alias == "fact_canonical"
+    assert result.canonical_uuid == str(canonical.id)
+    assert result.atom is canonical
+    assert pending_cache.get_redirect(pending.pending_alias) is settlement
+    assert pending.pending_alias in pending_cache.get_pending_aliases_for_canonical_uuid(
+        str(canonical.id)
+    )
+    bus._mock_storage.get_memory_by_alias.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
+    resolver, pending_cache, atom_cache, bus = resolver_parts
+    pending = pending_cache.register_write(
+        content="pending content",
+        title="Pending Note",
+        reason=None,
+        identity=Identity(user_id="test_user"),
+    )
+    canonical = _make_memory(alias="fact_canonical", content="from storage")
+    bus._mock_storage.get_memory_by_alias.return_value = canonical
+    settlement = PendingAtomSettlement(
+        pending_alias=pending.pending_alias,
+        intent_id=pending.intent_id,
+        status="MERGED",
+        duplicate_decision="UPDATE",
+        canonical_alias="fact_canonical",
+        canonical_uuid=str(canonical.id),
+    )
+
+    pending_cache.apply_settlement(settlement)
+    result = await resolver.resolve(pending.pending_alias)
+
+    assert result.kind == "redirect"
+    assert result.atom is canonical
+    assert atom_cache.get_atom_by_alias("fact_canonical") is canonical
+
+
+@pytest.mark.asyncio
+async def test_resolve_discarded_pending_without_redirect(resolver_parts):
+    resolver, pending_cache, _atom_cache, bus = resolver_parts
+    pending = pending_cache.register_write(
+        content="pending content",
+        title="Pending Note",
+        reason=None,
+        identity=Identity(user_id="test_user"),
+    )
+    settlement = PendingAtomSettlement(
+        pending_alias=pending.pending_alias,
+        intent_id=pending.intent_id,
+        status="DISCARDED",
+        duplicate_decision="DISCARD",
+        message="Not materialized.",
+    )
+
+    pending_cache.apply_settlement(settlement)
+    result = await resolver.resolve(pending.pending_alias)
+
+    assert result.kind == "discarded"
+    assert result.pending is pending
+    assert result.settlement is settlement
+    assert result.atom is None
     bus._mock_storage.get_memory_by_alias.assert_not_called()
 
 

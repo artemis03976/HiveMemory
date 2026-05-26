@@ -104,8 +104,8 @@ HiveMemory 中需要一个 settlement 机制：
 ```text
 pending_alias=draft_login_api_7f3a
 status=COMMITTED
-final_alias=mem_login_api_spec
-final_uuid=...
+canonical_alias=mem_login_api_spec
+canonical_uuid=...
 ```
 
 ---
@@ -135,29 +135,13 @@ class PendingAtom:
     source_verb: Literal["WRITE", "UPDATE"]
     status: PendingAtomStatus
 
-    title: str | None
-    content: str
-    reason: str | None
-    instruction: str | None
-
-    target_alias: str | None
-    target_uuid: str | None
+    focus: WriteFocus | UpdateFocus
 
     identity: Identity
-    run_id: str
-    frame_id: str
-    parent_frame_id: str | None
-    action_id: str | None
-    agent_alias: str | None
-    depth: int
+    runtime_scope: RuntimeScope
 
     created_at: datetime
-    updated_at: datetime
-    expires_at: datetime | None
-
-    final_alias: str | None
-    final_uuid: str | None
-    error: str | None
+    settlement: PendingAtomSettlement | None
 ```
 
 ## 4.2 PendingAtomCache
@@ -176,7 +160,7 @@ class PendingAtom:
 
 ```text
 pending_alias -> PendingAtom
-final_alias -> pending_alias? (optional)
+canonical_uuid -> [pending_alias...] (optional)
 intent_id -> pending_alias
 ```
 
@@ -239,13 +223,14 @@ class WriteFocus:
 class UpdateFocus:
     instruction: str
     content: str | None
-    target_uuid: str
-    target_alias: str
-    existing_memory: MemoryAtom | None
+    base_uuid: str
+    base_alias: str
     identity: Identity
     pending_alias: str | None
     intent_id: str | None
 ```
+
+`existing_memory` 不属于 `UpdateFocus`。它由 LibrarianCore 在进入 Mode C 生成前根据 `base_uuid` 加载，并作为 `GenerationRequest.existing_memory` 注入 GenerationEngine，避免把正式记忆主体混入 pending intent payload。
 
 建议格式：
 
@@ -272,7 +257,7 @@ Pending alias 必须与正式 memory alias 区分，避免覆盖长期记忆。
 
 ```text
 WRITE  -> draft_{slug}_{short_id}
-UPDATE -> rev_{target_alias}_{short_id}
+UPDATE -> rev_{base_alias}_{short_id}
 ```
 
 示例：
@@ -474,7 +459,7 @@ Koakuma:
   1. 解析并校验目标 alias
   2. 读取目标 atom 当前版本
   3. 生成 rev_mem_login_api_spec_b921
-  4. 创建 PendingAtom(source_verb=UPDATE, target_alias=...)
+  4. 创建 PendingAtom(source_verb=UPDATE, focus=UpdateFocus(base_alias=..., base_uuid=...))
   5. 写入 PendingAtomCache
   6. 构造 UpdateFocus，附带 pending_alias / intent_id
   7. 返回 ACK
@@ -484,7 +469,7 @@ Koakuma:
 
 MVP 建议：
 
-- `READ target_alias` 返回正式旧版本
+- `READ base_alias` 返回正式旧版本
 - `READ rev_xxx` 返回 pending revision
 - `READ rev_xxx` 不返回旧 atom 主体内容，避免 Agent 误以为旧内容已经完成修改
 - 回填文案明确 pending revision alias
@@ -508,7 +493,7 @@ L0 PendingAtomCache
 - L0 负责当前 run 内尚未物化的 pending atom / pending revision
 - L1 负责当前会话中已解析过的正式 `MemoryAtom`
 - L2 负责冷查询长期存储
-- `READ`、`RUN`、`UPDATE` 和 `context_refs` 后续都应通过该 resolver 获取 alias 对应对象、pending 视图或 canonical redirect
+- `READ`、`RUN`、`UPDATE` 和 `context_refs` 都应通过该 resolver 获取 alias 对应对象或 pending 视图；其中 `READ`、`RUN`、`context_refs` 在 Phase 2 处理 canonical redirect，`UPDATE redirected_alias` 的 canonicalization 延后到 Phase 3 或 Phase 4
 - pending alias 与正式 alias 使用不同命名空间，不允许 L0 覆盖同名正式 atom
 
 `READ pending_alias` 的输出应包含状态：
@@ -541,20 +526,16 @@ note: This is a runtime pending atom. Final memory generation is asynchronous.
 
 ## 11. Agent Loop 与多次 WRITE/UPDATE 聚合
 
-当前 `ChatResult.write_focus` / `update_focus` 是单值语义。PendingAtom 方案应同步修正为列表语义：
+`ChatResult.write_focus` / `update_focus` 应使用列表语义，但字段名仍保留当前命名：
 
 ```python
 class ChatResult:
-    write_foci: list[WriteFocus]
-    update_foci: list[UpdateFocus]
+    write_focus: list[WriteFocus]
+    update_focus: list[UpdateFocus]
     pending_aliases: list[str]
 ```
 
-兼容策略：
-
-- 保留旧字段一段时间，语义为最后一个 focus
-- 新链路优先消费列表字段
-- `InteractionPayload` 同步支持列表化 focus
+`InteractionPayload` 同步支持列表化 focus。
 
 否则长 run 内多个 `WRITE` / `UPDATE` 仍可能丢失。
 
@@ -657,12 +638,8 @@ DISCARD
 class PendingAtomSettlement:
     pending_alias: str
     intent_id: str
-    status: Literal["COMMITTED", "MERGED", "TOUCHED", "DISCARDED", "FAILED"]
+    status: Literal["COMMITTED", "MERGED", "UPDATED", "TOUCHED", "DISCARDED", "FAILED"]
     duplicate_decision: Literal["CREATE", "UPDATE", "TOUCH", "DISCARD"] | None
-    final_alias: str | None
-    final_uuid: str | None
-    target_alias: str | None
-    target_uuid: str | None
     canonical_alias: str | None
     canonical_uuid: str | None
     message: str
@@ -847,7 +824,7 @@ If you need a stable long-term alias, inspect READ status later or SEARCH after 
 WRITE 返回的是运行时 pending alias，不是最终长期记忆 alias。
 你可以在当前 run 内立即 READ 它。
 当后台生成完成后，该 alias 可能结算为正式记忆、合并到已有记忆、被丢弃或失败。
-如果系统返回 canonical alias，后续应使用 canonical alias 进行 READ / RUN / UPDATE。
+如果系统返回 canonical alias，后续应使用 canonical alias 进行 READ / RUN。`UPDATE redirected_alias` 的 canonicalization 延后到 Phase 3 或 Phase 4 评估实现。
 ```
 
 ---
@@ -877,8 +854,8 @@ action_id
 source_verb
 status_from
 status_to
-final_alias
-final_uuid
+canonical_alias
+canonical_uuid
 error
 ```
 
@@ -925,7 +902,7 @@ WRITE accepted -> draft_xxx pending -> mem_xxx committed
 2. 新增内存态 `PendingAtomCache`
 3. 新增 `RuntimeAliasResolver`，抽离三级记忆缓存命中管理逻辑
 4. `WRITE` 创建 `draft_{slug}_{short_id}` pending atom
-5. `UPDATE` 创建 `rev_{target_alias}_{short_id}` pending revision
+5. `UPDATE` 创建 `rev_{base_alias}_{short_id}` pending revision
 6. `READ` 优先解析 L0 `PendingAtomCache`
 7. 原地修改 `ChatResult` / `InteractionPayload` 的 focus 字段，使其支持列表形式
 8. 子 Agent `WRITE` / `UPDATE` 产生的 pending artifact 通过归属转移替代现有 harvest 实现，并在 IPC return 中返回给主 Agent
@@ -957,7 +934,7 @@ WRITE accepted -> draft_xxx pending -> mem_xxx committed
 5. `AliceRuntime` 订阅 settlement event，并调用 `PendingAtomCache.apply_settlement()`
 6. `PendingAtomCache` 根据 settlement 更新状态
 7. pending alias 物化后进入 redirect grace period
-8. `READ` / `RUN` / `UPDATE` / `context_refs` 对 redirect alias 做 canonicalization
+8. `READ` / `RUN` / `context_refs` 对 redirect alias 做 canonicalization
 9. `SEARCH` 只暴露 canonical alias，不暴露已 redirect 的 pending alias
 10. `READ redirected_alias` 渲染 canonical atom，并提示后续使用 canonical alias
 
@@ -967,7 +944,8 @@ WRITE accepted -> draft_xxx pending -> mem_xxx committed
 - `UPDATE` 结算后，`READ draft_xxx` 返回被合并的已有 atom
 - `TOUCH` 结算后，`READ draft_xxx` 返回被触达的已有 atom
 - `DISCARD` 结算后，`READ draft_xxx` 返回未物化说明，不表现为系统错误
-- `RUN` / `UPDATE` 使用 redirect alias 时，会自动操作 canonical atom
+- `RUN` 使用 redirect alias 时，会自动操作 canonical atom
+- `context_refs` 使用 redirect alias 时，会向子 Agent 注入 canonical atom 内容
 
 ### 18.3 Phase 3: Lifecycle 与 GC
 
@@ -980,12 +958,14 @@ WRITE accepted -> draft_xxx pending -> mem_xxx committed
 3. tombstone 中尽量保留 canonical alias
 4. TTL 后清理 tombstone
 5. cancellation / shutdown 时将未结算 pending atom 标记为 `CANCELLED` 或 `EXPIRED`
+6. 评估并实现 `UPDATE redirected_alias` 的 canonicalization 语义
 
 验收标准：
 
 - run 内旧 pending alias 始终能 redirect 到 canonical alias
 - run 结束后 tombstone 能给出 final alias 或 SEARCH 指引
 - GC 不会删除仍被当前 frame 栈引用的 pending alias
+- 如启用 `UPDATE redirected_alias` canonicalization，必须确保 ACK、revision pending alias 和 L1 cache invalidation 都指向 canonical atom
 
 ### 18.4 Phase 4: Event Stream 与 Ledger
 

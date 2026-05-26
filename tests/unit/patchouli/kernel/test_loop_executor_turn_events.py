@@ -338,6 +338,30 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
     kernel.local_bus.request.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
+    executor, kernel = _build_executor([])
+    atom = MagicMock()
+    atom.payload.content = "canonical ctx"
+    atom.get_alias.return_value = "fact_canonical"
+    resolved = MagicMock()
+    resolved.kind = "redirect"
+    resolved.atom = atom
+    resolved.pending = None
+    resolved.canonical_alias = "fact_canonical"
+    executor._alias_resolver.resolve = AsyncMock(return_value=resolved)
+    identity = Identity(user_id="u1", agent_id="agent_a")
+
+    result = await executor._fetch_context_refs_content(["draft_ctx_1234"], identity)
+
+    assert result == (
+        "[Shared Context from Parent Agent]\n\n"
+        "[fact_canonical]:\ncanonical ctx"
+    )
+    executor._alias_resolver.resolve.assert_awaited_once()
+    kernel.local_bus.request.assert_not_called()
+
+
 def test_chat_result_default_turn_events():
     """ChatResult 新字段有默认值，不破坏现有代码"""
     from hivememory.core.protocol.models import ChatResult

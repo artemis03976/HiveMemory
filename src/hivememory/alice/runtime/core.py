@@ -73,10 +73,42 @@ class AliceRuntime:
     async def _on_pending_atom_settled(self, *, settlement) -> None:
         """Handle settlement event from Patchouli generation pipeline."""
         self._pending_cache.apply_settlement(settlement)
+        await self._refresh_l1_cache_for_settlement(settlement)
         logger.info(
             f"Settlement applied: {settlement.pending_alias} -> "
             f"{settlement.status} (canonical={settlement.canonical_alias})"
         )
+
+    async def _refresh_l1_cache_for_settlement(self, settlement) -> None:
+        """Refresh L1 atom cache after a pending atom points to a canonical atom."""
+        canonical_alias = settlement.canonical_alias
+        if not canonical_alias:
+            return
+
+        self._atom_cache.invalidate_alias(canonical_alias)
+
+        try:
+            retrieval_response = await self._local_bus.request(
+                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+                aliases=[canonical_alias],
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Failed to refresh L1 cache for settled atom "
+                f"'{canonical_alias}': {exc}"
+            )
+            return
+
+        memories = getattr(retrieval_response, "memories", []) or []
+        memory = memories[0] if memories else None
+        if memory is None:
+            logger.debug(
+                f"No canonical atom returned while refreshing L1 cache: "
+                f"alias='{canonical_alias}'"
+            )
+            return
+
+        self._atom_cache.ingest_atom(memory)
 
     def mount_local_routes(self) -> None:
         if self._local_routes_registered:

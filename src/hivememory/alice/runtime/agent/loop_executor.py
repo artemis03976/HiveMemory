@@ -677,6 +677,9 @@ class KernelLoopExecutor:
 
             if resolved.kind == "pending" and resolved.pending is not None:
                 parts.append(PendingAtomRenderer.render_read(resolved.pending))
+            elif resolved.kind == "redirect" and resolved.atom is not None:
+                canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
+                parts.append(f"[{canonical_alias}]:\n{resolved.atom.payload.content}")
             elif resolved.kind == "atom" and resolved.atom is not None:
                 parts.append(f"[{alias}]:\n{resolved.atom.payload.content}")
             else:

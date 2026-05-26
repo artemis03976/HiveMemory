@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus, RuntimeScope
 from hivememory.core.models import AgentProfile, Identity, MemoryAtom, MemoryType
-from hivememory.engines.generation.models import UpdateFocus, WriteFocus
+from hivememory.engines.generation.models import PendingAtomSettlement, UpdateFocus, WriteFocus
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,8 @@ class PendingAtomCache:
     def __init__(self) -> None:
         self._atoms: Dict[str, PendingAtom] = {}
         self._intent_index: Dict[str, str] = {}
+        self._redirects: Dict[str, PendingAtomSettlement] = {}
+        self._canonical_index: Dict[str, List[str]] = {}
 
     def register_write(
         self,
@@ -121,7 +123,7 @@ class PendingAtomCache:
         logger.debug(f"Registered pending UPDATE: {pending_alias} (intent={intent_id})")
         return atom
 
-    def apply_settlement(self, settlement) -> None:
+    def apply_settlement(self, settlement: PendingAtomSettlement) -> None:
         """
         Apply a settlement from the generation pipeline to update pending atom state.
 
@@ -156,6 +158,15 @@ class PendingAtomCache:
             atom.status = new_status
 
         atom.settlement = settlement
+        if settlement.canonical_alias or settlement.canonical_uuid:
+            self._redirects[atom.pending_alias] = settlement
+            if settlement.canonical_uuid:
+                aliases = self._canonical_index.setdefault(
+                    settlement.canonical_uuid,
+                    [],
+                )
+                if atom.pending_alias not in aliases:
+                    aliases.append(atom.pending_alias)
 
         logger.debug(
             f"Settlement applied to '{atom.pending_alias}': "
@@ -173,6 +184,14 @@ class PendingAtomCache:
             return self._atoms.get(pending_alias)
         return None
 
+    def get_redirect(self, pending_alias: str) -> Optional[PendingAtomSettlement]:
+        """返回 pending alias 对应的 canonical redirect settlement。"""
+        return self._redirects.get(pending_alias)
+
+    def get_pending_aliases_for_canonical_uuid(self, canonical_uuid: str) -> List[str]:
+        """返回指向同一 canonical UUID 的 pending alias 列表。"""
+        return list(self._canonical_index.get(canonical_uuid, []))
+
     def has(self, alias: str) -> bool:
         """检查 alias 是否为已注册的 pending atom。"""
         return alias in self._atoms
@@ -189,6 +208,8 @@ class PendingAtomCache:
         """清空全部 pending atom。"""
         self._atoms.clear()
         self._intent_index.clear()
+        self._redirects.clear()
+        self._canonical_index.clear()
 
     @property
     def size(self) -> int:

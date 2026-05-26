@@ -479,18 +479,24 @@ class KoakumaRuntime:
 
         resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
         resolved_pending: List[Tuple[str, Any]] = []  # (alias, PendingAtom)
+        resolved_redirects: List[Tuple[str, Any]] = []  # (alias, ResolveResult)
+        resolved_settled: List[Tuple[str, Any]] = []  # (alias, ResolveResult)
         unresolved: List[str] = []
         for alias in aliases:
             result = await self._alias_resolver.resolve(alias, context=context)
             if result.kind == "pending" and result.pending is not None:
                 resolved_pending.append((alias, result.pending))
+            elif result.kind == "redirect" and result.atom is not None:
+                resolved_redirects.append((alias, result))
             elif result.kind == "atom" and result.atom is not None:
                 resolved.append((alias, result.atom))
+            elif result.kind in {"discarded", "failed"}:
+                resolved_settled.append((alias, result))
             else:
                 unresolved.append(alias)
 
         # 全部无效：直接返回错误
-        if not resolved and not resolved_pending:
+        if not resolved and not resolved_pending and not resolved_redirects and not resolved_settled:
             lines = [
                 f"[{a}]: [Alias Not Found] Alias '{a}' not found. "
                 f"Use SEARCH to discover the correct alias first."
@@ -508,6 +514,23 @@ class KoakumaRuntime:
         output_lines: List[str] = []
         for alias, pending in resolved_pending:
             output_lines.append(PendingAtomRenderer.render_read(pending))
+        for alias, result in resolved_redirects:
+            canonical_alias = result.canonical_alias or result.atom.get_alias()
+            output_lines.append(
+                PendingAtomRenderer.render_redirect_read(
+                    requested_alias=alias,
+                    canonical_alias=canonical_alias,
+                    atom=result.atom,
+                    settlement=result.settlement,
+                )
+            )
+        for alias, result in resolved_settled:
+            output_lines.append(
+                PendingAtomRenderer.render_settled_without_atom(
+                    requested_alias=alias,
+                    settlement=result.settlement,
+                )
+            )
         for alias, _ in resolved:
             output_lines.append(read_results[alias])
         for alias in unresolved:
@@ -522,6 +545,8 @@ class KoakumaRuntime:
         )
         for _, atom in resolved:
             await self._record_memory_citation(atom, "mtp.read")
+        for _, result in resolved_redirects:
+            await self._record_memory_citation(result.atom, "mtp.read")
         return response
 
     # TODO:检查run返回的MTP结果为何为误导模型认为执行失败，尽管显示执行成功
@@ -583,6 +608,7 @@ class KoakumaRuntime:
         # Level 1: 用户态工具路径 (统一原子缓存)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved = await self._alias_resolver.resolve(alias, context=context)
+        redirect_notice = ""
         if resolved.kind == "pending":
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -592,7 +618,23 @@ class KoakumaRuntime:
                     "Use READ to inspect it, or wait for the formal memory alias."
                 ),
             )
-        if resolved.kind != "atom" or resolved.atom is None:
+        if resolved.kind == "redirect" and resolved.atom is not None:
+            canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
+            redirect_notice = PendingAtomRenderer.render_redirect_run_notice(
+                requested_alias=alias,
+                canonical_alias=canonical_alias,
+                settlement=resolved.settlement,
+            )
+            alias = canonical_alias
+        elif resolved.kind in {"discarded", "failed"}:
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR,
+                content=PendingAtomRenderer.render_settled_without_atom(
+                    requested_alias=alias,
+                    settlement=resolved.settlement,
+                ),
+            )
+        if resolved.kind not in {"atom", "redirect"} or resolved.atom is None:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=f"[Alias Not Found] Tool alias '{alias}' not found. "
@@ -613,6 +655,8 @@ class KoakumaRuntime:
         code = atom.payload.content
         logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
         response = self._execute_user_tool(alias, code, command.args)
+        if redirect_notice:
+            response.content = f"{redirect_notice}{response.content}"
         if response.status == MTPResponseStatus.SUCCESS:
             await self._record_memory_citation(atom, "mtp.run")
         return response

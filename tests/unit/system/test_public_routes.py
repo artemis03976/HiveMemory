@@ -1,10 +1,20 @@
 """公开路由注册/卸载测试 — 验证 System 门面在生命周期中正确管理全局总线路由。"""
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+)
+from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.system import PatchouliSystem
@@ -14,6 +24,21 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 # ========== Alice ==========
+
+
+def _make_memory(alias: str, content: str) -> MemoryAtom:
+    return MemoryAtom(
+        id=uuid4(),
+        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        index=IndexLayer(
+            title="Test Memory",
+            summary="A test memory for public route behavior",
+            tags=["test"],
+            memory_type=MemoryType.FACT,
+            alias=alias,
+        ),
+        payload=PayloadLayer(content=content),
+    )
 
 
 class TestAlicePublicRoutes:
@@ -149,6 +174,39 @@ class TestAlicePublicRoutes:
         await system.stop()
 
         assert GlobalEvents.PENDING_ATOM_SETTLED not in self.global_bus.list_events()
+
+    @pytest.mark.asyncio
+    async def test_settlement_refreshes_alice_l1_atom_cache(self):
+        stale_atom = _make_memory("fact_canonical", "stale content")
+        fresh_atom = _make_memory("fact_canonical", "fresh content")
+        retrieve_by_aliases = AsyncMock(
+            return_value=SimpleNamespace(memories=[fresh_atom])
+        )
+        self.global_bus.register(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            retrieve_by_aliases,
+        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        await system.start()
+        system.runtime._atom_cache.ingest_atom(stale_atom)
+
+        settlement = PendingAtomSettlement(
+            pending_alias="draft_memory_1234",
+            intent_id="intent_1234",
+            status="COMMITTED",
+            duplicate_decision="CREATE",
+            canonical_alias="fact_canonical",
+            canonical_uuid=str(fresh_atom.id),
+        )
+
+        await self.global_bus.publish(
+            GlobalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
+
+        retrieve_by_aliases.assert_awaited_once_with(aliases=["fact_canonical"])
+        assert system.runtime._atom_cache.get_atom_by_alias("fact_canonical") is fresh_atom
+        assert system.runtime._atom_cache.get_atom_by_uuid(str(stale_atom.id)) is None
 
 
 # ========== Patchouli (lightweight — full integration tested in test_bootstrap) ==========

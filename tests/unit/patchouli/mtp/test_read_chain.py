@@ -24,6 +24,7 @@ from hivememory.core.models import (
 )
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.system.config import KoakumaConfig
 
 
@@ -145,6 +146,66 @@ class TestReadAliasResolution:
 
         assert result.success
         assert "readable" in result.response_content
+
+    def test_read_redirected_pending_alias(self, koakuma):
+        pending = koakuma.pending_cache.register_write(
+            content="pending content",
+            title="Pending Note",
+            reason=None,
+            identity=MTPExecutionContext().identity,
+        )
+        canonical = _make_memory(
+            content="canonical content",
+            alias="fact_canonical",
+        )
+        koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.pending_cache.apply_settlement(
+            PendingAtomSettlement(
+                pending_alias=pending.pending_alias,
+                intent_id=pending.intent_id,
+                status="COMMITTED",
+                duplicate_decision="CREATE",
+                canonical_alias="fact_canonical",
+                canonical_uuid=str(canonical.id),
+            )
+        )
+
+        result = _execute_mtp(koakuma, f'⟪ READ | {pending.pending_alias} | ⟫')
+
+        assert result.success
+        assert "[Alias Redirected]" in result.response_content
+        assert f"Requested alias: {pending.pending_alias}" in result.response_content
+        assert "Canonical alias: fact_canonical" in result.response_content
+        assert "[fact_canonical]:" in result.response_content
+        assert "canonical content" in result.response_content
+        assert "Use 'fact_canonical'" in result.response_content
+        assert koakuma._bus._memory_citations == [
+            {"memory_id": canonical.id, "source": "mtp.read"}
+        ]
+
+    def test_read_discarded_pending_alias(self, koakuma):
+        pending = koakuma.pending_cache.register_write(
+            content="pending content",
+            title="Pending Note",
+            reason=None,
+            identity=MTPExecutionContext().identity,
+        )
+        koakuma.pending_cache.apply_settlement(
+            PendingAtomSettlement(
+                pending_alias=pending.pending_alias,
+                intent_id=pending.intent_id,
+                status="DISCARDED",
+                duplicate_decision="DISCARD",
+                message="Not materialized.",
+            )
+        )
+
+        result = _execute_mtp(koakuma, f'⟪ READ | {pending.pending_alias} | ⟫')
+
+        assert result.success
+        assert "status: discarded" in result.response_content
+        assert "materialized: false" in result.response_content
+        assert "Not materialized." in result.response_content
 
 
 # ========== Test 3: Koakuma READ E2E ==========

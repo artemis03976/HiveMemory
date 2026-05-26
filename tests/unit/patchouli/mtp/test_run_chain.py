@@ -26,6 +26,7 @@ from hivememory.core.models import (
 )
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.system.config import KoakumaConfig
 
 
@@ -291,6 +292,40 @@ class TestRunUserToolPath:
         # 验证没有查 Qdrant
         koakuma._bus._mock_storage.get_memory.assert_not_called()
         koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
+
+    def test_redirected_pending_alias_executes_canonical_tool(self, koakuma):
+        pending = koakuma.pending_cache.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=MTPExecutionContext().identity,
+        )
+        canonical = _make_code_memory(
+            code="print('redirected tool output')",
+            alias="tool_canonical",
+        )
+        koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.pending_cache.apply_settlement(
+            PendingAtomSettlement(
+                pending_alias=pending.pending_alias,
+                intent_id=pending.intent_id,
+                status="COMMITTED",
+                duplicate_decision="CREATE",
+                canonical_alias="tool_canonical",
+                canonical_uuid=str(canonical.id),
+            )
+        )
+
+        result = _execute_mtp(koakuma, f'⟪ RUN | {pending.pending_alias} | ⟫')
+
+        assert result.success
+        assert "[Alias Redirected]" in result.response_content
+        assert f"Requested alias: {pending.pending_alias}" in result.response_content
+        assert "Canonical alias: tool_canonical" in result.response_content
+        assert "redirected tool output" in result.response_content
+        assert koakuma._bus._memory_citations == [
+            {"memory_id": canonical.id, "source": "mtp.run"}
+        ]
 
     def test_user_tool_success_returns_execution_result(self, koakuma):
         """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""

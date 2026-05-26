@@ -186,11 +186,11 @@ draft = ExtractedMemoryDraft(
 当 Worker Agent 通过 MTP 协议发出 `UPDATE` 指令时触发。Agent 请求修改一条已有记忆，Patchouli 执行智能合并。
 
 ```
-MTP UPDATE 指令 → UpdateFocus(instruction, content, target_alias) → Mode C 流程
+MTP UPDATE 指令 → UpdateFocus(instruction, content, base_alias, base_uuid) → Mode C 流程
 ```
 
 **流程**：
-1. 由 Koakuma 解析 `target_alias`，从 Storage 加载目标 `MemoryAtom`，注入 `UpdateFocus.existing_memory`。
+1. 由 Koakuma 解析 `base_alias`，生成携带 `base_alias/base_uuid` 的 `UpdateFocus`；LibrarianCore 在进入 Mode C 前根据 `base_uuid` 加载目标 `MemoryAtom`，并注入 `GenerationRequest.existing_memory`。
 2. 调用 `extractor.merge()`，使用 **Mode C Prompt** 执行 LLM 驱动的智能合并。
 3. LLM 输出 `MergeResult { new_content, changelog }`。
 4. 执行版本历史追踪：旧内容压入 `artifacts.full_history`，新内容覆盖 `payload.content`，版本号 +1。

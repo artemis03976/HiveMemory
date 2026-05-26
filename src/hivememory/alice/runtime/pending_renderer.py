@@ -11,7 +11,12 @@ PendingAtom 渲染器。
 from __future__ import annotations
 
 from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
-from hivememory.engines.generation.models import UpdateFocus, WriteFocus
+from hivememory.core.models import MemoryAtom
+from hivememory.engines.generation.models import (
+    PendingAtomSettlement,
+    UpdateFocus,
+    WriteFocus,
+)
 
 
 class PendingAtomRenderer:
@@ -86,6 +91,72 @@ class PendingAtomRenderer:
             f"It is readable during this run via READ. "
             f"Final memory generation will complete asynchronously."
         )
+
+    @staticmethod
+    def render_redirect_read(
+        *,
+        requested_alias: str,
+        canonical_alias: str,
+        atom: MemoryAtom,
+        settlement: PendingAtomSettlement | None = None,
+    ) -> str:
+        """渲染 READ redirect 响应，主体使用 canonical alias。"""
+        status = settlement.status.lower() if settlement else "redirected"
+        lines = [
+            "[Alias Redirected]",
+            f"Requested alias: {requested_alias}",
+            f"Canonical alias: {canonical_alias}",
+            f"Status: {status}",
+            "",
+            f"[{canonical_alias}]:",
+            atom.payload.content,
+            "",
+            f"Action: Use '{canonical_alias}' for future READ/RUN/UPDATE calls.",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def render_redirect_run_notice(
+        *,
+        requested_alias: str,
+        canonical_alias: str,
+        settlement: PendingAtomSettlement | None = None,
+    ) -> str:
+        """渲染 RUN redirect 提示头。"""
+        status = settlement.status.lower() if settlement else "redirected"
+        return "\n".join(
+            [
+                "[Alias Redirected]",
+                f"Requested alias: {requested_alias}",
+                f"Canonical alias: {canonical_alias}",
+                f"Status: {status}",
+                f"Action: Use '{canonical_alias}' for future RUN calls.",
+                "",
+            ]
+        )
+
+    @staticmethod
+    def render_settled_without_atom(
+        *,
+        requested_alias: str,
+        settlement: PendingAtomSettlement | None,
+    ) -> str:
+        """渲染已结算但未物化为 canonical atom 的 pending alias。"""
+        status = settlement.status.lower() if settlement else "settled"
+        message = settlement.message if settlement and settlement.message else ""
+        reason = settlement.reason if settlement and settlement.reason else ""
+        lines = [
+            f"[{requested_alias}]",
+            f"status: {status}",
+            "materialized: false",
+        ]
+        if message:
+            lines.append(f"message: {message}")
+        if reason:
+            lines.append(f"reason: {reason}")
+        lines.append("")
+        lines.append("Action: Use SEARCH to locate related finalized memory if needed.")
+        return "\n".join(lines)
 
 
 __all__ = ["PendingAtomRenderer"]
