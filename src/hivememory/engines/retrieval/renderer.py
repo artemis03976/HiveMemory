@@ -9,7 +9,7 @@
     - CascadeContextRenderer: 瀑布式渲染，Top-N 完整 + 其余 Index
     - CompactContextRenderer: 仅渲染 Index 层信息
 
-模板统一由 memory_atom_renderer 管理。
+单项记忆由 MemoryCompiler 编译，整体上下文由 retrieval envelope 包装。
 
 对应设计文档: PROJECT.md 5.2 节
 """
@@ -22,13 +22,22 @@ from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.utils import estimate_tokens
-from hivememory.utils.memory_atom_renderer import (
-    MemoryAtomRenderer,
-    MEMORY_HEADER,
+from hivememory.engines.memory_compiler import (
+    CompiledMemoryArtifact,
+    MemoryCompiler,
+    MemoryCompileOptions,
+    MemoryCompileTarget,
+    MemoryEnvelopeSection,
+    MemoryEnvelopeTarget,
+)
+from hivememory.engines.memory_compiler.envelope_templates import (
     MEMORY_FOOTER,
+    MEMORY_HEADER,
 )
 
 logger = logging.getLogger(__name__)
+
+_compiler = MemoryCompiler()
 
 
 # ========== 空结果提示 ==========
@@ -77,41 +86,33 @@ def _separate_agent_profiles(
     return regular, agents
 
 
-def _render_agent_profiles_section(agents: List[MemoryAtom], *, has_memories: bool) -> str:
-    """
-    渲染可用子代理区域 (Phase 2)
-
-    - 有 agents: 渲染 <agent_profile> 块列表
-    - 无 agents 但有记忆 (场景 3): 渲染占位提示
-    - 无 agents 且无记忆 (场景 1): 由调用方处理，此处返回空
-    """
-    if agents:
-        lines = ["\n### 可用子代理 (Available Sub-Agents)"]
-        for agent in agents:
-            lines.append(MemoryAtomRenderer.for_agent_profile(agent))
-        return "\n".join(lines)
-
-    if has_memories:
-        return f"\n### 可用子代理 (Available Sub-Agents)\n{_AGENT_EMPTY_HINT}"
-
-    return ""
+def _compile_agent_profile_artifacts(agents: List[MemoryAtom]) -> List[CompiledMemoryArtifact]:
+    artifacts: list[CompiledMemoryArtifact] = []
+    for agent in agents:
+        artifacts.append(_compiler.compile(agent, MemoryCompileTarget.AGENT_PROFILE_MENU))
+    return artifacts
 
 
-def _render_memories_section(blocks: List[str], *, has_agents: bool) -> str:
-    """
-    将已渲染的普通记忆块包裹在区域 title 下
-
-    - 有 blocks: 渲染记忆列表
-    - 无 blocks 但有子代理 (场景 2): 渲染占位提示
-    - 无 blocks 且无子代理 (场景 1): 由调用方处理，此处返回空
-    """
-    if blocks:
-        return "\n### 相关记忆 (Relevant Memories)\n" + "".join(blocks)
-
-    if has_agents:
-        return f"\n### 相关记忆 (Relevant Memories)\n{_MEMORY_EMPTY_HINT}"
-
-    return ""
+def _wrap_retrieval_context(
+    memory_artifacts: List[CompiledMemoryArtifact],
+    agent_artifacts: List[CompiledMemoryArtifact],
+) -> str:
+    sections = [
+        MemoryEnvelopeSection(
+            kind="memories",
+            artifacts=memory_artifacts,
+            empty_text=_MEMORY_EMPTY_HINT if agent_artifacts else None,
+        ),
+        MemoryEnvelopeSection(
+            kind="agent_profiles",
+            artifacts=agent_artifacts,
+            empty_text=_AGENT_EMPTY_HINT if memory_artifacts else None,
+        ),
+    ]
+    return _compiler.wrap(
+        envelope_target=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+        sections=sections,
+    ).text
 
 
 class FullContextRenderer(BaseContextRenderer):
@@ -135,34 +136,35 @@ class FullContextRenderer(BaseContextRenderer):
         all_memories = _extract_memories(results) if results else []
         memories, agent_profiles = _separate_agent_profiles(all_memories)
 
-        memory_blocks = []
+        memory_artifacts: list[CompiledMemoryArtifact] = []
         total_length = len(MEMORY_HEADER) + len(MEMORY_FOOTER)
 
         for memory in memories:
-            block = self._render_memory(memory)
+            artifact = self._render_memory(memory)
+            block = artifact.text
 
             if total_length + len(block) > self.max_tokens:
-                logger.debug(f"达到长度限制，截断至 {len(memory_blocks)} 条记忆")
+                logger.debug(f"达到长度限制，截断至 {len(memory_artifacts)} 条记忆")
                 break
 
-            memory_blocks.append(block)
+            memory_artifacts.append(artifact)
             total_length += len(block)
 
+        agent_artifacts = _compile_agent_profile_artifacts(agent_profiles)
+
         # 场景 1: 两者均空，返回精简闭环提示
-        if not memory_blocks and not agent_profiles:
+        if not memory_artifacts and not agent_artifacts:
             return _EMPTY_CONTEXT_NOTICE
 
-        result = MEMORY_HEADER
-        result += _render_memories_section(memory_blocks, has_agents=bool(agent_profiles))
-        result += _render_agent_profiles_section(agent_profiles, has_memories=bool(memory_blocks))
-        result += MEMORY_FOOTER
-        return result
+        return _wrap_retrieval_context(memory_artifacts, agent_artifacts)
 
-    def _render_memory(self, memory: MemoryAtom) -> str:
-        return MemoryAtomRenderer.for_full_context(
-            memory=memory,
-            max_content_length=self.max_content_length,
-            stale_days=self.stale_days,
+    def _render_memory(self, memory: MemoryAtom) -> CompiledMemoryArtifact:
+        return _compiler.compile(
+            memory, MemoryCompileTarget.PROMPT_FULL,
+            MemoryCompileOptions(
+                max_content_length=self.max_content_length,
+                stale_days=self.stale_days,
+            ),
         )
 
 
@@ -196,56 +198,55 @@ class CascadeContextRenderer(BaseContextRenderer):
             logger.warning("Token 预算不足以容纳头尾模板")
             return ""
 
-        rendered_blocks, _ = self._render_with_budget(memories, available_budget)
+        rendered_artifacts, _ = self._render_with_budget(memories, available_budget)
+        agent_artifacts = _compile_agent_profile_artifacts(agent_profiles)
 
         # 场景 1: 两者均空，返回精简闭环提示
-        if not rendered_blocks and not agent_profiles:
+        if not rendered_artifacts and not agent_artifacts:
             return _EMPTY_CONTEXT_NOTICE
 
-        result = MEMORY_HEADER
-        result += _render_memories_section(rendered_blocks, has_agents=bool(agent_profiles))
-        result += _render_agent_profiles_section(agent_profiles, has_memories=bool(rendered_blocks))
-        result += MEMORY_FOOTER
-        return result
+        return _wrap_retrieval_context(rendered_artifacts, agent_artifacts)
 
     def _render_with_budget(
         self,
         memories: List[MemoryAtom],
         budget: int,
-    ) -> Tuple[List[str], int]:
-        rendered_blocks = []
+    ) -> Tuple[List[CompiledMemoryArtifact], int]:
+        rendered_artifacts: list[CompiledMemoryArtifact] = []
         remaining_budget = budget
 
         for i, memory in enumerate(memories):
             # Top-N 强制完整渲染
             if i < self.config.full_payload_count:
-                full_block = MemoryAtomRenderer.for_full_context(
-                    memory=memory,
-                    max_content_length=self.config.max_content_length,
+                full_artifact = _compiler.compile(
+                    memory, MemoryCompileTarget.PROMPT_FULL,
+                    MemoryCompileOptions(max_content_length=self.config.max_content_length),
                 )
+                full_block = full_artifact.text
                 full_tokens = estimate_tokens(full_block)
 
                 if full_tokens <= remaining_budget:
-                    rendered_blocks.append(full_block)
+                    rendered_artifacts.append(full_artifact)
                     remaining_budget -= full_tokens
                     continue
                 # 预算不足，降级为 Index
 
             # 尝试 Index 视图渲染
-            index_block = MemoryAtomRenderer.for_index_context(
-                memory=memory,
-                max_summary_length=self.config.index_max_summary_length,
+            index_artifact = _compiler.compile(
+                memory, MemoryCompileTarget.PROMPT_INDEX,
+                MemoryCompileOptions(max_summary_length=self.config.index_max_summary_length),
             )
+            index_block = index_artifact.text
             index_tokens = estimate_tokens(index_block)
 
             if index_tokens <= remaining_budget:
-                rendered_blocks.append(index_block)
+                rendered_artifacts.append(index_artifact)
                 remaining_budget -= index_tokens
             else:
-                logger.debug(f"预算耗尽，停止渲染 (已渲染 {len(rendered_blocks)} 条)")
+                logger.debug(f"预算耗尽，停止渲染 (已渲染 {len(rendered_artifacts)} 条)")
                 break
 
-        return rendered_blocks, remaining_budget
+        return rendered_artifacts, remaining_budget
 
 
 class CompactContextRenderer(BaseContextRenderer):
@@ -274,32 +275,31 @@ class CompactContextRenderer(BaseContextRenderer):
             logger.warning("Token 预算不足以容纳头尾模板")
             return ""
 
-        blocks = []
+        artifacts: list[CompiledMemoryArtifact] = []
         remaining_budget = available_budget
 
         for memory in memories:
-            block = MemoryAtomRenderer.for_index_context(
-                memory=memory,
-                max_summary_length=self.config.index_max_summary_length,
+            artifact = _compiler.compile(
+                memory, MemoryCompileTarget.PROMPT_INDEX,
+                MemoryCompileOptions(max_summary_length=self.config.index_max_summary_length),
             )
+            block = artifact.text
             block_tokens = estimate_tokens(block)
 
             if block_tokens <= remaining_budget:
-                blocks.append(block)
+                artifacts.append(artifact)
                 remaining_budget -= block_tokens
             else:
-                logger.debug(f"预算耗尽，停止渲染 (已渲染 {len(blocks)} 条)")
+                logger.debug(f"预算耗尽，停止渲染 (已渲染 {len(artifacts)} 条)")
                 break
 
+        agent_artifacts = _compile_agent_profile_artifacts(agent_profiles)
+
         # 场景 1: 两者均空，返回精简闭环提示
-        if not blocks and not agent_profiles:
+        if not artifacts and not agent_artifacts:
             return _EMPTY_CONTEXT_NOTICE
 
-        result = MEMORY_HEADER
-        result += _render_memories_section(blocks, has_agents=bool(agent_profiles))
-        result += _render_agent_profiles_section(agent_profiles, has_memories=bool(blocks))
-        result += MEMORY_FOOTER
-        return result
+        return _wrap_retrieval_context(artifacts, agent_artifacts)
 
 
 # ========== 工厂函数 ==========

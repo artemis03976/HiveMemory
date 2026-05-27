@@ -9,6 +9,7 @@ LoopExecutor TurnEvent 采集单测
 """
 
 import json
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -20,7 +21,17 @@ from hivememory.alice.runtime.models import (
     MTPExecutionContext,
     RuntimeScope,
 )
-from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, TurnEvent
+from hivememory.alice.runtime.resolver import ResolveResult
+from hivememory.core.models import (
+    Identity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    OMNI_DOLL_PROFILE,
+    PayloadLayer,
+    TurnEvent,
+)
 from hivememory.core.protocol.models import MTPExecutionResult
 
 
@@ -97,6 +108,24 @@ def _make_frame(depth: int = 0) -> ExecutionFrame:
         working_history=[{"role": "user", "content": "hello"}],
         topic_id="topic_1",
         identity=Identity(user_id="u1", agent_id="agent_a"),
+    )
+
+
+def _make_context_atom(title: str, content: str) -> MemoryAtom:
+    return MemoryAtom(
+        index=IndexLayer(
+            title=title,
+            summary=f"{title} summary",
+            memory_type=MemoryType.FACT,
+            tags=["context"],
+        ),
+        payload=PayloadLayer(content=content),
+        meta=MetaData(
+            source_agent_id="test",
+            user_id="u1",
+            updated_at=datetime.now(),
+            confidence_score=0.9,
+        ),
     )
 
 
@@ -322,18 +351,22 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 @pytest.mark.asyncio
 async def test_context_refs_fetch_uses_runtime_alias_resolver():
     executor, kernel = _build_executor([])
-    atom = MagicMock()
-    atom.payload.content = "ctx"
-    resolved = MagicMock()
-    resolved.kind = "atom"
-    resolved.atom = atom
-    resolved.pending = None
+    atom = _make_context_atom("Fact A", "ctx")
+    resolved = ResolveResult(
+        kind="atom",
+        requested_alias="fact_a",
+        atom=atom,
+    )
     executor._alias_resolver.resolve = AsyncMock(return_value=resolved)
     identity = Identity(user_id="u1", agent_id="agent_a")
 
     result = await executor._fetch_context_refs_content(["fact_a"], identity)
 
-    assert result == "[Shared Context from Parent Agent]\n\n[fact_a]:\nctx"
+    assert result.startswith("[Shared Context from Parent Agent]")
+    assert "Use READ" in result
+    assert '<memory alias="' in result
+    assert "Fact A" in result
+    assert "ctx" in result
     executor._alias_resolver.resolve.assert_awaited_once()
     kernel.local_bus.request.assert_not_called()
 
@@ -341,23 +374,22 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
 @pytest.mark.asyncio
 async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
     executor, kernel = _build_executor([])
-    atom = MagicMock()
-    atom.payload.content = "canonical ctx"
-    atom.get_alias.return_value = "fact_canonical"
-    resolved = MagicMock()
-    resolved.kind = "redirect"
-    resolved.atom = atom
-    resolved.pending = None
-    resolved.canonical_alias = "fact_canonical"
+    atom = _make_context_atom("Canonical Fact", "canonical ctx")
+    resolved = ResolveResult(
+        kind="redirect",
+        requested_alias="draft_ctx_1234",
+        canonical_alias="fact_canonical",
+        atom=atom,
+    )
     executor._alias_resolver.resolve = AsyncMock(return_value=resolved)
     identity = Identity(user_id="u1", agent_id="agent_a")
 
     result = await executor._fetch_context_refs_content(["draft_ctx_1234"], identity)
 
-    assert result == (
-        "[Shared Context from Parent Agent]\n\n"
-        "[fact_canonical]:\ncanonical ctx"
-    )
+    assert result.startswith("[Shared Context from Parent Agent]")
+    assert "Canonical Fact" in result
+    assert "canonical ctx" in result
+    assert "<memory alias=" in result
     executor._alias_resolver.resolve.assert_awaited_once()
     kernel.local_bus.request.assert_not_called()
 

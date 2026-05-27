@@ -24,7 +24,13 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
 from hivememory.core.protocol.models import ChatResult
 from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
-from hivememory.alice.runtime.pending_renderer import PendingAtomRenderer
+from hivememory.engines.memory_compiler import (
+    CompiledMemoryArtifact,
+    MemoryCompiler,
+    MemoryCompileOptions,
+    MemoryCompileTarget,
+    MemoryEnvelopeTarget,
+)
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
@@ -657,7 +663,6 @@ class KernelLoopExecutor:
                 None,
             )
 
-    # TODO: 由MemoryCompiler统一接管渲染/编译逻辑
     async def _fetch_context_refs_content(
         self,
         aliases: List[str],
@@ -666,7 +671,8 @@ class KernelLoopExecutor:
         if not aliases:
             return ""
 
-        parts: List[str] = []
+        compiler = MemoryCompiler()
+        artifacts: List[CompiledMemoryArtifact] = []
         context = MTPExecutionContext(identity=identity)
         for alias in aliases:
             try:
@@ -675,21 +681,25 @@ class KernelLoopExecutor:
                 logger.warning(f"Failed to resolve context_ref {alias}: {e}")
                 continue
 
-            if resolved.kind == "pending" and resolved.pending is not None:
-                parts.append(PendingAtomRenderer.render_read(resolved.pending))
-            elif resolved.kind == "redirect" and resolved.atom is not None:
-                canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
-                parts.append(f"[{canonical_alias}]:\n{resolved.atom.payload.content}")
-            elif resolved.kind == "atom" and resolved.atom is not None:
-                parts.append(f"[{alias}]:\n{resolved.atom.payload.content}")
+            if resolved.kind in {"pending", "redirect", "atom"} and (
+                resolved.pending is not None or resolved.atom is not None
+            ):
+                artifact = compiler.compile(
+                    resolved, MemoryCompileTarget.SHARED_CONTEXT,
+                    MemoryCompileOptions(requested_alias=alias),
+                )
+                artifacts.append(artifact)
             else:
                 logger.warning(f"Context ref alias not found: {alias}")
 
-        if not parts:
+        if not artifacts:
             logger.warning(f"No rendered context returned for context_refs: {aliases}")
             return ""
 
-        return f"[Shared Context from Parent Agent]\n\n" + "\n\n".join(parts)
+        return compiler.wrap(
+            artifacts,
+            envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+        ).text
 
     def _assemble_ipc_return(
         self,

@@ -117,12 +117,14 @@ class TestFullContextRenderer:
 
     def test_confidence_formatting(self):
         """测试置信度格式化"""
-        from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
+        from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 
-        # 高置信度
-        assert "(高)" in MemoryAtomRenderer._format_confidence(self.memory1)
-        # 中置信度
-        assert "(中)" in MemoryAtomRenderer._format_confidence(self.memory2)
+        compiler = MemoryCompiler()
+        high = compiler.compile(self.memory1, MemoryCompileTarget.PROMPT_FULL).text
+        medium = compiler.compile(self.memory2, MemoryCompileTarget.PROMPT_FULL).text
+
+        assert "(高)" in high
+        assert "(中)" in medium
 
     def test_with_config(self):
         """测试使用配置初始化"""
