@@ -382,6 +382,6 @@ class TestEnvelopeCompilation:
             envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
         )
 
-        assert envelope.text.startswith("[Shared Context]")
+        assert envelope.text.startswith("[Shared Context from Parent Agent]")
         assert "READ" in envelope.text
         assert "Python parse_date" in envelope.text

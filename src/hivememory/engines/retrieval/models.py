@@ -14,7 +14,13 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 
 from hivememory.core.models import MemoryAtom, MemoryType, Identity
-from hivememory.utils.memory_atom_renderer import RenderFormat
+
+
+class RenderFormat(str, Enum):
+    """检索上下文渲染格式枚举。"""
+
+    XML = "xml"
+    MARKDOWN = "markdown"
 
 
 # ========== 数据模型 ==========
@@ -175,4 +181,5 @@ __all__ = [
     "SearchResult",
     "SearchResults",
     "RetrievalResult",
+    "RenderFormat",
 ]

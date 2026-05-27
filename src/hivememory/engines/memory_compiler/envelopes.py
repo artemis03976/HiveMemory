@@ -44,7 +44,10 @@ def compile_envelope(
 
 
 def _compile_retrieval_context(sections: list[MemoryEnvelopeSection]) -> str:
-    from hivememory.utils.memory_atom_renderer import MEMORY_FOOTER, MEMORY_HEADER
+    from hivememory.engines.memory_compiler.envelope_templates import (
+        MEMORY_FOOTER,
+        MEMORY_HEADER,
+    )
 
     parts = [MEMORY_HEADER]
     for section in sections:
@@ -88,10 +91,11 @@ def _compile_mtp_read_response(sections: list[MemoryEnvelopeSection]) -> str:
 def _compile_shared_context_injection(sections: list[MemoryEnvelopeSection]) -> str:
     body = _join_section_artifacts(sections)
     if not body:
-        return "[Shared Context]\nNo shared memory artifacts."
+        return "[Shared Context from Parent Agent]\nNo shared memory artifacts."
     return (
-        "[Shared Context]\n"
-        "Runtime memory artifacts are available below and may be inspected with READ.\n"
+        "[Shared Context from Parent Agent]\n\n"
+        "The parent agent shared the following runtime memory artifacts. "
+        "Use READ if you need to inspect them again.\n\n"
         + body
     )
 

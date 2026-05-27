@@ -24,7 +24,13 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
 from hivememory.core.protocol.models import ChatResult
 from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
-from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget, MemoryCompileOptions
+from hivememory.engines.memory_compiler import (
+    CompiledMemoryArtifact,
+    MemoryCompiler,
+    MemoryCompileOptions,
+    MemoryCompileTarget,
+    MemoryEnvelopeTarget,
+)
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
@@ -666,7 +672,7 @@ class KernelLoopExecutor:
             return ""
 
         compiler = MemoryCompiler()
-        parts: List[str] = []
+        artifacts: List[CompiledMemoryArtifact] = []
         context = MTPExecutionContext(identity=identity)
         for alias in aliases:
             try:
@@ -682,15 +688,18 @@ class KernelLoopExecutor:
                     resolved, MemoryCompileTarget.SHARED_CONTEXT,
                     MemoryCompileOptions(requested_alias=alias),
                 )
-                parts.append(artifact.text)
+                artifacts.append(artifact)
             else:
                 logger.warning(f"Context ref alias not found: {alias}")
 
-        if not parts:
+        if not artifacts:
             logger.warning(f"No rendered context returned for context_refs: {aliases}")
             return ""
 
-        return f"[Shared Context from Parent Agent]\n\n" + "\n\n".join(parts)
+        return compiler.wrap(
+            artifacts,
+            envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+        ).text
 
     def _assemble_ipc_return(
         self,

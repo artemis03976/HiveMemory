@@ -9,7 +9,7 @@
     - CascadeContextRenderer: 瀑布式渲染，Top-N 完整 + 其余 Index
     - CompactContextRenderer: 仅渲染 Index 层信息
 
-模板统一由 memory_atom_renderer 管理。
+单项记忆由 MemoryCompiler 编译，整体上下文由 retrieval envelope 包装。
 
 对应设计文档: PROJECT.md 5.2 节
 """
@@ -22,7 +22,6 @@ from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.retrieval.models import RenderFormat
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.utils import estimate_tokens
-from hivememory.utils.memory_atom_renderer import MEMORY_HEADER, MEMORY_FOOTER
 from hivememory.engines.memory_compiler import (
     CompiledMemoryArtifact,
     MemoryCompiler,
@@ -30,6 +29,10 @@ from hivememory.engines.memory_compiler import (
     MemoryCompileTarget,
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
+)
+from hivememory.engines.memory_compiler.envelope_templates import (
+    MEMORY_FOOTER,
+    MEMORY_HEADER,
 )
 
 logger = logging.getLogger(__name__)

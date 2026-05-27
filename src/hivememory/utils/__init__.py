@@ -2,9 +2,6 @@
 HiveMemory Utility Modules.
 
 Common utility classes and functions used across the project.
-
-Note: MemoryAtomRenderer is not exported here to avoid circular imports.
-Import it directly: from hivememory.utils.memory_atom_renderer import MemoryAtomRenderer
 """
 
 from hivememory.utils.time_formatter import (
