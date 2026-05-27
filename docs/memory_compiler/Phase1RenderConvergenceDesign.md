@@ -509,7 +509,202 @@ src/hivememory/engines/retrieval/reranker.py
 
 ---
 
-## 8. 兼容性要求
+## 8. Phase 1.5：Body 编译与 Envelope 包装分层
+
+Phase 1 的主体目标是消除散落的私有渲染逻辑。随着 `MemoryAtom`、`PendingAtom` 和 `ResolveResult` 的表达路径收敛到 `MemoryCompiler`，还需要进一步澄清一个边界：**单个记忆原子的编译结果**与**面向某个运行时场景的一组记忆包装**不是同一件事。
+
+现有 `MEMORY_HEADER` / `MEMORY_FOOTER` 只服务于检索上下文，但它们并不是 `MemoryAtom` 本体的一部分。它们表达的是“帕秋莉为当前 agent 注入了一组检索记忆，并给出后续 READ / CALL 指令提示”的交付语境。因此，它们应被视为某类 target 的 envelope，而不是 atom body 编译步骤。
+
+### 8.1 两阶段输出模型
+
+Phase 1.5 引入逻辑上的两阶段模型：
+
+```text
+Memory-like source
+  -> Memory body artifact
+  -> Memory envelope artifact
+```
+
+第一阶段负责单个记忆单位的正文表达：
+
+- `MemoryAtom -> PROMPT_FULL`
+- `MemoryAtom -> PROMPT_INDEX`
+- `MemoryAtom -> MTP_READ`
+- `MemoryAtom -> SHARED_CONTEXT`
+- `PendingAtom -> MTP_READ`
+- `ResolveResult -> MTP_READ`
+
+第二阶段负责将一个或多个正文产物包装到具体交付场景中：
+
+- retrieval pre-context，
+- MTP `READ` response，
+- child agent shared context，
+- future MTP `RUN` runnable tool response。
+
+这意味着 `MemoryCompileTarget` 当前仍可继续作为统一枚举使用，但实现上应避免把 header/footer 混入单个 atom 的 handler。长期可以显式拆分为：
+
+```python
+MemoryBodyTarget
+MemoryEnvelopeTarget
+```
+
+Phase 1.5 不强制立即引入新的公开枚举，但要求内部设计遵守该边界。
+
+### 8.2 Body Target 与 Envelope Target 的职责
+
+Body target 负责回答：“这一条记忆自身应该如何表达？”
+
+示例：
+
+- `PROMPT_FULL`：完整上下文记忆块，适合检索上下文中的 full item。
+- `PROMPT_INDEX`：索引/摘要记忆块，适合 cascade/compact 降级。
+- `MTP_READ`：显式 READ 的完整读取视图。
+- `SHARED_CONTEXT`：运行时共享上下文中的记忆视图。
+- `RUNNABLE_TOOL`：未来的可执行记忆体。
+
+Envelope target 负责回答：“这些记忆产物处在什么交付语境中？”
+
+示例：
+
+- `RETRIEVAL_CONTEXT`：帕秋莉取回相关历史记忆，需要附带 READ / CALL 行为提示。
+- `MTP_READ_RESPONSE`：用户显式请求读取某条记忆，正文已经是完整内容，不应复用要求继续 READ 的 footer。
+- `SHARED_CONTEXT_INJECTION`：父 agent 或子 agent 在运行时共享了若干记忆，可提示生命周期、别名可见性和 READ 可用性。
+- `RUNNABLE_TOOL_SPEC`：未来将可运行记忆交付给 runtime 执行器。
+
+因此，`MEMORY_HEADER` / `MEMORY_FOOTER` 应迁向 envelope 层，而不是 `MemoryAtom` handler。短期可以继续留在 `utils.memory_atom_renderer` 或 retrieval renderer 中，但其语义归属应标记为 retrieval envelope。
+
+### 8.3 Retrieval Renderer 的新边界
+
+现有 retrieval renderer 仍然有必要保留，因为它负责的是列表级策略，而不是单条记忆表达：
+
+- full / cascade / compact 策略选择，
+- token budget 计算，
+- 检索结果排序后的遍历，
+- 普通记忆与 `AGENT_PROFILE` 的 section 分组，
+- 空结果提示。
+
+Phase 1.5 后，retrieval renderer 应逐步从“渲染器”收缩为“retrieval presentation planner”。它可以决定哪些 atom 使用 `PROMPT_FULL`，哪些 atom 降级为 `PROMPT_INDEX`，但不应拥有 atom body 模板。
+
+推荐的长期形态：
+
+```python
+artifacts = [
+    compiler.compile(atom, MemoryBodyTarget.PROMPT_FULL),
+    compiler.compile(atom, MemoryBodyTarget.PROMPT_INDEX),
+]
+
+text = compiler.wrap(
+    artifacts=artifacts,
+    envelope_target=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+)
+```
+
+短期实现可以继续由 retrieval renderer 拼接 sections 和 header/footer，但该逻辑应被视为待迁移的 envelope 逻辑。
+
+### 8.4 MTP READ 不应永久等同于 PROMPT_FULL
+
+Phase 1 为了消除私有模板，可以让 `MTP_READ` 暂时复用完整 atom body 的大部分逻辑。但这只是过渡策略，不应成为长期语义。
+
+未来 `MTP_READ` 会逐渐与 retrieval full body 拉开差距。原因是显式 READ 更接近“可审计读取”：
+
+- 它可以展示当前版本的完整内容，
+- 它可以展示记忆的历史版本摘要，
+- 它可以结合类 Git 的版本控制能力提供溯源信息，
+- 它可以展示 canonical alias、requested alias、redirect settlement 等运行时信息，
+- 它不需要提示“如需完整内容请继续 READ”。
+
+因此，`MTP_READ` 应保留独立 body target。短期可委托 `PROMPT_FULL` 的 renderer，长期应演进为版本感知的 read compiler。
+
+### 8.5 MTP READ 与 MTP RUN 的共同基础
+
+`MTP_READ` 和未来的 `MTP_RUN` 是同一条编译演进路径上的两个专用 target：
+
+- `MTP_READ` 面向可审计阅读，
+- `MTP_RUN` 面向可执行运行。
+
+二者都需要比检索上下文更复杂的结构化输入：
+
+- 版本链，
+- provenance / citations，
+- canonical alias 与 redirect 信息，
+- memory lifecycle 状态，
+- 代码块或命令片段，
+- 前置条件，
+- 参数，
+- 副作用和风险提示。
+
+Phase 1.5 不实现这些能力，但要为 Phase 2 的 Memory IR 预留落点。即：
+
+```text
+MemoryAtom / PendingAtom / ResolveResult
+  -> MemoryUnitIR
+  -> target-specific body compiler
+  -> target-specific envelope
+```
+
+### 8.6 与 Phase 2 Memory IR 的关系
+
+Phase 1.5 的 envelope 分层不是 Phase 2 IR 的替代品，而是 Phase 2 IR 的前置铺垫。
+
+Phase 2 IR 负责表达“记忆是什么”：
+
+- identity，
+- alias，
+- title / summary / content，
+- tags / memory type，
+- confidence / verification status，
+- current version，
+- historical versions，
+- provenance，
+- lifecycle，
+- runtime hints，
+- executable fragments。
+
+Envelope 负责表达“这批记忆以什么运行时语境交付给 agent”。
+
+建议 Phase 2 至少区分两个 IR 层级：
+
+```python
+class MemoryUnitIR:
+    identity: MemoryIdentityIR
+    current: MemoryContentIR
+    index: MemoryIndexIR
+    lifecycle: MemoryLifecycleIR
+    provenance: list[ProvenanceIR]
+    versions: list[MemoryVersionIR]
+    executable: ExecutableMemoryIR | None
+    runtime_hints: list[RuntimeHintIR]
+
+
+class MemoryBundleIR:
+    purpose: str
+    sections: list[MemorySectionIR]
+    runtime_hints: list[RuntimeHintIR]
+    empty_state: str | None
+```
+
+`MemoryUnitIR` 支撑单条记忆的 target-specific body compiler。`MemoryBundleIR` 支撑 retrieval context、MTP read response、shared context injection 等 envelope 渲染。
+
+### 8.7 Phase 1.5 的落地顺序
+
+Phase 1.5 应作为 Phase 1 内部的补强步骤执行：
+
+1. 保持 `MemoryAtom`、`PendingAtom`、`ResolveResult` 的 body 编译逻辑位于 `memory_compiler.handlers`。
+2. 保留 `MTP_READ`、`SHARED_CONTEXT`、`PROMPT_FULL` 等独立 target 分支，即使短期部分分支复用同一渲染函数。
+3. 新增轻量 envelope 模块，例如：
+
+```text
+src/hivememory/engines/memory_compiler/envelopes.py
+```
+
+4. 将 retrieval header/footer 语义标记为 `RETRIEVAL_CONTEXT` envelope，暂不强制迁移常量位置。
+5. 逐步让 retrieval renderer 只产出 body artifacts 和 section plan，再由 compiler envelope 组装最终文本。
+6. 为 `MTP_READ_RESPONSE` 和 `SHARED_CONTEXT_INJECTION` 预留 envelope target，避免它们继续使用私有列表式模板。
+7. 等 Phase 2 IR 引入后，将 envelope 输入从字符串 artifacts 升级为 `MemoryBundleIR`。
+
+---
+
+## 9. 兼容性要求
 
 Phase 1 应尽可能保留当前行为：
 
@@ -531,9 +726,9 @@ Phase 1 应尽可能保留当前行为：
 
 ---
 
-## 9. 测试策略
+## 10. 测试策略
 
-### 9.1 单元测试
+### 10.1 单元测试
 
 为以下场景添加编译器单元测试：
 
@@ -549,7 +744,7 @@ Phase 1 应尽可能保留当前行为：
 - `ResolveResult(discarded/failed) -> MTP_READ`
 - `ResolveResult(atom) -> SHARED_CONTEXT`
 
-### 9.2 集成测试
+### 10.2 集成测试
 
 更新现有的 MTP 测试以确保：
 
@@ -560,7 +755,7 @@ Phase 1 应尽可能保留当前行为：
 - `WRITE` / `UPDATE` 的 ACK 依然包含 pending 别名，
 - 子智能体 `context_refs` 包含与 `READ` 相同的记忆正文。
 
-### 9.3 回归测试
+### 10.3 回归测试
 
 保留检索测试：
 
@@ -574,7 +769,7 @@ Phase 1 应尽可能保留当前行为：
 
 ---
 
-## 10. 风险与缓解措施
+## 11. 风险与缓解措施
 
 ### 风险：编译器变成上帝对象 (God Object)
 
@@ -609,9 +804,15 @@ Storage -> compiler
 
 编译器可以描述并格式化记忆状态，但它绝不能决定权限、存储可见性或某项命令是否被允许。
 
+### 风险：Envelope 与 Body 编译再次混淆
+
+缓解措施：
+
+单条记忆 handler 不应引用 retrieval header/footer。Header/footer、section wrapper、空结果提示和运行时操作建议应进入 envelope 或 retrieval planner。即使 Phase 1.5 中暂时没有完整 envelope API，也应避免把新的场景包装逻辑写回 `MemoryAtom` / `PendingAtom` handler。
+
 ---
 
-## 11. 未来阶段
+## 12. 未来阶段
 
 ### Phase 2：记忆中间表示 (Memory IR)
 
@@ -626,6 +827,8 @@ MemorySource -> MemoryIR -> target artifact
 - 标题，
 - 摘要，
 - 正文章节，
+- 当前版本，
+- 历史版本，
 - 代码块，
 - 流程步骤，
 - 参数，
@@ -633,7 +836,11 @@ MemorySource -> MemoryIR -> target artifact
 - 副作用，
 - 来源出处跨度 (provenance spans)，
 - 置信度，
-- 运行时要求。
+- 生命周期状态，
+- 运行时要求，
+- envelope runtime hints。
+
+Phase 2 IR 应承接 Phase 1.5 的 body/envelope 分层。`MemoryUnitIR` 面向单条记忆 body compiler；`MemoryBundleIR` 面向 retrieval、MTP READ、shared context 等 envelope renderer。
 
 ### Phase 3：可运行记忆编译
 
@@ -677,7 +884,7 @@ MemorySource -> MemoryIR -> target artifact
 
 ---
 
-## 12. Phase 1 完成定义 (Definition of Done)
+## 13. Phase 1 完成定义 (Definition of Done)
 
 当满足以下条件时，Phase 1 即告完成：
 
@@ -688,6 +895,9 @@ MemorySource -> MemoryIR -> target artifact
 - 检索单项的渲染通过编译器处理，
 - 稠密/稀疏嵌入文本通过编译器处理，
 - 业务中对 `MemoryAtomRenderer` 和 `PendingAtomRenderer` 的直接导入被移除或被标记为仅供兼容使用，
+- `PendingAtomRenderer` 兼容层被删除，pending atom 表达逻辑内聚于 compiler handler，
+- `MemoryAtomRenderer` 仅作为兼容 wrapper 保留，atom body 的真实实现位于 compiler handler，
+- header/footer 被明确标记为 envelope 责任，而不是 atom body 编译责任，
 - 测试覆盖了正式 atom、pending atom、重定向、已沉淀、检索和嵌入目标。
 
 到那时，HiveMemory 将拥有一个稳定的表达边界。后续的 MTP `RUN` 编译器便可以作为一个新的目标来实现，而不是又成为另一条私有的 Koakuma 路径。

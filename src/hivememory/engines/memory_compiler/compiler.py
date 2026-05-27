@@ -10,7 +10,7 @@ from hivememory.engines.memory_compiler.models import (
     MemoryCompileOptions,
     MemoryCompileTarget,
 )
-from hivememory.engines.memory_compiler.targets import (
+from hivememory.engines.memory_compiler.handlers import (
     compile_memory_atom,
     compile_pending_atom,
     compile_resolve_result,
