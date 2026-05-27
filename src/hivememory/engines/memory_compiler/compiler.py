@@ -5,10 +5,14 @@ from __future__ import annotations
 from typing import List, Union
 
 from hivememory.core.models import MemoryAtom
+from hivememory.engines.memory_compiler.envelopes import compile_envelope
 from hivememory.engines.memory_compiler.models import (
+    CompiledMemoryEnvelope,
     CompiledMemoryArtifact,
     MemoryCompileOptions,
     MemoryCompileTarget,
+    MemoryEnvelopeSection,
+    MemoryEnvelopeTarget,
 )
 from hivememory.engines.memory_compiler.handlers import (
     compile_memory_atom,
@@ -44,6 +48,28 @@ class MemoryCompiler:
             return [self._compile_single(item, target, opts) for item in source]
 
         return self._compile_single(source, target, opts)
+
+    def wrap(
+        self,
+        artifacts: CompiledMemoryArtifact | List[CompiledMemoryArtifact] | None = None,
+        envelope_target: MemoryEnvelopeTarget = MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+        options: MemoryCompileOptions | None = None,
+        sections: List[MemoryEnvelopeSection] | None = None,
+    ) -> CompiledMemoryEnvelope:
+        artifact_list: list[CompiledMemoryArtifact]
+        if artifacts is None:
+            artifact_list = []
+        elif isinstance(artifacts, list):
+            artifact_list = artifacts
+        else:
+            artifact_list = [artifacts]
+
+        return compile_envelope(
+            envelope_target,
+            artifacts=artifact_list,
+            sections=sections,
+            options=options or MemoryCompileOptions(),
+        )
 
     def _compile_single(
         self,

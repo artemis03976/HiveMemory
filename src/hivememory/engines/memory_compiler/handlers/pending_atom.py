@@ -37,6 +37,10 @@ def compile_pending_atom(
         source_kind="pending",
         alias=pending.pending_alias,
         status=pending.status.value if hasattr(pending.status, "value") else str(pending.status),
+        metadata={
+            "requested_alias": options.requested_alias,
+            "canonical_alias": options.canonical_alias,
+        },
     )
 
 

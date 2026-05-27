@@ -23,6 +23,14 @@ class MemoryCompileTarget(str, Enum):
     RUNNABLE_TOOL = "runnable_tool"
 
 
+class MemoryEnvelopeTarget(str, Enum):
+    """Envelope target — decides how compiled artifacts are delivered."""
+
+    RETRIEVAL_CONTEXT = "retrieval_context"
+    MTP_READ_RESPONSE = "mtp_read_response"
+    SHARED_CONTEXT_INJECTION = "shared_context_injection"
+
+
 class CompiledMemoryArtifact(BaseModel):
     """compile() 调用的结构化输出。"""
 
@@ -33,6 +41,23 @@ class CompiledMemoryArtifact(BaseModel):
     memory_id: Optional[str] = None
     status: Optional[str] = None
     citations: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryEnvelopeSection(BaseModel):
+    """A named section in a memory envelope."""
+
+    kind: str
+    artifacts: List[CompiledMemoryArtifact] = Field(default_factory=list)
+    empty_text: Optional[str] = None
+
+
+class CompiledMemoryEnvelope(BaseModel):
+    """wrap() 调用的结构化输出。"""
+
+    target: MemoryEnvelopeTarget
+    text: str
+    sections: List[MemoryEnvelopeSection] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

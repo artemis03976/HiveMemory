@@ -44,7 +44,6 @@ def compile_memory_atom(
 ) -> CompiledMemoryArtifact:
     """Compile a single MemoryAtom into the requested target."""
     alias = atom.get_alias()
-    effective_alias = options.requested_alias or alias
 
     if target == MemoryCompileTarget.PROMPT_FULL:
         text = _render_full_context(
@@ -65,9 +64,17 @@ def compile_memory_atom(
     elif target == MemoryCompileTarget.AGENT_PROFILE_MENU:
         text = _render_agent_profile(atom)
     elif target == MemoryCompileTarget.MTP_READ:
-        text = f"[{effective_alias}]:\n{atom.payload.content}"
+        text = _render_mtp_read(
+            atom,
+            max_content_length=options.max_content_length,
+            stale_days=options.stale_days,
+        )
     elif target == MemoryCompileTarget.SHARED_CONTEXT:
-        text = f"[{effective_alias}]:\n{atom.payload.content}"
+        text = _render_shared_context(
+            atom,
+            max_content_length=options.max_content_length,
+            stale_days=options.stale_days,
+        )
     elif target == MemoryCompileTarget.RUNNABLE_TOOL:
         raise ValueError("RUNNABLE_TOOL target is reserved for Phase 3.")
     else:
@@ -79,6 +86,10 @@ def compile_memory_atom(
         source_kind="atom",
         alias=alias,
         memory_id=str(atom.id),
+        metadata={
+            "requested_alias": options.requested_alias,
+            "canonical_alias": options.canonical_alias or alias,
+        },
     )
 
 
@@ -129,6 +140,30 @@ def _render_full_context(
         tags=tags,
         content=content,
         history=history,
+    )
+
+
+def _render_mtp_read(
+    memory: MemoryAtom,
+    max_content_length: int = 500,
+    stale_days: int = 90,
+) -> str:
+    return _render_full_context(
+        memory,
+        max_content_length=max_content_length,
+        stale_days=stale_days,
+    )
+
+
+def _render_shared_context(
+    memory: MemoryAtom,
+    max_content_length: int = 500,
+    stale_days: int = 90,
+) -> str:
+    return _render_full_context(
+        memory,
+        max_content_length=max_content_length,
+        stale_days=stale_days,
     )
 
 

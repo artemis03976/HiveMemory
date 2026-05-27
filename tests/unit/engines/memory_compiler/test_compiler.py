@@ -16,6 +16,8 @@ from hivememory.engines.memory_compiler import (
     MemoryCompileTarget,
     MemoryCompileOptions,
     CompiledMemoryArtifact,
+    MemoryEnvelopeSection,
+    MemoryEnvelopeTarget,
 )
 
 
@@ -102,18 +104,21 @@ class TestMemoryAtomCompilation:
     def test_mtp_read(self, compiler, sample_atom):
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
         alias = sample_atom.get_alias()
-        assert artifact.text.startswith(f"[{alias}]:\n")
+        assert f'<memory alias="{alias}">' in artifact.text
+        assert "[完整内容]:" in artifact.text
         assert "parse_date" in artifact.text
 
     def test_mtp_read_with_requested_alias(self, compiler, sample_atom):
         opts = MemoryCompileOptions(requested_alias="my_alias")
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ, opts)
-        assert artifact.text.startswith("[my_alias]:\n")
+        assert f'<memory alias="{sample_atom.get_alias()}">' in artifact.text
+        assert artifact.metadata["requested_alias"] == "my_alias"
 
     def test_shared_context(self, compiler, sample_atom):
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.SHARED_CONTEXT)
         alias = sample_atom.get_alias()
-        assert artifact.text.startswith(f"[{alias}]:\n")
+        assert f'<memory alias="{alias}">' in artifact.text
+        assert "[完整内容]:" in artifact.text
 
     def test_runnable_tool_raises(self, compiler, sample_atom):
         with pytest.raises(ValueError, match="reserved"):
@@ -288,8 +293,9 @@ class TestResolveResultCompilation:
 
     def test_redirect_shared_context(self, compiler, redirect_resolve):
         artifact = compiler.compile(redirect_resolve, MemoryCompileTarget.SHARED_CONTEXT)
-        assert "fact_api" in artifact.text
+        assert artifact.alias == "fact_api"
         assert "parse_date" in artifact.text
+        assert "<memory alias=" in artifact.text
 
     def test_discarded_mtp_read(self, compiler, discarded_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_bad")
@@ -320,3 +326,62 @@ class TestInvalidInputs:
     def test_none_source(self, compiler):
         with pytest.raises(TypeError):
             compiler.compile(None, MemoryCompileTarget.MTP_READ)
+
+
+class TestEnvelopeCompilation:
+    """测试 envelope 包装。"""
+
+    def test_retrieval_context_wrap(self, compiler, sample_atom, agent_profile_atom):
+        memory_artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL)
+        agent_artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
+
+        envelope = compiler.wrap(
+            envelope_target=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            sections=[
+                MemoryEnvelopeSection(kind="memories", artifacts=[memory_artifact]),
+                MemoryEnvelopeSection(kind="agent_profiles", artifacts=[agent_artifact]),
+            ],
+        )
+
+        assert envelope.target == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT
+        assert "<memory_context>" in envelope.text
+        assert "相关记忆" in envelope.text
+        assert "可用子代理" in envelope.text
+        assert "Python parse_date" in envelope.text
+        assert "代码分析师" in envelope.text
+
+    def test_retrieval_context_empty_section_hint(self, compiler, agent_profile_atom):
+        agent_artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
+
+        envelope = compiler.wrap(
+            envelope_target=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            sections=[
+                MemoryEnvelopeSection(kind="memories", empty_text="No memories"),
+                MemoryEnvelopeSection(kind="agent_profiles", artifacts=[agent_artifact]),
+            ],
+        )
+
+        assert "相关记忆" in envelope.text
+        assert "No memories" in envelope.text
+        assert "可用子代理" in envelope.text
+
+    def test_mtp_read_response_wrap(self, compiler, sample_atom):
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
+        envelope = compiler.wrap(
+            artifact,
+            envelope_target=MemoryEnvelopeTarget.MTP_READ_RESPONSE,
+        )
+
+        assert envelope.text.startswith("[MTP READ Result]")
+        assert "Python parse_date" in envelope.text
+
+    def test_shared_context_injection_wrap(self, compiler, sample_atom):
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.SHARED_CONTEXT)
+        envelope = compiler.wrap(
+            artifact,
+            envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+        )
+
+        assert envelope.text.startswith("[Shared Context]")
+        assert "READ" in envelope.text
+        assert "Python parse_date" in envelope.text

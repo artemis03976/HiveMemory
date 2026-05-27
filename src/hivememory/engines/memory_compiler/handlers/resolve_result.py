@@ -54,7 +54,8 @@ def compile_resolve_result(
                 settlement=resolve_result.settlement,
             )
         elif target == MemoryCompileTarget.SHARED_CONTEXT:
-            text = f"[{canonical}]:\n{resolve_result.atom.payload.content}"
+            artifact = compile_memory_atom(resolve_result.atom, target, options)
+            text = artifact.text
         else:
             return compile_memory_atom(resolve_result.atom, target, options)
 
