@@ -11,9 +11,13 @@
   - 关键词：Patchouli Kernel、MTP、Koakuma、递归中断运行时、Patchouli OS
   - 说明：本文用于承载第三次架构演进的系统级视图；MTP 协议细节仍以 [MemoryToolProtocol.md](../MemoryToolProtocol.md) 为准。
 
-- [第四次架构演进最终总纲：SystemArchitecture_v4_TopLevelSketch](./SystemArchitecture_v4_TopLevelSketch.md)
+- [第四次架构演进最终总纲：SystemArchitecture_v4.0](./SystemArchitecture_v4.0.md)
   - 状态：Final (已收敛)
-  - 关键词：HiveMemorySystem、System-Service-Runtime、PatchouliRuntime、AliceRuntime、AgentRuntime、KoakumaRuntime、ChatApplicationService、结构化 turn events
+  - 关键词：HiveMemorySystem、System-Service-Runtime、Application Service、PatchouliRuntime、AliceRuntime、AgentRuntime、KoakumaRuntime、结构化 turn events、router 边界收口
+
+- [Router 到 Application Service 收口重构记录](./SystemArchitecture_v4_RouterToApplicationService_Refactor.md)
+  - 状态：Archived (主要结论已并入 v4 主文档)
+  - 关键词：server router、application service、GlobalRoutes、readiness / warmup、God Facade 收敛
 
 ## 约定
 

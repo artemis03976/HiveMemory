@@ -26,10 +26,15 @@
 HiveMemorySystem
   -> ChatApplicationService
   -> PassiveIngressService
+  -> MemoryApplicationService
+  -> AgentApplicationService
+  -> TopicApplicationService
+  -> SystemReadinessService
   -> GlobalSystemBus
   -> GlobalMaintenanceScheduler
   -> PatchouliSystem
       -> PatchouliService
+      -> Patchouli application services
       -> PatchouliRuntime
   -> AliceSystem
       -> AliceService
@@ -54,10 +59,10 @@ HiveMemorySystem
 
 - 创建并持有 `GlobalSystemBus`
 - 创建并持有 `GlobalMaintenanceScheduler`
-- 装配 `ChatApplicationService` 与 `PassiveIngressService`
+- 装配 `ChatApplicationService`、`PassiveIngressService`、`MemoryApplicationService`、`AgentApplicationService`、`TopicApplicationService` 与 `SystemReadinessService`
 - 装配 `PatchouliSystem` 与 `AliceSystem`
 - 管理 `start()` / `stop()` / `health()` 等生命周期入口
-- 将 server 层 API 连接到稳定的系统门面
+- 将 server 层依赖连接到稳定的应用服务入口
 
 `HiveMemorySystem` 不负责：
 
@@ -66,6 +71,7 @@ HiveMemorySystem
 - MTP 工具执行
 - prompt 组装
 - interaction 后处理
+- chat、ingest、memory、agent、topic、readiness 等业务动作的直接门面
 
 ### 2.2 Application Services
 
@@ -81,7 +87,31 @@ Patchouli.prepare_agent_run(...)
 
 `PassiveIngressService` 承担被动消息摄入链路，将外部事件归一化后交给 Patchouli 记忆域处理。
 
-这两个服务只通过 `GlobalSystemBus` 访问子系统公开能力，不穿透到子系统私有 runtime。
+`MemoryApplicationService`、`AgentApplicationService` 与 `TopicApplicationService` 分别承接 HTTP 层的记忆、Agent Profile 与话题管理用例。它们负责 request/use case 层的数据转换与错误边界，不把 storage、runtime、librarian、buffer manager 等子系统内部对象暴露给 router。
+
+`SystemReadinessService` 承接模型 warmup 与 readiness 检查。FastAPI lifespan 与 `/health/ready` 只调用该服务，不直接触碰 Patchouli runtime。
+
+这些服务只通过 `GlobalSystemBus` 与全局公开路由访问子系统能力，不穿透到子系统私有 runtime。`HiveMemorySystem` 只暴露这些服务属性，作为组合根与生命周期宿主存在，不再提供 `chat()`、`chat_stream()`、`ingest_event()`、`manual_archive_topic()`、`warmup_models()` 等动作级 API。
+
+### 2.3 Server Router 边界
+
+server router 是 HTTP 协议适配层，职责限定为：
+
+- 解析 FastAPI request 与 dependency
+- 调用对应 application service
+- 转换 response model
+- 抛出 HTTP 层错误
+
+router 不应直接访问：
+
+- `system.patchouli`
+- `system.alice`
+- `system.patchouli.runtime`
+- `system.patchouli.storage`
+- `system.patchouli.librarian_core`
+- 任意子系统 `_private` 成员
+
+`server/deps.py` 提供面向 router 的窄依赖入口，例如 `get_chat_service()`、`get_ingress_service()`、`get_memory_service()`、`get_agent_service()` 与 `get_topic_service()`。这使 HTTP 层依赖稳定在系统级应用服务，而不是依赖完整 `HiveMemorySystem` 或子系统内部对象。
 
 ***
 
@@ -114,6 +144,7 @@ Patchouli 不负责：
 - 持有 `TheEye`
 - 持有 `PatchouliRuntime`
 - 持有 `PatchouliService`
+- 持有 Patchouli application services
 - 将公开记忆能力注册到 `GlobalSystemBus`
 - 注册 Patchouli 维护任务
 - 代理子系统生命周期
@@ -144,6 +175,21 @@ Patchouli 不负责：
 | `manual_archive_topic()` | 手动触发话题归档 |
 
 PatchouliService 不再组装完整主 Agent prompt，也不再驱动 Agent loop。
+
+### 3.5 Patchouli Application Services
+
+`patchouli/application/` 是 Patchouli 子系统对外公开 API 的用例层。它位于 `PatchouliSystem` 与 `PatchouliRuntime` 之间，避免把所有公开路由方法继续堆叠到 `PatchouliService` 或 `PatchouliSystem` 上。
+
+当前主要服务包括：
+
+| 服务 | 职责 |
+| :--- | :--- |
+| `MemoryManagementService` | 记忆 CRUD、搜索、反馈、活力刷新等公开管理能力 |
+| `AgentProfileManagementService` | Agent Profile 创建、查询与列表能力 |
+| `TopicManagementService` | 活跃话题查询、归档、驱逐等话题管理能力 |
+| `ModelReadinessService` | 模型 warmup 与 readiness 状态查询 |
+
+这些服务可以调用 Patchouli 内部领域对象，但通过 `PatchouliSystem` 注册为公开路由后，对系统级 application service 呈现为 `GlobalSystemBus` 契约。这样可以同时保持子系统内部聚合清晰，并避免 router 或顶层 system 直接触碰 Patchouli runtime 细节。
 
 ***
 
@@ -225,8 +271,8 @@ Koakuma 不负责：
 
 ```text
 User / API
-  -> HiveMemorySystem.chat_stream(...)
-  -> ChatApplicationService
+  -> server router
+  -> ChatApplicationService.chat_stream(...)
       -> PATCHOULI_PREPARE_AGENT_RUN
           -> PatchouliService.prepare_agent_run(...)
           -> AgentRunContext
@@ -239,7 +285,7 @@ User / API
           -> InteractionPayload
 ```
 
-非流式 `chat()` 使用同一条三段式骨架，只是不产出 SSE prelude 与 token stream。
+非流式 `ChatApplicationService.chat()` 使用同一条三段式骨架，只是不产出 SSE prelude 与 token stream。
 
 关键边界：
 
@@ -314,6 +360,15 @@ v4 采用全局总线 + 子系统 local bus 的分层结构：
 - AgentRuntime 内部不直接访问 `GlobalSystemBus`。
 - Koakuma 通过 Alice local bus 与公开 route 访问记忆能力。
 - 公开 route 使用全局契约常量，不依赖子系统私有 `LocalRoutes` 命名。
+- `GlobalRoutes` 由各子系统公开路由模块汇总生成，避免同时维护两份字符串常量。
+- 系统级 application service 通过 `GlobalRoutes` 发起请求，不直接依赖子系统 service 或 runtime 实例。
+
+当前公开路由边界包括：
+
+- Patchouli prepare/finalize/cleanup 等 Agent run 后处理能力
+- 记忆管理、Agent Profile 管理、话题管理能力
+- 模型 warmup 与 readiness 查询能力
+- Alice Agent run、stream run 与 cancel 能力
 
 ***
 
@@ -343,11 +398,21 @@ src/hivememory/
   system/
     system.py
     application/
+      chat_service.py
+      passive_ingress_service.py
+      memory_service.py
+      agent_service.py
+      topic_service.py
+      readiness_service.py
     runtime/
     contracts/
+  server/
+    deps.py
+    routers/
   patchouli/
     system.py
     service.py
+    application/
     runtime/
     services/
     contracts/
@@ -375,9 +440,14 @@ src/hivememory/
 当前 v4 关键设计已完成：
 
 - 顶层 `HiveMemorySystem` 成立
+- `HiveMemorySystem` 收敛为组合根与生命周期宿主，不再提供动作级业务 API
 - `ChatApplicationService` 接管主动 chat 编排
 - `PassiveIngressService` 成立
+- `MemoryApplicationService`、`AgentApplicationService`、`TopicApplicationService` 接管对应 HTTP use case
+- `SystemReadinessService` 接管模型 warmup 与 readiness 检查
+- server router 改为依赖 application service，不再穿透访问 Patchouli / Alice 内部对象
 - `PatchouliRuntime` 取代旧 kernel 语义
+- `patchouli/application/` 承接记忆管理、Agent Profile 管理、话题管理与模型 readiness 等公开 API
 - Patchouli local bus / local routes / shutdown drain 下沉到 runtime
 - Alice 成为独立子系统
 - `AliceRuntime` 显式持有 `AgentRuntime` 与 `KoakumaRuntime`
@@ -388,6 +458,7 @@ src/hivememory/
 - trace 从结构化 `turn_events` 后处理生成
 - `ChatResult` 去除 MTP trace/command 冗余字段
 - FrameScheduler 脱离 runtime 依赖
+- readiness / warmup 通过公开路由与 `SystemReadinessService` 完成，不再由 server 直接访问 Patchouli runtime
 
 ***
 
@@ -395,9 +466,9 @@ src/hivememory/
 
 v4 主体已完成，第四次架构演进的过渡性阶段文档已全部清理。剩余代码工作属于清理与文档同步：
 
-- 清理 `HiveMemorySystem`、`PatchouliSystem` 等少量兼容访问器
-- 将旧文档中的 `PatchouliKernel`、`AgentRuntimeHost`、`chat_stream` 旧路径描述继续替换为 v4 术语
+- 继续清理旧文档中的 `PatchouliKernel`、`AgentRuntimeHost` 等历史术语
 - 视需要将 agent profile 加载进一步抽为 repository / loader
 - 为关键边界增加 import-scan 或 contract tests
+- 继续收敛测试 fixture 与调试脚本中的内部访问路径，避免重新引入 router 到子系统内部对象的穿透依赖
 
 这些工作不会改变 v4 的主架构结论。

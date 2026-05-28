@@ -290,8 +290,8 @@ Agent 不再需要脱离自然语言生成去填写结构化 JSON，而是可以
   - [MemoryToolProtocol.md](file:///c:/Users/29305/Projects/HiveMemory/docs/MemoryToolProtocol.md)
   - 重点是 MTP 的协议语法、工具、Prompt 与示例
 
-- 第四次架构演进顶层草图：
-  - [SystemArchitecture_v4_TopLevelSketch](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v4_TopLevelSketch.md)
+- 第四次架构演进最终总纲：
+  - [SystemArchitecture_v4.0](./SystemArchitecture_v4.0.md)
   - 重点是建立真正的项目级顶层系统层，让 Patchouli 与 Alice 成为同级子系统
 
 ---

@@ -1,8 +1,12 @@
 # Router 到 Application Service 收口重构计划
 
-**文档状态**: Draft\
+**文档状态**: Archived (已实施，主要结论已并入 `SystemArchitecture_v4.0.md`)\
 **所属演进**: 第四次架构演进后续收口 / v4.1\
 **文档定位**: 规划后端 HTTP router 从直接访问系统内部对象迁移到应用服务门面的重构路径。
+
+***
+
+> 归档说明：本文保留为 router 到 application service 收口过程的阶段性实施记录。当前关键设计已经合并进 v4 主文档；后续引用应以 `SystemArchitecture_v4.0.md` 为准。
 
 ***
 
