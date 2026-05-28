@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type {
   MemoryAtom,
-  MemoryListResponse,
   SearchMode,
   SortOption,
   ViewMode,
@@ -9,6 +8,12 @@ import type {
 
 import { useMemoryViewStore } from '@/stores/memoryViewStore';
 import { MOCK_MEMORIES } from '@/constants/memories';
+import {
+  deleteMemory as deleteMemoryApi,
+  fetchMemories as fetchMemoriesApi,
+  updateMemory as updateMemoryApi,
+  type UpdateMemoryPatch,
+} from '@/services/memoryApi';
 
 interface UseMemoriesReturn {
   memories: MemoryAtom[];
@@ -39,7 +44,7 @@ interface UseMemoriesReturn {
   // Actions
   refetch: () => Promise<void>;
   deleteMemory: (id: string) => Promise<void>;
-  updateMemory: (id: string, patch: Partial<Pick<MemoryAtom, 'title' | 'summary' | 'content' | 'alias' | 'tags'>>) => Promise<void>;
+  updateMemory: (id: string, patch: UpdateMemoryPatch) => Promise<void>;
 }
 
 export function useMemories(): UseMemoriesReturn {
@@ -66,13 +71,7 @@ export function useMemories(): UseMemoriesReturn {
       setLoading(true);
       setError(null);
 
-      const response = await fetch('/api/v1/memories?limit=100');
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch memories: ${response.statusText}`);
-      }
-
-      const data: MemoryListResponse = await response.json();
+      const data = await fetchMemoriesApi(100);
       setRawMemories(data.memories);
     } catch (err) {
       console.warn('API fetch failed, using mock data:', err);
@@ -161,15 +160,9 @@ export function useMemories(): UseMemoriesReturn {
 
   const updateMemory = useCallback(async (
     id: string,
-    patch: Partial<Pick<MemoryAtom, 'title' | 'summary' | 'content' | 'alias' | 'tags'>>
+    patch: UpdateMemoryPatch
   ) => {
-    const response = await fetch(`/api/v1/memories/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    if (!response.ok) throw new Error(`Failed to update memory: ${response.statusText}`);
-    const updated: MemoryAtom = await response.json();
+    const updated = await updateMemoryApi(id, patch);
     setRawMemories(prev => prev.map(m => m.id === id ? updated : m));
   }, []);
 
@@ -181,13 +174,7 @@ export function useMemories(): UseMemoriesReturn {
     setTotal(prev => prev - 1);
 
     try {
-      const response = await fetch(`/api/v1/memories/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to delete memory: ${response.statusText}`);
-      }
+      await deleteMemoryApi(id);
     } catch (err) {
       console.warn('Delete API failed, keeping optimistic update for mock data:', err);
       // For mock data, we keep the optimistic update (don't rollback)
