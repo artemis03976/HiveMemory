@@ -8,12 +8,14 @@ import MemoryAtomListItem from './memory/MemoryAtomListItem';
 import MemoryHeader from './memory/MemoryHeader';
 import CommandBar from './memory/CommandBar';
 import MemoryDetailModal from './memory/MemoryDetailModal';
+import CreateMemoryModal from './memory/CreateMemoryModal';
 import { ConfirmDialog } from './common/ConfirmDialog';
 
 export default function MemoryLibrary() {
   const { addToast } = useToastStore();
   const [selectedAtom, setSelectedAtom] = useState<MemoryAtom | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const {
     memories,
@@ -29,7 +31,8 @@ export default function MemoryLibrary() {
     deleteMemory,
     updateMemory,
     selectedType,
-    setSelectedType
+    setSelectedType,
+    refetch,
   } = useMemories();
 
   const handleView = (id: string) => {
@@ -66,10 +69,10 @@ export default function MemoryLibrary() {
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-hidden">
       {/* Header & Stats */}
-      <MemoryHeader 
+      <MemoryHeader
         totalMemories={total}
         warnings={0}
-        onNewMemory={() => addToast('施工中，请耐心等待~', 'info')}
+        onNewMemory={() => setShowCreateModal(true)}
       />
 
       {/* Command Bar */}
@@ -168,6 +171,13 @@ export default function MemoryLibrary() {
         confirmText="删除"
         onConfirm={executeDelete}
         onCancel={() => setDeleteId(null)}
+      />
+
+      {/* Create Memory Modal */}
+      <CreateMemoryModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={() => { refetch(); setShowCreateModal(false); }}
       />
     </div>
   );

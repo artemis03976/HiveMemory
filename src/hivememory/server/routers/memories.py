@@ -1,8 +1,10 @@
 """Memories 路由 — 记忆 CRUD"""
 
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, field_validator
 
 from hivememory.core.models import MemoryAtom
 from hivememory.system import HiveMemorySystem
@@ -13,9 +15,37 @@ from hivememory.server.models.memory import (
     MemoryListResponse,
     MemoryResponse,
     MemoryUpdateRequest,
+    MemoryCreateRequest,
+    _ALLOWED_MEMORY_TYPES,
 )
 
 router = APIRouter(tags=["memories"])
+
+
+@router.post("/memories", response_model=MemoryResponse, status_code=201)
+async def create_memory(body: MemoryCreateRequest, system: HiveMemorySystem = Depends(get_system)):
+    """创建新的记忆"""
+    from hivememory.core.models import MetaData, IndexLayer, PayloadLayer, Artifacts, MemoryType
+
+    atom = MemoryAtom(
+        meta=MetaData(source_agent_id="ui", user_id="default"),
+        index=IndexLayer(
+            title=body.title,
+            summary=body.summary,
+            tags=body.tags,
+            memory_type=MemoryType(body.memory_type),
+            alias=body.alias,
+        ),
+        payload=PayloadLayer(
+            content=body.content,
+            artifacts=Artifacts(),
+        ),
+    )
+    try:
+        system.patchouli.storage.upsert_memory(atom)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return MemoryResponse.from_atom(atom)
 
 
 def _get_lifecycle_engine(system: HiveMemorySystem):
