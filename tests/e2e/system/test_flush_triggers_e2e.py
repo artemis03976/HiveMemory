@@ -155,17 +155,17 @@ def _passive_ingest_round(
         user_msg: 用户消息内容
         assistant_msg: 助手消息内容
     """
-    _run(system.ingest_event(
+    _run(system.ingress_service.ingest_event(
         event=PassiveIngressEvent(role="user", content=user_msg),
         user_id=user_id,
         agent_id=agent_id,
     ))
-    _run(system.ingest_event(
+    _run(system.ingress_service.ingest_event(
         event=PassiveIngressEvent(role="assistant", content=assistant_msg),
         user_id=user_id,
         agent_id=agent_id,
     ))
-    _run(system.flush_ingressor(user_id=user_id, agent_id=agent_id))
+    _run(system.ingress_service.flush_ingressor(user_id=user_id, agent_id=agent_id))
     # 等待 daemon thread 完成 submit_interaction
     time.sleep(SUBMIT_SETTLE_SECONDS)
 

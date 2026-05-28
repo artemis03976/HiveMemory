@@ -226,7 +226,10 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
         assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"
         assert PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN == "patchouli.public.cleanup_prepared_agent_run"
+        assert PatchouliRoutes.EVICT_TOPIC == "patchouli.public.evict_topic"
         assert PatchouliRoutes.RECORD_MEMORY_CITATION == "patchouli.public.record_memory_citation"
+        assert PatchouliRoutes.WARMUP_MODELS == "patchouli.public.models.warmup"
+        assert PatchouliRoutes.MODELS_READY == "patchouli.public.models.ready"
         assert AliceRoutes.RUN_AGENT == "alice.public.run_agent"
         assert AliceRoutes.RUN_AGENT_STREAM == "alice.public.run_agent_stream"
 
@@ -240,6 +243,7 @@ class TestPatchouliPublicRoutes:
         system.service.finalize_agent_run = AsyncMock()
         system.service.cleanup_prepared_agent_run = AsyncMock()
         system.service.manual_archive_topic = AsyncMock()
+        system.service.evict_topic = AsyncMock()
         system.service.record_memory_citation = AsyncMock()
         system.runtime = MagicMock()
         system.runtime.librarian_core = MagicMock()
@@ -248,6 +252,23 @@ class TestPatchouliPublicRoutes:
         system.runtime.retrieval_familiar.retrieve_async = AsyncMock()
         system.runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
         system.runtime._get_agent_profile = AsyncMock()
+        system._memory_management_service = MagicMock()
+        system._memory_management_service.create_memory = AsyncMock()
+        system._memory_management_service.list_memories = AsyncMock()
+        system._memory_management_service.get_memory = AsyncMock()
+        system._memory_management_service.update_memory = AsyncMock()
+        system._memory_management_service.delete_memory = AsyncMock()
+        system._memory_management_service.record_feedback = AsyncMock()
+        system._agent_profile_management_service = MagicMock()
+        system._agent_profile_management_service.create_agent_profile = AsyncMock()
+        system._agent_profile_management_service.list_agent_profiles = AsyncMock()
+        system._topic_management_service = MagicMock()
+        system._topic_management_service.list_active_topics = AsyncMock()
+        system._topic_management_service.archive_topic = AsyncMock()
+        system._topic_management_service.evict_topic = AsyncMock()
+        system._model_readiness_service = MagicMock()
+        system._model_readiness_service.warmup_models = AsyncMock()
+        system._model_readiness_service.is_models_ready = AsyncMock(return_value=True)
         system._register_public_routes = PatchouliSystem._register_public_routes.__get__(
             system, PatchouliSystem
         )
@@ -259,13 +280,22 @@ class TestPatchouliPublicRoutes:
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
+        assert PatchouliRoutes.EVICT_TOPIC in routes
         assert PatchouliRoutes.RECORD_MEMORY_CITATION in routes
+        assert PatchouliRoutes.WARMUP_MODELS in routes
+        assert PatchouliRoutes.MODELS_READY in routes
+
+        ready = await self.global_bus.request(PatchouliRoutes.MODELS_READY)
+        assert ready is True
 
         system._unregister_public_routes()
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN not in routes
+        assert PatchouliRoutes.EVICT_TOPIC not in routes
         assert PatchouliRoutes.RECORD_MEMORY_CITATION not in routes
+        assert PatchouliRoutes.WARMUP_MODELS not in routes
+        assert PatchouliRoutes.MODELS_READY not in routes
 
     @pytest.mark.asyncio
     async def test_patchouli_local_settlement_event_bridges_to_global_bus(self):

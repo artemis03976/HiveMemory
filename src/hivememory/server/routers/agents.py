@@ -1,11 +1,13 @@
 """Agents 路由 — Agent Profile 列表"""
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
-from hivememory.system import HiveMemorySystem
-from hivememory.server.deps import get_system
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from hivememory.core.models import MemoryAtom
+from hivememory.server.deps import get_agent_service
+from hivememory.system.application.agent_service import AgentApplicationService
 
 router = APIRouter(tags=["agents"])
 
@@ -28,59 +30,46 @@ class AgentProfileResponse(BaseModel):
     content: str = ""  # payload.content — Agent 的人格/系统指令
     agent_config: Optional[Dict[str, Any]] = None
 
+    @classmethod
+    def from_atom(cls, atom: MemoryAtom) -> "AgentProfileResponse":
+        return cls(
+            id=str(atom.id),
+            alias=atom.index.alias or str(atom.id),
+            title=atom.index.title,
+            summary=atom.index.summary,
+            tags=atom.index.tags,
+            content=atom.payload.content,
+            agent_config=atom.payload.artifacts.agent_config,
+        )
+
 
 @router.post("/agents", response_model=AgentProfileResponse, status_code=201)
-async def create_agent(body: AgentCreateRequest, system: HiveMemorySystem = Depends(get_system)):
+async def create_agent(
+    body: AgentCreateRequest,
+    service: AgentApplicationService = Depends(get_agent_service),
+):
     """创建新的 Agent Profile"""
-    from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, Artifacts, MemoryType
-    atom = MemoryAtom(
-        meta=MetaData(source_agent_id="ui", user_id="default"),
-        index=IndexLayer(
-            title=body.title,
-            summary=body.summary or body.title,
-            tags=body.tags,
-            memory_type=MemoryType.AGENT_PROFILE,
-            alias=body.alias,
-        ),
-        payload=PayloadLayer(
-            content=body.content,
-            artifacts=Artifacts(agent_config=body.agent_config),
-        ),
-    )
     try:
-        system.patchouli.storage.upsert_memory(atom)
+        atom = await service.create_agent_profile(
+            title=body.title,
+            alias=body.alias,
+            summary=body.summary,
+            content=body.content,
+            tags=body.tags,
+            agent_config=body.agent_config,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return AgentProfileResponse(
-        id=str(atom.id),
-        alias=atom.index.alias or str(atom.id),
-        title=atom.index.title,
-        summary=atom.index.summary,
-        tags=atom.index.tags,
-        content=atom.payload.content,
-        agent_config=atom.payload.artifacts.agent_config,
-    )
+    return AgentProfileResponse.from_atom(atom)
 
 
 @router.get("/agents", response_model=List[AgentProfileResponse])
-async def list_agents(system: HiveMemorySystem = Depends(get_system)):
+async def list_agents(
+    service: AgentApplicationService = Depends(get_agent_service),
+):
     """列出所有 Agent Profile"""
     try:
-        atoms = system.patchouli.storage.get_all_memories(
-            filters={"index.memory_type": "AGENT_PROFILE"},
-            limit=100,
-        )
-        return [
-            AgentProfileResponse(
-                id=str(atom.id),
-                alias=atom.index.alias or str(atom.id),
-                title=atom.index.title,
-                summary=atom.index.summary,
-                tags=atom.index.tags,
-                content=atom.payload.content,
-                agent_config=atom.payload.artifacts.agent_config,
-            )
-            for atom in atoms
-        ]
+        atoms = await service.list_agent_profiles(limit=100)
+        return [AgentProfileResponse.from_atom(atom) for atom in atoms]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -142,15 +142,15 @@ async def passive_ingest_memory(
     3. flush_ingressor() → 提交 Payload 到感知层
     4. manual_trigger() → 强制感知层归档+压缩并持久化到 Qdrant
     """
-    await system.ingest_event(
+    await system.ingress_service.ingest_event(
         event=PassiveIngressEvent(role="user", content=user_msg),
         user_id=user_id,
     )
-    await system.ingest_event(
+    await system.ingress_service.ingest_event(
         event=PassiveIngressEvent(role="assistant", content=assistant_msg),
         user_id=user_id,
     )
-    await system.flush_ingressor(user_id=user_id)
+    await system.ingress_service.flush_ingressor(user_id=user_id)
 
     # 手动触发话题结算（Archive + Compact），确保持久化到 Qdrant
     await system.manual_trigger()
@@ -166,11 +166,8 @@ class TestActiveBasicChat:
         """chat() 返回 ChatResult, final_text 非空"""
         user_id = clean_user()
         user_message = "What is 2+2?"
-        messages = build_messages(user_message)
-
-        result = await e2e_system.chat(
+        result = await e2e_system.chat_service.chat(
             user_message=user_message,
-            messages=messages,
             user_id=user_id,
             enable_memory_retrieval=False,
         )
@@ -185,11 +182,8 @@ class TestActiveBasicChat:
         """chat() 完成后感知层接收到载荷"""
         user_id = clean_user()
         user_message = "你觉得今天的天气怎么样？"
-        messages = build_messages(user_message)
-
-        result = await e2e_system.chat(
+        result = await e2e_system.chat_service.chat(
             user_message=user_message,
-            messages=messages,
             user_id=user_id,
             enable_memory_retrieval=False,
         )
@@ -234,10 +228,8 @@ class TestActiveMultiTurnSameTopic:
 
         history: List[Dict[str, str]] = []
         for i, user_msg in enumerate(turns):
-            messages = build_messages(user_msg, history=history)
-            result = await e2e_system.chat(
+            result = await e2e_system.chat_service.chat(
                 user_message=user_msg,
-                messages=messages,
                 user_id=user_id,
                 enable_memory_retrieval=False,
             )
@@ -287,10 +279,8 @@ class TestActiveMultiTopicRouting:
         ]
         history_a: List[Dict[str, str]] = []
         for user_msg in cooking_turns:
-            messages = build_messages(user_msg, history=history_a)
-            result = await e2e_system.chat(
+            result = await e2e_system.chat_service.chat(
                 user_message=user_msg,
-                messages=messages,
                 user_id=user_id,
                 enable_memory_retrieval=False,
             )
@@ -307,10 +297,8 @@ class TestActiveMultiTopicRouting:
         ]
         history_b: List[Dict[str, str]] = []
         for user_msg in fitness_turns:
-            messages = build_messages(user_msg, history=history_b)
-            result = await e2e_system.chat(
+            result = await e2e_system.chat_service.chat(
                 user_message=user_msg,
-                messages=messages,
                 user_id=user_id,
                 enable_memory_retrieval=False,
             )
@@ -327,10 +315,8 @@ class TestActiveMultiTopicRouting:
         ]
         history_c: List[Dict[str, str]] = []
         for user_msg in reading_turns:
-            messages = build_messages(user_msg, history=history_c)
-            result = await e2e_system.chat(
+            result = await e2e_system.chat_service.chat(
                 user_message=user_msg,
-                messages=messages,
                 user_id=user_id,
                 enable_memory_retrieval=False,
             )
@@ -378,15 +364,8 @@ class TestActiveMTPWriteDirected:
             "Please save this important note using the WRITE command: "
             "The deployment password for staging server is rotated every 30 days."
         )
-        system_prompt = (
-            f"{DEFAULT_SYSTEM_PROMPT}\n"
-            f"{e2e_system.get_mtp_prompt()}"
-        )
-        messages = build_messages(user_message, system_prompt=system_prompt)
-
-        result = await e2e_system.chat(
+        result = await e2e_system.chat_service.chat(
             user_message=user_message,
-            messages=messages,
             user_id=user_id,
             enable_memory_retrieval=False,
         )
@@ -446,15 +425,8 @@ class TestActiveMTPUpdateDirected:
         user_message = (
             "API 端口已经从 8080 改成 9090 了，请用 UPDATE 指令更新这条记忆。"
         )
-        system_prompt = (
-            f"{DEFAULT_SYSTEM_PROMPT}\n"
-            f"{e2e_system.get_mtp_prompt()}"
-        )
-        messages = build_messages(user_message, system_prompt=system_prompt)
-
-        result = await e2e_system.chat(
+        result = await e2e_system.chat_service.chat(
             user_message=user_message,
-            messages=messages,
             user_id=user_id,
             enable_memory_retrieval=True,
         )

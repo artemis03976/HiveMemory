@@ -13,8 +13,8 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
     mock_system = MagicMock()
     mock_system.start = AsyncMock()
     mock_system.config = MagicMock()
-    mock_system.patchouli = MagicMock()
-    mock_system.patchouli.runtime.warmup_models = AsyncMock()
+    mock_system.readiness_service = MagicMock()
+    mock_system.readiness_service.warmup_models = AsyncMock()
     ws_manager = object()
 
     with (
@@ -31,5 +31,6 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
         init_system.assert_called_once_with()
         mock_system.start.assert_awaited_once()
         create_task.assert_called_once()
+        mock_system.readiness_service.warmup_models.assert_called_once()
         shutdown_system.assert_awaited_once()
         shutdown_ws.assert_awaited_once_with(ws_manager)

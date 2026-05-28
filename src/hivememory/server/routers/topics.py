@@ -2,15 +2,14 @@
 
 from fastapi import APIRouter, Depends
 
-from hivememory.core.models import Identity
-from hivememory.server.deps import get_system, get_user_id
+from hivememory.server.deps import get_topic_service, get_user_id
 from hivememory.server.models.topic import (
     DeleteResponse,
     TopicListResponse,
     TopicSnapshotResponse,
     TriggerResponse,
 )
-from hivememory.system import HiveMemorySystem
+from hivememory.system.application.topic_service import TopicApplicationService
 
 router = APIRouter(tags=["topics"])
 
@@ -18,11 +17,10 @@ router = APIRouter(tags=["topics"])
 @router.get("/topics", response_model=TopicListResponse)
 async def list_topics(
     user_id: str = Depends(get_user_id),
-    system: HiveMemorySystem = Depends(get_system),
+    service: TopicApplicationService = Depends(get_topic_service),
 ):
     """获取活跃话题列表"""
-    identity = Identity(user_id=user_id)
-    snapshots = system.patchouli.librarian_core.get_active_topics_snapshots(identity)
+    snapshots = await service.list_active_topics(user_id=user_id)
 
     topics = [
         TopicSnapshotResponse(
@@ -41,20 +39,18 @@ async def list_topics(
 @router.post("/topics/{topic_id}/archive", response_model=TriggerResponse)
 async def archive_topic(
     topic_id: str,
-    system: HiveMemorySystem = Depends(get_system),
+    service: TopicApplicationService = Depends(get_topic_service),
 ):
     """手动归档话题"""
-    result = await system.manual_archive_topic(topic_id=topic_id)
+    result = await service.archive_topic(topic_id=topic_id)
     return TriggerResponse(**result)
 
 
 @router.delete("/topics/{topic_id}", response_model=DeleteResponse)
 async def delete_topic(
     topic_id: str,
-    system: HiveMemorySystem = Depends(get_system),
+    service: TopicApplicationService = Depends(get_topic_service),
 ):
     """从活跃池驱逐话题（不归档，不写长期记忆）"""
-    buf = system.patchouli.librarian_core.perception_layer.buffer_manager.pop_buffer(topic_id)
-    if buf is None:
-        return DeleteResponse(success=False, message="话题不存在或已被驱逐")
-    return DeleteResponse(success=True, message=f"话题 {topic_id} 已删除")
+    result = await service.evict_topic(topic_id=topic_id)
+    return DeleteResponse(**result)

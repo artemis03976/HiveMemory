@@ -8,8 +8,12 @@ from fastapi import Header
 from hivememory.core.constants import DEFAULT_USER_ID
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
+from hivememory.system.application.agent_service import AgentApplicationService
+from hivememory.system.application.chat_service import ChatApplicationService
+from hivememory.system.application.memory_service import MemoryApplicationService
+from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)
@@ -40,6 +44,31 @@ def get_system() -> HiveMemorySystem:
     if _system is None:
         raise RuntimeError("HiveMemorySystem 未初始化，服务未正确启动")
     return _system
+
+
+def get_memory_service() -> MemoryApplicationService:
+    """FastAPI Depends 注入 — 获取记忆 API 应用服务。"""
+    return get_system().memory_service
+
+
+def get_chat_service() -> ChatApplicationService:
+    """FastAPI Depends 注入 — 获取主动对话应用服务。"""
+    return get_system().chat_service
+
+
+def get_ingress_service() -> PassiveIngressService:
+    """FastAPI Depends 注入 — 获取被动接入应用服务。"""
+    return get_system().ingress_service
+
+
+def get_agent_service() -> AgentApplicationService:
+    """FastAPI Depends 注入 — 获取 Agent API 应用服务。"""
+    return get_system().agent_service
+
+
+def get_topic_service() -> TopicApplicationService:
+    """FastAPI Depends 注入 — 获取话题 API 应用服务。"""
+    return get_system().topic_service
 
 
 def get_user_id(x_user_id: str = Header(default=DEFAULT_USER_ID)) -> str:

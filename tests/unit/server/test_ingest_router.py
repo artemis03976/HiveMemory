@@ -11,20 +11,20 @@ from fastapi.testclient import TestClient
 from hivememory.server.routers.ingest import router
 
 
-def _create_test_app(mock_system):
+def _create_test_app(mock_service):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
-    app.dependency_overrides[deps.get_system] = lambda: mock_system
+    app.dependency_overrides[deps.get_ingress_service] = lambda: mock_service
 
     return app
 
 
 class TestIngestRouter:
     def test_ingest_user_message(self):
-        mock_system = MagicMock()
-        mock_system.ingest_event = AsyncMock(return_value={
+        mock_service = MagicMock()
+        mock_service.ingest_event = AsyncMock(return_value={
             "intent": "Chat",
             "rewritten": "hello rewritten",
             "keywords": ["hello"],
@@ -32,7 +32,7 @@ class TestIngestRouter:
             "memory": None,
         })
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(
@@ -44,11 +44,11 @@ class TestIngestRouter:
         assert data["intent"] == "Chat"
         assert data["worth_saving"] is True
 
-        mock_system.ingest_event.assert_called_once()
+        mock_service.ingest_event.assert_called_once()
 
     def test_ingest_assistant_message(self):
-        mock_system = MagicMock()
-        mock_system.ingest_event = AsyncMock(return_value={
+        mock_service = MagicMock()
+        mock_service.ingest_event = AsyncMock(return_value={
             "intent": "buffered",
             "rewritten": None,
             "keywords": [],
@@ -56,7 +56,7 @@ class TestIngestRouter:
             "memory": None,
         })
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(
@@ -67,8 +67,8 @@ class TestIngestRouter:
         assert response.json()["intent"] == "buffered"
 
     def test_ingest_tool_call(self):
-        mock_system = MagicMock()
-        mock_system.ingest_event = AsyncMock(return_value={
+        mock_service = MagicMock()
+        mock_service.ingest_event = AsyncMock(return_value={
             "intent": "buffered",
             "rewritten": None,
             "keywords": [],
@@ -76,7 +76,7 @@ class TestIngestRouter:
             "memory": None,
         })
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(
@@ -94,15 +94,15 @@ class TestIngestRouter:
         assert response.status_code == 200
         assert response.json()["intent"] == "buffered"
 
-        call_kwargs = mock_system.ingest_event.call_args.kwargs
+        call_kwargs = mock_service.ingest_event.call_args.kwargs
         event = call_kwargs["event"]
         assert event.role == "tool_call"
         assert event.action_id == "a1"
         assert event.tool_name == "weather_api"
 
     def test_ingest_tool_result(self):
-        mock_system = MagicMock()
-        mock_system.ingest_event = AsyncMock(return_value={
+        mock_service = MagicMock()
+        mock_service.ingest_event = AsyncMock(return_value={
             "intent": "buffered",
             "rewritten": None,
             "keywords": [],
@@ -110,7 +110,7 @@ class TestIngestRouter:
             "memory": None,
         })
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(
@@ -126,7 +126,7 @@ class TestIngestRouter:
         assert response.status_code == 200
         assert response.json()["intent"] == "buffered"
 
-        call_kwargs = mock_system.ingest_event.call_args.kwargs
+        call_kwargs = mock_service.ingest_event.call_args.kwargs
         event = call_kwargs["event"]
         assert event.role == "tool_result"
         assert event.action_id == "a1"

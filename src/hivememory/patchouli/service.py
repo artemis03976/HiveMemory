@@ -237,6 +237,15 @@ class PatchouliService:
         """
         return await self._runtime.librarian_core.manual_archive_topic(topic_id)
 
+    async def evict_topic(self, topic_id: str) -> dict[str, Any]:
+        """从活跃话题池中驱逐话题，不归档、不写长期记忆。"""
+        buf = self._runtime.librarian_core.perception_layer.buffer_manager.pop_buffer(
+            topic_id
+        )
+        if buf is None:
+            return {"success": False, "message": "话题不存在或已被驱逐"}
+        return {"success": True, "message": f"话题 {topic_id} 已删除"}
+
     async def retrieve_for_gaze(
         self,
         gaze_result,

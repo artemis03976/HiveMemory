@@ -79,7 +79,7 @@ async def test_debug_messages_with_system(patch_assemble_messages):
 
         try:
             # 这里的调用会被拦截并打印
-            result = await system.chat(
+            result = await system.chat_service.chat(
                 user_message="测试拦截功能",
                 user_id="test_user"
             )

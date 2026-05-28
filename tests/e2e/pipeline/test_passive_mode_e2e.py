@@ -92,7 +92,7 @@ async def _ingest_event(
     **event_kwargs,
 ) -> Dict[str, Any]:
     event = PassiveIngressEvent(role=role, content=content, **event_kwargs)
-    return await system.ingest_event(
+    return await system.ingress_service.ingest_event(
         event=event,
         user_id=user_id,
         agent_id=agent_id,
@@ -207,7 +207,7 @@ class TestPassiveBasicFlow:
         assert assistant_result["intent"] == "buffered"
 
         # Step 3: flush → 构建 Payload → 提交到感知层
-        flushed = await e2e_system.flush_ingressor(
+        flushed = await e2e_system.ingress_service.flush_ingressor(
             user_id=user_id, session_id=session_id
         )
         assert flushed is True, "flush 应返回 True (有数据被提交到感知层)"
@@ -291,7 +291,7 @@ class TestPassiveAutoFlush:
             user_id=user_id,
             session_id=session_id,
         )
-        await e2e_system.flush_ingressor(user_id=user_id, session_id=session_id)
+        await e2e_system.ingress_service.flush_ingressor(user_id=user_id, session_id=session_id)
         time.sleep(FLUSH_SETTLE_SECONDS)
 
         blocks_after = _wait_for_perception_blocks(
@@ -340,7 +340,7 @@ class TestPassiveMultiRound:
             )
 
         # 显式 flush 最后一轮 → 提交到感知层
-        await e2e_system.flush_ingressor(user_id=user_id, session_id=session_id)
+        await e2e_system.ingress_service.flush_ingressor(user_id=user_id, session_id=session_id)
         time.sleep(FLUSH_SETTLE_SECONDS + 3)  # 多轮需要更长等待
 
         blocks = _wait_for_perception_blocks(
@@ -387,7 +387,7 @@ class TestPassiveThenActiveRetrieval:
             user_id=user_id,
             session_id="passive-seed",
         )
-        await e2e_system.flush_ingressor(user_id=user_id, session_id="passive-seed")
+        await e2e_system.ingress_service.flush_ingressor(user_id=user_id, session_id="passive-seed")
         time.sleep(FLUSH_SETTLE_SECONDS)
 
         blocks = _wait_for_perception_blocks(
@@ -401,11 +401,8 @@ class TestPassiveThenActiveRetrieval:
 
         # Phase 2: Active 读取
         user_message = "我们的 API 网关部署在哪里？用的什么技术？"
-        messages = build_messages(user_message)
-
-        result = await e2e_system.chat(
+        result = await e2e_system.chat_service.chat(
             user_message=user_message,
-            messages=messages,
             user_id=user_id,
             session_id="active-query",
             enable_memory_retrieval=True,
@@ -468,7 +465,7 @@ class TestPassiveWorthSavingFilter:
         )
 
         # Step 3: flush → 提交到感知层
-        await e2e_system.flush_ingressor(
+        await e2e_system.ingress_service.flush_ingressor(
             user_id=user_id, session_id=session_id
         )
         time.sleep(FLUSH_SETTLE_SECONDS + 3)
@@ -528,7 +525,7 @@ class TestPassiveWorthSavingFilter:
         )
 
         # flush Round 2 → 提交到感知层
-        await e2e_system.flush_ingressor(
+        await e2e_system.ingress_service.flush_ingressor(
             user_id=user_id, session_id=session_id
         )
         time.sleep(FLUSH_SETTLE_SECONDS + 3)
@@ -613,7 +610,7 @@ class TestPassiveMultiSessionIsolation:
         )
 
         # 只 flush Session A → 提交到感知层
-        flushed_a = await e2e_system.flush_ingressor(
+        flushed_a = await e2e_system.ingress_service.flush_ingressor(
             user_id=user_id, session_id=session_a
         )
         assert flushed_a is True, "Session A flush 应返回 True"
@@ -640,7 +637,7 @@ class TestPassiveMultiSessionIsolation:
             )
 
         # 现在 flush Session B → 提交到感知层
-        flushed_b = await e2e_system.flush_ingressor(
+        flushed_b = await e2e_system.ingress_service.flush_ingressor(
             user_id=user_id, session_id=session_b
         )
         if flushed_b:
@@ -675,7 +672,7 @@ class TestPassiveMultiSessionIsolation:
         """
         user_id = clean_user()
 
-        flushed = await e2e_system.flush_ingressor(
+        flushed = await e2e_system.ingress_service.flush_ingressor(
             user_id=user_id, session_id="nonexistent-session"
         )
         assert flushed is False, "flush 空 session 应返回 False"

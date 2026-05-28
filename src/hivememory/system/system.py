@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
 from typing import Any
 
 from hivememory.alice.system import AliceSystem
-from hivememory.core.protocol.models import ChatResult
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
+from hivememory.system.application.memory_service import MemoryApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.application.readiness_service import SystemReadinessService
+from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import (
     GlobalMaintenanceScheduler,
@@ -33,6 +34,10 @@ class HiveMemorySystem:
         scheduler: GlobalMaintenanceScheduler,
         chat_service: ChatApplicationService,
         ingress_service: PassiveIngressService,
+        memory_service: MemoryApplicationService,
+        agent_service: AgentApplicationService,
+        topic_service: TopicApplicationService,
+        readiness_service: SystemReadinessService,
     ) -> None:
         self._config = config
 
@@ -44,6 +49,10 @@ class HiveMemorySystem:
 
         self._chat_service = chat_service
         self._ingress_service = ingress_service
+        self._memory_service = memory_service
+        self._agent_service = agent_service
+        self._topic_service = topic_service
+        self._readiness_service = readiness_service
 
         self._started = False
         self._scheduler_stopped = False
@@ -82,6 +91,21 @@ class HiveMemorySystem:
             config=config,
             scheduler=scheduler,
         )
+        memory_service = MemoryApplicationService(
+            global_bus=global_bus,
+            config=config,
+        )
+        agent_service = AgentApplicationService(
+            global_bus=global_bus,
+            config=config,
+        )
+        topic_service = TopicApplicationService(
+            global_bus=global_bus,
+            config=config,
+        )
+        readiness_service = SystemReadinessService(
+            global_bus=global_bus,
+        )
 
         return cls(
             config=config,
@@ -91,6 +115,10 @@ class HiveMemorySystem:
             scheduler=scheduler,
             chat_service=chat_service,
             ingress_service=ingress_service,
+            memory_service=memory_service,
+            agent_service=agent_service,
+            topic_service=topic_service,
+            readiness_service=readiness_service,
         )
 
     # ========== 生命周期 ==========
@@ -132,77 +160,31 @@ class HiveMemorySystem:
             "models_ready": self._patchouli.runtime.is_models_ready(),
         }
 
-    # ========== 聊天 ==========
+    # ========== 应用服务入口 ==========
 
-    async def chat(
-        self,
-        user_message: str,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: str | None = None,
-        enable_memory_retrieval: bool = True,
-        generation_options: dict[str, Any] | None = None,
-    ) -> ChatResult:
-        return await self._chat_service.chat(
-            user_message=user_message,
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-            enable_memory_retrieval=enable_memory_retrieval,
-            generation_options=generation_options,
-        )
+    @property
+    def chat_service(self) -> ChatApplicationService:
+        return self._chat_service
 
-    async def chat_stream(
-        self,
-        user_message: str,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: str | None = None,
-        enable_memory_retrieval: bool = True,
-        generation_options: dict[str, Any] | None = None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        async for event in self._chat_service.chat_stream(
-            user_message=user_message,
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-            enable_memory_retrieval=enable_memory_retrieval,
-            generation_options=generation_options,
-        ):
-            yield event
+    @property
+    def ingress_service(self) -> PassiveIngressService:
+        return self._ingress_service
 
-    # ========== 被动接入 ==========
+    @property
+    def memory_service(self) -> MemoryApplicationService:
+        return self._memory_service
 
-    async def ingest_event(
-        self,
-        event: Any,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: str | None = None,
-    ) -> dict[str, Any]:
-        return await self._ingress_service.ingest_event(
-            event=event,
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
+    @property
+    def agent_service(self) -> AgentApplicationService:
+        return self._agent_service
 
-    async def flush_ingressor(
-        self,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: str | None = None,
-    ) -> bool:
-        return await self._ingress_service.flush_ingressor(
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
+    @property
+    def topic_service(self) -> TopicApplicationService:
+        return self._topic_service
 
-    # ========== 生成控制 ==========
-
-    def cancel_generation(self, generation_id: str) -> bool:
-        return self._chat_service.cancel_generation(generation_id)
+    @property
+    def readiness_service(self) -> SystemReadinessService:
+        return self._readiness_service
 
     # ========== 配置管理 ==========
 
@@ -210,21 +192,7 @@ class HiveMemorySystem:
     def config(self) -> HiveMemoryConfig:
         return self._config
 
-    @property
-    def patchouli(self) -> PatchouliSystem:
-        return self._patchouli
-
-    @property
-    def alice(self) -> AliceSystem:
-        return self._alice
-
     @config.setter
     def config(self, value: HiveMemoryConfig) -> None:
         self._config = value
         self._patchouli.config = value
-
-    async def manual_archive_topic(self, topic_id: str | None = None) -> dict[str, Any]:
-        return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC,
-            topic_id=topic_id,
-        )
