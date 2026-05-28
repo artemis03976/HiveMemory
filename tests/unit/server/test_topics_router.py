@@ -8,6 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.server.routers.topics import router
 
 
@@ -16,7 +19,18 @@ def _create_test_app(mock_system):
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
-    app.dependency_overrides[deps.get_system] = lambda: mock_system
+    bus = GlobalSystemBus()
+    if hasattr(mock_system, "manual_archive_topic"):
+        bus.register(GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC, mock_system.manual_archive_topic)
+    evict_topic = getattr(mock_system, "evict_topic", None)
+    if evict_topic is not None:
+        bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, evict_topic)
+    service = TopicApplicationService(
+        global_bus=bus,
+        config=MagicMock(),
+        patchouli=mock_system.patchouli,
+    )
+    app.dependency_overrides[deps.get_topic_service] = lambda: service
     app.dependency_overrides[deps.get_user_id] = lambda: "test_user"
 
     return app
@@ -77,3 +91,31 @@ class TestTopicsRouter:
         data = response.json()
         assert data["success"] is True
         assert data["blocks_archived"] == 5
+
+    def test_delete_topic(self):
+        mock_system = MagicMock()
+        mock_system.evict_topic = AsyncMock(return_value={
+            "success": True,
+            "message": "话题 t1 已删除",
+        })
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.delete("/api/v1/topics/t1")
+        assert response.status_code == 200
+        assert response.json() == {"success": True, "message": "话题 t1 已删除"}
+
+    def test_delete_topic_missing(self):
+        mock_system = MagicMock()
+        mock_system.evict_topic = AsyncMock(return_value={
+            "success": False,
+            "message": "话题不存在或已被驱逐",
+        })
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.delete("/api/v1/topics/missing")
+        assert response.status_code == 200
+        assert response.json() == {"success": False, "message": "话题不存在或已被驱逐"}

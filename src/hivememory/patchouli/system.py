@@ -268,6 +268,10 @@ class PatchouliSystem(SubsystemProtocol):
             self.service.manual_archive_topic,
         )
         self._global_bus.register(
+            PatchouliRoutes.EVICT_TOPIC,
+            self.service.evict_topic,
+        )
+        self._global_bus.register(
             PatchouliRoutes.RECORD_MEMORY_CITATION,
             self.service.record_memory_citation,
         )
@@ -282,6 +286,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus.unregister(PatchouliRoutes.FINALIZE_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN)
         self._global_bus.unregister(PatchouliRoutes.MANUAL_ARCHIVE_TOPIC)
+        self._global_bus.unregister(PatchouliRoutes.EVICT_TOPIC)
         self._global_bus.unregister(PatchouliRoutes.RECORD_MEMORY_CITATION)
 
     def _register_local_event_bridges(self) -> None:

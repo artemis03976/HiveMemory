@@ -226,6 +226,7 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
         assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"
         assert PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN == "patchouli.public.cleanup_prepared_agent_run"
+        assert PatchouliRoutes.EVICT_TOPIC == "patchouli.public.evict_topic"
         assert PatchouliRoutes.RECORD_MEMORY_CITATION == "patchouli.public.record_memory_citation"
         assert AliceRoutes.RUN_AGENT == "alice.public.run_agent"
         assert AliceRoutes.RUN_AGENT_STREAM == "alice.public.run_agent_stream"
@@ -240,6 +241,7 @@ class TestPatchouliPublicRoutes:
         system.service.finalize_agent_run = AsyncMock()
         system.service.cleanup_prepared_agent_run = AsyncMock()
         system.service.manual_archive_topic = AsyncMock()
+        system.service.evict_topic = AsyncMock()
         system.service.record_memory_citation = AsyncMock()
         system.runtime = MagicMock()
         system.runtime.librarian_core = MagicMock()
@@ -259,12 +261,14 @@ class TestPatchouliPublicRoutes:
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
+        assert PatchouliRoutes.EVICT_TOPIC in routes
         assert PatchouliRoutes.RECORD_MEMORY_CITATION in routes
 
         system._unregister_public_routes()
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN not in routes
+        assert PatchouliRoutes.EVICT_TOPIC not in routes
         assert PatchouliRoutes.RECORD_MEMORY_CITATION not in routes
 
     @pytest.mark.asyncio

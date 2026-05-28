@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.system.application.agent_service import AgentApplicationService
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.server.routers.agents import router
 
 
@@ -15,7 +17,12 @@ def _create_test_app(mock_system):
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
-    app.dependency_overrides[deps.get_system] = lambda: mock_system
+    service = AgentApplicationService(
+        global_bus=GlobalSystemBus(),
+        config=MagicMock(),
+        patchouli=mock_system.patchouli,
+    )
+    app.dependency_overrides[deps.get_agent_service] = lambda: service
 
     return app
 

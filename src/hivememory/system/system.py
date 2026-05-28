@@ -6,8 +6,11 @@ from typing import Any
 from hivememory.alice.system import AliceSystem
 from hivememory.core.protocol.models import ChatResult
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
+from hivememory.system.application.memory_service import MemoryApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -33,6 +36,9 @@ class HiveMemorySystem:
         scheduler: GlobalMaintenanceScheduler,
         chat_service: ChatApplicationService,
         ingress_service: PassiveIngressService,
+        memory_service: MemoryApplicationService,
+        agent_service: AgentApplicationService,
+        topic_service: TopicApplicationService,
     ) -> None:
         self._config = config
 
@@ -44,6 +50,9 @@ class HiveMemorySystem:
 
         self._chat_service = chat_service
         self._ingress_service = ingress_service
+        self._memory_service = memory_service
+        self._agent_service = agent_service
+        self._topic_service = topic_service
 
         self._started = False
         self._scheduler_stopped = False
@@ -82,6 +91,21 @@ class HiveMemorySystem:
             config=config,
             scheduler=scheduler,
         )
+        memory_service = MemoryApplicationService(
+            global_bus=global_bus,
+            config=config,
+            patchouli=patchouli,
+        )
+        agent_service = AgentApplicationService(
+            global_bus=global_bus,
+            config=config,
+            patchouli=patchouli,
+        )
+        topic_service = TopicApplicationService(
+            global_bus=global_bus,
+            config=config,
+            patchouli=patchouli,
+        )
 
         return cls(
             config=config,
@@ -91,6 +115,9 @@ class HiveMemorySystem:
             scheduler=scheduler,
             chat_service=chat_service,
             ingress_service=ingress_service,
+            memory_service=memory_service,
+            agent_service=agent_service,
+            topic_service=topic_service,
         )
 
     # ========== 生命周期 ==========
@@ -131,6 +158,12 @@ class HiveMemorySystem:
             "subsystems": subsystem_health,
             "models_ready": self._patchouli.runtime.is_models_ready(),
         }
+
+    async def warmup_models(self) -> None:
+        await self._patchouli.runtime.warmup_models()
+
+    def is_models_ready(self) -> bool:
+        return self._patchouli.runtime.is_models_ready()
 
     # ========== 聊天 ==========
 
@@ -204,6 +237,20 @@ class HiveMemorySystem:
     def cancel_generation(self, generation_id: str) -> bool:
         return self._chat_service.cancel_generation(generation_id)
 
+    # ========== 应用服务入口 ==========
+
+    @property
+    def memory_service(self) -> MemoryApplicationService:
+        return self._memory_service
+
+    @property
+    def agent_service(self) -> AgentApplicationService:
+        return self._agent_service
+
+    @property
+    def topic_service(self) -> TopicApplicationService:
+        return self._topic_service
+
     # ========== 配置管理 ==========
 
     @property
@@ -224,7 +271,4 @@ class HiveMemorySystem:
         self._patchouli.config = value
 
     async def manual_archive_topic(self, topic_id: str | None = None) -> dict[str, Any]:
-        return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC,
-            topic_id=topic_id,
-        )
+        return await self._topic_service.archive_topic(topic_id=topic_id)

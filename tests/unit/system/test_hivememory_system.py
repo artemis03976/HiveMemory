@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
@@ -15,6 +16,7 @@ def mock_patchouli():
     p.name = "patchouli"
     p.runtime = MagicMock()
     p.runtime.is_models_ready.return_value = True
+    p.runtime.warmup_models = AsyncMock()
     p.health = AsyncMock(return_value={"status": "ok", "models_ready": True})
     p.storage = MagicMock()
     p.service = MagicMock()
@@ -41,6 +43,13 @@ def system(mock_patchouli):
     ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
     ingress_service.ingest_event = AsyncMock(return_value={"buffered": True})
     ingress_service.flush_ingressor = AsyncMock(return_value=True)
+    memory_service = MagicMock()
+    agent_service = MagicMock()
+    topic_service = TopicApplicationService(
+        global_bus=global_bus,
+        config=config,
+        patchouli=mock_patchouli,
+    )
     return HiveMemorySystem(
         config=config,
         patchouli=mock_patchouli,
@@ -49,6 +58,9 @@ def system(mock_patchouli):
         scheduler=scheduler,
         chat_service=chat_service,
         ingress_service=ingress_service,
+        memory_service=memory_service,
+        agent_service=agent_service,
+        topic_service=topic_service,
     )
 
 
@@ -136,6 +148,11 @@ class TestHiveMemorySystem:
     def test_config_property(self, system):
         assert system.config is system._config
 
+    def test_application_service_properties(self, system):
+        assert system.memory_service is system._memory_service
+        assert system.agent_service is system._agent_service
+        assert system.topic_service is system._topic_service
+
     @pytest.mark.asyncio
     async def test_manual_archive_topic_delegates(self, system, mock_patchouli):
         system._global_bus.register(
@@ -145,3 +162,12 @@ class TestHiveMemorySystem:
         result = await system.manual_archive_topic(topic_id="t1")
         mock_patchouli.service.manual_archive_topic.assert_called_once_with(topic_id="t1")
         assert result == {"archived": 1}
+
+    @pytest.mark.asyncio
+    async def test_warmup_models_delegates(self, system, mock_patchouli):
+        await system.warmup_models()
+        mock_patchouli.runtime.warmup_models.assert_awaited_once()
+
+    def test_is_models_ready_delegates(self, system, mock_patchouli):
+        assert system.is_models_ready() is True
+        mock_patchouli.runtime.is_models_ready.assert_called()

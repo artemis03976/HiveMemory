@@ -13,6 +13,8 @@ from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
+from hivememory.system.application.memory_service import MemoryApplicationService
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.server.routers.memories import router
 
 
@@ -21,7 +23,12 @@ def _create_test_app(mock_system):
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
-    app.dependency_overrides[deps.get_system] = lambda: mock_system
+    service = MemoryApplicationService(
+        global_bus=GlobalSystemBus(),
+        config=MagicMock(),
+        patchouli=mock_system.patchouli,
+    )
+    app.dependency_overrides[deps.get_memory_service] = lambda: service
 
     return app
 

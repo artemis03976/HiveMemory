@@ -4,8 +4,11 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from dataclasses import dataclass
+from uuid import uuid4
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
+from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -18,10 +21,18 @@ from hivememory.patchouli.models import (
     PreparedAgentRun,
     StreamPrelude,
 )
+from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
+from hivememory.system.application.memory_service import (
+    MemoryApplicationService,
+    MemoryLifecycleUnavailableError,
+    MemoryNotFoundError,
+)
 from hivememory.system.application.passive import PassiveIngressEvent
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 
@@ -138,6 +149,294 @@ def _make_analysis_result(
         gaze_result=gaze_result,
         retrieval_result=retrieval_result,
     )
+
+
+def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
+    return MemoryAtom(
+        id=uuid4(),
+        meta=MetaData(source_agent_id="a1", user_id=user_id),
+        index=IndexLayer(
+            title=title,
+            summary="A test memory summary",
+            tags=["test"],
+            memory_type=MemoryType.FACT,
+        ),
+        payload=PayloadLayer(content="test content"),
+    )
+
+
+class TestApiApplicationServices:
+    def test_services_keep_config_reference(self, mock_global_bus, passive_config):
+        memory_service = MemoryApplicationService(
+            global_bus=mock_global_bus,
+            config=passive_config,
+        )
+        agent_service = AgentApplicationService(
+            global_bus=mock_global_bus,
+            config=passive_config,
+        )
+        topic_service = TopicApplicationService(
+            global_bus=mock_global_bus,
+            config=passive_config,
+        )
+
+        assert memory_service.config is passive_config
+        assert agent_service.config is passive_config
+        assert topic_service.config is passive_config
+
+    def test_hivememory_system_build_exposes_api_services(self, passive_config):
+        with (
+            patch("hivememory.system.system.PatchouliSystem"),
+            patch("hivememory.system.system.AliceSystem"),
+        ):
+            system = HiveMemorySystem.build(config=passive_config)
+
+        assert isinstance(system.memory_service, MemoryApplicationService)
+        assert isinstance(system.agent_service, AgentApplicationService)
+        assert isinstance(system.topic_service, TopicApplicationService)
+        assert system.memory_service.config is passive_config
+        assert system.agent_service.config is passive_config
+        assert system.topic_service.config is passive_config
+
+    def test_server_deps_return_api_services(self, passive_config):
+        from hivememory.server import deps
+
+        previous_system = deps._system
+        try:
+            with (
+                patch("hivememory.system.system.PatchouliSystem"),
+                patch("hivememory.system.system.AliceSystem"),
+            ):
+                system = HiveMemorySystem.build(config=passive_config)
+            deps._system = system
+
+            assert deps.get_memory_service() is system.memory_service
+            assert deps.get_agent_service() is system.agent_service
+            assert deps.get_topic_service() is system.topic_service
+        finally:
+            deps._system = previous_system
+
+
+class TestMemoryApplicationService:
+    @pytest.fixture
+    def patchouli(self):
+        patchouli = MagicMock()
+        patchouli.storage = MagicMock()
+        patchouli.runtime = MagicMock()
+        patchouli.runtime._engines = {}
+        patchouli.librarian_core = MagicMock()
+        patchouli.librarian_core.lifecycle_engine = None
+        return patchouli
+
+    @pytest.fixture
+    def service(self, mock_global_bus, passive_config, patchouli):
+        return MemoryApplicationService(
+            global_bus=mock_global_bus,
+            config=passive_config,
+            patchouli=patchouli,
+        )
+
+    def test_create_memory_writes_storage(self, service, patchouli):
+        atom = service.create_memory(
+            title="Created memory",
+            summary="A sufficiently long memory summary",
+            content="Created memory content",
+            memory_type="FACT",
+            tags=["created", "ui"],
+            alias="created-memory",
+        )
+
+        patchouli.storage.upsert_memory.assert_called_once_with(atom)
+        assert atom.meta.source_agent_id == "ui"
+        assert atom.meta.user_id == "default"
+        assert atom.index.memory_type == MemoryType.FACT
+        assert atom.index.alias == "created-memory"
+
+    def test_list_memories_uses_filters_and_refreshes_vitality(self, service, patchouli):
+        atom = _make_memory_atom()
+        lifecycle = MagicMock()
+        lifecycle.refresh_vitality_batch.side_effect = (
+            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 33.0)
+        )
+        patchouli.runtime._engines = {"lifecycle": lifecycle}
+        patchouli.storage.get_all_memories.return_value = [atom]
+
+        atoms = service.list_memories(user_id="u1", memory_type="FACT", limit=10)
+
+        patchouli.storage.get_all_memories.assert_called_once_with(
+            filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
+            limit=10,
+        )
+        lifecycle.refresh_vitality_batch.assert_called_once_with([atom], persist=False)
+        assert atoms == [atom]
+        assert atoms[0].meta.vitality_score == 33.0
+
+    def test_list_memories_search_excludes_agent_profiles(self, service, patchouli):
+        fact = _make_memory_atom(title="Fact")
+        profile = _make_memory_atom(title="Agent")
+        profile.index.memory_type = MemoryType.AGENT_PROFILE
+        patchouli.storage.search_memories.return_value = [
+            {"memory": fact, "score": 0.9},
+            {"memory": profile, "score": 0.8},
+        ]
+
+        atoms = service.list_memories(query="test", limit=5)
+
+        patchouli.storage.search_memories.assert_called_once_with(
+            query_text="test",
+            top_k=5,
+            filters=None,
+        )
+        assert atoms == [fact]
+
+    def test_get_memory_not_found_raises_domain_error(self, service, patchouli):
+        patchouli.storage.get_memory.return_value = None
+
+        with pytest.raises(MemoryNotFoundError):
+            service.get_memory(uuid4())
+
+    def test_update_memory_updates_editable_fields(self, service, patchouli):
+        atom = _make_memory_atom()
+        patchouli.storage.get_memory.return_value = atom
+
+        updated = service.update_memory(
+            atom.id,
+            title="Updated",
+            summary="Updated summary",
+            content="Updated content",
+            alias="updated-alias",
+            tags=["updated"],
+            agent_config={"mode": "test"},
+        )
+
+        assert updated is atom
+        assert atom.index.title == "Updated"
+        assert atom.index.summary == "Updated summary"
+        assert atom.payload.content == "Updated content"
+        assert atom.index.alias == "updated-alias"
+        assert atom.index.tags == ["updated"]
+        assert atom.payload.artifacts.agent_config == {"mode": "test"}
+        patchouli.storage.upsert_memory.assert_called_once_with(atom)
+
+    def test_record_feedback_uses_lifecycle(self, service, patchouli):
+        mid = uuid4()
+        lifecycle = MagicMock()
+        lifecycle.record_feedback.return_value = ReinforcementResult(
+            memory_id=mid,
+            previous_vitality=40.0,
+            new_vitality=90.0,
+            previous_confidence=0.8,
+            new_confidence=0.8,
+            event_type=EventType.FEEDBACK_POSITIVE,
+        )
+        patchouli.runtime._engines = {"lifecycle": lifecycle}
+
+        result = service.record_feedback(
+            mid,
+            positive=True,
+            source="ui.memory_ref",
+        )
+
+        lifecycle.record_feedback.assert_called_once_with(
+            mid,
+            positive=True,
+            source="ui.memory_ref",
+        )
+        assert result.memory_id == mid
+
+    def test_record_feedback_without_lifecycle_raises_domain_error(self, service):
+        with pytest.raises(MemoryLifecycleUnavailableError):
+            service.record_feedback(uuid4(), positive=True, source="ui.memory_ref")
+
+
+class TestAgentApplicationService:
+    @pytest.fixture
+    def patchouli(self):
+        patchouli = MagicMock()
+        patchouli.storage = MagicMock()
+        return patchouli
+
+    @pytest.fixture
+    def service(self, mock_global_bus, passive_config, patchouli):
+        return AgentApplicationService(
+            global_bus=mock_global_bus,
+            config=passive_config,
+            patchouli=patchouli,
+        )
+
+    def test_create_agent_profile_writes_agent_profile_atom(self, service, patchouli):
+        atom = service.create_agent_profile(
+            title="Worker",
+            alias="worker",
+            summary="",
+            content="persona",
+            tags=["agent"],
+            agent_config={"allowed_mtp_verbs": ["SEARCH"]},
+        )
+
+        patchouli.storage.upsert_memory.assert_called_once_with(atom)
+        assert atom.index.memory_type == MemoryType.AGENT_PROFILE
+        assert atom.index.summary == "Worker agent profile"
+        assert atom.index.alias == "worker"
+        assert atom.payload.content == "persona"
+        assert atom.payload.artifacts.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
+
+    def test_list_agent_profiles_uses_agent_profile_filter(self, service, patchouli):
+        patchouli.storage.get_all_memories.return_value = []
+
+        assert service.list_agent_profiles() == []
+        patchouli.storage.get_all_memories.assert_called_once_with(
+            filters={"index.memory_type": "AGENT_PROFILE"},
+            limit=100,
+        )
+
+
+class TestTopicApplicationService:
+    @pytest.fixture
+    def patchouli(self):
+        patchouli = MagicMock()
+        patchouli.librarian_core = MagicMock()
+        patchouli.librarian_core.perception_layer.buffer_manager.pop_buffer.return_value = object()
+        return patchouli
+
+    @pytest.fixture
+    def bus(self):
+        return GlobalSystemBus()
+
+    @pytest.fixture
+    def service(self, bus, passive_config, patchouli):
+        return TopicApplicationService(
+            global_bus=bus,
+            config=passive_config,
+            patchouli=patchouli,
+        )
+
+    def test_list_active_topics_uses_identity(self, service, patchouli):
+        patchouli.librarian_core.get_active_topics_snapshots.return_value = ["snapshot"]
+
+        assert service.list_active_topics(user_id="u1") == ["snapshot"]
+        identity = patchouli.librarian_core.get_active_topics_snapshots.call_args.args[0]
+        assert identity.user_id == "u1"
+
+    @pytest.mark.asyncio
+    async def test_archive_topic_uses_public_route(self, service, bus):
+        handler = AsyncMock(return_value={"success": True, "topic_id": "t1"})
+        bus.register(GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC, handler)
+
+        result = await service.archive_topic(topic_id="t1")
+
+        assert result == {"success": True, "topic_id": "t1"}
+        handler.assert_awaited_once_with(topic_id="t1")
+
+    @pytest.mark.asyncio
+    async def test_evict_topic_uses_public_route(self, service, bus):
+        handler = AsyncMock(return_value={"success": True, "message": "话题 t1 已删除"})
+        bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, handler)
+
+        result = await service.evict_topic(topic_id="t1")
+
+        assert result == {"success": True, "message": "话题 t1 已删除"}
+        handler.assert_awaited_once_with(topic_id="t1")
 
 
 class TestChatApplicationService:

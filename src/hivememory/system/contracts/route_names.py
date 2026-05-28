@@ -13,6 +13,7 @@ class RouteNames:
     PATCHOULI_FINALIZE_AGENT_RUN = "patchouli.public.finalize_agent_run"
     PATCHOULI_CLEANUP_PREPARED_AGENT_RUN = "patchouli.public.cleanup_prepared_agent_run"
     PATCHOULI_MANUAL_ARCHIVE_TOPIC = "patchouli.public.manual_archive_topic"
+    PATCHOULI_EVICT_TOPIC = "patchouli.public.evict_topic"
     PATCHOULI_RECORD_MEMORY_CITATION = "patchouli.public.record_memory_citation"
 
     ALICE_RUN_AGENT = "alice.public.run_agent"
