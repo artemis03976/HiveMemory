@@ -1,3 +1,27 @@
+import type { MemoryAtom } from '@/types/memory';
+
+export interface CreateMemoryPayload {
+  title: string;
+  summary: string;
+  content: string;
+  memory_type: string;
+  tags: string[];
+  alias?: string | null;
+}
+
+export async function createMemory(payload: CreateMemoryPayload): Promise<MemoryAtom> {
+  const response = await fetch('/api/v1/memories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to create memory: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 export interface MemoryFeedbackResult {
   success: boolean;
   id: string;

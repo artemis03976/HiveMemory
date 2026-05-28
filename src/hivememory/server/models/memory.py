@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field
 from hivememory.core.models import MemoryAtom
 
 
+_ALLOWED_MEMORY_TYPES = {
+    "CODE_SNIPPET", "FACT", "URL_RESOURCE",
+    "REFLECTION", "USER_PROFILE", "WORK_IN_PROGRESS",
+}
+
+
 class MemoryResponse(BaseModel):
     """MemoryAtom 的可序列化子集"""
     id: str
@@ -71,3 +77,19 @@ class MemoryFeedbackResponse(BaseModel):
 class MemoryListResponse(BaseModel):
     memories: List[MemoryResponse]
     total: int
+
+
+class MemoryCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    summary: str = Field(..., min_length=10, max_length=500)
+    content: str = Field(..., min_length=1)
+    memory_type: str
+    tags: List[str] = []
+    alias: Optional[str] = Field(default=None, max_length=60)
+
+    @field_validator("memory_type")
+    @classmethod
+    def validate_memory_type(cls, v: str) -> str:
+        if v not in _ALLOWED_MEMORY_TYPES:
+            raise ValueError(f"memory_type 必须为以下之一: {sorted(_ALLOWED_MEMORY_TYPES)}")
+        return v
