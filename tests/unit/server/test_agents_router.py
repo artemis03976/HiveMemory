@@ -12,7 +12,7 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.server.routers.agents import router
 
 
-def _create_test_app(mock_system):
+def _create_test_app(storage):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
 
@@ -20,7 +20,7 @@ def _create_test_app(mock_system):
     service = AgentApplicationService(
         global_bus=GlobalSystemBus(),
         config=MagicMock(),
-        patchouli=mock_system.patchouli,
+        storage=storage,
     )
     app.dependency_overrides[deps.get_agent_service] = lambda: service
 
@@ -28,15 +28,15 @@ def _create_test_app(mock_system):
 
 
 def test_list_agents_uses_index_memory_type_filter():
-    mock_system = MagicMock()
-    mock_system.patchouli.storage.get_all_memories.return_value = []
+    storage = MagicMock()
+    storage.get_all_memories.return_value = []
 
-    app = _create_test_app(mock_system)
+    app = _create_test_app(storage)
     client = TestClient(app)
 
     response = client.get("/api/v1/agents")
     assert response.status_code == 200
-    mock_system.patchouli.storage.get_all_memories.assert_called_once_with(
+    storage.get_all_memories.assert_called_once_with(
         filters={"index.memory_type": "AGENT_PROFILE"},
         limit=100,
     )

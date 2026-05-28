@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from hivememory.core.models import (
@@ -14,7 +14,6 @@ from hivememory.core.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.system import PatchouliSystem
     from hivememory.system.config import HiveMemoryConfig
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
@@ -39,24 +38,32 @@ class MemoryApplicationService:
         self,
         global_bus: "GlobalSystemBus",
         config: "HiveMemoryConfig",
-        patchouli: Optional["PatchouliSystem"] = None,
+        storage: Any | None = None,
+        lifecycle_engine: Any | None = None,
     ) -> None:
         self._global_bus = global_bus
         self._config = config
-        self._patchouli = patchouli
+        self._storage_backend = storage
+        self._lifecycle_engine = lifecycle_engine
 
     @property
     def config(self) -> "HiveMemoryConfig":
         return self._config
 
-    def bind_patchouli(self, patchouli: "PatchouliSystem") -> None:
-        self._patchouli = patchouli
+    def bind_storage(
+        self,
+        storage: Any,
+        *,
+        lifecycle_engine: Any | None = None,
+    ) -> None:
+        self._storage_backend = storage
+        self._lifecycle_engine = lifecycle_engine
 
     @property
     def _storage(self):
-        if self._patchouli is None:
-            raise RuntimeError("PatchouliSystem is not bound to MemoryApplicationService")
-        return self._patchouli.storage
+        if self._storage_backend is None:
+            raise RuntimeError("Storage is not bound to MemoryApplicationService")
+        return self._storage_backend
 
     def create_memory(
         self,
@@ -196,17 +203,7 @@ class MemoryApplicationService:
         return filters
 
     def _get_lifecycle_engine(self):
-        if self._patchouli is None:
-            return None
-
-        runtime = getattr(self._patchouli, "runtime", None)
-        if runtime is not None:
-            engines = getattr(runtime, "_engines", {})
-            if isinstance(engines, dict) and engines.get("lifecycle") is not None:
-                return engines["lifecycle"]
-
-        librarian = getattr(self._patchouli, "librarian_core", None)
-        return getattr(librarian, "lifecycle_engine", None)
+        return self._lifecycle_engine
 
     def _refresh_vitality_for_response(self, atoms: list[MemoryAtom]) -> None:
         lifecycle = self._get_lifecycle_engine()

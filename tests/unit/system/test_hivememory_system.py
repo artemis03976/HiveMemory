@@ -18,7 +18,8 @@ def mock_patchouli():
     p.runtime.is_models_ready.return_value = True
     p.runtime.warmup_models = AsyncMock()
     p.health = AsyncMock(return_value={"status": "ok", "models_ready": True})
-    p.storage = MagicMock()
+    p.runtime.storage = MagicMock()
+    p.runtime.librarian_core = MagicMock()
     p.service = MagicMock()
     p.service.manual_archive_topic = AsyncMock(return_value={"archived": 1})
     return p
@@ -48,7 +49,7 @@ def system(mock_patchouli):
     topic_service = TopicApplicationService(
         global_bus=global_bus,
         config=config,
-        patchouli=mock_patchouli,
+        librarian_core=mock_patchouli.runtime.librarian_core,
     )
     return HiveMemorySystem(
         config=config,

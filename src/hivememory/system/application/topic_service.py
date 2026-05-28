@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import Identity
 from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.system import PatchouliSystem
     from hivememory.system.config import HiveMemoryConfig
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
@@ -22,24 +21,24 @@ class TopicApplicationService:
         self,
         global_bus: "GlobalSystemBus",
         config: "HiveMemoryConfig",
-        patchouli: Optional["PatchouliSystem"] = None,
+        librarian_core: Any | None = None,
     ) -> None:
         self._global_bus = global_bus
         self._config = config
-        self._patchouli = patchouli
+        self._librarian_core_backend = librarian_core
 
     @property
     def config(self) -> "HiveMemoryConfig":
         return self._config
 
-    def bind_patchouli(self, patchouli: "PatchouliSystem") -> None:
-        self._patchouli = patchouli
+    def bind_librarian_core(self, librarian_core: Any) -> None:
+        self._librarian_core_backend = librarian_core
 
     @property
     def _librarian_core(self):
-        if self._patchouli is None:
-            raise RuntimeError("PatchouliSystem is not bound to TopicApplicationService")
-        return self._patchouli.librarian_core
+        if self._librarian_core_backend is None:
+            raise RuntimeError("LibrarianCore is not bound to TopicApplicationService")
+        return self._librarian_core_backend
 
     def list_active_topics(self, *, user_id: str):
         identity = Identity(user_id=user_id)

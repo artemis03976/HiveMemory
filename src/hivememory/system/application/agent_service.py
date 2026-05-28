@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import (
     Artifacts,
@@ -12,7 +12,6 @@ from hivememory.core.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.system import PatchouliSystem
     from hivememory.system.config import HiveMemoryConfig
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
@@ -28,24 +27,24 @@ class AgentApplicationService:
         self,
         global_bus: "GlobalSystemBus",
         config: "HiveMemoryConfig",
-        patchouli: Optional["PatchouliSystem"] = None,
+        storage: Any | None = None,
     ) -> None:
         self._global_bus = global_bus
         self._config = config
-        self._patchouli = patchouli
+        self._storage_backend = storage
 
     @property
     def config(self) -> "HiveMemoryConfig":
         return self._config
 
-    def bind_patchouli(self, patchouli: "PatchouliSystem") -> None:
-        self._patchouli = patchouli
+    def bind_storage(self, storage: Any) -> None:
+        self._storage_backend = storage
 
     @property
     def _storage(self):
-        if self._patchouli is None:
-            raise RuntimeError("PatchouliSystem is not bound to AgentApplicationService")
-        return self._patchouli.storage
+        if self._storage_backend is None:
+            raise RuntimeError("Storage is not bound to AgentApplicationService")
+        return self._storage_backend
 
     def create_agent_profile(
         self,

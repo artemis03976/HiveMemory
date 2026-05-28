@@ -219,24 +219,18 @@ class TestApiApplicationServices:
 
 class TestMemoryApplicationService:
     @pytest.fixture
-    def patchouli(self):
-        patchouli = MagicMock()
-        patchouli.storage = MagicMock()
-        patchouli.runtime = MagicMock()
-        patchouli.runtime._engines = {}
-        patchouli.librarian_core = MagicMock()
-        patchouli.librarian_core.lifecycle_engine = None
-        return patchouli
+    def storage(self):
+        return MagicMock()
 
     @pytest.fixture
-    def service(self, mock_global_bus, passive_config, patchouli):
+    def service(self, mock_global_bus, passive_config, storage):
         return MemoryApplicationService(
             global_bus=mock_global_bus,
             config=passive_config,
-            patchouli=patchouli,
+            storage=storage,
         )
 
-    def test_create_memory_writes_storage(self, service, patchouli):
+    def test_create_memory_writes_storage(self, service, storage):
         atom = service.create_memory(
             title="Created memory",
             summary="A sufficiently long memory summary",
@@ -246,24 +240,34 @@ class TestMemoryApplicationService:
             alias="created-memory",
         )
 
-        patchouli.storage.upsert_memory.assert_called_once_with(atom)
+        storage.upsert_memory.assert_called_once_with(atom)
         assert atom.meta.source_agent_id == "ui"
         assert atom.meta.user_id == "default"
         assert atom.index.memory_type == MemoryType.FACT
         assert atom.index.alias == "created-memory"
 
-    def test_list_memories_uses_filters_and_refreshes_vitality(self, service, patchouli):
+    def test_list_memories_uses_filters_and_refreshes_vitality(
+        self,
+        mock_global_bus,
+        passive_config,
+        storage,
+    ):
         atom = _make_memory_atom()
         lifecycle = MagicMock()
         lifecycle.refresh_vitality_batch.side_effect = (
             lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 33.0)
         )
-        patchouli.runtime._engines = {"lifecycle": lifecycle}
-        patchouli.storage.get_all_memories.return_value = [atom]
+        service = MemoryApplicationService(
+            global_bus=mock_global_bus,
+            config=passive_config,
+            storage=storage,
+            lifecycle_engine=lifecycle,
+        )
+        storage.get_all_memories.return_value = [atom]
 
         atoms = service.list_memories(user_id="u1", memory_type="FACT", limit=10)
 
-        patchouli.storage.get_all_memories.assert_called_once_with(
+        storage.get_all_memories.assert_called_once_with(
             filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
             limit=10,
         )
@@ -271,33 +275,33 @@ class TestMemoryApplicationService:
         assert atoms == [atom]
         assert atoms[0].meta.vitality_score == 33.0
 
-    def test_list_memories_search_excludes_agent_profiles(self, service, patchouli):
+    def test_list_memories_search_excludes_agent_profiles(self, service, storage):
         fact = _make_memory_atom(title="Fact")
         profile = _make_memory_atom(title="Agent")
         profile.index.memory_type = MemoryType.AGENT_PROFILE
-        patchouli.storage.search_memories.return_value = [
+        storage.search_memories.return_value = [
             {"memory": fact, "score": 0.9},
             {"memory": profile, "score": 0.8},
         ]
 
         atoms = service.list_memories(query="test", limit=5)
 
-        patchouli.storage.search_memories.assert_called_once_with(
+        storage.search_memories.assert_called_once_with(
             query_text="test",
             top_k=5,
             filters=None,
         )
         assert atoms == [fact]
 
-    def test_get_memory_not_found_raises_domain_error(self, service, patchouli):
-        patchouli.storage.get_memory.return_value = None
+    def test_get_memory_not_found_raises_domain_error(self, service, storage):
+        storage.get_memory.return_value = None
 
         with pytest.raises(MemoryNotFoundError):
             service.get_memory(uuid4())
 
-    def test_update_memory_updates_editable_fields(self, service, patchouli):
+    def test_update_memory_updates_editable_fields(self, service, storage):
         atom = _make_memory_atom()
-        patchouli.storage.get_memory.return_value = atom
+        storage.get_memory.return_value = atom
 
         updated = service.update_memory(
             atom.id,
@@ -316,9 +320,9 @@ class TestMemoryApplicationService:
         assert atom.index.alias == "updated-alias"
         assert atom.index.tags == ["updated"]
         assert atom.payload.artifacts.agent_config == {"mode": "test"}
-        patchouli.storage.upsert_memory.assert_called_once_with(atom)
+        storage.upsert_memory.assert_called_once_with(atom)
 
-    def test_record_feedback_uses_lifecycle(self, service, patchouli):
+    def test_record_feedback_uses_lifecycle(self, mock_global_bus, passive_config, storage):
         mid = uuid4()
         lifecycle = MagicMock()
         lifecycle.record_feedback.return_value = ReinforcementResult(
@@ -329,7 +333,12 @@ class TestMemoryApplicationService:
             new_confidence=0.8,
             event_type=EventType.FEEDBACK_POSITIVE,
         )
-        patchouli.runtime._engines = {"lifecycle": lifecycle}
+        service = MemoryApplicationService(
+            global_bus=mock_global_bus,
+            config=passive_config,
+            storage=storage,
+            lifecycle_engine=lifecycle,
+        )
 
         result = service.record_feedback(
             mid,
@@ -351,20 +360,18 @@ class TestMemoryApplicationService:
 
 class TestAgentApplicationService:
     @pytest.fixture
-    def patchouli(self):
-        patchouli = MagicMock()
-        patchouli.storage = MagicMock()
-        return patchouli
+    def storage(self):
+        return MagicMock()
 
     @pytest.fixture
-    def service(self, mock_global_bus, passive_config, patchouli):
+    def service(self, mock_global_bus, passive_config, storage):
         return AgentApplicationService(
             global_bus=mock_global_bus,
             config=passive_config,
-            patchouli=patchouli,
+            storage=storage,
         )
 
-    def test_create_agent_profile_writes_agent_profile_atom(self, service, patchouli):
+    def test_create_agent_profile_writes_agent_profile_atom(self, service, storage):
         atom = service.create_agent_profile(
             title="Worker",
             alias="worker",
@@ -374,18 +381,18 @@ class TestAgentApplicationService:
             agent_config={"allowed_mtp_verbs": ["SEARCH"]},
         )
 
-        patchouli.storage.upsert_memory.assert_called_once_with(atom)
+        storage.upsert_memory.assert_called_once_with(atom)
         assert atom.index.memory_type == MemoryType.AGENT_PROFILE
         assert atom.index.summary == "Worker agent profile"
         assert atom.index.alias == "worker"
         assert atom.payload.content == "persona"
         assert atom.payload.artifacts.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
 
-    def test_list_agent_profiles_uses_agent_profile_filter(self, service, patchouli):
-        patchouli.storage.get_all_memories.return_value = []
+    def test_list_agent_profiles_uses_agent_profile_filter(self, service, storage):
+        storage.get_all_memories.return_value = []
 
         assert service.list_agent_profiles() == []
-        patchouli.storage.get_all_memories.assert_called_once_with(
+        storage.get_all_memories.assert_called_once_with(
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=100,
         )
@@ -393,29 +400,28 @@ class TestAgentApplicationService:
 
 class TestTopicApplicationService:
     @pytest.fixture
-    def patchouli(self):
-        patchouli = MagicMock()
-        patchouli.librarian_core = MagicMock()
-        patchouli.librarian_core.perception_layer.buffer_manager.pop_buffer.return_value = object()
-        return patchouli
+    def librarian_core(self):
+        librarian = MagicMock()
+        librarian.perception_layer.buffer_manager.pop_buffer.return_value = object()
+        return librarian
 
     @pytest.fixture
     def bus(self):
         return GlobalSystemBus()
 
     @pytest.fixture
-    def service(self, bus, passive_config, patchouli):
+    def service(self, bus, passive_config, librarian_core):
         return TopicApplicationService(
             global_bus=bus,
             config=passive_config,
-            patchouli=patchouli,
+            librarian_core=librarian_core,
         )
 
-    def test_list_active_topics_uses_identity(self, service, patchouli):
-        patchouli.librarian_core.get_active_topics_snapshots.return_value = ["snapshot"]
+    def test_list_active_topics_uses_identity(self, service, librarian_core):
+        librarian_core.get_active_topics_snapshots.return_value = ["snapshot"]
 
         assert service.list_active_topics(user_id="u1") == ["snapshot"]
-        identity = patchouli.librarian_core.get_active_topics_snapshots.call_args.args[0]
+        identity = librarian_core.get_active_topics_snapshots.call_args.args[0]
         assert identity.user_id == "u1"
 
     @pytest.mark.asyncio

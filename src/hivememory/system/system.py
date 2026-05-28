@@ -94,17 +94,18 @@ class HiveMemorySystem:
         memory_service = MemoryApplicationService(
             global_bus=global_bus,
             config=config,
-            patchouli=patchouli,
+            storage=patchouli.runtime.storage,
+            lifecycle_engine=patchouli.runtime.librarian_core.lifecycle_engine,
         )
         agent_service = AgentApplicationService(
             global_bus=global_bus,
             config=config,
-            patchouli=patchouli,
+            storage=patchouli.runtime.storage,
         )
         topic_service = TopicApplicationService(
             global_bus=global_bus,
             config=config,
-            patchouli=patchouli,
+            librarian_core=patchouli.runtime.librarian_core,
         )
 
         return cls(
@@ -256,14 +257,6 @@ class HiveMemorySystem:
     @property
     def config(self) -> HiveMemoryConfig:
         return self._config
-
-    @property
-    def patchouli(self) -> PatchouliSystem:
-        return self._patchouli
-
-    @property
-    def alice(self) -> AliceSystem:
-        return self._alice
 
     @config.setter
     def config(self, value: HiveMemoryConfig) -> None:

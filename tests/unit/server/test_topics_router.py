@@ -14,21 +14,20 @@ from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.server.routers.topics import router
 
 
-def _create_test_app(mock_system):
+def _create_test_app(librarian_core, *, manual_archive_topic=None, evict_topic=None):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
     bus = GlobalSystemBus()
-    if hasattr(mock_system, "manual_archive_topic"):
-        bus.register(GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC, mock_system.manual_archive_topic)
-    evict_topic = getattr(mock_system, "evict_topic", None)
+    if manual_archive_topic is not None:
+        bus.register(GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC, manual_archive_topic)
     if evict_topic is not None:
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, evict_topic)
     service = TopicApplicationService(
         global_bus=bus,
         config=MagicMock(),
-        patchouli=mock_system.patchouli,
+        librarian_core=librarian_core,
     )
     app.dependency_overrides[deps.get_topic_service] = lambda: service
     app.dependency_overrides[deps.get_user_id] = lambda: "test_user"
@@ -48,13 +47,13 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
 
 class TestTopicsRouter:
     def test_list_topics(self):
-        mock_system = MagicMock()
-        mock_system.patchouli.librarian_core.get_active_topics_snapshots.return_value = [
+        librarian_core = MagicMock()
+        librarian_core.get_active_topics_snapshots.return_value = [
             _make_snapshot("t1", "Topic 1"),
             _make_snapshot("t2", "Topic 2"),
         ]
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(librarian_core)
         client = TestClient(app)
 
         response = client.get("/api/v1/topics")
@@ -64,10 +63,10 @@ class TestTopicsRouter:
         assert data["topics"][0]["topic_id"] == "t1"
 
     def test_list_topics_empty(self):
-        mock_system = MagicMock()
-        mock_system.patchouli.librarian_core.get_active_topics_snapshots.return_value = []
+        librarian_core = MagicMock()
+        librarian_core.get_active_topics_snapshots.return_value = []
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(librarian_core)
         client = TestClient(app)
 
         response = client.get("/api/v1/topics")
@@ -75,15 +74,15 @@ class TestTopicsRouter:
         assert response.json()["topics"] == []
 
     def test_archive_topic(self):
-        mock_system = MagicMock()
-        mock_system.manual_archive_topic = AsyncMock(return_value={
+        librarian_core = MagicMock()
+        manual_archive_topic = AsyncMock(return_value={
             "success": True,
             "topic_id": "t1",
             "message": "Topic settled",
             "blocks_archived": 5,
         })
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(librarian_core, manual_archive_topic=manual_archive_topic)
         client = TestClient(app)
 
         response = client.post("/api/v1/topics/t1/archive")
@@ -93,13 +92,13 @@ class TestTopicsRouter:
         assert data["blocks_archived"] == 5
 
     def test_delete_topic(self):
-        mock_system = MagicMock()
-        mock_system.evict_topic = AsyncMock(return_value={
+        librarian_core = MagicMock()
+        evict_topic = AsyncMock(return_value={
             "success": True,
             "message": "话题 t1 已删除",
         })
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(librarian_core, evict_topic=evict_topic)
         client = TestClient(app)
 
         response = client.delete("/api/v1/topics/t1")
@@ -107,13 +106,13 @@ class TestTopicsRouter:
         assert response.json() == {"success": True, "message": "话题 t1 已删除"}
 
     def test_delete_topic_missing(self):
-        mock_system = MagicMock()
-        mock_system.evict_topic = AsyncMock(return_value={
+        librarian_core = MagicMock()
+        evict_topic = AsyncMock(return_value={
             "success": False,
             "message": "话题不存在或已被驱逐",
         })
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(librarian_core, evict_topic=evict_topic)
         client = TestClient(app)
 
         response = client.delete("/api/v1/topics/missing")

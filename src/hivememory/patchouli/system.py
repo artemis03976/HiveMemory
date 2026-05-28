@@ -34,8 +34,6 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.runtime import PatchouliRuntime
-from hivememory.patchouli.services.librarian import LibrarianCore
-from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.events import GlobalEvents
@@ -131,21 +129,6 @@ class PatchouliSystem(SubsystemProtocol):
             interceptor=interceptor,
             semantic_analyzer=semantic_analyzer,
         )
-
-    @property
-    def retrieval_familiar(self) -> RetrievalFamiliar:
-        """访问检索使魔"""
-        return self.runtime.retrieval_familiar
-
-    @property
-    def librarian_core(self) -> LibrarianCore:
-        """访问帕秋莉本体"""
-        return self.runtime.librarian_core
-
-    @property
-    def storage(self):
-        """访问存储层（代理到 Runtime）"""
-        return self.runtime.storage
 
     @property
     def service(self) -> PatchouliService:
