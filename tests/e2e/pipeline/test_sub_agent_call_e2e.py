@@ -111,7 +111,7 @@ async def _collect_stream_events(
     agent_id: str = "omni_doll",
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    async for event in system.chat_stream(
+    async for event in system.chat_service.chat_stream(
         user_message=user_message,
         user_id=user_id,
         agent_id=agent_id,

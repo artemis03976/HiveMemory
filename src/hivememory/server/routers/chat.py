@@ -6,9 +6,9 @@ import logging
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
-from hivememory.system import HiveMemorySystem
-from hivememory.server.deps import get_system
+from hivememory.server.deps import get_chat_service
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
+from hivememory.system.application.chat_service import ChatApplicationService
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @router.post("/chat")
 async def chat(
     request: ChatRequest,
-    system: HiveMemorySystem = Depends(get_system),
+    service: ChatApplicationService = Depends(get_chat_service),
 ):
     """
     主动对话接口 — SSE 流式响应
@@ -34,7 +34,7 @@ async def chat(
     """
     async def event_generator():
         try:
-            async for event in system.chat_stream(
+            async for event in service.chat_stream(
                 user_message=request.message,
                 user_id=request.user_id,
                 agent_id=request.agent_id,
@@ -62,8 +62,8 @@ async def chat(
 @router.post("/chat/stop")
 async def stop_chat(
     request: StopChatRequest,
-    system: HiveMemorySystem = Depends(get_system),
+    service: ChatApplicationService = Depends(get_chat_service),
 ):
     """停止正在进行的流式生成"""
-    cancelled = system.cancel_generation(request.generation_id)
+    cancelled = service.cancel_generation(request.generation_id)
     return {"success": cancelled}

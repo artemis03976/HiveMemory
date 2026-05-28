@@ -80,6 +80,10 @@ def system_factory(mock_patchouli, global_bus, scheduler):
     def _build(**kwargs):
         ingress_service = kwargs.pop("ingress_service", MagicMock())
         chat_service = kwargs.pop("chat_service", MagicMock())
+        memory_service = kwargs.pop("memory_service", MagicMock())
+        agent_service = kwargs.pop("agent_service", MagicMock())
+        topic_service = kwargs.pop("topic_service", MagicMock())
+        readiness_service = kwargs.pop("readiness_service", MagicMock())
         alice = kwargs.pop("alice", MagicMock())
         alice.name = "alice"
         alice.start = AsyncMock()
@@ -94,6 +98,10 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             scheduler=scheduler,
             chat_service=chat_service,
             ingress_service=ingress_service,
+            memory_service=memory_service,
+            agent_service=agent_service,
+            topic_service=topic_service,
+            readiness_service=readiness_service,
             **kwargs,
         )
 

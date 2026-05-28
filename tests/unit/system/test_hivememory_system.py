@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
@@ -50,6 +50,7 @@ def system(mock_patchouli):
         global_bus=global_bus,
         config=config,
     )
+    readiness_service = MagicMock(spec=SystemReadinessService)
     return HiveMemorySystem(
         config=config,
         patchouli=mock_patchouli,
@@ -61,6 +62,7 @@ def system(mock_patchouli):
         memory_service=memory_service,
         agent_service=agent_service,
         topic_service=topic_service,
+        readiness_service=readiness_service,
     )
 
 
@@ -113,61 +115,13 @@ class TestHiveMemorySystem:
         assert "subsystems" in h
         assert h["models_ready"] is True
 
-    @pytest.mark.asyncio
-    async def test_chat_delegates(self, system, mock_patchouli):
-        result = await system.chat(
-            user_message="hello",
-            user_id="u1",
-        )
-        system._chat_service.chat.assert_called_once()
-        assert result == "result"
-
-    @pytest.mark.asyncio
-    async def test_ingest_event_delegates(self, system, mock_patchouli):
-        result = await system.ingest_event(
-            event=MagicMock(),
-            user_id="u1",
-        )
-        system._ingress_service.ingest_event.assert_called_once()
-        assert result == {"buffered": True}
-
-    @pytest.mark.asyncio
-    async def test_flush_ingressor_delegates(self, system):
-        result = await system.flush_ingressor(user_id="u1")
-        system._ingress_service.flush_ingressor.assert_called_once_with(
-            user_id="u1",
-            agent_id="omni_doll",
-            session_id=None,
-        )
-        assert result is True
-
-    def test_cancel_generation_delegates(self, system, mock_patchouli):
-        mock_patchouli.cancel_generation = MagicMock(return_value=True)
-        assert system.cancel_generation("gen-1") is True
-
     def test_config_property(self, system):
         assert system.config is system._config
 
     def test_application_service_properties(self, system):
+        assert system.chat_service is system._chat_service
+        assert system.ingress_service is system._ingress_service
         assert system.memory_service is system._memory_service
         assert system.agent_service is system._agent_service
         assert system.topic_service is system._topic_service
-
-    @pytest.mark.asyncio
-    async def test_manual_archive_topic_delegates(self, system, mock_patchouli):
-        system._global_bus.register(
-            GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC,
-            mock_patchouli.service.manual_archive_topic,
-        )
-        result = await system.manual_archive_topic(topic_id="t1")
-        mock_patchouli.service.manual_archive_topic.assert_called_once_with(topic_id="t1")
-        assert result == {"archived": 1}
-
-    @pytest.mark.asyncio
-    async def test_warmup_models_delegates(self, system, mock_patchouli):
-        await system.warmup_models()
-        mock_patchouli.runtime.warmup_models.assert_awaited_once()
-
-    def test_is_models_ready_delegates(self, system, mock_patchouli):
-        assert system.is_models_ready() is True
-        mock_patchouli.runtime.is_models_ready.assert_called()
+        assert system.readiness_service is system._readiness_service

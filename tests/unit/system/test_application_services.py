@@ -34,6 +34,7 @@ from hivememory.system.application.memory_service import (
 )
 from hivememory.system.application.passive import PassiveIngressEvent
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.system import HiveMemorySystem
@@ -198,6 +199,7 @@ class TestApiApplicationServices:
         assert isinstance(system.memory_service, MemoryApplicationService)
         assert isinstance(system.agent_service, AgentApplicationService)
         assert isinstance(system.topic_service, TopicApplicationService)
+        assert isinstance(system.readiness_service, SystemReadinessService)
         assert system.memory_service.config is passive_config
         assert system.agent_service.config is passive_config
         assert system.topic_service.config is passive_config
@@ -215,10 +217,40 @@ class TestApiApplicationServices:
             deps._system = system
 
             assert deps.get_memory_service() is system.memory_service
+            assert deps.get_chat_service() is system.chat_service
+            assert deps.get_ingress_service() is system.ingress_service
             assert deps.get_agent_service() is system.agent_service
             assert deps.get_topic_service() is system.topic_service
         finally:
             deps._system = previous_system
+
+
+class TestSystemReadinessService:
+    @pytest.mark.asyncio
+    async def test_warmup_models_uses_public_route(self, mock_global_bus):
+        service = SystemReadinessService(global_bus=mock_global_bus)
+
+        await service.warmup_models()
+
+        mock_global_bus.request.assert_awaited_once_with(
+            GlobalRoutes.PATCHOULI_WARMUP_MODELS
+        )
+
+    @pytest.mark.asyncio
+    async def test_readiness_uses_models_ready_route(self, mock_global_bus):
+        mock_global_bus.request.side_effect = None
+        mock_global_bus.request.return_value = True
+        service = SystemReadinessService(global_bus=mock_global_bus)
+
+        assert await service.is_models_ready() is True
+        assert await service.readiness() == {
+            "status": "ready",
+            "models_ready": True,
+        }
+
+        assert mock_global_bus.request.await_args_list[-1].args == (
+            GlobalRoutes.PATCHOULI_MODELS_READY,
+        )
 
 
 class TestMemoryApplicationService:

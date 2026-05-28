@@ -24,6 +24,8 @@ class RouteNames:
     PATCHOULI_MANUAL_ARCHIVE_TOPIC = "patchouli.public.manual_archive_topic"
     PATCHOULI_EVICT_TOPIC = "patchouli.public.evict_topic"
     PATCHOULI_RECORD_MEMORY_CITATION = "patchouli.public.record_memory_citation"
+    PATCHOULI_WARMUP_MODELS = "patchouli.public.models.warmup"
+    PATCHOULI_MODELS_READY = "patchouli.public.models.ready"
 
     ALICE_RUN_AGENT = "alice.public.run_agent"
     ALICE_RUN_AGENT_STREAM = "alice.public.run_agent_stream"

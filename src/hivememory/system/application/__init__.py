@@ -7,6 +7,7 @@ from hivememory.system.application.memory_service import (
 )
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.passive import PassiveMessageIngressor
+from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "MemoryNotFoundError",
     "PassiveMessageIngressor",
     "PassiveIngressService",
+    "SystemReadinessService",
     "TopicApplicationService",
 ]

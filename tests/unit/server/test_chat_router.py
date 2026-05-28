@@ -19,13 +19,13 @@ from hivememory.server.routers.chat import router
 from hivememory.server.models.chat import ChatRequest
 
 
-def _create_test_app(mock_system):
+def _create_test_app(mock_service):
     """创建测试用 FastAPI 应用"""
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
-    app.dependency_overrides[deps.get_system] = lambda: mock_system
+    app.dependency_overrides[deps.get_chat_service] = lambda: mock_service
 
     return app
 
@@ -52,14 +52,14 @@ def _parse_sse_events(response_text: str):
 
 class TestChatRouter:
     def test_runtime_generation_options_are_forwarded(self):
-        mock_system = MagicMock()
+        mock_service = MagicMock()
 
         async def fake_stream(**kwargs):
             yield {"event": "done", "data": {"final_text": "ok", "mtp_iterations": 0, "total_iterations": 1}}
 
-        mock_system.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(
@@ -76,8 +76,8 @@ class TestChatRouter:
             },
         )
         assert response.status_code == 200
-        mock_system.chat_stream.assert_called_once()
-        call_kwargs = mock_system.chat_stream.call_args.kwargs
+        mock_service.chat_stream.assert_called_once()
+        call_kwargs = mock_service.chat_stream.call_args.kwargs
         assert call_kwargs["generation_options"] == {
             "model": "gpt-4o",
             "temperature": 0.2,
@@ -87,7 +87,7 @@ class TestChatRouter:
 
     def test_normal_chat_sse_events(self):
         """正常对话: topic_info → token → done"""
-        mock_system = MagicMock()
+        mock_service = MagicMock()
 
         async def fake_stream(**kwargs):
             yield {"event": "topic_info", "data": {"topic_id": "t1", "is_new": False}}
@@ -102,9 +102,9 @@ class TestChatRouter:
                 },
             }
 
-        mock_system.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(
@@ -124,7 +124,7 @@ class TestChatRouter:
 
     def test_mtp_chat_sse_events(self):
         """MTP 对话: topic_info → token → mtp_start → mtp_result → token → done"""
-        mock_system = MagicMock()
+        mock_service = MagicMock()
 
         async def fake_stream(**kwargs):
             yield {"event": "topic_info", "data": {"topic_id": "t1", "is_new": False}}
@@ -141,9 +141,9 @@ class TestChatRouter:
                 },
             }
 
-        mock_system.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(
@@ -160,14 +160,14 @@ class TestChatRouter:
 
     def test_error_event(self):
         """异常: error 事件"""
-        mock_system = MagicMock()
+        mock_service = MagicMock()
 
         async def fake_stream(**kwargs):
             yield {"event": "error", "data": {"message": "LLM 调用失败"}}
 
-        mock_system.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(
@@ -182,7 +182,7 @@ class TestChatRouter:
         assert "LLM" in error_events[0]["data"]["message"]
 
     def test_uuid_payload_is_serializable(self):
-        mock_system = MagicMock()
+        mock_service = MagicMock()
 
         async def fake_stream(**kwargs):
             yield {
@@ -192,9 +192,9 @@ class TestChatRouter:
                 },
             }
 
-        mock_system.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
-        app = _create_test_app(mock_system)
+        app = _create_test_app(mock_service)
         client = TestClient(app)
 
         response = client.post(

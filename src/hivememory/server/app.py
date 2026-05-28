@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     app.state.ws_manager = ws_manager  # 存储到 app state
 
     # 后台预热推理模型（不阻塞服务启动）
-    asyncio.create_task(system.warmup_models())
+    asyncio.create_task(system.readiness_service.warmup_models())
 
     logger.info("HiveMemorySystem 就绪，服务启动完成")
     yield
@@ -111,12 +111,12 @@ async def health():
 @app.get("/health/ready")
 async def readiness():
     system = get_system()
-    ready = system.is_models_ready()
-    if ready:
+    readiness_state = await system.readiness_service.readiness()
+    if readiness_state["models_ready"]:
         return ReadinessResponse(status="ready", models_ready=True)
     return JSONResponse(
         status_code=503,
-        content={"status": "warming_up", "models_ready": False},
+        content=readiness_state,
     )
 
 

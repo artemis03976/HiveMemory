@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Depends
 
-from hivememory.system import HiveMemorySystem
 from hivememory.system.application.passive import PassiveIngressEvent
-from hivememory.server.deps import get_system
+from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.server.deps import get_ingress_service
 from hivememory.server.models.ingest import (
     PassiveIngressRequest,
     PassiveIngressResponse,
@@ -16,9 +16,9 @@ router = APIRouter(tags=["ingest"])
 @router.post("/ingest", response_model=PassiveIngressResponse)
 async def ingest_event(
     request: PassiveIngressRequest,
-    system: HiveMemorySystem = Depends(get_system),
+    service: PassiveIngressService = Depends(get_ingress_service),
 ):
-    """被动消息事件接入 HTTP 入口，转调 HiveMemorySystem.ingest_event()。"""
+    """被动消息事件接入 HTTP 入口。"""
     event = PassiveIngressEvent(
         role=request.role,
         content=request.content,
@@ -30,7 +30,7 @@ async def ingest_event(
         status=request.status,
         render_as=request.render_as,
     )
-    result = await system.ingest_event(
+    result = await service.ingest_event(
         event=event,
         user_id=request.user_id,
         agent_id=request.agent_id,
