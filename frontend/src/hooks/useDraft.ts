@@ -1,6 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 
-// 简单的深度比较函数，适用于表单数据
 function deepEqual(obj1: unknown, obj2: unknown): boolean {
   if (obj1 === obj2) return true;
 
@@ -23,52 +22,78 @@ function deepEqual(obj1: unknown, obj2: unknown): boolean {
   return true;
 }
 
-interface UseDraftOptions<T> {
-  initialData: T;
-  onSave: (draftData: T) => Promise<void>;
-  onSuccess?: () => void;
-  onError?: (error: unknown) => void;
+interface SubmitOptions {
+  force?: boolean;
 }
 
-export function useDraft<T>({ initialData, onSave, onSuccess, onError }: UseDraftOptions<T>) {
+interface UseDraftOptions<T, TResult = void> {
+  initialData: T;
+  onSave: (draftData: T) => Promise<TResult>;
+  onSuccess?: (result: TResult, draftData: T) => void;
+  onError?: (error: unknown) => void;
+  skipUnchangedSubmit?: boolean;
+}
+
+export function useDraft<T, TResult = void>({
+  initialData,
+  onSave,
+  onSuccess,
+  onError,
+  skipUnchangedSubmit = true,
+}: UseDraftOptions<T, TResult>) {
   const [draft, setDraft] = useState<T>(initialData);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  // 当外部传入的初始数据变化时，同步更新草稿（例如切换了选中的 Agent）
   useEffect(() => {
     setDraft((prevDraft) => (deepEqual(prevDraft, initialData) ? prevDraft : initialData));
   }, [initialData]);
 
-  // 自动计算是否被修改过
   const isDirty = useMemo(() => !deepEqual(initialData, draft), [initialData, draft]);
 
-  // 局部更新草稿的函数
   const updateDraft = useCallback((updates: Partial<T>) => {
     setDraft(prev => ({ ...prev, ...updates }));
   }, []);
 
-  // 执行保存
-  const save = useCallback(async () => {
-    if (!isDirty) return;
+  const replaceDraft = useCallback((nextDraft: T) => {
+    setDraft(nextDraft);
+  }, []);
+
+  const submit = useCallback(async (options: SubmitOptions = {}) => {
+    if (skipUnchangedSubmit && !options.force && !isDirty) return undefined;
+
     setIsSaving(true);
     setError(null);
+
     try {
-      await onSave(draft);
-      onSuccess?.();
+      const result = await onSave(draft);
+      onSuccess?.(result, draft);
+      return result;
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
       onError?.(err);
+      return undefined;
     } finally {
       setIsSaving(false);
     }
-  }, [draft, isDirty, onSave, onSuccess, onError]);
+  }, [draft, isDirty, onSave, onSuccess, onError, skipUnchangedSubmit]);
 
-  // 重置回初始状态
   const reset = useCallback(() => {
     setDraft(initialData);
     setError(null);
   }, [initialData]);
 
-  return { draft, isDirty, isSaving, error, updateDraft, save, reset };
+  const save = useCallback(() => submit(), [submit]);
+
+  return {
+    draft,
+    isDirty,
+    isSaving,
+    error,
+    updateDraft,
+    replaceDraft,
+    submit,
+    save,
+    reset,
+  };
 }

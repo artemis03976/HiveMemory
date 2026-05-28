@@ -3,6 +3,7 @@ import { X, Plus, AtSign } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useToastStore } from '@/stores/toastStore';
 import { createMemory } from '@/services/memoryApi';
+import { useDraft } from '@/hooks/useDraft';
 import { memoryTypeLabels, type MemoryType } from '@/types/memory';
 
 interface CreateMemoryModalProps {
@@ -20,7 +21,7 @@ interface FormState {
   title: string;
   summary: string;
   content: string;
-  memory_type: string;
+  memory_type: MemoryType | '';
   tags: string;
   alias: string;
 }
@@ -43,21 +44,58 @@ interface FormErrors {
 
 function validate(form: FormState): FormErrors {
   const errors: FormErrors = {};
+  const summaryLength = form.summary.trim().length;
+
   if (!form.title.trim()) errors.title = '标题不能为空';
-  if (form.summary.trim().length < 10) errors.summary = '摘要至少需要10个字符';
+  if (summaryLength < 10) errors.summary = '摘要至少需要 10 个字符';
+  if (summaryLength > 500) errors.summary = '摘要不能超过 500 个字符';
   if (!form.content.trim()) errors.content = '内容不能为空';
   if (!form.memory_type) errors.memory_type = '请选择记忆类型';
+
   return errors;
 }
 
 export default function CreateMemoryModal({ isOpen, onClose, onCreated }: CreateMemoryModalProps) {
-  const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
-  const [submitting, setSubmitting] = useState(false);
   const addToast = useToastStore(s => s.addToast);
 
+  const {
+    draft: form,
+    isSaving,
+    updateDraft,
+    submit,
+    reset,
+  } = useDraft({
+    initialData: INITIAL_FORM,
+    skipUnchangedSubmit: false,
+    onSave: async (draftData) => {
+      const tags = draftData.tags
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      await createMemory({
+        title: draftData.title.trim(),
+        summary: draftData.summary.trim(),
+        content: draftData.content,
+        memory_type: draftData.memory_type,
+        tags,
+        alias: draftData.alias.trim() || null,
+      });
+    },
+    onSuccess: () => {
+      addToast('记忆创建成功', 'success');
+      reset();
+      onCreated();
+    },
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : '创建失败';
+      addToast(`创建失败: ${msg}`, 'error');
+    },
+  });
+
   const update = (patch: Partial<FormState>) => {
-    setForm(prev => ({ ...prev, ...patch }));
+    updateDraft(patch);
     setErrors(prev => {
       const next = { ...prev };
       for (const key of Object.keys(patch) as (keyof FormErrors)[]) {
@@ -68,7 +106,7 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
   };
 
   const handleClose = () => {
-    setForm(INITIAL_FORM);
+    reset();
     setErrors({});
     onClose();
   };
@@ -80,34 +118,8 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const tags = form.tags
-        .split(',')
-        .map(t => t.trim())
-        .filter(Boolean);
-
-      await createMemory({
-        title: form.title.trim(),
-        summary: form.summary.trim(),
-        content: form.content,
-        memory_type: form.memory_type,
-        tags,
-        alias: form.alias.trim() || null,
-      });
-
-      addToast('记忆创建成功', 'success');
-      setForm(INITIAL_FORM);
-      onCreated();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '创建失败';
-      addToast(`创建失败: ${msg}`, 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    await submit({ force: true });
   };
-
-  // --- PLACEHOLDER_RENDER ---
 
   return (
     <AnimatePresence>
@@ -158,7 +170,7 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
                 <select
                   className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
                   value={form.memory_type}
-                  onChange={e => update({ memory_type: e.target.value })}
+                  onChange={e => update({ memory_type: e.target.value as MemoryType | '' })}
                 >
                   <option value="" disabled>选择类型...</option>
                   {CREATABLE_TYPES.map(t => (
@@ -170,7 +182,7 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
 
               {/* Summary */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">摘要 * <span className="text-slate-600 normal-case">(10-500字符)</span></label>
+                <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">摘要 * <span className="text-slate-600 normal-case">(10-500 字符)</span></label>
                 <textarea
                   className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all resize-none"
                   rows={2}
@@ -208,7 +220,7 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
               {/* Alias */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">别名 <span className="text-slate-600 normal-case">(可选)</span></label>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/20 border border-white/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 transition-all">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/20 border border-white/10 focus-within:border-primary/50 focus-within:ring-1 focus:ring-primary/50 transition-all">
                   <AtSign className="w-4 h-4 text-slate-500 shrink-0" />
                   <input
                     className="flex-1 text-sm font-mono bg-transparent text-primary/90 placeholder:text-slate-600 focus:outline-none"
@@ -230,10 +242,10 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={isSaving}
                 className="flex items-center gap-2 px-5 py-2 text-sm font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {submitting ? '创建中...' : '创建记忆'}
+                {isSaving ? '创建中...' : '创建记忆'}
               </button>
             </div>
           </motion.div>
