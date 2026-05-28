@@ -41,6 +41,87 @@ def _make_atom(title="Test", user_id="u1"):
 
 
 class TestMemoriesRouter:
+    def test_create_memory(self):
+        mock_system = MagicMock()
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Created memory",
+                "summary": "A sufficiently long memory summary",
+                "content": "Created memory content",
+                "memory_type": "FACT",
+                "tags": ["created", "ui"],
+                "alias": "created-memory",
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["title"] == "Created memory"
+        assert data["summary"] == "A sufficiently long memory summary"
+        assert data["content"] == "Created memory content"
+        assert data["memory_type"] == "FACT"
+        assert set(data["tags"]) == {"created", "ui"}
+        assert data["alias"] == "created-memory"
+        assert data["user_id"] == "default"
+
+        mock_system.patchouli.storage.upsert_memory.assert_called_once()
+        atom = mock_system.patchouli.storage.upsert_memory.call_args.args[0]
+        assert isinstance(atom, MemoryAtom)
+        assert atom.meta.source_agent_id == "ui"
+        assert atom.meta.user_id == "default"
+        assert atom.index.title == "Created memory"
+        assert atom.index.summary == "A sufficiently long memory summary"
+        assert atom.index.memory_type == MemoryType.FACT
+        assert set(atom.index.tags) == {"created", "ui"}
+        assert atom.index.alias == "created-memory"
+        assert atom.payload.content == "Created memory content"
+
+    def test_create_memory_rejects_invalid_memory_type(self):
+        mock_system = MagicMock()
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Created memory",
+                "summary": "A sufficiently long memory summary",
+                "content": "Created memory content",
+                "memory_type": "AGENT_PROFILE",
+                "tags": ["created"],
+            },
+        )
+
+        assert response.status_code == 422
+        mock_system.patchouli.storage.upsert_memory.assert_not_called()
+
+    def test_create_memory_storage_failure(self):
+        mock_system = MagicMock()
+        mock_system.patchouli.storage.upsert_memory.side_effect = RuntimeError("storage unavailable")
+
+        app = _create_test_app(mock_system)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Created memory",
+                "summary": "A sufficiently long memory summary",
+                "content": "Created memory content",
+                "memory_type": "FACT",
+                "tags": ["created"],
+            },
+        )
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "storage unavailable"
+
     def test_list_memories_no_query(self):
         atom = _make_atom()
         mock_system = MagicMock()
