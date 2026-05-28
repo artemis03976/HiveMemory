@@ -49,7 +49,6 @@ def system(mock_patchouli):
     topic_service = TopicApplicationService(
         global_bus=global_bus,
         config=config,
-        librarian_core=mock_patchouli.runtime.librarian_core,
     )
     return HiveMemorySystem(
         config=config,

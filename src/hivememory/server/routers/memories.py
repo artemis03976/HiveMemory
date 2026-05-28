@@ -29,7 +29,7 @@ async def create_memory(
 ):
     """创建新的记忆"""
     try:
-        atom = service.create_memory(
+        atom = await service.create_memory(
             title=body.title,
             summary=body.summary,
             content=body.content,
@@ -51,7 +51,7 @@ async def list_memories(
     service: MemoryApplicationService = Depends(get_memory_service),
 ):
     """检索记忆 — 支持语义搜索和过滤"""
-    atoms = service.list_memories(
+    atoms = await service.list_memories(
         query=query,
         user_id=user_id,
         memory_type=memory_type,
@@ -73,7 +73,7 @@ async def get_memory(
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
     try:
-        atom = service.get_memory(uid)
+        atom = await service.get_memory(uid)
     except MemoryNotFoundError:
         raise HTTPException(status_code=404, detail="记忆不存在")
     return MemoryResponse.from_atom(atom)
@@ -92,7 +92,7 @@ async def update_memory(
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
     try:
-        atom = service.update_memory(
+        atom = await service.update_memory(
             uid,
             title=body.title,
             summary=body.summary,
@@ -119,7 +119,7 @@ async def record_memory_feedback(
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
     try:
-        result = service.record_feedback(
+        result = await service.record_feedback(
             uid,
             positive=body.positive,
             source=body.source,
@@ -156,7 +156,7 @@ async def delete_memory(
     except ValueError:
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
-    success = service.delete_memory(uid)
+    success = await service.delete_memory(uid)
     if not success:
         raise HTTPException(status_code=404, detail="记忆不存在或删除失败")
 

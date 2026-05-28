@@ -50,7 +50,7 @@ async def create_agent(
 ):
     """创建新的 Agent Profile"""
     try:
-        atom = service.create_agent_profile(
+        atom = await service.create_agent_profile(
             title=body.title,
             alias=body.alias,
             summary=body.summary,
@@ -69,7 +69,7 @@ async def list_agents(
 ):
     """列出所有 Agent Profile"""
     try:
-        atoms = service.list_agent_profiles(limit=100)
+        atoms = await service.list_agent_profiles(limit=100)
         return [AgentProfileResponse.from_atom(atom) for atom in atoms]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

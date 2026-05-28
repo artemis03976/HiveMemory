@@ -94,18 +94,14 @@ class HiveMemorySystem:
         memory_service = MemoryApplicationService(
             global_bus=global_bus,
             config=config,
-            storage=patchouli.runtime.storage,
-            lifecycle_engine=patchouli.runtime.librarian_core.lifecycle_engine,
         )
         agent_service = AgentApplicationService(
             global_bus=global_bus,
             config=config,
-            storage=patchouli.runtime.storage,
         )
         topic_service = TopicApplicationService(
             global_bus=global_bus,
             config=config,
-            librarian_core=patchouli.runtime.librarian_core,
         )
 
         return cls(

@@ -20,7 +20,7 @@ async def list_topics(
     service: TopicApplicationService = Depends(get_topic_service),
 ):
     """获取活跃话题列表"""
-    snapshots = service.list_active_topics(user_id=user_id)
+    snapshots = await service.list_active_topics(user_id=user_id)
 
     topics = [
         TopicSnapshotResponse(

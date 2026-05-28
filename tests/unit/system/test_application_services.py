@@ -8,7 +8,11 @@ from uuid import uuid4
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import Artifacts
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
+from hivememory.patchouli.application import MemoryManagementService
+from hivememory.patchouli.application import AgentProfileManagementService
+from hivememory.patchouli.application import TopicManagementService
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -219,19 +223,19 @@ class TestApiApplicationServices:
 
 class TestMemoryApplicationService:
     @pytest.fixture
-    def storage(self):
-        return MagicMock()
-
-    @pytest.fixture
-    def service(self, mock_global_bus, passive_config, storage):
+    def service(self, mock_global_bus, passive_config):
         return MemoryApplicationService(
             global_bus=mock_global_bus,
             config=passive_config,
-            storage=storage,
         )
 
-    def test_create_memory_writes_storage(self, service, storage):
-        atom = service.create_memory(
+    @pytest.mark.asyncio
+    async def test_create_memory_uses_public_route(self, service, mock_global_bus):
+        created = _make_memory_atom(title="Created memory")
+        mock_global_bus.request.side_effect = None
+        mock_global_bus.request.return_value = created
+
+        atom = await service.create_memory(
             title="Created memory",
             summary="A sufficiently long memory summary",
             content="Created memory content",
@@ -240,16 +244,53 @@ class TestMemoryApplicationService:
             alias="created-memory",
         )
 
+        mock_global_bus.request.assert_awaited_once()
+        route, payload = mock_global_bus.request.await_args.args
+        assert route == GlobalRoutes.PATCHOULI_MEMORY_CREATE
+        assert payload.meta.source_agent_id == "ui"
+        assert payload.meta.user_id == "default"
+        assert payload.index.memory_type == MemoryType.FACT
+        assert payload.index.alias == "created-memory"
+        assert atom is created
+
+    @pytest.mark.asyncio
+    async def test_get_memory_not_found_raises_domain_error(self, service, mock_global_bus):
+        mock_global_bus.request.side_effect = None
+        mock_global_bus.request.return_value = None
+
+        with pytest.raises(MemoryNotFoundError):
+            await service.get_memory(uuid4())
+
+    @pytest.mark.asyncio
+    async def test_record_feedback_without_lifecycle_raises_domain_error(
+        self,
+        service,
+        mock_global_bus,
+    ):
+        mock_global_bus.request.side_effect = RuntimeError(
+            "Memory lifecycle engine is unavailable"
+        )
+
+        with pytest.raises(MemoryLifecycleUnavailableError):
+            await service.record_feedback(uuid4(), positive=True, source="ui.memory_ref")
+
+
+class TestMemoryManagementService:
+    @pytest.fixture
+    def storage(self):
+        return MagicMock()
+
+    def test_create_memory_writes_storage(self, storage):
+        service = MemoryManagementService(storage=storage)
+        atom = _make_memory_atom(title="Created memory")
+
+        result = asyncio.run(service.create_memory(atom))
+
+        assert result is atom
         storage.upsert_memory.assert_called_once_with(atom)
-        assert atom.meta.source_agent_id == "ui"
-        assert atom.meta.user_id == "default"
-        assert atom.index.memory_type == MemoryType.FACT
-        assert atom.index.alias == "created-memory"
 
     def test_list_memories_uses_filters_and_refreshes_vitality(
         self,
-        mock_global_bus,
-        passive_config,
         storage,
     ):
         atom = _make_memory_atom()
@@ -257,15 +298,16 @@ class TestMemoryApplicationService:
         lifecycle.refresh_vitality_batch.side_effect = (
             lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 33.0)
         )
-        service = MemoryApplicationService(
-            global_bus=mock_global_bus,
-            config=passive_config,
+        service = MemoryManagementService(
             storage=storage,
             lifecycle_engine=lifecycle,
         )
         storage.get_all_memories.return_value = [atom]
 
-        atoms = service.list_memories(user_id="u1", memory_type="FACT", limit=10)
+        atoms = asyncio.run(service.list_memories(
+            filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
+            limit=10,
+        ))
 
         storage.get_all_memories.assert_called_once_with(
             filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
@@ -275,7 +317,8 @@ class TestMemoryApplicationService:
         assert atoms == [atom]
         assert atoms[0].meta.vitality_score == 33.0
 
-    def test_list_memories_search_excludes_agent_profiles(self, service, storage):
+    def test_list_memories_search_excludes_agent_profiles(self, storage):
+        service = MemoryManagementService(storage=storage)
         fact = _make_memory_atom(title="Fact")
         profile = _make_memory_atom(title="Agent")
         profile.index.memory_type = MemoryType.AGENT_PROFILE
@@ -284,7 +327,11 @@ class TestMemoryApplicationService:
             {"memory": profile, "score": 0.8},
         ]
 
-        atoms = service.list_memories(query="test", limit=5)
+        atoms = asyncio.run(service.list_memories(
+            query="test",
+            limit=5,
+            exclude_types=[MemoryType.AGENT_PROFILE.value],
+        ))
 
         storage.search_memories.assert_called_once_with(
             query_text="test",
@@ -293,17 +340,18 @@ class TestMemoryApplicationService:
         )
         assert atoms == [fact]
 
-    def test_get_memory_not_found_raises_domain_error(self, service, storage):
+    def test_get_memory_returns_none_when_not_found(self, storage):
+        service = MemoryManagementService(storage=storage)
         storage.get_memory.return_value = None
 
-        with pytest.raises(MemoryNotFoundError):
-            service.get_memory(uuid4())
+        assert asyncio.run(service.get_memory(uuid4())) is None
 
-    def test_update_memory_updates_editable_fields(self, service, storage):
+    def test_update_memory_updates_editable_fields(self, storage):
+        service = MemoryManagementService(storage=storage)
         atom = _make_memory_atom()
         storage.get_memory.return_value = atom
 
-        updated = service.update_memory(
+        updated = asyncio.run(service.update_memory(
             atom.id,
             title="Updated",
             summary="Updated summary",
@@ -311,7 +359,7 @@ class TestMemoryApplicationService:
             alias="updated-alias",
             tags=["updated"],
             agent_config={"mode": "test"},
-        )
+        ))
 
         assert updated is atom
         assert atom.index.title == "Updated"
@@ -322,7 +370,7 @@ class TestMemoryApplicationService:
         assert atom.payload.artifacts.agent_config == {"mode": "test"}
         storage.upsert_memory.assert_called_once_with(atom)
 
-    def test_record_feedback_uses_lifecycle(self, mock_global_bus, passive_config, storage):
+    def test_record_feedback_uses_lifecycle(self, storage):
         mid = uuid4()
         lifecycle = MagicMock()
         lifecycle.record_feedback.return_value = ReinforcementResult(
@@ -333,18 +381,16 @@ class TestMemoryApplicationService:
             new_confidence=0.8,
             event_type=EventType.FEEDBACK_POSITIVE,
         )
-        service = MemoryApplicationService(
-            global_bus=mock_global_bus,
-            config=passive_config,
+        service = MemoryManagementService(
             storage=storage,
             lifecycle_engine=lifecycle,
         )
 
-        result = service.record_feedback(
+        result = asyncio.run(service.record_feedback(
             mid,
             positive=True,
             source="ui.memory_ref",
-        )
+        ))
 
         lifecycle.record_feedback.assert_called_once_with(
             mid,
@@ -353,26 +399,22 @@ class TestMemoryApplicationService:
         )
         assert result.memory_id == mid
 
-    def test_record_feedback_without_lifecycle_raises_domain_error(self, service):
-        with pytest.raises(MemoryLifecycleUnavailableError):
-            service.record_feedback(uuid4(), positive=True, source="ui.memory_ref")
-
 
 class TestAgentApplicationService:
     @pytest.fixture
-    def storage(self):
-        return MagicMock()
-
-    @pytest.fixture
-    def service(self, mock_global_bus, passive_config, storage):
+    def service(self, mock_global_bus, passive_config):
         return AgentApplicationService(
             global_bus=mock_global_bus,
             config=passive_config,
-            storage=storage,
         )
 
-    def test_create_agent_profile_writes_agent_profile_atom(self, service, storage):
-        atom = service.create_agent_profile(
+    @pytest.mark.asyncio
+    async def test_create_agent_profile_uses_public_route(self, service, mock_global_bus):
+        created = _make_memory_atom(title="Worker")
+        mock_global_bus.request.side_effect = None
+        mock_global_bus.request.return_value = created
+
+        atom = await service.create_agent_profile(
             title="Worker",
             alias="worker",
             summary="",
@@ -381,17 +423,45 @@ class TestAgentApplicationService:
             agent_config={"allowed_mtp_verbs": ["SEARCH"]},
         )
 
-        storage.upsert_memory.assert_called_once_with(atom)
-        assert atom.index.memory_type == MemoryType.AGENT_PROFILE
-        assert atom.index.summary == "Worker agent profile"
-        assert atom.index.alias == "worker"
-        assert atom.payload.content == "persona"
-        assert atom.payload.artifacts.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
+        mock_global_bus.request.assert_awaited_once()
+        route, payload = mock_global_bus.request.await_args.args
+        assert route == GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE
+        assert payload.index.memory_type == MemoryType.AGENT_PROFILE
+        assert payload.index.summary == "Worker agent profile"
+        assert payload.index.alias == "worker"
+        assert payload.payload.content == "persona"
+        assert payload.payload.artifacts.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
+        assert atom is created
 
-    def test_list_agent_profiles_uses_agent_profile_filter(self, service, storage):
+    @pytest.mark.asyncio
+    async def test_list_agent_profiles_uses_public_route(self, service, mock_global_bus):
+        mock_global_bus.request.side_effect = None
+        mock_global_bus.request.return_value = []
+
+        assert await service.list_agent_profiles() == []
+        mock_global_bus.request.assert_awaited_once_with(
+            GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
+            limit=100,
+        )
+
+
+class TestAgentProfileManagementService:
+    def test_create_agent_profile_writes_storage(self):
+        storage = MagicMock()
+        service = AgentProfileManagementService(storage=storage)
+        atom = _make_memory_atom(title="Worker")
+
+        result = asyncio.run(service.create_agent_profile(atom))
+
+        assert result is atom
+        storage.upsert_memory.assert_called_once_with(atom)
+
+    def test_list_agent_profiles_uses_agent_profile_filter(self):
+        storage = MagicMock()
+        service = AgentProfileManagementService(storage=storage)
         storage.get_all_memories.return_value = []
 
-        assert service.list_agent_profiles() == []
+        assert asyncio.run(service.list_agent_profiles()) == []
         storage.get_all_memories.assert_called_once_with(
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=100,
@@ -414,14 +484,16 @@ class TestTopicApplicationService:
         return TopicApplicationService(
             global_bus=bus,
             config=passive_config,
-            librarian_core=librarian_core,
         )
 
-    def test_list_active_topics_uses_identity(self, service, librarian_core):
-        librarian_core.get_active_topics_snapshots.return_value = ["snapshot"]
+    @pytest.mark.asyncio
+    async def test_list_active_topics_uses_public_route(self, service, bus):
+        handler = AsyncMock(return_value=["snapshot"])
+        bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, handler)
 
-        assert service.list_active_topics(user_id="u1") == ["snapshot"]
-        identity = librarian_core.get_active_topics_snapshots.call_args.args[0]
+        assert await service.list_active_topics(user_id="u1") == ["snapshot"]
+        handler.assert_awaited_once()
+        identity = handler.await_args.kwargs["identity"]
         assert identity.user_id == "u1"
 
     @pytest.mark.asyncio
@@ -443,6 +515,30 @@ class TestTopicApplicationService:
 
         assert result == {"success": True, "message": "话题 t1 已删除"}
         handler.assert_awaited_once_with(topic_id="t1")
+
+
+class TestTopicManagementService:
+    @pytest.fixture
+    def librarian_core(self):
+        librarian = MagicMock()
+        librarian.perception_layer.buffer_manager.pop_buffer.return_value = object()
+        return librarian
+
+    def test_list_active_topics_uses_librarian_core(self, librarian_core):
+        identity = Identity(user_id="u1")
+        librarian_core.get_active_topics_snapshots.return_value = ["snapshot"]
+        service = TopicManagementService(librarian_core=librarian_core)
+
+        assert asyncio.run(service.list_active_topics(identity=identity)) == ["snapshot"]
+        librarian_core.get_active_topics_snapshots.assert_called_once_with(identity)
+
+    def test_evict_topic_uses_buffer_manager(self, librarian_core):
+        service = TopicManagementService(librarian_core=librarian_core)
+
+        result = asyncio.run(service.evict_topic(topic_id="t1"))
+
+        assert result == {"success": True, "message": "话题 t1 已删除"}
+        librarian_core.perception_layer.buffer_manager.pop_buffer.assert_called_once_with("t1")
 
 
 class TestChatApplicationService:

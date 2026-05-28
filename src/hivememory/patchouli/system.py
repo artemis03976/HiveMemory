@@ -33,6 +33,11 @@ from typing import TYPE_CHECKING, Any, Optional
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.eye import TheEye
+from hivememory.patchouli.application import (
+    AgentProfileManagementService,
+    MemoryManagementService,
+    TopicManagementService,
+)
 from hivememory.patchouli.runtime import PatchouliRuntime
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.config import HiveMemoryConfig
@@ -87,6 +92,16 @@ class PatchouliSystem(SubsystemProtocol):
             runtime=self.runtime,
             eye=self.eye,
             global_bus=global_bus,
+        )
+        self._memory_management_service = MemoryManagementService(
+            storage=self.runtime.storage,
+            lifecycle_engine=self.runtime.librarian_core.lifecycle_engine,
+        )
+        self._agent_profile_management_service = AgentProfileManagementService(
+            storage=self.runtime.storage,
+        )
+        self._topic_management_service = TopicManagementService(
+            librarian_core=self.runtime.librarian_core,
         )
 
         self._scheduler = scheduler
@@ -223,6 +238,42 @@ class PatchouliSystem(SubsystemProtocol):
             self.runtime.librarian_core.submit_interaction,
         )
         self._global_bus.register(
+            PatchouliRoutes.MEMORY_CREATE,
+            self._memory_management_service.create_memory,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.MEMORY_LIST,
+            self._memory_management_service.list_memories,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.MEMORY_GET,
+            self._memory_management_service.get_memory,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.MEMORY_UPDATE,
+            self._memory_management_service.update_memory,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.MEMORY_DELETE,
+            self._memory_management_service.delete_memory,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
+            self._memory_management_service.record_feedback,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.AGENT_PROFILE_CREATE,
+            self._agent_profile_management_service.create_agent_profile,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.AGENT_PROFILE_LIST,
+            self._agent_profile_management_service.list_agent_profiles,
+        )
+        self._global_bus.register(
+            PatchouliRoutes.TOPIC_LIST_ACTIVE,
+            self._topic_management_service.list_active_topics,
+        )
+        self._global_bus.register(
             PatchouliRoutes.MEMORY_RETRIEVE,
             self.runtime.retrieval_familiar.retrieve_async,
         )
@@ -248,11 +299,11 @@ class PatchouliSystem(SubsystemProtocol):
         )
         self._global_bus.register(
             PatchouliRoutes.MANUAL_ARCHIVE_TOPIC,
-            self.service.manual_archive_topic,
+            self._topic_management_service.archive_topic,
         )
         self._global_bus.register(
             PatchouliRoutes.EVICT_TOPIC,
-            self.service.evict_topic,
+            self._topic_management_service.evict_topic,
         )
         self._global_bus.register(
             PatchouliRoutes.RECORD_MEMORY_CITATION,
@@ -262,6 +313,15 @@ class PatchouliSystem(SubsystemProtocol):
     def _unregister_public_routes(self) -> None:
         self._global_bus.unregister(PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE)
         self._global_bus.unregister(PatchouliRoutes.SUBMIT_INTERACTION)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_CREATE)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_LIST)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_GET)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_UPDATE)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_DELETE)
+        self._global_bus.unregister(PatchouliRoutes.MEMORY_RECORD_FEEDBACK)
+        self._global_bus.unregister(PatchouliRoutes.AGENT_PROFILE_CREATE)
+        self._global_bus.unregister(PatchouliRoutes.AGENT_PROFILE_LIST)
+        self._global_bus.unregister(PatchouliRoutes.TOPIC_LIST_ACTIVE)
         self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE)
         self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES)
         self._global_bus.unregister(PatchouliRoutes.GET_AGENT_PROFILE)

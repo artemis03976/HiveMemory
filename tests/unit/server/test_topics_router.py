@@ -20,6 +20,8 @@ def _create_test_app(librarian_core, *, manual_archive_topic=None, evict_topic=N
 
     from hivememory.server import deps
     bus = GlobalSystemBus()
+    management = _TopicManagementStub(librarian_core)
+    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, management.list_active_topics)
     if manual_archive_topic is not None:
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC, manual_archive_topic)
     if evict_topic is not None:
@@ -27,12 +29,19 @@ def _create_test_app(librarian_core, *, manual_archive_topic=None, evict_topic=N
     service = TopicApplicationService(
         global_bus=bus,
         config=MagicMock(),
-        librarian_core=librarian_core,
     )
     app.dependency_overrides[deps.get_topic_service] = lambda: service
     app.dependency_overrides[deps.get_user_id] = lambda: "test_user"
 
     return app
+
+
+class _TopicManagementStub:
+    def __init__(self, librarian_core):
+        self.librarian_core = librarian_core
+
+    async def list_active_topics(self, *, identity):
+        return self.librarian_core.get_active_topics_snapshots(identity)
 
 
 def _make_snapshot(topic_id="t1", title="Test Topic"):

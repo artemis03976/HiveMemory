@@ -14,6 +14,7 @@ from hivememory.core.models import (
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.system.application.memory_service import MemoryApplicationService
+from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.server.routers.memories import router
 
@@ -23,15 +24,96 @@ def _create_test_app(storage, lifecycle_engine=None):
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
+    bus = GlobalSystemBus()
+    management = _MemoryManagementStub(storage, lifecycle_engine)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_CREATE, management.create_memory)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_LIST, management.list_memories)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_GET, management.get_memory)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_UPDATE, management.update_memory)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_DELETE, management.delete_memory)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK, management.record_feedback)
     service = MemoryApplicationService(
-        global_bus=GlobalSystemBus(),
+        global_bus=bus,
         config=MagicMock(),
-        storage=storage,
-        lifecycle_engine=lifecycle_engine,
     )
     app.dependency_overrides[deps.get_memory_service] = lambda: service
 
     return app
+
+
+class _MemoryManagementStub:
+    def __init__(self, storage, lifecycle_engine=None):
+        self.storage = storage
+        self.lifecycle_engine = lifecycle_engine
+
+    async def create_memory(self, atom):
+        self.storage.upsert_memory(atom)
+        return atom
+
+    async def list_memories(
+        self,
+        *,
+        query=None,
+        filters=None,
+        limit=20,
+        exclude_types=None,
+        refresh_vitality=True,
+    ):
+        if query:
+            results = self.storage.search_memories(
+                query_text=query,
+                top_k=limit,
+                filters=filters,
+            )
+            atoms = [r["memory"] for r in results if "memory" in r]
+        else:
+            atoms = self.storage.get_all_memories(filters=filters, limit=limit)
+        if refresh_vitality and self.lifecycle_engine is not None:
+            self.lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
+        return [
+            atom for atom in atoms
+            if atom.index.memory_type.value not in set(exclude_types or [])
+        ]
+
+    async def get_memory(self, memory_id, *, refresh_vitality=True):
+        atom = self.storage.get_memory(memory_id)
+        if atom is not None and refresh_vitality and self.lifecycle_engine is not None:
+            self.lifecycle_engine.refresh_vitality_batch([atom], persist=False)
+        return atom
+
+    async def update_memory(self, memory_id, **updates):
+        atom = self.storage.get_memory(memory_id)
+        if atom is None:
+            return None
+        for key, value in updates.items():
+            if value is None:
+                continue
+            if key == "title":
+                atom.index.title = value
+            elif key == "summary":
+                atom.index.summary = value
+            elif key == "content":
+                atom.payload.content = value
+            elif key == "alias":
+                atom.index.alias = value or None
+            elif key == "tags":
+                atom.index.tags = value
+            elif key == "agent_config":
+                atom.payload.artifacts.agent_config = value
+        self.storage.upsert_memory(atom)
+        return atom
+
+    async def delete_memory(self, memory_id):
+        return self.storage.delete_memory(memory_id)
+
+    async def record_feedback(self, memory_id, *, positive, source):
+        if self.lifecycle_engine is None:
+            raise RuntimeError("Memory lifecycle engine is unavailable")
+        return self.lifecycle_engine.record_feedback(
+            memory_id,
+            positive=positive,
+            source=source,
+        )
 
 
 def _make_atom(title="Test", user_id="u1"):
