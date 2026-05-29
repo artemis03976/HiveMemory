@@ -71,3 +71,4 @@ class MemoryCompileOptions(BaseModel):
     requested_alias: Optional[str] = None
     canonical_alias: Optional[str] = None
     format: Optional[Literal["xml", "markdown", "plain"]] = None
+    language: Optional[str] = None

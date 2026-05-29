@@ -237,6 +237,7 @@ class TestMemoryGatewayConfig:
 
         assert isinstance(config.analyzer, LLMAnalyzerConfig)
         assert config.analyzer.prompt_variant == "default"
+        assert config.analyzer.prompt_language is None
 
     def test_custom_config(self):
         """测试自定义配置"""

@@ -133,7 +133,7 @@ class LLMAnalyzerConfig(BaseModel):
     """L2 语义分析器配置"""
     enabled: bool = Field(default=True, description="是否启用 L2 语义分析")
     prompt_variant: str = Field(default="default", description="System Prompt 变体")
-    prompt_language: str = Field(default="zh", description="System Prompt 语言")
+    prompt_language: Optional[str] = Field(default=None, description="System Prompt 语言兼容性覆盖 (zh/en)")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -599,7 +599,7 @@ class MTPPromptConfig(BaseModel):
     对应设计文档: MemoryToolProtocol.md Chapter 5
     """
     enabled: bool = Field(default=True, description="是否启用 MTP System Prompt 注入")
-    language: str = Field(default="zh", description="Prompt 语言 (zh/en)")
+    language: Optional[str] = Field(default=None, description="Prompt 语言兼容性覆盖 (zh/en)")
     include_demo: bool = Field(default=True, description="是否包含 One-Shot 演示")
     include_error_handling: bool = Field(default=True, description="是否包含错误恢复指令")
 
@@ -689,6 +689,20 @@ class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+# ========== 国际化配置 ==========
+
+class I18nConfig(BaseModel):
+    """国际化基础配置"""
+    default_language: str = Field(default="zh", description="全局默认语言 (zh/en)")
+    fallback_language: str = Field(default="en", description="缺失文案时的回退语言")
+    supported_languages: List[str] = Field(
+        default_factory=lambda: ["zh", "en"],
+        description="支持的语言列表",
+    )
+
+    model_config = ConfigDict(extra="ignore")
+
+
 # ========== 主配置类 ==========
 
 class HiveMemoryConfig(BaseSettings):
@@ -716,6 +730,7 @@ class HiveMemoryConfig(BaseSettings):
     agent_runtime: AgentRuntimeConfig = Field(default_factory=AgentRuntimeConfig)
     koakuma: KoakumaConfig = Field(default_factory=KoakumaConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    i18n: I18nConfig = Field(default_factory=I18nConfig)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),

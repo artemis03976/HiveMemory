@@ -51,7 +51,10 @@ class AliceRuntime:
         )
         self._mtp_executor = KoakumaMTPExecutor(self._koakuma)
 
-        self._prompt_assembler = AgentPromptAssembler(config.koakuma)
+        self._prompt_assembler = AgentPromptAssembler(
+            config.koakuma,
+            default_language=config.i18n.default_language,
+        )
 
         self._agent_runtime = AgentRuntime(
             local_bus=self._local_bus,

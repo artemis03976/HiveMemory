@@ -8,16 +8,17 @@ from hivememory.core.models import AgentProfile
 from hivememory.core.protocol.models import AgentRunContext
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.engines.perception.context_converter import PerceptionContextConverter
+from hivememory.i18n import resolve_language
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.prompts.system_prompt import SystemPromptBuilder
 
 
-# TODO: 设置全局i18n以消除局部语言获取
 class AgentPromptAssembler:
     """Build complete Worker Agent messages from prepared context."""
 
-    def __init__(self, koakuma_config: Any) -> None:
+    def __init__(self, koakuma_config: Any, default_language: str | None = None) -> None:
         self._koakuma_config = koakuma_config
+        self._default_language = default_language
 
     def build_main_agent_messages(
         self,
@@ -99,9 +100,10 @@ class AgentPromptAssembler:
             if profile is not None
             else None
         )
+        language = self._prompt_language(profile)
 
         return MTPPromptBuilder(
-            language=getattr(prompt_config, "language", "zh"),
+            language=language,
             include_demo=getattr(prompt_config, "include_demo", True),
             include_error_handling=getattr(prompt_config, "include_error_handling", True),
             allowed_verbs=allowed_verbs,
@@ -130,11 +132,14 @@ class AgentPromptAssembler:
 
     def _prompt_language(self, profile: AgentProfile | None = None) -> str:
         prompt_config = getattr(self._koakuma_config, "mtp_prompt", None)
-        if prompt_config is not None and getattr(prompt_config, "language", None):
-            return prompt_config.language
-        if profile is not None and getattr(profile, "language", None):
-            return profile.language
-        return "zh"
+        component_lang = getattr(prompt_config, "language", None) if prompt_config else None
+        profile_lang = getattr(profile, "language", None) if profile else None
+
+        return resolve_language(
+            profile_language=profile_lang,
+            component_language=component_lang,
+            default_language=self._default_language,
+        )
 
 
 __all__ = ["AgentPromptAssembler"]

@@ -1,0 +1,17 @@
+"""HiveMemory i18n 基础设施。"""
+
+from hivememory.i18n.types import (
+    DEFAULT_LANGUAGE,
+    FALLBACK_LANGUAGE,
+    Language,
+    normalize_language,
+)
+from hivememory.i18n.resolver import resolve_language
+
+__all__ = [
+    "DEFAULT_LANGUAGE",
+    "FALLBACK_LANGUAGE",
+    "Language",
+    "normalize_language",
+    "resolve_language",
+]

@@ -141,7 +141,8 @@ class PatchouliSystem(SubsystemProtocol):
 
         semantic_analyzer: BaseSemanticAnalyzer = create_semantic_analyzer(
             config.analyzer,
-            self._gateway_llm_service
+            self._gateway_llm_service,
+            default_language=self.config.i18n.default_language,
         )
 
         self._gateway_engine = GatewayEngine(

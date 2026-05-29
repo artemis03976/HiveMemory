@@ -15,6 +15,14 @@ system:
   version: "0.1.0"
   debug: true
 
+# ========== 国际化配置 ==========
+i18n:
+  default_language: "zh"
+  fallback_language: "en"
+  supported_languages:
+    - "zh"
+    - "en"
+
 # ========== 日志配置 ==========
 logging:
   level: "INFO"
@@ -91,7 +99,7 @@ gateway:
   analyzer:
     enabled: true
     prompt_variant: "default"
-    prompt_language: "zh"
+    prompt_language: null  # 兼容性覆盖；默认使用 i18n.default_language
 
 # ========== 感知层配置 ==========
 perception:
