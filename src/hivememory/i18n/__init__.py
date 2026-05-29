@@ -7,11 +7,17 @@ from hivememory.i18n.types import (
     normalize_language,
 )
 from hivememory.i18n.resolver import resolve_language
+from hivememory.i18n.memory_compiler import (
+    get_memory_envelope_text,
+    get_memory_section_title,
+)
 
 __all__ = [
     "DEFAULT_LANGUAGE",
     "FALLBACK_LANGUAGE",
     "Language",
+    "get_memory_envelope_text",
+    "get_memory_section_title",
     "normalize_language",
     "resolve_language",
 ]

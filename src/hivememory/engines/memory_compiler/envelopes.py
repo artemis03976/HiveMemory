@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from hivememory.i18n import (
+    get_memory_envelope_text,
+    get_memory_section_title,
+)
 from hivememory.engines.memory_compiler.models import (
     CompiledMemoryArtifact,
     CompiledMemoryEnvelope,
@@ -27,11 +31,11 @@ def compile_envelope(
     ]
 
     if target == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT:
-        text = _compile_retrieval_context(envelope_sections)
+        text = _compile_retrieval_context(envelope_sections, opts.language)
     elif target == MemoryEnvelopeTarget.MTP_READ_RESPONSE:
-        text = _compile_mtp_read_response(envelope_sections)
+        text = _compile_mtp_read_response(envelope_sections, opts.language)
     elif target == MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION:
-        text = _compile_shared_context_injection(envelope_sections)
+        text = _compile_shared_context_injection(envelope_sections, opts.language)
     else:
         raise ValueError(f"Unsupported envelope target '{target}'.")
 
@@ -43,61 +47,72 @@ def compile_envelope(
     )
 
 
-def _compile_retrieval_context(sections: list[MemoryEnvelopeSection]) -> str:
-    from hivememory.engines.memory_compiler.envelope_templates import (
-        MEMORY_FOOTER,
-        MEMORY_HEADER,
-    )
-
-    parts = [MEMORY_HEADER]
+def _compile_retrieval_context(
+    sections: list[MemoryEnvelopeSection],
+    language: str | None,
+) -> str:
+    parts = [get_memory_envelope_text("retrieval_header", language)]
     for section in sections:
         if section.kind == "memories":
-            parts.append(_render_retrieval_memories_section(section))
+            parts.append(_render_retrieval_memories_section(section, language))
         elif section.kind == "agent_profiles":
-            parts.append(_render_retrieval_agent_profiles_section(section))
+            parts.append(_render_retrieval_agent_profiles_section(section, language))
         elif section.artifacts:
             parts.append("".join(artifact.text for artifact in section.artifacts))
         elif section.empty_text:
             parts.append(section.empty_text)
-    parts.append(MEMORY_FOOTER)
+    parts.append(get_memory_envelope_text("retrieval_footer", language))
     return "".join(parts)
 
 
-def _render_retrieval_memories_section(section: MemoryEnvelopeSection) -> str:
+def _render_retrieval_memories_section(
+    section: MemoryEnvelopeSection,
+    language: str | None,
+) -> str:
+    title = get_memory_section_title("memories", language)
     if section.artifacts:
-        return "\n### 相关记忆 (Relevant Memories)\n" + "".join(
+        return f"\n### {title}\n" + "".join(
             artifact.text for artifact in section.artifacts
         )
     if section.empty_text:
-        return f"\n### 相关记忆 (Relevant Memories)\n{section.empty_text}"
+        return f"\n### {title}\n{section.empty_text}"
     return ""
 
 
-def _render_retrieval_agent_profiles_section(section: MemoryEnvelopeSection) -> str:
+def _render_retrieval_agent_profiles_section(
+    section: MemoryEnvelopeSection,
+    language: str | None,
+) -> str:
+    title = get_memory_section_title("agent_profiles", language)
     if section.artifacts:
-        lines = ["\n### 可用子代理 (Available Sub-Agents)"]
-        lines.extend(artifact.text for artifact in section.artifacts)
-        return "\n".join(lines)
+        return f"\n### {title}\n" + "".join(
+            artifact.text for artifact in section.artifacts
+        )
     if section.empty_text:
-        return f"\n### 可用子代理 (Available Sub-Agents)\n{section.empty_text}"
+        return f"\n### {title}\n{section.empty_text}"
     return ""
 
 
-def _compile_mtp_read_response(sections: list[MemoryEnvelopeSection]) -> str:
+def _compile_mtp_read_response(
+    sections: list[MemoryEnvelopeSection],
+    language: str | None,
+) -> str:
     body = _join_section_artifacts(sections)
-    return "[MTP READ Result]\n" + body if body else "[MTP READ Result]"
+    title = get_memory_envelope_text("mtp_read_result_title", language)
+    return f"{title}\n{body}" if body else title
 
 
-def _compile_shared_context_injection(sections: list[MemoryEnvelopeSection]) -> str:
+def _compile_shared_context_injection(
+    sections: list[MemoryEnvelopeSection],
+    language: str | None,
+) -> str:
     body = _join_section_artifacts(sections)
+    title = get_memory_envelope_text("shared_context_title", language)
     if not body:
-        return "[Shared Context from Parent Agent]\nNo shared memory artifacts."
-    return (
-        "[Shared Context from Parent Agent]\n\n"
-        "The parent agent shared the following runtime memory artifacts. "
-        "Use READ if you need to inspect them again.\n\n"
-        + body
-    )
+        empty = get_memory_envelope_text("shared_context_empty", language)
+        return f"{title}\n{empty}"
+    intro = get_memory_envelope_text("shared_context_intro", language)
+    return f"{title}\n\n{intro}\n\n{body}"
 
 
 def _join_section_artifacts(sections: list[MemoryEnvelopeSection]) -> str:

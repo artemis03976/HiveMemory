@@ -501,7 +501,7 @@ class CompactRendererConfig(BaseModel):
     紧凑上下文渲染器配置
 
     仅渲染 Index 层信息 (摘要+标签)，不渲染完整 Payload。
-    懒加载引导统一由 MEMORY_FOOTER 提供。
+    懒加载引导统一由 retrieval envelope 提供。
     """
     type: Literal["compact"] = "compact"
     max_memory_tokens: int = Field(default=2000, description="最大记忆 Token 预算")

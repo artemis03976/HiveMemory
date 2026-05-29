@@ -365,8 +365,51 @@ class TestEnvelopeCompilation:
         assert "No memories" in envelope.text
         assert "可用子代理" in envelope.text
 
+    def test_retrieval_context_wrap_uses_english_default_language(self, sample_atom, agent_profile_atom):
+        compiler = MemoryCompiler(default_language="en")
+        memory_artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL)
+        agent_artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
+
+        envelope = compiler.wrap(
+            envelope_target=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            sections=[
+                MemoryEnvelopeSection(kind="memories", artifacts=[memory_artifact]),
+                MemoryEnvelopeSection(kind="agent_profiles", artifacts=[agent_artifact]),
+            ],
+        )
+
+        assert "Patchouli, the memory library manager" in envelope.text
+        assert "### Relevant Memories" in envelope.text
+        assert "### Available Sub-Agents" in envelope.text
+        assert "Use common sense when judging them" in envelope.text
+
+    def test_retrieval_context_wrap_options_language_overrides_default(self, sample_atom):
+        compiler = MemoryCompiler(default_language="zh")
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL)
+
+        envelope = compiler.wrap(
+            artifact,
+            envelope_target=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            options=MemoryCompileOptions(language="en"),
+        )
+
+        assert "Patchouli, the memory library manager" in envelope.text
+        assert "相关记忆" not in envelope.text
+
     def test_mtp_read_response_wrap(self, compiler, sample_atom):
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
+        envelope = compiler.wrap(
+            artifact,
+            envelope_target=MemoryEnvelopeTarget.MTP_READ_RESPONSE,
+        )
+
+        assert envelope.text.startswith("[MTP READ Result]")
+        assert "Python parse_date" in envelope.text
+
+    def test_mtp_read_response_wrap_english(self, sample_atom):
+        compiler = MemoryCompiler(default_language="en")
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
+
         envelope = compiler.wrap(
             artifact,
             envelope_target=MemoryEnvelopeTarget.MTP_READ_RESPONSE,
@@ -385,3 +428,37 @@ class TestEnvelopeCompilation:
         assert envelope.text.startswith("[Shared Context from Parent Agent]")
         assert "READ" in envelope.text
         assert "Python parse_date" in envelope.text
+
+    def test_shared_context_injection_wrap_english(self, sample_atom):
+        compiler = MemoryCompiler(default_language="en")
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.SHARED_CONTEXT)
+
+        envelope = compiler.wrap(
+            artifact,
+            envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+        )
+
+        assert envelope.text.startswith("[Shared Context from Parent Agent]")
+        assert "The parent agent shared" in envelope.text
+        assert "Use READ" in envelope.text
+        assert "Python parse_date" in envelope.text
+
+    def test_shared_context_injection_empty_default_chinese(self, compiler):
+        envelope = compiler.wrap(
+            envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+            sections=[],
+        )
+
+        assert envelope.text.startswith("[Shared Context from Parent Agent]")
+        assert "没有共享的记忆材料" in envelope.text
+
+    def test_shared_context_injection_empty_english(self):
+        compiler = MemoryCompiler(default_language="en")
+
+        envelope = compiler.wrap(
+            envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+            sections=[],
+        )
+
+        assert envelope.text.startswith("[Shared Context from Parent Agent]")
+        assert "No shared memory artifacts." in envelope.text
