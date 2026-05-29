@@ -5,10 +5,9 @@ from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
 from hivememory.prompts.assembler import AgentPromptAssembler
 
 
-def _make_koakuma_config(language="zh"):
+def _make_koakuma_config():
     mtp_prompt_config = SimpleNamespace(
         enabled=True,
-        language=language,
         include_demo=False,
         include_error_handling=False,
     )
@@ -95,7 +94,7 @@ def test_build_sub_agent_messages_disables_call():
 
 
 def test_mtp_prompt_uses_resolved_profile_language():
-    assembler = AgentPromptAssembler(_make_koakuma_config(language=None), default_language="zh")
+    assembler = AgentPromptAssembler(_make_koakuma_config(), default_language="zh")
     profile = AgentProfile(
         persona="",
         allowed_mtp_verbs=["SEARCH"],
@@ -114,8 +113,8 @@ def test_mtp_prompt_uses_resolved_profile_language():
     assert "你是运行在 HiveOS" not in messages[0]["content"]
 
 
-def test_mtp_prompt_component_language_is_compatibility_override():
-    assembler = AgentPromptAssembler(_make_koakuma_config(language="en"), default_language="zh")
+def test_mtp_prompt_uses_global_language_without_profile_language():
+    assembler = AgentPromptAssembler(_make_koakuma_config(), default_language="en")
 
     prompt = assembler._build_mtp_prompt(profile=None)
 

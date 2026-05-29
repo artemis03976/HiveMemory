@@ -133,7 +133,6 @@ class LLMAnalyzerConfig(BaseModel):
     """L2 语义分析器配置"""
     enabled: bool = Field(default=True, description="是否启用 L2 语义分析")
     prompt_variant: str = Field(default="default", description="System Prompt 变体")
-    prompt_language: Optional[str] = Field(default=None, description="System Prompt 语言兼容性覆盖 (zh/en)")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -599,7 +598,6 @@ class MTPPromptConfig(BaseModel):
     对应设计文档: MemoryToolProtocol.md Chapter 5
     """
     enabled: bool = Field(default=True, description="是否启用 MTP System Prompt 注入")
-    language: Optional[str] = Field(default=None, description="Prompt 语言兼容性覆盖 (zh/en)")
     include_demo: bool = Field(default=True, description="是否包含 One-Shot 演示")
     include_error_handling: bool = Field(default=True, description="是否包含错误恢复指令")
 

@@ -65,7 +65,6 @@ def _create_runtime_with_koakuma():
         mock_config = Mock()
         mock_config.koakuma.enabled = True
         mock_config.koakuma.mtp_prompt.enabled = True
-        mock_config.koakuma.mtp_prompt.language = "en"
         mock_config.koakuma.mtp_prompt.include_demo = True
         mock_config.koakuma.mtp_prompt.include_error_handling = True
 
@@ -82,7 +81,7 @@ def _create_runtime_with_koakuma():
         def _get_mtp_prompt(self, profile=None):
             prompt_config = self.config.koakuma.mtp_prompt
             builder = MTPPromptBuilder(
-                language=prompt_config.language,
+                language="en",
                 include_demo=prompt_config.include_demo,
                 include_error_handling=prompt_config.include_error_handling,
                 allowed_verbs=getattr(profile, "allowed_mtp_verbs", None),

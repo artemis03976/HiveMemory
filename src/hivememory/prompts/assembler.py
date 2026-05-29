@@ -131,13 +131,10 @@ class AgentPromptAssembler:
         return [verb for verb in allowed if verb.upper() not in denied]
 
     def _prompt_language(self, profile: AgentProfile | None = None) -> str:
-        prompt_config = getattr(self._koakuma_config, "mtp_prompt", None)
-        component_lang = getattr(prompt_config, "language", None) if prompt_config else None
         profile_lang = getattr(profile, "language", None) if profile else None
 
         return resolve_language(
             profile_language=profile_lang,
-            component_language=component_lang,
             default_language=self._default_language,
         )
 

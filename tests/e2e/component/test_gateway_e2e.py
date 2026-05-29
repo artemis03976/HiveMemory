@@ -151,7 +151,6 @@ def setup_test_env() -> GatewayEngine:
     analyzer_config = LLMAnalyzerConfig(
         enabled=True,
         prompt_variant="default",
-        prompt_language="zh",
     )
     semantic_analyzer = create_semantic_analyzer(analyzer_config, _shared_llm_service)
 

@@ -113,8 +113,8 @@ class TestLLMAnalyzer:
             {"role": "user", "content": "Query"},
         ]
 
-    def test_default_language_is_used_when_prompt_language_is_unset(self, mock_llm_service):
-        config = LLMAnalyzerConfig(prompt_language=None)
+    def test_default_language_is_used_for_gateway_prompt(self, mock_llm_service):
+        config = LLMAnalyzerConfig()
         analyzer = LLMAnalyzer(
             llm_service=mock_llm_service,
             config=config,
@@ -123,17 +123,6 @@ class TestLLMAnalyzer:
 
         assert analyzer.language == "en"
         assert "You are an OS-level dispatch gateway" in analyzer.system_prompt
-
-    def test_prompt_language_remains_compatibility_override(self, mock_llm_service):
-        config = LLMAnalyzerConfig(prompt_language="zh")
-        analyzer = LLMAnalyzer(
-            llm_service=mock_llm_service,
-            config=config,
-            default_language="en",
-        )
-
-        assert analyzer.language == "zh"
-        assert "OS 级别的调度网关" in analyzer.system_prompt
 
     @pytest.mark.asyncio
     async def test_parse_response_missing_required_fields_uses_defaults(self, mock_llm_service):

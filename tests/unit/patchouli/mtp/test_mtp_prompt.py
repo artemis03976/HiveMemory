@@ -190,7 +190,6 @@ class TestMTPPromptConfig:
         """默认配置值正确"""
         config = MTPPromptConfig()
         assert config.enabled is True
-        assert config.language == "zh"
         assert config.include_demo is True
         assert config.include_error_handling is True
 
@@ -205,16 +204,14 @@ class TestMTPPromptConfig:
         """自定义配置值"""
         config = MTPPromptConfig(
             enabled=False,
-            language="en",
             include_demo=False,
         )
         assert config.enabled is False
-        assert config.language == "en"
         assert config.include_demo is False
 
     def test_koakuma_config_with_mtp_prompt(self):
         """KoakumaConfig 接受嵌套的 mtp_prompt 配置"""
         config = KoakumaConfig(
-            mtp_prompt=MTPPromptConfig(language="en")
+            mtp_prompt=MTPPromptConfig(include_demo=False)
         )
-        assert config.mtp_prompt.language == "en"
+        assert config.mtp_prompt.include_demo is False

@@ -99,7 +99,6 @@ gateway:
   analyzer:
     enabled: true
     prompt_variant: "default"
-    prompt_language: null  # 兼容性覆盖；默认使用 i18n.default_language
 
 # ========== 感知层配置 ==========
 perception:

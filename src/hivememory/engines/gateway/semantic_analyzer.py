@@ -47,10 +47,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         """
         self.config = config
         self.llm_service = llm_service
-        self.language = resolve_language(
-            component_language=self.config.prompt_language,
-            default_language=default_language,
-        ).value
+        self.language = resolve_language(default_language=default_language).value
         self.system_prompt = system_prompt or get_gateway_system_prompt(
             variant=self.config.prompt_variant,
             language=self.language,
