@@ -120,6 +120,23 @@ class TestTimeFormatter:
         result = formatter.format(now - timedelta(days=100))
         assert "Warning: Old" in result
 
+    def test_global_language_enum(self):
+        """测试接入全局 i18n Language 枚举"""
+        now = datetime.now()
+
+        zh_formatter = TimeFormatter(language=Language.ZH)
+        assert zh_formatter.format(now - timedelta(days=5)) == "5 天前"
+
+        en_formatter = TimeFormatter(language=Language.EN)
+        assert en_formatter.format(now - timedelta(days=5)) == "5 days ago"
+
+    def test_language_alias_string(self):
+        """测试字符串别名归一化"""
+        now = datetime.now()
+
+        formatter = TimeFormatter(language="english")
+        assert formatter.format(now - timedelta(hours=2)) == "2 hours ago"
+
     def test_custom_reference_time(self):
         """测试自定义参考时间"""
         formatter = TimeFormatter(language=Language.CHINESE)

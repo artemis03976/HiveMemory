@@ -9,9 +9,7 @@ from hivememory.engines.memory_compiler.models import (
     MemoryCompileTarget,
 )
 from hivememory.i18n import get_memory_atom_text
-from hivememory.i18n.resolver import resolve_language
-from hivememory.i18n.types import Language as I18nLanguage
-from hivememory.utils.time_formatter import Language, TimeFormatter
+from hivememory.utils.time_formatter import TimeFormatter
 
 
 def _text(key: str, language: str | None = None) -> str:
@@ -107,7 +105,7 @@ def _render_full_context(
     alias = memory.get_alias()
     tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or _text("memory_tags_empty", language)
     time_str = TimeFormatter(
-        language=_time_formatter_language(language),
+        language=language,
         stale_days=stale_days,
     ).format(memory.meta.updated_at)
 
@@ -140,7 +138,7 @@ def _render_index_context(
     confidence_str = _format_confidence(memory, language)
     tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or _text("memory_tags_empty", language)
     time_str = TimeFormatter(
-        language=_time_formatter_language(language),
+        language=language,
         stale_days=stale_days,
     ).format(memory.meta.updated_at)
 
@@ -234,8 +232,3 @@ def _truncate_content(content: str, max_length: int, language: str | None = None
             break
 
     return truncated + f"\n\n{_text('memory_truncation_notice', language)}"
-
-
-def _time_formatter_language(language: str | None = None) -> Language:
-    resolved = resolve_language(explicit=language)
-    return Language.ENGLISH if resolved == I18nLanguage.EN else Language.CHINESE

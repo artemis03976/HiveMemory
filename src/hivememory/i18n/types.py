@@ -8,6 +8,8 @@ from enum import StrEnum
 class Language(StrEnum):
     ZH = "zh"
     EN = "en"
+    CHINESE = "zh"
+    ENGLISH = "en"
 
 
 DEFAULT_LANGUAGE = Language.ZH

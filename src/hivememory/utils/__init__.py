@@ -6,9 +6,9 @@ Common utility classes and functions used across the project.
 
 from hivememory.utils.time_formatter import (
     TimeFormatter,
-    Language,
     format_time_ago,
 )
+from hivememory.i18n import Language
 from hivememory.utils.json_parser import (
     LLMJSONParser,
     JSONParseError,
