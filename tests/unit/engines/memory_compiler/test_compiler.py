@@ -75,13 +75,87 @@ class TestMemoryAtomCompilation:
         assert artifact.source_kind == "atom"
         assert "parse_date" in artifact.text
         assert "<memory" in artifact.text
+        assert "**类型**:" in artifact.text
+        assert "**存档于**:" in artifact.text
+        assert "**置信度**:" in artifact.text
+        assert "**标签**:" in artifact.text
+        assert "[完整内容]:" in artifact.text
         assert artifact.memory_id == str(sample_atom.id)
+
+    def test_prompt_full_english(self, sample_atom):
+        compiler = MemoryCompiler(default_language="en")
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL)
+
+        assert "**Type**:" in artifact.text
+        assert "**Archived At**:" in artifact.text
+        assert "**Confidence**:" in artifact.text
+        assert "**Tags**:" in artifact.text
+        assert "[Full Content]:" in artifact.text
+        assert "hours ago" in artifact.text
+        assert "95% (High) [Verified]" in artifact.text
+        assert "**类型**:" not in artifact.text
+
+    def test_prompt_full_options_language_overrides_default(self, sample_atom):
+        compiler = MemoryCompiler(default_language="zh")
+        artifact = compiler.compile(
+            sample_atom,
+            MemoryCompileTarget.PROMPT_FULL,
+            MemoryCompileOptions(language="en"),
+        )
+
+        assert "**Type**:" in artifact.text
+        assert "[Full Content]:" in artifact.text
+        assert "**类型**:" not in artifact.text
 
     def test_prompt_index(self, compiler, sample_atom):
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_INDEX)
         assert artifact.target == MemoryCompileTarget.PROMPT_INDEX
         assert "<memory_index" in artifact.text
+        assert "**类型**:" in artifact.text
+        assert "**存档于**:" in artifact.text
+        assert "**置信度**:" in artifact.text
+        assert "**标签**:" in artifact.text
+        assert "**内容摘要**:" in artifact.text
         assert "基于 datetime 库" in artifact.text
+
+    def test_prompt_index_english(self, sample_atom):
+        compiler = MemoryCompiler(default_language="en")
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_INDEX)
+
+        assert "**Type**:" in artifact.text
+        assert "**Archived At**:" in artifact.text
+        assert "**Confidence**:" in artifact.text
+        assert "**Tags**:" in artifact.text
+        assert "**Summary**:" in artifact.text
+        assert "hours ago" in artifact.text
+        assert "95% (High) [Verified]" in artifact.text
+        assert "**内容摘要**:" not in artifact.text
+
+    def test_prompt_index_options_language_overrides_default(self, sample_atom):
+        compiler = MemoryCompiler(default_language="zh")
+        artifact = compiler.compile(
+            sample_atom,
+            MemoryCompileTarget.PROMPT_INDEX,
+            MemoryCompileOptions(language="en"),
+        )
+
+        assert "**Summary**:" in artifact.text
+        assert "**内容摘要**:" not in artifact.text
+
+    def test_prompt_index_empty_tags_i18n(self, sample_atom):
+        sample_atom.index.tags = []
+
+        zh_artifact = MemoryCompiler(default_language="zh").compile(
+            sample_atom,
+            MemoryCompileTarget.PROMPT_INDEX,
+        )
+        en_artifact = MemoryCompiler(default_language="en").compile(
+            sample_atom,
+            MemoryCompileTarget.PROMPT_INDEX,
+        )
+
+        assert "(无标签)" in zh_artifact.text
+        assert "(No tags)" in en_artifact.text
 
     def test_dense_embedding(self, compiler, sample_atom):
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.DENSE_EMBEDDING)
@@ -99,7 +173,43 @@ class TestMemoryAtomCompilation:
         artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
         assert artifact.target == MemoryCompileTarget.AGENT_PROFILE_MENU
         assert "代码分析师" in artifact.text
+        assert "**角色**:" in artifact.text
+        assert "**能力特长**:" in artifact.text
         assert "<agent_profile" in artifact.text
+
+    def test_agent_profile_menu_english(self, agent_profile_atom):
+        compiler = MemoryCompiler(default_language="en")
+        artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
+
+        assert "**Role**:" in artifact.text
+        assert "**Capabilities**:" in artifact.text
+        assert "**角色**:" not in artifact.text
+
+    def test_agent_profile_menu_options_language_overrides_default(self, agent_profile_atom):
+        compiler = MemoryCompiler(default_language="zh")
+        artifact = compiler.compile(
+            agent_profile_atom,
+            MemoryCompileTarget.AGENT_PROFILE_MENU,
+            MemoryCompileOptions(language="en"),
+        )
+
+        assert "**Role**:" in artifact.text
+        assert "**角色**:" not in artifact.text
+
+    def test_agent_profile_untitled_i18n(self, agent_profile_atom):
+        agent_profile_atom.index.title = ""
+
+        zh_artifact = MemoryCompiler(default_language="zh").compile(
+            agent_profile_atom,
+            MemoryCompileTarget.AGENT_PROFILE_MENU,
+        )
+        en_artifact = MemoryCompiler(default_language="en").compile(
+            agent_profile_atom,
+            MemoryCompileTarget.AGENT_PROFILE_MENU,
+        )
+
+        assert "(未命名子代理)" in zh_artifact.text
+        assert "(Untitled sub-agent)" in en_artifact.text
 
     def test_mtp_read(self, compiler, sample_atom):
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
@@ -107,6 +217,13 @@ class TestMemoryAtomCompilation:
         assert f'<memory alias="{alias}">' in artifact.text
         assert "[完整内容]:" in artifact.text
         assert "parse_date" in artifact.text
+
+    def test_mtp_read_english_full_item(self, sample_atom):
+        compiler = MemoryCompiler(default_language="en")
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
+
+        assert "[Full Content]:" in artifact.text
+        assert "**Confidence**:" in artifact.text
 
     def test_mtp_read_with_requested_alias(self, compiler, sample_atom):
         opts = MemoryCompileOptions(requested_alias="my_alias")
@@ -120,6 +237,13 @@ class TestMemoryAtomCompilation:
         assert f'<memory alias="{alias}">' in artifact.text
         assert "[完整内容]:" in artifact.text
 
+    def test_shared_context_english_full_item(self, sample_atom):
+        compiler = MemoryCompiler(default_language="en")
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.SHARED_CONTEXT)
+
+        assert "[Full Content]:" in artifact.text
+        assert "**Tags**:" in artifact.text
+
     def test_runnable_tool_raises(self, compiler, sample_atom):
         with pytest.raises(ValueError, match="reserved"):
             compiler.compile(sample_atom, MemoryCompileTarget.RUNNABLE_TOOL)
@@ -128,6 +252,31 @@ class TestMemoryAtomCompilation:
         opts = MemoryCompileOptions(max_content_length=10)
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL, opts)
         assert "截断" in artifact.text or len(artifact.text) < 500
+
+    def test_prompt_full_english_truncation_notice(self, sample_atom):
+        compiler = MemoryCompiler(default_language="en")
+        artifact = compiler.compile(
+            sample_atom,
+            MemoryCompileTarget.PROMPT_FULL,
+            MemoryCompileOptions(max_content_length=10),
+        )
+
+        assert "content truncated" in artifact.text
+
+    def test_prompt_full_empty_tags_i18n(self, sample_atom):
+        sample_atom.index.tags = []
+
+        zh_artifact = MemoryCompiler(default_language="zh").compile(
+            sample_atom,
+            MemoryCompileTarget.PROMPT_FULL,
+        )
+        en_artifact = MemoryCompiler(default_language="en").compile(
+            sample_atom,
+            MemoryCompileTarget.PROMPT_FULL,
+        )
+
+        assert "(无标签)" in zh_artifact.text
+        assert "(No tags)" in en_artifact.text
 
     def test_list_input(self, compiler, sample_atom, agent_profile_atom):
         artifacts = compiler.compile(

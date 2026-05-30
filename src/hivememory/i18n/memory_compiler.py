@@ -104,6 +104,110 @@ _ENVELOPE_TEXT_EN = {
     **_SHARED_CONTEXT_TEXT_EN,
 }
 
+_FULL_CONTEXT_TEXT_ZH = {
+    "memory_full_item_template": """
+<memory alias="{alias}">
+### {title}
+- **类型**: `{type}` | **存档于**: {time} | **置信度**: {confidence}
+- **标签**:  {tags}
+
+[{content_label}]:
+{content}
+{history}
+</memory>""",
+    "memory_full_content_label": "完整内容",
+    "memory_full_change_log_label": "变更记录",
+    "memory_tags_empty": "(无标签)",
+    "memory_truncation_notice": (
+        "[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"
+    ),
+    "memory_confidence_high": "高",
+    "memory_confidence_medium": "中",
+    "memory_confidence_low": "低",
+    "memory_status_verified": "[已验证]",
+    "memory_status_deprecated": "[已废弃]",
+    "memory_status_hallucination": "[警告：幻觉]",
+    "memory_status_unverified": "[未验证]",
+}
+
+_FULL_CONTEXT_TEXT_EN = {
+    "memory_full_item_template": """
+<memory alias="{alias}">
+### {title}
+- **Type**: `{type}` | **Archived At**: {time} | **Confidence**: {confidence}
+- **Tags**:  {tags}
+
+[{content_label}]:
+{content}
+{history}
+</memory>""",
+    "memory_full_content_label": "Full Content",
+    "memory_full_change_log_label": "Change Log",
+    "memory_tags_empty": "(No tags)",
+    "memory_truncation_notice": (
+        "[...content truncated. Use READ to inspect the full memory content.]"
+    ),
+    "memory_confidence_high": "High",
+    "memory_confidence_medium": "Medium",
+    "memory_confidence_low": "Low",
+    "memory_status_verified": "[Verified]",
+    "memory_status_deprecated": "[Deprecated]",
+    "memory_status_hallucination": "[Warning: Hallucination]",
+    "memory_status_unverified": "[Unverified]",
+}
+
+_INDEX_CONTEXT_TEXT_ZH = {
+    "memory_index_item_template": """
+<memory_index alias="{alias}">
+### {title}
+- **类型**: `{type}` | **存档于**: {time} | **置信度**: {confidence}
+- **标签**:  {tags}
+- **{summary_label}**: {summary}
+</memory_index>""",
+    "memory_index_summary_label": "内容摘要",
+}
+
+_INDEX_CONTEXT_TEXT_EN = {
+    "memory_index_item_template": """
+<memory_index alias="{alias}">
+### {title}
+- **Type**: `{type}` | **Archived At**: {time} | **Confidence**: {confidence}
+- **Tags**:  {tags}
+- **{summary_label}**: {summary}
+</memory_index>""",
+    "memory_index_summary_label": "Summary",
+}
+
+_AGENT_PROFILE_CONTEXT_TEXT_ZH = {
+    "memory_agent_profile_item_template": """
+<agent_profile alias="{alias}">
+- **角色**: {title}
+- **能力特长**: {summary}
+</agent_profile>""",
+    "memory_agent_profile_untitled": "(未命名子代理)",
+}
+
+_AGENT_PROFILE_CONTEXT_TEXT_EN = {
+    "memory_agent_profile_item_template": """
+<agent_profile alias="{alias}">
+- **Role**: {title}
+- **Capabilities**: {summary}
+</agent_profile>""",
+    "memory_agent_profile_untitled": "(Untitled sub-agent)",
+}
+
+_MEMORY_ATOM_TEXT_ZH = {
+    **_FULL_CONTEXT_TEXT_ZH,
+    **_INDEX_CONTEXT_TEXT_ZH,
+    **_AGENT_PROFILE_CONTEXT_TEXT_ZH,
+}
+
+_MEMORY_ATOM_TEXT_EN = {
+    **_FULL_CONTEXT_TEXT_EN,
+    **_INDEX_CONTEXT_TEXT_EN,
+    **_AGENT_PROFILE_CONTEXT_TEXT_EN,
+}
+
 
 def _language(value: str | Language | None = None) -> Language:
     return resolve_language(explicit=value)
@@ -124,7 +228,17 @@ def get_memory_envelope_text(key: str, language: str | Language | None = None) -
         raise KeyError(f"Unknown memory compiler i18n key: {key}") from exc
 
 
+def get_memory_atom_text(key: str, language: str | Language | None = None) -> str:
+    """Return a MemoryAtom compilation text fragment."""
+    texts = _MEMORY_ATOM_TEXT_EN if _language(language) == Language.EN else _MEMORY_ATOM_TEXT_ZH
+    try:
+        return texts[key]
+    except KeyError as exc:
+        raise KeyError(f"Unknown memory atom i18n key: {key}") from exc
+
+
 __all__ = [
+    "get_memory_atom_text",
     "get_memory_section_title",
     "get_memory_envelope_text",
 ]
