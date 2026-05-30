@@ -98,7 +98,6 @@ gateway:
 
   analyzer:
     enabled: true
-    prompt_variant: "default"
 
 # ========== 感知层配置 ==========
 perception:

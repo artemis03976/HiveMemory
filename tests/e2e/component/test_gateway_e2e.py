@@ -150,7 +150,6 @@ def setup_test_env() -> GatewayEngine:
     # 创建 L2 语义分析器
     analyzer_config = LLMAnalyzerConfig(
         enabled=True,
-        prompt_variant="default",
     )
     semantic_analyzer = create_semantic_analyzer(analyzer_config, _shared_llm_service)
 

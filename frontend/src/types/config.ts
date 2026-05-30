@@ -63,8 +63,6 @@ export interface InterceptorConfig {
 export interface AnalyzerConfig {
   enabled: boolean;
   context_window: number;
-  prompt_variant: string;
-  prompt_language: 'zh' | 'en';
 }
 
 export interface GatewayConfig {

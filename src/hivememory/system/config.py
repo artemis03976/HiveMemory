@@ -132,7 +132,6 @@ class RuleInterceptorConfig(BaseModel):
 class LLMAnalyzerConfig(BaseModel):
     """L2 语义分析器配置"""
     enabled: bool = Field(default=True, description="是否启用 L2 语义分析")
-    prompt_variant: str = Field(default="default", description="System Prompt 变体")
 
     model_config = ConfigDict(extra="ignore")
 

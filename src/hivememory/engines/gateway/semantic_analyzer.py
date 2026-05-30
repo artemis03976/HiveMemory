@@ -33,7 +33,6 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         self,
         config: LLMAnalyzerConfig,
         llm_service: BaseLLMService,
-        system_prompt: Optional[str] = None,
         default_language: str | None = None,
     ):
         """
@@ -42,16 +41,12 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         Args:
             config: LLMAnalyzerConfig 配置对象
             llm_service: LLM 服务实例
-            system_prompt: 自定义系统提示词（可选）
             default_language: 全局默认语言（可选）
         """
         self.config = config
         self.llm_service = llm_service
         self.language = resolve_language(default_language=default_language).value
-        self.system_prompt = system_prompt or get_gateway_system_prompt(
-            variant=self.config.prompt_variant,
-            language=self.language,
-        )
+        self.system_prompt = get_gateway_system_prompt(language=self.language)
 
     async def analyze(
         self,
@@ -61,7 +56,6 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         # 构建系统提示词：有话题菜单时使用 dispatcher 模式
         if active_topics_menu:
             system_prompt = get_gateway_system_prompt(
-                variant="dispatcher",
                 language=self.language,
                 active_topics_menu=active_topics_menu,
             )

@@ -7,21 +7,17 @@ Global Gateway 系统提示词
 版本: 3.0 (Phase 4.5 Agentic Dispatcher)
 """
 
-from typing import Optional
-
 from hivememory.i18n import get_gateway_prompt_text
 
 
 def get_gateway_system_prompt(
-    variant: str = "default",
     language: str = "zh",
-    active_topics_menu: Optional[str] = None,
+    active_topics_menu: str | None = None,
 ) -> str:
     """
     获取 System Prompt
 
     Args:
-        variant: 变体 ("default", "simple", "dispatcher") - 已废弃，仅为兼容保留
         language: 语言 ("zh", "en")
         active_topics_menu: 活跃话题菜单字符串
 

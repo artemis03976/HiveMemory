@@ -70,8 +70,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     analyzer: {
       enabled: true,
       context_window: 5,
-      prompt_variant: 'default',
-      prompt_language: 'zh',
     },
   },
   perception: {

@@ -34,15 +34,6 @@ class TestLLMAnalyzer:
         assert analyzer.system_prompt is not None
         assert "JSON object" in analyzer.system_prompt
 
-        custom_config = LLMAnalyzerConfig(prompt_variant="simple")
-        analyzer_custom = LLMAnalyzer(
-            llm_service=mock_llm_service,
-            config=custom_config,
-            system_prompt="Custom Prompt"
-        )
-        assert analyzer_custom.config == custom_config
-        assert analyzer_custom.system_prompt == "Custom Prompt"
-
     @pytest.mark.asyncio
     async def test_analyze_flow(self, mock_llm_service):
         """测试正常分析流程 (乐观检索策略)"""
@@ -105,7 +96,6 @@ class TestLLMAnalyzer:
             {
                 "role": "system",
                 "content": get_gateway_system_prompt(
-                    variant="dispatcher",
                     language=analyzer.language,
                     active_topics_menu=active_topics_menu,
                 ),
