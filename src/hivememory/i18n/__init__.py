@@ -15,6 +15,8 @@ from hivememory.i18n.memory_compiler import (
 from hivememory.i18n.prompts import (
     get_generation_prompt_text,
     get_gateway_prompt_text,
+    get_mtp_prompt_text,
+    get_mtp_verb_text,
     get_relay_prompt_text,
     get_system_prompt_text,
 )
@@ -29,6 +31,8 @@ __all__ = [
     "get_memory_section_title",
     "get_generation_prompt_text",
     "get_gateway_prompt_text",
+    "get_mtp_prompt_text",
+    "get_mtp_verb_text",
     "get_relay_prompt_text",
     "get_system_prompt_text",
     "get_time_formatter_text",

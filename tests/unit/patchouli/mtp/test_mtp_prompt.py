@@ -55,6 +55,12 @@ class TestMTPPromptBuilder:
         assert "BEHAVIORAL GUIDELINES" in output
         assert "ONE-SHOT DEMONSTRATION" in output
 
+    def test_build_english_alias(self):
+        output = MTPPromptBuilder(language="en-US").build()
+
+        assert "PROTOCOL RULES" in output
+        assert "Discover unknown memories" in output
+
     def test_build_chinese(self):
         """中文模式输出中文内容"""
         output = MTPPromptBuilder(language="zh").build()
