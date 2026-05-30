@@ -18,26 +18,9 @@ System Prompt 总构建器
 import logging
 from typing import Optional
 
+from hivememory.i18n import get_system_prompt_text
+
 logger = logging.getLogger(__name__)
-
-# ========== 存储降级通知模板 ==========
-
-_STORAGE_OFFLINE_NOTICE_EN = (
-    "[SYSTEM NOTICE] Memory storage is currently OFFLINE. "
-    "All MTP commands (SEARCH, READ, RUN, WRITE, UPDATE) will fail. "
-    "Do NOT issue any MTP commands. Answer from your own knowledge."
-)
-
-_STORAGE_OFFLINE_NOTICE_ZH = (
-    "[系统通知] 记忆存储当前离线。"
-    "所有 MTP 指令 (SEARCH, READ, RUN, WRITE, UPDATE) 将失败。"
-    "请勿发出任何 MTP 指令，使用自身知识回答用户。"
-)
-
-# ========== Persona 包装模板 ==========
-
-_PERSONA_HEADER_EN = "### PERSONA ###"
-_PERSONA_HEADER_ZH = "### 角色设定 ###"
 
 
 class SystemPromptBuilder:
@@ -62,7 +45,7 @@ class SystemPromptBuilder:
 
     def with_storage_offline_notice(self) -> "SystemPromptBuilder":
         """注入存储降级通知 (仅在存储离线时调用)"""
-        notice = _STORAGE_OFFLINE_NOTICE_ZH if self._language == "zh" else _STORAGE_OFFLINE_NOTICE_EN
+        notice = get_system_prompt_text("storage_offline_notice", self._language)
         self._sections.append(notice)
         return self
 
@@ -71,7 +54,7 @@ class SystemPromptBuilder:
     def with_persona(self, persona: str) -> "SystemPromptBuilder":
         """注入人偶灵魂文本 (来自 Agent Profile 的 payload.content)"""
         if persona:
-            header = _PERSONA_HEADER_ZH if self._language == "zh" else _PERSONA_HEADER_EN
+            header = get_system_prompt_text("persona_header", self._language)
             self._sections.append(f"{header}\n\n{persona}")
         return self
 
@@ -92,7 +75,8 @@ class SystemPromptBuilder:
     def with_topic_state(self, state_summary: str) -> "SystemPromptBuilder":
         """注入话题状态摘要"""
         if state_summary:
-            self._sections.append(f"[Topic State]\n{state_summary}")
+            header = get_system_prompt_text("topic_state_header", self._language)
+            self._sections.append(f"{header}\n{state_summary}")
         return self
 
     # === 构建 ===

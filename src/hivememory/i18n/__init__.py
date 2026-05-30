@@ -12,6 +12,11 @@ from hivememory.i18n.memory_compiler import (
     get_memory_envelope_text,
     get_memory_section_title,
 )
+from hivememory.i18n.prompts import (
+    get_gateway_prompt_text,
+    get_relay_prompt_text,
+    get_system_prompt_text,
+)
 from hivememory.i18n.time_formatter import get_time_formatter_text
 
 __all__ = [
@@ -21,6 +26,9 @@ __all__ = [
     "get_memory_atom_text",
     "get_memory_envelope_text",
     "get_memory_section_title",
+    "get_gateway_prompt_text",
+    "get_relay_prompt_text",
+    "get_system_prompt_text",
     "get_time_formatter_text",
     "normalize_language",
     "resolve_language",

@@ -268,6 +268,16 @@ class TestSystemPrompts:
         assert "OS-level dispatch gateway" in prompt
         assert "None" in prompt
 
+        # 测试语言别名
+        prompt = get_gateway_system_prompt(language="en-US")
+        assert "OS-level dispatch gateway" in prompt
+        assert "None" in prompt
+
+        # 测试活跃话题菜单替换
+        prompt = get_gateway_system_prompt(active_topics_menu="topic_1: Python")
+        assert "topic_1: Python" in prompt
+        assert "{active_topics_menu}" not in prompt
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

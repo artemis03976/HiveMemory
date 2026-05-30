@@ -1,8 +1,8 @@
 # Memory Compiler i18n 逐步迁移计划
 
-**状态**: Phase 1 与 Phase 2 已完成，下一阶段为 Phase 3  
-**当前范围**: Memory Compiler envelope、MTP READ 包装、shared context 包装、retrieval renderer 空状态与预算  
-**下一阶段范围**: MemoryAtom 条目模板与字段级文案
+**状态**: Phase 1、Phase 2 与 Phase 3 已完成，下一阶段为 Phase 4  
+**当前范围**: Memory Compiler envelope、retrieval renderer 空状态与预算、MemoryAtom 条目模板、TimeFormatter 文案  
+**下一阶段范围**: Gateway、MTP、Relay、Generation 等非 Memory Compiler prompt 模板规范化
 
 ## 1. 背景
 
@@ -34,12 +34,14 @@ MemoryCompiler(default_language="zh")
 7. retrieval renderer 的 header/footer 预算估算已改为使用当前语言模板。
 8. renderer 构造侧支持 `default_language`，运行时可由全局语言传入。
 9. 旧的 `envelope_templates.py` 兼容层已移除。
+10. MemoryAtom 的 full/index/agent profile 条目模板已迁移到 i18n。
+11. MemoryAtom 的置信度、状态、空标签、截断提示等字段级文案已迁移到 i18n。
+12. TimeFormatter 已接入全局 i18n 语言类型与文案 getter，不再维护私有语言定义。
 
 仍未完成：
 
-1. `handlers/memory_atom.py` 中的字段标签、置信度文本、截断提示、时间格式仍待迁移。
-2. Gateway、MTP、Relay、Generation 等非 Memory Compiler prompt 模板仍需后续逐步规范。
-3. 暂未引入通用 catalog、外部 JSON/YAML 翻译文件或复杂插值框架。
+1. Gateway、MTP、Relay、Generation 等非 Memory Compiler prompt 模板仍需后续逐步规范。
+2. 暂未引入通用 catalog、外部 JSON/YAML 翻译文件或复杂插值框架。
 
 ## 3. 迁移原则
 
@@ -71,6 +73,7 @@ src/hivememory/i18n/
   types.py
   resolver.py
   memory_compiler.py
+  time_formatter.py
 ```
 
 `memory_compiler.py` 负责 Memory Compiler 专属文案，对外提供：
@@ -80,10 +83,13 @@ def get_memory_header(language: str | None = None) -> str: ...
 def get_memory_footer(language: str | None = None) -> str: ...
 def get_memory_section_title(kind: str, language: str | None = None) -> str: ...
 def get_memory_envelope_text(key: str, language: str | None = None) -> str: ...
+def get_memory_atom_text(key: str, language: str | None = None) -> str: ...
 ```
 
 内部按 target 分组维护文案，例如 retrieval、MTP READ、shared context，再统一汇总到
-envelope text 字典。当前仅支持中英文，Python 常量与小型 getter 足够满足需求。
+envelope text 字典。MemoryAtom 条目模板独立维护为 memory atom text 字典，内部再按
+full context、index context、agent profile context 分组。TimeFormatter 的相对时间文案
+由 `time_formatter.py` 独立维护。当前仅支持中英文，Python 常量与小型 getter 足够满足需求。
 
 ## 5. 分阶段计划
 
@@ -152,11 +158,11 @@ envelope text 字典。当前仅支持中英文，Python 常量与小型 getter 
 
 ### Phase 3: MemoryAtom 条目模板
 
-**状态**: 待实施
+**状态**: 已完成
 
 目标：迁移具体记忆条目的字段标签与状态文本。
 
-迁移对象：
+已迁移对象：
 
 1. `FULL_ITEM_TEMPLATE`
 2. `INDEX_ITEM_TEMPLATE`
@@ -167,19 +173,34 @@ envelope text 字典。当前仅支持中英文，Python 常量与小型 getter 
 7. `_truncate_content()` 的截断提示
 8. `TimeFormatter` 语言选择
 
-建议修改：
+已修改：
 
 1. `src/hivememory/engines/memory_compiler/handlers/memory_atom.py`
 2. `src/hivememory/i18n/memory_compiler.py`
-3. `tests/unit/engines/memory_compiler/test_compiler.py`
-4. `tests/utils/test_time_formatter.py`，如需新增语言路径测试
+3. `src/hivememory/i18n/time_formatter.py`
+4. `src/hivememory/utils/time_formatter.py`
+5. `tests/unit/engines/memory_compiler/test_compiler.py`
+6. `tests/utils/test_time_formatter.py`
+
+实现结果：
+
+1. `PROMPT_FULL` / `PROMPT_INDEX` / `MTP_READ` / `SHARED_CONTEXT` 输出标签随语言切换。
+2. `AGENT_PROFILE_MENU` 输出标题、描述和空标题提示随语言切换。
+3. 英文输出使用英文时间格式。
+4. 中文默认行为保持兼容。
+5. MemoryAtom 条目结构、字段顺序、alias 与协议提示未发生非必要变化。
+6. MemoryAtom 文案与 envelope 文案分离维护，分别通过 `get_memory_atom_text()` 与
+   `get_memory_envelope_text()` 获取。
+7. TimeFormatter 直接使用全局 `hivememory.i18n.Language` 与 `resolve_language()`，
+   并通过 `get_time_formatter_text()` 获取相对时间和 stale warning 文案。
 
 验收标准：
 
 1. `PROMPT_FULL` / `PROMPT_INDEX` / `MTP_READ` / `SHARED_CONTEXT` 输出标签随语言切换。
-2. 英文输出使用英文时间格式。
-3. 中文默认行为保持兼容。
-4. MemoryAtom 条目结构、字段顺序、alias 与协议提示不发生非必要变化。
+2. `AGENT_PROFILE_MENU` 输出标签随语言切换。
+3. 英文输出使用英文时间格式。
+4. 中文默认行为保持兼容。
+5. MemoryAtom 条目结构、字段顺序、alias 与协议提示不发生非必要变化。
 
 ### Phase 4: 与其他 prompt 模板规范统一
 
@@ -203,7 +224,7 @@ envelope text 字典。当前仅支持中英文，Python 常量与小型 getter 
 
 ## 6. 已完成实现清单
 
-Phase 1 与 Phase 2 已完成以下落地项：
+Phase 1、Phase 2 与 Phase 3 已完成以下落地项：
 
 1. 新增 `src/hivememory/i18n/memory_compiler.py`。
 2. 将 retrieval header/footer、section title、MTP READ title、shared context 文案集中到 i18n。
@@ -213,13 +234,18 @@ Phase 1 与 Phase 2 已完成以下落地项：
 5. 修改 renderer，使预算估算使用当前语言的 retrieval header/footer。
 6. runtime 创建 renderer 时传入全局 i18n default language。
 7. 删除不再需要的 `envelope_templates.py` 兼容层。
-8. 补充 Memory Compiler envelope 与 retrieval renderer 中英文测试。
+8. 将 `FULL_ITEM_TEMPLATE`、`INDEX_ITEM_TEMPLATE`、`AGENT_PROFILE_ITEM_TEMPLATE`
+   迁移到 Memory Compiler i18n。
+9. 将 MemoryAtom 置信度、状态、空标签、截断提示等字段级文案迁移到 i18n。
+10. 将 TimeFormatter 的相对时间和 stale warning 文案迁移到 i18n。
+11. 清理 TimeFormatter 私有语言定义以及 MemoryAtom 侧的语言转换套壳。
+12. 补充 Memory Compiler envelope、retrieval renderer、MemoryAtom 与 TimeFormatter
+   中英文测试。
 
 暂未处理：
 
-1. `handlers/memory_atom.py` 条目字段标签。
-2. Gateway/MTP prompt 模板迁移。
-3. 通用 catalog 或外部翻译文件。
+1. Gateway/MTP/Relay/Generation prompt 模板迁移。
+2. 通用 catalog 或外部翻译文件。
 
 ## 7. 测试状态
 
@@ -227,6 +253,12 @@ Phase 1 与 Phase 2 已完成以下落地项：
 
 ```powershell
 pytest tests\unit\i18n tests\unit\engines\memory_compiler tests\unit\engines\retrieval\test_renderer.py
+```
+
+Phase 3 追加验证过：
+
+```powershell
+pytest tests\utils\test_time_formatter.py tests\unit\engines\memory_compiler tests\unit\engines\retrieval\test_renderer.py
 ```
 
 覆盖内容：
@@ -238,6 +270,9 @@ pytest tests\unit\i18n tests\unit\engines\memory_compiler tests\unit\engines\ret
 5. shared context injection 双语提示。
 6. retrieval renderer 空结果中英文提示。
 7. retrieval renderer token 预算使用当前语言 header/footer。
+8. MemoryAtom full/index/agent profile 条目字段双语输出。
+9. MTP READ 与 shared context 复用 full item 时的条目字段双语输出。
+10. TimeFormatter 相对时间与 stale warning 双语输出。
 
 ## 8. 风险与控制
 
@@ -247,7 +282,7 @@ Memory Compiler 文案直接进入 Agent 上下文，修改措辞可能影响 LL
 
 控制方式：
 
-1. 已完成阶段只迁移 wrapper 与 retrieval 空状态文案，不改记忆条目结构。
+1. 已完成阶段只迁移自然语言文案，不改变记忆条目的 XML/Markdown 协议结构。
 2. 英文模板尽量忠实表达中文模板当前语义。
 3. 保持 XML 标签与协议命令不变。
 
@@ -271,8 +306,9 @@ Memory Compiler 文案直接进入 Agent 上下文，修改措辞可能影响 LL
 
 ## 9. 推荐下一步
 
-下一步建议实施 Phase 3：迁移 `handlers/memory_atom.py` 的条目级模板。
+下一步建议进入 Phase 4：规范 Gateway、MTP、Relay、Generation 等非 Memory Compiler
+prompt 模板的 i18n 组织方式。
 
-建议仍保持小步推进：先迁移 `PROMPT_INDEX` / `PROMPT_FULL` 的字段标签与空值提示，
-再处理 `_format_confidence()`、截断提示和时间格式，最后补齐 `MTP_READ` 与
-`SHARED_CONTEXT` 的条目级输出测试。
+建议仍保持小步推进：优先迁移已有双语结构、影响范围较小的 Gateway，再评估 MTP
+这类更大、更直接影响 Agent 行为的模板。Memory Compiler 侧目前可以作为后续 prompt
+迁移的参考样式：按概念分组维护文案，通过小型 getter 获取，业务模块不再内联双语常量。
