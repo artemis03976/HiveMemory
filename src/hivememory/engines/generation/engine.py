@@ -26,7 +26,7 @@ from hivememory.engines.generation.models import (
     WriteFocus, UpdateFocus, MergeResult,
     MemoryGenerationResult, PendingAtomSettlement,
 )
-from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
+from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.engines.generation.interfaces import (
     BaseMemoryExtractor,
     BaseDeduplicator,

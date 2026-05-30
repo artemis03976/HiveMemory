@@ -224,7 +224,6 @@ class TestFrameScheduler:
     def _make_kernel_mock(self):
         kernel = MagicMock()
         kernel.config = MagicMock()
-        kernel.config.koakuma.mtp_prompt.language = "zh"
         kernel.prompt_assembler = AgentPromptAssembler(KoakumaConfig())
         kernel._global_bus = AsyncMock()
         kernel._global_bus.request = AsyncMock(return_value=None)

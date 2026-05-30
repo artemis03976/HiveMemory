@@ -57,16 +57,6 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
     });
   }
 
-  // Validate semantic thresholds
-  const adsorber = config.perception.engine.adsorber;
-  if (adsorber.semantic_threshold_low > adsorber.semantic_threshold_high) {
-    errors.push({
-      field: 'perception.engine.adsorber.semantic_threshold_low',
-      message: 'Low threshold must be ≤ high threshold',
-      severity: 'error',
-    });
-  }
-
   // Validate semantic threshold ranges (0-1)
   const validateThreshold = (value: number, field: string) => {
     if (value < 0 || value > 1) {
@@ -77,18 +67,6 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
       });
     }
   };
-
-  validateThreshold(adsorber.semantic_threshold_high, 'perception.engine.adsorber.semantic_threshold_high');
-  validateThreshold(adsorber.semantic_threshold_low, 'perception.engine.adsorber.semantic_threshold_low');
-
-  // Validate ema_alpha (0-1, exclusive of 0)
-  if (adsorber.ema_alpha <= 0 || adsorber.ema_alpha > 1) {
-    errors.push({
-      field: 'perception.engine.adsorber.ema_alpha',
-      message: 'EMA alpha must be in (0, 1]',
-      severity: 'error',
-    });
-  }
 
   // Validate deduplicator thresholds (0-1)
   validateThreshold(config.generation.deduplicator.high_similarity_threshold, 'generation.deduplicator.high_similarity_threshold');
@@ -192,26 +170,6 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
     errors.push({
       field: 'perception.engine.relay.engine.type',
       message: `Relay engine type must be one of: ${validRelayTypes.join(', ')}`,
-      severity: 'error',
-    });
-  }
-
-  // Validate arbiter engine type
-  const validArbiterTypes = ['reranker', 'slm'];
-  if (!validArbiterTypes.includes(config.perception.engine.adsorber.arbiter.engine.type)) {
-    errors.push({
-      field: 'perception.engine.adsorber.arbiter.engine.type',
-      message: `Arbiter engine type must be one of: ${validArbiterTypes.join(', ')}`,
-      severity: 'error',
-    });
-  }
-
-  // Validate arbiter threshold (-10 to 0)
-  const arbiterThreshold = config.perception.engine.adsorber.arbiter.engine.threshold;
-  if (arbiterThreshold < -10 || arbiterThreshold > 0) {
-    errors.push({
-      field: 'perception.engine.adsorber.arbiter.engine.threshold',
-      message: 'Arbiter threshold must be between -10 and 0',
       severity: 'error',
     });
   }

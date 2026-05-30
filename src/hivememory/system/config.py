@@ -11,9 +11,9 @@ HiveMemory 配置管理系统
 import os
 import logging
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Tuple, Type, Set, Literal, Union
+from typing import Optional, Any, Dict, List, Tuple, Type, Literal, Union
 import yaml
-from pydantic import BaseModel, Field, model_validator, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 
 logger = logging.getLogger(__name__)
@@ -132,8 +132,6 @@ class RuleInterceptorConfig(BaseModel):
 class LLMAnalyzerConfig(BaseModel):
     """L2 语义分析器配置"""
     enabled: bool = Field(default=True, description="是否启用 L2 语义分析")
-    prompt_variant: str = Field(default="default", description="System Prompt 变体")
-    prompt_language: str = Field(default="zh", description="System Prompt 语言")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -149,61 +147,6 @@ class MemoryGatewayConfig(BaseModel):
     analyzer: LLMAnalyzerConfig = Field(default_factory=LLMAnalyzerConfig, description="L2 分析器配置")
 
     model_config = ConfigDict(extra="ignore")
-
-# ========== 感知层配置 ==========
-
-class RerankerArbiterConfig(BaseModel):
-    """基于 Reranker 的仲裁器配置"""
-    type: Literal["reranker"] = "reranker"
-    threshold: float = Field(default=-6, description="仲裁阈值")
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class SLMArbiterConfig(BaseModel):
-    """基于 SLM 的仲裁器配置"""
-    type: Literal["slm"] = "slm"
-    prompt_template: Optional[str] = Field(default=None, description="自定义 Prompt")
-    threshold: float = Field(default=0.5, description="不确定时的阈值")
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class ArbiterConfig(BaseModel):
-    """灰度仲裁器统一配置"""
-    enabled: bool = Field(default=True, description="是否启用灰度仲裁")
-    engine: Union[RerankerArbiterConfig, SLMArbiterConfig] = Field(
-        default_factory=RerankerArbiterConfig,
-        discriminator="type",
-        description="具体仲裁器实现配置"
-    )
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class SemanticAdsorberConfig(BaseModel):
-    """
-    SemanticBoundaryAdsorber 配置
-    """
-    semantic_threshold_high: float = Field(default=0.55, description="高相似度阈值（强吸附）")
-    semantic_threshold_low: float = Field(default=0.45, description="低相似度阈值（强制切分）")
-    short_text_threshold: int = Field(default=10, description="短文本强吸附阈值（tokens）")
-    ema_alpha: float = Field(default=0.3, description="指数移动平均系数")
-    
-    arbiter: ArbiterConfig = Field(default_factory=ArbiterConfig, description="灰度仲裁器配置")
-    
-    stop_words: Optional[Set[str]] = Field(default=None, description="自定义停用词集合")
-
-    model_config = ConfigDict(extra="ignore")
-
-    @model_validator(mode='after')
-    def validate_thresholds(self) -> 'SemanticAdsorberConfig':
-        if self.semantic_threshold_low > self.semantic_threshold_high:
-            raise ValueError("semantic_threshold_low 必须小于或等于 semantic_threshold_high")
-        if not 0 < self.ema_alpha <= 1:
-            raise ValueError("ema_alpha 必须在 (0, 1] 范围内")
-        return self
-
 
 # ========== RelayController 配置 ==========
 
@@ -258,8 +201,6 @@ class SemanticFlowPerceptionConfig(BaseModel):
     # RelayController 配置 (§4.2)
     relay: RelayControllerConfig = Field(default_factory=RelayControllerConfig, description="接力控制器配置")
 
-    adsorber: SemanticAdsorberConfig = Field(default_factory=SemanticAdsorberConfig, description="语义吸附器配置")
-
     model_config = ConfigDict(extra="ignore")
 
 
@@ -278,8 +219,6 @@ class MemoryPerceptionConfig(BaseModel):
 class ExtractorConfig(BaseModel):
     """LLMMemoryExtractor 配置"""
     enabled: bool = Field(default=True, description="是否启用 LLM 提取器")
-    system_prompt: Optional[str] = Field(default=None, description="自定义系统提示词")
-    user_prompt: Optional[str] = Field(default=None, description="自定义用户提示词")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -502,7 +441,7 @@ class CompactRendererConfig(BaseModel):
     紧凑上下文渲染器配置
 
     仅渲染 Index 层信息 (摘要+标签)，不渲染完整 Payload。
-    懒加载引导统一由 MEMORY_FOOTER 提供。
+    懒加载引导统一由 retrieval envelope 提供。
     """
     type: Literal["compact"] = "compact"
     max_memory_tokens: int = Field(default=2000, description="最大记忆 Token 预算")
@@ -599,7 +538,6 @@ class MTPPromptConfig(BaseModel):
     对应设计文档: MemoryToolProtocol.md Chapter 5
     """
     enabled: bool = Field(default=True, description="是否启用 MTP System Prompt 注入")
-    language: str = Field(default="zh", description="Prompt 语言 (zh/en)")
     include_demo: bool = Field(default=True, description="是否包含 One-Shot 演示")
     include_error_handling: bool = Field(default=True, description="是否包含错误恢复指令")
 
@@ -689,6 +627,20 @@ class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+# ========== 国际化配置 ==========
+
+class I18nConfig(BaseModel):
+    """国际化基础配置"""
+    default_language: str = Field(default="zh", description="全局默认语言 (zh/en)")
+    fallback_language: str = Field(default="en", description="缺失文案时的回退语言")
+    supported_languages: List[str] = Field(
+        default_factory=lambda: ["zh", "en"],
+        description="支持的语言列表",
+    )
+
+    model_config = ConfigDict(extra="ignore")
+
+
 # ========== 主配置类 ==========
 
 class HiveMemoryConfig(BaseSettings):
@@ -716,6 +668,7 @@ class HiveMemoryConfig(BaseSettings):
     agent_runtime: AgentRuntimeConfig = Field(default_factory=AgentRuntimeConfig)
     koakuma: KoakumaConfig = Field(default_factory=KoakumaConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    i18n: I18nConfig = Field(default_factory=I18nConfig)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),

@@ -16,6 +16,7 @@ import logging
 from typing import List, Optional, Any, TYPE_CHECKING
 from hivememory.engines.perception.models import LogicalBlock
 from hivememory.engines.perception.interfaces import BaseRelayController
+from hivememory.i18n import get_relay_prompt_text
 
 if TYPE_CHECKING:
     from hivememory.system.config import SimpleRelayConfig, LLMRelayConfig
@@ -213,22 +214,20 @@ class LLMRelayController(BaseRelayController):
             return simple_controller._generate_simple_summary(blocks)
 
         try:
-            from hivememory.prompts.relay import get_relay_system_prompt
-
             # Build recent events text
             recent_events = self._build_recent_events(blocks)
 
             # Build user prompt
-            user_prompt = f"""<old_state_summary>
-{previous_summary if previous_summary else "None. This is a new topic."}
-</old_state_summary>
+            previous_summary_text = previous_summary or get_relay_prompt_text(
+                "previous_summary_empty"
+            )
+            user_prompt = get_relay_prompt_text("user_prompt").format(
+                previous_summary=previous_summary_text,
+                recent_events=recent_events,
+            )
 
-<recent_events>
-{recent_events}
-</recent_events>"""
-
-            # Get system prompt (default to Chinese)
-            system_prompt = get_relay_system_prompt(language="zh")
+            # Get system prompt (default to global i18n fallback)
+            system_prompt = get_relay_prompt_text("system_prompt")
 
             # Call LLM
             messages = [

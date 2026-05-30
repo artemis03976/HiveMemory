@@ -360,7 +360,11 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
     executor._alias_resolver.resolve = AsyncMock(return_value=resolved)
     identity = Identity(user_id="u1", agent_id="agent_a")
 
-    result = await executor._fetch_context_refs_content(["fact_a"], identity)
+    result = await executor._fetch_context_refs_content(
+        ["fact_a"],
+        identity,
+        language="en",
+    )
 
     assert result.startswith("[Shared Context from Parent Agent]")
     assert "Use READ" in result

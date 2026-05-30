@@ -366,8 +366,6 @@ Gateway 相关配置分布在 `LLMAnalyzerConfig` 与 `RuleInterceptorConfig` �
 | 配置项 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `enabled` | `bool` | `True` | 是否启用 L2 语义分析（禁用时降级为 NoOp） |
-| `prompt_variant` | `str` | `"default"` | Prompt 变体（`default`/`simple`/`dispatcher`） |
-| `prompt_language` | `str` | `"zh"` | Prompt 语言（`zh`/`en`） |
 
 ### RuleInterceptorConfig
 

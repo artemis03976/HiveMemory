@@ -236,18 +236,15 @@ class TestMemoryGatewayConfig:
         assert config.interceptor.enable_chat is True
 
         assert isinstance(config.analyzer, LLMAnalyzerConfig)
-        assert config.analyzer.prompt_variant == "default"
 
     def test_custom_config(self):
         """测试自定义配置"""
         config = MemoryGatewayConfig(
             interceptor=RuleInterceptorConfig(enabled=False),
-            analyzer=LLMAnalyzerConfig(
-                prompt_variant="simple"
-            )
+            analyzer=LLMAnalyzerConfig(enabled=False)
         )
         assert config.interceptor.enabled is False
-        assert config.analyzer.prompt_variant == "simple"
+        assert config.analyzer.enabled is False
 
 
 class TestSystemPrompts:
@@ -259,14 +256,20 @@ class TestSystemPrompts:
         assert "OS 级别的调度网关" in prompt
         assert "无" in prompt
 
-        # 测试 variant 已被忽略，行为一致
-        prompt = get_gateway_system_prompt(variant="simple")
-        assert prompt == get_gateway_system_prompt()
-
         # 测试英文
         prompt = get_gateway_system_prompt(language="en")
         assert "OS-level dispatch gateway" in prompt
         assert "None" in prompt
+
+        # 测试语言别名
+        prompt = get_gateway_system_prompt(language="en-US")
+        assert "OS-level dispatch gateway" in prompt
+        assert "None" in prompt
+
+        # 测试活跃话题菜单替换
+        prompt = get_gateway_system_prompt(active_topics_menu="topic_1: Python")
+        assert "topic_1: Python" in prompt
+        assert "{active_topics_menu}" not in prompt
 
 
 if __name__ == "__main__":

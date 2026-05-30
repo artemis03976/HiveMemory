@@ -24,7 +24,7 @@ from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 from hivememory.core.models import Identity
 from hivememory.engines.perception.models import FlushReason, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, GenerationContext
-from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
+from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.core.protocol.models import InteractionPayload

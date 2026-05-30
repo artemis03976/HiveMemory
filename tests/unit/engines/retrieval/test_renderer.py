@@ -71,6 +71,14 @@ class TestFullContextRenderer:
         from hivememory.engines.retrieval.renderer import _EMPTY_CONTEXT_NOTICE
         assert self.renderer.render([]) == _EMPTY_CONTEXT_NOTICE
 
+    def test_empty_results_english(self):
+        renderer = FullContextRenderer(FullRendererConfig(), default_language="en")
+
+        output = renderer.render([])
+
+        assert "Patchouli found no strongly relevant historical memories" in output
+        assert "global fuzzy search" in output
+
     def test_content_truncation(self):
         """测试内容截断"""
         long_content = "Word " * 200
@@ -263,6 +271,14 @@ class TestCascadeContextRenderer:
         renderer = CascadeContextRenderer(config)
         assert renderer.render([]) == _EMPTY_CONTEXT_NOTICE
 
+    def test_empty_results_english(self):
+        config = CascadeRendererConfig()
+        renderer = CascadeContextRenderer(config, default_language="en")
+
+        output = renderer.render([])
+
+        assert "Patchouli found no strongly relevant historical memories" in output
+
     def test_all_full_payload(self):
         """测试所有记忆都完整渲染"""
         config = CascadeRendererConfig(
@@ -382,6 +398,13 @@ class TestCompactContextRenderer:
         renderer = CompactContextRenderer(CompactRendererConfig())
         assert renderer.render([]) == _EMPTY_CONTEXT_NOTICE
 
+    def test_empty_results_english(self):
+        renderer = CompactContextRenderer(CompactRendererConfig(), default_language="en")
+
+        output = renderer.render([])
+
+        assert "Patchouli found no strongly relevant historical memories" in output
+
     def test_budget_exhausted(self):
         """测试预算耗尽时返回精简闭环提示"""
         from hivememory.engines.retrieval.renderer import _EMPTY_CONTEXT_NOTICE
@@ -432,6 +455,12 @@ class TestCreateRenderer:
         config = FullRendererConfig()
         renderer = create_renderer(config)
         assert isinstance(renderer, FullContextRenderer)
+
+    def test_create_renderer_passes_default_language(self):
+        renderer = create_renderer(FullRendererConfig(), default_language="en")
+
+        assert isinstance(renderer, FullContextRenderer)
+        assert "Patchouli found no strongly relevant historical memories" in renderer.render([])
 
     def test_create_cascade_renderer(self):
         """测试创建 CascadeContextRenderer"""

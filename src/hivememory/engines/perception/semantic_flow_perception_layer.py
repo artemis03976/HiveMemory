@@ -19,7 +19,7 @@ HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory M
 
 Note:
     Phase 4.5 重构：
-    - 移除 Adsorber 和 Relay 依赖（话题路由由 TheEye 完成）
+    - 移除旧版语义吸附依赖（话题路由由 TheEye 完成）
     - 新增 route_and_ingest / swap_out_topic / get_active_topics_snapshots
     - BufferManager 升级为 MMU（含 LRU 驱逐）
 

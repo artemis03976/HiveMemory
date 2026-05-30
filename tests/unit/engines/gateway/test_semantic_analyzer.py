@@ -30,17 +30,9 @@ class TestLLMAnalyzer:
         analyzer = LLMAnalyzer(llm_service=mock_llm_service, config=config)
         assert analyzer.llm_service == mock_llm_service
         assert analyzer.config is not None
+        assert analyzer.language == "zh"
         assert analyzer.system_prompt is not None
         assert "JSON object" in analyzer.system_prompt
-
-        custom_config = LLMAnalyzerConfig(prompt_variant="simple")
-        analyzer_custom = LLMAnalyzer(
-            llm_service=mock_llm_service,
-            config=custom_config,
-            system_prompt="Custom Prompt"
-        )
-        assert analyzer_custom.config == custom_config
-        assert analyzer_custom.system_prompt == "Custom Prompt"
 
     @pytest.mark.asyncio
     async def test_analyze_flow(self, mock_llm_service):
@@ -104,13 +96,23 @@ class TestLLMAnalyzer:
             {
                 "role": "system",
                 "content": get_gateway_system_prompt(
-                    variant="dispatcher",
-                    language=config.prompt_language,
+                    language=analyzer.language,
                     active_topics_menu=active_topics_menu,
                 ),
             },
             {"role": "user", "content": "Query"},
         ]
+
+    def test_default_language_is_used_for_gateway_prompt(self, mock_llm_service):
+        config = LLMAnalyzerConfig()
+        analyzer = LLMAnalyzer(
+            llm_service=mock_llm_service,
+            config=config,
+            default_language="en",
+        )
+
+        assert analyzer.language == "en"
+        assert "You are an OS-level dispatch gateway" in analyzer.system_prompt
 
     @pytest.mark.asyncio
     async def test_parse_response_missing_required_fields_uses_defaults(self, mock_llm_service):

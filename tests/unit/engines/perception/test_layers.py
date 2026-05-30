@@ -88,7 +88,7 @@ class TestSemanticFlowPerceptionLayer:
 
     @pytest.mark.asyncio
     async def test_semantic_drift_flush(self):
-        """测试话题路由 (Phase 4.5 MMU: 由 TheEye 路由替代 Adsorber 漂移检测)"""
+        """测试话题路由 (Phase 4.5 MMU: 由 TheEye 完成路由决策)"""
         identity = Identity(user_id="u1", agent_id="a1")
 
         # 第一轮：路由到新话题

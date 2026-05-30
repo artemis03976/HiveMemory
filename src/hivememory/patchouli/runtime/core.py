@@ -324,7 +324,10 @@ class PatchouliRuntime:
             self.reranker_service
         )
 
-        renderer: BaseContextRenderer = create_renderer(config.renderer)
+        renderer: BaseContextRenderer = create_renderer(
+            config.renderer,
+            default_language=self.config.i18n.default_language,
+        )
 
         return RetrievalEngine(
             retriever=retriever,
@@ -352,7 +355,8 @@ class PatchouliRuntime:
 
         extractor: BaseMemoryExtractor = create_extractor(
             config.extractor,
-            self.librarian_llm_service
+            self.librarian_llm_service,
+            default_language=self.config.i18n.default_language,
         )
 
         deduplicator: BaseDeduplicator = create_deduplicator(
@@ -415,7 +419,10 @@ class PatchouliRuntime:
         # 构建被动模式渲染器 (Passive.md §5.2)
         from hivememory.engines.retrieval.renderer import FullContextRenderer
         from hivememory.system.config import FullRendererConfig
-        passive_renderer = FullContextRenderer(FullRendererConfig())
+        passive_renderer = FullContextRenderer(
+            FullRendererConfig(),
+            default_language=self.config.i18n.default_language,
+        )
 
         self._services["retrieval"] = RetrievalFamiliar(
             storage=self.storage,

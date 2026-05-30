@@ -5,15 +5,9 @@ Provides relative time formatting with multilingual support.
 """
 
 from datetime import datetime
-from enum import Enum
 from typing import Optional
 
-
-class Language(str, Enum):
-    """Supported languages for time formatting."""
-
-    ENGLISH = "en"
-    CHINESE = "zh"
+from hivememory.i18n import Language, get_time_formatter_text, resolve_language
 
 
 class TimeFormatter:
@@ -29,33 +23,15 @@ class TimeFormatter:
 
     Example:
         >>> from datetime import timedelta
-        >>> formatter = TimeFormatter(language=Language.CHINESE)
+        >>> formatter = TimeFormatter(language=Language.ZH)
         >>> formatter.format(datetime.now() - timedelta(days=5))
         '5 天前'
         >>> formatter.format(datetime.now() - timedelta(days=100))
         '3 个月前 (警告：陈旧)'
-        >>> formatter_en = TimeFormatter(language=Language.ENGLISH)
+        >>> formatter_en = TimeFormatter(language=Language.EN)
         >>> formatter_en.format(datetime.now() - timedelta(days=5))
         '5 days ago'
     """
-
-    # Translation dictionaries
-    TRANSLATIONS = {
-        Language.ENGLISH: {
-            "months_ago": "{months} months ago",
-            "days_ago": "{days} days ago",
-            "hours_ago": "{hours} hours ago",
-            "recently": "recently",
-            "stale_warning": " (Warning: Old)",
-        },
-        Language.CHINESE: {
-            "months_ago": "{months} 个月前",
-            "days_ago": "{days} 天前",
-            "hours_ago": "{hours} 小时前",
-            "recently": "最近",
-            "stale_warning": " (警告：陈旧)",
-        },
-    }
 
     # Threshold constants (days)
     MONTH_THRESHOLD = 30
@@ -63,17 +39,17 @@ class TimeFormatter:
 
     def __init__(
         self,
-        language: Language = Language.CHINESE,
+        language: str | Language | None = None,
         stale_days: int = DEFAULT_STALE_DAYS,
     ):
         """
         Initialize the TimeFormatter.
 
         Args:
-            language: The language for output strings (default: Chinese)
+            language: The language for output strings (default: global fallback)
             stale_days: Number of days after which a memory is considered stale (default: 90)
         """
-        self.language = language
+        self.language = resolve_language(explicit=language)
         self.stale_days = stale_days
 
     def format(self, dt: datetime, reference: Optional[datetime] = None) -> str:
@@ -92,22 +68,22 @@ class TimeFormatter:
         delta = reference - dt
         total_days = delta.days
 
-        # Get translations for the current language
-        t = self.TRANSLATIONS[self.language]
-
         if total_days >= self.MONTH_THRESHOLD:
             months = total_days // self.MONTH_THRESHOLD
-            result = t["months_ago"].format(months=months)
+            result = self._text("months_ago").format(months=months)
             if total_days > self.stale_days:
-                result += t["stale_warning"]
+                result += self._text("stale_warning")
             return result
         elif total_days > 0:
-            return t["days_ago"].format(days=total_days)
+            return self._text("days_ago").format(days=total_days)
         elif delta.seconds >= 3600:
             hours = delta.seconds // 3600
-            return t["hours_ago"].format(hours=hours)
+            return self._text("hours_ago").format(hours=hours)
         else:
-            return t["recently"]
+            return self._text("recently")
+
+    def _text(self, key: str) -> str:
+        return get_time_formatter_text(key, self.language)
 
     @staticmethod
     def _normalize_datetimes(dt: datetime, reference: Optional[datetime]) -> tuple[datetime, datetime]:
@@ -135,7 +111,7 @@ class TimeFormatter:
 
 def format_time_ago(
     dt: datetime,
-    language: Language = Language.CHINESE,
+    language: str | Language | None = None,
     stale_days: int = TimeFormatter.DEFAULT_STALE_DAYS,
     reference: Optional[datetime] = None,
 ) -> str:

@@ -24,7 +24,7 @@ sys.path.insert(0, str(project_root / "src"))
 from hivememory.core.models import StreamMessage, MemoryAtom, Identity
 from hivememory.engines.perception.models import FlushReason, FlushEvent, LogicalBlock, SemanticBuffer
 from hivememory.system.config import HiveMemoryConfig
-from unittest.mock import patch, Mock, MagicMock
+from unittest.mock import patch
 
 
 # ========== FlushRecorder 类 ==========
@@ -415,99 +415,6 @@ class FlushEventRecorder:
         return f"Total: {self.count}, " + ", ".join(parts)
 
 
-class SimilarityInjector:
-    """
-    相似度注入器
-
-    注入可控的相似度值，用于精确测试阈值边界。
-
-    Usage:
-        >>> injector = SimilarityInjector(adsorber)
-        >>> injector.set_similarity(0.75)  # 设置固定相似度
-        >>> # ... 测试代码 ...
-        >>> injector.restore()  # 恢复原始计算
-    """
-
-    def __init__(self, adsorber):
-        """
-        初始化注入器
-
-        Args:
-            adsorber: SemanticBoundaryAdsorber 实例
-        """
-        self.adsorber = adsorber
-        self._original_compute = None
-        self._injected = False
-
-        # 保存原始方法
-        if hasattr(adsorber, 'embedding_service') and adsorber.embedding_service:
-            self._original_compute = adsorber.embedding_service.compute_cosine_similarity
-
-    def set_similarity(self, value: float) -> None:
-        """
-        设置固定的相似度值
-
-        Args:
-            value: 相似度值 (0.0 - 1.0)
-        """
-        if self.adsorber.embedding_service:
-            self.adsorber.embedding_service.compute_cosine_similarity = Mock(return_value=value)
-            self._injected = True
-
-    def restore(self) -> None:
-        """恢复原始的相似度计算方法"""
-        if self._injected and self._original_compute:
-            self.adsorber.embedding_service.compute_cosine_similarity = self._original_compute
-            self._injected = False
-
-
-class MockArbiter:
-    """
-    Mock 灰度仲裁器
-
-    返回可控的仲裁结果，用于测试灰色区间判定。
-
-    Usage:
-        >>> arbiter = MockArbiter(should_continue=True)
-        >>> # 仲裁器将始终返回 True（继续吸附）
-    """
-
-    def __init__(self, should_continue: bool = True):
-        self._should_continue = should_continue
-        self.calls: List[Dict[str, Any]] = []
-
-    def should_continue_topic(
-        self,
-        previous_context: str,
-        current_query: str,
-        similarity_score: float,
-    ) -> bool:
-        """
-        返回预设的仲裁结果
-        """
-        self.calls.append({
-            "previous_context": previous_context,
-            "current_query": current_query,
-            "similarity_score": similarity_score,
-            "result": self._should_continue,
-        })
-        return self._should_continue
-
-    def is_available(self) -> bool:
-        return True
-
-    def set_result(self, should_continue: bool) -> None:
-        """设置仲裁结果"""
-        self._should_continue = should_continue
-
-    @property
-    def call_count(self) -> int:
-        return len(self.calls)
-
-    def clear(self) -> None:
-        self.calls.clear()
-
-
 # ========== Pytest Fixtures (Mock 相关) ==========
 
 @pytest.fixture
@@ -534,12 +441,6 @@ def flush_event_recorder() -> FlushEventRecorder:
     return FlushEventRecorder()
 
 
-@pytest.fixture
-def mock_arbiter() -> MockArbiter:
-    """提供 MockArbiter 实例"""
-    return MockArbiter()
-
-
 # ========== 导出 ==========
 
 __all__ = [
@@ -550,9 +451,6 @@ __all__ = [
     "MockGenerationEngine",
     "MockLifecycleEngine",
     "MockRetrievalFamiliar",
-    "MockArbiter",
-    # 辅助类
-    "SimilarityInjector",
     # 辅助函数
     "print_flush_summary",
     "print_buffer_comparison",

@@ -587,6 +587,7 @@ class KernelLoopExecutor:
             shared_context = await self._fetch_context_refs_content(
                 aliases=context_refs,
                 identity=frame.identity,
+                language=getattr(frame.agent_profile, "language", None),
             )
             sub_frame = await self._frame_scheduler.fork_sub_frame(
                 parent_frame=frame,
@@ -667,6 +668,7 @@ class KernelLoopExecutor:
         self,
         aliases: List[str],
         identity,
+        language: Optional[str] = None,
     ) -> str:
         if not aliases:
             return ""
@@ -686,7 +688,10 @@ class KernelLoopExecutor:
             ):
                 artifact = compiler.compile(
                     resolved, MemoryCompileTarget.SHARED_CONTEXT,
-                    MemoryCompileOptions(requested_alias=alias),
+                    MemoryCompileOptions(
+                        requested_alias=alias,
+                        language=language,
+                    ),
                 )
                 artifacts.append(artifact)
             else:
@@ -699,6 +704,7 @@ class KernelLoopExecutor:
         return compiler.wrap(
             artifacts,
             envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+            options=MemoryCompileOptions(language=language),
         ).text
 
     def _assemble_ipc_return(

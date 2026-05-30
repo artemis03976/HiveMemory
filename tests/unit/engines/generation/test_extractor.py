@@ -64,6 +64,92 @@ class TestLLMMemoryExtractor:
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "user"
 
+    def test_default_language_selects_english_passive_prompts(self):
+        """测试全局语言驱动被动提取模板"""
+        extractor = LLMMemoryExtractor(
+            config=ExtractorConfig(),
+            llm_service=self.mock_service,
+            default_language="en",
+        )
+        json_output = json.dumps({
+            "title": "Extracted",
+            "summary": "Summary",
+            "tags": ["t1"],
+            "memory_type": "FACT",
+            "content": "Content",
+            "confidence_score": 0.95,
+            "has_value": True
+        })
+        self.mock_service.complete_with_retry.return_value = json_output
+
+        extractor.extract("User: Hi", {})
+
+        _, kwargs = self.mock_service.complete_with_retry.call_args
+        messages = kwargs["messages"]
+        assert "memory manager" in messages[0]["content"]
+        assert "Conversation" in messages[1]["content"]
+
+    def test_default_language_selects_english_write_prompts(self):
+        """测试全局语言驱动 WRITE 模板"""
+        extractor = LLMMemoryExtractor(
+            config=ExtractorConfig(),
+            llm_service=self.mock_service,
+            default_language="en-US",
+        )
+        json_output = json.dumps({
+            "title": "Extracted",
+            "summary": "Summary",
+            "tags": ["t1"],
+            "memory_type": "FACT",
+            "content": "Content",
+            "confidence_score": 0.95,
+            "has_value": True
+        })
+        self.mock_service.complete_with_retry.return_value = json_output
+
+        extractor.extract(
+            "User: Save this",
+            {
+                "mode": "write",
+                "write_content": "Content to save",
+            },
+        )
+
+        _, kwargs = self.mock_service.complete_with_retry.call_args
+        messages = kwargs["messages"]
+        assert "Active Response Mode" in messages[0]["content"]
+        assert "Agent-submitted Memory Draft" in messages[1]["content"]
+        assert "(Not provided)" in messages[1]["content"]
+
+    def test_default_language_selects_english_update_prompts(self):
+        """测试全局语言驱动 UPDATE 模板"""
+        extractor = LLMMemoryExtractor(
+            config=ExtractorConfig(),
+            llm_service=self.mock_service,
+            default_language="en",
+        )
+        json_output = json.dumps({
+            "new_content": "New content",
+            "changelog": "Updated content"
+        })
+        self.mock_service.complete_with_retry.return_value = json_output
+
+        extractor.merge(
+            old_content="Old content",
+            metadata={
+                "instruction": "Update it",
+                "memory_title": "Title",
+                "memory_alias": "alias",
+            },
+        )
+
+        _, kwargs = self.mock_service.complete_with_retry.call_args
+        messages = kwargs["messages"]
+        assert "Editor Mode" in messages[0]["content"]
+        assert "Target Memory" in messages[1]["content"]
+        assert "No new material" in messages[1]["content"]
+        assert "No background conversation" in messages[1]["content"]
+
     # test_parse_json_* tests removed as they test internal implementation details
     # or should be tested via parse_llm_json unit tests.
 

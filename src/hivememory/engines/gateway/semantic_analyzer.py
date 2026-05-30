@@ -17,6 +17,7 @@ from hivememory.engines.gateway.models import (
     GatewayIntent,
     SemanticAnalysisResult,
 )
+from hivememory.i18n import resolve_language
 from hivememory.prompts.gateway import get_gateway_system_prompt
 from hivememory.utils.json_parser import parse_llm_json
 
@@ -32,7 +33,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         self,
         config: LLMAnalyzerConfig,
         llm_service: BaseLLMService,
-        system_prompt: Optional[str] = None,
+        default_language: str | None = None,
     ):
         """
         初始化 LLMAnalyzer
@@ -40,14 +41,12 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         Args:
             config: LLMAnalyzerConfig 配置对象
             llm_service: LLM 服务实例
-            system_prompt: 自定义系统提示词（可选）
+            default_language: 全局默认语言（可选）
         """
         self.config = config
         self.llm_service = llm_service
-        self.system_prompt = system_prompt or get_gateway_system_prompt(
-            variant=self.config.prompt_variant,
-            language=self.config.prompt_language,
-        )
+        self.language = resolve_language(default_language=default_language).value
+        self.system_prompt = get_gateway_system_prompt(language=self.language)
 
     async def analyze(
         self,
@@ -57,8 +56,7 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         # 构建系统提示词：有话题菜单时使用 dispatcher 模式
         if active_topics_menu:
             system_prompt = get_gateway_system_prompt(
-                variant="dispatcher",
-                language=self.config.prompt_language,
+                language=self.language,
                 active_topics_menu=active_topics_menu,
             )
         else:
@@ -140,6 +138,7 @@ class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
 def create_semantic_analyzer(
     config: LLMAnalyzerConfig,
     llm_service: BaseLLMService,
+    default_language: str | None = None,
 ) -> BaseSemanticAnalyzer:
     """
     创建 L2 语义分析器实例
@@ -147,13 +146,18 @@ def create_semantic_analyzer(
     Args:
         config: L2 分析器配置
         llm_service: LLM 服务实例
+        default_language: 全局默认语言（可选）
 
     Returns:
         BaseSemanticAnalyzer: LLMAnalyzer 或 NoOpSemanticAnalyzer
     """
     if config.enabled:
         logger.info("Gateway L2 语义分析器已启用")
-        return LLMAnalyzer(config, llm_service)
+        return LLMAnalyzer(
+            config,
+            llm_service,
+            default_language=default_language,
+        )
     else:
         logger.info("Gateway L2 语义分析器已禁用 (No-Op)")
         return NoOpSemanticAnalyzer()

@@ -15,6 +15,14 @@ system:
   version: "0.1.0"
   debug: true
 
+# ========== 国际化配置 ==========
+i18n:
+  default_language: "zh"
+  fallback_language: "en"
+  supported_languages:
+    - "zh"
+    - "en"
+
 # ========== 日志配置 ==========
 logging:
   level: "INFO"
@@ -90,8 +98,6 @@ gateway:
 
   analyzer:
     enabled: true
-    prompt_variant: "default"
-    prompt_language: "zh"
 
 # ========== 感知层配置 ==========
 perception:
@@ -112,25 +118,10 @@ perception:
       engine:
         type: "simple"  # simple/llm
 
-    # SemanticAdsorber 配置
-    adsorber:
-      semantic_threshold_high: 0.55
-      semantic_threshold_low: 0.45
-      short_text_threshold: 10
-      ema_alpha: 0.3
-
-      arbiter:
-        enabled: true
-        engine:
-          type: "reranker"
-          threshold: -6
-
 # ========== 记忆生成配置 ==========
 generation:
   extractor:
     enabled: true
-    system_prompt: null  # 自定义系统提示词
-    user_prompt: null    # 自定义用户提示词
 
   deduplicator:
     enabled: true

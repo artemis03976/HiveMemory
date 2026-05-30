@@ -29,6 +29,9 @@ class MemoryCompiler:
     Phase 2+: 内化渲染逻辑，引入 IR 和缓存。
     """
 
+    def __init__(self, default_language: str = "zh") -> None:
+        self.default_language = default_language
+
     def compile(
         self,
         source: Union[
@@ -42,7 +45,7 @@ class MemoryCompiler:
         target: MemoryCompileTarget,
         options: MemoryCompileOptions | None = None,
     ) -> CompiledMemoryArtifact | List[CompiledMemoryArtifact]:
-        opts = options or MemoryCompileOptions()
+        opts = self._resolve_options(options)
 
         if isinstance(source, list):
             return [self._compile_single(item, target, opts) for item in source]
@@ -68,8 +71,14 @@ class MemoryCompiler:
             envelope_target,
             artifacts=artifact_list,
             sections=sections,
-            options=options or MemoryCompileOptions(),
+            options=self._resolve_options(options),
         )
+
+    def _resolve_options(self, options: MemoryCompileOptions | None) -> MemoryCompileOptions:
+        opts = options or MemoryCompileOptions()
+        if opts.language is None:
+            opts = opts.model_copy(update={"language": self.default_language})
+        return opts
 
     def _compile_single(
         self,

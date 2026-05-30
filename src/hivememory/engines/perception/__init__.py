@@ -18,12 +18,6 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
     空闲超时扫描由 SystemAsyncScheduler 统一管理，
     感知层只暴露 scan_idle_buffers_once() 供调度器调用。
 
-.. deprecated::
-    Phase 4.5 重构后，以下组件已废弃：
-    - BaseArbiter: 灰度仲裁器接口，已不再被感知层使用
-    - SemanticBoundaryAdsorber: 语义吸附器，已不再被感知层使用
-    这些组件保留作为参考实现，将在后续版本中移除。
-
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team

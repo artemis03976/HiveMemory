@@ -8,7 +8,6 @@ from hivememory.prompts.assembler import AgentPromptAssembler
 def _make_koakuma_config():
     mtp_prompt_config = SimpleNamespace(
         enabled=True,
-        language="zh",
         include_demo=False,
         include_error_handling=False,
     )
@@ -92,3 +91,31 @@ def test_build_sub_agent_messages_disables_call():
     assert "CALL" not in messages[0]["content"]
     assert "[Shared Context]" in messages[0]["content"]
     assert messages[-1] == {"role": "user", "content": "Write unit tests"}
+
+
+def test_mtp_prompt_uses_resolved_profile_language():
+    assembler = AgentPromptAssembler(_make_koakuma_config(), default_language="zh")
+    profile = AgentProfile(
+        persona="",
+        allowed_mtp_verbs=["SEARCH"],
+        allowed_sys_tools=[],
+        language="en",
+    )
+
+    messages = assembler.build_sub_agent_messages(
+        profile=profile,
+        task="Search memory",
+        shared_context="",
+        depth=0,
+    )
+
+    assert "You are an intelligent Agent running on HiveOS" in messages[0]["content"]
+    assert "你是运行在 HiveOS" not in messages[0]["content"]
+
+
+def test_mtp_prompt_uses_global_language_without_profile_language():
+    assembler = AgentPromptAssembler(_make_koakuma_config(), default_language="en")
+
+    prompt = assembler._build_mtp_prompt(profile=None)
+
+    assert "You are an intelligent Agent running on HiveOS" in prompt

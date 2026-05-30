@@ -8,33 +8,12 @@ from hivememory.engines.memory_compiler.models import (
     MemoryCompileOptions,
     MemoryCompileTarget,
 )
-from hivememory.utils.time_formatter import Language, TimeFormatter
+from hivememory.i18n import get_memory_atom_text
+from hivememory.utils.time_formatter import TimeFormatter
 
 
-FULL_ITEM_TEMPLATE = """
-<memory alias="{alias}">
-### {title}
-- **类型**: `{type}` | **存档于**: {time} | **置信度**: {confidence}
-- **标签**:  {tags}
-
-[完整内容]:
-{content}
-{history}
-</memory>"""
-
-INDEX_ITEM_TEMPLATE = """
-<memory_index alias="{alias}">
-### {title}
-- **类型**: `{type}` | **存档于**: {time} | **置信度**: {confidence}
-- **标签**:  {tags}
-- **内容摘要**: {summary}
-</memory_index>"""
-
-AGENT_PROFILE_ITEM_TEMPLATE = """
-<agent_profile alias="{alias}">
-- **角色**: {title}
-- **能力特长**: {summary}
-</agent_profile>"""
+def _text(key: str, language: str | None = None) -> str:
+    return get_memory_atom_text(key, language)
 
 
 def compile_memory_atom(
@@ -50,30 +29,34 @@ def compile_memory_atom(
             atom,
             max_content_length=options.max_content_length,
             stale_days=options.stale_days,
+            language=options.language,
         )
     elif target == MemoryCompileTarget.PROMPT_INDEX:
         text = _render_index_context(
             atom,
             max_summary_length=options.max_summary_length,
             stale_days=options.stale_days,
+            language=options.language,
         )
     elif target == MemoryCompileTarget.DENSE_EMBEDDING:
         text = _render_dense_embedding(atom)
     elif target == MemoryCompileTarget.SPARSE_EMBEDDING:
         text = _render_sparse_embedding(atom)
     elif target == MemoryCompileTarget.AGENT_PROFILE_MENU:
-        text = _render_agent_profile(atom)
+        text = _render_agent_profile(atom, language=options.language)
     elif target == MemoryCompileTarget.MTP_READ:
         text = _render_mtp_read(
             atom,
             max_content_length=options.max_content_length,
             stale_days=options.stale_days,
+            language=options.language,
         )
     elif target == MemoryCompileTarget.SHARED_CONTEXT:
         text = _render_shared_context(
             atom,
             max_content_length=options.max_content_length,
             stale_days=options.stale_days,
+            language=options.language,
         )
     elif target == MemoryCompileTarget.RUNNABLE_TOOL:
         raise ValueError("RUNNABLE_TOOL target is reserved for Phase 3.")
@@ -115,55 +98,33 @@ def _render_full_context(
     memory: MemoryAtom,
     max_content_length: int = 500,
     stale_days: int = 90,
+    language: str | None = None,
 ) -> str:
-    content = _truncate_content(memory.payload.content, max_content_length)
-    confidence_str = _format_confidence(memory)
+    content = _truncate_content(memory.payload.content, max_content_length, language)
+    confidence_str = _format_confidence(memory, language)
     alias = memory.get_alias()
-    tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or "(无标签)"
+    tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or _text("memory_tags_empty", language)
     time_str = TimeFormatter(
-        language=Language.CHINESE,
+        language=language,
         stale_days=stale_days,
     ).format(memory.meta.updated_at)
 
     history = ""
     if memory.payload.history_summary:
-        history_lines = ["\n**Change Log:**"]
+        history_lines = [f"\n**{_text('memory_full_change_log_label', language)}:**"]
         history_lines.extend([f"- {item}" for item in memory.payload.history_summary])
         history = "\n".join(history_lines)
 
-    return FULL_ITEM_TEMPLATE.format(
+    return _text("memory_full_item_template", language).format(
         alias=alias,
         title=memory.index.title,
         type=memory.index.memory_type.value,
         time=time_str,
         confidence=confidence_str,
         tags=tags,
+        content_label=_text("memory_full_content_label", language),
         content=content,
         history=history,
-    )
-
-
-def _render_mtp_read(
-    memory: MemoryAtom,
-    max_content_length: int = 500,
-    stale_days: int = 90,
-) -> str:
-    return _render_full_context(
-        memory,
-        max_content_length=max_content_length,
-        stale_days=stale_days,
-    )
-
-
-def _render_shared_context(
-    memory: MemoryAtom,
-    max_content_length: int = 500,
-    stale_days: int = 90,
-) -> str:
-    return _render_full_context(
-        memory,
-        max_content_length=max_content_length,
-        stale_days=stale_days,
     )
 
 
@@ -171,12 +132,13 @@ def _render_index_context(
     memory: MemoryAtom,
     max_summary_length: int = 100,
     stale_days: int = 90,
+    language: str | None = None,
 ) -> str:
     alias = memory.get_alias()
-    confidence_str = _format_confidence(memory)
-    tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or "(无标签)"
+    confidence_str = _format_confidence(memory, language)
+    tags = ", ".join(f"`{tag}`" for tag in memory.index.tags) or _text("memory_tags_empty", language)
     time_str = TimeFormatter(
-        language=Language.CHINESE,
+        language=language,
         stale_days=stale_days,
     ).format(memory.meta.updated_at)
 
@@ -184,39 +146,80 @@ def _render_index_context(
     if len(summary) > max_summary_length:
         summary = summary[:max_summary_length] + "..."
 
-    return INDEX_ITEM_TEMPLATE.format(
+    return _text("memory_index_item_template", language).format(
         alias=alias,
         title=memory.index.title,
         type=memory.index.memory_type.value,
         time=time_str,
         confidence=confidence_str,
         tags=tags,
+        summary_label=_text("memory_index_summary_label", language),
         summary=summary,
     )
 
 
-def _format_confidence(memory: MemoryAtom) -> str:
+def _render_agent_profile(memory: MemoryAtom, language: str | None = None) -> str:
+    alias = memory.get_alias()
+    title = memory.index.title if memory.index.title else _text("memory_agent_profile_untitled", language)
+    summary = memory.index.summary if memory.index.summary else ""
+
+    return _text("memory_agent_profile_item_template", language).format(
+        alias=alias,
+        title=title,
+        summary=summary,
+    )
+
+
+def _render_mtp_read(
+    memory: MemoryAtom,
+    max_content_length: int = 500,
+    stale_days: int = 90,
+    language: str | None = None,
+) -> str:
+    return _render_full_context(
+        memory,
+        max_content_length=max_content_length,
+        stale_days=stale_days,
+        language=language,
+    )
+
+
+def _render_shared_context(
+    memory: MemoryAtom,
+    max_content_length: int = 500,
+    stale_days: int = 90,
+    language: str | None = None,
+) -> str:
+    return _render_full_context(
+        memory,
+        max_content_length=max_content_length,
+        stale_days=stale_days,
+        language=language,
+    )
+
+
+def _format_confidence(memory: MemoryAtom, language: str | None = None) -> str:
     score = memory.meta.confidence_score
     status = memory.meta.verification_status
 
     status_str = ""
     if status == VerificationStatus.VERIFIED:
-        status_str = " [已验证]"
+        status_str = f" {_text('memory_status_verified', language)}"
     elif status == VerificationStatus.DEPRECATED:
-        status_str = " [已废弃]"
+        status_str = f" {_text('memory_status_deprecated', language)}"
     elif status == VerificationStatus.HALLUCINATION:
-        status_str = " [警告：幻觉]"
+        status_str = f" {_text('memory_status_hallucination', language)}"
     elif score < 0.7:
-        status_str = " [未验证]"
+        status_str = f" {_text('memory_status_unverified', language)}"
 
     if score >= 0.9:
-        return f"{score:.0%} (高){status_str}"
+        return f"{score:.0%} ({_text('memory_confidence_high', language)}){status_str}"
     if score >= 0.7:
-        return f"{score:.0%} (中){status_str}"
-    return f"{score:.0%} (低){status_str}"
+        return f"{score:.0%} ({_text('memory_confidence_medium', language)}){status_str}"
+    return f"{score:.0%} ({_text('memory_confidence_low', language)}){status_str}"
 
 
-def _truncate_content(content: str, max_length: int) -> str:
+def _truncate_content(content: str, max_length: int, language: str | None = None) -> str:
     if len(content) <= max_length:
         return content
 
@@ -228,16 +231,4 @@ def _truncate_content(content: str, max_length: int) -> str:
             truncated = truncated[:last_sep + len(sep)]
             break
 
-    return truncated + "\n\n[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"
-
-
-def _render_agent_profile(memory: MemoryAtom) -> str:
-    alias = memory.get_alias()
-    title = memory.index.title if memory.index.title else "(未命名子代理)"
-    summary = memory.index.summary if memory.index.summary else ""
-
-    return AGENT_PROFILE_ITEM_TEMPLATE.format(
-        alias=alias,
-        title=title,
-        summary=summary,
-    )
+    return truncated + f"\n\n{_text('memory_truncation_notice', language)}"

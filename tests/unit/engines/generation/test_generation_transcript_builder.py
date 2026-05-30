@@ -22,7 +22,7 @@ from hivememory.engines.generation.models import (
     WriteFocus,
 )
 from hivememory.core.models import TraceItem
-from hivememory.engines.generation.generation_transcript_builder import GenerationTranscriptBuilder
+from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.engines.perception.models import LogicalBlock
 
 
