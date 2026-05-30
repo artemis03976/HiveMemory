@@ -81,24 +81,6 @@ export interface RelayConfig {
   engine: RelayEngineConfig;
 }
 
-export interface ArbiterEngineConfig {
-  type: 'reranker' | 'slm';
-  threshold: number;
-}
-
-export interface ArbiterConfig {
-  enabled: boolean;
-  engine: ArbiterEngineConfig;
-}
-
-export interface AdsorberConfig {
-  semantic_threshold_high: number;
-  semantic_threshold_low: number;
-  short_text_threshold: number;
-  ema_alpha: number;
-  arbiter: ArbiterConfig;
-}
-
 export interface PerceptionEngineConfig {
   type: string;
   idle_timeout_seconds: number;
@@ -107,7 +89,6 @@ export interface PerceptionEngineConfig {
   fold_retain_recent_blocks: number;
   max_resident_topics: number;
   relay: RelayConfig;
-  adsorber: AdsorberConfig;
 }
 
 export interface PerceptionConfig {

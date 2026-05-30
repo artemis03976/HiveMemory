@@ -605,12 +605,6 @@ SIMILARITY_TEST_PAIRS = {
         "query_text": "今天晚餐吃什么比较健康，推荐一些低卡路里的食谱",
         "expected_range": "< 0.40",
     },
-    "grey_area": {
-        "description": "灰色区域 (0.40-0.75): 相关但不同的技术领域",
-        "base_text": "Python数据可视化库Matplotlib的使用方法和绑图技巧",
-        "query_text": "JavaScript前端图表库D3.js的使用方法和数据绑定",
-        "expected_range": "0.40-0.75",
-    },
     "boundary_high": {
         "description": "高阈值边界 (0.75): 刚好在吸附边界",
         "base_text": "Python机器学习库scikit-learn的分类算法",

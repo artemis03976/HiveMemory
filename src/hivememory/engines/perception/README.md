@@ -41,13 +41,13 @@ MemoryPerception 模块是 HiveMemory 系统的 "感官" 入口，负责实时�
 │   │IdleTimeoutMonitor│◄──────────────────────────┤          │
 │   │  (异步超时监控)    │       (后台扫描)            │          │
 │   └────────┬─────────┘                           ▼          │
-│            │                             ┌──────────────┐   │
-│            │ (IDLE_TIMEOUT)              │   Adsorber   │   │
-│            │                             │  (语义吸附)   │   │
-│            │                             └──────┬───────┘   │
-│            │                                    │           │
-│   ┌────────┴───────┐                            │           │
-│   │ RelayController│<───────────────────────────┤           │
+│            │                                                │
+│            │                                                │
+│            │                                                │
+│            │                                                │
+│            │                                                │
+│   ┌────────┴───────┐                                        │
+│   │ RelayController│                                        │
 │   │ (接力/摘要)    │     (TOKEN_OVERFLOW)        │           │
 │   └────────┬───────┘                            │           │
 │            │                                    │ (Flush)   │
@@ -70,7 +70,6 @@ MemoryPerception 模块是 HiveMemory 系统的 "感官" 入口，负责实时�
 ```python
 from hivememory.perception.interfaces import (
     BasePerceptionLayer,    # 感知层基类
-    BaseArbiter,            # 灰度仲裁器接口
 )
 ```
 
@@ -116,28 +115,7 @@ layer.route_and_ingest("NEW_TOPIC", payload)
 layer.stop_idle_monitor()
 ```
 
-### 3. `semantic_adsorber.py` - 语义边界吸附器
-
-**职责**: 决定新的逻辑块是"吸附"到当前话题，还是因"语义漂移"触发刷新。
-
-**核心逻辑**:
-1.  **短文本强吸附**: 避免因简短回复（"好的"）导致切分
-2.  **语义相似度**: 计算新 Block 与当前话题核心向量的 Cosine 相似度
-
-**注意**: Token 溢出检测由 `RelayController` 负责，空闲超时检测由 `IdleTimeoutMonitor` 负责。
-
-**用法**:
-```python
-from hivememory.perception import SemanticBoundaryAdsorber
-
-adsorber = SemanticBoundaryAdsorber(
-    semantic_threshold=0.6,
-    short_text_threshold=50
-)
-should_adsorb, reason = adsorber.should_adsorb(new_block, buffer)
-```
-
-### 4. `relay_controller.py` - 接力控制器 / Page Folding 摘要生成器
+### 3. `relay_controller.py` - 接力控制器 / Page Folding 摘要生成器
 
 **职责**: 检测 Token 溢出，生成摘要以便在下一个 Buffer 中通过 Context Injection 维持连贯性。
 
@@ -207,7 +185,6 @@ perception.stop_idle_monitor()
 
 | 触发类型 | 触发条件 | 触发时机 | 负责组件 |
 |----------|----------|----------|----------|
-| `SEMANTIC_DRIFT` | 语义相似度低于阈值 | 新 Block 加入前 | SemanticAdsorber |
 | `TOKEN_OVERFLOW` | Token 数超过阈值 | 新 Block 加入前 | RelayController |
 | `IDLE_TIMEOUT` | Buffer 空闲超时 | 后台异步扫描 | IdleTimeoutMonitor |
 | `MANUAL` | 用户手动调用 | 调用 manual_trigger() | 用户代码 |
@@ -222,9 +199,7 @@ perception.stop_idle_monitor()
 | 组件 | 指标 | 目标值 | 说明 |
 |------|------|--------|------|
 | StreamParser | 解析延迟 | < 5ms | 单条消息解析 |
-| SemanticAdsorber | 判定延迟 | < 50ms | 包含 Embedding 计算 |
 | IdleTimeoutMonitor | 扫描延迟 | < 100ms | 全 Buffer 池扫描 |
-| Adsorption | 准确率 | > 90% | 话题边界识别准确性 |
 
 ---
 

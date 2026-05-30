@@ -273,6 +273,15 @@ _RELAY_PROMPT_TEXT_ZH = {
 
 ### 4. 当前焦点
 (1-2 句话说明接下来需要解决或处理的具体问题)""",
+    "user_prompt": """\
+<old_state_summary>
+{previous_summary}
+</old_state_summary>
+
+<recent_events>
+{recent_events}
+</recent_events>""",
+    "previous_summary_empty": "无。当前为新话题。",
 }
 
 _RELAY_PROMPT_TEXT_EN = {
@@ -305,6 +314,15 @@ You must strictly output using the following Markdown template:
 
 ### 4. Current Focus
 (1-2 sentences explaining exactly what needs to be solved or addressed NEXT)""",
+    "user_prompt": """\
+<old_state_summary>
+{previous_summary}
+</old_state_summary>
+
+<recent_events>
+{recent_events}
+</recent_events>""",
+    "previous_summary_empty": "None. This is a new topic.",
 }
 
 _GENERATION_PROMPT_TEXT_ZH = {

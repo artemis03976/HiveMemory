@@ -119,19 +119,6 @@ perception:
       engine:
         type: "simple"  # simple/llm
 
-    # SemanticAdsorber 配置
-    adsorber:
-      semantic_threshold_high: 0.55
-      semantic_threshold_low: 0.45
-      short_text_threshold: 10
-      ema_alpha: 0.3
-
-      arbiter:
-        enabled: true
-        engine:
-          type: "reranker"
-          threshold: -6
-
 # ========== 记忆生成配置 ==========
 generation:
   extractor:

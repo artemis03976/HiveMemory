@@ -2,7 +2,6 @@
 Perception 层集成测试
 
 测试感知层与各组件的协作:
-- 与 Adsorber 的协作
 - 与 Generation Engine 的协作
 - 与 Buffer Manager 的协作
 
@@ -44,11 +43,11 @@ def _make_payload(user_msg: str, assistant_msg: str, identity: Identity) -> Inte
     )
 
 
-class TestAdsorberAndBufferCollaboration:
+class TestBufferManagerCollaboration:
     """测试感知层与 Buffer Manager 的协作"""
 
-    def test_adsorber_computes_buffer_kernel(self):
-        """测试 Buffer Kernel 计算"""
+    def test_buffer_manager_creates_topic(self):
+        """测试 Buffer 创建"""
         manager = SemanticBufferManager()
 
         identity = Identity(user_id="user1", agent_id="agent1")
@@ -61,8 +60,8 @@ class TestAdsorberAndBufferCollaboration:
         assert buffer.user_id == identity.user_id
         assert buffer.topic_id is not None
 
-    def test_adsorber_detects_topic_shift(self):
-        """测试话题切换检测"""
+    def test_buffer_manager_keeps_topics_isolated(self):
+        """测试话题隔离"""
         manager = SemanticBufferManager()
         identity = Identity(user_id="user1", agent_id="agent1")
 

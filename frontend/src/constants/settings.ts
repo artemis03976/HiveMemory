@@ -88,19 +88,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
           max_processing_tokens: 8192,
         },
       },
-      adsorber: {
-        semantic_threshold_high: 0.55,
-        semantic_threshold_low: 0.45,
-        short_text_threshold: 0.6,
-        ema_alpha: 0.3,
-        arbiter: {
-          enabled: true,
-          engine: {
-            type: 'reranker',
-            threshold: 0.7,
-          },
-        },
-      },
     },
   },
   generation: {

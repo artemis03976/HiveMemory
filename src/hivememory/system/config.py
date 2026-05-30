@@ -11,9 +11,9 @@ HiveMemory 配置管理系统
 import os
 import logging
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Tuple, Type, Set, Literal, Union
+from typing import Optional, Any, Dict, List, Tuple, Type, Literal, Union
 import yaml
-from pydantic import BaseModel, Field, model_validator, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 
 logger = logging.getLogger(__name__)
@@ -149,61 +149,6 @@ class MemoryGatewayConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-# ========== 感知层配置 ==========
-
-class RerankerArbiterConfig(BaseModel):
-    """基于 Reranker 的仲裁器配置"""
-    type: Literal["reranker"] = "reranker"
-    threshold: float = Field(default=-6, description="仲裁阈值")
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class SLMArbiterConfig(BaseModel):
-    """基于 SLM 的仲裁器配置"""
-    type: Literal["slm"] = "slm"
-    prompt_template: Optional[str] = Field(default=None, description="自定义 Prompt")
-    threshold: float = Field(default=0.5, description="不确定时的阈值")
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class ArbiterConfig(BaseModel):
-    """灰度仲裁器统一配置"""
-    enabled: bool = Field(default=True, description="是否启用灰度仲裁")
-    engine: Union[RerankerArbiterConfig, SLMArbiterConfig] = Field(
-        default_factory=RerankerArbiterConfig,
-        discriminator="type",
-        description="具体仲裁器实现配置"
-    )
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class SemanticAdsorberConfig(BaseModel):
-    """
-    SemanticBoundaryAdsorber 配置
-    """
-    semantic_threshold_high: float = Field(default=0.55, description="高相似度阈值（强吸附）")
-    semantic_threshold_low: float = Field(default=0.45, description="低相似度阈值（强制切分）")
-    short_text_threshold: int = Field(default=10, description="短文本强吸附阈值（tokens）")
-    ema_alpha: float = Field(default=0.3, description="指数移动平均系数")
-    
-    arbiter: ArbiterConfig = Field(default_factory=ArbiterConfig, description="灰度仲裁器配置")
-    
-    stop_words: Optional[Set[str]] = Field(default=None, description="自定义停用词集合")
-
-    model_config = ConfigDict(extra="ignore")
-
-    @model_validator(mode='after')
-    def validate_thresholds(self) -> 'SemanticAdsorberConfig':
-        if self.semantic_threshold_low > self.semantic_threshold_high:
-            raise ValueError("semantic_threshold_low 必须小于或等于 semantic_threshold_high")
-        if not 0 < self.ema_alpha <= 1:
-            raise ValueError("ema_alpha 必须在 (0, 1] 范围内")
-        return self
-
-
 # ========== RelayController 配置 ==========
 
 class SimpleRelayConfig(BaseModel):
@@ -256,8 +201,6 @@ class SemanticFlowPerceptionConfig(BaseModel):
 
     # RelayController 配置 (§4.2)
     relay: RelayControllerConfig = Field(default_factory=RelayControllerConfig, description="接力控制器配置")
-
-    adsorber: SemanticAdsorberConfig = Field(default_factory=SemanticAdsorberConfig, description="语义吸附器配置")
 
     model_config = ConfigDict(extra="ignore")
 

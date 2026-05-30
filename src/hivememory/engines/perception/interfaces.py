@@ -25,60 +25,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BaseArbiter(ABC):
-    """
-    灰度仲裁器接口
-
-    职责：
-        - 处理语义相似度处于灰度区间（0.40-0.75）的模糊情况
-        - 使用更精细的模型判断两个意图是否属于同一任务流
-        - 返回是否应该继续当前话题
-
-    判定流程：
-        1. 接收上一轮上下文和当前查询
-        2. 使用 Reranker/SLM 等模型进行二分类
-        3. 返回 YES（继续）或 NO（切分）
-
-    Examples:
-        >>> arbiter = RerankerArbiter(reranker_service)
-        >>> result = arbiter.should_continue_topic(
-        ...     previous_context="写贪吃蛇游戏代码",
-        ...     current_query="部署到服务器",
-        ...     similarity_score=0.55
-        ... )
-        >>> # result = True (同一任务流的不同阶段)
-    """
-
-    @abstractmethod
-    def should_continue_topic(
-        self,
-        previous_context: str,
-        current_query: str,
-        similarity_score: float,
-    ) -> bool:
-        """
-        判断是否应该继续当前话题
-
-        Args:
-            previous_context: 上一轮对话的上下文摘要
-            current_query: 当前的用户查询（rewritten_query）
-            similarity_score: 语义相似度分数（可选，用于记录或调整决策）
-
-        Returns:
-            bool: True 表示应该继续（吸附），False 表示应该切分
-        """
-        pass
-
-    def is_available(self) -> bool:
-        """
-        检查仲裁器是否可用
-
-        Returns:
-            bool: 是否可用
-        """
-        return True
-
-
 class BasePerceptionLayer(ABC):
     """
     感知层抽象基类
@@ -265,7 +211,6 @@ class BaseRelayController(ABC):
 
 
 __all__ = [
-    "BaseArbiter",
     "BasePerceptionLayer",
     "BaseRelayController",
 ]

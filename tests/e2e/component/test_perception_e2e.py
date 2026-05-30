@@ -15,7 +15,7 @@ HiveMemory Perception Component E2E Tests
 
 核心原则：
     - 直接测试 SemanticFlowPerceptionLayer（不通过 LibrarianCore）
-    - 使用真实的 EmbeddingService、Adsorber、RelayController
+    - 使用真实的 RelayController
     - 聚焦语义吸附/漂移/溢出机制
     - 精确阈值测试：覆盖 high(>=0.75)、low(<0.40)、grey(0.40-0.75) 三个区间
 
@@ -79,13 +79,11 @@ from hivememory.engines.perception.models import FlushReason, FlushEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.engines.perception.relay_controller import SimpleRelayController
-from hivememory.engines.perception.semantic_adsorber import SemanticBoundaryAdsorber, create_adsorber
 
 # 配置
 from hivememory.system.config import (
     load_app_config,
     SemanticFlowPerceptionConfig,
-    SemanticAdsorberConfig,
 )
 
 # 基础设施
@@ -593,148 +591,7 @@ class TestSemanticDrift:
             console.print(f"    [dim]未触发漂移（边界情况）[/dim]")
 
 
-# ========== Group 3: 灰色区仲裁测试 (0.40 <= similarity < 0.75) ==========
-
-class TestGreyAreaArbitration:
-    """
-    Group 3: 灰色区仲裁测试
-
-    验证 0.40 <= similarity < 0.75 时的仲裁行为。
-    """
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """每个测试前初始化"""
-        self.perception = get_shared_perception()
-        self.recorder = get_shared_flush_recorder()
-        reset_test_env()
-
-    def test_grey_area_arbiter_continue(self):
-        """
-        PER-GRY-001: 仲裁决定继续
-
-        验证点：
-        - 灰色区域的查询，结果取决于仲裁器
-        """
-        identity = Identity(user_id="test_grey_continue", agent_id="chatbot", session_id="session1")
-
-        # 使用灰色区域测试对
-        test_pair = SIMILARITY_TEST_PAIRS["grey_area"]
-
-        add_message_to_perception(
-            perception=self.perception,
-            role="user",
-            content=test_pair["base_text"],
-            identity=identity,
-            rewritten_query=test_pair["base_text"],
-        )
-        add_message_to_perception(
-            perception=self.perception,
-            role="assistant",
-            content="这是关于 Matplotlib 的回答...",
-            identity=identity,
-        )
-
-        self.recorder.clear()
-
-        # 添加灰色区域的查询
-        add_message_to_perception(
-            perception=self.perception,
-            role="user",
-            content=test_pair["query_text"],
-            identity=identity,
-            rewritten_query=test_pair["query_text"],
-        )
-
-        # 灰色区域：结果取决于仲裁器
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        print_test_result(console, "PER-GRY-001", True)
-        console.print(f"    [dim]灰色区域测试 (0.40-0.75)[/dim]")
-        console.print(f"    [dim]语义漂移触发: {len(drift_flushes) > 0} (取决于仲裁)[/dim]")
-
-    def test_grey_area_arbiter_split(self):
-        """
-        PER-GRY-002: 仲裁决定切分
-
-        验证点：
-        - 数据科学 -> Web开发 的灰色区域判定
-        """
-        identity = Identity(user_id="test_grey_split", agent_id="chatbot", session_id="session1")
-
-        # 建立数据科学话题
-        add_message_to_perception(
-            perception=self.perception,
-            role="user",
-            content=DATA_SCIENCE_CONVERSATION[0]["content"],
-            identity=identity,
-            rewritten_query=DATA_SCIENCE_CONVERSATION[0]["rewritten_query"],
-        )
-        add_message_to_perception(
-            perception=self.perception,
-            role="assistant",
-            content=DATA_SCIENCE_CONVERSATION[1]["content"],
-            identity=identity,
-        )
-
-        self.recorder.clear()
-
-        # 切换到 Web 开发（灰色区域）
-        for msg in WEB_DEVELOPMENT_CONVERSATION[:2]:
-            add_message_to_perception(
-                perception=self.perception,
-                role=msg["role"],
-                content=msg["content"],
-                identity=identity,
-                rewritten_query=msg.get("rewritten_query", None),
-            )
-
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        print_test_result(console, "PER-GRY-002", True)
-        console.print(f"    [dim]数据科学 -> Web开发 (灰色区域)[/dim]")
-        console.print(f"    [dim]语义漂移触发: {len(drift_flushes) > 0}[/dim]")
-
-    def test_grey_area_boundaries(self):
-        """
-        PER-GRY-003: 灰色区边界
-
-        验证点：
-        - 边界值测试
-        """
-        identity = Identity(user_id="test_grey_boundary", agent_id="chatbot", session_id="session1")
-
-        # 建立基线
-        add_message_to_perception(
-            perception=self.perception,
-            role="user",
-            content="Python机器学习库scikit-learn的分类算法",
-            identity=identity,
-            rewritten_query="Python scikit-learn分类算法",
-        )
-        add_message_to_perception(
-            perception=self.perception,
-            role="assistant",
-            content="scikit-learn 提供了多种分类算法...",
-            identity=identity,
-        )
-
-        self.recorder.clear()
-
-        # 添加边界测试查询
-        add_message_to_perception(
-            perception=self.perception,
-            role="user",
-            content="Java企业级开发Spring Boot框架的配置方法",
-            identity=identity,
-            rewritten_query="Java Spring Boot配置方法",
-        )
-
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        print_test_result(console, "PER-GRY-003", True)
-        console.print(f"    [dim]灰色区边界测试[/dim]")
-        console.print(f"    [dim]语义漂移触发: {len(drift_flushes) > 0}[/dim]")
-
-
-# ========== Group 4: Token 溢出测试 ==========
+# ========== Group 3: Token 溢出测试 ==========
 
 class TestTokenOverflow:
     """

@@ -60,7 +60,7 @@ class FlushEvent(BaseModel):
     """
     统一的 Flush 决策输出
 
-    由 Adsorber 或 Relay 产生，表示需要触发 buffer flush。
+    由 PerceptionLayer 或 Relay 产生，表示需要触发 buffer flush。
     PerceptionLayer 根据此事件执行 flush 操作。
 
     Attributes:
