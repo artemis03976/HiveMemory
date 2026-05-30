@@ -277,8 +277,6 @@ class MemoryPerceptionConfig(BaseModel):
 class ExtractorConfig(BaseModel):
     """LLMMemoryExtractor 配置"""
     enabled: bool = Field(default=True, description="是否启用 LLM 提取器")
-    system_prompt: Optional[str] = Field(default=None, description="自定义系统提示词")
-    user_prompt: Optional[str] = Field(default=None, description="自定义用户提示词")
 
     model_config = ConfigDict(extra="ignore")
 

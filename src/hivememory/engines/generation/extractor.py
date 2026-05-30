@@ -22,11 +22,7 @@ from hivememory.system.config import ExtractorConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult
-from hivememory.prompts.generation import (
-    PATCHOULI_SYSTEM_PROMPT, PATCHOULI_USER_PROMPT,
-    PATCHOULI_WRITE_SYSTEM_PROMPT, PATCHOULI_WRITE_USER_PROMPT,
-    PATCHOULI_UPDATE_SYSTEM_PROMPT, PATCHOULI_UPDATE_USER_PROMPT,
-)
+from hivememory.i18n import get_generation_prompt_text, resolve_language
 from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -57,6 +53,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         self,
         config: ExtractorConfig,
         llm_service: BaseLLMService = None,
+        default_language: str | None = None,
     ):
         """
         初始化 LLM 提取器
@@ -67,8 +64,34 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         """
 
         self.llm_service = llm_service
-        self.system_prompt = config.system_prompt or PATCHOULI_SYSTEM_PROMPT
-        self.user_prompt = config.user_prompt or PATCHOULI_USER_PROMPT
+        self.language = resolve_language(default_language=default_language)
+        self.normal_system_prompt = get_generation_prompt_text(
+            "passive", "system_prompt", self.language,
+        )
+        self.normal_user_prompt = get_generation_prompt_text(
+            "passive", "user_prompt", self.language,
+        )
+        self.write_system_prompt = get_generation_prompt_text(
+            "write", "system_prompt", self.language,
+        )
+        self.write_user_prompt = get_generation_prompt_text(
+            "write", "user_prompt", self.language,
+        )
+        self.write_reason_empty = get_generation_prompt_text(
+            "write", "reason_empty", self.language,
+        )
+        self.update_system_prompt = get_generation_prompt_text(
+            "update", "system_prompt", self.language,
+        )
+        self.update_user_prompt = get_generation_prompt_text(
+            "update", "user_prompt", self.language,
+        )
+        self.update_new_content_empty = get_generation_prompt_text(
+            "update", "new_content_empty", self.language,
+        )
+        self.update_transcript_empty = get_generation_prompt_text(
+            "update", "transcript_empty", self.language,
+        )
 
         self.format_instructions = self._build_format_instructions()
 
@@ -121,15 +144,15 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 prompt_messages = [
                     {
                         "role": "system",
-                        "content": PATCHOULI_WRITE_SYSTEM_PROMPT.format(
+                        "content": self.write_system_prompt.format(
                             format_instructions=self.format_instructions
                         ),
                     },
                     {
                         "role": "user",
-                        "content": PATCHOULI_WRITE_USER_PROMPT.format(
+                        "content": self.write_user_prompt.format(
                             write_content=metadata.get("write_content", ""),
-                            write_reason=metadata.get("write_reason", "(未提供)"),
+                            write_reason=metadata.get("write_reason") or self.write_reason_empty,
                             transcript=transcript,
                         ),
                     },
@@ -139,13 +162,13 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 prompt_messages = [
                     {
                         "role": "system",
-                        "content": self.system_prompt.format(
+                        "content": self.normal_system_prompt.format(
                             format_instructions=self.format_instructions
                         ),
                     },
                     {
                         "role": "user",
-                        "content": self.user_prompt.format(transcript=transcript),
+                        "content": self.normal_user_prompt.format(transcript=transcript),
                     },
                 ]
 
@@ -212,15 +235,15 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             prompt_messages = [
                 {
                     "role": "system",
-                    "content": PATCHOULI_UPDATE_SYSTEM_PROMPT,
+                    "content": self.update_system_prompt,
                 },
                 {
                     "role": "user",
-                    "content": PATCHOULI_UPDATE_USER_PROMPT.format(
+                    "content": self.update_user_prompt.format(
                         old_payload=old_content,
                         instruction=metadata.get("instruction", ""),
-                        new_content=new_content if new_content else "(无新素材，仅根据指令修改)",
-                        transcript=metadata.get("transcript", "(无背景对话)"),
+                        new_content=new_content or self.update_new_content_empty,
+                        transcript=metadata.get("transcript") or self.update_transcript_empty,
                         memory_title=metadata.get("memory_title", ""),
                         memory_alias=metadata.get("memory_alias", ""),
                     ),
@@ -288,6 +311,7 @@ class NoOpMemoryExtractor(BaseMemoryExtractor):
 def create_extractor(
     config: ExtractorConfig,
     llm_service: BaseLLMService,
+    default_language: str | None = None,
 ) -> BaseMemoryExtractor:
     """
     创建记忆提取器（支持配置）
@@ -315,6 +339,7 @@ def create_extractor(
     return LLMMemoryExtractor(
         llm_service=llm_service,
         config=config,
+        default_language=default_language,
     )
 
 

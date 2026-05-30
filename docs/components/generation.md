@@ -313,7 +313,6 @@ Generation 模块的行为通过 `ExtractorConfig` 和 `DeduplicatorConfig` 控�
 | 配置项 | 默认值 | 说明 |
 | :--- | :--- | :--- |
 | `extractor.enabled` | `true` | 是否启用 LLM 提取（禁用时使用 NoOp） |
-| `extractor.system_prompt` | 内置 | 可替换为自定义 Prompt |
 | `deduplicator.enabled` | `true` | 是否启用查重（禁用时总是 CREATE） |
 | `deduplicator.high_similarity_threshold` | `0.95` | TOUCH 判定阈值 |
 | `deduplicator.low_similarity_threshold` | `0.75` | CREATE/UPDATE 分界阈值 |

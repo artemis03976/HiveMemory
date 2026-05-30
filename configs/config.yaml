@@ -136,8 +136,6 @@ perception:
 generation:
   extractor:
     enabled: true
-    system_prompt: null  # 自定义系统提示词
-    user_prompt: null    # 自定义用户提示词
 
   deduplicator:
     enabled: true

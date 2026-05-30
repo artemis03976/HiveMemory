@@ -355,7 +355,8 @@ class PatchouliRuntime:
 
         extractor: BaseMemoryExtractor = create_extractor(
             config.extractor,
-            self.librarian_llm_service
+            self.librarian_llm_service,
+            default_language=self.config.i18n.default_language,
         )
 
         deduplicator: BaseDeduplicator = create_deduplicator(
