@@ -18,7 +18,7 @@ HistoryTranscriptBuilder 单测
 import pytest
 from hivememory.core.models import Identity, TurnEvent, TurnRecord
 from hivememory.engines.perception.models import LogicalBlock
-from hivememory.engines.perception.history_transcript_builder import HistoryTranscriptBuilder
+from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
 
 # ============ 辅助工厂 ============
