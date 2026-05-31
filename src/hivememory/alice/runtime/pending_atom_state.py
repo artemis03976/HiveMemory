@@ -4,15 +4,9 @@ PendingAtom 生命周期状态体系（统一版）。
 将散落的状态字符串与枚举收敛为三个正交维度：
 - Status: 生命周期阶段（PENDING / MATERIALIZING / SETTLED / FAILED / EXPIRED / CANCELLED）
 - Resolution: SETTLED 阶段下的终结分类（CREATED / MERGED / TOUCHED / UPDATED / DISCARDED）
-- Kind: WRITE / UPDATE 来源（暂由别名前缀承载，本模块不直接管理）
+- Kind: WRITE / UPDATE 来源（由 PendingAtom.source_verb 直接承载）
 
 设计依据：docs/mod/PendingAtomStatusUnificationDesign.md
-
-迁移分阶段进行：
-- Commit 1（本模块）：新增枚举与 PendingAtomSnapshot 视图，PendingAtomCache 暴露
-  snapshot(alias)，旧的 runtime.models.PendingAtomStatus 与 Settlement.status 暂不动。
-- Commit 2：Settlement.status -> resolution，Engine / Cache 切换为枚举。
-- Commit 3：Resolver / Compiler 派生路径收敛，删除旧 enum 与 status_map。
 """
 
 from __future__ import annotations
@@ -162,12 +156,9 @@ _LEGACY_STATUS_MAP: dict[
 def map_legacy_status(
     legacy_value: str,
 ) -> tuple[PendingAtomStatus, PendingAtomResolution | None]:
-    """
-    将旧 runtime.models.PendingAtomStatus 字符串映射到 (新 status, resolution)。
+    """旧 status 字符串 → 新 (status, resolution) 元组的兼容映射。
 
-    迁移期辅助：用于 PendingAtomCache.snapshot() 的 fallback 派生路径。
-    Commit 2 切换 Settlement 字段后，cache 内部直接使用新 status / resolution，
-    本函数仅在 Snapshot 派生路径中使用，无需删除。
+    保留作为外部 / 历史持久化数据的反序列化入口；运行期 PendingAtomCache 不再使用。
     """
     mapped = _LEGACY_STATUS_MAP.get(legacy_value)
     if mapped is None:

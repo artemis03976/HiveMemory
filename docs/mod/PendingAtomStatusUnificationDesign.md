@@ -14,9 +14,9 @@
 
 - 把当前散落在 `PendingAtomCache.PendingAtomStatus` (旧)、`Settlement.status` (字符串)、`MemoryGenerationResult.operation` (字符串)、`ResolveResult.kind` (独立词汇) 中的状态语义合并到一套权威定义。
 - 将"生命周期阶段"、"终结分类"、"对象种类"三件被混在一个字符串里的事，分到三个正交维度。
-- 为后续 `PendingAtomLifecycleService`（M2）、运行级 cache（M3）和 MemoryCompiler 表达边界整理提供干净的类型基底。
+- 为后续 `PendingAtomRuntime`（M2）、运行级 cache（M3）和 MemoryCompiler 表达边界整理提供干净的类型基底。
 
-本文不引入 LifecycleService 本身，也不动 cache 的作用域（仍是 runtime 级），仅完成枚举与 settlement 字段的语义统一。
+本文不引入 PendingAtomRuntime 本身，也不动 cache 的作用域（仍是 runtime 级），仅完成枚举与 settlement 字段的语义统一。
 
 ---
 
@@ -122,7 +122,7 @@
 
 ### 4.2 关于 `EXPIRED` 的引入
 
-本期只把枚举值定义出来，不实现转移逻辑。`EXPIRED` 的实际触发由 M3 run 级 cache + LifecycleService 的 `expire_run(run_id)` 统一驱动。本期预留枚举值，避免后续再做一轮"加状态值"的修改。
+本期只把枚举值定义出来，不实现转移逻辑。`EXPIRED` 的实际触发由 M3 run 级 cache + PendingAtomRuntime 的 `expire_run(run_id)` 统一驱动。本期预留枚举值，避免后续再做一轮"加状态值"的修改。
 
 ---
 
@@ -272,7 +272,7 @@ def kind_of(snapshot: PendingAtomSnapshot) -> ResolveKind:
     raise UnreachableError
 ```
 
-派生路径的具体落地建议放在 LifecycleService 引入之后再做（与 compiler handler 一并清理）；本期先把枚举与 settlement 字段统一，不强行牵连 resolver。
+派生路径的具体落地建议放在 PendingAtomRuntime 引入之后再做（与 compiler handler 一并清理）；本期先把枚举与 settlement 字段统一，不强行牵连 resolver。
 
 ---
 
@@ -323,7 +323,7 @@ def kind_of(snapshot: PendingAtomSnapshot) -> ResolveKind:
 ## 11. 与后续工作的衔接
 
 - **M1 模型分层**: 本期统一的 `(status, resolution)` 将作为 `PendingAtom`（生命周期实体）的字段；`PendingCommand` 和 `PendingIntent` 不持有这两个字段。
-- **M2 PendingAtomLifecycleService**: 服务的 `register/start_materializing/settle/fail/expire/cancel` 直接对应本期的状态机迁移；本期已经把这些迁移点的语义锁死，service 出现时只是把"分散调用"汇总到一个对象上，不再需要二次设计状态机。
+- **M2 PendingAtomRuntime**: 运行时中心的 `register/start_materializing/settle/fail/expire/cancel` 直接对应本期的状态机迁移；本期已经把这些迁移点的语义锁死，runtime 出现时只是把"分散调用"汇总到一个对象上，不再需要二次设计状态机。
 - **M3 Run 级 cache**: 本期不动 cache 作用域；但 `EXPIRED` 已经预留为 run 结束清扫的目标状态。
 - **MemoryCompiler 边界整理**: handler 不再需要类型守卫；可以直接以 `(status, resolution)` 作为输入 schema。
 

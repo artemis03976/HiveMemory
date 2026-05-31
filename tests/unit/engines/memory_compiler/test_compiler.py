@@ -310,7 +310,7 @@ class TestPendingAtomCompilation:
 
         return PendingAtom(
             pending_alias="rev_001",
-            status=PendingAtomStatus.REVISION,
+            status=PendingAtomStatus.PENDING,
             source_verb="UPDATE",
             focus=UpdateFocus(
                 base_alias="fact_api",

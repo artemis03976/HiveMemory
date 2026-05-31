@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING, Literal, Optional
 from uuid import UUID
 
 from hivememory.alice.runtime.cache import PendingAtomCache
-from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
+from hivememory.alice.runtime.models import PendingAtom
+from hivememory.alice.runtime.pending_atom_state import (
+    PendingAtomResolution,
+    PendingAtomStatus,
+)
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.core.mtp.exceptions import (
@@ -107,17 +111,10 @@ class RuntimeAliasResolver:
     ) -> ResolveResult:
         """Resolve an L0 pending entry, including settled redirect states."""
         settlement = pending.settlement or self._pending_cache.get_redirect(alias)
-        if pending.status in {PendingAtomStatus.PENDING, PendingAtomStatus.REVISION}:
+
+        if pending.status.is_in_flight:
             return ResolveResult(
                 kind="pending",
-                requested_alias=alias,
-                pending=pending,
-                settlement=settlement,
-            )
-
-        if pending.status == PendingAtomStatus.DISCARDED:
-            return ResolveResult(
-                kind="discarded",
                 requested_alias=alias,
                 pending=pending,
                 settlement=settlement,
@@ -131,25 +128,38 @@ class RuntimeAliasResolver:
                 settlement=settlement,
             )
 
-        if settlement is not None and (
-            settlement.canonical_alias or settlement.canonical_uuid
-        ):
-            atom = self._resolve_cached_canonical(settlement)
-            if atom is None and settlement.canonical_alias:
-                atom = await self._cold_lookup(settlement.canonical_alias, context)
+        if pending.status == PendingAtomStatus.SETTLED:
+            snapshot = self._pending_cache.snapshot(alias)
+            resolution = snapshot.resolution if snapshot else None
 
-            return ResolveResult(
-                kind="redirect",
-                requested_alias=alias,
-                canonical_alias=settlement.canonical_alias,
-                canonical_uuid=settlement.canonical_uuid,
-                pending=pending,
-                atom=atom,
-                settlement=settlement,
-            )
+            if resolution == PendingAtomResolution.DISCARDED:
+                return ResolveResult(
+                    kind="discarded",
+                    requested_alias=alias,
+                    pending=pending,
+                    settlement=settlement,
+                )
 
+            if settlement is not None and (
+                settlement.canonical_alias or settlement.canonical_uuid
+            ):
+                atom = self._resolve_cached_canonical(settlement)
+                if atom is None and settlement.canonical_alias:
+                    atom = await self._cold_lookup(settlement.canonical_alias, context)
+
+                return ResolveResult(
+                    kind="redirect",
+                    requested_alias=alias,
+                    canonical_alias=settlement.canonical_alias,
+                    canonical_uuid=settlement.canonical_uuid,
+                    pending=pending,
+                    atom=atom,
+                    settlement=settlement,
+                )
+
+        # EXPIRED / CANCELLED 暂不区分，统一视为 not_found
         return ResolveResult(
-            kind="pending",
+            kind="not_found",
             requested_alias=alias,
             pending=pending,
             settlement=settlement,

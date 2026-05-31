@@ -45,9 +45,7 @@ def compile_pending_atom(
 
 
 def _render_read(pending: "PendingAtom") -> str:
-    from hivememory.alice.runtime.models import PendingAtomStatus
-
-    if pending.status == PendingAtomStatus.REVISION:
+    if pending.source_verb == "UPDATE":
         return _render_revision_read(pending)
     return _render_draft_read(pending)
 
@@ -101,10 +99,9 @@ def _render_revision_read(pending: "PendingAtom") -> str:
 
 
 def _render_ack(pending: "PendingAtom") -> str:
-    from hivememory.alice.runtime.models import PendingAtomStatus
     from hivememory.engines.generation.models import UpdateFocus
 
-    if pending.status == PendingAtomStatus.REVISION:
+    if pending.source_verb == "UPDATE":
         focus = pending.focus
         if not isinstance(focus, UpdateFocus):
             raise TypeError("UPDATE pending atom must carry UpdateFocus.")

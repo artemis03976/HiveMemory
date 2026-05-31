@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
+from hivememory.alice.runtime.pending_atom_state import PendingAtomStatus
 from hivememory.core.models import AgentProfile, Identity
 from hivememory.engines.generation.models import (
     PendingAtomSettlement,
@@ -14,20 +14,6 @@ from hivememory.engines.generation.models import (
     WriteFocus,
 )
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class PendingAtomStatus(str, Enum):
-    """Pending atom 的运行时状态。"""
-
-    PENDING = "pending"
-    REVISION = "revision"
-    # Phase 2: settlement states
-    COMMITTED = "committed"
-    MERGED = "merged"
-    UPDATED = "updated"
-    TOUCHED = "touched"
-    DISCARDED = "discarded"
-    FAILED = "failed"
 
 
 class RuntimeScope(BaseModel):

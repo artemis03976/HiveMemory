@@ -17,12 +17,11 @@ from collections import OrderedDict
 from typing import Dict, List, Optional
 from uuid import uuid4
 
-from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus, RuntimeScope
+from hivememory.alice.runtime.models import PendingAtom, RuntimeScope
 from hivememory.alice.runtime.pending_atom_state import (
     PendingAtomResolution,
     PendingAtomSnapshot,
-    PendingAtomStatus as LifecycleStatus,
-    map_legacy_status,
+    PendingAtomStatus,
 )
 from hivememory.core.models import AgentProfile, Identity, MemoryAtom, MemoryType
 from hivememory.engines.generation.models import PendingAtomSettlement, UpdateFocus, WriteFocus
@@ -52,9 +51,6 @@ class PendingAtomCache:
         self._intent_index: Dict[str, str] = {}
         self._redirects: Dict[str, PendingAtomSettlement] = {}
         self._canonical_index: Dict[str, List[str]] = {}
-        # Commit 1: 新统一状态体系的内部字段。
-        # 旧 atom.status (runtime.models.PendingAtomStatus) 仍是事实真相，
-        # _resolution 仅在结算时填充。Commit 2 后旧 enum 退役，迁移到这里。
         self._resolution: Dict[str, PendingAtomResolution] = {}
 
     def register_write(
@@ -122,7 +118,7 @@ class PendingAtomCache:
         atom = PendingAtom(
             pending_alias=pending_alias,
             intent_id=intent_id,
-            status=PendingAtomStatus.REVISION,
+            status=PendingAtomStatus.PENDING,
             source_verb="UPDATE",
             focus=focus,
             identity=identity,
@@ -155,20 +151,7 @@ class PendingAtomCache:
             )
             return
 
-        # Commit 2: settlement.resolution 是终结分类的唯一真相源；
-        # 旧 PendingAtomStatus 仅作为 resolver 等遗留路径的兼容映射，
-        # Commit 3 将随旧 enum 一并退役。
-        legacy_status_map = {
-            PendingAtomResolution.CREATED: PendingAtomStatus.COMMITTED,
-            PendingAtomResolution.MERGED: PendingAtomStatus.MERGED,
-            PendingAtomResolution.UPDATED: PendingAtomStatus.UPDATED,
-            PendingAtomResolution.TOUCHED: PendingAtomStatus.TOUCHED,
-            PendingAtomResolution.DISCARDED: PendingAtomStatus.DISCARDED,
-        }
-        legacy_status = legacy_status_map.get(settlement.resolution)
-        if legacy_status is not None:
-            atom.status = legacy_status
-
+        atom.status = PendingAtomStatus.SETTLED
         self._resolution[atom.pending_alias] = settlement.resolution
 
         atom.settlement = settlement
@@ -221,14 +204,11 @@ class PendingAtomCache:
 
     def snapshot(self, pending_alias: str) -> Optional[PendingAtomSnapshot]:
         """
-        返回 pending alias 对应的统一状态视图（Commit 1 新增入口）。
-
-        外部消费者（compiler / resolver / 视图层）应改为读取本视图，避免
-        直接消费旧 ``PendingAtom.status`` 字符串与 ``Settlement.status``。
+        返回 pending alias 对应的统一状态视图。
 
         派生路径：
         - 已结算（``self._resolution`` 命中）：status=SETTLED + 对应 resolution
-        - 未结算或非结算终态：从 ``atom.status`` 通过 ``map_legacy_status`` 派生
+        - 未结算：直接读取 ``atom.status``（来自统一 ``PendingAtomStatus``）
         """
         atom = self._atoms.get(pending_alias)
         if atom is None:
@@ -245,38 +225,18 @@ class PendingAtomCache:
                 canonical_uuid = None
             return PendingAtomSnapshot(
                 pending_alias=pending_alias,
-                status=LifecycleStatus.SETTLED,
+                status=PendingAtomStatus.SETTLED,
                 resolution=resolution,
                 canonical_alias=canonical_alias,
                 canonical_uuid=canonical_uuid,
             )
 
-        legacy_value = (
-            atom.status.value
-            if hasattr(atom.status, "value")
-            else str(atom.status)
-        )
-        try:
-            new_status, derived_resolution = map_legacy_status(legacy_value)
-        except ValueError:
-            logger.warning(
-                f"Unknown legacy status '{legacy_value}' for alias '{pending_alias}', "
-                f"falling back to PENDING"
-            )
-            new_status, derived_resolution = LifecycleStatus.PENDING, None
-
-        canonical_alias = settlement.canonical_alias if settlement else None
-        canonical_uuid = settlement.canonical_uuid if settlement else None
-        if derived_resolution is None or not derived_resolution.has_canonical:
-            canonical_alias = None
-            canonical_uuid = None
-
         return PendingAtomSnapshot(
             pending_alias=pending_alias,
-            status=new_status,
-            resolution=derived_resolution,
-            canonical_alias=canonical_alias,
-            canonical_uuid=canonical_uuid,
+            status=atom.status,
+            resolution=None,
+            canonical_alias=None,
+            canonical_uuid=None,
         )
 
     def clear(self) -> None:
