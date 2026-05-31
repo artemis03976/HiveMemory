@@ -721,7 +721,7 @@ class TestKoakumaUpdateValidation:
         assert result.update_focus is None
 
     def test_pending_alias_rejected(self, validation_koakuma):
-        pending = validation_koakuma.pending_cache.register_write(
+        pending = validation_koakuma.pending_runtime.register_write(
             content="pending content",
             title="Pending Note",
             reason=None,
@@ -771,7 +771,7 @@ class TestKoakumaUpdateValidation:
         assert result.success
         assert result.update_focus is not None
         assert result.update_focus.instruction == "test"
-        pending = koakuma.pending_cache.get(result.pending_alias)
+        pending = koakuma.pending_runtime.get(result.pending_alias)
         assert pending is not None
         assert pending.runtime_scope.run_id == "run_update_test"
         assert pending.runtime_scope.frame_id == "frame_main_update"

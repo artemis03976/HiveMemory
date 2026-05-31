@@ -6,15 +6,15 @@ PendingAtom 统一状态体系单元测试 (Commit 1)。
 - 状态机合法/非法迁移
 - PendingAtomSnapshot 不变量校验
 - map_legacy_status 兼容映射
-- PendingAtomCache.snapshot() 派生路径（未结算 / SETTLED 各类 resolution）
+- PendingAtomRuntime.snapshot() 派生路径（未结算 / SETTLED 各类 resolution）
 """
 
 from __future__ import annotations
 
 import pytest
 
-from hivememory.alice.runtime.cache import PendingAtomCache
-from hivememory.alice.runtime.pending_atom_state import (
+from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
+from hivememory.alice.runtime.pending_atom.state import (
     PendingAtomResolution,
     PendingAtomSnapshot,
     PendingAtomStatus,
@@ -206,7 +206,7 @@ class TestLegacyMapping:
 
 
 # ---------------------------------------------------------------------------
-# PendingAtomCache.snapshot() 派生
+# PendingAtomRuntime.snapshot() 派生
 # ---------------------------------------------------------------------------
 
 
@@ -216,8 +216,8 @@ def identity():
 
 
 @pytest.fixture
-def cache():
-    return PendingAtomCache()
+def runtime():
+    return PendingAtomRuntime()
 
 
 def _make_settlement(
@@ -239,121 +239,121 @@ def _make_settlement(
     )
 
 
-class TestPendingAtomCacheSnapshot:
-    def test_snapshot_unknown_alias_returns_none(self, cache):
-        assert cache.snapshot("nonexistent") is None
+class TestPendingAtomRuntimeSnapshot:
+    def test_snapshot_unknown_alias_returns_none(self, runtime):
+        assert runtime.snapshot("nonexistent") is None
 
-    def test_fresh_write_snapshot_is_pending(self, cache, identity):
-        atom = cache.register_write(
+    def test_fresh_write_snapshot_is_pending(self, runtime, identity):
+        atom = runtime.register_write(
             content="hello",
             title="Hello",
             reason=None,
             identity=identity,
         )
-        snap = cache.snapshot(atom.pending_alias)
+        snap = runtime.snapshot(atom.pending_alias)
         assert snap is not None
         assert snap.status == PendingAtomStatus.PENDING
         assert snap.resolution is None
         assert snap.canonical_uuid is None
 
-    def test_fresh_update_snapshot_is_pending(self, cache, identity):
-        atom = cache.register_update(
+    def test_fresh_update_snapshot_is_pending(self, runtime, identity):
+        atom = runtime.register_update(
             base_alias="fact_x",
             base_uuid="uuid-base",
             instruction="patch it",
             content="new content",
             identity=identity,
         )
-        snap = cache.snapshot(atom.pending_alias)
+        snap = runtime.snapshot(atom.pending_alias)
         assert snap is not None
         # 旧 status=REVISION 在新体系下都是 PENDING
         assert snap.status == PendingAtomStatus.PENDING
         assert snap.resolution is None
 
-    def test_committed_settlement_yields_settled_created(self, cache, identity):
-        atom = cache.register_write(
+    def test_committed_settlement_yields_settled_created(self, runtime, identity):
+        atom = runtime.register_write(
             content="hello", title="Hello", reason=None, identity=identity,
         )
-        cache.apply_settlement(_make_settlement(
+        runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
             canonical_alias="fact_hello",
             canonical_uuid="uuid-1",
         ))
-        snap = cache.snapshot(atom.pending_alias)
+        snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.CREATED
         assert snap.canonical_alias == "fact_hello"
         assert snap.canonical_uuid == "uuid-1"
 
-    def test_merged_settlement_yields_settled_merged(self, cache, identity):
-        atom = cache.register_write(
+    def test_merged_settlement_yields_settled_merged(self, runtime, identity):
+        atom = runtime.register_write(
             content="dup", title="Dup", reason=None, identity=identity,
         )
-        cache.apply_settlement(_make_settlement(
+        runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.MERGED,
             canonical_alias="fact_dup",
             canonical_uuid="uuid-2",
         ))
-        snap = cache.snapshot(atom.pending_alias)
+        snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.MERGED
         assert snap.canonical_uuid == "uuid-2"
 
-    def test_touched_settlement_yields_settled_touched(self, cache, identity):
-        atom = cache.register_write(
+    def test_touched_settlement_yields_settled_touched(self, runtime, identity):
+        atom = runtime.register_write(
             content="touch", title="Touch", reason=None, identity=identity,
         )
-        cache.apply_settlement(_make_settlement(
+        runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.TOUCHED,
             canonical_alias="fact_touch",
             canonical_uuid="uuid-3",
         ))
-        snap = cache.snapshot(atom.pending_alias)
+        snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.TOUCHED
 
-    def test_updated_settlement_yields_settled_updated(self, cache, identity):
-        atom = cache.register_update(
+    def test_updated_settlement_yields_settled_updated(self, runtime, identity):
+        atom = runtime.register_update(
             base_alias="fact_x",
             base_uuid="uuid-base",
             instruction="patch",
             content=None,
             identity=identity,
         )
-        cache.apply_settlement(_make_settlement(
+        runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.UPDATED,
             canonical_alias="fact_x",
             canonical_uuid="uuid-base",
         ))
-        snap = cache.snapshot(atom.pending_alias)
+        snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.UPDATED
         assert snap.canonical_uuid == "uuid-base"
 
-    def test_discarded_settlement_strips_canonical(self, cache, identity):
+    def test_discarded_settlement_strips_canonical(self, runtime, identity):
         """DISCARDED 不应该携带 canonical_uuid，即便 settlement 端误传也要被剔除。"""
-        atom = cache.register_write(
+        atom = runtime.register_write(
             content="lowq", title="LowQ", reason=None, identity=identity,
         )
-        cache.apply_settlement(_make_settlement(
+        runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.DISCARDED,
         ))
-        snap = cache.snapshot(atom.pending_alias)
+        snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.DISCARDED
         assert snap.canonical_alias is None
         assert snap.canonical_uuid is None
 
-    def test_clear_resets_resolution_index(self, cache, identity):
-        atom = cache.register_write(
+    def test_clear_resets_resolution_index(self, runtime, identity):
+        atom = runtime.register_write(
             content="x", title="X", reason=None, identity=identity,
         )
-        cache.apply_settlement(_make_settlement(
+        runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
             canonical_alias="fact_x",
             canonical_uuid="uuid-x",
         ))
-        assert cache.snapshot(atom.pending_alias).resolution is not None
+        assert runtime.snapshot(atom.pending_alias).resolution is not None
 
-        cache.clear()
-        assert cache.snapshot(atom.pending_alias) is None
+        runtime.clear()
+        assert runtime.snapshot(atom.pending_alias) is None

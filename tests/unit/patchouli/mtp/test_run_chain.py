@@ -296,7 +296,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
 
     def test_redirected_pending_alias_executes_canonical_tool(self, koakuma):
-        pending = koakuma.pending_cache.register_write(
+        pending = koakuma.pending_runtime.register_write(
             content="pending tool",
             title="Pending Tool",
             reason=None,
@@ -307,7 +307,7 @@ class TestRunUserToolPath:
             alias="tool_canonical",
         )
         koakuma.atom_cache.ingest_atom(canonical)
-        koakuma.pending_cache.apply_settlement(
+        koakuma.pending_runtime.settle(
             PendingAtomSettlement(
                 pending_alias=pending.pending_alias,
                 intent_id=pending.intent_id,

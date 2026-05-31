@@ -40,8 +40,9 @@ from hivememory.core.mtp import (
     MTPParseError,
     MTPFormatter,
 )
-from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
+from hivememory.alice.runtime.cache import KoakumaAtomCache
 from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget, MemoryCompileOptions
 from hivememory.core.protocol.models import (
@@ -102,7 +103,7 @@ class KoakumaRuntime:
         Args:
             bus: AliceBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
-            pending_cache: 共享的 PendingAtomCache 实例 (由 AliceRuntime 注入)
+            pending_runtime: 共享的 PendingAtomRuntime 实例 (由 AliceRuntime 注入)
         """
         from hivememory.system.config import KoakumaConfig
 
@@ -290,9 +291,9 @@ class KoakumaRuntime:
         return self._alias_resolver.atom_cache
 
     @property
-    def pending_cache(self) -> PendingAtomCache:
-        """访问运行时 pending atom 缓存"""
-        return self._alias_resolver.pending_cache
+    def pending_runtime(self) -> PendingAtomRuntime:
+        """访问运行时 pending atom 管理中心"""
+        return self._alias_resolver.pending_runtime
 
     # ========== 内部路由 ==========
 
@@ -692,7 +693,7 @@ class KoakumaRuntime:
         title = command.args.get("title", "")
 
         # 注册 pending atom 并生成 pending alias
-        pending = self.pending_cache.register_write(
+        pending = self.pending_runtime.register_write(
             content=content,
             title=title or None,
             reason=reason or None,
@@ -773,7 +774,7 @@ class KoakumaRuntime:
         content = command.args.get("content", None)
 
         # 5. 注册 pending revision
-        pending = self.pending_cache.register_update(
+        pending = self.pending_runtime.register_update(
             base_alias=alias,
             base_uuid=uuid,
             instruction=instruction,

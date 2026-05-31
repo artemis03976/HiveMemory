@@ -9,8 +9,9 @@ from hivememory.core.protocol.models import AgentRunContext, ChatResult
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
+from hivememory.alice.runtime.cache import KoakumaAtomCache
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.alice.runtime.agent.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
@@ -36,10 +37,10 @@ class AliceRuntime:
         self._local_routes_registered = False
         self._global_events_registered = False
 
-        self._pending_cache = PendingAtomCache()
+        self._pending_runtime = PendingAtomRuntime()
         self._atom_cache = KoakumaAtomCache()
         self._alias_resolver = RuntimeAliasResolver(
-            pending_cache=self._pending_cache,
+            pending_runtime=self._pending_runtime,
             atom_cache=self._atom_cache,
             bus=self._local_bus,
         )
@@ -75,7 +76,7 @@ class AliceRuntime:
 
     async def _on_pending_atom_settled(self, *, settlement) -> None:
         """Handle settlement event from Patchouli generation pipeline."""
-        self._pending_cache.apply_settlement(settlement)
+        self._pending_runtime.settle(settlement)
         await self._refresh_l1_cache_for_settlement(settlement)
         logger.info(
             f"Settlement applied: {settlement.pending_alias} -> "

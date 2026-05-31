@@ -510,7 +510,7 @@ class TestKoakumaWriteE2E:
         assert result.success
         assert result.write_focus is not None
         assert result.write_focus.content == "test"
-        pending = koakuma.pending_cache.get(result.pending_alias)
+        pending = koakuma.pending_runtime.get(result.pending_alias)
         assert pending is not None
         assert pending.runtime_scope.run_id == "run_write_test"
         assert pending.runtime_scope.frame_id == "frame_main_write"
