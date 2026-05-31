@@ -79,7 +79,7 @@ class AliceRuntime:
         await self._refresh_l1_cache_for_settlement(settlement)
         logger.info(
             f"Settlement applied: {settlement.pending_alias} -> "
-            f"{settlement.status} (canonical={settlement.canonical_alias})"
+            f"{settlement.resolution.value} (canonical={settlement.canonical_alias})"
         )
 
     async def _refresh_l1_cache_for_settlement(self, settlement) -> None:

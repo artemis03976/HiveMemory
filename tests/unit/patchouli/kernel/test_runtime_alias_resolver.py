@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
 from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.core.models import (
     Identity,
@@ -14,6 +15,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
+from hivememory.engines.generation.interfaces import DuplicateDecision
 from hivememory.engines.generation.models import PendingAtomSettlement
 
 from tests.unit.patchouli.mtp.conftest import make_mock_bus
@@ -78,8 +80,8 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
-        status="COMMITTED",
-        duplicate_decision="CREATE",
+        resolution=PendingAtomResolution.CREATED,
+        duplicate_decision=DuplicateDecision.CREATE,
         canonical_alias="fact_canonical",
         canonical_uuid=str(canonical.id),
     )
@@ -115,8 +117,8 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
-        status="MERGED",
-        duplicate_decision="UPDATE",
+        resolution=PendingAtomResolution.MERGED,
+        duplicate_decision=DuplicateDecision.UPDATE,
         canonical_alias="fact_canonical",
         canonical_uuid=str(canonical.id),
     )
@@ -141,8 +143,8 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
-        status="DISCARDED",
-        duplicate_decision="DISCARD",
+        resolution=PendingAtomResolution.DISCARDED,
+        duplicate_decision=DuplicateDecision.DISCARD,
         message="Not materialized.",
     )
 

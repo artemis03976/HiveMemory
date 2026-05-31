@@ -155,30 +155,21 @@ class PendingAtomCache:
             )
             return
 
-        status_map = {
-            "COMMITTED": PendingAtomStatus.COMMITTED,
-            "MERGED": PendingAtomStatus.MERGED,
-            "UPDATED": PendingAtomStatus.UPDATED,
-            "TOUCHED": PendingAtomStatus.TOUCHED,
-            "DISCARDED": PendingAtomStatus.DISCARDED,
-            "FAILED": PendingAtomStatus.FAILED,
+        # Commit 2: settlement.resolution 是终结分类的唯一真相源；
+        # 旧 PendingAtomStatus 仅作为 resolver 等遗留路径的兼容映射，
+        # Commit 3 将随旧 enum 一并退役。
+        legacy_status_map = {
+            PendingAtomResolution.CREATED: PendingAtomStatus.COMMITTED,
+            PendingAtomResolution.MERGED: PendingAtomStatus.MERGED,
+            PendingAtomResolution.UPDATED: PendingAtomStatus.UPDATED,
+            PendingAtomResolution.TOUCHED: PendingAtomStatus.TOUCHED,
+            PendingAtomResolution.DISCARDED: PendingAtomStatus.DISCARDED,
         }
-        new_status = status_map.get(settlement.status)
-        if new_status:
-            atom.status = new_status
+        legacy_status = legacy_status_map.get(settlement.resolution)
+        if legacy_status is not None:
+            atom.status = legacy_status
 
-        # Commit 1: 同步派生新统一体系的 resolution。Commit 2 之后将以本字段为
-        # 唯一真相源，atom.status 与 status_map 一并退役。
-        resolution_map = {
-            "COMMITTED": PendingAtomResolution.CREATED,
-            "MERGED": PendingAtomResolution.MERGED,
-            "UPDATED": PendingAtomResolution.UPDATED,
-            "TOUCHED": PendingAtomResolution.TOUCHED,
-            "DISCARDED": PendingAtomResolution.DISCARDED,
-        }
-        derived_resolution = resolution_map.get(settlement.status)
-        if derived_resolution is not None:
-            self._resolution[atom.pending_alias] = derived_resolution
+        self._resolution[atom.pending_alias] = settlement.resolution
 
         atom.settlement = settlement
         if settlement.canonical_alias or settlement.canonical_uuid:
@@ -193,7 +184,8 @@ class PendingAtomCache:
 
         logger.debug(
             f"Settlement applied to '{atom.pending_alias}': "
-            f"status={atom.status.value}, canonical={settlement.canonical_alias}"
+            f"resolution={settlement.resolution.value}, "
+            f"canonical={settlement.canonical_alias}"
         )
 
     def get(self, pending_alias: str) -> Optional[PendingAtom]:

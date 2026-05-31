@@ -392,7 +392,7 @@ class TestGenerationEngineDedup:
 
         self.mock_storage.update_access_info.assert_called_once_with(existing.id)
         assert result[0].atom is existing
-        assert result[0].operation == "touched"
+        assert result[0].duplicate_decision == DuplicateDecision.TOUCH
 
     def test_dedup_update(self):
         """UPDATE 决策合并内容并重新保存"""
@@ -408,7 +408,7 @@ class TestGenerationEngineDedup:
         self.mock_deduplicator.merge_memory.assert_called_once_with(existing, draft)
         self.mock_storage.upsert_memory.assert_called_once()
         assert result[0].atom is merged
-        assert result[0].operation == "merged"
+        assert result[0].duplicate_decision == DuplicateDecision.UPDATE
 
     def test_dedup_create(self):
         """CREATE 决策创建新记忆"""
@@ -431,7 +431,7 @@ class TestGenerationEngineDedup:
 
         assert len(result) == 1
         assert result[0].atom is None
-        assert result[0].operation == "discarded"
+        assert result[0].duplicate_decision == DuplicateDecision.DISCARD
         self.mock_storage.upsert_memory.assert_not_called()
 
 

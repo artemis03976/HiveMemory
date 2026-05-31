@@ -368,6 +368,7 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def redirect_resolve(self, sample_atom):
+        from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
         from hivememory.alice.runtime.resolver import ResolveResult
         from hivememory.engines.generation.models import PendingAtomSettlement
 
@@ -379,13 +380,14 @@ class TestResolveResultCompilation:
             settlement=PendingAtomSettlement(
                 pending_alias="draft_old",
                 intent_id="intent-1",
-                status="COMMITTED",
+                resolution=PendingAtomResolution.CREATED,
                 canonical_alias="fact_api",
             ),
         )
 
     @pytest.fixture
     def discarded_resolve(self):
+        from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
         from hivememory.alice.runtime.resolver import ResolveResult
         from hivememory.engines.generation.models import PendingAtomSettlement
 
@@ -395,7 +397,7 @@ class TestResolveResultCompilation:
             settlement=PendingAtomSettlement(
                 pending_alias="draft_bad",
                 intent_id="intent-2",
-                status="DISCARDED",
+                resolution=PendingAtomResolution.DISCARDED,
                 message="Duplicate content",
                 reason="Merged with existing memory",
             ),

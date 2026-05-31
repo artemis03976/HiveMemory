@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
+from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.alice.system import AliceSystem
 from hivememory.core.models import (
     IndexLayer,
@@ -14,6 +15,7 @@ from hivememory.core.models import (
     MetaData,
     PayloadLayer,
 )
+from hivememory.engines.generation.interfaces import DuplicateDecision
 from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
@@ -193,8 +195,8 @@ class TestAlicePublicRoutes:
         settlement = PendingAtomSettlement(
             pending_alias="draft_memory_1234",
             intent_id="intent_1234",
-            status="COMMITTED",
-            duplicate_decision="CREATE",
+            resolution=PendingAtomResolution.CREATED,
+            duplicate_decision=DuplicateDecision.CREATE,
             canonical_alias="fact_canonical",
             canonical_uuid=str(fresh_atom.id),
         )

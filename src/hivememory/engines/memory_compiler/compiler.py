@@ -100,7 +100,13 @@ class MemoryCompiler:
             return compile_resolve_result(source, target, options)
 
         if isinstance(source, PendingAtomSettlement):
-            kind = source.status.lower() if source.status in {"DISCARDED", "FAILED"} else "redirect"
+            from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
+
+            kind = (
+                "discarded"
+                if source.resolution == PendingAtomResolution.DISCARDED
+                else "redirect"
+            )
             resolve = ResolveResult(
                 kind=kind,
                 requested_alias=source.pending_alias,

@@ -223,7 +223,7 @@ def cache():
 def _make_settlement(
     pending_alias: str,
     intent_id: str,
-    status: str,
+    resolution: PendingAtomResolution,
     *,
     canonical_alias: str | None = None,
     canonical_uuid: str | None = None,
@@ -231,7 +231,7 @@ def _make_settlement(
     return PendingAtomSettlement(
         pending_alias=pending_alias,
         intent_id=intent_id,
-        status=status,
+        resolution=resolution,
         duplicate_decision=None,
         canonical_alias=canonical_alias,
         canonical_uuid=canonical_uuid,
@@ -275,7 +275,7 @@ class TestPendingAtomCacheSnapshot:
             content="hello", title="Hello", reason=None, identity=identity,
         )
         cache.apply_settlement(_make_settlement(
-            atom.pending_alias, atom.intent_id, "COMMITTED",
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
             canonical_alias="fact_hello",
             canonical_uuid="uuid-1",
         ))
@@ -290,7 +290,7 @@ class TestPendingAtomCacheSnapshot:
             content="dup", title="Dup", reason=None, identity=identity,
         )
         cache.apply_settlement(_make_settlement(
-            atom.pending_alias, atom.intent_id, "MERGED",
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.MERGED,
             canonical_alias="fact_dup",
             canonical_uuid="uuid-2",
         ))
@@ -304,7 +304,7 @@ class TestPendingAtomCacheSnapshot:
             content="touch", title="Touch", reason=None, identity=identity,
         )
         cache.apply_settlement(_make_settlement(
-            atom.pending_alias, atom.intent_id, "TOUCHED",
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.TOUCHED,
             canonical_alias="fact_touch",
             canonical_uuid="uuid-3",
         ))
@@ -321,7 +321,7 @@ class TestPendingAtomCacheSnapshot:
             identity=identity,
         )
         cache.apply_settlement(_make_settlement(
-            atom.pending_alias, atom.intent_id, "UPDATED",
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.UPDATED,
             canonical_alias="fact_x",
             canonical_uuid="uuid-base",
         ))
@@ -336,7 +336,7 @@ class TestPendingAtomCacheSnapshot:
             content="lowq", title="LowQ", reason=None, identity=identity,
         )
         cache.apply_settlement(_make_settlement(
-            atom.pending_alias, atom.intent_id, "DISCARDED",
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.DISCARDED,
         ))
         snap = cache.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
@@ -344,24 +344,12 @@ class TestPendingAtomCacheSnapshot:
         assert snap.canonical_alias is None
         assert snap.canonical_uuid is None
 
-    def test_failed_settlement_yields_failed_status(self, cache, identity):
-        atom = cache.register_write(
-            content="boom", title="Boom", reason=None, identity=identity,
-        )
-        cache.apply_settlement(_make_settlement(
-            atom.pending_alias, atom.intent_id, "FAILED",
-        ))
-        snap = cache.snapshot(atom.pending_alias)
-        # FAILED 没有 resolution，走 legacy 派生路径
-        assert snap.status == PendingAtomStatus.FAILED
-        assert snap.resolution is None
-
     def test_clear_resets_resolution_index(self, cache, identity):
         atom = cache.register_write(
             content="x", title="X", reason=None, identity=identity,
         )
         cache.apply_settlement(_make_settlement(
-            atom.pending_alias, atom.intent_id, "COMMITTED",
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
             canonical_alias="fact_x",
             canonical_uuid="uuid-x",
         ))

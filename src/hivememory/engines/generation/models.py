@@ -2,9 +2,10 @@
 HiveMemory Generation 模块数据模型
 """
 from enum import Enum
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
+from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.core.models import Identity
 
 
@@ -230,11 +231,16 @@ class PendingAtomSettlement(BaseModel):
 
     由 GenerationEngine 在生成完成后产出，通过 GlobalSystemBus 回填到 AliceRuntime。
     只有 MTP WRITE/UPDATE 触发的主动写入链路（携带 intent_id）才会生成 settlement。
+
+    Note:
+        ``resolution`` 直接以 ``PendingAtomResolution`` 强类型表达终结分类。
+        ``FAILED`` 不属于 resolution（生命周期阶段而非结算分类），通过 ``error`` 字段
+        与上游 ``PendingAtomStatus.FAILED`` 协同表达。
     """
     pending_alias: str
     intent_id: str
-    status: Literal["COMMITTED", "MERGED", "UPDATED", "TOUCHED", "DISCARDED", "FAILED"]
-    duplicate_decision: Optional[Literal["CREATE", "UPDATE", "TOUCH", "DISCARD"]] = None
+    resolution: PendingAtomResolution
+    duplicate_decision: Optional[DuplicateDecision] = None
     canonical_alias: Optional[str] = None
     canonical_uuid: Optional[str] = None
     message: str = ""
@@ -248,6 +254,9 @@ class MemoryGenerationResult(BaseModel):
 
     替代原有 List[MemoryAtom] 返回值，携带 intent 追踪和 settlement 信息。
     被动生成（Mode A）中 intent_id/pending_alias/settlement 均为 None。
+
+    Note:
+        终结分类不再独立携带；调用方应改读 ``settlement.resolution``。
     """
     intent_id: Optional[str] = None
     pending_alias: Optional[str] = None
@@ -256,8 +265,7 @@ class MemoryGenerationResult(BaseModel):
     canonical_alias: Optional[str] = None
     canonical_uuid: Optional[str] = None
 
-    duplicate_decision: Optional[Literal["CREATE", "UPDATE", "TOUCH", "DISCARD"]] = None
-    operation: Literal["created", "merged", "touched", "discarded", "updated", "failed"]
+    duplicate_decision: Optional[DuplicateDecision] = None
 
     settlement: Optional[PendingAtomSettlement] = None
     message: Optional[str] = None

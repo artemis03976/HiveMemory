@@ -36,7 +36,7 @@ def compile_pending_atom(
         text=text,
         source_kind="pending",
         alias=pending.pending_alias,
-        status=pending.status.value if hasattr(pending.status, "value") else str(pending.status),
+        status=pending.status.value,
         metadata={
             "requested_alias": options.requested_alias,
             "canonical_alias": options.canonical_alias,
@@ -128,7 +128,7 @@ def _render_redirect_read(
     atom: "MemoryAtom",
     settlement: "PendingAtomSettlement | None" = None,
 ) -> str:
-    status = settlement.status.lower() if settlement else "redirected"
+    status = settlement.resolution.value if settlement else "redirected"
     lines = [
         "[Alias Redirected]",
         f"Requested alias: {requested_alias}",
@@ -149,7 +149,7 @@ def _render_redirect_run_notice(
     canonical_alias: str,
     settlement: "PendingAtomSettlement | None" = None,
 ) -> str:
-    status = settlement.status.lower() if settlement else "redirected"
+    status = settlement.resolution.value if settlement else "redirected"
     return "\n".join(
         [
             "[Alias Redirected]",
@@ -167,7 +167,7 @@ def _render_settled_without_atom(
     requested_alias: str,
     settlement: "PendingAtomSettlement | None",
 ) -> str:
-    status = settlement.status.lower() if settlement else "settled"
+    status = settlement.resolution.value if settlement else "settled"
     message = settlement.message if settlement and settlement.message else ""
     reason = settlement.reason if settlement and settlement.reason else ""
     lines = [

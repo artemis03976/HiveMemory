@@ -24,6 +24,8 @@ from hivememory.core.models import (
 )
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
+from hivememory.engines.generation.interfaces import DuplicateDecision
 from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.system.config import KoakumaConfig
 
@@ -163,8 +165,8 @@ class TestReadAliasResolution:
             PendingAtomSettlement(
                 pending_alias=pending.pending_alias,
                 intent_id=pending.intent_id,
-                status="COMMITTED",
-                duplicate_decision="CREATE",
+                resolution=PendingAtomResolution.CREATED,
+                duplicate_decision=DuplicateDecision.CREATE,
                 canonical_alias="fact_canonical",
                 canonical_uuid=str(canonical.id),
             )
@@ -194,8 +196,8 @@ class TestReadAliasResolution:
             PendingAtomSettlement(
                 pending_alias=pending.pending_alias,
                 intent_id=pending.intent_id,
-                status="DISCARDED",
-                duplicate_decision="DISCARD",
+                resolution=PendingAtomResolution.DISCARDED,
+                duplicate_decision=DuplicateDecision.DISCARD,
                 message="Not materialized.",
             )
         )

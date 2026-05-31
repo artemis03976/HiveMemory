@@ -19,6 +19,7 @@ import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 
+from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Identity
 from hivememory.engines.generation.models import (
@@ -321,9 +322,9 @@ class MemoryGenerationEngine:
             canonical_alias=memory.get_alias(),
             canonical_uuid=str(memory.id),
             duplicate_decision=None,
-            operation="updated",
             settlement=self._build_settlement(
-                intent_id, pending_alias, "UPDATED", None,
+                intent_id, pending_alias,
+                PendingAtomResolution.UPDATED, None,
                 memory,
             ),
         )]
@@ -353,10 +354,10 @@ class MemoryGenerationEngine:
                 atom=existing_memory,
                 canonical_alias=existing_memory.get_alias(),
                 canonical_uuid=str(existing_memory.id),
-                duplicate_decision="TOUCH",
-                operation="touched",
+                duplicate_decision=DuplicateDecision.TOUCH,
                 settlement=self._build_settlement(
-                    intent_id, pending_alias, "TOUCHED", "TOUCH",
+                    intent_id, pending_alias,
+                    PendingAtomResolution.TOUCHED, DuplicateDecision.TOUCH,
                     existing_memory,
                 ),
             )]
@@ -373,10 +374,10 @@ class MemoryGenerationEngine:
                 atom=merged_memory,
                 canonical_alias=merged_memory.get_alias(),
                 canonical_uuid=str(merged_memory.id),
-                duplicate_decision="UPDATE",
-                operation="merged",
+                duplicate_decision=DuplicateDecision.UPDATE,
                 settlement=self._build_settlement(
-                    intent_id, pending_alias, "MERGED", "UPDATE",
+                    intent_id, pending_alias,
+                    PendingAtomResolution.MERGED, DuplicateDecision.UPDATE,
                     merged_memory,
                 ),
             )]
@@ -393,10 +394,10 @@ class MemoryGenerationEngine:
                 atom=memory,
                 canonical_alias=memory.get_alias(),
                 canonical_uuid=str(memory.id),
-                duplicate_decision="CREATE",
-                operation="created",
+                duplicate_decision=DuplicateDecision.CREATE,
                 settlement=self._build_settlement(
-                    intent_id, pending_alias, "COMMITTED", "CREATE",
+                    intent_id, pending_alias,
+                    PendingAtomResolution.CREATED, DuplicateDecision.CREATE,
                     memory,
                 ),
             )]
@@ -407,10 +408,10 @@ class MemoryGenerationEngine:
                 intent_id=intent_id,
                 pending_alias=pending_alias,
                 atom=None,
-                duplicate_decision="DISCARD",
-                operation="discarded",
+                duplicate_decision=DuplicateDecision.DISCARD,
                 settlement=self._build_settlement(
-                    intent_id, pending_alias, "DISCARDED", "DISCARD",
+                    intent_id, pending_alias,
+                    PendingAtomResolution.DISCARDED, DuplicateDecision.DISCARD,
                     None,
                 ),
                 message="Low-quality duplicate, discarded.",
@@ -420,8 +421,8 @@ class MemoryGenerationEngine:
         self,
         intent_id: Optional[str],
         pending_alias: Optional[str],
-        status: str,
-        decision: Optional[str],
+        resolution: PendingAtomResolution,
+        decision: Optional[DuplicateDecision],
         atom: Optional[MemoryAtom],
     ) -> Optional[PendingAtomSettlement]:
         """构建 settlement 视图；无 intent 时返回 None。"""
@@ -435,11 +436,14 @@ class MemoryGenerationEngine:
         return PendingAtomSettlement(
             pending_alias=pending_alias,
             intent_id=intent_id,
-            status=status,
+            resolution=resolution,
             duplicate_decision=decision,
             canonical_alias=canonical_alias,
             canonical_uuid=canonical_uuid,
-            message=f"Pending atom '{pending_alias}' settled as {status}.",
+            message=(
+                f"Pending atom '{pending_alias}' settled as "
+                f"{resolution.value}."
+            ),
         )
 
     def _render_transcript(self, request: GenerationRequest) -> str:

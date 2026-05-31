@@ -27,6 +27,7 @@ from hivememory.core.models import (
     Identity, StreamMessage, StreamMessageType,
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts, TurnRecord,
 )
+from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.engines.generation.models import (
     UpdateFocus, MergeResult, GenerationRequest, GenerationContext, GenerationTurn, WriteFocus,
 )
@@ -278,7 +279,8 @@ class TestModeCMergePrompt:
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "新内容"
-        assert result[0].operation == "updated"
+        assert result[0].canonical_alias == existing_memory.get_alias()
+        assert result[0].canonical_uuid == str(existing_memory.id)
         mock_storage.upsert_memory.assert_called_once()
 
 
@@ -450,9 +452,8 @@ class TestApplyUpdate:
             pending_alias="rev_fact_api_port_1234",
         )
 
-        assert result[0].operation == "updated"
         assert result[0].settlement is not None
-        assert result[0].settlement.status == "UPDATED"
+        assert result[0].settlement.resolution == PendingAtomResolution.UPDATED
         assert result[0].settlement.duplicate_decision is None
         assert result[0].settlement.canonical_alias == existing_memory.get_alias()
 
