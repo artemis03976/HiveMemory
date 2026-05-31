@@ -17,18 +17,17 @@ import re
 from typing import List, Optional
 from uuid import uuid4
 
-from hivememory.alice.runtime.models import PendingAtom, RuntimeScope
 from hivememory.core.models import Identity
-from hivememory.engines.generation.models import (
+from hivememory.core.models.pending import (
+    PendingAtom,
     PendingAtomSettlement,
+    PendingAtomSnapshot,
+    PendingAtomStatus,
+    RuntimeScope,
     UpdateFocus,
     WriteFocus,
 )
 
-from hivememory.alice.runtime.pending_atom.state import (
-    PendingAtomSnapshot,
-    PendingAtomStatus,
-)
 from hivememory.alice.runtime.pending_atom.store import _PendingAtomStore
 
 logger = logging.getLogger(__name__)

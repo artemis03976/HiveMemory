@@ -20,6 +20,7 @@
 - 把目前散落在 `PendingAtomCache.register_write/register_update/apply_settlement` 与外部直接读写 `atom.status` / `atom.settlement` 的路径，收敛为一个 `PendingAtomRuntime` 外观。
 - 让状态机 `_TRANSITIONS` 真正起约束作用：`PendingAtomCache.apply_settlement` 当前直接把 `atom.status` 设为 SETTLED，跳过 MATERIALIZING，状态机定义形同摆设。
 - 消除 cache 内部并存的 `_resolution` / `_redirects` / `atom.settlement` / `atom.status` 四份真相源带来的派生分歧风险（resolver 与 snapshot 当前各读一部分，存在结论不一致的可能）。
+- 把 `PendingAtom` / `PendingAtomSettlement` 及其支撑类型上移到 `core/models/`，矫正当前 `engines/memory_compiler` → `alice.runtime`、`engines/generation/models` ↔ `alice.runtime.pending_atom_state` 等三条层级倒挂的子系统依赖。
 - 为后续 M3 run 级 cache、Lifecycle/GC、事件流接入预留干净的对象边界。
 
 本期不动 alice 子系统的物理目录（`alice/runtime/pending_atom/` 子包属于未来 alice 拆分讨论的范围），仅在 `alice/runtime/` 内部做收敛。
@@ -195,7 +196,11 @@ def _set_status(self, atom: PendingAtom, target: PendingAtomStatus) -> None:
 
 ## 6. 字段收敛
 
-### 6.1 PendingAtom 字段扩展
+### 6.1 复用 `PendingAtom.settlement` 而非新增字段
+
+PR1 之后重新审视 §2.2 列出的"四处真相源"，发现 `PendingAtom.settlement` 在结算后已经携带了完整信息（`resolution` / `canonical_alias` / `canonical_uuid` / `error` / `reason` / `message`）——store 中的 `_resolution` / `_redirects` 是对 settlement 字段的二次抄写，不是独立信息。
+
+因此 PR2 不新增 PendingAtom 字段，而是**直接以 `atom.settlement` 作为 SETTLED 之后的真相源**：
 
 ```python
 class PendingAtom(BaseModel):
@@ -209,92 +214,129 @@ class PendingAtom(BaseModel):
     created_at: datetime
 
     settlement: Optional[PendingAtomSettlement] = None
-    # ↓ 新增字段（迁移自 cache._resolution / _redirects）
-    resolution: Optional[PendingAtomResolution] = None
-    canonical_alias: Optional[str] = None
-    canonical_uuid: Optional[str] = None
-    error: Optional[str] = None        # FAILED 时填充
-    cancel_reason: Optional[str] = None  # CANCELLED 时填充
+    # 不新增字段；resolution / canonical_alias / canonical_uuid / error / reason
+    # 全部从 settlement 派生。CANCELLED / EXPIRED 等无 settlement 的终态由 PR3
+    # 命令扩展时再决定信息载体（候选：扩展 settlement.error/reason，或补一个
+    # 轻量的 PendingAtomTermination 字段）。
 ```
 
-### 6.2 Runtime 与 Store 的字段切分
+### 6.2 模型上移到 core/models
+
+复用 `PendingAtom.settlement` 之后还有一个连带问题：当前依赖图存在多处子系统层级倒挂。
+
+```
+engines/memory_compiler/handlers/pending_atom.py  →  alice.runtime.models.PendingAtom
+engines/generation/models.PendingAtomSettlement   ←  alice.runtime (大量消费)
+engines/generation/models.py                      →  alice.runtime.pending_atom_state.PendingAtomResolution
+```
+
+memory_compiler / generation 都属于 `engines/`，本不应依赖 `alice/`；但这些类型恰恰是 `engines` ↔ `alice` 之间的跨域共享物，留在任一侧都形成单向依赖。把 PendingAtom 与 PendingAtomSettlement 整体上移到 `core/models/pending.py`，可以一次性消除三条层级倒挂。
+
+#### 6.2.1 必须一起搬的最小集合
+
+`PendingAtom` / `PendingAtomSettlement` 不是孤立类型，它们的字段引用了一系列周边类型，必须一起迁出，否则会形成新一轮的"core 反向依赖 alice / engines"：
+
+| 类型 | 当前位置 | 迁移理由 |
+|---|---|---|
+| `PendingAtom` | `alice/runtime/models.py` | 主体 |
+| `PendingAtomSettlement` | `engines/generation/models.py` | 主体 |
+| `PendingAtomStatus` | `alice/runtime/pending_atom/state.py` | `PendingAtom.status` 直接引用 |
+| `PendingAtomResolution` | `alice/runtime/pending_atom/state.py` | `PendingAtomSettlement.resolution` 直接引用 |
+| `PendingAtomSnapshot` | `alice/runtime/pending_atom/state.py` | 派生视图，与 PendingAtom 同源 |
+| `DuplicateDecision` | `engines/generation/models.py` | `PendingAtomSettlement.duplicate_decision` 引用；本身是跨 alice/engines/compiler 的领域概念 |
+| `WriteFocus` / `UpdateFocus` | `engines/generation/models.py` | `PendingAtom.focus` 引用 |
+| `RuntimeScope` | `alice/runtime/models.py` | `PendingAtom.runtime_scope` 引用；本身是"执行坐标"领域概念，core 化也合理 |
+| `is_legal_transition` / `allowed_transitions` / `_TRANSITIONS` | `alice/runtime/pending_atom/state.py` | 与 `PendingAtomStatus` 同源（纯函数） |
+| `map_legacy_status` | `alice/runtime/pending_atom/state.py` | 同上 |
+
+#### 6.2.2 留在原位的
+
+- `engines/generation/models.py`: `GenerationRequest` / `GenerationContext` / `GenerationTurn` / `ExtractedMemoryDraft` / `MergeResult` / `MemoryGenerationResult`（生成流水线域内的 DTO）
+- `alice/runtime/models.py`: `MTPExecutionContext` / `ExecutionFrame` / `GenerationResult` / `StreamChunk`（alice runtime 自己的执行壳）
+- `alice/runtime/pending_atom/`: `PendingAtomRuntime` / `_PendingAtomStore`（运行时容器；只是数据外壳搬走，行为壳留下）
+
+#### 6.2.3 物理布局
+
+```
+core/models/
+  __init__.py        # re-export 新增项
+  agent.py
+  interaction.py
+  memory.py
+  pending.py         ← 新建（约 200-250 行，装下 §6.2.1 全部内容）
+```
+
+旧路径全部转 re-export 兼容入口（一行 `from hivememory.core.models.pending import *`），保留一个版本的过渡窗口，避免一次性触动几十处 import：
+
+- `alice/runtime/models.py`
+- `alice/runtime/pending_atom/state.py`
+- `alice/runtime/pending_atom_state.py`（PR1 已经是兼容入口）
+- `engines/generation/models.py`（仅对 PendingAtomSettlement / DuplicateDecision / WriteFocus / UpdateFocus 等迁出项做 re-export）
+
+### 6.3 真相源派生路径
+
+模型上移后，`_PendingAtomStore` 只保留两份反查索引：
 
 ```python
-# pending_atom/store.py
 class _PendingAtomStore:
-    """内部存储层。仅负责字典与索引；不感知状态机。"""
-
     def __init__(self) -> None:
         self._atoms: dict[str, PendingAtom] = {}
         self._intent_index: dict[str, str] = {}            # intent_id -> pending_alias
         self._canonical_index: dict[str, list[str]] = {}    # canonical_uuid -> [pending_alias]
-
-    # 纯存储动作
-    def put(self, atom: PendingAtom) -> None: ...
-    def get(self, alias: str) -> Optional[PendingAtom]: ...
-    def get_by_intent(self, intent_id: str) -> Optional[PendingAtom]: ...
-    def aliases_by_canonical(self, canonical_uuid: str) -> list[str]: ...
-    def bind_intent(self, intent_id: str, alias: str) -> None: ...
-    def bind_canonical(self, canonical_uuid: str, alias: str) -> None: ...
-    def all_aliases(self) -> list[str]: ...
-    def all_atoms(self) -> list[PendingAtom]: ...
-    def clear(self) -> None: ...
-
-    @property
-    def size(self) -> int: ...
-
-
-# pending_atom/runtime.py
-class PendingAtomRuntime:
-    """外观 + 状态机闸 + 命令入口。所有外部访问走本类。"""
-
-    def __init__(self) -> None:
-        self._store = _PendingAtomStore()
-
-    # 命令调用 store.put + 维护索引 + 走 _set_status
-    # 查询直接读 store
+        # 删除：_resolution、_redirects（合并到 atom.settlement）
 ```
 
-> 删除：原 `PendingAtomCache._resolution` / `_redirects` 字典在 PR2 后并入 `PendingAtom` 自身字段（见 §6.1），store 内部不再保留这两个字段。
+`PendingAtomRuntime.settle()` 只做三件事：
 
-### 6.3 派生路径合并
+```python
+def settle(self, settlement: PendingAtomSettlement) -> None:
+    atom = self._store.get(settlement.pending_alias)
+    if atom is None and settlement.intent_id:
+        atom = self._store.get_by_intent(settlement.intent_id)
+    if atom is None:
+        logger.warning(...)
+        return
 
-`snapshot()` 与 `resolver._resolve_pending_hit` 共用：
+    atom.status = PendingAtomStatus.SETTLED
+    atom.settlement = settlement
+    if settlement.canonical_uuid:
+        self._store.bind_canonical(settlement.canonical_uuid, atom.pending_alias)
+```
+
+`snapshot()` 与 resolver 共用同一条派生路径，物理上读的就是 `atom.settlement`：
 
 ```python
 def snapshot(self, alias: str) -> Optional[PendingAtomSnapshot]:
-    atom = self._atoms.get(alias)
+    atom = self._store.get(alias)
     if atom is None:
         return None
+
+    if atom.status == PendingAtomStatus.SETTLED and atom.settlement is not None:
+        res = atom.settlement.resolution
+        canonical_alias = atom.settlement.canonical_alias if res.has_canonical else None
+        canonical_uuid  = atom.settlement.canonical_uuid  if res.has_canonical else None
+        return PendingAtomSnapshot(
+            pending_alias=alias,
+            status=PendingAtomStatus.SETTLED,
+            resolution=res,
+            canonical_alias=canonical_alias,
+            canonical_uuid=canonical_uuid,
+        )
+
     return PendingAtomSnapshot(
         pending_alias=alias,
         status=atom.status,
-        resolution=atom.resolution,
-        canonical_alias=atom.canonical_alias,
-        canonical_uuid=atom.canonical_uuid,
+        resolution=None,
+        canonical_alias=None,
+        canonical_uuid=None,
     )
 ```
 
-resolver 改成只消费 snapshot：
+resolver `_resolve_pending_hit` 改为只读 `pending.settlement`，删掉 PR1 残留的 `pending.settlement or self._pending_runtime.get_redirect(alias)` 这条混合分支。
 
-```python
-async def _resolve_pending_hit(self, pending, alias, context):
-    snap = self._pending_runtime.snapshot(alias)
-    if snap.status.is_in_flight:
-        return ResolveResult(kind="pending", ...)
-    if snap.status == PendingAtomStatus.FAILED:
-        return ResolveResult(kind="failed", ...)
-    if snap.status == PendingAtomStatus.SETTLED:
-        if snap.resolution == PendingAtomResolution.DISCARDED:
-            return ResolveResult(kind="discarded", ...)
-        if snap.canonical_alias or snap.canonical_uuid:
-            atom = self._resolve_cached_canonical(pending.settlement)
-            ...
-            return ResolveResult(kind="redirect", ...)
-    return ResolveResult(kind="not_found", ...)
-```
+`_canonical_index` 留下不动——它是反查表（canonical_uuid → [pending_alias]），无法从单个 atom 派生，本就不是冗余数据。`get_pending_aliases_for_canonical_uuid()` 接口形态保持不变。
 
-resolver 不再读 `pending.status` 与 `get_redirect()`——所有派生数据走 snapshot。
+`get_redirect()` 退化为 wrapper：`return atom.settlement if atom else None`；后续评估调用方是否还需要再决定是否进一步删除。
 
 ---
 
@@ -318,15 +360,36 @@ resolver 不再读 `pending.status` 与 `get_redirect()`——所有派生数据
 
 风险：低。无行为变化，是"封装动作"——把原 cache 的方法按职责切到两层，对外行为与字段语义完全保持。
 
-### 7.2 PR2 — 字段收敛 + 真相源统一
+### 7.2 PR2 — 模型上移 core + 真相源收敛
 
-- `PendingAtom` 加 `resolution` / `canonical_alias` / `canonical_uuid` / `error` / `cancel_reason` 字段。
-- `PendingAtomRuntime` 删除 `_resolution` / `_redirects` 字典，改读写 PendingAtom 上的对应字段。
-- `snapshot()` 改为直接从 PendingAtom 派生。
-- `resolver._resolve_pending_hit` 改为只消费 `snapshot()`，删掉直接读 `pending.status` + `get_redirect()` 的混合分支。
-- `get_redirect()` / `get_pending_aliases_for_canonical_uuid()` 保留（仅测试断言使用），内部实现改读 PendingAtom 字段。
+PR2 拆为两个子动作。建议子动作 A 先合，绿了再合 B；放在同一 PR 也可以，但出问题难定位。
 
-风险：中。触碰 redirect 派生路径，需重点回归 `test_runtime_alias_resolver.py` 与 `test_pending_atom_state.py` 的 snapshot 断言。
+**子动作 A — 模型上移到 `core/models/pending.py`（机械动作）**
+
+1. 新建 `core/models/pending.py`，把 §6.2.1 列出的 11 个类型/函数搬过去。
+2. `core/models/__init__.py` re-export 全部，与 `Identity` / `MemoryAtom` 同级。
+3. 旧路径转 re-export 兼容入口：
+   - `alice/runtime/models.py`: re-export `PendingAtom` / `RuntimeScope`
+   - `alice/runtime/pending_atom/state.py`: re-export `PendingAtomStatus` / `PendingAtomResolution` / `PendingAtomSnapshot` / `is_legal_transition` / `allowed_transitions` / `map_legacy_status`
+   - `alice/runtime/pending_atom_state.py`: 已是兼容入口（PR1），随 state.py 一起穿透
+   - `engines/generation/models.py`: re-export `PendingAtomSettlement` / `DuplicateDecision` / `WriteFocus` / `UpdateFocus`
+4. 在 `core/models/pending.py` 内部完成 import 路径修正——不再有 `engines/generation/models.py:8 from alice.runtime.pending_atom_state import PendingAtomResolution` 这种向下依赖。
+
+**子动作 B — 真相源收敛（行为动作）**
+
+1. `_PendingAtomStore` 删除 `_resolution` / `_redirects` 两份字典，连同 `set_resolution` / `get_resolution` / `set_redirect` / `get_redirect` 四个方法。
+2. `PendingAtomRuntime.settle()` 简化为：`atom.status = SETTLED` + `atom.settlement = settlement` + `_canonical_index` 维护（见 §6.3 代码示例）。
+3. `PendingAtomRuntime.snapshot()` 改为从 `atom.settlement` 派生 resolution / canonical_*。
+4. `PendingAtomRuntime.get_redirect()` 退化为 `return atom.settlement if atom else None`；后续评估调用方决定是否删除。
+5. `resolver._resolve_pending_hit` 改为只读 `pending.settlement`，删掉 PR1 残留的 `pending.settlement or self._pending_runtime.get_redirect(alias)` 混合分支。
+6. `_canonical_index` 留下不动（反查表，无法从单 atom 派生）。
+
+风险：
+
+- **A 影响面广但机械**：cross-module import 路径全部改一遍，IDE 重构能搞定。re-export 兼容层让外部代码（包括测试）零改动也能跑。
+- **B 是真正的行为变化**：snapshot 派生路径切换到 `atom.settlement`。需重点回归 `test_runtime_alias_resolver.py`（redirect / discarded 路径）和 `test_pending_atom_state.py`（snapshot 不变量断言）。
+
+顺手收益：A 完成后，`engines/generation/models.py:8 from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution` 这条违反子系统层级的 import 自动消失（PendingAtomResolution 在 core，engines 直接从 core import）。
 
 ### 7.3 PR3 — 状态机闸门 + 命令扩展
 
@@ -346,14 +409,19 @@ resolver 不再读 `pending.status` 与 `get_redirect()`——所有派生数据
 | `alice/runtime/cache.py` | 删除 `PendingAtomCache` 类，保留 `KoakumaAtomCache` / `AgentProfileCache` | PR1 |
 | `alice/runtime/pending_atom/runtime.py` | 新增 `PendingAtomRuntime`（外观 + 状态机闸 + 命令入口） | PR1 |
 | `alice/runtime/pending_atom/store.py` | 新增 `_PendingAtomStore`（接管字典与索引；子包私有） | PR1 |
-| `alice/runtime/pending_atom/state.py` | 由 `pending_atom_state.py` 迁入 | PR1 |
+| `alice/runtime/pending_atom/state.py` | 由 `pending_atom_state.py` 迁入；PR2 中转为 re-export 兼容入口（穿透到 core） | PR1 / PR2 |
 | `alice/runtime/pending_atom_state.py` | re-export 兼容入口 | PR1 |
+| `core/models/pending.py` | 新建，承接 PendingAtom / PendingAtomSettlement 等 §6.2.1 列出的 11 项 | PR2-A |
+| `core/models/__init__.py` | re-export 新增项 | PR2-A |
+| `alice/runtime/models.py` | 移出 `PendingAtom` / `RuntimeScope`，转 re-export 兼容入口 | PR2-A |
+| `engines/generation/models.py` | 移出 `PendingAtomSettlement` / `DuplicateDecision` / `WriteFocus` / `UpdateFocus`，转 re-export；删除对 `alice.runtime.pending_atom_state` 的反向 import | PR2-A |
 | `alice/runtime/core.py:39-78` | 持有 `PendingAtomRuntime`，订阅器调 `settle()` | PR1 |
-| `alice/runtime/resolver.py:60-160` | 注入 `pending_runtime`；PR2 改为只读 snapshot | PR1 / PR2 |
+| `alice/runtime/resolver.py:60-160` | 注入 `pending_runtime`；PR2-B 改为只读 `pending.settlement`，删掉 `get_redirect()` 混合分支 | PR1 / PR2-B |
 | `alice/runtime/koakuma.py:293-776` | property `pending_cache` → `pending_runtime` | PR1 |
-| `alice/runtime/models.py` | `PendingAtom` 加 5 个新字段 | PR2 |
+| `alice/runtime/pending_atom/store.py` (PR2-B) | 删除 `_resolution` / `_redirects` 字典与对应 set/get 方法 | PR2-B |
+| `alice/runtime/pending_atom/runtime.py` (PR2-B) | `settle()` / `snapshot()` 改为从 `atom.settlement` 派生 | PR2-B |
 | `tests/unit/alice/runtime/test_pending_atom_state.py` | fixture / import 改名 | PR1-3 |
-| `tests/unit/patchouli/kernel/test_runtime_alias_resolver.py` | fixture 改名；PR2 同步 redirect 断言 | PR1-2 |
+| `tests/unit/patchouli/kernel/test_runtime_alias_resolver.py` | fixture 改名；PR2-B 同步 redirect 断言 | PR1 / PR2-B |
 | 其他测试 | 通过 `register_write` / `apply_settlement` / `snapshot` 调用，仅需改方法名 | PR1 |
 
 `MemoryGenerationEngine` 不改：它产出 settlement 后通过事件流交给 `AliceRuntime._on_pending_atom_settled` 转调 `runtime.settle()`，与生产端无直接耦合。
@@ -371,11 +439,11 @@ resolver 不再读 `pending.status` 与 `get_redirect()`——所有派生数据
 
 ## 10. 风险与回滚
 
-- 全部改动集中在 `alice/runtime/` 内部，不涉及 patchouli、engines、core 子系统，回滚边界清晰。
-- 每个 PR 独立可测、独立可回滚。
+- 全部改动集中在 PendingAtom 链路，回滚边界清晰。每个 PR 独立可测、独立可回滚。
 - 主要回归风险点：
   - PR1: 调用方 import path 改动较多，需要 IDE 全局搜索校验（无运行时风险）。
-  - PR2: redirect / canonical 派生路径改动，需重点回归 resolver 与 snapshot 单测；多 alias 指向同一 canonical_uuid 的场景需补充用例。
+  - PR2-A: 跨子系统的 import 路径全部改一遍。re-export 兼容层保证旧路径继续可用，外部代码（含测试）零改动。该子动作不改行为，主要风险是循环 import——core/models/pending.py 不能反向依赖 alice / engines。
+  - PR2-B: snapshot 派生路径切换到 `atom.settlement`，redirect / discarded 路径与 snapshot 不变量需重点回归；多 alias 指向同一 canonical_uuid 的场景需补充用例。
   - PR3: `settle()` 内部状态机变严，需确认 `AliceRuntime._on_pending_atom_settled` 不会在同一 alias 上重发事件。
 
 ---
@@ -383,7 +451,8 @@ resolver 不再读 `pending.status` 与 `get_redirect()`——所有派生数据
 ## 11. 待办
 
 - [x] PR1：新建 `pending_atom/` 子包（外观 `PendingAtomRuntime` + 私有 `_PendingAtomStore` + `state.py`），`pending_atom_state.py` 转为 re-export 兼容入口，调用方同步改名（`pending_cache`→`pending_runtime`、`apply_settlement`→`settle`）
-- [ ] PR2：`PendingAtom` 加字段，删除 `_resolution` / `_redirects`，resolver 改为只读 snapshot
+- [ ] PR2-A：新建 `core/models/pending.py`，搬迁 §6.2.1 列出的 11 项；`alice/runtime/models.py` / `pending_atom/state.py` / `engines/generation/models.py` 转 re-export 兼容入口；消除 `engines.generation.models → alice.runtime.pending_atom_state` 的反向 import
+- [ ] PR2-B：`_PendingAtomStore` 删除 `_resolution` / `_redirects` 字典；`settle()` / `snapshot()` 改为从 `atom.settlement` 派生；resolver 删掉 `get_redirect()` 混合分支
 - [ ] PR3：状态机闸门 + 命令扩展（`start_materializing` / `fail` / `cancel` / `expire`），`settle` 走两步迁移
 - [ ] 同步更新 [PendingAtomCacheDesign](PendingAtomCacheDesign.md) 第 18 节实现阶段规划
 - [ ] 同步更新 [PendingAtomStatusUnificationDesign](PendingAtomStatusUnificationDesign.md) 第 11 节后续工作衔接

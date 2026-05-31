@@ -11,9 +11,8 @@ from hivememory.engines.memory_compiler.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.models import PendingAtom
     from hivememory.core.models import MemoryAtom
-    from hivememory.engines.generation.models import PendingAtomSettlement
+    from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement
 
 
 def compile_pending_atom(

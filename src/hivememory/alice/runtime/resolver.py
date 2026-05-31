@@ -17,14 +17,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 from uuid import UUID
 
-from hivememory.alice.runtime.models import PendingAtom
 from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.pending_atom_state import (
+from hivememory.core.models import MemoryAtom
+from hivememory.core.models.pending import (
+    PendingAtom,
     PendingAtomResolution,
+    PendingAtomSettlement,
     PendingAtomStatus,
 )
-from hivememory.core.models import MemoryAtom
-from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.core.mtp.exceptions import (
     BusRouteUnavailableError,
     StorageOfflineError,

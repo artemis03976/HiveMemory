@@ -12,10 +12,11 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from hivememory.alice.runtime.models import PendingAtom
-from hivememory.engines.generation.models import PendingAtomSettlement
-
-from hivememory.alice.runtime.pending_atom.state import PendingAtomResolution
+from hivememory.core.models.pending import (
+    PendingAtom,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+)
 
 
 class _PendingAtomStore:

@@ -1,12 +1,22 @@
 """
 HiveMemory Generation 模块数据模型
+
+跨 alice/engines/compiler 共享的领域模型（``PendingAtomSettlement`` /
+``DuplicateDecision`` / ``WriteFocus`` / ``UpdateFocus``）已上移到
+``core/models/pending.py``（见 docs/mod/PendingAtomRuntimeDesign.md §6.2）。
+本模块对它们做 re-export 兼容，并保留生成流水线域内的 DTO。
 """
-from enum import Enum
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
-from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.core.models import Identity
+from hivememory.core.models.pending import (
+    DuplicateDecision,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+    UpdateFocus,
+    WriteFocus,
+)
 
 
 # ============ 提取结果模型 ============
@@ -38,80 +48,6 @@ class ExtractedMemoryDraft(BaseModel):
         default="",
         description="别名后缀 (action/subject, snake_case, 不含类型前缀). 例如: 'quicksort_impl', 'project_env'"
     )
-
-
-# ============ 枚举定义 ============
-
-class DuplicateDecision(str, Enum):
-    """
-    查重决策类型
-
-    Attributes:
-        CREATE: 创建新记忆
-        UPDATE: 更新现有记忆（知识演化）
-        TOUCH: 仅更新访问时间（完全重复）
-        DISCARD: 丢弃（低质量重复）
-    """
-    CREATE = "create"
-    UPDATE = "update"
-    TOUCH = "touch"
-    DISCARD = "discard"
-
-
-# ============ WRITE 指令数据模型 ============
-
-class WriteFocus(BaseModel):
-    """
-    WRITE 指令的聚焦内容
-
-    当 Agent 通过 MTP WRITE 指令提交记忆草稿时，
-    Koakuma 将指令参数打包为 WriteFocus 对象，
-    传递给 LibrarianCore → GenerationEngine 处理。
-
-    Attributes:
-        content: WRITE 指令的 content 参数 (必需)
-        reason: WRITE 指令的 reason 参数 (可选)
-        title: WRITE 指令的 title 参数 (可选)
-        identity: 当前身份标识
-        pending_alias: 运行时 pending alias (Phase 2)
-        intent_id: 系统内部写入意图 ID (Phase 2)
-    """
-    content: str
-    reason: Optional[str] = None
-    title: Optional[str] = None
-    identity: Identity = Field(default_factory=Identity)
-    pending_alias: Optional[str] = None
-    intent_id: Optional[str] = None
-
-
-# ============ UPDATE 指令数据模型 ============
-
-class UpdateFocus(BaseModel):
-    """
-    UPDATE 指令的聚焦内容
-
-    当 Agent 通过 MTP UPDATE 指令提交修改请求时，
-    Koakuma 将指令参数打包为 UpdateFocus 对象，
-    传递给 LibrarianCore → GenerationEngine 处理。
-
-    Attributes:
-        instruction: 修改指令 (必填，自然语言描述)
-        content: 新素材 (选填，代码替换或文本追加)
-        base_uuid: 本次 revision 基于的正式记忆 UUID
-        base_alias: 本次 revision 基于的正式记忆 alias
-        identity: 当前身份标识
-        pending_alias: 运行时 pending alias (Phase 2)
-        intent_id: 系统内部写入意图 ID (Phase 2)
-    """
-    instruction: str
-    content: Optional[str] = None
-    base_uuid: str
-    base_alias: str
-    identity: Identity = Field(default_factory=Identity)
-    pending_alias: Optional[str] = None
-    intent_id: Optional[str] = None
-
-    model_config = {"arbitrary_types_allowed": True}
 
 
 class MergeResult(BaseModel):
@@ -224,28 +160,8 @@ class GenerationRequest(BaseModel):
 
 
 # ============ Phase 2: Settlement 数据模型 ============
-
-class PendingAtomSettlement(BaseModel):
-    """
-    Pending intent 的结算视图。
-
-    由 GenerationEngine 在生成完成后产出，通过 GlobalSystemBus 回填到 AliceRuntime。
-    只有 MTP WRITE/UPDATE 触发的主动写入链路（携带 intent_id）才会生成 settlement。
-
-    Note:
-        ``resolution`` 直接以 ``PendingAtomResolution`` 强类型表达终结分类。
-        ``FAILED`` 不属于 resolution（生命周期阶段而非结算分类），通过 ``error`` 字段
-        与上游 ``PendingAtomStatus.FAILED`` 协同表达。
-    """
-    pending_alias: str
-    intent_id: str
-    resolution: PendingAtomResolution
-    duplicate_decision: Optional[DuplicateDecision] = None
-    canonical_alias: Optional[str] = None
-    canonical_uuid: Optional[str] = None
-    message: str = ""
-    error: Optional[str] = None
-    reason: Optional[str] = None
+# PendingAtomSettlement 已上移到 core/models/pending.py，本模块通过顶部 import 做
+# re-export 兼容（见 docs/mod/PendingAtomRuntimeDesign.md §6.2）。
 
 
 class MemoryGenerationResult(BaseModel):

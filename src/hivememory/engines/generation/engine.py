@@ -19,7 +19,7 @@ import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
+from hivememory.core.models.pending import PendingAtomResolution
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Identity
 from hivememory.engines.generation.models import (
@@ -27,7 +27,6 @@ from hivememory.engines.generation.models import (
     WriteFocus, UpdateFocus, MergeResult,
     MemoryGenerationResult, PendingAtomSettlement,
 )
-from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.engines.generation.interfaces import (
     BaseMemoryExtractor,
     BaseDeduplicator,
@@ -455,6 +454,10 @@ class MemoryGenerationEngine:
         """
         if not request.context.turns and not request.context.state_summary:
             return "(无背景对话)"
+        # 延迟导入：prompts 在依赖层级上高于 engines，模块加载期 import 会形成
+        # engines.generation ↔ prompts.transcript 循环（见 PendingAtomRuntimeDesign §6.2）。
+        from hivememory.prompts.transcript import GenerationTranscriptBuilder
+
         builder = GenerationTranscriptBuilder()
         return builder.build_transcript(request.context)
 
