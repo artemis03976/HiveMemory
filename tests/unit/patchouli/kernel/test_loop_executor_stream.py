@@ -1,7 +1,7 @@
-﻿"""
+"""
 KernelLoopExecutor 流式事件测试
 
-聚焦 Phase 2 子代理调用与 IPC 相关的流式事件链路：
+聚焦子代理调用与 IPC 相关的流式事件链路：
     1. CALL suspend 后主/子帧事件命名空间 (scope) 正确
     2. 子帧失败时仍产出 sub_agent_end(error) 且主循环可继续完成
 """
@@ -13,21 +13,20 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
-from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
 from hivememory.alice.runtime.models import (
     ExecutionFrame,
+    FrameExecutionResult,
+    FrameExecutionStatus,
     GenerationResult,
     RuntimeScope,
     StreamChunk,
 )
 from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
-from hivememory.alice.runtime.resolver import RuntimeAliasResolver
+from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.protocol.models import MTPExecutionResult
 
 
 def _make_call_mtp_result() -> MTPExecutionResult:
-    """构造 CALL 的 suspend 执行结果。"""
     cmd = MagicMock()
     cmd.verb = MagicMock()
     cmd.verb.value = "CALL"
@@ -41,11 +40,7 @@ def _make_call_mtp_result() -> MTPExecutionResult:
         command=cmd,
         response_status="suspend",
         response_content=json.dumps(
-            {
-                "target_alias": "coder_doll",
-                "task": "帮我处理子任务",
-                "context_refs": [],
-            },
+            {"target_alias": "coder_doll", "task": "帮我处理子任务", "context_refs": []},
             ensure_ascii=False,
         ),
         formatted_response="",
@@ -72,35 +67,38 @@ def _make_frames():
     return main_frame, sub_frame
 
 
-def _build_executor_with_stream(worker_stream_impl):
-    kernel = MagicMock()
-    kernel.config = MagicMock()
-    kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
-    kernel.frame_scheduler = MagicMock()
-    kernel.local_bus = MagicMock()
-    kernel.local_bus.request = AsyncMock()
-    profile_resolver = MagicMock()
-    profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
+def _build_orchestrator(worker_stream_impl, main_frame, sub_frame):
+    """Build an AgentOrchestrator wired with a streaming worker and mock scheduler."""
+    config = MagicMock(max_loop_iterations=10)
     mtp_executor = MagicMock()
     mtp_executor.intercept_and_execute = AsyncMock(return_value=_make_call_mtp_result())
 
     worker_agent = MagicMock()
     worker_agent.generate_stream = worker_stream_impl
-    alias_resolver = RuntimeAliasResolver(
-        pending_runtime=PendingAtomRuntime(),
-        atom_cache=KoakumaAtomCache(),
-        bus=kernel.local_bus,
+
+    executor = KernelLoopExecutor(
+        worker_agent=worker_agent,
+        mtp_executor=mtp_executor,
+        config=config,
     )
 
-    return KernelLoopExecutor(
-        worker_agent=worker_agent,
-        frame_scheduler=kernel.frame_scheduler,
-        local_bus=kernel.local_bus,
+    frame_scheduler = MagicMock()
+    frame_scheduler.suspend_frame = MagicMock()
+    frame_scheduler.resume_frame = MagicMock()
+    frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
+    frame_scheduler.create_main_frame = MagicMock(return_value=main_frame)
+
+    profile_resolver = MagicMock()
+    profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
+    alias_resolver = MagicMock()
+
+    orchestrator = AgentOrchestrator(
+        loop_executor=executor,
+        frame_scheduler=frame_scheduler,
         agent_profile_resolver=profile_resolver,
-        mtp_executor=mtp_executor,
-        config=kernel.config.agent_runtime,
         alias_resolver=alias_resolver,
-    ), kernel
+    )
+    return orchestrator
 
 
 @pytest.mark.asyncio
@@ -154,15 +152,14 @@ async def test_execute_frame_stream_emits_scoped_events_for_call():
             return
         raise AssertionError("generate_stream 被调用超过预期次数")
 
-    executor, kernel = _build_executor_with_stream(fake_generate_stream)
-    kernel.frame_scheduler = MagicMock()
-    kernel.frame_scheduler.suspend_frame = MagicMock()
-    kernel.frame_scheduler.resume_frame = MagicMock(return_value=main_frame)
-    kernel.frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
-    executor._frame_scheduler = kernel.frame_scheduler
+    orchestrator = _build_orchestrator(fake_generate_stream, main_frame, sub_frame)
 
     events: List[Dict[str, Any]] = []
-    async for event in executor.execute_frame_stream(main_frame, max_iterations=4):
+    async for event in orchestrator.run_agent_stream(
+        messages=[{"role": "user", "content": "主任务"}],
+        identity=Identity(user_id="u1"),
+        topic_id="topic_1",
+    ):
         events.append(event)
 
     event_types = [e["event"] for e in events]
@@ -239,15 +236,14 @@ async def test_execute_frame_stream_subframe_error_still_emits_sub_agent_end():
             return
         raise AssertionError("generate_stream 被调用超过预期次数")
 
-    executor, kernel = _build_executor_with_stream(fake_generate_stream)
-    kernel.frame_scheduler = MagicMock()
-    kernel.frame_scheduler.suspend_frame = MagicMock()
-    kernel.frame_scheduler.resume_frame = MagicMock(return_value=main_frame)
-    kernel.frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
-    executor._frame_scheduler = kernel.frame_scheduler
+    orchestrator = _build_orchestrator(fake_generate_stream, main_frame, sub_frame)
 
     events: List[Dict[str, Any]] = []
-    async for event in executor.execute_frame_stream(main_frame, max_iterations=4):
+    async for event in orchestrator.run_agent_stream(
+        messages=[{"role": "user", "content": "主任务"}],
+        identity=Identity(user_id="u1"),
+        topic_id="topic_1",
+    ):
         events.append(event)
 
     sub_end = next(e for e in events if e["event"] == "sub_agent_end")
@@ -255,5 +251,3 @@ async def test_execute_frame_stream_subframe_error_still_emits_sub_agent_end():
 
     done_event = next(e for e in events if e["event"] == "done")
     assert done_event["data"]["final_text"].endswith("主帧恢复并结束")
-
-

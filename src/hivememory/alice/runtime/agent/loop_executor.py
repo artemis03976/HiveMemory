@@ -1,84 +1,69 @@
-﻿"""
-Kernel Loop Executor - 帧栈驱动的递归生成循环执行器
+"""
+Kernel Loop Executor - 纯单 Agent 执行循环总控
 
-职责：
-    - 管理主 Agent 和子 Agent 的递归执行循环
-    - 处理 CALL 指令的挂起/恢复
-    - 自动收割子帧生成的记忆别名
-    - 组装 IPC 返回 payload
+职责（引擎层，agent-数量无关）：
+    - 驱动单个 ExecutionFrame 的 generate → MTP → 回填循环
+    - 命中 CALL 时返回 FrameExecutionResult(SUSPENDED)，不自我编排
+    - 累积产物写入 frame.progress（PCB），支持 CALL 后重入续接
 
 Phase A→B→C→D 循环：
     A. LLM 生成
     B. 自然停止检测
-    C. MTP 执行 (可能触发 CALL → 子帧派生)
+    C. MTP 执行（CALL → 返回 SUSPENDED，交还编排）
     D. 回填 & 继续
 
-作者: HiveMemory Team
-版本: 3.0 (Phase 2 重构)
+不变量：本模块不得出现 sub-agent / topology / 下一个该调谁 词汇。
+见 docs/mod/AgentLoopDecouplingDesign.md §3 / §4 Phase 1+2。
 """
 
-import json
 import logging
 import asyncio
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
-from hivememory.core.protocol.models import ChatResult
-from hivememory.alice.runtime.models import ExecutionFrame, MTPExecutionContext
-from hivememory.engines.memory_compiler import (
-    CompiledMemoryArtifact,
-    MemoryCompiler,
-    MemoryCompileOptions,
-    MemoryCompileTarget,
-    MemoryEnvelopeTarget,
+from hivememory.alice.runtime.models import (
+    ExecutionFrame,
+    FrameExecutionResult,
+    FrameExecutionStatus,
+    CallRequest,
+    MTPExecutionContext,
 )
-from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
 
+import json
+
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.bus import AliceBus
-    from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
     from hivememory.alice.runtime.agent.mtp_executor import MTPExecutor
-    from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
     from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
-    from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 
 logger = logging.getLogger(__name__)
 
 
 class KernelLoopExecutor:
     """
-    帧栈驱动的递归生成循环执行器
+    纯单 Agent 执行循环总控。
 
-    封装了 Phase 2 多智能体系统的核心执行逻辑，支持：
-    - 主 Agent 递归 MTP 执行
-    - 子 Agent 调用 (CALL 指令 → 帧挂起/恢复)
-    - 自动收割 (WRITE/UPDATE 别名跟踪)
-    - 黑盒隔离 (子 Agent 细节不污染主 Agent)
+    接受一个 ExecutionFrame（PCB），驱动 generate→MTP→回填循环直到：
+    - 自然收敛 → 返回 FrameExecutionResult(COMPLETED)
+    - 命中 CALL → 返回 FrameExecutionResult(SUSPENDED)，控制权交还编排
+
+    累积产物（text_segments / turn_events / write_foci / update_foci /
+    pending_aliases / iteration / sequence）全部写在 frame.progress 上，
+    重入同一 frame 时自然续接，编号连续。
     """
 
     def __init__(
         self,
         worker_agent: "WorkerAgentService",
-        frame_scheduler: "FrameScheduler",
-        local_bus: "AliceBus",
-        agent_profile_resolver: "AgentProfileResolver",
         mtp_executor: "MTPExecutor",
         config: AgentRuntimeConfig,
-        alias_resolver: "RuntimeAliasResolver",
     ):
         self.worker_agent = worker_agent
-        self._frame_scheduler = frame_scheduler
-        self._local_bus = local_bus
-        self._agent_profile_resolver = agent_profile_resolver
         self._mtp_executor = mtp_executor
         self.config = config
-        self._alias_resolver = alias_resolver
 
     def _namespace_for_frame(self, frame: ExecutionFrame) -> Dict[str, Any]:
         """构造事件命名空间元数据。"""
-        # 统一事件命名空间：前端通过 scope/depth 区分主/子 Agent，
-        # 不再依赖 sub_token/sub_mtp_* 这类事件名分叉。
         agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
         return {
             "scope": "sub" if frame.is_sub_frame() else "main",
@@ -86,89 +71,6 @@ class KernelLoopExecutor:
             "agent_id": agent_id,
             "frame_id": frame.runtime_scope.frame_id,
         }
-
-    async def execute_main_frame(
-        self,
-        messages: List[Dict[str, str]],
-        max_iterations: Optional[int] = None,
-        generation_options: Optional[Dict[str, Any]] = None,
-        agent_profile=None,
-        topic_id: Optional[str] = None,
-        identity=None,
-        cancel_event: Optional[asyncio.Event] = None,
-    ) -> ChatResult:
-        """
-        执行主帧的递归生成循环
-
-        Args:
-            messages: 初始 messages
-            max_iterations: 最大递归次数
-            generation_options: LLM 生成选项
-            agent_profile: 人偶图纸配置
-            topic_id: 话题 ID
-            identity: 完整身份标识
-
-        Returns:
-            ChatResult: 递归生成循环的完整结果
-        """
-        max_iter = max_iterations or self.config.max_loop_iterations
-
-        main_frame = self._frame_scheduler.create_main_frame(
-            agent_profile=agent_profile,            
-            messages=messages,
-            topic_id=topic_id or "",
-            identity=identity,
-        )
-
-        return await self.execute_frame(
-            frame=main_frame,
-            max_iterations=max_iter,
-            generation_options=generation_options,
-            cancel_event=cancel_event,
-        )
-
-    async def execute_main_frame_stream(
-        self,
-        messages: List[Dict[str, str]],
-        max_iterations: Optional[int] = None,
-        generation_options: Optional[Dict[str, Any]] = None,
-        agent_profile=None,
-        topic_id: Optional[str] = None,
-        identity=None,
-        cancel_event: Optional[asyncio.Event] = None,
-    ):
-        """
-        执行主帧的流式递归生成循环
-
-        与 execute_main_frame 相同，但以流式方式 yield SSE 事件。
-
-        Args:
-            messages: 初始 messages
-            max_iterations: 最大递归次数
-            generation_options: LLM 生成选项
-            agent_profile: 人偶图纸配置
-            topic_id: 话题 ID
-            identity: 完整身份标识
-
-        Yields:
-            Dict[str, Any]: SSE 事件 {"event": str, "data": dict}
-        """
-        max_iter = max_iterations or self.config.max_loop_iterations
-
-        main_frame = self._frame_scheduler.create_main_frame(
-            agent_profile=agent_profile,            
-            messages=messages,
-            topic_id=topic_id or "",
-            identity=identity,
-        )
-
-        async for event in self.execute_frame_stream(
-            frame=main_frame,
-            max_iterations=max_iter,
-            generation_options=generation_options,
-            cancel_event=cancel_event,
-        ):
-            yield event
 
     async def execute_frame(
         self,
@@ -178,48 +80,27 @@ class KernelLoopExecutor:
         stream_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
         use_stream_generation: bool = False,
         cancel_event: Optional[asyncio.Event] = None,
-    ) -> ChatResult:
+    ) -> FrameExecutionResult:
         """
-        执行单个帧的递归循环
+        执行单个帧的循环，直到自然收敛或命中 CALL。
 
-        这是 Phase 2 的核心方法，同时服务于主 Agent 和子 Agent。
-        子 Agent 的 CALL 触发递归调用此方法。
-
-        Phase A→B→C→D:
-        A. LLM 生成
-        B. 自然停止检测
-        C. MTP 执行 (SUSPEND → 子帧派生)
-        D. 回填 & 继续
-
-        Args:
-            frame: 执行帧
-            max_iterations: 最大递归次数
-            generation_options: LLM 生成选项
-            stream_emitter: 可选事件发射器（用于 SSE 流式输出）
-            use_stream_generation: 是否使用 generate_stream（流式模式）
+        累积产物写入 frame.progress；重入同一 frame 时续接。
+        命中 CALL 时不 fork、不 resume、不组 IPC——直接返回 SUSPENDED。
 
         Returns:
-            ChatResult: 执行结果
+            FrameExecutionResult: COMPLETED（自然收敛）或 SUSPENDED（命中 CALL）
         """
-        text_segments: List[str] = []
-        turn_events: List[TurnEvent] = []
-        write_foci: List[Any] = []
-        update_foci: List[Any] = []
-        pending_aliases: List[str] = []
-        _seq = 0
-        iteration = 0
+        p = frame.progress  # PCB 累积器，重入时续接
 
-        while iteration < max_iterations:
+        while p.iteration < max_iterations:
             if cancel_event is not None and cancel_event.is_set():
                 logger.info("Generation cancelled by user")
                 break
 
-            iteration += 1
+            p.iteration += 1
 
             result = None
             if use_stream_generation:
-                # 流式模式：逐 chunk 推送 token，但最终仍收敛为一个 result，
-                # 后续 MTP 拦截/执行逻辑与非流式共用同一骨架。
                 async for chunk in self.worker_agent.generate_stream(
                     frame.working_history,
                     cancel_event=cancel_event,
@@ -235,9 +116,7 @@ class KernelLoopExecutor:
                     ):
                         token_data = {"content": chunk.delta}
                         token_data.update(self._namespace_for_frame(frame))
-                        await stream_emitter(
-                            {"event": "token", "data": token_data}
-                        )
+                        await stream_emitter({"event": "token", "data": token_data})
                 if result is None:
                     break
             else:
@@ -247,31 +126,32 @@ class KernelLoopExecutor:
                 )
 
             if not result.was_mtp_interrupted:
-                text_segments.append(result.text)
-                turn_events.append(TurnEvent(
+                p.text_segments.append(result.text)
+                p.turn_events.append(TurnEvent(
                     kind="assistant_message",
-                    sequence=_seq,
+                    sequence=p.sequence,
                     role="assistant",
                     content=result.text,
                 ))
-                _seq += 1
+                p.sequence += 1
                 break
 
-            text_segments.append(result.prefix_text)
+            p.text_segments.append(result.prefix_text)
             if result.prefix_text:
-                turn_events.append(TurnEvent(
+                p.turn_events.append(TurnEvent(
                     kind="assistant_message",
-                    sequence=_seq,
+                    sequence=p.sequence,
                     role="assistant",
                     content=result.prefix_text,
                 ))
-                _seq += 1
-            raw_hint = result.mtp_fragment
+                p.sequence += 1
+
             verb_hint = "UNKNOWN"
             target_hint = ""
             args_hint: Dict[str, Any] = {}
+            raw_hint = result.mtp_fragment
 
-            action_id = f"action_{iteration}_{_seq}"
+            action_id = f"action_{p.iteration}_{p.sequence}"
             mtp_context = MTPExecutionContext(
                 identity=frame.identity,
                 agent_profile=frame.agent_profile,
@@ -283,19 +163,20 @@ class KernelLoopExecutor:
             )
             if mtp_result is not None:
                 if mtp_result.write_focus is not None:
-                    write_foci.append(mtp_result.write_focus)
+                    p.write_foci.append(mtp_result.write_focus)
                 if mtp_result.update_focus is not None:
-                    update_foci.append(mtp_result.update_focus)
+                    p.update_foci.append(mtp_result.update_focus)
                 if mtp_result.pending_alias is not None:
-                    pending_aliases.append(mtp_result.pending_alias)
+                    p.pending_aliases.append(mtp_result.pending_alias)
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value
                 target_hint, args_hint, raw_hint = self._extract_command_info(
                     mtp_result.command, raw_hint
                 )
+
             command_event = TurnEvent(
                 kind="tool_call",
-                sequence=_seq,
+                sequence=p.sequence,
                 role="assistant",
                 content=result.text,
                 action_id=action_id,
@@ -304,30 +185,26 @@ class KernelLoopExecutor:
                 tool_args=args_hint or None,
                 target=target_hint if target_hint else None,
             )
-            turn_events.append(command_event)
-            _seq += 1
+            p.turn_events.append(command_event)
+            p.sequence += 1
+
             if stream_emitter is not None:
                 mtp_start_data = {
                     "verb": verb_hint,
                     "target": target_hint,
                     "args": args_hint,
                     "raw_text": raw_hint,
-                    "iteration": iteration,
+                    "iteration": p.iteration,
                 }
                 mtp_start_data.update(self._namespace_for_frame(frame))
-                await stream_emitter(
-                    {
-                        "event": "mtp_start",
-                        "data": mtp_start_data,
-                    }
-                )
+                await stream_emitter({"event": "mtp_start", "data": mtp_start_data})
 
             if mtp_result is None:
-                text_segments.append(result.mtp_fragment)
+                p.text_segments.append(result.mtp_fragment)
                 command_event.status = "failed"
-                turn_events.append(TurnEvent(
+                p.turn_events.append(TurnEvent(
                     kind="tool_result",
-                    sequence=_seq,
+                    sequence=p.sequence,
                     role="user",
                     content=result.mtp_fragment,
                     action_id=action_id,
@@ -335,7 +212,7 @@ class KernelLoopExecutor:
                     tool_name=target_hint if target_hint else None,
                     status="failed",
                 ))
-                _seq += 1
+                p.sequence += 1
                 if stream_emitter is not None:
                     mtp_failed_data = {
                         "verb": verb_hint,
@@ -343,18 +220,16 @@ class KernelLoopExecutor:
                         "args": args_hint,
                         "raw_text": raw_hint,
                         "status": "failed",
-                        "iteration": iteration,
+                        "iteration": p.iteration,
                     }
                     mtp_failed_data.update(self._namespace_for_frame(frame))
-                    await stream_emitter(
-                        {
-                            "event": "mtp_result",
-                            "data": mtp_failed_data,
-                        }
-                    )
+                    await stream_emitter({"event": "mtp_result", "data": mtp_failed_data})
                 break
 
             if mtp_result.response_status == "suspend":
+                # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 IPC。
+                # 编排负责：append working_history(CALL文本+⟫) → fork子帧 → 跑子帧
+                # → resume → harvest → 组IPC → append IPC → 重入本帧。
                 if stream_emitter is not None:
                     mtp_suspend_data = {
                         "verb": verb_hint,
@@ -362,56 +237,22 @@ class KernelLoopExecutor:
                         "args": args_hint,
                         "raw_text": raw_hint,
                         "status": mtp_result.response_status,
-                        "iteration": iteration,
+                        "iteration": p.iteration,
                     }
                     mtp_suspend_data.update(self._namespace_for_frame(frame))
-                    await stream_emitter(
-                        {
-                            "event": "mtp_result",
-                            "data": mtp_suspend_data,
-                        }
-                    )
-                stream_events: Optional[List[Dict[str, Any]]] = (
-                    [] if stream_emitter is not None else None
-                )
-                # CALL 的挂起/恢复与子帧执行统一交给 _execute_call，
-                # execute_frame 仅负责主循环编排与历史回填。
-                ipc_response, sub_result = await self._execute_call(
-                    frame=frame,
-                    mtp_result=mtp_result,
-                    max_iterations=max_iterations,
-                    generation_options=generation_options,
-                    stream_events=stream_events,
-                    iteration=iteration,
-                )
-                if sub_result is not None:
-                    write_foci.extend(sub_result.write_focus)
-                    update_foci.extend(sub_result.update_focus)
-                if stream_emitter is not None and stream_events:
-                    for event in stream_events:
-                        await stream_emitter(event)
+                    await stream_emitter({"event": "mtp_result", "data": mtp_suspend_data})
 
-                frame.working_history.append(
-                    {"role": "assistant", "content": result.text + "⟫"}
+                call_params = json.loads(mtp_result.response_content)
+                return FrameExecutionResult(
+                    status=FrameExecutionStatus.SUSPENDED,
+                    call_request=CallRequest(
+                        target_alias=call_params["target_alias"],
+                        task=call_params["task"],
+                        context_refs=call_params.get("context_refs", []),
+                    ),
+                    suspend_assistant_text=result.text,
+                    suspend_action_id=action_id,
                 )
-                frame.working_history.append({
-                    "role": "user",
-                    "content": f"[System IPC Return]\n{ipc_response}",
-                })
-                command_event.status = "success"
-                turn_events.append(TurnEvent(
-                    kind="tool_result",
-                    sequence=_seq,
-                    role="user",
-                    content=ipc_response,
-                    action_id=action_id,
-                    tool_kind="CALL",
-                    tool_name=target_hint if target_hint else None,
-                    status="success",
-                    render_as="system_ipc_return",
-                ))
-                _seq += 1
-                continue
 
             command_event.status = mtp_result.response_status
             if stream_emitter is not None:
@@ -421,15 +262,10 @@ class KernelLoopExecutor:
                     "args": args_hint,
                     "raw_text": raw_hint,
                     "status": mtp_result.response_status,
-                    "iteration": iteration,
+                    "iteration": p.iteration,
                 }
                 mtp_result_data.update(self._namespace_for_frame(frame))
-                await stream_emitter(
-                    {
-                        "event": "mtp_result",
-                        "data": mtp_result_data,
-                    }
-                )
+                await stream_emitter({"event": "mtp_result", "data": mtp_result_data})
 
             frame.working_history.append(
                 {"role": "assistant", "content": result.text + "⟫"}
@@ -438,9 +274,9 @@ class KernelLoopExecutor:
                 "role": "user",
                 "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
             })
-            turn_events.append(TurnEvent(
+            p.turn_events.append(TurnEvent(
                 kind="tool_result",
-                sequence=_seq,
+                sequence=p.sequence,
                 role="user",
                 content=mtp_result.formatted_response,
                 action_id=action_id,
@@ -450,23 +286,12 @@ class KernelLoopExecutor:
                 status=mtp_result.response_status,
                 render_as="system_tool_result",
             ))
-            _seq += 1
+            p.sequence += 1
 
             if frame.is_sub_frame() and mtp_result.command:
                 self._try_harvest_alias(frame, mtp_result)
 
-        loop_result = ChatResult(
-            final_text="".join(text_segments),
-            mtp_iterations=max(0, iteration - 1),
-            total_iterations=iteration,
-            turn_events=turn_events,
-            write_focus=write_foci,
-            update_focus=update_foci,
-            pending_aliases=pending_aliases,
-        )
-        if stream_emitter is not None:
-            await stream_emitter({"event": "done", "data": loop_result.model_dump()})
-        return loop_result
+        return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
     async def execute_frame_stream(
         self,
@@ -474,21 +299,20 @@ class KernelLoopExecutor:
         max_iterations: int,
         generation_options: Optional[Dict[str, Any]] = None,
         cancel_event: Optional[asyncio.Event] = None,
+        # 编排注入的回调：当引擎遇到 SUSPEND 时，编排处理子帧并回填 IPC，
+        # 然后引擎继续本段流。签名: (FrameExecutionResult) -> None（异步）。
+        on_suspend: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
     ):
         """
-        执行单个帧的流式递归循环
+        执行单个帧的流式循环。
 
-        与 execute_frame 相同的核心逻辑，但逐 token yield LLM 生成内容。
+        遇到 CALL SUSPEND 时：
+        1. 发出 mtp_result(status=suspend) 事件（已在 execute_frame 内完成）
+        2. 调用 on_suspend(result) 让编排处理子帧（sub_agent_start/end、IPC 回填）
+        3. 编排回填 working_history 后，引擎重入同一 frame 继续流式输出
 
         Yields:
             Dict[str, Any]: SSE 事件
-                - {"event": "token", "data": {"content": str}}
-                - {"event": "mtp_start", "data": {...}}
-                - {"event": "mtp_result", "data": {...}}
-                - {"event": "sub_agent_start", "data": {...}}
-                - {"event": "sub_agent_end", "data": {...}}
-                - 所有 token/mtp* 事件通过 data.scope 区分 main/sub
-                - {"event": "done", "data": ChatResult}
         """
         queue: asyncio.Queue = asyncio.Queue()
 
@@ -497,16 +321,22 @@ class KernelLoopExecutor:
 
         async def _runner() -> None:
             try:
-                # 关键设计：流式仅是 execute_frame 的“输出策略”，
-                # 不再维护第二套循环实现。
-                await self.execute_frame(
-                    frame=frame,
-                    max_iterations=max_iterations,
-                    generation_options=generation_options,
-                    stream_emitter=_emit,
-                    use_stream_generation=True,
-                    cancel_event=cancel_event,
-                )
+                while True:
+                    engine_result = await self.execute_frame(
+                        frame=frame,
+                        max_iterations=max_iterations,
+                        generation_options=generation_options,
+                        stream_emitter=_emit,
+                        use_stream_generation=True,
+                        cancel_event=cancel_event,
+                    )
+                    if engine_result.status == FrameExecutionStatus.SUSPENDED:
+                        if on_suspend is not None:
+                            await on_suspend(engine_result)
+                        # 重入同一 frame（PCB 续接），继续流式输出
+                        continue
+                    # COMPLETED
+                    break
             finally:
                 await queue.put(None)
 
@@ -534,223 +364,9 @@ class KernelLoopExecutor:
         raw_hint = command.raw_text or raw_hint
         return target_hint, args_hint, raw_hint
 
-    async def _execute_call(
-        self,
-        frame: ExecutionFrame,
-        mtp_result,
-        max_iterations: int,
-        generation_options: Optional[Dict[str, Any]] = None,
-        stream_events: Optional[List[Dict[str, Any]]] = None,
-        iteration: Optional[int] = None,
-    ) -> tuple[str, Optional[ChatResult]]:
-        """
-        执行 CALL 指令并返回 IPC payload（统一的流式/非流式实现）
-
-        当提供 stream_events 时，会额外写入子 Agent 的流式事件：
-        sub_agent_start / sub_* / sub_agent_end。
-
-        Args:
-            frame: 当前帧（将被挂起）
-            mtp_result: MTP 执行结果（含 CALL 参数）
-            max_iterations: 最大递归次数
-            generation_options: LLM 生成选项
-            stream_events: 可选事件容器（流式模式）
-            iteration: 当前迭代次数（流式事件展示用）
-
-        Returns:
-            str: 格式化的 IPC 返回 payload (XML 格式)
-        """
-        call_params = json.loads(mtp_result.response_content)
-        target_alias = call_params["target_alias"]
-        task = call_params["task"]
-        context_refs = call_params.get("context_refs", [])
-
-        logger.info(
-            f"CALL suspend: target={target_alias}, task='{task[:80]}...'"
-        )
-
-        if stream_events is not None:
-            sub_start_data = {
-                "agent_id": target_alias,
-                "task": task,
-                "iteration": iteration,
-                "scope": "sub",
-                "depth": frame.runtime_scope.depth + 1,
-                "frame_id": None,
-            }
-            stream_events.append({"event": "sub_agent_start", "data": sub_start_data})
-
-        self._frame_scheduler.suspend_frame(frame)
-
-        try:
-            sub_profile = await self._agent_profile_resolver.resolve(target_alias)
-            shared_context = await self._fetch_context_refs_content(
-                aliases=context_refs,
-                identity=frame.identity,
-                language=getattr(frame.agent_profile, "language", None),
-            )
-            sub_frame = await self._frame_scheduler.fork_sub_frame(
-                parent_frame=frame,
-                agent_profile=sub_profile,
-                task=task,
-                shared_context=shared_context,
-            )
-
-            if stream_events is None:
-                sub_result = await self.execute_frame(
-                    frame=sub_frame,
-                    max_iterations=max_iterations,
-                    generation_options=generation_options,
-                )
-            else:
-                async def _sub_emit(sub_event: Dict[str, Any]) -> None:
-                    if sub_event["event"] == "done":
-                        return
-                    # 子帧事件不再改名为 sub_token/sub_mtp_*，
-                    # 统一沿用 token/mtp_*，通过 data.scope=sub 区分。
-                    stream_events.append(sub_event)
-
-                sub_result = await self.execute_frame(
-                    frame=sub_frame,
-                    max_iterations=max_iterations,
-                    generation_options=generation_options,
-                    stream_emitter=_sub_emit,
-                    use_stream_generation=True,
-                )
-            self._frame_scheduler.resume_frame()
-
-            if stream_events is not None:
-                sub_end_data = {
-                    "status": "success",
-                    "final_text": sub_result.final_text,
-                    "iteration": iteration,
-                    "scope": "sub",
-                    "depth": frame.runtime_scope.depth + 1,
-                    "frame_id": sub_frame.runtime_scope.frame_id,
-                    "agent_id": target_alias,
-                }
-                stream_events.append({"event": "sub_agent_end", "data": sub_end_data})
-
-            return (
-                self._assemble_ipc_return(
-                    sub_result=sub_result,
-                    harvested_aliases=sub_frame.harvested_aliases,
-                ),
-                sub_result,
-            )
-
-        except Exception as e:
-            logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
-
-            self._frame_scheduler.resume_frame()
-
-            if stream_events is not None:
-                sub_end_err_data = {
-                    "status": "error",
-                    "iteration": iteration,
-                    "scope": "sub",
-                    "depth": frame.runtime_scope.depth + 1,
-                    "frame_id": None,
-                    "agent_id": target_alias,
-                }
-                stream_events.append({"event": "sub_agent_end", "data": sub_end_err_data})
-
-            return (
-                '<mtp_response status="error" type="ipc_return">\n'
-                f'[Sub-Agent Error]: The sub-agent "{target_alias}" encountered '
-                f'an error and could not complete the task.\n'
-                f'Action: Try a different approach or continue without the sub-agent.\n'
-                '</mtp_response>',
-                None,
-            )
-
-    async def _fetch_context_refs_content(
-        self,
-        aliases: List[str],
-        identity,
-        language: Optional[str] = None,
-    ) -> str:
-        if not aliases:
-            return ""
-
-        compiler = MemoryCompiler()
-        artifacts: List[CompiledMemoryArtifact] = []
-        context = MTPExecutionContext(identity=identity)
-        for alias in aliases:
-            try:
-                resolved = await self._alias_resolver.resolve(alias, context=context)
-            except Exception as e:
-                logger.warning(f"Failed to resolve context_ref {alias}: {e}")
-                continue
-
-            if resolved.kind in {"pending", "redirect", "atom"} and (
-                resolved.pending is not None or resolved.atom is not None
-            ):
-                artifact = compiler.compile(
-                    resolved, MemoryCompileTarget.SHARED_CONTEXT,
-                    MemoryCompileOptions(
-                        requested_alias=alias,
-                        language=language,
-                    ),
-                )
-                artifacts.append(artifact)
-            else:
-                logger.warning(f"Context ref alias not found: {alias}")
-
-        if not artifacts:
-            logger.warning(f"No rendered context returned for context_refs: {aliases}")
-            return ""
-
-        return compiler.wrap(
-            artifacts,
-            envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
-            options=MemoryCompileOptions(language=language),
-        ).text
-
-    def _assemble_ipc_return(
-        self,
-        sub_result: ChatResult,
-        harvested_aliases: List[str],
-    ) -> str:
-        """
-        组装 IPC 返回 payload (XML 格式)
-
-        将子 Agent 的自然语言回复与自动收割的记忆指针混合打包。
-
-        Args:
-            sub_result: 子 Agent 执行结果
-            harvested_aliases: 子 Agent 生成的记忆别名列表
-
-        Returns:
-            str: 格式化的 IPC 返回 payload
-        """
-        lines = ['<mtp_response status="success" type="ipc_return">']
-        lines.append("[Sub-Agent Reply]:")
-        lines.append(sub_result.final_text)
-
-        if harvested_aliases:
-            lines.append("")
-            lines.append("[Artifacts Generated / Updated]:")
-            for alias in harvested_aliases:
-                if alias.startswith("draft_") or alias.startswith("rev_"):
-                    lines.append(f"- {alias} (pending, readable now)")
-                else:
-                    lines.append(f"- {alias}")
-
-        lines.append("</mtp_response>")
-        return "\n".join(lines)
-
     def _try_harvest_alias(self, frame: ExecutionFrame, mtp_result) -> None:
-        """
-        尝试从 MTP 执行结果中收割别名 (仅子帧)
-
-        当子 Agent 执行 WRITE/UPDATE 时，提取生成的别名并
-        添加到帧的 harvested_aliases 列表中。
-
-        Args:
-            frame: 当前子帧
-            mtp_result: MTP 执行结果
-        """
+        """子帧 WRITE/UPDATE 别名收割（引擎层：仅追踪本帧自身产出的别名）。"""
+        from hivememory.core.mtp.models import MTPVerb
         if not mtp_result.command:
             return
 

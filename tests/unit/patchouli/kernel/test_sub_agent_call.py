@@ -331,19 +331,20 @@ class TestFrameScheduler:
 class TestIPCReturnAssembly:
     """IPC 返回 payload 组装测试"""
 
-    def test_assemble_success_no_artifacts(self):
-        """成功返回，无 artifacts"""
-        from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
-
-        executor = MagicMock(spec=KernelLoopExecutor)
-        executor._host = MagicMock()
-        import types
-        executor._assemble_ipc_return = types.MethodType(
-            KernelLoopExecutor._assemble_ipc_return, executor
+    def _make_orchestrator(self):
+        from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+        from unittest.mock import MagicMock
+        return AgentOrchestrator(
+            loop_executor=MagicMock(),
+            frame_scheduler=MagicMock(),
+            agent_profile_resolver=MagicMock(),
+            alias_resolver=MagicMock(),
         )
 
-        result = ChatResult(final_text="Task completed successfully.")
-        payload = executor._assemble_ipc_return(result, [])
+    def test_assemble_success_no_artifacts(self):
+        """成功返回，无 artifacts"""
+        orchestrator = self._make_orchestrator()
+        payload = orchestrator._assemble_ipc_return("Task completed successfully.", [])
 
         assert '<mtp_response status="success" type="ipc_return">' in payload
         assert "[Sub-Agent Reply]:" in payload
@@ -353,17 +354,8 @@ class TestIPCReturnAssembly:
 
     def test_assemble_success_with_artifacts(self):
         """成功返回，含 artifacts"""
-        from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
-
-        executor = MagicMock(spec=KernelLoopExecutor)
-
-        import types
-        executor._assemble_ipc_return = types.MethodType(
-            KernelLoopExecutor._assemble_ipc_return, executor
-        )
-
-        result = ChatResult(final_text="Code written.")
-        payload = executor._assemble_ipc_return(result, ["mem_code_1", "mem_code_2"])
+        orchestrator = self._make_orchestrator()
+        payload = orchestrator._assemble_ipc_return("Code written.", ["mem_code_1", "mem_code_2"])
 
         assert "[Artifacts Generated / Updated]:" in payload
         assert "- mem_code_1" in payload

@@ -10,6 +10,7 @@ from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
 from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
 from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
+from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgentRuntime:
-    """Alice 执行态 runtime，持有循环、帧调度与生成引擎。"""
+    """Alice 执行态 runtime，持有编排驱动器与执行引擎。"""
 
     def __init__(
         self,
@@ -33,22 +34,21 @@ class AgentRuntime:
         config: "HiveMemoryConfig",
         alias_resolver: "RuntimeAliasResolver",
     ) -> None:
-        self._agent_profile_resolver = AgentProfileResolver(local_bus=local_bus)
-
-        self._frame_scheduler = FrameScheduler(
-            prompt_assembler=prompt_assembler,
-        )
-        self._worker_agent = WorkerAgentService(config=config.llm.worker)
-        self._mtp_executor = mtp_executor
-        self._loop_executor = KernelLoopExecutor(
-            worker_agent=self._worker_agent,
-            frame_scheduler=self._frame_scheduler,
-            local_bus=local_bus,
-            agent_profile_resolver=self._agent_profile_resolver,
-            mtp_executor=self._mtp_executor,
+        agent_profile_resolver = AgentProfileResolver(local_bus=local_bus)
+        frame_scheduler = FrameScheduler(prompt_assembler=prompt_assembler)
+        worker_agent = WorkerAgentService(config=config.llm.worker)
+        loop_executor = KernelLoopExecutor(
+            worker_agent=worker_agent,
+            mtp_executor=mtp_executor,
             config=config.agent_runtime,
+        )
+        self._orchestrator = AgentOrchestrator(
+            loop_executor=loop_executor,
+            frame_scheduler=frame_scheduler,
+            agent_profile_resolver=agent_profile_resolver,
             alias_resolver=alias_resolver,
         )
+        self._agent_profile_resolver = agent_profile_resolver
 
     async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
         return await self._agent_profile_resolver.resolve(agent_alias)
@@ -62,12 +62,12 @@ class AgentRuntime:
         agent_profile=None,
         cancel_event=None,
     ) -> ChatResult:
-        return await self._loop_executor.execute_main_frame(
+        return await self._orchestrator.run_agent(
             messages=messages,
+            identity=identity,
+            topic_id=topic_id,
             generation_options=generation_options,
             agent_profile=agent_profile,
-            topic_id=topic_id,
-            identity=identity,
             cancel_event=cancel_event,
         )
 
@@ -80,12 +80,12 @@ class AgentRuntime:
         agent_profile=None,
         cancel_event=None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        async for event in self._loop_executor.execute_main_frame_stream(
+        async for event in self._orchestrator.run_agent_stream(
             messages=messages,
+            identity=identity,
+            topic_id=topic_id,
             generation_options=generation_options,
             agent_profile=agent_profile,
-            topic_id=topic_id,
-            identity=identity,
             cancel_event=cancel_event,
         ):
             yield event
