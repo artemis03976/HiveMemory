@@ -5,19 +5,19 @@ from uuid import uuid4
 from hivememory.alice.runtime.cache import KoakumaAtomCache
 from hivememory.alice.runtime.models import MTPExecutionContext
 from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.core.models import (
+    DuplicateDecision,
     Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
+    PendingAtomResolution,
+    PendingAtomSettlement,
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
-from hivememory.engines.generation.interfaces import DuplicateDecision
-from hivememory.engines.generation.models import PendingAtomSettlement
 
 from tests.unit.patchouli.mtp.conftest import make_mock_bus
 

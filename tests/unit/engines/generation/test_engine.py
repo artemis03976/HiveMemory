@@ -22,14 +22,20 @@ from hivememory.engines.generation.models import (
     GenerationRequest,
     GenerationContext,
     GenerationTurn,
-    WriteFocus,
-    UpdateFocus,
     MergeResult,
 )
-from hivememory.engines.generation.interfaces import DuplicateDecision
 from hivememory.core.models import (
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
-    StreamMessage, StreamMessageType, Identity,
+    DuplicateDecision,
+    Identity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+    StreamMessage,
+    StreamMessageType,
+    UpdateFocus,
+    WriteFocus,
 )
 
 

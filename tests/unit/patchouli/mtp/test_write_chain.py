@@ -19,14 +19,24 @@ import pytest
 from unittest.mock import MagicMock, patch, call
 from datetime import datetime
 
-from hivememory.core.models import Identity, StreamMessage, StreamMessageType, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, TurnRecord
-from hivememory.engines.generation.models import (
+from hivememory.core.models import (
+    DuplicateDecision,
+    Identity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+    StreamMessage,
+    StreamMessageType,
+    TurnRecord,
     WriteFocus,
+)
+from hivememory.engines.generation.models import (
     GenerationRequest,
     GenerationContext,
     GenerationTurn,
     ExtractedMemoryDraft,
-    DuplicateDecision,
 )
 from hivememory.engines.perception.models import FlushReason, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
@@ -493,7 +503,7 @@ class TestKoakumaWriteE2E:
         from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        from hivememory.alice.runtime.models import RuntimeScope
+        from hivememory.core.models import RuntimeScope
 
         context = MTPExecutionContext(
             identity=Identity(user_id="test_user"),

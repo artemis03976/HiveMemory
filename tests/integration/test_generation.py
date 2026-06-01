@@ -38,11 +38,11 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
 )
 from hivememory.system.config import DeduplicatorConfig, ExtractorConfig
+from hivememory.core.models import DuplicateDecision
 from hivememory.engines.generation import (
     LLMMemoryExtractor,
     MemoryDeduplicator,
     MemoryGenerationEngine,
-    DuplicateDecision,
 )
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor, BaseDeduplicator
 from hivememory.infrastructure.storage import QdrantMemoryStore

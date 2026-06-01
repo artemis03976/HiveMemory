@@ -19,8 +19,14 @@ from typing import Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
 
 from hivememory.system.config import DeduplicatorConfig
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer
-from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
+from hivememory.core.models import (
+    DuplicateDecision,
+    IndexLayer,
+    MemoryAtom,
+    MetaData,
+    PayloadLayer,
+)
+from hivememory.engines.generation.models import ExtractedMemoryDraft
 from hivememory.engines.generation.interfaces import BaseDeduplicator
 from hivememory.infrastructure.storage import QdrantMemoryStore
 

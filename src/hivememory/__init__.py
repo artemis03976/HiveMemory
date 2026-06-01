@@ -112,10 +112,7 @@ from hivememory.engines.generation import (
     BaseMemoryExtractor,
     BaseDeduplicator,
     ExtractedMemoryDraft,
-    DuplicateDecision,
-    WriteFocus,
     GenerationRequest,
-    UpdateFocus,
     MergeResult,
     LLMMemoryExtractor,
     NoOpMemoryExtractor,
@@ -123,6 +120,12 @@ from hivememory.engines.generation import (
     MemoryDeduplicator,
     NoOpDeduplicator,
     create_deduplicator,
+)
+# DuplicateDecision / WriteFocus / UpdateFocus 已上移到 core.models
+from hivememory.core.models import (
+    DuplicateDecision,
+    UpdateFocus,
+    WriteFocus,
 )
 
 from hivememory.engines.retrieval import (

@@ -23,12 +23,10 @@ from unittest.mock import MagicMock
 
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
+    DuplicateDecision, PendingAtomResolution, PendingAtomSettlement,
 )
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.alice.runtime.models import MTPExecutionContext
-from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
-from hivememory.engines.generation.interfaces import DuplicateDecision
-from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.system.config import KoakumaConfig
 
 

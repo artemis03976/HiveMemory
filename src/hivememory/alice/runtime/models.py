@@ -1,9 +1,9 @@
 """Runtime data models for Alice agent execution.
 
-PendingAtom / RuntimeScope 已上移到 ``core/models/pending.py``（见
-docs/mod/PendingAtomRuntimeDesign.md §6.2）。本模块保留 alice runtime 自己的
-执行壳（``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` /
-``StreamChunk``），并对已迁出的领域模型做 re-export 兼容，避免一次性触动所有引用方。
+PendingAtom / PendingAtomStatus / RuntimeScope 已上移到 ``core/models/pending.py``
+（见 docs/mod/PendingAtomRuntimeDesign.md §6.2），新代码请从 ``hivememory.core.models``
+导入。本模块仅保留 alice runtime 自己的执行壳：
+``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``。
 """
 
 from __future__ import annotations
@@ -11,12 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from hivememory.core.models import AgentProfile, Identity
-from hivememory.core.models.pending import (
-    PendingAtom,
-    PendingAtomStatus,
-    RuntimeScope,
-)
+from hivememory.core.models import AgentProfile, Identity, RuntimeScope
 
 
 @dataclass
@@ -99,8 +94,5 @@ __all__ = [
     "ExecutionFrame",
     "GenerationResult",
     "MTPExecutionContext",
-    "PendingAtom",
-    "PendingAtomStatus",
-    "RuntimeScope",
     "StreamChunk",
 ]

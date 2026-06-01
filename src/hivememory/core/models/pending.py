@@ -7,14 +7,10 @@ PendingAtom 与其结算视图 PendingAtomSettlement 是 ``engines/`` 与 ``alic
 
 迁移依据: docs/mod/PendingAtomRuntimeDesign.md §6.2
 
-本模块为以下旧路径的真相源，旧路径均转为 re-export 兼容入口：
-- ``alice/runtime/models.py``                 → PendingAtom / RuntimeScope
-- ``alice/runtime/pending_atom/state.py``      → PendingAtomStatus / PendingAtomResolution /
-                                                 PendingAtomSnapshot / is_legal_transition /
-                                                 allowed_transitions / map_legacy_status
-- ``alice/runtime/pending_atom_state.py``      → 穿透 state.py
-- ``engines/generation/models.py``             → PendingAtomSettlement / DuplicateDecision /
-                                                 WriteFocus / UpdateFocus
+新代码应直接从本模块或 ``hivememory.core.models`` 导入。生成域 facade
+``hivememory.engines.generation.models`` 仍 re-export 一份 PendingAtomSettlement /
+DuplicateDecision / WriteFocus / UpdateFocus，作为生成流水线域内的稳定面，
+调用方按业务直觉选择即可。
 """
 
 from __future__ import annotations

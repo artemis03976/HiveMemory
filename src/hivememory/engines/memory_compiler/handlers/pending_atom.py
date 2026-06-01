@@ -50,7 +50,7 @@ def _render_read(pending: "PendingAtom") -> str:
 
 
 def _render_draft_read(pending: "PendingAtom") -> str:
-    from hivememory.engines.generation.models import WriteFocus
+    from hivememory.core.models import WriteFocus
 
     focus = pending.focus
     if not isinstance(focus, WriteFocus):
@@ -73,7 +73,7 @@ def _render_draft_read(pending: "PendingAtom") -> str:
 
 
 def _render_revision_read(pending: "PendingAtom") -> str:
-    from hivememory.engines.generation.models import UpdateFocus
+    from hivememory.core.models import UpdateFocus
 
     focus = pending.focus
     if not isinstance(focus, UpdateFocus):
@@ -98,7 +98,7 @@ def _render_revision_read(pending: "PendingAtom") -> str:
 
 
 def _render_ack(pending: "PendingAtom") -> str:
-    from hivememory.engines.generation.models import UpdateFocus
+    from hivememory.core.models import UpdateFocus
 
     if pending.source_verb == "UPDATE":
         focus = pending.focus

@@ -293,8 +293,7 @@ class TestPendingAtomCompilation:
 
     @pytest.fixture
     def write_pending(self):
-        from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
-        from hivememory.engines.generation.models import WriteFocus
+        from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
 
         return PendingAtom(
             pending_alias="draft_001",
@@ -305,8 +304,7 @@ class TestPendingAtomCompilation:
 
     @pytest.fixture
     def update_pending(self):
-        from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
-        from hivememory.engines.generation.models import UpdateFocus
+        from hivememory.core.models import PendingAtom, PendingAtomStatus, UpdateFocus
 
         return PendingAtom(
             pending_alias="rev_001",
@@ -368,9 +366,11 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def redirect_resolve(self, sample_atom):
-        from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
         from hivememory.alice.runtime.resolver import ResolveResult
-        from hivememory.engines.generation.models import PendingAtomSettlement
+        from hivememory.core.models import (
+            PendingAtomResolution,
+            PendingAtomSettlement,
+        )
 
         return ResolveResult(
             kind="redirect",
@@ -387,9 +387,11 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def discarded_resolve(self):
-        from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
         from hivememory.alice.runtime.resolver import ResolveResult
-        from hivememory.engines.generation.models import PendingAtomSettlement
+        from hivememory.core.models import (
+            PendingAtomResolution,
+            PendingAtomSettlement,
+        )
 
         return ResolveResult(
             kind="discarded",
@@ -406,8 +408,7 @@ class TestResolveResultCompilation:
     @pytest.fixture
     def pending_resolve(self):
         from hivememory.alice.runtime.resolver import ResolveResult
-        from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
-        from hivememory.engines.generation.models import WriteFocus
+        from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
 
         pending = PendingAtom(
             pending_alias="draft_002",

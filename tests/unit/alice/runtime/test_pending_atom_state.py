@@ -14,16 +14,18 @@ from __future__ import annotations
 import pytest
 
 from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.pending_atom.state import (
+from hivememory.core.models import (
+    Identity,
     PendingAtomResolution,
+    PendingAtomSettlement,
     PendingAtomSnapshot,
     PendingAtomStatus,
+)
+from hivememory.core.models.pending import (
     allowed_transitions,
     is_legal_transition,
     map_legacy_status,
 )
-from hivememory.core.models import Identity
-from hivememory.engines.generation.models import PendingAtomSettlement
 
 # ---------------------------------------------------------------------------
 # Enum 属性

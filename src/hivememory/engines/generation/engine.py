@@ -19,18 +19,28 @@ import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from hivememory.core.models.pending import PendingAtomResolution
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Identity
+from hivememory.core.models import (
+    DuplicateDecision,
+    Identity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+    UpdateFocus,
+    WriteFocus,
+)
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft, GenerationRequest, GenerationContext,
-    WriteFocus, UpdateFocus, MergeResult,
-    MemoryGenerationResult, PendingAtomSettlement,
+    MergeResult,
+    MemoryGenerationResult,
 )
 from hivememory.engines.generation.interfaces import (
     BaseMemoryExtractor,
     BaseDeduplicator,
-    DuplicateDecision,
 )
 
 logger = logging.getLogger(__name__)

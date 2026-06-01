@@ -6,17 +6,17 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
-from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.alice.system import AliceSystem
 from hivememory.core.models import (
+    DuplicateDecision,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
+    PendingAtomResolution,
+    PendingAtomSettlement,
 )
-from hivememory.engines.generation.interfaces import DuplicateDecision
-from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.system import PatchouliSystem

@@ -1,18 +1,22 @@
 """
 HiveMemory Generation 模块数据模型
 
-跨 alice/engines/compiler 共享的领域模型（``PendingAtomSettlement`` /
-``DuplicateDecision`` / ``WriteFocus`` / ``UpdateFocus``）已上移到
-``core/models/pending.py``（见 docs/mod/PendingAtomRuntimeDesign.md §6.2）。
-本模块对它们做 re-export 兼容，并保留生成流水线域内的 DTO。
+仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``MergeResult`` /
+``GenerationRequest`` / ``GenerationContext`` / ``GenerationTurn`` /
+``MemoryGenerationResult``）。
+
+跨 alice/engines/compiler 共享的领域模型（``PendingAtom`` /
+``PendingAtomSettlement`` / ``PendingAtomResolution`` / ``PendingAtomStatus`` /
+``DuplicateDecision`` / ``WriteFocus`` / ``UpdateFocus`` / ``RuntimeScope``）已
+上移到 ``hivememory.core.models``（见 docs/mod/PendingAtomRuntimeDesign.md §6.2），
+请直接从 core 导入，不再走本模块的 re-export。
 """
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import Identity
-from hivememory.core.models.pending import (
+from hivememory.core.models import (
     DuplicateDecision,
-    PendingAtomResolution,
+    Identity,
     PendingAtomSettlement,
     UpdateFocus,
     WriteFocus,
@@ -160,8 +164,8 @@ class GenerationRequest(BaseModel):
 
 
 # ============ Phase 2: Settlement 数据模型 ============
-# PendingAtomSettlement 已上移到 core/models/pending.py，本模块通过顶部 import 做
-# re-export 兼容（见 docs/mod/PendingAtomRuntimeDesign.md §6.2）。
+# PendingAtomSettlement 已上移到 core/models/pending.py；本模块仍引入它供
+# MemoryGenerationResult 字段类型使用，不再向外 re-export。
 
 
 class MemoryGenerationResult(BaseModel):
@@ -192,13 +196,9 @@ class MemoryGenerationResult(BaseModel):
 
 __all__ = [
     "ExtractedMemoryDraft",
-    "DuplicateDecision",
-    "WriteFocus",
-    "UpdateFocus",
     "MergeResult",
     "GenerationRequest",
     "GenerationTurn",
     "GenerationContext",
-    "PendingAtomSettlement",
     "MemoryGenerationResult",
 ]

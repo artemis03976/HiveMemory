@@ -26,10 +26,10 @@ from datetime import datetime
 from hivememory.core.models import (
     Identity, StreamMessage, StreamMessageType,
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts, TurnRecord,
+    PendingAtomResolution, UpdateFocus, WriteFocus,
 )
-from hivememory.alice.runtime.pending_atom_state import PendingAtomResolution
 from hivememory.engines.generation.models import (
-    UpdateFocus, MergeResult, GenerationRequest, GenerationContext, GenerationTurn, WriteFocus,
+    MergeResult, GenerationRequest, GenerationContext, GenerationTurn,
 )
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
@@ -753,7 +753,7 @@ class TestKoakumaUpdateValidation:
         from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        from hivememory.alice.runtime.models import RuntimeScope
+        from hivememory.core.models import RuntimeScope
 
         context = MTPExecutionContext(
             identity=Identity(user_id="test_user"),
