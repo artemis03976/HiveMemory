@@ -13,7 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
-from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
+from hivememory.alice.runtime.cache import KoakumaAtomCache
+from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
 from hivememory.alice.runtime.models import (
     ExecutionFrame,
     GenerationResult,
@@ -86,7 +87,7 @@ def _build_executor_with_stream(worker_stream_impl):
     worker_agent = MagicMock()
     worker_agent.generate_stream = worker_stream_impl
     alias_resolver = RuntimeAliasResolver(
-        pending_cache=PendingAtomCache(),
+        pending_runtime=PendingAtomRuntime(),
         atom_cache=KoakumaAtomCache(),
         bus=kernel.local_bus,
     )

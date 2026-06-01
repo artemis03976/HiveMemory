@@ -24,8 +24,9 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     OMNI_DOLL_PROFILE,
+    RuntimeScope,
 )
-from hivememory.alice.runtime.models import ExecutionFrame, RuntimeScope
+from hivememory.alice.runtime.models import ExecutionFrame
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import (

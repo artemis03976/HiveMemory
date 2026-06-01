@@ -1,80 +1,17 @@
-"""Runtime data models for Alice agent execution."""
+"""Runtime data models for Alice agent execution.
+
+PendingAtom / PendingAtomStatus / RuntimeScope 已上移到 ``core/models/pending.py``
+（见 docs/mod/PendingAtomRuntimeDesign.md §6.2），新代码请从 ``hivememory.core.models``
+导入。本模块仅保留 alice runtime 自己的执行壳：
+``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``。
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
-from hivememory.core.models import AgentProfile, Identity
-from hivememory.engines.generation.models import (
-    PendingAtomSettlement,
-    UpdateFocus,
-    WriteFocus,
-)
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class PendingAtomStatus(str, Enum):
-    """Pending atom 的运行时状态。"""
-
-    PENDING = "pending"
-    REVISION = "revision"
-    # Phase 2: settlement states
-    COMMITTED = "committed"
-    MERGED = "merged"
-    UPDATED = "updated"
-    TOUCHED = "touched"
-    DISCARDED = "discarded"
-    FAILED = "failed"
-
-
-class RuntimeScope(BaseModel):
-    """Runtime execution coordinates for an Alice agent run."""
-
-    run_id: str = ""
-    frame_id: str = ""
-    parent_frame_id: Optional[str] = None
-    action_id: Optional[str] = None
-    depth: int = 0
-
-    def with_action(self, action_id: str) -> "RuntimeScope":
-        """Return a copy scoped to one agent action."""
-        return self.model_copy(update={"action_id": action_id})
-
-    def for_child(self, frame_id: str) -> "RuntimeScope":
-        """Return a child frame scope under the same run."""
-        return RuntimeScope(
-            run_id=self.run_id,
-            frame_id=frame_id,
-            parent_frame_id=self.frame_id,
-            depth=self.depth + 1,
-        )
-
-    model_config = ConfigDict(frozen=True)
-
-
-class PendingAtom(BaseModel):
-    """
-    运行时待物化记忆句柄。
-
-    不是正式 MemoryAtom，不承诺最终落库。
-    在其生命周期内，Agent 可通过 pending_alias 读取本次写入意图的内容。
-    """
-
-    pending_alias: str
-    intent_id: Optional[str] = None
-    status: PendingAtomStatus
-    source_verb: Literal["WRITE", "UPDATE"]
-
-    focus: WriteFocus | UpdateFocus
-    identity: Identity = Field(default_factory=Identity)
-    runtime_scope: RuntimeScope = Field(default_factory=RuntimeScope)
-    created_at: datetime = Field(default_factory=datetime.now)
-
-    # Phase 2: settlement tracking
-    settlement: Optional[PendingAtomSettlement] = None
+from hivememory.core.models import AgentProfile, Identity, RuntimeScope
 
 
 @dataclass
@@ -157,8 +94,5 @@ __all__ = [
     "ExecutionFrame",
     "GenerationResult",
     "MTPExecutionContext",
-    "PendingAtom",
-    "PendingAtomStatus",
-    "RuntimeScope",
     "StreamChunk",
 ]

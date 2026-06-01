@@ -8,13 +8,15 @@ from uuid import uuid4
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
 from hivememory.core.models import (
+    DuplicateDecision,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
+    PendingAtomResolution,
+    PendingAtomSettlement,
 )
-from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.system import PatchouliSystem
@@ -193,8 +195,8 @@ class TestAlicePublicRoutes:
         settlement = PendingAtomSettlement(
             pending_alias="draft_memory_1234",
             intent_id="intent_1234",
-            status="COMMITTED",
-            duplicate_decision="CREATE",
+            resolution=PendingAtomResolution.CREATED,
+            duplicate_decision=DuplicateDecision.CREATE,
             canonical_alias="fact_canonical",
             canonical_uuid=str(fresh_atom.id),
         )

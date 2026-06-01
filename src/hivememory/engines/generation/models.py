@@ -1,11 +1,26 @@
 """
 HiveMemory Generation 模块数据模型
+
+仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``MergeResult`` /
+``GenerationRequest`` / ``GenerationContext`` / ``GenerationTurn`` /
+``MemoryGenerationResult``）。
+
+跨 alice/engines/compiler 共享的领域模型（``PendingAtom`` /
+``PendingAtomSettlement`` / ``PendingAtomResolution`` / ``PendingAtomStatus`` /
+``DuplicateDecision`` / ``WriteFocus`` / ``UpdateFocus`` / ``RuntimeScope``）已
+上移到 ``hivememory.core.models``（见 docs/mod/PendingAtomRuntimeDesign.md §6.2），
+请直接从 core 导入，不再走本模块的 re-export。
 """
-from enum import Enum
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import Identity
+from hivememory.core.models import (
+    DuplicateDecision,
+    Identity,
+    PendingAtomSettlement,
+    UpdateFocus,
+    WriteFocus,
+)
 
 
 # ============ 提取结果模型 ============
@@ -37,80 +52,6 @@ class ExtractedMemoryDraft(BaseModel):
         default="",
         description="别名后缀 (action/subject, snake_case, 不含类型前缀). 例如: 'quicksort_impl', 'project_env'"
     )
-
-
-# ============ 枚举定义 ============
-
-class DuplicateDecision(str, Enum):
-    """
-    查重决策类型
-
-    Attributes:
-        CREATE: 创建新记忆
-        UPDATE: 更新现有记忆（知识演化）
-        TOUCH: 仅更新访问时间（完全重复）
-        DISCARD: 丢弃（低质量重复）
-    """
-    CREATE = "create"
-    UPDATE = "update"
-    TOUCH = "touch"
-    DISCARD = "discard"
-
-
-# ============ WRITE 指令数据模型 ============
-
-class WriteFocus(BaseModel):
-    """
-    WRITE 指令的聚焦内容
-
-    当 Agent 通过 MTP WRITE 指令提交记忆草稿时，
-    Koakuma 将指令参数打包为 WriteFocus 对象，
-    传递给 LibrarianCore → GenerationEngine 处理。
-
-    Attributes:
-        content: WRITE 指令的 content 参数 (必需)
-        reason: WRITE 指令的 reason 参数 (可选)
-        title: WRITE 指令的 title 参数 (可选)
-        identity: 当前身份标识
-        pending_alias: 运行时 pending alias (Phase 2)
-        intent_id: 系统内部写入意图 ID (Phase 2)
-    """
-    content: str
-    reason: Optional[str] = None
-    title: Optional[str] = None
-    identity: Identity = Field(default_factory=Identity)
-    pending_alias: Optional[str] = None
-    intent_id: Optional[str] = None
-
-
-# ============ UPDATE 指令数据模型 ============
-
-class UpdateFocus(BaseModel):
-    """
-    UPDATE 指令的聚焦内容
-
-    当 Agent 通过 MTP UPDATE 指令提交修改请求时，
-    Koakuma 将指令参数打包为 UpdateFocus 对象，
-    传递给 LibrarianCore → GenerationEngine 处理。
-
-    Attributes:
-        instruction: 修改指令 (必填，自然语言描述)
-        content: 新素材 (选填，代码替换或文本追加)
-        base_uuid: 本次 revision 基于的正式记忆 UUID
-        base_alias: 本次 revision 基于的正式记忆 alias
-        identity: 当前身份标识
-        pending_alias: 运行时 pending alias (Phase 2)
-        intent_id: 系统内部写入意图 ID (Phase 2)
-    """
-    instruction: str
-    content: Optional[str] = None
-    base_uuid: str
-    base_alias: str
-    identity: Identity = Field(default_factory=Identity)
-    pending_alias: Optional[str] = None
-    intent_id: Optional[str] = None
-
-    model_config = {"arbitrary_types_allowed": True}
 
 
 class MergeResult(BaseModel):
@@ -223,23 +164,8 @@ class GenerationRequest(BaseModel):
 
 
 # ============ Phase 2: Settlement 数据模型 ============
-
-class PendingAtomSettlement(BaseModel):
-    """
-    Pending intent 的结算视图。
-
-    由 GenerationEngine 在生成完成后产出，通过 GlobalSystemBus 回填到 AliceRuntime。
-    只有 MTP WRITE/UPDATE 触发的主动写入链路（携带 intent_id）才会生成 settlement。
-    """
-    pending_alias: str
-    intent_id: str
-    status: Literal["COMMITTED", "MERGED", "UPDATED", "TOUCHED", "DISCARDED", "FAILED"]
-    duplicate_decision: Optional[Literal["CREATE", "UPDATE", "TOUCH", "DISCARD"]] = None
-    canonical_alias: Optional[str] = None
-    canonical_uuid: Optional[str] = None
-    message: str = ""
-    error: Optional[str] = None
-    reason: Optional[str] = None
+# PendingAtomSettlement 已上移到 core/models/pending.py；本模块仍引入它供
+# MemoryGenerationResult 字段类型使用，不再向外 re-export。
 
 
 class MemoryGenerationResult(BaseModel):
@@ -248,6 +174,9 @@ class MemoryGenerationResult(BaseModel):
 
     替代原有 List[MemoryAtom] 返回值，携带 intent 追踪和 settlement 信息。
     被动生成（Mode A）中 intent_id/pending_alias/settlement 均为 None。
+
+    Note:
+        终结分类不再独立携带；调用方应改读 ``settlement.resolution``。
     """
     intent_id: Optional[str] = None
     pending_alias: Optional[str] = None
@@ -256,8 +185,7 @@ class MemoryGenerationResult(BaseModel):
     canonical_alias: Optional[str] = None
     canonical_uuid: Optional[str] = None
 
-    duplicate_decision: Optional[Literal["CREATE", "UPDATE", "TOUCH", "DISCARD"]] = None
-    operation: Literal["created", "merged", "touched", "discarded", "updated", "failed"]
+    duplicate_decision: Optional[DuplicateDecision] = None
 
     settlement: Optional[PendingAtomSettlement] = None
     message: Optional[str] = None
@@ -268,13 +196,9 @@ class MemoryGenerationResult(BaseModel):
 
 __all__ = [
     "ExtractedMemoryDraft",
-    "DuplicateDecision",
-    "WriteFocus",
-    "UpdateFocus",
     "MergeResult",
     "GenerationRequest",
     "GenerationTurn",
     "GenerationContext",
-    "PendingAtomSettlement",
     "MemoryGenerationResult",
 ]

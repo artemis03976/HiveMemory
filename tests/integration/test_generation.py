@@ -38,11 +38,11 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
 )
 from hivememory.system.config import DeduplicatorConfig, ExtractorConfig
+from hivememory.core.models import DuplicateDecision
 from hivememory.engines.generation import (
     LLMMemoryExtractor,
     MemoryDeduplicator,
     MemoryGenerationEngine,
-    DuplicateDecision,
 )
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor, BaseDeduplicator
 from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -162,11 +162,10 @@ class TestMemoryGenerationEngineLogic:
         result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
-        assert result[0].operation == "created"
-        assert result[0].duplicate_decision == "CREATE"
+        assert result[0].duplicate_decision == DuplicateDecision.CREATE
         assert result[0].atom is not None
         assert result[0].atom.index.title == "Test"
-        
+
         # 验证存储调用
         self.mock_storage.upsert_memory.assert_called_once()
 
@@ -178,10 +177,9 @@ class TestMemoryGenerationEngineLogic:
         result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
-        assert result[0].operation == "touched"
-        assert result[0].duplicate_decision == "TOUCH"
+        assert result[0].duplicate_decision == DuplicateDecision.TOUCH
         assert result[0].atom == self.memory_atom
-        
+
         # 验证只更新访问信息，不重新插入
         self.mock_storage.update_access_info.assert_called_once_with(self.memory_atom.id)
         self.mock_storage.upsert_memory.assert_not_called()
@@ -199,11 +197,10 @@ class TestMemoryGenerationEngineLogic:
         result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
-        assert result[0].operation == "merged"
-        assert result[0].duplicate_decision == "UPDATE"
+        assert result[0].duplicate_decision == DuplicateDecision.UPDATE
         assert result[0].atom is not None
         assert result[0].atom.index.title == "Merged Title"
-        
+
         # 验证调用了合并和存储
         self.mock_deduplicator.merge_memory.assert_called_once()
         self.mock_storage.upsert_memory.assert_called_once()
@@ -216,8 +213,7 @@ class TestMemoryGenerationEngineLogic:
         
         result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         assert len(result) == 1
-        assert result[0].operation == "discarded"
-        assert result[0].duplicate_decision == "DISCARD"
+        assert result[0].duplicate_decision == DuplicateDecision.DISCARD
         assert result[0].atom is None
         self.mock_storage.upsert_memory.assert_not_called()
 
@@ -284,7 +280,7 @@ class TestEngineComponentCoordination:
 
         assert result is not None
         assert len(result) == 1
-        assert result[0].operation == "created"
+        assert result[0].duplicate_decision == DuplicateDecision.CREATE
         assert result[0].atom is not None
         assert result[0].atom.index.title == "测试记忆"
         

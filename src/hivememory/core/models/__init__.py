@@ -30,6 +30,20 @@ from .agent import (
     AgentProfile,
     OMNI_DOLL_PROFILE,
 )
+from .pending import (
+    PendingAtomStatus,
+    PendingAtomResolution,
+    PendingAtomSnapshot,
+    is_legal_transition,
+    allowed_transitions,
+    map_legacy_status,
+    DuplicateDecision,
+    WriteFocus,
+    UpdateFocus,
+    RuntimeScope,
+    PendingAtom,
+    PendingAtomSettlement,
+)
 
 __all__ = [
     "MemoryType",
@@ -52,4 +66,16 @@ __all__ = [
     "TurnRecord",
     "AgentProfile",
     "OMNI_DOLL_PROFILE",
+    "PendingAtomStatus",
+    "PendingAtomResolution",
+    "PendingAtomSnapshot",
+    "is_legal_transition",
+    "allowed_transitions",
+    "map_legacy_status",
+    "DuplicateDecision",
+    "WriteFocus",
+    "UpdateFocus",
+    "RuntimeScope",
+    "PendingAtom",
+    "PendingAtomSettlement",
 ]

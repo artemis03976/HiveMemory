@@ -11,9 +11,9 @@ import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock
 from uuid import uuid4
 
-from hivememory.core.models import Identity, TurnRecord
+from hivememory.core.models import Identity, TurnRecord, UpdateFocus, WriteFocus
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
-from hivememory.engines.generation.models import GenerationRequest, WriteFocus, UpdateFocus
+from hivememory.engines.generation.models import GenerationRequest
 from hivememory.patchouli.services.librarian import LibrarianCore
 
 

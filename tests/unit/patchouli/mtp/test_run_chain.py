@@ -23,10 +23,10 @@ from unittest.mock import MagicMock
 
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
+    DuplicateDecision, PendingAtomResolution, PendingAtomSettlement,
 )
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
 from hivememory.alice.runtime.models import MTPExecutionContext
-from hivememory.engines.generation.models import PendingAtomSettlement
 from hivememory.system.config import KoakumaConfig
 
 
@@ -294,7 +294,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
 
     def test_redirected_pending_alias_executes_canonical_tool(self, koakuma):
-        pending = koakuma.pending_cache.register_write(
+        pending = koakuma.pending_runtime.register_write(
             content="pending tool",
             title="Pending Tool",
             reason=None,
@@ -305,12 +305,12 @@ class TestRunUserToolPath:
             alias="tool_canonical",
         )
         koakuma.atom_cache.ingest_atom(canonical)
-        koakuma.pending_cache.apply_settlement(
+        koakuma.pending_runtime.settle(
             PendingAtomSettlement(
                 pending_alias=pending.pending_alias,
                 intent_id=pending.intent_id,
-                status="COMMITTED",
-                duplicate_decision="CREATE",
+                resolution=PendingAtomResolution.CREATED,
+                duplicate_decision=DuplicateDecision.CREATE,
                 canonical_alias="tool_canonical",
                 canonical_uuid=str(canonical.id),
             )

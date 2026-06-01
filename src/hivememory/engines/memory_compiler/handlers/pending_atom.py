@@ -11,9 +11,8 @@ from hivememory.engines.memory_compiler.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.models import PendingAtom
     from hivememory.core.models import MemoryAtom
-    from hivememory.engines.generation.models import PendingAtomSettlement
+    from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement
 
 
 def compile_pending_atom(
@@ -36,7 +35,7 @@ def compile_pending_atom(
         text=text,
         source_kind="pending",
         alias=pending.pending_alias,
-        status=pending.status.value if hasattr(pending.status, "value") else str(pending.status),
+        status=pending.status.value,
         metadata={
             "requested_alias": options.requested_alias,
             "canonical_alias": options.canonical_alias,
@@ -45,15 +44,13 @@ def compile_pending_atom(
 
 
 def _render_read(pending: "PendingAtom") -> str:
-    from hivememory.alice.runtime.models import PendingAtomStatus
-
-    if pending.status == PendingAtomStatus.REVISION:
+    if pending.source_verb == "UPDATE":
         return _render_revision_read(pending)
     return _render_draft_read(pending)
 
 
 def _render_draft_read(pending: "PendingAtom") -> str:
-    from hivememory.engines.generation.models import WriteFocus
+    from hivememory.core.models import WriteFocus
 
     focus = pending.focus
     if not isinstance(focus, WriteFocus):
@@ -76,7 +73,7 @@ def _render_draft_read(pending: "PendingAtom") -> str:
 
 
 def _render_revision_read(pending: "PendingAtom") -> str:
-    from hivememory.engines.generation.models import UpdateFocus
+    from hivememory.core.models import UpdateFocus
 
     focus = pending.focus
     if not isinstance(focus, UpdateFocus):
@@ -101,10 +98,9 @@ def _render_revision_read(pending: "PendingAtom") -> str:
 
 
 def _render_ack(pending: "PendingAtom") -> str:
-    from hivememory.alice.runtime.models import PendingAtomStatus
-    from hivememory.engines.generation.models import UpdateFocus
+    from hivememory.core.models import UpdateFocus
 
-    if pending.status == PendingAtomStatus.REVISION:
+    if pending.source_verb == "UPDATE":
         focus = pending.focus
         if not isinstance(focus, UpdateFocus):
             raise TypeError("UPDATE pending atom must carry UpdateFocus.")
@@ -128,7 +124,7 @@ def _render_redirect_read(
     atom: "MemoryAtom",
     settlement: "PendingAtomSettlement | None" = None,
 ) -> str:
-    status = settlement.status.lower() if settlement else "redirected"
+    status = settlement.resolution.value if settlement else "redirected"
     lines = [
         "[Alias Redirected]",
         f"Requested alias: {requested_alias}",
@@ -149,7 +145,7 @@ def _render_redirect_run_notice(
     canonical_alias: str,
     settlement: "PendingAtomSettlement | None" = None,
 ) -> str:
-    status = settlement.status.lower() if settlement else "redirected"
+    status = settlement.resolution.value if settlement else "redirected"
     return "\n".join(
         [
             "[Alias Redirected]",
@@ -167,7 +163,7 @@ def _render_settled_without_atom(
     requested_alias: str,
     settlement: "PendingAtomSettlement | None",
 ) -> str:
-    status = settlement.status.lower() if settlement else "settled"
+    status = settlement.resolution.value if settlement else "settled"
     message = settlement.message if settlement and settlement.message else ""
     reason = settlement.reason if settlement and settlement.reason else ""
     lines = [

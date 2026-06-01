@@ -86,9 +86,8 @@ class MemoryCompiler:
         target: MemoryCompileTarget,
         options: MemoryCompileOptions,
     ) -> CompiledMemoryArtifact:
-        from hivememory.alice.runtime.models import PendingAtom
         from hivememory.alice.runtime.resolver import ResolveResult
-        from hivememory.engines.generation.models import PendingAtomSettlement
+        from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement
 
         if isinstance(source, MemoryAtom):
             return compile_memory_atom(source, target, options)
@@ -100,7 +99,13 @@ class MemoryCompiler:
             return compile_resolve_result(source, target, options)
 
         if isinstance(source, PendingAtomSettlement):
-            kind = source.status.lower() if source.status in {"DISCARDED", "FAILED"} else "redirect"
+            from hivememory.core.models.pending import PendingAtomResolution
+
+            kind = (
+                "discarded"
+                if source.resolution == PendingAtomResolution.DISCARDED
+                else "redirect"
+            )
             resolve = ResolveResult(
                 kind=kind,
                 requested_alias=source.pending_alias,

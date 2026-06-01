@@ -10,6 +10,10 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 
 对应设计文档: PROJECT.md 第 4 章
 
+跨域共享类型（``DuplicateDecision`` / ``WriteFocus`` / ``UpdateFocus`` /
+``PendingAtomSettlement``）已上移到 ``hivememory.core.models``，本包不再 re-export，
+请直接从 core 导入。
+
 作者: HiveMemory Team
 版本: 0.3.0
 """
@@ -24,12 +28,8 @@ from hivememory.engines.generation.interfaces import (
 
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
-    DuplicateDecision,
-    WriteFocus,
     GenerationRequest,
-    UpdateFocus,
     MergeResult,
-    PendingAtomSettlement,
     MemoryGenerationResult,
 )
 
@@ -52,14 +52,10 @@ __all__ = [
     # 接口
     "BaseMemoryExtractor",
     "BaseDeduplicator",
-    # 数据模型
+    # 生成流水线 DTO
     "ExtractedMemoryDraft",
-    "DuplicateDecision",
-    "WriteFocus",
     "GenerationRequest",
-    "UpdateFocus",
     "MergeResult",
-    "PendingAtomSettlement",
     "MemoryGenerationResult",
     # 记忆提取
     "LLMMemoryExtractor",

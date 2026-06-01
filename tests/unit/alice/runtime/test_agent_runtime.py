@@ -2,7 +2,8 @@
 
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
+from hivememory.alice.runtime.cache import KoakumaAtomCache
+from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
@@ -14,7 +15,7 @@ def test_agent_runtime_uses_injected_dependencies():
     prompt_assembler = AgentPromptAssembler(config.koakuma)
     mtp_executor = MagicMock()
     alias_resolver = RuntimeAliasResolver(
-        pending_cache=PendingAtomCache(),
+        pending_runtime=PendingAtomRuntime(),
         atom_cache=KoakumaAtomCache(),
         bus=local_bus,
     )

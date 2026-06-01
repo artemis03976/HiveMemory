@@ -2,7 +2,7 @@
 RuntimeAliasResolver - 统一三级别名解析层。
 
 解析优先级:
-  L0: PendingAtomCache (运行时 pending atom)
+  L0: PendingAtomRuntime (运行时 pending atom)
   L1: KoakumaAtomCache (会话级正式 atom 缓存)
   L2: Storage (冷查询长期存储)
 
@@ -17,10 +17,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 from uuid import UUID
 
-from hivememory.alice.runtime.cache import PendingAtomCache
-from hivememory.alice.runtime.models import PendingAtom, PendingAtomStatus
+from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.generation.models import PendingAtomSettlement
+from hivememory.core.models.pending import (
+    PendingAtom,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+    PendingAtomStatus,
+)
 from hivememory.core.mtp.exceptions import (
     BusRouteUnavailableError,
     StorageOfflineError,
@@ -57,17 +61,17 @@ class RuntimeAliasResolver:
 
     def __init__(
         self,
-        pending_cache: PendingAtomCache,
+        pending_runtime: PendingAtomRuntime,
         atom_cache: "KoakumaAtomCache",
         bus: "AliceBus",
     ) -> None:
-        self._pending_cache = pending_cache
+        self._pending_runtime = pending_runtime
         self._atom_cache = atom_cache
         self._bus = bus
 
     def is_pending(self, alias: str) -> bool:
         """快速检查 alias 是否在 L0 pending cache 中。"""
-        return self._pending_cache.has(alias)
+        return self._pending_runtime.has(alias)
 
     async def resolve(
         self,
@@ -80,8 +84,8 @@ class RuntimeAliasResolver:
         Returns:
             ResolveResult: kind="pending" / "redirect" / "discarded" / "failed" / "atom" / "not_found"
         """
-        # L0: PendingAtomCache
-        pending = self._pending_cache.get(alias)
+        # L0: PendingAtomRuntime
+        pending = self._pending_runtime.get(alias)
         if pending is not None:
             logger.debug(f"L0 pending cache hit: alias='{alias}'")
             return await self._resolve_pending_hit(pending, alias, context)
@@ -106,18 +110,11 @@ class RuntimeAliasResolver:
         context: Optional["MTPExecutionContext"] = None,
     ) -> ResolveResult:
         """Resolve an L0 pending entry, including settled redirect states."""
-        settlement = pending.settlement or self._pending_cache.get_redirect(alias)
-        if pending.status in {PendingAtomStatus.PENDING, PendingAtomStatus.REVISION}:
+        settlement = pending.settlement or self._pending_runtime.get_redirect(alias)
+
+        if pending.status.is_in_flight:
             return ResolveResult(
                 kind="pending",
-                requested_alias=alias,
-                pending=pending,
-                settlement=settlement,
-            )
-
-        if pending.status == PendingAtomStatus.DISCARDED:
-            return ResolveResult(
-                kind="discarded",
                 requested_alias=alias,
                 pending=pending,
                 settlement=settlement,
@@ -131,25 +128,38 @@ class RuntimeAliasResolver:
                 settlement=settlement,
             )
 
-        if settlement is not None and (
-            settlement.canonical_alias or settlement.canonical_uuid
-        ):
-            atom = self._resolve_cached_canonical(settlement)
-            if atom is None and settlement.canonical_alias:
-                atom = await self._cold_lookup(settlement.canonical_alias, context)
+        if pending.status == PendingAtomStatus.SETTLED:
+            snapshot = self._pending_runtime.snapshot(alias)
+            resolution = snapshot.resolution if snapshot else None
 
-            return ResolveResult(
-                kind="redirect",
-                requested_alias=alias,
-                canonical_alias=settlement.canonical_alias,
-                canonical_uuid=settlement.canonical_uuid,
-                pending=pending,
-                atom=atom,
-                settlement=settlement,
-            )
+            if resolution == PendingAtomResolution.DISCARDED:
+                return ResolveResult(
+                    kind="discarded",
+                    requested_alias=alias,
+                    pending=pending,
+                    settlement=settlement,
+                )
 
+            if settlement is not None and (
+                settlement.canonical_alias or settlement.canonical_uuid
+            ):
+                atom = self._resolve_cached_canonical(settlement)
+                if atom is None and settlement.canonical_alias:
+                    atom = await self._cold_lookup(settlement.canonical_alias, context)
+
+                return ResolveResult(
+                    kind="redirect",
+                    requested_alias=alias,
+                    canonical_alias=settlement.canonical_alias,
+                    canonical_uuid=settlement.canonical_uuid,
+                    pending=pending,
+                    atom=atom,
+                    settlement=settlement,
+                )
+
+        # EXPIRED / CANCELLED 暂不区分，统一视为 not_found
         return ResolveResult(
-            kind="pending",
+            kind="not_found",
             requested_alias=alias,
             pending=pending,
             settlement=settlement,
@@ -221,8 +231,8 @@ class RuntimeAliasResolver:
         return self._atom_cache
 
     @property
-    def pending_cache(self) -> PendingAtomCache:
-        return self._pending_cache
+    def pending_runtime(self) -> PendingAtomRuntime:
+        return self._pending_runtime
 
 
 __all__ = ["ResolveResult", "RuntimeAliasResolver"]

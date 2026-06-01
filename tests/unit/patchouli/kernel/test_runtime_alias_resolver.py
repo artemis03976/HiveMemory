@@ -2,19 +2,22 @@ import pytest
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
+from hivememory.alice.runtime.cache import KoakumaAtomCache
 from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.core.models import (
+    DuplicateDecision,
     Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
+    PendingAtomResolution,
+    PendingAtomSettlement,
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
-from hivememory.engines.generation.models import PendingAtomSettlement
 
 from tests.unit.patchouli.mtp.conftest import make_mock_bus
 
@@ -37,20 +40,20 @@ def _make_memory(alias: str, content: str = "content") -> MemoryAtom:
 @pytest.fixture
 def resolver_parts():
     bus = make_mock_bus()
-    pending_cache = PendingAtomCache()
+    pending_runtime = PendingAtomRuntime()
     atom_cache = KoakumaAtomCache()
     resolver = RuntimeAliasResolver(
-        pending_cache=pending_cache,
+        pending_runtime=pending_runtime,
         atom_cache=atom_cache,
         bus=bus,
     )
-    return resolver, pending_cache, atom_cache, bus
+    return resolver, pending_runtime, atom_cache, bus
 
 
 @pytest.mark.asyncio
 async def test_resolve_l0_pending_hit(resolver_parts):
-    resolver, pending_cache, _atom_cache, bus = resolver_parts
-    pending = pending_cache.register_write(
+    resolver, pending_runtime, _atom_cache, bus = resolver_parts
+    pending = pending_runtime.register_write(
         content="pending content",
         title="Pending Note",
         reason=None,
@@ -66,8 +69,8 @@ async def test_resolve_l0_pending_hit(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
-    resolver, pending_cache, atom_cache, bus = resolver_parts
-    pending = pending_cache.register_write(
+    resolver, pending_runtime, atom_cache, bus = resolver_parts
+    pending = pending_runtime.register_write(
         content="pending content",
         title="Pending Note",
         reason=None,
@@ -78,13 +81,13 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
-        status="COMMITTED",
-        duplicate_decision="CREATE",
+        resolution=PendingAtomResolution.CREATED,
+        duplicate_decision=DuplicateDecision.CREATE,
         canonical_alias="fact_canonical",
         canonical_uuid=str(canonical.id),
     )
 
-    pending_cache.apply_settlement(settlement)
+    pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 
     assert result.kind == "redirect"
@@ -94,8 +97,8 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
     assert result.canonical_alias == "fact_canonical"
     assert result.canonical_uuid == str(canonical.id)
     assert result.atom is canonical
-    assert pending_cache.get_redirect(pending.pending_alias) is settlement
-    assert pending.pending_alias in pending_cache.get_pending_aliases_for_canonical_uuid(
+    assert pending_runtime.get_redirect(pending.pending_alias) is settlement
+    assert pending.pending_alias in pending_runtime.get_pending_aliases_for_canonical_uuid(
         str(canonical.id)
     )
     bus._mock_storage.get_memory_by_alias.assert_not_called()
@@ -103,8 +106,8 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
-    resolver, pending_cache, atom_cache, bus = resolver_parts
-    pending = pending_cache.register_write(
+    resolver, pending_runtime, atom_cache, bus = resolver_parts
+    pending = pending_runtime.register_write(
         content="pending content",
         title="Pending Note",
         reason=None,
@@ -115,13 +118,13 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
-        status="MERGED",
-        duplicate_decision="UPDATE",
+        resolution=PendingAtomResolution.MERGED,
+        duplicate_decision=DuplicateDecision.UPDATE,
         canonical_alias="fact_canonical",
         canonical_uuid=str(canonical.id),
     )
 
-    pending_cache.apply_settlement(settlement)
+    pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 
     assert result.kind == "redirect"
@@ -131,8 +134,8 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_resolve_discarded_pending_without_redirect(resolver_parts):
-    resolver, pending_cache, _atom_cache, bus = resolver_parts
-    pending = pending_cache.register_write(
+    resolver, pending_runtime, _atom_cache, bus = resolver_parts
+    pending = pending_runtime.register_write(
         content="pending content",
         title="Pending Note",
         reason=None,
@@ -141,12 +144,12 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
-        status="DISCARDED",
-        duplicate_decision="DISCARD",
+        resolution=PendingAtomResolution.DISCARDED,
+        duplicate_decision=DuplicateDecision.DISCARD,
         message="Not materialized.",
     )
 
-    pending_cache.apply_settlement(settlement)
+    pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 
     assert result.kind == "discarded"
@@ -158,7 +161,7 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_resolve_l1_atom_hit(resolver_parts):
-    resolver, _pending_cache, atom_cache, bus = resolver_parts
+    resolver, _pending_runtime, atom_cache, bus = resolver_parts
     atom = _make_memory(alias="fact_l1", content="from l1")
     atom_cache.ingest_atom(atom)
 
@@ -171,7 +174,7 @@ async def test_resolve_l1_atom_hit(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_resolve_l2_hit_promotes_to_l1(resolver_parts):
-    resolver, _pending_cache, atom_cache, bus = resolver_parts
+    resolver, _pending_runtime, atom_cache, bus = resolver_parts
     atom = _make_memory(alias="fact_l2", content="from l2")
     bus._mock_storage.get_memory_by_alias.return_value = atom
 
@@ -190,7 +193,7 @@ async def test_resolve_l2_hit_promotes_to_l1(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_resolve_l2_miss(resolver_parts):
-    resolver, _pending_cache, _atom_cache, bus = resolver_parts
+    resolver, _pending_runtime, _atom_cache, bus = resolver_parts
     bus._mock_storage.get_memory_by_alias.return_value = None
 
     result = await resolver.resolve("missing")
@@ -200,7 +203,7 @@ async def test_resolve_l2_miss(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_resolve_route_failure_raises_bus_unavailable(resolver_parts):
-    resolver, _pending_cache, _atom_cache, bus = resolver_parts
+    resolver, _pending_runtime, _atom_cache, bus = resolver_parts
     bus._mock_storage.get_memory_by_alias.side_effect = KeyError("route missing")
 
     with pytest.raises(BusRouteUnavailableError):
@@ -209,7 +212,7 @@ async def test_resolve_route_failure_raises_bus_unavailable(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_resolve_storage_failure_raises_storage_read_error(resolver_parts):
-    resolver, _pending_cache, _atom_cache, bus = resolver_parts
+    resolver, _pending_runtime, _atom_cache, bus = resolver_parts
     bus._mock_storage.get_memory_by_alias.side_effect = RuntimeError("boom")
 
     with pytest.raises(StorageReadError):

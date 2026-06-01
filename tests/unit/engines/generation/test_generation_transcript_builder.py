@@ -14,14 +14,12 @@ GenerationTranscriptBuilder / GenerationContext 单测
 import pytest
 from unittest.mock import MagicMock
 
-from hivememory.core.models import Identity, TurnRecord
+from hivememory.core.models import Identity, TraceItem, TurnRecord, WriteFocus
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
-    WriteFocus,
 )
-from hivememory.core.models import TraceItem
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.engines.perception.models import LogicalBlock
 
@@ -269,7 +267,7 @@ class TestGenerationRequestIdentity:
         assert req.identity.agent_id == "context_agent"
 
     def test_identity_prefers_update_over_context(self):
-        from hivememory.engines.generation.models import UpdateFocus
+        from hivememory.core.models import UpdateFocus
         ctx = GenerationContext(turns=[
             GenerationTurn(user_query="q", identity=_identity("context_agent"))
         ])
@@ -285,7 +283,7 @@ class TestGenerationRequestIdentity:
         assert req.identity.agent_id == "update_agent"
 
     def test_identity_prefers_write_over_update_and_context(self):
-        from hivememory.engines.generation.models import UpdateFocus
+        from hivememory.core.models import UpdateFocus
         ctx = GenerationContext(turns=[
             GenerationTurn(user_query="q", identity=_identity("context_agent"))
         ])
@@ -369,7 +367,7 @@ class TestEngineWithGenerationContext:
         """Mode B (write_focus) + context 兼容"""
         engine, extractor, deduplicator = self._make_engine()
         from hivememory.engines.generation.models import ExtractedMemoryDraft
-        from hivememory.engines.generation.interfaces import DuplicateDecision
+        from hivememory.core.models import DuplicateDecision
         draft = ExtractedMemoryDraft(
             title="test_title", summary="a summary longer than ten chars", tags=["a"], memory_type="FACT",
             content="test content here", confidence_score=0.9, has_value=True,

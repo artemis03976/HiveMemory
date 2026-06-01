@@ -7,8 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from hivememory.system.config import KoakumaConfig
-from hivememory.alice.runtime.cache import KoakumaAtomCache, PendingAtomCache
+from hivememory.alice.runtime.cache import KoakumaAtomCache
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
 from hivememory.alice.runtime.resolver import RuntimeAliasResolver
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
@@ -73,7 +74,7 @@ def make_mock_bus(mock_storage: Optional[MagicMock] = None, mock_retrieval: Opti
 
 def make_runtime_alias_resolver(bus: MockAsyncBus) -> RuntimeAliasResolver:
     return RuntimeAliasResolver(
-        pending_cache=PendingAtomCache(),
+        pending_runtime=PendingAtomRuntime(),
         atom_cache=KoakumaAtomCache(),
         bus=bus,
     )

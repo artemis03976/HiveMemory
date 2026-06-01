@@ -30,7 +30,7 @@ from hivememory.core.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.engines.generation.models import WriteFocus, UpdateFocus
+    from hivememory.core.models import WriteFocus, UpdateFocus
 
 
 # ============ 枚举定义 ============

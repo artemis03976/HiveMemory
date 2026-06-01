@@ -26,9 +26,10 @@ from datetime import datetime
 from hivememory.core.models import (
     Identity, StreamMessage, StreamMessageType,
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts, TurnRecord,
+    PendingAtomResolution, UpdateFocus, WriteFocus,
 )
 from hivememory.engines.generation.models import (
-    UpdateFocus, MergeResult, GenerationRequest, GenerationContext, GenerationTurn, WriteFocus,
+    MergeResult, GenerationRequest, GenerationContext, GenerationTurn,
 )
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
@@ -278,7 +279,8 @@ class TestModeCMergePrompt:
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "新内容"
-        assert result[0].operation == "updated"
+        assert result[0].canonical_alias == existing_memory.get_alias()
+        assert result[0].canonical_uuid == str(existing_memory.id)
         mock_storage.upsert_memory.assert_called_once()
 
 
@@ -450,9 +452,8 @@ class TestApplyUpdate:
             pending_alias="rev_fact_api_port_1234",
         )
 
-        assert result[0].operation == "updated"
         assert result[0].settlement is not None
-        assert result[0].settlement.status == "UPDATED"
+        assert result[0].settlement.resolution == PendingAtomResolution.UPDATED
         assert result[0].settlement.duplicate_decision is None
         assert result[0].settlement.canonical_alias == existing_memory.get_alias()
 
@@ -720,7 +721,7 @@ class TestKoakumaUpdateValidation:
         assert result.update_focus is None
 
     def test_pending_alias_rejected(self, validation_koakuma):
-        pending = validation_koakuma.pending_cache.register_write(
+        pending = validation_koakuma.pending_runtime.register_write(
             content="pending content",
             title="Pending Note",
             reason=None,
@@ -752,7 +753,7 @@ class TestKoakumaUpdateValidation:
         from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        from hivememory.alice.runtime.models import RuntimeScope
+        from hivememory.core.models import RuntimeScope
 
         context = MTPExecutionContext(
             identity=Identity(user_id="test_user"),
@@ -770,7 +771,7 @@ class TestKoakumaUpdateValidation:
         assert result.success
         assert result.update_focus is not None
         assert result.update_focus.instruction == "test"
-        pending = koakuma.pending_cache.get(result.pending_alias)
+        pending = koakuma.pending_runtime.get(result.pending_alias)
         assert pending is not None
         assert pending.runtime_scope.run_id == "run_update_test"
         assert pending.runtime_scope.frame_id == "frame_main_update"
