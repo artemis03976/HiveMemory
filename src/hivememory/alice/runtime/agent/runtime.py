@@ -6,17 +6,17 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, Optional
 from hivememory.core.models import AgentProfile
 from hivememory.core.protocol.models import AgentRunResult
 
-from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
 from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
-from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
+from hivememory.agent_runtime.worker_agent import WorkerAgentService
 from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
-    from hivememory.alice.runtime.agent.mtp_executor import MTPExecutor
-    from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-    from hivememory.alice.runtime.resolver import RuntimeAliasResolver
+    from hivememory.agent_runtime.mtp_executor import MTPExecutor
+    from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+    from hivememory.agent_runtime.resolver import RuntimeAliasResolver
     from hivememory.prompts.assembler import AgentPromptAssembler
     from hivememory.system.config import HiveMemoryConfig
 

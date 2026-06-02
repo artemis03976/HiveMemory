@@ -8,14 +8,14 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.pending_atom.runtime import PendingAtomRuntime
+    from hivememory.agent_runtime.pending_atom.runtime import PendingAtomRuntime
 
 __all__ = ["PendingAtomRuntime"]
 
 
 def __getattr__(name: str):
     if name == "PendingAtomRuntime":
-        from hivememory.alice.runtime.pending_atom.runtime import PendingAtomRuntime
+        from hivememory.agent_runtime.pending_atom.runtime import PendingAtomRuntime
 
         return PendingAtomRuntime
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

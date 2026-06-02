@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.models import (
     Identity,
     PendingAtomResolution,

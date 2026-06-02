@@ -26,7 +26,7 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     RuntimeScope,
 )
-from hivememory.alice.runtime.models import ExecutionFrame
+from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import (
@@ -143,8 +143,8 @@ class TestKoakumaHandleCall:
     """Koakuma _handle_call() 测试"""
 
     def _make_koakuma(self, depth=0):
-        from hivememory.alice.runtime.koakuma import KoakumaRuntime
-        from hivememory.alice.runtime.models import MTPExecutionContext
+        from hivememory.agent_runtime.koakuma import KoakumaRuntime
+        from hivememory.agent_runtime.models import MTPExecutionContext
 
         koakuma = MagicMock(spec=KoakumaRuntime)
         koakuma.context = MTPExecutionContext(

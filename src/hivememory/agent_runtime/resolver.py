@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 from uuid import UUID
 
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.models import MemoryAtom
 from hivememory.core.models.pending import (
     PendingAtom,
@@ -33,8 +33,8 @@ from hivememory.core.mtp.exceptions import (
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
-    from hivememory.alice.runtime.cache import KoakumaAtomCache
-    from hivememory.alice.runtime.models import MTPExecutionContext
+    from hivememory.agent_runtime.cache import KoakumaAtomCache
+    from hivememory.agent_runtime.models import MTPExecutionContext
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,7 @@ class RuntimeAliasResolver:
         context: Optional["MTPExecutionContext"] = None,
     ) -> Optional[MemoryAtom]:
         """L2 冷查询：通过 bus 查询存储层。"""
-        from hivememory.alice.runtime.models import MTPExecutionContext
+        from hivememory.agent_runtime.models import MTPExecutionContext
         from hivememory.system.contracts.routes import GlobalRoutes
 
         try:

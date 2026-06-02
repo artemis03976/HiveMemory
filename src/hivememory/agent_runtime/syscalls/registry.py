@@ -5,11 +5,11 @@ syscall 注册表构建器。
 from functools import partial
 from typing import Dict
 
-from hivememory.alice.runtime.syscalls.clock import sys_clock
-from hivememory.alice.runtime.syscalls.file_io import sys_read_file, sys_write_file
-from hivememory.alice.runtime.syscalls.repl import sys_python_repl
-from hivememory.alice.runtime.syscalls.types import KernelSyscall
-from hivememory.alice.runtime.syscalls.web_search import sys_web_search
+from hivememory.agent_runtime.syscalls.clock import sys_clock
+from hivememory.agent_runtime.syscalls.file_io import sys_read_file, sys_write_file
+from hivememory.agent_runtime.syscalls.repl import sys_python_repl
+from hivememory.agent_runtime.syscalls.types import KernelSyscall
+from hivememory.agent_runtime.syscalls.web_search import sys_web_search
 
 
 def build_kernel_registry(

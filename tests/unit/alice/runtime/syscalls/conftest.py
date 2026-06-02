@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from hivememory.system.config import KoakumaConfig
-from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.resolver import RuntimeAliasResolver
+from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.system.contracts.routes import GlobalRoutes

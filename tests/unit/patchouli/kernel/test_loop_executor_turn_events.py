@@ -14,15 +14,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
-from hivememory.alice.runtime.models import (
+from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionStatus,
     GenerationResult,
     MTPExecutionContext,
     RuntimeScope,
 )
-from hivememory.alice.runtime.resolver import ResolveResult
+from hivememory.agent_runtime.resolver import ResolveResult
 from hivememory.core.models import (
     Identity,
     IndexLayer,

@@ -2,9 +2,9 @@
 
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.resolver import RuntimeAliasResolver
+from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 

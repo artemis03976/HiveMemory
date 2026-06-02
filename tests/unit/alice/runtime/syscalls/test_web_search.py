@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hivememory.alice.runtime.syscalls.web_search import sys_web_search
+from hivememory.agent_runtime.syscalls.web_search import sys_web_search
 
 
 class TestSysWebSearch:
@@ -17,7 +17,7 @@ class TestSysWebSearch:
         result = sys_web_search({"query": ""})
         assert "Error" in result
 
-    @patch("hivememory.alice.runtime.syscalls.web_search.DDGS", create=True)
+    @patch("hivememory.agent_runtime.syscalls.web_search.DDGS", create=True)
     def test_normal_search(self, mock_ddgs_cls):
         """正常搜索 (mock DDGS)"""
         mock_instance = MagicMock()
@@ -30,7 +30,7 @@ class TestSysWebSearch:
 
         try:
             from duckduckgo_search import DDGS
-            with patch("hivememory.alice.runtime.syscalls.web_search.DDGS", mock_ddgs_cls):
+            with patch("hivememory.agent_runtime.syscalls.web_search.DDGS", mock_ddgs_cls):
                 result = sys_web_search({"query": "python async"})
                 assert "Result 1" in result
         except ImportError:

@@ -9,11 +9,11 @@ from hivememory.core.protocol.models import AgentRunContext, AgentRunResult
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.resolver import RuntimeAliasResolver
-from hivememory.alice.runtime.agent.mtp_executor import KoakumaMTPExecutor
+from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.resolver import RuntimeAliasResolver
+from hivememory.agent_runtime.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.events import GlobalEvents

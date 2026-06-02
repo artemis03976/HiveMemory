@@ -2,10 +2,10 @@ import pytest
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.alice.runtime.models import MTPExecutionContext
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.resolver import RuntimeAliasResolver
+from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.core.models import (
     DuplicateDecision,
     Identity,

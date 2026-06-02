@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
-from hivememory.alice.runtime.models import (
+from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
@@ -21,7 +21,7 @@ from hivememory.alice.runtime.models import (
     RuntimeScope,
     StreamChunk,
 )
-from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.protocol.models import MTPExecutionResult
 

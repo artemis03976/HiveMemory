@@ -20,7 +20,7 @@ import logging
 import asyncio
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
 
-from hivememory.alice.runtime.models import (
+from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
@@ -33,8 +33,8 @@ from hivememory.system.config import AgentRuntimeConfig
 import json
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.agent.mtp_executor import MTPExecutor
-    from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
+    from hivememory.agent_runtime.mtp_executor import MTPExecutor
+    from hivememory.agent_runtime.worker_agent import WorkerAgentService
 
 logger = logging.getLogger(__name__)
 

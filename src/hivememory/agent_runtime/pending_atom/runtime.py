@@ -29,7 +29,7 @@ from hivememory.core.models.pending import (
     WriteFocus,
 )
 
-from hivememory.alice.runtime.pending_atom.store import _PendingAtomStore
+from hivememory.agent_runtime.pending_atom.store import _PendingAtomStore
 
 logger = logging.getLogger(__name__)
 

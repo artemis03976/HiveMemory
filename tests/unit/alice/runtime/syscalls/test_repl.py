@@ -1,4 +1,4 @@
-from hivememory.alice.runtime.syscalls.repl import sys_python_repl
+from hivememory.agent_runtime.syscalls.repl import sys_python_repl
 
 
 class TestSysPythonRepl:

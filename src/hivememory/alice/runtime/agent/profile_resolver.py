@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from hivememory.alice.runtime.cache import AgentProfileCache
+from hivememory.agent_runtime.cache import AgentProfileCache
 from hivememory.core.models import AgentProfile, OMNI_DOLL_PROFILE
 from hivememory.system.contracts.routes import GlobalRoutes
 

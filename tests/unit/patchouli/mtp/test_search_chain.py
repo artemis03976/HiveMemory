@@ -25,8 +25,8 @@ from hivememory.core.models import (
 )
 from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import MTPResponseStatus
 

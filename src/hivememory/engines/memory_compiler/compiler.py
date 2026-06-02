@@ -86,7 +86,7 @@ class MemoryCompiler:
         target: MemoryCompileTarget,
         options: MemoryCompileOptions,
     ) -> CompiledMemoryArtifact:
-        from hivememory.alice.runtime.resolver import ResolveResult
+        from hivememory.agent_runtime.resolver import ResolveResult
         from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement
 
         if isinstance(source, MemoryAtom):

@@ -15,8 +15,8 @@ from uuid import uuid4
 
 from hivememory.core.models import AgentProfile, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
 from hivememory.patchouli.runtime.core import PatchouliRuntime
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.mtp.exceptions import PermissionDeniedError
 from hivememory.core.mtp import MTPCommand, MTPVerb
 from hivememory.prompts.mtp import MTPPromptBuilder
