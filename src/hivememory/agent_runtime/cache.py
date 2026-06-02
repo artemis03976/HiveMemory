@@ -1,25 +1,20 @@
 """
-Kernel Runtime 缓存实现。
+Agent Runtime 记忆原子缓存实现。
 
-替代原有的双层别名映射与 _LRUCache，提供：
-- 完整 MemoryAtom 对象缓存（而非仅 UUID 或代码字符串）
+提供：
+- 完整 MemoryAtom 对象缓存
 - 双索引：alias -> UUID 和 UUID -> MemoryAtom
 - 会话级生命周期（无需 LRU 淘汰）
 - UPDATE 后缓存失效支持
-
-注：PendingAtom 运行时缓存已迁移至 ``pending_atom/`` 子包
-（``PendingAtomRuntime``），本模块仅保留 ``KoakumaAtomCache`` /
-``AgentProfileCache``。
 
 作者: HiveMemory Team
 版本: 1.0
 """
 
 import logging
-from collections import OrderedDict
 from typing import Dict, List, Optional
 
-from hivememory.core.models import AgentProfile, MemoryAtom, MemoryType
+from hivememory.core.models import MemoryAtom
 
 logger = logging.getLogger(__name__)
 
@@ -88,91 +83,3 @@ class KoakumaAtomCache:
     def size(self) -> int:
         """返回当前缓存原子数量。"""
         return len(self._uuid_to_atom)
-
-
-class AgentProfileCache:
-    """
-    人偶图纸缓存 - 会话级 LRU 缓存。
-
-    通过 alias 快速加载并缓存人偶图纸。
-    缓存 Miss 时通过 storage.get_memory_by_alias 精确查找。
-    """
-
-    def __init__(self, max_size: int = 32):
-        """初始化图纸缓存，默认最大 32 条。"""
-        self._max_size = max_size
-        self._cache: OrderedDict[str, tuple[Optional[MemoryAtom], AgentProfile]] = OrderedDict()
-
-    def get(self, alias: str) -> Optional[AgentProfile]:
-        """从缓存获取配置（不触发 storage 查询）。"""
-        entry = self._cache.get(alias)
-        if entry is not None:
-            self._cache.move_to_end(alias)
-            return entry[1]
-        return None
-
-    def get_atom(self, alias: str) -> Optional[MemoryAtom]:
-        """获取缓存中的完整 MemoryAtom（含 payload）。"""
-        entry = self._cache.get(alias)
-        if entry is not None:
-            self._cache.move_to_end(alias)
-            return entry[0]
-        return None
-
-    def load(self, alias: str, storage) -> Optional[AgentProfile]:
-        """加载人偶图纸：缓存优先，未命中时回源 storage。"""
-        cached = self.get(alias)
-        if cached is not None:
-            return cached
-
-        try:
-            atom = storage.get_memory_by_alias(alias)
-        except Exception as e:
-            logger.warning(f"Failed to load agent profile '{alias}' from storage: {e}")
-            return None
-
-        if atom is None:
-            return None
-
-        if atom.index.memory_type != MemoryType.AGENT_PROFILE:
-            logger.warning(
-                f"Alias '{alias}' resolved to type '{atom.index.memory_type}', "
-                f"expected AGENT_PROFILE. Ignoring."
-            )
-            return None
-
-        config = AgentProfile.from_atom(atom)
-        if config is None:
-            return None
-
-        self.store(alias, atom, config)
-        logger.info(f"Agent profile '{alias}' loaded and cached.")
-        return config
-
-    def parse_config(self, atom: MemoryAtom) -> Optional[AgentProfile]:
-        """[已废弃] 请改用 AgentProfile.from_atom"""
-        return AgentProfile.from_atom(atom)
-
-    def invalidate(self, alias: str) -> None:
-        """驱逐指定别名缓存。"""
-        self._cache.pop(alias, None)
-
-    def clear(self) -> None:
-        """清空全部图纸缓存。"""
-        self._cache.clear()
-
-    def store(self, alias: str, atom: Optional[MemoryAtom], config: AgentProfile) -> None:
-        """写入缓存并维护 LRU 淘汰策略。"""
-        if alias in self._cache:
-            self._cache.move_to_end(alias)
-            self._cache[alias] = (atom, config)
-        else:
-            if len(self._cache) >= self._max_size:
-                evicted_alias, _ = self._cache.popitem(last=False)
-                logger.debug(f"Agent profile cache evicted: '{evicted_alias}'")
-            self._cache[alias] = (atom, config)
-
-    @property
-    def size(self) -> int:
-        """返回当前缓存条目数。"""
-        return len(self._cache)
