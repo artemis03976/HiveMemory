@@ -127,6 +127,17 @@ class PendingAtomRuntime:
         logger.debug(f"Registered pending UPDATE: {pending_alias} (intent={intent_id})")
         return atom
 
+    def mark_failed(self, pending_alias: str) -> None:
+        """将 MATERIALIZING 的 atom 迁移到 FAILED（幂等：非 MATERIALIZING 时静默跳过）。"""
+        atom = self._store.get(pending_alias)
+        if atom is None or atom.status != PendingAtomStatus.MATERIALIZING:
+            logger.warning(
+                f"mark_failed() skipped: alias={pending_alias}, "
+                f"status={atom.status.value if atom else 'not found'}"
+            )
+            return
+        atom.status = PendingAtomStatus.FAILED
+
     def claim_for_materialization(self, aliases: list[str]) -> List[PendingAtomMaterializeTask]:
         """将 PENDING 的 atom 迁移到 MATERIALIZING 并返回 Task 投影。非 PENDING 的静默跳过（幂等）。"""
         tasks = []

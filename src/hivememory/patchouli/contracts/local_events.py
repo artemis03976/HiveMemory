@@ -5,6 +5,7 @@ class PatchouliLocalEvents:
     """Events published on PatchouliBus inside the Patchouli subsystem."""
 
     PENDING_ATOM_SETTLED = "patchouli.events.pending_atom.settled"
+    PENDING_ATOM_FAILED = "patchouli.events.pending_atom.failed"
 
 
 __all__ = ["PatchouliLocalEvents"]

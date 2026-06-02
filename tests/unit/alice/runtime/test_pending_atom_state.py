@@ -5,7 +5,6 @@ PendingAtom 统一状态体系单元测试 (Commit 1)。
 - PendingAtomStatus / PendingAtomResolution 枚举属性
 - 状态机合法/非法迁移
 - PendingAtomSnapshot 不变量校验
-- map_legacy_status 兼容映射
 - PendingAtomRuntime.snapshot() 派生路径（未结算 / SETTLED 各类 resolution）
 """
 
@@ -24,7 +23,6 @@ from hivememory.core.models import (
 from hivememory.core.models.pending import (
     allowed_transitions,
     is_legal_transition,
-    map_legacy_status,
 )
 
 # ---------------------------------------------------------------------------
@@ -176,35 +174,6 @@ class TestSnapshotInvariants:
         )
         assert snap.resolution == PendingAtomResolution.CREATED
         assert snap.canonical_uuid == "uuid-123"
-
-
-# ---------------------------------------------------------------------------
-# Legacy 映射
-# ---------------------------------------------------------------------------
-
-
-class TestLegacyMapping:
-    @pytest.mark.parametrize(
-        "legacy,expected_status,expected_resolution",
-        [
-            ("pending", PendingAtomStatus.PENDING, None),
-            ("revision", PendingAtomStatus.PENDING, None),
-            ("committed", PendingAtomStatus.SETTLED, PendingAtomResolution.CREATED),
-            ("merged", PendingAtomStatus.SETTLED, PendingAtomResolution.MERGED),
-            ("updated", PendingAtomStatus.SETTLED, PendingAtomResolution.UPDATED),
-            ("touched", PendingAtomStatus.SETTLED, PendingAtomResolution.TOUCHED),
-            ("discarded", PendingAtomStatus.SETTLED, PendingAtomResolution.DISCARDED),
-            ("failed", PendingAtomStatus.FAILED, None),
-        ],
-    )
-    def test_known_legacy_values(self, legacy, expected_status, expected_resolution):
-        status, resolution = map_legacy_status(legacy)
-        assert status == expected_status
-        assert resolution == expected_resolution
-
-    def test_unknown_legacy_value_raises(self):
-        with pytest.raises(ValueError, match="Unknown legacy"):
-            map_legacy_status("nonexistent_status")
 
 
 # ---------------------------------------------------------------------------

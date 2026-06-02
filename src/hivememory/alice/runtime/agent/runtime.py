@@ -96,6 +96,10 @@ class AgentRuntime:
             use_stream_generation=stream_emitter is not None,
         )
 
+    def mark_task_failed(self, pending_alias: str) -> None:
+        """将 MATERIALIZING 的 atom 迁移到 FAILED（由 patchouli FAILED 事件触发）。"""
+        self._pending_runtime.mark_failed(pending_alias)
+
     def aliases_by_frame(self, frame_id: str) -> List[str]:
         """返回属于指定 frame 的全部 pending alias（不做状态过滤，供 harvest 使用）。"""
         return [

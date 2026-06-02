@@ -179,6 +179,14 @@ class LibrarianCore:
                     f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
                     exc_info=True,
                 )
+                if self._bus is not None:
+                    try:
+                        await self._bus.publish(
+                            PatchouliLocalEvents.PENDING_ATOM_FAILED,
+                            pending_alias=task.pending_alias,
+                        )
+                    except Exception as pub_err:
+                        logger.warning(f"FAILED event publish error: {pub_err}")
 
     async def _run_mode_b(
         self,
