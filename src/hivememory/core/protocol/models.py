@@ -234,8 +234,7 @@ class InteractionPayload(BaseModel):
     Attributes:
         user_message: 原始用户消息
         mtp_traces: Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表
-        write_focus: WRITE 指令核心素材
-        update_focus: UPDATE 指令修改意图
+        materialize_tasks: 本 run 产出的不可变物化请求，由 finalize 分发 mode b/c
         identity: 归属身份元数据
         rewritten_query: Gateway 重写后的查询
         worth_saving: Gateway 价值判断

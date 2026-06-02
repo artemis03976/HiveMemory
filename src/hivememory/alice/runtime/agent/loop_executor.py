@@ -47,8 +47,7 @@ class KernelLoopExecutor:
     - 自然收敛 → 返回 FrameExecutionResult(COMPLETED)
     - 命中 CALL → 返回 FrameExecutionResult(SUSPENDED)，控制权交还编排
 
-    累积产物（text_segments / turn_events / write_foci / update_foci /
-    pending_aliases / iteration / sequence）全部写在 frame.progress 上，
+    累積产物（text_segments / turn_events / pending_aliases / iteration / sequence）全部写在 frame.progress 上，
     重入同一 frame 时自然续接，编号连续。
     """
 
