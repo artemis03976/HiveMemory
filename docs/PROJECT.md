@@ -521,7 +521,7 @@ Summary: {index.summary}
 
 本章内容已迁移至独立文档，便于独立维护与更新。
 
-**完整文档**：[docs/components/gateway.md](components/gateway.md)
+**完整文档**：[docs/engines/gateway.md](engines/gateway.md)
 
 以下为核心流程摘要，供快速参考。
 
@@ -547,7 +547,7 @@ Gateway 输出 `GatewayResult` 结构化指令包，驱动所有下游模块：
 
 除主动驱动模式（AIOS 引擎）外，Gateway 还通过 `ObserverSessionBuffer` 支持**被动观察模式**，将外部系统（Discord Bot、微信机器人等）的离散消息拼接为完整的 `InteractionPayload`，实现非侵入性记忆接入。
 
-详细的漏斗架构、Agentic Dispatcher 路由、被动模式状态机、数据模型及配置参考，见 [gateway.md](components/gateway.md)。
+详细的漏斗架构、Agentic Dispatcher 路由、被动模式状态机、数据模型及配置参考，见 [gateway.md](engines/gateway.md)。
 
 # 5 核心功能 II：记忆感知 (The Perception Layer)
 
@@ -559,7 +559,7 @@ Gateway 输出 `GatewayResult` 结构化指令包，驱动所有下游模块：
 
 本章内容已迁移至独立文档，便于独立维护与更新。
 
-**完整文档**：[docs/components/perception.md](components/perception.md)
+**完整文档**：[docs/engines/perception.md](engines/perception.md)
 
 以下为核心流程摘要，供快速参考。
 
@@ -580,7 +580,7 @@ Gateway 输出 `GatewayResult` 结构化指令包，驱动所有下游模块：
 | `MTP_WRITE/UPDATE` | ✅ | ✅ | ❌ | 存活（含新摘要） |
 | `MANUAL` | ✅ | ✅ | ❌ | 存活（含新摘要） |
 
-详细的数据结构、MMU 架构、摄入管道、语义吸附算法、页折叠机制及配置参考，见 [perception.md](components/perception.md)。
+详细的数据结构、MMU 架构、摄入管道、语义吸附算法、页折叠机制及配置参考，见 [perception.md](engines/perception.md)。
 
 # 6 核心功能 III：记忆生成 (The Generation Layer)
 
@@ -588,7 +588,7 @@ Gateway 输出 `GatewayResult` 结构化指令包，驱动所有下游模块：
 
 本章内容已迁移至独立文档，便于独立维护与更新。
 
-**完整文档**：[docs/components/generation.md](components/generation.md)
+**完整文档**：[docs/engines/generation.md](engines/generation.md)
 
 以下为核心流程摘要，供快速参考。
 
@@ -609,7 +609,7 @@ Patchouli 接收感知层提交的 Block 后，执行四步处理链：
 | **Mode B (主动响应)** | MTP `WRITE` 指令 | Agent 明确要求保存某段内容 |
 | **Mode C (合并更新)** | MTP `UPDATE` 指令 | Agent 请求修改已有记忆 |
 
-详细的决策矩阵、Prompt 设计、MTP 别名系统、数据模型及配置参考，见 [generation.md](components/generation.md)。
+详细的决策矩阵、Prompt 设计、MTP 别名系统、数据模型及配置参考，见 [generation.md](engines/generation.md)。
 
 # 7 核心功能 IV：记忆检索与共享 (The Retrieval Engine)
 
@@ -617,7 +617,7 @@ Patchouli 接收感知层提交的 Block 后，执行四步处理链：
 
 本章内容已迁移至独立文档，便于独立维护与更新。
 
-**完整文档**：[docs/components/retrieval.md](components/retrieval.md)
+**完整文档**：[docs/engines/retrieval.md](engines/retrieval.md)
 
 以下为核心流程摘要，供快速参考。
 
@@ -650,7 +650,7 @@ $$
 | `CascadeContextRenderer` | Top-N 完整 + 其余降级为摘要 | 生产推荐，平衡完整性与预算 |
 | `CompactContextRenderer` | 仅摘要，配合懒加载工具 | Token 极紧张，复杂推理 |
 
-详细的检索器实现、融合算法、精排流程、权限隔离及配置参考，见 [retrieval.md](components/retrieval.md)。
+详细的检索器实现、融合算法、精排流程、权限隔离及配置参考，见 [retrieval.md](engines/retrieval.md)。
 
 # 8 核心功能 V：记忆生命周期管理 (Lifecycle Management)
 
@@ -658,7 +658,7 @@ $$
 
 本章内容已迁移至独立文档，便于独立维护与更新。
 
-**完整文档**：[docs/components/lifecycle.md](components/lifecycle.md)
+**完整文档**：[docs/engines/lifecycle.md](engines/lifecycle.md)
 
 以下为核心流程摘要，供快速参考。
 
@@ -703,7 +703,7 @@ $$V = (C \times I) \times D(t) \times 100 + A$$
 
 **唤醒流程**：L2 Miss → L3 Fallback（关键词精确匹配） → 重新计算 Embedding → 插入 Qdrant → 重置生命力分数
 
-详细的生命力计算公式、强化算法、归档策略、核心组件（VitalityCalculator / DynamicReinforcementEngine / FileBasedArchiver / PeriodicGarbageCollector / MemoryLifecycleEngine）及配置参考，见 [lifecycle.md](components/lifecycle.md)。
+详细的生命力计算公式、强化算法、归档策略、核心组件（VitalityCalculator / DynamicReinforcementEngine / FileBasedArchiver / PeriodicGarbageCollector / MemoryLifecycleEngine）及配置参考，见 [lifecycle.md](engines/lifecycle.md)。
 
 # 9. 用户体验与交互设计 (User Experience & Interaction)
 

@@ -9,7 +9,7 @@
 
 - [第三次架构演进：SystemArchitecture_v3.0](./SystemArchitecture_v3.0.md)
   - 关键词：Patchouli Kernel、MTP、Koakuma、递归中断运行时、Patchouli OS
-  - 说明：本文用于承载第三次架构演进的系统级视图；MTP 协议细节仍以 [MemoryToolProtocol.md](../MemoryToolProtocol.md) 为准。
+  - 说明：本文用于承载第三次架构演进的系统级视图；MTP 协议细节仍以 [MemoryToolProtocol.md](../../protocols/MemoryToolProtocol.md) 为准。
 
 - [第四次架构演进最终总纲：SystemArchitecture_v4.0](./SystemArchitecture_v4.0.md)
   - 状态：Final (已收敛)
