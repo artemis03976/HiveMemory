@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from unittest.mock import MagicMock
 
 from hivememory.system.config import LLMConfig, KoakumaConfig
-from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,

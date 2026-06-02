@@ -33,7 +33,7 @@ from hivememory.system.config import AgentRuntimeConfig
 import json
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.mtp_executor import MTPExecutor
+    from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
     from hivememory.agent_runtime.worker_agent import WorkerAgentService
 
 logger = logging.getLogger(__name__)

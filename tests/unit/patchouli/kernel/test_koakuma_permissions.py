@@ -2,7 +2,7 @@
 
 import pytest
 
-from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.models import AgentProfile
 from hivememory.core.mtp.exceptions import AgentFault, PermissionDeniedError

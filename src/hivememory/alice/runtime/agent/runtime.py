@@ -14,7 +14,7 @@ from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
-    from hivememory.agent_runtime.mtp_executor import MTPExecutor
+    from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
     from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
     from hivememory.agent_runtime.resolver import RuntimeAliasResolver
     from hivememory.prompts.assembler import AgentPromptAssembler

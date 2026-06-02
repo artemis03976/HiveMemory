@@ -23,7 +23,7 @@ from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
     DuplicateDecision, PendingAtomResolution, PendingAtomSettlement,
 )
-from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 

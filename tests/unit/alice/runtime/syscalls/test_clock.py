@@ -1,6 +1,6 @@
 import re
 
-from hivememory.agent_runtime.syscalls.clock import sys_clock
+from hivememory.agent_runtime.mtp.syscalls.clock import sys_clock
 
 
 class TestSysClock:

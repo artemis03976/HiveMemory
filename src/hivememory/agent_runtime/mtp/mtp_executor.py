@@ -7,7 +7,7 @@ from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.protocol.models import MTPExecutionResult
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.koakuma import KoakumaRuntime
+    from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 
 
 class MTPExecutor(ABC):

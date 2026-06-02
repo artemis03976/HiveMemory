@@ -143,7 +143,7 @@ class TestKoakumaHandleCall:
     """Koakuma _handle_call() 测试"""
 
     def _make_koakuma(self, depth=0):
-        from hivememory.agent_runtime.koakuma import KoakumaRuntime
+        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
         from hivememory.agent_runtime.models import MTPExecutionContext
 
         koakuma = MagicMock(spec=KoakumaRuntime)

@@ -8,7 +8,7 @@ import pytest
 
 from hivememory.system.config import KoakumaConfig
 from hivememory.agent_runtime.cache import KoakumaAtomCache
-from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.core.protocol.models import MTPExecutionResult

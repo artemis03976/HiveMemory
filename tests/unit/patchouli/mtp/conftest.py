@@ -123,7 +123,7 @@ def make_runtime_alias_resolver(bus: MockAsyncBus) -> RuntimeAliasResolver:
 
 
 def make_koakuma_runtime(bus: MockAsyncBus, config=None):
-    from hivememory.agent_runtime.koakuma import KoakumaRuntime
+    from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
     from hivememory.system.config import KoakumaConfig
 
     return KoakumaRuntime(

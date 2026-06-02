@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 
 from hivememory.system.config import LLMConfig, KoakumaConfig
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
-from hivememory.agent_runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.protocol.models import AgentRunResult, RetrievalResponse
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.patchouli.system import PatchouliSystem
