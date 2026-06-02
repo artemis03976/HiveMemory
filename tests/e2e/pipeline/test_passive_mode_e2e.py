@@ -56,7 +56,6 @@ import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.passive import PassiveIngressEvent
-from hivememory.core.protocol.models import ChatResult
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 

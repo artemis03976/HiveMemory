@@ -22,6 +22,7 @@ from time import monotonic
 from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
 from hivememory.core.models import Identity
+from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.perception.models import FlushReason, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest, GenerationContext
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
@@ -122,8 +123,7 @@ class LibrarianCore:
             f"user='{payload.user_message[:30]}...', "
             f"target_topic_id={target_topic_id}, "
             f"traces={len(payload.mtp_traces)}, "
-            f"write_focus={'YES' if payload.write_focus else 'NO'}, "
-            f"update_focus={'YES' if payload.update_focus else 'NO'}"
+            f"tasks={len(payload.materialize_tasks)}"
         )
 
         # 直接调用感知层，感知层内部自动检测触发条件并调用回调
@@ -132,135 +132,128 @@ class LibrarianCore:
         else:
             logger.warning("perception_layer 未注入，跳过感知处理")
 
-    async def ingest_interaction(
-        self,
-        payload: InteractionPayload,
-        target_topic_id: str = "NEW_TOPIC",
-    ) -> None:
-        """兼容别名：旧代码仍可通过 ingest_interaction 调用。"""
-        await self.submit_interaction(payload, target_topic_id=target_topic_id)
-
     async def _on_generate_memory(self, payload: "ArchivePayload") -> None:
-        """
-        感知层 Archive 回调（TriggerManager 触发）
-
-        接收 TriggerManager 通过 asyncio.create_task() 调用。
-        Phase 3: 使用 GenerationContext（结构化生成视图）作为 generation 主路径。
-
-        根据 focus 信号选择 GenerationEngine 的处理模式:
-            - Mode A (默认): 无 focus，普通记忆提取
-            - Mode B (WRITE): 携带 write_focus，定向记忆生成
-            - Mode C (UPDATE): 携带 update_focus，定向记忆更新
-
-        每个 LogicalBlock 自行携带 identity，无需在此层面统一构建。
-
-        Args:
-            payload: ArchivePayload 对象，包含:
-                - blocks: List[LogicalBlock] - 从 buffer flush 出的 blocks（每个携带 identity）
-                - state_summary: str - 话题状态摘要
-                - focus: write_focus 或 update_focus (仅 MTP_WRITE/UPDATE 时有值)
-                - reason: FlushReason - flush 触发原因
-                - topic_id: str - 话题 ID
-                - user_id: Optional[str] - 用户 ID
-        """
+        """感知层 Archive 回调 — 仅处理 Mode A 被动记忆提取。"""
         try:
-            focus = payload.focus
-            reason = payload.reason
-
-            # 提取 write_focus / update_focus
-            write_focus = None
-            update_focus = None
-            if reason == FlushReason.MTP_WRITE:
-                write_focus = focus
-            elif reason == FlushReason.MTP_UPDATE:
-                update_focus = focus
-
-            # Phase 3: 构建结构化生成上下文（主路径）
             gen_context = self._build_generation_context(payload.blocks, payload.state_summary)
-
-            # 只有纯 Mode A 且无上下文时才跳过；Mode B/C 允许空背景走 focus fallback
-            if not gen_context.turns and write_focus is None and update_focus is None:
+            if not gen_context.turns:
                 logger.warning("空对话轮次，跳过处理")
                 return
 
-            # 根据 focus 信号构建对应模式的 GenerationRequest
-            if reason == FlushReason.MTP_WRITE and write_focus is not None:
-                logger.info(
-                    f"LibrarianCore 处理 MTP_WRITE flush: "
-                    f"{len(gen_context.turns)} 轮对话上下文"
-                )
-                request = GenerationRequest(
-                    context=gen_context,
-                    write_focus=write_focus,
-                )
-            elif reason == FlushReason.MTP_UPDATE and update_focus is not None:
-                logger.info(
-                    f"LibrarianCore 处理 MTP_UPDATE flush: "
-                    f"alias='{update_focus.base_alias}', "
-                    f"{len(gen_context.turns)} 轮对话上下文"
-                )
-                # 加载目标记忆
-                from uuid import UUID as _UUID
-                existing_result = self.storage.get_memory(_UUID(update_focus.base_uuid))
-                existing = (
-                    await existing_result
-                    if inspect.isawaitable(existing_result)
-                    else existing_result
-                )
-                if existing is None:
-                    logger.error(
-                        f"UPDATE 目标记忆不存在: {update_focus.base_uuid}"
-                    )
-                    return
-                request = GenerationRequest(
-                    context=gen_context,
-                    update_focus=update_focus,
-                    existing_memory=existing,
-                )
-            else:
-                # Mode A: 普通记忆提取
-                logger.info(
-                    f"LibrarianCore 开始处理 {len(gen_context.turns)} 轮对话..."
-                )
-                request = GenerationRequest(context=gen_context)
-
-            # 直接调用生成引擎
-            if self.generation_engine:
-                process_result = self.generation_engine.process(request)
-                results = (
-                    await process_result
-                    if inspect.isawaitable(process_result)
-                    else process_result
-                )
-            else:
-                logger.warning("generation_engine 未注入，跳过记忆生成")
-                return
-
-            memories = [r.atom for r in results if r.atom is not None]
-
-            if memories:
-                logger.info(f"成功提取 {len(memories)} 条记忆")
-            else:
-                logger.info("未提取到记忆（对话可能无价值或被过滤）")
-
-            # Phase 2: 发布 settlement 事件到 Patchouli local bus。
-            # 跨子系统转发由 PatchouliSystem 边界层负责。
-            if self._bus is not None:
-                for r in results:
-                    if r.settlement is not None:
-                        try:
-                            await self._bus.publish(
-                                PatchouliLocalEvents.PENDING_ATOM_SETTLED,
-                                settlement=r.settlement,
-                            )
-                        except Exception as pub_err:
-                            logger.warning(
-                                f"Settlement publish failed for "
-                                f"{r.settlement.pending_alias}: {pub_err}"
-                            )
-
+            logger.info(f"LibrarianCore Mode A: {len(gen_context.turns)} 轮对话...")
+            request = GenerationRequest(context=gen_context)
+            await self._run_generation(request)
         except Exception as e:
             logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
+
+    async def run_active_generation(
+        self,
+        tasks: List["PendingAtomMaterializeTask"],
+        topic_id: str,
+    ) -> None:
+        """主动记忆生成入口 — 由 finalize 直驱，跳过感知层 buffer。
+
+        按 §3.3 时序在 submit_interaction 之后调用，此时当前轮对话 block
+        已在 buffer，故 topic_context 包含「刚刚这轮」作为只读背景。
+        """
+        if not tasks or self.generation_engine is None:
+            return
+
+        # 读 buffer 只读背景（不标记消费，block 仍留在 buffer 等被动归档）
+        topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
+        if self.perception_layer is not None:
+            topic_context = self.perception_layer.get_topic_context(topic_id)
+
+        state_summary = topic_context.get("state_summary", "")
+        blocks = topic_context.get("blocks", [])
+        gen_context = self._build_generation_context(blocks, state_summary)
+
+        for task in tasks:
+            try:
+                if task.source_verb == "WRITE":
+                    await self._run_mode_b(task, gen_context)
+                else:
+                    await self._run_mode_c(task, gen_context)
+            except Exception as e:
+                logger.error(
+                    f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
+                    exc_info=True,
+                )
+
+    async def _run_mode_b(
+        self,
+        task: "PendingAtomMaterializeTask",
+        gen_context: "GenerationContext",
+    ) -> None:
+        """Mode B: WRITE 指令定向记忆生成。"""
+        from hivememory.core.models.pending import WriteFocus
+        focus = task.focus
+        assert isinstance(focus, WriteFocus)
+        logger.info(f"Mode B WRITE: content='{focus.content[:50]}...'")
+        request = GenerationRequest(
+            context=gen_context,
+            write_focus=focus,
+            identity=task.identity,
+            intent_id=task.intent_id,
+            pending_alias=task.pending_alias,
+        )
+        await self._run_generation(request)
+
+    async def _run_mode_c(
+        self,
+        task: "PendingAtomMaterializeTask",
+        gen_context: "GenerationContext",
+    ) -> None:
+        """Mode C: UPDATE 指令定向记忆更新。"""
+        from uuid import UUID as _UUID
+        from hivememory.core.models.pending import UpdateFocus
+        focus = task.focus
+        assert isinstance(focus, UpdateFocus)
+        logger.info(f"Mode C UPDATE: alias='{focus.base_alias}'")
+
+        existing_result = self.storage.get_memory(_UUID(focus.base_uuid))
+        existing = (
+            await existing_result if inspect.isawaitable(existing_result)
+            else existing_result
+        )
+        if existing is None:
+            logger.error(f"UPDATE 目标记忆不存在: {focus.base_uuid}")
+            return
+
+        request = GenerationRequest(
+            context=gen_context,
+            update_focus=focus,
+            existing_memory=existing,
+            identity=task.identity,
+            intent_id=task.intent_id,
+            pending_alias=task.pending_alias,
+        )
+        await self._run_generation(request)
+
+    async def _run_generation(self, request: "GenerationRequest") -> None:
+        """调用生成引擎并发布 Settlement 事件。"""
+        process_result = self.generation_engine.process(request)
+        results = (
+            await process_result if inspect.isawaitable(process_result)
+            else process_result
+        )
+
+        memories = [r.atom for r in results if r.atom is not None]
+        logger.info(f"成功提取 {len(memories)} 条记忆" if memories else "未提取到记忆")
+
+        if self._bus is not None:
+            for r in results:
+                if r.settlement is not None:
+                    try:
+                        await self._bus.publish(
+                            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+                            settlement=r.settlement,
+                        )
+                    except Exception as pub_err:
+                        logger.warning(
+                            f"Settlement publish failed for "
+                            f"{r.settlement.pending_alias}: {pub_err}"
+                        )
 
     def _build_generation_context(
         self,

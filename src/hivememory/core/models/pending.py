@@ -135,7 +135,7 @@ def map_legacy_status(
 # 查重决策
 # ===========================================================================
 
-
+# TODO:放回generation引擎
 class DuplicateDecision(str, Enum):
     """
     查重决策类型
@@ -158,55 +158,28 @@ class DuplicateDecision(str, Enum):
 
 
 class WriteFocus(BaseModel):
-    """
-    WRITE 指令的聚焦内容
+    """WRITE 指令的 Agent 提交参数（纯 DTO，不含关联键）。
 
-    当 Agent 通过 MTP WRITE 指令提交记忆草稿时，
-    Koakuma 将指令参数打包为 WriteFocus 对象，
-    传递给 LibrarianCore → GenerationEngine 处理。
-
-    Attributes:
-        content: WRITE 指令的 content 参数 (必需)
-        reason: WRITE 指令的 reason 参数 (可选)
-        title: WRITE 指令的 title 参数 (可选)
-        identity: 当前身份标识
-        pending_alias: 运行时 pending alias (Phase 2)
-        intent_id: 系统内部写入意图 ID (Phase 2)
+    关联键（pending_alias / intent_id / identity）由 PendingAtom 持有，
+    通过 PendingAtomMaterializeTask 出境，不再穿透 Focus。
     """
     content: str
     reason: Optional[str] = None
     title: Optional[str] = None
-    identity: Identity = Field(default_factory=Identity)
-    pending_alias: Optional[str] = None
-    intent_id: Optional[str] = None
+    model_config = ConfigDict(frozen=True)
 
 
 class UpdateFocus(BaseModel):
-    """
-    UPDATE 指令的聚焦内容
+    """UPDATE 指令的 Agent 提交参数（纯 DTO，不含关联键）。
 
-    当 Agent 通过 MTP UPDATE 指令提交修改请求时，
-    Koakuma 将指令参数打包为 UpdateFocus 对象，
-    传递给 LibrarianCore → GenerationEngine 处理。
-
-    Attributes:
-        instruction: 修改指令 (必填，自然语言描述)
-        content: 新素材 (选填，代码替换或文本追加)
-        base_uuid: 本次 revision 基于的正式记忆 UUID
-        base_alias: 本次 revision 基于的正式记忆 alias
-        identity: 当前身份标识
-        pending_alias: 运行时 pending alias (Phase 2)
-        intent_id: 系统内部写入意图 ID (Phase 2)
+    关联键（pending_alias / intent_id / identity）由 PendingAtom 持有，
+    通过 PendingAtomMaterializeTask 出境，不再穿透 Focus。
     """
     instruction: str
     content: Optional[str] = None
     base_uuid: str
     base_alias: str
-    identity: Identity = Field(default_factory=Identity)
-    pending_alias: Optional[str] = None
-    intent_id: Optional[str] = None
-
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = ConfigDict(frozen=True)
 
 
 # ===========================================================================
@@ -272,6 +245,36 @@ class PendingAtomSettlement(BaseModel):
 # ===========================================================================
 
 
+class PendingAtomMaterializeTask(BaseModel):
+    """跨子系统的不可变物化请求。
+
+    Alice 编排层在 run 结束时从 PendingAtomRuntime 投影产出，进入 finalize 后
+    patchouli 解析。与 PendingAtomSettlement 构成请求/应答对偶。
+
+    字段下游流向（不相交）：
+        pending_alias / intent_id / source_verb → patchouli 组装 Settlement、分发 mode b/c
+        focus   → engine._process_mode_b/c 的提取/合并
+        identity → GenerationRequest.identity
+    """
+
+    pending_alias: str
+    intent_id: str
+    source_verb: Literal["WRITE", "UPDATE"]
+    identity: "Identity"
+    focus: "WriteFocus | UpdateFocus"
+    model_config = ConfigDict(frozen=True)
+
+    @classmethod
+    def from_pending_atom(cls, pa: "PendingAtom") -> "PendingAtomMaterializeTask":
+        return cls(
+            pending_alias=pa.pending_alias,
+            intent_id=pa.intent_id,
+            source_verb=pa.source_verb,
+            identity=pa.identity,
+            focus=pa.focus,
+        )
+
+
 class PendingAtom(BaseModel):
     """
     运行时待物化记忆句柄。
@@ -281,7 +284,7 @@ class PendingAtom(BaseModel):
     """
 
     pending_alias: str
-    intent_id: Optional[str] = None
+    intent_id: str  # 总是由 register_write/register_update 生成，非 Optional
     status: PendingAtomStatus
     source_verb: Literal["WRITE", "UPDATE"]
 
@@ -365,4 +368,5 @@ __all__ = [
     # 主体
     "PendingAtom",
     "PendingAtomSettlement",
+    "PendingAtomMaterializeTask",
 ]

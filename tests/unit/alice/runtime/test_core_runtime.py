@@ -12,7 +12,7 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     PayloadLayer,
 )
-from hivememory.core.protocol.models import AgentRunContext, ChatResult, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, RetrievalResponse
 from hivememory.system.config import HiveMemoryConfig
 
 
@@ -52,7 +52,7 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
     runtime._agent_runtime.run_agent = AsyncMock(
-        return_value=ChatResult(final_text="done"),
+        return_value=AgentRunResult(final_text="done"),
     )
 
     await runtime.run_agent(context)

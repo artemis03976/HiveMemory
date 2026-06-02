@@ -61,16 +61,6 @@ DECISION_MATRIX: Dict[FlushReason, Dict[str, bool]] = {
         "compact": False,  # 无需摘要
         "evict": True,     # 清空内存态话题
     },
-    FlushReason.MTP_WRITE: {
-        "archive": True,   # 带 Focus 打包发走
-        "compact": True,   # 话题未完，必须留摘要
-        "evict": False,    # 保持存活
-    },
-    FlushReason.MTP_UPDATE: {
-        "archive": True,   # 带 Focus 打包发走
-        "compact": True,   # 话题未完，必须留摘要
-        "evict": False,    # 保持存活
-    },
     FlushReason.MANUAL: {
         "archive": True,   # 立即归档到 Librarian
         "compact": True,   # 生成摘要保持上下文连续性
@@ -94,8 +84,7 @@ class TriggerManager:
         | TOKEN_OVERFLOW   | ❌      | ✅      | ❌    |
         | IDLE_TIMEOUT     | ✅      | ❌      | ✅    |
         | LRU_EVICTION     | ✅      | ❌      | ✅    |
-        | MTP_WRITE        | ✅      | ✅      | ❌    |
-        | MTP_UPDATE       | ✅      | ✅      | ❌    |
+        | SHUTDOWN         | ✅      | ❌      | ✅    |
         | MANUAL           | ✅      | ✅      | ❌    |
 
     依赖:
@@ -148,20 +137,9 @@ class TriggerManager:
         self,
         topic_id: str,
         trigger_reason: FlushReason,
-        mtp_focus: Optional[Any] = None,
         wait_for_archive: bool = False,
     ) -> None:
-        """
-        统一的话题结算调度器
-
-        根据触发原因执行对应的原子操作组合（Archive/Compact/Evict）。
-
-        Args:
-            topic_id: 话题 ID
-            trigger_reason: 触发原因（TOKEN_OVERFLOW/IDLE_TIMEOUT/LRU_EVICTION/MTP_WRITE/MTP_UPDATE/SHUTDOWN）
-            mtp_focus: MTP 控制信号（仅 MTP_WRITE/MTP_UPDATE 时有值）
-            wait_for_archive: 是否等待 Archive 完成（shutdown drain 时使用）
-        """
+        """统一的话题结算调度器。"""
         buffer = self._buffer_manager.get_buffer(topic_id)
         if not buffer or not buffer.blocks:
             logger.debug("resolve_topic: buffer 为空或不存在，跳过结算")
@@ -196,7 +174,6 @@ class TriggerManager:
                 topic_id,
                 blocks_snapshot,
                 previous_summary,
-                mtp_focus,
                 trigger_reason,
                 buffer.user_id,
                 wait_for_completion=wait_for_archive,
@@ -222,7 +199,6 @@ class TriggerManager:
         topic_id: str,
         blocks_snapshot: List[LogicalBlock],
         state_summary: str,
-        mtp_focus: Optional[Any],
         reason: FlushReason = FlushReason.IDLE_TIMEOUT,
         user_id: Optional[str] = None,
         wait_for_completion: bool = False,
@@ -259,7 +235,6 @@ class TriggerManager:
             user_id=user_id,
             blocks=blocks_to_archive,
             state_summary=state_summary,
-            focus=mtp_focus,
             reason=reason,
         )
 

@@ -28,6 +28,7 @@ from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts, TurnRecord,
     PendingAtomResolution, UpdateFocus, WriteFocus,
 )
+from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.generation.models import (
     MergeResult, GenerationRequest, GenerationContext, GenerationTurn,
 )
@@ -131,17 +132,19 @@ class TestUpdateFocusModel:
             base_alias="fact_api_port",
         )
         assert focus.content is None
-        assert focus.identity is not None
 
-    def test_with_identity(self, identity):
+    def test_dto_fields_only(self):
         focus = UpdateFocus(
             instruction="test",
             base_uuid="uuid-123",
             base_alias="alias",
-            identity=identity,
         )
-        assert focus.identity.user_id == "test_user"
-        assert focus.identity.agent_id == "test_agent"
+        assert focus.model_dump() == {
+            "instruction": "test",
+            "content": None,
+            "base_uuid": "uuid-123",
+            "base_alias": "alias",
+        }
 
     def test_instruction_required(self):
         with pytest.raises(Exception):
@@ -239,7 +242,6 @@ class TestModeCMergePrompt:
             instruction="把端口改成 9090",
             base_uuid=str(existing_memory.id),
             base_alias="fact_api_port",
-            identity=identity,
         )
         request = GenerationRequest(
             context=sample_context,
@@ -272,7 +274,7 @@ class TestModeCMergePrompt:
 
         uf = UpdateFocus(
             instruction="更新", base_uuid=str(existing_memory.id),
-            base_alias="fact_api_port", identity=identity,
+            base_alias="fact_api_port",
         )
         request = GenerationRequest(update_focus=uf, existing_memory=existing_memory)
         result = engine.process(request=request)
@@ -303,7 +305,6 @@ class TestModeCFallback:
             content="新增的段落",
             base_uuid=str(existing_memory.id),
             base_alias="fact_api_port",
-            identity=identity,
         )
         request = GenerationRequest(update_focus=uf, existing_memory=existing_memory)
         result = engine.process(request=request)
@@ -362,7 +363,6 @@ class TestModeCFallback:
             instruction="test",
             base_uuid="uuid-123",
             base_alias="alias",
-            identity=identity,
         )
         # 不注入 existing_memory (默认 None)
 
@@ -492,15 +492,14 @@ from hivememory.core.models import StreamMessage, StreamMessageType
 
 
 class TestFlushCallbackModesUpdate:
-    """验证 _on_generate_memory 统一回调的 UPDATE 模式分发"""
+    """验证主动 UPDATE 与被动归档已按新边界分离"""
 
     @pytest.mark.asyncio
-    async def test_mtp_update_flush_triggers_mode_c(self, sample_messages, existing_memory):
-        """MTP_UPDATE flush 携带 update_focus → Mode C GenerationRequest"""
+    async def test_run_active_generation_triggers_mode_c(self, sample_messages, existing_memory):
+        """主动 UPDATE 由 run_active_generation 直驱 Mode C"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
         mock_storage = MagicMock()
-        # 使用 AsyncMock 模拟异步方法
         mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
         from .conftest import make_mock_bus
@@ -512,7 +511,6 @@ class TestFlushCallbackModesUpdate:
             generation_engine=mock_generation,
         )
 
-        # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
                 turn=TurnRecord(
@@ -528,30 +526,31 @@ class TestFlushCallbackModesUpdate:
             instruction="把端口改成 9090",
             base_uuid=str(existing_memory.id),
             base_alias="fact_api_port",
+        )
+        core.perception_layer = MagicMock()
+        core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": blocks,
+        }
+        task = PendingAtomMaterializeTask(
+            pending_alias="rev_api_port_0001",
+            intent_id="intent_update_0001",
+            source_verb="UPDATE",
             identity=Identity(user_id="test_user"),
-        )
-
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
             focus=focus,
-            reason=FlushReason.MTP_UPDATE,
         )
-        await core._on_generate_memory(payload)
+        await core.run_active_generation([task], topic_id="topic_test")
 
-        # generation_engine.process 应被调用，且携带 update_focus
         mock_generation.process.assert_called_once()
         request = mock_generation.process.call_args[0][0]
         assert request.update_focus is not None
         assert request.update_focus.instruction == "把端口改成 9090"
         assert request.write_focus is None
-        # existing_memory 应被注入
         assert request.existing_memory is existing_memory
 
     @pytest.mark.asyncio
-    async def test_mtp_write_flush_also_triggers(self, sample_messages):
-        """MTP_WRITE flush 携带 write_focus → Mode B"""
+    async def test_run_active_generation_write_task_still_triggers_mode_b(self, sample_messages):
+        """同一主动生成入口也负责 WRITE task"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
@@ -564,7 +563,6 @@ class TestFlushCallbackModesUpdate:
             generation_engine=mock_generation,
         )
 
-        # 将 StreamMessage 转换为 LogicalBlock
         blocks = [
             LogicalBlock(
                 turn=TurnRecord(
@@ -577,14 +575,19 @@ class TestFlushCallbackModesUpdate:
         ]
 
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
+        core.perception_layer = MagicMock()
+        core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": blocks,
+        }
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_api_port_0001",
+            intent_id="intent_write_0001",
+            source_verb="WRITE",
+            identity=Identity(user_id="test_user"),
             focus=focus,
-            reason=FlushReason.MTP_WRITE,
         )
-        await core._on_generate_memory(payload)
+        await core.run_active_generation([task], topic_id="topic_test")
         mock_generation.process.assert_called_once()
 
     @pytest.mark.asyncio
@@ -617,7 +620,6 @@ class TestFlushCallbackModesUpdate:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            focus=None,
             reason=FlushReason.SEMANTIC_DRIFT,
         )
         await core._on_generate_memory(payload)
@@ -650,9 +652,9 @@ class TestKoakumaUpdateE2E:
         assert result is not None
         assert result.success
 
-        # v3.0 延迟捕获: 验证 UpdateFocus 随执行结果返回
-        focus = result.update_focus
-        assert focus is not None
+        pending = update_koakuma.pending_runtime.get(result.pending_alias)
+        assert pending is not None
+        focus = pending.focus
         assert isinstance(focus, UpdateFocus)
         assert focus.instruction == "把端口改成 9090"
         assert focus.base_alias == "fact_api_port"
@@ -664,8 +666,9 @@ class TestKoakumaUpdateE2E:
         assert result is not None
         assert result.success
 
-        focus = result.update_focus
-        assert focus is not None
+        pending = update_koakuma.pending_runtime.get(result.pending_alias)
+        assert pending is not None
+        focus = pending.focus
         assert focus.content == "port = 9090"
         assert focus.instruction == "替换端口"
 
@@ -710,7 +713,7 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        assert result.update_focus is None
+        assert result.pending_alias is None
 
     def test_alias_not_found(self, validation_koakuma):
         agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
@@ -718,7 +721,7 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        assert result.update_focus is None
+        assert result.pending_alias is None
 
     def test_pending_alias_rejected(self, validation_koakuma):
         pending = validation_koakuma.pending_runtime.register_write(
@@ -734,7 +737,7 @@ class TestKoakumaUpdateValidation:
         assert result is not None
         assert not result.success
         assert "Pending Alias Not Updatable" in result.response_content
-        assert result.update_focus is None
+        assert result.pending_alias is None
 
     def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
         validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
@@ -746,7 +749,7 @@ class TestKoakumaUpdateValidation:
         assert result is not None
         assert not result.success
         assert "Service Unavailable" in result.response_content
-        assert result.update_focus is None
+        assert result.pending_alias is None
 
     def test_update_deferred_capture_always_ack(self, existing_memory):
         """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
@@ -769,23 +772,17 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert result.success
-        assert result.update_focus is not None
-        assert result.update_focus.instruction == "test"
         pending = koakuma.pending_runtime.get(result.pending_alias)
         assert pending is not None
+        assert pending.focus.instruction == "test"
         assert pending.runtime_scope.run_id == "run_update_test"
         assert pending.runtime_scope.frame_id == "frame_main_update"
 
 
-# ========== Test 11: FlushReason.MTP_UPDATE ==========
+# ========== Test 11: Active Flush Reason Removed ==========
 
-class TestFlushReasonMTPUpdate:
-    """验证 FlushReason.MTP_UPDATE 枚举值"""
+class TestFlushReasonActiveGenerationRemoved:
+    """主动更新生成已脱离感知层，不再保留 MTP flush reason"""
 
-    def test_enum_value(self):
-        assert FlushReason.MTP_UPDATE == "mtp_update"
-        assert FlushReason.MTP_UPDATE.value == "mtp_update"
-
-    def test_enum_member(self):
-        assert hasattr(FlushReason, "MTP_UPDATE")
-        assert FlushReason("mtp_update") == FlushReason.MTP_UPDATE
+    def test_mtp_update_removed(self):
+        assert "MTP_UPDATE" not in FlushReason.__members__

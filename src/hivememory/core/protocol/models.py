@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.models import AgentProfile, MemoryAtom, Identity, TraceItem, TurnEvent
+from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.gateway.models import GatewayIntent
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
@@ -160,68 +161,31 @@ class AgentRunContext(BaseModel):
 
 
 class MTPExecutionResult(BaseModel):
+    """MTP 指令执行结果"""
+    command: Optional[Any] = Field(default=None)
+    response_status: str = Field(default="error")
+    response_content: str = Field(default="")
+    formatted_response: str = Field(default="")
+    success: bool = Field(default=False)
+    execution_time_ms: float = Field(default=0.0)
+    pending_alias: Optional[str] = Field(default=None)
+
+
+class AgentRunResult(BaseModel):
+    """上层一次 chat 调用后系统运行至自然中断的完整产出。
+
+    字段不变量：每个字段由 Alice 子系统组装，且有完全明确的下游消费者。
+        final_text          → 用户可见回复 / InteractionPayload.assistant_final_text
+        mtp_iterations      → 统计
+        total_iterations    → 统计
+        turn_events         → ActionReducer → TraceReducer → 感知层
+        materialize_tasks   → finalize 启动 mode b/c + 组 Settlement
     """
-    MTP 指令执行结果
-
-    Kernel 级别的 MTP 执行结果封装，由 KoakumaRuntime 返回。
-    包含解析后的指令、执行响应和格式化后的回填文本。
-
-    Attributes:
-        command: 解析后的 MTP 指令 (解析失败时为 None)
-        response_status: 响应状态 (success/error/ack)
-        response_content: 响应内容
-        formatted_response: 格式化后的完整回填文本 (指令 + XML 响应容器)
-        success: 是否执行成功
-        execution_time_ms: 执行耗时 (毫秒)
-    """
-    command: Optional[Any] = Field(default=None, description="解析后的 MTPCommand 对象")
-    response_status: str = Field(default="error", description="响应状态")
-    response_content: str = Field(default="", description="响应内容")
-    formatted_response: str = Field(default="", description="格式化后的回填文本")
-    success: bool = Field(default=False, description="是否执行成功")
-    execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
-    write_focus: Optional[Any] = Field(
-        default=None,
-        description="WRITE 指令产生的后处理聚焦信号",
-    )
-    update_focus: Optional[Any] = Field(
-        default=None,
-        description="UPDATE 指令产生的后处理聚焦信号",
-    )
-    pending_alias: Optional[str] = Field(
-        default=None,
-        description="WRITE/UPDATE 生成的 pending alias",
-    )
-
-
-class ChatResult(BaseModel):
-    """
-    主动 chat 主链路的统一返回值
-
-    封装 Kernel 递归生成循环的完整结果，包含最终文本、循环统计与结构化轮次事件。
-
-    Attributes:
-        final_text: 用户可见的最终回复文本 (仅自然语言部分，不含 MTP 指令/XML)
-        mtp_iterations: MTP 中断执行次数
-        total_iterations: 总生成轮次 (含最终的非 MTP 轮)
-    """
-    final_text: str = Field(default="", description="用户可见的最终回复文本")
-    mtp_iterations: int = Field(default=0, description="MTP 中断次数")
-    total_iterations: int = Field(default=1, description="总生成轮次")
-    # LoopExecutor 收集的结构化轮次事件（序列化为 dict 避免循环导入）
-    turn_events: List[Any] = Field(default_factory=list, description="LoopExecutor 收集的 TurnEvent 列表")
-    write_focus: List[Any] = Field(
-        default_factory=list,
-        description="本轮 Agent run 中最后一个 WRITE 后处理聚焦信号",
-    )
-    update_focus: List[Any] = Field(
-        default_factory=list,
-        description="本轮 Agent run 中最后一个 UPDATE 后处理聚焦信号",
-    )
-    pending_aliases: List[str] = Field(
-        default_factory=list,
-        description="本轮 Agent run 中生成的所有 pending alias",
-    )
+    final_text: str = Field(default="")
+    mtp_iterations: int = Field(default=0)
+    total_iterations: int = Field(default=1)
+    turn_events: List[Any] = Field(default_factory=list)
+    materialize_tasks: List[PendingAtomMaterializeTask] = Field(default_factory=list)
 
 
 class EyeGazeResult(BaseModel):
@@ -304,14 +268,10 @@ class InteractionPayload(BaseModel):
         description="由 Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表"
     )
 
-    # 控制信号 (挂载在 Payload 上，而非独立传输)
-    write_focus: List[Any] = Field(
+    # 控制信号
+    materialize_tasks: List[PendingAtomMaterializeTask] = Field(
         default_factory=list,
-        description="WRITE 指令的核心素材 (WriteFocus)"
-    )
-    update_focus: List[Any] = Field(
-        default_factory=list,
-        description="UPDATE 指令的修改意图 (UpdateFocus)"
+        description="本 run 产出的不可变物化请求列表，由 finalize 分发 mode b/c"
     )
 
     worth_saving: Optional[bool] = Field(
@@ -340,4 +300,5 @@ __all__ = [
     "InteractionPayload",
     "AnalyzeAndRetrieveResult",
     "MTPExecutionResult",
+    "AgentRunResult",
 ]

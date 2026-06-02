@@ -180,8 +180,8 @@ class MemoryGenerationEngine:
         # Step 2-4: 查重 → 构建 → 持久化 (携带 intent 追踪)
         return self._dedup_and_persist(
             draft, identity,
-            intent_id=focus.intent_id,
-            pending_alias=focus.pending_alias,
+            intent_id=request.intent_id,
+            pending_alias=request.pending_alias,
         )
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
@@ -252,8 +252,8 @@ class MemoryGenerationEngine:
         # Step 2: 版本历史 + 更新 + 持久化 (携带 intent 追踪)
         return self._apply_update(
             existing, merge_result,
-            intent_id=uf.intent_id,
-            pending_alias=uf.pending_alias,
+            intent_id=request.intent_id,
+            pending_alias=request.pending_alias,
         )
 
     def _build_update_fallback(

@@ -17,7 +17,7 @@ import logging
 import uuid
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from hivememory.core.protocol.models import ChatResult
+from hivememory.core.protocol.models import AgentRunResult
 from hivememory.infrastructure.trace_context import (
     generate_trace_id,
     reset_trace_context,
@@ -46,7 +46,7 @@ class ChatApplicationService:
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
-    ) -> ChatResult:
+    ) -> AgentRunResult:
         """
         顶层非流式 chat 入口。
 
@@ -66,7 +66,7 @@ class ChatApplicationService:
                 generation_options=generation_options,
             )
 
-            loop_result: ChatResult = await self._bus.request(
+            loop_result: AgentRunResult = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT,
                 agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
@@ -150,7 +150,7 @@ class ChatApplicationService:
             )
             async for event in stream:
                 if event["event"] == "done":
-                    loop_result = ChatResult(**event["data"])
+                    loop_result = AgentRunResult(**event["data"])
                 else:
                     yield event
 

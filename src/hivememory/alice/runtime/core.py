@@ -4,7 +4,7 @@ import logging
 from typing import Any, AsyncGenerator, Optional
 
 from hivememory.core.models import MemoryAtom
-from hivememory.core.protocol.models import AgentRunContext, ChatResult
+from hivememory.core.protocol.models import AgentRunContext, AgentRunResult
 
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
@@ -63,6 +63,7 @@ class AliceRuntime:
             mtp_executor=self._mtp_executor,
             config=config,
             alias_resolver=self._alias_resolver,
+            pending_runtime=self._pending_runtime,
         )
 
         logger.info("AliceRuntime 初始化完成")
@@ -249,7 +250,7 @@ class AliceRuntime:
         agent_run_context: AgentRunContext,
         generation_options: Optional[dict[str, Any]] = None,
         cancel_event=None,
-    ) -> ChatResult:
+    ) -> AgentRunResult:
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
         return await self._agent_runtime.run_agent(

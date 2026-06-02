@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from hivememory.core.protocol.models import AgentRunContext, ChatResult
+from hivememory.core.protocol.models import AgentRunContext, AgentRunResult
 
 from hivememory.alice.runtime.core import AliceRuntime
 
@@ -31,7 +31,7 @@ class AliceService:
         agent_run_context: AgentRunContext,
         generation_options: Optional[Dict[str, Any]] = None,
         cancel_event: Optional[asyncio.Event] = None,
-    ) -> ChatResult:
+    ) -> AgentRunResult:
         """
         非流式 Agent 计算入口
 

@@ -21,30 +21,13 @@ from hivememory.core.models import AgentProfile, Identity, RuntimeScope, TurnEve
 class ExecutionProgress:
     """单帧执行的累积产物载体（PCB 的"程序状态"部分）。
 
-    见 docs/mod/AgentLoopDecouplingDesign.md §3.1bis：CALL 控制反转后，引擎
-    ``return`` 会让函数局部变量蒸发，因此把整轮累积状态从 ``execute_frame``
-    的局部变量下沉到此处，挂在 ``ExecutionFrame`` 上。引擎每段执行**读取并追加**
-    到 ``frame.progress``，重入同一 frame 时自然续接——``iteration`` / ``sequence``
-    持久化在 PCB 上，使迭代预算与 TurnEvent 编号天然连续、行为逐字节不变。
-
-    字段与单体 ``execute_frame`` 的局部累积器一一对应：
-        text_segments  <- text_segments
-        turn_events    <- turn_events
-        write_foci     <- write_foci
-        update_foci    <- update_foci
-        pending_aliases<- pending_aliases
-        iteration      <- iteration
-        sequence       <- _seq
-
-    Phase 0 仅定义该类型并挂到 frame 上，不接线（引擎仍用局部变量）；
-    Phase 1 才把累积器下沉到此处。
+    见 docs/mod/AgentLoopDecouplingDesign.md §3.1bis。
+    write_foci / update_foci / pending_aliases 三个累积器已随 PendingAtomMaterializeTask
+    重组移除（见 docs/mod/PendingAtomMaterializeTaskDesign.md §3.5）。
     """
 
     text_segments: List[str] = field(default_factory=list)
     turn_events: List[TurnEvent] = field(default_factory=list)
-    write_foci: List[Any] = field(default_factory=list)
-    update_foci: List[Any] = field(default_factory=list)
-    pending_aliases: List[str] = field(default_factory=list)
     iteration: int = 0
     sequence: int = 0
 
@@ -161,10 +144,8 @@ class FrameExecutionResult:
 
     引擎语义：``execute_frame(frame)`` 读写传入的 ``frame``，跑到自然收敛返回
     ``COMPLETED``，命中 CALL 返回 ``SUSPENDED`` 并把控制权交还编排，自己不 fork、
-    不 resume、不组 IPC。``ChatResult`` 不再由引擎产出，改由编排在 ``COMPLETED``
+    不 resume、不组 IPC。``AgentRunResult`` 不再由引擎产出，改由编排在 ``COMPLETED``
     时从 ``frame.progress`` 聚合。
-
-    Phase 0 仅定义该类型，不接线；Phase 1 才让引擎返回它。
     """
 
     status: FrameExecutionStatus

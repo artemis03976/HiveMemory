@@ -1,4 +1,4 @@
-﻿"""
+"""
 Kernel 递归循环 E2E Pipeline 测试
 
 使用真实 LLM API 验证 PatchouliSystem._recursive_generation_loop() 的完整链路:
@@ -29,7 +29,7 @@ from unittest.mock import MagicMock
 from hivememory.system.config import LLMConfig, KoakumaConfig
 from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
 from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.core.protocol.models import ChatResult, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunResult, RetrievalResponse
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.patchouli.system import PatchouliSystem
 
@@ -40,7 +40,7 @@ pytestmark = pytest.mark.live_llm
 
 # ========== Helpers ==========
 
-def _mtp_commands(result: ChatResult) -> list[str]:
+def _mtp_commands(result: AgentRunResult) -> list[str]:
     return [
         event.tool_kind
         for event in result.turn_events
@@ -132,7 +132,7 @@ class KernelLoopTestHarness:
             PatchouliSystem._recursive_generation_loop, self.system
         )
 
-    def chat(self, user_message: str, max_iterations: int = 5) -> ChatResult:
+    def chat(self, user_message: str, max_iterations: int = 5) -> AgentRunResult:
         """执行一次完整的递归生成循环"""
         messages = [
             {"role": "system", "content": self.system_prompt},
@@ -180,7 +180,7 @@ class TestNormalConversation:
         """问候语，LLM 直接回复，无 MTP 中断"""
         result = harness.chat("Hello! How are you?")
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations == 0
         assert _mtp_commands(result) == []
@@ -199,7 +199,7 @@ class TestSingleMTPInterrupt:
             "Use the sys_clock tool to get the exact time."
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
         commands = _mtp_commands(result)
@@ -217,7 +217,7 @@ class TestSingleMTPInterrupt:
             "Use the sys_python_repl tool to compute this."
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
         assert "RUN" in _mtp_commands(result)
@@ -242,7 +242,7 @@ class TestMultiRoundMTPChain:
             "Report both results."
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 2
         commands = _mtp_commands(result)
@@ -300,7 +300,7 @@ class TestMaxIterationsGuard:
             max_iterations=1,
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert result.total_iterations <= 1
         logger.info(
             f"[test_max_iterations] total_iterations={result.total_iterations}, "
@@ -320,7 +320,7 @@ class TestErrorRecovery:
             "If it fails, just tell me it's not available."
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text) > 0
         commands = _mtp_commands(result)
         logger.info(
@@ -342,7 +342,7 @@ class TestStopSequenceDetection:
             "Write the MTP command ⟪ RUN | sys_clock | ⟫ to get the current time."
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert result.mtp_iterations >= 1, (
             f"Expected at least 1 MTP iteration, got {result.mtp_iterations}. "
             f"LLM may not have used MTP. Text: {result.final_text[:200]}"
@@ -366,7 +366,7 @@ class TestChineseScenario:
             "请使用 sys_python_repl 工具帮我计算 123 * 456 的结果，并用中文告诉我答案。"
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text) > 0
         assert result.mtp_iterations >= 1
         commands = _mtp_commands(result)

@@ -266,23 +266,14 @@ class TestGenerationRequestIdentity:
         req = GenerationRequest(context=ctx)
         assert req.identity.agent_id == "context_agent"
 
-    def test_identity_prefers_update_over_context(self):
-        from hivememory.core.models import UpdateFocus
+    def test_identity_prefers_explicit_over_context(self):
         ctx = GenerationContext(turns=[
             GenerationTurn(user_query="q", identity=_identity("context_agent"))
         ])
-        req = GenerationRequest(
-            context=ctx,
-            update_focus=UpdateFocus(
-                instruction="update",
-                base_uuid="uuid-1",
-                base_alias="alias",
-                identity=_identity("update_agent"),
-            ),
-        )
-        assert req.identity.agent_id == "update_agent"
+        req = GenerationRequest(context=ctx, identity=_identity("explicit_agent"))
+        assert req.identity.agent_id == "explicit_agent"
 
-    def test_identity_prefers_write_over_update_and_context(self):
+    def test_identity_prefers_explicit_even_with_focus(self):
         from hivememory.core.models import UpdateFocus
         ctx = GenerationContext(turns=[
             GenerationTurn(user_query="q", identity=_identity("context_agent"))
@@ -293,14 +284,10 @@ class TestGenerationRequestIdentity:
                 instruction="update",
                 base_uuid="uuid-1",
                 base_alias="alias",
-                identity=_identity("update_agent"),
             ),
-            write_focus=WriteFocus(
-                content="write",
-                identity=_identity("write_agent"),
-            ),
+            identity=_identity("explicit_agent"),
         )
-        assert req.identity.agent_id == "write_agent"
+        assert req.identity.agent_id == "explicit_agent"
 
 
 class TestLegacyIdentityFallback:
@@ -379,7 +366,7 @@ class TestEngineWithGenerationContext:
         ctx = GenerationContext(turns=[
             GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())
         ])
-        focus = WriteFocus(content="content to write", identity=_identity())
+        focus = WriteFocus(content="content to write")
         req = GenerationRequest(context=ctx, write_focus=focus)
         engine.process(req)
 

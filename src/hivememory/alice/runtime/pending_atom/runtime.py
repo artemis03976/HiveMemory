@@ -20,6 +20,7 @@ from uuid import uuid4
 from hivememory.core.models import Identity
 from hivememory.core.models.pending import (
     PendingAtom,
+    PendingAtomMaterializeTask,
     PendingAtomSettlement,
     PendingAtomSnapshot,
     PendingAtomStatus,
@@ -76,9 +77,6 @@ class PendingAtomRuntime:
             content=content,
             reason=reason,
             title=title,
-            identity=identity,
-            pending_alias=pending_alias,
-            intent_id=intent_id,
         )
 
         atom = PendingAtom(
@@ -113,9 +111,6 @@ class PendingAtomRuntime:
             content=content or None,
             base_alias=base_alias,
             base_uuid=base_uuid,
-            identity=identity,
-            pending_alias=pending_alias,
-            intent_id=intent_id,
         )
 
         atom = PendingAtom(
@@ -236,6 +231,17 @@ class PendingAtomRuntime:
             canonical_alias=None,
             canonical_uuid=None,
         )
+
+    def tasks_by_run(self, run_id: str) -> List[PendingAtomMaterializeTask]:
+        """返回本 run 产生的全部 PendingAtom 的不可变物化请求投影。
+
+        父帧与子帧共用同一 run_id（RuntimeScope.run_id），因此无需额外合并。
+        """
+        return [
+            PendingAtomMaterializeTask.from_pending_atom(atom)
+            for atom in self._store.all_atoms()
+            if atom.runtime_scope.run_id == run_id
+        ]
 
     # ---- 生命周期 ----
 

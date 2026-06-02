@@ -128,7 +128,7 @@ class TestGenerationEngineRouting:
 
     def test_routes_to_mode_b(self):
         """有 write_focus 时走 Mode B"""
-        focus = WriteFocus(content="保存这段代码", identity=_make_identity())
+        focus = WriteFocus(content="保存这段代码")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
@@ -147,7 +147,6 @@ class TestGenerationEngineRouting:
             instruction="添加错误处理",
             base_uuid=str(existing.id),
             base_alias="fact_test",
-            identity=_make_identity(),
         )
         merge_result = MergeResult(new_content="新内容", changelog="添加了错误处理")
         self.mock_extractor.merge.return_value = merge_result
@@ -235,7 +234,7 @@ class TestGenerationEngineModeB:
 
     def test_mode_b_extract_success(self):
         """正常 WRITE 流程"""
-        focus = WriteFocus(content="重要代码片段", reason="保存备用", identity=_make_identity())
+        focus = WriteFocus(content="重要代码片段", reason="保存备用")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
@@ -248,7 +247,7 @@ class TestGenerationEngineModeB:
 
     def test_mode_b_fallback_on_extract_failure(self):
         """LLM 提取失败时启用 fallback"""
-        focus = WriteFocus(content="重要内容不能丢", reason="保存", identity=_make_identity())
+        focus = WriteFocus(content="重要内容不能丢", reason="保存")
         self.mock_extractor.extract.return_value = None
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         self.mock_storage.upsert_memory = Mock()
@@ -262,7 +261,7 @@ class TestGenerationEngineModeB:
 
     def test_build_fallback_draft(self):
         """fallback 草稿构建逻辑"""
-        focus = WriteFocus(content="内容", title="标题", reason="原因", identity=_make_identity())
+        focus = WriteFocus(content="内容", title="标题", reason="原因")
         draft = self.engine._build_fallback_draft(focus)
 
         assert draft.title == "标题"
@@ -273,7 +272,7 @@ class TestGenerationEngineModeB:
 
     def test_build_fallback_draft_no_title(self):
         """fallback 无 title 时从 content 截取"""
-        focus = WriteFocus(content="这是一段很长的内容用于测试", identity=_make_identity())
+        focus = WriteFocus(content="这是一段很长的内容用于测试")
         draft = self.engine._build_fallback_draft(focus)
 
         assert draft.title == focus.content[:50]
@@ -300,7 +299,6 @@ class TestGenerationEngineModeC:
             content=content,
             base_uuid=str(existing.id),
             base_alias="fact_test",
-            identity=_make_identity(),
         )
         return GenerationRequest(
             context=GenerationContext(),
@@ -326,7 +324,6 @@ class TestGenerationEngineModeC:
             instruction="更新",
             base_uuid=str(uuid4()),
             base_alias="fact_test",
-            identity=_make_identity(),
         )
         request = GenerationRequest(context=GenerationContext(), update_focus=uf)
         result = self.engine.process(request)

@@ -9,8 +9,8 @@ from hivememory.core.models import ActionReducer, Identity, TraceReducer
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
     AgentRunContext,
+    AgentRunResult,
     AnalyzeAndRetrieveResult,
-    ChatResult,
     InteractionPayload,
     RetrievalRequest,
     RetrievalResponse,
@@ -168,15 +168,8 @@ class PatchouliService:
     async def finalize_agent_run(
         self,
         prepared_run: PreparedAgentRun,
-        loop_result: ChatResult,
+        loop_result: AgentRunResult,
     ) -> None:
-        """
-        Agent 运行完成后提交 interaction 并执行后处理。
-
-        Args:
-            prepared_run: prepare_agent_run 返回的上下文
-            loop_result: Alice 运行返回的 ChatResult
-        """
         agent_context = prepared_run.agent_run_context
         gaze_result = prepared_run.gaze_result
         actions = ActionReducer.reduce(loop_result.turn_events)
@@ -185,8 +178,7 @@ class PatchouliService:
         payload = InteractionPayload(
             user_message=agent_context.user_message,
             mtp_traces=mtp_traces,
-            write_focus=loop_result.write_focus,
-            update_focus=loop_result.update_focus,
+            materialize_tasks=loop_result.materialize_tasks,
             identity=agent_context.identity,
             rewritten_query=gaze_result.rewritten_query,
             worth_saving=gaze_result.worth_saving,
@@ -194,10 +186,18 @@ class PatchouliService:
             turn_events=loop_result.turn_events,
         )
 
+        # 先推 block 进 buffer（被动流），再直驱主动生成，使得当前轮次对话内容被包含在内
         await self._runtime.librarian_core.submit_interaction(
             payload,
             target_topic_id=agent_context.topic_id,
         )
+
+        if loop_result.materialize_tasks:
+            await self._runtime.librarian_core.run_active_generation(
+                tasks=loop_result.materialize_tasks,
+                topic_id=agent_context.topic_id,
+            )
+
         self._record_retrieval_hits(prepared_run)
 
     async def record_memory_citation(

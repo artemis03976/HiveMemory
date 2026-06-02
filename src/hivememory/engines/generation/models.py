@@ -12,7 +12,7 @@ HiveMemory Generation 模块数据模型
 请直接从 core 导入，不再走本模块的 re-export。
 """
 from typing import Any, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from hivememory.core.models import (
     DuplicateDecision,
@@ -107,16 +107,9 @@ class GenerationRequest(BaseModel):
     """
     Generation Engine 统一输入协议
 
-    封装感知层 flush 产生的结构化生成上下文和可选的指令聚焦内容。
-    - Mode A (被动观察): write_focus=None, update_focus=None
-    - Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
-    - Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
-
-    Attributes:
-        context: 结构化生成上下文
-        write_focus: WRITE 指令的聚焦内容 (None 表示非 Mode B)
-        update_focus: UPDATE 指令的聚焦内容 (None 表示非 Mode C)
-        existing_memory: UPDATE 目标正式记忆，由 LibrarianCore 在构建请求时注入
+    Mode A (被动观察): write_focus=None, update_focus=None
+    Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
+    Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
     """
     context: GenerationContext = Field(
         default_factory=lambda: GenerationContext(),
@@ -125,6 +118,20 @@ class GenerationRequest(BaseModel):
     write_focus: Optional[WriteFocus] = None
     update_focus: Optional[UpdateFocus] = None
     existing_memory: Optional[Any] = None
+    # None = 未显式注入，由 validator 从 context 回退；Mode B/C 由 LibrarianCore 注入
+    identity: Optional[Identity] = None
+    intent_id: Optional[str] = None
+    pending_alias: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _resolve_identity(self) -> "GenerationRequest":
+        """未显式注入时从 context.turns[0] 回退；仍无则用默认 Identity()。"""
+        if self.identity is None:
+            if self.context.turns:
+                object.__setattr__(self, "identity", self.context.turns[0].identity)
+            else:
+                object.__setattr__(self, "identity", Identity())
+        return self
 
     @property
     def is_write(self) -> bool:
@@ -140,25 +147,6 @@ class GenerationRequest(BaseModel):
     def has_context(self) -> bool:
         """是否携带结构化生成上下文"""
         return bool(self.context.turns)
-
-    @property
-    def identity(self) -> Identity:
-        """
-        获取本次 generation 请求的标准身份标识。
-
-        优先级：
-            1. write_focus.identity
-            2. update_focus.identity
-            3. context.turns[0].identity
-            4. 默认 Identity()
-        """
-        if self.write_focus is not None:
-            return self.write_focus.identity
-        if self.update_focus is not None:
-            return self.update_focus.identity
-        if self.context.turns:
-            return self.context.turns[0].identity
-        return Identity()
 
     model_config = {"arbitrary_types_allowed": True}
 

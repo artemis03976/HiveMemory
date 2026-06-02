@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE, TurnEvent
-from hivememory.core.protocol.models import AgentRunContext, ChatResult, EyeGazeResult, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, EyeGazeResult, RetrievalResponse
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -130,7 +130,7 @@ async def test_finalize_agent_run_reads_focus_from_loop_result():
 
     await service.finalize_agent_run(
         prepared_run=prepared_run,
-        loop_result=ChatResult(
+        loop_result=AgentRunResult(
             final_text="done",
             turn_events=[
                 TurnEvent(
@@ -161,8 +161,7 @@ async def test_finalize_agent_run_reads_focus_from_loop_result():
     payload = kernel.librarian_core.submit_interaction.await_args.args[0]
     assert payload.mtp_traces
     assert payload.mtp_traces[0].action == "SEARCH"
-    assert payload.write_focus == []
-    assert payload.update_focus == []
+    assert payload.materialize_tasks == []
 
 
 @pytest.mark.asyncio
@@ -202,7 +201,7 @@ async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
         ),
     )
 
-    await service.finalize_agent_run(prepared_run, ChatResult(final_text="done"))
+    await service.finalize_agent_run(prepared_run, AgentRunResult(final_text="done"))
 
     kernel.librarian_core.lifecycle_engine.record_hit.assert_called_once_with(
         memory.id,
@@ -248,7 +247,7 @@ async def test_finalize_agent_run_hit_failure_does_not_fail_finalize():
         ),
     )
 
-    await service.finalize_agent_run(prepared_run, ChatResult(final_text="done"))
+    await service.finalize_agent_run(prepared_run, AgentRunResult(final_text="done"))
 
     kernel.librarian_core.submit_interaction.assert_awaited_once()
     kernel.librarian_core.lifecycle_engine.record_hit.assert_called_once()

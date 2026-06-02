@@ -10,7 +10,7 @@
 
 数据流:
     Active: ChatService -> prepare_agent_run (Patchouli) -> run_agent (Alice) -> finalize_agent_run (Patchouli)
-    Passive: PassiveIngressService -> ingest_event -> Patchouli (ingest_interaction)
+    Passive: PassiveIngressService -> ingest_event -> Patchouli (submit_interaction)
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │

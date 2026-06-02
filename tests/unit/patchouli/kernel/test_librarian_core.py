@@ -12,6 +12,7 @@ from unittest.mock import Mock, AsyncMock, MagicMock
 from uuid import uuid4
 
 from hivememory.core.models import Identity, TurnRecord, UpdateFocus, WriteFocus
+from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.patchouli.services.librarian import LibrarianCore
@@ -176,7 +177,6 @@ class TestLibrarianCoreGenerateMemory:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="测试摘要",
-            focus=None,
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
@@ -195,18 +195,23 @@ class TestLibrarianCoreGenerateMemory:
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_b_write(self):
-        """MTP_WRITE flush，构建带 write_focus 的 request"""
+        """主动 WRITE 由 finalize 直驱 run_active_generation"""
         blocks = _make_logical_blocks(2)
         write_focus = WriteFocus(content="测试写入内容")
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
+        self.core.perception_layer = Mock()
+        self.core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": blocks,
+        }
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_test_001",
+            intent_id="intent_test_001",
+            source_verb="WRITE",
+            identity=_make_identity(),
             focus=write_focus,
-            reason=FlushReason.MTP_WRITE,
         )
 
-        await self.core._on_generate_memory(payload)
+        await self.core.run_active_generation([task], topic_id="topic_test")
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -215,17 +220,22 @@ class TestLibrarianCoreGenerateMemory:
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_b_write_without_context_still_runs(self):
-        """MTP_WRITE 不应依赖上下文轮次，空背景也应进入 generation fallback"""
+        """主动 WRITE 不依赖上下文轮次，空背景也应进入 generation fallback"""
         write_focus = WriteFocus(content="测试写入内容")
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=[],
-            state_summary="",
+        self.core.perception_layer = Mock()
+        self.core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": [],
+        }
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_test_002",
+            intent_id="intent_test_002",
+            source_verb="WRITE",
+            identity=_make_identity(),
             focus=write_focus,
-            reason=FlushReason.MTP_WRITE,
         )
 
-        await self.core._on_generate_memory(payload)
+        await self.core.run_active_generation([task], topic_id="topic_test")
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -236,29 +246,30 @@ class TestLibrarianCoreGenerateMemory:
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_c_update_success(self):
-        """MTP_UPDATE flush，加载 existing memory 成功"""
+        """主动 UPDATE 由 finalize 直驱 run_active_generation"""
         blocks = _make_logical_blocks(2)
-        # 使用真正的 UpdateFocus 实例而不是 Mock
         update_focus = UpdateFocus(
             instruction="更新测试",
             base_uuid=str(uuid4()),
             base_alias="fact_test",
-            identity=_make_identity(),
         )
         existing_memory = Mock()
-
-        # 设置 storage.get_memory 为异步 mock
-        self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
-
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
+        self.core.perception_layer = Mock()
+        self.core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": blocks,
+        }
+        task = PendingAtomMaterializeTask(
+            pending_alias="rev_test_001",
+            intent_id="intent_test_003",
+            source_verb="UPDATE",
+            identity=_make_identity(),
             focus=update_focus,
-            reason=FlushReason.MTP_UPDATE,
         )
 
-        await self.core._on_generate_memory(payload)
+        self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
+
+        await self.core.run_active_generation([task], topic_id="topic_test")
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -266,24 +277,28 @@ class TestLibrarianCoreGenerateMemory:
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_c_update_without_context_still_runs(self):
-        """MTP_UPDATE 不应依赖上下文轮次，空背景也应进入 generation fallback"""
+        """主动 UPDATE 不依赖上下文轮次，空背景也应进入 generation fallback"""
         update_focus = UpdateFocus(
             instruction="更新测试",
             base_uuid=str(uuid4()),
             base_alias="fact_test",
-            identity=_make_identity(),
         )
         existing_memory = Mock()
-        self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=[],
-            state_summary="",
+        self.core.perception_layer = Mock()
+        self.core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": [],
+        }
+        task = PendingAtomMaterializeTask(
+            pending_alias="rev_test_002",
+            intent_id="intent_test_004",
+            source_verb="UPDATE",
+            identity=_make_identity(),
             focus=update_focus,
-            reason=FlushReason.MTP_UPDATE,
         )
+        self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        await self.core._on_generate_memory(payload)
+        await self.core.run_active_generation([task], topic_id="topic_test")
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -296,28 +311,28 @@ class TestLibrarianCoreGenerateMemory:
     async def test_generate_memory_mode_c_update_memory_not_found(self):
         """existing memory 不存在时 early return"""
         blocks = _make_logical_blocks(2)
-        # 使用真正的 UpdateFocus 实例
         update_focus = UpdateFocus(
             instruction="更新测试",
             base_uuid=str(uuid4()),
             base_alias="fact_test",
+        )
+        self.core.perception_layer = Mock()
+        self.core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": blocks,
+        }
+        task = PendingAtomMaterializeTask(
+            pending_alias="rev_test_003",
+            intent_id="intent_test_005",
+            source_verb="UPDATE",
             identity=_make_identity(),
+            focus=update_focus,
         )
 
-        # 设置 storage.get_memory 返回 None
         self.mock_storage.get_memory = AsyncMock(return_value=None)
 
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
-            focus=update_focus,
-            reason=FlushReason.MTP_UPDATE,
-        )
+        await self.core.run_active_generation([task], topic_id="topic_test")
 
-        await self.core._on_generate_memory(payload)
-
-        # generation.process 不应被调用
         self.mock_generation.process.assert_not_called()
 
     @pytest.mark.asyncio
@@ -327,7 +342,6 @@ class TestLibrarianCoreGenerateMemory:
             topic_id="topic_test",
             blocks=[],
             state_summary="",
-            focus=None,
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
@@ -343,7 +357,6 @@ class TestLibrarianCoreGenerateMemory:
             topic_id="topic_test",
             blocks=[block],
             state_summary="",
-            focus=None,
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
@@ -365,7 +378,6 @@ class TestLibrarianCoreGenerateMemory:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            focus=None,
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
@@ -382,7 +394,6 @@ class TestLibrarianCoreGenerateMemory:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            focus=None,
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
@@ -397,7 +408,6 @@ class TestLibrarianCoreGenerateMemory:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            focus=None,
             reason=FlushReason.SEMANTIC_DRIFT,
         )
 
@@ -416,7 +426,6 @@ class TestLibrarianCoreGenerateMemory:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            focus=None,
             reason=FlushReason.MANUAL,
         )
 
@@ -439,7 +448,6 @@ class TestLibrarianCoreGenerateMemory:
             topic_id="topic-test-1",
             blocks=blocks,
             state_summary="",
-            focus=None,
             reason=FlushReason.MANUAL,
         )
 
@@ -452,22 +460,24 @@ class TestLibrarianCoreGenerateMemory:
         assert len(request.context.turns) == 2
 
     @pytest.mark.asyncio
-    async def test_generate_memory_kernel_blocks_with_payload_identity(self):
+    async def test_run_active_generation_uses_task_identity(self):
+        write_focus = WriteFocus(content="测试写入内容")
+        self.core.perception_layer = Mock()
+        self.core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": [],
+        }
         identity = _make_identity()
-        blocks = _make_kernel_logical_blocks(2)
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
-            focus=None,
-            reason=FlushReason.MANUAL,
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_test_003",
+            intent_id="intent_test_006",
+            source_verb="WRITE",
             identity=identity,
+            focus=write_focus,
         )
 
-        await self.core._on_generate_memory(payload)
+        await self.core.run_active_generation([task], topic_id="topic_test")
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
-        # Phase 3: context 是主字段
-        assert request.context is not None
-        assert len(request.context.turns) == 2
+        assert request.identity == identity

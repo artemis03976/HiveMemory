@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, Optional
 
 from hivememory.core.models import AgentProfile
-from hivememory.core.protocol.models import ChatResult
+from hivememory.core.protocol.models import AgentRunResult
 
 from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
@@ -15,6 +15,7 @@ from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
     from hivememory.alice.runtime.agent.mtp_executor import MTPExecutor
+    from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
     from hivememory.alice.runtime.resolver import RuntimeAliasResolver
     from hivememory.prompts.assembler import AgentPromptAssembler
     from hivememory.system.config import HiveMemoryConfig
@@ -33,6 +34,7 @@ class AgentRuntime:
         mtp_executor: "MTPExecutor",
         config: "HiveMemoryConfig",
         alias_resolver: "RuntimeAliasResolver",
+        pending_runtime: Optional["PendingAtomRuntime"] = None,
     ) -> None:
         agent_profile_resolver = AgentProfileResolver(local_bus=local_bus)
         frame_scheduler = FrameScheduler(prompt_assembler=prompt_assembler)
@@ -47,6 +49,7 @@ class AgentRuntime:
             frame_scheduler=frame_scheduler,
             agent_profile_resolver=agent_profile_resolver,
             alias_resolver=alias_resolver,
+            pending_runtime=pending_runtime,
         )
         self._agent_profile_resolver = agent_profile_resolver
 
@@ -61,7 +64,7 @@ class AgentRuntime:
         generation_options: Optional[Dict[str, Any]] = None,
         agent_profile=None,
         cancel_event=None,
-    ) -> ChatResult:
+    ) -> AgentRunResult:
         return await self._orchestrator.run_agent(
             messages=messages,
             identity=identity,

@@ -112,8 +112,6 @@ class MTPResponse(BaseModel):
     status: MTPResponseStatus = Field(..., description="响应状态")
     content: str = Field(default="", description="响应内容")
     execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
-    write_focus: Optional[Any] = Field(default=None, exclude=True)
-    update_focus: Optional[Any] = Field(default=None, exclude=True)
     pending_alias: Optional[str] = Field(default=None, exclude=True)
 
 

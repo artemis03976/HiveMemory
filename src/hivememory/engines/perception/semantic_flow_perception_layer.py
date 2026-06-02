@@ -198,8 +198,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 semantic_traces=traces,
             ),
             worth_saving=payload.worth_saving,
-            write_focus=payload.write_focus,
-            update_focus=payload.update_focus,
         )
 
         # 2.5 计算 block 的 total_tokens
@@ -212,31 +210,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             )
         )
 
-        # 计算 priority
-        write_focuses = payload.write_focus
-        update_focuses = payload.update_focus
-        is_urgent = bool(write_focuses or update_focuses)
-        # 3. 信号检查
-        if is_urgent:
-            # URGENT: 添加 block -> 立即 flush
-            block.priority = "URGENT"
-            self._buffer_manager.add_block(topic_id, block)
-
-            for focus in write_focuses:
-                await self._trigger_manager.resolve_topic(
-                    topic_id=topic_id,
-                    trigger_reason=FlushReason.MTP_WRITE,
-                    mtp_focus=focus,
-                )
-            for focus in update_focuses:
-                await self._trigger_manager.resolve_topic(
-                    topic_id=topic_id,
-                    trigger_reason=FlushReason.MTP_UPDATE,
-                    mtp_focus=focus,
-                )
-        else:
-            # NORMAL: 话题路由已由 TheEye 完成，直接添加 block
-            self._buffer_manager.add_block(topic_id, block)
+        # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
+        self._buffer_manager.add_block(topic_id, block)
 
         # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
         await self._maybe_fold_pages(topic_id)

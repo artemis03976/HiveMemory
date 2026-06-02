@@ -161,13 +161,7 @@ class KernelLoopExecutor:
                 result.text,
                 context=mtp_context,
             )
-            if mtp_result is not None:
-                if mtp_result.write_focus is not None:
-                    p.write_foci.append(mtp_result.write_focus)
-                if mtp_result.update_focus is not None:
-                    p.update_foci.append(mtp_result.update_focus)
-                if mtp_result.pending_alias is not None:
-                    p.pending_aliases.append(mtp_result.pending_alias)
+
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value
                 target_hint, args_hint, raw_hint = self._extract_command_info(

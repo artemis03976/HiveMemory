@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -29,20 +29,15 @@ from hivememory.core.models import (
     TurnRecord,
 )
 
-if TYPE_CHECKING:
-    from hivememory.core.models import WriteFocus, UpdateFocus
-
 
 # ============ 枚举定义 ============
 
 class FlushReason(str, Enum):
     """缓冲区刷新原因枚举"""
-    SEMANTIC_DRIFT = "semantic_drift"  # 语义漂移（话题切换）
+    SEMANTIC_DRIFT = "semantic_drift"  # TODO: 移除老旧语义漂移语义
     TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
     MANUAL = "manual"  # 手动触发
-    MTP_WRITE = "mtp_write"  # MTP WRITE 指令触发的强制刷新
-    MTP_UPDATE = "mtp_update"  # MTP UPDATE 指令触发的强制刷新
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
     SHUTDOWN = "shutdown"  # 进程关闭时的全局强制归档
 
@@ -83,17 +78,6 @@ class FlushEvent(BaseModel):
     triggered_by_block: Optional["LogicalBlock"] = Field(
         default=None,
         description="触发此 flush 的新 block"
-    )
-
-    #: WRITE 指令控制信号 (v3.0)
-    write_focus: Optional[Any] = Field(
-        default=None,
-        description="WRITE 指令的核心素材 (仅 MTP_WRITE flush 时携带)"
-    )
-    #: UPDATE 指令控制信号 (v3.0)
-    update_focus: Optional[Any] = Field(
-        default=None,
-        description="UPDATE 指令的修改意图 (仅 MTP_UPDATE flush 时携带)"
     )
 
     @property
@@ -145,37 +129,13 @@ class LogicalBlock(BaseModel):
         description="NORMAL | URGENT"
     )
 
-    #: WRITE 指令的核心素材 (Kernel 模式)
-    write_focus: Optional[Any] = Field(
-        default=None,
-        description="携带 WRITE 指令的核心素材 (WriteFocus)"
-    )
-
-    #: UPDATE 指令的修改意图 (Kernel 模式)
-    update_focus: Optional[Any] = Field(
-        default=None,
-        description="携带 UPDATE 指令的修改意图 (UpdateFocus)"
-    )
-
     @property
     def is_complete(self) -> bool:
-        """
-        Block 是否闭合
-
-        闭合条件 (双模式):
-            - 有 user_query
-            - 且满足以下任一项:
-              - assistant_final_text 非空
-              - turn_events 非空
-              - actions 非空
-              - write_focus / update_focus 存在
-        """
+        """Block 是否闭合"""
         return bool(self.turn.user_query) and bool(
             self.turn.assistant_final_text
             or self.turn.turn_events
             or self.turn.actions
-            or self.write_focus is not None
-            or self.update_focus is not None
         )
 
     @property
@@ -370,15 +330,8 @@ class ArchivePayload(BaseModel):
     user_id: Optional[str] = Field(default=None, description="用户 ID")
     blocks: List[LogicalBlock] = Field(default_factory=list, description="从 buffer flush 出的 blocks")
     state_summary: str = Field(default="", description="话题状态摘要")
-    focus: Optional[Any] = Field(
-        default=None,
-        description="write_focus 或 update_focus（仅 MTP_WRITE/UPDATE 时有值）"
-    )
-    reason: FlushReason = Field(
-        default=FlushReason.IDLE_TIMEOUT,
-        description="flush 触发原因"
-    )
-
+    reason: FlushReason = Field(default=FlushReason.IDLE_TIMEOUT, description="flush 触发原因")
+    
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 

@@ -4,7 +4,7 @@ AgentOrchestrator - 多智能体编排驱动器
 职责（编排层）：
     - 造主帧、驱动引擎循环
     - 收到 SUSPENDED 时：fork 子帧 → 驱动引擎跑子帧 → resume → harvest → 组 IPC → 重入
-    - COMPLETED 时从 frame.progress 聚合 ChatResult
+    - COMPLETED 时从 frame.progress 聚合 AgentRunResult
     - 流式模式下负责 sub_agent_start/end 事件与子帧事件透传
 
 不变量：本模块不得反向 import alice/ 以外的子系统。
@@ -24,7 +24,7 @@ from hivememory.alice.runtime.models import (
     MTPExecutionContext,
 )
 from hivememory.core.models import TurnEvent
-from hivememory.core.protocol.models import ChatResult
+from hivememory.core.protocol.models import AgentRunResult
 from hivememory.engines.memory_compiler import (
     CompiledMemoryArtifact,
     MemoryCompiler,
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
     from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
     from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+    from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
     from hivememory.alice.runtime.resolver import RuntimeAliasResolver
     from hivememory.core.models import AgentProfile, Identity
 
@@ -53,7 +54,7 @@ class AgentOrchestrator:
       1. 造主帧（create_main_frame）
       2. 循环驱动引擎 execute_frame(main_frame)
       3. SUSPENDED → 重入序列（append CALL文本 → fork/跑子帧/resume/harvest/组IPC → append IPC）
-      4. COMPLETED → 从 frame.progress 聚合 ChatResult
+      4. COMPLETED → 从 frame.progress 聚合 AgentRunResult
     """
 
     def __init__(
@@ -62,11 +63,13 @@ class AgentOrchestrator:
         frame_scheduler: "FrameScheduler",
         agent_profile_resolver: "AgentProfileResolver",
         alias_resolver: "RuntimeAliasResolver",
+        pending_runtime: Optional["PendingAtomRuntime"] = None,
     ) -> None:
         self._loop_executor = loop_executor
         self._frame_scheduler = frame_scheduler
         self._agent_profile_resolver = agent_profile_resolver
         self._alias_resolver = alias_resolver
+        self._pending_runtime = pending_runtime
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -80,7 +83,7 @@ class AgentOrchestrator:
         generation_options: Optional[Dict[str, Any]] = None,
         agent_profile: Optional["AgentProfile"] = None,
         cancel_event=None,
-    ) -> ChatResult:
+    ) -> AgentRunResult:
         max_iter = self._loop_executor.config.max_loop_iterations
         main_frame = self._frame_scheduler.create_main_frame(
             agent_profile=agent_profile,
@@ -104,7 +107,7 @@ class AgentOrchestrator:
                 )
                 continue
             break
-        return self._assemble_chat_result(main_frame)
+        return self._assemble_agent_run_result(main_frame)
 
     async def run_agent_stream(
         self,
@@ -147,7 +150,7 @@ class AgentOrchestrator:
                     on_suspend=on_suspend,
                 ):
                     await queue.put(event)
-                await queue.put({"event": "done", "data": self._assemble_chat_result(main_frame).model_dump()})
+                await queue.put({"event": "done", "data": self._assemble_agent_run_result(main_frame).model_dump()})
             finally:
                 await queue.put(None)
 
@@ -236,10 +239,8 @@ class AgentOrchestrator:
             self._harvest_sub_frame_aliases(sub_frame)
 
             for alias in sub_frame.harvested_aliases:
-                if alias not in main_frame.progress.pending_aliases:
-                    main_frame.progress.pending_aliases.append(alias)
-            main_frame.progress.write_foci.extend(sub_frame.progress.write_foci)
-            main_frame.progress.update_foci.extend(sub_frame.progress.update_foci)
+                if alias not in main_frame.harvested_aliases:
+                    main_frame.harvested_aliases.append(alias)
 
             ipc_response = self._assemble_ipc_return(sub_result_text, sub_frame.harvested_aliases)
 
@@ -341,19 +342,23 @@ class AgentOrchestrator:
         ).text
 
     def _harvest_sub_frame_aliases(self, sub_frame: ExecutionFrame) -> None:
-        """从子帧 progress 重建 harvested_aliases（迁自引擎 _try_harvest_alias）。
+        """从子帧 PendingAtomRuntime 重建 harvested_aliases。
 
-        WRITE: pending_alias 已在 progress.pending_aliases。
-        UPDATE: 同上；若无 pending_alias，则从 tool_call TurnEvent.target 回退。
+        通过 frame_id 过滤子帧的 PendingAtom，收集 pending_alias 用于 IPC [Artifacts]。
+        UPDATE fallback：从 tool_call TurnEvent.target 补充尚未注册为 pending 的 alias。
         """
         from hivememory.core.mtp.models import MTPVerb
         harvested = set(sub_frame.harvested_aliases)
 
-        # WRITE aliases（pending_aliases 中以 draft_ 开头的）
-        for alias in sub_frame.progress.pending_aliases:
-            if alias and alias not in harvested:
-                sub_frame.harvested_aliases.append(alias)
-                harvested.add(alias)
+        # WRITE/UPDATE aliases from PendingAtomRuntime（主要路径）
+        if self._pending_runtime is not None:
+            frame_id = sub_frame.runtime_scope.frame_id
+            for atom in self._pending_runtime.all_atoms():
+                if atom.runtime_scope.frame_id == frame_id:
+                    alias = atom.pending_alias
+                    if alias and alias not in harvested:
+                        sub_frame.harvested_aliases.append(alias)
+                        harvested.add(alias)
 
         # UPDATE fallback: target alias when no pending_alias was generated
         for ev in sub_frame.progress.turn_events:
@@ -378,16 +383,20 @@ class AgentOrchestrator:
         lines.append("</mtp_response>")
         return "\n".join(lines)
 
-    def _assemble_chat_result(self, frame: ExecutionFrame) -> ChatResult:
+    def _assemble_agent_run_result(self, frame: ExecutionFrame) -> AgentRunResult:
         p = frame.progress
-        return ChatResult(
+        run_id = frame.runtime_scope.run_id
+        tasks = (
+            self._pending_runtime.tasks_by_run(run_id)
+            if self._pending_runtime is not None
+            else []
+        )
+        return AgentRunResult(
             final_text="".join(p.text_segments),
             mtp_iterations=max(0, p.iteration - 1),
             total_iterations=p.iteration,
             turn_events=p.turn_events,
-            write_focus=p.write_foci,
-            update_focus=p.update_foci,
-            pending_aliases=p.pending_aliases,
+            materialize_tasks=tasks,
         )
 
 

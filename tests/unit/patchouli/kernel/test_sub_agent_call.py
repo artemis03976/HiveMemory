@@ -1,4 +1,4 @@
-﻿"""
+"""
 Phase 2 多智能体子代理调用集成测试
 
 测试覆盖:
@@ -36,7 +36,6 @@ from hivememory.core.mtp import (
     MTPCommand,
     MTPResponse,
 )
-from hivememory.core.protocol.models import ChatResult
 
 
 # ========== ExecutionFrame Tests ==========

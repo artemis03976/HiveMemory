@@ -471,7 +471,7 @@ class SystemScenarioTestSystem:
                     rewritten_query=pending_user.get("rewritten_query") if pending_user else None,
                     worth_saving=pending_user.get("worth_saving") if pending_user else None,
                 )
-                self.librarian_core.ingest_interaction(payload)
+                self.librarian_core.submit_interaction(payload)
                 pending_user = None
                 context.append(StreamMessage(message_type=StreamMessageType.ASSISTANT, content=content))
 

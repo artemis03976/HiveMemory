@@ -297,6 +297,7 @@ class TestPendingAtomCompilation:
 
         return PendingAtom(
             pending_alias="draft_001",
+            intent_id="intent_001",
             status=PendingAtomStatus.PENDING,
             source_verb="WRITE",
             focus=WriteFocus(content="Hello world", title="Test Write"),
@@ -308,6 +309,7 @@ class TestPendingAtomCompilation:
 
         return PendingAtom(
             pending_alias="rev_001",
+            intent_id="intent_002",
             status=PendingAtomStatus.PENDING,
             source_verb="UPDATE",
             focus=UpdateFocus(
@@ -412,6 +414,7 @@ class TestResolveResultCompilation:
 
         pending = PendingAtom(
             pending_alias="draft_002",
+            intent_id="intent_003",
             status=PendingAtomStatus.PENDING,
             source_verb="WRITE",
             focus=WriteFocus(content="Pending content", title="Pending"),

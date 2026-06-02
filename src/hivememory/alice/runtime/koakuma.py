@@ -224,8 +224,6 @@ class KoakumaRuntime:
                 formatted_response=formatted,
                 success=(response.status != MTPResponseStatus.ERROR),
                 execution_time_ms=response.execution_time_ms,
-                write_focus=response.write_focus,
-                update_focus=response.update_focus,
                 pending_alias=response.pending_alias,
             )
 
@@ -709,7 +707,6 @@ class KoakumaRuntime:
         return MTPResponse(
             status=MTPResponseStatus.ACK,
             content=self._compiler.compile(pending, MemoryCompileTarget.MTP_ACK).text,
-            write_focus=pending.focus,
             pending_alias=pending.pending_alias,
         )
 
@@ -794,7 +791,6 @@ class KoakumaRuntime:
         return MTPResponse(
             status=MTPResponseStatus.ACK,
             content=self._compiler.compile(pending, MemoryCompileTarget.MTP_ACK).text,
-            update_focus=pending.focus,
             pending_alias=pending.pending_alias,
         )
 

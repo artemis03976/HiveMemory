@@ -18,7 +18,7 @@ Active Mode E2E Pipeline Tests - 主动模式 Pipeline 端到端测试
     - Qdrant 持久化验证在 test_flush_triggers_e2e.py
 
 测试场景:
-    - ACT-E2E-001: 基础对话 (chat 返回 ChatResult + 感知层摄入)
+    - ACT-E2E-001: 基础对话 (chat 返回 AgentRunResult + 感知层摄入)
     - ACT-E2E-002: 多轮对话记忆累积 - 同一话题
     - ACT-E2E-003: 多话题对话数据积累 - 路由机制
     - ACT-E2E-004: MTP WRITE 定向写入
@@ -40,7 +40,7 @@ import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.passive import PassiveIngressEvent
-from hivememory.core.protocol.models import ChatResult
+from hivememory.core.protocol.models import AgentRunResult
 
 from tests.e2e.conftest import wait_for_memory_persistence_async
 
@@ -75,7 +75,7 @@ def _get_perception_layer(system: PatchouliSystem):
     return system.runtime.librarian_core.perception_layer
 
 
-def _mtp_commands(result: ChatResult) -> list[str]:
+def _mtp_commands(result: AgentRunResult) -> list[str]:
     return [
         event.tool_kind
         for event in result.turn_events
@@ -159,11 +159,11 @@ async def passive_ingest_memory(
 # ========== ACT-E2E-001: 基础对话 ==========
 
 class TestActiveBasicChat:
-    """验证 chat() 基础链路: Eye → Kernel → Worker → ChatResult → 感知层摄入"""
+    """验证 chat() 基础链路: Eye → Kernel → Worker → AgentRunResult → 感知层摄入"""
 
     @pytest.mark.asyncio
     async def test_simple_chat_returns_response(self, e2e_system, clean_user):
-        """chat() 返回 ChatResult, final_text 非空"""
+        """chat() 返回 AgentRunResult, final_text 非空"""
         user_id = clean_user()
         user_message = "What is 2+2?"
         result = await e2e_system.chat_service.chat(
@@ -172,7 +172,7 @@ class TestActiveBasicChat:
             enable_memory_retrieval=False,
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text.strip()) > 0, "final_text 不应为空"
         assert result.total_iterations >= 1
         logger.info(f"ACT-E2E-001: chat 返回 {len(result.final_text)} 字符")
@@ -188,7 +188,7 @@ class TestActiveBasicChat:
             enable_memory_retrieval=False,
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text.strip()) > 0
 
         # 验证感知层已接收
@@ -370,7 +370,7 @@ class TestActiveMTPWriteDirected:
             enable_memory_retrieval=False,
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text.strip()) > 0
 
         commands = _mtp_commands(result)
@@ -431,7 +431,7 @@ class TestActiveMTPUpdateDirected:
             enable_memory_retrieval=True,
         )
 
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentRunResult)
         assert len(result.final_text.strip()) > 0
 
         commands = _mtp_commands(result)

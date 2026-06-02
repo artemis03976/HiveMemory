@@ -17,7 +17,7 @@ from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.core.protocol.models import (
     AgentRunContext,
     AnalyzeAndRetrieveResult,
-    ChatResult,
+    AgentRunResult,
     EyeGazeResult,
     RetrievalResponse,
 )
@@ -76,8 +76,8 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
     return PreparedAgentRun(**defaults)
 
 
-def _make_chat_result() -> ChatResult:
-    return ChatResult(
+def _make_chat_result() -> AgentRunResult:
+    return AgentRunResult(
         final_text="hello!",
         mtp_iterations=0,
         total_iterations=1,

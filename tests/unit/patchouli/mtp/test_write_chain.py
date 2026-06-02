@@ -32,6 +32,7 @@ from hivememory.core.models import (
     TurnRecord,
     WriteFocus,
 )
+from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.generation.models import (
     GenerationRequest,
     GenerationContext,
@@ -120,12 +121,14 @@ class TestWriteFocusModel:
         focus = WriteFocus(content="some content")
         assert focus.reason is None
         assert focus.title is None
-        assert focus.identity is not None
 
-    def test_with_identity(self, identity):
-        focus = WriteFocus(content="test", identity=identity)
-        assert focus.identity.user_id == "test_user"
-        assert focus.identity.agent_id == "test_agent"
+    def test_dto_fields_only(self):
+        focus = WriteFocus(content="test")
+        assert focus.model_dump() == {
+            "content": "test",
+            "reason": None,
+            "title": None,
+        }
 
     def test_content_required(self):
         with pytest.raises(Exception):
@@ -181,7 +184,7 @@ class TestModeBExtraction:
             storage=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
-        focus = WriteFocus(content="端口改为 9090", reason="修复 CORS", identity=identity)
+        focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
         request = GenerationRequest(context=sample_context, write_focus=focus)
 
         result = engine.process(request=request)
@@ -237,7 +240,6 @@ class TestModeBFallback:
             content="端口从 8080 改为 9090",
             reason="修复 CORS",
             title="Fix CORS Port",
-            identity=identity,
         )
         request = GenerationRequest(context=sample_context, write_focus=focus)
 
@@ -282,11 +284,11 @@ from hivememory.core.models import StreamMessage, StreamMessageType
 
 
 class TestFlushCallbackModes:
-    """验证 _on_generate_memory 统一回调的模式分发"""
+    """验证主动生成与被动归档已按新边界分离"""
 
     @pytest.mark.asyncio
-    async def test_mtp_write_flush_triggers_mode_b(self, sample_messages):
-        """MTP_WRITE flush 携带 write_focus → Mode B GenerationRequest"""
+    async def test_run_active_generation_triggers_mode_b(self, sample_messages):
+        """主动 WRITE 由 run_active_generation 直驱 Mode B"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
@@ -312,16 +314,20 @@ class TestFlushCallbackModes:
         ]
 
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
+        core.perception_layer = MagicMock()
+        core.perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": blocks,
+        }
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_fix_cors_0001",
+            intent_id="intent_fix_cors_0001",
+            source_verb="WRITE",
+            identity=Identity(user_id="test_user"),
             focus=focus,
-            reason=FlushReason.MTP_WRITE,
         )
-        await core._on_generate_memory(payload)
+        await core.run_active_generation([task], topic_id="topic_test")
 
-        # generation_engine.process 应被调用，且携带 write_focus
         mock_generation.process.assert_called_once()
         request = mock_generation.process.call_args[0][0]
         assert request.write_focus is not None
@@ -329,8 +335,8 @@ class TestFlushCallbackModes:
         assert request.update_focus is None
 
     @pytest.mark.asyncio
-    async def test_mtp_write_flush_without_focus_triggers_mode_a(self, sample_messages):
-        """MTP_WRITE flush 但无 write_focus → 降级为 Mode A"""
+    async def test_run_active_generation_without_tasks_is_noop(self, sample_messages):
+        """没有 materialize_tasks 时主动生成应直接跳过"""
         mock_generation = MagicMock()
         mock_generation.process.return_value = []
 
@@ -343,30 +349,8 @@ class TestFlushCallbackModes:
             generation_engine=mock_generation,
         )
 
-        # 将 StreamMessage 转换为 LogicalBlock
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=msg.identity,
-                    user_query=msg.content,
-                    assistant_final_text=msg.content if i % 2 == 1 else "",
-                )
-            )
-            for i, msg in enumerate(sample_messages)
-        ]
-
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
-            focus=None,
-            reason=FlushReason.MTP_WRITE,
-        )
-        await core._on_generate_memory(payload)
-
-        mock_generation.process.assert_called_once()
-        request = mock_generation.process.call_args[0][0]
-        assert request.write_focus is None
+        await core.run_active_generation([], topic_id="topic_test")
+        mock_generation.process.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_normal_flush_triggers_mode_a(self, sample_messages):
@@ -399,7 +383,6 @@ class TestFlushCallbackModes:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            focus=None,
             reason=FlushReason.SEMANTIC_DRIFT,
         )
         await core._on_generate_memory(payload)
@@ -436,7 +419,6 @@ class TestFlushCallbackModes:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            focus=None,
             reason=FlushReason.MANUAL,
         )
         await core._on_generate_memory(payload)
@@ -466,20 +448,21 @@ class TestKoakumaWriteE2E:
         assert result is not None
         assert result.success
 
-        # v3.0 延迟捕获: 验证 WriteFocus 随执行结果返回而非暂存在 Koakuma
-        focus = result.write_focus
-        assert focus is not None
+        pending = write_koakuma.pending_runtime.get(result.pending_alias)
+        assert pending is not None
+        focus = pending.focus
         assert focus.content == "端口从 8080 改为 9090"
         assert focus.reason == "修复 CORS"
-        assert focus.identity.user_id == "test_user"
+        assert pending.identity.user_id == "test_user"
 
     def test_write_with_title(self, write_koakuma):
         agent_text = '⟪ WRITE | * | title="Fix CORS" content="端口改为 9090" reason="修复"'
         result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
-        focus = result.write_focus
-        assert focus is not None
+        pending = write_koakuma.pending_runtime.get(result.pending_alias)
+        assert pending is not None
+        focus = pending.focus
         assert focus.title == "Fix CORS"
 
     def test_write_missing_content(self, write_koakuma):
@@ -487,8 +470,7 @@ class TestKoakumaWriteE2E:
         result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
-        # 应该返回 error，不捕获 WriteFocus
-        assert result.write_focus is None
+        assert result.pending_alias is None
 
     def test_write_response_contains_ack(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="test content"'
@@ -518,26 +500,20 @@ class TestKoakumaWriteE2E:
 
         assert result is not None
         assert result.success
-        assert result.write_focus is not None
-        assert result.write_focus.content == "test"
         pending = koakuma.pending_runtime.get(result.pending_alias)
         assert pending is not None
+        assert pending.focus.content == "test"
         assert pending.runtime_scope.run_id == "run_write_test"
         assert pending.runtime_scope.frame_id == "frame_main_write"
 
 
-# ========== Test 8: FlushReason.MTP_WRITE ==========
+# ========== Test 8: Active Flush Reason Removed ==========
 
-class TestFlushReasonMTPWrite:
-    """验证 FlushReason.MTP_WRITE 枚举值"""
+class TestFlushReasonActiveGenerationRemoved:
+    """主动写生成已脱离感知层，不再保留 MTP flush reason"""
 
-    def test_enum_value(self):
-        assert FlushReason.MTP_WRITE == "mtp_write"
-        assert FlushReason.MTP_WRITE.value == "mtp_write"
-
-    def test_enum_member(self):
-        assert hasattr(FlushReason, "MTP_WRITE")
-        assert FlushReason("mtp_write") == FlushReason.MTP_WRITE
+    def test_mtp_write_removed(self):
+        assert "MTP_WRITE" not in FlushReason.__members__
 
 
 # ========== Test 9: Engine unified API ==========

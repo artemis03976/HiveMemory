@@ -48,9 +48,9 @@ class TestDecisionMatrix:
         assert actions["compact"] is False
         assert actions["evict"] is True
 
-    def test_mtp_write_actions(self):
-        """MTP_WRITE: Archive + Compact"""
-        actions = DECISION_MATRIX[FlushReason.MTP_WRITE]
+    def test_manual_actions(self):
+        """MANUAL: Archive + Compact"""
+        actions = DECISION_MATRIX[FlushReason.MANUAL]
         assert actions["archive"] is True
         assert actions["compact"] is True
         assert actions["evict"] is False
@@ -61,13 +61,6 @@ class TestDecisionMatrix:
         assert actions["archive"] is True
         assert actions["compact"] is False
         assert actions["evict"] is True
-
-    def test_mtp_update_actions(self):
-        """MTP_UPDATE: Archive + Compact"""
-        actions = DECISION_MATRIX[FlushReason.MTP_UPDATE]
-        assert actions["archive"] is True
-        assert actions["compact"] is True
-        assert actions["evict"] is False
 
 
 class TestTriggerManagerInit:
@@ -228,13 +221,13 @@ class TestTriggerManagerResolveTopic:
         assert buffer.total_tokens == 0
 
     @pytest.mark.asyncio
-    async def test_resolve_topic_mtp_write(self):
-        """测试 MTP_WRITE 触发 Archive + Compact"""
+    async def test_resolve_topic_manual(self):
+        """测试 MANUAL 触发 Archive + Compact"""
         buffer = self._create_buffer_with_blocks()
         self.mock_buffer_manager.get_buffer.return_value = buffer
         self.mock_relay_controller.generate_summary.return_value = "Test summary"
 
-        await self.manager.resolve_topic(self.topic_id, FlushReason.MTP_WRITE)
+        await self.manager.resolve_topic(self.topic_id, FlushReason.MANUAL)
         await asyncio.sleep(0)
 
         # 验证 Archive 被调用
@@ -307,7 +300,12 @@ class TestTriggerManagerArchiveTopic:
             )
         ]
 
-        await manager._archive_topic(self.topic_id, blocks, "summary", None)
+        await manager._archive_topic(
+            self.topic_id,
+            blocks,
+            "summary",
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
 
         # 不应该抛出异常
         assert True
@@ -333,7 +331,12 @@ class TestTriggerManagerArchiveTopic:
             ),
         ]
 
-        await self.manager._archive_topic(self.topic_id, blocks, "summary", None)
+        await self.manager._archive_topic(
+            self.topic_id,
+            blocks,
+            "summary",
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
         await asyncio.sleep(0)
 
         # 验证只发射了 2 个 block (worth_saving=True 和 None)
@@ -351,7 +354,11 @@ class TestTriggerManagerArchiveTopic:
         ]
 
         await self.manager._archive_topic(
-            self.topic_id, blocks, "summary", None, FlushReason.IDLE_TIMEOUT, self.identity.user_id
+            self.topic_id,
+            blocks,
+            "summary",
+            reason=FlushReason.IDLE_TIMEOUT,
+            user_id=self.identity.user_id,
         )
         await asyncio.sleep(0)
 

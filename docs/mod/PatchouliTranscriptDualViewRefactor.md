@@ -149,7 +149,7 @@ User
 -> PatchouliKernel / LoopExecutor
 -> 运行时采集 turn_events + final_text
 -> PatchouliSystem 构造 InteractionPayload
--> LibrarianCore.ingest_interaction()
+-> LibrarianCore.submit_interaction()
 -> SemanticFlowPerceptionLayer.route_and_ingest()
 -> LogicalBlock(turn=TurnRecord, ...)
 -> History / Generation 两类消费视图

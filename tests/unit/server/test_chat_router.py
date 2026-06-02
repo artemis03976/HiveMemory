@@ -57,7 +57,7 @@ class TestChatRouter:
         async def fake_stream(**kwargs):
             yield {"event": "done", "data": {"final_text": "ok", "mtp_iterations": 0, "total_iterations": 1}}
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream = fake_stream
 
         app = _create_test_app(mock_service)
         client = TestClient(app)

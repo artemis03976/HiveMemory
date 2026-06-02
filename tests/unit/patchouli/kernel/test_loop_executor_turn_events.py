@@ -422,10 +422,10 @@ async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
 
 
 def test_chat_result_default_turn_events():
-    """ChatResult 新字段有默认值，不破坏现有代码"""
-    from hivememory.core.protocol.models import ChatResult
+    """AgentRunResult 新字段有默认值"""
+    from hivememory.core.protocol.models import AgentRunResult
 
-    r = ChatResult(final_text="hi")
+    r = AgentRunResult(final_text="hi")
     assert r.turn_events == []
 
 
