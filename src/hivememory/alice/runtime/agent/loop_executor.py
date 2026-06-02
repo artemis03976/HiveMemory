@@ -288,9 +288,6 @@ class KernelLoopExecutor:
             ))
             p.sequence += 1
 
-            if frame.is_sub_frame() and mtp_result.command:
-                self._try_harvest_alias(frame, mtp_result)
-
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
     async def execute_frame_stream(
@@ -363,28 +360,6 @@ class KernelLoopExecutor:
         args_hint = dict(command.args or {})
         raw_hint = command.raw_text or raw_hint
         return target_hint, args_hint, raw_hint
-
-    def _try_harvest_alias(self, frame: ExecutionFrame, mtp_result) -> None:
-        """子帧 WRITE/UPDATE 别名收割（引擎层：仅追踪本帧自身产出的别名）。"""
-        from hivememory.core.mtp.models import MTPVerb
-        if not mtp_result.command:
-            return
-
-        verb = mtp_result.command.verb
-        if verb not in (MTPVerb.WRITE, MTPVerb.UPDATE):
-            return
-
-        if verb == MTPVerb.UPDATE:
-            alias = mtp_result.pending_alias or mtp_result.command.target.single_alias
-            if alias:
-                frame.add_harvested_alias(alias)
-                logger.debug(f"Harvested UPDATE alias: {alias}")
-
-        elif verb == MTPVerb.WRITE:
-            alias = mtp_result.pending_alias
-            if alias:
-                frame.add_harvested_alias(alias)
-                logger.debug(f"Harvested WRITE pending alias: {alias}")
 
 
 __all__ = ["KernelLoopExecutor"]

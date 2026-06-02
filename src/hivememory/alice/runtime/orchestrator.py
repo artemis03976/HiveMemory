@@ -233,6 +233,8 @@ class AgentOrchestrator:
             self._frame_scheduler.resume_frame()
             sub_result_text = "".join(sub_frame.progress.text_segments)
 
+            self._harvest_sub_frame_aliases(sub_frame)
+
             for alias in sub_frame.harvested_aliases:
                 if alias not in main_frame.progress.pending_aliases:
                     main_frame.progress.pending_aliases.append(alias)
@@ -337,6 +339,29 @@ class AgentOrchestrator:
             envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
             options=MemoryCompileOptions(language=language),
         ).text
+
+    def _harvest_sub_frame_aliases(self, sub_frame: ExecutionFrame) -> None:
+        """从子帧 progress 重建 harvested_aliases（迁自引擎 _try_harvest_alias）。
+
+        WRITE: pending_alias 已在 progress.pending_aliases。
+        UPDATE: 同上；若无 pending_alias，则从 tool_call TurnEvent.target 回退。
+        """
+        from hivememory.core.mtp.models import MTPVerb
+        harvested = set(sub_frame.harvested_aliases)
+
+        # WRITE aliases（pending_aliases 中以 draft_ 开头的）
+        for alias in sub_frame.progress.pending_aliases:
+            if alias and alias not in harvested:
+                sub_frame.harvested_aliases.append(alias)
+                harvested.add(alias)
+
+        # UPDATE fallback: target alias when no pending_alias was generated
+        for ev in sub_frame.progress.turn_events:
+            if ev.kind == "tool_call" and ev.tool_kind == MTPVerb.UPDATE.value:
+                alias = ev.target
+                if alias and alias not in harvested:
+                    sub_frame.harvested_aliases.append(alias)
+                    harvested.add(alias)
 
     def _assemble_ipc_return(self, sub_final_text: str, harvested_aliases: List[str]) -> str:
         lines = ['<mtp_response status="success" type="ipc_return">']
