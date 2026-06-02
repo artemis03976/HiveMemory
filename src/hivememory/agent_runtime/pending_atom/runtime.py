@@ -29,7 +29,7 @@ from hivememory.core.models.pending import (
     WriteFocus,
 )
 
-from hivememory.alice.runtime.pending_atom.store import _PendingAtomStore
+from hivememory.agent_runtime.pending_atom.store import _PendingAtomStore
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +127,28 @@ class PendingAtomRuntime:
         logger.debug(f"Registered pending UPDATE: {pending_alias} (intent={intent_id})")
         return atom
 
+    def mark_failed(self, pending_alias: str) -> None:
+        """将 MATERIALIZING 的 atom 迁移到 FAILED（幂等：非 MATERIALIZING 时静默跳过）。"""
+        atom = self._store.get(pending_alias)
+        if atom is None or atom.status != PendingAtomStatus.MATERIALIZING:
+            logger.warning(
+                f"mark_failed() skipped: alias={pending_alias}, "
+                f"status={atom.status.value if atom else 'not found'}"
+            )
+            return
+        atom.status = PendingAtomStatus.FAILED
+
+    def claim_for_materialization(self, aliases: list[str]) -> List[PendingAtomMaterializeTask]:
+        """将 PENDING 的 atom 迁移到 MATERIALIZING 并返回 Task 投影。非 PENDING 的静默跳过（幂等）。"""
+        tasks = []
+        for alias in aliases:
+            atom = self._store.get(alias)
+            if atom is None or atom.status != PendingAtomStatus.PENDING:
+                continue
+            atom.status = PendingAtomStatus.MATERIALIZING
+            tasks.append(PendingAtomMaterializeTask.from_pending_atom(atom))
+        return tasks
+
     def settle(self, settlement: PendingAtomSettlement) -> None:
         """
         Apply a settlement from the generation pipeline to update pending atom state.
@@ -144,6 +166,22 @@ class PendingAtomRuntime:
             logger.warning(
                 f"Settlement for unknown pending atom: "
                 f"alias={settlement.pending_alias}, intent={settlement.intent_id}"
+            )
+            return
+
+        # 校验 atom 状态是否为 MATERIALIZING
+        if atom.status != PendingAtomStatus.MATERIALIZING:
+            logger.warning(
+                f"settle() called on atom not in MATERIALIZING state: "
+                f"alias={atom.pending_alias}, status={atom.status.value}, skipping"
+            )
+            return
+
+        # 校验 intent_id 是否匹配
+        if atom.intent_id != settlement.intent_id:
+            logger.warning(
+                f"settle() intent mismatch: alias={atom.pending_alias}, "
+                f"atom_intent={atom.intent_id}, settlement_intent={settlement.intent_id}, skipping"
             )
             return
 

@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from hivememory.system.config import KoakumaConfig
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.mtp.models import MTPVerb
 
 from .conftest import build_resumed_history, simulate_kernel_loop_single

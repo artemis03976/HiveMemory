@@ -2,10 +2,10 @@ import pytest
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.alice.runtime.models import MTPExecutionContext
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.resolver import RuntimeAliasResolver
+from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.core.models import (
     DuplicateDecision,
     Identity,
@@ -87,6 +87,7 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
         canonical_uuid=str(canonical.id),
     )
 
+    pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 
@@ -124,6 +125,7 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
         canonical_uuid=str(canonical.id),
     )
 
+    pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 
@@ -149,6 +151,7 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
         message="Not materialized.",
     )
 
+    pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 

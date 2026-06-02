@@ -18,7 +18,7 @@ from hivememory.engines.memory_compiler.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.resolver import ResolveResult
+    from hivememory.agent_runtime.resolver import ResolveResult
 
 
 def compile_resolve_result(

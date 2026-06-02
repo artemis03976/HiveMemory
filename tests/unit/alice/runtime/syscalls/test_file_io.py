@@ -1,4 +1,4 @@
-from hivememory.alice.runtime.syscalls.file_io import sys_read_file, sys_write_file
+from hivememory.agent_runtime.mtp.syscalls.file_io import sys_read_file, sys_write_file
 
 
 class TestSysReadFile:

@@ -30,7 +30,7 @@ import asyncio
 import litellm
 
 from hivememory.system.config import LLMConfig
-from hivememory.alice.runtime.models import GenerationResult, StreamChunk
+from hivememory.agent_runtime.models import GenerationResult, StreamChunk
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_STOP_SEQUENCE,
@@ -47,7 +47,7 @@ class WorkerAgentService:
     并对返回结果进行 MTP 中断检测。
 
     使用示例:
-        >>> from hivememory.alice.runtime.agent.worker_agent import WorkerAgentService
+        >>> from hivememory.agent_runtime.worker_agent import WorkerAgentService
         >>> from hivememory.system.config import LLMConfig
         >>>
         >>> service = WorkerAgentService(config=LLMConfig(model="gpt-4o"))

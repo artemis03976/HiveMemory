@@ -23,8 +23,8 @@ from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
     DuplicateDecision, PendingAtomResolution, PendingAtomSettlement,
 )
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 
 
@@ -159,6 +159,7 @@ class TestReadAliasResolution:
             alias="fact_canonical",
         )
         koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
         koakuma.pending_runtime.settle(
             PendingAtomSettlement(
                 pending_alias=pending.pending_alias,
@@ -190,6 +191,7 @@ class TestReadAliasResolution:
             reason=None,
             identity=MTPExecutionContext().identity,
         )
+        koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
         koakuma.pending_runtime.settle(
             PendingAtomSettlement(
                 pending_alias=pending.pending_alias,

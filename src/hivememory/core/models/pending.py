@@ -104,33 +104,6 @@ def allowed_transitions(from_status: PendingAtomStatus) -> frozenset[PendingAtom
     return _TRANSITIONS[from_status]
 
 
-_LEGACY_STATUS_MAP: dict[
-    str, tuple[PendingAtomStatus, PendingAtomResolution | None]
-] = {
-    "pending":   (PendingAtomStatus.PENDING, None),
-    "revision":  (PendingAtomStatus.PENDING, None),
-    "committed": (PendingAtomStatus.SETTLED, PendingAtomResolution.CREATED),
-    "merged":    (PendingAtomStatus.SETTLED, PendingAtomResolution.MERGED),
-    "updated":   (PendingAtomStatus.SETTLED, PendingAtomResolution.UPDATED),
-    "touched":   (PendingAtomStatus.SETTLED, PendingAtomResolution.TOUCHED),
-    "discarded": (PendingAtomStatus.SETTLED, PendingAtomResolution.DISCARDED),
-    "failed":    (PendingAtomStatus.FAILED, None),
-}
-
-
-def map_legacy_status(
-    legacy_value: str,
-) -> tuple[PendingAtomStatus, PendingAtomResolution | None]:
-    """旧 status 字符串 → 新 (status, resolution) 元组的兼容映射。
-
-    保留作为外部 / 历史持久化数据的反序列化入口；运行期 PendingAtomRuntime 不再使用。
-    """
-    mapped = _LEGACY_STATUS_MAP.get(legacy_value)
-    if mapped is None:
-        raise ValueError(f"Unknown legacy PendingAtomStatus value: {legacy_value!r}")
-    return mapped
-
-
 # ===========================================================================
 # 查重决策
 # ===========================================================================
@@ -357,7 +330,6 @@ __all__ = [
     "PendingAtomSnapshot",
     "is_legal_transition",
     "allowed_transitions",
-    "map_legacy_status",
     # 查重决策
     "DuplicateDecision",
     # Focus

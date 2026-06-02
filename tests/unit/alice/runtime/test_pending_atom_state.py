@@ -5,7 +5,6 @@ PendingAtom 统一状态体系单元测试 (Commit 1)。
 - PendingAtomStatus / PendingAtomResolution 枚举属性
 - 状态机合法/非法迁移
 - PendingAtomSnapshot 不变量校验
-- map_legacy_status 兼容映射
 - PendingAtomRuntime.snapshot() 派生路径（未结算 / SETTLED 各类 resolution）
 """
 
@@ -13,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.models import (
     Identity,
     PendingAtomResolution,
@@ -24,7 +23,6 @@ from hivememory.core.models import (
 from hivememory.core.models.pending import (
     allowed_transitions,
     is_legal_transition,
-    map_legacy_status,
 )
 
 # ---------------------------------------------------------------------------
@@ -179,35 +177,6 @@ class TestSnapshotInvariants:
 
 
 # ---------------------------------------------------------------------------
-# Legacy 映射
-# ---------------------------------------------------------------------------
-
-
-class TestLegacyMapping:
-    @pytest.mark.parametrize(
-        "legacy,expected_status,expected_resolution",
-        [
-            ("pending", PendingAtomStatus.PENDING, None),
-            ("revision", PendingAtomStatus.PENDING, None),
-            ("committed", PendingAtomStatus.SETTLED, PendingAtomResolution.CREATED),
-            ("merged", PendingAtomStatus.SETTLED, PendingAtomResolution.MERGED),
-            ("updated", PendingAtomStatus.SETTLED, PendingAtomResolution.UPDATED),
-            ("touched", PendingAtomStatus.SETTLED, PendingAtomResolution.TOUCHED),
-            ("discarded", PendingAtomStatus.SETTLED, PendingAtomResolution.DISCARDED),
-            ("failed", PendingAtomStatus.FAILED, None),
-        ],
-    )
-    def test_known_legacy_values(self, legacy, expected_status, expected_resolution):
-        status, resolution = map_legacy_status(legacy)
-        assert status == expected_status
-        assert resolution == expected_resolution
-
-    def test_unknown_legacy_value_raises(self):
-        with pytest.raises(ValueError, match="Unknown legacy"):
-            map_legacy_status("nonexistent_status")
-
-
-# ---------------------------------------------------------------------------
 # PendingAtomRuntime.snapshot() 派生
 # ---------------------------------------------------------------------------
 
@@ -276,6 +245,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="hello", title="Hello", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
             canonical_alias="fact_hello",
@@ -287,10 +257,30 @@ class TestPendingAtomRuntimeSnapshot:
         assert snap.canonical_alias == "fact_hello"
         assert snap.canonical_uuid == "uuid-1"
 
+    def test_settle_with_mismatched_intent_is_ignored(self, runtime, identity):
+        atom = runtime.register_write(
+            content="hello", title="Hello", reason=None, identity=identity,
+        )
+        runtime.claim_for_materialization([atom.pending_alias])
+
+        runtime.settle(_make_settlement(
+            atom.pending_alias,
+            "intent_other",
+            PendingAtomResolution.CREATED,
+            canonical_alias="fact_hello",
+            canonical_uuid="uuid-1",
+        ))
+
+        snap = runtime.snapshot(atom.pending_alias)
+        assert snap.status == PendingAtomStatus.MATERIALIZING
+        assert snap.resolution is None
+        assert atom.settlement is None
+
     def test_merged_settlement_yields_settled_merged(self, runtime, identity):
         atom = runtime.register_write(
             content="dup", title="Dup", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.MERGED,
             canonical_alias="fact_dup",
@@ -305,6 +295,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="touch", title="Touch", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.TOUCHED,
             canonical_alias="fact_touch",
@@ -322,6 +313,7 @@ class TestPendingAtomRuntimeSnapshot:
             content=None,
             identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.UPDATED,
             canonical_alias="fact_x",
@@ -337,6 +329,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="lowq", title="LowQ", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.DISCARDED,
         ))
@@ -350,6 +343,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="x", title="X", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
             canonical_alias="fact_x",

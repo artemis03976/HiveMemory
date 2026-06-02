@@ -3,11 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional, TYPE_CHECKING
 
-from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.protocol.models import MTPExecutionResult
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.koakuma import KoakumaRuntime
+    from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 
 
 class MTPExecutor(ABC):

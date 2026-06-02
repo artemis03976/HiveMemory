@@ -51,7 +51,7 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
     runtime = AliceRuntime(config=HiveMemoryConfig())
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
-    runtime._agent_runtime.run_agent = AsyncMock(
+    runtime._orchestrator.run_agent = AsyncMock(
         return_value=AgentRunResult(final_text="done"),
     )
 
@@ -59,7 +59,7 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
 
     cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
     assert cached is memory
-    runtime._agent_runtime.run_agent.assert_awaited_once()
+    runtime._orchestrator.run_agent.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -71,7 +71,7 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
     async def _stream(**kwargs):
         yield {"event": "done"}
 
-    runtime._agent_runtime.run_agent_stream = _stream
+    runtime._orchestrator.run_agent_stream = _stream
 
     events = [event async for event in runtime.run_agent_stream(context)]
 

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, List, Optional
 from uuid import uuid4
 
 from hivememory.core.models import AgentProfile, Identity, RuntimeScope
-from hivememory.alice.runtime.models import ExecutionFrame
+from hivememory.agent_runtime.models import ExecutionFrame
 
 if TYPE_CHECKING:
     from hivememory.prompts.assembler import AgentPromptAssembler

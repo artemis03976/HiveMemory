@@ -1,5 +1,5 @@
-from hivememory.alice.runtime.syscalls.registry import build_kernel_registry
-from hivememory.alice.runtime.syscalls.types import KernelSyscall
+from hivememory.agent_runtime.mtp.syscalls.registry import build_kernel_registry
+from hivememory.agent_runtime.mtp.syscalls.types import KernelSyscall
 
 
 class TestKernelRegistry:

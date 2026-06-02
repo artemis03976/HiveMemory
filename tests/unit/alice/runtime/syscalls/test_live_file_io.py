@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from hivememory.system.config import KoakumaConfig
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 
 from .live_support import (
     MTPLoopRunner,

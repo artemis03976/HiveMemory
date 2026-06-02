@@ -35,8 +35,8 @@ from hivememory.engines.generation.models import (
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.patchouli.services.librarian import LibrarianCore
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.alice.runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import MTPResponseStatus
 

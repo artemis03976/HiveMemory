@@ -40,10 +40,10 @@ from hivememory.core.mtp import (
     MTPParseError,
     MTPFormatter,
 )
-from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.alice.runtime.models import MTPExecutionContext
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.resolver import RuntimeAliasResolver
+from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget, MemoryCompileOptions
 from hivememory.core.protocol.models import (
     MTPExecutionResult,
@@ -60,8 +60,8 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
 )
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.bus import AliceBus
-    from hivememory.alice.runtime.resolver import ResolveResult
+    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
+    from hivememory.agent_runtime.resolver import ResolveResult
     from hivememory.system.config import KoakumaConfig
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ class KoakumaRuntime:
 
     def __init__(
         self,
-        bus: Optional["AliceBus"] = None,
+        bus: Optional["AsyncSystemBus"] = None,
         config: Optional["KoakumaConfig"] = None,
         *,
         alias_resolver: RuntimeAliasResolver,
@@ -101,7 +101,7 @@ class KoakumaRuntime:
         初始化 Koakuma MTP 运行时
 
         Args:
-            bus: AliceBus 实例，用于跨服务通信（纯异步总线）
+            bus: AsyncSystemBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
             pending_runtime: 共享的 PendingAtomRuntime 实例 (由 AliceRuntime 注入)
         """
@@ -118,7 +118,7 @@ class KoakumaRuntime:
 
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
-        from hivememory.alice.runtime.syscalls import build_kernel_registry
+        from hivememory.agent_runtime.mtp.syscalls import build_kernel_registry
         self._kernel_registry = build_kernel_registry(
             python_repl_timeout=self._config.python_repl_timeout_seconds,
             workspace_path=self._config.workspace_path,
@@ -907,7 +907,7 @@ class KoakumaRuntime:
         Returns:
             MTPResponse: 执行结果
         """
-        from hivememory.alice.runtime.syscalls import execute_sandboxed
+        from hivememory.agent_runtime.mtp.syscalls import execute_sandboxed
 
         result = execute_sandboxed(
             code,

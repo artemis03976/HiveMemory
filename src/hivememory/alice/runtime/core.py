@@ -8,12 +8,15 @@ from hivememory.core.protocol.models import AgentRunContext, AgentRunResult
 
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
+from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
+from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.cache import KoakumaAtomCache
-from hivememory.alice.runtime.koakuma import KoakumaRuntime
-from hivememory.alice.runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.resolver import RuntimeAliasResolver
-from hivememory.alice.runtime.agent.mtp_executor import KoakumaMTPExecutor
+from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.resolver import RuntimeAliasResolver
+from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.events import GlobalEvents
@@ -37,6 +40,7 @@ class AliceRuntime:
         self._local_routes_registered = False
         self._global_events_registered = False
 
+        # ---- 引擎层 (agent_runtime)：单 Agent 执行能力 ----
         self._pending_runtime = PendingAtomRuntime()
         self._atom_cache = KoakumaAtomCache()
         self._alias_resolver = RuntimeAliasResolver(
@@ -44,26 +48,28 @@ class AliceRuntime:
             atom_cache=self._atom_cache,
             bus=self._local_bus,
         )
-
         self._koakuma = KoakumaRuntime(
             bus=self._local_bus,
             config=config.koakuma,
             alias_resolver=self._alias_resolver,
         )
         self._mtp_executor = KoakumaMTPExecutor(self._koakuma)
+        self._agent_runtime = AgentRuntime(
+            mtp_executor=self._mtp_executor,
+            config=config,
+            pending_runtime=self._pending_runtime,
+        )
 
+        # ---- 编排层 (alice)：多 Agent 编排，拿门面跑单 Agent ----
         self._prompt_assembler = AgentPromptAssembler(
             config.koakuma,
             default_language=config.i18n.default_language,
         )
-
-        self._agent_runtime = AgentRuntime(
-            local_bus=self._local_bus,
-            prompt_assembler=self._prompt_assembler,
-            mtp_executor=self._mtp_executor,
-            config=config,
+        self._orchestrator = AgentOrchestrator(
+            agent_runtime=self._agent_runtime,
+            frame_scheduler=FrameScheduler(prompt_assembler=self._prompt_assembler),
+            agent_profile_resolver=AgentProfileResolver(local_bus=self._local_bus),
             alias_resolver=self._alias_resolver,
-            pending_runtime=self._pending_runtime,
         )
 
         logger.info("AliceRuntime 初始化完成")
@@ -83,6 +89,11 @@ class AliceRuntime:
             f"Settlement applied: {settlement.pending_alias} -> "
             f"{settlement.resolution.value} (canonical={settlement.canonical_alias})"
         )
+
+    async def _on_pending_atom_failed(self, *, pending_alias: str) -> None:
+        """Handle generation failure event — mark atom as FAILED to unblock lifecycle."""
+        self._agent_runtime.mark_task_failed(pending_alias)
+        logger.warning(f"PendingAtom marked FAILED: {pending_alias}")
 
     async def _refresh_l1_cache_for_settlement(self, settlement) -> None:
         """Refresh L1 atom cache after a pending atom points to a canonical atom."""
@@ -150,6 +161,10 @@ class AliceRuntime:
                     GlobalEvents.PENDING_ATOM_SETTLED,
                     self._on_pending_atom_settled,
                 )
+                self._global_bus.subscribe(
+                    GlobalEvents.PENDING_ATOM_FAILED,
+                    self._on_pending_atom_failed,
+                )
                 self._global_events_registered = True
 
         self._local_routes_registered = True
@@ -169,6 +184,10 @@ class AliceRuntime:
                 self._global_bus.unsubscribe(
                     GlobalEvents.PENDING_ATOM_SETTLED,
                     self._on_pending_atom_settled,
+                )
+                self._global_bus.unsubscribe(
+                    GlobalEvents.PENDING_ATOM_FAILED,
+                    self._on_pending_atom_failed,
                 )
                 self._global_events_registered = False
         self._local_routes_registered = False
@@ -253,7 +272,7 @@ class AliceRuntime:
     ) -> AgentRunResult:
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
-        return await self._agent_runtime.run_agent(
+        return await self._orchestrator.run_agent(
             messages=messages,
             identity=agent_run_context.identity,
             topic_id=agent_run_context.topic_id,
@@ -270,7 +289,7 @@ class AliceRuntime:
     ) -> AsyncGenerator[dict[str, Any], None]:
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
-        async for event in self._agent_runtime.run_agent_stream(
+        async for event in self._orchestrator.run_agent_stream(
             messages=messages,
             identity=agent_run_context.identity,
             topic_id=agent_run_context.topic_id,
