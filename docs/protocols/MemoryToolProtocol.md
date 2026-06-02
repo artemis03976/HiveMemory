@@ -5,7 +5,7 @@
 **适用阶段**: Phase 4 (Kernel Re-architecture)
 **核心负责人**: Patchouli System Architect
 
-> 说明：本文档继续作为 MTP 协议规范总文档保留。与第三次架构演进直接相关的“系统重构与运行时架构”内容已单独整理为 [SystemArchitecture_v3.0](file:///c:/Users/29305/Projects/HiveMemory/docs/architecture_evolution/SystemArchitecture_v3.0.md)，便于与第二次、第四次架构演进文档统一归档对照。
+> 说明：本文档继续作为 MTP 协议规范总文档保留。与第三次架构演进直接相关的“系统重构与运行时架构”内容已单独整理为 [SystemArchitecture_v3.0](../architecture/evolution/SystemArchitecture_v3.0.md)，便于与第二次、第四次架构演进文档统一归档对照。
 
 ---
 

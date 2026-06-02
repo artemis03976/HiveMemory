@@ -188,10 +188,10 @@ src/hivememory/engines/memory_compiler/
 长期文档应存放于：
 
 ```text
-docs/memory_compiler/
+docs/engines/memory_compiler/
 ```
 
-这样可以将编译器的工作与 `docs/mod/` 中短期的迁移说明以及 `docs/components/` 中已建立的组件文档分离开来。
+这样可以将编译器的工作与 `docs/mod/` 中短期的迁移说明以及 `docs/engines/` 中已建立的引擎文档分离开来。
 
 ---
 

@@ -12,7 +12,7 @@
 
 > alice 子系统到底是否应该承担 AgentRuntime、KoakumaRuntime、PendingAtomRuntime 三者？如果承担，三者在 alice 中的定位是什么？如果不承担，三者应划归何处？
 
-[PendingAtomRuntimeDesign](PendingAtomRuntimeDesign.md) 在收尾处已经预判到这一点，并明确把"alice 子系统的物理目录拆分"留给了后续讨论。本文就是那次讨论的结论。
+[PendingAtomRuntimeDesign](../agent_runtime/pending_atom/PendingAtomRuntimeDesign.md) 在收尾处已经预判到这一点，并明确把"alice 子系统的物理目录拆分"留给了后续讨论。本文就是那次讨论的结论。
 
 设计目标：
 
@@ -28,7 +28,7 @@
 
 ### 2.1 v4 演进中真正明确的与含糊的
 
-v4 架构演进（见 [SystemArchitecture_v4.0](../architecture_evolution/SystemArchitecture_v4.0.md)）中，有两项工作的边界是完全清晰的：
+v4 架构演进（见 [SystemArchitecture_v4.0](../architecture/evolution/SystemArchitecture_v4.0.md)）中，有两项工作的边界是完全清晰的：
 
 1. **patchouli 收敛为纯记忆域**：Agent 生成循环、多智能体调用等非记忆职责被全部逐出，patchouli 现在专注记忆域操作并通过总线暴露能力。状态理想。
 2. **顶层 HiveMemorySystem 成立**：消除了 patchouli 作为 god system 的历史包袱，作为 facade 管理对外 API、子系统装配与全局组件。状态理想。

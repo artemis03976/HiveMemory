@@ -227,10 +227,10 @@ PCB 方案把续跑、完整性、编号连续三个问题收敛到单一载体�
 | `loop_executor.py` | `_fetch_context_refs_content` 已随 Phase 1 迁出，其 `alias_resolver` 依赖一并移除 → 引擎依赖降至 `worker_agent` + `mtp_executor` 两个纯引擎依赖 |
 | `loop_executor.py` 文件头 docstring / 类名语义 | 更新为"单 Agent 执行循环总控"，移除多智能体相关描述（Phase A→B→C→D 注释保留循环语义，删去 CALL/子帧派生措辞） |
 | 测试归位 | 引擎测试（TurnEvent / 收敛 / MTP 回填）留 `test_loop_executor_*`；编排测试（CALL / 子帧 / 流式合并 / harvest / IPC）新建 `test_agent_orchestrator_*` |
-| `core/protocol/models.py::ChatResult` | 字段不变（仍是编排级对外契约），仅确认产出方从 loop_executor 改为 orchestrator。**重命名 `ChatResult`→`AgentRunResult` 与字段重组（`materialize_tasks`）留给后续 [PendingAtomMaterializeTaskDesign](PendingAtomMaterializeTaskDesign.md)，本期不改名以收敛风险** |
+| `core/protocol/models.py::ChatResult` | 字段不变（仍是编排级对外契约），仅确认产出方从 loop_executor 改为 orchestrator。**重命名 `ChatResult`→`AgentRunResult` 与字段重组（`materialize_tasks`）留给后续 [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md)，本期不改名以收敛风险** |
 
 - 验证：全量 `tests/unit/patchouli/kernel/` + `tests/unit/system/` + 相关 e2e 全绿。
-- 与后续衔接：本期编排聚合结果仍按现字段（`write_focus` / `update_focus` / `pending_aliases`）进行；这些累积器一旦落到 `AgentOrchestrator`，即为 [PendingAtomMaterializeTaskDesign](PendingAtomMaterializeTaskDesign.md) 的 A2 组装（run_id 投影 Task）就位铺路。
+- 与后续衔接：本期编排聚合结果仍按现字段（`write_focus` / `update_focus` / `pending_aliases`）进行；这些累积器一旦落到 `AgentOrchestrator`，即为 [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 的 A2 组装（run_id 投影 Task）就位铺路。
 
 ---
 
@@ -260,7 +260,7 @@ pytest tests/e2e/pipeline/test_sub_agent_call_e2e.py tests/e2e/pipeline/test_ker
 - 不动 `frame_scheduler` / `profile_resolver` 的内部实现（仅改变持有者）。
 - 不动 PendingAtom 链路、`_on_pending_atom_settled` 等 reconcile 逻辑（属边界文档 §6.1 第 2 步引擎聚合根工作）。
 - 不引入引擎聚合根 `engine.py`（边界文档 §4.4 目标结构的一部分，属目录迁移阶段）。
-- 不做 Focus 瘦身、`ChatResult`→`AgentRunResult` 重命名、`materialize_tasks` 重组（属后续 [PendingAtomMaterializeTaskDesign](PendingAtomMaterializeTaskDesign.md)，须在本期之后；本期仅把结果组装职责落到 `AgentOrchestrator` 为其铺路）。
+- 不做 Focus 瘦身、`ChatResult`→`AgentRunResult` 重命名、`materialize_tasks` 重组（属后续 [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md)，须在本期之后；本期仅把结果组装职责落到 `AgentOrchestrator` 为其铺路）。
 
 完成本期后，`loop_executor` 即成为纯单 Agent 执行循环总控，编排逻辑全部归位 `AgentOrchestrator`，为后续目录迁移扫清依赖障碍。
 
