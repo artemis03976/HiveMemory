@@ -35,7 +35,7 @@ from hivememory.engines.memory_compiler import (
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
-    from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+    from hivememory.alice.runtime.agent.runtime import AgentRuntime
     from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
     from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
     from hivememory.agent_runtime.resolver import RuntimeAliasResolver
@@ -48,24 +48,25 @@ class AgentOrchestrator:
     """
     多智能体编排驱动器。
 
-    持有引擎（KernelLoopExecutor）和编排组件（FrameScheduler /
-    AgentProfileResolver / RuntimeAliasResolver），承接原 AgentRuntime 的
-    run_agent / run_agent_stream，负责：
+    持有单 Agent 运行时门面（AgentRuntime）和编排组件（FrameScheduler /
+    AgentProfileResolver / RuntimeAliasResolver），负责：
       1. 造主帧（create_main_frame）
-      2. 循环驱动引擎 execute_frame(main_frame)
+      2. 通过门面 run_frame(main_frame) 跑单 Agent
       3. SUSPENDED → 重入序列（append CALL文本 → fork/跑子帧/resume/harvest/组IPC → append IPC）
       4. COMPLETED → 从 frame.progress 聚合 AgentRunResult
+
+    编排只调门面 API 跑 frame，不直接接触 loop_executor 或迭代上限等引擎细节。
     """
 
     def __init__(
         self,
-        loop_executor: "KernelLoopExecutor",
+        agent_runtime: "AgentRuntime",
         frame_scheduler: "FrameScheduler",
         agent_profile_resolver: "AgentProfileResolver",
         alias_resolver: "RuntimeAliasResolver",
         pending_runtime: Optional["PendingAtomRuntime"] = None,
     ) -> None:
-        self._loop_executor = loop_executor
+        self._agent_runtime = agent_runtime
         self._frame_scheduler = frame_scheduler
         self._agent_profile_resolver = agent_profile_resolver
         self._alias_resolver = alias_resolver
@@ -84,7 +85,6 @@ class AgentOrchestrator:
         agent_profile: Optional["AgentProfile"] = None,
         cancel_event=None,
     ) -> AgentRunResult:
-        max_iter = self._loop_executor.config.max_loop_iterations
         main_frame = self._frame_scheduler.create_main_frame(
             agent_profile=agent_profile,
             messages=messages,
@@ -92,9 +92,8 @@ class AgentOrchestrator:
             identity=identity,
         )
         while True:
-            engine_result = await self._loop_executor.execute_frame(
+            engine_result = await self._agent_runtime.run_frame(
                 frame=main_frame,
-                max_iterations=max_iter,
                 generation_options=generation_options,
                 cancel_event=cancel_event,
             )
@@ -102,7 +101,6 @@ class AgentOrchestrator:
                 await self._handle_suspend(
                     main_frame=main_frame,
                     engine_result=engine_result,
-                    max_iter=max_iter,
                     generation_options=generation_options,
                 )
                 continue
@@ -118,7 +116,6 @@ class AgentOrchestrator:
         agent_profile: Optional["AgentProfile"] = None,
         cancel_event=None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        max_iter = self._loop_executor.config.max_loop_iterations
         main_frame = self._frame_scheduler.create_main_frame(
             agent_profile=agent_profile,
             messages=messages,
@@ -135,16 +132,14 @@ class AgentOrchestrator:
             await self._handle_suspend(
                 main_frame=main_frame,
                 engine_result=engine_result,
-                max_iter=max_iter,
                 generation_options=generation_options,
                 emit=_emit,
             )
 
         async def _runner() -> None:
             try:
-                async for event in self._loop_executor.execute_frame_stream(
+                async for event in self._agent_runtime.run_frame_stream(
                     frame=main_frame,
-                    max_iterations=max_iter,
                     generation_options=generation_options,
                     cancel_event=cancel_event,
                     on_suspend=on_suspend,
@@ -174,7 +169,6 @@ class AgentOrchestrator:
         self,
         main_frame: ExecutionFrame,
         engine_result: FrameExecutionResult,
-        max_iter: int,
         generation_options: Optional[Dict[str, Any]],
         emit: Optional[Callable] = None,
     ) -> None:
@@ -216,21 +210,18 @@ class AgentOrchestrator:
             )
 
             if emit is None:
-                await self._loop_executor.execute_frame(
+                await self._agent_runtime.run_frame(
                     frame=sub_frame,
-                    max_iterations=max_iter,
                     generation_options=generation_options,
                 )
             else:
                 async def _sub_emit(sub_event: Dict[str, Any]) -> None:
                     await emit(sub_event)
 
-                await self._loop_executor.execute_frame(
+                await self._agent_runtime.run_frame_emitting(
                     frame=sub_frame,
-                    max_iterations=max_iter,
                     generation_options=generation_options,
                     stream_emitter=_sub_emit,
-                    use_stream_generation=True,
                 )
 
             self._frame_scheduler.resume_frame()

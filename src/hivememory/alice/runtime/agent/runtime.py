@@ -1,104 +1,98 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, Optional
-
-from hivememory.core.models import AgentProfile
-from hivememory.core.protocol.models import AgentRunResult
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Dict, Optional
 
 from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
-from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
-from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
-from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.bus import AliceBus
+    from hivememory.agent_runtime.models import ExecutionFrame, FrameExecutionResult
     from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
-    from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-    from hivememory.agent_runtime.resolver import RuntimeAliasResolver
-    from hivememory.prompts.assembler import AgentPromptAssembler
     from hivememory.system.config import HiveMemoryConfig
 
 logger = logging.getLogger(__name__)
 
 
 class AgentRuntime:
-    """Alice 执行态 runtime，持有编排驱动器与执行引擎。"""
+    """单 Agent 运行时门面。
+
+    封装执行引擎（loop_executor + worker_agent + mtp_executor），对外提供
+    "跑一个 frame" 的 API。类比 patchouli 的 LibrarianCore——把底层引擎组件
+    收拢成一个聚合，编排层（AgentOrchestrator）只拿这个门面跑单 Agent，
+    不直接接触 loop_executor。
+
+    迭代上限由门面内部从 config.agent_runtime 消化，编排不再传 max_iterations。
+    """
 
     def __init__(
         self,
         *,
-        local_bus: "AliceBus",
-        prompt_assembler: "AgentPromptAssembler",
         mtp_executor: "MTPExecutor",
         config: "HiveMemoryConfig",
-        alias_resolver: "RuntimeAliasResolver",
-        pending_runtime: Optional["PendingAtomRuntime"] = None,
+        loop_executor: Optional[KernelLoopExecutor] = None,
     ) -> None:
-        agent_profile_resolver = AgentProfileResolver(local_bus=local_bus)
-        frame_scheduler = FrameScheduler(prompt_assembler=prompt_assembler)
-        worker_agent = WorkerAgentService(config=config.llm.worker)
-        loop_executor = KernelLoopExecutor(
-            worker_agent=worker_agent,
-            mtp_executor=mtp_executor,
-            config=config.agent_runtime,
-        )
-        self._orchestrator = AgentOrchestrator(
-            loop_executor=loop_executor,
-            frame_scheduler=frame_scheduler,
-            agent_profile_resolver=agent_profile_resolver,
-            alias_resolver=alias_resolver,
-            pending_runtime=pending_runtime,
-        )
-        self._agent_profile_resolver = agent_profile_resolver
+        if loop_executor is not None:
+            self._loop_executor = loop_executor
+        else:
+            worker_agent = WorkerAgentService(config=config.llm.worker)
+            self._loop_executor = KernelLoopExecutor(
+                worker_agent=worker_agent,
+                mtp_executor=mtp_executor,
+                config=config.agent_runtime,
+            )
 
-    async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
-        return await self._agent_profile_resolver.resolve(agent_alias)
+    @property
+    def _max_iterations(self) -> int:
+        return self._loop_executor.config.max_loop_iterations
 
-    async def run_agent(
+    async def run_frame(
         self,
-        messages: list[dict[str, str]],
-        identity,
-        topic_id: str,
+        frame: "ExecutionFrame",
         generation_options: Optional[Dict[str, Any]] = None,
-        agent_profile=None,
         cancel_event=None,
-    ) -> AgentRunResult:
-        return await self._orchestrator.run_agent(
-            messages=messages,
-            identity=identity,
-            topic_id=topic_id,
+    ) -> "FrameExecutionResult":
+        """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
+        return await self._loop_executor.execute_frame(
+            frame=frame,
+            max_iterations=self._max_iterations,
             generation_options=generation_options,
-            agent_profile=agent_profile,
             cancel_event=cancel_event,
         )
 
-    async def run_agent_stream(
+    def run_frame_stream(
         self,
-        messages: list[dict[str, str]],
-        identity,
-        topic_id: str,
+        frame: "ExecutionFrame",
         generation_options: Optional[Dict[str, Any]] = None,
-        agent_profile=None,
         cancel_event=None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        async for event in self._orchestrator.run_agent_stream(
-            messages=messages,
-            identity=identity,
-            topic_id=topic_id,
+        on_suspend: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """跑一个 frame 并逐 token 流式输出；命中 CALL 时回调 on_suspend。"""
+        return self._loop_executor.execute_frame_stream(
+            frame=frame,
+            max_iterations=self._max_iterations,
             generation_options=generation_options,
-            agent_profile=agent_profile,
             cancel_event=cancel_event,
-        ):
-            yield event
+            on_suspend=on_suspend,
+        )
+
+    async def run_frame_emitting(
+        self,
+        frame: "ExecutionFrame",
+        generation_options: Optional[Dict[str, Any]] = None,
+        stream_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    ) -> "FrameExecutionResult":
+        """跑一个 frame，逐 token 推给 stream_emitter（供编排跑流式子帧）。"""
+        return await self._loop_executor.execute_frame(
+            frame=frame,
+            max_iterations=self._max_iterations,
+            generation_options=generation_options,
+            stream_emitter=stream_emitter,
+            use_stream_generation=stream_emitter is not None,
+        )
 
     def health(self) -> dict[str, Any]:
-        return {
-            "loop_executor": "ok",
-            "frame_scheduler": "ok",
-            "worker_agent": "ok",
-        }
+        return {"loop_executor": "ok", "worker_agent": "ok"}
 
 
 __all__ = ["AgentRuntime"]

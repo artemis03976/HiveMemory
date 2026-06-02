@@ -334,7 +334,7 @@ class TestIPCReturnAssembly:
         from hivememory.alice.runtime.orchestrator import AgentOrchestrator
         from unittest.mock import MagicMock
         return AgentOrchestrator(
-            loop_executor=MagicMock(),
+            agent_runtime=MagicMock(),
             frame_scheduler=MagicMock(),
             agent_profile_resolver=MagicMock(),
             alias_resolver=MagicMock(),

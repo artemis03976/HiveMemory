@@ -60,7 +60,7 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
 )
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.bus import AliceBus
+    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
     from hivememory.agent_runtime.resolver import ResolveResult
     from hivememory.system.config import KoakumaConfig
 
@@ -92,7 +92,7 @@ class KoakumaRuntime:
 
     def __init__(
         self,
-        bus: Optional["AliceBus"] = None,
+        bus: Optional["AsyncSystemBus"] = None,
         config: Optional["KoakumaConfig"] = None,
         *,
         alias_resolver: RuntimeAliasResolver,
@@ -101,7 +101,7 @@ class KoakumaRuntime:
         初始化 Koakuma MTP 运行时
 
         Args:
-            bus: AliceBus 实例，用于跨服务通信（纯异步总线）
+            bus: AsyncSystemBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
             pending_runtime: 共享的 PendingAtomRuntime 实例 (由 AliceRuntime 注入)
         """

@@ -32,7 +32,7 @@ from hivememory.core.mtp.exceptions import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.bus import AliceBus
+    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
     from hivememory.agent_runtime.cache import KoakumaAtomCache
     from hivememory.agent_runtime.models import MTPExecutionContext
 
@@ -63,7 +63,7 @@ class RuntimeAliasResolver:
         self,
         pending_runtime: PendingAtomRuntime,
         atom_cache: "KoakumaAtomCache",
-        bus: "AliceBus",
+        bus: "AsyncSystemBus",
     ) -> None:
         self._pending_runtime = pending_runtime
         self._atom_cache = atom_cache

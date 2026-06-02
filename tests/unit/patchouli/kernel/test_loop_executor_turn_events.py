@@ -293,6 +293,7 @@ async def test_empty_prefix_text_not_recorded():
 async def test_call_path_produces_mtp_result_event_with_call_verb():
     """CALL 路径: 编排侧产出 kind=tool_result, tool_kind=CALL, role=user"""
     from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+    from hivememory.alice.runtime.agent.runtime import AgentRuntime
 
     main_frame = _make_frame(depth=0)
     sub_frame = ExecutionFrame(
@@ -330,7 +331,9 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     alias_resolver = MagicMock()
 
     orchestrator = AgentOrchestrator(
-        loop_executor=executor,
+        agent_runtime=AgentRuntime(
+            mtp_executor=MagicMock(), config=MagicMock(), loop_executor=executor
+        ),
         frame_scheduler=frame_scheduler,
         agent_profile_resolver=profile_resolver,
         alias_resolver=alias_resolver,
@@ -356,6 +359,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 @pytest.mark.asyncio
 async def test_context_refs_fetch_uses_runtime_alias_resolver():
     from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+    from hivememory.alice.runtime.agent.runtime import AgentRuntime
 
     executor, _kernel = _build_executor([])
     atom = _make_context_atom("Fact A", "ctx")
@@ -368,7 +372,9 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
     alias_resolver.resolve = AsyncMock(return_value=resolved)
 
     orchestrator = AgentOrchestrator(
-        loop_executor=executor,
+        agent_runtime=AgentRuntime(
+            mtp_executor=MagicMock(), config=MagicMock(), loop_executor=executor
+        ),
         frame_scheduler=MagicMock(),
         agent_profile_resolver=MagicMock(),
         alias_resolver=alias_resolver,
@@ -392,6 +398,7 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
 @pytest.mark.asyncio
 async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
     from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+    from hivememory.alice.runtime.agent.runtime import AgentRuntime
 
     executor, _kernel = _build_executor([])
     atom = _make_context_atom("Canonical Fact", "canonical ctx")
@@ -405,7 +412,9 @@ async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
     alias_resolver.resolve = AsyncMock(return_value=resolved)
 
     orchestrator = AgentOrchestrator(
-        loop_executor=executor,
+        agent_runtime=AgentRuntime(
+            mtp_executor=MagicMock(), config=MagicMock(), loop_executor=executor
+        ),
         frame_scheduler=MagicMock(),
         agent_profile_resolver=MagicMock(),
         alias_resolver=alias_resolver,

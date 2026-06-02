@@ -1,36 +1,35 @@
-﻿from unittest.mock import MagicMock
+from unittest.mock import MagicMock
 
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
-from hivememory.alice.runtime.bus import AliceBus
-from hivememory.agent_runtime.cache import KoakumaAtomCache
-from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-from hivememory.agent_runtime.resolver import RuntimeAliasResolver
-from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
 from hivememory.system.config import HiveMemoryConfig
 
 
-def test_agent_runtime_uses_injected_dependencies():
+def test_agent_runtime_builds_engine_facade():
+    """AgentRuntime 作为单 Agent 运行时门面，内部装配 loop_executor 引擎。"""
     config = HiveMemoryConfig()
-    local_bus = AliceBus()
-    prompt_assembler = AgentPromptAssembler(config.koakuma)
     mtp_executor = MagicMock()
-    alias_resolver = RuntimeAliasResolver(
-        pending_runtime=PendingAtomRuntime(),
-        atom_cache=KoakumaAtomCache(),
-        bus=local_bus,
-    )
 
     runtime = AgentRuntime(
-        local_bus=local_bus,
-        prompt_assembler=prompt_assembler,
         mtp_executor=mtp_executor,
         config=config,
-        alias_resolver=alias_resolver,
     )
 
-    orchestrator = runtime._orchestrator
-    assert orchestrator._agent_profile_resolver._local_bus is local_bus
-    assert orchestrator._loop_executor._mtp_executor is mtp_executor
-    assert orchestrator._alias_resolver is alias_resolver
-    assert orchestrator._frame_scheduler._prompt_assembler is prompt_assembler
+    assert isinstance(runtime._loop_executor, KernelLoopExecutor)
+    assert runtime._loop_executor._mtp_executor is mtp_executor
+    # 迭代上限由门面从 config.agent_runtime 内部消化
+    assert runtime._max_iterations == config.agent_runtime.max_loop_iterations
 
+
+def test_agent_runtime_accepts_injected_loop_executor():
+    """门面支持注入预构建的 loop_executor（测试/高级装配 seam）。"""
+    config = HiveMemoryConfig()
+    injected = MagicMock()
+
+    runtime = AgentRuntime(
+        mtp_executor=MagicMock(),
+        config=config,
+        loop_executor=injected,
+    )
+
+    assert runtime._loop_executor is injected

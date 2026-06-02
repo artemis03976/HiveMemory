@@ -22,6 +22,7 @@ from hivememory.agent_runtime.models import (
     StreamChunk,
 )
 from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.protocol.models import MTPExecutionResult
 
@@ -82,6 +83,12 @@ def _build_orchestrator(worker_stream_impl, main_frame, sub_frame):
         config=config,
     )
 
+    agent_runtime = AgentRuntime(
+        mtp_executor=mtp_executor,
+        config=MagicMock(),
+        loop_executor=executor,
+    )
+
     frame_scheduler = MagicMock()
     frame_scheduler.suspend_frame = MagicMock()
     frame_scheduler.resume_frame = MagicMock()
@@ -93,7 +100,7 @@ def _build_orchestrator(worker_stream_impl, main_frame, sub_frame):
     alias_resolver = MagicMock()
 
     orchestrator = AgentOrchestrator(
-        loop_executor=executor,
+        agent_runtime=agent_runtime,
         frame_scheduler=frame_scheduler,
         agent_profile_resolver=profile_resolver,
         alias_resolver=alias_resolver,
