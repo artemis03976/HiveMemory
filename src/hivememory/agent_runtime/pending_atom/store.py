@@ -5,7 +5,7 @@ PendingAtom 内部存储层。
 只提供原子级 CRUD 与索引维护，不感知状态机、不发事件。所有状态机校验与命令
 组合由 `PendingAtomRuntime` 承担（见 runtime.py）。
 
-设计依据：docs/mod/PendingAtomRuntimeDesign.md §4 / §6.2
+设计依据：docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §4 / §6.2
 """
 
 from __future__ import annotations

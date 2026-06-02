@@ -7,7 +7,7 @@ PendingAtomRuntime - PendingAtom 全生命周期管理中心。
 外观 + 命令入口：所有 PendingAtom 的注册、结算、查询都通过本对象，
 内部委托给子包私有的 `_PendingAtomStore` 做存取与索引维护。
 
-设计依据：docs/mod/PendingAtomRuntimeDesign.md
+设计依据：docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from hivememory.core.models import Identity
 from hivememory.core.models.pending import (
+    InvalidStateTransition,
     PendingAtom,
     PendingAtomMaterializeTask,
     PendingAtomSettlement,
@@ -27,6 +28,7 @@ from hivememory.core.models.pending import (
     RuntimeScope,
     UpdateFocus,
     WriteFocus,
+    is_legal_transition,
 )
 
 from hivememory.agent_runtime.pending_atom.store import _PendingAtomStore
@@ -54,6 +56,15 @@ class PendingAtomRuntime:
 
     def __init__(self) -> None:
         self._store = _PendingAtomStore()
+
+    def _set_status(self, atom: PendingAtom, target: PendingAtomStatus) -> None:
+        """Apply one legal PendingAtom lifecycle transition."""
+        if not is_legal_transition(atom.status, target):
+            raise InvalidStateTransition(
+                f"PendingAtom '{atom.pending_alias}': "
+                f"{atom.status.value} -> {target.value} is not a legal transition"
+            )
+        atom.status = target
 
     # ---- 命令（写入路径） ----
 
@@ -136,7 +147,33 @@ class PendingAtomRuntime:
                 f"status={atom.status.value if atom else 'not found'}"
             )
             return
-        atom.status = PendingAtomStatus.FAILED
+        self._set_status(atom, PendingAtomStatus.FAILED)
+
+    def cancel(self, pending_alias: str, reason: Optional[str] = None) -> None:
+        """Move an in-flight atom to CANCELLED."""
+        atom = self._store.get(pending_alias)
+        if atom is None:
+            logger.warning(f"cancel() skipped: alias={pending_alias}, status=not found")
+            return
+        self._set_status(atom, PendingAtomStatus.CANCELLED)
+
+    def expire(self, pending_alias: str) -> None:
+        """Move one PENDING atom to EXPIRED."""
+        atom = self._store.get(pending_alias)
+        if atom is None:
+            logger.warning(f"expire() skipped: alias={pending_alias}, status=not found")
+            return
+        self._set_status(atom, PendingAtomStatus.EXPIRED)
+
+    def start_materializing(self, pending_alias: str) -> None:
+        """Move one atom from PENDING to MATERIALIZING."""
+        atom = self._store.get(pending_alias)
+        if atom is None:
+            logger.warning(
+                f"start_materializing() skipped: alias={pending_alias}, status=not found"
+            )
+            return
+        self._set_status(atom, PendingAtomStatus.MATERIALIZING)
 
     def claim_for_materialization(self, aliases: list[str]) -> List[PendingAtomMaterializeTask]:
         """将 PENDING 的 atom 迁移到 MATERIALIZING 并返回 Task 投影。非 PENDING 的静默跳过（幂等）。"""
@@ -145,7 +182,7 @@ class PendingAtomRuntime:
             atom = self._store.get(alias)
             if atom is None or atom.status != PendingAtomStatus.PENDING:
                 continue
-            atom.status = PendingAtomStatus.MATERIALIZING
+            self.start_materializing(alias)
             tasks.append(PendingAtomMaterializeTask.from_pending_atom(atom))
         return tasks
 
@@ -169,14 +206,6 @@ class PendingAtomRuntime:
             )
             return
 
-        # 校验 atom 状态是否为 MATERIALIZING
-        if atom.status != PendingAtomStatus.MATERIALIZING:
-            logger.warning(
-                f"settle() called on atom not in MATERIALIZING state: "
-                f"alias={atom.pending_alias}, status={atom.status.value}, skipping"
-            )
-            return
-
         # 校验 intent_id 是否匹配
         if atom.intent_id != settlement.intent_id:
             logger.warning(
@@ -185,7 +214,8 @@ class PendingAtomRuntime:
             )
             return
 
-        atom.status = PendingAtomStatus.SETTLED
+        self._set_status(atom, PendingAtomStatus.SETTLED)
+
         atom.settlement = settlement
         if settlement.canonical_uuid:
             self._store.bind_canonical(

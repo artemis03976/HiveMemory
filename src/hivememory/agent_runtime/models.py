@@ -1,7 +1,7 @@
 """Runtime data models for Alice agent execution.
 
 PendingAtom / PendingAtomStatus / RuntimeScope 已上移到 ``core/models/pending.py``
-（见 docs/mod/PendingAtomRuntimeDesign.md §6.2），新代码请从 ``hivememory.core.models``
+（见 docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2），新代码请从 ``hivememory.core.models``
 导入。本模块保留 alice runtime 自己的执行壳：
 ``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``，
 以及引擎↔编排解耦所需的执行信号 ``FrameExecutionResult`` / ``ExecutionProgress``

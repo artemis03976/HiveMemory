@@ -15,6 +15,7 @@ import pytest
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.models import (
     Identity,
+    InvalidStateTransition,
     PendingAtomResolution,
     PendingAtomSettlement,
     PendingAtomSnapshot,
@@ -257,6 +258,23 @@ class TestPendingAtomRuntimeSnapshot:
         assert snap.canonical_alias == "fact_hello"
         assert snap.canonical_uuid == "uuid-1"
 
+    def test_settle_from_pending_is_illegal(self, runtime, identity):
+        atom = runtime.register_write(
+            content="hello", title="Hello", reason=None, identity=identity,
+        )
+        settlement = _make_settlement(
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
+            canonical_alias="fact_hello",
+            canonical_uuid="uuid-1",
+        )
+
+        with pytest.raises(InvalidStateTransition, match="pending -> settled"):
+            runtime.settle(settlement)
+
+        snap = runtime.snapshot(atom.pending_alias)
+        assert snap.status == PendingAtomStatus.PENDING
+        assert snap.resolution is None
+
     def test_settle_with_mismatched_intent_is_ignored(self, runtime, identity):
         atom = runtime.register_write(
             content="hello", title="Hello", reason=None, identity=identity,
@@ -353,3 +371,96 @@ class TestPendingAtomRuntimeSnapshot:
 
         runtime.clear()
         assert runtime.snapshot(atom.pending_alias) is None
+
+
+class TestPendingAtomRuntimeCommands:
+    def test_start_materializing(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+
+        runtime.start_materializing(atom.pending_alias)
+
+        assert atom.status == PendingAtomStatus.MATERIALIZING
+
+    def test_start_materializing_rejects_terminal_atom(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+        runtime.expire(atom.pending_alias)
+
+        with pytest.raises(InvalidStateTransition, match="expired -> materializing"):
+            runtime.start_materializing(atom.pending_alias)
+
+    def test_mark_failed_materializing_atom(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+        runtime.start_materializing(atom.pending_alias)
+
+        runtime.mark_failed(atom.pending_alias)
+
+        assert atom.status == PendingAtomStatus.FAILED
+
+    def test_mark_failed_keeps_idempotent_skip_for_pending(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+
+        runtime.mark_failed(atom.pending_alias)
+
+        assert atom.status == PendingAtomStatus.PENDING
+
+    def test_cancel_pending_atom(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+
+        runtime.cancel(atom.pending_alias)
+
+        assert atom.status == PendingAtomStatus.CANCELLED
+
+    def test_cancel_materializing_atom(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+        runtime.start_materializing(atom.pending_alias)
+
+        runtime.cancel(atom.pending_alias)
+
+        assert atom.status == PendingAtomStatus.CANCELLED
+
+    def test_expire_pending_atom(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+
+        runtime.expire(atom.pending_alias)
+
+        assert atom.status == PendingAtomStatus.EXPIRED
+
+    def test_expire_materializing_atom_is_illegal(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+        runtime.start_materializing(atom.pending_alias)
+
+        with pytest.raises(InvalidStateTransition, match="materializing -> expired"):
+            runtime.expire(atom.pending_alias)
+
+    def test_duplicate_settle_is_illegal(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+        settlement = _make_settlement(
+            atom.pending_alias,
+            atom.intent_id,
+            PendingAtomResolution.CREATED,
+            canonical_alias="fact_x",
+            canonical_uuid="uuid-x",
+        )
+        runtime.claim_for_materialization([atom.pending_alias])
+        runtime.settle(settlement)
+
+        with pytest.raises(InvalidStateTransition, match="settled -> settled"):
+            runtime.settle(settlement)

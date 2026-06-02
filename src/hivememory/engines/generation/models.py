@@ -8,7 +8,7 @@ HiveMemory Generation 模块数据模型
 跨 alice/engines/compiler 共享的领域模型（``PendingAtom`` /
 ``PendingAtomSettlement`` / ``PendingAtomResolution`` / ``PendingAtomStatus`` /
 ``DuplicateDecision`` / ``WriteFocus`` / ``UpdateFocus`` / ``RuntimeScope``）已
-上移到 ``hivememory.core.models``（见 docs/mod/PendingAtomRuntimeDesign.md §6.2），
+上移到 ``hivememory.core.models``（见 docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2），
 请直接从 core 导入，不再走本模块的 re-export。
 """
 from typing import Any, List, Optional

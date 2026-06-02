@@ -5,7 +5,7 @@ PendingAtom 与其结算视图 PendingAtomSettlement 是 ``engines/`` 与 ``alic
 的跨域共享物。把它们及其周边类型（状态枚举、Focus、RuntimeScope）统一上移到 core，
 消除 ``engines → alice`` / ``alice → engines`` 的子系统层级倒挂。
 
-迁移依据: docs/mod/PendingAtomRuntimeDesign.md §6.2
+迁移依据: docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2
 
 新代码应直接从本模块或 ``hivememory.core.models`` 导入。生成域 facade
 ``hivememory.engines.generation.models`` 仍 re-export 一份 PendingAtomSettlement /
@@ -102,6 +102,10 @@ def is_legal_transition(
 def allowed_transitions(from_status: PendingAtomStatus) -> frozenset[PendingAtomStatus]:
     """返回 from_status 的所有合法目标状态。"""
     return _TRANSITIONS[from_status]
+
+
+class InvalidStateTransition(RuntimeError):
+    """Raised when a PendingAtom lifecycle transition violates the state machine."""
 
 
 # ===========================================================================
@@ -330,6 +334,7 @@ __all__ = [
     "PendingAtomSnapshot",
     "is_legal_transition",
     "allowed_transitions",
+    "InvalidStateTransition",
     # 查重决策
     "DuplicateDecision",
     # Focus
