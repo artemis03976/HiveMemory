@@ -339,7 +339,7 @@ class TestPendingAtomRuntimeSnapshot:
         assert snap.canonical_alias is None
         assert snap.canonical_uuid is None
 
-    def test_clear_resets_resolution_index(self, runtime, identity):
+    def test_clear_removes_settlement_source(self, runtime, identity):
         atom = runtime.register_write(
             content="x", title="X", reason=None, identity=identity,
         )

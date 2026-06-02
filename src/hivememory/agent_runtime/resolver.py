@@ -110,7 +110,7 @@ class RuntimeAliasResolver:
         context: Optional["MTPExecutionContext"] = None,
     ) -> ResolveResult:
         """Resolve an L0 pending entry, including settled redirect states."""
-        settlement = pending.settlement or self._pending_runtime.get_redirect(alias)
+        settlement = pending.settlement
 
         if pending.status.is_in_flight:
             return ResolveResult(

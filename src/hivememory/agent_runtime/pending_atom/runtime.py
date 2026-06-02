@@ -186,16 +186,12 @@ class PendingAtomRuntime:
             return
 
         atom.status = PendingAtomStatus.SETTLED
-        self._store.set_resolution(atom.pending_alias, settlement.resolution)
-
         atom.settlement = settlement
-        if settlement.canonical_alias or settlement.canonical_uuid:
-            self._store.set_redirect(atom.pending_alias, settlement)
-            if settlement.canonical_uuid:
-                self._store.bind_canonical(
-                    settlement.canonical_uuid,
-                    atom.pending_alias,
-                )
+        if settlement.canonical_uuid:
+            self._store.bind_canonical(
+                settlement.canonical_uuid,
+                atom.pending_alias,
+            )
 
         logger.debug(
             f"Settlement applied to '{atom.pending_alias}': "
@@ -214,8 +210,14 @@ class PendingAtomRuntime:
         return self._store.get_by_intent(intent_id)
 
     def get_redirect(self, pending_alias: str) -> Optional[PendingAtomSettlement]:
-        """返回 pending alias 对应的 canonical redirect settlement。"""
-        return self._store.get_redirect(pending_alias)
+        """返回 pending alias 对应的结算视图。
+
+        兼容旧调用名；redirect 信息现在直接从 ``PendingAtom.settlement`` 派生。
+        """
+        atom = self._store.get(pending_alias)
+        if atom is None:
+            return None
+        return atom.settlement
 
     def get_pending_aliases_for_canonical_uuid(self, canonical_uuid: str) -> List[str]:
         """返回指向同一 canonical UUID 的 pending alias 列表。"""
@@ -238,17 +240,16 @@ class PendingAtomRuntime:
         返回 pending alias 对应的统一状态视图。
 
         派生路径：
-        - 已结算（resolution 命中）：status=SETTLED + 对应 resolution
+        - 已结算：从 ``atom.settlement`` 读取 resolution / canonical refs
         - 未结算：直接读取 ``atom.status``（来自统一 ``PendingAtomStatus``）
         """
         atom = self._store.get(pending_alias)
         if atom is None:
             return None
 
-        resolution = self._store.get_resolution(pending_alias)
-        settlement = self._store.get_redirect(pending_alias)
-
-        if resolution is not None:
+        settlement = atom.settlement
+        if atom.status == PendingAtomStatus.SETTLED and settlement is not None:
+            resolution = settlement.resolution
             canonical_alias = settlement.canonical_alias if settlement else None
             canonical_uuid = settlement.canonical_uuid if settlement else None
             if not resolution.has_canonical:
