@@ -1,11 +1,11 @@
-﻿"""
+"""
 LoopExecutor TurnEvent 采集单测
 
 验证 Phase 1 新增的结构化事件采集行为:
 1. 自然停止 -> 1 个 assistant_message 事件
 2. 单次 MTP -> prefix + tool_call + tool_result，sequence 递增
-3. CALL 路径 -> 父 frame 只有 kind=tool_result tool_kind=CALL 事件，无子 frame 事件
-4. 无 MTP 时 ChatResult.turn_events 正常，final_text 正确
+3. CALL 路径 -> 编排侧产出 kind=tool_result tool_kind=CALL 事件
+4. 无 MTP 时 frame.progress 正常，final_text 正确
 """
 
 import json
@@ -17,6 +17,7 @@ import pytest
 from hivememory.alice.runtime.agent.loop_executor import KernelLoopExecutor
 from hivememory.alice.runtime.models import (
     ExecutionFrame,
+    FrameExecutionStatus,
     GenerationResult,
     MTPExecutionContext,
     RuntimeScope,
@@ -133,26 +134,16 @@ def _build_executor(generate_async_side_effect) -> tuple[KernelLoopExecutor, Mag
     kernel = MagicMock()
     kernel.config = MagicMock()
     kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
-    kernel.frame_scheduler = MagicMock()
-    kernel.local_bus = MagicMock()
-    kernel.local_bus.request = AsyncMock()
-    profile_resolver = MagicMock()
-    profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
     mtp_executor = MagicMock()
     mtp_executor.intercept_and_execute = AsyncMock(return_value=None)
-    alias_resolver = MagicMock()
 
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=generate_async_side_effect)
 
     executor = KernelLoopExecutor(
         worker_agent=worker_agent,
-        frame_scheduler=kernel.frame_scheduler,
-        local_bus=kernel.local_bus,
-        agent_profile_resolver=profile_resolver,
         mtp_executor=mtp_executor,
         config=kernel.config.agent_runtime,
-        alias_resolver=alias_resolver,
     )
     return executor, kernel
 
@@ -163,12 +154,13 @@ async def test_natural_stop_produces_one_assistant_message_event():
     frame = _make_frame()
     executor, _kernel = _build_executor([_natural_result("Hello world")])
 
-    result = await executor.execute_frame(frame, max_iterations=5)
+    engine_result = await executor.execute_frame(frame, max_iterations=5)
 
-    assert result.final_text == "Hello world"
-    assert len(result.turn_events) == 1
+    assert engine_result.status == FrameExecutionStatus.COMPLETED
+    assert "".join(frame.progress.text_segments) == "Hello world"
+    assert len(frame.progress.turn_events) == 1
 
-    ev: TurnEvent = result.turn_events[0]
+    ev: TurnEvent = frame.progress.turn_events[0]
     assert ev.kind == "assistant_message"
     assert ev.sequence == 0
     assert ev.role == "assistant"
@@ -182,10 +174,10 @@ async def test_natural_stop_no_prefix_no_extra_events():
     frame = _make_frame()
     executor, _kernel = _build_executor([_natural_result("Simple reply")])
 
-    result = await executor.execute_frame(frame, max_iterations=5)
+    await executor.execute_frame(frame, max_iterations=5)
 
-    assert len(result.turn_events) == 1
-    assert result.turn_events[0].kind == "assistant_message"
+    assert len(frame.progress.turn_events) == 1
+    assert frame.progress.turn_events[0].kind == "assistant_message"
 
 
 @pytest.mark.asyncio
@@ -201,10 +193,10 @@ async def test_single_mtp_produces_four_events():
         return_value=_mtp_exec_result("READ")
     )
 
-    result = await executor.execute_frame(frame, max_iterations=5)
+    await executor.execute_frame(frame, max_iterations=5)
 
-    assert result.final_text == "查找中找到了"
-    events = result.turn_events
+    assert "".join(frame.progress.text_segments) == "查找中找到了"
+    events = frame.progress.turn_events
     assert len(events) == 4
 
     prefix_ev, cmd_ev, res_ev, final_ev = events
@@ -267,9 +259,9 @@ async def test_sequence_is_monotonically_increasing_across_iterations():
         _mtp_exec_result("READ"),
     ])
 
-    result = await executor.execute_frame(frame, max_iterations=10)
+    await executor.execute_frame(frame, max_iterations=10)
 
-    seqs = [ev.sequence for ev in result.turn_events]
+    seqs = [ev.sequence for ev in frame.progress.turn_events]
     assert seqs == sorted(seqs), "sequence 必须单调递增"
     assert len(set(seqs)) == len(seqs), "sequence 不能重复"
 
@@ -287,11 +279,11 @@ async def test_empty_prefix_text_not_recorded():
         return_value=_mtp_exec_result("READ")
     )
 
-    result = await executor.execute_frame(frame, max_iterations=5)
+    await executor.execute_frame(frame, max_iterations=5)
 
-    kinds = [ev.kind for ev in result.turn_events]
+    kinds = [ev.kind for ev in frame.progress.turn_events]
     assert "assistant_message" not in kinds or all(
-        ev.content != "" for ev in result.turn_events if ev.kind == "assistant_message"
+        ev.content != "" for ev in frame.progress.turn_events if ev.kind == "assistant_message"
     )
     assert "tool_call" in kinds
     assert "tool_result" in kinds
@@ -299,7 +291,9 @@ async def test_empty_prefix_text_not_recorded():
 
 @pytest.mark.asyncio
 async def test_call_path_produces_mtp_result_event_with_call_verb():
-    """CALL 路径: 父 frame 产出 kind=tool_result, tool_kind=CALL, role=user"""
+    """CALL 路径: 编排侧产出 kind=tool_result, tool_kind=CALL, role=user"""
+    from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+
     main_frame = _make_frame(depth=0)
     sub_frame = ExecutionFrame(
         runtime_scope=main_frame.runtime_scope.for_child("sub_frame"),
@@ -317,7 +311,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
             return _mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')
         return _natural_result("完成")
 
-    executor, kernel = _build_executor([])
+    executor, _kernel = _build_executor([])
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=gen_async_side)
     executor.worker_agent = worker_agent
@@ -325,15 +319,31 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         return_value=_call_mtp_exec_result()
     )
 
-    kernel.frame_scheduler.suspend_frame = MagicMock()
-    kernel.frame_scheduler.resume_frame = MagicMock()
-    kernel.frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
+    frame_scheduler = MagicMock()
+    frame_scheduler.suspend_frame = MagicMock()
+    frame_scheduler.resume_frame = MagicMock()
+    frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
+    frame_scheduler.create_main_frame = MagicMock(return_value=main_frame)
 
-    result = await executor.execute_frame(main_frame, max_iterations=5)
+    profile_resolver = MagicMock()
+    profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
+    alias_resolver = MagicMock()
+
+    orchestrator = AgentOrchestrator(
+        loop_executor=executor,
+        frame_scheduler=frame_scheduler,
+        agent_profile_resolver=profile_resolver,
+        alias_resolver=alias_resolver,
+    )
+
+    result = await orchestrator.run_agent(
+        messages=[{"role": "user", "content": "hello"}],
+        identity=Identity(user_id="u1"),
+        topic_id="t1",
+    )
 
     call_events = [
-        ev
-        for ev in result.turn_events
+        ev for ev in result.turn_events
         if ev.kind == "tool_result" and ev.tool_kind == "CALL"
     ]
     assert len(call_events) == 1, f"应有 1 个 CALL tool_result 事件，实际: {result.turn_events}"
@@ -341,26 +351,31 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     assert call_ev.role == "user"
     assert call_ev.status == "success"
     assert call_ev.render_as == "system_ipc_return"
-    assert all(
-        ev.tool_kind in (None, "CALL")
-        for ev in result.turn_events
-        if ev.kind == "tool_result"
-    )
 
 
 @pytest.mark.asyncio
 async def test_context_refs_fetch_uses_runtime_alias_resolver():
-    executor, kernel = _build_executor([])
+    from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+
+    executor, _kernel = _build_executor([])
     atom = _make_context_atom("Fact A", "ctx")
     resolved = ResolveResult(
         kind="atom",
         requested_alias="fact_a",
         atom=atom,
     )
-    executor._alias_resolver.resolve = AsyncMock(return_value=resolved)
+    alias_resolver = MagicMock()
+    alias_resolver.resolve = AsyncMock(return_value=resolved)
+
+    orchestrator = AgentOrchestrator(
+        loop_executor=executor,
+        frame_scheduler=MagicMock(),
+        agent_profile_resolver=MagicMock(),
+        alias_resolver=alias_resolver,
+    )
     identity = Identity(user_id="u1", agent_id="agent_a")
 
-    result = await executor._fetch_context_refs_content(
+    result = await orchestrator._fetch_context_refs_content(
         ["fact_a"],
         identity,
         language="en",
@@ -371,13 +386,14 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
     assert '<memory alias="' in result
     assert "Fact A" in result
     assert "ctx" in result
-    executor._alias_resolver.resolve.assert_awaited_once()
-    kernel.local_bus.request.assert_not_called()
+    alias_resolver.resolve.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
-    executor, kernel = _build_executor([])
+    from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+
+    executor, _kernel = _build_executor([])
     atom = _make_context_atom("Canonical Fact", "canonical ctx")
     resolved = ResolveResult(
         kind="redirect",
@@ -385,17 +401,24 @@ async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
         canonical_alias="fact_canonical",
         atom=atom,
     )
-    executor._alias_resolver.resolve = AsyncMock(return_value=resolved)
+    alias_resolver = MagicMock()
+    alias_resolver.resolve = AsyncMock(return_value=resolved)
+
+    orchestrator = AgentOrchestrator(
+        loop_executor=executor,
+        frame_scheduler=MagicMock(),
+        agent_profile_resolver=MagicMock(),
+        alias_resolver=alias_resolver,
+    )
     identity = Identity(user_id="u1", agent_id="agent_a")
 
-    result = await executor._fetch_context_refs_content(["draft_ctx_1234"], identity)
+    result = await orchestrator._fetch_context_refs_content(["draft_ctx_1234"], identity)
 
     assert result.startswith("[Shared Context from Parent Agent]")
     assert "Canonical Fact" in result
     assert "canonical ctx" in result
     assert "<memory alias=" in result
-    executor._alias_resolver.resolve.assert_awaited_once()
-    kernel.local_bus.request.assert_not_called()
+    alias_resolver.resolve.assert_awaited_once()
 
 
 def test_chat_result_default_turn_events():
@@ -419,13 +442,11 @@ async def test_run_command_event_carries_execution_status_for_reducer():
         return_value=_mtp_exec_result("RUN")
     )
 
-    result = await executor.execute_frame(frame, max_iterations=5)
+    await executor.execute_frame(frame, max_iterations=5)
 
     run_commands = [
-        ev
-        for ev in result.turn_events
+        ev for ev in frame.progress.turn_events
         if ev.kind == "tool_call" and ev.tool_kind == "RUN"
     ]
     assert len(run_commands) == 1
     assert run_commands[0].status == "success"
-

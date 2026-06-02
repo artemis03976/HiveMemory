@@ -2,16 +2,51 @@
 
 PendingAtom / PendingAtomStatus / RuntimeScope 已上移到 ``core/models/pending.py``
 （见 docs/mod/PendingAtomRuntimeDesign.md §6.2），新代码请从 ``hivememory.core.models``
-导入。本模块仅保留 alice runtime 自己的执行壳：
-``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``。
+导入。本模块保留 alice runtime 自己的执行壳：
+``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``，
+以及引擎↔编排解耦所需的执行信号 ``FrameExecutionResult`` / ``ExecutionProgress``
+（见 docs/mod/AgentLoopDecouplingDesign.md §3.1 / §3.1bis）。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from hivememory.core.models import AgentProfile, Identity, RuntimeScope
+from hivememory.core.models import AgentProfile, Identity, RuntimeScope, TurnEvent
+
+
+@dataclass
+class ExecutionProgress:
+    """单帧执行的累积产物载体（PCB 的"程序状态"部分）。
+
+    见 docs/mod/AgentLoopDecouplingDesign.md §3.1bis：CALL 控制反转后，引擎
+    ``return`` 会让函数局部变量蒸发，因此把整轮累积状态从 ``execute_frame``
+    的局部变量下沉到此处，挂在 ``ExecutionFrame`` 上。引擎每段执行**读取并追加**
+    到 ``frame.progress``，重入同一 frame 时自然续接——``iteration`` / ``sequence``
+    持久化在 PCB 上，使迭代预算与 TurnEvent 编号天然连续、行为逐字节不变。
+
+    字段与单体 ``execute_frame`` 的局部累积器一一对应：
+        text_segments  <- text_segments
+        turn_events    <- turn_events
+        write_foci     <- write_foci
+        update_foci    <- update_foci
+        pending_aliases<- pending_aliases
+        iteration      <- iteration
+        sequence       <- _seq
+
+    Phase 0 仅定义该类型并挂到 frame 上，不接线（引擎仍用局部变量）；
+    Phase 1 才把累积器下沉到此处。
+    """
+
+    text_segments: List[str] = field(default_factory=list)
+    turn_events: List[TurnEvent] = field(default_factory=list)
+    write_foci: List[Any] = field(default_factory=list)
+    update_foci: List[Any] = field(default_factory=list)
+    pending_aliases: List[str] = field(default_factory=list)
+    iteration: int = 0
+    sequence: int = 0
 
 
 @dataclass
@@ -31,6 +66,11 @@ class ExecutionFrame:
     identity: Identity
 
     harvested_aliases: List[str] = field(default_factory=list)
+
+    # PCB 的"程序状态"：单帧执行的累积产物。Phase 1 起，引擎累积器从
+    # execute_frame 的局部变量下沉到此处，使 CALL 挂起后重入续接、编号连续。
+    # 见 docs/mod/AgentLoopDecouplingDesign.md §3.1bis。
+    progress: "ExecutionProgress" = field(default_factory=ExecutionProgress)
 
     def is_main_frame(self) -> bool:
         """Return True when this frame belongs to the main agent."""
@@ -90,8 +130,60 @@ class StreamChunk:
     mtp_detected: bool = False
 
 
+@dataclass
+class CallRequest:
+    """一次 CALL 指令解析出的派生请求（挂起信号的载荷）。
+
+    引擎在 SUSPEND 时把 CALL 参数原样交还编排，自己不 resolve、不 fork。
+    字段对应单体 ``_execute_call`` 从 ``mtp_result.response_content`` 解出的
+    ``target_alias`` / ``task`` / ``context_refs``。
+    """
+
+    target_alias: str
+    task: str
+    context_refs: List[str] = field(default_factory=list)
+
+
+class FrameExecutionStatus(str, Enum):
+    """引擎单次执行的停机原因。"""
+
+    COMPLETED = "completed"   # 自然收敛
+    SUSPENDED = "suspended"   # 命中 CALL，等待编排派生子 agent
+
+
+@dataclass
+class FrameExecutionResult:
+    """引擎单次执行的 trap/return 信号。
+
+    见 docs/mod/AgentLoopDecouplingDesign.md §3.1。它**不承载本帧累积产物**
+    ——那些已下沉到 ``frame.progress``（见 ``ExecutionProgress``）。这里只表达
+    "为什么停下来"，以及挂起时编排派生子帧所需的最小信息。
+
+    引擎语义：``execute_frame(frame)`` 读写传入的 ``frame``，跑到自然收敛返回
+    ``COMPLETED``，命中 CALL 返回 ``SUSPENDED`` 并把控制权交还编排，自己不 fork、
+    不 resume、不组 IPC。``ChatResult`` 不再由引擎产出，改由编排在 ``COMPLETED``
+    时从 ``frame.progress`` 聚合。
+
+    Phase 0 仅定义该类型，不接线；Phase 1 才让引擎返回它。
+    """
+
+    status: FrameExecutionStatus
+
+    # ---- status == SUSPENDED 时填充 ----
+    # 触发 CALL 的派生请求（target_alias / task / context_refs）。
+    call_request: Optional[CallRequest] = None
+    # 触发 CALL 的 result.text，编排负责 append 到 working_history（带 ⟫ 收尾）。
+    suspend_assistant_text: Optional[str] = None
+    # 供编排回填 tool_result TurnEvent 的 action_id。
+    suspend_action_id: Optional[str] = None
+
+
 __all__ = [
+    "CallRequest",
     "ExecutionFrame",
+    "ExecutionProgress",
+    "FrameExecutionResult",
+    "FrameExecutionStatus",
     "GenerationResult",
     "MTPExecutionContext",
     "StreamChunk",

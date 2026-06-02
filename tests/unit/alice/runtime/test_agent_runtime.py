@@ -28,9 +28,9 @@ def test_agent_runtime_uses_injected_dependencies():
         alias_resolver=alias_resolver,
     )
 
-    assert runtime._mtp_executor is mtp_executor
-    assert runtime._loop_executor._local_bus is local_bus
-    assert runtime._loop_executor._mtp_executor is mtp_executor
-    assert runtime._loop_executor._alias_resolver is alias_resolver
-    assert runtime._frame_scheduler._prompt_assembler is prompt_assembler
+    orchestrator = runtime._orchestrator
+    assert orchestrator._agent_profile_resolver._local_bus is local_bus
+    assert orchestrator._loop_executor._mtp_executor is mtp_executor
+    assert orchestrator._alias_resolver is alias_resolver
+    assert orchestrator._frame_scheduler._prompt_assembler is prompt_assembler
 
