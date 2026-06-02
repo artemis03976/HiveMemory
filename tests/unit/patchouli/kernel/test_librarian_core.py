@@ -330,10 +330,58 @@ class TestLibrarianCoreGenerateMemory:
         )
 
         self.mock_storage.get_memory = AsyncMock(return_value=None)
+        self.core._bus = AsyncMock()
 
         await self.core.run_active_generation([task], topic_id="topic_test")
 
         self.mock_generation.process.assert_not_called()
+        self.core._bus.publish.assert_awaited_once()
+        _, kwargs = self.core._bus.publish.await_args
+        assert kwargs["pending_alias"] == "rev_test_003"
+
+    @pytest.mark.asyncio
+    async def test_active_generation_settlement_publish_failure_marks_failed(self):
+        """settlement publish failure emits FAILED event."""
+        from hivememory.core.models import (
+            DuplicateDecision,
+            PendingAtomResolution,
+            PendingAtomSettlement,
+        )
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        write_focus = WriteFocus(content="test content")
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_test_publish_fail",
+            intent_id="intent_publish_fail",
+            source_verb="WRITE",
+            identity=_make_identity(),
+            focus=write_focus,
+        )
+        settlement = PendingAtomSettlement(
+            pending_alias=task.pending_alias,
+            intent_id=task.intent_id,
+            resolution=PendingAtomResolution.CREATED,
+            duplicate_decision=DuplicateDecision.CREATE,
+            canonical_alias="fact_test",
+            canonical_uuid=str(uuid4()),
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(
+                    pending_alias=task.pending_alias,
+                    intent_id=task.intent_id,
+                    settlement=settlement,
+                )
+            ]
+        )
+        self.core._bus = AsyncMock()
+        self.core._bus.publish = AsyncMock(side_effect=[RuntimeError("publish failed"), None])
+
+        await self.core.run_active_generation([task], topic_id="topic_test")
+
+        assert self.core._bus.publish.await_count == 2
+        second_call = self.core._bus.publish.await_args_list[1]
+        assert second_call.kwargs["pending_alias"] == task.pending_alias
 
     @pytest.mark.asyncio
     async def test_generate_memory_empty_blocks(self):

@@ -257,6 +257,25 @@ class TestPendingAtomRuntimeSnapshot:
         assert snap.canonical_alias == "fact_hello"
         assert snap.canonical_uuid == "uuid-1"
 
+    def test_settle_with_mismatched_intent_is_ignored(self, runtime, identity):
+        atom = runtime.register_write(
+            content="hello", title="Hello", reason=None, identity=identity,
+        )
+        runtime.claim_for_materialization([atom.pending_alias])
+
+        runtime.settle(_make_settlement(
+            atom.pending_alias,
+            "intent_other",
+            PendingAtomResolution.CREATED,
+            canonical_alias="fact_hello",
+            canonical_uuid="uuid-1",
+        ))
+
+        snap = runtime.snapshot(atom.pending_alias)
+        assert snap.status == PendingAtomStatus.MATERIALIZING
+        assert snap.resolution is None
+        assert atom.settlement is None
+
     def test_merged_settlement_yields_settled_merged(self, runtime, identity):
         atom = runtime.register_write(
             content="dup", title="Dup", reason=None, identity=identity,

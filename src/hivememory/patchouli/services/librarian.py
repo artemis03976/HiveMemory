@@ -179,14 +179,7 @@ class LibrarianCore:
                     f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
                     exc_info=True,
                 )
-                if self._bus is not None:
-                    try:
-                        await self._bus.publish(
-                            PatchouliLocalEvents.PENDING_ATOM_FAILED,
-                            pending_alias=task.pending_alias,
-                        )
-                    except Exception as pub_err:
-                        logger.warning(f"FAILED event publish error: {pub_err}")
+                await self._publish_pending_atom_failed(task.pending_alias)
 
     async def _run_mode_b(
         self,
@@ -226,7 +219,7 @@ class LibrarianCore:
         )
         if existing is None:
             logger.error(f"UPDATE 目标记忆不存在: {focus.base_uuid}")
-            return
+            raise RuntimeError(f"UPDATE target memory not found: {focus.base_uuid}")
 
         request = GenerationRequest(
             context=gen_context,
@@ -262,6 +255,19 @@ class LibrarianCore:
                             f"Settlement publish failed for "
                             f"{r.settlement.pending_alias}: {pub_err}"
                         )
+                        await self._publish_pending_atom_failed(r.settlement.pending_alias)
+
+    async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
+        """Publish FAILED event for an active materialization task."""
+        if self._bus is None:
+            return
+        try:
+            await self._bus.publish(
+                PatchouliLocalEvents.PENDING_ATOM_FAILED,
+                pending_alias=pending_alias,
+            )
+        except Exception as pub_err:
+            logger.warning(f"FAILED event publish error: {pub_err}")
 
     def _build_generation_context(
         self,

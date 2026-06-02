@@ -169,10 +169,19 @@ class PendingAtomRuntime:
             )
             return
 
+        # 校验 atom 状态是否为 MATERIALIZING
         if atom.status != PendingAtomStatus.MATERIALIZING:
             logger.warning(
                 f"settle() called on atom not in MATERIALIZING state: "
-                f"alias={atom.pending_alias}, status={atom.status.value} — skipping"
+                f"alias={atom.pending_alias}, status={atom.status.value}, skipping"
+            )
+            return
+
+        # 校验 intent_id 是否匹配
+        if atom.intent_id != settlement.intent_id:
+            logger.warning(
+                f"settle() intent mismatch: alias={atom.pending_alias}, "
+                f"atom_intent={atom.intent_id}, settlement_intent={settlement.intent_id}, skipping"
             )
             return
 
