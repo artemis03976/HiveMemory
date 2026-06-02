@@ -87,6 +87,7 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
         canonical_uuid=str(canonical.id),
     )
 
+    pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 
@@ -124,6 +125,7 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
         canonical_uuid=str(canonical.id),
     )
 
+    pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 
@@ -149,6 +151,7 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
         message="Not materialized.",
     )
 
+    pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
     result = await resolver.resolve(pending.pending_alias)
 

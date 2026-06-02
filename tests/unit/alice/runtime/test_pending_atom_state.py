@@ -276,6 +276,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="hello", title="Hello", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
             canonical_alias="fact_hello",
@@ -291,6 +292,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="dup", title="Dup", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.MERGED,
             canonical_alias="fact_dup",
@@ -305,6 +307,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="touch", title="Touch", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.TOUCHED,
             canonical_alias="fact_touch",
@@ -322,6 +325,7 @@ class TestPendingAtomRuntimeSnapshot:
             content=None,
             identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.UPDATED,
             canonical_alias="fact_x",
@@ -337,6 +341,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="lowq", title="LowQ", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.DISCARDED,
         ))
@@ -350,6 +355,7 @@ class TestPendingAtomRuntimeSnapshot:
         atom = runtime.register_write(
             content="x", title="X", reason=None, identity=identity,
         )
+        runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(_make_settlement(
             atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
             canonical_alias="fact_x",

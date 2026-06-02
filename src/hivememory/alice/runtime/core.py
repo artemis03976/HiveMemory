@@ -57,6 +57,7 @@ class AliceRuntime:
         self._agent_runtime = AgentRuntime(
             mtp_executor=self._mtp_executor,
             config=config,
+            pending_runtime=self._pending_runtime,
         )
 
         # ---- 编排层 (alice)：多 Agent 编排，拿门面跑单 Agent ----
@@ -69,7 +70,6 @@ class AliceRuntime:
             frame_scheduler=FrameScheduler(prompt_assembler=self._prompt_assembler),
             agent_profile_resolver=AgentProfileResolver(local_bus=self._local_bus),
             alias_resolver=self._alias_resolver,
-            pending_runtime=self._pending_runtime,
         )
 
         logger.info("AliceRuntime 初始化完成")

@@ -127,6 +127,17 @@ class PendingAtomRuntime:
         logger.debug(f"Registered pending UPDATE: {pending_alias} (intent={intent_id})")
         return atom
 
+    def claim_for_materialization(self, aliases: list[str]) -> List[PendingAtomMaterializeTask]:
+        """将 PENDING 的 atom 迁移到 MATERIALIZING 并返回 Task 投影。非 PENDING 的静默跳过（幂等）。"""
+        tasks = []
+        for alias in aliases:
+            atom = self._store.get(alias)
+            if atom is None or atom.status != PendingAtomStatus.PENDING:
+                continue
+            atom.status = PendingAtomStatus.MATERIALIZING
+            tasks.append(PendingAtomMaterializeTask.from_pending_atom(atom))
+        return tasks
+
     def settle(self, settlement: PendingAtomSettlement) -> None:
         """
         Apply a settlement from the generation pipeline to update pending atom state.
@@ -144,6 +155,13 @@ class PendingAtomRuntime:
             logger.warning(
                 f"Settlement for unknown pending atom: "
                 f"alias={settlement.pending_alias}, intent={settlement.intent_id}"
+            )
+            return
+
+        if atom.status != PendingAtomStatus.MATERIALIZING:
+            logger.warning(
+                f"settle() called on atom not in MATERIALIZING state: "
+                f"alias={atom.pending_alias}, status={atom.status.value} — skipping"
             )
             return
 

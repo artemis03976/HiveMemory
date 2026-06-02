@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Dict, List, Optional
 
 from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
+from hivememory.core.models.pending import PendingAtomStatus
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.models import ExecutionFrame, FrameExecutionResult
     from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
+    from hivememory.core.models.pending import PendingAtomMaterializeTask
     from hivememory.system.config import HiveMemoryConfig
 
 logger = logging.getLogger(__name__)
@@ -17,10 +20,10 @@ logger = logging.getLogger(__name__)
 class AgentRuntime:
     """单 Agent 运行时门面。
 
-    封装执行引擎（loop_executor + worker_agent + mtp_executor），对外提供
-    "跑一个 frame" 的 API。类比 patchouli 的 LibrarianCore——把底层引擎组件
-    收拢成一个聚合，编排层（AgentOrchestrator）只拿这个门面跑单 Agent，
-    不直接接触 loop_executor。
+    封装执行引擎（loop_executor + worker_agent + mtp_executor）与
+    PendingAtomRuntime，对外提供 "跑一个 frame" 和 "收割 Task" 的 API。
+    类比 patchouli 的 LibrarianCore——把底层引擎组件收拢成一个聚合，
+    编排层（AgentOrchestrator）只拿这个门面操作，不直接接触引擎细节。
 
     迭代上限由门面内部从 config.agent_runtime 消化，编排不再传 max_iterations。
     """
@@ -30,8 +33,10 @@ class AgentRuntime:
         *,
         mtp_executor: "MTPExecutor",
         config: "HiveMemoryConfig",
+        pending_runtime: Optional[PendingAtomRuntime] = None,
         loop_executor: Optional[KernelLoopExecutor] = None,
     ) -> None:
+        self._pending_runtime = pending_runtime or PendingAtomRuntime()
         if loop_executor is not None:
             self._loop_executor = loop_executor
         else:
@@ -90,6 +95,24 @@ class AgentRuntime:
             stream_emitter=stream_emitter,
             use_stream_generation=stream_emitter is not None,
         )
+
+    def aliases_by_frame(self, frame_id: str) -> List[str]:
+        """返回属于指定 frame 的全部 pending alias（不做状态过滤，供 harvest 使用）。"""
+        return [
+            atom.pending_alias
+            for atom in self._pending_runtime.all_atoms()
+            if atom.runtime_scope.frame_id == frame_id
+        ]
+
+    def collect_tasks_by_run(self, run_id: str) -> "List[PendingAtomMaterializeTask]":
+        """收集本 run 的待物化 Task，并将状态从 PENDING 迁移到 MATERIALIZING（幂等）。"""
+        aliases = [
+            atom.pending_alias
+            for atom in self._pending_runtime.all_atoms()
+            if atom.runtime_scope.run_id == run_id
+            and atom.status == PendingAtomStatus.PENDING
+        ]
+        return self._pending_runtime.claim_for_materialization(aliases)
 
     def health(self) -> dict[str, Any]:
         return {"loop_executor": "ok", "worker_agent": "ok"}

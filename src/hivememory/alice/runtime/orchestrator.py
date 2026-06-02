@@ -37,7 +37,6 @@ if TYPE_CHECKING:
     from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
     from hivememory.alice.runtime.agent.runtime import AgentRuntime
     from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
-    from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
     from hivememory.agent_runtime.resolver import RuntimeAliasResolver
     from hivememory.core.models import AgentProfile, Identity
 
@@ -64,13 +63,11 @@ class AgentOrchestrator:
         frame_scheduler: "FrameScheduler",
         agent_profile_resolver: "AgentProfileResolver",
         alias_resolver: "RuntimeAliasResolver",
-        pending_runtime: Optional["PendingAtomRuntime"] = None,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._frame_scheduler = frame_scheduler
         self._agent_profile_resolver = agent_profile_resolver
         self._alias_resolver = alias_resolver
-        self._pending_runtime = pending_runtime
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -342,14 +339,11 @@ class AgentOrchestrator:
         harvested = set(sub_frame.harvested_aliases)
 
         # WRITE/UPDATE aliases from PendingAtomRuntime（主要路径）
-        if self._pending_runtime is not None:
-            frame_id = sub_frame.runtime_scope.frame_id
-            for atom in self._pending_runtime.all_atoms():
-                if atom.runtime_scope.frame_id == frame_id:
-                    alias = atom.pending_alias
-                    if alias and alias not in harvested:
-                        sub_frame.harvested_aliases.append(alias)
-                        harvested.add(alias)
+        frame_id = sub_frame.runtime_scope.frame_id
+        for alias in self._agent_runtime.aliases_by_frame(frame_id):
+            if alias and alias not in harvested:
+                sub_frame.harvested_aliases.append(alias)
+                harvested.add(alias)
 
         # UPDATE fallback: target alias when no pending_alias was generated
         for ev in sub_frame.progress.turn_events:
@@ -376,12 +370,7 @@ class AgentOrchestrator:
 
     def _assemble_agent_run_result(self, frame: ExecutionFrame) -> AgentRunResult:
         p = frame.progress
-        run_id = frame.runtime_scope.run_id
-        tasks = (
-            self._pending_runtime.tasks_by_run(run_id)
-            if self._pending_runtime is not None
-            else []
-        )
+        tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
         return AgentRunResult(
             final_text="".join(p.text_segments),
             mtp_iterations=max(0, p.iteration - 1),
