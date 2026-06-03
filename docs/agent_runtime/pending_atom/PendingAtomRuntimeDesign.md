@@ -43,7 +43,7 @@ self._resolution[atom.pending_alias] = settlement.resolution
 
 1. MATERIALIZING 阶段在生产路径中不可观测；
 2. 非法迁移（如 SETTLED → 再次 settle）不会报错，会静默覆盖；
-3. 后续 M2 想引入 fail / cancel / expire 命令时，需要先清掉这条直跳分支。
+3. 后续 M2 想引入 mark_failed / cancel / expire 命令时，需要先清掉这条直跳分支。
 
 ### 2.2 真相源四处分裂
 
@@ -86,7 +86,7 @@ snapshot() 与 resolver 共用同一条派生路径（都从 PendingAtom 读）�
 
 所有 status 变更走同一个私有 `_set_status(atom, target)` 闸门，闸门内部调用 `is_legal_transition()`。非法迁移直接抛 `InvalidStateTransition`。
 
-`settle()` 内部走 PENDING → MATERIALIZING → SETTLED 两步迁移，让 MATERIALIZING 阶段在写入时序上真实存在（即便外部观察窗口很短）。
+`settle()` 只接受 MATERIALIZING → SETTLED。PENDING → MATERIALIZING 必须在任务发送前由 `start_materializing()` / `claim_for_materialization()` 完成，避免结算阶段掩盖生成任务未被正确 claim 的问题。
 
 ### 3.4 接口稳定
 
@@ -142,10 +142,9 @@ class PendingAtomRuntime:
 
     def settle(settlement: PendingAtomSettlement) -> None:
         """应用 settlement。
-        内部走 PENDING → MATERIALIZING → SETTLED 两步迁移
-        （兼容生产端尚未调用 start_materializing 的场景）。"""
+        仅允许 MATERIALIZING → SETTLED。"""
 
-    def fail(pending_alias: str, error: str) -> None:
+    def mark_failed(pending_alias: str) -> None:
         """MATERIALIZING → FAILED。"""
 
     def cancel(pending_alias: str, reason: str) -> None:
@@ -394,11 +393,11 @@ PR2 拆为两个子动作。建议子动作 A 先合，绿了再合 B；放在�
 ### 7.3 PR3 — 状态机闸门 + 命令扩展
 
 - `PendingAtomRuntime._set_status()` 私有方法，所有 status 变更走它。
-- `apply_settlement` → `settle`：内部走 PENDING → MATERIALIZING → SETTLED 两步迁移。
-- 新增命令：`start_materializing` / `fail` / `cancel` / `expire`。本 PR 不连入生产路径（GenerationEngine 等暂不调用），仅暴露 + 单测覆盖。
+- `apply_settlement` → `settle`：仅允许 MATERIALIZING → SETTLED；PENDING → MATERIALIZING 由 `start_materializing` / `claim_for_materialization` 提前完成。
+- 新增命令：`start_materializing` / `mark_failed` / `cancel` / `expire`。`mark_failed` 作为主动生成失败事件的唯一失败迁移入口。
 - 引入 `InvalidStateTransition` 异常。
 
-风险：低-中。新命令暂不被生产端使用，主要是单测覆盖；`settle` 走两步迁移会让"重复结算"立刻报错（现状是静默覆盖），需要确认订阅链路没有重发。
+风险：低-中。`settle` 变严格后会让"未 claim 直接结算"和"重复结算"立刻报错（现状是静默覆盖），需要确认订阅链路没有重发，且生成任务发送前已完成 claim。
 
 ---
 
@@ -451,8 +450,8 @@ PR2 拆为两个子动作。建议子动作 A 先合，绿了再合 B；放在�
 ## 11. 待办
 
 - [x] PR1：新建 `pending_atom/` 子包（外观 `PendingAtomRuntime` + 私有 `_PendingAtomStore` + `state.py`），`pending_atom_state.py` 转为 re-export 兼容入口，调用方同步改名（`pending_cache`→`pending_runtime`、`apply_settlement`→`settle`）
-- [ ] PR2-A：新建 `core/models/pending.py`，搬迁 §6.2.1 列出的 11 项；`alice/runtime/models.py` / `pending_atom/state.py` / `engines/generation/models.py` 转 re-export 兼容入口；消除 `engines.generation.models → alice.runtime.pending_atom_state` 的反向 import
-- [ ] PR2-B：`_PendingAtomStore` 删除 `_resolution` / `_redirects` 字典；`settle()` / `snapshot()` 改为从 `atom.settlement` 派生；resolver 删掉 `get_redirect()` 混合分支
-- [ ] PR3：状态机闸门 + 命令扩展（`start_materializing` / `fail` / `cancel` / `expire`），`settle` 走两步迁移
+- [x] PR2-A：新建 `core/models/pending.py`，搬迁 §6.2.1 列出的 11 项；`alice/runtime/models.py` / `pending_atom/state.py` / `engines/generation/models.py` 转 re-export 兼容入口；消除 `engines.generation.models → alice.runtime.pending_atom_state` 的反向 import
+- [x] PR2-B：`_PendingAtomStore` 删除 `_resolution` / `_redirects` 字典；`settle()` / `snapshot()` 改为从 `atom.settlement` 派生；resolver 删掉 `get_redirect()` 混合分支
+- [x] PR3：状态机闸门 + 命令扩展（`start_materializing` / `mark_failed` / `cancel` / `expire`），`settle` 仅允许 MATERIALIZING → SETTLED
 - [ ] 同步更新 [PendingAtomCacheDesign](PendingAtomCacheDesign.md) 第 18 节实现阶段规划
 - [ ] 同步更新 [PendingAtomStatusUnificationDesign](PendingAtomStatusUnificationDesign.md) 第 11 节后续工作衔接

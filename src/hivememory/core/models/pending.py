@@ -1,16 +1,15 @@
-"""
+﻿"""
 HiveMemory 核心数据模型 - Pending / Settlement 领域
 
 PendingAtom 与其结算视图 PendingAtomSettlement 是 ``engines/`` 与 ``alice/`` 之间
 的跨域共享物。把它们及其周边类型（状态枚举、Focus、RuntimeScope）统一上移到 core，
 消除 ``engines → alice`` / ``alice → engines`` 的子系统层级倒挂。
 
-迁移依据: docs/mod/PendingAtomRuntimeDesign.md §6.2
+迁移依据: docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2
 
 新代码应直接从本模块或 ``hivememory.core.models`` 导入。生成域 facade
 ``hivememory.engines.generation.models`` 仍 re-export 一份 PendingAtomSettlement /
-DuplicateDecision / WriteFocus / UpdateFocus，作为生成流水线域内的稳定面，
-调用方按业务直觉选择即可。
+WriteFocus / UpdateFocus，作为生成流水线域内的稳定面，调用方按业务直觉选择即可。
 """
 
 from __future__ import annotations
@@ -41,13 +40,8 @@ class PendingAtomStatus(str, Enum):
 
     @property
     def is_terminal(self) -> bool:
-        """终态：不可再迁移。"""
-        return self in {
-            PendingAtomStatus.SETTLED,
-            PendingAtomStatus.FAILED,
-            PendingAtomStatus.EXPIRED,
-            PendingAtomStatus.CANCELLED,
-        }
+        """终态：不可再迁移。EXPIRED 是唯一永久终态；其余终态仍可迁入 EXPIRED。"""
+        return self == PendingAtomStatus.EXPIRED
 
     @property
     def is_in_flight(self) -> bool:
@@ -84,10 +78,10 @@ _TRANSITIONS: dict[PendingAtomStatus, frozenset[PendingAtomStatus]] = {
         PendingAtomStatus.FAILED,
         PendingAtomStatus.CANCELLED,
     }),
-    PendingAtomStatus.SETTLED: frozenset(),
-    PendingAtomStatus.FAILED: frozenset(),
+    PendingAtomStatus.SETTLED: frozenset({PendingAtomStatus.EXPIRED}),
+    PendingAtomStatus.FAILED: frozenset({PendingAtomStatus.EXPIRED}),
     PendingAtomStatus.EXPIRED: frozenset(),
-    PendingAtomStatus.CANCELLED: frozenset(),
+    PendingAtomStatus.CANCELLED: frozenset({PendingAtomStatus.EXPIRED}),
 }
 
 
@@ -104,25 +98,8 @@ def allowed_transitions(from_status: PendingAtomStatus) -> frozenset[PendingAtom
     return _TRANSITIONS[from_status]
 
 
-# ===========================================================================
-# 查重决策
-# ===========================================================================
-
-# TODO:放回generation引擎
-class DuplicateDecision(str, Enum):
-    """
-    查重决策类型
-
-    Attributes:
-        CREATE: 创建新记忆
-        UPDATE: 更新现有记忆（知识演化）
-        TOUCH: 仅更新访问时间（完全重复）
-        DISCARD: 丢弃（低质量重复）
-    """
-    CREATE = "create"
-    UPDATE = "update"
-    TOUCH = "touch"
-    DISCARD = "discard"
+class InvalidStateTransition(RuntimeError):
+    """Raised when a PendingAtom lifecycle transition violates the state machine."""
 
 
 # ===========================================================================
@@ -205,7 +182,6 @@ class PendingAtomSettlement(BaseModel):
     pending_alias: str
     intent_id: str
     resolution: PendingAtomResolution
-    duplicate_decision: Optional[DuplicateDecision] = None
     canonical_alias: Optional[str] = None
     canonical_uuid: Optional[str] = None
     message: str = ""
@@ -330,8 +306,7 @@ __all__ = [
     "PendingAtomSnapshot",
     "is_legal_transition",
     "allowed_transitions",
-    # 查重决策
-    "DuplicateDecision",
+    "InvalidStateTransition",
     # Focus
     "WriteFocus",
     "UpdateFocus",

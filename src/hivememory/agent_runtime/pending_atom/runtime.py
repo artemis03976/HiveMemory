@@ -7,7 +7,7 @@ PendingAtomRuntime - PendingAtom 全生命周期管理中心。
 外观 + 命令入口：所有 PendingAtom 的注册、结算、查询都通过本对象，
 内部委托给子包私有的 `_PendingAtomStore` 做存取与索引维护。
 
-设计依据：docs/mod/PendingAtomRuntimeDesign.md
+设计依据：docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from hivememory.core.models import Identity
 from hivememory.core.models.pending import (
+    InvalidStateTransition,
     PendingAtom,
     PendingAtomMaterializeTask,
     PendingAtomSettlement,
@@ -27,6 +28,7 @@ from hivememory.core.models.pending import (
     RuntimeScope,
     UpdateFocus,
     WriteFocus,
+    is_legal_transition,
 )
 
 from hivememory.agent_runtime.pending_atom.store import _PendingAtomStore
@@ -54,6 +56,15 @@ class PendingAtomRuntime:
 
     def __init__(self) -> None:
         self._store = _PendingAtomStore()
+
+    def _set_status(self, atom: PendingAtom, target: PendingAtomStatus) -> None:
+        """Apply one legal PendingAtom lifecycle transition."""
+        if not is_legal_transition(atom.status, target):
+            raise InvalidStateTransition(
+                f"PendingAtom '{atom.pending_alias}': "
+                f"{atom.status.value} -> {target.value} is not a legal transition"
+            )
+        atom.status = target
 
     # ---- 命令（写入路径） ----
 
@@ -136,7 +147,33 @@ class PendingAtomRuntime:
                 f"status={atom.status.value if atom else 'not found'}"
             )
             return
-        atom.status = PendingAtomStatus.FAILED
+        self._set_status(atom, PendingAtomStatus.FAILED)
+
+    def cancel(self, pending_alias: str, reason: Optional[str] = None) -> None:
+        """Move an in-flight atom to CANCELLED."""
+        atom = self._store.get(pending_alias)
+        if atom is None:
+            logger.warning(f"cancel() skipped: alias={pending_alias}, status=not found")
+            return
+        self._set_status(atom, PendingAtomStatus.CANCELLED)
+
+    def expire(self, pending_alias: str) -> None:
+        """Move one PENDING atom to EXPIRED."""
+        atom = self._store.get(pending_alias)
+        if atom is None:
+            logger.warning(f"expire() skipped: alias={pending_alias}, status=not found")
+            return
+        self._set_status(atom, PendingAtomStatus.EXPIRED)
+
+    def start_materializing(self, pending_alias: str) -> None:
+        """Move one atom from PENDING to MATERIALIZING."""
+        atom = self._store.get(pending_alias)
+        if atom is None:
+            logger.warning(
+                f"start_materializing() skipped: alias={pending_alias}, status=not found"
+            )
+            return
+        self._set_status(atom, PendingAtomStatus.MATERIALIZING)
 
     def claim_for_materialization(self, aliases: list[str]) -> List[PendingAtomMaterializeTask]:
         """将 PENDING 的 atom 迁移到 MATERIALIZING 并返回 Task 投影。非 PENDING 的静默跳过（幂等）。"""
@@ -145,7 +182,7 @@ class PendingAtomRuntime:
             atom = self._store.get(alias)
             if atom is None or atom.status != PendingAtomStatus.PENDING:
                 continue
-            atom.status = PendingAtomStatus.MATERIALIZING
+            self.start_materializing(alias)
             tasks.append(PendingAtomMaterializeTask.from_pending_atom(atom))
         return tasks
 
@@ -169,14 +206,6 @@ class PendingAtomRuntime:
             )
             return
 
-        # 校验 atom 状态是否为 MATERIALIZING
-        if atom.status != PendingAtomStatus.MATERIALIZING:
-            logger.warning(
-                f"settle() called on atom not in MATERIALIZING state: "
-                f"alias={atom.pending_alias}, status={atom.status.value}, skipping"
-            )
-            return
-
         # 校验 intent_id 是否匹配
         if atom.intent_id != settlement.intent_id:
             logger.warning(
@@ -185,17 +214,14 @@ class PendingAtomRuntime:
             )
             return
 
-        atom.status = PendingAtomStatus.SETTLED
-        self._store.set_resolution(atom.pending_alias, settlement.resolution)
+        self._set_status(atom, PendingAtomStatus.SETTLED)
 
         atom.settlement = settlement
-        if settlement.canonical_alias or settlement.canonical_uuid:
-            self._store.set_redirect(atom.pending_alias, settlement)
-            if settlement.canonical_uuid:
-                self._store.bind_canonical(
-                    settlement.canonical_uuid,
-                    atom.pending_alias,
-                )
+        if settlement.canonical_uuid:
+            self._store.bind_canonical(
+                settlement.canonical_uuid,
+                atom.pending_alias,
+            )
 
         logger.debug(
             f"Settlement applied to '{atom.pending_alias}': "
@@ -214,8 +240,14 @@ class PendingAtomRuntime:
         return self._store.get_by_intent(intent_id)
 
     def get_redirect(self, pending_alias: str) -> Optional[PendingAtomSettlement]:
-        """返回 pending alias 对应的 canonical redirect settlement。"""
-        return self._store.get_redirect(pending_alias)
+        """返回 pending alias 对应的结算视图。
+
+        兼容旧调用名；redirect 信息现在直接从 ``PendingAtom.settlement`` 派生。
+        """
+        atom = self._store.get(pending_alias)
+        if atom is None:
+            return None
+        return atom.settlement
 
     def get_pending_aliases_for_canonical_uuid(self, canonical_uuid: str) -> List[str]:
         """返回指向同一 canonical UUID 的 pending alias 列表。"""
@@ -238,17 +270,16 @@ class PendingAtomRuntime:
         返回 pending alias 对应的统一状态视图。
 
         派生路径：
-        - 已结算（resolution 命中）：status=SETTLED + 对应 resolution
+        - 已结算：从 ``atom.settlement`` 读取 resolution / canonical refs
         - 未结算：直接读取 ``atom.status``（来自统一 ``PendingAtomStatus``）
         """
         atom = self._store.get(pending_alias)
         if atom is None:
             return None
 
-        resolution = self._store.get_resolution(pending_alias)
-        settlement = self._store.get_redirect(pending_alias)
-
-        if resolution is not None:
+        settlement = atom.settlement
+        if atom.status == PendingAtomStatus.SETTLED and settlement is not None:
+            resolution = settlement.resolution
             canonical_alias = settlement.canonical_alias if settlement else None
             canonical_uuid = settlement.canonical_uuid if settlement else None
             if not resolution.has_canonical:
@@ -280,6 +311,33 @@ class PendingAtomRuntime:
             for atom in self._store.all_atoms()
             if atom.runtime_scope.run_id == run_id
         ]
+
+    def evict_by_run(self, current_run_id: str) -> None:
+        """双步清理：删除既有 EXPIRED，再将上轮已完成 atom → EXPIRED。
+
+        在 collect_tasks_by_run 之后调用（新 run 开始时），确保上轮的
+        SETTLED/FAILED/CANCELLED atom 在本轮结算后保留一轮过期提示窗口。
+        """
+        # 步骤一：删除上一个回收周期已标记的 EXPIRED。
+        for alias in [
+            a for a in self._store.all_aliases()
+            if self._store.get(a).status == PendingAtomStatus.EXPIRED
+        ]:
+            self._store.delete(alias)
+            logger.debug(f"evict_by_run: deleted EXPIRED atom '{alias}'")
+
+        # 步骤二：将属于旧 run 且已离开 in-flight 的 atom 迁移到 EXPIRED。
+        # 新迁移的 EXPIRED 会保留到下一次 evict_by_run，供 resolver 返回 expired。
+        for atom in self._store.all_atoms():
+            if atom.runtime_scope.run_id == current_run_id:
+                continue
+            if atom.status in {
+                PendingAtomStatus.SETTLED,
+                PendingAtomStatus.FAILED,
+                PendingAtomStatus.CANCELLED,
+            }:
+                self._set_status(atom, PendingAtomStatus.EXPIRED)
+                self._store.put(atom)
 
     # ---- 生命周期 ----
 

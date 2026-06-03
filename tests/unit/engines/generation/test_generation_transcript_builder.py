@@ -354,7 +354,7 @@ class TestEngineWithGenerationContext:
         """Mode B (write_focus) + context 兼容"""
         engine, extractor, deduplicator = self._make_engine()
         from hivememory.engines.generation.models import ExtractedMemoryDraft
-        from hivememory.core.models import DuplicateDecision
+        from hivememory.engines.generation.models import DuplicateDecision
         draft = ExtractedMemoryDraft(
             title="test_title", summary="a summary longer than ten chars", tags=["a"], memory_type="FACT",
             content="test content here", confidence_score=0.9, has_value=True,

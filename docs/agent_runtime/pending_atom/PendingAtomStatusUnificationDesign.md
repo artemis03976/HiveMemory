@@ -92,7 +92,7 @@
                    │        MATERIALIZING        │  ← GenerationEngine 接手
                    └──┬──────────────┬───────┬───┘
                       │              │       │
-              settle()│       fail() │       │ cancel()
+              settle()│ mark_failed()│       │ cancel()
                       ▼              ▼       │
               ┌──────────────┐  ┌──────────┐ │
               │   SETTLED    │  │  FAILED  │ │

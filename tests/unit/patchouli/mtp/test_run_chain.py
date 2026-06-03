@@ -23,10 +23,12 @@ from unittest.mock import MagicMock
 
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
-    DuplicateDecision, PendingAtomResolution, PendingAtomSettlement,
+    PendingAtomResolution, PendingAtomSettlement,
 )
+from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.system.config import KoakumaConfig
 
 
@@ -321,12 +323,31 @@ class TestRunUserToolPath:
 
         assert result.success
         assert "[Alias Redirected]" in result.response_content
-        assert f"Requested alias: {pending.pending_alias}" in result.response_content
-        assert "Canonical alias: tool_canonical" in result.response_content
+        assert f"请求的别名: {pending.pending_alias}" in result.response_content
+        assert "规范别名: tool_canonical" in result.response_content
         assert "redirected tool output" in result.response_content
         assert koakuma._bus._memory_citations == [
             {"memory_id": canonical.id, "source": "mtp.run"}
         ]
+
+    def test_expired_pending_alias_returns_reclaimed_error(self, koakuma):
+        pending = koakuma.pending_runtime.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=MTPExecutionContext().identity,
+        )
+        koakuma.pending_runtime.expire(pending.pending_alias)
+
+        result = _execute_mtp(
+            koakuma,
+            f"{MTP_LEFT_DELIMITER} RUN | {pending.pending_alias} | {MTP_RIGHT_DELIMITER}",
+        )
+
+        assert not result.success
+        assert "expired" in result.response_content
+        assert "reclaimed" in result.response_content
+        assert "Alias Not Found" not in result.response_content
 
     def test_user_tool_success_returns_execution_result(self, koakuma):
         """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""

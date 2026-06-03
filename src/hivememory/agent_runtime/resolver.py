@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 class ResolveResult:
     """别名解析结果。"""
 
-    kind: Literal["pending", "redirect", "discarded", "failed", "atom", "not_found"]
+    kind: Literal["pending", "redirect", "discarded", "failed", "expired", "atom", "not_found"]
     requested_alias: Optional[str] = field(default=None)
     canonical_alias: Optional[str] = field(default=None)
     canonical_uuid: Optional[str] = field(default=None)
@@ -110,7 +110,7 @@ class RuntimeAliasResolver:
         context: Optional["MTPExecutionContext"] = None,
     ) -> ResolveResult:
         """Resolve an L0 pending entry, including settled redirect states."""
-        settlement = pending.settlement or self._pending_runtime.get_redirect(alias)
+        settlement = pending.settlement
 
         if pending.status.is_in_flight:
             return ResolveResult(
@@ -157,7 +157,14 @@ class RuntimeAliasResolver:
                     settlement=settlement,
                 )
 
-        # EXPIRED / CANCELLED 暂不区分，统一视为 not_found
+        if pending.status == PendingAtomStatus.EXPIRED:
+            return ResolveResult(
+                kind="expired",
+                requested_alias=alias,
+                pending=pending,
+            )
+
+        # CANCELLED → not_found
         return ResolveResult(
             kind="not_found",
             requested_alias=alias,

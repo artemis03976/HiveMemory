@@ -20,13 +20,12 @@ from datetime import datetime
 
 from hivememory.system.config import DeduplicatorConfig
 from hivememory.core.models import (
-    DuplicateDecision,
     IndexLayer,
     MemoryAtom,
     MetaData,
     PayloadLayer,
 )
-from hivememory.engines.generation.models import ExtractedMemoryDraft
+from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
 from hivememory.engines.generation.interfaces import BaseDeduplicator
 from hivememory.infrastructure.storage import QdrantMemoryStore
 
@@ -134,11 +133,6 @@ class MemoryDeduplicator(BaseDeduplicator):
             )
 
             logger.info(f"查重决策: {decision.value}")
-
-            # 记录生命周期事件 - TOUCH 决策表示记忆被再次命中
-            if decision == DuplicateDecision.TOUCH:
-                # TODO: 实现生命周期事件记录
-                pass
 
             return decision, existing_memory
 

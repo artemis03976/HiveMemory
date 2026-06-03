@@ -7,7 +7,6 @@ from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.core.models import (
-    DuplicateDecision,
     Identity,
     IndexLayer,
     MemoryAtom,
@@ -82,7 +81,6 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
         resolution=PendingAtomResolution.CREATED,
-        duplicate_decision=DuplicateDecision.CREATE,
         canonical_alias="fact_canonical",
         canonical_uuid=str(canonical.id),
     )
@@ -120,7 +118,6 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
         resolution=PendingAtomResolution.MERGED,
-        duplicate_decision=DuplicateDecision.UPDATE,
         canonical_alias="fact_canonical",
         canonical_uuid=str(canonical.id),
     )
@@ -147,7 +144,6 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
         resolution=PendingAtomResolution.DISCARDED,
-        duplicate_decision=DuplicateDecision.DISCARD,
         message="Not materialized.",
     )
 
@@ -220,3 +216,20 @@ async def test_resolve_storage_failure_raises_storage_read_error(resolver_parts)
 
     with pytest.raises(StorageReadError):
         await resolver.resolve("fact_boom")
+
+
+@pytest.mark.asyncio
+async def test_resolve_expired_pending_returns_expired(resolver_parts):
+    resolver, pending_runtime, _atom_cache, _bus = resolver_parts
+    pending = pending_runtime.register_write(
+        content="will expire",
+        title="Expire Test",
+        reason=None,
+        identity=Identity(user_id="test_user"),
+    )
+    pending_runtime.expire(pending.pending_alias)
+
+    result = await resolver.resolve(pending.pending_alias)
+
+    assert result.kind == "expired"
+    assert result.requested_alias == pending.pending_alias

@@ -343,11 +343,10 @@ class TestLibrarianCoreGenerateMemory:
     async def test_active_generation_settlement_publish_failure_marks_failed(self):
         """settlement publish failure emits FAILED event."""
         from hivememory.core.models import (
-            DuplicateDecision,
             PendingAtomResolution,
             PendingAtomSettlement,
         )
-        from hivememory.engines.generation.models import MemoryGenerationResult
+        from hivememory.engines.generation.models import MemoryGenerationResult, DuplicateDecision
 
         write_focus = WriteFocus(content="test content")
         task = PendingAtomMaterializeTask(
@@ -449,14 +448,14 @@ class TestLibrarianCoreGenerateMemory:
         await core._on_generate_memory(payload)
 
     @pytest.mark.asyncio
-    async def test_generate_memory_semantic_drift(self):
-        """SEMANTIC_DRIFT 触发 Mode A"""
+    async def test_generate_memory_manual_mode_a(self):
+        """MANUAL 触发 Mode A"""
         blocks = _make_logical_blocks(2)
         payload = ArchivePayload(
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            reason=FlushReason.SEMANTIC_DRIFT,
+            reason=FlushReason.MANUAL,
         )
 
         await self.core._on_generate_memory(payload)

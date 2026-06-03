@@ -20,7 +20,6 @@ from unittest.mock import MagicMock, patch, call
 from datetime import datetime
 
 from hivememory.core.models import (
-    DuplicateDecision,
     Identity,
     IndexLayer,
     MemoryAtom,
@@ -34,6 +33,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.generation.models import (
+    DuplicateDecision,
     GenerationRequest,
     GenerationContext,
     GenerationTurn,
@@ -378,12 +378,12 @@ class TestFlushCallbackModes:
             for i, msg in enumerate(sample_messages)
         ]
 
-        # 正常 flush 应该触发 Mode A
+        # 普通被动 flush 应该触发 Mode A
         payload = ArchivePayload(
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            reason=FlushReason.SEMANTIC_DRIFT,
+            reason=FlushReason.MANUAL,
         )
         await core._on_generate_memory(payload)
 

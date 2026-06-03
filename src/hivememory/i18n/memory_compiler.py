@@ -208,6 +208,214 @@ _MEMORY_ATOM_TEXT_EN = {
     **_AGENT_PROFILE_CONTEXT_TEXT_EN,
 }
 
+_PENDING_ATOM_TEXT_ZH = {
+    "pending_ack_write": (
+        "记忆已作为 pending atom（待定原子） '{pending_alias}' 被接收。\n"
+        "在此次运行期间可通过 READ 指令读取。"
+        "最终的记忆生成将异步完成。"
+    ),
+    "pending_ack_update": (
+        "记忆 '{base_alias}' 的更新已作为 pending revision（待定修订） '{pending_alias}' 被接收。\n"
+        "在此次运行期间可通过 READ 指令读取。"
+        "最终的记忆更新将异步完成。"
+    ),
+    "pending_read_write": (
+        "[{pending_alias}] (运行时待定原子):\n"
+        "状态: {status}\n"
+        "来源: WRITE\n"
+        "{title_line}"
+        "\n"
+        "内容:\n"
+        "{content}\n"
+        "\n"
+        "注意: 这是一个运行时待定原子。"
+        "最终的记忆生成是异步的。"
+    ),
+    "pending_read_update": (
+        "[{pending_alias}] (pending revision of '{base_alias}' / '{base_alias}' 的待定修订):\n"
+        "状态: {status}\n"
+        "{instruction_line}"
+        "\n"
+        "新内容:\n"
+        "{content}\n"
+        "\n"
+        "注意: 这是一个待定修订。"
+        "原始记忆尚未被修改。"
+    ),
+    "pending_read_settled": (
+        "[{pending_alias}] (已结算):\n"
+        "结算结果: {resolution}\n"
+        "{canonical_line}"
+        "{message_line}"
+        "{action_line}"
+    ),
+    "pending_read_failed": (
+        "[{pending_alias}] (失败):\n"
+        "错误: {error}\n"
+        "操作: 重新发出 WRITE/UPDATE 指令以重试。"
+    ),
+    "pending_read_cancelled": (
+        "[{pending_alias}] (已取消):\n"
+        "此待定原子已被取消，且不会被实例化。"
+    ),
+    "pending_read_expired": (
+        "[{pending_alias}] (已过期):\n"
+        "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
+        "操作: 如果需要，请使用 SEARCH 查找已定型的记忆。"
+    ),
+}
+
+_PENDING_ATOM_TEXT_EN = {
+    "pending_ack_write": (
+        "Memory accepted as pending atom '{pending_alias}'.\n"
+        "It is readable during this run via READ. "
+        "Final memory generation will complete asynchronously."
+    ),
+    "pending_ack_update": (
+        "Memory '{base_alias}' update accepted as pending revision '{pending_alias}'.\n"
+        "It is readable during this run via READ. "
+        "Final memory update will complete asynchronously."
+    ),
+    "pending_read_write": (
+        "[{pending_alias}] (runtime pending atom):\n"
+        "status: {status}\n"
+        "source: WRITE\n"
+        "{title_line}"
+        "\n"
+        "content:\n"
+        "{content}\n"
+        "\n"
+        "note: This is a runtime pending atom. "
+        "Final memory generation is asynchronous."
+    ),
+    "pending_read_update": (
+        "[{pending_alias}] (pending revision of '{base_alias}'):\n"
+        "status: {status}\n"
+        "{instruction_line}"
+        "\n"
+        "new content:\n"
+        "{content}\n"
+        "\n"
+        "note: This is a pending revision. "
+        "The original memory has not been modified yet."
+    ),
+    "pending_read_settled": (
+        "[{pending_alias}] (settled):\n"
+        "resolution: {resolution}\n"
+        "{canonical_line}"
+        "{message_line}"
+        "{action_line}"
+    ),
+    "pending_read_failed": (
+        "[{pending_alias}] (failed):\n"
+        "error: {error}\n"
+        "Action: Re-issue a WRITE/UPDATE command to retry."
+    ),
+    "pending_read_cancelled": (
+        "[{pending_alias}] (cancelled):\n"
+        "This pending atom was cancelled and will not be materialized."
+    ),
+    "pending_read_expired": (
+        "[{pending_alias}] (expired):\n"
+        "This handle has been reclaimed. The pending atom no longer exists in runtime.\n"
+        "Action: Use SEARCH to locate the finalized memory if needed."
+    ),
+}
+
+_RESOLVE_RESULT_TEXT_ZH = {
+    "resolve_redirect_read": (
+        "[Alias Redirected]\n"
+        "请求的别名: {requested_alias}\n"
+        "规范别名: {canonical_alias}\n"
+        "状态: {status}\n"
+        "\n"
+        "[{canonical_alias}]:\n"
+        "{content}\n"
+        "\n"
+        "操作: 请在后续的 READ/RUN/UPDATE 调用中使用 '{canonical_alias}'。"
+    ),
+    "resolve_redirect_run_notice": (
+        "[Alias Redirected]\n"
+        "请求的别名: {requested_alias}\n"
+        "规范别名: {canonical_alias}\n"
+        "状态: {status}\n"
+        "操作: 请在后续的 RUN 调用中使用 '{canonical_alias}'。\n"
+    ),
+    "resolve_discarded": (
+        "[{requested_alias}]\n"
+        "状态: discarded（已丢弃）\n"
+        "已实例化: 否\n"
+        "{message_line}"
+        "{reason_line}"
+        "\n"
+        "操作: 如果需要，请使用 SEARCH 查找相关的已定型记忆。"
+    ),
+    "resolve_failed": (
+        "[{requested_alias}]\n"
+        "状态: 失败\n"
+        "已实例化: 否\n"
+        "{error_line}"
+        "{message_line}"
+        "{reason_line}"
+        "\n"
+        "操作: 重新发出 WRITE/UPDATE 指令以重试。"
+    ),
+    "resolve_expired": (
+        "[{requested_alias}]\n"
+        "状态: expired（已过期）\n"
+        "已实例化: 否\n"
+        "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
+        "操作: 如果需要，请使用 SEARCH 查找已定型的记忆。"
+    ),
+}
+
+_RESOLVE_RESULT_TEXT_EN = {
+    "resolve_redirect_read": (
+        "[Alias Redirected]\n"
+        "Requested alias: {requested_alias}\n"
+        "Canonical alias: {canonical_alias}\n"
+        "Status: {status}\n"
+        "\n"
+        "[{canonical_alias}]:\n"
+        "{content}\n"
+        "\n"
+        "Action: Use '{canonical_alias}' for future READ/RUN/UPDATE calls."
+    ),
+    "resolve_redirect_run_notice": (
+        "[Alias Redirected]\n"
+        "Requested alias: {requested_alias}\n"
+        "Canonical alias: {canonical_alias}\n"
+        "Status: {status}\n"
+        "Action: Use '{canonical_alias}' for future RUN calls.\n"
+    ),
+    "resolve_discarded": (
+        "[{requested_alias}]\n"
+        "status: discarded\n"
+        "materialized: false\n"
+        "{message_line}"
+        "{reason_line}"
+        "\n"
+        "Action: Use SEARCH to locate related finalized memory if needed."
+    ),
+    "resolve_failed": (
+        "[{requested_alias}]\n"
+        "status: failed\n"
+        "materialized: false\n"
+        "{error_line}"
+        "{message_line}"
+        "{reason_line}"
+        "\n"
+        "Action: Re-issue a WRITE/UPDATE command to retry."
+    ),
+    "resolve_expired": (
+        "[{requested_alias}]\n"
+        "status: expired\n"
+        "materialized: false\n"
+        "This handle has been reclaimed. The pending atom no longer exists in runtime.\n"
+        "Action: Use SEARCH to locate the finalized memory if needed."
+    ),
+}
+
 
 def _language(value: str | Language | None = None) -> Language:
     return resolve_language(explicit=value)
@@ -237,8 +445,28 @@ def get_memory_atom_text(key: str, language: str | Language | None = None) -> st
         raise KeyError(f"Unknown memory atom i18n key: {key}") from exc
 
 
+def get_pending_atom_text(key: str, language: str | Language | None = None) -> str:
+    """Return a PendingAtom compilation text fragment."""
+    texts = _PENDING_ATOM_TEXT_EN if _language(language) == Language.EN else _PENDING_ATOM_TEXT_ZH
+    try:
+        return texts[key]
+    except KeyError as exc:
+        raise KeyError(f"Unknown pending atom i18n key: {key}") from exc
+
+
+def get_resolve_result_text(key: str, language: str | Language | None = None) -> str:
+    """Return a ResolveResult compilation text fragment."""
+    texts = _RESOLVE_RESULT_TEXT_EN if _language(language) == Language.EN else _RESOLVE_RESULT_TEXT_ZH
+    try:
+        return texts[key]
+    except KeyError as exc:
+        raise KeyError(f"Unknown resolve result i18n key: {key}") from exc
+
+
 __all__ = [
     "get_memory_atom_text",
+    "get_pending_atom_text",
+    "get_resolve_result_text",
     "get_memory_section_title",
     "get_memory_envelope_text",
 ]

@@ -85,11 +85,11 @@ from hivememory.core.models import (
 )
 
 # Generation 模块组件
-from hivememory.core.models import DuplicateDecision
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.models import (
+    DuplicateDecision,
     ExtractedMemoryDraft,
     GenerationContext,
     GenerationRequest,
