@@ -41,13 +41,8 @@ class PendingAtomStatus(str, Enum):
 
     @property
     def is_terminal(self) -> bool:
-        """终态：不可再迁移。"""
-        return self in {
-            PendingAtomStatus.SETTLED,
-            PendingAtomStatus.FAILED,
-            PendingAtomStatus.EXPIRED,
-            PendingAtomStatus.CANCELLED,
-        }
+        """终态：不可再迁移。EXPIRED 是唯一永久终态；其余终态仍可迁入 EXPIRED。"""
+        return self == PendingAtomStatus.EXPIRED
 
     @property
     def is_in_flight(self) -> bool:
@@ -84,10 +79,10 @@ _TRANSITIONS: dict[PendingAtomStatus, frozenset[PendingAtomStatus]] = {
         PendingAtomStatus.FAILED,
         PendingAtomStatus.CANCELLED,
     }),
-    PendingAtomStatus.SETTLED: frozenset(),
-    PendingAtomStatus.FAILED: frozenset(),
+    PendingAtomStatus.SETTLED: frozenset({PendingAtomStatus.EXPIRED}),
+    PendingAtomStatus.FAILED: frozenset({PendingAtomStatus.EXPIRED}),
     PendingAtomStatus.EXPIRED: frozenset(),
-    PendingAtomStatus.CANCELLED: frozenset(),
+    PendingAtomStatus.CANCELLED: frozenset({PendingAtomStatus.EXPIRED}),
 }
 
 

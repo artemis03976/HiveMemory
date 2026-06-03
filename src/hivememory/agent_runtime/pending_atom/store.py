@@ -67,6 +67,21 @@ class _PendingAtomStore:
         """返回指向同一 canonical UUID 的 pending alias 列表。"""
         return list(self._canonical_index.get(canonical_uuid, []))
 
+    def delete(self, alias: str) -> None:
+        """删除 atom 及其所有索引。"""
+        atom = self._atoms.pop(alias, None)
+        if atom is None:
+            return
+
+        self._intent_index.pop(atom.intent_id, None)
+
+        if atom.settlement and atom.settlement.canonical_uuid:
+            aliases = self._canonical_index.get(atom.settlement.canonical_uuid, [])
+            if alias in aliases:
+                aliases.remove(alias)
+            if not aliases:
+                self._canonical_index.pop(atom.settlement.canonical_uuid, None)
+
     # ---- 集合视图 ----
 
     def all_aliases(self) -> List[str]:

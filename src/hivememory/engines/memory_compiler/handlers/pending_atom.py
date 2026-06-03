@@ -21,12 +21,22 @@ def compile_pending_atom(
     options: MemoryCompileOptions,
 ) -> CompiledMemoryArtifact:
     """Compile a single PendingAtom into the requested target."""
-    if target == MemoryCompileTarget.MTP_READ:
-        text = _render_read(pending)
-    elif target == MemoryCompileTarget.SHARED_CONTEXT:
-        text = _render_read(pending)
-    elif target == MemoryCompileTarget.MTP_ACK:
+    from hivememory.core.models.pending import PendingAtomStatus
+
+    if target == MemoryCompileTarget.MTP_ACK:
         text = _render_ack(pending)
+    elif target in (MemoryCompileTarget.MTP_READ, MemoryCompileTarget.SHARED_CONTEXT):
+        status = pending.status
+        if status.is_in_flight:
+            text = _render_read(pending)
+        elif status == PendingAtomStatus.SETTLED:
+            text = _render_settled_read(pending)
+        elif status == PendingAtomStatus.FAILED:
+            text = _render_failed_read(pending)
+        elif status == PendingAtomStatus.CANCELLED:
+            text = _render_cancelled_read(pending)
+        else:  # EXPIRED
+            text = _render_expired_read(pending)
     else:
         raise ValueError(f"Unsupported target '{target}' for PendingAtom source.")
 
@@ -115,6 +125,45 @@ def _render_ack(pending: "PendingAtom") -> str:
         f"It is readable during this run via READ. "
         f"Final memory generation will complete asynchronously."
     )
+
+
+def _render_settled_read(pending: "PendingAtom") -> str:
+    settlement = pending.settlement
+    lines = [f"[{pending.pending_alias}] (settled):"]
+    if settlement:
+        lines.append(f"resolution: {settlement.resolution.value}")
+        if settlement.canonical_alias:
+            lines.append(f"canonical alias: {settlement.canonical_alias}")
+            lines.append(f"Action: Use '{settlement.canonical_alias}' for future READ/UPDATE calls.")
+        elif settlement.message:
+            lines.append(f"message: {settlement.message}")
+    return "\n".join(lines)
+
+
+def _render_failed_read(pending: "PendingAtom") -> str:
+    settlement = pending.settlement
+    error = settlement.error if settlement else None
+    lines = [
+        f"[{pending.pending_alias}] (failed):",
+        f"error: {error or 'Memory generation failed.'}",
+        "Action: Re-issue a WRITE/UPDATE command to retry.",
+    ]
+    return "\n".join(lines)
+
+
+def _render_cancelled_read(pending: "PendingAtom") -> str:
+    return "\n".join([
+        f"[{pending.pending_alias}] (cancelled):",
+        "This pending atom was cancelled and will not be materialized.",
+    ])
+
+
+def _render_expired_read(pending: "PendingAtom") -> str:
+    return "\n".join([
+        f"[{pending.pending_alias}] (expired):",
+        "This handle has been reclaimed. The pending atom no longer exists in runtime.",
+        "Action: Use SEARCH to locate the finalized memory if needed.",
+    ])
 
 
 def _render_redirect_read(

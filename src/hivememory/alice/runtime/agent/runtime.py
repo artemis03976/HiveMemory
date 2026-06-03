@@ -109,14 +109,18 @@ class AgentRuntime:
         ]
 
     def collect_tasks_by_run(self, run_id: str) -> "List[PendingAtomMaterializeTask]":
-        """收集本 run 的待物化 Task，并将状态从 PENDING 迁移到 MATERIALIZING（幂等）。"""
+        """收集本 run 的待物化 Task，并将状态从 PENDING 迁移到 MATERIALIZING（幂等）。
+        同时回收上轮已结算的 atom（SETTLED/FAILED/CANCELLED → EXPIRED → 删除）。
+        """
         aliases = [
             atom.pending_alias
             for atom in self._pending_runtime.all_atoms()
             if atom.runtime_scope.run_id == run_id
             and atom.status == PendingAtomStatus.PENDING
         ]
-        return self._pending_runtime.claim_for_materialization(aliases)
+        tasks = self._pending_runtime.claim_for_materialization(aliases)
+        self._pending_runtime.evict_by_run(run_id)
+        return tasks
 
     def health(self) -> dict[str, Any]:
         return {"loop_executor": "ok", "worker_agent": "ok"}

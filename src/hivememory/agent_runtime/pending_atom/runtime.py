@@ -312,6 +312,30 @@ class PendingAtomRuntime:
             if atom.runtime_scope.run_id == run_id
         ]
 
+    def evict_by_run(self, current_run_id: str) -> None:
+        """双步清理：迁移上轮已结算的 atom → EXPIRED，再删除所有 EXPIRED。
+
+        在 collect_tasks_by_run 之后调用（新 run 开始时），确保上轮的
+        SETTLED/FAILED/CANCELLED atom 在本轮结算后释放句柄。
+        """
+        # 步骤一：将属于旧 run 且已离开 in-flight 的 atom 迁移到 EXPIRED
+        for atom in self._store.all_atoms():
+            if atom.runtime_scope.run_id == current_run_id:
+                continue
+            if atom.status in {
+                PendingAtomStatus.SETTLED,
+                PendingAtomStatus.FAILED,
+                PendingAtomStatus.CANCELLED,
+            }:
+                self._set_status(atom, PendingAtomStatus.EXPIRED)
+                self._store.put(atom)
+
+        # 步骤二：删除所有 EXPIRED
+        for alias in [a for a in self._store.all_aliases()
+                      if self._store.get(a).status == PendingAtomStatus.EXPIRED]:
+            self._store.delete(alias)
+            logger.debug(f"evict_by_run: deleted EXPIRED atom '{alias}'")
+
     # ---- 生命周期 ----
 
     def clear(self) -> None:
