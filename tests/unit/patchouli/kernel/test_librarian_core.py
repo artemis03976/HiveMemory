@@ -343,11 +343,10 @@ class TestLibrarianCoreGenerateMemory:
     async def test_active_generation_settlement_publish_failure_marks_failed(self):
         """settlement publish failure emits FAILED event."""
         from hivememory.core.models import (
-            DuplicateDecision,
             PendingAtomResolution,
             PendingAtomSettlement,
         )
-        from hivememory.engines.generation.models import MemoryGenerationResult
+        from hivememory.engines.generation.models import MemoryGenerationResult, DuplicateDecision
 
         write_focus = WriteFocus(content="test content")
         task = PendingAtomMaterializeTask(

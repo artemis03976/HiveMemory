@@ -108,6 +108,7 @@ from hivememory.engines.gateway import (
 from hivememory.system.application.passive import MessageBufferState
 
 from hivememory.engines.generation import (
+    DuplicateDecision,
     MemoryGenerationEngine,
     BaseMemoryExtractor,
     BaseDeduplicator,
@@ -121,9 +122,8 @@ from hivememory.engines.generation import (
     NoOpDeduplicator,
     create_deduplicator,
 )
-# DuplicateDecision / WriteFocus / UpdateFocus 已上移到 core.models
+# WriteFocus / UpdateFocus are shared core DTOs; DuplicateDecision belongs to generation.
 from hivememory.core.models import (
-    DuplicateDecision,
     UpdateFocus,
     WriteFocus,
 )

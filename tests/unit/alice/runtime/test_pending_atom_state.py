@@ -208,7 +208,6 @@ def _make_settlement(
         pending_alias=pending_alias,
         intent_id=intent_id,
         resolution=resolution,
-        duplicate_decision=None,
         canonical_alias=canonical_alias,
         canonical_uuid=canonical_uuid,
         message="",

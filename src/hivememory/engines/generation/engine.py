@@ -21,7 +21,6 @@ from datetime import datetime
 
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.models import (
-    DuplicateDecision,
     Identity,
     IndexLayer,
     MemoryAtom,
@@ -34,6 +33,7 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.engines.generation.models import (
+    DuplicateDecision,
     ExtractedMemoryDraft, GenerationRequest, GenerationContext,
     MergeResult,
     MemoryGenerationResult,
@@ -333,7 +333,7 @@ class MemoryGenerationEngine:
             duplicate_decision=None,
             settlement=self._build_settlement(
                 intent_id, pending_alias,
-                PendingAtomResolution.UPDATED, None,
+                PendingAtomResolution.UPDATED,
                 memory,
             ),
         )]
@@ -366,7 +366,7 @@ class MemoryGenerationEngine:
                 duplicate_decision=DuplicateDecision.TOUCH,
                 settlement=self._build_settlement(
                     intent_id, pending_alias,
-                    PendingAtomResolution.TOUCHED, DuplicateDecision.TOUCH,
+                    PendingAtomResolution.TOUCHED,
                     existing_memory,
                 ),
             )]
@@ -386,7 +386,7 @@ class MemoryGenerationEngine:
                 duplicate_decision=DuplicateDecision.UPDATE,
                 settlement=self._build_settlement(
                     intent_id, pending_alias,
-                    PendingAtomResolution.MERGED, DuplicateDecision.UPDATE,
+                    PendingAtomResolution.MERGED,
                     merged_memory,
                 ),
             )]
@@ -406,7 +406,7 @@ class MemoryGenerationEngine:
                 duplicate_decision=DuplicateDecision.CREATE,
                 settlement=self._build_settlement(
                     intent_id, pending_alias,
-                    PendingAtomResolution.CREATED, DuplicateDecision.CREATE,
+                    PendingAtomResolution.CREATED,
                     memory,
                 ),
             )]
@@ -420,7 +420,7 @@ class MemoryGenerationEngine:
                 duplicate_decision=DuplicateDecision.DISCARD,
                 settlement=self._build_settlement(
                     intent_id, pending_alias,
-                    PendingAtomResolution.DISCARDED, DuplicateDecision.DISCARD,
+                    PendingAtomResolution.DISCARDED,
                     None,
                 ),
                 message="Low-quality duplicate, discarded.",
@@ -431,7 +431,6 @@ class MemoryGenerationEngine:
         intent_id: Optional[str],
         pending_alias: Optional[str],
         resolution: PendingAtomResolution,
-        decision: Optional[DuplicateDecision],
         atom: Optional[MemoryAtom],
     ) -> Optional[PendingAtomSettlement]:
         """构建 settlement 视图；无 intent 时返回 None。"""
@@ -446,7 +445,6 @@ class MemoryGenerationEngine:
             pending_alias=pending_alias,
             intent_id=intent_id,
             resolution=resolution,
-            duplicate_decision=decision,
             canonical_alias=canonical_alias,
             canonical_uuid=canonical_uuid,
             message=(

@@ -210,12 +210,12 @@ _MEMORY_ATOM_TEXT_EN = {
 
 _PENDING_ATOM_TEXT_ZH = {
     "pending_ack_write": (
-        "记忆已作为待定原子 '{pending_alias}' 被接收。\n"
+        "记忆已作为 pending atom（待定原子） '{pending_alias}' 被接收。\n"
         "在此次运行期间可通过 READ 指令读取。"
         "最终的记忆生成将异步完成。"
     ),
     "pending_ack_update": (
-        "记忆 '{base_alias}' 的更新已作为待定修订 '{pending_alias}' 被接收。\n"
+        "记忆 '{base_alias}' 的更新已作为 pending revision（待定修订） '{pending_alias}' 被接收。\n"
         "在此次运行期间可通过 READ 指令读取。"
         "最终的记忆更新将异步完成。"
     ),
@@ -232,7 +232,7 @@ _PENDING_ATOM_TEXT_ZH = {
         "最终的记忆生成是异步的。"
     ),
     "pending_read_update": (
-        "[{pending_alias}] ('{base_alias}' 的待定修订):\n"
+        "[{pending_alias}] (pending revision of '{base_alias}' / '{base_alias}' 的待定修订):\n"
         "状态: {status}\n"
         "{instruction_line}"
         "\n"
@@ -260,7 +260,7 @@ _PENDING_ATOM_TEXT_ZH = {
     ),
     "pending_read_expired": (
         "[{pending_alias}] (已过期):\n"
-        "此句柄已被回收。该待定原子在运行时已不再存在。\n"
+        "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
         "操作: 如果需要，请使用 SEARCH 查找已定型的记忆。"
     ),
 }
@@ -324,7 +324,7 @@ _PENDING_ATOM_TEXT_EN = {
 
 _RESOLVE_RESULT_TEXT_ZH = {
     "resolve_redirect_read": (
-        "[别名已重定向]\n"
+        "[Alias Redirected]\n"
         "请求的别名: {requested_alias}\n"
         "规范别名: {canonical_alias}\n"
         "状态: {status}\n"
@@ -335,7 +335,7 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "操作: 请在后续的 READ/RUN/UPDATE 调用中使用 '{canonical_alias}'。"
     ),
     "resolve_redirect_run_notice": (
-        "[别名已重定向]\n"
+        "[Alias Redirected]\n"
         "请求的别名: {requested_alias}\n"
         "规范别名: {canonical_alias}\n"
         "状态: {status}\n"
@@ -343,7 +343,7 @@ _RESOLVE_RESULT_TEXT_ZH = {
     ),
     "resolve_discarded": (
         "[{requested_alias}]\n"
-        "状态: 已丢弃\n"
+        "状态: discarded（已丢弃）\n"
         "已实例化: 否\n"
         "{message_line}"
         "{reason_line}"
@@ -362,9 +362,9 @@ _RESOLVE_RESULT_TEXT_ZH = {
     ),
     "resolve_expired": (
         "[{requested_alias}]\n"
-        "状态: 已过期\n"
+        "状态: expired（已过期）\n"
         "已实例化: 否\n"
-        "此句柄已被回收。该待定原子在运行时已不再存在。\n"
+        "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
         "操作: 如果需要，请使用 SEARCH 查找已定型的记忆。"
     ),
 }

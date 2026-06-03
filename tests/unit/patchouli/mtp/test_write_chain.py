@@ -20,7 +20,6 @@ from unittest.mock import MagicMock, patch, call
 from datetime import datetime
 
 from hivememory.core.models import (
-    DuplicateDecision,
     Identity,
     IndexLayer,
     MemoryAtom,
@@ -34,6 +33,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.generation.models import (
+    DuplicateDecision,
     GenerationRequest,
     GenerationContext,
     GenerationTurn,

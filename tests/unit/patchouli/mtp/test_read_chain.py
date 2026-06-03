@@ -21,8 +21,9 @@ from unittest.mock import MagicMock, patch
 
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
-    DuplicateDecision, PendingAtomResolution, PendingAtomSettlement,
+    PendingAtomResolution, PendingAtomSettlement,
 )
+from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
@@ -176,11 +177,11 @@ class TestReadAliasResolution:
 
         assert result.success
         assert "[Alias Redirected]" in result.response_content
-        assert f"Requested alias: {pending.pending_alias}" in result.response_content
-        assert "Canonical alias: fact_canonical" in result.response_content
+        assert f"请求的别名: {pending.pending_alias}" in result.response_content
+        assert "规范别名: fact_canonical" in result.response_content
         assert "[fact_canonical]:" in result.response_content
         assert "canonical content" in result.response_content
-        assert "Use 'fact_canonical'" in result.response_content
+        assert "fact_canonical" in result.response_content
         assert koakuma._bus._memory_citations == [
             {"memory_id": canonical.id, "source": "mtp.read"}
         ]
@@ -206,8 +207,8 @@ class TestReadAliasResolution:
         result = _execute_mtp(koakuma, f'⟪ READ | {pending.pending_alias} | ⟫')
 
         assert result.success
-        assert "status: discarded" in result.response_content
-        assert "materialized: false" in result.response_content
+        assert "discarded" in result.response_content
+        assert "已实例化: 否" in result.response_content
         assert "Not materialized." in result.response_content
 
     def test_read_expired_pending_alias(self, koakuma):
@@ -225,7 +226,7 @@ class TestReadAliasResolution:
         )
 
         assert result.success
-        assert "status: expired" in result.response_content
+        assert "expired" in result.response_content
         assert "reclaimed" in result.response_content
         assert "Alias Not Found" not in result.response_content
 

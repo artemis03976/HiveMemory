@@ -8,7 +8,6 @@ from uuid import uuid4
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
 from hivememory.core.models import (
-    DuplicateDecision,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -196,7 +195,6 @@ class TestAlicePublicRoutes:
             pending_alias="draft_memory_1234",
             intent_id="intent_1234",
             resolution=PendingAtomResolution.CREATED,
-            duplicate_decision=DuplicateDecision.CREATE,
             canonical_alias="fact_canonical",
             canonical_uuid=str(fresh_atom.id),
         )

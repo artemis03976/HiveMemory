@@ -23,8 +23,9 @@ from unittest.mock import MagicMock
 
 from hivememory.core.models import (
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
-    DuplicateDecision, PendingAtomResolution, PendingAtomSettlement,
+    PendingAtomResolution, PendingAtomSettlement,
 )
+from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
@@ -322,8 +323,8 @@ class TestRunUserToolPath:
 
         assert result.success
         assert "[Alias Redirected]" in result.response_content
-        assert f"Requested alias: {pending.pending_alias}" in result.response_content
-        assert "Canonical alias: tool_canonical" in result.response_content
+        assert f"请求的别名: {pending.pending_alias}" in result.response_content
+        assert "规范别名: tool_canonical" in result.response_content
         assert "redirected tool output" in result.response_content
         assert koakuma._bus._memory_citations == [
             {"memory_id": canonical.id, "source": "mtp.run"}
@@ -344,7 +345,7 @@ class TestRunUserToolPath:
         )
 
         assert not result.success
-        assert "status: expired" in result.response_content
+        assert "expired" in result.response_content
         assert "reclaimed" in result.response_content
         assert "Alias Not Found" not in result.response_content
 

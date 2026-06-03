@@ -1,4 +1,4 @@
-"""
+﻿"""
 HiveMemory 核心数据模型 - Pending / Settlement 领域
 
 PendingAtom 与其结算视图 PendingAtomSettlement 是 ``engines/`` 与 ``alice/`` 之间
@@ -9,8 +9,7 @@ PendingAtom 与其结算视图 PendingAtomSettlement 是 ``engines/`` 与 ``alic
 
 新代码应直接从本模块或 ``hivememory.core.models`` 导入。生成域 facade
 ``hivememory.engines.generation.models`` 仍 re-export 一份 PendingAtomSettlement /
-DuplicateDecision / WriteFocus / UpdateFocus，作为生成流水线域内的稳定面，
-调用方按业务直觉选择即可。
+WriteFocus / UpdateFocus，作为生成流水线域内的稳定面，调用方按业务直觉选择即可。
 """
 
 from __future__ import annotations
@@ -104,27 +103,6 @@ class InvalidStateTransition(RuntimeError):
 
 
 # ===========================================================================
-# 查重决策
-# ===========================================================================
-
-# TODO:放回generation引擎
-class DuplicateDecision(str, Enum):
-    """
-    查重决策类型
-
-    Attributes:
-        CREATE: 创建新记忆
-        UPDATE: 更新现有记忆（知识演化）
-        TOUCH: 仅更新访问时间（完全重复）
-        DISCARD: 丢弃（低质量重复）
-    """
-    CREATE = "create"
-    UPDATE = "update"
-    TOUCH = "touch"
-    DISCARD = "discard"
-
-
-# ===========================================================================
 # WRITE / UPDATE 指令聚焦内容
 # ===========================================================================
 
@@ -204,7 +182,6 @@ class PendingAtomSettlement(BaseModel):
     pending_alias: str
     intent_id: str
     resolution: PendingAtomResolution
-    duplicate_decision: Optional[DuplicateDecision] = None
     canonical_alias: Optional[str] = None
     canonical_uuid: Optional[str] = None
     message: str = ""
@@ -330,8 +307,6 @@ __all__ = [
     "is_legal_transition",
     "allowed_transitions",
     "InvalidStateTransition",
-    # 查重决策
-    "DuplicateDecision",
     # Focus
     "WriteFocus",
     "UpdateFocus",

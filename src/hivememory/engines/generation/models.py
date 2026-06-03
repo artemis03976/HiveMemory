@@ -1,4 +1,4 @@
-"""
+﻿"""
 HiveMemory Generation 模块数据模型
 
 仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``MergeResult`` /
@@ -7,21 +7,28 @@ HiveMemory Generation 模块数据模型
 
 跨 alice/engines/compiler 共享的领域模型（``PendingAtom`` /
 ``PendingAtomSettlement`` / ``PendingAtomResolution`` / ``PendingAtomStatus`` /
-``DuplicateDecision`` / ``WriteFocus`` / ``UpdateFocus`` / ``RuntimeScope``）已
-上移到 ``hivememory.core.models``（见 docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2），
-请直接从 core 导入，不再走本模块的 re-export。
+``WriteFocus`` / ``UpdateFocus`` / ``RuntimeScope``）已上移到
+``hivememory.core.models``（见 docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2）。
 """
+from enum import Enum
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from hivememory.core.models import (
-    DuplicateDecision,
     Identity,
     PendingAtomSettlement,
     UpdateFocus,
     WriteFocus,
 )
 
+
+class DuplicateDecision(str, Enum):
+    """Deduplication decision produced inside the generation pipeline."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    TOUCH = "touch"
+    DISCARD = "discard"
 
 # ============ 提取结果模型 ============
 
@@ -183,6 +190,7 @@ class MemoryGenerationResult(BaseModel):
 
 
 __all__ = [
+    "DuplicateDecision",
     "ExtractedMemoryDraft",
     "MergeResult",
     "GenerationRequest",

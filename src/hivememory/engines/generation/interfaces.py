@@ -15,8 +15,12 @@ HiveMemory - Generation 模块接口抽象层
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 
-from hivememory.core.models import DuplicateDecision, MemoryAtom, StreamMessage
-from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult
+from hivememory.core.models import MemoryAtom, StreamMessage
+from hivememory.engines.generation.models import (
+    DuplicateDecision,
+    ExtractedMemoryDraft,
+    MergeResult,
+)
 
 
 # ========== 接口定义 ==========

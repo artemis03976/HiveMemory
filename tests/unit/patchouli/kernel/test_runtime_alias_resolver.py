@@ -7,7 +7,6 @@ from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.core.models import (
-    DuplicateDecision,
     Identity,
     IndexLayer,
     MemoryAtom,
@@ -82,7 +81,6 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
         resolution=PendingAtomResolution.CREATED,
-        duplicate_decision=DuplicateDecision.CREATE,
         canonical_alias="fact_canonical",
         canonical_uuid=str(canonical.id),
     )
@@ -120,7 +118,6 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
         resolution=PendingAtomResolution.MERGED,
-        duplicate_decision=DuplicateDecision.UPDATE,
         canonical_alias="fact_canonical",
         canonical_uuid=str(canonical.id),
     )
@@ -147,7 +144,6 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
         resolution=PendingAtomResolution.DISCARDED,
-        duplicate_decision=DuplicateDecision.DISCARD,
         message="Not materialized.",
     )
 

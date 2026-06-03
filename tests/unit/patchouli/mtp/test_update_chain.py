@@ -454,7 +454,6 @@ class TestApplyUpdate:
 
         assert result[0].settlement is not None
         assert result[0].settlement.resolution == PendingAtomResolution.UPDATED
-        assert result[0].settlement.duplicate_decision is None
         assert result[0].settlement.canonical_alias == existing_memory.get_alias()
 
     def test_persisted_to_storage(self, existing_memory, merge_result):

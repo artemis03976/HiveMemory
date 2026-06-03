@@ -32,13 +32,13 @@ from hivememory.core.models import (
     Identity
 )
 from hivememory.engines.generation.models import (
+    DuplicateDecision,
     ExtractedMemoryDraft,
     GenerationRequest,
     GenerationContext,
     GenerationTurn,
 )
 from hivememory.system.config import DeduplicatorConfig, ExtractorConfig
-from hivememory.core.models import DuplicateDecision
 from hivememory.engines.generation import (
     LLMMemoryExtractor,
     MemoryDeduplicator,

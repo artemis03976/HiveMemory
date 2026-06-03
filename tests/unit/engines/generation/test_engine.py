@@ -18,6 +18,7 @@ from datetime import datetime
 
 from hivememory.engines.generation.engine import MemoryGenerationEngine, MEMORY_TYPE_ALIAS_PREFIX
 from hivememory.engines.generation.models import (
+    DuplicateDecision,
     ExtractedMemoryDraft,
     GenerationRequest,
     GenerationContext,
@@ -25,7 +26,6 @@ from hivememory.engines.generation.models import (
     MergeResult,
 )
 from hivememory.core.models import (
-    DuplicateDecision,
     Identity,
     IndexLayer,
     MemoryAtom,
