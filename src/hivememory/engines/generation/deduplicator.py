@@ -134,11 +134,6 @@ class MemoryDeduplicator(BaseDeduplicator):
 
             logger.info(f"查重决策: {decision.value}")
 
-            # 记录生命周期事件 - TOUCH 决策表示记忆被再次命中
-            if decision == DuplicateDecision.TOUCH:
-                # TODO: 实现生命周期事件记录
-                pass
-
             return decision, existing_memory
 
         except Exception as e:
