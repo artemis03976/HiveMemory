@@ -373,7 +373,7 @@ class FlushEventRecorder:
         >>> librarian_core.add_flush_observer(recorder)
         >>> # ... 测试代码 ...
         >>> assert recorder.count > 0
-        >>> drift_events = recorder.get_events_by_reason(FlushReason.SEMANTIC_DRIFT)
+        >>> manual_events = recorder.get_events_by_reason(FlushReason.MANUAL)
     """
 
     def __init__(self):

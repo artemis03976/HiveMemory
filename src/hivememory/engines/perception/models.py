@@ -34,7 +34,6 @@ from hivememory.core.models import (
 
 class FlushReason(str, Enum):
     """缓冲区刷新原因枚举"""
-    SEMANTIC_DRIFT = "semantic_drift"  # TODO: 移除老旧语义漂移语义
     TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
     MANUAL = "manual"  # 手动触发

@@ -5,10 +5,8 @@ HiveMemory Perception Component E2E Tests
 
 测试组：
     - Group 1: 语义吸附测试 (similarity >= 0.75)
-    - Group 2: 语义漂移测试 (similarity < 0.40)
-    - Group 3: 灰色区仲裁测试 (0.40 <= similarity < 0.75)
-    - Group 4: Token 溢出测试
-    - Group 5: 工作流测试 (Chatbot + Agent)
+    - Group 2: Token 溢出测试
+    - Group 3: 工作流测试 (Chatbot + Agent)
 
 运行方式：
     pytest tests/components/test_perception_e2e.py -v
@@ -16,8 +14,8 @@ HiveMemory Perception Component E2E Tests
 核心原则：
     - 直接测试 SemanticFlowPerceptionLayer（不通过 LibrarianCore）
     - 使用真实的 RelayController
-    - 聚焦语义吸附/漂移/溢出机制
-    - 精确阈值测试：覆盖 high(>=0.75)、low(<0.40)、grey(0.40-0.75) 三个区间
+    - 聚焦语义吸附与溢出机制
+    - MMU 模式下不再依赖自动语义漂移检测
 
 作者: HiveMemory Team
 版本: 3.0.0
@@ -75,7 +73,7 @@ sys.path.insert(0, str(project_root / "src"))
 from hivememory.core.models import Identity, TurnEvent
 
 # 感知层组件
-from hivememory.engines.perception.models import FlushReason, FlushEvent
+from hivememory.engines.perception.models import FlushReason
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.engines.perception.relay_controller import SimpleRelayController
@@ -94,7 +92,6 @@ from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
 from tests.fixtures.perception_test_data import (
     DATA_SCIENCE_CONVERSATION,
     WEB_DEVELOPMENT_CONVERSATION,
-    GAME_DEVELOPMENT_CONVERSATION,
     COOKING_RECIPE_CONVERSATION,
     AGENT_TOOL_CALL_SCENARIO,
     AGENT_MULTI_TOOL_SCENARIO,
@@ -315,13 +312,13 @@ class TestSemanticAdsorption:
                 rewritten_query=msg.get("rewritten_query", None),
             )
 
-        # 验证：不应触发语义漂移
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        assert len(drift_flushes) == 0, f"高相似度不应触发语义漂移，实际触发 {len(drift_flushes)} 次"
+        # 验证：不应触发自动 flush
+        flush_count = self.recorder.count
+        assert flush_count == 0, f"高相似度不应触发自动 flush，实际触发 {flush_count} 次"
 
         buffer_info = get_buffer_info_by_identity(self.perception, identity)
         print_test_result(console, "PER-ADS-001", True)
-        console.print(f"    [dim]语义漂移触发次数: {len(drift_flushes)} (预期: 0)[/dim]")
+        console.print(f"    [dim]自动 flush 次数: {flush_count} (预期: 0)[/dim]")
         console.print(f"    [dim]Buffer block_count: {buffer_info.get('block_count', 'N/A')}[/dim]")
 
     def test_threshold_boundary_adsorption(self):
@@ -360,11 +357,12 @@ class TestSemanticAdsorption:
             rewritten_query=test_pair["query_text"],
         )
 
-        # 边界情况：可能吸附也可能漂移
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
+        # 当前 MMU 模式下不做自动漂移 flush
+        flush_count = self.recorder.count
+        assert flush_count == 0, f"边界值对话不应触发自动 flush，实际触发 {flush_count} 次"
         print_test_result(console, "PER-ADS-002", True)
         console.print(f"    [dim]边界值 0.75 测试[/dim]")
-        console.print(f"    [dim]语义漂移触发: {len(drift_flushes) > 0} (边界情况)[/dim]")
+        console.print(f"    [dim]自动 flush 次数: {flush_count} (预期: 0)[/dim]")
 
     def test_continuous_same_topic(self):
         """
@@ -386,15 +384,15 @@ class TestSemanticAdsorption:
                 rewritten_query=msg.get("rewritten_query", None),
             )
 
-        # 验证：不应触发语义漂移
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        assert len(drift_flushes) == 0, f"连续同话题不应触发漂移，实际触发 {len(drift_flushes)} 次"
+        # 验证：不应触发自动 flush
+        flush_count = self.recorder.count
+        assert flush_count == 0, f"连续同话题不应触发自动 flush，实际触发 {flush_count} 次"
 
         buffer_info = get_buffer_info_by_identity(self.perception, identity)
         assert buffer_info.get("block_count", 0) >= 1, "应该有至少 1 个 Block"
 
         print_test_result(console, "PER-ADS-003", True)
-        console.print(f"    [dim]语义漂移触发次数: {len(drift_flushes)} (预期: 0)[/dim]")
+        console.print(f"    [dim]自动 flush 次数: {flush_count} (预期: 0)[/dim]")
         console.print(f"    [dim]Block 数量: {buffer_info.get('block_count', 'N/A')}[/dim]")
 
     def test_short_text_forced_adsorption(self):
@@ -433,169 +431,20 @@ class TestSemanticAdsorption:
                 rewritten_query=short_text,
             )
 
-        # 验证：短文本应吸附，不触发漂移
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        assert len(drift_flushes) == 0, "短文本应强制吸附，不触发语义漂移"
+        # 验证：短文本应吸附，不触发自动 flush
+        flush_count = self.recorder.count
+        assert flush_count == 0, "短文本应强制吸附，不触发自动 flush"
 
         print_test_result(console, "PER-ADS-004", True)
         console.print(f"    [dim]测试短文本: {SHORT_TEXT_SAMPLES[:3]}[/dim]")
-        console.print(f"    [dim]语义漂移触发次数: {len(drift_flushes)} (预期: 0)[/dim]")
+        console.print(f"    [dim]自动 flush 次数: {flush_count} (预期: 0)[/dim]")
 
 
-# ========== Group 2: 语义漂移测试 (similarity < 0.40) ==========
-
-class TestSemanticDrift:
-    """
-    Group 2: 语义漂移测试
-
-    验证 similarity < 0.40 时的漂移行为。
-    """
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """每个测试前初始化"""
-        self.perception = get_shared_perception()
-        self.recorder = get_shared_flush_recorder()
-        reset_test_env()
-
-    def test_low_similarity_drift(self):
-        """
-        PER-DRT-001: 低相似度漂移
-
-        验证点：
-        - similarity < 0.40 时，触发 FlushEvent(SEMANTIC_DRIFT)
-        """
-        identity = Identity(user_id="test_low_sim", agent_id="chatbot", session_id="session1")
-
-        # 建立数据科学话题基线
-        for i in range(2):
-            msg = DATA_SCIENCE_CONVERSATION[i]
-            add_message_to_perception(
-                perception=self.perception,
-                role=msg["role"],
-                content=msg["content"],
-                identity=identity,
-                rewritten_query=msg.get("rewritten_query", None),
-            )
-
-        self.recorder.clear()
-
-        # 切换到完全不相关的烹饪话题
-        for msg in COOKING_RECIPE_CONVERSATION:
-            add_message_to_perception(
-                perception=self.perception,
-                role=msg["role"],
-                content=msg["content"],
-                identity=identity,
-                rewritten_query=msg.get("rewritten_query", None),
-            )
-
-        # 验证：应触发语义漂移
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        assert isinstance(drift_flushes, list)
-
-        print_test_result(console, "PER-DRT-001", True)
-        console.print(f"    [dim]语义漂移触发次数: {len(drift_flushes)} (预期: > 0)[/dim]")
-
-    def test_threshold_boundary_drift(self):
-        """
-        PER-DRT-002: 边界值漂移
-
-        验证点：
-        - similarity < 0.40 时，触发漂移
-        """
-        identity = Identity(user_id="test_boundary_039", agent_id="chatbot", session_id="session1")
-
-        # 使用低相似度测试对
-        test_pair = SIMILARITY_TEST_PAIRS["low_similarity"]
-
-        add_message_to_perception(
-            perception=self.perception,
-            role="user",
-            content=test_pair["base_text"],
-            identity=identity,
-            rewritten_query=test_pair["base_text"],
-        )
-        add_message_to_perception(
-            perception=self.perception,
-            role="assistant",
-            content="这是关于数据可视化的回答...",
-            identity=identity,
-        )
-
-        self.recorder.clear()
-
-        add_message_to_perception(
-            perception=self.perception,
-            role="user",
-            content=test_pair["query_text"],
-            identity=identity,
-            rewritten_query=test_pair["query_text"],
-        )
-
-        add_message_to_perception(
-            perception=self.perception,
-            role="assistant",
-            content="这是关于今天晚餐食谱的推荐...",
-            identity=identity,
-        )
-
-        # 验证：应触发语义漂移
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        assert isinstance(drift_flushes, list)
-
-        print_test_result(console, "PER-DRT-002", True)
-        console.print(f"    [dim]低相似度测试 (预期 < 0.40)[/dim]")
-        console.print(f"    [dim]语义漂移触发: {len(drift_flushes) > 0}[/dim]")
-
-    def test_drift_flush_content(self):
-        """
-        PER-DRT-003: Flush 内容验证
-
-        验证点：
-        - Flush 时消息数量正确
-        """
-        identity = Identity(user_id="test_flush_content", agent_id="chatbot", session_id="session1")
-
-        # 建立数据科学话题基线
-        for i in range(2):
-            msg = DATA_SCIENCE_CONVERSATION[i]
-            add_message_to_perception(
-                perception=self.perception,
-                role=msg["role"],
-                content=msg["content"],
-                identity=identity,
-                rewritten_query=msg.get("rewritten_query", None),
-            )
-
-        self.recorder.clear()
-
-        # 切换到游戏开发话题（触发漂移）
-        for msg in GAME_DEVELOPMENT_CONVERSATION:
-            add_message_to_perception(
-                perception=self.perception,
-                role=msg["role"],
-                content=msg["content"],
-                identity=identity,
-                rewritten_query=msg.get("rewritten_query", None),
-            )
-
-        # 验证 Flush 内容
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
-        print_test_result(console, "PER-DRT-003", True)
-        if drift_flushes:
-            last_flush = drift_flushes[-1]
-            msg_count = last_flush["message_count"]
-            console.print(f"    [dim]Flush 包含 {msg_count} 条消息[/dim]")
-        else:
-            console.print(f"    [dim]未触发漂移（边界情况）[/dim]")
-
-
-# ========== Group 3: Token 溢出测试 ==========
+# ========== Group 2: Token 溢出测试 ==========
 
 class TestTokenOverflow:
     """
-    Group 4: Token 溢出测试
+    Group 2: Token 溢出测试
 
     验证 Buffer 溢出和接力机制。
     """
@@ -710,11 +559,11 @@ class TestTokenOverflow:
         console.print(f"    [dim]当前 Block 数: {buffer_info.get('block_count', 'N/A')}[/dim]")
 
 
-# ========== Group 5: 工作流测试 ==========
+# ========== Group 3: 工作流测试 ==========
 
 class TestWorkflows:
     """
-    Group 5: 工作流测试
+    Group 3: 工作流测试
 
     验证 Chatbot 和 Agent 工作流。
     """
@@ -858,12 +707,12 @@ class TestWorkflows:
         console.print(f"    [dim]Block 数量: {buffer_info.get('block_count', 'N/A')}[/dim]")
         console.print(f"    [dim]总 Tokens: {buffer_info.get('total_tokens', 'N/A')}[/dim]")
 
-    def test_chatbot_topic_switch(self):
+    def test_chatbot_topic_switch_does_not_auto_flush(self):
         """
         PER-WFL-004: 话题切换
 
         验证点：
-        - 切换话题时触发 FlushEvent(SEMANTIC_DRIFT)
+        - 切换话题内容本身不再触发自动 flush
         """
         identity = Identity(user_id="test_topic_switch", agent_id="chatbot", session_id="session1")
 
@@ -890,14 +739,11 @@ class TestWorkflows:
                 rewritten_query=msg.get("rewritten_query", None),
             )
 
-        # 验证：话题切换应触发 Flush
-        drift_flushes = self.recorder.get_flushes_by_reason(FlushReason.SEMANTIC_DRIFT)
+        # 验证：话题切换不应自动 flush
+        flush_count = self.recorder.count
+        assert flush_count == 0, f"话题切换不应自动 flush，实际触发 {flush_count} 次"
         print_test_result(console, "PER-WFL-004", True)
-        if drift_flushes:
-            console.print(f"    [dim]话题切换触发漂移: True[/dim]")
-            console.print(f"    [dim]Flush 次数: {len(drift_flushes)}[/dim]")
-        else:
-            console.print(f"    [dim]话题切换未触发漂移（边界情况）[/dim]")
+        console.print(f"    [dim]自动 flush 次数: {flush_count} (预期: 0)[/dim]")
 
 
 # ========== 主函数 ==========

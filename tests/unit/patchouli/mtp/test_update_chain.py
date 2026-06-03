@@ -619,7 +619,7 @@ class TestFlushCallbackModesUpdate:
             topic_id="topic_test",
             blocks=blocks,
             state_summary="",
-            reason=FlushReason.SEMANTIC_DRIFT,
+            reason=FlushReason.MANUAL,
         )
         await core._on_generate_memory(payload)
         mock_generation.process.assert_called_once()

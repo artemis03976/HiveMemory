@@ -87,8 +87,8 @@ class TestSemanticFlowPerceptionLayer:
         assert buffer.blocks[0].identity.agent_id == "a1"
 
     @pytest.mark.asyncio
-    async def test_semantic_drift_flush(self):
-        """测试话题路由 (Phase 4.5 MMU: 由 TheEye 完成路由决策)"""
+    async def test_route_and_ingest_reuses_topic_buffer(self):
+        """测试同一 topic_id 下继续写入同一 buffer"""
         identity = Identity(user_id="u1", agent_id="a1")
 
         # 第一轮：路由到新话题
@@ -104,7 +104,7 @@ class TestSemanticFlowPerceptionLayer:
         # 第二轮：继续摄入（MMU 模式下话题路由由 TheEye 完成，ingest_payload 只做添加）
         await self.layer.route_and_ingest(topic_id, _make_payload("new topic", "new response", identity))
 
-        # 验证两个 block 都在同一 buffer 中（无漂移检测）
+        # 验证两个 block 都在同一 buffer 中（无自动漂移检测）
         assert len(buffer.blocks) == 2
 
     @pytest.mark.asyncio
