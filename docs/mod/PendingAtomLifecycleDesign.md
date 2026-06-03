@@ -109,24 +109,26 @@ Run N+1 结算完成后：PA 安全迁移至 EXPIRED，下次结算时删除
 
 `collect_tasks_by_run(run_id)` 在完成本轮 PENDING → MATERIALIZING 收集后，顺序执行两步清理：
 
-**步骤一（迁移）**：将上轮的 SETTLED atom 迁移至 EXPIRED。
+**步骤一（删除）**：将上一个回收周期已处于 EXPIRED 状态的 atom 从 store 中删除。
+
+条件：`status == EXPIRED`
+
+**步骤二（迁移）**：将上轮的 SETTLED atom 迁移至 EXPIRED。
 
 条件：`status == SETTLED && runtime_scope.run_id != current_run_id`
 
-**步骤二（删除）**：将已处于 EXPIRED 状态的 atom 从 store 中删除。
-
-条件：`status == EXPIRED`（含本轮步骤一刚迁移的，以及更早轮次遗留的）
+这样本轮刚迁移到 EXPIRED 的句柄会保留一个回收周期，Resolver 可在这段窗口返回 `kind="expired"` 并给出"句柄已回收"提示；下一次 `evict_by_run()` 才会真正删除。
 
 两步合并伪代码：
 
 ```python
 def evict_by_run(self, current_run_id: str) -> None:
     for atom in self._store.all_atoms():
-        if atom.status == SETTLED and atom.runtime_scope.run_id != current_run_id:
-            self._set_status(atom, EXPIRED)
-    for atom in self._store.all_atoms():
         if atom.status == EXPIRED:
             self._store.delete(atom.pending_alias)
+    for atom in self._store.all_atoms():
+        if atom.status == SETTLED and atom.runtime_scope.run_id != current_run_id:
+            self._set_status(atom, EXPIRED)
 ```
 
 ---

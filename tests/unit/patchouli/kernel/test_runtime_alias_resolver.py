@@ -220,3 +220,20 @@ async def test_resolve_storage_failure_raises_storage_read_error(resolver_parts)
 
     with pytest.raises(StorageReadError):
         await resolver.resolve("fact_boom")
+
+
+@pytest.mark.asyncio
+async def test_resolve_expired_pending_returns_expired(resolver_parts):
+    resolver, pending_runtime, _atom_cache, _bus = resolver_parts
+    pending = pending_runtime.register_write(
+        content="will expire",
+        title="Expire Test",
+        reason=None,
+        identity=Identity(user_id="test_user"),
+    )
+    pending_runtime.expire(pending.pending_alias)
+
+    result = await resolver.resolve(pending.pending_alias)
+
+    assert result.kind == "expired"
+    assert result.requested_alias == pending.pending_alias

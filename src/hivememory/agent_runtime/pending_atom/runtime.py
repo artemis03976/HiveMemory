@@ -313,12 +313,21 @@ class PendingAtomRuntime:
         ]
 
     def evict_by_run(self, current_run_id: str) -> None:
-        """双步清理：迁移上轮已结算的 atom → EXPIRED，再删除所有 EXPIRED。
+        """双步清理：删除既有 EXPIRED，再将上轮已完成 atom → EXPIRED。
 
         在 collect_tasks_by_run 之后调用（新 run 开始时），确保上轮的
-        SETTLED/FAILED/CANCELLED atom 在本轮结算后释放句柄。
+        SETTLED/FAILED/CANCELLED atom 在本轮结算后保留一轮过期提示窗口。
         """
-        # 步骤一：将属于旧 run 且已离开 in-flight 的 atom 迁移到 EXPIRED
+        # 步骤一：删除上一个回收周期已标记的 EXPIRED。
+        for alias in [
+            a for a in self._store.all_aliases()
+            if self._store.get(a).status == PendingAtomStatus.EXPIRED
+        ]:
+            self._store.delete(alias)
+            logger.debug(f"evict_by_run: deleted EXPIRED atom '{alias}'")
+
+        # 步骤二：将属于旧 run 且已离开 in-flight 的 atom 迁移到 EXPIRED。
+        # 新迁移的 EXPIRED 会保留到下一次 evict_by_run，供 resolver 返回 expired。
         for atom in self._store.all_atoms():
             if atom.runtime_scope.run_id == current_run_id:
                 continue
@@ -329,12 +338,6 @@ class PendingAtomRuntime:
             }:
                 self._set_status(atom, PendingAtomStatus.EXPIRED)
                 self._store.put(atom)
-
-        # 步骤二：删除所有 EXPIRED
-        for alias in [a for a in self._store.all_aliases()
-                      if self._store.get(a).status == PendingAtomStatus.EXPIRED]:
-            self._store.delete(alias)
-            logger.debug(f"evict_by_run: deleted EXPIRED atom '{alias}'")
 
     # ---- 生命周期 ----
 

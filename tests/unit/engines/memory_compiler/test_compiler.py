@@ -352,6 +352,90 @@ class TestPendingAtomCompilation:
         with pytest.raises(ValueError):
             compiler.compile(write_pending, MemoryCompileTarget.DENSE_EMBEDDING)
 
+    @pytest.fixture
+    def settled_pending(self):
+        from hivememory.core.models import (
+            PendingAtom, PendingAtomStatus, WriteFocus,
+            PendingAtomSettlement, PendingAtomResolution,
+        )
+        atom = PendingAtom(
+            pending_alias="draft_settled",
+            intent_id="intent_s",
+            status=PendingAtomStatus.SETTLED,
+            source_verb="WRITE",
+            focus=WriteFocus(content="Hello", title="T"),
+        )
+        atom.settlement = PendingAtomSettlement(
+            pending_alias="draft_settled",
+            intent_id="intent_s",
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="fact_hello",
+            canonical_uuid="uuid-s",
+        )
+        return atom
+
+    @pytest.fixture
+    def failed_pending(self):
+        from hivememory.core.models import (
+            PendingAtom, PendingAtomStatus, WriteFocus,
+            PendingAtomSettlement, PendingAtomResolution,
+        )
+        atom = PendingAtom(
+            pending_alias="draft_failed",
+            intent_id="intent_f",
+            status=PendingAtomStatus.FAILED,
+            source_verb="WRITE",
+            focus=WriteFocus(content="X"),
+        )
+        atom.settlement = PendingAtomSettlement(
+            pending_alias="draft_failed",
+            intent_id="intent_f",
+            resolution=PendingAtomResolution.CREATED,
+            error="generation pipeline error",
+        )
+        return atom
+
+    @pytest.fixture
+    def cancelled_pending(self):
+        from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
+        return PendingAtom(
+            pending_alias="draft_cancelled",
+            intent_id="intent_c",
+            status=PendingAtomStatus.CANCELLED,
+            source_verb="WRITE",
+            focus=WriteFocus(content="X"),
+        )
+
+    @pytest.fixture
+    def expired_pending(self):
+        from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
+        return PendingAtom(
+            pending_alias="draft_expired",
+            intent_id="intent_e",
+            status=PendingAtomStatus.EXPIRED,
+            source_verb="WRITE",
+            focus=WriteFocus(content="X"),
+        )
+
+    def test_settled_mtp_read_shows_canonical(self, compiler, settled_pending):
+        artifact = compiler.compile(settled_pending, MemoryCompileTarget.MTP_READ)
+        assert "settled" in artifact.text.lower()
+        assert "fact_hello" in artifact.text
+
+    def test_failed_mtp_read_shows_error(self, compiler, failed_pending):
+        artifact = compiler.compile(failed_pending, MemoryCompileTarget.MTP_READ)
+        assert "failed" in artifact.text.lower()
+        assert "generation pipeline error" in artifact.text
+
+    def test_cancelled_mtp_read(self, compiler, cancelled_pending):
+        artifact = compiler.compile(cancelled_pending, MemoryCompileTarget.MTP_READ)
+        assert "cancelled" in artifact.text.lower()
+
+    def test_expired_mtp_read_shows_reclaimed(self, compiler, expired_pending):
+        artifact = compiler.compile(expired_pending, MemoryCompileTarget.MTP_READ)
+        assert "expired" in artifact.text.lower()
+        assert "reclaimed" in artifact.text.lower()
+
 
 class TestResolveResultCompilation:
     """测试 ResolveResult 编译。"""

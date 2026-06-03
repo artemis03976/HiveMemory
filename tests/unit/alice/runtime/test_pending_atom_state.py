@@ -38,15 +38,17 @@ class TestPendingAtomStatus:
         assert not PendingAtomStatus.SETTLED.is_in_flight
 
     def test_terminal_states(self):
-        assert PendingAtomStatus.SETTLED.is_terminal
-        assert PendingAtomStatus.FAILED.is_terminal
+        # EXPIRED 是唯一永久终态
         assert PendingAtomStatus.EXPIRED.is_terminal
-        assert PendingAtomStatus.CANCELLED.is_terminal
+        assert not PendingAtomStatus.SETTLED.is_terminal
+        assert not PendingAtomStatus.FAILED.is_terminal
+        assert not PendingAtomStatus.CANCELLED.is_terminal
 
     def test_in_flight_and_terminal_are_mutually_exclusive(self):
+        # is_in_flight / is_terminal 不再覆盖所有状态；仅验证两者不同时为 True
         for status in PendingAtomStatus:
-            assert status.is_in_flight ^ status.is_terminal, (
-                f"{status} must be either in-flight or terminal, not both/neither"
+            assert not (status.is_in_flight and status.is_terminal), (
+                f"{status} must not be both in-flight and terminal"
             )
 
 
@@ -82,6 +84,10 @@ class TestStateMachine:
             (PendingAtomStatus.MATERIALIZING, PendingAtomStatus.SETTLED),
             (PendingAtomStatus.MATERIALIZING, PendingAtomStatus.FAILED),
             (PendingAtomStatus.MATERIALIZING, PendingAtomStatus.CANCELLED),
+            # 回收路径
+            (PendingAtomStatus.SETTLED, PendingAtomStatus.EXPIRED),
+            (PendingAtomStatus.FAILED, PendingAtomStatus.EXPIRED),
+            (PendingAtomStatus.CANCELLED, PendingAtomStatus.EXPIRED),
         ],
     )
     def test_legal_transitions(self, src, dst):
@@ -102,19 +108,17 @@ class TestStateMachine:
     def test_illegal_transitions(self, src, dst):
         assert not is_legal_transition(src, dst)
 
-    @pytest.mark.parametrize(
-        "terminal",
-        [
-            PendingAtomStatus.SETTLED,
-            PendingAtomStatus.FAILED,
-            PendingAtomStatus.EXPIRED,
-            PendingAtomStatus.CANCELLED,
-        ],
-    )
-    def test_terminal_has_no_outgoing_transitions(self, terminal):
-        assert allowed_transitions(terminal) == frozenset()
+    def test_expired_is_only_permanent_terminal(self):
+        """EXPIRED 是唯一永久终态，无出边。"""
+        assert allowed_transitions(PendingAtomStatus.EXPIRED) == frozenset()
         for any_status in PendingAtomStatus:
-            assert not is_legal_transition(terminal, any_status)
+            assert not is_legal_transition(PendingAtomStatus.EXPIRED, any_status)
+
+    def test_settled_failed_cancelled_can_transition_to_expired(self):
+        """SETTLED/FAILED/CANCELLED 可迁移到 EXPIRED。"""
+        assert PendingAtomStatus.EXPIRED in allowed_transitions(PendingAtomStatus.SETTLED)
+        assert PendingAtomStatus.EXPIRED in allowed_transitions(PendingAtomStatus.FAILED)
+        assert PendingAtomStatus.EXPIRED in allowed_transitions(PendingAtomStatus.CANCELLED)
 
 
 # ---------------------------------------------------------------------------
@@ -464,3 +468,95 @@ class TestPendingAtomRuntimeCommands:
 
         with pytest.raises(InvalidStateTransition, match="settled -> settled"):
             runtime.settle(settlement)
+
+
+class TestPendingAtomRuntimeEviction:
+    """测试 PendingAtom 生命周期回收。"""
+
+    def test_evict_by_run_migrates_old_settled_to_expired(self, runtime, identity):
+        from hivememory.core.models.pending import RuntimeScope
+
+        atom = runtime.register_write(
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
+            runtime_scope=RuntimeScope(run_id="run_1"),
+        )
+        runtime.claim_for_materialization([atom.pending_alias])
+        runtime.settle(_make_settlement(
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
+            canonical_alias="fact_x", canonical_uuid="uuid-x",
+        ))
+        assert atom.status == PendingAtomStatus.SETTLED
+
+        runtime.evict_by_run(current_run_id="run_2")
+
+        assert runtime.get(atom.pending_alias) is atom
+        assert atom.status == PendingAtomStatus.EXPIRED
+        assert runtime.snapshot(atom.pending_alias).status == PendingAtomStatus.EXPIRED
+
+        runtime.evict_by_run(current_run_id="run_3")
+
+        assert runtime.get(atom.pending_alias) is None
+
+    def test_evict_by_run_preserves_current_run_atoms(self, runtime, identity):
+        from hivememory.core.models.pending import RuntimeScope
+
+        atom = runtime.register_write(
+            content="y",
+            title="Y",
+            reason=None,
+            identity=identity,
+            runtime_scope=RuntimeScope(run_id="run_current"),
+        )
+        runtime.claim_for_materialization([atom.pending_alias])
+        runtime.settle(_make_settlement(
+            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
+            canonical_alias="fact_y", canonical_uuid="uuid-y",
+        ))
+
+        runtime.evict_by_run(current_run_id="run_current")
+
+        assert runtime.get(atom.pending_alias) is not None
+        assert atom.status == PendingAtomStatus.SETTLED
+
+    def test_evict_by_run_deletes_expired(self, runtime, identity):
+        atom = runtime.register_write(
+            content="z", title="Z", reason=None, identity=identity,
+        )
+        runtime.expire(atom.pending_alias)
+        assert atom.status == PendingAtomStatus.EXPIRED
+
+        runtime.evict_by_run(current_run_id="run_any")
+
+        assert runtime.get(atom.pending_alias) is None
+
+    def test_evict_by_run_handles_failed_and_cancelled(self, runtime, identity):
+        from hivememory.core.models.pending import RuntimeScope
+
+        failed = runtime.register_write(
+            content="f", title="F", reason=None, identity=identity,
+            runtime_scope=RuntimeScope(run_id="run_old"),
+        )
+        runtime.start_materializing(failed.pending_alias)
+        runtime.mark_failed(failed.pending_alias)
+
+        cancelled = runtime.register_write(
+            content="c", title="C", reason=None, identity=identity,
+            runtime_scope=RuntimeScope(run_id="run_old"),
+        )
+        runtime.cancel(cancelled.pending_alias)
+
+        runtime.evict_by_run(current_run_id="run_new")
+
+        assert runtime.get(failed.pending_alias) is failed
+        assert runtime.get(cancelled.pending_alias) is cancelled
+        assert failed.status == PendingAtomStatus.EXPIRED
+        assert cancelled.status == PendingAtomStatus.EXPIRED
+
+        runtime.evict_by_run(current_run_id="run_next")
+
+        assert runtime.get(failed.pending_alias) is None
+        assert runtime.get(cancelled.pending_alias) is None
+
