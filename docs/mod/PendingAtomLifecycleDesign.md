@@ -86,7 +86,7 @@ _TRANSITIONS = {
 - `FAILED → EXPIRED`：物化失败，句柄已无意义，等待 Agent 知晓后清理。
 - `CANCELLED → EXPIRED`：系统级中断，清理残留句柄。
 
-CANCELLED 和 FAILED 的 `→ EXPIRED` 转移可在后续迭代中实现（含重试机制），当前优先落地 `SETTLED → EXPIRED` 主路径。
+`SETTLED / FAILED / CANCELLED → EXPIRED` 的回收迁移均已接入 run 级清理。当前不完善的是上游业务能力：FAILED 只有失败标记与回收，没有重试机制；CANCELLED 只有状态与回收路径，尚未接入 run 取消或系统中断时的生产调用。
 
 ---
 
@@ -113,9 +113,9 @@ Run N+1 结算完成后：PA 安全迁移至 EXPIRED，下次结算时删除
 
 条件：`status == EXPIRED`
 
-**步骤二（迁移）**：将上轮的 SETTLED atom 迁移至 EXPIRED。
+**步骤二（迁移）**：将上轮已完成生命周期的 atom 迁移至 EXPIRED。
 
-条件：`status == SETTLED && runtime_scope.run_id != current_run_id`
+条件：`status in {SETTLED, FAILED, CANCELLED} && runtime_scope.run_id != current_run_id`
 
 这样本轮刚迁移到 EXPIRED 的句柄会保留一个回收周期，Resolver 可在这段窗口返回 `kind="expired"` 并给出"句柄已回收"提示；下一次 `evict_by_run()` 才会真正删除。
 
@@ -127,7 +127,7 @@ def evict_by_run(self, current_run_id: str) -> None:
         if atom.status == EXPIRED:
             self._store.delete(atom.pending_alias)
     for atom in self._store.all_atoms():
-        if atom.status == SETTLED and atom.runtime_scope.run_id != current_run_id:
+        if atom.status in {SETTLED, FAILED, CANCELLED} and atom.runtime_scope.run_id != current_run_id:
             self._set_status(atom, EXPIRED)
 ```
 
@@ -166,8 +166,8 @@ SETTLED 的提示使 Agent 能在 working history 中感知到正式名，从而
 
 ---
 
-## 8. 暂不实现
+## 8. 待完善
 
-- FAILED → EXPIRED 的自动迁移（含重试机制设计）
-- CANCELLED 的触发逻辑（run 取消、系统级中断）
+- FAILED 重试机制：当前 `PENDING_ATOM_FAILED` 只会触发 `MATERIALIZING → FAILED`，并在后续 run 级清理中进入 `EXPIRED`；尚未设计 retry / retry-after / 人工重试入口。
+- CANCELLED 生产路径：当前状态机允许 `PENDING/MATERIALIZING → CANCELLED`，且 run 级清理会回收 `CANCELLED`；但 run 取消、系统关闭、超时中断等场景尚未调用 `cancel()`。
 - x > 1 的多轮延迟回收（x=1 当前足够）

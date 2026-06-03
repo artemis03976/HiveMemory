@@ -327,10 +327,27 @@ class TestPendingAtomCompilation:
         assert "Hello world" in artifact.text
         assert "pending" in artifact.text.lower()
 
+    def test_materializing_mtp_read_draft(self, compiler, write_pending):
+        from hivememory.core.models import PendingAtomStatus
+
+        write_pending.status = PendingAtomStatus.MATERIALIZING
+        artifact = compiler.compile(write_pending, MemoryCompileTarget.MTP_READ)
+        assert "draft_001" in artifact.text
+        assert "materializing" in artifact.text.lower()
+
     def test_pending_mtp_read_revision(self, compiler, update_pending):
         artifact = compiler.compile(update_pending, MemoryCompileTarget.MTP_READ)
         assert "rev_001" in artifact.text
-        assert "revision" in artifact.text.lower()
+        assert "pending revision" in artifact.text.lower()
+
+    def test_pending_mtp_read_english_option(self, compiler, write_pending):
+        artifact = compiler.compile(
+            write_pending,
+            MemoryCompileTarget.MTP_READ,
+            MemoryCompileOptions(language="en"),
+        )
+        assert "runtime pending atom" in artifact.text
+        assert "draft_001" in artifact.text
 
     def test_pending_mtp_ack_write(self, compiler, write_pending):
         artifact = compiler.compile(write_pending, MemoryCompileTarget.MTP_ACK)
@@ -492,6 +509,31 @@ class TestResolveResultCompilation:
         )
 
     @pytest.fixture
+    def failed_resolve(self):
+        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.core.models import (
+            PendingAtomResolution,
+            PendingAtomSettlement,
+        )
+
+        return ResolveResult(
+            kind="failed",
+            requested_alias="draft_failed",
+            settlement=PendingAtomSettlement(
+                pending_alias="draft_failed",
+                intent_id="intent-3",
+                resolution=PendingAtomResolution.CREATED,
+                error="generation failed",
+            ),
+        )
+
+    @pytest.fixture
+    def expired_resolve(self):
+        from hivememory.agent_runtime.resolver import ResolveResult
+
+        return ResolveResult(kind="expired", requested_alias="draft_expired")
+
+    @pytest.fixture
     def pending_resolve(self):
         from hivememory.agent_runtime.resolver import ResolveResult
         from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
@@ -541,6 +583,28 @@ class TestResolveResultCompilation:
         artifact = compiler.compile(discarded_resolve, MemoryCompileTarget.MTP_READ, opts)
         assert "discarded" in artifact.text.lower()
         assert "draft_bad" in artifact.text
+
+    def test_failed_mtp_read(self, compiler, failed_resolve):
+        opts = MemoryCompileOptions(requested_alias="draft_failed")
+        artifact = compiler.compile(failed_resolve, MemoryCompileTarget.MTP_READ, opts)
+        assert "failed" in artifact.text.lower()
+        assert "generation failed" in artifact.text
+
+    def test_expired_mtp_read(self, compiler, expired_resolve):
+        opts = MemoryCompileOptions(requested_alias="draft_expired")
+        artifact = compiler.compile(expired_resolve, MemoryCompileTarget.MTP_READ, opts)
+        assert "expired" in artifact.text.lower()
+        assert "reclaimed" in artifact.text.lower()
+        assert "Alias Not Found" not in artifact.text
+
+    def test_expired_mtp_read_english_option(self, compiler, expired_resolve):
+        artifact = compiler.compile(
+            expired_resolve,
+            MemoryCompileTarget.MTP_READ,
+            MemoryCompileOptions(requested_alias="draft_expired", language="en"),
+        )
+        assert "expired" in artifact.text.lower()
+        assert "draft_expired" in artifact.text
 
     def test_pending_resolve_mtp_read(self, compiler, pending_resolve):
         artifact = compiler.compile(pending_resolve, MemoryCompileTarget.MTP_READ)

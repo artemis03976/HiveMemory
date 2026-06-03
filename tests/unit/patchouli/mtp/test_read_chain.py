@@ -25,6 +25,7 @@ from hivememory.core.models import (
 )
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.system.config import KoakumaConfig
 
 
@@ -208,6 +209,25 @@ class TestReadAliasResolution:
         assert "status: discarded" in result.response_content
         assert "materialized: false" in result.response_content
         assert "Not materialized." in result.response_content
+
+    def test_read_expired_pending_alias(self, koakuma):
+        pending = koakuma.pending_runtime.register_write(
+            content="pending content",
+            title="Pending Note",
+            reason=None,
+            identity=MTPExecutionContext().identity,
+        )
+        koakuma.pending_runtime.expire(pending.pending_alias)
+
+        result = _execute_mtp(
+            koakuma,
+            f"{MTP_LEFT_DELIMITER} READ | {pending.pending_alias} | {MTP_RIGHT_DELIMITER}",
+        )
+
+        assert result.success
+        assert "status: expired" in result.response_content
+        assert "reclaimed" in result.response_content
+        assert "Alias Not Found" not in result.response_content
 
 
 # ========== Test 3: Koakuma READ E2E ==========

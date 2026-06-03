@@ -11,6 +11,8 @@ from hivememory.i18n.memory_compiler import (
     get_memory_atom_text,
     get_memory_envelope_text,
     get_memory_section_title,
+    get_pending_atom_text,
+    get_resolve_result_text,
 )
 from hivememory.i18n.prompts import (
     get_generation_prompt_text,
@@ -29,6 +31,8 @@ __all__ = [
     "get_memory_atom_text",
     "get_memory_envelope_text",
     "get_memory_section_title",
+    "get_pending_atom_text",
+    "get_resolve_result_text",
     "get_generation_prompt_text",
     "get_gateway_prompt_text",
     "get_mtp_prompt_text",

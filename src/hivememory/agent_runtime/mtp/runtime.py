@@ -480,7 +480,7 @@ class KoakumaRuntime:
         resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
         resolved_pending: List[Tuple[str, Any]] = []  # (alias, PendingAtom)
         resolved_redirects: List[Tuple[str, Any]] = []  # (alias, ResolveResult)
-        resolved_settled: List[Tuple[str, Any]] = []  # (alias, ResolveResult)
+        resolved_terminal: List[Tuple[str, Any]] = []  # (alias, ResolveResult)
         unresolved: List[str] = []
         for alias in aliases:
             result = await self._alias_resolver.resolve(alias, context=context)
@@ -490,13 +490,13 @@ class KoakumaRuntime:
                 resolved_redirects.append((alias, result))
             elif result.kind == "atom" and result.atom is not None:
                 resolved.append((alias, result.atom))
-            elif result.kind in {"discarded", "failed"}:
-                resolved_settled.append((alias, result))
+            elif result.kind in {"discarded", "failed", "expired"}:
+                resolved_terminal.append((alias, result))
             else:
                 unresolved.append(alias)
 
         # 全部无效：直接返回错误
-        if not resolved and not resolved_pending and not resolved_redirects and not resolved_settled:
+        if not resolved and not resolved_pending and not resolved_redirects and not resolved_terminal:
             lines = [
                 f"[{a}]: [Alias Not Found] Alias '{a}' not found. "
                 f"Use SEARCH to discover the correct alias first."
@@ -520,7 +520,7 @@ class KoakumaRuntime:
                 MemoryCompileOptions(requested_alias=alias),
             )
             output_lines.append(artifact.text)
-        for alias, result in resolved_settled:
+        for alias, result in resolved_terminal:
             artifact = self._compiler.compile(
                 result, MemoryCompileTarget.MTP_READ,
                 MemoryCompileOptions(requested_alias=alias),
@@ -624,7 +624,7 @@ class KoakumaRuntime:
                 MemoryCompileOptions(requested_alias=alias),
             ).text
             alias = canonical_alias
-        elif resolved.kind in {"discarded", "failed"}:
+        elif resolved.kind in {"discarded", "failed", "expired"}:
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=self._compiler.compile(

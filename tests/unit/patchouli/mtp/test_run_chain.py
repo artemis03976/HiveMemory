@@ -27,6 +27,7 @@ from hivememory.core.models import (
 )
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.system.config import KoakumaConfig
 
 
@@ -327,6 +328,25 @@ class TestRunUserToolPath:
         assert koakuma._bus._memory_citations == [
             {"memory_id": canonical.id, "source": "mtp.run"}
         ]
+
+    def test_expired_pending_alias_returns_reclaimed_error(self, koakuma):
+        pending = koakuma.pending_runtime.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=MTPExecutionContext().identity,
+        )
+        koakuma.pending_runtime.expire(pending.pending_alias)
+
+        result = _execute_mtp(
+            koakuma,
+            f"{MTP_LEFT_DELIMITER} RUN | {pending.pending_alias} | {MTP_RIGHT_DELIMITER}",
+        )
+
+        assert not result.success
+        assert "status: expired" in result.response_content
+        assert "reclaimed" in result.response_content
+        assert "Alias Not Found" not in result.response_content
 
     def test_user_tool_success_returns_execution_result(self, koakuma):
         """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
