@@ -244,13 +244,6 @@ _PENDING_ATOM_TEXT_ZH = {
         "注意: 这是一个待定修订。"
         "原始记忆尚未被修改。"
     ),
-    "pending_read_settled": (
-        "[{pending_alias}] (已结算):\n"
-        "结算结果: {resolution}\n"
-        "{canonical_line}"
-        "{message_line}"
-        "{action_line}"
-    ),
     "pending_read_failed": (
         "[{pending_alias}] (失败):\n"
         "错误: {error}\n"
@@ -305,13 +298,6 @@ _PENDING_ATOM_TEXT_EN = {
         "\n"
         "note: This is a pending revision. "
         "The original memory has not been modified yet."
-    ),
-    "pending_read_settled": (
-        "[{pending_alias}] (settled):\n"
-        "resolution: {resolution}\n"
-        "{canonical_line}"
-        "{message_line}"
-        "{action_line}"
     ),
     "pending_read_failed": (
         "[{pending_alias}] (failed):\n"

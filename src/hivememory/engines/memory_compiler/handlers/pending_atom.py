@@ -56,9 +56,6 @@ def _render_read(unit: MemoryUnitIR, language: str | None = None) -> str:
     # discarded 状态
     if status.is_discarded:
         return _render_discarded_read(unit, language)
-    # 除 discarded 状态外的 所有合法 settled 状态
-    if status.source_state == "settled":
-        return _render_settled_read(unit, language)
     if status.source_state == "failed":
         return _render_failed_read(unit, language)
     if status.source_state == "cancelled":
@@ -99,21 +96,6 @@ def _render_discarded_read(unit: MemoryUnitIR, language: str | None = None) -> s
         pending_alias=unit.identity.alias,
         message_line=f"message: {unit.status.message}\n" if unit.status.message else "",
         reason_line=f"reason: {unit.status.reason}\n" if unit.status.reason else "",
-    ).rstrip()
-
-
-def _render_settled_read(unit: MemoryUnitIR, language: str | None = None) -> str:
-    canonical_alias = unit.metadata.get("canonical_alias") or ""
-    message = unit.status.message or ""
-    return _t("pending_read_settled", language).format(
-        pending_alias=unit.identity.alias,
-        resolution=unit.status.settlement_state or "settled",
-        canonical_line=f"canonical alias: {canonical_alias}\n" if canonical_alias else "",
-        message_line=f"message: {message}\n" if message else "",
-        action_line=(
-            f"Action: Use '{canonical_alias}' for future READ/UPDATE calls."
-            if canonical_alias else ""
-        ),
     ).rstrip()
 
 
