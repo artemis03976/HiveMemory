@@ -43,6 +43,11 @@ def build_resolve_result_ir(resolve_result: "ResolveResult") -> MemoryUnitIR:
         )
 
     # terminal kinds: discarded / failed / expired
+    if kind not in _TERMINAL_KINDS:
+        raise ValueError(
+            f"build_resolve_result_ir only handles 'redirect' and terminal kinds "
+            f"({_TERMINAL_KINDS}), got '{kind}'."
+        )
     return MemoryUnitIR(
         identity=MemoryIdentityIR(
             source_kind="resolve_result",

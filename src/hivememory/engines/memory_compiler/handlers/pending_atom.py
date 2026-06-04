@@ -62,6 +62,12 @@ def _render_read(unit: MemoryUnitIR, language: str | None = None) -> str:
         return _t("pending_read_cancelled", language).format(
             pending_alias=unit.identity.alias,
         )
+    if status.source_state == "settled":
+        canonical_alias = unit.metadata.get("canonical_alias") or ""
+        return _t("pending_read_settled", language).format(
+            pending_alias=unit.identity.alias,
+            canonical_line=f"canonical alias: {canonical_alias}\n" if canonical_alias else "",
+        )
     # expired 状态
     return _t("pending_read_expired", language).format(
         pending_alias=unit.identity.alias,

@@ -44,7 +44,7 @@ def build_pending_atom_ir(pending: "PendingAtom") -> MemoryUnitIR:
             status_val == "settled"
             and settlement is not None
             and settlement.resolution is not None
-            and settlement.resolution.value == "DISCARDED"
+            and settlement.resolution.value == "discarded"
         ),
         message=settlement.message if settlement else None,
         error=settlement.error if settlement else None,
