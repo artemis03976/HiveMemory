@@ -14,7 +14,11 @@ from hivememory.engines.memory_compiler.models import (
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
 )
-from hivememory.engines.memory_compiler.builders import build_memory_atom_ir
+from hivememory.engines.memory_compiler.builders import (
+    build_memory_atom_ir,
+    build_pending_atom_ir,
+    build_resolve_result_ir,
+)
 from hivememory.engines.memory_compiler.ir import MemoryUnitIR
 from hivememory.engines.memory_compiler.handlers import (
     compile_memory_atom,
@@ -122,7 +126,14 @@ class MemoryCompiler:
         )
 
     def _build_unit_ir(self, source, options: MemoryCompileOptions) -> MemoryUnitIR:
-        """Phase 2A: build MemoryUnitIR from a MemoryAtom source."""
+        """Phase 2B: build MemoryUnitIR from any supported source."""
+        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.core.models.pending import PendingAtom
+
         if isinstance(source, MemoryAtom):
             return build_memory_atom_ir(source)
+        if isinstance(source, PendingAtom):
+            return build_pending_atom_ir(source)
+        if isinstance(source, ResolveResult):
+            return build_resolve_result_ir(source)
         raise TypeError(f"_build_unit_ir: unsupported source type {type(source).__name__}")
