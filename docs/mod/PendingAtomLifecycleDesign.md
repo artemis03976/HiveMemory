@@ -1,7 +1,7 @@
 # PendingAtom 生命周期与句柄回收设计
 
 **文档状态**: Draft（草案）  
-**适用范围**: `agent_runtime/pending_atom/runtime.py`、`agent_runtime/pending_atom/store.py`、`core/models/pending.py`、`alice/runtime/core.py`、`engines/memory_compiler/handlers/pending_atom.py`  
+**适用范围**: `agent_runtime/pending_atom/runtime.py`、`agent_runtime/pending_atom/store.py`、`core/models/pending.py`、`alice/runtime/core.py`、`engines/memory_compiler/handlers/mtp.py`  
 **核心目标**: 打通 L0 级 PendingAtom 从创建到落库后的完整生命周期，实现句柄的安全回收与内存释放，并在 MemoryCompiler 层提供状态感知的引导提示，消除 Agent 对 pending_alias 的持续依赖。
 
 ---
@@ -161,7 +161,7 @@ SETTLED 的提示使 Agent 能在 working history 中感知到正式名，从而
 | `agent_runtime/pending_atom/store.py` | 新增 `delete(pending_alias)` 方法，清理三个索引 |
 | `agent_runtime/pending_atom/runtime.py` | 新增 `evict_by_run(current_run_id)` |
 | `alice/runtime/agent/runtime.py` | `collect_tasks_by_run` 完成后调用 `evict_by_run` |
-| `engines/memory_compiler/handlers/pending_atom.py` | 补充 SETTLED / FAILED / CANCELLED / EXPIRED 四种渲染分支 |
+| `engines/memory_compiler/handlers/mtp.py` | 补充 SETTLED / FAILED / CANCELLED / EXPIRED 四种 READ 渲染分支 |
 | `agent_runtime/resolver.py` | EXPIRED 分支返回 `kind="expired"` 而非 `kind="not_found"` |
 
 ---

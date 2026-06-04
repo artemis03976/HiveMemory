@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from hivememory.engines.memory_compiler.handlers.resolve_result import (
-    _t as _resolve_text,
-)
 from hivememory.engines.memory_compiler.ir import MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemoryArtifact,
     MemoryCompileOptions,
     MemoryCompileTarget,
 )
+from hivememory.i18n.memory_compiler import get_resolve_result_text
 
 
 def build_artifact(
@@ -78,3 +76,7 @@ def render_resolve_terminal(unit: MemoryUnitIR, options: MemoryCompileOptions) -
         ).rstrip()
 
     return _resolve_text("resolve_expired", options.language).format(requested_alias=alias)
+
+
+def _resolve_text(key: str, language: str | None = None) -> str:
+    return get_resolve_result_text(key, language)

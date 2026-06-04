@@ -23,7 +23,7 @@ PendingAtom     -> pending_atom.py     -> CompiledMemoryArtifact.text
 ResolveResult   -> resolve_result.py   -> CompiledMemoryArtifact.text
 ```
 
-这在 Phase 1 足够，但随着 READ 版本溯源、RUN 可执行记忆编译、shared context 运行时提示、参数化记忆等能力进入系统，直接渲染会导致相同语义在不同 handler 中反复解释。当前实现已经开始转向 target-first handler：`prompt.py`、`embedding.py`、`agent_profile.py` 等文件按编译目标组织渲染逻辑，旧的 `memory_atom.py` handler 已不再作为渲染入口存在。
+这在 Phase 1 足够，但随着 READ 版本溯源、RUN 可执行记忆编译、shared context 运行时提示、参数化记忆等能力进入系统，直接渲染会导致相同语义在不同 handler 中反复解释。当前实现已经转向 target-first handler：`prompt.py`、`mtp.py`、`embedding.py`、`agent_profile.py` 等文件按编译目标组织渲染逻辑，旧的 `memory_atom.py`、`pending_atom.py`、`resolve_result.py` handler 已不再作为渲染入口存在。
 
 Phase 2 的目标不是继续搬迁模板，而是引入结构化 IR：
 

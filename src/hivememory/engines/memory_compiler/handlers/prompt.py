@@ -60,6 +60,29 @@ def compile_prompt_index(
     return build_artifact(unit, target, text, options)
 
 
+def compile_shared_context(
+    unit: MemoryUnitIR,
+    target: MemoryCompileTarget,
+    options: MemoryCompileOptions,
+) -> CompiledMemoryArtifact:
+    if unit.identity.source_kind == "atom" or unit.status.is_redirect:
+        text = _render_full_from_ir(
+            unit,
+            options.max_content_length,
+            options.stale_days,
+            options.language,
+        )
+    elif unit.identity.source_kind == "pending":
+        from hivememory.engines.memory_compiler.handlers.mtp import _render_pending_read
+
+        text = _render_pending_read(unit, options.language)
+    elif is_resolve_terminal(unit):
+        text = render_resolve_terminal(unit, options)
+    else:
+        raise ValueError(f"Unsupported source '{unit.identity.source_kind}' for target '{target}'.")
+    return build_artifact(unit, target, text, options)
+
+
 def _render_full_from_ir(
     unit: MemoryUnitIR,
     max_content_length: int = 500,
