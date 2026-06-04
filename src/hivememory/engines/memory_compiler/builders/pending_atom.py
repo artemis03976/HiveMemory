@@ -32,14 +32,20 @@ def build_pending_atom_ir(pending: "PendingAtom") -> MemoryUnitIR:
     else:  # UpdateFocus
         assert isinstance(focus, UpdateFocus)
         content_ir = MemoryContentIR(
-            content=focus.content or focus.instruction,
+            instruction=focus.instruction,
+            content=focus.content,
         )
 
     status_ir = MemoryStatusIR(
         source_state=status_val,
         source_verb=pending.source_verb,
         is_terminal=status_val in _TERMINAL_STATUSES,
-        settlement_state=settlement.resolution.value if settlement and settlement.resolution else None,
+        is_discarded=(
+            status_val == "settled"
+            and settlement is not None
+            and settlement.resolution is not None
+            and settlement.resolution.value == "DISCARDED"
+        ),
         message=settlement.message if settlement else None,
         error=settlement.error if settlement else None,
         reason=settlement.reason if settlement else None,

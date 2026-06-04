@@ -118,6 +118,7 @@ _FULL_CONTEXT_TEXT_ZH = {
     "memory_full_content_label": "完整内容",
     "memory_full_change_log_label": "变更记录",
     "memory_tags_empty": "(无标签)",
+    "memory_time_unknown": "(时间未知)",
     "memory_truncation_notice": (
         "[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"
     ),
@@ -144,6 +145,7 @@ _FULL_CONTEXT_TEXT_EN = {
     "memory_full_content_label": "Full Content",
     "memory_full_change_log_label": "Change Log",
     "memory_tags_empty": "(No tags)",
+    "memory_time_unknown": "(time unknown)",
     "memory_truncation_notice": (
         "[...content truncated. Use READ to inspect the full memory content.]"
     ),
@@ -254,6 +256,11 @@ _PENDING_ATOM_TEXT_ZH = {
         "错误: {error}\n"
         "操作: 重新发出 WRITE/UPDATE 指令以重试。"
     ),
+    "pending_read_discarded": (
+        "[{pending_alias}] (已丢弃):\n"
+        "此待定原子在去重过程中被判定为冗余，不会生成新记忆。\n"
+        "{message_line}{reason_line}"
+    ),
     "pending_read_cancelled": (
         "[{pending_alias}] (已取消):\n"
         "此待定原子已被取消，且不会被实例化。"
@@ -310,6 +317,11 @@ _PENDING_ATOM_TEXT_EN = {
         "[{pending_alias}] (failed):\n"
         "error: {error}\n"
         "Action: Re-issue a WRITE/UPDATE command to retry."
+    ),
+    "pending_read_discarded": (
+        "[{pending_alias}] (discarded):\n"
+        "This pending atom was determined to be redundant during deduplication and will not produce a new memory.\n"
+        "{message_line}{reason_line}"
     ),
     "pending_read_cancelled": (
         "[{pending_alias}] (cancelled):\n"

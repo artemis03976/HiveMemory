@@ -47,12 +47,16 @@ def compile_pending_atom(
 def _render_read(unit: MemoryUnitIR, language: str | None = None) -> str:
     status = unit.status
 
+    # in-flight: PENDING 或 MATERIALIZING，渲染本体文本
     if not status.is_terminal:
-        # in-flight: PENDING or MATERIALIZING
         if status.source_verb == "UPDATE":
             return _render_revision_read(unit, language)
         return _render_draft_read(unit, language)
 
+    # discarded 状态
+    if status.is_discarded:
+        return _render_discarded_read(unit, language)
+    # 除 discarded 状态外的 所有合法 settled 状态
     if status.source_state == "settled":
         return _render_settled_read(unit, language)
     if status.source_state == "failed":
@@ -61,10 +65,10 @@ def _render_read(unit: MemoryUnitIR, language: str | None = None) -> str:
         return _t("pending_read_cancelled", language).format(
             pending_alias=unit.identity.alias,
         )
-    # expired
+    # expired 状态
     return _t("pending_read_expired", language).format(
         pending_alias=unit.identity.alias,
-    )
+        )
 
 
 def _render_draft_read(unit: MemoryUnitIR, language: str | None = None) -> str:
@@ -79,19 +83,23 @@ def _render_draft_read(unit: MemoryUnitIR, language: str | None = None) -> str:
 
 def _render_revision_read(unit: MemoryUnitIR, language: str | None = None) -> str:
     base_alias = unit.metadata.get("base_alias") or ""
+    instruction = unit.content.instruction or ""
     content = unit.content.content or ""
-    # content holds focus.content or focus.instruction (builder priority)
-    instruction_line = ""
-    # If content came from instruction, surface it as instruction_line
-    # The builder stores content=focus.content or focus.instruction.
-    # We can't distinguish here, so treat as content (tests pass either way).
     return _t("pending_read_update", language).format(
         pending_alias=unit.identity.alias,
         base_alias=base_alias,
         status=unit.status.source_state,
-        instruction_line="",
+        instruction_line=f"instruction: {instruction}\n" if instruction else "",
         content=content,
     )
+
+
+def _render_discarded_read(unit: MemoryUnitIR, language: str | None = None) -> str:
+    return _t("pending_read_discarded", language).format(
+        pending_alias=unit.identity.alias,
+        message_line=f"message: {unit.status.message}\n" if unit.status.message else "",
+        reason_line=f"reason: {unit.status.reason}\n" if unit.status.reason else "",
+    ).rstrip()
 
 
 def _render_settled_read(unit: MemoryUnitIR, language: str | None = None) -> str:

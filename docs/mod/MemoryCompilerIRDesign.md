@@ -143,24 +143,21 @@ class MemoryContentIR(BaseModel):
 ```python
 class MemoryStatusIR(BaseModel):
     source_state: str | None = None      # PendingAtom.status，仅 pending 有；MemoryAtom 为 None
-    resolve_state: str | None = None     # ResolveResult.kind：redirect/discarded/failed/expired/atom/pending
-    settlement_state: str | None = None  # PendingAtomSettlement.resolution：CREATED/MERGED/TOUCHED/UPDATED/DISCARDED
-
     source_verb: Literal["WRITE", "UPDATE"] | None = None
     is_terminal: bool = False            # SETTLED/FAILED/CANCELLED/EXPIRED 时为 True
-
-    message: str | None = None           # settlement.message 或 resolve 级别的说明文本
-    reason: str | None = None            # settlement.reason 或 discarded/expired 的原因
-    error: str | None = None             # settlement.error
+    is_redirect: bool = False            # resolver 已完成 canonical atom 预取（SETTLED + canonical alias/uuid）
+    is_discarded: bool = False           # SETTLED + resolution == DISCARDED，唯一需要主动通知 Agent 的结算状态
+    message: str | None = None
+    reason: str | None = None
+    error: str | None = None
 ```
 
-三个 `*_state` 字段分别来自不同的源对象，语义互不重叠：
+`source_state` 是状态分支的单一事实来源，来自 `PendingAtomStatus`。`is_redirect` 和 `is_discarded` 是两个需要在渲染层显式区分的布尔标记：
 
-- `source_state`：描述 PendingAtom **当前处于哪个生命周期阶段**（来自 `PendingAtomStatus`）。
-- `resolve_state`：描述 alias resolver **找到了什么**（来自 `ResolveResult.kind`）。
-- `settlement_state`：描述 PendingAtom **最终以什么方式落盘**（来自 `PendingAtomSettlement.resolution`）。
+- `is_redirect`：resolver 在 SETTLED + 有 canonical 的路径上预取了 canonical atom，IR 内容来自该 atom，`identity.redirected_from` 保存原始请求别名。
+- `is_discarded`：`PendingAtomSettlement.resolution == DISCARDED`，是唯一需要告知 Agent"此别名不会产生新记忆"的结算结果；其余 resolution 值（CREATED/MERGED/TOUCHED/UPDATED）对 Agent 无需区分，不进入 IR。
 
-对 `MemoryAtom` 而言，三个 `*_state` 均为 None，`MemoryStatusIR` 几乎为空，这是正常的。
+`PendingAtomResolution` 的其余值不投影进 IR，避免 IR 随枚举演进而失同步。对 `MemoryAtom` 而言所有字段均为默认值，这是正常的。
 
 ### 5.4 MemoryUnitIR
 
@@ -221,7 +218,7 @@ src/hivememory/engines/memory_compiler/builders/
 - 提取 pending alias、source verb、status。
 - 根据 WRITE / UPDATE focus 填充 content。
 - 将 `PENDING`、`MATERIALIZING`、`SETTLED`、`FAILED`、`CANCELLED`、`EXPIRED` 填入 `status.source_state`，terminal 状态设 `is_terminal = True`。
-- 将 settlement 信息填入 `status.settlement_state`、`status.message`、`status.error`、`status.reason`。
+- 将 settlement 信息填入 `status.is_discarded`（仅 DISCARDED）、`status.message`、`status.error`、`status.reason`。
 
 ### 6.3 ResolveResult builder
 
@@ -290,7 +287,7 @@ wrap(...)
 实施内容：
 
 1. 将 PendingAtom status 分支改为读取 `MemoryStatusIR.source_state`。
-2. 将 settlement / failed / cancelled / expired 信息改为读取 `MemoryStatusIR.settlement_state` 及辅助字段。
+2. 将 discarded 状态改为读取 `MemoryStatusIR.is_discarded`；其余 terminal 状态从 `source_state` 分支。
 3. 将 ResolveResult redirect / terminal 状态改为从 IR 渲染。
 4. 保留 `not_found` 在 MTP runtime 中作为错误/警告提示。
 

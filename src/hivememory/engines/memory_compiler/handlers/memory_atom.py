@@ -77,8 +77,11 @@ def _render_full_from_ir(
     confidence_str = _format_confidence_from_ir(unit, language)
     alias = unit.identity.alias or ""
     tags = ", ".join(f"`{tag}`" for tag in unit.content.tags) or _text("memory_tags_empty", language)
-    time_str = TimeFormatter(language=language, stale_days=stale_days).format(
-        unit.metadata["updated_at"]
+    updated_at = unit.metadata.get("updated_at")
+    time_str = (
+        TimeFormatter(language=language, stale_days=stale_days).format(updated_at)
+        if updated_at is not None
+        else _text("memory_time_unknown", language)
     )
 
     history = ""
@@ -110,8 +113,11 @@ def _render_index_from_ir(
     alias = unit.identity.alias or ""
     confidence_str = _format_confidence_from_ir(unit, language)
     tags = ", ".join(f"`{tag}`" for tag in unit.content.tags) or _text("memory_tags_empty", language)
-    time_str = TimeFormatter(language=language, stale_days=stale_days).format(
-        unit.metadata["updated_at"]
+    updated_at = unit.metadata.get("updated_at")
+    time_str = (
+        TimeFormatter(language=language, stale_days=stale_days).format(updated_at)
+        if updated_at is not None
+        else _text("memory_time_unknown", language)
     )
 
     summary = unit.content.summary or ""

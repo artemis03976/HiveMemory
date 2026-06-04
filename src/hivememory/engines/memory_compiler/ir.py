@@ -18,16 +18,17 @@ class MemoryContentIR(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     content: Optional[str] = None
+    instruction: Optional[str] = None
     tags: List[str] = []
     memory_type: Optional[str] = None
 
 
 class MemoryStatusIR(BaseModel):
     source_state: Optional[str] = None
-    resolve_state: Optional[str] = None
-    settlement_state: Optional[str] = None
     source_verb: Optional[Literal["WRITE", "UPDATE"]] = None
     is_terminal: bool = False
+    is_redirect: bool = False
+    is_discarded: bool = False
     message: Optional[str] = None
     reason: Optional[str] = None
     error: Optional[str] = None
