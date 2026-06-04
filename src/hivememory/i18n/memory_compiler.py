@@ -211,16 +211,6 @@ _MEMORY_ATOM_TEXT_EN = {
 }
 
 _PENDING_ATOM_TEXT_ZH = {
-    "pending_ack_write": (
-        "记忆已作为 pending atom（待定原子） '{pending_alias}' 被接收。\n"
-        "在此次运行期间可通过 READ 指令读取。"
-        "最终的记忆生成将异步完成。"
-    ),
-    "pending_ack_update": (
-        "记忆 '{base_alias}' 的更新已作为 pending revision（待定修订） '{pending_alias}' 被接收。\n"
-        "在此次运行期间可通过 READ 指令读取。"
-        "最终的记忆更新将异步完成。"
-    ),
     "pending_read_write": (
         "[{pending_alias}] (运行时待定原子):\n"
         "状态: {status}\n"
@@ -272,16 +262,6 @@ _PENDING_ATOM_TEXT_ZH = {
 }
 
 _PENDING_ATOM_TEXT_EN = {
-    "pending_ack_write": (
-        "Memory accepted as pending atom '{pending_alias}'.\n"
-        "It is readable during this run via READ. "
-        "Final memory generation will complete asynchronously."
-    ),
-    "pending_ack_update": (
-        "Memory '{base_alias}' update accepted as pending revision '{pending_alias}'.\n"
-        "It is readable during this run via READ. "
-        "Final memory update will complete asynchronously."
-    ),
     "pending_read_write": (
         "[{pending_alias}] (runtime pending atom):\n"
         "status: {status}\n"

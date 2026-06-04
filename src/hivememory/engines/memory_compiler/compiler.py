@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Union
+from typing import List, Tuple, Union
 
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.memory_compiler.envelopes import compile_envelope
@@ -20,19 +20,13 @@ from hivememory.engines.memory_compiler.builders import (
     build_resolve_result_ir,
 )
 from hivememory.engines.memory_compiler.ir import MemoryUnitIR
-from hivememory.engines.memory_compiler.handlers import (
-    compile_memory_atom,
-    compile_pending_atom,
-    compile_resolve_result,
-)
 
 
 class MemoryCompiler:
     """
     记忆编译外观层。
 
-    Phase 1: 委托给现有渲染器，收敛所有入口。
-    Phase 2+: 内化渲染逻辑，引入 IR 和缓存。
+    Phase 2B: source -> IR -> target 的完整收束。
     """
 
     def __init__(self, default_language: str = "zh") -> None:
@@ -92,21 +86,35 @@ class MemoryCompiler:
         target: MemoryCompileTarget,
         options: MemoryCompileOptions,
     ) -> CompiledMemoryArtifact:
+        from hivememory.engines.memory_compiler.handlers import compile_from_ir
+
+        unit, effective_options = self._build_unit_ir(source, options)
+        return compile_from_ir(unit, target, effective_options)
+
+    def _build_unit_ir(self, source, options: MemoryCompileOptions) -> Tuple[MemoryUnitIR, MemoryCompileOptions]:
+        """Phase 2B: build MemoryUnitIR from any supported source."""
         from hivememory.agent_runtime.resolver import ResolveResult
-        from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement
+        from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement, PendingAtomResolution
 
-        if isinstance(source, MemoryAtom):
-            return compile_memory_atom(source, target, options)
-
-        if isinstance(source, PendingAtom):
-            return compile_pending_atom(source, target, options)
-
+        # ResolveResult 透明展开
         if isinstance(source, ResolveResult):
-            return compile_resolve_result(source, target, options)
+            if source.kind == "not_found":
+                raise ValueError(
+                    "Cannot compile ResolveResult with kind='not_found'. "
+                    "Handle this in MTP runtime instead."
+                )
+            if source.kind == "pending" and source.pending:
+                if not options.requested_alias:
+                    options = options.model_copy(update={"requested_alias": source.requested_alias})
+                source = source.pending
+            elif source.kind == "atom" and source.atom:
+                if not options.requested_alias:
+                    options = options.model_copy(update={"requested_alias": source.requested_alias})
+                source = source.atom
+            # redirect / terminal 继续走 build_resolve_result_ir
 
+        # PendingAtomSettlement wrapper
         if isinstance(source, PendingAtomSettlement):
-            from hivememory.core.models.pending import PendingAtomResolution
-
             kind = (
                 "discarded"
                 if source.resolution == PendingAtomResolution.DISCARDED
@@ -118,22 +126,17 @@ class MemoryCompiler:
                 canonical_alias=source.canonical_alias,
                 settlement=source,
             )
-            return compile_resolve_result(resolve, target, options)
+            return build_resolve_result_ir(resolve), options
+
+        # 三个 builder
+        if isinstance(source, MemoryAtom):
+            return build_memory_atom_ir(source), options
+        if isinstance(source, PendingAtom):
+            return build_pending_atom_ir(source), options
+        if isinstance(source, ResolveResult):
+            return build_resolve_result_ir(source), options
 
         raise TypeError(
             f"Unsupported source type: {type(source).__name__}. "
             f"Expected MemoryAtom, PendingAtom, ResolveResult, or PendingAtomSettlement."
         )
-
-    def _build_unit_ir(self, source, options: MemoryCompileOptions) -> MemoryUnitIR:
-        """Phase 2B: build MemoryUnitIR from any supported source."""
-        from hivememory.agent_runtime.resolver import ResolveResult
-        from hivememory.core.models.pending import PendingAtom
-
-        if isinstance(source, MemoryAtom):
-            return build_memory_atom_ir(source)
-        if isinstance(source, PendingAtom):
-            return build_pending_atom_ir(source)
-        if isinstance(source, ResolveResult):
-            return build_resolve_result_ir(source)
-        raise TypeError(f"_build_unit_ir: unsupported source type {type(source).__name__}")

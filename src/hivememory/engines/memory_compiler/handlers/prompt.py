@@ -1,9 +1,13 @@
-"""MemoryAtom compilation handler."""
+"""Prompt-oriented memory target handlers."""
 
 from __future__ import annotations
 
-from hivememory.core.models import MemoryAtom, VerificationStatus
-from hivememory.engines.memory_compiler.builders import build_memory_atom_ir
+from hivememory.core.models import VerificationStatus
+from hivememory.engines.memory_compiler.handlers.common import (
+    build_artifact,
+    is_resolve_terminal,
+    render_resolve_terminal,
+)
 from hivememory.engines.memory_compiler.ir import MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemoryArtifact,
@@ -18,54 +22,43 @@ def _text(key: str, language: str | None = None) -> str:
     return get_memory_atom_text(key, language)
 
 
-def compile_memory_atom(
-    atom: MemoryAtom,
+def compile_prompt_full(
+    unit: MemoryUnitIR,
     target: MemoryCompileTarget,
     options: MemoryCompileOptions,
 ) -> CompiledMemoryArtifact:
-    """Compile a single MemoryAtom into the requested target."""
-    alias = atom.get_alias()
-
-    # Phase 2A: PROMPT_FULL / PROMPT_INDEX / MTP_READ / SHARED_CONTEXT render via IR
-    if target in (
-        MemoryCompileTarget.PROMPT_FULL,
-        MemoryCompileTarget.PROMPT_INDEX,
-        MemoryCompileTarget.MTP_READ,
-        MemoryCompileTarget.SHARED_CONTEXT,
-    ):
-        unit = build_memory_atom_ir(atom)
-        if target == MemoryCompileTarget.PROMPT_INDEX:
-            text = _render_index_from_ir(unit, options.max_summary_length, options.stale_days, options.language)
-        else:
-            # PROMPT_FULL / MTP_READ / SHARED_CONTEXT all use full body
-            text = _render_full_from_ir(unit, options.max_content_length, options.stale_days, options.language)
-    elif target == MemoryCompileTarget.DENSE_EMBEDDING:
-        text = _render_dense_embedding(atom)
-    elif target == MemoryCompileTarget.SPARSE_EMBEDDING:
-        text = _render_sparse_embedding(atom)
-    elif target == MemoryCompileTarget.AGENT_PROFILE_MENU:
-        text = _render_agent_profile(atom, language=options.language)
-    elif target == MemoryCompileTarget.RUNNABLE_TOOL:
-        raise ValueError("RUNNABLE_TOOL target is reserved for Phase 3.")
+    if unit.identity.source_kind == "atom" or unit.status.is_redirect:
+        text = _render_full_from_ir(
+            unit,
+            options.max_content_length,
+            options.stale_days,
+            options.language,
+        )
+    elif is_resolve_terminal(unit):
+        text = render_resolve_terminal(unit, options)
     else:
-        raise ValueError(f"Unsupported target '{target}' for MemoryAtom source.")
-
-    return CompiledMemoryArtifact(
-        target=target,
-        text=text,
-        source_kind="atom",
-        alias=alias,
-        memory_id=str(atom.id),
-        metadata={
-            "requested_alias": options.requested_alias,
-            "canonical_alias": options.canonical_alias or alias,
-        },
-    )
+        raise ValueError(f"Unsupported source '{unit.identity.source_kind}' for target '{target}'.")
+    return build_artifact(unit, target, text, options)
 
 
-# ---------------------------------------------------------------------------
-# IR-based renderers (Phase 2A)
-# ---------------------------------------------------------------------------
+def compile_prompt_index(
+    unit: MemoryUnitIR,
+    target: MemoryCompileTarget,
+    options: MemoryCompileOptions,
+) -> CompiledMemoryArtifact:
+    if unit.identity.source_kind == "atom" or unit.status.is_redirect:
+        text = _render_index_from_ir(
+            unit,
+            options.max_summary_length,
+            options.stale_days,
+            options.language,
+        )
+    elif is_resolve_terminal(unit):
+        text = render_resolve_terminal(unit, options)
+    else:
+        raise ValueError(f"Unsupported source '{unit.identity.source_kind}' for target '{target}'.")
+    return build_artifact(unit, target, text, options)
+
 
 def _render_full_from_ir(
     unit: MemoryUnitIR,
@@ -155,40 +148,6 @@ def _format_confidence_from_ir(unit: MemoryUnitIR, language: str | None = None) 
     if score >= 0.7:
         return f"{score:.0%} ({_text('memory_confidence_medium', language)}){status_str}"
     return f"{score:.0%} ({_text('memory_confidence_low', language)}){status_str}"
-
-
-# ---------------------------------------------------------------------------
-# Non-IR renderers (embedding / agent profile — unchanged)
-# ---------------------------------------------------------------------------
-
-def _render_dense_embedding(memory: MemoryAtom) -> str:
-    return (
-        f"Title: {memory.index.title}\n"
-        f"Type: {memory.index.memory_type.value}\n"
-        f"Tags: {', '.join(memory.index.tags)}\n"
-        f"Summary: {memory.index.summary}"
-    )
-
-
-def _render_sparse_embedding(memory: MemoryAtom) -> str:
-    tags_string = " ".join(memory.index.tags)
-    return (
-        f"{memory.index.title} {memory.index.title} "
-        f"{tags_string} {tags_string} "
-        f"{memory.index.summary}"
-    )
-
-
-def _render_agent_profile(memory: MemoryAtom, language: str | None = None) -> str:
-    alias = memory.get_alias()
-    title = memory.index.title if memory.index.title else _text("memory_agent_profile_untitled", language)
-    summary = memory.index.summary if memory.index.summary else ""
-
-    return _text("memory_agent_profile_item_template", language).format(
-        alias=alias,
-        title=title,
-        summary=summary,
-    )
 
 
 def _truncate_content(content: str, max_length: int, language: str | None = None) -> str:

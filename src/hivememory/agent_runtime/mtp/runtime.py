@@ -706,7 +706,7 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._compiler.compile(pending, MemoryCompileTarget.MTP_ACK).text,
+            content=self._format_write_ack(pending.pending_alias),
             pending_alias=pending.pending_alias,
         )
 
@@ -790,8 +790,22 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._compiler.compile(pending, MemoryCompileTarget.MTP_ACK).text,
+            content=self._format_update_ack(alias, pending.pending_alias),
             pending_alias=pending.pending_alias,
+        )
+
+    def _format_write_ack(self, pending_alias: str) -> str:
+        return (
+            f"Memory accepted as pending atom '{pending_alias}'.\n"
+            "It is readable during this run via READ. "
+            "Final memory generation will complete asynchronously."
+        )
+
+    def _format_update_ack(self, base_alias: str, pending_alias: str) -> str:
+        return (
+            f"Memory '{base_alias}' update accepted as pending revision '{pending_alias}'.\n"
+            "It is readable during this run via READ. "
+            "Final memory update will complete asynchronously."
         )
 
     async def _handle_call(

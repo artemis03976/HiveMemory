@@ -15,7 +15,7 @@
 - `MemoryAtom`、`PendingAtom`、`ResolveResult` 的文本模板已经逐步迁入 i18n。
 - Retrieval renderer 主要保留策略职责：full / cascade / compact、token budget、agent profile 分组。
 
-但是当前实现仍然是“source object -> target string”的直接渲染模式。每个 handler 都直接读取源对象字段并拼装 target 文本：
+Phase 2 启动前的实现仍然是“source object -> target string”的直接渲染模式。每个 handler 都直接读取源对象字段并拼装 target 文本：
 
 ```text
 MemoryAtom      -> memory_atom.py      -> CompiledMemoryArtifact.text
@@ -23,7 +23,7 @@ PendingAtom     -> pending_atom.py     -> CompiledMemoryArtifact.text
 ResolveResult   -> resolve_result.py   -> CompiledMemoryArtifact.text
 ```
 
-这在 Phase 1 足够，但随着 READ 版本溯源、RUN 可执行记忆编译、shared context 运行时提示、参数化记忆等能力进入系统，直接渲染会导致相同语义在不同 handler 中反复解释。
+这在 Phase 1 足够，但随着 READ 版本溯源、RUN 可执行记忆编译、shared context 运行时提示、参数化记忆等能力进入系统，直接渲染会导致相同语义在不同 handler 中反复解释。当前实现已经开始转向 target-first handler：`prompt.py`、`embedding.py`、`agent_profile.py` 等文件按编译目标组织渲染逻辑，旧的 `memory_atom.py` handler 已不再作为渲染入口存在。
 
 Phase 2 的目标不是继续搬迁模板，而是引入结构化 IR：
 
@@ -118,7 +118,7 @@ class MemoryIdentityIR(BaseModel):
     memory_id: str | None = None
 ```
 
-用于描述当前 IR 单元的身份与别名关系。`alias` 由 builder 负责填入：MemoryAtom builder 填 `canonical_alias`，PendingAtom builder 填 `pending_alias`，ResolveResult builder 在 `kind="redirect"` 时填 `canonical_alias` 并将 `requested_alias` 写入 `redirected_from`，其余 kind 委托给内部对象的 builder。
+用于描述当前 IR 单元的身份与别名关系。`alias` 由 builder 负责填入：MemoryAtom builder 填 `canonical_alias`，PendingAtom builder 填 `pending_alias`。`requested_alias` 属于本次 compile 调用上下文，不进入 IR；透明展开 `ResolveResult(kind="atom" / "pending")` 时应保留到 `MemoryCompileOptions.requested_alias`。`redirected_from` 只用于显式 redirect，表示需要提示 Agent 从请求别名切换到 canonical alias；它不应承担普通请求别名记录职责。
 
 ### 5.2 MemoryContentIR
 
@@ -395,3 +395,98 @@ READ 和 shared context 可使用 provenance 提供溯源信息。
 5. 跑 memory compiler、retrieval renderer、MTP READ/RUN、context_refs 相关测试。
 
 这样可以先验证 IR 插入点是否正确，同时避免一次性改动 PendingAtom 与 ResolveResult 的复杂状态逻辑。
+
+---
+
+## 12. Phase 2B 增补设计决策
+
+本节记录 Phase 2A / 2B 实现后，对后续收敛方向的补充约束。其核心目标是让 IR 真正成为 source normalization 与 target rendering 之间的边界，而不是只在各 handler 内部临时构建。
+
+### 12.1 Builders 与 Handlers 的职责边界
+
+理想编译链路应逐步收敛为：
+
+```text
+source object
+  -> builders: source -> MemoryUnitIR / MemoryBundleIR
+  -> handlers/renderers: IR -> target artifact text
+  -> envelopes: artifact/bundle -> delivery text
+```
+
+其中：
+
+- `builders` 只理解源对象结构，负责把 `MemoryAtom`、`PendingAtom`、`ResolveResult` 以及未来新的记忆来源归一化为 IR。builder 不应知道 `PROMPT_FULL`、`MTP_READ`、`SHARED_CONTEXT` 等 target 模板。
+- `handlers` / `renderers` 只理解 target 需求，负责把 `MemoryUnitIR` 编译为 `CompiledMemoryArtifact`。handler 不应直接读取源对象字段。
+- `envelopes` 只处理交付语境，负责把 artifact 或 bundle 包装为 retrieval context、MTP READ response、shared context injection 等最终文本。
+- `compiler.py` 负责调度：`compile(source, target)` 应先调用 `_build_unit_ir(source)`，再调用 `_compile_unit_ir(unit, target)`。
+
+这意味着当前“handler 内部自行调用 builder”的实现只能作为过渡形态。后续收尾时，应让 `MemoryCompiler._compile_single()` 成为唯一的 Unit IR 构建入口，使 handler 的输入从 source object 迁移为 `MemoryUnitIR`。
+
+### 12.2 MTP_READ 仍是单一 Target
+
+虽然 `MemoryAtom` 与 `PendingAtom` 都有 `MTP_READ` 需求，而且未来输出会逐渐分化，但不建议拆成 `MTP_READ_MEMORY_ATOM`、`MTP_READ_PENDING_ATOM` 这类 target。
+
+原因是 target 表达的是使用场景，而不是 source 类型。`MTP_READ` 的含义始终是“Agent 请求读取一个记忆引用后的响应”。正式记忆、运行时 pending 记忆、redirect、discarded、failed、expired 等差异应由 IR 中的身份、状态、内容和元数据表达，再由 READ renderer 选择内部 view。
+
+推荐在 `MTP_READ` handler 内部引入只对 READ 可见的 view 分发：
+
+```python
+class MemoryReadView(str, Enum):
+    FORMAL_ATOM = "formal_atom"
+    PENDING_WRITE = "pending_write"
+    PENDING_UPDATE = "pending_update"
+    SETTLED_FALLBACK = "settled_fallback"
+    REDIRECT = "redirect"
+    DISCARDED = "discarded"
+    FAILED = "failed"
+    EXPIRED = "expired"
+```
+
+```text
+render_mtp_read(unit, options)
+  -> select_mtp_read_view(unit)
+  -> render selected view
+```
+
+这样可以同时满足两类扩展：
+
+- 正式 `MemoryAtom` 的 READ view 未来可以读取版本历史、provenance、diff summary 等信息。
+- `PendingAtom` 的 READ view 可以继续表达运行时待定原子、WRITE / UPDATE 草稿、失败或终止状态等特殊提示。
+
+因此差异应落在 `MemoryReadView` 或 READ 专用 renderer 上，而不是通过拆分 target 来表达。
+
+### 12.3 ResolveResult 的透明展开策略
+
+为了兼容统一 IR，`ResolveResult` 不应总是作为独立 source 编译。建议按语义分为两类：
+
+- `ResolveResult(kind="atom")` / `ResolveResult(kind="pending")` 是透明 wrapper，应展开为内部 `MemoryAtom` / `PendingAtom` 后使用对应 builder。
+- `ResolveResult(kind="redirect")` / terminal kind 是语义路由结果，应继续走 `build_resolve_result_ir()`，因为它们需要携带 redirect、discarded、failed、expired 等额外状态。
+
+推荐的入口逻辑：
+
+```python
+if isinstance(source, ResolveResult):
+    if source.kind == "pending" and source.pending:
+        requested_alias = source.requested_alias
+        source = source.pending
+        options.requested_alias = requested_alias
+    elif source.kind == "atom" and source.atom:
+        requested_alias = source.requested_alias
+        source = source.atom
+        options.requested_alias = requested_alias
+    elif source.kind == "not_found":
+        raise ValueError(...)
+    # redirect / terminal 继续走 build_resolve_result_ir()
+```
+
+实际实现时，透明展开路径应保留 `ResolveResult.requested_alias` 到 `options.requested_alias`，这是 compile 调用的上下文参数，不需要进入 IR。`MemoryIdentityIR` 只保留 `alias`（主展示别名）和 `redirected_from`（redirect 专用），职责更单一。
+
+`not_found` 目前仍可不作为 MemoryCompiler 的正常编译对象处理。Koakuma / MTP runtime 可以继续把它作为 READ 错误或警告提示语生成。
+
+### 12.4 后续迁移顺序
+
+建议后续按以下顺序收敛：
+
+1. 让 `MemoryCompiler._compile_single()` 先统一构建 `MemoryUnitIR`，再把 IR 交给 handler。透明展开 `ResolveResult(kind="atom"/"pending")` 时，将 `requested_alias` 传递到 `options`。
+2. 将 handler 入参从 source object 逐步迁移为 `MemoryUnitIR`。
+3. 在 `MTP_READ` handler 中引入 READ 专用 view 分发，而不是新增 target。

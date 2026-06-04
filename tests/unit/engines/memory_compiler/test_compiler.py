@@ -349,17 +349,6 @@ class TestPendingAtomCompilation:
         assert "runtime pending atom" in artifact.text
         assert "draft_001" in artifact.text
 
-    def test_pending_mtp_ack_write(self, compiler, write_pending):
-        artifact = compiler.compile(write_pending, MemoryCompileTarget.MTP_ACK)
-        assert artifact.target == MemoryCompileTarget.MTP_ACK
-        assert "draft_001" in artifact.text
-        assert "pending" in artifact.text.lower()
-
-    def test_pending_mtp_ack_update(self, compiler, update_pending):
-        artifact = compiler.compile(update_pending, MemoryCompileTarget.MTP_ACK)
-        assert "rev_001" in artifact.text
-        assert "revision" in artifact.text.lower()
-
     def test_pending_shared_context(self, compiler, write_pending):
         artifact = compiler.compile(write_pending, MemoryCompileTarget.SHARED_CONTEXT)
         assert "draft_001" in artifact.text
