@@ -58,6 +58,7 @@ class MemoryCompiler:
         envelope_target: MemoryEnvelopeTarget = MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
         options: MemoryCompileOptions | None = None,
         sections: List[MemoryEnvelopeSection] | None = None,
+        # TODO: sections 参数类型应迁移为 List[MemorySectionIR]，当前保留旧类型以兼容调用方
     ) -> CompiledMemoryEnvelope:
         opts = self._resolve_options(options)
         bundle = self._build_bundle_ir(
@@ -90,7 +91,7 @@ class MemoryCompiler:
         from hivememory.agent_runtime.resolver import ResolveResult
         from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement, PendingAtomResolution
 
-        # ResolveResult 透明展开
+        # ResolveResult 透明展开：pending/atom 类型展开为原始对象，请求别名保留到 options
         if isinstance(source, ResolveResult):
             if source.kind == "not_found":
                 raise ValueError(
@@ -105,7 +106,7 @@ class MemoryCompiler:
                 if not options.requested_alias:
                     options = options.model_copy(update={"requested_alias": source.requested_alias})
                 source = source.atom
-            # redirect / terminal 继续走 build_resolve_result_ir
+            # redirect / terminal：source 仍是 ResolveResult，直接落到下方 build_resolve_result_ir
 
         # PendingAtomSettlement wrapper
         if isinstance(source, PendingAtomSettlement):
