@@ -1,13 +1,6 @@
-"""Source-specific MemoryCompiler handlers."""
+"""Memory compilation handlers — target-first IR renderers."""
 
-from hivememory.engines.memory_compiler.handlers.memory_atom import compile_memory_atom
-from hivememory.engines.memory_compiler.handlers.pending_atom import compile_pending_atom
-from hivememory.engines.memory_compiler.handlers.resolve_result import (
-    compile_resolve_result,
-)
+from hivememory.engines.memory_compiler.handlers.targets import compile_from_ir
 
-__all__ = [
-    "compile_memory_atom",
-    "compile_pending_atom",
-    "compile_resolve_result",
-]
+
+__all__ = ["compile_from_ir"]

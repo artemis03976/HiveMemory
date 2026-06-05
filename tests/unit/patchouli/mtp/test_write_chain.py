@@ -477,8 +477,10 @@ class TestKoakumaWriteE2E:
         result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
-        # 响应应包含 status=ack
-        assert "ack" in result.formatted_response.lower() or "saved" in result.formatted_response.lower()
+        assert result.pending_alias is not None
+        assert "pending atom" in result.response_content
+        assert result.pending_alias in result.response_content
+        assert "ack" in result.formatted_response.lower()
 
     def test_write_deferred_capture_always_ack(self):
         """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""

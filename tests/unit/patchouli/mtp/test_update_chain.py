@@ -676,7 +676,11 @@ class TestKoakumaUpdateE2E:
         result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
-        assert "updated" in result.formatted_response.lower() or "ack" in result.formatted_response.lower()
+        assert result.pending_alias is not None
+        assert "pending revision" in result.response_content
+        assert "fact_api_port" in result.response_content
+        assert result.pending_alias in result.response_content
+        assert "ack" in result.formatted_response.lower()
 
 
 # ========== Test 10: Koakuma UPDATE Validation ==========
