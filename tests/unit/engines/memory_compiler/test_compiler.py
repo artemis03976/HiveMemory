@@ -19,6 +19,8 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
 )
+from hivememory.engines.memory_compiler.envelopes import compile_envelope
+from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 
 
 @pytest.fixture
@@ -641,6 +643,7 @@ class TestEnvelopeCompilation:
         assert "可用子代理" in envelope.text
         assert "Python parse_date" in envelope.text
         assert "代码分析师" in envelope.text
+        assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
 
     def test_retrieval_context_empty_section_hint(self, compiler, agent_profile_atom):
         agent_artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
@@ -687,6 +690,8 @@ class TestEnvelopeCompilation:
 
         assert "Patchouli, the memory library manager" in envelope.text
         assert "相关记忆" not in envelope.text
+        assert envelope.sections[0].kind == "default"
+        assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
 
     def test_mtp_read_response_wrap(self, compiler, sample_atom):
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
@@ -743,6 +748,7 @@ class TestEnvelopeCompilation:
 
         assert envelope.text.startswith("[Shared Context from Parent Agent]")
         assert "没有共享的记忆材料" in envelope.text
+        assert envelope.sections == []
 
     def test_shared_context_injection_empty_english(self):
         compiler = MemoryCompiler(default_language="en")
@@ -751,6 +757,46 @@ class TestEnvelopeCompilation:
             envelope_target=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
             sections=[],
         )
+
+        assert envelope.text.startswith("[Shared Context from Parent Agent]")
+        assert "No shared memory artifacts." in envelope.text
+
+    def test_compile_envelope_accepts_retrieval_bundle_ir(self, compiler, sample_atom):
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL)
+        bundle = MemoryBundleIR(
+            purpose=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            sections=[
+                MemorySectionIR(kind="memories", artifacts=[artifact]),
+                MemorySectionIR(kind="agent_profiles", empty_text="No agents"),
+            ],
+        )
+
+        envelope = compile_envelope(bundle, options=MemoryCompileOptions(language="en"))
+
+        assert envelope.target == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT
+        assert "### Relevant Memories" in envelope.text
+        assert "No agents" in envelope.text
+        assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
+
+    def test_compile_envelope_accepts_mtp_read_bundle_ir(self, compiler, sample_atom):
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
+        bundle = MemoryBundleIR(
+            purpose=MemoryEnvelopeTarget.MTP_READ_RESPONSE,
+            sections=[MemorySectionIR(kind="default", artifacts=[artifact])],
+        )
+
+        envelope = compile_envelope(bundle)
+
+        assert envelope.text.startswith("[MTP READ Result]")
+        assert "Python parse_date" in envelope.text
+
+    def test_compile_envelope_accepts_shared_context_bundle_ir(self):
+        bundle = MemoryBundleIR(
+            purpose=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+            sections=[],
+        )
+
+        envelope = compile_envelope(bundle, options=MemoryCompileOptions(language="en"))
 
         assert envelope.text.startswith("[Shared Context from Parent Agent]")
         assert "No shared memory artifacts." in envelope.text

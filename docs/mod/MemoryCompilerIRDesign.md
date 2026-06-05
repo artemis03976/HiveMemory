@@ -304,15 +304,17 @@ wrap(...)
 实施内容：
 
 1. 新增 `MemorySectionIR` / `MemoryBundleIR`。
-2. retrieval renderer 产出 section plan 时可选择构建 bundle IR。
-3. MTP READ 成功路径使用 `MTP_READ_RESPONSE` envelope。
-4. shared context injection 使用 bundle IR 表达父子 agent 的共享语境。
+2. `MemoryCompiler.wrap()` 保持外部签名不变，在内部把 `artifacts` / `MemoryEnvelopeSection` list 归一化为 `MemoryBundleIR`。
+3. `compile_envelope()` 改为只接收 `MemoryBundleIR`，并通过 `bundle.purpose` 分发 retrieval、MTP READ、shared context 三类 envelope。
+4. `MemoryEnvelopeSection` 继续作为外部兼容输入与 `CompiledMemoryEnvelope.sections` 返回类型；bundle section 会在 envelope 输出时转回该模型。
+5. 本轮 `MemorySectionIR.artifacts` 仍保存 `CompiledMemoryArtifact`，暂不回退到 `MemoryUnitIR`，因为 envelope 当前消费的是已经按 target 编译完成的 artifact。
 
 验收标准：
 
 - retrieval full / cascade / compact 输出兼容。
 - MTP READ 多 alias 输出兼容或有明确迁移测试。
 - shared context injection 输出兼容。
+- `sections=None` 与 `sections=[]` 的语义保持区分：前者可生成 default empty section，后者保留空 section list，用于 shared context empty case。
 
 ---
 

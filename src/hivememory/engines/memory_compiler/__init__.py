@@ -9,6 +9,7 @@ from hivememory.engines.memory_compiler.models import (
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
 )
+from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 
 __all__ = [
     "MemoryCompiler",
@@ -18,4 +19,6 @@ __all__ = [
     "CompiledMemoryEnvelope",
     "MemoryEnvelopeSection",
     "MemoryCompileOptions",
+    "MemorySectionIR",
+    "MemoryBundleIR",
 ]

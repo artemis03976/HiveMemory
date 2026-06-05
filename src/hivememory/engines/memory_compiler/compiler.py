@@ -19,7 +19,7 @@ from hivememory.engines.memory_compiler.builders import (
     build_pending_atom_ir,
     build_resolve_result_ir,
 )
-from hivememory.engines.memory_compiler.ir import MemoryUnitIR
+from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR, MemoryUnitIR
 
 
 class MemoryCompiler:
@@ -59,20 +59,14 @@ class MemoryCompiler:
         options: MemoryCompileOptions | None = None,
         sections: List[MemoryEnvelopeSection] | None = None,
     ) -> CompiledMemoryEnvelope:
-        artifact_list: list[CompiledMemoryArtifact]
-        if artifacts is None:
-            artifact_list = []
-        elif isinstance(artifacts, list):
-            artifact_list = artifacts
-        else:
-            artifact_list = [artifacts]
-
-        return compile_envelope(
-            envelope_target,
-            artifacts=artifact_list,
+        opts = self._resolve_options(options)
+        bundle = self._build_bundle_ir(
+            artifacts=artifacts,
+            envelope_target=envelope_target,
             sections=sections,
-            options=self._resolve_options(options),
+            options=opts,
         )
+        return compile_envelope(bundle, options=opts)
 
     def _resolve_options(self, options: MemoryCompileOptions | None) -> MemoryCompileOptions:
         opts = options or MemoryCompileOptions()
@@ -140,3 +134,47 @@ class MemoryCompiler:
             f"Unsupported source type: {type(source).__name__}. "
             f"Expected MemoryAtom, PendingAtom, ResolveResult, or PendingAtomSettlement."
         )
+
+    def _build_bundle_ir(
+        self,
+        *,
+        artifacts: CompiledMemoryArtifact | List[CompiledMemoryArtifact] | None,
+        envelope_target: MemoryEnvelopeTarget,
+        sections: List[MemoryEnvelopeSection] | None,
+        options: MemoryCompileOptions,
+    ) -> MemoryBundleIR:
+        metadata = {"format": options.format} if options.format else {}
+
+        if sections is not None:
+            return MemoryBundleIR(
+                purpose=envelope_target,
+                sections=[_to_bundle_section(section) for section in sections],
+                metadata=metadata,
+            )
+
+        artifact_list: list[CompiledMemoryArtifact]
+        if artifacts is None:
+            artifact_list = []
+        elif isinstance(artifacts, list):
+            artifact_list = artifacts
+        else:
+            artifact_list = [artifacts]
+
+        return MemoryBundleIR(
+            purpose=envelope_target,
+            sections=[
+                MemorySectionIR(
+                    kind="default",
+                    artifacts=artifact_list,
+                )
+            ],
+            metadata=metadata,
+        )
+
+
+def _to_bundle_section(section: MemoryEnvelopeSection) -> MemorySectionIR:
+    return MemorySectionIR(
+        kind=section.kind,
+        artifacts=list(section.artifacts),
+        empty_text=section.empty_text,
+    )

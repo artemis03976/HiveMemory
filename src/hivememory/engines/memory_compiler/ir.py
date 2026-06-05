@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from hivememory.engines.memory_compiler.models import (
+    CompiledMemoryArtifact,
+    MemoryEnvelopeTarget,
+)
 
 
 class MemoryIdentityIR(BaseModel):
@@ -39,3 +44,16 @@ class MemoryUnitIR(BaseModel):
     content: MemoryContentIR
     status: MemoryStatusIR
     metadata: Dict[str, Any] = {}
+
+
+class MemorySectionIR(BaseModel):
+    kind: str
+    artifacts: List[CompiledMemoryArtifact] = Field(default_factory=list)
+    empty_text: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryBundleIR(BaseModel):
+    purpose: MemoryEnvelopeTarget
+    sections: List[MemorySectionIR] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)

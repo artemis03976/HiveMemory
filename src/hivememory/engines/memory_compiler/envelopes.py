@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Iterable
-
 from hivememory.i18n import (
     get_memory_envelope_text,
     get_memory_section_title,
 )
+from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 from hivememory.engines.memory_compiler.models import (
-    CompiledMemoryArtifact,
     CompiledMemoryEnvelope,
     MemoryCompileOptions,
     MemoryEnvelopeSection,
@@ -18,37 +16,36 @@ from hivememory.engines.memory_compiler.models import (
 
 
 def compile_envelope(
-    target: MemoryEnvelopeTarget,
+    bundle: MemoryBundleIR,
     *,
-    artifacts: Iterable[CompiledMemoryArtifact] | None = None,
-    sections: list[MemoryEnvelopeSection] | None = None,
     options: MemoryCompileOptions | None = None,
 ) -> CompiledMemoryEnvelope:
-    """Compile envelope text around already-compiled memory artifacts."""
+    """Compile envelope text around a memory bundle."""
     opts = options or MemoryCompileOptions()
-    envelope_sections = sections or [
-        MemoryEnvelopeSection(kind="default", artifacts=list(artifacts or []))
-    ]
 
-    if target == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT:
-        text = _compile_retrieval_context(envelope_sections, opts.language)
-    elif target == MemoryEnvelopeTarget.MTP_READ_RESPONSE:
-        text = _compile_mtp_read_response(envelope_sections, opts.language)
-    elif target == MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION:
-        text = _compile_shared_context_injection(envelope_sections, opts.language)
+    if bundle.purpose == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT:
+        text = _compile_retrieval_context(bundle.sections, opts.language)
+    elif bundle.purpose == MemoryEnvelopeTarget.MTP_READ_RESPONSE:
+        text = _compile_mtp_read_response(bundle.sections, opts.language)
+    elif bundle.purpose == MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION:
+        text = _compile_shared_context_injection(bundle.sections, opts.language)
     else:
-        raise ValueError(f"Unsupported envelope target '{target}'.")
+        raise ValueError(f"Unsupported envelope target '{bundle.purpose}'.")
+
+    metadata = dict(bundle.metadata)
+    if opts.format:
+        metadata["format"] = opts.format
 
     return CompiledMemoryEnvelope(
-        target=target,
+        target=bundle.purpose,
         text=text,
-        sections=envelope_sections,
-        metadata={"format": opts.format} if opts.format else {},
+        sections=[_to_envelope_section(section) for section in bundle.sections],
+        metadata=metadata,
     )
 
 
 def _compile_retrieval_context(
-    sections: list[MemoryEnvelopeSection],
+    sections: list[MemorySectionIR],
     language: str | None,
 ) -> str:
     parts = [get_memory_envelope_text("retrieval_header", language)]
@@ -66,7 +63,7 @@ def _compile_retrieval_context(
 
 
 def _render_retrieval_memories_section(
-    section: MemoryEnvelopeSection,
+    section: MemorySectionIR,
     language: str | None,
 ) -> str:
     title = get_memory_section_title("memories", language)
@@ -80,7 +77,7 @@ def _render_retrieval_memories_section(
 
 
 def _render_retrieval_agent_profiles_section(
-    section: MemoryEnvelopeSection,
+    section: MemorySectionIR,
     language: str | None,
 ) -> str:
     title = get_memory_section_title("agent_profiles", language)
@@ -94,7 +91,7 @@ def _render_retrieval_agent_profiles_section(
 
 
 def _compile_mtp_read_response(
-    sections: list[MemoryEnvelopeSection],
+    sections: list[MemorySectionIR],
     language: str | None,
 ) -> str:
     body = _join_section_artifacts(sections)
@@ -103,7 +100,7 @@ def _compile_mtp_read_response(
 
 
 def _compile_shared_context_injection(
-    sections: list[MemoryEnvelopeSection],
+    sections: list[MemorySectionIR],
     language: str | None,
 ) -> str:
     body = _join_section_artifacts(sections)
@@ -115,7 +112,7 @@ def _compile_shared_context_injection(
     return f"{title}\n\n{intro}\n\n{body}"
 
 
-def _join_section_artifacts(sections: list[MemoryEnvelopeSection]) -> str:
+def _join_section_artifacts(sections: list[MemorySectionIR]) -> str:
     blocks: list[str] = []
     for section in sections:
         if section.artifacts:
@@ -123,3 +120,11 @@ def _join_section_artifacts(sections: list[MemoryEnvelopeSection]) -> str:
         elif section.empty_text:
             blocks.append(section.empty_text)
     return "\n".join(blocks)
+
+
+def _to_envelope_section(section: MemorySectionIR) -> MemoryEnvelopeSection:
+    return MemoryEnvelopeSection(
+        kind=section.kind,
+        artifacts=list(section.artifacts),
+        empty_text=section.empty_text,
+    )

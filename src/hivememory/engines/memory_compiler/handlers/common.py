@@ -45,10 +45,8 @@ def artifact_status(unit: MemoryUnitIR) -> str | None:
         return "redirect"
     if unit.status.is_discarded:
         return "discarded"
-    if is_resolve_terminal(unit) and unit.status.error is not None:
-        return "failed"
     if is_resolve_terminal(unit):
-        return "expired"
+        return "failed" if unit.status.error is not None else "expired"
     return unit.status.source_state
 
 
