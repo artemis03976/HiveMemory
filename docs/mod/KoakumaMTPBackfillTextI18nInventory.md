@@ -24,7 +24,7 @@
 ```
 
 因此，本清单不把普通开发日志、代码注释、测试断言、文档说明作为 i18n 迁移对象。  
-但如果某个错误字符串、提示语、ACK、syscall 结果会成为 `MTPResponse.content`、`formatted_response` 或 IPC return 内容，则纳入本文范围。
+但如果某个错误字符串、提示语、ACK、syscall 结果会成为 `MTPResponse.content`、`formatted_response` 或 CALL response 内容，则纳入本文范围。
 
 ---
 
@@ -39,14 +39,14 @@ execute_mtp()
   -> MTPParser.complete_and_parse()
   -> _route_and_execute()
   -> handler 返回 MTPResponse(content=...)
-  -> MTPFormatter.format_command_with_response()
+  -> MTPFormatter.format_response()
   -> MTPExecutionResult.formatted_response
 ```
 
 格式化容器位于 `src/hivememory/core/mtp/formatter.py`：
 
 ```text
-⟪ VERB | TARGET | ARGS ⟫
+[System MTP Execution Result]
 <mtp_response status="..." time="...ms">
 {response.content}
 </mtp_response>
@@ -61,11 +61,11 @@ execute_mtp()
 {mtp_result.formatted_response}
 ```
 
-CALL / 子代理 IPC 结果由 `src/hivememory/alice/runtime/orchestrator.py` 注入：
+CALL / 子代理返回由 `src/hivememory/alice/runtime/orchestrator.py` 构造 `MTPCallResponse`，再交给 `MTPFormatter.format_call_response()` 注入：
 
 ```text
-[System IPC Return]
-<mtp_response status="..." type="ipc_return">
+[System MTP Call Response]
+<mtp_response status="..." type="call_response">
 ...
 </mtp_response>
 ```
@@ -83,7 +83,8 @@ CALL / 子代理 IPC 结果由 `src/hivememory/alice/runtime/orchestrator.py` �
 | XML tag | `<mtp_response>`、`</mtp_response>` | Agent 教学和解析依赖 |
 | XML attrs | `status`、`time`、`type` | 结构化字段 |
 | status values | `success`、`error`、`ack`、`suspend` | 协议状态枚举 |
-| CALL suspend JSON fields | `target_alias`、`task`、`context_refs` | `loop_executor` 解析依赖 |
+| CALL suspend request fields | `target_alias`、`task`、`context_refs` | `MTPCallRequest` 结构字段 |
+| CALL response fields | `agent_alias`、`reply`、`artifact_aliases`、`error` | `MTPCallResponse` 结构字段 |
 | alias / uuid / pending alias | `fact_xxx`、`draft_xxx`、`rev_xxx` | 数据标识符 |
 | memory type values | `CODE_SNIPPET`、`FACT` 等 | 枚举值 |
 
@@ -219,10 +220,10 @@ internal_error_no_retry
 
 | 文件 | 位置 / 来源 | 当前文本类型 | 示例 | 优先级 |
 | :--- | :--- | :--- | :--- | :--- |
-| `core/mtp/formatter.py` | `format_response()` | XML 容器 | `<mtp_response status="...">` | 不翻译 |
-| `core/mtp/formatter.py` | `format_command_with_response()` | XML 容器 + command raw text | `command.raw_text` + XML | 不翻译 |
+| `core/mtp/formatter.py` | `format_response()` | 普通 MTP 回填标题 + XML 容器 | `[System MTP Execution Result]` + `<mtp_response status="...">` | 标题已模板化 |
+| `core/mtp/formatter.py` | `format_call_response()` | CALL response 标题 + XML 容器 | `[System MTP Call Response]` + `<mtp_response status="..." type="call_response">` | 标题与标签已模板化 |
 
-备注：formatter 目前主要是协议结构，不建议迁移自然语言。若未来添加标题或解释文本，再纳入 i18n。
+备注：formatter 中 XML tag、属性名、status 值和 `type="call_response"` 仍属于协议结构，不翻译；标题、reply label、artifact label 与 pending 状态说明已进入 `mtp_runtime` 的 `_INFO_TEXT`。
 
 ---
 
@@ -282,30 +283,29 @@ RUN 内核工具的返回值会原样成为 `MTPResponse.content`。其中 clock
 
 ---
 
-## 7. Agent loop 与 IPC 包装文本清单
+## 7. Agent loop 与 CALL response 包装文本清单
 
 ### 7.1 普通 MTP 回填包装
 
 | 文件 | 位置 / 来源 | 当前文本类型 | 示例 | 优先级 |
 | :--- | :--- | :--- | :--- | :--- |
-| `agent_runtime/loop_executor.py` | history append | 系统包装标题 | `[System MTP Execution Result]` | P0 |
+| `core/mtp/formatter.py` | `format_response()` | 系统包装标题 | `[System MTP Execution Result]` | 已完成 |
 | `agent_runtime/loop_executor.py` | tool_result TurnEvent | `formatted_response` | XML block | 不翻译 |
 
-备注：包装标题进入 Agent history，应与 MTP runtime 语言一致。
+备注：普通 MTP 回填标题现在由 `MTPFormatter` 拼接，`loop_executor` 只写入 `formatted_response`。
 
-### 7.2 子代理 IPC 回填
+### 7.2 子代理 CALL response 回填
 
 | 文件 | 位置 / 来源 | 当前文本类型 | 示例 | 优先级 |
 | :--- | :--- | :--- | :--- | :--- |
-| `alice/runtime/orchestrator.py` | history append | 系统包装标题 | `[System IPC Return]` | P0 |
-| `alice/runtime/orchestrator.py` | sub-agent exception | IPC error | `[Sub-Agent Error]: The sub-agent ... encountered an error...` | P0 |
-| `alice/runtime/orchestrator.py` | sub-agent exception | Action 建议 | `Action: Try a different approach...` | P0 |
-| `alice/runtime/orchestrator.py` | `_assemble_ipc_return()` | IPC reply label | `[Sub-Agent Reply]:` | P0 |
-| `alice/runtime/orchestrator.py` | `_assemble_ipc_return()` | artifact label | `[Artifacts Generated / Updated]:` | P0 |
-| `alice/runtime/orchestrator.py` | `_assemble_ipc_return()` | artifact state | `(pending, readable now)` | P0 |
-| `alice/runtime/orchestrator.py` | `_assemble_ipc_return()` | XML structure | `<mtp_response status="success" type="ipc_return">` | 不翻译 |
+| `core/mtp/formatter.py` | `format_call_response()` | 系统包装标题 | `[System MTP Call Response]` | 已完成 |
+| `core/mtp/formatter.py` | `format_call_response()` | reply label | `[Sub-Agent Reply]:` | 已完成 |
+| `core/mtp/formatter.py` | `format_call_response()` | artifact label | `[Artifacts Generated / Updated]:` | 已完成 |
+| `core/mtp/formatter.py` | `format_call_response()` | artifact state | `(pending, readable now)` / `(pending, 本次运行可读)` | 已完成 |
+| `core/mtp/formatter.py` | `format_call_response()` | XML structure | `<mtp_response status="success" type="call_response">` | 不翻译 |
+| `core/mtp/exceptions.py` | `SubAgentExecutionError` | 子代理异常错误文本 | `[Sub-Agent Error]: The sub-agent ... encountered an error...` | 已完成 |
 
-备注：IPC 是 CALL 的回填路径，虽然不在 KoakumaRuntime 内部，但与 MTP response 同形态，建议纳入同一 runtime i18n 批次或紧随其后迁移。
+备注：CALL response 不再由 orchestrator 手拼文本。orchestrator 只构造 `MTPCallResponse`，成功时携带 `reply` 与 `artifact_aliases`，失败时携带 `MTPErrorInfo`，最终统一由 formatter 渲染。
 
 ---
 
@@ -435,12 +435,12 @@ MTPExecutionContext explicit language
 - SEARCH filter warning 会混入成功响应。
 - parse error 的修复建议会影响 Agent 是否重试。
 
-### Phase C: Loop / IPC 包装文本
+### Phase C: Loop / CALL response 包装文本
 
 目标对象：
 
 1. `[System MTP Execution Result]`
-2. `[System IPC Return]`
+2. `[System MTP Call Response]`
 3. `[Sub-Agent Reply]`
 4. `[Artifacts Generated / Updated]`
 5. sub-agent error return。
@@ -449,6 +449,13 @@ MTPExecutionContext explicit language
 
 - 这些是注入 Agent history 的系统提示。
 - 与 CALL / 多智能体体验强相关。
+
+当前状态：
+
+- 普通 MTP 回填已由 `MTPFormatter.format_response()` 统一拼接标题。
+- CALL response 已结构化为 `MTPCallResponse`，并由 `MTPFormatter.format_call_response()` 统一渲染。
+- `system_ipc_return` / `ipc_return` 旧命名已替换为 `system_call_response` / `call_response`。
+- CALL response 相关标题、reply label、artifact label、artifact state 与 sub-agent error 已进入 `hivememory.i18n.mtp_runtime`。
 
 ### Phase D: Syscall 文本
 

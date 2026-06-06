@@ -17,6 +17,7 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
     StorageOfflineError,
     StorageReadError,
+    SubAgentExecutionError,
     SyscallInternalError,
     SystemFault,
 )
@@ -25,6 +26,7 @@ from hivememory.core.mtp.trace_reducer import MTPTraceReducer
 from hivememory.core.mtp.models import (
     MTPCommand,
     MTPCallRequest,
+    MTPCallResponse,
     MTPErrorInfo,
     MTPErrorSeverity,
     MTP_LEFT_DELIMITER,
@@ -63,6 +65,7 @@ __all__ = [
     "MTPTarget",
     "MTPCommand",
     "MTPCallRequest",
+    "MTPCallResponse",
     "MTPResponse",
     "MTPParser",
     "MTPFilterParser",
@@ -81,6 +84,7 @@ __all__ = [
     "StorageReadError",
     "BusRouteUnavailableError",
     "SyscallInternalError",
+    "SubAgentExecutionError",
     "create_parser",
     "create_filter_parser",
     "create_formatter",

@@ -132,7 +132,7 @@ class FrameExecutionResult:
 
     引擎语义：``execute_frame(frame)`` 读写传入的 ``frame``，跑到自然收敛返回
     ``COMPLETED``，命中 CALL 返回 ``SUSPENDED`` 并把控制权交还编排，自己不 fork、
-    不 resume、不组 IPC。``AgentRunResult`` 不再由引擎产出，改由编排在 ``COMPLETED``
+    不 resume、不组 CALL response。``AgentRunResult`` 不再由引擎产出，改由编排在 ``COMPLETED``
     时从 ``frame.progress`` 聚合。
     """
 

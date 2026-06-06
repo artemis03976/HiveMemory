@@ -354,7 +354,8 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     call_ev = call_events[0]
     assert call_ev.role == "user"
     assert call_ev.status == "success"
-    assert call_ev.render_as == "system_ipc_return"
+    assert call_ev.render_as == "system_call_response"
+    assert call_ev.content.startswith("[System MTP Call Response]\n")
 
 
 @pytest.mark.asyncio

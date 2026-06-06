@@ -1,4 +1,4 @@
-"""Tests for MTP runtime i18n text helpers."""
+"""MTP runtime i18n 文本 helper 测试。"""
 
 from hivememory.i18n.mtp_runtime import (
     get_mtp_error_text,
@@ -19,10 +19,55 @@ def test_get_mtp_warning_text_en():
 
 
 def test_get_mtp_info_text_execution_result_title():
+    """普通 MTP 执行结果标题应从 info 文本表读取。"""
     assert (
         get_mtp_info_text("mtp.loop.execution_result_title", language="en")
         == "[System MTP Execution Result]"
     )
+
+
+def test_get_mtp_info_text_call_response_en():
+    """CALL response 英文 info 文本应覆盖标题、reply 与 artifact 标签。"""
+    assert (
+        get_mtp_info_text("mtp.call_response.title", language="en")
+        == "[System MTP Call Response]"
+    )
+    assert (
+        get_mtp_info_text("mtp.call_response.reply_label", language="en")
+        == "[Sub-Agent Reply]:"
+    )
+    assert (
+        get_mtp_info_text("mtp.call_response.artifacts_label", language="en")
+        == "[Artifacts Generated / Updated]:"
+    )
+    assert (
+        get_mtp_info_text("mtp.call_response.artifact_state", language="en")
+        == "(pending, readable now)"
+    )
+
+
+def test_get_mtp_info_text_call_response_zh():
+    """CALL response 中文 info 文本应覆盖标题和 pending 状态说明。"""
+    assert (
+        get_mtp_info_text("mtp.call_response.title", language="zh")
+        == "[System MTP Call Response]"
+    )
+    assert (
+        get_mtp_info_text("mtp.call_response.artifact_state", language="zh")
+        == "(pending, 本次运行可读)"
+    )
+
+
+def test_get_mtp_error_text_call_response_sub_agent_error():
+    """子代理异常应通过 call_response error key 渲染。"""
+    text = get_mtp_error_text(
+        "mtp.call_response.sub_agent_error",
+        {"agent_alias": "coder_doll"},
+        "en",
+    )
+
+    assert "[Sub-Agent Error]" in text
+    assert "coder_doll" in text
 
 
 def test_get_mtp_warning_text_zh():

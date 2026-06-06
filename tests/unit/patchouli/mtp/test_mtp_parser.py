@@ -20,6 +20,7 @@ from hivememory.core.mtp import (
     MTPErrorSeverity,
     MTPResponseStatus,
     MTPWarningInfo,
+    MTPCallResponse,
     MTPResponse,
     MTPParser,
     MTPParseError,
@@ -341,6 +342,52 @@ class TestMTPFormatter:
         )
         result = formatter.format_response(response)
         assert "time=" not in result
+
+    def test_format_call_response_success(self, formatter: MTPFormatter):
+        response = MTPCallResponse(
+            status=MTPResponseStatus.SUCCESS,
+            agent_alias="coder_doll",
+            reply="Task completed.",
+        )
+
+        result = formatter.format_call_response(response, "en")
+
+        assert result.startswith("[System MTP Call Response]\n")
+        assert '<mtp_response status="success" type="call_response">' in result
+        assert "[Sub-Agent Reply]:" in result
+        assert "Task completed." in result
+
+    def test_format_call_response_artifacts(self, formatter: MTPFormatter):
+        response = MTPCallResponse(
+            status=MTPResponseStatus.SUCCESS,
+            agent_alias="coder_doll",
+            reply="Wrote code.",
+            artifact_aliases=["mem_code_1"],
+        )
+
+        result = formatter.format_call_response(response, "en")
+
+        assert "[Artifacts Generated / Updated]:" in result
+        assert "- mem_code_1 (pending, readable now)" in result
+
+    def test_format_call_response_error(self, formatter: MTPFormatter):
+        response = MTPCallResponse(
+            status=MTPResponseStatus.ERROR,
+            agent_alias="coder_doll",
+            error=MTPErrorInfo(
+                code="mtp.call_response.sub_agent_error",
+                message_key="mtp.call_response.sub_agent_error",
+                severity=MTPErrorSeverity.SYSTEM_FAULT,
+                params={"agent_alias": "coder_doll"},
+            ),
+        )
+
+        result = formatter.format_call_response(response, "en")
+
+        assert '<mtp_response status="error" type="call_response">' in result
+        assert '<error code="mtp.call_response.sub_agent_error" severity="system_fault">' in result
+        assert "[Sub-Agent Error]" in result
+        assert "coder_doll" in result
 
 
 # ========== 工厂函数测试 ==========

@@ -125,6 +125,16 @@ class MTPErrorInfo(BaseModel):
     cause: Optional[str] = Field(default=None, exclude=True, description="原始异常信息，仅供开发调试，不回填给 Agent")
 
 
+class MTPCallResponse(BaseModel):
+    """CALL 子代理返回的结构化载荷。"""
+
+    status: MTPResponseStatus = Field(..., description="返回状态")
+    agent_alias: str = Field(..., description="子代理 alias")
+    reply: str = Field(default="", description="子代理最终回复")
+    artifact_aliases: List[str] = Field(default_factory=list, description="子代理产物 alias")
+    error: Optional[MTPErrorInfo] = Field(default=None, description="结构化错误信息，status=error 时非空")
+
+
 class MTPWarningInfo(BaseModel):
     """结构化 nonfatal warning，随 MTPResponse.warnings 携带。"""
     message_key: str = Field(..., description="具体 i18n 文本 key")
@@ -164,5 +174,6 @@ __all__ = [
     "MTPTarget",
     "MTPCommand",
     "MTPCallRequest",
+    "MTPCallResponse",
     "MTPResponse",
 ]

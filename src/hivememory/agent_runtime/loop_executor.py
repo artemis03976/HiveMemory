@@ -81,7 +81,7 @@ class AgentLoopExecutor:
         执行单个帧的循环，直到自然收敛或命中 CALL。
 
         累积产物写入 frame.progress；重入同一 frame 时续接。
-        命中 CALL 时不 fork、不 resume、不组 IPC——直接返回 SUSPENDED。
+        命中 CALL 时不 fork、不 resume、不组 CALL response，直接返回 SUSPENDED。
 
         Returns:
             FrameExecutionResult: COMPLETED（自然收敛）或 SUSPENDED（命中 CALL）
@@ -217,9 +217,9 @@ class AgentLoopExecutor:
                 break
 
             if mtp_result.response_status == "suspend":
-                # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 IPC。
+                # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 CALL response。
                 # 编排负责：append working_history(CALL文本+⟫) → fork子帧 → 跑子帧
-                # → resume → harvest → 组IPC → append IPC → 重入本帧。
+                # → resume → harvest → 组 CALL response → append 回填 → 重入本帧。
                 if stream_emitter is not None:
                     mtp_suspend_data = {
                         "verb": verb_hint,
@@ -283,7 +283,7 @@ class AgentLoopExecutor:
         max_iterations: int,
         generation_options: Optional[Dict[str, Any]] = None,
         cancel_event: Optional[asyncio.Event] = None,
-        # 编排注入的回调：当引擎遇到 SUSPEND 时，编排处理子帧并回填 IPC，
+        # 编排注入的回调：当引擎遇到 SUSPEND 时，编排处理子帧并回填 CALL response，
         # 然后引擎继续本段流。签名: (FrameExecutionResult) -> None（异步）。
         on_suspend: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
     ):
@@ -292,7 +292,7 @@ class AgentLoopExecutor:
 
         遇到 CALL SUSPEND 时：
         1. 发出 mtp_result(status=suspend) 事件（已在 execute_frame 内完成）
-        2. 调用 on_suspend(result) 让编排处理子帧（sub_agent_start/end、IPC 回填）
+        2. 调用 on_suspend(result) 让编排处理子帧（sub_agent_start/end、CALL response 回填）
         3. 编排回填 working_history 后，引擎重入同一 frame 继续流式输出
 
         Yields:

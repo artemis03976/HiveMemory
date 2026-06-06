@@ -6,8 +6,8 @@ HistoryTranscriptBuilder 单测
 1. 无 turn_events 的 block → 优先回退到 assistant_final_text
 2. 结构化重放: assistant_message + tool_call + tool_result + assistant_message
 3. render_as 前缀渲染:
-   - system_tool_result → "[System Tool Result]\\n{content}"
-   - system_ipc_return → "[System IPC Return]\\n{content}"
+   - system_tool_result → "[System MTP Execution Result]\\n{content}"
+   - system_call_response → "[System MTP Call Response]\\n{content}"
 4. 多智能体前缀:
    - 非当前 agent 的 assistant 事件带 [From: ...]
    - tool_result 不带 [From: ...]
@@ -207,12 +207,20 @@ class TestRenderAsPrefix:
         msgs = builder.build_messages([block])
         assert msgs[1]["content"] == content
 
-    def test_system_ipc_return_prefix(self):
+    def test_system_call_response_prefix(self):
         event = _ev("tool_result", 0, "user", "<mtp_response>...</mtp_response>",
-                    render_as="system_ipc_return")
+                    render_as="system_call_response")
         block = _block_structured("q", [event])
         msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == "[System IPC Return]\n<mtp_response>...</mtp_response>"
+        assert msgs[1]["content"] == "[System MTP Call Response]\n<mtp_response>...</mtp_response>"
+
+    def test_system_call_response_prefix_not_duplicated(self):
+        content = "[System MTP Call Response]\n<mtp_response>...</mtp_response>"
+        event = _ev("tool_result", 0, "user", content,
+                    render_as="system_call_response")
+        block = _block_structured("q", [event])
+        msgs = builder.build_messages([block])
+        assert msgs[1]["content"] == content
 
     def test_tool_result_default_plain(self):
         """render_as 默认为 plain，不加前缀"""
@@ -327,17 +335,17 @@ class TestMixedBlocks:
             assert msgs[i * 2]["content"] == f"问题{i}"
             assert msgs[i * 2 + 1]["content"] == f"回复{i}"
 
-    def test_ipc_return_and_mtp_result_both_in_one_block(self):
-        """单个 block 同时含有 system_ipc_return 和 system_tool_result"""
+    def test_call_response_and_mtp_result_both_in_one_block(self):
+        """单个 block 同时含有 system_call_response 和 system_tool_result"""
         events = [
             _ev("tool_result", 0, "user", "sub response",
-                tool_kind="CALL", render_as="system_ipc_return"),
+                tool_kind="CALL", render_as="system_call_response"),
             _ev("tool_result", 1, "user", "read result",
                 tool_kind="READ", render_as="system_tool_result"),
         ]
         block = _block_structured("复杂场景", events)
         msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == "[System IPC Return]\nsub response"
+        assert msgs[1]["content"] == "[System MTP Call Response]\nsub response"
         assert msgs[2]["content"] == "[System MTP Execution Result]\nread result"
 
 

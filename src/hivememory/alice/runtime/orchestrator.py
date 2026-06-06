@@ -3,7 +3,7 @@ AgentOrchestrator - 多智能体编排驱动器
 
 职责（编排层）：
     - 造主帧、驱动引擎循环
-    - 收到 SUSPENDED 时：fork 子帧 → 驱动引擎跑子帧 → resume → harvest → 组 IPC → 重入
+    - 收到 SUSPENDED 时：fork 子帧 → 驱动引擎跑子帧 → resume → harvest → 组 CALL response → 重入
     - COMPLETED 时从 frame.progress 聚合 AgentRunResult
     - 流式模式下负责 sub_agent_start/end 事件与子帧事件透传
 
@@ -24,6 +24,8 @@ from hivememory.agent_runtime.models import (
     MTPExecutionContext,
 )
 from hivememory.core.models import TurnEvent
+from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
+from hivememory.core.mtp.exceptions import SubAgentExecutionError
 from hivememory.core.protocol.models import AgentRunResult
 from hivememory.engines.memory_compiler import (
     CompiledMemoryArtifact,
@@ -51,7 +53,7 @@ class AgentOrchestrator:
     AgentProfileResolver / RuntimeAliasResolver），负责：
       1. 造主帧（create_main_frame）
       2. 通过门面 run_frame(main_frame) 跑单 Agent
-      3. SUSPENDED → 重入序列（append CALL文本 → fork/跑子帧/resume/harvest/组IPC → append IPC）
+      3. SUSPENDED → 重入序列（append CALL 文本 → fork/跑子帧/resume/harvest/组 CALL response → append 回填）
       4. COMPLETED → 从 frame.progress 聚合 AgentRunResult
 
     编排只调门面 API 跑 frame，不直接接触 loop_executor 或迭代上限等引擎细节。
@@ -68,6 +70,7 @@ class AgentOrchestrator:
         self._frame_scheduler = frame_scheduler
         self._agent_profile_resolver = agent_profile_resolver
         self._alias_resolver = alias_resolver
+        self._mtp_formatter = MTPFormatter()
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -230,7 +233,12 @@ class AgentOrchestrator:
                 if alias not in main_frame.harvested_aliases:
                     main_frame.harvested_aliases.append(alias)
 
-            ipc_response = self._assemble_ipc_return(sub_result_text, sub_frame.harvested_aliases)
+            call_response = MTPCallResponse(
+                status=MTPResponseStatus.SUCCESS,
+                agent_alias=cr.target_alias,
+                reply=sub_result_text,
+                artifact_aliases=sub_frame.harvested_aliases,
+            )
 
             if emit is not None:
                 await emit({"event": "sub_agent_end", "data": {
@@ -246,12 +254,14 @@ class AgentOrchestrator:
         except Exception as e:
             logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
             self._frame_scheduler.resume_frame()
-            ipc_response = (
-                '<mtp_response status="error" type="ipc_return">\n'
-                f'[Sub-Agent Error]: The sub-agent "{cr.target_alias}" encountered '
-                f'an error and could not complete the task.\n'
-                f'Action: Try a different approach or continue without the sub-agent.\n'
-                '</mtp_response>'
+            error = SubAgentExecutionError(
+                params={"agent_alias": cr.target_alias},
+                cause=e,
+            ).to_error_info()
+            call_response = MTPCallResponse(
+                status=MTPResponseStatus.ERROR,
+                agent_alias=cr.target_alias,
+                error=error,
             )
             if emit is not None:
                 await emit({"event": "sub_agent_end", "data": {
@@ -263,10 +273,15 @@ class AgentOrchestrator:
                     "agent_id": cr.target_alias,
                 }})
 
-        # iv. append IPC + tool_result TurnEvent
+        formatted_call_response = self._mtp_formatter.format_call_response(
+            call_response,
+            getattr(main_frame.agent_profile, "language", None),
+        )
+
+        # iv. append CALL response + tool_result TurnEvent
         main_frame.working_history.append({
             "role": "user",
-            "content": f"[System IPC Return]\n{ipc_response}",
+            "content": formatted_call_response,
         })
 
         # 找到对应的 tool_call 事件并标记 success
@@ -279,12 +294,12 @@ class AgentOrchestrator:
             kind="tool_result",
             sequence=main_frame.progress.sequence,
             role="user",
-            content=ipc_response,
+            content=formatted_call_response,
             action_id=action_id,
             tool_kind="CALL",
             tool_name=cr.target_alias,
-            status="success",
-            render_as="system_ipc_return",
+            status=call_response.status.value,
+            render_as="system_call_response",
         ))
         main_frame.progress.sequence += 1
 
@@ -332,7 +347,7 @@ class AgentOrchestrator:
     def _harvest_sub_frame_aliases(self, sub_frame: ExecutionFrame) -> None:
         """从子帧 PendingAtomRuntime 重建 harvested_aliases。
 
-        通过 frame_id 过滤子帧的 PendingAtom，收集 pending_alias 用于 IPC [Artifacts]。
+        通过 frame_id 过滤子帧的 PendingAtom，收集 pending_alias 用于 CALL response artifacts。
         UPDATE fallback：从 tool_call TurnEvent.target 补充尚未注册为 pending 的 alias。
         """
         from hivememory.core.mtp.models import MTPVerb
@@ -352,21 +367,6 @@ class AgentOrchestrator:
                 if alias and alias not in harvested:
                     sub_frame.harvested_aliases.append(alias)
                     harvested.add(alias)
-
-    def _assemble_ipc_return(self, sub_final_text: str, harvested_aliases: List[str]) -> str:
-        lines = ['<mtp_response status="success" type="ipc_return">']
-        lines.append("[Sub-Agent Reply]:")
-        lines.append(sub_final_text)
-        if harvested_aliases:
-            lines.append("")
-            lines.append("[Artifacts Generated / Updated]:")
-            for alias in harvested_aliases:
-                if alias.startswith("draft_") or alias.startswith("rev_"):
-                    lines.append(f"- {alias} (pending, readable now)")
-                else:
-                    lines.append(f"- {alias}")
-        lines.append("</mtp_response>")
-        return "\n".join(lines)
 
     def _assemble_agent_run_result(self, frame: ExecutionFrame) -> AgentRunResult:
         p = frame.progress

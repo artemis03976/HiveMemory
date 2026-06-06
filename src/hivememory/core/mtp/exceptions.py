@@ -129,6 +129,12 @@ class SyscallInternalError(SystemFault):
     default_message_key = "mtp.system.tool_error"
 
 
+class SubAgentExecutionError(SystemFault):
+    """CALL 子代理执行异常。"""
+    code = "mtp.call_response.sub_agent_error"
+    default_message_key = "mtp.call_response.sub_agent_error"
+
+
 __all__ = [
     "MTPError",
     "AgentFault",
@@ -143,4 +149,5 @@ __all__ = [
     "StorageReadError",
     "BusRouteUnavailableError",
     "SyscallInternalError",
+    "SubAgentExecutionError",
 ]

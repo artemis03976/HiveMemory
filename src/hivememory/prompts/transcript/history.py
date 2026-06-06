@@ -13,8 +13,8 @@ HistoryTranscriptBuilder — 基于 TurnEvent 事件流的历史消息视图构�
 
 render_as 前缀策略:
     - "plain"               → 原样输出 content
-    - "system_tool_result"  → "[System Tool Result]\\n{content}"
-    - "system_ipc_return"   → "[System IPC Return]\\n{content}"
+    - "system_tool_result"  → "[System MTP Execution Result]\\n{content}"
+    - "system_call_response" → "[System MTP Call Response]\\n{content}"
 
 多智能体身份前缀:
     对 role="assistant" 的事件，若 block.identity.agent_id 不是
@@ -34,7 +34,7 @@ from hivememory.i18n.mtp_runtime import get_mtp_info_text
 
 _SYSTEM_PREFIX_KEYS: Dict[str, str] = {
     "system_tool_result": "mtp.loop.execution_result_title",
-    "system_ipc_return": "mtp.ipc.return_title",
+    "system_call_response": "mtp.call_response.title",
 }
 
 _AGENT_ID_BYPASS = frozenset({"default", "omni_doll"})

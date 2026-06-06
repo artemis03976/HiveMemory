@@ -1,7 +1,7 @@
 """
 AgentLoopExecutor 流式事件测试
 
-聚焦子代理调用与 IPC 相关的流式事件链路：
+聚焦子代理调用与 CALL response 相关的流式事件链路：
     1. CALL suspend 后主/子帧事件命名空间 (scope) 正确
     2. 子帧失败时仍产出 sub_agent_end(error) 且主循环可继续完成
 """

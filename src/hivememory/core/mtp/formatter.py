@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hivememory.core.mtp.models import MTPResponse
+from hivememory.core.mtp.models import MTPCallResponse, MTPResponse, MTPResponseStatus
 from hivememory.i18n.mtp_runtime import (
     get_mtp_error_text,
     get_mtp_info_text,
@@ -22,6 +22,16 @@ class MTPFormatter:
         """Format a response body for agent-facing MTP execution backfill."""
         response_xml = MTPFormatter._format_response_xml(response, language)
         return MTPFormatter._format_execution_result(response_xml, language)
+
+    @staticmethod
+    def format_call_response(
+        call_response: MTPCallResponse,
+        language: str | Language | None = None,
+    ) -> str:
+        """Format a CALL response for agent-facing backfill."""
+        response_xml = MTPFormatter._format_call_response_xml(call_response, language)
+        title = get_mtp_info_text("mtp.call_response.title", language=language)
+        return f"{title}\n{response_xml}"
 
     @staticmethod
     def _format_execution_result(
@@ -59,7 +69,10 @@ class MTPFormatter:
     ) -> str:
         if response.error is None:
             return ""
-        error = response.error
+        return MTPFormatter._format_error_info(response.error, language)
+
+    @staticmethod
+    def _format_error_info(error, language: str | Language | None = None) -> str:
         text = get_mtp_error_text(error.message_key, error.params, language)
         return "\n".join(
             [
@@ -68,6 +81,29 @@ class MTPFormatter:
                 "</error>",
             ]
         )
+
+    @staticmethod
+    def _format_call_response_xml(
+        call_response: MTPCallResponse,
+        language: str | Language | None = None,
+    ) -> str:
+        lines = [
+            f'<mtp_response status="{call_response.status.value}" type="call_response">'
+        ]
+        if call_response.status == MTPResponseStatus.ERROR:
+            if call_response.error is not None:
+                lines.append(MTPFormatter._format_error_info(call_response.error, language))
+        else:
+            lines.append(get_mtp_info_text("mtp.call_response.reply_label", language=language))
+            lines.append(call_response.reply)
+            if call_response.artifact_aliases:
+                lines.append("")
+                lines.append(get_mtp_info_text("mtp.call_response.artifacts_label", language=language))
+                state = get_mtp_info_text("mtp.call_response.artifact_state", language=language)
+                for alias in call_response.artifact_aliases:
+                    lines.append(f"- {alias} {state}")
+        lines.append("</mtp_response>")
+        return "\n".join(lines)
 
     @staticmethod
     def _format_warnings(

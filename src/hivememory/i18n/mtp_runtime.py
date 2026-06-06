@@ -163,6 +163,10 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Tool Error] 工具 '{alias}' 执行时发生内部错误：{detail}\n"
         "Suggestion: 请勿使用相同输入重试该工具。"
     ),
+    "mtp.call_response.sub_agent_error": (
+        "[Sub-Agent Error]: 子代理 {agent_alias} 遇到错误，无法完成任务。\n"
+        "Suggestion: 请尝试其他方式，或分解任务后重试。"
+    ),
 
 }
 
@@ -314,35 +318,31 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Tool Error] Tool '{alias}' encountered an internal error: {detail}\n"
         "Suggestion: Do NOT retry this tool with the same input."
     ),
+    "mtp.call_response.sub_agent_error": (
+        "[Sub-Agent Error]: The sub-agent {agent_alias} encountered an error "
+        "and could not complete the task.\n"
+        "Suggestion: Try a different approach or decompose the task and retry."
+    ),
 
 }
 
 
 _INFO_TEXT_ZH: dict[str, str] = {
-    # ---- loop / IPC 包装标题（Phase C）----
+    # ---- loop / CALL response 包装标题（Phase C）----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
-    "mtp.ipc.return_title": "[System IPC Return]",
-    "mtp.ipc.reply_label": "[Sub-Agent Reply]:",
-    "mtp.ipc.artifacts_label": "[Artifacts Generated / Updated]:",
-    "mtp.ipc.artifact_state": "(pending, 本次运行可读)",
-    "mtp.ipc.sub_agent_error": (
-        "[Sub-Agent Error]: 子代理 {agent_alias} 遇到错误，无法完成任务。\n"
-        "Suggestion: 请尝试其他方式，或分解任务后重试。"
-    ),
+    "mtp.call_response.title": "[System MTP Call Response]",
+    "mtp.call_response.reply_label": "[Sub-Agent Reply]:",
+    "mtp.call_response.artifacts_label": "[Artifacts Generated / Updated]:",
+    "mtp.call_response.artifact_state": "(pending, 本次运行可读)",
 }
 
 _INFO_TEXT_EN: dict[str, str] = {
-    # ---- loop / IPC wrapper labels (Phase C) ----
+    # ---- loop / CALL response wrapper labels (Phase C) ----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
-    "mtp.ipc.return_title": "[System IPC Return]",
-    "mtp.ipc.reply_label": "[Sub-Agent Reply]:",
-    "mtp.ipc.artifacts_label": "[Artifacts Generated / Updated]:",
-    "mtp.ipc.artifact_state": "(pending, readable now)",
-    "mtp.ipc.sub_agent_error": (
-        "[Sub-Agent Error]: The sub-agent {agent_alias} encountered an error "
-        "and could not complete the task.\n"
-        "Suggestion: Try a different approach or decompose the task and retry."
-    ),
+    "mtp.call_response.title": "[System MTP Call Response]",
+    "mtp.call_response.reply_label": "[Sub-Agent Reply]:",
+    "mtp.call_response.artifacts_label": "[Artifacts Generated / Updated]:",
+    "mtp.call_response.artifact_state": "(pending, readable now)",
 }
 
 
