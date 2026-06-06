@@ -117,6 +117,12 @@ class MTPErrorInfo(BaseModel):
     cause: Optional[str] = Field(default=None, exclude=True, description="原始异常信息，仅供开发调试，不回填给 Agent")
 
 
+class MTPWarningInfo(BaseModel):
+    """结构化 nonfatal warning，随 MTPResponse.warnings 携带。"""
+    message_key: str = Field(..., description="具体 i18n 文本 key")
+    params: Dict[str, Any] = Field(default_factory=dict, description="参数化 i18n 模板所需的占位符值")
+
+
 class MTPResponse(BaseModel):
     """
     内核执行结果的结构化响应模型。
@@ -133,7 +139,7 @@ class MTPResponse(BaseModel):
     execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
     pending_alias: Optional[str] = Field(default=None, exclude=True)
     error: Optional[MTPErrorInfo] = Field(default=None, description="结构化错误信息，status=error 时非空")
-    warnings: List[str] = Field(default_factory=list, description="nonfatal 提示，不影响 status")
+    warnings: List[MTPWarningInfo] = Field(default_factory=list, description="nonfatal 提示，不影响 status")
 
 
 __all__ = [
@@ -145,6 +151,7 @@ __all__ = [
     "MTPResponseStatus",
     "MTPErrorSeverity",
     "MTPErrorInfo",
+    "MTPWarningInfo",
     "MTPTarget",
     "MTPCommand",
     "MTPResponse",

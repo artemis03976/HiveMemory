@@ -95,7 +95,8 @@ class TestRunTargetValidation:
     def test_wildcard_rejected(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ RUN | * | ⟫')
         assert not result.success
-        assert "Invalid Argument" in result.response_content
+        assert result.response_content == ""
+        assert "Invalid Argument" in result.formatted_response
 
     def test_list_target_rejected(self, koakuma):
         """列表 target 不支持 (single_alias 返回 None)"""
@@ -138,7 +139,8 @@ class TestRunKernelFastPath:
     def test_sys_python_repl_import_blocked(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ RUN | sys_python_repl | code="import os" ⟫')
         assert not result.success  # import 被拦截，syscall 失败升级为 SyscallInternalError
-        assert "import" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "import" in result.formatted_response.lower()
 
     def test_sys_python_repl_multiline(self, koakuma):
         # 使用反引号语法支持多行代码 (Section 2.1)
@@ -157,13 +159,15 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
         result = _execute_mtp(koakuma, '⟪ RUN | nonexistent_tool | ⟫')
         assert not result.success
-        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
+        assert result.response_content == ""
+        assert "Alias Not Found" in result.formatted_response or "未找到" in result.formatted_response
 
     def test_unknown_tool_suggests_search(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
         result = _execute_mtp(koakuma, '⟪ RUN | my_custom_tool | ⟫')
         assert not result.success
-        assert "SEARCH" in result.response_content
+        assert result.response_content == ""
+        assert "SEARCH" in result.formatted_response
 
     def test_l2_route_failure_returns_infra_error(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
@@ -173,7 +177,8 @@ class TestRunUserToolPath:
         result = _execute_mtp(koakuma, '⟪ RUN | my_custom_tool | ⟫')
 
         assert not result.success
-        assert "Service Unavailable" in result.response_content
+        assert result.response_content == ""
+        assert "Service Unavailable" in result.formatted_response
 
     def test_l2_hit_executes_code_snippet(self, koakuma):
         """L2 命中 CODE_SNIPPET，沙箱执行成功"""
@@ -233,7 +238,8 @@ class TestRunUserToolPath:
         result = _execute_mtp(koakuma, '⟪ RUN | fact_not_tool | ⟫')
 
         assert not result.success
-        assert "CODE_SNIPPET" in result.response_content
+        assert result.response_content == ""
+        assert "CODE_SNIPPET" in result.formatted_response
         assert koakuma._bus._memory_citations == []
 
     def test_sandbox_timeout(self, koakuma):
@@ -250,7 +256,8 @@ class TestRunUserToolPath:
         result = _execute_mtp(koakuma, '⟪ RUN | tool_infinite | ⟫')
 
         assert not result.success
-        assert "timed out" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "timed out" in result.formatted_response.lower()
 
     def test_sandbox_import_blocked(self, koakuma):
         """import 语句被拦截"""
@@ -264,7 +271,8 @@ class TestRunUserToolPath:
         result = _execute_mtp(koakuma, '⟪ RUN | tool_bad_import | ⟫')
 
         assert not result.success
-        assert "import" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "import" in result.formatted_response.lower()
 
     def test_params_injection(self, koakuma):
         """验证 params 字典正确传入用户态工具"""
@@ -344,9 +352,10 @@ class TestRunUserToolPath:
         )
 
         assert not result.success
-        assert "expired" in result.response_content
-        assert "reclaimed" in result.response_content
-        assert "Alias Not Found" not in result.response_content
+        assert result.response_content == ""
+        assert "expired" in result.formatted_response
+        assert "reclaimed" in result.formatted_response
+        assert "Alias Not Found" in result.formatted_response
 
     def test_user_tool_success_returns_execution_result(self, koakuma):
         """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
@@ -368,7 +377,8 @@ class TestRunUserToolPath:
         result = _execute_mtp(koakuma, '⟪ RUN | tool_err | ⟫')
 
         assert not result.success
-        assert "Error" in result.response_content
+        assert result.response_content == ""
+        assert "Error" in result.formatted_response
         assert koakuma._bus._memory_citations == []
 
     def test_citation_failure_keeps_user_tool_success_response(self, koakuma):

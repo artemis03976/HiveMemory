@@ -16,7 +16,10 @@ from hivememory.core.mtp import (
     MTP_RIGHT_DELIMITER,
     MTP_STOP_SEQUENCE,
     MTPVerb,
+    MTPErrorInfo,
+    MTPErrorSeverity,
     MTPResponseStatus,
+    MTPWarningInfo,
     MTPTarget,
     MTPCommand,
     MTPResponse,
@@ -26,6 +29,7 @@ from hivememory.core.mtp import (
     create_parser,
     create_formatter,
 )
+from hivememory.i18n.mtp_runtime import get_mtp_error_text
 
 
 # ========== Fixtures ==========
@@ -198,8 +202,9 @@ class TestMTPParser:
             "left_delimiter": MTP_LEFT_DELIMITER,
             "right_delimiter": MTP_RIGHT_DELIMITER,
         }
-        assert "No MTP command found" in exc_info.value.to_agent_prompt("en")
-        assert "未找到 MTP 指令" in exc_info.value.to_agent_prompt("zh")
+        error = exc_info.value.to_error_info()
+        assert "No MTP command found" in get_mtp_error_text(error.message_key, error.params, "en")
+        assert "未找到 MTP 指令" in get_mtp_error_text(error.message_key, error.params, "zh")
 
     def test_parse_unknown_verb(self, parser: MTPParser):
         """测试未知动词"""
@@ -208,8 +213,9 @@ class TestMTPParser:
         assert exc_info.value.message_key == "mtp.parse.unknown_verb"
         assert exc_info.value.params["verb"] == "DELETE"
         assert "SEARCH" in exc_info.value.params["valid_verbs"]
-        assert "Unknown verb" in exc_info.value.to_agent_prompt("en")
-        assert "未知指令动词" in exc_info.value.to_agent_prompt("zh")
+        error = exc_info.value.to_error_info()
+        assert "Unknown verb" in get_mtp_error_text(error.message_key, error.params, "en")
+        assert "未知指令动词" in get_mtp_error_text(error.message_key, error.params, "zh")
 
     def test_parse_missing_separator(self, parser: MTPParser):
         """测试缺少分隔符"""
@@ -217,8 +223,9 @@ class TestMTPParser:
             parser.parse("⟪ READ ⟫")
         assert exc_info.value.message_key == "mtp.parse.missing_separator"
         assert exc_info.value.params == {"separator": "|"}
-        assert "Missing separator" in exc_info.value.to_agent_prompt("en")
-        assert "缺少分隔符" in exc_info.value.to_agent_prompt("zh")
+        error = exc_info.value.to_error_info()
+        assert "Missing separator" in get_mtp_error_text(error.message_key, error.params, "en")
+        assert "缺少分隔符" in get_mtp_error_text(error.message_key, error.params, "zh")
 # PLACEHOLDER_COMPLETE_AND_DETECT
 
 
@@ -277,11 +284,33 @@ class TestMTPFormatter:
         """测试错误响应格式化"""
         response = MTPResponse(
             status=MTPResponseStatus.ERROR,
-            content="Tool alias not found.",
+            content="",
+            error=MTPErrorInfo(
+                code="mtp.alias.not_found",
+                message_key="mtp.run.alias_not_found",
+                severity=MTPErrorSeverity.AGENT_FAULT,
+                params={"alias": "tool_missing"},
+            ),
         )
-        result = formatter.format_response(response)
+        result = formatter.format_response(response, "en")
         assert '<mtp_response status="error">' in result
-        assert "Tool alias not found." in result
+        assert '<error code="mtp.alias.not_found" severity="agent_fault">' in result
+        assert "Tool alias 'tool_missing' not found" in result
+
+    def test_format_warning_response(self, formatter: MTPFormatter):
+        response = MTPResponse(
+            status=MTPResponseStatus.SUCCESS,
+            content="content",
+            warnings=[
+                MTPWarningInfo(
+                    message_key="mtp.filter.unknown_key",
+                    params={"key": "foo"},
+                )
+            ],
+        )
+        result = formatter.format_response(response, "en")
+        assert result.index("content") < result.index("<warnings>")
+        assert "<warning>Note: Unknown filter key 'foo' was ignored.</warning>" in result
 
     def test_format_ack_response(self, formatter: MTPFormatter):
         """测试 ACK 响应格式化"""

@@ -20,11 +20,10 @@ from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
     MTP_SEPARATOR,
+    MTPWarningInfo,
     MTPTarget,
     MTPVerb,
 )
-from hivememory.i18n.mtp_runtime import get_mtp_warning_text
-from hivememory.i18n.types import Language
 
 logger = logging.getLogger(__name__)
 
@@ -200,8 +199,7 @@ class MTPFilterParser:
     def parse(
         self,
         filter_str: str,
-        language: str | Language | None = None,
-    ) -> Tuple[Optional[QueryFilters], List[str]]:
+    ) -> Tuple[Optional[QueryFilters], List[MTPWarningInfo]]:
         """
         宽容解析 filter 字符串并返回 QueryFilters 与警告列表。
 
@@ -210,9 +208,13 @@ class MTPFilterParser:
         if not filter_str or not filter_str.strip():
             return None, []
 
-        warnings: List[str] = []
-        def warning(key: str, params: dict[str, object] | None = None) -> str:
-            return get_mtp_warning_text(key, params, language)
+        warnings: List[MTPWarningInfo] = []
+
+        def warning(
+            key: str,
+            params: dict[str, object] | None = None,
+        ) -> MTPWarningInfo:
+            return MTPWarningInfo(message_key=key, params=params or {})
 
         try:
             memory_type = None

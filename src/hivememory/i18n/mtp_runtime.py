@@ -92,6 +92,14 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Type Mismatch] alias '{alias}' 不是可执行工具（类型：{memory_type}）。\n"
         "Suggestion: RUN 只支持 CODE_SNIPPET 类型的记忆。"
     ),
+    "mtp.run.terminal_alias_not_runnable": (
+        "[Alias Not Found] 工具 alias '{alias}' 当前不可执行（状态：{status}）。\n"
+        "Suggestion: 如果该 handle 已 expired/reclaimed，请使用 SEARCH 查找正式记忆 alias。"
+    ),
+    "mtp.run.syscall_invalid_argument": (
+        "[Invalid Argument] 工具 '{alias}' 参数错误：{detail}\n"
+        "Suggestion: 请修正工具参数后重试。"
+    ),
 
     # ---- WRITE ----
     "mtp.write.missing_content": (
@@ -240,6 +248,14 @@ _ERROR_TEXT_EN: dict[str, str] = {
     "mtp.run.type_mismatch": (
         "[Type Mismatch] Alias '{alias}' is not a runnable tool (type: {memory_type}).\n"
         "Suggestion: RUN only supports CODE_SNIPPET memories."
+    ),
+    "mtp.run.terminal_alias_not_runnable": (
+        "[Alias Not Found] Tool alias '{alias}' is not runnable (status: {status}).\n"
+        "Suggestion: If this handle expired/reclaimed, use SEARCH to locate the finalized memory alias."
+    ),
+    "mtp.run.syscall_invalid_argument": (
+        "[Invalid Argument] Tool '{alias}' received invalid arguments: {detail}\n"
+        "Suggestion: Fix the tool arguments and retry."
     ),
 
     # ---- WRITE ----

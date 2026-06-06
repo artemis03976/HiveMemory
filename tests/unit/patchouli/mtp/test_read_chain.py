@@ -75,7 +75,8 @@ class TestReadWildcardRejection:
     def test_wildcard_rejected(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ READ | * | ⟫')
         assert not result.success
-        assert "SEARCH" in result.response_content
+        assert result.response_content == ""
+        assert "SEARCH" in result.formatted_response
 
     def test_global_rejected(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ READ | global | ⟫')
@@ -106,7 +107,8 @@ class TestReadAliasResolution:
         result = _execute_mtp(koakuma, '⟪ READ | nonexistent_alias | ⟫')
 
         assert not result.success
-        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
+        assert result.response_content == ""
+        assert "Alias Not Found" in result.formatted_response or "未找到" in result.formatted_response
         assert koakuma._bus._memory_citations == []
 
     def test_mixed_valid_invalid(self, koakuma):
@@ -262,7 +264,8 @@ class TestKoakumaReadE2E:
         result = _execute_mtp(koakuma, '⟪ READ | unknown_alias | ⟫')
 
         assert not result.success
-        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
+        assert result.response_content == ""
+        assert "Alias Not Found" in result.formatted_response or "未找到" in result.formatted_response
 
     def test_read_formatted_response_xml(self, koakuma):
         mem = _make_memory(content="test", alias="test_alias")
@@ -306,7 +309,8 @@ class TestKoakumaReadValidation:
     def test_wildcard_target(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ READ | * | ⟫')
         assert not result.success
-        assert "SEARCH" in result.response_content
+        assert result.response_content == ""
+        assert "SEARCH" in result.formatted_response
 
     def test_empty_target(self, koakuma):
         """空 target 解析为无 aliases"""
@@ -363,7 +367,8 @@ class TestReadL2Fallback:
         result = _execute_mtp(koakuma, '⟪ READ | totally_unknown | ⟫')
 
         assert not result.success
-        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
+        assert result.response_content == ""
+        assert "Alias Not Found" in result.formatted_response or "未找到" in result.formatted_response
 
     def test_l2_route_failure_returns_infra_error(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
@@ -373,7 +378,8 @@ class TestReadL2Fallback:
         result = _execute_mtp(koakuma, '⟪ READ | fact_from_l2 | ⟫')
 
         assert not result.success
-        assert "Service Unavailable" in result.response_content
+        assert result.response_content == ""
+        assert "Service Unavailable" in result.formatted_response
 
     def test_l2_mixed_list(self, koakuma):
         """列表读取: 一个走缓存，一个走 L2"""

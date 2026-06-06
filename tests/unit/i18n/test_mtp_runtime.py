@@ -1,6 +1,6 @@
 """Tests for MTP runtime i18n text helpers."""
 
-from hivememory.i18n.mtp_runtime import get_mtp_warning_text
+from hivememory.i18n.mtp_runtime import get_mtp_error_text, get_mtp_warning_text
 from hivememory.core.mtp.exceptions import StorageOfflineError, SyscallInternalError, SystemFault
 
 
@@ -42,6 +42,7 @@ def test_storage_offline_defaults_to_structured_message_key():
 
 def test_syscall_internal_error_uses_i18n_template():
     error = SyscallInternalError(params={"alias": "sys_tool", "detail": "boom"})
+    info = error.to_error_info()
 
-    assert "Tool 'sys_tool'" in error.to_agent_prompt("en")
-    assert error.to_error_info().message_key == "mtp.system.tool_error"
+    assert "Tool 'sys_tool'" in get_mtp_error_text(info.message_key, info.params, "en")
+    assert info.message_key == "mtp.system.tool_error"

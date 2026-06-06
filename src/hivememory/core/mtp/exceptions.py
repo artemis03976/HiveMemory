@@ -19,7 +19,6 @@ class MTPError(Exception):
     MTP 异常基类。
 
     子类声明 `code` 和 `severity`，实例携带 `message`、`params`、`cause`。
-    `to_agent_prompt()` 为过渡兼容方法，i18n 化后替换为从 error_info + language 渲染。
     """
 
     code: str = "mtp.error"
@@ -62,20 +61,6 @@ class MTPError(Exception):
             params=self.params,
             cause=str(self.cause) if self.cause else None,
         )
-
-    def to_agent_prompt(self, language: Optional[str] = None) -> str:
-        """Render agent-readable text during the formatter migration."""
-        if self.message_key:
-            try:
-                from hivememory.i18n.mtp_runtime import get_mtp_error_text
-
-                rendered = get_mtp_error_text(self.message_key, self.params, language)
-                if rendered:
-                    return rendered
-            except (ImportError, KeyError):
-                pass
-        return self.message
-
 
 class AgentFault(MTPError):
     """Agent 侧可修复问题（允许修正后重试）。"""

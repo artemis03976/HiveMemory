@@ -739,7 +739,8 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert not result.success
-        assert "pending" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "pending" in result.formatted_response.lower()
         assert result.pending_alias is None
 
     def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
@@ -751,7 +752,8 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert not result.success
-        assert "Service Unavailable" in result.response_content
+        assert result.response_content == ""
+        assert "Service Unavailable" in result.formatted_response
         assert result.pending_alias is None
 
     def test_update_deferred_capture_always_ack(self, existing_memory):

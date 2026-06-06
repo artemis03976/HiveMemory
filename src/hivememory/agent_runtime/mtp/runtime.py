@@ -35,6 +35,7 @@ from hivememory.core.mtp import (
     MTPResponseStatus,
     MTPCommand,
     MTPResponse,
+    MTPWarningInfo,
     MTPParser,
     MTPFilterParser,
     MTPParseError,
@@ -64,7 +65,6 @@ from hivememory.core.mtp.exceptions import (
     MemoryTypeMismatchError,
     SyscallInternalError,
 )
-from hivememory.i18n.mtp_runtime import get_mtp_warning_text
 from hivememory.i18n.resolver import resolve_language
 
 if TYPE_CHECKING:
@@ -230,6 +230,7 @@ class KoakumaRuntime:
         start_time = time.time()
 
         try:
+            language = _resolve_context_language(context)
             # Step 1: 补全并解析
             command = self._parser.complete_and_parse(text)
 
@@ -242,7 +243,7 @@ class KoakumaRuntime:
 
             # Step 3: 格式化回填文本
             formatted = self._formatter.format_command_with_response(
-                command, response
+                command, response, language
             )
 
             return MTPExecutionResult(
@@ -260,11 +261,11 @@ class KoakumaRuntime:
             language = _resolve_context_language(context)
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(language),
+                content="",
                 error=e.to_error_info(),
                 execution_time_ms=elapsed,
             )
-            formatted = self._formatter.format_response(error_response)
+            formatted = self._formatter.format_response(error_response, language)
 
             return MTPExecutionResult(
                 command=None,
@@ -368,20 +369,18 @@ class KoakumaRuntime:
                 logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
             else:
                 logger.info(f"Agent fault during {command.verb}: {e}")
-            language = _resolve_context_language(context)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(language),
+                content="",
                 error=e.to_error_info(),
             )
 
         except Exception as e:
             logger.error(f"Unexpected error during {command.verb}: {e}", exc_info=True)
             fault = SystemFault(cause=e)
-            language = _resolve_context_language(context)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=fault.to_agent_prompt(language),
+                content="",
                 error=fault.to_error_info(),
             )
 
@@ -413,10 +412,9 @@ class KoakumaRuntime:
         # 解析 filter 参数 (Section 2.2)
         # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
         # 宽容解析: 非法 filter 降级为 None，但返回警告
-        language = _resolve_context_language(context)
         filter_str = command.args.get("filter", "")
         parsed_filters, filter_warnings = (
-            self._filter_parser.parse(filter_str, language=language)
+            self._filter_parser.parse(filter_str)
             if filter_str
             else (None, [])
         )
@@ -432,11 +430,13 @@ class KoakumaRuntime:
         )
 
         if result.is_empty():
-            content = get_mtp_warning_text("mtp.search.no_memories_found", language=language)
             return MTPResponse(
                 status=MTPResponseStatus.SUCCESS,
-                content=content,
-                warnings=[content, *filter_warnings],
+                content="",
+                warnings=[
+                    MTPWarningInfo(message_key="mtp.search.no_memories_found"),
+                    *filter_warnings,
+                ],
             )
 
         content = result.rendered_context
@@ -445,11 +445,10 @@ class KoakumaRuntime:
             logger.warning(
                 "RetrievalResponse for MTP SEARCH contains memories but no rendered_context."
             )
-            content = get_mtp_warning_text(
-                "mtp.search.rendered_context_missing",
-                language=language,
+            content = ""
+            response_warnings.append(
+                MTPWarningInfo(message_key="mtp.search.rendered_context_missing")
             )
-            response_warnings.append(content)
 
         # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
         self.atom_cache.ingest_atoms(result.memories)
@@ -589,7 +588,10 @@ class KoakumaRuntime:
                 exc_cls = InvalidArgumentError if result.error_code == "mtp.argument.invalid" else SyscallInternalError
                 if exc_cls is SyscallInternalError:
                     raise exc_cls(params={"alias": alias, "detail": result.content})
-                raise exc_cls(result.content, params={"alias": alias})
+                raise exc_cls(
+                    message_key="mtp.run.syscall_invalid_argument",
+                    params={"alias": alias, "detail": result.content},
+                )
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
         # Level 1: 用户态工具路径 (统一原子缓存)
@@ -609,12 +611,9 @@ class KoakumaRuntime:
             ).text
             alias = canonical_alias
         elif resolved.kind in {"discarded", "failed", "expired"}:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=self._compiler.compile(
-                    resolved, MemoryCompileTarget.MTP_READ,
-                    MemoryCompileOptions(requested_alias=alias),
-                ).text,
+            raise AliasNotFoundError(
+                message_key="mtp.run.terminal_alias_not_runnable",
+                params={"alias": alias, "status": resolved.kind},
             )
         if resolved.kind not in {"atom", "redirect"} or resolved.atom is None:
             raise AliasNotFoundError(
@@ -878,7 +877,10 @@ class KoakumaRuntime:
             exc_cls = InvalidArgumentError if result.error_code == "mtp.argument.invalid" else SyscallInternalError
             if exc_cls is SyscallInternalError:
                 raise exc_cls(params={"alias": alias, "detail": result.content})
-            raise exc_cls(result.content, params={"alias": alias})
+            raise exc_cls(
+                message_key="mtp.run.syscall_invalid_argument",
+                params={"alias": alias, "detail": result.content},
+            )
 
         return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
