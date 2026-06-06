@@ -67,6 +67,7 @@ from hivememory.core.mtp.exceptions import (
     SyscallInternalError,
 )
 from hivememory.i18n.resolver import resolve_language
+from hivememory.i18n.mtp_runtime import get_mtp_info_text
 
 if TYPE_CHECKING:
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
@@ -509,8 +510,9 @@ class KoakumaRuntime:
                 params={"aliases": "\n".join(f"  {a}" for a in unresolved)},
             )
 
-        # 组装输出 — 通过 MemoryCompiler 统一编译
+        # 组装输出 — 通过 MemoryCompiler 统一编译，局部未解析 alias 交给 warnings 渲染
         output_lines: List[str] = []
+        warnings: List[MTPWarningInfo] = []
         for alias, pending in resolved_pending:
             artifact = self._compiler.compile(
                 pending, MemoryCompileTarget.MTP_READ,
@@ -535,14 +537,17 @@ class KoakumaRuntime:
             )
             output_lines.append(artifact.text)
         for alias in unresolved:
-            output_lines.append(
-                f"[{alias}]: [Alias Not Found] Alias '{alias}' not found. "
-                f"Use SEARCH to discover the correct alias first."
+            warnings.append(
+                MTPWarningInfo(
+                    message_key="mtp.read.partial_alias_not_found",
+                    params={"alias": alias},
+                )
             )
 
         response = MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="\n".join(output_lines),
+            warnings=warnings,
         )
         for _, atom in resolved:
             await self._record_memory_citation(atom, "mtp.read")
@@ -683,7 +688,11 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._format_write_ack(pending.pending_alias, _resolve_context_language(context)),
+            content=get_mtp_info_text(
+                "mtp.write.ack",
+                {"pending_alias": pending.pending_alias},
+                _resolve_context_language(context),
+            ),
             pending_alias=pending.pending_alias,
         )
 
@@ -753,17 +762,13 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._format_update_ack(alias, pending.pending_alias, _resolve_context_language(context)),
+            content=get_mtp_info_text(
+                "mtp.update.ack",
+                {"base_alias": alias, "pending_alias": pending.pending_alias},
+                _resolve_context_language(context),
+            ),
             pending_alias=pending.pending_alias,
         )
-
-    def _format_write_ack(self, pending_alias: str, language: Optional[str] = None) -> str:
-        from hivememory.i18n.mtp_runtime import get_mtp_error_text
-        return get_mtp_error_text("mtp.write.ack", {"pending_alias": pending_alias}, language)
-
-    def _format_update_ack(self, base_alias: str, pending_alias: str, language: Optional[str] = None) -> str:
-        from hivememory.i18n.mtp_runtime import get_mtp_error_text
-        return get_mtp_error_text("mtp.update.ack", {"base_alias": base_alias, "pending_alias": pending_alias}, language)
 
     async def _handle_call(
         self,

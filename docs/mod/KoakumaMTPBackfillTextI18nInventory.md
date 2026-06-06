@@ -152,8 +152,8 @@ internal_error_no_retry
 | 文件 | 位置 / 来源 | 当前文本类型 | 示例 | 优先级 |
 | :--- | :--- | :--- | :--- | :--- |
 | `agent_runtime/mtp/runtime.py` | `_handle_write()` | 参数错误 | `WRITE requires a "content" argument.` | P0 |
-| `agent_runtime/mtp/runtime.py` | `_format_write_ack()` | ACK | `Memory accepted as pending atom '{pending_alias}'.` | P0 |
-| `agent_runtime/mtp/runtime.py` | `_format_write_ack()` | ACK 说明 | `It is readable during this run via READ...` | P0 |
+| `agent_runtime/mtp/runtime.py` | `_handle_write()` | ACK | `Memory accepted as pending atom '{pending_alias}'.` | 已迁入 info 文本 |
+| `agent_runtime/mtp/runtime.py` | `_handle_write()` | ACK 说明 | `It is readable during this run via READ...` | 已迁入 info 文本 |
 
 建议：WRITE ACK 是最明确的模板化对象，应拆成单一模板并保留 `{pending_alias}` 占位符。
 
@@ -165,8 +165,8 @@ internal_error_no_retry
 | `agent_runtime/mtp/runtime.py` | `_handle_update()` missing instruction | 参数错误 | `UPDATE requires an "instruction" argument.` | P0 |
 | `agent_runtime/mtp/runtime.py` | `_handle_update()` pending alias | 状态错误 | `[Pending Alias Not Updatable] Alias '{alias}' is a runtime pending atom...` | P0 |
 | `agent_runtime/mtp/runtime.py` | `_handle_update()` not found | alias 错误 | `[Alias Not Found] Alias '{alias}' not found...` | P0 |
-| `agent_runtime/mtp/runtime.py` | `_format_update_ack()` | ACK | `Memory '{base_alias}' update accepted as pending revision...` | P0 |
-| `agent_runtime/mtp/runtime.py` | `_format_update_ack()` | ACK 说明 | `It is readable during this run via READ...` | P0 |
+| `agent_runtime/mtp/runtime.py` | `_handle_update()` | ACK | `Memory '{base_alias}' update accepted as pending revision...` | 已迁入 info 文本 |
+| `agent_runtime/mtp/runtime.py` | `_handle_update()` | ACK 说明 | `It is readable during this run via READ...` | 已迁入 info 文本 |
 
 建议：UPDATE ACK 应与 WRITE ACK 放在同一文案族，例如 `write_ack` / `update_ack`。
 

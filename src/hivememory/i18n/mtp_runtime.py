@@ -2,8 +2,9 @@
 
 覆盖范围（Phase A / P0）：
   - KoakumaRuntime 各 handler 的参数错误、alias 错误、权限错误、类型错误
-  - WRITE / UPDATE ACK
+  - WRITE / UPDATE 参数错误
   - loop_executor 与 orchestrator 的系统包装标题
+  - WRITE / UPDATE ACK
 
 一个 key 返回完整回填文本（含 category token + 说明 + Suggestion）。
 category token（如 [Invalid Argument]）跨语言保持英文，与 MTP 教学文本一致。
@@ -106,10 +107,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Invalid Argument] WRITE 指令缺少 \"content\" 参数。\n"
         "Suggestion: 请提供要写入的内容。"
     ),
-    "mtp.write.ack": (
-        "记忆已作为 pending atom '{pending_alias}' 接受。\n"
-        "本次运行期间可通过 READ 读取。最终记忆生成将异步完成。"
-    ),
 
     # ---- UPDATE ----
     "mtp.update.missing_single_target": (
@@ -127,10 +124,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
     "mtp.update.alias_not_found": (
         "[Alias Not Found] alias '{alias}' 未找到。\n"
         "Suggestion: 请先用 SEARCH 找到正确的 alias。"
-    ),
-    "mtp.update.ack": (
-        "记忆 '{base_alias}' 的更新已作为 pending revision '{pending_alias}' 接受。\n"
-        "本次运行期间可通过 READ 读取。最终记忆更新将异步完成。"
     ),
 
     # ---- CALL ----
@@ -257,11 +250,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
         '[Invalid Argument] WRITE requires a "content" argument.\n'
         "Suggestion: Provide the content to be written."
     ),
-    "mtp.write.ack": (
-        "Memory accepted as pending atom '{pending_alias}'.\n"
-        "It is readable during this run via READ. "
-        "Final memory generation will complete asynchronously."
-    ),
 
     # ---- UPDATE ----
     "mtp.update.missing_single_target": (
@@ -280,11 +268,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
     "mtp.update.alias_not_found": (
         "[Alias Not Found] Alias '{alias}' not found.\n"
         "Suggestion: Use SEARCH to discover the correct alias first."
-    ),
-    "mtp.update.ack": (
-        "Memory '{base_alias}' update accepted as pending revision '{pending_alias}'.\n"
-        "It is readable during this run via READ. "
-        "Final memory update will complete asynchronously."
     ),
 
     # ---- CALL ----
@@ -328,6 +311,16 @@ _ERROR_TEXT_EN: dict[str, str] = {
 
 
 _INFO_TEXT_ZH: dict[str, str] = {
+    # ---- WRITE / UPDATE ACK ----
+    "mtp.write.ack": (
+        "记忆已作为 pending atom '{pending_alias}' 接受。\n"
+        "本次运行期间可通过 READ 读取。最终记忆生成将异步完成。"
+    ),
+    "mtp.update.ack": (
+        "记忆 '{base_alias}' 的更新已作为 pending revision '{pending_alias}' 接受。\n"
+        "本次运行期间可通过 READ 读取。最终记忆更新将异步完成。"
+    ),
+
     # ---- loop / CALL response 包装标题（Phase C）----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
     "mtp.call_response.title": "[System MTP Call Response]",
@@ -337,6 +330,18 @@ _INFO_TEXT_ZH: dict[str, str] = {
 }
 
 _INFO_TEXT_EN: dict[str, str] = {
+    # ---- WRITE / UPDATE ACK ----
+    "mtp.write.ack": (
+        "Memory accepted as pending atom '{pending_alias}'.\n"
+        "It is readable during this run via READ. "
+        "Final memory generation will complete asynchronously."
+    ),
+    "mtp.update.ack": (
+        "Memory '{base_alias}' update accepted as pending revision '{pending_alias}'.\n"
+        "It is readable during this run via READ. "
+        "Final memory update will complete asynchronously."
+    ),
+
     # ---- loop / CALL response wrapper labels (Phase C) ----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
     "mtp.call_response.title": "[System MTP Call Response]",
@@ -349,6 +354,10 @@ _INFO_TEXT_EN: dict[str, str] = {
 
 
 _WARNING_TEXT_ZH: dict[str, str] = {
+    "mtp.read.partial_alias_not_found": (
+        "[{alias}]: [Alias Not Found] alias '{alias}' 未找到。"
+        "请先用 SEARCH 找到正确的 alias。"
+    ),
     "mtp.filter.token_missing_separator": (
         "Note: Filter token '{token}' 已被忽略（缺少 ':' 分隔符）。"
     ),
@@ -376,6 +385,10 @@ _WARNING_TEXT_ZH: dict[str, str] = {
 }
 
 _WARNING_TEXT_EN: dict[str, str] = {
+    "mtp.read.partial_alias_not_found": (
+        "[{alias}]: [Alias Not Found] Alias '{alias}' not found. "
+        "Use SEARCH to discover the correct alias first."
+    ),
     "mtp.filter.token_missing_separator": (
         "Note: Filter token '{token}' was ignored (missing ':' separator)."
     ),

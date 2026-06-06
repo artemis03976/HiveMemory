@@ -95,7 +95,7 @@ class MTPFormatter:
                 lines.append(MTPFormatter._format_error_info(call_response.error, language))
         else:
             lines.append(get_mtp_info_text("mtp.call_response.reply_label", language=language))
-            lines.append(call_response.reply)
+            lines.append(call_response.reply or "")
             if call_response.artifact_aliases:
                 lines.append("")
                 lines.append(get_mtp_info_text("mtp.call_response.artifacts_label", language=language))

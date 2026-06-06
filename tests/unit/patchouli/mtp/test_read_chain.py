@@ -28,6 +28,7 @@ from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.system.config import KoakumaConfig
+from hivememory.core.models import Identity
 
 
 # ========== Helpers ==========
@@ -121,8 +122,31 @@ class TestReadAliasResolution:
 
         assert result.success  # 部分成功
         assert "valid content" in result.response_content
-        assert "bad_alias" in result.response_content
-        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
+        assert "bad_alias" not in result.response_content
+        assert "bad_alias" in result.formatted_response
+        assert "Alias Not Found" in result.formatted_response or "未找到" in result.formatted_response
+
+    def test_mixed_valid_invalid_uses_warning_template_language(self, koakuma):
+        """混合读取中的局部 alias 未找到片段应作为 warning 按上下文语言渲染。"""
+        mem = _make_memory(content="valid content", alias="good_alias")
+        koakuma.atom_cache.ingest_atom(mem)
+        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
+        context = MTPExecutionContext(
+            identity=Identity(user_id="test_user"),
+            language="en",
+        )
+
+        result = _execute_mtp(
+            koakuma,
+            '⟪ READ | [good_alias, bad_alias] | ⟫',
+            context=context,
+        )
+
+        assert result.success
+        assert "[bad_alias]: [Alias Not Found] Alias 'bad_alias' not found." not in result.response_content
+        assert "[bad_alias]: [Alias Not Found] Alias 'bad_alias' not found." in result.formatted_response
+        assert "Use SEARCH to discover the correct alias first." in result.formatted_response
+        assert "<warnings>" in result.formatted_response
 
     def test_multiple_valid_aliases(self, koakuma):
         mem1 = _make_memory(content="content A", alias="a1")
