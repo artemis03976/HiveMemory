@@ -24,6 +24,8 @@ from hivememory.i18n.prompts import (
 )
 from hivememory.i18n.time_formatter import get_time_formatter_text
 
+from hivememory.i18n.mtp_runtime import get_mtp_error_text
+
 __all__ = [
     "DEFAULT_LANGUAGE",
     "FALLBACK_LANGUAGE",
@@ -40,6 +42,7 @@ __all__ = [
     "get_relay_prompt_text",
     "get_system_prompt_text",
     "get_time_formatter_text",
+    "get_mtp_error_text",
     "normalize_language",
     "resolve_language",
 ]

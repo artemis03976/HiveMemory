@@ -173,7 +173,8 @@ class KoakumaRuntime:
             return
         if not profile.is_verb_allowed(verb):
             raise PermissionDeniedError(
-                f"You do not have permission to use the '{verb}' command."
+                message_key="mtp.permission.verb_denied",
+                params={"verb": verb},
             )
 
     def _check_tool_permission(
@@ -195,7 +196,8 @@ class KoakumaRuntime:
             return
         if not profile.is_tool_allowed(tool_alias):
             raise PermissionDeniedError(
-                f"You do not have access to tool '{tool_alias}'."
+                message_key="mtp.permission.tool_denied",
+                params={"tool_alias": tool_alias},
             )
 
     # ========== 公开 API ==========
@@ -347,8 +349,8 @@ class KoakumaRuntime:
         handler = handlers.get(command.verb)
         if handler is None:
             raise InvalidArgumentError(
-                f"Unknown verb: {command.verb}. "
-                f"Valid verbs: {', '.join(v.value for v in MTPVerb)}",
+                message_key="mtp.parse.unknown_verb",
+                params={"verb": command.verb, "valid_verbs": ", ".join(v.value for v in MTPVerb)},
             )
 
         try:
@@ -404,7 +406,7 @@ class KoakumaRuntime:
         """
         query = command.args.get("query", "")
         if not query:
-            raise InvalidArgumentError('SEARCH requires a "query" argument.')
+            raise InvalidArgumentError(message_key="mtp.search.missing_query")
 
         # 解析 filter 参数 (Section 2.2)
         # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
@@ -467,13 +469,11 @@ class KoakumaRuntime:
             MTPResponse: 记忆内容
         """
         if command.target.is_wildcard:
-            raise InvalidArgumentError(
-                "READ does not support wildcard target '*'. Use SEARCH instead."
-            )
+            raise InvalidArgumentError(message_key="mtp.read.wildcard_not_supported")
 
         aliases = command.target.aliases
         if not aliases:
-            raise InvalidArgumentError("READ requires at least one target alias.")
+            raise InvalidArgumentError(message_key="mtp.read.missing_alias")
 
         resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
         resolved_pending: List[Tuple[str, Any]] = []  # (alias, PendingAtom)
@@ -495,11 +495,10 @@ class KoakumaRuntime:
 
         # 全部无效：直接返回错误
         if not resolved and not resolved_pending and not resolved_redirects and not resolved_terminal:
-            lines = [
-                f"[{a}]: Alias '{a}' not found. Use SEARCH to discover the correct alias first."
-                for a in unresolved
-            ]
-            raise AliasNotFoundError("\n".join(lines))
+            raise AliasNotFoundError(
+                message_key="mtp.read.alias_not_found",
+                params={"aliases": "\n".join(f"  {a}" for a in unresolved)},
+            )
 
         # 组装输出 — 通过 MemoryCompiler 统一编译
         output_lines: List[str] = []
@@ -564,12 +563,14 @@ class KoakumaRuntime:
         """
         alias = command.target.single_alias
         if alias is None:
-            raise InvalidArgumentError("RUN requires a single tool alias as target.")
+            raise InvalidArgumentError(message_key="mtp.run.missing_single_target")
 
-        # Level 0: 内核工具快速路径 (Section 4.2.1)
         syscall = self._kernel_registry.get(alias)
         if syscall is None and alias.startswith("sys_"):
-            raise AliasNotFoundError(f"Kernel tool '{alias}' not found. Use SEARCH to discover available tools.")
+            raise AliasNotFoundError(
+                message_key="mtp.run.kernel_tool_not_found",
+                params={"alias": alias},
+            )
         if syscall is not None:
             # 权限沙箱：校验系统工具权限 (Phase 1 多智能体)
             self._check_tool_permission(alias, context=context)
@@ -585,8 +586,8 @@ class KoakumaRuntime:
         redirect_notice = ""
         if resolved.kind == "pending":
             raise InvalidArgumentError(
-                f"Alias '{alias}' is a runtime pending atom and has not been finalized as a runnable memory. "
-                "Use READ to inspect it, or wait for the formal memory alias."
+                message_key="mtp.run.pending_not_runnable",
+                params={"alias": alias},
             )
         if resolved.kind == "redirect" and resolved.atom is not None:
             canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
@@ -604,15 +605,17 @@ class KoakumaRuntime:
                 ).text,
             )
         if resolved.kind not in {"atom", "redirect"} or resolved.atom is None:
-            raise AliasNotFoundError(f"Tool alias '{alias}' not found. Use SEARCH to discover the correct alias first.")
+            raise AliasNotFoundError(
+                message_key="mtp.run.alias_not_found",
+                params={"alias": alias},
+            )
         atom = resolved.atom
 
         # 校验类型必须是 CODE_SNIPPET
         if atom.index.memory_type != MemoryType.CODE_SNIPPET:
             raise MemoryTypeMismatchError(
-                f"Alias '{alias}' is not a runnable tool (type: {atom.index.memory_type.value}). "
-                "RUN only supports CODE_SNIPPET memories.",
-                params={"alias": alias, "type": atom.index.memory_type.value},
+                message_key="mtp.run.type_mismatch",
+                params={"alias": alias, "memory_type": atom.index.memory_type.value},
             )
 
         # 使用缓存的代码执行
@@ -648,7 +651,7 @@ class KoakumaRuntime:
         """
         content = command.args.get("content", "")
         if not content:
-            raise InvalidArgumentError('WRITE requires a "content" argument.')
+            raise InvalidArgumentError(message_key="mtp.write.missing_content")
 
         reason = command.args.get("reason", "")
         title = command.args.get("title", "")
@@ -669,7 +672,7 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._format_write_ack(pending.pending_alias),
+            content=self._format_write_ack(pending.pending_alias, _resolve_context_language(context)),
             pending_alias=pending.pending_alias,
         )
 
@@ -696,19 +699,23 @@ class KoakumaRuntime:
         """
         alias = command.target.single_alias
         if alias is None:
-            raise InvalidArgumentError("UPDATE requires a single alias as target.")
+            raise InvalidArgumentError(message_key="mtp.update.missing_single_target")
 
         instruction = command.args.get("instruction", "")
         if not instruction:
-            raise InvalidArgumentError('UPDATE requires an "instruction" argument.')
+            raise InvalidArgumentError(message_key="mtp.update.missing_instruction")
 
         resolved = await self._alias_resolver.resolve(alias, context=context)
         if resolved.kind == "pending":
             raise InvalidArgumentError(
-                f"Alias '{alias}' is a runtime pending atom. UPDATE requires a formal memory alias."
+                message_key="mtp.update.pending_not_updatable",
+                params={"alias": alias},
             )
         if resolved.kind != "atom" or resolved.atom is None:
-            raise AliasNotFoundError(f"Alias '{alias}' not found. Use SEARCH to discover the correct alias first.")
+            raise AliasNotFoundError(
+                message_key="mtp.update.alias_not_found",
+                params={"alias": alias},
+            )
         atom = resolved.atom
         uuid = str(atom.id)
 
@@ -735,23 +742,17 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._format_update_ack(alias, pending.pending_alias),
+            content=self._format_update_ack(alias, pending.pending_alias, _resolve_context_language(context)),
             pending_alias=pending.pending_alias,
         )
 
-    def _format_write_ack(self, pending_alias: str) -> str:
-        return (
-            f"Memory accepted as pending atom '{pending_alias}'.\n"
-            "It is readable during this run via READ. "
-            "Final memory generation will complete asynchronously."
-        )
+    def _format_write_ack(self, pending_alias: str, language: Optional[str] = None) -> str:
+        from hivememory.i18n.mtp_runtime import get_mtp_error_text
+        return get_mtp_error_text("mtp.write.ack", {"pending_alias": pending_alias}, language)
 
-    def _format_update_ack(self, base_alias: str, pending_alias: str) -> str:
-        return (
-            f"Memory '{base_alias}' update accepted as pending revision '{pending_alias}'.\n"
-            "It is readable during this run via READ. "
-            "Final memory update will complete asynchronously."
-        )
+    def _format_update_ack(self, base_alias: str, pending_alias: str, language: Optional[str] = None) -> str:
+        from hivememory.i18n.mtp_runtime import get_mtp_error_text
+        return get_mtp_error_text("mtp.update.ack", {"base_alias": base_alias, "pending_alias": pending_alias}, language)
 
     async def _handle_call(
         self,
@@ -778,25 +779,15 @@ class KoakumaRuntime:
 
         # 1. 深度检查 (硬限制)
         if context is not None and context.runtime_scope.depth >= 1:
-            raise PermissionDeniedError(
-                "Sub-agents are not allowed to invoke CALL. "
-                "Only the main agent can call sub-agents."
-            )
+            raise PermissionDeniedError(message_key="mtp.permission.call_depth_exceeded")
 
-        # 2. 验证 target (必须是单个别名)
         target_alias = command.target.single_alias
         if not target_alias:
-            raise InvalidArgumentError(
-                'CALL requires a single agent alias as target. '
-                'Example: ⟪ CALL | coder_doll | task="..." ⟫'
-            )
+            raise InvalidArgumentError(message_key="mtp.call.missing_single_target")
 
         task = command.args.get("task", "")
         if not task:
-            raise InvalidArgumentError(
-                'CALL requires a "task" argument. '
-                'Example: ⟪ CALL | coder_doll | task="Write unit tests" ⟫'
-            )
+            raise InvalidArgumentError(message_key="mtp.call.missing_task")
 
         # 4. 解析 context_refs (选填)
         context_refs_str = command.args.get("context_refs", "")

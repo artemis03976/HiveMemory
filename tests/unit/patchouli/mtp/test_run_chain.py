@@ -95,7 +95,7 @@ class TestRunTargetValidation:
     def test_wildcard_rejected(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ RUN | * | ⟫')
         assert not result.success
-        assert "single tool alias" in result.response_content.lower() or "requires" in result.response_content.lower()
+        assert "Invalid Argument" in result.response_content
 
     def test_list_target_rejected(self, koakuma):
         """列表 target 不支持 (single_alias 返回 None)"""
@@ -157,7 +157,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
         result = _execute_mtp(koakuma, '⟪ RUN | nonexistent_tool | ⟫')
         assert not result.success
-        assert "not found" in result.response_content.lower()
+        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
 
     def test_unknown_tool_suggests_search(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None

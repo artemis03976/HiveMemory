@@ -106,7 +106,7 @@ class TestReadAliasResolution:
         result = _execute_mtp(koakuma, '⟪ READ | nonexistent_alias | ⟫')
 
         assert not result.success
-        assert "Alias Not Found" in result.response_content
+        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
         assert koakuma._bus._memory_citations == []
 
     def test_mixed_valid_invalid(self, koakuma):
@@ -120,7 +120,7 @@ class TestReadAliasResolution:
         assert result.success  # 部分成功
         assert "valid content" in result.response_content
         assert "bad_alias" in result.response_content
-        assert "not found" in result.response_content
+        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
 
     def test_multiple_valid_aliases(self, koakuma):
         mem1 = _make_memory(content="content A", alias="a1")
@@ -262,7 +262,7 @@ class TestKoakumaReadE2E:
         result = _execute_mtp(koakuma, '⟪ READ | unknown_alias | ⟫')
 
         assert not result.success
-        assert "not found" in result.response_content
+        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
 
     def test_read_formatted_response_xml(self, koakuma):
         mem = _make_memory(content="test", alias="test_alias")
@@ -363,7 +363,7 @@ class TestReadL2Fallback:
         result = _execute_mtp(koakuma, '⟪ READ | totally_unknown | ⟫')
 
         assert not result.success
-        assert "not found" in result.response_content
+        assert "Alias Not Found" in result.response_content or "未找到" in result.response_content
 
     def test_l2_route_failure_returns_infra_error(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
