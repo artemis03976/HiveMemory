@@ -64,6 +64,7 @@ from hivememory.core.mtp.exceptions import (
     MemoryTypeMismatchError,
     SyscallInternalError,
 )
+from hivememory.i18n.mtp_runtime import get_mtp_warning_text
 from hivememory.i18n.resolver import resolve_language
 
 if TYPE_CHECKING:
@@ -415,8 +416,13 @@ class KoakumaRuntime:
         # 解析 filter 参数 (Section 2.2)
         # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
         # 宽容解析: 非法 filter 降级为 None，但返回警告
+        language = _resolve_context_language(context)
         filter_str = command.args.get("filter", "")
-        parsed_filters, filter_warnings = self._filter_parser.parse(filter_str) if filter_str else (None, [])
+        parsed_filters, filter_warnings = (
+            self._filter_parser.parse(filter_str, language=language)
+            if filter_str
+            else (None, [])
+        )
 
         # Let StorageOfflineError / StorageReadError propagate to _route_and_execute
         result = await self._bus.request(
@@ -429,22 +435,24 @@ class KoakumaRuntime:
         )
 
         if result.is_empty():
-            content = "No memories found. Try a different query."
-            if filter_warnings:
-                content += "\n" + "\n".join(filter_warnings)
+            content = get_mtp_warning_text("mtp.search.no_memories_found", language=language)
             return MTPResponse(
                 status=MTPResponseStatus.SUCCESS,
                 content=content,
+                warnings=[content, *filter_warnings],
             )
 
         content = result.rendered_context
+        response_warnings = list(filter_warnings)
         if not content:
             logger.warning(
                 "RetrievalResponse for MTP SEARCH contains memories but no rendered_context."
             )
-            content = "Search completed, but no rendered context was returned."
-        if filter_warnings:
-            content += "\n" + "\n".join(filter_warnings)
+            content = get_mtp_warning_text(
+                "mtp.search.rendered_context_missing",
+                language=language,
+            )
+            response_warnings.append(content)
 
         # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
         self.atom_cache.ingest_atoms(result.memories)
@@ -452,6 +460,7 @@ class KoakumaRuntime:
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content=content,
+            warnings=response_warnings,
         )
 
     async def _handle_read(

@@ -21,7 +21,7 @@ from hivememory.i18n.types import Language
 # Phase A 文本表
 # ---------------------------------------------------------------------------
 
-_TEXT_ZH: dict[str, str] = {
+_ERROR_TEXT_ZH: dict[str, str] = {
 
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
@@ -152,7 +152,7 @@ _TEXT_ZH: dict[str, str] = {
     ),
 }
 
-_TEXT_EN: dict[str, str] = {
+_ERROR_TEXT_EN: dict[str, str] = {
 
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
@@ -291,9 +291,92 @@ _TEXT_EN: dict[str, str] = {
 }
 
 
+
+
+_WARNING_TEXT_ZH: dict[str, str] = {
+    "mtp.filter.token_missing_separator": (
+        "Note: Filter token '{token}' 已被忽略（缺少 ':' 分隔符）。"
+    ),
+    "mtp.filter.token_empty_key_or_value": (
+        "Note: Filter token '{token}' 已被忽略（key 或 value 为空）。"
+    ),
+    "mtp.filter.unknown_type": (
+        "Note: 未知 filter type '{value}' 已被忽略。"
+        "有效类型：CODE, FACT, URL, REFLECTION, PROFILE, WIP。"
+    ),
+    "mtp.filter.confidence_out_of_range": (
+        "Note: Filter confidence 值 {value} 超出范围 (0,1]，已被忽略。"
+    ),
+    "mtp.filter.confidence_invalid_number": (
+        "Note: Filter confidence 值 '{value}' 不是有效数字，已被忽略。"
+    ),
+    "mtp.filter.unknown_key": "Note: 未知 filter key '{key}' 已被忽略。",
+    "mtp.filter.parse_failed": (
+        "Note: Filter 解析失败。结果范围可能比预期更宽。"
+    ),
+    "mtp.search.no_memories_found": "未找到相关记忆。请尝试不同的 query。",
+    "mtp.search.rendered_context_missing": (
+        "搜索已完成，但没有返回可渲染的上下文。"
+    ),
+}
+
+_WARNING_TEXT_EN: dict[str, str] = {
+    "mtp.filter.token_missing_separator": (
+        "Note: Filter token '{token}' was ignored (missing ':' separator)."
+    ),
+    "mtp.filter.token_empty_key_or_value": (
+        "Note: Filter token '{token}' was ignored (empty key or value)."
+    ),
+    "mtp.filter.unknown_type": (
+        "Note: Unknown filter type '{value}' was ignored. "
+        "Valid types: CODE, FACT, URL, REFLECTION, PROFILE, WIP."
+    ),
+    "mtp.filter.confidence_out_of_range": (
+        "Note: Filter confidence value {value} is out of range (0,1] and was ignored."
+    ),
+    "mtp.filter.confidence_invalid_number": (
+        "Note: Filter confidence value '{value}' is not a valid number and was ignored."
+    ),
+    "mtp.filter.unknown_key": "Note: Unknown filter key '{key}' was ignored.",
+    "mtp.filter.parse_failed": (
+        "Note: Filter parsing failed. Results may be broader than expected."
+    ),
+    "mtp.search.no_memories_found": "No memories found. Try a different query.",
+    "mtp.search.rendered_context_missing": (
+        "Search completed, but no rendered context was returned."
+    ),
+}
+
+
 # ---------------------------------------------------------------------------
 # Getter
 # ---------------------------------------------------------------------------
+
+
+def _get_mtp_runtime_text(
+    key: str,
+    params: dict[str, Any] | None,
+    language: str | Language | None,
+    *,
+    zh_table: dict[str, str],
+    en_table: dict[str, str],
+    text_kind: str,
+) -> str:
+    lang = resolve_language(explicit=language)
+    table = en_table if lang == Language.EN else zh_table
+    try:
+        template = table[key]
+    except KeyError as exc:
+        raise KeyError(f"Unknown MTP runtime {text_kind} i18n key: {key}") from exc
+
+    try:
+        return template.format(**(params or {}))
+    except KeyError as exc:
+        missing = exc.args[0]
+        raise KeyError(
+            f"Missing MTP runtime {text_kind} i18n param '{missing}' for key: {key}"
+        ) from exc
+
 
 def get_mtp_error_text(
     key: str,
@@ -302,17 +385,29 @@ def get_mtp_error_text(
 ) -> str:
     """返回指定 key 的本地化文本，使用 params 填充占位符。
 
-    key 未命中时返回空串，由调用方决定 fallback 策略。
+    key 未命中或 params 缺失时抛出 KeyError。
     """
-    lang = resolve_language(explicit=language)
-    table = _TEXT_EN if lang == Language.EN else _TEXT_ZH
-    try:
-        template = table[key]
-    except KeyError as exc:
-        raise KeyError(f"Unknown MTP runtime i18n key: {key}") from exc
+    return _get_mtp_runtime_text(
+        key,
+        params,
+        language,
+        zh_table=_ERROR_TEXT_ZH,
+        en_table=_ERROR_TEXT_EN,
+        text_kind="error",
+    )
 
-    try:
-        return template.format(**(params or {}))
-    except KeyError as exc:
-        missing = exc.args[0]
-        raise KeyError(f"Missing MTP runtime i18n param '{missing}' for key: {key}") from exc
+
+def get_mtp_warning_text(
+    key: str,
+    params: dict[str, Any] | None = None,
+    language: str | Language | None = None,
+) -> str:
+    """Return a localized MTP warning/status backfill text."""
+    return _get_mtp_runtime_text(
+        key,
+        params,
+        language,
+        zh_table=_WARNING_TEXT_ZH,
+        en_table=_WARNING_TEXT_EN,
+        text_kind="warning",
+    )

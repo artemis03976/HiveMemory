@@ -18,6 +18,8 @@ class MTPFormatter:
         if response.execution_time_ms > 0:
             time_attr = f' time="{response.execution_time_ms:.0f}ms"'
 
+        # TODO: Render response.warnings in a dedicated XML section once the
+        # warning prompt contract is finalized.
         return (
             f'<mtp_response status="{response.status.value}"{time_attr}>\n'
             f"{response.content}\n"
@@ -37,6 +39,8 @@ class MTPFormatter:
         if response.execution_time_ms > 0:
             time_attr = f' time="{response.execution_time_ms:.0f}ms"'
 
+        # TODO: Render response.warnings in a dedicated XML section once the
+        # warning prompt contract is finalized.
         response_xml = (
             f'<mtp_response status="{response.status.value}"{time_attr}>\n'
             f"{response.content}\n"

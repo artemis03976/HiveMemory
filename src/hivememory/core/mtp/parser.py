@@ -23,6 +23,8 @@ from hivememory.core.mtp.models import (
     MTPTarget,
     MTPVerb,
 )
+from hivememory.i18n.mtp_runtime import get_mtp_warning_text
+from hivememory.i18n.types import Language
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +197,11 @@ class MTPFilterParser:
     支持 key: type / tag / agent / confidence。
     """
 
-    def parse(self, filter_str: str) -> Tuple[Optional[QueryFilters], List[str]]:
+    def parse(
+        self,
+        filter_str: str,
+        language: str | Language | None = None,
+    ) -> Tuple[Optional[QueryFilters], List[str]]:
         """
         宽容解析 filter 字符串并返回 QueryFilters 与警告列表。
 
@@ -205,6 +211,9 @@ class MTPFilterParser:
             return None, []
 
         warnings: List[str] = []
+        def warning(key: str, params: dict[str, object] | None = None) -> str:
+            return get_mtp_warning_text(key, params, language)
+
         try:
             memory_type = None
             tags: List[str] = []
@@ -214,7 +223,7 @@ class MTPFilterParser:
             for token in filter_str.strip().split():
                 if ":" not in token:
                     warnings.append(
-                        f"Note: Filter token '{token}' was ignored (missing ':' separator)."
+                        warning("mtp.filter.token_missing_separator", {"token": token})
                     )
                     continue
 
@@ -223,7 +232,7 @@ class MTPFilterParser:
                 value = value.strip()
                 if not key or not value:
                     warnings.append(
-                        f"Note: Filter token '{token}' was ignored (empty key or value)."
+                        warning("mtp.filter.token_empty_key_or_value", {"token": token})
                     )
                     continue
 
@@ -233,8 +242,7 @@ class MTPFilterParser:
                         memory_type = mapped
                     else:
                         warnings.append(
-                            f"Note: Unknown filter type '{value}' was ignored. "
-                            f"Valid types: CODE, FACT, URL, REFLECTION, PROFILE, WIP."
+                            warning("mtp.filter.unknown_type", {"value": value})
                         )
                 elif key == "tag":
                     tags.append(value)
@@ -247,14 +255,20 @@ class MTPFilterParser:
                             min_confidence = parsed
                         else:
                             warnings.append(
-                                f"Note: Filter confidence value {parsed} is out of range (0,1] and was ignored."
+                                warning(
+                                    "mtp.filter.confidence_out_of_range",
+                                    {"value": parsed},
+                                )
                             )
                     except ValueError:
                         warnings.append(
-                            f"Note: Filter confidence value '{value}' is not a valid number and was ignored."
+                            warning(
+                                "mtp.filter.confidence_invalid_number",
+                                {"value": value},
+                            )
                         )
                 else:
-                    warnings.append(f"Note: Unknown filter key '{key}' was ignored.")
+                    warnings.append(warning("mtp.filter.unknown_key", {"key": key}))
 
             mtp_identity = Identity(agent_id=source_agent_id) if source_agent_id else None
             filters = QueryFilters(
@@ -269,7 +283,7 @@ class MTPFilterParser:
 
         except Exception as e:
             logger.warning(f"MTP filter parse failed: {e}")
-            warnings.append("Note: Filter parsing failed. Results may be broader than expected.")
+            warnings.append(warning("mtp.filter.parse_failed"))
             return None, warnings
 
 
