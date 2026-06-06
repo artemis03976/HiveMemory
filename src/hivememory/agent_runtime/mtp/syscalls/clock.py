@@ -5,8 +5,10 @@
 from datetime import datetime
 from typing import Dict
 
+from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
 
-def sys_clock(args: Dict[str, str]) -> str:
+
+def sys_clock(args: Dict[str, str]) -> SyscallResult:
     """
     获取当前系统时间 (Chapter 8.4)
 
@@ -21,12 +23,12 @@ def sys_clock(args: Dict[str, str]) -> str:
     now = datetime.now().astimezone()
 
     if fmt == "iso":
-        return now.isoformat()
+        return SyscallResult(ok=True, content=now.isoformat())
     if fmt == "date":
-        return now.strftime("%Y-%m-%d")
+        return SyscallResult(ok=True, content=now.strftime("%Y-%m-%d"))
     if fmt == "time":
-        return now.strftime("%H:%M:%S")
+        return SyscallResult(ok=True, content=now.strftime("%H:%M:%S"))
 
     utc_offset_hours = now.utcoffset().total_seconds() / 3600
     offset_int = int(utc_offset_hours)
-    return f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset_int:+d})"
+    return SyscallResult(ok=True, content=f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset_int:+d})")

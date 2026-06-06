@@ -66,14 +66,14 @@ class TestSyscallViaMTP:
         result = simulate_kernel_loop_single(
             koakuma, '⟪ RUN | sys_python_repl | code="import os"'
         )
-        assert result.success is True  # handler 返回 error string
-        assert "Error" in result.response_content
+        assert result.success is False  # syscall 错误升级为 SyscallInternalError
+        assert "import" in result.response_content.lower()
 
     def test_repl_runtime_error_via_mtp(self, koakuma):
         result = simulate_kernel_loop_single(
             koakuma, '⟪ RUN | sys_python_repl | code="1/0"'
         )
-        assert result.success is True
+        assert result.success is False
         assert "runtime errors" in result.response_content.lower()
 
     def test_repl_no_output_via_mtp(self, koakuma):
@@ -85,7 +85,7 @@ class TestSyscallViaMTP:
 
     def test_web_search_missing_query_via_mtp(self, koakuma):
         result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_web_search |")
-        assert result.success is True
+        assert result.success is False  # 缺少 query 参数，SyscallInternalError
         assert "query" in result.response_content.lower()
 
     def test_clock_natural_language_response(self, koakuma):
@@ -207,7 +207,7 @@ class TestSyscallErrorRecovery:
 
     def test_missing_code_arg(self, koakuma):
         result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_python_repl |")
-        assert result.success is True
+        assert result.success is False
         assert "code" in result.response_content.lower()
 
     def test_error_response_xml_format(self, koakuma):

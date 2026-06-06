@@ -8,28 +8,34 @@ class TestSysClock:
 
     def test_default_format(self):
         result = sys_clock({})
+        assert result.ok
         assert re.match(
             r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(UTC[+-]\d+\)",
-            result,
-        ), f"Unexpected format: {result}"
+            result.content,
+        ), f"Unexpected format: {result.content}"
 
     def test_iso_format(self):
         result = sys_clock({"format": "iso"})
-        assert "T" in result
-        assert "+" in result or "-" in result or "Z" in result
+        assert result.ok
+        assert "T" in result.content
+        assert "+" in result.content or "-" in result.content or "Z" in result.content
 
     def test_date_format(self):
         result = sys_clock({"format": "date"})
-        assert re.match(r"\d{4}-\d{2}-\d{2}$", result)
+        assert result.ok
+        assert re.match(r"\d{4}-\d{2}-\d{2}$", result.content)
 
     def test_time_format(self):
         result = sys_clock({"format": "time"})
-        assert re.match(r"\d{2}:\d{2}:\d{2}$", result)
+        assert result.ok
+        assert re.match(r"\d{2}:\d{2}:\d{2}$", result.content)
 
     def test_no_args_uses_default(self):
         result = sys_clock({})
-        assert "UTC" in result
+        assert result.ok
+        assert "UTC" in result.content
 
     def test_unknown_format_uses_default(self):
         result = sys_clock({"format": "unknown"})
-        assert "UTC" in result
+        assert result.ok
+        assert "UTC" in result.content

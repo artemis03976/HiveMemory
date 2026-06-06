@@ -193,26 +193,44 @@ class TestKoakumaHandleCall:
     @pytest.mark.asyncio
     async def test_call_missing_task(self):
         """CALL 缺少 task 参数返回 ERROR"""
-        koakuma = self._make_koakuma(depth=0)
-        cmd = MagicMock(spec=MTPCommand)
-        cmd.target = MagicMock()
-        cmd.target.single_alias = "coder_doll"
-        cmd.args = {}  # no task
+        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+        from hivememory.agent_runtime.models import MTPExecutionContext
 
-        response = await koakuma._handle_call(cmd, context=koakuma.context)
+        koakuma = self._make_koakuma(depth=0)
+        koakuma._check_verb_permission = MagicMock()
+        koakuma._route_and_execute = KoakumaRuntime._route_and_execute.__get__(koakuma)
+        response = await koakuma._route_and_execute(
+            MTPParser().parse('⟪ CALL | coder_doll | ⟫'),
+            MTPExecutionContext(
+                identity=Identity(user_id="u1", agent_id="omni_doll"),
+                agent_profile=OMNI_DOLL_PROFILE,
+                runtime_scope=RuntimeScope(depth=0),
+            ),
+        )
         assert response.status == MTPResponseStatus.ERROR
+        assert response.error is not None
+        assert response.error.code == "mtp.argument.invalid"
 
     @pytest.mark.asyncio
     async def test_call_missing_target(self):
         """CALL 缺少 target 返回 ERROR"""
-        koakuma = self._make_koakuma(depth=0)
-        cmd = MagicMock(spec=MTPCommand)
-        cmd.target = MagicMock()
-        cmd.target.single_alias = None  # no target
-        cmd.args = {"task": "some task"}
+        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+        from hivememory.agent_runtime.models import MTPExecutionContext
 
-        response = await koakuma._handle_call(cmd, context=koakuma.context)
+        koakuma = self._make_koakuma(depth=0)
+        koakuma._check_verb_permission = MagicMock()
+        koakuma._route_and_execute = KoakumaRuntime._route_and_execute.__get__(koakuma)
+        response = await koakuma._route_and_execute(
+            MTPParser().parse('⟪ CALL | | task="some task" ⟫'),
+            MTPExecutionContext(
+                identity=Identity(user_id="u1", agent_id="omni_doll"),
+                agent_profile=OMNI_DOLL_PROFILE,
+                runtime_scope=RuntimeScope(depth=0),
+            ),
+        )
         assert response.status == MTPResponseStatus.ERROR
+        assert response.error is not None
+        assert response.error.code == "mtp.argument.invalid"
 
 
 # ========== FrameScheduler Tests ==========

@@ -137,8 +137,7 @@ class TestRunKernelFastPath:
 
     def test_sys_python_repl_import_blocked(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ RUN | sys_python_repl | code="import os" ⟫')
-        assert result.success  # handler 返回 error string, 不是异常
-        assert "Error" in result.response_content
+        assert not result.success  # import 被拦截，syscall 失败升级为 SyscallInternalError
         assert "import" in result.response_content.lower()
 
     def test_sys_python_repl_multiline(self, koakuma):

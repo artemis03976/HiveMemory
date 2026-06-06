@@ -53,11 +53,16 @@ from hivememory.system.contracts.routes import GlobalRoutes
 
 from hivememory.core.models import MemoryType
 from hivememory.core.mtp.exceptions import (
+    MTPError,
     AgentFault,
     SystemFault,
     StorageOfflineError,
     StorageReadError,
     PermissionDeniedError,
+    InvalidArgumentError,
+    AliasNotFoundError,
+    MemoryTypeMismatchError,
+    SyscallInternalError,
 )
 if TYPE_CHECKING:
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
@@ -232,6 +237,7 @@ class KoakumaRuntime:
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=e.to_agent_prompt(),
+                error=e.to_error_info(),
                 execution_time_ms=elapsed,
             )
             formatted = self._formatter.format_response(error_response)
@@ -323,12 +329,9 @@ class KoakumaRuntime:
 
         handler = handlers.get(command.verb)
         if handler is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=(
-                    "[Syntax Error] Unknown verb: "
-                    f"{command.verb}. Valid verbs: SEARCH, READ, RUN, WRITE, UPDATE."
-                ),
+            raise InvalidArgumentError(
+                f"Unknown verb: {command.verb}. "
+                f"Valid verbs: {', '.join(v.value for v in MTPVerb)}",
             )
 
         try:
@@ -336,42 +339,27 @@ class KoakumaRuntime:
             self._check_verb_permission(command.verb.value, context=context)
             return await handler(command, context)
 
-        except StorageOfflineError as e:
-            logger.warning(f"Storage offline during {command.verb}: {e}")
+        except MTPError as e:
+            if isinstance(e, SystemFault):
+                logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
+            else:
+                logger.info(f"Agent fault during {command.verb}: {e}")
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=e.to_agent_prompt(),
-            )
-
-        except StorageReadError as e:
-            logger.error(f"Storage error during {command.verb}: {e}")
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
-            )
-
-        except AgentFault as e:
-            logger.info(f"Agent fault during {command.verb}: {e}")
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
-            )
-
-        except SystemFault as e:
-            logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
+                error=e.to_error_info(),
             )
 
         except Exception as e:
             logger.error(f"Unexpected error during {command.verb}: {e}", exc_info=True)
+            fault = SystemFault(
+                "An unexpected error occurred. Do NOT retry this command. Continue the conversation normally.",
+                cause=e,
+            )
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=(
-                    "[Internal Error] An unexpected error occurred. "
-                    "Do NOT retry this command. Continue the conversation normally."
-                ),
+                content=fault.to_agent_prompt(),
+                error=fault.to_error_info(),
             )
 
     # ========== 指令处理器 ==========
@@ -397,11 +385,7 @@ class KoakumaRuntime:
         """
         query = command.args.get("query", "")
         if not query:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content='[Invalid Argument] SEARCH requires a "query" argument.\n'
-                        'Action: Provide a query argument and retry.',
-            )
+            raise InvalidArgumentError('SEARCH requires a "query" argument.')
 
         # 解析 filter 参数 (Section 2.2)
         # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
@@ -464,18 +448,13 @@ class KoakumaRuntime:
             MTPResponse: 记忆内容
         """
         if command.target.is_wildcard:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="READ does not support wildcard target '*'. "
-                        "Use SEARCH instead.",
+            raise InvalidArgumentError(
+                "READ does not support wildcard target '*'. Use SEARCH instead."
             )
 
         aliases = command.target.aliases
         if not aliases:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="READ requires at least one target alias.",
-            )
+            raise InvalidArgumentError("READ requires at least one target alias.")
 
         resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
         resolved_pending: List[Tuple[str, Any]] = []  # (alias, PendingAtom)
@@ -498,14 +477,10 @@ class KoakumaRuntime:
         # 全部无效：直接返回错误
         if not resolved and not resolved_pending and not resolved_redirects and not resolved_terminal:
             lines = [
-                f"[{a}]: [Alias Not Found] Alias '{a}' not found. "
-                f"Use SEARCH to discover the correct alias first."
+                f"[{a}]: Alias '{a}' not found. Use SEARCH to discover the correct alias first."
                 for a in unresolved
             ]
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="\n".join(lines),
-            )
+            raise AliasNotFoundError("\n".join(lines))
 
         # 组装输出 — 通过 MemoryCompiler 统一编译
         output_lines: List[str] = []
@@ -548,7 +523,6 @@ class KoakumaRuntime:
             await self._record_memory_citation(result.atom, "mtp.read")
         return response
 
-    # TODO:检查run返回的MTP结果为何为误导模型认为执行失败，尽管显示执行成功
     async def _handle_run(
         self,
         command: MTPCommand,
@@ -571,51 +545,29 @@ class KoakumaRuntime:
         """
         alias = command.target.single_alias
         if alias is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="RUN requires a single tool alias as target.",
-            )
+            raise InvalidArgumentError("RUN requires a single tool alias as target.")
 
         # Level 0: 内核工具快速路径 (Section 4.2.1)
         syscall = self._kernel_registry.get(alias)
         if syscall is None and alias.startswith("sys_"):
-            # sys_ 前缀保留给内核工具，不走 L1/L2 用户态解析
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"[Alias Not Found] Kernel tool '{alias}' not found. "
-                        f"Use SEARCH to discover available tools.",
-            )
+            raise AliasNotFoundError(f"Kernel tool '{alias}' not found. Use SEARCH to discover available tools.")
         if syscall is not None:
             # 权限沙箱：校验系统工具权限 (Phase 1 多智能体)
             self._check_tool_permission(alias, context=context)
-            try:
-                result = syscall.handler(command.args)
-                return MTPResponse(
-                    status=MTPResponseStatus.SUCCESS,
-                    content=result,
-                )
-            except Exception as e:
-                logger.error(
-                    f"Kernel syscall '{alias}' failed: {e}", exc_info=True
-                )
-                return MTPResponse(
-                    status=MTPResponseStatus.ERROR,
-                    content=f"[Tool Error] Tool '{alias}' execution failed. "
-                            f"Do NOT retry with the same input.",
-                )
+            result = syscall.handler(command.args)
+            if not result.ok:
+                exc_cls = InvalidArgumentError if result.error_code == "mtp.argument.invalid" else SyscallInternalError
+                raise exc_cls(result.content, params={"alias": alias})
+            return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
         # Level 1: 用户态工具路径 (统一原子缓存)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved = await self._alias_resolver.resolve(alias, context=context)
         redirect_notice = ""
         if resolved.kind == "pending":
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=(
-                    f"[Pending Alias Not Runnable] Alias '{alias}' is a runtime "
-                    "pending atom and has not been finalized as a runnable memory. "
-                    "Use READ to inspect it, or wait for the formal memory alias."
-                ),
+            raise InvalidArgumentError(
+                f"Alias '{alias}' is a runtime pending atom and has not been finalized as a runnable memory. "
+                "Use READ to inspect it, or wait for the formal memory alias."
             )
         if resolved.kind == "redirect" and resolved.atom is not None:
             canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
@@ -633,20 +585,15 @@ class KoakumaRuntime:
                 ).text,
             )
         if resolved.kind not in {"atom", "redirect"} or resolved.atom is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"[Alias Not Found] Tool alias '{alias}' not found. "
-                        f"Use SEARCH to discover the correct alias first.",
-            )
+            raise AliasNotFoundError(f"Tool alias '{alias}' not found. Use SEARCH to discover the correct alias first.")
         atom = resolved.atom
 
         # 校验类型必须是 CODE_SNIPPET
         if atom.index.memory_type != MemoryType.CODE_SNIPPET:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"[Type Mismatch] Alias '{alias}' is not a runnable tool "
-                        f"(type: {atom.index.memory_type.value}). "
-                        f"RUN only supports CODE_SNIPPET memories.",
+            raise MemoryTypeMismatchError(
+                f"Alias '{alias}' is not a runnable tool (type: {atom.index.memory_type.value}). "
+                "RUN only supports CODE_SNIPPET memories.",
+                params={"alias": alias, "type": atom.index.memory_type.value},
             )
 
         # 使用缓存的代码执行
@@ -682,10 +629,7 @@ class KoakumaRuntime:
         """
         content = command.args.get("content", "")
         if not content:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content='WRITE requires a "content" argument.',
-            )
+            raise InvalidArgumentError('WRITE requires a "content" argument.')
 
         reason = command.args.get("reason", "")
         title = command.args.get("title", "")
@@ -731,39 +675,21 @@ class KoakumaRuntime:
         Returns:
             MTPResponse: ACK 确认或 ERROR
         """
-        # 1. 校验 alias
         alias = command.target.single_alias
         if alias is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="UPDATE requires a single alias as target.",
-            )
+            raise InvalidArgumentError("UPDATE requires a single alias as target.")
 
-        # 2. 校验 instruction (必填)
         instruction = command.args.get("instruction", "")
         if not instruction:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content='UPDATE requires an "instruction" argument.',
-            )
+            raise InvalidArgumentError('UPDATE requires an "instruction" argument.')
 
-        # 3. 解析 alias → MemoryAtom (统一缓存路径)
-        # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved = await self._alias_resolver.resolve(alias, context=context)
         if resolved.kind == "pending":
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=(
-                    f"[Pending Alias Not Updatable] Alias '{alias}' is a runtime "
-                    "pending atom. UPDATE requires a formal memory alias."
-                ),
+            raise InvalidArgumentError(
+                f"Alias '{alias}' is a runtime pending atom. UPDATE requires a formal memory alias."
             )
         if resolved.kind != "atom" or resolved.atom is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"[Alias Not Found] Alias '{alias}' not found. "
-                        f"Use SEARCH to discover the correct alias first.",
-            )
+            raise AliasNotFoundError(f"Alias '{alias}' not found. Use SEARCH to discover the correct alias first.")
         atom = resolved.atom
         uuid = str(atom.id)
 
@@ -841,19 +767,16 @@ class KoakumaRuntime:
         # 2. 验证 target (必须是单个别名)
         target_alias = command.target.single_alias
         if not target_alias:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="CALL requires a single agent alias as target. "
-                        "Example: ⟪ CALL | coder_doll | task=\"...\" ⟫",
+            raise InvalidArgumentError(
+                'CALL requires a single agent alias as target. '
+                'Example: ⟪ CALL | coder_doll | task="..." ⟫'
             )
 
-        # 3. 验证 task (必填)
         task = command.args.get("task", "")
         if not task:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content='CALL requires a "task" argument. '
-                        'Example: ⟪ CALL | coder_doll | task="Write unit tests" ⟫',
+            raise InvalidArgumentError(
+                'CALL requires a "task" argument. '
+                'Example: ⟪ CALL | coder_doll | task="Write unit tests" ⟫'
             )
 
         # 4. 解析 context_refs (选填)
@@ -929,12 +852,11 @@ class KoakumaRuntime:
             timeout_seconds=self._config.python_repl_timeout_seconds,
         )
 
-        is_error = result.startswith("Error")
+        if not result.ok:
+            exc_cls = InvalidArgumentError if result.error_code == "mtp.argument.invalid" else SyscallInternalError
+            raise exc_cls(result.content, params={"alias": alias})
 
-        return MTPResponse(
-            status=MTPResponseStatus.ERROR if is_error else MTPResponseStatus.SUCCESS,
-            content=result,
-        )
+        return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
 
 __all__ = [

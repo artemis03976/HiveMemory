@@ -8,6 +8,8 @@ import io
 import threading
 from typing import Any, Dict, Optional
 
+from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
+
 
 # 安全 builtins 白名单 (Section 4.3.1 MVP)
 # 禁止: import, open, exec, eval, compile, __import__, globals, locals, vars,
@@ -110,7 +112,7 @@ def execute_sandboxed(
     *,
     namespace_extras: Optional[Dict[str, Any]] = None,
     timeout_seconds: int = 10,
-) -> str:
+) -> SyscallResult:
     """
     在受限沙箱中执行 Python 代码。
     """
@@ -133,22 +135,30 @@ def execute_sandboxed(
             timeout_seconds=timeout_seconds,
         )
     except _TimeoutError:
-        return f"Error: Execution timed out after {timeout_seconds}s."
+        return SyscallResult(
+            ok=False,
+            content=f"Execution timed out after {timeout_seconds}s.",
+            error_code="mtp.system.tool_error",
+        )
     except ImportError as e:
-        return f"Error: {e}"
+        return SyscallResult(ok=False, content=str(e), error_code="mtp.system.tool_error")
     except Exception:
-        return "Error: Python execution failed. Check your code for runtime errors."
+        return SyscallResult(
+            ok=False,
+            content="Python execution failed. Check your code for runtime errors.",
+            error_code="mtp.system.tool_error",
+        )
 
     output = stdout_capture.getvalue().strip()
-    return f"Stdout: {output}" if output else "Executed successfully (no output)."
+    return SyscallResult(ok=True, content=f"Stdout: {output}" if output else "Executed successfully (no output).")
 
 
-def sys_python_repl(args: Dict[str, str], *, timeout_seconds: int = 10) -> str:
+def sys_python_repl(args: Dict[str, str], *, timeout_seconds: int = 10) -> SyscallResult:
     """
     受限 Python REPL (Section 4.3.1 MVP / Chapter 8.3)。
     """
     code = args.get("code", "")
     if not code:
-        return "Error: 'code' argument is required."
+        return SyscallResult(ok=False, content="'code' argument is required.", error_code="mtp.argument.invalid")
 
     return execute_sandboxed(code, timeout_seconds=timeout_seconds)

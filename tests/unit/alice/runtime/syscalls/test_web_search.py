@@ -10,12 +10,12 @@ class TestSysWebSearch:
 
     def test_missing_query(self):
         result = sys_web_search({})
-        assert "Error" in result
-        assert "query" in result.lower()
+        assert not result.ok
+        assert "query" in result.content.lower()
 
     def test_empty_query(self):
         result = sys_web_search({"query": ""})
-        assert "Error" in result
+        assert not result.ok
 
     @patch("hivememory.agent_runtime.mtp.syscalls.web_search.DDGS", create=True)
     def test_normal_search(self, mock_ddgs_cls):
@@ -32,10 +32,12 @@ class TestSysWebSearch:
             from duckduckgo_search import DDGS
             with patch("hivememory.agent_runtime.mtp.syscalls.web_search.DDGS", mock_ddgs_cls):
                 result = sys_web_search({"query": "python async"})
-                assert "Result 1" in result
+                assert result.ok
+                assert "Result 1" in result.content
         except ImportError:
             result = sys_web_search({"query": "test"})
-            assert "not available on this system" in result
+            assert not result.ok
+            assert "not available on this system" in result.content
 
     def test_num_parameter_non_numeric(self):
         """num 非数字默认为 3"""
@@ -44,4 +46,5 @@ class TestSysWebSearch:
             pytest.skip("Skipping to avoid real network call")
         except ImportError:
             result = sys_web_search({"query": "test", "num": "abc"})
-            assert "not available on this system" in result
+            assert not result.ok
+            assert "not available on this system" in result.content

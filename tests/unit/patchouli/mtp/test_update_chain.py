@@ -739,7 +739,7 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert not result.success
-        assert "Pending Alias Not Updatable" in result.response_content
+        assert "pending" in result.response_content.lower()
         assert result.pending_alias is None
 
     def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
