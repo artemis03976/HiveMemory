@@ -113,7 +113,7 @@ class MTPErrorInfo(BaseModel):
     code: str = Field(..., description="dotted-path 错误码，同时作为 i18n join key")
     severity: MTPErrorSeverity = Field(..., description="严重度，retryable 由消费方从此派生")
     params: Dict[str, Any] = Field(default_factory=dict, description="参数化 i18n 模板所需的占位符值")
-    cause: Optional[str] = Field(default=None, description="原始异常信息，仅供开发调试，不回填给 Agent")
+    cause: Optional[str] = Field(default=None, exclude=True, description="原始异常信息，仅供开发调试，不回填给 Agent")
 
 
 class MTPResponse(BaseModel):

@@ -89,6 +89,7 @@ class MTPExecutionContext:
     identity: Identity = field(default_factory=Identity)
     agent_profile: Any = None
     runtime_scope: RuntimeScope = field(default_factory=RuntimeScope)
+    language: Optional[str] = None  # 显式语言覆盖；None 时由 runtime 从 agent_profile 派生
 
 
 @dataclass

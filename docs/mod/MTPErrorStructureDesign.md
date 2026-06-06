@@ -1,6 +1,6 @@
 # MTP 错误体系结构化设计
 
-**状态**: Draft  
+**状态**: Implemented (结构化改造已完成；§4.3 message_key 机制待在 i18n 阶段逐步落地)  
 **范围**: `core/mtp/exceptions.py`、`core/mtp/models.py`、`agent_runtime/mtp/runtime.py`、`agent_runtime/mtp/syscalls/`  
 **前置文档**: [I18nStatusAndRoadmap.md](i18n/I18nStatusAndRoadmap.md)、[KoakumaMTPBackfillTextI18nInventory.md](../mod/KoakumaMTPBackfillTextI18nInventory.md)  
 **目标**: 在 KoakumaRuntime i18n 化之前，为错误信息提供结构化载体，消除 handler 内联拼装 MTPResponse.content 的畸形模式。
@@ -54,20 +54,26 @@ class MTPErrorInfo(BaseModel):
 
 ```python
 class MTPError(Exception):
-    code: str = "mtp.error"
+    code: str = "mtp.error"                         # 类级别，机器身份，不变
     severity: MTPErrorSeverity = MTPErrorSeverity.AGENT_FAULT
+
+    # 过渡期保留，i18n 化后移除
+    category: str = "Error"
+    suggestion: str = ""
 
     def __init__(
         self,
-        message: str,
+        message: str = "",              # 旧方式：自由文本 fallback
         *,
+        message_key: str = "",          # 新方式：i18n join key，在 i18n 阶段逐步替换 message
         params: dict[str, Any] | None = None,
         cause: Exception | None = None,
     ):
-        super().__init__(message)
-        self.message = message
+        self.message = message or message_key
+        self.message_key = message_key
         self.params = params or {}
         self.cause = cause
+        super().__init__(self.message)
 
     def to_error_info(self) -> MTPErrorInfo:
         return MTPErrorInfo(
@@ -77,14 +83,25 @@ class MTPError(Exception):
             cause=str(self.cause) if self.cause else None,
         )
 
-    def to_agent_prompt(self) -> str:
-        """过渡兼容方法，i18n 化后替换为从 error_info + language 渲染。"""
-        ...
+    def to_agent_prompt(self, language: str | None = None) -> str:
+        if self.message_key:
+            # 新路径：从 i18n 表渲染（mtp_runtime.py 建立后生效）
+            from hivememory.i18n.mtp_runtime import get_mtp_error_text
+            return get_mtp_error_text(self.message_key, self.params, language)
+        # 旧路径 fallback：过渡期使用
+        prompt = f"[{self.category}] {self.message}"
+        if self.suggestion:
+            prompt += f"\nAction: {self.suggestion}"
+        return prompt
 ```
 
 ### 4.2 code 命名规范
 
-code 使用 dotted-path 格式，同时作为异常身份和 i18n join key：
+`code` 使用 dotted-path 格式，作为**异常类别的机器身份标识**。它不再是 i18n join key（该职责由 §4.3 的 `message_key` 承担），其主要消费方是：
+- `SyscallResult.error_code` → `_handle_run` 用来路由 `InvalidArgumentError` vs `SyscallInternalError`
+- `MTPErrorInfo.code` → 监控/追踪
+
+因此 `code` 保持**类级别粒度**，不需要细化到具体 message：
 
 ```
 mtp.<domain>.<specific>
@@ -104,9 +121,73 @@ mtp.<domain>.<specific>
 | `BusRouteUnavailableError` | `mtp.system.service_unavailable` |
 | `SyscallInternalError` | `mtp.system.tool_error` |
 
-code 的点分层级有语义含义但不强制：`mtp.alias.*` 不代表这些异常在代码层级上有父子关系，只是命名空间管理。
+### 4.3 message_key：具体文案的 i18n join key
 
-**保留字段**：现有的 `category` 和 `suggestion` 字段在过渡期保留，供 `to_agent_prompt()` 继续使用，待 `mtp_runtime.py` i18n 化完成后移除。
+同一个 `InvalidArgumentError` 在 READ 和 RUN 里需要不同的文案（错误描述和修复建议均不同），仅靠 `code` 无法区分。引入实例级的 `message_key` 作为 i18n join key：
+
+```python
+# raise 点示例
+raise InvalidArgumentError(
+    message_key="mtp.read.wildcard_not_supported",
+    params={},
+)
+raise InvalidArgumentError(
+    message_key="mtp.run.missing_single_target",
+    params={},
+)
+raise AliasNotFoundError(
+    message_key="mtp.common.alias_not_found",
+    params={"alias": alias},
+)
+```
+
+**命名规范**：
+- 动词特有文案：`mtp.<verb>.<specific>`（如 `mtp.read.wildcard_not_supported`）
+- 跨动词共享文案：`mtp.common.<specific>`（如 `mtp.common.alias_not_found`）
+
+**一个 key 返回完整文本**（含 suggestion），不拆分 message/suggestion 两个子 key。i18n 表条目示例：
+
+```python
+# zh
+"mtp.read.wildcard_not_supported": (
+    "[Invalid Argument] READ 不支持通配目标 `*`。\n"
+    "Suggestion: 使用 SEARCH 查找候选记忆，再用 READ 读取具体 alias。"
+),
+# en
+"mtp.read.wildcard_not_supported": (
+    "[Invalid Argument] READ does not support wildcard target `*`.\n"
+    "Suggestion: Search for candidate memories first, then READ a concrete alias."
+),
+```
+
+category label（`[Invalid Argument]`）作为协议 token，跨语言保持英文不翻译，与 MTP system prompt 教学文本保持一致（见 §14.1 风险）。
+
+**过渡期兼容**：`message_key` 在 i18n 阶段逐步迁入，迁移期间新旧方式并存：
+
+```python
+class MTPError(Exception):
+    def __init__(
+        self,
+        message: str = "",          # 旧方式：自由文本，现有 raise 点不动
+        *,
+        message_key: str = "",      # 新方式：i18n join key
+        params: dict | None = None,
+        cause: Exception | None = None,
+    ): ...
+
+    def to_agent_prompt(self, language: str | None = None) -> str:
+        if self.message_key:
+            # 新路径：从 i18n 表渲染
+            from hivememory.i18n.mtp_runtime import get_mtp_error_text
+            return get_mtp_error_text(self.message_key, self.params, language)
+        # 旧路径 fallback：使用过渡期保留的 category + message
+        prompt = f"[{self.category}] {self.message}"
+        if self.suggestion:
+            prompt += f"\nAction: {self.suggestion}"
+        return prompt
+```
+
+**保留字段**：`category` 和 `suggestion` 类属性在过渡期保留供 fallback 路径使用，待所有 raise 点迁移至 `message_key` 后移除。
 
 ---
 
@@ -263,10 +344,11 @@ def _execute_user_tool(self, alias: str, code: str, args: dict) -> MTPResponse:
 
 以下条件全部满足时，可以移除过渡期兼容逻辑：
 
-1. `mtp_runtime.py` i18n 表建立，覆盖所有 `code` 对应的 category label / suggestion / message 模板。
-2. `MTPError.to_agent_prompt()` 替换为从 i18n 表 + language 渲染。
-3. formatter 改为从 `MTPResponse.error` 生成错误文本，`content` 在错误时置空。
-4. 现有的 `category`、`suggestion` 类属性从异常类中移除。
+1. `mtp_runtime.py` i18n 表建立，覆盖所有 `message_key` 对应的完整文案（含 category token + 说明 + suggestion）。
+2. 所有 `raise` 点从 `message=...` 迁移至 `message_key=...`，旧路径无调用者。
+3. `MTPError.to_agent_prompt()` 的 fallback 路径（`category` + `message` + `suggestion`）移除。
+4. `category`、`suggestion` 类属性从异常类中移除。
+5. formatter 改为从 `MTPResponse.error` 生成错误文本，`content` 在错误时置空。
 
 ---
 

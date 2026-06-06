@@ -31,18 +31,20 @@ class MTPError(Exception):
 
     def __init__(
         self,
-        message: str,
+        message: str = "",
         *,
+        message_key: str = "",
         params: Optional[Dict[str, Any]] = None,
         cause: Optional[Exception] = None,
         suggestion: str = "",
     ):
-        super().__init__(message)
-        self.message = message
+        self.message = message or message_key
+        self.message_key = message_key
         self.params = params or {}
         self.cause = cause
         if suggestion:
             self.suggestion = suggestion
+        super().__init__(self.message)
 
     def to_error_info(self) -> MTPErrorInfo:
         return MTPErrorInfo(
@@ -52,8 +54,19 @@ class MTPError(Exception):
             cause=str(self.cause) if self.cause else None,
         )
 
-    def to_agent_prompt(self) -> str:
-        """过渡兼容方法，i18n 化后替换为从 error_info + language 渲染。"""
+    def to_agent_prompt(self, language: Optional[str] = None) -> str:
+        """渲染 Agent 可读的错误文本。
+
+        有 message_key 时走 i18n 表（mtp_runtime.py 建立后生效）；
+        否则 fallback 到过渡期的 category + message + suggestion 格式。
+        """
+        if self.message_key:
+            try:
+                from hivememory.i18n.mtp_runtime import get_mtp_error_text
+                return get_mtp_error_text(self.message_key, self.params, language)
+            except ImportError:
+                pass
+        # 过渡期 fallback
         prompt = f"[{self.category}] {self.message}"
         if self.suggestion:
             prompt += f"\nAction: {self.suggestion}"

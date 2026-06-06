@@ -64,12 +64,28 @@ from hivememory.core.mtp.exceptions import (
     MemoryTypeMismatchError,
     SyscallInternalError,
 )
+from hivememory.i18n.resolver import resolve_language
+
 if TYPE_CHECKING:
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
     from hivememory.agent_runtime.resolver import ResolveResult
     from hivememory.system.config import KoakumaConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_context_language(context: Optional[MTPExecutionContext]) -> str:
+    """从 MTPExecutionContext 派生运行时语言。
+
+    优先级：context.language > agent_profile.language > fallback "zh"
+    """
+    explicit = context.language if context is not None else None
+    profile_language = (
+        getattr(context.agent_profile, "language", None)
+        if context is not None and context.agent_profile is not None
+        else None
+    )
+    return resolve_language(explicit=explicit, profile_language=profile_language).value
 
 
 class KoakumaRuntime:
@@ -234,9 +250,10 @@ class KoakumaRuntime:
 
         except MTPParseError as e:
             elapsed = (time.time() - start_time) * 1000
+            language = _resolve_context_language(context)
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
+                content=e.to_agent_prompt(language),
                 error=e.to_error_info(),
                 execution_time_ms=elapsed,
             )
@@ -344,9 +361,10 @@ class KoakumaRuntime:
                 logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
             else:
                 logger.info(f"Agent fault during {command.verb}: {e}")
+            language = _resolve_context_language(context)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
+                content=e.to_agent_prompt(language),
                 error=e.to_error_info(),
             )
 
@@ -356,9 +374,10 @@ class KoakumaRuntime:
                 "An unexpected error occurred. Do NOT retry this command. Continue the conversation normally.",
                 cause=e,
             )
+            language = _resolve_context_language(context)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=fault.to_agent_prompt(),
+                content=fault.to_agent_prompt(language),
                 error=fault.to_error_info(),
             )
 
