@@ -37,10 +37,18 @@ _TEXT_ZH: dict[str, str] = {
         "Suggestion: 请使用你当前角色允许的指令和工具。"
     ),
 
-    # ---- 未知 verb（_route_and_execute）----
+    # ---- MTP 解析错误 ----
     "mtp.parse.unknown_verb": (
         "[Syntax Error] 未知指令动词：{verb}。合法动词：{valid_verbs}。\n"
         "Suggestion: 请检查 MTP 指令的动词拼写。"
+    ),
+    "mtp.parse.no_command": (
+        "[Syntax Error] 未找到 MTP 指令。期望格式为 '{left_delimiter}...{right_delimiter}'。\n"
+        "Suggestion: 请输出一个完整的 MTP 指令，并确认包含左右定界符。"
+    ),
+    "mtp.parse.missing_separator": (
+        "[Syntax Error] MTP 指令缺少分隔符 '{separator}'。\n"
+        "Suggestion: 请使用格式：⟪ VERB | TARGET | ARGS ⟫。"
     ),
 
     # ---- SEARCH ----
@@ -129,7 +137,7 @@ _TEXT_ZH: dict[str, str] = {
 
     # ---- 系统故障 ----
     "mtp.system.unexpected_error": (
-        "[Internal Error] 发生意外错误，请勿使用相同参数重试，继续正常对话。"
+        "[Internal Error] 发生意外错误，请勿使用相同参数重试，并继续正常对话。"
     ),
 
     # ---- loop / IPC 包装标题（Phase C，提前纳入）----
@@ -161,10 +169,18 @@ _TEXT_EN: dict[str, str] = {
         "Suggestion: Try a different approach using only your authorized tools and commands."
     ),
 
-    # ---- 未知 verb ----
+    # ---- MTP 解析错误 ----
     "mtp.parse.unknown_verb": (
         "[Syntax Error] Unknown verb: {verb}. Valid verbs: {valid_verbs}.\n"
         "Suggestion: Check your MTP command syntax."
+    ),
+    "mtp.parse.no_command": (
+        "[Syntax Error] No MTP command found. Expected '{left_delimiter}...{right_delimiter}'.\n"
+        "Suggestion: Emit a complete MTP command with both delimiters."
+    ),
+    "mtp.parse.missing_separator": (
+        "[Syntax Error] Missing separator '{separator}' in MTP command.\n"
+        "Suggestion: Use the format: ⟪ VERB | TARGET | ARGS ⟫."
     ),
 
     # ---- SEARCH ----

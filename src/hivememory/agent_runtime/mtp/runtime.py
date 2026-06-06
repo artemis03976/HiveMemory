@@ -812,7 +812,7 @@ class KoakumaRuntime:
             f"context_refs={context_refs}"
         )
 
-        # 5. 返回 SUSPEND 信号 (由 Kernel 拦截处理)
+        # 5. 返回 SUSPEND 信号 
         return MTPResponse(
             status=MTPResponseStatus.SUSPEND,
             content=json.dumps({

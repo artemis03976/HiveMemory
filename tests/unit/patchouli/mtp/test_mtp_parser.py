@@ -191,18 +191,34 @@ class TestMTPParser:
 
     def test_parse_no_command(self, parser: MTPParser):
         """测试无 MTP 指令"""
-        with pytest.raises(MTPParseError, match="No MTP command found"):
+        with pytest.raises(MTPParseError, match="No MTP command found") as exc_info:
             parser.parse("just some text")
+        assert exc_info.value.message_key == "mtp.parse.no_command"
+        assert exc_info.value.params == {
+            "left_delimiter": MTP_LEFT_DELIMITER,
+            "right_delimiter": MTP_RIGHT_DELIMITER,
+        }
+        assert "No MTP command found" in exc_info.value.to_agent_prompt("en")
+        assert "未找到 MTP 指令" in exc_info.value.to_agent_prompt("zh")
 
     def test_parse_unknown_verb(self, parser: MTPParser):
         """测试未知动词"""
-        with pytest.raises(MTPParseError, match="Unknown verb"):
+        with pytest.raises(MTPParseError, match="Unknown verb") as exc_info:
             parser.parse("⟪ DELETE | * | ⟫")
+        assert exc_info.value.message_key == "mtp.parse.unknown_verb"
+        assert exc_info.value.params["verb"] == "DELETE"
+        assert "SEARCH" in exc_info.value.params["valid_verbs"]
+        assert "Unknown verb" in exc_info.value.to_agent_prompt("en")
+        assert "未知指令动词" in exc_info.value.to_agent_prompt("zh")
 
     def test_parse_missing_separator(self, parser: MTPParser):
         """测试缺少分隔符"""
-        with pytest.raises(MTPParseError, match="Missing separator"):
+        with pytest.raises(MTPParseError, match="Missing separator") as exc_info:
             parser.parse("⟪ READ ⟫")
+        assert exc_info.value.message_key == "mtp.parse.missing_separator"
+        assert exc_info.value.params == {"separator": "|"}
+        assert "Missing separator" in exc_info.value.to_agent_prompt("en")
+        assert "缺少分隔符" in exc_info.value.to_agent_prompt("zh")
 # PLACEHOLDER_COMPLETE_AND_DETECT
 
 

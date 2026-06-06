@@ -54,7 +54,11 @@ class MTPParser:
         match = self._COMMAND_PATTERN.search(text)
         if not match:
             raise MTPParseError(
-                f"No MTP command found. Expected '{MTP_LEFT_DELIMITER}...{MTP_RIGHT_DELIMITER}'"
+                message_key="mtp.parse.no_command",
+                params={
+                    "left_delimiter": MTP_LEFT_DELIMITER,
+                    "right_delimiter": MTP_RIGHT_DELIMITER,
+                },
             )
 
         inner = match.group(1).strip()
@@ -64,8 +68,11 @@ class MTPParser:
         verb_upper = verb_str.upper()
         if verb_upper not in self._VALID_VERBS:
             raise MTPParseError(
-                f"Unknown verb '{verb_str}'. "
-                f"Valid verbs: {', '.join(sorted(self._VALID_VERBS))}"
+                message_key="mtp.parse.unknown_verb",
+                params={
+                    "verb": verb_str,
+                    "valid_verbs": ", ".join(sorted(self._VALID_VERBS)),
+                },
             )
 
         return MTPCommand(
@@ -97,7 +104,10 @@ class MTPParser:
         """
         first_pipe = inner.find(MTP_SEPARATOR)
         if first_pipe == -1:
-            raise MTPParseError(f"Missing separator '{MTP_SEPARATOR}' in MTP command")
+            raise MTPParseError(
+                message_key="mtp.parse.missing_separator",
+                params={"separator": MTP_SEPARATOR},
+            )
 
         verb_str = inner[:first_pipe].strip()
         rest = inner[first_pipe + 1 :]
