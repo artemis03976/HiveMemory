@@ -9,14 +9,14 @@ Worker Agent Service - 无状态 LLM 文本生成服务
     - 不持有任何业务状态（由 AliceRuntime / AgentRuntime 调度）
 
 架构定位：
-    AgentRuntime 持有 WorkerAgentService，并由 KernelLoopExecutor 调用。
+    AgentRuntime 持有 WorkerAgentService，并由 AgentLoopExecutor 调用。
     WorkerAgentService 不知道 MTP 协议的具体语义，只负责检测 ⟪ 定界符。
 
     AliceSystem
     ├── AliceRuntime
     │   ├── KoakumaRuntime
     │   ├── AgentRuntime
-    │   │   ├── KernelLoopExecutor
+    │   │   ├── AgentLoopExecutor
     │   │   └── WorkerAgentService (LLM Engine)  ← 本模块
     └── AliceService
 

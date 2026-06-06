@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionStatus,
@@ -130,7 +130,7 @@ def _make_context_atom(title: str, content: str) -> MemoryAtom:
     )
 
 
-def _build_executor(generate_async_side_effect) -> tuple[KernelLoopExecutor, MagicMock]:
+def _build_executor(generate_async_side_effect) -> tuple[AgentLoopExecutor, MagicMock]:
     kernel = MagicMock()
     kernel.config = MagicMock()
     kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
@@ -140,7 +140,7 @@ def _build_executor(generate_async_side_effect) -> tuple[KernelLoopExecutor, Mag
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=generate_async_side_effect)
 
-    executor = KernelLoopExecutor(
+    executor = AgentLoopExecutor(
         worker_agent=worker_agent,
         mtp_executor=mtp_executor,
         config=kernel.config.agent_runtime,

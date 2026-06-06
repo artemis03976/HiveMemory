@@ -1,5 +1,5 @@
 """
-KernelLoopExecutor 流式事件测试
+AgentLoopExecutor 流式事件测试
 
 聚焦子代理调用与 IPC 相关的流式事件链路：
     1. CALL suspend 后主/子帧事件命名空间 (scope) 正确
@@ -21,7 +21,7 @@ from hivememory.agent_runtime.models import (
     RuntimeScope,
     StreamChunk,
 )
-from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.protocol.models import MTPExecutionResult
@@ -77,7 +77,7 @@ def _build_orchestrator(worker_stream_impl, main_frame, sub_frame):
     worker_agent = MagicMock()
     worker_agent.generate_stream = worker_stream_impl
 
-    executor = KernelLoopExecutor(
+    executor = AgentLoopExecutor(
         worker_agent=worker_agent,
         mtp_executor=mtp_executor,
         config=config,

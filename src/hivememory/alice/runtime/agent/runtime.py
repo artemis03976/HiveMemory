@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Dict, List, Optional
 
-from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
 from hivememory.core.models.pending import PendingAtomStatus
@@ -34,14 +34,14 @@ class AgentRuntime:
         mtp_executor: "MTPExecutor",
         config: "HiveMemoryConfig",
         pending_runtime: Optional[PendingAtomRuntime] = None,
-        loop_executor: Optional[KernelLoopExecutor] = None,
+        loop_executor: Optional[AgentLoopExecutor] = None,
     ) -> None:
         self._pending_runtime = pending_runtime or PendingAtomRuntime()
         if loop_executor is not None:
             self._loop_executor = loop_executor
         else:
             worker_agent = WorkerAgentService(config=config.llm.worker)
-            self._loop_executor = KernelLoopExecutor(
+            self._loop_executor = AgentLoopExecutor(
                 worker_agent=worker_agent,
                 mtp_executor=mtp_executor,
                 config=config.agent_runtime,

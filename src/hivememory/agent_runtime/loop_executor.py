@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class KernelLoopExecutor:
+class AgentLoopExecutor:
     """
     纯单 Agent 执行循环总控。
 
@@ -355,4 +355,4 @@ class KernelLoopExecutor:
         return target_hint, args_hint, raw_hint
 
 
-__all__ = ["KernelLoopExecutor"]
+__all__ = ["AgentLoopExecutor"]

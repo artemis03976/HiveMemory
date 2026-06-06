@@ -83,7 +83,7 @@ v4 架构演进（见 [SystemArchitecture_v4.0](../architecture/evolution/System
 
 ### 3.2 三个 Runtime 的裁定结果
 
-**AgentRuntime / KernelLoopExecutor → 执行引擎（①）**
+**AgentRuntime / AgentLoopExecutor → 执行引擎（①）**
 取指-执行循环本身是引擎职责。但当前 [loop_executor.py](../../src/hivememory/alice/runtime/agent/loop_executor.py) 中的 `_execute_call` / `_assemble_ipc_return` / `_try_harvest_alias` / `_fetch_context_refs_content`、以及 SUSPEND 分支里 `suspend_frame` / `fork_sub_frame` / 递归跑子帧 / `resume_frame` 这一整套，**是编排职责长在了引擎循环里**。这是病灶所在，留待 §5 处理。
 
 **KoakumaRuntime → 执行引擎（①）**
