@@ -263,13 +263,13 @@ class QdrantMemoryStore:
 
         except (ConnectionError, TimeoutError, OSError) as e:
             logger.error(f"Storage offline during get_memory: {e}")
-            raise StorageOfflineError("Memory storage is unreachable.") from e
+            raise StorageOfflineError(cause=e) from e
         except (UnexpectedResponse, ResponseHandlingException) as e:
             logger.error(f"Storage error during get_memory: {e}")
-            raise StorageReadError("Memory storage returned an error.") from e
+            raise StorageReadError(cause=e) from e
         except Exception as e:
             logger.error(f"Unexpected storage error in get_memory: {e}", exc_info=True)
-            raise StorageReadError("Memory storage encountered an unexpected error.") from e
+            raise StorageReadError(cause=e) from e
 
     def get_memory_by_alias(
         self,
@@ -314,13 +314,13 @@ class QdrantMemoryStore:
 
         except (ConnectionError, TimeoutError, OSError) as e:
             logger.error(f"Storage offline during get_memory_by_alias (alias={alias}): {e}")
-            raise StorageOfflineError("Memory storage is unreachable.") from e
+            raise StorageOfflineError(cause=e) from e
         except (UnexpectedResponse, ResponseHandlingException) as e:
             logger.error(f"Storage error during get_memory_by_alias (alias={alias}): {e}")
-            raise StorageReadError("Memory storage returned an error.") from e
+            raise StorageReadError(cause=e) from e
         except Exception as e:
             logger.error(f"Unexpected storage error in get_memory_by_alias (alias={alias}): {e}", exc_info=True)
-            raise StorageReadError("Memory storage encountered an unexpected error.") from e
+            raise StorageReadError(cause=e) from e
 
     def get_agent_profile(self, agent_alias: str) -> AgentProfile:
         """
@@ -419,11 +419,11 @@ class QdrantMemoryStore:
         except (ConnectionError, TimeoutError, OSError) as e:
             logger.error(f"Storage offline during search_memories: {e}")
             from hivememory.core.mtp.exceptions import StorageOfflineError
-            raise StorageOfflineError("Memory storage is unreachable.") from e
+            raise StorageOfflineError(cause=e) from e
         except Exception as e:
             logger.error(f"Storage error during search_memories: {e}", exc_info=True)
             from hivememory.core.mtp.exceptions import StorageReadError
-            raise StorageReadError("Memory storage encountered an error during search.") from e
+            raise StorageReadError(cause=e) from e
 
     def delete_memory(self, memory_id: UUID) -> bool:
         """

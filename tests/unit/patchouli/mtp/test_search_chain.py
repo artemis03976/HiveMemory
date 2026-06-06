@@ -443,7 +443,11 @@ class TestKoakumaSearchE2E:
     def test_search_retrieval_exception(self, koakuma):
         koakuma._bus._mock_retrieval.retrieve.side_effect = Exception("Connection error")
 
-        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
+        result = _execute_mtp(
+            koakuma,
+            '⟪ SEARCH | * | query="test" ⟫',
+            context=MTPExecutionContext(language="en"),
+        )
 
         assert not result.success
         assert "An unexpected error occurred" in result.response_content

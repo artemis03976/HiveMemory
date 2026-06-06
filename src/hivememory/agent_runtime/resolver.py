@@ -220,18 +220,14 @@ class RuntimeAliasResolver:
             return memory
         except KeyError as e:
             logger.error(f"L2 cold-lookup route unavailable: alias='{alias}', error={e}")
-            raise BusRouteUnavailableError(
-                "Memory storage service is not available."
-            ) from e
+            raise BusRouteUnavailableError(cause=e) from e
         except (StorageOfflineError, StorageReadError):
             raise
         except Exception as e:
             logger.error(
                 f"L2 cold-lookup infrastructure failure: alias='{alias}', error={e}"
             )
-            raise StorageReadError(
-                "Memory storage encountered an error during alias lookup."
-            ) from e
+            raise StorageReadError(cause=e) from e
 
     @property
     def atom_cache(self) -> "KoakumaAtomCache":

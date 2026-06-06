@@ -139,6 +139,22 @@ _ERROR_TEXT_ZH: dict[str, str] = {
     "mtp.system.unexpected_error": (
         "[Internal Error] 发生意外错误，请勿使用相同参数重试，并继续正常对话。"
     ),
+    "mtp.system.storage_offline": (
+        "[Storage Offline] 记忆存储当前不可用。\n"
+        "Suggestion: 请勿重试相同指令。请在没有记忆访问的情况下继续对话。"
+    ),
+    "mtp.system.storage_error": (
+        "[Storage Error] 记忆存储读取时发生内部错误。\n"
+        "Suggestion: 请勿重试相同指令。请在没有记忆访问的情况下继续对话。"
+    ),
+    "mtp.system.service_unavailable": (
+        "[Service Unavailable] 必需的内部服务当前不可用。\n"
+        "Suggestion: 请勿重试相同指令，并继续正常对话。"
+    ),
+    "mtp.system.tool_error": (
+        "[Tool Error] 工具 '{alias}' 执行时发生内部错误：{detail}\n"
+        "Suggestion: 请勿使用相同输入重试该工具。"
+    ),
 
     # ---- loop / IPC 包装标题（Phase C，提前纳入）----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
@@ -275,6 +291,22 @@ _ERROR_TEXT_EN: dict[str, str] = {
     "mtp.system.unexpected_error": (
         "[Internal Error] An unexpected error occurred. "
         "Do NOT retry this command. Continue the conversation normally."
+    ),
+    "mtp.system.storage_offline": (
+        "[Storage Offline] Memory storage is currently unavailable.\n"
+        "Suggestion: Do NOT retry this command. Continue without memory access."
+    ),
+    "mtp.system.storage_error": (
+        "[Storage Error] Memory storage encountered an internal read error.\n"
+        "Suggestion: Do NOT retry this command. Continue without memory access."
+    ),
+    "mtp.system.service_unavailable": (
+        "[Service Unavailable] A required internal service is not available.\n"
+        "Suggestion: Do NOT retry this command. Continue the conversation normally."
+    ),
+    "mtp.system.tool_error": (
+        "[Tool Error] Tool '{alias}' encountered an internal error: {detail}\n"
+        "Suggestion: Do NOT retry this tool with the same input."
     ),
 
     # ---- loop / IPC 包装标题 ----

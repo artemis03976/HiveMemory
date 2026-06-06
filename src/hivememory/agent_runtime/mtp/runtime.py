@@ -377,10 +377,7 @@ class KoakumaRuntime:
 
         except Exception as e:
             logger.error(f"Unexpected error during {command.verb}: {e}", exc_info=True)
-            fault = SystemFault(
-                "An unexpected error occurred. Do NOT retry this command. Continue the conversation normally.",
-                cause=e,
-            )
+            fault = SystemFault(cause=e)
             language = _resolve_context_language(context)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
@@ -590,6 +587,8 @@ class KoakumaRuntime:
             result = syscall.handler(command.args)
             if not result.ok:
                 exc_cls = InvalidArgumentError if result.error_code == "mtp.argument.invalid" else SyscallInternalError
+                if exc_cls is SyscallInternalError:
+                    raise exc_cls(params={"alias": alias, "detail": result.content})
                 raise exc_cls(result.content, params={"alias": alias})
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
@@ -877,6 +876,8 @@ class KoakumaRuntime:
 
         if not result.ok:
             exc_cls = InvalidArgumentError if result.error_code == "mtp.argument.invalid" else SyscallInternalError
+            if exc_cls is SyscallInternalError:
+                raise exc_cls(params={"alias": alias, "detail": result.content})
             raise exc_cls(result.content, params={"alias": alias})
 
         return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
