@@ -196,8 +196,16 @@ class TestRenderAsPrefix:
                     render_as="system_tool_result")
         block = _block_structured("q", [event])
         msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == "[System Tool Result]\n<xml>result</xml>"
+        assert msgs[1]["content"] == "[System MTP Execution Result]\n<xml>result</xml>"
         assert msgs[1]["role"] == "user"
+
+    def test_system_tool_result_prefix_not_duplicated(self):
+        content = "[System MTP Execution Result]\n<mtp_response>ok</mtp_response>"
+        event = _ev("tool_result", 0, "user", content,
+                    render_as="system_tool_result")
+        block = _block_structured("q", [event])
+        msgs = builder.build_messages([block])
+        assert msgs[1]["content"] == content
 
     def test_system_ipc_return_prefix(self):
         event = _ev("tool_result", 0, "user", "<mtp_response>...</mtp_response>",
@@ -303,7 +311,7 @@ class TestMixedBlocks:
         assert msgs[2] == {"role": "user", "content": "新问题"}
         assert msgs[3] == {"role": "assistant", "content": "新回复（前缀）"}
         assert msgs[4] == {"role": "assistant", "content": "⟪ READ | x ⟫"}
-        assert msgs[5]["content"] == "[System Tool Result]\nresult"
+        assert msgs[5]["content"] == "[System MTP Execution Result]\nresult"
         assert msgs[6] == {"role": "assistant", "content": "新回复（最终）"}
 
     def test_multiple_new_blocks_preserve_order(self):
@@ -330,7 +338,7 @@ class TestMixedBlocks:
         block = _block_structured("复杂场景", events)
         msgs = builder.build_messages([block])
         assert msgs[1]["content"] == "[System IPC Return]\nsub response"
-        assert msgs[2]["content"] == "[System Tool Result]\nread result"
+        assert msgs[2]["content"] == "[System MTP Execution Result]\nread result"
 
 
 # ============ PerceptionContextConverter 委托验证 ============

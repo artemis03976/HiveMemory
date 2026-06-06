@@ -20,8 +20,6 @@ from hivememory.core.mtp import (
     MTPErrorSeverity,
     MTPResponseStatus,
     MTPWarningInfo,
-    MTPTarget,
-    MTPCommand,
     MTPResponse,
     MTPParser,
     MTPParseError,
@@ -321,20 +319,16 @@ class TestMTPFormatter:
         result = formatter.format_response(response)
         assert '<mtp_response status="ack">' in result
 
-    def test_format_command_with_response(self, formatter: MTPFormatter):
-        """测试完整回填文本格式化 (Section 3.3.1)"""
-        command = MTPCommand(
-            verb=MTPVerb.READ,
-            target=MTPTarget(aliases=["mem_01"]),
-            raw_text="⟪ READ | [mem_01] | ⟫",
-        )
+    def test_format_response_does_not_include_command_text(self, formatter: MTPFormatter):
+        """MTP command text is structural metadata and is not repeated in backfill."""
         response = MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="[mem_01]: def login(): ...",
             execution_time_ms=15.0,
         )
-        result = formatter.format_command_with_response(command, response)
-        assert result.startswith("⟪ READ | [mem_01] | ⟫")
+        result = formatter.format_response(response)
+        assert result.startswith("[System MTP Execution Result]\n<mtp_response")
+        assert MTP_LEFT_DELIMITER not in result
         assert '<mtp_response status="success"' in result
         assert "[mem_01]: def login(): ..." in result
 

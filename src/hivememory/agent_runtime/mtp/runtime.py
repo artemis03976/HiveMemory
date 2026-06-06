@@ -242,9 +242,7 @@ class KoakumaRuntime:
             response.execution_time_ms = (time.time() - start_time) * 1000
 
             # Step 3: 格式化回填文本
-            formatted = self._formatter.format_command_with_response(
-                command, response, language
-            )
+            formatted = self._formatter.format_response(response, language)
 
             return MTPExecutionResult(
                 command=command,

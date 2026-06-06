@@ -265,7 +265,7 @@ class KernelLoopExecutor:
             )
             frame.working_history.append({
                 "role": "user",
-                "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
+                "content": mtp_result.formatted_response,
             })
             p.turn_events.append(TurnEvent(
                 kind="tool_result",

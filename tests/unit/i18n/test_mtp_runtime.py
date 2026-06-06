@@ -1,6 +1,10 @@
 """Tests for MTP runtime i18n text helpers."""
 
-from hivememory.i18n.mtp_runtime import get_mtp_error_text, get_mtp_warning_text
+from hivememory.i18n.mtp_runtime import (
+    get_mtp_error_text,
+    get_mtp_info_text,
+    get_mtp_warning_text,
+)
 from hivememory.core.mtp.exceptions import StorageOfflineError, SyscallInternalError, SystemFault
 
 
@@ -12,6 +16,13 @@ def test_get_mtp_warning_text_en():
     )
 
     assert text == "Note: Unknown filter key 'unknown' was ignored."
+
+
+def test_get_mtp_info_text_execution_result_title():
+    assert (
+        get_mtp_info_text("mtp.loop.execution_result_title", language="en")
+        == "[System MTP Execution Result]"
+    )
 
 
 def test_get_mtp_warning_text_zh():

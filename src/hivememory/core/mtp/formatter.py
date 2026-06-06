@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from hivememory.core.mtp.models import MTPCommand, MTPResponse
-from hivememory.i18n.mtp_runtime import get_mtp_error_text, get_mtp_warning_text
+from hivememory.core.mtp.models import MTPResponse
+from hivememory.i18n.mtp_runtime import (
+    get_mtp_error_text,
+    get_mtp_info_text,
+    get_mtp_warning_text,
+)
 from hivememory.i18n.types import Language
 
 
@@ -15,18 +19,17 @@ class MTPFormatter:
         response: MTPResponse,
         language: str | Language | None = None,
     ) -> str:
-        """Format a response body as an XML container."""
-        return MTPFormatter._format_response_xml(response, language)
+        """Format a response body for agent-facing MTP execution backfill."""
+        response_xml = MTPFormatter._format_response_xml(response, language)
+        return MTPFormatter._format_execution_result(response_xml, language)
 
     @staticmethod
-    def format_command_with_response(
-        command: MTPCommand,
-        response: MTPResponse,
+    def _format_execution_result(
+        content: str,
         language: str | Language | None = None,
     ) -> str:
-        """Format ``command + response`` for history backfill."""
-        response_xml = MTPFormatter._format_response_xml(response, language)
-        return f"{command.raw_text}\n{response_xml}"
+        title = get_mtp_info_text("mtp.loop.execution_result_title", language=language)
+        return f"{title}\n{content}"
 
     @staticmethod
     def _format_response_xml(

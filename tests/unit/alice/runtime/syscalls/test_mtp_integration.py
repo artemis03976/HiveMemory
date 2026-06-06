@@ -8,7 +8,7 @@ import pytest
 
 from hivememory.system.config import KoakumaConfig
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.core.mtp.models import MTPVerb
+from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTPVerb
 
 from .conftest import build_resumed_history, simulate_kernel_loop_single
 
@@ -26,7 +26,7 @@ class TestSyscallViaMTP:
 
     def test_clock_response_format(self, koakuma):
         result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_clock |")
-        assert "⟪" in result.formatted_response
+        assert MTP_LEFT_DELIMITER not in result.formatted_response
         assert '<mtp_response status="success"' in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
 

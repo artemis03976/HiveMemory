@@ -29,11 +29,12 @@ from typing import Dict, List
 
 from hivememory.core.models import TurnEvent
 from hivememory.engines.perception.models import LogicalBlock
+from hivememory.i18n.mtp_runtime import get_mtp_info_text
 
 
-_SYSTEM_PREFIXES: Dict[str, str] = {
-    "system_tool_result": "[System Tool Result]",
-    "system_ipc_return": "[System IPC Return]",
+_SYSTEM_PREFIX_KEYS: Dict[str, str] = {
+    "system_tool_result": "mtp.loop.execution_result_title",
+    "system_ipc_return": "mtp.ipc.return_title",
 }
 
 _AGENT_ID_BYPASS = frozenset({"default", "omni_doll"})
@@ -120,8 +121,11 @@ class HistoryTranscriptBuilder:
     def _apply_system_prefix(self, event: TurnEvent) -> str:
         """根据 render_as 为 mtp_result 类事件补系统前缀。"""
         render_as = event.render_as
-        prefix = _SYSTEM_PREFIXES.get(render_as)
+        prefix_key = _SYSTEM_PREFIX_KEYS.get(render_as)
+        prefix = get_mtp_info_text(prefix_key) if prefix_key else None
         if prefix:
+            if event.content == prefix or event.content.startswith(f"{prefix}\n"):
+                return event.content
             return f"{prefix}\n{event.content}"
         return event.content
 

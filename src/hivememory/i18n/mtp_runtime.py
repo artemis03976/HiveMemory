@@ -164,16 +164,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 请勿使用相同输入重试该工具。"
     ),
 
-    # ---- loop / IPC 包装标题（Phase C，提前纳入）----
-    "mtp.loop.execution_result_title": "[System MTP Execution Result]",
-    "mtp.ipc.return_title": "[System IPC Return]",
-    "mtp.ipc.reply_label": "[Sub-Agent Reply]:",
-    "mtp.ipc.artifacts_label": "[Artifacts Generated / Updated]:",
-    "mtp.ipc.artifact_state": "(pending, 本次运行可读)",
-    "mtp.ipc.sub_agent_error": (
-        "[Sub-Agent Error]: 子代理 {agent_alias} 遇到错误，无法完成任务。\n"
-        "Suggestion: 请尝试其他方式，或分解任务后重试。"
-    ),
 }
 
 _ERROR_TEXT_EN: dict[str, str] = {
@@ -325,7 +315,24 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: Do NOT retry this tool with the same input."
     ),
 
-    # ---- loop / IPC 包装标题 ----
+}
+
+
+_INFO_TEXT_ZH: dict[str, str] = {
+    # ---- loop / IPC 包装标题（Phase C）----
+    "mtp.loop.execution_result_title": "[System MTP Execution Result]",
+    "mtp.ipc.return_title": "[System IPC Return]",
+    "mtp.ipc.reply_label": "[Sub-Agent Reply]:",
+    "mtp.ipc.artifacts_label": "[Artifacts Generated / Updated]:",
+    "mtp.ipc.artifact_state": "(pending, 本次运行可读)",
+    "mtp.ipc.sub_agent_error": (
+        "[Sub-Agent Error]: 子代理 {agent_alias} 遇到错误，无法完成任务。\n"
+        "Suggestion: 请尝试其他方式，或分解任务后重试。"
+    ),
+}
+
+_INFO_TEXT_EN: dict[str, str] = {
+    # ---- loop / IPC wrapper labels (Phase C) ----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
     "mtp.ipc.return_title": "[System IPC Return]",
     "mtp.ipc.reply_label": "[Sub-Agent Reply]:",
@@ -458,4 +465,20 @@ def get_mtp_warning_text(
         zh_table=_WARNING_TEXT_ZH,
         en_table=_WARNING_TEXT_EN,
         text_kind="warning",
+    )
+
+
+def get_mtp_info_text(
+    key: str,
+    params: dict[str, Any] | None = None,
+    language: str | Language | None = None,
+) -> str:
+    """Return a localized MTP informational wrapper text."""
+    return _get_mtp_runtime_text(
+        key,
+        params,
+        language,
+        zh_table=_INFO_TEXT_ZH,
+        en_table=_INFO_TEXT_EN,
+        text_kind="info",
     )
