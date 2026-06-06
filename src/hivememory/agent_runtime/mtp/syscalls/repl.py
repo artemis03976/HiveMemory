@@ -3,17 +3,22 @@ Python REPL 类 syscall 与沙箱执行实现。
 """
 
 import builtins
-import contextlib
-import io
-import threading
+import json
+import subprocess
+import sys
 from typing import Any, Dict, Optional
 
 from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
+from hivememory.core.mtp.exceptions import (
+    SyscallExecutionError,
+    SyscallInvalidArgumentError,
+    SyscallPermissionDeniedError,
+    SyscallTimeoutError,
+)
+from hivememory.i18n.syscall_runtime import get_syscall_info_text
 
 
-# 安全 builtins 白名单 (Section 4.3.1 MVP)
-# 禁止: import, open, exec, eval, compile, __import__, globals, locals, vars,
-#        getattr, setattr, delattr, breakpoint, exit, quit, input
+# 安全 builtins 白名单。禁止 import/open/exec/eval/compile 等能力。
 _SAFE_BUILTINS = frozenset(
     {
         "abs",
@@ -66,45 +71,84 @@ _SAFE_BUILTINS = frozenset(
 )
 
 
-def _blocked_import(*args, **kwargs):
-    """阻止 import 语句。"""
-    raise ImportError(
-        "import is not allowed in the restricted REPL. "
-        "Only built-in functions are available."
-    )
-
-
 class _TimeoutError(Exception):
     """REPL 执行超时。"""
 
 
-def _run_code_in_thread(
+def _run_code_in_process(
     code: str,
-    namespace: dict,
-    stdout_capture: io.StringIO,
+    namespace_extras: dict[str, Any],
     timeout_seconds: int,
-) -> None:
+) -> str:
     """
-    在子线程中执行代码，主线程等待超时 (跨平台)。
+    在子进程中执行代码，超时后终止进程。
+
+    Windows 上线程无法安全停止 `while True: pass` 这类忙循环，因此 timeout
+    路径使用 subprocess 隔离，避免 runtime 被遗留执行单元拖住。
     """
-    result_holder = {"error": None}
+    payload = {
+        "code": code,
+        "namespace_extras": namespace_extras,
+        "safe_builtins": sorted(_SAFE_BUILTINS),
+    }
+    runner = r"""
+import builtins
+import contextlib
+import io
+import json
+import sys
 
-    def target():
-        try:
-            with contextlib.redirect_stdout(stdout_capture):
-                exec(compile(code, "<mtp_repl>", "exec"), namespace)
-        except Exception as e:  # pragma: no cover - 异常信息已转为返回值
-            result_holder["error"] = e
+payload = json.loads(sys.stdin.read())
 
-    thread = threading.Thread(target=target, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout_seconds)
+def blocked_import(*args, **kwargs):
+    raise ImportError("import is not allowed in the restricted REPL.")
 
-    if thread.is_alive():
-        raise _TimeoutError(f"Execution timed out after {timeout_seconds}s.")
+restricted = {
+    key: getattr(builtins, key)
+    for key in payload["safe_builtins"]
+    if hasattr(builtins, key)
+}
+restricted["__import__"] = blocked_import
+namespace = {"__builtins__": restricted}
+namespace.update(payload.get("namespace_extras") or {})
 
-    if result_holder["error"] is not None:
-        raise result_holder["error"]
+stdout_capture = io.StringIO()
+try:
+    with contextlib.redirect_stdout(stdout_capture):
+        exec(compile(payload["code"], "<mtp_repl>", "exec"), namespace)
+except ImportError as exc:
+    print(json.dumps({"status": "import_error", "message": str(exc)}))
+except BaseException as exc:
+    print(json.dumps({"status": "error", "type": type(exc).__name__, "message": str(exc)}))
+else:
+    print(json.dumps({"status": "ok", "stdout": stdout_capture.getvalue()}))
+"""
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", runner],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise _TimeoutError(f"Execution timed out after {timeout_seconds}s.") from exc
+
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "Python execution failed.")
+
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Python execution failed without structured result.") from exc
+
+    status = result.get("status")
+    if status == "import_error":
+        raise ImportError(result.get("message") or "import is not allowed.")
+    if status == "error":
+        raise RuntimeError(result.get("message") or "Python execution failed.")
+    return result.get("stdout", "")
 
 
 def execute_sandboxed(
@@ -113,52 +157,46 @@ def execute_sandboxed(
     namespace_extras: Optional[Dict[str, Any]] = None,
     timeout_seconds: int = 10,
 ) -> SyscallResult:
-    """
-    在受限沙箱中执行 Python 代码。
-    """
-    restricted_builtins = {
-        k: getattr(builtins, k) for k in _SAFE_BUILTINS if hasattr(builtins, k)
-    }
-    restricted_builtins["__import__"] = _blocked_import
-
-    namespace: dict = {"__builtins__": restricted_builtins}
-    if namespace_extras:
-        namespace.update(namespace_extras)
-
-    stdout_capture = io.StringIO()
-
+    """Execute Python code in a restricted subprocess sandbox."""
     try:
-        _run_code_in_thread(
+        output = _run_code_in_process(
             code=code,
-            namespace=namespace,
-            stdout_capture=stdout_capture,
+            namespace_extras=dict(namespace_extras or {}),
             timeout_seconds=timeout_seconds,
         )
-    except _TimeoutError:
-        return SyscallResult(
-            ok=False,
-            content=f"Execution timed out after {timeout_seconds}s.",
-            error_code="mtp.system.tool_error",
-        )
-    except ImportError as e:
-        return SyscallResult(ok=False, content=str(e), error_code="mtp.system.tool_error")
-    except Exception:
-        return SyscallResult(
-            ok=False,
-            content="Python execution failed. Check your code for runtime errors.",
-            error_code="mtp.system.tool_error",
-        )
+    except _TimeoutError as exc:
+        raise SyscallTimeoutError(
+            message_key="syscall.repl.timeout",
+            params={"timeout_seconds": timeout_seconds},
+            cause=exc,
+        ) from exc
+    except ImportError as exc:
+        raise SyscallPermissionDeniedError(
+            message_key="syscall.repl.import_blocked",
+            cause=exc,
+        ) from exc
+    except Exception as exc:
+        raise SyscallExecutionError(
+            message_key="syscall.repl.execution_failed",
+            params={"detail": "Check your code for runtime errors."},
+            cause=exc,
+        ) from exc
 
-    output = stdout_capture.getvalue().strip()
-    return SyscallResult(ok=True, content=f"Stdout: {output}" if output else "Executed successfully (no output).")
+    output = output.strip()
+    if output:
+        return SyscallResult(
+            content=get_syscall_info_text("syscall.repl.stdout", {"output": output})
+        )
+    return SyscallResult(content=get_syscall_info_text("syscall.repl.no_output"))
 
 
 def sys_python_repl(args: Dict[str, str], *, timeout_seconds: int = 10) -> SyscallResult:
-    """
-    受限 Python REPL (Section 4.3.1 MVP / Chapter 8.3)。
-    """
+    """Restricted Python REPL syscall."""
     code = args.get("code", "")
     if not code:
-        return SyscallResult(ok=False, content="'code' argument is required.", error_code="mtp.argument.invalid")
+        raise SyscallInvalidArgumentError(
+            message_key="syscall.repl.missing_code",
+            params={"arg": "code"},
+        )
 
     return execute_sandboxed(code, timeout_seconds=timeout_seconds)

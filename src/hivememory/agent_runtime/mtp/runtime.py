@@ -589,14 +589,6 @@ class KoakumaRuntime:
             # 权限沙箱：校验系统工具权限 (Phase 1 多智能体)
             self._check_tool_permission(alias, context=context)
             result = syscall.handler(command.args)
-            if not result.ok:
-                exc_cls = InvalidArgumentError if result.error_code == "mtp.argument.invalid" else SyscallInternalError
-                if exc_cls is SyscallInternalError:
-                    raise exc_cls(params={"alias": alias, "detail": result.content})
-                raise exc_cls(
-                    message_key="mtp.run.syscall_invalid_argument",
-                    params={"alias": alias, "detail": result.content},
-                )
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
         # Level 1: 用户态工具路径 (统一原子缓存)
@@ -878,15 +870,6 @@ class KoakumaRuntime:
             namespace_extras={"params": dict(args)},
             timeout_seconds=self._config.python_repl_timeout_seconds,
         )
-
-        if not result.ok:
-            exc_cls = InvalidArgumentError if result.error_code == "mtp.argument.invalid" else SyscallInternalError
-            if exc_cls is SyscallInternalError:
-                raise exc_cls(params={"alias": alias, "detail": result.content})
-            raise exc_cls(
-                message_key="mtp.run.syscall_invalid_argument",
-                params={"alias": alias, "detail": result.content},
-            )
 
         return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 

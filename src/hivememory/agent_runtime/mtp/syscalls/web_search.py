@@ -5,6 +5,12 @@
 from typing import Dict
 
 from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
+from hivememory.core.mtp.exceptions import (
+    SyscallExecutionError,
+    SyscallInvalidArgumentError,
+    SyscallUnavailableError,
+)
+from hivememory.i18n.syscall_runtime import get_syscall_info_text
 
 
 def sys_web_search(args: Dict[str, str], *, timeout_seconds: int = 15) -> SyscallResult:
@@ -16,7 +22,10 @@ def sys_web_search(args: Dict[str, str], *, timeout_seconds: int = 15) -> Syscal
     _ = timeout_seconds
     query = args.get("query", "")
     if not query:
-        return SyscallResult(ok=False, content="'query' argument is required.", error_code="mtp.argument.invalid")
+        raise SyscallInvalidArgumentError(
+            message_key="syscall.web_search.missing_query",
+            params={"arg": "query"},
+        )
 
     num_str = args.get("num", "3")
     try:
@@ -26,23 +35,40 @@ def sys_web_search(args: Dict[str, str], *, timeout_seconds: int = 15) -> Syscal
 
     try:
         from duckduckgo_search import DDGS
-    except ImportError:
-        return SyscallResult(ok=False, content="Web search is not available on this system. Use a different approach.", error_code="mtp.system.tool_error")
+    except ImportError as exc:
+        raise SyscallUnavailableError(
+            message_key="syscall.web_search.unavailable",
+            cause=exc,
+        ) from exc
 
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=num))
-    except Exception:
-        return SyscallResult(ok=False, content="Web search failed. The search service may be temporarily unavailable.", error_code="mtp.system.tool_error")
+    except Exception as exc:
+        raise SyscallExecutionError(
+            message_key="syscall.web_search.failed",
+            params={"detail": "The search service may be temporarily unavailable."},
+            cause=exc,
+        ) from exc
 
     if not results:
-        return SyscallResult(ok=True, content=f"No results found for query: '{query}'")
+        return SyscallResult(
+            content=get_syscall_info_text(
+                "syscall.web_search.no_results",
+                {"query": query},
+            )
+        )
 
     lines = []
     for i, r in enumerate(results, 1):
         title = r.get("title", "N/A")
         snippet = r.get("body", "N/A")
         url = r.get("href", "N/A")
-        lines.append(f"[{i}] Title: {title}\nSnippet: {snippet}\nURL: {url}")
+        lines.append(
+            get_syscall_info_text(
+                "syscall.web_search.result_item",
+                {"index": i, "title": title, "snippet": snippet, "url": url},
+            )
+        )
 
-    return SyscallResult(ok=True, content="\n\n".join(lines))
+    return SyscallResult(content="\n\n".join(lines))

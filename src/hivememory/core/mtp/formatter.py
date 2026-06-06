@@ -8,6 +8,7 @@ from hivememory.i18n.mtp_runtime import (
     get_mtp_info_text,
     get_mtp_warning_text,
 )
+from hivememory.i18n.syscall_runtime import get_syscall_error_text
 from hivememory.i18n.types import Language
 
 
@@ -73,7 +74,10 @@ class MTPFormatter:
 
     @staticmethod
     def _format_error_info(error, language: str | Language | None = None) -> str:
-        text = get_mtp_error_text(error.message_key, error.params, language)
+        if error.message_key.startswith("syscall."):
+            text = get_syscall_error_text(error.message_key, error.params, language)
+        else:
+            text = get_mtp_error_text(error.message_key, error.params, language)
         return "\n".join(
             [
                 f'<error code="{error.code}" severity="{error.severity.value}">',

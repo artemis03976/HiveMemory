@@ -23,12 +23,12 @@ def sys_clock(args: Dict[str, str]) -> SyscallResult:
     now = datetime.now().astimezone()
 
     if fmt == "iso":
-        return SyscallResult(ok=True, content=now.isoformat())
+        return SyscallResult(content=now.isoformat())
     if fmt == "date":
-        return SyscallResult(ok=True, content=now.strftime("%Y-%m-%d"))
+        return SyscallResult(content=now.strftime("%Y-%m-%d"))
     if fmt == "time":
-        return SyscallResult(ok=True, content=now.strftime("%H:%M:%S"))
+        return SyscallResult(content=now.strftime("%H:%M:%S"))
 
     utc_offset_hours = now.utcoffset().total_seconds() / 3600
     offset_int = int(utc_offset_hours)
-    return SyscallResult(ok=True, content=f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset_int:+d})")
+    return SyscallResult(content=f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset_int:+d})")

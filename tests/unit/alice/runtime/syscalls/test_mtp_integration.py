@@ -83,7 +83,7 @@ class TestSyscallViaMTP:
             koakuma, '⟪ RUN | sys_python_repl | code="x = 42"'
         )
         assert result.success is True
-        assert "no output" in result.response_content.lower()
+        assert "no output" in result.response_content.lower() or "无输出" in result.response_content
 
     def test_web_search_missing_query_via_mtp(self, koakuma):
         result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_web_search |")
@@ -134,7 +134,10 @@ class TestFileIOViaMTP:
             file_koakuma, '⟪ RUN | sys_read_file | path="nonexistent.txt"'
         )
         assert result.response_content == ""
-        assert "not found" in result.formatted_response.lower()
+        assert (
+            "not found" in result.formatted_response.lower()
+            or "文件未找到" in result.formatted_response
+        )
 
     def test_read_file_path_traversal_via_mtp(self, file_koakuma):
         result = simulate_kernel_loop_single(

@@ -7,6 +7,10 @@ from hivememory.i18n.mtp_runtime import (
     get_mtp_info_text,
     get_mtp_warning_text,
 )
+from hivememory.i18n.syscall_runtime import (
+    get_syscall_error_text,
+    get_syscall_info_text,
+)
 from hivememory.core.mtp.exceptions import StorageOfflineError, SyscallInternalError, SystemFault
 
 
@@ -145,3 +149,45 @@ def test_syscall_internal_error_uses_i18n_template():
 
     assert "Tool 'sys_tool'" in get_mtp_error_text(info.message_key, info.params, "en")
     assert info.message_key == "mtp.system.tool_error"
+
+
+def test_get_syscall_error_text_en():
+    """syscall 错误文本使用独立 namespace，不再依赖 mtp.* 文本表。"""
+    text = get_syscall_error_text(
+        "syscall.file_read.missing_path",
+        {"arg": "path"},
+        "en",
+    )
+
+    assert 'file_read requires a "path" argument' in text
+
+
+def test_get_syscall_error_text_zh():
+    """syscall 错误文本应支持中文渲染。"""
+    text = get_syscall_error_text(
+        "syscall.repl.timeout",
+        {"timeout_seconds": 1},
+        "zh",
+    )
+
+    assert "Python 执行在 1s 后超时" in text
+
+
+def test_get_syscall_info_text_en():
+    """syscall 成功提示从 info 文本表读取。"""
+    text = get_syscall_info_text(
+        "syscall.file_write.success",
+        {"name": "note.txt", "bytes": 12},
+        "en",
+    )
+
+    assert text == "Success: File 'note.txt' saved (12 bytes)."
+
+
+def test_get_syscall_text_missing_key_and_param_raise_key_error():
+    """缺失 key 或 params 应继续暴露 KeyError，避免空错误响应。"""
+    with pytest.raises(KeyError):
+        get_syscall_error_text("syscall.missing", {}, "en")
+
+    with pytest.raises(KeyError):
+        get_syscall_info_text("syscall.file_write.success", {"name": "note.txt"}, "en")

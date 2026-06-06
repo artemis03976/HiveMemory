@@ -296,6 +296,24 @@ class TestMTPFormatter:
         assert '<error code="mtp.alias.not_found" severity="agent_fault">' in result
         assert "Tool alias 'tool_missing' not found" in result
 
+    def test_format_syscall_error_response(self, formatter: MTPFormatter):
+        """syscall.* message_key 应由 formatter 分流到 syscall i18n 文本表。"""
+        response = MTPResponse(
+            status=MTPResponseStatus.ERROR,
+            content="",
+            error=MTPErrorInfo(
+                code="mtp.syscall.invalid_argument",
+                message_key="syscall.repl.missing_code",
+                severity=MTPErrorSeverity.AGENT_FAULT,
+                params={"arg": "code"},
+            ),
+        )
+
+        result = formatter.format_response(response, "en")
+
+        assert '<error code="mtp.syscall.invalid_argument" severity="agent_fault">' in result
+        assert 'python_repl requires a "code" argument' in result
+
     def test_format_warning_response(self, formatter: MTPFormatter):
         response = MTPResponse(
             status=MTPResponseStatus.SUCCESS,

@@ -43,6 +43,10 @@ class MTPError(Exception):
         if not self.message_key:
             return self.code
         try:
+            if self.message_key.startswith("syscall."):
+                from hivememory.i18n.syscall_runtime import get_syscall_error_text
+
+                return get_syscall_error_text(self.message_key, self.params, "en")
             from hivememory.i18n.mtp_runtime import get_mtp_error_text
 
             return get_mtp_error_text(self.message_key, self.params, "en")
@@ -129,6 +133,31 @@ class SyscallInternalError(SystemFault):
     default_message_key = "mtp.system.tool_error"
 
 
+class SyscallInvalidArgumentError(InvalidArgumentError):
+    """syscall 参数缺失或格式错误。"""
+    code = "mtp.syscall.invalid_argument"
+
+
+class SyscallPermissionDeniedError(PermissionDeniedError):
+    """syscall 权限边界拦截。"""
+    code = "mtp.syscall.permission_denied"
+
+
+class SyscallExecutionError(SyscallInternalError):
+    """syscall 执行失败。"""
+    code = "mtp.syscall.execution_error"
+
+
+class SyscallTimeoutError(SyscallInternalError):
+    """syscall 执行超时。"""
+    code = "mtp.syscall.timeout"
+
+
+class SyscallUnavailableError(SystemFault):
+    """syscall 依赖或服务不可用。"""
+    code = "mtp.syscall.unavailable"
+
+
 class SubAgentExecutionError(SystemFault):
     """CALL 子代理执行异常。"""
     code = "mtp.call_response.sub_agent_error"
@@ -149,5 +178,10 @@ __all__ = [
     "StorageReadError",
     "BusRouteUnavailableError",
     "SyscallInternalError",
+    "SyscallInvalidArgumentError",
+    "SyscallPermissionDeniedError",
+    "SyscallExecutionError",
+    "SyscallTimeoutError",
+    "SyscallUnavailableError",
     "SubAgentExecutionError",
 ]

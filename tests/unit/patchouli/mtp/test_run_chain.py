@@ -257,7 +257,11 @@ class TestRunUserToolPath:
 
         assert not result.success
         assert result.response_content == ""
-        assert "timed out" in result.formatted_response.lower()
+        assert (
+            "timed out" in result.formatted_response.lower()
+            or "超时" in result.formatted_response
+            or "mtp.syscall.timeout" in result.formatted_response
+        )
 
     def test_sandbox_import_blocked(self, koakuma):
         """import 语句被拦截"""
