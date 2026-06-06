@@ -102,6 +102,14 @@ class MTPCommand(BaseModel):
     raw_text: str = Field(default="", description="原始指令文本")
 
 
+class MTPCallRequest(BaseModel):
+    """CALL suspend response 的结构化载荷。"""
+
+    target_alias: str = Field(..., description="目标 agent alias")
+    task: str = Field(..., description="委派给目标 agent 的任务")
+    context_refs: List[str] = Field(default_factory=list, description="共享上下文 alias")
+
+
 class MTPErrorSeverity(str, Enum):
     """MTP 错误严重度，决定重试语义。"""
     AGENT_FAULT = "agent_fault"    # Agent 侧可修复，允许重试
@@ -138,6 +146,7 @@ class MTPResponse(BaseModel):
     content: str = Field(default="", description="响应内容")
     execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
     pending_alias: Optional[str] = Field(default=None, exclude=True)
+    call_request: Optional[MTPCallRequest] = Field(default=None, exclude=True)
     error: Optional[MTPErrorInfo] = Field(default=None, description="结构化错误信息，status=error 时非空")
     warnings: List[MTPWarningInfo] = Field(default_factory=list, description="nonfatal 提示，不影响 status")
 
@@ -154,5 +163,6 @@ __all__ = [
     "MTPWarningInfo",
     "MTPTarget",
     "MTPCommand",
+    "MTPCallRequest",
     "MTPResponse",
 ]

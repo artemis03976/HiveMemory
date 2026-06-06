@@ -24,6 +24,7 @@ from hivememory.core.mtp.formatter import MTPFormatter
 from hivememory.core.mtp.trace_reducer import MTPTraceReducer
 from hivememory.core.mtp.models import (
     MTPCommand,
+    MTPCallRequest,
     MTPErrorInfo,
     MTPErrorSeverity,
     MTP_LEFT_DELIMITER,
@@ -61,6 +62,7 @@ __all__ = [
     "MTPWarningInfo",
     "MTPTarget",
     "MTPCommand",
+    "MTPCallRequest",
     "MTPResponse",
     "MTPParser",
     "MTPFilterParser",

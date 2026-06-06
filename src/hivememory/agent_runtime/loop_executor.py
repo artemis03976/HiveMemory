@@ -24,13 +24,10 @@ from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
-    CallRequest,
     MTPExecutionContext,
 )
 from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
-
-import json
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
@@ -235,14 +232,11 @@ class AgentLoopExecutor:
                     mtp_suspend_data.update(self._namespace_for_frame(frame))
                     await stream_emitter({"event": "mtp_result", "data": mtp_suspend_data})
 
-                call_params = json.loads(mtp_result.response_content)
+                if mtp_result.call_request is None:
+                    raise RuntimeError("CALL suspend response missing call_request.")
                 return FrameExecutionResult(
                     status=FrameExecutionStatus.SUSPENDED,
-                    call_request=CallRequest(
-                        target_alias=call_params["target_alias"],
-                        task=call_params["task"],
-                        context_refs=call_params.get("context_refs", []),
-                    ),
+                    call_request=mtp_result.call_request,
                     suspend_assistant_text=result.text,
                     suspend_action_id=action_id,
                 )

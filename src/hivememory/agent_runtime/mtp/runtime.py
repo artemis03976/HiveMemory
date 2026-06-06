@@ -34,6 +34,7 @@ from hivememory.core.mtp import (
     MTPVerb,
     MTPResponseStatus,
     MTPCommand,
+    MTPCallRequest,
     MTPResponse,
     MTPWarningInfo,
     MTPParser,
@@ -252,6 +253,7 @@ class KoakumaRuntime:
                 success=(response.status != MTPResponseStatus.ERROR),
                 execution_time_ms=response.execution_time_ms,
                 pending_alias=response.pending_alias,
+                call_request=response.call_request,
             )
 
         except MTPParseError as e:
@@ -820,11 +822,12 @@ class KoakumaRuntime:
         # 5. 返回 SUSPEND 信号 
         return MTPResponse(
             status=MTPResponseStatus.SUSPEND,
-            content=json.dumps({
-                "target_alias": target_alias,
-                "task": task,
-                "context_refs": context_refs,
-            }),
+            content="",
+            call_request=MTPCallRequest(
+                target_alias=target_alias,
+                task=task,
+                context_refs=context_refs,
+            ),
         )
 
     # ========== 辅助方法 ==========

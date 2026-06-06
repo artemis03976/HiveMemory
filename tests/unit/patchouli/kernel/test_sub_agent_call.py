@@ -34,6 +34,7 @@ from hivememory.core.mtp import (
     MTPResponseStatus,
     MTPParser,
     MTPCommand,
+    MTPCallRequest,
     MTPResponse,
 )
 
@@ -172,10 +173,12 @@ class TestKoakumaHandleCall:
         response = await koakuma._handle_call(cmd, context=koakuma.context)
 
         assert response.status == MTPResponseStatus.SUSPEND
-        payload = json.loads(response.content)
-        assert payload["target_alias"] == "coder_doll"
-        assert payload["task"] == "Write code"
-        assert payload["context_refs"] == ["mem_spec"]
+        assert response.content == ""
+        assert response.call_request == MTPCallRequest(
+            target_alias="coder_doll",
+            task="Write code",
+            context_refs=["mem_spec"],
+        )
 
     @pytest.mark.asyncio
     async def test_call_depth_check_blocks_sub_agent(self):

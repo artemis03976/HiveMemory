@@ -8,7 +8,6 @@ LoopExecutor TurnEvent 采集单测
 4. 无 MTP 时 frame.progress 正常，final_text 正确
 """
 
-import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -34,6 +33,7 @@ from hivememory.core.models import (
     TurnEvent,
 )
 from hivememory.core.protocol.models import MTPExecutionResult
+from hivememory.core.mtp import MTPCallRequest
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -87,14 +87,15 @@ def _call_mtp_exec_result() -> MTPExecutionResult:
     return MTPExecutionResult(
         command=cmd,
         response_status="suspend",
-        response_content=json.dumps({
-            "target_alias": "sub_agent",
-            "task": "do work",
-            "context_refs": [],
-        }),
+        response_content="",
         formatted_response="",
         success=True,
         execution_time_ms=1.0,
+        call_request=MTPCallRequest(
+            target_alias="sub_agent",
+            task="do work",
+            context_refs=[],
+        ),
     )
 
 

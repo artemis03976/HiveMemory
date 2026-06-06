@@ -15,6 +15,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from hivememory.core.models import AgentProfile, Identity, RuntimeScope, TurnEvent
+from hivememory.core.mtp.models import MTPCallRequest
 
 
 @dataclass
@@ -114,20 +115,6 @@ class StreamChunk:
     mtp_detected: bool = False
 
 
-@dataclass
-class CallRequest:
-    """一次 CALL 指令解析出的派生请求（挂起信号的载荷）。
-
-    引擎在 SUSPEND 时把 CALL 参数原样交还编排，自己不 resolve、不 fork。
-    字段对应单体 ``_execute_call`` 从 ``mtp_result.response_content`` 解出的
-    ``target_alias`` / ``task`` / ``context_refs``。
-    """
-
-    target_alias: str
-    task: str
-    context_refs: List[str] = field(default_factory=list)
-
-
 class FrameExecutionStatus(str, Enum):
     """引擎单次执行的停机原因。"""
 
@@ -153,7 +140,7 @@ class FrameExecutionResult:
 
     # ---- status == SUSPENDED 时填充 ----
     # 触发 CALL 的派生请求（target_alias / task / context_refs）。
-    call_request: Optional[CallRequest] = None
+    call_request: Optional[MTPCallRequest] = None
     # 触发 CALL 的 result.text，编排负责 append 到 working_history（带 ⟫ 收尾）。
     suspend_assistant_text: Optional[str] = None
     # 供编排回填 tool_result TurnEvent 的 action_id。
@@ -161,7 +148,6 @@ class FrameExecutionResult:
 
 
 __all__ = [
-    "CallRequest",
     "ExecutionFrame",
     "ExecutionProgress",
     "FrameExecutionResult",

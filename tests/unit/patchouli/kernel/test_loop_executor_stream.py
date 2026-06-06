@@ -6,7 +6,6 @@ AgentLoopExecutor 流式事件测试
     2. 子帧失败时仍产出 sub_agent_end(error) 且主循环可继续完成
 """
 
-import json
 from typing import List, Dict, Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,6 +23,7 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+from hivememory.core.mtp import MTPCallRequest
 from hivememory.core.protocol.models import MTPExecutionResult
 
 
@@ -40,13 +40,15 @@ def _make_call_mtp_result() -> MTPExecutionResult:
     return MTPExecutionResult(
         command=cmd,
         response_status="suspend",
-        response_content=json.dumps(
-            {"target_alias": "coder_doll", "task": "帮我处理子任务", "context_refs": []},
-            ensure_ascii=False,
-        ),
+        response_content="",
         formatted_response="",
         success=True,
         execution_time_ms=1.0,
+        call_request=MTPCallRequest(
+            target_alias="coder_doll",
+            task="帮我处理子任务",
+            context_refs=[],
+        ),
     )
 
 

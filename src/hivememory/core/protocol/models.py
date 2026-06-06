@@ -18,6 +18,7 @@ from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.models import AgentProfile, MemoryAtom, Identity, TraceItem, TurnEvent
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.core.mtp.models import MTPCallRequest
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
 from hivememory.engines.retrieval.models import QueryFilters
@@ -169,6 +170,7 @@ class MTPExecutionResult(BaseModel):
     success: bool = Field(default=False)
     execution_time_ms: float = Field(default=0.0)
     pending_alias: Optional[str] = Field(default=None)
+    call_request: Optional[MTPCallRequest] = Field(default=None)
 
 
 class AgentRunResult(BaseModel):
