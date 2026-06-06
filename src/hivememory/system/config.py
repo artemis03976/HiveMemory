@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Any, Dict, List, Tuple, Type, Literal, Union
 import yaml
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 
 logger = logging.getLogger(__name__)
@@ -678,6 +678,13 @@ class HiveMemoryConfig(BaseSettings):
         env_nested_delimiter="__",
         env_prefix=HIVEMEMORY_ENV_PREFIX
     )
+
+    @model_validator(mode="after")
+    def sync_i18n_default_language(self) -> "HiveMemoryConfig":
+        from hivememory.i18n.resolver import set_default_language
+
+        set_default_language(self.i18n.default_language)
+        return self
 
     @classmethod
     def settings_customise_sources(

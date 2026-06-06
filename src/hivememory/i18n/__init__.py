@@ -6,7 +6,11 @@ from hivememory.i18n.types import (
     Language,
     normalize_language,
 )
-from hivememory.i18n.resolver import resolve_language
+from hivememory.i18n.resolver import (
+    get_default_language,
+    resolve_language,
+    set_default_language,
+)
 from hivememory.i18n.memory_compiler import (
     get_memory_atom_text,
     get_memory_envelope_text,
@@ -43,6 +47,8 @@ __all__ = [
     "get_system_prompt_text",
     "get_time_formatter_text",
     "get_mtp_error_text",
+    "get_default_language",
     "normalize_language",
     "resolve_language",
+    "set_default_language",
 ]

@@ -3,6 +3,15 @@ from types import SimpleNamespace
 from hivememory.core.models import AgentProfile, Identity
 from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
 from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.i18n import set_default_language
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def reset_i18n():
+    set_default_language("zh")
+    yield
+    set_default_language("zh")
 
 
 def _make_koakuma_config():
@@ -94,7 +103,7 @@ def test_build_sub_agent_messages_disables_call():
 
 
 def test_mtp_prompt_uses_resolved_profile_language():
-    assembler = AgentPromptAssembler(_make_koakuma_config(), default_language="zh")
+    assembler = AgentPromptAssembler(_make_koakuma_config())
     profile = AgentProfile(
         persona="",
         allowed_mtp_verbs=["SEARCH"],
@@ -114,7 +123,8 @@ def test_mtp_prompt_uses_resolved_profile_language():
 
 
 def test_mtp_prompt_uses_global_language_without_profile_language():
-    assembler = AgentPromptAssembler(_make_koakuma_config(), default_language="en")
+    set_default_language("en")
+    assembler = AgentPromptAssembler(_make_koakuma_config())
 
     prompt = assembler._build_mtp_prompt(profile=None)
 

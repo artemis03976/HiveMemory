@@ -38,13 +38,27 @@ class MTPError(Exception):
         cause: Optional[Exception] = None,
         suggestion: str = "",
     ):
-        self.message = message or message_key
         self.message_key = message_key
         self.params = params or {}
         self.cause = cause
+        self.message = message or self._fallback_message()
         if suggestion:
             self.suggestion = suggestion
         super().__init__(self.message)
+
+    def _fallback_message(self) -> str:
+        if not self.message_key:
+            return self.code
+        try:
+            from hivememory.i18n.mtp_runtime import get_mtp_error_text
+
+            return get_mtp_error_text(self.message_key, self.params, "en")
+        except (ImportError, KeyError):
+            pass
+        if not self.params:
+            return self.message_key
+        details = ", ".join(f"{key}={value!r}" for key, value in self.params.items())
+        return f"{self.message_key}: {details}"
 
     def to_error_info(self) -> MTPErrorInfo:
         return MTPErrorInfo(
@@ -63,8 +77,10 @@ class MTPError(Exception):
         if self.message_key:
             try:
                 from hivememory.i18n.mtp_runtime import get_mtp_error_text
-                return get_mtp_error_text(self.message_key, self.params, language)
-            except ImportError:
+                rendered = get_mtp_error_text(self.message_key, self.params, language)
+                if rendered:
+                    return rendered
+            except (ImportError, KeyError):
                 pass
         # 过渡期 fallback
         prompt = f"[{self.category}] {self.message}"

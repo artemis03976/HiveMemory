@@ -20,6 +20,7 @@ from hivememory.engines.memory_compiler.builders import (
     build_resolve_result_ir,
 )
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR, MemoryUnitIR
+from hivememory.i18n.resolver import get_default_language
 
 
 class MemoryCompiler:
@@ -29,8 +30,8 @@ class MemoryCompiler:
     Phase 2B: source -> IR -> target 的完整收束。
     """
 
-    def __init__(self, default_language: str = "zh") -> None:
-        self.default_language = default_language
+    def __init__(self) -> None:
+        pass
 
     def compile(
         self,
@@ -72,7 +73,7 @@ class MemoryCompiler:
     def _resolve_options(self, options: MemoryCompileOptions | None) -> MemoryCompileOptions:
         opts = options or MemoryCompileOptions()
         if opts.language is None:
-            opts = opts.model_copy(update={"language": self.default_language})
+            opts = opts.model_copy(update={"language": get_default_language().value})
         return opts
 
     def _compile_single(

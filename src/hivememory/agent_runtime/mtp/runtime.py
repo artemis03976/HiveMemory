@@ -76,11 +76,10 @@ logger = logging.getLogger(__name__)
 
 def _resolve_context_language(
     context: Optional[MTPExecutionContext],
-    default_language: str = "",
 ) -> str:
     """从 MTPExecutionContext 派生运行时语言。
 
-    优先级：context.language > agent_profile.language > default_language > fallback "zh"
+    优先级：context.language > agent_profile.language > i18n default
     """
     explicit = context.language if context is not None else None
     profile_language = (
@@ -91,7 +90,6 @@ def _resolve_context_language(
     return resolve_language(
         explicit=explicit,
         profile_language=profile_language,
-        default_language=default_language or None,
     ).value
 
 
@@ -124,7 +122,6 @@ class KoakumaRuntime:
         config: Optional["KoakumaConfig"] = None,
         *,
         alias_resolver: RuntimeAliasResolver,
-        default_language: str = "",
     ):
         """
         初始化 Koakuma MTP 运行时
@@ -133,14 +130,11 @@ class KoakumaRuntime:
             bus: AsyncSystemBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
             alias_resolver: 运行时别名解析器
-            default_language: 全局默认语言，由外部从 HiveMemoryConfig.i18n.default_language 注入；
-                              context.language 和 agent_profile.language 可临时覆盖
         """
         from hivememory.system.config import KoakumaConfig
 
         self._bus = bus
         self._config = config or KoakumaConfig()
-        self._default_language = default_language
         self._parser = MTPParser()
         self._filter_parser = MTPFilterParser()
         self._formatter = MTPFormatter()
@@ -262,7 +256,7 @@ class KoakumaRuntime:
 
         except MTPParseError as e:
             elapsed = (time.time() - start_time) * 1000
-            language = _resolve_context_language(context, self._default_language)
+            language = _resolve_context_language(context)
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=e.to_agent_prompt(language),
@@ -373,7 +367,7 @@ class KoakumaRuntime:
                 logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
             else:
                 logger.info(f"Agent fault during {command.verb}: {e}")
-            language = _resolve_context_language(context, self._default_language)
+            language = _resolve_context_language(context)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=e.to_agent_prompt(language),
@@ -386,7 +380,7 @@ class KoakumaRuntime:
                 "An unexpected error occurred. Do NOT retry this command. Continue the conversation normally.",
                 cause=e,
             )
-            language = _resolve_context_language(context, self._default_language)
+            language = _resolve_context_language(context)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content=fault.to_agent_prompt(language),
@@ -682,7 +676,7 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._format_write_ack(pending.pending_alias, _resolve_context_language(context, self._default_language)),
+            content=self._format_write_ack(pending.pending_alias, _resolve_context_language(context)),
             pending_alias=pending.pending_alias,
         )
 
@@ -752,7 +746,7 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._format_update_ack(alias, pending.pending_alias, _resolve_context_language(context, self._default_language)),
+            content=self._format_update_ack(alias, pending.pending_alias, _resolve_context_language(context)),
             pending_alias=pending.pending_alias,
         )
 

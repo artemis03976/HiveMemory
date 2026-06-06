@@ -326,7 +326,6 @@ class PatchouliRuntime:
 
         renderer: BaseContextRenderer = create_renderer(
             config.renderer,
-            default_language=self.config.i18n.default_language,
         )
 
         return RetrievalEngine(
@@ -356,7 +355,6 @@ class PatchouliRuntime:
         extractor: BaseMemoryExtractor = create_extractor(
             config.extractor,
             self.librarian_llm_service,
-            default_language=self.config.i18n.default_language,
         )
 
         deduplicator: BaseDeduplicator = create_deduplicator(
@@ -421,7 +419,6 @@ class PatchouliRuntime:
         from hivememory.system.config import FullRendererConfig
         passive_renderer = FullContextRenderer(
             FullRendererConfig(),
-            default_language=self.config.i18n.default_language,
         )
 
         self._services["retrieval"] = RetrievalFamiliar(

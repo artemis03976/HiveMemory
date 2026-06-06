@@ -32,6 +32,7 @@ from hivememory.engines.memory_compiler import (
 )
 from hivememory.i18n import (
     get_memory_envelope_text,
+    get_default_language,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,20 +77,19 @@ def _separate_agent_profiles(
 
 
 class _RendererI18nMixin:
-    def _init_i18n(self, default_language: str = "zh") -> None:
-        self.default_language = default_language
-        self._compiler = MemoryCompiler(default_language=default_language)
+    def _init_i18n(self) -> None:
+        self._compiler = MemoryCompiler()
 
     def _text(self, key: str) -> str:
-        return get_memory_envelope_text(key, self.default_language)
+        return get_memory_envelope_text(key, get_default_language().value)
 
     @property
     def _retrieval_header(self) -> str:
-        return get_memory_envelope_text("retrieval_header", self.default_language)
+        return get_memory_envelope_text("retrieval_header", get_default_language().value)
 
     @property
     def _retrieval_footer(self) -> str:
-        return get_memory_envelope_text("retrieval_footer", self.default_language)
+        return get_memory_envelope_text("retrieval_footer", get_default_language().value)
 
     def _retrieval_envelope_length(self) -> int:
         return len(self._retrieval_header) + len(self._retrieval_footer)
@@ -144,13 +144,13 @@ class _RendererI18nMixin:
 class FullContextRenderer(_RendererI18nMixin, BaseContextRenderer):
     """Render all memories as full context, truncating content by character limit."""
 
-    def __init__(self, config: FullRendererConfig, default_language: str = "zh"):
+    def __init__(self, config: FullRendererConfig):
         self.config = config
         self.max_tokens = config.max_tokens
         self.max_content_length = config.max_content_length
         self.show_artifacts = config.show_artifacts
         self.stale_days = config.stale_days
-        self._init_i18n(default_language)
+        self._init_i18n()
 
     def render(
         self,
@@ -196,9 +196,9 @@ class FullContextRenderer(_RendererI18nMixin, BaseContextRenderer):
 class CascadeContextRenderer(_RendererI18nMixin, BaseContextRenderer):
     """Render top memories fully, then degrade the rest to index context."""
 
-    def __init__(self, config: CascadeRendererConfig, default_language: str = "zh"):
+    def __init__(self, config: CascadeRendererConfig):
         self.config = config
-        self._init_i18n(default_language)
+        self._init_i18n()
 
     def render(
         self,
@@ -270,9 +270,9 @@ class CompactContextRenderer(_RendererI18nMixin, BaseContextRenderer):
     适用于 Token 预算极其有限的场景，配合 retrieval envelope 中的 READ 指令实现懒加载。
     """
 
-    def __init__(self, config: CompactRendererConfig, default_language: str = "zh"):
+    def __init__(self, config: CompactRendererConfig):
         self.config = config
-        self._init_i18n(default_language)
+        self._init_i18n()
 
     def render(
         self,
@@ -320,7 +320,6 @@ class CompactContextRenderer(_RendererI18nMixin, BaseContextRenderer):
 
 def create_renderer(
     config: Union[FullRendererConfig, CascadeRendererConfig, CompactRendererConfig],
-    default_language: str = "zh",
 ) -> BaseContextRenderer:
     """
     创建渲染器工厂
@@ -337,13 +336,13 @@ def create_renderer(
         BaseContextRenderer 实例
     """
     if isinstance(config, FullRendererConfig):
-        return FullContextRenderer(config, default_language=default_language)
+        return FullContextRenderer(config)
 
     if isinstance(config, CascadeRendererConfig):
-        return CascadeContextRenderer(config, default_language=default_language)
+        return CascadeContextRenderer(config)
 
     if isinstance(config, CompactRendererConfig):
-        return CompactContextRenderer(config, default_language=default_language)
+        return CompactContextRenderer(config)
 
     raise ValueError(f"未知的渲染器配置类型: {type(config)}")
 

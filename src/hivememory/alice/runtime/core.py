@@ -63,7 +63,6 @@ class AliceRuntime:
         # ---- 编排层 (alice)：多 Agent 编排，拿门面跑单 Agent ----
         self._prompt_assembler = AgentPromptAssembler(
             config.koakuma,
-            default_language=config.i18n.default_language,
         )
         self._orchestrator = AgentOrchestrator(
             agent_runtime=self._agent_runtime,

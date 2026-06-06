@@ -17,6 +17,14 @@ from hivememory.core.models import StreamMessage
 from hivememory.system.config import LLMConfig, ExtractorConfig
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft
+from hivememory.i18n import set_default_language
+
+
+@pytest.fixture(autouse=True)
+def reset_i18n():
+    set_default_language("zh")
+    yield
+    set_default_language("zh")
 
 
 class TestLLMMemoryExtractor:
@@ -66,10 +74,10 @@ class TestLLMMemoryExtractor:
 
     def test_default_language_selects_english_passive_prompts(self):
         """测试全局语言驱动被动提取模板"""
+        set_default_language("en")
         extractor = LLMMemoryExtractor(
             config=ExtractorConfig(),
             llm_service=self.mock_service,
-            default_language="en",
         )
         json_output = json.dumps({
             "title": "Extracted",
@@ -91,10 +99,10 @@ class TestLLMMemoryExtractor:
 
     def test_default_language_selects_english_write_prompts(self):
         """测试全局语言驱动 WRITE 模板"""
+        set_default_language("en")
         extractor = LLMMemoryExtractor(
             config=ExtractorConfig(),
             llm_service=self.mock_service,
-            default_language="en-US",
         )
         json_output = json.dumps({
             "title": "Extracted",
@@ -123,10 +131,10 @@ class TestLLMMemoryExtractor:
 
     def test_default_language_selects_english_update_prompts(self):
         """测试全局语言驱动 UPDATE 模板"""
+        set_default_language("en")
         extractor = LLMMemoryExtractor(
             config=ExtractorConfig(),
             llm_service=self.mock_service,
-            default_language="en",
         )
         json_output = json.dumps({
             "new_content": "New content",

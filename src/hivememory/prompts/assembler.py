@@ -16,9 +16,8 @@ from hivememory.prompts.system_prompt import SystemPromptBuilder
 class AgentPromptAssembler:
     """Build complete Worker Agent messages from prepared context."""
 
-    def __init__(self, koakuma_config: Any, default_language: str | None = None) -> None:
+    def __init__(self, koakuma_config: Any) -> None:
         self._koakuma_config = koakuma_config
-        self._default_language = default_language
 
     def build_main_agent_messages(
         self,
@@ -135,7 +134,6 @@ class AgentPromptAssembler:
 
         return resolve_language(
             profile_language=profile_lang,
-            default_language=self._default_language,
         )
 
 

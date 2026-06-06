@@ -290,12 +290,13 @@ def get_mtp_error_text(
     """
     lang = resolve_language(explicit=language)
     table = _TEXT_EN if lang == Language.EN else _TEXT_ZH
-    template = table.get(key, "")
-    if not template:
-        return ""
-    if params:
-        try:
-            return template.format(**params)
-        except KeyError:
-            return template
-    return template
+    try:
+        template = table[key]
+    except KeyError as exc:
+        raise KeyError(f"Unknown MTP runtime i18n key: {key}") from exc
+
+    try:
+        return template.format(**(params or {}))
+    except KeyError as exc:
+        missing = exc.args[0]
+        raise KeyError(f"Missing MTP runtime i18n param '{missing}' for key: {key}") from exc
