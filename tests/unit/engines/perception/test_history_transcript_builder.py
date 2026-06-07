@@ -122,6 +122,19 @@ class TestFallbackPaths:
 # ============ 2. 结构化事件重放 ============
 
 class TestStructuredReplay:
+    def test_user_message_event_not_replayed_twice(self):
+        """turn_events 已包含 user_message 时，不再额外从 block.user_query 补一条 user。"""
+        events = [
+            _ev("user_message", 0, "user", "同一个问题"),
+            _ev("assistant_message", 1, "assistant", "回答"),
+        ]
+        block = _block_structured("同一个问题", events)
+        msgs = builder.build_messages([block])
+        assert msgs == [
+            {"role": "user", "content": "同一个问题"},
+            {"role": "assistant", "content": "回答"},
+        ]
+
     def test_assistant_message_event(self):
         events = [_ev("assistant_message", 0, "assistant", "这是自然语言回复")]
         block = _block_structured("问题", events)

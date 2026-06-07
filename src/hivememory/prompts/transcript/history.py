@@ -80,17 +80,18 @@ class HistoryTranscriptBuilder:
         out: List[Dict[str, str]],
     ) -> None:
         """渲染单个 LogicalBlock，追加到 out。"""
-        user_content = block.user_query
-        if user_content:
-            out.append({"role": "user", "content": user_content})
-
         if block.turn_events:
             # 结构化路径：按 sequence 重放事件流
+            if block.user_query and not self._has_user_message_event(block.turn_events):
+                out.append({"role": "user", "content": block.user_query})
             for event in sorted(block.turn_events, key=lambda e: e.sequence):
                 msg = self._render_event(event, block, current_agent_id)
                 if msg is not None:
                     out.append(msg)
         else:
+            user_content = block.user_query
+            if user_content:
+                out.append({"role": "user", "content": user_content})
             assistant_content = block.assistant_final_text
             if not assistant_content:
                 return
@@ -117,6 +118,10 @@ class HistoryTranscriptBuilder:
             content = self._apply_agent_prefix(content, block, current_agent_id)
 
         return {"role": event.role, "content": content}
+
+    def _has_user_message_event(self, events: List[TurnEvent]) -> bool:
+        """检查结构化事件流是否已经承载用户消息，避免重放时重复补 user_query。"""
+        return any(event.kind == "user_message" for event in events)
 
     def _apply_system_prefix(self, event: TurnEvent) -> str:
         """根据 render_as 为 mtp_result 类事件补系统前缀。"""
