@@ -184,7 +184,11 @@ class LLMJSONParser:
         Returns:
             解析后的字典，失败时返回 None
         """
-        return self.parse(raw_output, default=None)
+        try:
+            result = self.parse(raw_output)
+        except JSONParseError:
+            return None
+        return result if isinstance(result, dict) else None
 
     def _parse_with_strategies(self, raw_output: str) -> Optional[dict]:
         """
