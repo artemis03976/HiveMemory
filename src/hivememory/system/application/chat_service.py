@@ -1,18 +1,15 @@
 """
-ChatApplicationService — 顶层主动交互应用服务 (Phase D)
+ChatApplicationService — 顶层主动交互应用服务 (Phase D / v0.4.0)
 
-职责:
-    - 统一入口参数归一化
-    - 通过 GlobalSystemBus 调用 Patchouli prepare / finalize
-    - 通过 GlobalSystemBus 调用 Alice runtime (run_agent / run_agent_stream)
-    - 流式协议整形与前置事件输出
-    - generation 生命周期注册与取消
-    - 统一错误语义与日志
+v0.4.0 Phase 1 变更：
+    - _generation_events dict 替换为 RuntimeControlRegistry
+    - cancel_generation() 返回结构化 CancelResult
+    - 取消后默认跳过 run_active_generation（通过 loop_result.cancelled 标志传递）
+    - done 事件携带 status/reason/stopped 稳定字段
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from typing import Any, AsyncGenerator, Dict, Optional
@@ -25,6 +22,12 @@ from hivememory.infrastructure.trace_context import (
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.control import (
+    CancelResult,
+    ChatGenerationRun,
+    ChatGenerationRunStatus,
+    RuntimeControlRegistry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +37,7 @@ class ChatApplicationService:
 
     def __init__(self, global_bus: GlobalSystemBus) -> None:
         self._bus = global_bus
-        self._generation_events: dict[str, asyncio.Event] = {}
+        self._registry = RuntimeControlRegistry()
 
     # ========== 非流式主链路 ==========
 
@@ -47,11 +50,7 @@ class ChatApplicationService:
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
     ) -> AgentRunResult:
-        """
-        顶层非流式 chat 入口。
-
-        编排骨架: prepare -> run_agent -> finalize
-        """
+        """顶层非流式 chat 入口。编排骨架: prepare -> run_agent -> finalize"""
         trace_id = generate_trace_id("chat")
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
 
@@ -99,22 +98,20 @@ class ChatApplicationService:
         """
         顶层流式 chat 入口。
 
-        编排骨架: generation_id -> prepare -> prelude events -> run_agent_stream -> finalize -> done
+        编排骨架: generation_id -> prepare -> prelude events -> run_agent_stream
+                  -> [finalize if not cancelled] -> done
         """
         trace_id = generate_trace_id("stream")
         tokens = set_trace_context(trace_id, "ChatApp.Stream", "foreground")
 
-        generation_id = str(uuid.uuid4())
-        cancel_event = asyncio.Event()
+        run = ChatGenerationRun(generation_id=str(uuid.uuid4()))
+        self._registry.register(run)
         prepared = None
 
         try:
-            self._generation_events[generation_id] = cancel_event
-            yield {
-                "event": "generation_id",
-                "data": {"generation_id": generation_id},
-            }
+            yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
 
+            run.status = ChatGenerationRunStatus.PREPARING
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -125,7 +122,6 @@ class ChatApplicationService:
                 generation_options=generation_options,
             )
 
-            # Stream prelude events
             prelude = prepared.stream_prelude
             yield {
                 "event": "topic_info",
@@ -135,18 +131,20 @@ class ChatApplicationService:
                     "pool": prelude.pool_snapshot,
                 },
             }
-            yield {
-                "event": "memory_refs",
-                "data": {"memories": prelude.memory_refs},
-            }
+            yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}
 
-            # Alice runtime streaming execution
+            # 若 prepare 后已被取消，提前结束
+            if run.cancelled:
+                yield self._cancelled_done(run)
+                return
+
+            run.status = ChatGenerationRunStatus.STREAMING
             loop_result = None
             stream = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT_STREAM,
                 agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
-                cancel_event=cancel_event,
+                cancel_event=run.cancel_event,
             )
             async for event in stream:
                 if event["event"] == "done":
@@ -157,21 +155,33 @@ class ChatApplicationService:
             if loop_result is None:
                 raise RuntimeError("Stream ended without done event")
 
+            # 取消路径：跳过 finalize，不触发主动记忆生成
+            if run.cancelled or loop_result.cancelled:
+                run.status = ChatGenerationRunStatus.CANCELLED
+                yield self._cancelled_done(run, loop_result)
+                return
+
+            run.status = ChatGenerationRunStatus.FINALIZING
             await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 loop_result=loop_result,
             )
 
+            run.status = ChatGenerationRunStatus.COMPLETED
             yield {
                 "event": "done",
                 "data": {
                     **loop_result.model_dump(),
-                    "stopped": cancel_event.is_set(),
+                    "status": "completed",
+                    "stopped": False,
+                    "reason": None,
                 },
             }
+
         except Exception as e:
             logger.error(f"ChatApplicationService.chat_stream 异常: {e}", exc_info=True)
+            run.status = ChatGenerationRunStatus.FAILED
             if prepared is not None:
                 try:
                     await self._bus.request(
@@ -179,24 +189,32 @@ class ChatApplicationService:
                         prepared_run=prepared,
                     )
                 except Exception:
-                    logger.warning(
-                        "ChatApplicationService.chat_stream 清理 prepared run 失败",
-                        exc_info=True,
-                    )
-            yield {
-                "event": "error",
-                "data": {"message": "系统错误，请检查后端服务器"},
-            }
+                    logger.warning("清理 prepared run 失败", exc_info=True)
+            yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
         finally:
-            self._generation_events.pop(generation_id, None)
+            self._registry.close(run.generation_id, run.status)
             reset_trace_context(tokens)
 
     # ========== Generation 控制 ==========
 
-    def cancel_generation(self, generation_id: str) -> bool:
-        """停止正在进行的流式生成。"""
-        cancel_event = self._generation_events.get(generation_id)
-        if cancel_event is None:
-            return False
-        cancel_event.set()
-        return True
+    def cancel_generation(self, generation_id: str) -> CancelResult:
+        """幂等取消：重复调用返回当前状态，不报错。"""
+        return self._registry.cancel(generation_id, reason="user_requested")
+
+    # ========== 内部辅助 ==========
+
+    @staticmethod
+    def _cancelled_done(
+        run: ChatGenerationRun,
+        loop_result: Optional[AgentRunResult] = None,
+    ) -> Dict[str, Any]:
+        base = loop_result.model_dump() if loop_result is not None else {}
+        return {
+            "event": "done",
+            "data": {
+                **base,
+                "status": "cancelled",
+                "stopped": True,
+                "reason": run.cancel_reason or "user_requested",
+            },
+        }

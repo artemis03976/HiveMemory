@@ -213,7 +213,7 @@ class TestChatApplicationService:
 
     def test_cancel_generation_returns_false_when_unknown(self, mock_global_bus):
         svc = ChatApplicationService(global_bus=mock_global_bus)
-        assert svc.cancel_generation("gen-1") is False
+        assert svc.cancel_generation("gen-1").cancelled is False
 
     @pytest.mark.asyncio
     async def test_chat_stream_cleans_up_prepared_run_on_runtime_error(self, mock_global_bus):
@@ -243,29 +243,15 @@ class TestChatApplicationService:
         assert GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN in routes_called
 
     @pytest.mark.asyncio
-    async def test_cancel_generation_sets_registered_cancel_event(self, mock_global_bus):
-        observed_cancel_event = None
+    async def test_cancel_before_streaming_returns_cancelled_done(self, mock_global_bus):
+        """취消在 ALICE stream 调用前触发 → 提前 return，done.status=cancelled。"""
         svc = ChatApplicationService(global_bus=mock_global_bus)
         prepared = _make_prepared_run()
-        chat_result = _make_chat_result()
 
         async def route_dispatch(route, *args, **kwargs):
-            nonlocal observed_cancel_event
             if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
                 return prepared
-            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
-                assert "agent_run_context" in kwargs
-                observed_cancel_event = kwargs["cancel_event"]
-
-                async def _stream():
-                    yield {"event": "token", "data": {"content": "hi"}}
-                    await asyncio.sleep(0)
-                    yield {"event": "done", "data": chat_result.model_dump()}
-
-                return _stream()
-            if route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
-                return None
-            return None
+            raise AssertionError(f"Unexpected route: {route}")
 
         mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
 
@@ -273,11 +259,45 @@ class TestChatApplicationService:
         async for e in svc.chat_stream(user_message="hi", user_id="u1"):
             events.append(e)
             if e["event"] == "generation_id":
-                assert svc.cancel_generation(e["data"]["generation_id"]) is True
+                svc.cancel_generation(e["data"]["generation_id"])
+
+        done = events[-1]
+        assert done["event"] == "done"
+        assert done["data"]["status"] == "cancelled"
+        assert done["data"]["stopped"] is True
+
+    @pytest.mark.asyncio
+    async def test_cancel_event_propagated_to_alice_during_stream(self, mock_global_bus):
+        """cancel_event 被正确传入 Alice；stream 内取消后 done.status=cancelled。"""
+        observed_cancel_event = None
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        prepared = _make_prepared_run()
+        chat_result = _make_chat_result()
+        # loop_result 携带 cancelled=True，模拟 Alice 内部响应了 cancel_event
+        cancelled_result = AgentRunResult(**{**chat_result.model_dump(), "cancelled": True})
+
+        async def route_dispatch(route, *args, **kwargs):
+            nonlocal observed_cancel_event
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                observed_cancel_event = kwargs["cancel_event"]
+
+                async def _stream():
+                    yield {"event": "token", "data": {"content": "hi"}}
+                    yield {"event": "done", "data": cancelled_result.model_dump()}
+
+                return _stream()
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        events = []
+        async for e in svc.chat_stream(user_message="hi", user_id="u1"):
+            events.append(e)
 
         assert observed_cancel_event is not None
-        assert observed_cancel_event.is_set() is True
         assert events[-1]["event"] == "done"
-        assert events[-1]["data"]["stopped"] is True
+        assert events[-1]["data"]["status"] == "cancelled"
 
 

@@ -105,7 +105,7 @@ class AgentOrchestrator:
                 )
                 continue
             break
-        return self._assemble_agent_run_result(main_frame)
+        return self._assemble_agent_run_result(main_frame, cancel_event=cancel_event)
 
     async def run_agent_stream(
         self,
@@ -145,7 +145,7 @@ class AgentOrchestrator:
                     on_suspend=on_suspend,
                 ):
                     await queue.put(event)
-                await queue.put({"event": "done", "data": self._assemble_agent_run_result(main_frame).model_dump()})
+                await queue.put({"event": "done", "data": self._assemble_agent_run_result(main_frame, cancel_event=cancel_event).model_dump()})
             finally:
                 await queue.put(None)
 
@@ -157,8 +157,8 @@ class AgentOrchestrator:
                     break
                 yield event
         finally:
-            if cancel_event is not None:
-                cancel_event.set()
+            # 不在正常完成路径下 set 外部传入的 cancel_event（否则会污染调用方共享 token）。
+            # cancel_event 由调用方（ChatApplicationService）独占管理。
             await task
 
     # ------------------------------------------------------------------
@@ -368,7 +368,11 @@ class AgentOrchestrator:
                     sub_frame.harvested_aliases.append(alias)
                     harvested.add(alias)
 
-    def _assemble_agent_run_result(self, frame: ExecutionFrame) -> AgentRunResult:
+    def _assemble_agent_run_result(
+        self,
+        frame: ExecutionFrame,
+        cancel_event=None,
+    ) -> AgentRunResult:
         p = frame.progress
         tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
         return AgentRunResult(
@@ -377,6 +381,7 @@ class AgentOrchestrator:
             total_iterations=p.iteration,
             turn_events=p.turn_events,
             materialize_tasks=tasks,
+            cancelled=cancel_event is not None and cancel_event.is_set(),
         )
 
 
