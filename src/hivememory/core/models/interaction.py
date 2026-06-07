@@ -168,7 +168,7 @@ class TurnEvent(BaseModel):
     status: Optional[str] = None
 
     # 历史视图渲染提示
-    render_as: Literal["plain", "system_tool_result", "system_ipc_return"] = "plain"
+    render_as: Literal["plain", "system_tool_result", "system_call_response"] = "plain"
 
     model_config = ConfigDict(use_enum_values=True)
 

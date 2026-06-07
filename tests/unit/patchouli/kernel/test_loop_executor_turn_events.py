@@ -8,13 +8,12 @@ LoopExecutor TurnEvent 采集单测
 4. 无 MTP 时 frame.progress 正常，final_text 正确
 """
 
-import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionStatus,
@@ -34,6 +33,7 @@ from hivememory.core.models import (
     TurnEvent,
 )
 from hivememory.core.protocol.models import MTPExecutionResult
+from hivememory.core.mtp import MTPCallRequest, MTP_RIGHT_DELIMITER
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -46,11 +46,12 @@ def _natural_result(text: str) -> GenerationResult:
 
 
 def _mtp_result(prefix: str, mtp_text: str) -> GenerationResult:
+    text = mtp_text if mtp_text.endswith(MTP_RIGHT_DELIMITER) else f"{mtp_text} {MTP_RIGHT_DELIMITER}"
     return GenerationResult(
-        text=mtp_text,
+        text=text,
         was_mtp_interrupted=True,
         prefix_text=prefix,
-        mtp_fragment=mtp_text,
+        mtp_fragment=text,
     )
 
 
@@ -87,14 +88,15 @@ def _call_mtp_exec_result() -> MTPExecutionResult:
     return MTPExecutionResult(
         command=cmd,
         response_status="suspend",
-        response_content=json.dumps({
-            "target_alias": "sub_agent",
-            "task": "do work",
-            "context_refs": [],
-        }),
+        response_content="",
         formatted_response="",
         success=True,
         execution_time_ms=1.0,
+        call_request=MTPCallRequest(
+            target_alias="sub_agent",
+            task="do work",
+            context_refs=[],
+        ),
     )
 
 
@@ -130,7 +132,7 @@ def _make_context_atom(title: str, content: str) -> MemoryAtom:
     )
 
 
-def _build_executor(generate_async_side_effect) -> tuple[KernelLoopExecutor, MagicMock]:
+def _build_executor(generate_async_side_effect) -> tuple[AgentLoopExecutor, MagicMock]:
     kernel = MagicMock()
     kernel.config = MagicMock()
     kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
@@ -140,7 +142,7 @@ def _build_executor(generate_async_side_effect) -> tuple[KernelLoopExecutor, Mag
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=generate_async_side_effect)
 
-    executor = KernelLoopExecutor(
+    executor = AgentLoopExecutor(
         worker_agent=worker_agent,
         mtp_executor=mtp_executor,
         config=kernel.config.agent_runtime,
@@ -209,6 +211,7 @@ async def test_single_mtp_produces_four_events():
     assert cmd_ev.sequence == 1
     assert cmd_ev.role == "assistant"
     assert cmd_ev.tool_kind == "READ"
+    assert cmd_ev.content.endswith(MTP_RIGHT_DELIMITER)
 
     assert res_ev.kind == "tool_result"
     assert res_ev.sequence == 2
@@ -216,6 +219,7 @@ async def test_single_mtp_produces_four_events():
     assert res_ev.tool_kind == "READ"
     assert res_ev.status == "success"
     assert res_ev.render_as == "system_tool_result"
+    assert frame.working_history[-2]["content"] == cmd_ev.content
 
     assert final_ev.kind == "assistant_message"
     assert final_ev.sequence == 3
@@ -353,7 +357,8 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     call_ev = call_events[0]
     assert call_ev.role == "user"
     assert call_ev.status == "success"
-    assert call_ev.render_as == "system_ipc_return"
+    assert call_ev.render_as == "system_call_response"
+    assert call_ev.content.startswith("[System MTP Call Response]\n")
 
 
 @pytest.mark.asyncio

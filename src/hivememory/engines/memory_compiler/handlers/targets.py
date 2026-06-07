@@ -11,7 +11,6 @@ from hivememory.engines.memory_compiler.handlers.embedding import (
 )
 from hivememory.engines.memory_compiler.handlers.mtp import (
     compile_mtp_read,
-    compile_mtp_redirect_notice,
 )
 from hivememory.engines.memory_compiler.handlers.prompt import (
     compile_prompt_full,
@@ -38,8 +37,6 @@ def compile_from_ir(
         return compile_prompt_index(unit, target, options)
     if target == MemoryCompileTarget.MTP_READ:
         return compile_mtp_read(unit, target, options)
-    if target == MemoryCompileTarget.MTP_REDIRECT_NOTICE:
-        return compile_mtp_redirect_notice(unit, target, options)
     if target == MemoryCompileTarget.SHARED_CONTEXT:
         return compile_shared_context(unit, target, options)
     if target == MemoryCompileTarget.DENSE_EMBEDDING:

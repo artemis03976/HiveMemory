@@ -16,9 +16,11 @@ from hivememory.core.mtp import (
     MTP_RIGHT_DELIMITER,
     MTP_STOP_SEQUENCE,
     MTPVerb,
+    MTPErrorInfo,
+    MTPErrorSeverity,
     MTPResponseStatus,
-    MTPTarget,
-    MTPCommand,
+    MTPWarningInfo,
+    MTPCallResponse,
     MTPResponse,
     MTPParser,
     MTPParseError,
@@ -26,6 +28,7 @@ from hivememory.core.mtp import (
     create_parser,
     create_formatter,
 )
+from hivememory.i18n.mtp_runtime import get_mtp_error_text
 
 
 # ========== Fixtures ==========
@@ -191,18 +194,37 @@ class TestMTPParser:
 
     def test_parse_no_command(self, parser: MTPParser):
         """测试无 MTP 指令"""
-        with pytest.raises(MTPParseError, match="No MTP command found"):
+        with pytest.raises(MTPParseError, match="No MTP command found") as exc_info:
             parser.parse("just some text")
+        assert exc_info.value.message_key == "mtp.parse.no_command"
+        assert exc_info.value.params == {
+            "left_delimiter": MTP_LEFT_DELIMITER,
+            "right_delimiter": MTP_RIGHT_DELIMITER,
+        }
+        error = exc_info.value.to_error_info()
+        assert "No MTP command found" in get_mtp_error_text(error.message_key, error.params, "en")
+        assert "未找到 MTP 指令" in get_mtp_error_text(error.message_key, error.params, "zh")
 
     def test_parse_unknown_verb(self, parser: MTPParser):
         """测试未知动词"""
-        with pytest.raises(MTPParseError, match="Unknown verb"):
+        with pytest.raises(MTPParseError, match="Unknown verb") as exc_info:
             parser.parse("⟪ DELETE | * | ⟫")
+        assert exc_info.value.message_key == "mtp.parse.unknown_verb"
+        assert exc_info.value.params["verb"] == "DELETE"
+        assert "SEARCH" in exc_info.value.params["valid_verbs"]
+        error = exc_info.value.to_error_info()
+        assert "Unknown verb" in get_mtp_error_text(error.message_key, error.params, "en")
+        assert "未知指令动词" in get_mtp_error_text(error.message_key, error.params, "zh")
 
     def test_parse_missing_separator(self, parser: MTPParser):
         """测试缺少分隔符"""
-        with pytest.raises(MTPParseError, match="Missing separator"):
+        with pytest.raises(MTPParseError, match="Missing separator") as exc_info:
             parser.parse("⟪ READ ⟫")
+        assert exc_info.value.message_key == "mtp.parse.missing_separator"
+        assert exc_info.value.params == {"separator": "|"}
+        error = exc_info.value.to_error_info()
+        assert "Missing separator" in get_mtp_error_text(error.message_key, error.params, "en")
+        assert "缺少分隔符" in get_mtp_error_text(error.message_key, error.params, "zh")
 # PLACEHOLDER_COMPLETE_AND_DETECT
 
 
@@ -261,11 +283,51 @@ class TestMTPFormatter:
         """测试错误响应格式化"""
         response = MTPResponse(
             status=MTPResponseStatus.ERROR,
-            content="Tool alias not found.",
+            content="",
+            error=MTPErrorInfo(
+                code="mtp.alias.not_found",
+                message_key="mtp.run.alias_not_found",
+                severity=MTPErrorSeverity.AGENT_FAULT,
+                params={"alias": "tool_missing"},
+            ),
         )
-        result = formatter.format_response(response)
+        result = formatter.format_response(response, "en")
         assert '<mtp_response status="error">' in result
-        assert "Tool alias not found." in result
+        assert '<error code="mtp.alias.not_found" severity="agent_fault">' in result
+        assert "Tool alias 'tool_missing' not found" in result
+
+    def test_format_syscall_error_response(self, formatter: MTPFormatter):
+        """syscall.* message_key 应由 formatter 分流到 syscall i18n 文本表。"""
+        response = MTPResponse(
+            status=MTPResponseStatus.ERROR,
+            content="",
+            error=MTPErrorInfo(
+                code="mtp.syscall.invalid_argument",
+                message_key="syscall.repl.missing_code",
+                severity=MTPErrorSeverity.AGENT_FAULT,
+                params={"arg": "code"},
+            ),
+        )
+
+        result = formatter.format_response(response, "en")
+
+        assert '<error code="mtp.syscall.invalid_argument" severity="agent_fault">' in result
+        assert 'python_repl requires a "code" argument' in result
+
+    def test_format_warning_response(self, formatter: MTPFormatter):
+        response = MTPResponse(
+            status=MTPResponseStatus.SUCCESS,
+            content="content",
+            warnings=[
+                MTPWarningInfo(
+                    message_key="mtp.filter.unknown_key",
+                    params={"key": "foo"},
+                )
+            ],
+        )
+        result = formatter.format_response(response, "en")
+        assert result.index("content") < result.index("<warnings>")
+        assert "<warning>Note: Unknown filter key 'foo' was ignored.</warning>" in result
 
     def test_format_ack_response(self, formatter: MTPFormatter):
         """测试 ACK 响应格式化"""
@@ -276,20 +338,16 @@ class TestMTPFormatter:
         result = formatter.format_response(response)
         assert '<mtp_response status="ack">' in result
 
-    def test_format_command_with_response(self, formatter: MTPFormatter):
-        """测试完整回填文本格式化 (Section 3.3.1)"""
-        command = MTPCommand(
-            verb=MTPVerb.READ,
-            target=MTPTarget(aliases=["mem_01"]),
-            raw_text="⟪ READ | [mem_01] | ⟫",
-        )
+    def test_format_response_does_not_include_command_text(self, formatter: MTPFormatter):
+        """MTP command text is structural metadata and is not repeated in backfill."""
         response = MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="[mem_01]: def login(): ...",
             execution_time_ms=15.0,
         )
-        result = formatter.format_command_with_response(command, response)
-        assert result.startswith("⟪ READ | [mem_01] | ⟫")
+        result = formatter.format_response(response)
+        assert result.startswith("[System MTP Execution Result]\n<mtp_response")
+        assert MTP_LEFT_DELIMITER not in result
         assert '<mtp_response status="success"' in result
         assert "[mem_01]: def login(): ..." in result
 
@@ -302,6 +360,52 @@ class TestMTPFormatter:
         )
         result = formatter.format_response(response)
         assert "time=" not in result
+
+    def test_format_call_response_success(self, formatter: MTPFormatter):
+        response = MTPCallResponse(
+            status=MTPResponseStatus.SUCCESS,
+            agent_alias="coder_doll",
+            reply="Task completed.",
+        )
+
+        result = formatter.format_call_response(response, "en")
+
+        assert result.startswith("[System MTP Call Response]\n")
+        assert '<mtp_response status="success" type="call_response">' in result
+        assert "[Sub-Agent Reply]:" in result
+        assert "Task completed." in result
+
+    def test_format_call_response_artifacts(self, formatter: MTPFormatter):
+        response = MTPCallResponse(
+            status=MTPResponseStatus.SUCCESS,
+            agent_alias="coder_doll",
+            reply="Wrote code.",
+            artifact_aliases=["mem_code_1"],
+        )
+
+        result = formatter.format_call_response(response, "en")
+
+        assert "[Artifacts Generated / Updated]:" in result
+        assert "- mem_code_1 (pending, readable now)" in result
+
+    def test_format_call_response_error(self, formatter: MTPFormatter):
+        response = MTPCallResponse(
+            status=MTPResponseStatus.ERROR,
+            agent_alias="coder_doll",
+            error=MTPErrorInfo(
+                code="mtp.call_response.sub_agent_error",
+                message_key="mtp.call_response.sub_agent_error",
+                severity=MTPErrorSeverity.SYSTEM_FAULT,
+                params={"agent_alias": "coder_doll"},
+            ),
+        )
+
+        result = formatter.format_call_response(response, "en")
+
+        assert '<mtp_response status="error" type="call_response">' in result
+        assert '<error code="mtp.call_response.sub_agent_error" severity="system_fault">' in result
+        assert "[Sub-Agent Error]" in result
+        assert "coder_doll" in result
 
 
 # ========== 工厂函数测试 ==========

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from hivememory.engines.memory_compiler.handlers.common import (
     build_artifact,
+    format_optional_field,
     is_resolve_terminal,
     render_resolve_terminal,
 )
@@ -43,24 +44,13 @@ def compile_mtp_read(
     return build_artifact(unit, target, text, options)
 
 
-def compile_mtp_redirect_notice(
-    unit: MemoryUnitIR,
-    target: MemoryCompileTarget,
-    options: MemoryCompileOptions,
-) -> CompiledMemoryArtifact:
-    if not unit.status.is_redirect:
-        raise ValueError(f"Unsupported source '{unit.identity.source_kind}' for target '{target}'.")
-    text = _resolve_text("resolve_redirect_run_notice", options.language).format(
-        requested_alias=unit.identity.redirected_from or options.requested_alias or "",
-        canonical_alias=unit.identity.alias or "",
-    )
-    return build_artifact(unit, target, text, options)
-
-
 def _render_redirect_read(unit: MemoryUnitIR, options: MemoryCompileOptions) -> str:
     return _resolve_text("resolve_redirect_read", options.language).format(
-        requested_alias=unit.identity.redirected_from or options.requested_alias or "",
-        canonical_alias=unit.identity.alias or "",
+        requested_alias=format_optional_field(
+            unit.identity.redirected_from or options.requested_alias,
+            options.language,
+        ),
+        canonical_alias=format_optional_field(unit.identity.alias, options.language),
         content=unit.content.content or "",
     )
 
@@ -82,10 +72,12 @@ def _render_pending_read(unit: MemoryUnitIR, language: str | None = None) -> str
             pending_alias=unit.identity.alias,
         )
     if status.source_state == "settled":
-        canonical_alias = unit.metadata.get("canonical_alias") or ""
         return _pending_text("pending_read_settled", language).format(
             pending_alias=unit.identity.alias,
-            canonical_line=f"canonical alias: {canonical_alias}\n" if canonical_alias else "",
+            canonical_alias=format_optional_field(
+                unit.metadata.get("canonical_alias"),
+                language,
+            ),
         )
     return _pending_text("pending_read_expired", language).format(
         pending_alias=unit.identity.alias,
@@ -93,24 +85,21 @@ def _render_pending_read(unit: MemoryUnitIR, language: str | None = None) -> str
 
 
 def _render_pending_draft_read(unit: MemoryUnitIR, language: str | None = None) -> str:
-    title = unit.content.title or ""
     return _pending_text("pending_read_write", language).format(
         pending_alias=unit.identity.alias,
         status=unit.status.source_state,
-        title_line=f"title: {title}\n" if title else "",
+        title=format_optional_field(unit.content.title, language),
         content=unit.content.content or "",
     )
 
 
 def _render_pending_revision_read(unit: MemoryUnitIR, language: str | None = None) -> str:
-    base_alias = unit.metadata.get("base_alias") or ""
-    instruction = unit.content.instruction or ""
     content = unit.content.content or ""
     return _pending_text("pending_read_update", language).format(
         pending_alias=unit.identity.alias,
-        base_alias=base_alias,
+        base_alias=format_optional_field(unit.metadata.get("base_alias"), language),
         status=unit.status.source_state,
-        instruction_line=f"instruction: {instruction}\n" if instruction else "",
+        instruction=format_optional_field(unit.content.instruction, language),
         content=content,
     )
 
@@ -118,16 +107,15 @@ def _render_pending_revision_read(unit: MemoryUnitIR, language: str | None = Non
 def _render_pending_discarded_read(unit: MemoryUnitIR, language: str | None = None) -> str:
     return _pending_text("pending_read_discarded", language).format(
         pending_alias=unit.identity.alias,
-        message_line=f"message: {unit.status.message}\n" if unit.status.message else "",
-        reason_line=f"reason: {unit.status.reason}\n" if unit.status.reason else "",
+        message=format_optional_field(unit.status.message, language),
+        reason=format_optional_field(unit.status.reason, language),
     ).rstrip()
 
 
 def _render_pending_failed_read(unit: MemoryUnitIR, language: str | None = None) -> str:
-    error = unit.status.error or "Memory generation failed."
     return _pending_text("pending_read_failed", language).format(
         pending_alias=unit.identity.alias,
-        error=error,
+        error=format_optional_field(unit.status.error, language),
     )
 
 

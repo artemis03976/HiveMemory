@@ -14,7 +14,6 @@ class MemoryCompileTarget(str, Enum):
     PROMPT_FULL = "prompt_full"
     PROMPT_INDEX = "prompt_index"
     MTP_READ = "mtp_read"
-    MTP_REDIRECT_NOTICE = "mtp_redirect_notice"
     SHARED_CONTEXT = "shared_context"
     DENSE_EMBEDDING = "dense_embedding"
     SPARSE_EMBEDDING = "sparse_embedding"

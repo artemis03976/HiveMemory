@@ -105,7 +105,14 @@ def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
 
 
 def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
-    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
+    from .conftest import normalize_worker_agent_mtp_output
+
+    return asyncio.run(
+        koakuma.intercept_and_execute(
+            normalize_worker_agent_mtp_output(assistant_text),
+            context=context,
+        )
+    )
 
 
 # ========== Test 1: UpdateFocus Model ==========
@@ -739,7 +746,8 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert not result.success
-        assert "Pending Alias Not Updatable" in result.response_content
+        assert result.response_content == ""
+        assert "pending" in result.formatted_response.lower()
         assert result.pending_alias is None
 
     def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
@@ -751,7 +759,8 @@ class TestKoakumaUpdateValidation:
 
         assert result is not None
         assert not result.success
-        assert "Service Unavailable" in result.response_content
+        assert result.response_content == ""
+        assert "Service Unavailable" in result.formatted_response
         assert result.pending_alias is None
 
     def test_update_deferred_capture_always_ack(self, existing_memory):

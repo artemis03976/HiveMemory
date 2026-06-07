@@ -17,10 +17,9 @@ from unittest.mock import MagicMock, patch
 
 from hivememory.core.models import Identity
 from hivememory.core.mtp import (
+    MTP_LEFT_DELIMITER,
+    MTP_RIGHT_DELIMITER,
     MTPVerb,
-    MTPResponseStatus,
-    MTPCommand,
-    MTPTarget,
 )
 from hivememory.core.protocol.models import MTPExecutionResult, RetrievalResponse
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
@@ -313,7 +312,7 @@ class TestKoakumaInterception:
         mock_memory.payload.content = "test content"
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        text = "Let me check the documentation. ⟪ READ | fact_a |"
+        text = f"Let me check the documentation. ⟪ READ | fact_a | {MTP_RIGHT_DELIMITER}"
         result = koakuma.intercept_and_execute(text)
 
         assert result is not None
@@ -335,7 +334,7 @@ class TestKoakumaInterception:
         mock_memory.payload.content = "test content"
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        text = "Previous text... ⟪ READ | fact_b |"
+        text = f"Previous text... ⟪ READ | fact_b | {MTP_RIGHT_DELIMITER}"
         result = koakuma.intercept_and_execute(text)
 
         assert result is not None
@@ -362,8 +361,8 @@ class TestKoakumaResponseFormatting:
         assert "<mtp_response" in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
 
-    def test_formatted_response_contains_command(self, koakuma: KoakumaRuntime, mock_kernel):
-        """测试回填文本包含原始指令"""
+    def test_formatted_response_excludes_command_text(self, koakuma: KoakumaRuntime, mock_kernel):
+        """MTP command text is structural metadata and is not repeated in backfill."""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
         )
@@ -373,8 +372,8 @@ class TestKoakumaResponseFormatting:
 
         result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
-        assert "⟪" in result.formatted_response
-        assert "READ" in result.formatted_response
+        assert MTP_LEFT_DELIMITER not in result.formatted_response
+        assert "<mtp_response" in result.formatted_response
 
     def test_execution_time_tracked(self, koakuma: KoakumaRuntime):
         """测试执行耗时被记录"""

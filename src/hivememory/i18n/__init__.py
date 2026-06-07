@@ -6,7 +6,11 @@ from hivememory.i18n.types import (
     Language,
     normalize_language,
 )
-from hivememory.i18n.resolver import resolve_language
+from hivememory.i18n.resolver import (
+    get_default_language,
+    resolve_language,
+    set_default_language,
+)
 from hivememory.i18n.memory_compiler import (
     get_memory_atom_text,
     get_memory_envelope_text,
@@ -24,6 +28,16 @@ from hivememory.i18n.prompts import (
 )
 from hivememory.i18n.time_formatter import get_time_formatter_text
 
+from hivememory.i18n.mtp_runtime import (
+    get_mtp_error_text,
+    get_mtp_info_text,
+    get_mtp_warning_text,
+)
+from hivememory.i18n.syscall_runtime import (
+    get_syscall_error_text,
+    get_syscall_info_text,
+)
+
 __all__ = [
     "DEFAULT_LANGUAGE",
     "FALLBACK_LANGUAGE",
@@ -40,6 +54,13 @@ __all__ = [
     "get_relay_prompt_text",
     "get_system_prompt_text",
     "get_time_formatter_text",
+    "get_mtp_error_text",
+    "get_mtp_info_text",
+    "get_mtp_warning_text",
+    "get_syscall_error_text",
+    "get_syscall_info_text",
+    "get_default_language",
     "normalize_language",
     "resolve_language",
+    "set_default_language",
 ]

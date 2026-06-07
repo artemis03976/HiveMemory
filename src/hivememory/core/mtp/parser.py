@@ -20,6 +20,7 @@ from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
     MTP_SEPARATOR,
+    MTPWarningInfo,
     MTPTarget,
     MTPVerb,
 )
@@ -54,7 +55,11 @@ class MTPParser:
         match = self._COMMAND_PATTERN.search(text)
         if not match:
             raise MTPParseError(
-                f"No MTP command found. Expected '{MTP_LEFT_DELIMITER}...{MTP_RIGHT_DELIMITER}'"
+                message_key="mtp.parse.no_command",
+                params={
+                    "left_delimiter": MTP_LEFT_DELIMITER,
+                    "right_delimiter": MTP_RIGHT_DELIMITER,
+                },
             )
 
         inner = match.group(1).strip()
@@ -64,8 +69,11 @@ class MTPParser:
         verb_upper = verb_str.upper()
         if verb_upper not in self._VALID_VERBS:
             raise MTPParseError(
-                f"Unknown verb '{verb_str}'. "
-                f"Valid verbs: {', '.join(sorted(self._VALID_VERBS))}"
+                message_key="mtp.parse.unknown_verb",
+                params={
+                    "verb": verb_str,
+                    "valid_verbs": ", ".join(sorted(self._VALID_VERBS)),
+                },
             )
 
         return MTPCommand(
@@ -97,7 +105,10 @@ class MTPParser:
         """
         first_pipe = inner.find(MTP_SEPARATOR)
         if first_pipe == -1:
-            raise MTPParseError(f"Missing separator '{MTP_SEPARATOR}' in MTP command")
+            raise MTPParseError(
+                message_key="mtp.parse.missing_separator",
+                params={"separator": MTP_SEPARATOR},
+            )
 
         verb_str = inner[:first_pipe].strip()
         rest = inner[first_pipe + 1 :]
@@ -185,7 +196,10 @@ class MTPFilterParser:
     支持 key: type / tag / agent / confidence。
     """
 
-    def parse(self, filter_str: str) -> Tuple[Optional[QueryFilters], List[str]]:
+    def parse(
+        self,
+        filter_str: str,
+    ) -> Tuple[Optional[QueryFilters], List[MTPWarningInfo]]:
         """
         宽容解析 filter 字符串并返回 QueryFilters 与警告列表。
 
@@ -194,7 +208,14 @@ class MTPFilterParser:
         if not filter_str or not filter_str.strip():
             return None, []
 
-        warnings: List[str] = []
+        warnings: List[MTPWarningInfo] = []
+
+        def warning(
+            key: str,
+            params: dict[str, object] | None = None,
+        ) -> MTPWarningInfo:
+            return MTPWarningInfo(message_key=key, params=params or {})
+
         try:
             memory_type = None
             tags: List[str] = []
@@ -204,7 +225,7 @@ class MTPFilterParser:
             for token in filter_str.strip().split():
                 if ":" not in token:
                     warnings.append(
-                        f"Note: Filter token '{token}' was ignored (missing ':' separator)."
+                        warning("mtp.filter.token_missing_separator", {"token": token})
                     )
                     continue
 
@@ -213,7 +234,7 @@ class MTPFilterParser:
                 value = value.strip()
                 if not key or not value:
                     warnings.append(
-                        f"Note: Filter token '{token}' was ignored (empty key or value)."
+                        warning("mtp.filter.token_empty_key_or_value", {"token": token})
                     )
                     continue
 
@@ -223,8 +244,7 @@ class MTPFilterParser:
                         memory_type = mapped
                     else:
                         warnings.append(
-                            f"Note: Unknown filter type '{value}' was ignored. "
-                            f"Valid types: CODE, FACT, URL, REFLECTION, PROFILE, WIP."
+                            warning("mtp.filter.unknown_type", {"value": value})
                         )
                 elif key == "tag":
                     tags.append(value)
@@ -237,14 +257,20 @@ class MTPFilterParser:
                             min_confidence = parsed
                         else:
                             warnings.append(
-                                f"Note: Filter confidence value {parsed} is out of range (0,1] and was ignored."
+                                warning(
+                                    "mtp.filter.confidence_out_of_range",
+                                    {"value": parsed},
+                                )
                             )
                     except ValueError:
                         warnings.append(
-                            f"Note: Filter confidence value '{value}' is not a valid number and was ignored."
+                            warning(
+                                "mtp.filter.confidence_invalid_number",
+                                {"value": value},
+                            )
                         )
                 else:
-                    warnings.append(f"Note: Unknown filter key '{key}' was ignored.")
+                    warnings.append(warning("mtp.filter.unknown_key", {"key": key}))
 
             mtp_identity = Identity(agent_id=source_agent_id) if source_agent_id else None
             filters = QueryFilters(
@@ -259,7 +285,7 @@ class MTPFilterParser:
 
         except Exception as e:
             logger.warning(f"MTP filter parse failed: {e}")
-            warnings.append("Note: Filter parsing failed. Results may be broader than expected.")
+            warnings.append(warning("mtp.filter.parse_failed"))
             return None, warnings
 
 

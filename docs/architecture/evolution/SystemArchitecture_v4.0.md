@@ -330,7 +330,7 @@ TurnEvent -> ActionReducer -> AgentAction -> TraceReducer -> TraceItem
 
 当前责任分布：
 
-- `AgentRuntime` / `KernelLoopExecutor` 产出结构化 `turn_events`
+- `AgentRuntime` / `AgentLoopExecutor` 产出结构化 `turn_events`
 - `PatchouliService.finalize_agent_run()` 聚合 `actions` 与 `mtp_traces`
 - `SemanticFlowPerceptionLayer` 使用 payload 中已准备好的 `mtp_traces`
 - `GenerationTranscriptBuilder` 可按需要跳过不适合摘要渲染的 trace 类型，但 trace 数据本身保持完整
@@ -452,7 +452,7 @@ src/hivememory/
 - Alice 成为独立子系统
 - `AliceRuntime` 显式持有 `AgentRuntime` 与 `KoakumaRuntime`
 - `AgentRuntime` 不再依赖 `AliceRuntime`
-- `KernelLoopExecutor` 通过依赖注入访问 frame scheduler、MTP executor、profile resolver 与 local bus
+- `AgentLoopExecutor` 通过依赖注入访问 frame scheduler、MTP executor、profile resolver 与 local bus
 - Koakuma 旧 set 方法、trace 缓存与 interaction state 累计职责已清理
 - prompt 组装集中到 `AgentPromptAssembler`
 - trace 从结构化 `turn_events` 后处理生成

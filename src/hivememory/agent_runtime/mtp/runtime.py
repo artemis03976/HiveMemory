@@ -30,11 +30,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
-    MTP_RIGHT_DELIMITER,
     MTPVerb,
     MTPResponseStatus,
     MTPCommand,
+    MTPCallRequest,
     MTPResponse,
+    MTPWarningInfo,
     MTPParser,
     MTPFilterParser,
     MTPParseError,
@@ -53,18 +54,45 @@ from hivememory.system.contracts.routes import GlobalRoutes
 
 from hivememory.core.models import MemoryType
 from hivememory.core.mtp.exceptions import (
+    MTPError,
     AgentFault,
     SystemFault,
     StorageOfflineError,
     StorageReadError,
     PermissionDeniedError,
+    InvalidArgumentError,
+    AliasNotFoundError,
+    MemoryTypeMismatchError,
+    SyscallInternalError,
 )
+from hivememory.i18n.resolver import resolve_language
+from hivememory.i18n.mtp_runtime import get_mtp_info_text
+
 if TYPE_CHECKING:
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
     from hivememory.agent_runtime.resolver import ResolveResult
     from hivememory.system.config import KoakumaConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_context_language(
+    context: Optional[MTPExecutionContext],
+) -> str:
+    """从 MTPExecutionContext 派生运行时语言。
+
+    优先级：context.language > agent_profile.language > i18n default
+    """
+    explicit = context.language if context is not None else None
+    profile_language = (
+        getattr(context.agent_profile, "language", None)
+        if context is not None and context.agent_profile is not None
+        else None
+    )
+    return resolve_language(
+        explicit=explicit,
+        profile_language=profile_language,
+    ).value
 
 
 class KoakumaRuntime:
@@ -74,8 +102,8 @@ class KoakumaRuntime:
     无状态计算服务，负责 MTP 协议的解析、路由和执行。
 
     职责:
-        1. 接收被截断的 LLM 输出文本
-        2. 补全并解析 MTP 指令
+        1. 接收已由 WorkerAgent 归一化的 MTP 输出文本
+        2. 解析 MTP 指令
         3. 路由到对应的内核服务 (Retrieval/Librarian)
         4. 格式化执行结果为 XML 响应容器
         5. 返回回填文本供 Kernel 注入 Assistant 历史
@@ -103,12 +131,11 @@ class KoakumaRuntime:
         Args:
             bus: AsyncSystemBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
-            pending_runtime: 共享的 PendingAtomRuntime 实例 (由 AliceRuntime 注入)
+            alias_resolver: 运行时别名解析器
         """
         from hivememory.system.config import KoakumaConfig
 
         self._bus = bus
-
         self._config = config or KoakumaConfig()
         self._parser = MTPParser()
         self._filter_parser = MTPFilterParser()
@@ -152,7 +179,8 @@ class KoakumaRuntime:
             return
         if not profile.is_verb_allowed(verb):
             raise PermissionDeniedError(
-                f"You do not have permission to use the '{verb}' command."
+                message_key="mtp.permission.verb_denied",
+                params={"verb": verb},
             )
 
     def _check_tool_permission(
@@ -174,7 +202,8 @@ class KoakumaRuntime:
             return
         if not profile.is_tool_allowed(tool_alias):
             raise PermissionDeniedError(
-                f"You do not have access to tool '{tool_alias}'."
+                message_key="mtp.permission.tool_denied",
+                params={"tool_alias": tool_alias},
             )
 
     # ========== 公开 API ==========
@@ -188,13 +217,13 @@ class KoakumaRuntime:
         执行 MTP 指令 (主入口)
 
         完整流程:
-        1. 补全并解析指令
+        1. 解析指令
         2. 路由到对应处理器
         3. 格式化响应
         4. 构建回填文本
 
         Args:
-            text: 原始 MTP 指令文本 (可能不含闭合 ⟫)
+            text: 已规范化的 MTP 指令文本
 
         Returns:
             MTPExecutionResult: 执行结果
@@ -202,8 +231,9 @@ class KoakumaRuntime:
         start_time = time.time()
 
         try:
-            # Step 1: 补全并解析
-            command = self._parser.complete_and_parse(text)
+            language = _resolve_context_language(context)
+            # Step 1: 解析
+            command = self._parser.parse(text)
 
             # Step 2: 路由执行
             response = await self._route_and_execute(
@@ -213,9 +243,7 @@ class KoakumaRuntime:
             response.execution_time_ms = (time.time() - start_time) * 1000
 
             # Step 3: 格式化回填文本
-            formatted = self._formatter.format_command_with_response(
-                command, response
-            )
+            formatted = self._formatter.format_response(response, language)
 
             return MTPExecutionResult(
                 command=command,
@@ -225,16 +253,19 @@ class KoakumaRuntime:
                 success=(response.status != MTPResponseStatus.ERROR),
                 execution_time_ms=response.execution_time_ms,
                 pending_alias=response.pending_alias,
+                call_request=response.call_request,
             )
 
         except MTPParseError as e:
             elapsed = (time.time() - start_time) * 1000
+            language = _resolve_context_language(context)
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
+                content="",
+                error=e.to_error_info(),
                 execution_time_ms=elapsed,
             )
-            formatted = self._formatter.format_response(error_response)
+            formatted = self._formatter.format_response(error_response, language)
 
             return MTPExecutionResult(
                 command=None,
@@ -258,12 +289,11 @@ class KoakumaRuntime:
 
         拦截流程:
         1. 捕获 (Capture): 查找最后一个 ⟪
-        2. 补全 (Completion): 自动追加 ⟫
-        3. 解析 (Parsing): 提取 VERB, TARGET, ARGS
-        4. 挂起 (Suspend): 进入内核态执行
+        2. 解析 (Parsing): 提取 VERB, TARGET, ARGS
+        3. 挂起 (Suspend): 进入内核态执行
 
         Args:
-            assistant_text: LLM 生成的完整文本 (在 ⟫ 处被截断)
+            assistant_text: 已由 WorkerAgent 补全右定界符的 LLM 输出文本
 
         Returns:
             MTPExecutionResult 如果检测到指令，否则 None
@@ -274,10 +304,6 @@ class KoakumaRuntime:
 
         # 提取从 ⟪ 开始的文本片段
         mtp_fragment = assistant_text[last_open:]
-
-        # 补全 ⟫ 并执行
-        if MTP_RIGHT_DELIMITER not in mtp_fragment:
-            mtp_fragment = mtp_fragment.rstrip() + " " + MTP_RIGHT_DELIMITER
 
         return await self.execute_mtp(mtp_fragment, context=context)
 
@@ -323,12 +349,9 @@ class KoakumaRuntime:
 
         handler = handlers.get(command.verb)
         if handler is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=(
-                    "[Syntax Error] Unknown verb: "
-                    f"{command.verb}. Valid verbs: SEARCH, READ, RUN, WRITE, UPDATE."
-                ),
+            raise InvalidArgumentError(
+                message_key="mtp.parse.unknown_verb",
+                params={"verb": command.verb, "valid_verbs": ", ".join(v.value for v in MTPVerb)},
             )
 
         try:
@@ -336,42 +359,24 @@ class KoakumaRuntime:
             self._check_verb_permission(command.verb.value, context=context)
             return await handler(command, context)
 
-        except StorageOfflineError as e:
-            logger.warning(f"Storage offline during {command.verb}: {e}")
+        except MTPError as e:
+            if isinstance(e, SystemFault):
+                logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
+            else:
+                logger.info(f"Agent fault during {command.verb}: {e}")
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
-            )
-
-        except StorageReadError as e:
-            logger.error(f"Storage error during {command.verb}: {e}")
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
-            )
-
-        except AgentFault as e:
-            logger.info(f"Agent fault during {command.verb}: {e}")
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
-            )
-
-        except SystemFault as e:
-            logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=e.to_agent_prompt(),
+                content="",
+                error=e.to_error_info(),
             )
 
         except Exception as e:
             logger.error(f"Unexpected error during {command.verb}: {e}", exc_info=True)
+            fault = SystemFault(cause=e)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR,
-                content=(
-                    "[Internal Error] An unexpected error occurred. "
-                    "Do NOT retry this command. Continue the conversation normally."
-                ),
+                content="",
+                error=fault.to_error_info(),
             )
 
     # ========== 指令处理器 ==========
@@ -397,17 +402,17 @@ class KoakumaRuntime:
         """
         query = command.args.get("query", "")
         if not query:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content='[Invalid Argument] SEARCH requires a "query" argument.\n'
-                        'Action: Provide a query argument and retry.',
-            )
+            raise InvalidArgumentError(message_key="mtp.search.missing_query")
 
         # 解析 filter 参数 (Section 2.2)
         # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
         # 宽容解析: 非法 filter 降级为 None，但返回警告
         filter_str = command.args.get("filter", "")
-        parsed_filters, filter_warnings = self._filter_parser.parse(filter_str) if filter_str else (None, [])
+        parsed_filters, filter_warnings = (
+            self._filter_parser.parse(filter_str)
+            if filter_str
+            else (None, [])
+        )
 
         # Let StorageOfflineError / StorageReadError propagate to _route_and_execute
         result = await self._bus.request(
@@ -420,22 +425,25 @@ class KoakumaRuntime:
         )
 
         if result.is_empty():
-            content = "No memories found. Try a different query."
-            if filter_warnings:
-                content += "\n" + "\n".join(filter_warnings)
             return MTPResponse(
                 status=MTPResponseStatus.SUCCESS,
-                content=content,
+                content="",
+                warnings=[
+                    MTPWarningInfo(message_key="mtp.search.no_memories_found"),
+                    *filter_warnings,
+                ],
             )
 
         content = result.rendered_context
+        response_warnings = list(filter_warnings)
         if not content:
             logger.warning(
                 "RetrievalResponse for MTP SEARCH contains memories but no rendered_context."
             )
-            content = "Search completed, but no rendered context was returned."
-        if filter_warnings:
-            content += "\n" + "\n".join(filter_warnings)
+            content = ""
+            response_warnings.append(
+                MTPWarningInfo(message_key="mtp.search.rendered_context_missing")
+            )
 
         # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
         self.atom_cache.ingest_atoms(result.memories)
@@ -443,6 +451,7 @@ class KoakumaRuntime:
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content=content,
+            warnings=response_warnings,
         )
 
     async def _handle_read(
@@ -464,18 +473,11 @@ class KoakumaRuntime:
             MTPResponse: 记忆内容
         """
         if command.target.is_wildcard:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="READ does not support wildcard target '*'. "
-                        "Use SEARCH instead.",
-            )
+            raise InvalidArgumentError(message_key="mtp.read.wildcard_not_supported")
 
         aliases = command.target.aliases
         if not aliases:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="READ requires at least one target alias.",
-            )
+            raise InvalidArgumentError(message_key="mtp.read.missing_alias")
 
         resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
         resolved_pending: List[Tuple[str, Any]] = []  # (alias, PendingAtom)
@@ -497,18 +499,14 @@ class KoakumaRuntime:
 
         # 全部无效：直接返回错误
         if not resolved and not resolved_pending and not resolved_redirects and not resolved_terminal:
-            lines = [
-                f"[{a}]: [Alias Not Found] Alias '{a}' not found. "
-                f"Use SEARCH to discover the correct alias first."
-                for a in unresolved
-            ]
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="\n".join(lines),
+            raise AliasNotFoundError(
+                message_key="mtp.read.alias_not_found",
+                params={"aliases": "\n".join(f"  {a}" for a in unresolved)},
             )
 
-        # 组装输出 — 通过 MemoryCompiler 统一编译
+        # 组装输出 — 通过 MemoryCompiler 统一编译，局部未解析 alias 交给 warnings 渲染
         output_lines: List[str] = []
+        warnings: List[MTPWarningInfo] = []
         for alias, pending in resolved_pending:
             artifact = self._compiler.compile(
                 pending, MemoryCompileTarget.MTP_READ,
@@ -533,14 +531,17 @@ class KoakumaRuntime:
             )
             output_lines.append(artifact.text)
         for alias in unresolved:
-            output_lines.append(
-                f"[{alias}]: [Alias Not Found] Alias '{alias}' not found. "
-                f"Use SEARCH to discover the correct alias first."
+            warnings.append(
+                MTPWarningInfo(
+                    message_key="mtp.read.partial_alias_not_found",
+                    params={"alias": alias},
+                )
             )
 
         response = MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="\n".join(output_lines),
+            warnings=warnings,
         )
         for _, atom in resolved:
             await self._record_memory_citation(atom, "mtp.read")
@@ -548,7 +549,6 @@ class KoakumaRuntime:
             await self._record_memory_citation(result.atom, "mtp.read")
         return response
 
-    # TODO:检查run返回的MTP结果为何为误导模型认为执行失败，尽管显示执行成功
     async def _handle_run(
         self,
         command: MTPCommand,
@@ -571,90 +571,66 @@ class KoakumaRuntime:
         """
         alias = command.target.single_alias
         if alias is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="RUN requires a single tool alias as target.",
-            )
+            raise InvalidArgumentError(message_key="mtp.run.missing_single_target")
 
-        # Level 0: 内核工具快速路径 (Section 4.2.1)
         syscall = self._kernel_registry.get(alias)
         if syscall is None and alias.startswith("sys_"):
-            # sys_ 前缀保留给内核工具，不走 L1/L2 用户态解析
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"[Alias Not Found] Kernel tool '{alias}' not found. "
-                        f"Use SEARCH to discover available tools.",
+            raise AliasNotFoundError(
+                message_key="mtp.run.kernel_tool_not_found",
+                params={"alias": alias},
             )
         if syscall is not None:
             # 权限沙箱：校验系统工具权限 (Phase 1 多智能体)
             self._check_tool_permission(alias, context=context)
-            try:
-                result = syscall.handler(command.args)
-                return MTPResponse(
-                    status=MTPResponseStatus.SUCCESS,
-                    content=result,
-                )
-            except Exception as e:
-                logger.error(
-                    f"Kernel syscall '{alias}' failed: {e}", exc_info=True
-                )
-                return MTPResponse(
-                    status=MTPResponseStatus.ERROR,
-                    content=f"[Tool Error] Tool '{alias}' execution failed. "
-                            f"Do NOT retry with the same input.",
-                )
+            result = syscall.handler(command.args)
+            return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
         # Level 1: 用户态工具路径 (统一原子缓存)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved = await self._alias_resolver.resolve(alias, context=context)
-        redirect_notice = ""
+        warnings: List[MTPWarningInfo] = []
         if resolved.kind == "pending":
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=(
-                    f"[Pending Alias Not Runnable] Alias '{alias}' is a runtime "
-                    "pending atom and has not been finalized as a runnable memory. "
-                    "Use READ to inspect it, or wait for the formal memory alias."
-                ),
+            raise InvalidArgumentError(
+                message_key="mtp.run.pending_not_runnable",
+                params={"alias": alias},
             )
         if resolved.kind == "redirect" and resolved.atom is not None:
             canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
-            redirect_notice = self._compiler.compile(
-                resolved, MemoryCompileTarget.MTP_REDIRECT_NOTICE,
-                MemoryCompileOptions(requested_alias=alias),
-            ).text
+            warnings.append(
+                MTPWarningInfo(
+                    message_key="mtp.run.alias_redirected",
+                    params={
+                        "requested_alias": alias,
+                        "canonical_alias": canonical_alias,
+                    },
+                )
+            )
             alias = canonical_alias
         elif resolved.kind in {"discarded", "failed", "expired"}:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=self._compiler.compile(
-                    resolved, MemoryCompileTarget.MTP_READ,
-                    MemoryCompileOptions(requested_alias=alias),
-                ).text,
+            raise AliasNotFoundError(
+                message_key="mtp.run.terminal_alias_not_runnable",
+                params={"alias": alias, "status": resolved.kind},
             )
         if resolved.kind not in {"atom", "redirect"} or resolved.atom is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"[Alias Not Found] Tool alias '{alias}' not found. "
-                        f"Use SEARCH to discover the correct alias first.",
+            raise AliasNotFoundError(
+                message_key="mtp.run.alias_not_found",
+                params={"alias": alias},
             )
         atom = resolved.atom
 
         # 校验类型必须是 CODE_SNIPPET
         if atom.index.memory_type != MemoryType.CODE_SNIPPET:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"[Type Mismatch] Alias '{alias}' is not a runnable tool "
-                        f"(type: {atom.index.memory_type.value}). "
-                        f"RUN only supports CODE_SNIPPET memories.",
+            raise MemoryTypeMismatchError(
+                message_key="mtp.run.type_mismatch",
+                params={"alias": alias, "memory_type": atom.index.memory_type.value},
             )
 
         # 使用缓存的代码执行
         code = atom.payload.content
         logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
         response = self._execute_user_tool(alias, code, command.args)
-        if redirect_notice:
-            response.content = f"{redirect_notice}{response.content}"
+        if warnings:
+            response.warnings = [*warnings, *response.warnings]
         if response.status == MTPResponseStatus.SUCCESS:
             await self._record_memory_citation(atom, "mtp.run")
         return response
@@ -682,10 +658,7 @@ class KoakumaRuntime:
         """
         content = command.args.get("content", "")
         if not content:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content='WRITE requires a "content" argument.',
-            )
+            raise InvalidArgumentError(message_key="mtp.write.missing_content")
 
         reason = command.args.get("reason", "")
         title = command.args.get("title", "")
@@ -706,7 +679,11 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._format_write_ack(pending.pending_alias),
+            content=get_mtp_info_text(
+                "mtp.write.ack",
+                {"pending_alias": pending.pending_alias},
+                _resolve_context_language(context),
+            ),
             pending_alias=pending.pending_alias,
         )
 
@@ -731,38 +708,24 @@ class KoakumaRuntime:
         Returns:
             MTPResponse: ACK 确认或 ERROR
         """
-        # 1. 校验 alias
         alias = command.target.single_alias
         if alias is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="UPDATE requires a single alias as target.",
-            )
+            raise InvalidArgumentError(message_key="mtp.update.missing_single_target")
 
-        # 2. 校验 instruction (必填)
         instruction = command.args.get("instruction", "")
         if not instruction:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content='UPDATE requires an "instruction" argument.',
-            )
+            raise InvalidArgumentError(message_key="mtp.update.missing_instruction")
 
-        # 3. 解析 alias → MemoryAtom (统一缓存路径)
-        # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved = await self._alias_resolver.resolve(alias, context=context)
         if resolved.kind == "pending":
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=(
-                    f"[Pending Alias Not Updatable] Alias '{alias}' is a runtime "
-                    "pending atom. UPDATE requires a formal memory alias."
-                ),
+            raise InvalidArgumentError(
+                message_key="mtp.update.pending_not_updatable",
+                params={"alias": alias},
             )
         if resolved.kind != "atom" or resolved.atom is None:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content=f"[Alias Not Found] Alias '{alias}' not found. "
-                        f"Use SEARCH to discover the correct alias first.",
+            raise AliasNotFoundError(
+                message_key="mtp.update.alias_not_found",
+                params={"alias": alias},
             )
         atom = resolved.atom
         uuid = str(atom.id)
@@ -790,22 +753,12 @@ class KoakumaRuntime:
 
         return MTPResponse(
             status=MTPResponseStatus.ACK,
-            content=self._format_update_ack(alias, pending.pending_alias),
+            content=get_mtp_info_text(
+                "mtp.update.ack",
+                {"base_alias": alias, "pending_alias": pending.pending_alias},
+                _resolve_context_language(context),
+            ),
             pending_alias=pending.pending_alias,
-        )
-
-    def _format_write_ack(self, pending_alias: str) -> str:
-        return (
-            f"Memory accepted as pending atom '{pending_alias}'.\n"
-            "It is readable during this run via READ. "
-            "Final memory generation will complete asynchronously."
-        )
-
-    def _format_update_ack(self, base_alias: str, pending_alias: str) -> str:
-        return (
-            f"Memory '{base_alias}' update accepted as pending revision '{pending_alias}'.\n"
-            "It is readable during this run via READ. "
-            "Final memory update will complete asynchronously."
         )
 
     async def _handle_call(
@@ -833,28 +786,15 @@ class KoakumaRuntime:
 
         # 1. 深度检查 (硬限制)
         if context is not None and context.runtime_scope.depth >= 1:
-            raise PermissionDeniedError(
-                "Sub-agents are not allowed to invoke CALL. "
-                "Only the main agent can call sub-agents."
-            )
+            raise PermissionDeniedError(message_key="mtp.permission.call_depth_exceeded")
 
-        # 2. 验证 target (必须是单个别名)
         target_alias = command.target.single_alias
         if not target_alias:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="CALL requires a single agent alias as target. "
-                        "Example: ⟪ CALL | coder_doll | task=\"...\" ⟫",
-            )
+            raise InvalidArgumentError(message_key="mtp.call.missing_single_target")
 
-        # 3. 验证 task (必填)
         task = command.args.get("task", "")
         if not task:
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content='CALL requires a "task" argument. '
-                        'Example: ⟪ CALL | coder_doll | task="Write unit tests" ⟫',
-            )
+            raise InvalidArgumentError(message_key="mtp.call.missing_task")
 
         # 4. 解析 context_refs (选填)
         context_refs_str = command.args.get("context_refs", "")
@@ -875,14 +815,15 @@ class KoakumaRuntime:
             f"context_refs={context_refs}"
         )
 
-        # 5. 返回 SUSPEND 信号 (由 Kernel 拦截处理)
+        # 5. 返回 SUSPEND 信号 
         return MTPResponse(
             status=MTPResponseStatus.SUSPEND,
-            content=json.dumps({
-                "target_alias": target_alias,
-                "task": task,
-                "context_refs": context_refs,
-            }),
+            content="",
+            call_request=MTPCallRequest(
+                target_alias=target_alias,
+                task=task,
+                context_refs=context_refs,
+            ),
         )
 
     # ========== 辅助方法 ==========
@@ -929,12 +870,7 @@ class KoakumaRuntime:
             timeout_seconds=self._config.python_repl_timeout_seconds,
         )
 
-        is_error = result.startswith("Error")
-
-        return MTPResponse(
-            status=MTPResponseStatus.ERROR if is_error else MTPResponseStatus.SUCCESS,
-            content=result,
-        )
+        return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
 
 __all__ = [

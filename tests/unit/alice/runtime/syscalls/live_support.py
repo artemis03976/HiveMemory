@@ -55,6 +55,16 @@ class MTPLoopRunner:
                 preview = content.replace("\n", "\\n")[:120]
                 logger.info(f"    [{i}] {role:9s} | {preview}...")
 
+    @staticmethod
+    def _normalize_worker_agent_mtp_output(text: str) -> str:
+        """模拟 WorkerAgent 在检测到 MTP 指令后补全右定界符的输出。"""
+        last_open = text.rfind(MTP_LEFT_DELIMITER)
+        if last_open == -1:
+            return text
+        if MTP_RIGHT_DELIMITER in text[last_open:]:
+            return text
+        return text.rstrip() + " " + MTP_RIGHT_DELIMITER
+
     def run(self, system_prompt: str, user_message: str) -> Tuple[str, List[Dict[str, str]]]:
         messages = [
             {"role": "system", "content": system_prompt},
@@ -82,9 +92,10 @@ class MTPLoopRunner:
 
             if MTP_LEFT_DELIMITER in response_text:
                 round_info["mtp_triggered"] = True
+                normalized_text = self._normalize_worker_agent_mtp_output(accumulated_text)
                 result = asyncio.run(
                     self.koakuma.intercept_and_execute(
-                        accumulated_text,
+                        normalized_text,
                         context=self.context,
                     )
                 )
@@ -94,10 +105,7 @@ class MTPLoopRunner:
                         "status": result.response_status,
                         "content_preview": result.response_content[:200],
                     }
-                    backfill_text = (
-                        accumulated_text + MTP_RIGHT_DELIMITER
-                        + "\n" + result.formatted_response.split("\n", 1)[-1]
-                    )
+                    backfill_text = normalized_text + "\n" + result.formatted_response.split("\n", 1)[-1]
                     messages.append({"role": "assistant", "content": backfill_text})
                     accumulated_text = ""
                     self.round_log.append(round_info)

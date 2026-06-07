@@ -1,19 +1,27 @@
-"""
-syscalls 公共类型定义。
-"""
+"""syscall common type definitions."""
 
 from dataclasses import dataclass
-from typing import Callable, Dict
+from typing import Callable
+
+
+@dataclass
+class SyscallResult:
+    """
+    syscall 成功执行结果。
+
+    失败路径由 syscall handler 直接抛结构化 MTPError。
+    """
+
+    content: str
 
 
 @dataclass(frozen=True)
 class KernelSyscall:
     """
-    内核级工具定义 (Level 0)
+    内核级工具定义（Level 0）。
 
-    每个 syscall 包含一个 handler 函数和描述。
-    handler 签名: (args: Dict[str, str]) -> str
+    handler 签名: (args: Dict[str, str]) -> SyscallResult
     """
 
-    handler: Callable[[Dict[str, str]], str]
+    handler: Callable[..., SyscallResult]
     description: str

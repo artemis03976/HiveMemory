@@ -28,7 +28,7 @@ from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
-from hivememory.core.mtp import MTPResponseStatus
+from hivememory.core.mtp import MTPCommand, MTPResponseStatus, MTPTarget, MTPVerb
 
 
 # ========== Helpers ==========
@@ -79,7 +79,24 @@ def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
 
 
 def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
-    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
+    from .conftest import normalize_worker_agent_mtp_output
+
+    return asyncio.run(
+        koakuma.intercept_and_execute(
+            normalize_worker_agent_mtp_output(assistant_text),
+            context=context,
+        )
+    )
+
+
+def _handle_search(koakuma: KoakumaRuntime, args, context=None):
+    command = MTPCommand(
+        verb=MTPVerb.SEARCH,
+        target=MTPTarget(is_wildcard=True),
+        args=args,
+        raw_text="⟪ SEARCH | * | ⟫",
+    )
+    return asyncio.run(koakuma._handle_search(command, context or MTPExecutionContext()))
 
 
 # ========== Test 1: _parse_mtp_filter ==========
@@ -149,7 +166,8 @@ class TestParseFilter:
         # should ignore out of range and fallback to 0.0
         assert filters is None
         assert len(warnings) == 1
-        assert "out of range" in warnings[0]
+        assert warnings[0].message_key == "mtp.filter.confidence_out_of_range"
+        assert warnings[0].params == {"value": 1.5}
 
     def test_multi_token_combination(self, koakuma):
         filters, warnings = koakuma.parse("type:code tag:api agent:bot1 confidence:0.5")
@@ -164,19 +182,29 @@ class TestParseFilter:
         assert filters.memory_type is None
         assert filters.tags == ["test"]
         assert len(warnings) == 1
-        assert "Unknown filter type" in warnings[0]
+        assert warnings[0].message_key == "mtp.filter.unknown_type"
+        assert warnings[0].params == {"value": "unknown_type"}
 
     def test_unknown_key_ignored(self, koakuma):
         filters, warnings = koakuma.parse("unknown:value tag:test")
         assert filters.tags == ["test"]
         assert len(warnings) == 1
-        assert "Unknown filter key" in warnings[0]
+        assert warnings[0].message_key == "mtp.filter.unknown_key"
+        assert warnings[0].params == {"key": "unknown"}
+
+    def test_warning_is_structured(self, koakuma):
+        filters, warnings = koakuma.parse("unknown:value tag:test")
+        assert filters.tags == ["test"]
+        assert len(warnings) == 1
+        assert warnings[0].message_key == "mtp.filter.unknown_key"
+        assert warnings[0].params == {"key": "unknown"}
 
     def test_invalid_token_no_colon(self, koakuma):
         filters, warnings = koakuma.parse("invalid_token tag:test")
         assert filters.tags == ["test"]
         assert len(warnings) == 1
-        assert "missing ':' separator" in warnings[0]
+        assert warnings[0].message_key == "mtp.filter.token_missing_separator"
+        assert warnings[0].params == {"token": "invalid_token"}
 
     def test_empty_string(self, koakuma):
         filters, warnings = koakuma.parse("")
@@ -276,21 +304,24 @@ class TestSearchResultRendering:
         assert result.success
         assert result.response_content == rendered
 
-    def test_filter_warning_appended_to_rendered_context(self, koakuma):
+    def test_filter_warning_added_to_response_warnings(self, koakuma):
         mem = _make_memory(alias="fact_test")
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(
             [mem],
             rendered_context="<memory_ref alias='fact_test'>Test</memory_ref>",
         )
 
-        result = _execute_mtp(
+        response = _handle_search(
             koakuma,
-            '⟪ SEARCH | * | query="test" filter="unknown:value" ⟫',
+            {"query": "test", "filter": "unknown:value"},
+            context=MTPExecutionContext(language="en"),
         )
 
-        assert result.success
-        assert "<memory_ref alias='fact_test'>Test</memory_ref>" in result.response_content
-        assert "Unknown filter key" in result.response_content
+        assert response.status == MTPResponseStatus.SUCCESS
+        assert response.content == "<memory_ref alias='fact_test'>Test</memory_ref>"
+        assert len(response.warnings) == 1
+        assert response.warnings[0].message_key == "mtp.filter.unknown_key"
+        assert response.warnings[0].params == {"key": "unknown"}
 
 
 # ========== Test 4: Alias Registration ==========
@@ -368,18 +399,76 @@ class TestKoakumaSearchE2E:
     def test_search_empty_result(self, koakuma):
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([])
 
-        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="nonexistent" ⟫')
+        result = _execute_mtp(
+            koakuma,
+            '⟪ SEARCH | * | query="nonexistent" ⟫',
+            context=MTPExecutionContext(language="en"),
+        )
 
         assert result.success
-        assert "No memories found" in result.response_content
+        assert result.response_content == ""
+        assert "No memories found" in result.formatted_response
+
+    def test_search_empty_result_language_zh(self, koakuma):
+        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([])
+        context = MTPExecutionContext(language="zh")
+
+        result = _execute_mtp(
+            koakuma,
+            '⟪ SEARCH | * | query="nonexistent" ⟫',
+            context=context,
+        )
+
+        assert result.success
+        assert result.response_content == ""
+        assert "未找到相关记忆" in result.formatted_response
+
+    def test_search_empty_result_warning_entry(self, koakuma):
+        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([])
+
+        response = _handle_search(
+            koakuma,
+            {"query": "nonexistent"},
+            context=MTPExecutionContext(language="en"),
+        )
+
+        assert response.status == MTPResponseStatus.SUCCESS
+        assert response.content == ""
+        assert len(response.warnings) == 1
+        assert response.warnings[0].message_key == "mtp.search.no_memories_found"
+        assert response.warnings[0].params == {}
+
+    def test_search_missing_rendered_context_warning_entry(self, koakuma):
+        mem = _make_memory(alias="fact_test")
+        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(
+            [mem],
+            rendered_context="",
+        )
+
+        response = _handle_search(
+            koakuma,
+            {"query": "test"},
+            context=MTPExecutionContext(language="en"),
+        )
+
+        assert response.status == MTPResponseStatus.SUCCESS
+        assert response.content == ""
+        assert len(response.warnings) == 1
+        assert response.warnings[0].message_key == "mtp.search.rendered_context_missing"
+        assert response.warnings[0].params == {}
 
     def test_search_retrieval_exception(self, koakuma):
         koakuma._bus._mock_retrieval.retrieve.side_effect = Exception("Connection error")
 
-        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
+        result = _execute_mtp(
+            koakuma,
+            '⟪ SEARCH | * | query="test" ⟫',
+            context=MTPExecutionContext(language="en"),
+        )
 
         assert not result.success
-        assert "An unexpected error occurred" in result.response_content
+        assert result.response_content == ""
+        assert "An unexpected error occurred" in result.formatted_response
 
     def test_search_formatted_response_contains_xml(self, koakuma):
         mem = _make_memory(alias="fact_test")
@@ -410,7 +499,8 @@ class TestKoakumaSearchValidation:
     def test_missing_query(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | ⟫')
         assert not result.success
-        assert "query" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "query" in result.formatted_response.lower()
 
     def test_empty_query(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="" ⟫')
@@ -429,4 +519,5 @@ class TestKoakumaSearchValidation:
     def test_search_with_only_filter_no_query(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | filter="type:code" ⟫')
         assert not result.success
-        assert "query" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "query" in result.formatted_response.lower()

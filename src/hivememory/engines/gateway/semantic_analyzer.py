@@ -33,7 +33,6 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         self,
         config: LLMAnalyzerConfig,
         llm_service: BaseLLMService,
-        default_language: str | None = None,
     ):
         """
         初始化 LLMAnalyzer
@@ -41,11 +40,10 @@ class LLMAnalyzer(BaseSemanticAnalyzer):
         Args:
             config: LLMAnalyzerConfig 配置对象
             llm_service: LLM 服务实例
-            default_language: 全局默认语言（可选）
         """
         self.config = config
         self.llm_service = llm_service
-        self.language = resolve_language(default_language=default_language).value
+        self.language = resolve_language().value
         self.system_prompt = get_gateway_system_prompt(language=self.language)
 
     async def analyze(
@@ -138,7 +136,6 @@ class NoOpSemanticAnalyzer(BaseSemanticAnalyzer):
 def create_semantic_analyzer(
     config: LLMAnalyzerConfig,
     llm_service: BaseLLMService,
-    default_language: str | None = None,
 ) -> BaseSemanticAnalyzer:
     """
     创建 L2 语义分析器实例
@@ -146,7 +143,6 @@ def create_semantic_analyzer(
     Args:
         config: L2 分析器配置
         llm_service: LLM 服务实例
-        default_language: 全局默认语言（可选）
 
     Returns:
         BaseSemanticAnalyzer: LLMAnalyzer 或 NoOpSemanticAnalyzer
@@ -156,7 +152,6 @@ def create_semantic_analyzer(
         return LLMAnalyzer(
             config,
             llm_service,
-            default_language=default_language,
         )
     else:
         logger.info("Gateway L2 语义分析器已禁用 (No-Op)")

@@ -102,17 +102,63 @@ class MTPCommand(BaseModel):
     raw_text: str = Field(default="", description="原始指令文本")
 
 
+class MTPCallRequest(BaseModel):
+    """CALL suspend response 的结构化载荷。"""
+
+    target_alias: str = Field(..., description="目标 agent alias")
+    task: str = Field(..., description="委派给目标 agent 的任务")
+    context_refs: List[str] = Field(default_factory=list, description="共享上下文 alias")
+
+
+class MTPErrorSeverity(str, Enum):
+    """MTP 错误严重度，决定重试语义。"""
+    AGENT_FAULT = "agent_fault"    # Agent 侧可修复，允许重试
+    SYSTEM_FAULT = "system_fault"  # 系统故障，不可重试
+
+
+class MTPErrorInfo(BaseModel):
+    """结构化错误信息，随 MTPResponse.error 携带。"""
+    code: str = Field(..., description="dotted-path 错误码，同时作为 i18n join key")
+    message_key: str = Field(default="", description="具体 i18n 文本 key")
+    severity: MTPErrorSeverity = Field(..., description="严重度，retryable 由消费方从此派生")
+    params: Dict[str, Any] = Field(default_factory=dict, description="参数化 i18n 模板所需的占位符值")
+    cause: Optional[str] = Field(default=None, exclude=True, description="原始异常信息，仅供开发调试，不回填给 Agent")
+
+
+class MTPCallResponse(BaseModel):
+    """CALL 子代理返回的结构化载荷。"""
+
+    status: MTPResponseStatus = Field(..., description="返回状态")
+    agent_alias: str = Field(..., description="子代理 alias")
+    reply: str = Field(default="", description="子代理最终回复")
+    artifact_aliases: List[str] = Field(default_factory=list, description="子代理产物 alias")
+    error: Optional[MTPErrorInfo] = Field(default=None, description="结构化错误信息，status=error 时非空")
+
+
+class MTPWarningInfo(BaseModel):
+    """结构化 nonfatal warning，随 MTPResponse.warnings 携带。"""
+    message_key: str = Field(..., description="具体 i18n 文本 key")
+    params: Dict[str, Any] = Field(default_factory=dict, description="参数化 i18n 模板所需的占位符值")
+
+
 class MTPResponse(BaseModel):
     """
     内核执行结果的结构化响应模型。
 
     用于后续统一格式化为 `<mtp_response ...>` XML 容器。
+
+    error 与 warnings 边界：
+        error    - 改变 status 为 ERROR，携带结构化错误信息
+        warnings - 不改变 status，携带 nonfatal 提示（如 filter token 被忽略）
     """
 
     status: MTPResponseStatus = Field(..., description="响应状态")
     content: str = Field(default="", description="响应内容")
     execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
     pending_alias: Optional[str] = Field(default=None, exclude=True)
+    call_request: Optional[MTPCallRequest] = Field(default=None, exclude=True)
+    error: Optional[MTPErrorInfo] = Field(default=None, description="结构化错误信息，status=error 时非空")
+    warnings: List[MTPWarningInfo] = Field(default_factory=list, description="nonfatal 提示，不影响 status")
 
 
 __all__ = [
@@ -122,7 +168,12 @@ __all__ = [
     "MTP_STOP_SEQUENCE",
     "MTPVerb",
     "MTPResponseStatus",
+    "MTPErrorSeverity",
+    "MTPErrorInfo",
+    "MTPWarningInfo",
     "MTPTarget",
     "MTPCommand",
+    "MTPCallRequest",
+    "MTPCallResponse",
     "MTPResponse",
 ]

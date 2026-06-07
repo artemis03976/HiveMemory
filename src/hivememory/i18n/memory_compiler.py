@@ -122,6 +122,7 @@ _FULL_CONTEXT_TEXT_ZH = {
     "memory_truncation_notice": (
         "[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"
     ),
+    "memory_field_empty": "无",
     "memory_confidence_high": "高",
     "memory_confidence_medium": "中",
     "memory_confidence_low": "低",
@@ -149,6 +150,7 @@ _FULL_CONTEXT_TEXT_EN = {
     "memory_truncation_notice": (
         "[...content truncated. Use READ to inspect the full memory content.]"
     ),
+    "memory_field_empty": "None",
     "memory_confidence_high": "High",
     "memory_confidence_medium": "Medium",
     "memory_confidence_low": "Low",
@@ -215,49 +217,48 @@ _PENDING_ATOM_TEXT_ZH = {
         "[{pending_alias}] (运行时待定原子):\n"
         "状态: {status}\n"
         "来源: WRITE\n"
-        "{title_line}"
+        "标题：{title}\n"
         "\n"
         "内容:\n"
         "{content}\n"
         "\n"
-        "注意: 这是一个运行时待定原子。"
-        "最终的记忆生成是异步的。"
+        "注意: 这是一个运行时待定原子。最终的记忆生成是异步的。"
     ),
     "pending_read_update": (
         "[{pending_alias}] (pending revision of '{base_alias}' / '{base_alias}' 的待定修订):\n"
         "状态: {status}\n"
-        "{instruction_line}"
+        "指令：{instruction}\n"
         "\n"
         "新内容:\n"
         "{content}\n"
         "\n"
-        "注意: 这是一个待定修订。"
-        "原始记忆尚未被修改。"
+        "注意: 这是一个待定修订。原始记忆尚未被修改。"
     ),
     "pending_read_failed": (
-        "[{pending_alias}] (失败):\n"
+        "[{pending_alias}] (失败):"
         "错误: {error}\n"
-        "操作: 重新发出 WRITE/UPDATE 指令以重试。"
+        "提示: 重新发出 WRITE/UPDATE 指令以重试。"
     ),
     "pending_read_settled": (
-        "[{pending_alias}] (已落库):\n"
-        "此待定原子已完成实例化。\n"
-        "{canonical_line}"
-        "操作: 请使用正式别名进行后续访问。"
+        "[{pending_alias}] (已落库):"
+        "此待定原子已完成实例化。"
+        "正式名称：{canonical_alias}\n"
+        "提示: 请使用正式别名进行后续访问。"
     ),
     "pending_read_discarded": (
-        "[{pending_alias}] (已丢弃):\n"
+        "[{pending_alias}] (已丢弃):"
         "此待定原子在去重过程中被判定为冗余，不会生成新记忆。\n"
-        "{message_line}{reason_line}"
+        "消息：{message}\n"
+        "原因：{reason}"
     ),
     "pending_read_cancelled": (
-        "[{pending_alias}] (已取消):\n"
+        "[{pending_alias}] (已取消):"
         "此待定原子已被取消，且不会被实例化。"
     ),
     "pending_read_expired": (
-        "[{pending_alias}] (已过期):\n"
+        "[{pending_alias}] (已过期):"
         "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
-        "操作: 如果需要，请使用 SEARCH 查找已定型的记忆。"
+        "提示: 如果需要，请使用 SEARCH 查找已定型的记忆。"
     ),
 }
 
@@ -266,7 +267,7 @@ _PENDING_ATOM_TEXT_EN = {
         "[{pending_alias}] (runtime pending atom):\n"
         "status: {status}\n"
         "source: WRITE\n"
-        "{title_line}"
+        "title: {title}\n"
         "\n"
         "content:\n"
         "{content}\n"
@@ -277,7 +278,7 @@ _PENDING_ATOM_TEXT_EN = {
     "pending_read_update": (
         "[{pending_alias}] (pending revision of '{base_alias}'):\n"
         "status: {status}\n"
-        "{instruction_line}"
+        "instruction: {instruction}\n"
         "\n"
         "new content:\n"
         "{content}\n"
@@ -286,29 +287,30 @@ _PENDING_ATOM_TEXT_EN = {
         "The original memory has not been modified yet."
     ),
     "pending_read_failed": (
-        "[{pending_alias}] (failed):\n"
+        "[{pending_alias}] (failed):"
         "error: {error}\n"
-        "Action: Re-issue a WRITE/UPDATE command to retry."
+        "Suggestion: Re-issue a WRITE/UPDATE command to retry."
     ),
     "pending_read_settled": (
-        "[{pending_alias}] (materialized):\n"
+        "[{pending_alias}] (materialized):"
         "This pending atom has been materialized.\n"
-        "{canonical_line}"
-        "Action: Use the canonical alias for future access."
+        "Canonical alias: {canonical_alias}\n"
+        "Suggestion: Use the canonical alias for future access."
     ),
     "pending_read_discarded": (
-        "[{pending_alias}] (discarded):\n"
+        "[{pending_alias}] (discarded):"
         "This pending atom was determined to be redundant during deduplication and will not produce a new memory.\n"
-        "{message_line}{reason_line}"
+        "message: {message}\n"
+        "reason: {reason}"
     ),
     "pending_read_cancelled": (
-        "[{pending_alias}] (cancelled):\n"
+        "[{pending_alias}] (cancelled):"
         "This pending atom was cancelled and will not be materialized."
     ),
     "pending_read_expired": (
-        "[{pending_alias}] (expired):\n"
+        "[{pending_alias}] (expired):"
         "This handle has been reclaimed. The pending atom no longer exists in runtime.\n"
-        "Action: Use SEARCH to locate the finalized memory if needed."
+        "Suggestion: Use SEARCH to locate the finalized memory if needed."
     ),
 }
 
@@ -323,18 +325,12 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "\n"
         "提示: 请在后续的 READ/RUN/UPDATE 调用中使用 '{canonical_alias}'。"
     ),
-    "resolve_redirect_run_notice": (
-        "[Alias Redirected]\n"
-        "请求的别名: {requested_alias}\n"
-        "规范别名: {canonical_alias}\n"
-        "提示: 请在后续的 RUN 调用中使用 '{canonical_alias}'。\n"
-    ),
     "resolve_discarded": (
         "[{requested_alias}]\n"
         "状态: discarded（已丢弃）\n"
         "已实例化: 否\n"
-        "{message_line}"
-        "{reason_line}"
+        "消息：{message}\n"
+        "原因：{reason}\n"
         "\n"
         "提示: 如果需要，请使用 SEARCH 查找相关的已定型记忆。"
     ),
@@ -342,9 +338,9 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "[{requested_alias}]\n"
         "状态: 失败\n"
         "已实例化: 否\n"
-        "{error_line}"
-        "{message_line}"
-        "{reason_line}"
+        "错误：{error}\n"
+        "消息：{message}\n"
+        "原因：{reason}\n"
         "\n"
         "提示: 重新发出 WRITE/UPDATE 指令以重试。"  
     ),
@@ -368,18 +364,12 @@ _RESOLVE_RESULT_TEXT_EN = {
         "\n"
         "Note: Use '{canonical_alias}' for future READ/RUN/UPDATE calls."
     ),
-    "resolve_redirect_run_notice": (
-        "[Alias Redirected]\n"
-        "Requested alias: {requested_alias}\n"
-        "Canonical alias: {canonical_alias}\n"
-        "Note: Use '{canonical_alias}' for future RUN calls.\n"
-    ),
     "resolve_discarded": (
         "[{requested_alias}]\n"
         "status: discarded\n"
         "materialized: false\n"
-        "{message_line}"
-        "{reason_line}"
+        "message: {message}\n"
+        "reason: {reason}\n"
         "\n"
         "Note: Use SEARCH to locate related finalized memory if needed."
     ),
@@ -387,9 +377,9 @@ _RESOLVE_RESULT_TEXT_EN = {
         "[{requested_alias}]\n"
         "status: failed\n"
         "materialized: false\n"
-        "{error_line}"
-        "{message_line}"
-        "{reason_line}"
+        "error: {error}\n"
+        "message: {message}\n"
+        "reason: {reason}\n"
         "\n"
         "Note: Re-issue a WRITE/UPDATE command to retry."
     ),

@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
-from hivememory.agent_runtime.loop_executor import KernelLoopExecutor
+from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.system.config import HiveMemoryConfig
 
 
@@ -15,7 +15,7 @@ def test_agent_runtime_builds_engine_facade():
         config=config,
     )
 
-    assert isinstance(runtime._loop_executor, KernelLoopExecutor)
+    assert isinstance(runtime._loop_executor, AgentLoopExecutor)
     assert runtime._loop_executor._mtp_executor is mtp_executor
     # 迭代上限由门面从 config.agent_runtime 内部消化
     assert runtime._max_iterations == config.agent_runtime.max_loop_iterations

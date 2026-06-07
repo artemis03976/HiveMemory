@@ -24,6 +24,14 @@ from hivememory.system.config import (
     CascadeRendererConfig,
     CompactRendererConfig,
 )
+from hivememory.i18n import set_default_language
+
+
+@pytest.fixture(autouse=True)
+def reset_i18n():
+    set_default_language("zh")
+    yield
+    set_default_language("zh")
 
 
 class TestFullContextRenderer:
@@ -72,7 +80,8 @@ class TestFullContextRenderer:
         assert self.renderer.render([]) == _EMPTY_CONTEXT_NOTICE
 
     def test_empty_results_english(self):
-        renderer = FullContextRenderer(FullRendererConfig(), default_language="en")
+        set_default_language("en")
+        renderer = FullContextRenderer(FullRendererConfig())
 
         output = renderer.render([])
 
@@ -273,7 +282,8 @@ class TestCascadeContextRenderer:
 
     def test_empty_results_english(self):
         config = CascadeRendererConfig()
-        renderer = CascadeContextRenderer(config, default_language="en")
+        set_default_language("en")
+        renderer = CascadeContextRenderer(config)
 
         output = renderer.render([])
 
@@ -399,7 +409,8 @@ class TestCompactContextRenderer:
         assert renderer.render([]) == _EMPTY_CONTEXT_NOTICE
 
     def test_empty_results_english(self):
-        renderer = CompactContextRenderer(CompactRendererConfig(), default_language="en")
+        set_default_language("en")
+        renderer = CompactContextRenderer(CompactRendererConfig())
 
         output = renderer.render([])
 
@@ -457,7 +468,8 @@ class TestCreateRenderer:
         assert isinstance(renderer, FullContextRenderer)
 
     def test_create_renderer_passes_default_language(self):
-        renderer = create_renderer(FullRendererConfig(), default_language="en")
+        set_default_language("en")
+        renderer = create_renderer(FullRendererConfig())
 
         assert isinstance(renderer, FullContextRenderer)
         assert "Patchouli found no strongly relevant historical memories" in renderer.render([])

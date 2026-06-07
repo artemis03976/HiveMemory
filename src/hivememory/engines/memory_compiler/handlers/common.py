@@ -8,7 +8,10 @@ from hivememory.engines.memory_compiler.models import (
     MemoryCompileOptions,
     MemoryCompileTarget,
 )
-from hivememory.i18n.memory_compiler import get_resolve_result_text
+from hivememory.i18n.memory_compiler import (
+    get_memory_atom_text,
+    get_resolve_result_text,
+)
 
 
 def build_artifact(
@@ -56,21 +59,21 @@ def is_resolve_terminal(unit: MemoryUnitIR) -> bool:
 
 def render_resolve_terminal(unit: MemoryUnitIR, options: MemoryCompileOptions) -> str:
     status = unit.status
-    alias = unit.identity.alias or options.requested_alias or ""
+    alias = format_optional_field(unit.identity.alias or options.requested_alias, options.language)
 
     if status.is_discarded:
         return _resolve_text("resolve_discarded", options.language).format(
             requested_alias=alias,
-            message_line=f"message: {status.message}\n" if status.message else "",
-            reason_line=f"reason: {status.reason}\n" if status.reason else "",
+            message=format_optional_field(status.message, options.language),
+            reason=format_optional_field(status.reason, options.language),
         ).rstrip()
 
     if status.error is not None:
         return _resolve_text("resolve_failed", options.language).format(
             requested_alias=alias,
-            error_line=f"error: {status.error}\n",
-            message_line=f"message: {status.message}\n" if status.message else "",
-            reason_line=f"reason: {status.reason}\n" if status.reason else "",
+            error=format_optional_field(status.error, options.language),
+            message=format_optional_field(status.message, options.language),
+            reason=format_optional_field(status.reason, options.language),
         ).rstrip()
 
     return _resolve_text("resolve_expired", options.language).format(requested_alias=alias)
@@ -78,3 +81,10 @@ def render_resolve_terminal(unit: MemoryUnitIR, options: MemoryCompileOptions) -
 
 def _resolve_text(key: str, language: str | None = None) -> str:
     return get_resolve_result_text(key, language)
+
+
+def format_optional_field(value: object, language: str | None = None) -> str:
+    if value is None:
+        return get_memory_atom_text("memory_field_empty", language)
+    text = str(value)
+    return text if text else get_memory_atom_text("memory_field_empty", language)

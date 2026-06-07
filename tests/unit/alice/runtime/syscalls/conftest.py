@@ -11,6 +11,7 @@ from hivememory.agent_runtime.cache import KoakumaAtomCache
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
+from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -105,10 +106,20 @@ def mtp_prompt_zh() -> str:
 
 
 def simulate_kernel_loop_single(koakuma: KoakumaRuntime, agent_text: str) -> MTPExecutionResult:
-    result = asyncio.run(koakuma.intercept_and_execute(agent_text))
+    result = asyncio.run(koakuma.intercept_and_execute(normalize_worker_agent_mtp_output(agent_text)))
     assert result is not None, f"Kernel Loop 未检测到 MTP 指令。Agent 文本: {agent_text!r}"
     return result
 
 
 def build_resumed_history(agent_prefix: str, mtp_result: MTPExecutionResult) -> str:
     return agent_prefix + mtp_result.formatted_response
+
+
+def normalize_worker_agent_mtp_output(text: str) -> str:
+    """模拟 WorkerAgent 在检测到 MTP 指令后补全右定界符的输出。"""
+    last_open = text.rfind(MTP_LEFT_DELIMITER)
+    if last_open == -1:
+        return text
+    if MTP_RIGHT_DELIMITER in text[last_open:]:
+        return text
+    return text.rstrip() + " " + MTP_RIGHT_DELIMITER

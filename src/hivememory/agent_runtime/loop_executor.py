@@ -24,13 +24,10 @@ from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
-    CallRequest,
     MTPExecutionContext,
 )
 from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
-
-import json
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
@@ -39,7 +36,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class KernelLoopExecutor:
+class AgentLoopExecutor:
     """
     纯单 Agent 执行循环总控。
 
@@ -84,7 +81,7 @@ class KernelLoopExecutor:
         执行单个帧的循环，直到自然收敛或命中 CALL。
 
         累积产物写入 frame.progress；重入同一 frame 时续接。
-        命中 CALL 时不 fork、不 resume、不组 IPC——直接返回 SUSPENDED。
+        命中 CALL 时不 fork、不 resume、不组 CALL response，直接返回 SUSPENDED。
 
         Returns:
             FrameExecutionResult: COMPLETED（自然收敛）或 SUSPENDED（命中 CALL）
@@ -220,9 +217,9 @@ class KernelLoopExecutor:
                 break
 
             if mtp_result.response_status == "suspend":
-                # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 IPC。
-                # 编排负责：append working_history(CALL文本+⟫) → fork子帧 → 跑子帧
-                # → resume → harvest → 组IPC → append IPC → 重入本帧。
+                # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 CALL response。
+                # 编排负责：append 已归一化的 CALL 文本 → fork子帧 → 跑子帧
+                # → resume → harvest → 组 CALL response → append 回填 → 重入本帧。
                 if stream_emitter is not None:
                     mtp_suspend_data = {
                         "verb": verb_hint,
@@ -235,14 +232,11 @@ class KernelLoopExecutor:
                     mtp_suspend_data.update(self._namespace_for_frame(frame))
                     await stream_emitter({"event": "mtp_result", "data": mtp_suspend_data})
 
-                call_params = json.loads(mtp_result.response_content)
+                if mtp_result.call_request is None:
+                    raise RuntimeError("CALL suspend response missing call_request.")
                 return FrameExecutionResult(
                     status=FrameExecutionStatus.SUSPENDED,
-                    call_request=CallRequest(
-                        target_alias=call_params["target_alias"],
-                        task=call_params["task"],
-                        context_refs=call_params.get("context_refs", []),
-                    ),
+                    call_request=mtp_result.call_request,
                     suspend_assistant_text=result.text,
                     suspend_action_id=action_id,
                 )
@@ -261,11 +255,11 @@ class KernelLoopExecutor:
                 await stream_emitter({"event": "mtp_result", "data": mtp_result_data})
 
             frame.working_history.append(
-                {"role": "assistant", "content": result.text + "⟫"}
+                {"role": "assistant", "content": result.text}
             )
             frame.working_history.append({
                 "role": "user",
-                "content": f"[System MTP Execution Result]\n{mtp_result.formatted_response}",
+                "content": mtp_result.formatted_response,
             })
             p.turn_events.append(TurnEvent(
                 kind="tool_result",
@@ -289,7 +283,7 @@ class KernelLoopExecutor:
         max_iterations: int,
         generation_options: Optional[Dict[str, Any]] = None,
         cancel_event: Optional[asyncio.Event] = None,
-        # 编排注入的回调：当引擎遇到 SUSPEND 时，编排处理子帧并回填 IPC，
+        # 编排注入的回调：当引擎遇到 SUSPEND 时，编排处理子帧并回填 CALL response，
         # 然后引擎继续本段流。签名: (FrameExecutionResult) -> None（异步）。
         on_suspend: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
     ):
@@ -298,7 +292,7 @@ class KernelLoopExecutor:
 
         遇到 CALL SUSPEND 时：
         1. 发出 mtp_result(status=suspend) 事件（已在 execute_frame 内完成）
-        2. 调用 on_suspend(result) 让编排处理子帧（sub_agent_start/end、IPC 回填）
+        2. 调用 on_suspend(result) 让编排处理子帧（sub_agent_start/end、CALL response 回填）
         3. 编排回填 working_history 后，引擎重入同一 frame 继续流式输出
 
         Yields:
@@ -355,4 +349,4 @@ class KernelLoopExecutor:
         return target_hint, args_hint, raw_hint
 
 
-__all__ = ["KernelLoopExecutor"]
+__all__ = ["AgentLoopExecutor"]

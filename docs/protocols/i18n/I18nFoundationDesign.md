@@ -267,7 +267,7 @@ get_relay_system_prompt(language=resolved_language.value)
 
 ### 5.5 Runtime 和 MTP 错误消息
 
-Koakuma 和 KernelLoopExecutor 仍有较多英文硬编码运行时消息。本阶段不迁移，但需要标记为后续 catalog 目标：
+Koakuma 和 AgentLoopExecutor 仍有较多英文硬编码运行时消息。本阶段不迁移，但需要标记为后续 catalog 目标：
 
 1. Alias not found 类消息。
 2. READ / RUN / WRITE / UPDATE 参数错误。
@@ -318,7 +318,7 @@ Koakuma 和 KernelLoopExecutor 仍有较多英文硬编码运行时消息。本�
 
 控制方式：
 1. 本阶段明确定位为 foundation。
-2. 后续消费者单独追踪：Memory Compiler、Gateway、Relay、Koakuma runtime messages、KernelLoopExecutor IPC text。
+2. 后续消费者单独追踪：Memory Compiler、Gateway、Relay、Koakuma runtime messages、AgentLoopExecutor IPC text。
 
 ### 8.4 过早过度设计 i18n
 

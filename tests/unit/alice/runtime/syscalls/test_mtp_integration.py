@@ -8,7 +8,7 @@ import pytest
 
 from hivememory.system.config import KoakumaConfig
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.core.mtp.models import MTPVerb
+from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTPVerb
 
 from .conftest import build_resumed_history, simulate_kernel_loop_single
 
@@ -26,7 +26,7 @@ class TestSyscallViaMTP:
 
     def test_clock_response_format(self, koakuma):
         result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_clock |")
-        assert "⟪" in result.formatted_response
+        assert MTP_LEFT_DELIMITER not in result.formatted_response
         assert '<mtp_response status="success"' in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
 
@@ -66,27 +66,30 @@ class TestSyscallViaMTP:
         result = simulate_kernel_loop_single(
             koakuma, '⟪ RUN | sys_python_repl | code="import os"'
         )
-        assert result.success is True  # handler 返回 error string
-        assert "Error" in result.response_content
+        assert result.success is False  # syscall 错误升级为 SyscallInternalError
+        assert result.response_content == ""
+        assert "import" in result.formatted_response.lower()
 
     def test_repl_runtime_error_via_mtp(self, koakuma):
         result = simulate_kernel_loop_single(
             koakuma, '⟪ RUN | sys_python_repl | code="1/0"'
         )
-        assert result.success is True
-        assert "runtime errors" in result.response_content.lower()
+        assert result.success is False
+        assert result.response_content == ""
+        assert "runtime errors" in result.formatted_response.lower()
 
     def test_repl_no_output_via_mtp(self, koakuma):
         result = simulate_kernel_loop_single(
             koakuma, '⟪ RUN | sys_python_repl | code="x = 42"'
         )
         assert result.success is True
-        assert "no output" in result.response_content.lower()
+        assert "no output" in result.response_content.lower() or "无输出" in result.response_content
 
     def test_web_search_missing_query_via_mtp(self, koakuma):
         result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_web_search |")
-        assert result.success is True
-        assert "query" in result.response_content.lower()
+        assert result.success is False  # 缺少 query 参数，SyscallInternalError
+        assert result.response_content == ""
+        assert "query" in result.formatted_response.lower()
 
     def test_clock_natural_language_response(self, koakuma):
         """响应是人类可读的时间字符串，不是 JSON"""
@@ -130,20 +133,26 @@ class TestFileIOViaMTP:
         result = simulate_kernel_loop_single(
             file_koakuma, '⟪ RUN | sys_read_file | path="nonexistent.txt"'
         )
-        assert "not found" in result.response_content.lower()
+        assert result.response_content == ""
+        assert (
+            "not found" in result.formatted_response.lower()
+            or "文件未找到" in result.formatted_response
+        )
 
     def test_read_file_path_traversal_via_mtp(self, file_koakuma):
         result = simulate_kernel_loop_single(
             file_koakuma, '⟪ RUN | sys_read_file | path="../../etc/passwd"'
         )
-        assert "denied" in result.response_content.lower() or "escape" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "denied" in result.formatted_response.lower() or "escape" in result.formatted_response.lower()
 
     def test_read_file_binary_rejected_via_mtp(self, file_koakuma, workspace):
         (workspace / "binary.dat").write_bytes(b"\x00\x01\x02\x03" * 128)
         result = simulate_kernel_loop_single(
             file_koakuma, '⟪ RUN | sys_read_file | path="binary.dat"'
         )
-        assert "binary" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "binary" in result.formatted_response.lower()
 
     def test_read_file_truncation_via_mtp(self, file_koakuma, workspace):
         (workspace / "large.txt").write_text("x" * 200000, encoding="utf-8")
@@ -177,7 +186,8 @@ class TestFileIOViaMTP:
             file_koakuma,
             '⟪ RUN | sys_write_file | path="../../evil.txt" content="pwned"',
         )
-        assert "denied" in result.response_content.lower() or "escape" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "denied" in result.formatted_response.lower() or "escape" in result.formatted_response.lower()
 
     def test_write_file_auto_create_dirs_via_mtp(self, file_koakuma, workspace):
         result = simulate_kernel_loop_single(
@@ -196,19 +206,22 @@ class TestSyscallErrorRecovery:
     def test_unknown_tool_guides_search(self, koakuma):
         result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_nonexistent_tool |")
         assert result.success is False
-        assert "not found" in result.response_content.lower()
-        assert "SEARCH" in result.response_content
+        assert result.response_content == ""
+        assert "not found" in result.formatted_response.lower()
+        assert "SEARCH" in result.formatted_response
 
     def test_invalid_verb_error(self, koakuma):
         result = asyncio.run(koakuma.execute_mtp("⟪ DELETE | * | ⟫"))
         assert result.success is False
         assert result.command is None
-        assert "syntax error" in result.response_content.lower()
+        assert result.response_content == ""
+        assert "syntax error" in result.formatted_response.lower()
 
     def test_missing_code_arg(self, koakuma):
         result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_python_repl |")
-        assert result.success is True
-        assert "code" in result.response_content.lower()
+        assert result.success is False
+        assert result.response_content == ""
+        assert "code" in result.formatted_response.lower()
 
     def test_error_response_xml_format(self, koakuma):
         result = asyncio.run(koakuma.execute_mtp("⟪ RUN | fake_tool | ⟫"))

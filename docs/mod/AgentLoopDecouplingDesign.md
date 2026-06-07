@@ -2,7 +2,7 @@
 
 **文档状态**: Draft (草案)
 **适用范围**: `alice/runtime/agent/loop_executor.py`、`alice/runtime/agent/runtime.py`、`alice/runtime/agent/frame_scheduler.py`、`alice/runtime/agent/profile_resolver.py`、拟新建的编排驱动器、`core/protocol/models.py` 中的 `ChatResult`
-**核心目标**: 把 `KernelLoopExecutor` 彻底打造成单 Agent 执行循环总控，将所有多智能体编排逻辑（CALL 派生、子帧调度、别名收割、IPC 组装、context_refs 继承、流式子帧合并）移出到 alice 侧的编排驱动器。本期是纯解耦重构，外部可观察行为零变化，且不迁移物理目录。
+**核心目标**: 把 `AgentLoopExecutor` 彻底打造成单 Agent 执行循环总控，将所有多智能体编排逻辑（CALL 派生、子帧调度、别名收割、IPC 组装、context_refs 继承、流式子帧合并）移出到 alice 侧的编排驱动器。本期是纯解耦重构，外部可观察行为零变化，且不迁移物理目录。
 
 ---
 
@@ -12,7 +12,7 @@
 
 本期就是那个"逻辑先"：
 
-- 把 `KernelLoopExecutor.execute_frame` 收敛为纯引擎循环：generate → MTP → 回填，遇 CALL 即挂起返回，**绝不自我编排**。
+- 把 `AgentLoopExecutor.execute_frame` 收敛为纯引擎循环：generate → MTP → 回填，遇 CALL 即挂起返回，**绝不自我编排**。
 - 把编排逻辑上移到一个新的编排驱动器，承接 `run_agent` / `run_agent_stream`，由它驱动引擎。
 - 完成边界文档 §5 的接口契约：引擎 `run_frame(frame) -> FrameExecutionResult`（收敛或挂起），编排 `run_agent(...)` 驱动引擎。
 
@@ -28,7 +28,7 @@
 
 ### 2.1 五个依赖的层归属
 
-`KernelLoopExecutor.__init__` 当前注入五个依赖，按边界文档判定规则归层：
+`AgentLoopExecutor.__init__` 当前注入五个依赖，按边界文档判定规则归层：
 
 | 依赖 | 引擎需要 | 当前用途 | 归属 |
 | :--- | :---: | :--- | :--- |

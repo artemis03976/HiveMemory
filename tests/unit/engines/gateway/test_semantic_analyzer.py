@@ -8,6 +8,14 @@ from hivememory.engines.gateway.models import GatewayIntent, SemanticAnalysisRes
 from hivememory.engines.gateway.semantic_analyzer import LLMAnalyzer
 from hivememory.utils.json_parser import JSONParseError
 from hivememory.prompts.gateway import get_gateway_system_prompt
+from hivememory.i18n import set_default_language
+
+
+@pytest.fixture(autouse=True)
+def reset_i18n():
+    set_default_language("zh")
+    yield
+    set_default_language("zh")
 
 
 class TestLLMAnalyzer:
@@ -104,11 +112,11 @@ class TestLLMAnalyzer:
         ]
 
     def test_default_language_is_used_for_gateway_prompt(self, mock_llm_service):
+        set_default_language("en")
         config = LLMAnalyzerConfig()
         analyzer = LLMAnalyzer(
             llm_service=mock_llm_service,
             config=config,
-            default_language="en",
         )
 
         assert analyzer.language == "en"

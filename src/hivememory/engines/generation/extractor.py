@@ -53,7 +53,6 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         self,
         config: ExtractorConfig,
         llm_service: BaseLLMService = None,
-        default_language: str | None = None,
     ):
         """
         初始化 LLM 提取器
@@ -64,7 +63,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         """
 
         self.llm_service = llm_service
-        self.language = resolve_language(default_language=default_language)
+        self.language = resolve_language()
         self.normal_system_prompt = get_generation_prompt_text(
             "passive", "system_prompt", self.language,
         )
@@ -311,7 +310,6 @@ class NoOpMemoryExtractor(BaseMemoryExtractor):
 def create_extractor(
     config: ExtractorConfig,
     llm_service: BaseLLMService,
-    default_language: str | None = None,
 ) -> BaseMemoryExtractor:
     """
     创建记忆提取器（支持配置）
@@ -339,7 +337,6 @@ def create_extractor(
     return LLMMemoryExtractor(
         llm_service=llm_service,
         config=config,
-        default_language=default_language,
     )
 
 
