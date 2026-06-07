@@ -14,11 +14,11 @@ class TestSysPythonRepl:
 
     def test_simple_calculation(self):
         result = sys_python_repl({"code": "print(1 + 1)"})
-        assert result.content == "Stdout: 2"
+        assert result.content == "标准输出：2"
 
     def test_no_output(self):
         result = sys_python_repl({"code": "x = 1"})
-        assert "no output" in result.content.lower() or "无输出" in result.content
+        assert "无输出" in result.content
 
     def test_missing_code_arg(self):
         with pytest.raises(SyscallInvalidArgumentError) as exc_info:
@@ -57,7 +57,7 @@ class TestSysPythonRepl:
     def test_multiline_code(self):
         code = "x = 10\ny = 20\nprint(x + y)"
         result = sys_python_repl({"code": code})
-        assert result.content == "Stdout: 30"
+        assert result.content == "标准输出：30"
 
     def test_runtime_error(self):
         with pytest.raises(SyscallExecutionError) as exc_info:
@@ -76,20 +76,20 @@ class TestSysPythonRepl:
 
     def test_safe_builtins_available(self):
         result = sys_python_repl({"code": "print(len(list(range(5))))"})
-        assert result.content == "Stdout: 5"
+        assert result.content == "标准输出：5"
 
     def test_sorted_builtin(self):
         result = sys_python_repl({"code": "print(sorted([3, 1, 2]))"})
-        assert result.content == "Stdout: [1, 2, 3]"
+        assert result.content == "标准输出：[1, 2, 3]"
 
     def test_math_operations(self):
         result = sys_python_repl({"code": "print(pow(2, 10))"})
-        assert result.content == "Stdout: 1024"
+        assert result.content == "标准输出：1024"
 
     def test_string_operations(self):
         result = sys_python_repl({"code": "print('hello'.upper())"})
-        assert result.content == "Stdout: HELLO"
+        assert result.content == "标准输出：HELLO"
 
     def test_list_comprehension(self):
         result = sys_python_repl({"code": "print([x**2 for x in range(5)])"})
-        assert result.content == "Stdout: [0, 1, 4, 9, 16]"
+        assert result.content == "标准输出：[0, 1, 4, 9, 16]"

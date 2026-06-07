@@ -36,7 +36,7 @@ class TestSysReadFile:
 
         result = sys_read_file({"path": "large.txt"}, workspace=str(tmp_path), max_bytes=50)
 
-        assert "Truncated" in result.content
+        assert "已截断" in result.content
 
     def test_missing_path_arg(self):
         with pytest.raises(SyscallInvalidArgumentError) as exc_info:
@@ -71,7 +71,7 @@ class TestSysWriteFile:
             workspace=str(tmp_path),
         )
 
-        assert "Success" in result.content
+        assert "成功" in result.content
         assert (tmp_path / "output.txt").read_text(encoding="utf-8") == "Hello"
 
     def test_path_traversal_blocked(self, tmp_path):
@@ -113,7 +113,7 @@ class TestSysWriteFile:
             workspace=str(tmp_path),
         )
 
-        assert "Success" in result.content
+        assert "成功" in result.content
         assert (tmp_path / "append.txt").read_text(encoding="utf-8") == "line1\nline2\n"
 
     def test_invalid_mode(self, tmp_path):
@@ -131,7 +131,7 @@ class TestSysWriteFile:
             workspace=str(tmp_path),
         )
 
-        assert "Success" in result.content
+        assert "成功" in result.content
         assert (tmp_path / "sub" / "dir" / "file.txt").exists()
 
     def test_overwrite_existing(self, tmp_path):
@@ -142,5 +142,5 @@ class TestSysWriteFile:
             workspace=str(tmp_path),
         )
 
-        assert "Success" in result.content
+        assert "成功" in result.content
         assert (tmp_path / "exist.txt").read_text(encoding="utf-8") == "new content"

@@ -159,7 +159,7 @@ class TestFileIOViaMTP:
         result = simulate_kernel_loop_single(
             file_koakuma, '⟪ RUN | sys_read_file | path="large.txt"'
         )
-        assert "truncated" in result.response_content.lower()
+        assert "已截断" in result.response_content
 
     def test_write_file_via_mtp(self, file_koakuma, workspace):
         result = simulate_kernel_loop_single(
@@ -167,7 +167,7 @@ class TestFileIOViaMTP:
             '⟪ RUN | sys_write_file | path="output.txt" content="Hello, World!"',
         )
         assert result.success is True
-        assert "success" in result.response_content.lower()
+        assert "成功" in result.response_content
         assert (workspace / "output.txt").read_text(encoding="utf-8") == "Hello, World!"
 
     def test_write_file_append_via_mtp(self, file_koakuma, workspace):
