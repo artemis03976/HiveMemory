@@ -453,6 +453,34 @@ class TestPendingAtomCompilation:
         assert "settled" in artifact.text.lower()
         assert "fact_hello" in artifact.text
 
+    def test_settled_mtp_read_empty_canonical_uses_placeholder(self, compiler, settled_pending):
+        settled_pending.settlement = settled_pending.settlement.model_copy(
+            update={"canonical_alias": None}
+        )
+
+        zh_artifact = compiler.compile(settled_pending, MemoryCompileTarget.MTP_READ)
+        en_artifact = compiler.compile(
+            settled_pending,
+            MemoryCompileTarget.MTP_READ,
+            MemoryCompileOptions(language="en"),
+        )
+
+        assert "\u6b63\u5f0f\u540d\u79f0\uff1a\u65e0" in zh_artifact.text
+        assert "Canonical alias: None" in en_artifact.text
+
+    def test_pending_mtp_read_empty_title_uses_placeholder(self, compiler, write_pending):
+        write_pending.focus = write_pending.focus.model_copy(update={"title": ""})
+
+        zh_artifact = compiler.compile(write_pending, MemoryCompileTarget.MTP_READ)
+        en_artifact = compiler.compile(
+            write_pending,
+            MemoryCompileTarget.MTP_READ,
+            MemoryCompileOptions(language="en"),
+        )
+
+        assert "\u6807\u9898\uff1a\u65e0" in zh_artifact.text
+        assert "title: None" in en_artifact.text
+
     def test_failed_mtp_read_shows_error(self, compiler, failed_pending):
         artifact = compiler.compile(failed_pending, MemoryCompileTarget.MTP_READ)
         assert "failed" in artifact.text.lower()
@@ -603,6 +631,8 @@ class TestResolveResultCompilation:
         artifact = compiler.compile(failed_resolve, MemoryCompileTarget.MTP_READ, opts)
         assert "failed" in artifact.text.lower()
         assert "generation failed" in artifact.text
+        assert "\u6d88\u606f\uff1a\u65e0" in artifact.text
+        assert "\u539f\u56e0\uff1a\u65e0" in artifact.text
 
     def test_expired_mtp_read(self, compiler, expired_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_expired")
