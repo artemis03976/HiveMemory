@@ -33,7 +33,7 @@ from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 # 复用 MTPLoopRunner 和 LLM fixture 工厂
-from tests.unit.alice.runtime.syscalls.live_support import (
+from tests.unit.agent_runtime.mtp.syscalls.live_support import (
     MTPLoopRunner,
     _get_llm_config,
     _create_llm_service,

@@ -18,7 +18,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
 
-from tests.unit.patchouli.mtp.conftest import make_mock_bus
+from tests.unit.agent_runtime.mtp.conftest import make_mock_bus
 
 
 def _make_memory(alias: str, content: str = "content") -> MemoryAtom:

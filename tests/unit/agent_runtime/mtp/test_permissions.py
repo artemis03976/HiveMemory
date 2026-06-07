@@ -9,7 +9,7 @@ from hivememory.core.mtp.exceptions import AgentFault, PermissionDeniedError
 
 
 def _create_koakuma():
-    from tests.unit.patchouli.mtp.conftest import make_koakuma_runtime, make_mock_bus
+    from tests.unit.agent_runtime.mtp.conftest import make_koakuma_runtime, make_mock_bus
 
     bus = make_mock_bus()
     return make_koakuma_runtime(bus)
