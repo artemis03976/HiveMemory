@@ -1,7 +1,9 @@
-"""Chat 路由 — POST /api/v1/chat (SSE 流式响应)"""
+"""Chat routes for POST /api/v1/chat and /api/v1/chat/stop."""
 
+import asyncio
 import json
 import logging
+from contextlib import suppress
 
 from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
@@ -20,33 +22,43 @@ async def chat(
     body: ChatRequest,
     service: ChatApplicationService = Depends(get_chat_service),
 ):
-    """
-    主动对话接口 — SSE 流式响应
-
-    SSE 事件类型:
-    - token: {"content": "...", "scope": "main|sub", ...} — LLM 文本增量
-    - mtp_start: {"verb": "...", "iteration": N, "scope": "..."} — MTP 指令被拦截
-    - mtp_result: {"verb": "...", "status": "...", "iteration": N, "scope": "..."} — MTP 执行完成
-    - sub_agent_start: {"agent_id": "...", "task": "..."} — 子 Agent 生命周期开始
-    - sub_agent_end: {"status": "success|error", ...} — 子 Agent 生命周期结束
-    - topic_info: {"topic_id": "...", "is_new": bool} — 话题路由结果
-    - done: {"final_text": "...", "status": "...", "stopped": bool, "reason": ...} — 生成完成
-    - error: {"message": "..."} — 错误发生
-    """
+    """Stream an active chat run over SSE."""
     generation_id = None
 
     async def event_generator():
         nonlocal generation_id
+        stream = None
         try:
-            async for event in service.chat_stream(
+            stream = service.chat_stream(
                 user_message=body.message,
                 user_id=body.user_id,
                 agent_id=body.agent_id,
                 session_id=body.session_id,
                 enable_memory_retrieval=body.enable_memory_retrieval,
-                generation_options=body.generation_options.model_dump(exclude_none=True) if body.generation_options else None,
-            ):
-                # 拿到 generation_id 后备用（用于 disconnect 时取消）
+                generation_options=(
+                    body.generation_options.model_dump(exclude_none=True)
+                    if body.generation_options
+                    else None
+                ),
+            )
+
+            while True:
+                next_event_task = asyncio.create_task(stream.__anext__())
+                while not next_event_task.done():
+                    if await request.is_disconnected():
+                        if generation_id:
+                            service.cancel_generation(generation_id)
+                        next_event_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await next_event_task
+                        return
+                    await asyncio.sleep(0.1)
+
+                try:
+                    event = next_event_task.result()
+                except StopAsyncIteration:
+                    break
+
                 if event["event"] == "generation_id":
                     generation_id = event["data"].get("generation_id")
 
@@ -55,14 +67,17 @@ async def chat(
                     "data": json.dumps(event["data"], ensure_ascii=False, default=str),
                 }
 
-                # 每次 yield 后检查客户端是否已断连
                 if await request.is_disconnected():
                     if generation_id:
                         service.cancel_generation(generation_id)
                     break
 
+        except asyncio.CancelledError:
+            if generation_id:
+                service.cancel_generation(generation_id)
+            raise
         except Exception as e:
-            logger.error(f"chat 路由流异常: {e}", exc_info=True)
+            logger.error(f"chat route stream error: {e}", exc_info=True)
             yield {
                 "event": "error",
                 "data": json.dumps(
@@ -70,6 +85,9 @@ async def chat(
                     ensure_ascii=False,
                 ),
             }
+        finally:
+            if stream is not None:
+                await stream.aclose()
 
     return EventSourceResponse(event_generator())
 
@@ -79,7 +97,7 @@ async def stop_chat(
     request: StopChatRequest,
     service: ChatApplicationService = Depends(get_chat_service),
 ):
-    """幂等取消正在进行的流式生成。返回结构化 CancelResult。"""
+    """Idempotently cancel an active streaming generation."""
     result = service.cancel_generation(request.generation_id)
     return {
         "generation_id": result.generation_id,

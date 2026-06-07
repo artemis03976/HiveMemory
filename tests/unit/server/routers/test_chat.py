@@ -8,6 +8,7 @@ Chat 路由单元测试
 """
 
 import json
+import asyncio
 import pytest
 from uuid import uuid4
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.server.routers.chat import router
+from hivememory.server.routers.chat import chat
 from hivememory.server.models.chat import ChatRequest
 
 
@@ -208,3 +210,40 @@ class TestChatRouter:
         assert len(memory_events) == 1
         memory_id = memory_events[0]["data"]["memories"][0]["id"]
         assert isinstance(memory_id, str)
+
+    @pytest.mark.asyncio
+    async def test_disconnect_while_waiting_for_next_event_cancels_generation(self):
+        mock_service = MagicMock()
+        blocker = asyncio.Event()
+
+        async def fake_stream(**kwargs):
+            try:
+                yield {"event": "generation_id", "data": {"generation_id": "gen-1"}}
+                await blocker.wait()
+                yield {"event": "done", "data": {"final_text": "late"}}
+            finally:
+                blocker.set()
+
+        disconnect_checks = 0
+
+        class FakeRequest:
+            async def is_disconnected(self):
+                nonlocal disconnect_checks
+                disconnect_checks += 1
+                return disconnect_checks >= 3
+
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.cancel_generation = MagicMock()
+
+        response = await chat(
+            request=FakeRequest(),
+            body=ChatRequest(message="hello", user_id="test"),
+            service=mock_service,
+        )
+
+        first_chunk = await response.body_iterator.__anext__()
+        assert first_chunk["event"] == "generation_id"
+        with pytest.raises(StopAsyncIteration):
+            await response.body_iterator.__anext__()
+
+        mock_service.cancel_generation.assert_called_once_with("gen-1")

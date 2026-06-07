@@ -86,6 +86,7 @@ class AgentRuntime:
         frame: "ExecutionFrame",
         generation_options: Optional[Dict[str, Any]] = None,
         stream_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+        cancel_event=None,
     ) -> "FrameExecutionResult":
         """跑一个 frame，逐 token 推给 stream_emitter（供编排跑流式子帧）。"""
         return await self._loop_executor.execute_frame(
@@ -94,6 +95,7 @@ class AgentRuntime:
             generation_options=generation_options,
             stream_emitter=stream_emitter,
             use_stream_generation=stream_emitter is not None,
+            cancel_event=cancel_event,
         )
 
     def mark_task_failed(self, pending_alias: str) -> None:
