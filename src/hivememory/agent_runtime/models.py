@@ -141,7 +141,7 @@ class FrameExecutionResult:
     # ---- status == SUSPENDED 时填充 ----
     # 触发 CALL 的派生请求（target_alias / task / context_refs）。
     call_request: Optional[MTPCallRequest] = None
-    # 触发 CALL 的 result.text，编排负责 append 到 working_history（带 ⟫ 收尾）。
+    # WorkerAgent already normalizes the suspended MTP text with a right delimiter.
     suspend_assistant_text: Optional[str] = None
     # 供编排回填 tool_result TurnEvent 的 action_id。
     suspend_action_id: Optional[str] = None

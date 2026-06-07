@@ -79,7 +79,14 @@ def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
 
 
 def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
-    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
+    from .conftest import normalize_worker_agent_mtp_output
+
+    return asyncio.run(
+        koakuma.intercept_and_execute(
+            normalize_worker_agent_mtp_output(assistant_text),
+            context=context,
+        )
+    )
 
 
 def _handle_search(koakuma: KoakumaRuntime, args, context=None):

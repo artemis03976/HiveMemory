@@ -18,6 +18,7 @@ from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.agent_runtime.cache import KoakumaAtomCache
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
+from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 
 
 class MockAsyncBus(AsyncSystemBus):
@@ -131,3 +132,13 @@ def make_koakuma_runtime(bus: MockAsyncBus, config=None):
         config=config or KoakumaConfig(),
         alias_resolver=make_runtime_alias_resolver(bus),
     )
+
+
+def normalize_worker_agent_mtp_output(text: str) -> str:
+    """模拟 WorkerAgent 在检测到 MTP 指令后补全右定界符的输出。"""
+    last_open = text.rfind(MTP_LEFT_DELIMITER)
+    if last_open == -1:
+        return text
+    if MTP_RIGHT_DELIMITER in text[last_open:]:
+        return text
+    return text.rstrip() + " " + MTP_RIGHT_DELIMITER

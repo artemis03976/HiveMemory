@@ -30,7 +30,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
-    MTP_RIGHT_DELIMITER,
     MTPVerb,
     MTPResponseStatus,
     MTPCommand,
@@ -103,8 +102,8 @@ class KoakumaRuntime:
     无状态计算服务，负责 MTP 协议的解析、路由和执行。
 
     职责:
-        1. 接收被截断的 LLM 输出文本
-        2. 补全并解析 MTP 指令
+        1. 接收已由 WorkerAgent 归一化的 MTP 输出文本
+        2. 解析 MTP 指令
         3. 路由到对应的内核服务 (Retrieval/Librarian)
         4. 格式化执行结果为 XML 响应容器
         5. 返回回填文本供 Kernel 注入 Assistant 历史
@@ -218,13 +217,13 @@ class KoakumaRuntime:
         执行 MTP 指令 (主入口)
 
         完整流程:
-        1. 补全并解析指令
+        1. 解析指令
         2. 路由到对应处理器
         3. 格式化响应
         4. 构建回填文本
 
         Args:
-            text: 原始 MTP 指令文本 (可能不含闭合 ⟫)
+            text: 已规范化的 MTP 指令文本
 
         Returns:
             MTPExecutionResult: 执行结果
@@ -233,8 +232,8 @@ class KoakumaRuntime:
 
         try:
             language = _resolve_context_language(context)
-            # Step 1: 补全并解析
-            command = self._parser.complete_and_parse(text)
+            # Step 1: 解析
+            command = self._parser.parse(text)
 
             # Step 2: 路由执行
             response = await self._route_and_execute(
@@ -290,12 +289,11 @@ class KoakumaRuntime:
 
         拦截流程:
         1. 捕获 (Capture): 查找最后一个 ⟪
-        2. 补全 (Completion): 自动追加 ⟫
-        3. 解析 (Parsing): 提取 VERB, TARGET, ARGS
-        4. 挂起 (Suspend): 进入内核态执行
+        2. 解析 (Parsing): 提取 VERB, TARGET, ARGS
+        3. 挂起 (Suspend): 进入内核态执行
 
         Args:
-            assistant_text: LLM 生成的完整文本 (在 ⟫ 处被截断)
+            assistant_text: 已由 WorkerAgent 补全右定界符的 LLM 输出文本
 
         Returns:
             MTPExecutionResult 如果检测到指令，否则 None
@@ -306,10 +304,6 @@ class KoakumaRuntime:
 
         # 提取从 ⟪ 开始的文本片段
         mtp_fragment = assistant_text[last_open:]
-
-        # 补全 ⟫ 并执行
-        if MTP_RIGHT_DELIMITER not in mtp_fragment:
-            mtp_fragment = mtp_fragment.rstrip() + " " + MTP_RIGHT_DELIMITER
 
         return await self.execute_mtp(mtp_fragment, context=context)
 

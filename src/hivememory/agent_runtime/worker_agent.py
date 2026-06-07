@@ -33,6 +33,7 @@ from hivememory.system.config import LLMConfig
 from hivememory.agent_runtime.models import GenerationResult, StreamChunk
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
+    MTP_RIGHT_DELIMITER,
     MTP_STOP_SEQUENCE,
 )
 
@@ -81,6 +82,16 @@ class WorkerAgentService:
             params["top_p"] = top_p
         return params
 
+    @staticmethod
+    def _normalize_mtp_interrupted_text(text: str, last_open: int) -> str:
+        """Normalize stop-sequence-truncated MTP text before downstream parsing."""
+        if last_open == -1:
+            return text
+        mtp_fragment = text[last_open:]
+        if MTP_RIGHT_DELIMITER in mtp_fragment:
+            return text
+        return text.rstrip() + " " + MTP_RIGHT_DELIMITER
+
     async def generate_async(
         self,
         messages: List[Dict[str, str]],
@@ -117,6 +128,7 @@ class WorkerAgentService:
         was_mtp = finish_reason == "stop" and last_open != -1
 
         if was_mtp:
+            text = self._normalize_mtp_interrupted_text(text, last_open)
             logger.info(
                 f"MTP 中断检测: ⟪ 位于 offset={last_open}, "
                 f"prefix_len={last_open}, fragment_len={len(text) - last_open}"
@@ -228,6 +240,7 @@ class WorkerAgentService:
         was_mtp = finish_reason == "stop" and last_open != -1
 
         if was_mtp:
+            full_text = self._normalize_mtp_interrupted_text(full_text, last_open)
             logger.info(
                 f"流式 MTP 中断检测: ⟪ 位于 offset={last_open}, "
                 f"prefix_len={last_open}, fragment_len={len(full_text) - last_open}"

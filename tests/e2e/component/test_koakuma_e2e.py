@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 from hivememory.core.models import Identity
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
+    MTP_RIGHT_DELIMITER,
     MTPVerb,
 )
 from hivememory.core.protocol.models import MTPExecutionResult, RetrievalResponse
@@ -311,7 +312,7 @@ class TestKoakumaInterception:
         mock_memory.payload.content = "test content"
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        text = "Let me check the documentation. ⟪ READ | fact_a |"
+        text = f"Let me check the documentation. ⟪ READ | fact_a | {MTP_RIGHT_DELIMITER}"
         result = koakuma.intercept_and_execute(text)
 
         assert result is not None
@@ -333,7 +334,7 @@ class TestKoakumaInterception:
         mock_memory.payload.content = "test content"
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        text = "Previous text... ⟪ READ | fact_b |"
+        text = f"Previous text... ⟪ READ | fact_b | {MTP_RIGHT_DELIMITER}"
         result = koakuma.intercept_and_execute(text)
 
         assert result is not None

@@ -1,4 +1,4 @@
-﻿"""
+"""
 WorkerAgentService 单元测试
 
 测试覆盖:
@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
 from hivememory.system.config import LLMConfig
-from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
+from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER, MTP_STOP_SEQUENCE
 
 
 def _make_config() -> LLMConfig:
@@ -68,7 +68,8 @@ class TestWorkerAgentGenerateAsync:
 
         assert result.was_mtp_interrupted is True
         assert result.prefix_text == "前面的文本"
-        assert result.mtp_fragment == f"{MTP_LEFT_DELIMITER}READ|mem_doc"
+        assert result.text == f"前面的文本{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
+        assert result.mtp_fragment == f"{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
 
     @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
     async def test_length_limited_not_mtp(self, mock_completion):
@@ -108,6 +109,21 @@ class TestWorkerAgentGenerateAsync:
 
         assert result.was_mtp_interrupted is True
         assert result.prefix_text == ""
+        assert result.text == f"{text} {MTP_RIGHT_DELIMITER}"
+        assert result.mtp_fragment == f"{text} {MTP_RIGHT_DELIMITER}"
+
+    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    async def test_mtp_already_complete_not_completed_twice(self, mock_completion):
+        """已完整的 MTP 文本不会重复补右定界符。"""
+        text = f"{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
+        mock_completion.return_value = _make_response(text, "stop")
+
+        result = await self.service.generate_async(
+            [{"role": "user", "content": "test"}]
+        )
+
+        assert result.was_mtp_interrupted is True
+        assert result.text == text
         assert result.mtp_fragment == text
 
     @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
@@ -123,7 +139,8 @@ class TestWorkerAgentGenerateAsync:
         assert result.was_mtp_interrupted is True
         last_pos = text.rfind(MTP_LEFT_DELIMITER)
         assert result.prefix_text == text[:last_pos]
-        assert result.mtp_fragment == text[last_pos:]
+        assert result.text == f"{text} {MTP_RIGHT_DELIMITER}"
+        assert result.mtp_fragment == f"{text[last_pos:]} {MTP_RIGHT_DELIMITER}"
 
     @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
     async def test_llm_exception_propagated(self, mock_completion):
@@ -230,4 +247,3 @@ class TestWorkerAgentGenerateStream:
         assert stream_chunks[-1].is_final is True
         assert stream_chunks[-1].result is not None
         assert stream_chunks[-1].result.text == "AB"
-

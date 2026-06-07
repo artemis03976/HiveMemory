@@ -218,7 +218,7 @@ class AgentLoopExecutor:
 
             if mtp_result.response_status == "suspend":
                 # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 CALL response。
-                # 编排负责：append working_history(CALL文本+⟫) → fork子帧 → 跑子帧
+                # 编排负责：append 已归一化的 CALL 文本 → fork子帧 → 跑子帧
                 # → resume → harvest → 组 CALL response → append 回填 → 重入本帧。
                 if stream_emitter is not None:
                     mtp_suspend_data = {
@@ -255,7 +255,7 @@ class AgentLoopExecutor:
                 await stream_emitter({"event": "mtp_result", "data": mtp_result_data})
 
             frame.working_history.append(
-                {"role": "assistant", "content": result.text + "⟫"}
+                {"role": "assistant", "content": result.text}
             )
             frame.working_history.append({
                 "role": "user",

@@ -179,7 +179,7 @@ class AgentOrchestrator:
         logger.info(f"CALL suspend: target={cr.target_alias}, task='{cr.task[:80]}'")
 
         main_frame.working_history.append(
-            {"role": "assistant", "content": suspend_text + "⟫"}
+            {"role": "assistant", "content": suspend_text}
         )
 
         if emit is not None:

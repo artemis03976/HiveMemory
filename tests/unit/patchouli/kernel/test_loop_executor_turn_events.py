@@ -33,7 +33,7 @@ from hivememory.core.models import (
     TurnEvent,
 )
 from hivememory.core.protocol.models import MTPExecutionResult
-from hivememory.core.mtp import MTPCallRequest
+from hivememory.core.mtp import MTPCallRequest, MTP_RIGHT_DELIMITER
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -46,11 +46,12 @@ def _natural_result(text: str) -> GenerationResult:
 
 
 def _mtp_result(prefix: str, mtp_text: str) -> GenerationResult:
+    text = mtp_text if mtp_text.endswith(MTP_RIGHT_DELIMITER) else f"{mtp_text} {MTP_RIGHT_DELIMITER}"
     return GenerationResult(
-        text=mtp_text,
+        text=text,
         was_mtp_interrupted=True,
         prefix_text=prefix,
-        mtp_fragment=mtp_text,
+        mtp_fragment=text,
     )
 
 
@@ -210,6 +211,7 @@ async def test_single_mtp_produces_four_events():
     assert cmd_ev.sequence == 1
     assert cmd_ev.role == "assistant"
     assert cmd_ev.tool_kind == "READ"
+    assert cmd_ev.content.endswith(MTP_RIGHT_DELIMITER)
 
     assert res_ev.kind == "tool_result"
     assert res_ev.sequence == 2
@@ -217,6 +219,7 @@ async def test_single_mtp_produces_four_events():
     assert res_ev.tool_kind == "READ"
     assert res_ev.status == "success"
     assert res_ev.render_as == "system_tool_result"
+    assert frame.working_history[-2]["content"] == cmd_ev.content
 
     assert final_ev.kind == "assistant_message"
     assert final_ev.sequence == 3
