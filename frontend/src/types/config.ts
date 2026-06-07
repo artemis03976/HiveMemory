@@ -148,6 +148,7 @@ export interface RerankerConfig {
   enabled: boolean;
   model_name: string;
   device: 'cpu' | 'cuda';
+  cache_dir: string | null;
   use_fp16: boolean;
   batch_size: number;
   top_k: number;

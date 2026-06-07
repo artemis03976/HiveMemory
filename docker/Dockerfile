@@ -82,15 +82,17 @@ with open("/app/configs/config.yaml", "r", encoding="utf-8") as f:
 
 embedding_cfg = (cfg.get("embedding") or {}).get("default") or {}
 embedding_model = embedding_cfg.get("model_name", CUSTOM_EMBEDDING_MODEL)
+embedding_cache_dir = embedding_cfg.get("cache_dir")
 
 reranker_cfg = (((cfg.get("retrieval") or {}).get("retriever") or {}).get("reranker") or {})
 reranker_model = reranker_cfg.get("model_name", "BAAI/bge-reranker-base")
+reranker_cache_dir = reranker_cfg.get("cache_dir")
 
 print(f"[preload] embedding={embedding_model}")
-TextEmbedding(model_name=embedding_model)
+TextEmbedding(model_name=embedding_model, cache_dir=embedding_cache_dir)
 
 print(f"[preload] reranker={reranker_model}")
-TextCrossEncoder(model_name=reranker_model)
+TextCrossEncoder(model_name=reranker_model, cache_dir=reranker_cache_dir)
 
 print("[preload] model predownload completed")
 PY

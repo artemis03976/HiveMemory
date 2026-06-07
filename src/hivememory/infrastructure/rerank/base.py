@@ -87,6 +87,7 @@ class SingletonModelService(BaseRerankService):
         self.config = config
         self.model_name = config.model_name
         self.device = config.device
+        self.cache_dir = config.cache_dir
         self.use_fp16 = config.use_fp16
         self._model = None
         self._lazy_load_lock = threading.Lock()

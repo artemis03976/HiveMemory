@@ -182,12 +182,14 @@ class AgentRunResult(BaseModel):
         total_iterations    → 统计
         turn_events         → ActionReducer → TraceReducer → 感知层
         materialize_tasks   → finalize 启动 mode b/c + 组 Settlement
+        cancelled           → v0.4.0: 取消路径标志；true 时 finalize 应跳过主动记忆生成
     """
     final_text: str = Field(default="")
     mtp_iterations: int = Field(default=0)
     total_iterations: int = Field(default=1)
     turn_events: List[Any] = Field(default_factory=list)
     materialize_tasks: List[PendingAtomMaterializeTask] = Field(default_factory=list)
+    cancelled: bool = Field(default=False)
 
 
 class EyeGazeResult(BaseModel):

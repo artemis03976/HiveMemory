@@ -57,6 +57,25 @@ class TestBGEM3EmbeddingService:
 
 
 class TestFastEmbedRerankerService:
+    def test_load_model_uses_configured_cache_dir(self):
+        config = RerankerConfig(
+            model_name="BAAI/bge-reranker-base",
+            cache_dir="data/model_cache",
+        )
+        service = FastEmbedRerankerService(config=config)
+        service._model = None
+        service.cache_dir = config.cache_dir
+
+        mock_cross_encoder_cls = MagicMock()
+
+        with patch("fastembed.rerank.cross_encoder.TextCrossEncoder", mock_cross_encoder_cls):
+            service._load_model()
+
+        mock_cross_encoder_cls.assert_called_once_with(
+            model_name="BAAI/bge-reranker-base",
+            cache_dir="data/model_cache",
+        )
+
     def test_compute_score_returns_float_scores_in_input_order(self):
         config = RerankerConfig(model_name="BAAI/bge-reranker-base")
         service = FastEmbedRerankerService(config=config)

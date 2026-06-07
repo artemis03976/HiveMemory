@@ -355,6 +355,7 @@ class RerankerConfig(BaseModel):
     enabled: bool = Field(default=True, description="是否启用重排序")
     model_name: str = Field(default="BAAI/bge-reranker-base", description="Reranker 模型名称")
     device: str = Field(default="cpu", description="运行设备: cpu/cuda")
+    cache_dir: Optional[str] = Field(default="data/model_cache", description="模型缓存目录")
     use_fp16: bool = Field(default=True, description="是否使用 FP16 精度")
     batch_size: int = Field(default=32, description="批处理大小")
     top_k: int = Field(default=20, description="仅重排序前N个结果")

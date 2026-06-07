@@ -332,8 +332,8 @@ class AgentLoopExecutor:
                     break
                 yield event
         finally:
-            if cancel_event is not None:
-                cancel_event.set()
+            # 不在此处 set cancel_event：正常完成路径不应污染外部共享 token。
+            # cancel_event 由 ChatApplicationService 独占管理。
             await task
 
     def _extract_command_info(self, command, raw_hint):
