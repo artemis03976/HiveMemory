@@ -51,7 +51,32 @@ class TestSysWebSearch:
         result = sys_web_search({"query": "python async"})
 
         assert "Result 1" in result.content
-        assert "Snippet: Snippet 1" in result.content
+        assert "摘要：Snippet 1" in result.content
+
+    def test_missing_result_fields_use_i18n_placeholder(self, monkeypatch):
+        """搜索结果缺字段时使用 syscall info 文本兜底。"""
+
+        class FakeDDGS:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def text(self, query, max_results):
+                return [{}]
+
+        monkeypatch.setitem(
+            sys.modules,
+            "duckduckgo_search",
+            SimpleNamespace(DDGS=FakeDDGS),
+        )
+
+        result = sys_web_search({"query": "python async"})
+
+        assert "标题：无" in result.content
+        assert "摘要：无" in result.content
+        assert "URL：无" in result.content
 
     def test_num_parameter_non_numeric(self, monkeypatch):
         """num 非数字时回退为 3。"""
@@ -75,7 +100,7 @@ class TestSysWebSearch:
 
         result = sys_web_search({"query": "test", "num": "abc"})
 
-        assert "No results found" in result.content
+        assert "未找到与 query 'test' 相关的结果。" in result.content
 
     def test_search_unavailable(self, monkeypatch):
         # 模拟依赖缺失，确认 handler 抛出结构化 unavailable 异常。

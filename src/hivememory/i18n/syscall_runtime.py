@@ -167,12 +167,13 @@ _SYSCALL_ERROR_TEXT_EN: dict[str, str] = {
 }
 
 _SYSCALL_INFO_TEXT_ZH: dict[str, str] = {
-    "syscall.repl.stdout": "Stdout: {output}",
+    "syscall.repl.stdout": "标准输出：{output}",
     "syscall.repl.no_output": "执行成功（无输出）。",
-    "syscall.file_read.truncated": "[Truncated: showing first {max_bytes} bytes of {file_size} bytes]",
-    "syscall.file_write.success": "Success: File '{name}' saved ({bytes} bytes).",
-    "syscall.web_search.no_results": "No results found for query: '{query}'",
-    "syscall.web_search.result_item": "[{index}] Title: {title}\nSnippet: {snippet}\nURL: {url}",
+    "syscall.file_read.truncated": "[已截断：显示 {file_size} 字节中的前 {max_bytes} 字节]",
+    "syscall.file_write.success": "成功：文件 '{name}' 已保存（{bytes} 字节）。",
+    "syscall.web_search.no_results": "未找到与 query '{query}' 相关的结果。",
+    "syscall.web_search.result_item": "[{index}] 标题：{title}\n摘要：{snippet}\nURL：{url}",
+    "syscall.web_search.field_empty": "无",
 }
 
 _SYSCALL_INFO_TEXT_EN: dict[str, str] = {
@@ -182,6 +183,7 @@ _SYSCALL_INFO_TEXT_EN: dict[str, str] = {
     "syscall.file_write.success": "Success: File '{name}' saved ({bytes} bytes).",
     "syscall.web_search.no_results": "No results found for query: '{query}'",
     "syscall.web_search.result_item": "[{index}] Title: {title}\nSnippet: {snippet}\nURL: {url}",
+    "syscall.web_search.field_empty": "N/A",
 }
 
 

@@ -289,13 +289,13 @@ _PENDING_ATOM_TEXT_EN = {
     "pending_read_failed": (
         "[{pending_alias}] (failed):"
         "error: {error}\n"
-        "Sugggestion: Re-issue a WRITE/UPDATE command to retry."
+        "Suggestion: Re-issue a WRITE/UPDATE command to retry."
     ),
     "pending_read_settled": (
         "[{pending_alias}] (materialized):"
         "This pending atom has been materialized.\n"
         "Canonical alias: {canonical_alias}\n"
-        "Sugggestion: Use the canonical alias for future access."
+        "Suggestion: Use the canonical alias for future access."
     ),
     "pending_read_discarded": (
         "[{pending_alias}] (discarded):"
@@ -310,7 +310,7 @@ _PENDING_ATOM_TEXT_EN = {
     "pending_read_expired": (
         "[{pending_alias}] (expired):"
         "This handle has been reclaimed. The pending atom no longer exists in runtime.\n"
-        "Sugggestion: Use SEARCH to locate the finalized memory if needed."
+        "Suggestion: Use SEARCH to locate the finalized memory if needed."
     ),
 }
 

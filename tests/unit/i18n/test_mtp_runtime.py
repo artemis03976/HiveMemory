@@ -182,6 +182,19 @@ def test_get_syscall_info_text_en():
     )
 
     assert text == "Success: File 'note.txt' saved (12 bytes)."
+    assert get_syscall_info_text("syscall.web_search.field_empty", language="en") == "N/A"
+
+
+def test_get_syscall_info_text_zh():
+    """syscall info 文本应支持中文渲染。"""
+    text = get_syscall_info_text(
+        "syscall.web_search.result_item",
+        {"index": 1, "title": "标题", "snippet": "摘要", "url": "https://example.com"},
+        "zh",
+    )
+
+    assert "标题：标题" in text
+    assert "摘要：摘要" in text
 
 
 def test_get_syscall_text_missing_key_and_param_raise_key_error():

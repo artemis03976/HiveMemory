@@ -60,10 +60,11 @@ def sys_web_search(args: Dict[str, str], *, timeout_seconds: int = 15) -> Syscal
         )
 
     lines = []
+    field_empty = get_syscall_info_text("syscall.web_search.field_empty")
     for i, r in enumerate(results, 1):
-        title = r.get("title", "N/A")
-        snippet = r.get("body", "N/A")
-        url = r.get("href", "N/A")
+        title = r.get("title") or field_empty
+        snippet = r.get("body") or field_empty
+        url = r.get("href") or field_empty
         lines.append(
             get_syscall_info_text(
                 "syscall.web_search.result_item",
