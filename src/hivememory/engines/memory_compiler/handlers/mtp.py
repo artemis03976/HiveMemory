@@ -44,23 +44,6 @@ def compile_mtp_read(
     return build_artifact(unit, target, text, options)
 
 
-def compile_mtp_redirect_notice(
-    unit: MemoryUnitIR,
-    target: MemoryCompileTarget,
-    options: MemoryCompileOptions,
-) -> CompiledMemoryArtifact:
-    if not unit.status.is_redirect:
-        raise ValueError(f"Unsupported source '{unit.identity.source_kind}' for target '{target}'.")
-    text = _resolve_text("resolve_redirect_run_notice", options.language).format(
-        requested_alias=format_optional_field(
-            unit.identity.redirected_from or options.requested_alias,
-            options.language,
-        ),
-        canonical_alias=format_optional_field(unit.identity.alias, options.language),
-    )
-    return build_artifact(unit, target, text, options)
-
-
 def _render_redirect_read(unit: MemoryUnitIR, options: MemoryCompileOptions) -> str:
     return _resolve_text("resolve_redirect_read", options.language).format(
         requested_alias=format_optional_field(

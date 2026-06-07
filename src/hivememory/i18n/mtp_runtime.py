@@ -374,6 +374,12 @@ _WARNING_TEXT_ZH: dict[str, str] = {
     "mtp.search.rendered_context_missing": (
         "搜索已完成，但没有返回可渲染的上下文。"
     ),
+    "mtp.run.alias_redirected": (
+        "[Alias Redirected]"
+        "请求的别名: {requested_alias}"
+        "规范别名: {canonical_alias}\n"
+        "提示: 本次 RUN 已自动改用正式别名 '{canonical_alias}'。"
+    ),
 }
 
 _WARNING_TEXT_EN: dict[str, str] = {
@@ -404,6 +410,12 @@ _WARNING_TEXT_EN: dict[str, str] = {
     "mtp.search.no_memories_found": "No memories found. Try a different query.",
     "mtp.search.rendered_context_missing": (
         "Search completed, but no rendered context was returned."
+    ),
+    "mtp.run.alias_redirected": (
+        "[Alias Redirected]"
+        "Requested alias: {requested_alias}"
+        "Canonical alias: {canonical_alias}\n"
+        "Note: This RUN automatically used canonical alias '{canonical_alias}'."
     ),
 }
 

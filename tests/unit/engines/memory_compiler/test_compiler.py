@@ -608,12 +608,6 @@ class TestResolveResultCompilation:
         assert "draft_old" in artifact.text
         assert "fact_api" in artifact.text
 
-    def test_redirect_notice(self, compiler, redirect_resolve):
-        opts = MemoryCompileOptions(requested_alias="draft_old")
-        artifact = compiler.compile(redirect_resolve, MemoryCompileTarget.MTP_REDIRECT_NOTICE, opts)
-        assert "Alias Redirected" in artifact.text
-        assert "RUN" in artifact.text
-
     def test_redirect_shared_context(self, compiler, redirect_resolve):
         artifact = compiler.compile(redirect_resolve, MemoryCompileTarget.SHARED_CONTEXT)
         assert artifact.alias == "fact_api"

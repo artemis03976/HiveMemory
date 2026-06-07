@@ -588,7 +588,7 @@ class KoakumaRuntime:
         # Level 1: 用户态工具路径 (统一原子缓存)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved = await self._alias_resolver.resolve(alias, context=context)
-        redirect_notice = ""
+        warnings: List[MTPWarningInfo] = []
         if resolved.kind == "pending":
             raise InvalidArgumentError(
                 message_key="mtp.run.pending_not_runnable",
@@ -596,10 +596,15 @@ class KoakumaRuntime:
             )
         if resolved.kind == "redirect" and resolved.atom is not None:
             canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
-            redirect_notice = self._compiler.compile(
-                resolved, MemoryCompileTarget.MTP_REDIRECT_NOTICE,
-                MemoryCompileOptions(requested_alias=alias),
-            ).text
+            warnings.append(
+                MTPWarningInfo(
+                    message_key="mtp.run.alias_redirected",
+                    params={
+                        "requested_alias": alias,
+                        "canonical_alias": canonical_alias,
+                    },
+                )
+            )
             alias = canonical_alias
         elif resolved.kind in {"discarded", "failed", "expired"}:
             raise AliasNotFoundError(
@@ -624,8 +629,8 @@ class KoakumaRuntime:
         code = atom.payload.content
         logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
         response = self._execute_user_tool(alias, code, command.args)
-        if redirect_notice:
-            response.content = f"{redirect_notice}{response.content}"
+        if warnings:
+            response.warnings = [*warnings, *response.warnings]
         if response.status == MTPResponseStatus.SUCCESS:
             await self._record_memory_citation(atom, "mtp.run")
         return response

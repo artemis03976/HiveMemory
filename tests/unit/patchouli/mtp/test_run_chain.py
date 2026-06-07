@@ -333,10 +333,12 @@ class TestRunUserToolPath:
         result = _execute_mtp(koakuma, f'⟪ RUN | {pending.pending_alias} | ⟫')
 
         assert result.success
-        assert "[Alias Redirected]" in result.response_content
-        assert f"请求的别名: {pending.pending_alias}" in result.response_content
-        assert "规范别名: tool_canonical" in result.response_content
         assert "redirected tool output" in result.response_content
+        assert "[Alias Redirected]" not in result.response_content
+        assert "[Alias Redirected]" in result.formatted_response
+        assert f"请求的别名: {pending.pending_alias}" in result.formatted_response
+        assert "规范别名: tool_canonical" in result.formatted_response
+        assert "<warnings>" in result.formatted_response
         assert koakuma._bus._memory_citations == [
             {"memory_id": canonical.id, "source": "mtp.run"}
         ]

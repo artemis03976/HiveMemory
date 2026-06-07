@@ -325,12 +325,6 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "\n"
         "提示: 请在后续的 READ/RUN/UPDATE 调用中使用 '{canonical_alias}'。"
     ),
-    "resolve_redirect_run_notice": (
-        "[Alias Redirected]\n"
-        "请求的别名: {requested_alias}\n"
-        "规范别名: {canonical_alias}\n"
-        "提示: 请在后续的 RUN 调用中使用 '{canonical_alias}'。\n"
-    ),
     "resolve_discarded": (
         "[{requested_alias}]\n"
         "状态: discarded（已丢弃）\n"
@@ -369,12 +363,6 @@ _RESOLVE_RESULT_TEXT_EN = {
         "{content}\n"
         "\n"
         "Note: Use '{canonical_alias}' for future READ/RUN/UPDATE calls."
-    ),
-    "resolve_redirect_run_notice": (
-        "[Alias Redirected]\n"
-        "Requested alias: {requested_alias}\n"
-        "Canonical alias: {canonical_alias}\n"
-        "Note: Use '{canonical_alias}' for future RUN calls.\n"
     ),
     "resolve_discarded": (
         "[{requested_alias}]\n"
