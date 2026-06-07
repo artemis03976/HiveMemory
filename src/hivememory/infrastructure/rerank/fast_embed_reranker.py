@@ -28,6 +28,7 @@ class FastEmbedRerankerService(SingletonModelService):
         try:
             self._model = TextCrossEncoder(
                 model_name=self.model_name,
+                cache_dir=self.cache_dir,
             )
             logger.info("Reranker 模型加载完成")
         except Exception as e:

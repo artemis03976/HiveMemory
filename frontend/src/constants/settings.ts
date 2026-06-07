@@ -140,6 +140,7 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
         enabled: true,
         model_name: 'BAAI/bge-reranker-v2-m3',
         device: 'cpu',
+        cache_dir: 'data/model_cache',
         use_fp16: false,
         batch_size: 16,
         top_k: 5,
