@@ -6,6 +6,8 @@ class PatchouliLocalEvents:
 
     PENDING_ATOM_SETTLED = "patchouli.events.pending_atom.settled"
     PENDING_ATOM_FAILED = "patchouli.events.pending_atom.failed"
+    PENDING_ATOM_CANCELLED = "patchouli.events.pending_atom.cancelled"
+    MEMORY_JOB_TASK_STATUS = "patchouli.events.memory_job.task_status"
 
 
 __all__ = ["PatchouliLocalEvents"]

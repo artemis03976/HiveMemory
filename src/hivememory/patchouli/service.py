@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import inspect
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, List
 from uuid import UUID
 
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
@@ -23,6 +23,7 @@ from hivememory.patchouli.models import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.server.models.memory import MemoryResponse
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.control import MemoryGenerationJob
 
 if TYPE_CHECKING:
     from hivememory.patchouli.eye import TheEye
@@ -199,6 +200,17 @@ class PatchouliService:
             )
 
         self._record_retrieval_hits(prepared_run)
+
+    # ========== Phase 2: Memory Job API ==========
+
+    def list_memory_jobs(self) -> List[MemoryGenerationJob]:
+        return self._runtime.librarian_core.list_jobs()
+
+    def get_memory_job(self, job_id: str) -> MemoryGenerationJob | None:
+        return self._runtime.librarian_core.get_job(job_id)
+
+    def cancel_memory_job(self, job_id: str) -> bool:
+        return self._runtime.librarian_core.cancel_job(job_id)
 
     async def record_memory_citation(
         self,

@@ -545,7 +545,9 @@ class TestFlushCallbackModesUpdate:
             identity=Identity(user_id="test_user"),
             focus=focus,
         )
-        await core.run_active_generation([task], topic_id="topic_test")
+        job = await core.run_active_generation([task], topic_id="topic_test")
+        if job._bg_task:
+            await job._bg_task
 
         mock_generation.process.assert_called_once()
         request = mock_generation.process.call_args[0][0]
@@ -593,7 +595,9 @@ class TestFlushCallbackModesUpdate:
             identity=Identity(user_id="test_user"),
             focus=focus,
         )
-        await core.run_active_generation([task], topic_id="topic_test")
+        job = await core.run_active_generation([task], topic_id="topic_test")
+        if job._bg_task:
+            await job._bg_task
         mock_generation.process.assert_called_once()
 
     @pytest.mark.asyncio

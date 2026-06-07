@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import inspect
+import uuid
+from datetime import datetime, timezone
 from time import monotonic
 from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
@@ -29,6 +32,12 @@ from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.core.protocol.models import InteractionPayload
+from hivememory.system.runtime.control import (
+    MemoryGenerationJob,
+    MemoryGenerationJobRegistry,
+    MemoryGenerationJobStatus,
+    MemoryTaskProgress,
+)
 
 if TYPE_CHECKING:
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
@@ -73,23 +82,14 @@ class LibrarianCore:
         lifecycle_engine: Optional["MemoryLifecycleEngine"] = None,
         perception_layer: Optional["BasePerceptionLayer"] = None,
         generation_engine: Optional["MemoryGenerationEngine"] = None,
+        job_registry: Optional[MemoryGenerationJobRegistry] = None,
     ):
-        """
-        初始化馆长本体
-
-        Args:
-            storage: Qdrant 存储实例
-            bus: 兼容保留参数（当前未使用）
-            lifecycle_engine: 记忆生命周期引擎（预构建，由 PatchouliRuntime 注入）
-            perception_layer: 感知层实例（用于直接调用）
-            generation_engine: 生成引擎实例（用于直接调用）
-
-        """
         self.storage = storage
         self._bus = bus
         self.lifecycle_engine = lifecycle_engine
         self.perception_layer = perception_layer
         self.generation_engine = generation_engine
+        self._job_registry = job_registry or MemoryGenerationJobRegistry()
 
         if self.perception_layer and hasattr(self.perception_layer, "set_generation_callback"):
             self.perception_layer.set_generation_callback(self._on_generate_memory)
@@ -150,36 +150,95 @@ class LibrarianCore:
         self,
         tasks: List["PendingAtomMaterializeTask"],
         topic_id: str,
-    ) -> None:
-        """主动记忆生成入口 — 由 finalize 直驱，跳过感知层 buffer。
+    ) -> MemoryGenerationJob:
+        """主动记忆生成入口 — 创建 MemoryGenerationJob，后台异步执行，立即返回。
 
         按 §3.3 时序在 submit_interaction 之后调用，此时当前轮对话 block
         已在 buffer，故 topic_context 包含「刚刚这轮」作为只读背景。
         """
-        if not tasks or self.generation_engine is None:
-            return
+        task_progresses = [
+            MemoryTaskProgress(
+                pending_alias=t.pending_alias,
+                source_verb=t.source_verb,
+            )
+            for t in tasks
+        ]
+        job = MemoryGenerationJob(
+            job_id=str(uuid.uuid4()),
+            topic_id=topic_id,
+            tasks=task_progresses,
+        )
+        self._job_registry.register(job)
 
-        # 读 buffer 只读背景（不标记消费，block 仍留在 buffer 等被动归档）
+        if not tasks or self.generation_engine is None:
+            self._job_registry.close(job.job_id, MemoryGenerationJobStatus.COMPLETED)
+            return job
+
+        bg_task = asyncio.create_task(
+            self._run_job(job, tasks, topic_id),
+            name=f"memory_job_{job.job_id[:8]}",
+        )
+        job.attach_task(bg_task)
+
+        def _done_callback(t: asyncio.Task) -> None:
+            exc = t.exception() if not t.cancelled() else None
+            if t.cancelled() or job.cancelled:
+                self._job_registry.close(job.job_id, MemoryGenerationJobStatus.CANCELLED)
+            elif exc is not None:
+                logger.error(f"memory job {job.job_id} failed: {exc}", exc_info=exc)
+                self._job_registry.close(job.job_id, MemoryGenerationJobStatus.FAILED)
+            else:
+                self._job_registry.close(job.job_id, MemoryGenerationJobStatus.COMPLETED)
+
+        bg_task.add_done_callback(_done_callback)
+        return job
+
+    async def _run_job(
+        self,
+        job: MemoryGenerationJob,
+        tasks: List["PendingAtomMaterializeTask"],
+        topic_id: str,
+    ) -> None:
+        """后台执行所有 materialize tasks，每步检查 cancel。"""
+        job.status = MemoryGenerationJobStatus.RUNNING
+
         topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
         if self.perception_layer is not None:
             topic_context = self.perception_layer.get_topic_context(topic_id)
 
-        state_summary = topic_context.get("state_summary", "")
-        blocks = topic_context.get("blocks", [])
-        gen_context = self._build_generation_context(blocks, state_summary)
+        gen_context = self._build_generation_context(
+            topic_context.get("blocks", []),
+            topic_context.get("state_summary", ""),
+        )
 
-        for task in tasks:
+        for task, progress in zip[tuple[PendingAtomMaterializeTask, MemoryTaskProgress]](tasks, job.tasks):
+            if job.cancelled:
+                progress.status = MemoryGenerationJobStatus.CANCELLED
+                await self._publish_pending_atom_cancelled(task.pending_alias)
+                continue
+
+            progress.status = MemoryGenerationJobStatus.RUNNING
+            progress.started_at = datetime.now(timezone.utc)
+            await self._publish_job_task_status(job.job_id, progress)
+
             try:
                 if task.source_verb == "WRITE":
                     await self._run_mode_b(task, gen_context)
                 else:
                     await self._run_mode_c(task, gen_context)
+                progress.status = MemoryGenerationJobStatus.COMPLETED
             except Exception as e:
                 logger.error(
                     f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
                     exc_info=True,
                 )
+                progress.status = MemoryGenerationJobStatus.FAILED
+                progress.error = str(e)
                 await self._publish_pending_atom_failed(task.pending_alias)
+            finally:
+                progress.finished_at = datetime.now(timezone.utc)
+
+        # 取消后取消剩余已取消的任务不需要额外通知（已在上方循环处理）
 
     async def _run_mode_b(
         self,
@@ -256,6 +315,43 @@ class LibrarianCore:
                             f"{r.settlement.pending_alias}: {pub_err}"
                         )
                         await self._publish_pending_atom_failed(r.settlement.pending_alias)
+
+    async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
+        if self._bus is None:
+            return
+        try:
+            await self._bus.publish(
+                PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
+                pending_alias=pending_alias,
+            )
+        except Exception as pub_err:
+            logger.warning(f"CANCELLED event publish error: {pub_err}")
+
+    async def _publish_job_task_status(
+        self, job_id: str, progress: MemoryTaskProgress
+    ) -> None:
+        if self._bus is None:
+            return
+        try:
+            await self._bus.publish(
+                PatchouliLocalEvents.MEMORY_JOB_TASK_STATUS,
+                job_id=job_id,
+                pending_alias=progress.pending_alias,
+                status=progress.status.value,
+            )
+        except Exception as pub_err:
+            logger.warning(f"MEMORY_JOB_TASK_STATUS publish error: {pub_err}")
+
+    # ========== Job 查询 API ==========
+
+    def get_job(self, job_id: str) -> Optional[MemoryGenerationJob]:
+        return self._job_registry.get(job_id)
+
+    def list_jobs(self) -> List[MemoryGenerationJob]:
+        return self._job_registry.list_all()
+
+    def cancel_job(self, job_id: str) -> bool:
+        return self._job_registry.cancel(job_id)
 
     async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
         """Publish FAILED event for an active materialization task."""
