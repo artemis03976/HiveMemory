@@ -180,7 +180,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -423,7 +425,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_not_called()
 
@@ -438,7 +442,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -460,7 +466,9 @@ class TestLibrarianCoreGenerateMemory:
         )
 
         # 不应抛异常
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
     @pytest.mark.asyncio
     async def test_generate_memory_without_generation_engine(self):
@@ -476,7 +484,9 @@ class TestLibrarianCoreGenerateMemory:
         )
 
         # 不应抛异常
-        await core._on_generate_memory(payload)
+        mt = await core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
     @pytest.mark.asyncio
     async def test_generate_memory_manual_mode_a(self):
@@ -489,7 +499,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.MANUAL,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -507,7 +519,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.MANUAL,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
 
@@ -529,7 +543,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.MANUAL,
         )
 
-        await core._on_generate_memory(payload)
+        mt = await core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]

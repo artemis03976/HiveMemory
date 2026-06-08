@@ -102,12 +102,21 @@ class MemoryGenerationTaskStatus(str, Enum):
     FAILED = "failed"
 
 
+class MemoryGenerationSource(str, Enum):
+    WRITE = "WRITE"      # MTP WRITE 主动链路
+    UPDATE = "UPDATE"    # MTP UPDATE 主动链路
+    ARCHIVE = "ARCHIVE"  # 话题被动归档 (Mode A)
+    MERGE = "MERGE"      # 记忆合并（预留）
+    SPLIT = "SPLIT"      # 记忆分裂（预留）
+
+
 @dataclass
 class MemoryTaskProgress:
-    """单个 materialize task 的执行进度快照。"""
+    """单个生成子任务的执行进度快照。"""
 
-    pending_alias: str
-    source_verb: str  # "WRITE" | "UPDATE"
+    label: str                              # 可读标识：MTP 链路用 pending_alias，其余用 topic_id / memory_id
+    source: MemoryGenerationSource
+    pending_alias: Optional[str] = None    # 仅 WRITE / UPDATE 链路有值
     status: MemoryGenerationTaskStatus = MemoryGenerationTaskStatus.PENDING
     canonical_alias: Optional[str] = None
     error: Optional[str] = None
@@ -196,6 +205,7 @@ __all__ = [
     "CancelResult",
     "RuntimeControlRegistry",
     "MemoryGenerationTaskStatus",
+    "MemoryGenerationSource",
     "MemoryTaskProgress",
     "MemoryGenerationTask",
     "MemoryGenerationTaskRegistry",

@@ -36,6 +36,7 @@ from hivememory.system.runtime.control import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
+    MemoryGenerationSource,
     MemoryTaskProgress,
 )
 
@@ -131,51 +132,28 @@ class LibrarianCore:
             await self.perception_layer.route_and_ingest(target_topic_id, payload)
         else:
             logger.warning("perception_layer 未注入，跳过感知处理")
-
-    async def _on_generate_memory(self, payload: "ArchivePayload") -> None:
-        """感知层 Archive 回调 — 仅处理 Mode A 被动记忆提取。"""
-        try:
-            gen_context = self._build_generation_context(payload.blocks, payload.state_summary)
-            if not gen_context.turns:
-                logger.warning("空对话轮次，跳过处理")
-                return
-
-            logger.info(f"LibrarianCore Mode A: {len(gen_context.turns)} 轮对话...")
-            request = GenerationRequest(context=gen_context)
-            await self._run_generation(request)
-        except Exception as e:
-            logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
-
-    async def run_active_generation(
+    
+    async def _create_and_run_task(
         self,
-        tasks: List["PendingAtomMaterializeTask"],
         topic_id: str,
+        progresses: List[MemoryTaskProgress],
+        coro_factory,
+        skip: bool = False,
     ) -> MemoryGenerationTask:
-        """主动记忆生成入口 — 创建 MemoryGenerationTask，后台异步执行，立即返回。
-
-        按 §3.3 时序在 submit_interaction 之后调用，此时当前轮对话 block
-        已在 buffer，故 topic_context 包含「刚刚这轮」作为只读背景。
-        """
-        task_progresses = [
-            MemoryTaskProgress(
-                pending_alias=t.pending_alias,
-                source_verb=t.source_verb,
-            )
-            for t in tasks
-        ]
+        """所有记忆生成链路的统一任务工厂 — 注册、调度、生命周期绑定。"""
         memory_task = MemoryGenerationTask(
             task_id=str(uuid.uuid4()),
             topic_id=topic_id,
-            tasks=task_progresses,
+            tasks=progresses,
         )
         self._task_registry.register(memory_task)
 
-        if not tasks or self.generation_engine is None:
+        if skip or self.generation_engine is None:
             self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.COMPLETED)
             return memory_task
 
         bg_task = asyncio.create_task(
-            self._run_task(memory_task, tasks, topic_id),
+            coro_factory(memory_task),
             name=f"memory_task_{memory_task.task_id[:8]}",
         )
         memory_task.attach_task(bg_task)
@@ -193,13 +171,83 @@ class LibrarianCore:
         bg_task.add_done_callback(_done_callback)
         return memory_task
 
-    async def _run_task(
+    async def _on_generate_memory(self, payload: "ArchivePayload") -> Optional[MemoryGenerationTask]:
+        """感知层 Archive 回调 — Mode A 被动记忆提取，接入任务观测与控制流。"""
+        gen_context = self._build_generation_context(payload.blocks, payload.state_summary)
+        if not gen_context.turns:
+            logger.warning("空对话轮次，跳过处理")
+            return None
+
+        progress = MemoryTaskProgress(
+            label=payload.topic_id,
+            source=MemoryGenerationSource.ARCHIVE,
+        )
+        return await self._create_and_run_task(
+            topic_id=payload.topic_id,
+            progresses=[progress],
+            coro_factory=lambda mt: self._run_archive_task(mt, progress, gen_context),
+        )
+
+    async def _run_archive_task(
+        self,
+        memory_task: MemoryGenerationTask,
+        progress: MemoryTaskProgress,
+        gen_context: "GenerationContext",
+    ) -> None:
+        """Mode A 后台执行体。"""
+        memory_task.status = MemoryGenerationTaskStatus.RUNNING
+        if memory_task.cancelled:
+            progress.status = MemoryGenerationTaskStatus.CANCELLED
+            return
+
+        progress.status = MemoryGenerationTaskStatus.RUNNING
+        progress.started_at = datetime.now(timezone.utc)
+        await self._publish_memory_task_item_status(memory_task.task_id, progress)
+
+        try:
+            logger.info(f"LibrarianCore Mode A: {len(gen_context.turns)} 轮对话...")
+            request = GenerationRequest(context=gen_context)
+            await self._run_generation(request)
+            progress.status = MemoryGenerationTaskStatus.COMPLETED
+        except Exception as e:
+            logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
+            progress.status = MemoryGenerationTaskStatus.FAILED
+            progress.error = str(e)
+        finally:
+            progress.finished_at = datetime.now(timezone.utc)
+
+    async def run_active_generation(
+        self,
+        tasks: List["PendingAtomMaterializeTask"],
+        topic_id: str,
+    ) -> MemoryGenerationTask:
+        """MTP WRITE/UPDATE 主动链路入口 — 后台异步执行，立即返回。
+
+        按 §3.3 时序在 submit_interaction 之后调用，此时当前轮对话 block
+        已在 buffer，故 topic_context 包含「刚刚这轮」作为只读背景。
+        """
+        progresses = [
+            MemoryTaskProgress(
+                label=t.pending_alias,
+                source=MemoryGenerationSource(t.source_verb),
+                pending_alias=t.pending_alias,
+            )
+            for t in tasks
+        ]
+        return await self._create_and_run_task(
+            topic_id=topic_id,
+            progresses=progresses,
+            coro_factory=lambda mt: self._run_active_task(mt, tasks, topic_id),
+            skip=not tasks,
+        )
+
+    async def _run_active_task(
         self,
         memory_task: MemoryGenerationTask,
         tasks: List["PendingAtomMaterializeTask"],
         topic_id: str,
     ) -> None:
-        """后台执行所有 materialize tasks，每步检查 cancel。"""
+        """MTP 主动链路后台执行体 — 逐项处理，每步检查 cancel。"""
         memory_task.status = MemoryGenerationTaskStatus.RUNNING
 
         topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
@@ -237,8 +285,6 @@ class LibrarianCore:
                 await self._publish_pending_atom_failed(task.pending_alias)
             finally:
                 progress.finished_at = datetime.now(timezone.utc)
-
-        # 取消后取消剩余已取消的任务不需要额外通知（已在上方循环处理）
 
     async def _run_mode_b(
         self,

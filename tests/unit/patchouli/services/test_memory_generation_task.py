@@ -14,6 +14,7 @@ from hivememory.system.runtime.control import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
+    MemoryGenerationSource,
 )
 
 
@@ -143,8 +144,9 @@ class TestTaskLifecycleAfterCompletion:
         if memory_task._bg_task:
             await memory_task._bg_task
         assert len(memory_task.tasks) == 1
+        assert memory_task.tasks[0].label == "draft_abc"
         assert memory_task.tasks[0].pending_alias == "draft_abc"
-        assert memory_task.tasks[0].source_verb == "WRITE"
+        assert memory_task.tasks[0].source == MemoryGenerationSource.WRITE
 
     @pytest.mark.asyncio
     async def test_failed_task_progress_marked_failed(self):
