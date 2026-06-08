@@ -16,37 +16,30 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
 import inspect
-import uuid
-from datetime import datetime, timezone
+import logging
 from time import monotonic
-from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
 
 from hivememory.core.models import Identity
 from hivememory.core.models.pending import PendingAtomMaterializeTask
+from hivememory.core.protocol.models import InteractionPayload
+from hivememory.engines.generation.models import GenerationContext
 from hivememory.engines.perception.models import ArchivePayload
-from hivememory.engines.generation.models import (
-    GenerationRequest,
-    GenerationContext,
-    MemoryGenerationResult,
+from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.patchouli.services.memory_generation_tasks import (
+    MemoryGenerationTaskController,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
-from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.system.runtime.control import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
-    MemoryGenerationTaskStatus,
-    MemoryGenerationSource,
 )
 
 if TYPE_CHECKING:
-    from hivememory.engines.perception.interfaces import BasePerceptionLayer
     from hivememory.engines.generation.engine import MemoryGenerationEngine
     from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
+    from hivememory.engines.perception.interfaces import BasePerceptionLayer
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +86,12 @@ class LibrarianCore:
         self.lifecycle_engine = lifecycle_engine
         self.perception_layer = perception_layer
         self.generation_engine = generation_engine
-        self._task_registry = task_registry or MemoryGenerationTaskRegistry()
+        self._memory_task_controller = MemoryGenerationTaskController(
+            storage=storage,
+            bus=bus,
+            generation_engine=generation_engine,
+            task_registry=task_registry,
+        )
 
         if self.perception_layer and hasattr(self.perception_layer, "set_generation_callback"):
             self.perception_layer.set_generation_callback(self._on_generate_memory)
@@ -135,168 +133,27 @@ class LibrarianCore:
             await self.perception_layer.route_and_ingest(target_topic_id, payload)
         else:
             logger.warning("perception_layer 未注入，跳过感知处理")
-    
-    async def _create_and_run_task(
-        self,
-        topic_id: str,
-        label: str,
-        source: MemoryGenerationSource,
-        coro_factory,
-        pending_alias: Optional[str] = None,
-        skip: bool = False,
-    ) -> MemoryGenerationTask:
-        """所有记忆生成链路的统一任务工厂 — 注册、调度、生命周期绑定。"""
-        memory_task = MemoryGenerationTask(
-            task_id=str(uuid.uuid4()),
-            topic_id=topic_id,
-            label=label,
-            source=source,
-            pending_alias=pending_alias,
-        )
-        self._task_registry.register(memory_task)
 
-        if skip or self.generation_engine is None:
-            self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.COMPLETED)
-            return memory_task
-
-        bg_task = asyncio.create_task(
-            coro_factory(memory_task),
-            name=f"memory_task_{memory_task.task_id[:8]}",
-        )
-        memory_task.attach_task(bg_task)
-
-        def _terminal_status() -> MemoryGenerationTaskStatus:
-            if memory_task.cancelled or memory_task.status == MemoryGenerationTaskStatus.CANCELLED:
-                return MemoryGenerationTaskStatus.CANCELLED
-            if memory_task.status == MemoryGenerationTaskStatus.FAILED:
-                return MemoryGenerationTaskStatus.FAILED
-            return MemoryGenerationTaskStatus.COMPLETED
-
-        def _mark_task_cancelled() -> None:
-            if memory_task.status not in (
-                MemoryGenerationTaskStatus.COMPLETED,
-                MemoryGenerationTaskStatus.FAILED,
-                MemoryGenerationTaskStatus.CANCELLED,
-            ):
-                memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-
-        def _schedule_terminal_status_publish(status: MemoryGenerationTaskStatus) -> None:
-            if memory_task.finished_at is not None or self._bus is None:
-                return
-            memory_task.status = status
-            memory_task.finished_at = datetime.now(timezone.utc)
-            asyncio.create_task(
-                self._publish_memory_task_status(memory_task),
-                name=f"memory_task_status_{memory_task.task_id[:8]}",
-            )
-
-        def _done_callback(t: asyncio.Task) -> None:
-            if t.cancelled():
-                _mark_task_cancelled()
-                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.CANCELLED)
-                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
-                return
-
-            exc = t.exception()
-            if memory_task.cancelled:
-                _mark_task_cancelled()
-                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.CANCELLED)
-                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
-            elif exc is not None:
-                logger.error(f"memory task {memory_task.task_id} failed: {exc}", exc_info=exc)
-                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.FAILED)
-                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.FAILED)
-            else:
-                self._task_registry.close(memory_task.task_id, _terminal_status())
-
-        bg_task.add_done_callback(_done_callback)
-        return memory_task
-
-    async def _on_generate_memory(self, payload: "ArchivePayload") -> Optional[MemoryGenerationTask]:
-        """感知层 Archive 回调 — Mode A 被动记忆提取，接入任务观测与控制流。"""
+    async def _on_generate_memory(self, payload: ArchivePayload) -> Optional[MemoryGenerationTask]:
+        """感知层 Archive 回调 — Mode A 被动记忆提取。"""
         gen_context = self._build_generation_context(payload.blocks, payload.state_summary)
         if not gen_context.turns:
             logger.warning("空对话轮次，跳过处理")
             return None
 
-        return await self._create_and_run_task(
+        return await self._memory_task_controller.run_archive_generation(
             topic_id=payload.topic_id,
-            label=payload.topic_id,
-            source=MemoryGenerationSource.ARCHIVE,
-            coro_factory=lambda mt: self._run_archive_task(mt, gen_context),
+            gen_context=gen_context,
         )
-
-    async def _run_archive_task(
-        self,
-        memory_task: MemoryGenerationTask,
-        gen_context: "GenerationContext",
-    ) -> None:
-        """Mode A 后台执行体。"""
-        memory_task.status = MemoryGenerationTaskStatus.RUNNING
-        if memory_task.cancelled:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_memory_task_status(memory_task)
-            return
-
-        memory_task.started_at = datetime.now(timezone.utc)
-        await self._publish_memory_task_status(memory_task)
-
-        try:
-            logger.info(f"LibrarianCore Mode A: {len(gen_context.turns)} 轮对话...")
-            request = GenerationRequest(context=gen_context)
-            results = await self._run_generation(request)
-            self._backfill_memory_task_result(memory_task, results)
-            memory_task.status = MemoryGenerationTaskStatus.COMPLETED
-        except asyncio.CancelledError:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            raise
-        except Exception as e:
-            logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
-            memory_task.status = MemoryGenerationTaskStatus.FAILED
-            memory_task.error = str(e)
-        finally:
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_memory_task_status(memory_task)
 
     async def run_active_generation(
         self,
-        tasks: List["PendingAtomMaterializeTask"],
+        tasks: List[PendingAtomMaterializeTask],
         topic_id: str,
     ) -> List[MemoryGenerationTask]:
-        """MTP WRITE/UPDATE 主动链路入口 — 后台异步执行，立即返回。
-
-        按 §3.3 时序在 submit_interaction 之后调用，此时当前轮对话 block
-        已在 buffer，故 topic_context 包含「刚刚这轮」作为只读背景。
-        """
-        memory_tasks = []
-        for task in tasks:
-            memory_tasks.append(
-                await self._create_and_run_task(
-                    topic_id=topic_id,
-                    label=task.pending_alias,
-                    source=MemoryGenerationSource(task.source_verb),
-                    pending_alias=task.pending_alias,
-                    coro_factory=lambda mt, t=task: self._run_active_task(mt, t, topic_id),
-                )
-            )
-        return memory_tasks
-
-    async def _run_active_task(
-        self,
-        memory_task: MemoryGenerationTask,
-        task: "PendingAtomMaterializeTask",
-        topic_id: str,
-    ) -> None:
-        """MTP 主动链路后台执行体 — 处理单个生成任务。"""
-        memory_task.status = MemoryGenerationTaskStatus.RUNNING
-
-        if memory_task.cancelled:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_pending_atom_cancelled(task.pending_alias)
-            await self._publish_memory_task_status(memory_task)
-            return
+        """Run MTP WRITE/UPDATE memory generation tasks in the background."""
+        if not tasks:
+            return []
 
         topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
         if self.perception_layer is not None:
@@ -306,213 +163,20 @@ class LibrarianCore:
             topic_context.get("blocks", []),
             topic_context.get("state_summary", ""),
         )
-
-        if memory_task.cancelled:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_pending_atom_cancelled(task.pending_alias)
-            await self._publish_memory_task_status(memory_task)
-            return
-
-        memory_task.started_at = datetime.now(timezone.utc)
-        await self._publish_memory_task_status(memory_task)
-
-        try:
-            if task.source_verb == "WRITE":
-                results = await self._run_mode_b(task, gen_context)
-            else:
-                results = await self._run_mode_c(task, gen_context)
-            self._backfill_memory_task_result(
-                memory_task,
-                results,
-                pending_alias=task.pending_alias,
-            )
-            memory_task.status = MemoryGenerationTaskStatus.COMPLETED
-        except asyncio.CancelledError:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            await self._publish_pending_atom_cancelled(task.pending_alias)
-            raise
-        except Exception as e:
-            logger.error(
-                f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
-                exc_info=True,
-            )
-            memory_task.status = MemoryGenerationTaskStatus.FAILED
-            memory_task.error = str(e)
-            await self._publish_pending_atom_failed(task.pending_alias)
-        finally:
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_memory_task_status(memory_task)
-
-    async def _run_mode_b(
-        self,
-        task: "PendingAtomMaterializeTask",
-        gen_context: "GenerationContext",
-    ) -> List[MemoryGenerationResult]:
-        """Mode B: WRITE 指令定向记忆生成。"""
-        from hivememory.core.models.pending import WriteFocus
-        focus = task.focus
-        assert isinstance(focus, WriteFocus)
-        logger.info(f"Mode B WRITE: content='{focus.content[:50]}...'")
-        request = GenerationRequest(
-            context=gen_context,
-            write_focus=focus,
-            identity=task.identity,
-            intent_id=task.intent_id,
-            pending_alias=task.pending_alias,
+        return await self._memory_task_controller.run_active_generation(
+            tasks,
+            topic_id,
+            gen_context=gen_context,
         )
-        return await self._run_generation(request)
-
-    async def _run_mode_c(
-        self,
-        task: "PendingAtomMaterializeTask",
-        gen_context: "GenerationContext",
-    ) -> List[MemoryGenerationResult]:
-        """Mode C: UPDATE 指令定向记忆更新。"""
-        from uuid import UUID as _UUID
-        from hivememory.core.models.pending import UpdateFocus
-        focus = task.focus
-        assert isinstance(focus, UpdateFocus)
-        logger.info(f"Mode C UPDATE: alias='{focus.base_alias}'")
-
-        existing_result = self.storage.get_memory(_UUID(focus.base_uuid))
-        existing = (
-            await existing_result if inspect.isawaitable(existing_result)
-            else existing_result
-        )
-        if existing is None:
-            logger.error(f"UPDATE 目标记忆不存在: {focus.base_uuid}")
-            raise RuntimeError(f"UPDATE target memory not found: {focus.base_uuid}")
-
-        request = GenerationRequest(
-            context=gen_context,
-            update_focus=focus,
-            existing_memory=existing,
-            identity=task.identity,
-            intent_id=task.intent_id,
-            pending_alias=task.pending_alias,
-        )
-        return await self._run_generation(request)
-
-    async def _run_generation(self, request: "GenerationRequest") -> List[MemoryGenerationResult]:
-        """调用生成引擎并发布 Settlement 事件。"""
-        process_result = self.generation_engine.process(request)
-        results = (
-            await process_result if inspect.isawaitable(process_result)
-            else process_result
-        )
-
-        memories = [r.atom for r in results if r.atom is not None]
-        logger.info(f"成功提取 {len(memories)} 条记忆" if memories else "未提取到记忆")
-
-        if self._bus is not None:
-            for r in results:
-                if r.settlement is not None:
-                    try:
-                        await self._bus.publish(
-                            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
-                            settlement=r.settlement,
-                        )
-                    except Exception as pub_err:
-                        logger.warning(
-                            f"Settlement publish failed for "
-                            f"{r.settlement.pending_alias}: {pub_err}"
-                        )
-                        await self._publish_pending_atom_failed(r.settlement.pending_alias)
-
-        return results
-
-    def _backfill_memory_task_result(
-        self,
-        memory_task: MemoryGenerationTask,
-        results: List[MemoryGenerationResult],
-        pending_alias: Optional[str] = None,
-    ) -> None:
-        canonical_alias = self._select_canonical_alias(
-            results,
-            pending_alias=pending_alias,
-        )
-        if canonical_alias:
-            memory_task.canonical_alias = canonical_alias
-
-    def _select_canonical_alias(
-        self,
-        results: List[MemoryGenerationResult],
-        pending_alias: Optional[str] = None,
-    ) -> Optional[str]:
-        candidates = results
-        if pending_alias:
-            matched = [
-                result for result in results
-                if result.pending_alias == pending_alias
-                or (
-                    result.settlement is not None
-                    and result.settlement.pending_alias == pending_alias
-                )
-            ]
-            if matched:
-                candidates = matched
-
-        for result in candidates:
-            if result.settlement is not None and result.settlement.canonical_alias:
-                return result.settlement.canonical_alias
-            if result.canonical_alias:
-                return result.canonical_alias
-            if result.atom is not None:
-                get_alias = getattr(result.atom, "get_alias", None)
-                if callable(get_alias):
-                    alias = get_alias()
-                    if alias:
-                        return alias
-        return None
-
-    async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
-        if self._bus is None:
-            return
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
-                pending_alias=pending_alias,
-            )
-        except Exception as pub_err:
-            logger.warning(f"CANCELLED event publish error: {pub_err}")
-    
-    async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
-        """Publish FAILED event for an active materialization task."""
-        if self._bus is None:
-            return
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.PENDING_ATOM_FAILED,
-                pending_alias=pending_alias,
-            )
-        except Exception as pub_err:
-            logger.warning(f"FAILED event publish error: {pub_err}")
-
-    # ========== Task 查询 API ==========
-
-    async def _publish_memory_task_status(self, memory_task: MemoryGenerationTask) -> None:
-        if self._bus is None:
-            return
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS,
-                task_id=memory_task.task_id,
-                pending_alias=memory_task.pending_alias,
-                status=memory_task.status.value,
-                canonical_alias=memory_task.canonical_alias,
-            )
-        except Exception as pub_err:
-            logger.warning(f"MEMORY_TASK_ITEM_STATUS publish error: {pub_err}")
 
     def get_task(self, task_id: str) -> Optional[MemoryGenerationTask]:
-        return self._task_registry.get(task_id)
+        return self._memory_task_controller.get_task(task_id)
 
     def list_tasks(self) -> List[MemoryGenerationTask]:
-        return self._task_registry.list_all()
+        return self._memory_task_controller.list_tasks()
 
     def cancel_task(self, task_id: str) -> bool:
-        return self._task_registry.cancel(task_id)
+        return self._memory_task_controller.cancel_task(task_id)
 
     def _build_generation_context(
         self,
@@ -609,13 +273,6 @@ class LibrarianCore:
             "message": "perception_layer 未注入",
             "blocks_archived": 0,
         }
-
-    async def manual_trigger(
-        self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """兼容别名：旧代码仍可通过 manual_trigger 调用。"""
-        return await self.manual_archive_topic(topic_id)
 
     async def prepare_topic(
         self,

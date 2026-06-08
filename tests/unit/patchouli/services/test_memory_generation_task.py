@@ -24,16 +24,17 @@ def _make_core(mock_generation=None, mock_storage=None, bus=None):
     gen.process.return_value = []
     storage = mock_storage or MagicMock()
     storage.get_memory = AsyncMock(return_value=MagicMock())
+    perception_layer = MagicMock()
+    perception_layer.get_topic_context.return_value = {
+        "state_summary": "",
+        "blocks": [],
+    }
     core = LibrarianCore(
         storage=storage,
         bus=bus or AsyncMock(),
         generation_engine=gen,
+        perception_layer=perception_layer,
     )
-    core.perception_layer = MagicMock()
-    core.perception_layer.get_topic_context.return_value = {
-        "state_summary": "",
-        "blocks": [],
-    }
     return core, gen
 
 

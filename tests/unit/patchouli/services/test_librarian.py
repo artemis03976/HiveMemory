@@ -107,15 +107,15 @@ class TestLibrarianCorePerceptionDelegation:
         self.perception.get_active_topics_snapshots.assert_called_once_with(identity)
 
     @pytest.mark.asyncio
-    async def test_manual_trigger(self):
-        result = await self.core.manual_trigger("topic_1")
+    async def test_manual_archive_topic(self):
+        result = await self.core.manual_archive_topic("topic_1")
         assert result["success"] is True
         self.perception.manual_trigger.assert_called_once_with("topic_1")
 
     @pytest.mark.asyncio
-    async def test_manual_trigger_without_perception(self):
+    async def test_manual_archive_topic_without_perception(self):
         core = LibrarianCore(storage=Mock(), perception_layer=None)
-        result = await core.manual_trigger("topic_x")
+        result = await core.manual_archive_topic("topic_x")
         assert result["success"] is False
 
 
@@ -169,6 +169,34 @@ class TestLibrarianCoreGenerateMemory:
             generation_engine=self.mock_generation,
         )
 
+    def _core_with_context(self, blocks=None, bus=None):
+        perception_layer = Mock()
+        perception_layer.get_topic_context.return_value = {
+            "state_summary": "",
+            "blocks": blocks if blocks is not None else [],
+        }
+        core = LibrarianCore(
+            storage=self.mock_storage,
+            bus=bus,
+            generation_engine=self.mock_generation,
+            perception_layer=perception_layer,
+        )
+        return core
+
+    @pytest.mark.asyncio
+    async def test_run_active_generation_empty_tasks_skips_context_lookup(self):
+        perception_layer = Mock()
+        core = LibrarianCore(
+            storage=self.mock_storage,
+            generation_engine=self.mock_generation,
+            perception_layer=perception_layer,
+        )
+
+        memory_tasks = await core.run_active_generation([], topic_id="topic_test")
+
+        assert memory_tasks == []
+        perception_layer.get_topic_context.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_generate_memory_mode_a_default(self):
         """普通 flush，Phase 3: 构建 GenerationRequest(context=GenerationContext)"""
@@ -201,11 +229,7 @@ class TestLibrarianCoreGenerateMemory:
         """主动 WRITE 由 finalize 直驱 run_active_generation"""
         blocks = _make_logical_blocks(2)
         write_focus = WriteFocus(content="测试写入内容")
-        self.core.perception_layer = Mock()
-        self.core.perception_layer.get_topic_context.return_value = {
-            "state_summary": "",
-            "blocks": blocks,
-        }
+        core = self._core_with_context(blocks)
         task = PendingAtomMaterializeTask(
             pending_alias="draft_test_001",
             intent_id="intent_test_001",
@@ -214,7 +238,7 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
@@ -231,11 +255,7 @@ class TestLibrarianCoreGenerateMemory:
     async def test_generate_memory_mode_b_write_without_context_still_runs(self):
         """主动 WRITE 不依赖上下文轮次，空背景也应进入 generation fallback"""
         write_focus = WriteFocus(content="测试写入内容")
-        self.core.perception_layer = Mock()
-        self.core.perception_layer.get_topic_context.return_value = {
-            "state_summary": "",
-            "blocks": [],
-        }
+        core = self._core_with_context([])
         task = PendingAtomMaterializeTask(
             pending_alias="draft_test_002",
             intent_id="intent_test_002",
@@ -244,7 +264,7 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
@@ -269,11 +289,7 @@ class TestLibrarianCoreGenerateMemory:
             base_alias="fact_test",
         )
         existing_memory = Mock()
-        self.core.perception_layer = Mock()
-        self.core.perception_layer.get_topic_context.return_value = {
-            "state_summary": "",
-            "blocks": blocks,
-        }
+        core = self._core_with_context(blocks)
         task = PendingAtomMaterializeTask(
             pending_alias="rev_test_001",
             intent_id="intent_test_003",
@@ -284,7 +300,7 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
@@ -305,11 +321,7 @@ class TestLibrarianCoreGenerateMemory:
             base_alias="fact_test",
         )
         existing_memory = Mock()
-        self.core.perception_layer = Mock()
-        self.core.perception_layer.get_topic_context.return_value = {
-            "state_summary": "",
-            "blocks": [],
-        }
+        core = self._core_with_context([])
         task = PendingAtomMaterializeTask(
             pending_alias="rev_test_002",
             intent_id="intent_test_004",
@@ -319,7 +331,7 @@ class TestLibrarianCoreGenerateMemory:
         )
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
@@ -343,11 +355,8 @@ class TestLibrarianCoreGenerateMemory:
             base_uuid=str(uuid4()),
             base_alias="fact_test",
         )
-        self.core.perception_layer = Mock()
-        self.core.perception_layer.get_topic_context.return_value = {
-            "state_summary": "",
-            "blocks": blocks,
-        }
+        bus = AsyncMock()
+        core = self._core_with_context(blocks, bus=bus)
         task = PendingAtomMaterializeTask(
             pending_alias="rev_test_003",
             intent_id="intent_test_005",
@@ -357,9 +366,8 @@ class TestLibrarianCoreGenerateMemory:
         )
 
         self.mock_storage.get_memory = AsyncMock(return_value=None)
-        self.core._bus = AsyncMock()
 
-        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
@@ -369,8 +377,8 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_generation.process.assert_not_called()
         # Phase 2: status running -> PENDING_ATOM_FAILED -> status failed
-        assert self.core._bus.publish.await_count >= 1
-        last_call_kwargs = self.core._bus.publish.await_args.kwargs
+        assert bus.publish.await_count >= 1
+        last_call_kwargs = bus.publish.await_args.kwargs
         assert last_call_kwargs["pending_alias"] == "rev_test_003"
 
     @pytest.mark.asyncio
@@ -407,21 +415,22 @@ class TestLibrarianCoreGenerateMemory:
                 )
             ]
         )
-        self.core._bus = AsyncMock()
+        bus = AsyncMock()
         # Phase 2: status running → PENDING_ATOM_SETTLED (fails) → PENDING_ATOM_FAILED → status completed
-        self.core._bus.publish = AsyncMock(
+        bus.publish = AsyncMock(
             side_effect=[None, RuntimeError("publish failed"), None, None]
         )
 
-        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        core = self._core_with_context([], bus=bus)
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
 
             await _memory_task._bg_task
 
-        assert self.core._bus.publish.await_count == 4
-        calls = self.core._bus.publish.await_args_list
+        assert bus.publish.await_count == 4
+        calls = bus.publish.await_args_list
         memory_statuses = [
             call.kwargs["status"]
             for call in calls
@@ -735,11 +744,7 @@ class TestLibrarianCoreGenerateMemory:
     @pytest.mark.asyncio
     async def test_run_active_generation_uses_task_identity(self):
         write_focus = WriteFocus(content="测试写入内容")
-        self.core.perception_layer = Mock()
-        self.core.perception_layer.get_topic_context.return_value = {
-            "state_summary": "",
-            "blocks": [],
-        }
+        core = self._core_with_context([])
         identity = _make_identity()
         task = PendingAtomMaterializeTask(
             pending_alias="draft_test_003",
@@ -749,7 +754,7 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
