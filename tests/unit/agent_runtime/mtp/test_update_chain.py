@@ -545,7 +545,8 @@ class TestFlushCallbackModesUpdate:
             identity=Identity(user_id="test_user"),
             focus=focus,
         )
-        memory_task = await core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
         if memory_task._bg_task:
             await memory_task._bg_task
 
@@ -595,7 +596,8 @@ class TestFlushCallbackModesUpdate:
             identity=Identity(user_id="test_user"),
             focus=focus,
         )
-        memory_task = await core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
         if memory_task._bg_task:
             await memory_task._bg_task
         mock_generation.process.assert_called_once()
@@ -632,7 +634,9 @@ class TestFlushCallbackModesUpdate:
             state_summary="",
             reason=FlushReason.MANUAL,
         )
-        await core._on_generate_memory(payload)
+        memory_task = await core._on_generate_memory(payload)
+        if memory_task and memory_task._bg_task:
+            await memory_task._bg_task
         mock_generation.process.assert_called_once()
 
 

@@ -11,21 +11,15 @@ def _task_to_dict(memory_task) -> dict:
     return {
         "task_id": memory_task.task_id,
         "topic_id": memory_task.topic_id,
+        "label": memory_task.label,
+        "source": memory_task.source.value,
+        "pending_alias": memory_task.pending_alias,
         "status": memory_task.status.value,
+        "canonical_alias": memory_task.canonical_alias,
+        "error": memory_task.error,
         "created_at": memory_task.created_at.isoformat(),
+        "started_at": memory_task.started_at.isoformat() if memory_task.started_at else None,
         "finished_at": memory_task.finished_at.isoformat() if memory_task.finished_at else None,
-        "tasks": [
-            {
-                "pending_alias": t.pending_alias,
-                "source_verb": t.source_verb,
-                "status": t.status.value,
-                "canonical_alias": t.canonical_alias,
-                "error": t.error,
-                "started_at": t.started_at.isoformat() if t.started_at else None,
-                "finished_at": t.finished_at.isoformat() if t.finished_at else None,
-            }
-            for t in memory_task.tasks
-        ],
     }
 
 

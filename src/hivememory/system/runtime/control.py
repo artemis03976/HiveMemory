@@ -111,29 +111,20 @@ class MemoryGenerationSource(str, Enum):
 
 
 @dataclass
-class MemoryTaskProgress:
-    """单个生成子任务的执行进度快照。"""
-
-    label: str                              # 可读标识：MTP 链路用 pending_alias，其余用 topic_id / memory_id
-    source: MemoryGenerationSource
-    pending_alias: Optional[str] = None    # 仅 WRITE / UPDATE 链路有值
-    status: MemoryGenerationTaskStatus = MemoryGenerationTaskStatus.PENDING
-    canonical_alias: Optional[str] = None
-    error: Optional[str] = None
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-
-
-@dataclass
 class MemoryGenerationTask:
-    """记忆后台生成任务的运行时句柄。"""
+    """单个记忆后台生成任务的运行时句柄。"""
 
     task_id: str
     topic_id: str
-    tasks: List[MemoryTaskProgress]
+    label: str
+    source: MemoryGenerationSource
+    pending_alias: Optional[str] = None
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     status: MemoryGenerationTaskStatus = MemoryGenerationTaskStatus.PENDING
+    canonical_alias: Optional[str] = None
+    error: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     _bg_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 
@@ -151,6 +142,10 @@ class MemoryGenerationTask:
 
     def attach_task(self, task: asyncio.Task) -> None:
         self._bg_task = task
+
+    def cancel_background_task(self) -> None:
+        if self._bg_task is not None and not self._bg_task.done():
+            self._bg_task.cancel()
 
 
 class MemoryGenerationTaskRegistry:
@@ -174,6 +169,7 @@ class MemoryGenerationTaskRegistry:
         if memory_task is None:
             return False
         memory_task.request_cancel()
+        memory_task.cancel_background_task()
         return True
 
     def close(self, task_id: str, status: MemoryGenerationTaskStatus) -> None:
@@ -206,7 +202,6 @@ __all__ = [
     "RuntimeControlRegistry",
     "MemoryGenerationTaskStatus",
     "MemoryGenerationSource",
-    "MemoryTaskProgress",
     "MemoryGenerationTask",
     "MemoryGenerationTaskRegistry",
 ]

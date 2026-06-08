@@ -37,7 +37,6 @@ from hivememory.system.runtime.control import (
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
     MemoryGenerationSource,
-    MemoryTaskProgress,
 )
 
 if TYPE_CHECKING:
@@ -136,15 +135,19 @@ class LibrarianCore:
     async def _create_and_run_task(
         self,
         topic_id: str,
-        progresses: List[MemoryTaskProgress],
+        label: str,
+        source: MemoryGenerationSource,
         coro_factory,
+        pending_alias: Optional[str] = None,
         skip: bool = False,
     ) -> MemoryGenerationTask:
         """所有记忆生成链路的统一任务工厂 — 注册、调度、生命周期绑定。"""
         memory_task = MemoryGenerationTask(
             task_id=str(uuid.uuid4()),
             topic_id=topic_id,
-            tasks=progresses,
+            label=label,
+            source=source,
+            pending_alias=pending_alias,
         )
         self._task_registry.register(memory_task)
 
@@ -158,15 +161,36 @@ class LibrarianCore:
         )
         memory_task.attach_task(bg_task)
 
+        def _terminal_status() -> MemoryGenerationTaskStatus:
+            if memory_task.cancelled or memory_task.status == MemoryGenerationTaskStatus.CANCELLED:
+                return MemoryGenerationTaskStatus.CANCELLED
+            if memory_task.status == MemoryGenerationTaskStatus.FAILED:
+                return MemoryGenerationTaskStatus.FAILED
+            return MemoryGenerationTaskStatus.COMPLETED
+
+        def _mark_task_cancelled() -> None:
+            if memory_task.status not in (
+                MemoryGenerationTaskStatus.COMPLETED,
+                MemoryGenerationTaskStatus.FAILED,
+                MemoryGenerationTaskStatus.CANCELLED,
+            ):
+                memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+
         def _done_callback(t: asyncio.Task) -> None:
-            exc = t.exception() if not t.cancelled() else None
-            if t.cancelled() or memory_task.cancelled:
+            if t.cancelled():
+                _mark_task_cancelled()
+                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
+                return
+
+            exc = t.exception()
+            if memory_task.cancelled:
+                _mark_task_cancelled()
                 self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
             elif exc is not None:
                 logger.error(f"memory task {memory_task.task_id} failed: {exc}", exc_info=exc)
                 self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.FAILED)
             else:
-                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.COMPLETED)
+                self._task_registry.close(memory_task.task_id, _terminal_status())
 
         bg_task.add_done_callback(_done_callback)
         return memory_task
@@ -178,76 +202,69 @@ class LibrarianCore:
             logger.warning("空对话轮次，跳过处理")
             return None
 
-        progress = MemoryTaskProgress(
-            label=payload.topic_id,
-            source=MemoryGenerationSource.ARCHIVE,
-        )
         return await self._create_and_run_task(
             topic_id=payload.topic_id,
-            progresses=[progress],
-            coro_factory=lambda mt: self._run_archive_task(mt, progress, gen_context),
+            label=payload.topic_id,
+            source=MemoryGenerationSource.ARCHIVE,
+            coro_factory=lambda mt: self._run_archive_task(mt, gen_context),
         )
 
     async def _run_archive_task(
         self,
         memory_task: MemoryGenerationTask,
-        progress: MemoryTaskProgress,
         gen_context: "GenerationContext",
     ) -> None:
         """Mode A 后台执行体。"""
         memory_task.status = MemoryGenerationTaskStatus.RUNNING
         if memory_task.cancelled:
-            progress.status = MemoryGenerationTaskStatus.CANCELLED
+            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
             return
 
-        progress.status = MemoryGenerationTaskStatus.RUNNING
-        progress.started_at = datetime.now(timezone.utc)
-        await self._publish_memory_task_item_status(memory_task.task_id, progress)
+        memory_task.started_at = datetime.now(timezone.utc)
+        await self._publish_memory_task_status(memory_task)
 
         try:
             logger.info(f"LibrarianCore Mode A: {len(gen_context.turns)} 轮对话...")
             request = GenerationRequest(context=gen_context)
             await self._run_generation(request)
-            progress.status = MemoryGenerationTaskStatus.COMPLETED
+            memory_task.status = MemoryGenerationTaskStatus.COMPLETED
         except Exception as e:
             logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
-            progress.status = MemoryGenerationTaskStatus.FAILED
-            progress.error = str(e)
+            memory_task.status = MemoryGenerationTaskStatus.FAILED
+            memory_task.error = str(e)
         finally:
-            progress.finished_at = datetime.now(timezone.utc)
+            memory_task.finished_at = datetime.now(timezone.utc)
 
     async def run_active_generation(
         self,
         tasks: List["PendingAtomMaterializeTask"],
         topic_id: str,
-    ) -> MemoryGenerationTask:
+    ) -> List[MemoryGenerationTask]:
         """MTP WRITE/UPDATE 主动链路入口 — 后台异步执行，立即返回。
 
         按 §3.3 时序在 submit_interaction 之后调用，此时当前轮对话 block
         已在 buffer，故 topic_context 包含「刚刚这轮」作为只读背景。
         """
-        progresses = [
-            MemoryTaskProgress(
-                label=t.pending_alias,
-                source=MemoryGenerationSource(t.source_verb),
-                pending_alias=t.pending_alias,
+        memory_tasks = []
+        for task in tasks:
+            memory_tasks.append(
+                await self._create_and_run_task(
+                    topic_id=topic_id,
+                    label=task.pending_alias,
+                    source=MemoryGenerationSource(task.source_verb),
+                    pending_alias=task.pending_alias,
+                    coro_factory=lambda mt, t=task: self._run_active_task(mt, t, topic_id),
+                )
             )
-            for t in tasks
-        ]
-        return await self._create_and_run_task(
-            topic_id=topic_id,
-            progresses=progresses,
-            coro_factory=lambda mt: self._run_active_task(mt, tasks, topic_id),
-            skip=not tasks,
-        )
+        return memory_tasks
 
     async def _run_active_task(
         self,
         memory_task: MemoryGenerationTask,
-        tasks: List["PendingAtomMaterializeTask"],
+        task: "PendingAtomMaterializeTask",
         topic_id: str,
     ) -> None:
-        """MTP 主动链路后台执行体 — 逐项处理，每步检查 cancel。"""
+        """MTP 主动链路后台执行体 — 处理单个生成任务。"""
         memory_task.status = MemoryGenerationTaskStatus.RUNNING
 
         topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
@@ -259,32 +276,30 @@ class LibrarianCore:
             topic_context.get("state_summary", ""),
         )
 
-        for task, progress in zip(tasks, memory_task.tasks):
-            if memory_task.cancelled:
-                progress.status = MemoryGenerationTaskStatus.CANCELLED
-                await self._publish_pending_atom_cancelled(task.pending_alias)
-                continue
+        if memory_task.cancelled:
+            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+            await self._publish_pending_atom_cancelled(task.pending_alias)
+            return
 
-            progress.status = MemoryGenerationTaskStatus.RUNNING
-            progress.started_at = datetime.now(timezone.utc)
-            await self._publish_memory_task_item_status(memory_task.task_id, progress)
+        memory_task.started_at = datetime.now(timezone.utc)
+        await self._publish_memory_task_status(memory_task)
 
-            try:
-                if task.source_verb == "WRITE":
-                    await self._run_mode_b(task, gen_context)
-                else:
-                    await self._run_mode_c(task, gen_context)
-                progress.status = MemoryGenerationTaskStatus.COMPLETED
-            except Exception as e:
-                logger.error(
-                    f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
-                    exc_info=True,
-                )
-                progress.status = MemoryGenerationTaskStatus.FAILED
-                progress.error = str(e)
-                await self._publish_pending_atom_failed(task.pending_alias)
-            finally:
-                progress.finished_at = datetime.now(timezone.utc)
+        try:
+            if task.source_verb == "WRITE":
+                await self._run_mode_b(task, gen_context)
+            else:
+                await self._run_mode_c(task, gen_context)
+            memory_task.status = MemoryGenerationTaskStatus.COMPLETED
+        except Exception as e:
+            logger.error(
+                f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
+                exc_info=True,
+            )
+            memory_task.status = MemoryGenerationTaskStatus.FAILED
+            memory_task.error = str(e)
+            await self._publish_pending_atom_failed(task.pending_alias)
+        finally:
+            memory_task.finished_at = datetime.now(timezone.utc)
 
     async def _run_mode_b(
         self,
@@ -373,17 +388,15 @@ class LibrarianCore:
         except Exception as pub_err:
             logger.warning(f"CANCELLED event publish error: {pub_err}")
 
-    async def _publish_memory_task_item_status(
-        self, task_id: str, progress: MemoryTaskProgress
-    ) -> None:
+    async def _publish_memory_task_status(self, memory_task: MemoryGenerationTask) -> None:
         if self._bus is None:
             return
         try:
             await self._bus.publish(
                 PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS,
-                task_id=task_id,
-                pending_alias=progress.pending_alias,
-                status=progress.status.value,
+                task_id=memory_task.task_id,
+                pending_alias=memory_task.pending_alias,
+                status=memory_task.status.value,
             )
         except Exception as pub_err:
             logger.warning(f"MEMORY_TASK_ITEM_STATUS publish error: {pub_err}")

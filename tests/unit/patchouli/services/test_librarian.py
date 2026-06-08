@@ -213,7 +213,8 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
 
@@ -242,7 +243,8 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
 
@@ -281,7 +283,8 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
 
@@ -315,7 +318,8 @@ class TestLibrarianCoreGenerateMemory:
         )
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
 
@@ -354,7 +358,8 @@ class TestLibrarianCoreGenerateMemory:
         self.mock_storage.get_memory = AsyncMock(return_value=None)
         self.core._bus = AsyncMock()
 
-        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
 
@@ -405,7 +410,8 @@ class TestLibrarianCoreGenerateMemory:
         # Phase 2: MEMORY_TASK_ITEM_STATUS → PENDING_ATOM_SETTLED (fails) → PENDING_ATOM_FAILED
         self.core._bus.publish = AsyncMock(side_effect=[None, RuntimeError("publish failed"), None])
 
-        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
 
@@ -570,7 +576,8 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
 
         if _memory_task._bg_task:
 
