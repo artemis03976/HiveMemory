@@ -433,6 +433,168 @@ class TestLibrarianCoreGenerateMemory:
         assert failed_call.kwargs["pending_alias"] == task.pending_alias
 
     @pytest.mark.asyncio
+    async def test_active_generation_backfills_canonical_alias_from_matching_settlement(self):
+        from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
+        from hivememory.engines.generation.models import DuplicateDecision, MemoryGenerationResult
+
+        write_focus = WriteFocus(content="test content")
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_target",
+            intent_id="intent_target",
+            source_verb="WRITE",
+            identity=_make_identity(),
+            focus=write_focus,
+        )
+        unrelated = PendingAtomSettlement(
+            pending_alias="draft_other",
+            intent_id="intent_other",
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="fact_other",
+            canonical_uuid=str(uuid4()),
+        )
+        target = PendingAtomSettlement(
+            pending_alias=task.pending_alias,
+            intent_id=task.intent_id,
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="fact_target",
+            canonical_uuid=str(uuid4()),
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(
+                    pending_alias="draft_other",
+                    intent_id="intent_other",
+                    duplicate_decision=DuplicateDecision.CREATE,
+                    canonical_alias="result_other",
+                    settlement=unrelated,
+                ),
+                MemoryGenerationResult(
+                    pending_alias=task.pending_alias,
+                    intent_id=task.intent_id,
+                    duplicate_decision=DuplicateDecision.CREATE,
+                    settlement=target,
+                ),
+            ]
+        )
+
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task.canonical_alias == "fact_target"
+
+    @pytest.mark.asyncio
+    async def test_active_generation_backfills_canonical_alias_from_result_field(self):
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        update_focus = UpdateFocus(
+            instruction="update",
+            base_uuid=str(uuid4()),
+            base_alias="fact_base",
+        )
+        task = PendingAtomMaterializeTask(
+            pending_alias="rev_target",
+            intent_id="intent_target",
+            source_verb="UPDATE",
+            identity=_make_identity(),
+            focus=update_focus,
+        )
+        self.mock_storage.get_memory = AsyncMock(return_value=Mock())
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(
+                    pending_alias=task.pending_alias,
+                    intent_id=task.intent_id,
+                    canonical_alias="fact_updated",
+                )
+            ]
+        )
+
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task.canonical_alias == "fact_updated"
+
+    @pytest.mark.asyncio
+    async def test_archive_generation_backfills_first_canonical_alias(self):
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=_make_logical_blocks(2),
+            state_summary="",
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(canonical_alias=None),
+                MemoryGenerationResult(canonical_alias="fact_archive"),
+                MemoryGenerationResult(canonical_alias="fact_later"),
+            ]
+        )
+
+        memory_task = await self.core._on_generate_memory(payload)
+        if memory_task and memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task is not None
+        assert memory_task.canonical_alias == "fact_archive"
+
+    @pytest.mark.asyncio
+    async def test_archive_generation_backfills_canonical_alias_from_atom(self):
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        atom = Mock()
+        atom.get_alias.return_value = "fact_from_atom"
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=_make_logical_blocks(1),
+            state_summary="",
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[MemoryGenerationResult(atom=atom)]
+        )
+
+        memory_task = await self.core._on_generate_memory(payload)
+        if memory_task and memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task is not None
+        assert memory_task.canonical_alias == "fact_from_atom"
+
+    @pytest.mark.asyncio
+    async def test_generation_without_alias_leaves_task_canonical_alias_empty(self):
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        write_focus = WriteFocus(content="test content")
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_no_alias",
+            intent_id="intent_no_alias",
+            source_verb="WRITE",
+            identity=_make_identity(),
+            focus=write_focus,
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(
+                    pending_alias=task.pending_alias,
+                    intent_id=task.intent_id,
+                )
+            ]
+        )
+
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task.canonical_alias is None
+
+    @pytest.mark.asyncio
     async def test_generate_memory_empty_blocks(self):
         """空 blocks 列表 early return"""
         payload = ArchivePayload(

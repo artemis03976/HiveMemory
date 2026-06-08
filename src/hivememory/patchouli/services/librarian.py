@@ -26,8 +26,12 @@ from typing import List, Optional, TYPE_CHECKING, Dict, Any, Tuple
 
 from hivememory.core.models import Identity
 from hivememory.core.models.pending import PendingAtomMaterializeTask
-from hivememory.engines.perception.models import FlushReason, ArchivePayload
-from hivememory.engines.generation.models import GenerationRequest, GenerationContext
+from hivememory.engines.perception.models import ArchivePayload
+from hivememory.engines.generation.models import (
+    GenerationRequest,
+    GenerationContext,
+    MemoryGenerationResult,
+)
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
@@ -241,7 +245,8 @@ class LibrarianCore:
         try:
             logger.info(f"LibrarianCore Mode A: {len(gen_context.turns)} 轮对话...")
             request = GenerationRequest(context=gen_context)
-            await self._run_generation(request)
+            results = await self._run_generation(request)
+            self._backfill_memory_task_result(memory_task, results)
             memory_task.status = MemoryGenerationTaskStatus.COMPLETED
         except asyncio.CancelledError:
             memory_task.status = MemoryGenerationTaskStatus.CANCELLED
@@ -314,9 +319,14 @@ class LibrarianCore:
 
         try:
             if task.source_verb == "WRITE":
-                await self._run_mode_b(task, gen_context)
+                results = await self._run_mode_b(task, gen_context)
             else:
-                await self._run_mode_c(task, gen_context)
+                results = await self._run_mode_c(task, gen_context)
+            self._backfill_memory_task_result(
+                memory_task,
+                results,
+                pending_alias=task.pending_alias,
+            )
             memory_task.status = MemoryGenerationTaskStatus.COMPLETED
         except asyncio.CancelledError:
             memory_task.status = MemoryGenerationTaskStatus.CANCELLED
@@ -338,7 +348,7 @@ class LibrarianCore:
         self,
         task: "PendingAtomMaterializeTask",
         gen_context: "GenerationContext",
-    ) -> None:
+    ) -> List[MemoryGenerationResult]:
         """Mode B: WRITE 指令定向记忆生成。"""
         from hivememory.core.models.pending import WriteFocus
         focus = task.focus
@@ -351,13 +361,13 @@ class LibrarianCore:
             intent_id=task.intent_id,
             pending_alias=task.pending_alias,
         )
-        await self._run_generation(request)
+        return await self._run_generation(request)
 
     async def _run_mode_c(
         self,
         task: "PendingAtomMaterializeTask",
         gen_context: "GenerationContext",
-    ) -> None:
+    ) -> List[MemoryGenerationResult]:
         """Mode C: UPDATE 指令定向记忆更新。"""
         from uuid import UUID as _UUID
         from hivememory.core.models.pending import UpdateFocus
@@ -382,9 +392,9 @@ class LibrarianCore:
             intent_id=task.intent_id,
             pending_alias=task.pending_alias,
         )
-        await self._run_generation(request)
+        return await self._run_generation(request)
 
-    async def _run_generation(self, request: "GenerationRequest") -> None:
+    async def _run_generation(self, request: "GenerationRequest") -> List[MemoryGenerationResult]:
         """调用生成引擎并发布 Settlement 事件。"""
         process_result = self.generation_engine.process(request)
         results = (
@@ -409,6 +419,52 @@ class LibrarianCore:
                             f"{r.settlement.pending_alias}: {pub_err}"
                         )
                         await self._publish_pending_atom_failed(r.settlement.pending_alias)
+
+        return results
+
+    def _backfill_memory_task_result(
+        self,
+        memory_task: MemoryGenerationTask,
+        results: List[MemoryGenerationResult],
+        pending_alias: Optional[str] = None,
+    ) -> None:
+        canonical_alias = self._select_canonical_alias(
+            results,
+            pending_alias=pending_alias,
+        )
+        if canonical_alias:
+            memory_task.canonical_alias = canonical_alias
+
+    def _select_canonical_alias(
+        self,
+        results: List[MemoryGenerationResult],
+        pending_alias: Optional[str] = None,
+    ) -> Optional[str]:
+        candidates = results
+        if pending_alias:
+            matched = [
+                result for result in results
+                if result.pending_alias == pending_alias
+                or (
+                    result.settlement is not None
+                    and result.settlement.pending_alias == pending_alias
+                )
+            ]
+            if matched:
+                candidates = matched
+
+        for result in candidates:
+            if result.settlement is not None and result.settlement.canonical_alias:
+                return result.settlement.canonical_alias
+            if result.canonical_alias:
+                return result.canonical_alias
+            if result.atom is not None:
+                get_alias = getattr(result.atom, "get_alias", None)
+                if callable(get_alias):
+                    alias = get_alias()
+                    if alias:
+                        return alias
+        return None
 
     async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
         if self._bus is None:
@@ -444,6 +500,7 @@ class LibrarianCore:
                 task_id=memory_task.task_id,
                 pending_alias=memory_task.pending_alias,
                 status=memory_task.status.value,
+                canonical_alias=memory_task.canonical_alias,
             )
         except Exception as pub_err:
             logger.warning(f"MEMORY_TASK_ITEM_STATUS publish error: {pub_err}")
