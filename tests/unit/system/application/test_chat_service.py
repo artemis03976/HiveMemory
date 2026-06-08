@@ -4,6 +4,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from dataclasses import dataclass
+from types import SimpleNamespace
 from uuid import uuid4
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
@@ -99,7 +100,7 @@ def mock_global_bus():
         elif route == GlobalRoutes.ALICE_RUN_AGENT:
             return chat_result
         elif route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
-            return None
+            return []
         elif route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
             return True
         elif route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
@@ -212,6 +213,39 @@ class TestChatApplicationService:
         assert "token" in event_types
         assert "done" in event_types
 
+    @pytest.mark.asyncio
+    async def test_chat_stream_emits_finalizing_before_done_with_memory_task_ids(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        prepared = _make_prepared_run()
+        chat_result = _make_chat_result()
+
+        async def route_dispatch(route, *args, **kwargs):
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                async def _stream():
+                    yield {"event": "done", "data": chat_result.model_dump()}
+
+                return _stream()
+            if route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
+                return [SimpleNamespace(task_id="memtask_1")]
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        events = []
+        async for e in svc.chat_stream(user_message="hi", user_id="u1"):
+            events.append(e)
+
+        event_types = [e["event"] for e in events]
+        run_status_index = event_types.index("run_status")
+        done_index = event_types.index("done")
+        assert run_status_index < done_index
+        assert events[run_status_index]["data"]["status"] == "finalizing"
+        assert events[run_status_index]["data"]["generation_id"]
+        assert events[done_index]["data"]["generation_id"] == events[run_status_index]["data"]["generation_id"]
+        assert events[done_index]["data"]["memory_task_ids"] == ["memtask_1"]
+
     def test_cancel_generation_returns_false_when_unknown(self, mock_global_bus):
         svc = ChatApplicationService(global_bus=mock_global_bus)
         assert svc.cancel_generation("gen-1").cancelled is False
@@ -266,6 +300,7 @@ class TestChatApplicationService:
         assert done["event"] == "done"
         assert done["data"]["status"] == "cancelled"
         assert done["data"]["stopped"] is True
+        assert done["data"]["memory_task_ids"] == []
 
     @pytest.mark.asyncio
     async def test_cancel_event_propagated_to_alice_during_stream(self, mock_global_bus):
@@ -356,4 +391,3 @@ class TestChatApplicationService:
         assert result.final_text == "partial"
         routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
         assert GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN not in routes_called
-

@@ -2,8 +2,10 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE, TurnEvent
+from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
 from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, EyeGazeResult, RetrievalResponse
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
@@ -207,6 +209,59 @@ async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
         memory.id,
         source="retrieval.finalize",
     )
+
+
+@pytest.mark.asyncio
+async def test_finalize_agent_run_returns_memory_generation_tasks():
+    kernel = MagicMock()
+    kernel.librarian_core = MagicMock()
+    kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
+    memory_tasks = [SimpleNamespace(task_id="memtask_1")]
+    kernel.librarian_core.run_active_generation = AsyncMock(return_value=memory_tasks)
+    service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
+
+    identity = Identity(user_id="u1", agent_id="omni_doll")
+    materialize_task = PendingAtomMaterializeTask(
+        pending_alias="pending_fact",
+        intent_id="intent_1",
+        source_verb="WRITE",
+        identity=identity,
+        focus=WriteFocus(content="remember this"),
+    )
+    prepared_run = PreparedAgentRun(
+        agent_run_context=AgentRunContext(
+            identity=identity,
+            topic_id="topic_1",
+            user_message="hi",
+            topic_context={"blocks": [], "state_summary": ""},
+            retrieval_result=RetrievalResponse(),
+            agent_profile=OMNI_DOLL_PROFILE,
+            storage_available=True,
+        ),
+        gaze_result=EyeGazeResult(
+            intent=GatewayIntent.RAG,
+            rewritten_query="rewritten",
+            search_keywords=[],
+            worth_saving=True,
+            raw_query="hi",
+            identity=identity,
+            target_topic="topic_1",
+        ),
+        stream_prelude=StreamPrelude(
+            topic_id="topic_1",
+            is_new_topic=False,
+            pool_snapshot={},
+            memory_refs=[],
+        ),
+    )
+
+    result = await service.finalize_agent_run(
+        prepared_run,
+        AgentRunResult(final_text="done", materialize_tasks=[materialize_task]),
+    )
+
+    assert result == memory_tasks
+    kernel.librarian_core.run_active_generation.assert_awaited_once()
 
 
 @pytest.mark.asyncio

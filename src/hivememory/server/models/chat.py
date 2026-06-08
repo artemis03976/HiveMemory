@@ -89,6 +89,11 @@ class ChatDoneEvent(BaseModel):
     final_text: str
     mtp_iterations: int
     total_iterations: int
+    generation_id: Optional[str] = None
+    status: str = "completed"
+    stopped: bool = False
+    reason: Optional[str] = None
+    memory_task_ids: list[str] = Field(default_factory=list)
 
 
 class ChatErrorEvent(BaseModel):

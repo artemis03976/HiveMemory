@@ -170,7 +170,7 @@ class PatchouliService:
         self,
         prepared_run: PreparedAgentRun,
         loop_result: AgentRunResult,
-    ) -> None:
+    ) -> List[MemoryGenerationTask]:
         agent_context = prepared_run.agent_run_context
         gaze_result = prepared_run.gaze_result
         actions = ActionReducer.reduce(loop_result.turn_events)
@@ -193,13 +193,15 @@ class PatchouliService:
             target_topic_id=agent_context.topic_id,
         )
 
+        memory_tasks: List[MemoryGenerationTask] = []
         if loop_result.materialize_tasks:
-            await self._runtime.librarian_core.run_active_generation(
+            memory_tasks = await self._runtime.librarian_core.run_active_generation(
                 tasks=loop_result.materialize_tasks,
                 topic_id=agent_context.topic_id,
             )
 
         self._record_retrieval_hits(prepared_run)
+        return memory_tasks
 
     # ========== Phase 2: Memory Task API ==========
 

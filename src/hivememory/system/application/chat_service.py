@@ -181,20 +181,33 @@ class ChatApplicationService:
                 return
 
             run.status = ChatGenerationRunStatus.FINALIZING
-            await self._bus.request(
+            yield {
+                "event": "run_status",
+                "data": {
+                    "generation_id": run.generation_id,
+                    "status": run.status.value,
+                },
+            }
+            memory_tasks = await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 loop_result=loop_result,
             )
+            memory_task_ids = [
+                memory_task.task_id
+                for memory_task in (memory_tasks or [])
+            ]
 
             run.status = ChatGenerationRunStatus.COMPLETED
             yield {
                 "event": "done",
                 "data": {
+                    "generation_id": run.generation_id,
                     **loop_result.model_dump(),
                     "status": "completed",
                     "stopped": False,
                     "reason": None,
+                    "memory_task_ids": memory_task_ids,
                 },
             }
 
@@ -232,9 +245,11 @@ class ChatApplicationService:
             "event": "done",
             "data": {
                 **base,
+                "generation_id": run.generation_id,
                 "status": "cancelled",
                 "stopped": True,
                 "reason": run.cancel_reason or "user_requested",
+                "memory_task_ids": [],
             },
         }
 
