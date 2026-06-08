@@ -86,6 +86,7 @@ class AgentRuntime:
         frame: "ExecutionFrame",
         generation_options: Optional[Dict[str, Any]] = None,
         stream_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+        cancel_event=None,
     ) -> "FrameExecutionResult":
         """跑一个 frame，逐 token 推给 stream_emitter（供编排跑流式子帧）。"""
         return await self._loop_executor.execute_frame(
@@ -94,11 +95,20 @@ class AgentRuntime:
             generation_options=generation_options,
             stream_emitter=stream_emitter,
             use_stream_generation=stream_emitter is not None,
+            cancel_event=cancel_event,
         )
 
     def mark_task_failed(self, pending_alias: str) -> None:
         """将 MATERIALIZING 的 atom 迁移到 FAILED（由 patchouli FAILED 事件触发）。"""
         self._pending_runtime.mark_failed(pending_alias)
+
+    def mark_task_cancelled(self, pending_alias: str) -> None:
+        """将 in-flight atom 迁移到 CANCELLED（由 patchouli CANCELLED 事件触发）。"""
+        self._pending_runtime.cancel(pending_alias)
+
+    def cancel_tasks_by_run(self, run_id: str) -> List[str]:
+        """取消本 run 仍在飞行中的 pending atom。"""
+        return self._pending_runtime.cancel_run(run_id)
 
     def aliases_by_frame(self, frame_id: str) -> List[str]:
         """返回属于指定 frame 的全部 pending alias（不做状态过滤，供 harvest 使用）。"""

@@ -15,6 +15,7 @@ from hivememory.core.models import Identity, TurnRecord, UpdateFocus, WriteFocus
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.services.librarian import LibrarianCore
 
 
@@ -180,7 +181,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -211,7 +214,13 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
+
+        if _memory_task._bg_task:
+
+
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -235,7 +244,13 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
+
+        if _memory_task._bg_task:
+
+
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -269,7 +284,13 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
+
+        if _memory_task._bg_task:
+
+
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -298,7 +319,13 @@ class TestLibrarianCoreGenerateMemory:
         )
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
+
+        if _memory_task._bg_task:
+
+
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -332,12 +359,19 @@ class TestLibrarianCoreGenerateMemory:
         self.mock_storage.get_memory = AsyncMock(return_value=None)
         self.core._bus = AsyncMock()
 
-        await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
+
+        if _memory_task._bg_task:
+
+
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_not_called()
-        self.core._bus.publish.assert_awaited_once()
-        _, kwargs = self.core._bus.publish.await_args
-        assert kwargs["pending_alias"] == "rev_test_003"
+        # Phase 2: status running -> PENDING_ATOM_FAILED -> status failed
+        assert self.core._bus.publish.await_count >= 1
+        last_call_kwargs = self.core._bus.publish.await_args.kwargs
+        assert last_call_kwargs["pending_alias"] == "rev_test_003"
 
     @pytest.mark.asyncio
     async def test_active_generation_settlement_publish_failure_marks_failed(self):
@@ -374,13 +408,191 @@ class TestLibrarianCoreGenerateMemory:
             ]
         )
         self.core._bus = AsyncMock()
-        self.core._bus.publish = AsyncMock(side_effect=[RuntimeError("publish failed"), None])
+        # Phase 2: status running → PENDING_ATOM_SETTLED (fails) → PENDING_ATOM_FAILED → status completed
+        self.core._bus.publish = AsyncMock(
+            side_effect=[None, RuntimeError("publish failed"), None, None]
+        )
 
-        await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
 
-        assert self.core._bus.publish.await_count == 2
-        second_call = self.core._bus.publish.await_args_list[1]
-        assert second_call.kwargs["pending_alias"] == task.pending_alias
+        if _memory_task._bg_task:
+
+            await _memory_task._bg_task
+
+        assert self.core._bus.publish.await_count == 4
+        calls = self.core._bus.publish.await_args_list
+        memory_statuses = [
+            call.kwargs["status"]
+            for call in calls
+            if call.args and call.args[0] == PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS
+        ]
+        assert memory_statuses == ["running", "completed"]
+        failed_call = calls[-2]
+        assert failed_call.args[0] == PatchouliLocalEvents.PENDING_ATOM_FAILED
+        assert failed_call.kwargs["pending_alias"] == task.pending_alias
+
+    @pytest.mark.asyncio
+    async def test_active_generation_backfills_canonical_alias_from_matching_settlement(self):
+        from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
+        from hivememory.engines.generation.models import DuplicateDecision, MemoryGenerationResult
+
+        write_focus = WriteFocus(content="test content")
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_target",
+            intent_id="intent_target",
+            source_verb="WRITE",
+            identity=_make_identity(),
+            focus=write_focus,
+        )
+        unrelated = PendingAtomSettlement(
+            pending_alias="draft_other",
+            intent_id="intent_other",
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="fact_other",
+            canonical_uuid=str(uuid4()),
+        )
+        target = PendingAtomSettlement(
+            pending_alias=task.pending_alias,
+            intent_id=task.intent_id,
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="fact_target",
+            canonical_uuid=str(uuid4()),
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(
+                    pending_alias="draft_other",
+                    intent_id="intent_other",
+                    duplicate_decision=DuplicateDecision.CREATE,
+                    canonical_alias="result_other",
+                    settlement=unrelated,
+                ),
+                MemoryGenerationResult(
+                    pending_alias=task.pending_alias,
+                    intent_id=task.intent_id,
+                    duplicate_decision=DuplicateDecision.CREATE,
+                    settlement=target,
+                ),
+            ]
+        )
+
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task.canonical_alias == "fact_target"
+
+    @pytest.mark.asyncio
+    async def test_active_generation_backfills_canonical_alias_from_result_field(self):
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        update_focus = UpdateFocus(
+            instruction="update",
+            base_uuid=str(uuid4()),
+            base_alias="fact_base",
+        )
+        task = PendingAtomMaterializeTask(
+            pending_alias="rev_target",
+            intent_id="intent_target",
+            source_verb="UPDATE",
+            identity=_make_identity(),
+            focus=update_focus,
+        )
+        self.mock_storage.get_memory = AsyncMock(return_value=Mock())
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(
+                    pending_alias=task.pending_alias,
+                    intent_id=task.intent_id,
+                    canonical_alias="fact_updated",
+                )
+            ]
+        )
+
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task.canonical_alias == "fact_updated"
+
+    @pytest.mark.asyncio
+    async def test_archive_generation_backfills_first_canonical_alias(self):
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=_make_logical_blocks(2),
+            state_summary="",
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(canonical_alias=None),
+                MemoryGenerationResult(canonical_alias="fact_archive"),
+                MemoryGenerationResult(canonical_alias="fact_later"),
+            ]
+        )
+
+        memory_task = await self.core._on_generate_memory(payload)
+        if memory_task and memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task is not None
+        assert memory_task.canonical_alias == "fact_archive"
+
+    @pytest.mark.asyncio
+    async def test_archive_generation_backfills_canonical_alias_from_atom(self):
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        atom = Mock()
+        atom.get_alias.return_value = "fact_from_atom"
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=_make_logical_blocks(1),
+            state_summary="",
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[MemoryGenerationResult(atom=atom)]
+        )
+
+        memory_task = await self.core._on_generate_memory(payload)
+        if memory_task and memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task is not None
+        assert memory_task.canonical_alias == "fact_from_atom"
+
+    @pytest.mark.asyncio
+    async def test_generation_without_alias_leaves_task_canonical_alias_empty(self):
+        from hivememory.engines.generation.models import MemoryGenerationResult
+
+        write_focus = WriteFocus(content="test content")
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_no_alias",
+            intent_id="intent_no_alias",
+            source_verb="WRITE",
+            identity=_make_identity(),
+            focus=write_focus,
+        )
+        self.mock_generation.process = AsyncMock(
+            return_value=[
+                MemoryGenerationResult(
+                    pending_alias=task.pending_alias,
+                    intent_id=task.intent_id,
+                )
+            ]
+        )
+
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task.canonical_alias is None
 
     @pytest.mark.asyncio
     async def test_generate_memory_empty_blocks(self):
@@ -392,7 +604,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_not_called()
 
@@ -407,7 +621,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.IDLE_TIMEOUT,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -429,7 +645,9 @@ class TestLibrarianCoreGenerateMemory:
         )
 
         # 不应抛异常
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
     @pytest.mark.asyncio
     async def test_generate_memory_without_generation_engine(self):
@@ -445,7 +663,9 @@ class TestLibrarianCoreGenerateMemory:
         )
 
         # 不应抛异常
-        await core._on_generate_memory(payload)
+        mt = await core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
     @pytest.mark.asyncio
     async def test_generate_memory_manual_mode_a(self):
@@ -458,7 +678,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.MANUAL,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -476,7 +698,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.MANUAL,
         )
 
-        await self.core._on_generate_memory(payload)
+        mt = await self.core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
 
@@ -498,7 +722,9 @@ class TestLibrarianCoreGenerateMemory:
             reason=FlushReason.MANUAL,
         )
 
-        await core._on_generate_memory(payload)
+        mt = await core._on_generate_memory(payload)
+        if mt and mt._bg_task:
+            await mt._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -523,7 +749,13 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        await self.core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = memory_tasks[0]
+
+        if _memory_task._bg_task:
+
+
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]

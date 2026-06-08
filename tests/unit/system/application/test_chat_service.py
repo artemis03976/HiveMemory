@@ -4,6 +4,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from dataclasses import dataclass
+from types import SimpleNamespace
 from uuid import uuid4
 
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
@@ -99,7 +100,7 @@ def mock_global_bus():
         elif route == GlobalRoutes.ALICE_RUN_AGENT:
             return chat_result
         elif route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
-            return None
+            return []
         elif route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
             return True
         elif route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
@@ -196,6 +197,7 @@ class TestChatApplicationService:
             if call.args[0] == GlobalRoutes.ALICE_RUN_AGENT
         )
         assert isinstance(run_call.kwargs["agent_run_context"], AgentRunContext)
+        assert "cancel_event" in run_call.kwargs
 
     @pytest.mark.asyncio
     async def test_chat_stream_emits_prelude_and_done(self, mock_global_bus):
@@ -210,6 +212,55 @@ class TestChatApplicationService:
         assert "memory_refs" in event_types
         assert "token" in event_types
         assert "done" in event_types
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_uses_supplied_generation_id(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        events = []
+        async for e in svc.chat_stream(
+            user_message="hi",
+            user_id="u1",
+            generation_id="gen-supplied",
+        ):
+            events.append(e)
+
+        generation_id_event = next(e for e in events if e["event"] == "generation_id")
+        done_event = next(e for e in events if e["event"] == "done")
+        assert generation_id_event["data"]["generation_id"] == "gen-supplied"
+        assert done_event["data"]["generation_id"] == "gen-supplied"
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_emits_finalizing_before_done_with_memory_task_ids(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        prepared = _make_prepared_run()
+        chat_result = _make_chat_result()
+
+        async def route_dispatch(route, *args, **kwargs):
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                async def _stream():
+                    yield {"event": "done", "data": chat_result.model_dump()}
+
+                return _stream()
+            if route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
+                return [SimpleNamespace(task_id="memtask_1")]
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        events = []
+        async for e in svc.chat_stream(user_message="hi", user_id="u1"):
+            events.append(e)
+
+        event_types = [e["event"] for e in events]
+        run_status_index = event_types.index("run_status")
+        done_index = event_types.index("done")
+        assert run_status_index < done_index
+        assert events[run_status_index]["data"]["status"] == "finalizing"
+        assert events[run_status_index]["data"]["generation_id"]
+        assert events[done_index]["data"]["generation_id"] == events[run_status_index]["data"]["generation_id"]
+        assert events[done_index]["data"]["memory_task_ids"] == ["memtask_1"]
 
     def test_cancel_generation_returns_false_when_unknown(self, mock_global_bus):
         svc = ChatApplicationService(global_bus=mock_global_bus)
@@ -265,6 +316,7 @@ class TestChatApplicationService:
         assert done["event"] == "done"
         assert done["data"]["status"] == "cancelled"
         assert done["data"]["stopped"] is True
+        assert done["data"]["memory_task_ids"] == []
 
     @pytest.mark.asyncio
     async def test_cancel_event_propagated_to_alice_during_stream(self, mock_global_bus):
@@ -301,3 +353,57 @@ class TestChatApplicationService:
         assert events[-1]["data"]["status"] == "cancelled"
 
 
+    @pytest.mark.asyncio
+    async def test_chat_cancel_after_prepare_skips_non_streaming_run(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        prepared = _make_prepared_run()
+
+        async def route_dispatch(route, *args, **kwargs):
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                svc.cancel_generation("gen-nonstream")
+                return prepared
+            raise AssertionError(f"Unexpected route: {route}")
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        result = await svc.chat(
+            user_message="hi",
+            user_id="u1",
+            generation_id="gen-nonstream",
+        )
+
+        assert result.cancelled is True
+        routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
+        assert routes_called == [GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN]
+
+    @pytest.mark.asyncio
+    async def test_chat_cancel_during_non_streaming_run_skips_finalize(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        prepared = _make_prepared_run()
+        observed_cancel_event = None
+
+        async def route_dispatch(route, *args, **kwargs):
+            nonlocal observed_cancel_event
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT:
+                observed_cancel_event = kwargs["cancel_event"]
+                cancel_result = svc.cancel_generation("gen-nonstream")
+                assert cancel_result.cancelled is True
+                return AgentRunResult(final_text="partial", cancelled=True)
+            raise AssertionError(f"Unexpected route: {route}")
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        result = await svc.chat(
+            user_message="hi",
+            user_id="u1",
+            generation_id="gen-nonstream",
+        )
+
+        assert observed_cancel_event is not None
+        assert observed_cancel_event.is_set()
+        assert result.cancelled is True
+        assert result.final_text == "partial"
+        routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
+        assert GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN not in routes_called

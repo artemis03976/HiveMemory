@@ -49,12 +49,17 @@ class ChatApplicationService:
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
+        generation_id: Optional[str] = None,
     ) -> AgentRunResult:
         """顶层非流式 chat 入口。编排骨架: prepare -> run_agent -> finalize"""
         trace_id = generate_trace_id("chat")
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
+        run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
+        self._registry.register(run)
+        prepared = None
 
         try:
+            run.status = ChatGenerationRunStatus.PREPARING
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -65,23 +70,37 @@ class ChatApplicationService:
                 generation_options=generation_options,
             )
 
+            if run.cancelled:
+                run.status = ChatGenerationRunStatus.CANCELLED
+                return self._cancelled_agent_result()
+
+            run.status = ChatGenerationRunStatus.STREAMING
             loop_result: AgentRunResult = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT,
                 agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
+                cancel_event=run.cancel_event,
             )
 
+            if run.cancelled or loop_result.cancelled:
+                run.status = ChatGenerationRunStatus.CANCELLED
+                return self._cancelled_agent_result(loop_result)
+
+            run.status = ChatGenerationRunStatus.FINALIZING
             await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 loop_result=loop_result,
             )
 
+            run.status = ChatGenerationRunStatus.COMPLETED
             return loop_result
         except Exception:
+            run.status = ChatGenerationRunStatus.FAILED
             logger.exception("ChatApplicationService.chat 异常")
             raise
         finally:
+            self._registry.close(run.generation_id, run.status)
             reset_trace_context(tokens)
 
     # ========== 流式主链路 ==========
@@ -94,6 +113,7 @@ class ChatApplicationService:
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
+        generation_id: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         顶层流式 chat 入口。
@@ -104,7 +124,7 @@ class ChatApplicationService:
         trace_id = generate_trace_id("stream")
         tokens = set_trace_context(trace_id, "ChatApp.Stream", "foreground")
 
-        run = ChatGenerationRun(generation_id=str(uuid.uuid4()))
+        run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
         self._registry.register(run)
         prepared = None
 
@@ -162,20 +182,33 @@ class ChatApplicationService:
                 return
 
             run.status = ChatGenerationRunStatus.FINALIZING
-            await self._bus.request(
+            yield {
+                "event": "run_status",
+                "data": {
+                    "generation_id": run.generation_id,
+                    "status": run.status.value,
+                },
+            }
+            memory_tasks = await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 loop_result=loop_result,
             )
+            memory_task_ids = [
+                memory_task.task_id
+                for memory_task in (memory_tasks or [])
+            ]
 
             run.status = ChatGenerationRunStatus.COMPLETED
             yield {
                 "event": "done",
                 "data": {
+                    "generation_id": run.generation_id,
                     **loop_result.model_dump(),
                     "status": "completed",
                     "stopped": False,
                     "reason": None,
+                    "memory_task_ids": memory_task_ids,
                 },
             }
 
@@ -213,8 +246,18 @@ class ChatApplicationService:
             "event": "done",
             "data": {
                 **base,
+                "generation_id": run.generation_id,
                 "status": "cancelled",
                 "stopped": True,
                 "reason": run.cancel_reason or "user_requested",
+                "memory_task_ids": [],
             },
         }
+
+    @staticmethod
+    def _cancelled_agent_result(
+        loop_result: Optional[AgentRunResult] = None,
+    ) -> AgentRunResult:
+        if loop_result is None:
+            return AgentRunResult(cancelled=True)
+        return loop_result.model_copy(update={"cancelled": True})

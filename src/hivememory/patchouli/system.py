@@ -355,6 +355,10 @@ class PatchouliSystem(SubsystemProtocol):
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             self._forward_pending_atom_failed,
         )
+        self.runtime.local_bus.subscribe(
+            PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
+            self._forward_pending_atom_cancelled,
+        )
 
     def _unregister_local_event_bridges(self) -> None:
         self.runtime.local_bus.unsubscribe(
@@ -364,6 +368,10 @@ class PatchouliSystem(SubsystemProtocol):
         self.runtime.local_bus.unsubscribe(
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             self._forward_pending_atom_failed,
+        )
+        self.runtime.local_bus.unsubscribe(
+            PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
+            self._forward_pending_atom_cancelled,
         )
 
     async def _forward_pending_atom_settled(self, *, settlement) -> None:
@@ -379,6 +387,14 @@ class PatchouliSystem(SubsystemProtocol):
             return
         await self._global_bus.publish(
             GlobalEvents.PENDING_ATOM_FAILED,
+            pending_alias=pending_alias,
+        )
+
+    async def _forward_pending_atom_cancelled(self, *, pending_alias: str) -> None:
+        if self._global_bus is None:
+            return
+        await self._global_bus.publish(
+            GlobalEvents.PENDING_ATOM_CANCELLED,
             pending_alias=pending_alias,
         )
 

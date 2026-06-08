@@ -333,7 +333,10 @@ class TestFlushCallbackModes:
             identity=Identity(user_id="test_user"),
             focus=focus,
         )
-        await core.run_active_generation([task], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
+        memory_task = memory_tasks[0]
+        if memory_task._bg_task:
+            await memory_task._bg_task
 
         mock_generation.process.assert_called_once()
         request = mock_generation.process.call_args[0][0]
@@ -356,8 +359,9 @@ class TestFlushCallbackModes:
             generation_engine=mock_generation,
         )
 
-        await core.run_active_generation([], topic_id="topic_test")
+        memory_tasks = await core.run_active_generation([], topic_id="topic_test")
         mock_generation.process.assert_not_called()
+        assert memory_tasks == []
 
     @pytest.mark.asyncio
     async def test_normal_flush_triggers_mode_a(self, sample_messages):
@@ -392,7 +396,9 @@ class TestFlushCallbackModes:
             state_summary="",
             reason=FlushReason.MANUAL,
         )
-        await core._on_generate_memory(payload)
+        memory_task = await core._on_generate_memory(payload)
+        if memory_task and memory_task._bg_task:
+            await memory_task._bg_task
 
         mock_generation.process.assert_called_once()
 
@@ -428,7 +434,9 @@ class TestFlushCallbackModes:
             state_summary="",
             reason=FlushReason.MANUAL,
         )
-        await core._on_generate_memory(payload)
+        memory_task = await core._on_generate_memory(payload)
+        if memory_task and memory_task._bg_task:
+            await memory_task._bg_task
         mock_generation.process.assert_called_once()
 
 

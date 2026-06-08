@@ -102,6 +102,7 @@ class AgentOrchestrator:
                     main_frame=main_frame,
                     engine_result=engine_result,
                     generation_options=generation_options,
+                    cancel_event=cancel_event,
                 )
                 continue
             break
@@ -134,6 +135,7 @@ class AgentOrchestrator:
                 engine_result=engine_result,
                 generation_options=generation_options,
                 emit=_emit,
+                cancel_event=cancel_event,
             )
 
         async def _runner() -> None:
@@ -171,6 +173,7 @@ class AgentOrchestrator:
         engine_result: FrameExecutionResult,
         generation_options: Optional[Dict[str, Any]],
         emit: Optional[Callable] = None,
+        cancel_event=None,
     ) -> None:
         cr = engine_result.call_request
         action_id = engine_result.suspend_action_id
@@ -213,6 +216,7 @@ class AgentOrchestrator:
                 await self._agent_runtime.run_frame(
                     frame=sub_frame,
                     generation_options=generation_options,
+                    cancel_event=cancel_event,
                 )
             else:
                 async def _sub_emit(sub_event: Dict[str, Any]) -> None:
@@ -222,6 +226,7 @@ class AgentOrchestrator:
                     frame=sub_frame,
                     generation_options=generation_options,
                     stream_emitter=_sub_emit,
+                    cancel_event=cancel_event,
                 )
 
             self._frame_scheduler.resume_frame()
@@ -374,14 +379,19 @@ class AgentOrchestrator:
         cancel_event=None,
     ) -> AgentRunResult:
         p = frame.progress
-        tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
+        cancelled = cancel_event is not None and cancel_event.is_set()
+        if cancelled:
+            self._agent_runtime.cancel_tasks_by_run(frame.runtime_scope.run_id)
+            tasks = []
+        else:
+            tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
         return AgentRunResult(
             final_text="".join(p.text_segments),
             mtp_iterations=max(0, p.iteration - 1),
             total_iterations=p.iteration,
             turn_events=p.turn_events,
             materialize_tasks=tasks,
-            cancelled=cancel_event is not None and cancel_event.is_set(),
+            cancelled=cancelled,
         )
 
 

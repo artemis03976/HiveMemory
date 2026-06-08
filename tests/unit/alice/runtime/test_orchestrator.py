@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -68,6 +69,7 @@ async def test_run_agent_assembles_result_from_completed_frame():
     runtime = SimpleNamespace(
         run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
         collect_tasks_by_run=MagicMock(return_value=[]),
+        cancel_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=[]),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
@@ -84,6 +86,33 @@ async def test_run_agent_assembles_result_from_completed_frame():
     assert result.turn_events == frame.progress.turn_events
     assert result.materialize_tasks == []
     runtime.collect_tasks_by_run.assert_called_once_with("run-1")
+    runtime.cancel_tasks_by_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_agent_cancelled_cancels_pending_atoms_without_materialize_tasks():
+    frame = _frame()
+    cancel_event = asyncio.Event()
+    cancel_event.set()
+    runtime = SimpleNamespace(
+        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        collect_tasks_by_run=MagicMock(return_value=["should-not-use"]),
+        cancel_tasks_by_run=MagicMock(return_value=["draft_cancelled"]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(frame, runtime=runtime)
+
+    result = await orchestrator.run_agent(
+        messages=[{"role": "user", "content": "hello"}],
+        identity=frame.identity,
+        topic_id="topic-1",
+        cancel_event=cancel_event,
+    )
+
+    assert result.cancelled is True
+    assert result.materialize_tasks == []
+    runtime.cancel_tasks_by_run.assert_called_once_with("run-1")
+    runtime.collect_tasks_by_run.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -125,13 +154,51 @@ async def test_handle_suspend_runs_sub_agent_and_appends_call_response():
 
     orchestrator._test_scheduler.suspend_frame.assert_called_once_with(main_frame)
     orchestrator._test_scheduler.resume_frame.assert_called_once()
-    runtime.run_frame.assert_awaited_once_with(frame=sub_frame, generation_options={"x": 1})
+    runtime.run_frame.assert_awaited_once_with(
+        frame=sub_frame,
+        generation_options={"x": 1},
+        cancel_event=None,
+    )
     assert "draft_sub" in main_frame.harvested_aliases
     assert "draft_runtime" in sub_frame.harvested_aliases
     assert main_frame.progress.turn_events[0].status == "success"
     assert main_frame.progress.turn_events[-1].kind == "tool_result"
     assert main_frame.progress.turn_events[-1].status == "success"
     assert "sub reply" in main_frame.working_history[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_handle_suspend_passes_cancel_event_to_sub_agent():
+    main_frame = _frame()
+    sub_frame = _frame(depth=1, frame_id="frame-sub")
+    cancel_event = asyncio.Event()
+
+    runtime = SimpleNamespace(
+        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        collect_tasks_by_run=MagicMock(return_value=[]),
+        cancel_tasks_by_run=MagicMock(return_value=[]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(main_frame, runtime=runtime)
+    orchestrator._test_scheduler.fork_sub_frame.return_value = sub_frame
+
+    engine_result = FrameExecutionResult(
+        status=FrameExecutionStatus.SUSPENDED,
+        call_request=MTPCallRequest(target_alias="helper", task="summarize", context_refs=[]),
+    )
+
+    await orchestrator._handle_suspend(
+        main_frame,
+        engine_result,
+        generation_options={"x": 1},
+        cancel_event=cancel_event,
+    )
+
+    runtime.run_frame.assert_awaited_once_with(
+        frame=sub_frame,
+        generation_options={"x": 1},
+        cancel_event=cancel_event,
+    )
 
 
 @pytest.mark.asyncio

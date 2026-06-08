@@ -20,6 +20,7 @@ from hivememory.core.models import (
     PendingAtomSettlement,
     PendingAtomSnapshot,
     PendingAtomStatus,
+    RuntimeScope,
 )
 from hivememory.core.models.pending import (
     allowed_transitions,
@@ -432,6 +433,41 @@ class TestPendingAtomRuntimeCommands:
         runtime.cancel(atom.pending_alias)
 
         assert atom.status == PendingAtomStatus.CANCELLED
+
+    def test_cancel_terminal_atom_is_idempotent_skip(self, runtime, identity):
+        atom = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity,
+        )
+        runtime.start_materializing(atom.pending_alias)
+        runtime.mark_failed(atom.pending_alias)
+
+        runtime.cancel(atom.pending_alias)
+
+        assert atom.status == PendingAtomStatus.FAILED
+
+    def test_cancel_run_cancels_pending_and_materializing_atoms(self, runtime, identity):
+        scope = RuntimeScope(run_id="run-1")
+        pending = runtime.register_write(
+            content="x", title="X", reason=None, identity=identity, runtime_scope=scope
+        )
+        materializing = runtime.register_write(
+            content="y", title="Y", reason=None, identity=identity, runtime_scope=scope
+        )
+        other = runtime.register_write(
+            content="z",
+            title="Z",
+            reason=None,
+            identity=identity,
+            runtime_scope=RuntimeScope(run_id="run-2"),
+        )
+        runtime.start_materializing(materializing.pending_alias)
+
+        cancelled = runtime.cancel_run("run-1")
+
+        assert set(cancelled) == {pending.pending_alias, materializing.pending_alias}
+        assert pending.status == PendingAtomStatus.CANCELLED
+        assert materializing.status == PendingAtomStatus.CANCELLED
+        assert other.status == PendingAtomStatus.PENDING
 
     def test_expire_pending_atom(self, runtime, identity):
         atom = runtime.register_write(

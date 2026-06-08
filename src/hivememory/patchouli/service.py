@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import inspect
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, List
 from uuid import UUID
 
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
@@ -23,6 +23,7 @@ from hivememory.patchouli.models import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.server.models.memory import MemoryResponse
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.control import MemoryGenerationTask
 
 if TYPE_CHECKING:
     from hivememory.patchouli.eye import TheEye
@@ -169,7 +170,7 @@ class PatchouliService:
         self,
         prepared_run: PreparedAgentRun,
         loop_result: AgentRunResult,
-    ) -> None:
+    ) -> List[MemoryGenerationTask]:
         agent_context = prepared_run.agent_run_context
         gaze_result = prepared_run.gaze_result
         actions = ActionReducer.reduce(loop_result.turn_events)
@@ -192,13 +193,26 @@ class PatchouliService:
             target_topic_id=agent_context.topic_id,
         )
 
+        memory_tasks: List[MemoryGenerationTask] = []
         if loop_result.materialize_tasks:
-            await self._runtime.librarian_core.run_active_generation(
+            memory_tasks = await self._runtime.librarian_core.run_active_generation(
                 tasks=loop_result.materialize_tasks,
                 topic_id=agent_context.topic_id,
             )
 
         self._record_retrieval_hits(prepared_run)
+        return memory_tasks
+
+    # ========== Phase 2: Memory Task API ==========
+
+    def list_memory_tasks(self) -> List[MemoryGenerationTask]:
+        return self._runtime.librarian_core.list_tasks()
+
+    def get_memory_task(self, task_id: str) -> MemoryGenerationTask | None:
+        return self._runtime.librarian_core.get_task(task_id)
+
+    def cancel_memory_task(self, task_id: str) -> bool:
+        return self._runtime.librarian_core.cancel_task(task_id)
 
     async def record_memory_citation(
         self,
