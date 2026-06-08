@@ -113,6 +113,7 @@ class ChatApplicationService:
         session_id: Optional[str] = None,
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
+        generation_id: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         顶层流式 chat 入口。
@@ -123,7 +124,7 @@ class ChatApplicationService:
         trace_id = generate_trace_id("stream")
         tokens = set_trace_context(trace_id, "ChatApp.Stream", "foreground")
 
-        run = ChatGenerationRun(generation_id=str(uuid.uuid4()))
+        run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
         self._registry.register(run)
         prepared = None
 

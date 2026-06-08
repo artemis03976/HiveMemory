@@ -214,6 +214,22 @@ class TestChatApplicationService:
         assert "done" in event_types
 
     @pytest.mark.asyncio
+    async def test_chat_stream_uses_supplied_generation_id(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        events = []
+        async for e in svc.chat_stream(
+            user_message="hi",
+            user_id="u1",
+            generation_id="gen-supplied",
+        ):
+            events.append(e)
+
+        generation_id_event = next(e for e in events if e["event"] == "generation_id")
+        done_event = next(e for e in events if e["event"] == "done")
+        assert generation_id_event["data"]["generation_id"] == "gen-supplied"
+        assert done_event["data"]["generation_id"] == "gen-supplied"
+
+    @pytest.mark.asyncio
     async def test_chat_stream_emits_finalizing_before_done_with_memory_task_ids(self, mock_global_bus):
         svc = ChatApplicationService(global_bus=mock_global_bus)
         prepared = _make_prepared_run()

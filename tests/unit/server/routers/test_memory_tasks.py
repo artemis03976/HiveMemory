@@ -64,8 +64,18 @@ def test_cancel_memory_task_calls_service():
     service.cancel_memory_task.return_value = True
     client = TestClient(_create_test_app(service))
 
-    response = client.delete("/api/v1/memory-tasks/task_1/cancel")
+    response = client.post("/api/v1/memory-tasks/task_1/cancel")
 
     assert response.status_code == 200
     assert response.json() == {"task_id": "task_1", "cancelled": True}
     service.cancel_memory_task.assert_called_once_with("task_1")
+
+
+def test_cancel_memory_task_does_not_accept_delete():
+    service = MagicMock()
+    client = TestClient(_create_test_app(service))
+
+    response = client.delete("/api/v1/memory-tasks/task_1/cancel")
+
+    assert response.status_code == 405
+    service.cancel_memory_task.assert_not_called()

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from contextlib import suppress
 
 from fastapi import APIRouter, Depends, Request
@@ -23,10 +24,9 @@ async def chat(
     service: ChatApplicationService = Depends(get_chat_service),
 ):
     """Stream an active chat run over SSE."""
-    generation_id = None
+    generation_id = str(uuid.uuid4())
 
     async def event_generator():
-        nonlocal generation_id
         stream = None
         try:
             stream = service.chat_stream(
@@ -40,6 +40,7 @@ async def chat(
                     if body.generation_options
                     else None
                 ),
+                generation_id=generation_id,
             )
 
             while True:
@@ -58,9 +59,6 @@ async def chat(
                     event = next_event_task.result()
                 except StopAsyncIteration:
                     break
-
-                if event["event"] == "generation_id":
-                    generation_id = event["data"].get("generation_id")
 
                 yield {
                     "event": event["event"],

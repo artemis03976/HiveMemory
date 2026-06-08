@@ -37,7 +37,7 @@ async def get_memory_task(task_id: str, system=Depends(get_system)):
     return _task_to_dict(memory_task)
 
 
-@router.delete("/{task_id}/cancel")
+@router.post("/{task_id}/cancel")
 async def cancel_memory_task(task_id: str, system=Depends(get_system)):
     ok = system._patchouli.service.cancel_memory_task(task_id)
     if not ok:
