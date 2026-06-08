@@ -158,10 +158,19 @@ class AgentLoopExecutor:
                 agent_profile=frame.agent_profile,
                 runtime_scope=frame.runtime_scope.with_action(action_id),
             )
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("Generation cancelled before MTP execution")
+                break
+
+            # TODO: Propagate cancel_event into the MTP executor itself so long-running
+            # tool/syscall execution can stop while it is in progress.
             mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,
                 context=mtp_context,
             )
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("Generation cancelled after MTP execution")
+                break
 
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value

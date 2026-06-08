@@ -11,6 +11,7 @@ LoopExecutor TurnEvent 采集单测
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
+import asyncio
 import pytest
 
 from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
@@ -246,6 +247,46 @@ async def test_mtp_execution_receives_frame_context():
     assert context.runtime_scope.frame_id == frame.runtime_scope.frame_id
     assert context.runtime_scope.depth == frame.runtime_scope.depth
     assert context.runtime_scope.action_id == "action_1_0"
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_mtp_execution_skips_executor():
+    frame = _make_frame()
+    cancel_event = asyncio.Event()
+
+    async def generate_and_cancel(*args, **kwargs):
+        cancel_event.set()
+        return _mtp_result("前缀", "<< READ | alias_x >>")
+
+    executor, _kernel = _build_executor([])
+    executor.worker_agent.generate_async = AsyncMock(side_effect=generate_and_cancel)
+
+    await executor.execute_frame(frame, max_iterations=5, cancel_event=cancel_event)
+
+    executor._mtp_executor.intercept_and_execute.assert_not_awaited()
+    assert "".join(frame.progress.text_segments) == "前缀"
+    assert [ev.kind for ev in frame.progress.turn_events] == ["assistant_message"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_mtp_execution_skips_result_processing():
+    frame = _make_frame()
+    gen_results = [_mtp_result("前缀", "<< READ | alias_x >>")]
+    executor, _kernel = _build_executor(gen_results)
+    cancel_event = asyncio.Event()
+
+    async def execute_and_cancel(*args, **kwargs):
+        cancel_event.set()
+        return _mtp_exec_result("READ")
+
+    executor._mtp_executor.intercept_and_execute = AsyncMock(side_effect=execute_and_cancel)
+
+    await executor.execute_frame(frame, max_iterations=5, cancel_event=cancel_event)
+
+    executor._mtp_executor.intercept_and_execute.assert_awaited_once()
+    assert "".join(frame.progress.text_segments) == "前缀"
+    assert [ev.kind for ev in frame.progress.turn_events] == ["assistant_message"]
+    assert len(frame.working_history) == 1
 
 
 @pytest.mark.asyncio
