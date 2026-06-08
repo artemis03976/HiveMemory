@@ -155,7 +155,30 @@ class PendingAtomRuntime:
         if atom is None:
             logger.warning(f"cancel() skipped: alias={pending_alias}, status=not found")
             return
+        if atom.status not in {
+            PendingAtomStatus.PENDING,
+            PendingAtomStatus.MATERIALIZING,
+        }:
+            logger.warning(
+                f"cancel() skipped: alias={pending_alias}, status={atom.status.value}"
+            )
+            return
         self._set_status(atom, PendingAtomStatus.CANCELLED)
+
+    def cancel_run(self, run_id: str, reason: Optional[str] = None) -> List[str]:
+        """Cancel all in-flight pending atoms produced by one runtime run."""
+        cancelled: List[str] = []
+        for atom in self._store.all_atoms():
+            if atom.runtime_scope.run_id != run_id:
+                continue
+            if atom.status not in {
+                PendingAtomStatus.PENDING,
+                PendingAtomStatus.MATERIALIZING,
+            }:
+                continue
+            self.cancel(atom.pending_alias, reason=reason)
+            cancelled.append(atom.pending_alias)
+        return cancelled
 
     def expire(self, pending_alias: str) -> None:
         """Move one PENDING atom to EXPIRED."""

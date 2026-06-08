@@ -94,6 +94,11 @@ class AliceRuntime:
         self._agent_runtime.mark_task_failed(pending_alias)
         logger.warning(f"PendingAtom marked FAILED: {pending_alias}")
 
+    async def _on_pending_atom_cancelled(self, *, pending_alias: str) -> None:
+        """Handle generation cancellation event — mark atom as CANCELLED."""
+        self._agent_runtime.mark_task_cancelled(pending_alias)
+        logger.warning(f"PendingAtom marked CANCELLED: {pending_alias}")
+
     async def _refresh_l1_cache_for_settlement(self, settlement) -> None:
         """Refresh L1 atom cache after a pending atom points to a canonical atom."""
         canonical_alias = settlement.canonical_alias
@@ -164,6 +169,10 @@ class AliceRuntime:
                     GlobalEvents.PENDING_ATOM_FAILED,
                     self._on_pending_atom_failed,
                 )
+                self._global_bus.subscribe(
+                    GlobalEvents.PENDING_ATOM_CANCELLED,
+                    self._on_pending_atom_cancelled,
+                )
                 self._global_events_registered = True
 
         self._local_routes_registered = True
@@ -187,6 +196,10 @@ class AliceRuntime:
                 self._global_bus.unsubscribe(
                     GlobalEvents.PENDING_ATOM_FAILED,
                     self._on_pending_atom_failed,
+                )
+                self._global_bus.unsubscribe(
+                    GlobalEvents.PENDING_ATOM_CANCELLED,
+                    self._on_pending_atom_cancelled,
                 )
                 self._global_events_registered = False
         self._local_routes_registered = False

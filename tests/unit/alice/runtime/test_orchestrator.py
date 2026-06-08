@@ -69,6 +69,7 @@ async def test_run_agent_assembles_result_from_completed_frame():
     runtime = SimpleNamespace(
         run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
         collect_tasks_by_run=MagicMock(return_value=[]),
+        cancel_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=[]),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
@@ -85,6 +86,33 @@ async def test_run_agent_assembles_result_from_completed_frame():
     assert result.turn_events == frame.progress.turn_events
     assert result.materialize_tasks == []
     runtime.collect_tasks_by_run.assert_called_once_with("run-1")
+    runtime.cancel_tasks_by_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_agent_cancelled_cancels_pending_atoms_without_materialize_tasks():
+    frame = _frame()
+    cancel_event = asyncio.Event()
+    cancel_event.set()
+    runtime = SimpleNamespace(
+        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        collect_tasks_by_run=MagicMock(return_value=["should-not-use"]),
+        cancel_tasks_by_run=MagicMock(return_value=["draft_cancelled"]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(frame, runtime=runtime)
+
+    result = await orchestrator.run_agent(
+        messages=[{"role": "user", "content": "hello"}],
+        identity=frame.identity,
+        topic_id="topic-1",
+        cancel_event=cancel_event,
+    )
+
+    assert result.cancelled is True
+    assert result.materialize_tasks == []
+    runtime.cancel_tasks_by_run.assert_called_once_with("run-1")
+    runtime.collect_tasks_by_run.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -148,6 +176,7 @@ async def test_handle_suspend_passes_cancel_event_to_sub_agent():
     runtime = SimpleNamespace(
         run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
         collect_tasks_by_run=MagicMock(return_value=[]),
+        cancel_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=[]),
     )
     orchestrator = _orchestrator(main_frame, runtime=runtime)

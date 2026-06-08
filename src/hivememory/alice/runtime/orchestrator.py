@@ -379,14 +379,19 @@ class AgentOrchestrator:
         cancel_event=None,
     ) -> AgentRunResult:
         p = frame.progress
-        tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
+        cancelled = cancel_event is not None and cancel_event.is_set()
+        if cancelled:
+            self._agent_runtime.cancel_tasks_by_run(frame.runtime_scope.run_id)
+            tasks = []
+        else:
+            tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
         return AgentRunResult(
             final_text="".join(p.text_segments),
             mtp_iterations=max(0, p.iteration - 1),
             total_iterations=p.iteration,
             turn_events=p.turn_events,
             materialize_tasks=tasks,
-            cancelled=cancel_event is not None and cancel_event.is_set(),
+            cancelled=cancelled,
         )
 
 

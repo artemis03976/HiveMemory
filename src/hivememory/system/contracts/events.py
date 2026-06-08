@@ -21,3 +21,4 @@ class GlobalEvents:
     """Global pub/sub event names for GlobalSystemBus."""
     PENDING_ATOM_SETTLED = "alice.events.pending_atom.settled"
     PENDING_ATOM_FAILED = "alice.events.pending_atom.failed"
+    PENDING_ATOM_CANCELLED = "alice.events.pending_atom.cancelled"

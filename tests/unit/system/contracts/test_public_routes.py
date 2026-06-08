@@ -171,10 +171,34 @@ class TestAlicePublicRoutes:
         await system.start()
 
         assert GlobalEvents.PENDING_ATOM_SETTLED in self.global_bus.list_events()
+        assert GlobalEvents.PENDING_ATOM_CANCELLED in self.global_bus.list_events()
 
         await system.stop()
 
         assert GlobalEvents.PENDING_ATOM_SETTLED not in self.global_bus.list_events()
+        assert GlobalEvents.PENDING_ATOM_CANCELLED not in self.global_bus.list_events()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_event_marks_alice_pending_atom_cancelled(self):
+        from hivememory.core.models import Identity, RuntimeScope
+        from hivememory.core.models.pending import PendingAtomStatus
+
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        await system.start()
+        atom = system.runtime._pending_runtime.register_write(
+            content="draft",
+            title="Draft",
+            reason=None,
+            identity=Identity(user_id="test_user", agent_id="test_agent"),
+            runtime_scope=RuntimeScope(run_id="run-1"),
+        )
+
+        await self.global_bus.publish(
+            GlobalEvents.PENDING_ATOM_CANCELLED,
+            pending_alias=atom.pending_alias,
+        )
+
+        assert atom.status == PendingAtomStatus.CANCELLED
 
     @pytest.mark.asyncio
     async def test_settlement_refreshes_alice_l1_atom_cache(self):
@@ -308,6 +332,16 @@ class TestPatchouliPublicRoutes:
                 system, PatchouliSystem
             )
         )
+        system._forward_pending_atom_failed = (
+            PatchouliSystem._forward_pending_atom_failed.__get__(
+                system, PatchouliSystem
+            )
+        )
+        system._forward_pending_atom_cancelled = (
+            PatchouliSystem._forward_pending_atom_cancelled.__get__(
+                system, PatchouliSystem
+            )
+        )
         system._register_local_event_bridges = (
             PatchouliSystem._register_local_event_bridges.__get__(
                 system, PatchouliSystem
@@ -339,3 +373,41 @@ class TestPatchouliPublicRoutes:
         )
 
         subscriber.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_patchouli_local_cancelled_event_bridges_to_global_bus(self):
+        system = MagicMock()
+        system._global_bus = self.global_bus
+        system.runtime = MagicMock()
+        system.runtime.local_bus = GlobalSystemBus()
+        system._forward_pending_atom_settled = (
+            PatchouliSystem._forward_pending_atom_settled.__get__(
+                system, PatchouliSystem
+            )
+        )
+        system._forward_pending_atom_failed = (
+            PatchouliSystem._forward_pending_atom_failed.__get__(
+                system, PatchouliSystem
+            )
+        )
+        system._forward_pending_atom_cancelled = (
+            PatchouliSystem._forward_pending_atom_cancelled.__get__(
+                system, PatchouliSystem
+            )
+        )
+        system._register_local_event_bridges = (
+            PatchouliSystem._register_local_event_bridges.__get__(
+                system, PatchouliSystem
+            )
+        )
+
+        subscriber = AsyncMock()
+        self.global_bus.subscribe(GlobalEvents.PENDING_ATOM_CANCELLED, subscriber)
+
+        system._register_local_event_bridges()
+        await system.runtime.local_bus.publish(
+            PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
+            pending_alias="draft_cancelled",
+        )
+
+        subscriber.assert_awaited_once_with(pending_alias="draft_cancelled")
