@@ -176,18 +176,31 @@ class LibrarianCore:
             ):
                 memory_task.status = MemoryGenerationTaskStatus.CANCELLED
 
+        def _schedule_terminal_status_publish(status: MemoryGenerationTaskStatus) -> None:
+            if memory_task.finished_at is not None or self._bus is None:
+                return
+            memory_task.status = status
+            memory_task.finished_at = datetime.now(timezone.utc)
+            asyncio.create_task(
+                self._publish_memory_task_status(memory_task),
+                name=f"memory_task_status_{memory_task.task_id[:8]}",
+            )
+
         def _done_callback(t: asyncio.Task) -> None:
             if t.cancelled():
                 _mark_task_cancelled()
+                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.CANCELLED)
                 self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
                 return
 
             exc = t.exception()
             if memory_task.cancelled:
                 _mark_task_cancelled()
+                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.CANCELLED)
                 self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
             elif exc is not None:
                 logger.error(f"memory task {memory_task.task_id} failed: {exc}", exc_info=exc)
+                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.FAILED)
                 self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.FAILED)
             else:
                 self._task_registry.close(memory_task.task_id, _terminal_status())
@@ -218,6 +231,8 @@ class LibrarianCore:
         memory_task.status = MemoryGenerationTaskStatus.RUNNING
         if memory_task.cancelled:
             memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+            memory_task.finished_at = datetime.now(timezone.utc)
+            await self._publish_memory_task_status(memory_task)
             return
 
         memory_task.started_at = datetime.now(timezone.utc)
@@ -228,12 +243,16 @@ class LibrarianCore:
             request = GenerationRequest(context=gen_context)
             await self._run_generation(request)
             memory_task.status = MemoryGenerationTaskStatus.COMPLETED
+        except asyncio.CancelledError:
+            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+            raise
         except Exception as e:
             logger.error(f"感知层 Flush 处理失败: {e}", exc_info=True)
             memory_task.status = MemoryGenerationTaskStatus.FAILED
             memory_task.error = str(e)
         finally:
             memory_task.finished_at = datetime.now(timezone.utc)
+            await self._publish_memory_task_status(memory_task)
 
     async def run_active_generation(
         self,
@@ -267,6 +286,13 @@ class LibrarianCore:
         """MTP 主动链路后台执行体 — 处理单个生成任务。"""
         memory_task.status = MemoryGenerationTaskStatus.RUNNING
 
+        if memory_task.cancelled:
+            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+            memory_task.finished_at = datetime.now(timezone.utc)
+            await self._publish_pending_atom_cancelled(task.pending_alias)
+            await self._publish_memory_task_status(memory_task)
+            return
+
         topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
         if self.perception_layer is not None:
             topic_context = self.perception_layer.get_topic_context(topic_id)
@@ -278,7 +304,9 @@ class LibrarianCore:
 
         if memory_task.cancelled:
             memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+            memory_task.finished_at = datetime.now(timezone.utc)
             await self._publish_pending_atom_cancelled(task.pending_alias)
+            await self._publish_memory_task_status(memory_task)
             return
 
         memory_task.started_at = datetime.now(timezone.utc)
@@ -290,6 +318,10 @@ class LibrarianCore:
             else:
                 await self._run_mode_c(task, gen_context)
             memory_task.status = MemoryGenerationTaskStatus.COMPLETED
+        except asyncio.CancelledError:
+            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+            await self._publish_pending_atom_cancelled(task.pending_alias)
+            raise
         except Exception as e:
             logger.error(
                 f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
@@ -300,6 +332,7 @@ class LibrarianCore:
             await self._publish_pending_atom_failed(task.pending_alias)
         finally:
             memory_task.finished_at = datetime.now(timezone.utc)
+            await self._publish_memory_task_status(memory_task)
 
     async def _run_mode_b(
         self,
@@ -387,6 +420,20 @@ class LibrarianCore:
             )
         except Exception as pub_err:
             logger.warning(f"CANCELLED event publish error: {pub_err}")
+    
+    async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
+        """Publish FAILED event for an active materialization task."""
+        if self._bus is None:
+            return
+        try:
+            await self._bus.publish(
+                PatchouliLocalEvents.PENDING_ATOM_FAILED,
+                pending_alias=pending_alias,
+            )
+        except Exception as pub_err:
+            logger.warning(f"FAILED event publish error: {pub_err}")
+
+    # ========== Task 查询 API ==========
 
     async def _publish_memory_task_status(self, memory_task: MemoryGenerationTask) -> None:
         if self._bus is None:
@@ -401,8 +448,6 @@ class LibrarianCore:
         except Exception as pub_err:
             logger.warning(f"MEMORY_TASK_ITEM_STATUS publish error: {pub_err}")
 
-    # ========== Task 查询 API ==========
-
     def get_task(self, task_id: str) -> Optional[MemoryGenerationTask]:
         return self._task_registry.get(task_id)
 
@@ -411,18 +456,6 @@ class LibrarianCore:
 
     def cancel_task(self, task_id: str) -> bool:
         return self._task_registry.cancel(task_id)
-
-    async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
-        """Publish FAILED event for an active materialization task."""
-        if self._bus is None:
-            return
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.PENDING_ATOM_FAILED,
-                pending_alias=pending_alias,
-            )
-        except Exception as pub_err:
-            logger.warning(f"FAILED event publish error: {pub_err}")
 
     def _build_generation_context(
         self,

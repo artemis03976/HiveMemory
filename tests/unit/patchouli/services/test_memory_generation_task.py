@@ -9,6 +9,7 @@ from hivememory.core.models.pending import (
     WriteFocus,
     UpdateFocus,
 )
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.system.runtime.control import (
     MemoryGenerationTask,
@@ -62,6 +63,14 @@ async def _single_memory_task(core, task=None, topic_id="t1"):
     )
     assert len(memory_tasks) == 1
     return memory_tasks[0]
+
+
+def _memory_task_statuses(bus):
+    return [
+        call.kwargs["status"]
+        for call in bus.publish.await_args_list
+        if call.args and call.args[0] == PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS
+    ]
 
 
 class TestMemoryGenerationTaskRegistry:
@@ -154,6 +163,16 @@ class TestTaskLifecycleAfterCompletion:
         assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
 
     @pytest.mark.asyncio
+    async def test_completed_task_publishes_terminal_status(self):
+        bus = AsyncMock()
+        core, _ = _make_core(bus=bus)
+        memory_task = await _single_memory_task(core)
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert _memory_task_statuses(bus) == ["running", "completed"]
+
+    @pytest.mark.asyncio
     async def test_task_metadata_updated(self):
         core, _ = _make_core()
         task = _write_task("draft_abc")
@@ -174,6 +193,18 @@ class TestTaskLifecycleAfterCompletion:
             await memory_task._bg_task
         assert memory_task.status == MemoryGenerationTaskStatus.FAILED
         assert "generation error" in memory_task.error
+
+    @pytest.mark.asyncio
+    async def test_failed_task_publishes_terminal_status(self):
+        bus = AsyncMock()
+        gen = MagicMock()
+        gen.process.side_effect = RuntimeError("generation error")
+        core, _ = _make_core(mock_generation=gen, bus=bus)
+        memory_task = await _single_memory_task(core)
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert _memory_task_statuses(bus) == ["running", "failed"]
 
 
 class TestTaskCancellation:
@@ -243,6 +274,35 @@ class TestTaskCancellation:
             await memory_task._bg_task
         await asyncio.sleep(0)
         assert memory_task.status == MemoryGenerationTaskStatus.CANCELLED
+
+    @pytest.mark.asyncio
+    async def test_cancel_running_task_publishes_terminal_status(self):
+        bus = AsyncMock()
+        started = asyncio.Event()
+        released = asyncio.Event()
+
+        async def blocking_process(_):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                released.set()
+
+        gen = MagicMock()
+        gen.process = blocking_process
+        core, _ = _make_core(mock_generation=gen, bus=bus)
+
+        memory_task = await _single_memory_task(core)
+        assert memory_task._bg_task is not None
+        await asyncio.wait_for(started.wait(), timeout=1)
+
+        assert core.cancel_task(memory_task.task_id) is True
+        await asyncio.wait_for(released.wait(), timeout=1)
+        with pytest.raises(asyncio.CancelledError):
+            await memory_task._bg_task
+        await asyncio.sleep(0)
+
+        assert _memory_task_statuses(bus) == ["running", "cancelled"]
 
     @pytest.mark.asyncio
     async def test_cancel_nonexistent_task_returns_false(self):

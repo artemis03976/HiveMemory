@@ -15,6 +15,7 @@ from hivememory.core.models import Identity, TurnRecord, UpdateFocus, WriteFocus
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.services.librarian import LibrarianCore
 
 
@@ -367,7 +368,7 @@ class TestLibrarianCoreGenerateMemory:
             await _memory_task._bg_task
 
         self.mock_generation.process.assert_not_called()
-        # Phase 2: publish is called twice (MEMORY_TASK_ITEM_STATUS + PENDING_ATOM_FAILED)
+        # Phase 2: status running -> PENDING_ATOM_FAILED -> status failed
         assert self.core._bus.publish.await_count >= 1
         last_call_kwargs = self.core._bus.publish.await_args.kwargs
         assert last_call_kwargs["pending_alias"] == "rev_test_003"
@@ -407,8 +408,10 @@ class TestLibrarianCoreGenerateMemory:
             ]
         )
         self.core._bus = AsyncMock()
-        # Phase 2: MEMORY_TASK_ITEM_STATUS → PENDING_ATOM_SETTLED (fails) → PENDING_ATOM_FAILED
-        self.core._bus.publish = AsyncMock(side_effect=[None, RuntimeError("publish failed"), None])
+        # Phase 2: status running → PENDING_ATOM_SETTLED (fails) → PENDING_ATOM_FAILED → status completed
+        self.core._bus.publish = AsyncMock(
+            side_effect=[None, RuntimeError("publish failed"), None, None]
+        )
 
         memory_tasks = await self.core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
@@ -417,9 +420,17 @@ class TestLibrarianCoreGenerateMemory:
 
             await _memory_task._bg_task
 
-        assert self.core._bus.publish.await_count == 3
-        last_call = self.core._bus.publish.await_args_list[-1]
-        assert last_call.kwargs["pending_alias"] == task.pending_alias
+        assert self.core._bus.publish.await_count == 4
+        calls = self.core._bus.publish.await_args_list
+        memory_statuses = [
+            call.kwargs["status"]
+            for call in calls
+            if call.args and call.args[0] == PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS
+        ]
+        assert memory_statuses == ["running", "completed"]
+        failed_call = calls[-2]
+        assert failed_call.args[0] == PatchouliLocalEvents.PENDING_ATOM_FAILED
+        assert failed_call.kwargs["pending_alias"] == task.pending_alias
 
     @pytest.mark.asyncio
     async def test_generate_memory_empty_blocks(self):
