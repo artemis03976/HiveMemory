@@ -1,4 +1,4 @@
-﻿"""Patchouli subsystem-local pub/sub event names."""
+"""Patchouli subsystem-local pub/sub event names."""
 
 
 class PatchouliLocalEvents:

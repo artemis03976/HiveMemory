@@ -1,7 +1,7 @@
 """Runtime Control Registry — Phase 1 + Phase 2
 
 Phase 1: Cancel Contract Hardening — ChatGenerationRun / RuntimeControlRegistry
-Phase 2: MemoryGenerationJob runtime — MemoryGenerationJob / MemoryGenerationJobRegistry
+Phase 2: MemoryGenerationTask runtime — MemoryGenerationTask / MemoryGenerationTaskRegistry
 """
 
 from __future__ import annotations
@@ -90,11 +90,11 @@ class RuntimeControlRegistry:
 
 
 # ============================================================
-# Phase 2: MemoryGenerationJob runtime
+# Phase 2: MemoryGenerationTask runtime
 # ============================================================
 
 
-class MemoryGenerationJobStatus(str, Enum):
+class MemoryGenerationTaskStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -108,7 +108,7 @@ class MemoryTaskProgress:
 
     pending_alias: str
     source_verb: str  # "WRITE" | "UPDATE"
-    status: MemoryGenerationJobStatus = MemoryGenerationJobStatus.PENDING
+    status: MemoryGenerationTaskStatus = MemoryGenerationTaskStatus.PENDING
     canonical_alias: Optional[str] = None
     error: Optional[str] = None
     started_at: Optional[datetime] = None
@@ -116,14 +116,14 @@ class MemoryTaskProgress:
 
 
 @dataclass
-class MemoryGenerationJob:
+class MemoryGenerationTask:
     """记忆后台生成任务的运行时句柄。"""
 
-    job_id: str
+    task_id: str
     topic_id: str
     tasks: List[MemoryTaskProgress]
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
-    status: MemoryGenerationJobStatus = MemoryGenerationJobStatus.PENDING
+    status: MemoryGenerationTaskStatus = MemoryGenerationTaskStatus.PENDING
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: Optional[datetime] = None
     _bg_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
@@ -134,9 +134,9 @@ class MemoryGenerationJob:
 
     def request_cancel(self) -> None:
         if self.status not in (
-            MemoryGenerationJobStatus.COMPLETED,
-            MemoryGenerationJobStatus.FAILED,
-            MemoryGenerationJobStatus.CANCELLED,
+            MemoryGenerationTaskStatus.COMPLETED,
+            MemoryGenerationTaskStatus.FAILED,
+            MemoryGenerationTaskStatus.CANCELLED,
         ):
             self.cancel_event.set()
 
@@ -144,50 +144,50 @@ class MemoryGenerationJob:
         self._bg_task = task
 
 
-class MemoryGenerationJobRegistry:
-    """进程内 memory generation job 注册表。"""
+class MemoryGenerationTaskRegistry:
+    """进程内 memory generation task 注册表。"""
 
     def __init__(self, max_completed: int = 50) -> None:
-        self._jobs: Dict[str, MemoryGenerationJob] = {}
+        self._tasks: Dict[str, MemoryGenerationTask] = {}
         self._max_completed = max_completed
 
-    def register(self, job: MemoryGenerationJob) -> None:
-        self._jobs[job.job_id] = job
+    def register(self, memory_task: MemoryGenerationTask) -> None:
+        self._tasks[memory_task.task_id] = memory_task
 
-    def get(self, job_id: str) -> Optional[MemoryGenerationJob]:
-        return self._jobs.get(job_id)
+    def get(self, task_id: str) -> Optional[MemoryGenerationTask]:
+        return self._tasks.get(task_id)
 
-    def list_all(self) -> List[MemoryGenerationJob]:
-        return list(self._jobs.values())
+    def list_all(self) -> List[MemoryGenerationTask]:
+        return list(self._tasks.values())
 
-    def cancel(self, job_id: str) -> bool:
-        job = self._jobs.get(job_id)
-        if job is None:
+    def cancel(self, task_id: str) -> bool:
+        memory_task = self._tasks.get(task_id)
+        if memory_task is None:
             return False
-        job.request_cancel()
+        memory_task.request_cancel()
         return True
 
-    def close(self, job_id: str, status: MemoryGenerationJobStatus) -> None:
-        job = self._jobs.get(job_id)
-        if job is None:
+    def close(self, task_id: str, status: MemoryGenerationTaskStatus) -> None:
+        memory_task = self._tasks.get(task_id)
+        if memory_task is None:
             return
-        job.status = status
-        job.finished_at = datetime.now(timezone.utc)
+        memory_task.status = status
+        memory_task.finished_at = datetime.now(timezone.utc)
         self._evict_old_completed()
 
     def _evict_old_completed(self) -> None:
         terminal = [
-            j for j in self._jobs.values()
+            j for j in self._tasks.values()
             if j.status in (
-                MemoryGenerationJobStatus.COMPLETED,
-                MemoryGenerationJobStatus.CANCELLED,
-                MemoryGenerationJobStatus.FAILED,
+                MemoryGenerationTaskStatus.COMPLETED,
+                MemoryGenerationTaskStatus.CANCELLED,
+                MemoryGenerationTaskStatus.FAILED,
             )
         ]
         if len(terminal) > self._max_completed:
             terminal.sort(key=lambda j: j.finished_at or j.created_at)
-            for job in terminal[: len(terminal) - self._max_completed]:
-                self._jobs.pop(job.job_id, None)
+            for memory_task in terminal[: len(terminal) - self._max_completed]:
+                self._tasks.pop(memory_task.task_id, None)
 
 
 __all__ = [
@@ -195,8 +195,8 @@ __all__ = [
     "ChatGenerationRunStatus",
     "CancelResult",
     "RuntimeControlRegistry",
-    "MemoryGenerationJobStatus",
+    "MemoryGenerationTaskStatus",
     "MemoryTaskProgress",
-    "MemoryGenerationJob",
-    "MemoryGenerationJobRegistry",
+    "MemoryGenerationTask",
+    "MemoryGenerationTaskRegistry",
 ]

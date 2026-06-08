@@ -33,9 +33,9 @@ from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.system.runtime.control import (
-    MemoryGenerationJob,
-    MemoryGenerationJobRegistry,
-    MemoryGenerationJobStatus,
+    MemoryGenerationTask,
+    MemoryGenerationTaskRegistry,
+    MemoryGenerationTaskStatus,
     MemoryTaskProgress,
 )
 
@@ -82,14 +82,14 @@ class LibrarianCore:
         lifecycle_engine: Optional["MemoryLifecycleEngine"] = None,
         perception_layer: Optional["BasePerceptionLayer"] = None,
         generation_engine: Optional["MemoryGenerationEngine"] = None,
-        job_registry: Optional[MemoryGenerationJobRegistry] = None,
+        task_registry: Optional[MemoryGenerationTaskRegistry] = None,
     ):
         self.storage = storage
         self._bus = bus
         self.lifecycle_engine = lifecycle_engine
         self.perception_layer = perception_layer
         self.generation_engine = generation_engine
-        self._job_registry = job_registry or MemoryGenerationJobRegistry()
+        self._task_registry = task_registry or MemoryGenerationTaskRegistry()
 
         if self.perception_layer and hasattr(self.perception_layer, "set_generation_callback"):
             self.perception_layer.set_generation_callback(self._on_generate_memory)
@@ -150,8 +150,8 @@ class LibrarianCore:
         self,
         tasks: List["PendingAtomMaterializeTask"],
         topic_id: str,
-    ) -> MemoryGenerationJob:
-        """主动记忆生成入口 — 创建 MemoryGenerationJob，后台异步执行，立即返回。
+    ) -> MemoryGenerationTask:
+        """主动记忆生成入口 — 创建 MemoryGenerationTask，后台异步执行，立即返回。
 
         按 §3.3 时序在 submit_interaction 之后调用，此时当前轮对话 block
         已在 buffer，故 topic_context 包含「刚刚这轮」作为只读背景。
@@ -163,44 +163,44 @@ class LibrarianCore:
             )
             for t in tasks
         ]
-        job = MemoryGenerationJob(
-            job_id=str(uuid.uuid4()),
+        memory_task = MemoryGenerationTask(
+            task_id=str(uuid.uuid4()),
             topic_id=topic_id,
             tasks=task_progresses,
         )
-        self._job_registry.register(job)
+        self._task_registry.register(memory_task)
 
         if not tasks or self.generation_engine is None:
-            self._job_registry.close(job.job_id, MemoryGenerationJobStatus.COMPLETED)
-            return job
+            self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.COMPLETED)
+            return memory_task
 
         bg_task = asyncio.create_task(
-            self._run_job(job, tasks, topic_id),
-            name=f"memory_job_{job.job_id[:8]}",
+            self._run_task(memory_task, tasks, topic_id),
+            name=f"memory_task_{memory_task.task_id[:8]}",
         )
-        job.attach_task(bg_task)
+        memory_task.attach_task(bg_task)
 
         def _done_callback(t: asyncio.Task) -> None:
             exc = t.exception() if not t.cancelled() else None
-            if t.cancelled() or job.cancelled:
-                self._job_registry.close(job.job_id, MemoryGenerationJobStatus.CANCELLED)
+            if t.cancelled() or memory_task.cancelled:
+                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
             elif exc is not None:
-                logger.error(f"memory job {job.job_id} failed: {exc}", exc_info=exc)
-                self._job_registry.close(job.job_id, MemoryGenerationJobStatus.FAILED)
+                logger.error(f"memory task {memory_task.task_id} failed: {exc}", exc_info=exc)
+                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.FAILED)
             else:
-                self._job_registry.close(job.job_id, MemoryGenerationJobStatus.COMPLETED)
+                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.COMPLETED)
 
         bg_task.add_done_callback(_done_callback)
-        return job
+        return memory_task
 
-    async def _run_job(
+    async def _run_task(
         self,
-        job: MemoryGenerationJob,
+        memory_task: MemoryGenerationTask,
         tasks: List["PendingAtomMaterializeTask"],
         topic_id: str,
     ) -> None:
         """后台执行所有 materialize tasks，每步检查 cancel。"""
-        job.status = MemoryGenerationJobStatus.RUNNING
+        memory_task.status = MemoryGenerationTaskStatus.RUNNING
 
         topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
         if self.perception_layer is not None:
@@ -211,28 +211,28 @@ class LibrarianCore:
             topic_context.get("state_summary", ""),
         )
 
-        for task, progress in zip[tuple[PendingAtomMaterializeTask, MemoryTaskProgress]](tasks, job.tasks):
-            if job.cancelled:
-                progress.status = MemoryGenerationJobStatus.CANCELLED
+        for task, progress in zip(tasks, memory_task.tasks):
+            if memory_task.cancelled:
+                progress.status = MemoryGenerationTaskStatus.CANCELLED
                 await self._publish_pending_atom_cancelled(task.pending_alias)
                 continue
 
-            progress.status = MemoryGenerationJobStatus.RUNNING
+            progress.status = MemoryGenerationTaskStatus.RUNNING
             progress.started_at = datetime.now(timezone.utc)
-            await self._publish_job_task_status(job.job_id, progress)
+            await self._publish_memory_task_item_status(memory_task.task_id, progress)
 
             try:
                 if task.source_verb == "WRITE":
                     await self._run_mode_b(task, gen_context)
                 else:
                     await self._run_mode_c(task, gen_context)
-                progress.status = MemoryGenerationJobStatus.COMPLETED
+                progress.status = MemoryGenerationTaskStatus.COMPLETED
             except Exception as e:
                 logger.error(
                     f"主动生成失败: pending_alias={task.pending_alias}, err={e}",
                     exc_info=True,
                 )
-                progress.status = MemoryGenerationJobStatus.FAILED
+                progress.status = MemoryGenerationTaskStatus.FAILED
                 progress.error = str(e)
                 await self._publish_pending_atom_failed(task.pending_alias)
             finally:
@@ -327,31 +327,31 @@ class LibrarianCore:
         except Exception as pub_err:
             logger.warning(f"CANCELLED event publish error: {pub_err}")
 
-    async def _publish_job_task_status(
-        self, job_id: str, progress: MemoryTaskProgress
+    async def _publish_memory_task_item_status(
+        self, task_id: str, progress: MemoryTaskProgress
     ) -> None:
         if self._bus is None:
             return
         try:
             await self._bus.publish(
-                PatchouliLocalEvents.MEMORY_JOB_TASK_STATUS,
-                job_id=job_id,
+                PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS,
+                task_id=task_id,
                 pending_alias=progress.pending_alias,
                 status=progress.status.value,
             )
         except Exception as pub_err:
-            logger.warning(f"MEMORY_JOB_TASK_STATUS publish error: {pub_err}")
+            logger.warning(f"MEMORY_TASK_ITEM_STATUS publish error: {pub_err}")
 
-    # ========== Job 查询 API ==========
+    # ========== Task 查询 API ==========
 
-    def get_job(self, job_id: str) -> Optional[MemoryGenerationJob]:
-        return self._job_registry.get(job_id)
+    def get_task(self, task_id: str) -> Optional[MemoryGenerationTask]:
+        return self._task_registry.get(task_id)
 
-    def list_jobs(self) -> List[MemoryGenerationJob]:
-        return self._job_registry.list_all()
+    def list_tasks(self) -> List[MemoryGenerationTask]:
+        return self._task_registry.list_all()
 
-    def cancel_job(self, job_id: str) -> bool:
-        return self._job_registry.cancel(job_id)
+    def cancel_task(self, task_id: str) -> bool:
+        return self._task_registry.cancel(task_id)
 
     async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
         """Publish FAILED event for an active materialization task."""

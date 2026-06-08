@@ -333,9 +333,9 @@ class TestFlushCallbackModes:
             identity=Identity(user_id="test_user"),
             focus=focus,
         )
-        job = await core.run_active_generation([task], topic_id="topic_test")
-        if job._bg_task:
-            await job._bg_task
+        memory_task = await core.run_active_generation([task], topic_id="topic_test")
+        if memory_task._bg_task:
+            await memory_task._bg_task
 
         mock_generation.process.assert_called_once()
         request = mock_generation.process.call_args[0][0]
@@ -358,9 +358,9 @@ class TestFlushCallbackModes:
             generation_engine=mock_generation,
         )
 
-        job = await core.run_active_generation([], topic_id="topic_test")
+        memory_task = await core.run_active_generation([], topic_id="topic_test")
         mock_generation.process.assert_not_called()
-        assert job.status.value == "completed"
+        assert memory_task.status.value == "completed"
 
     @pytest.mark.asyncio
     async def test_normal_flush_triggers_mode_a(self, sample_messages):

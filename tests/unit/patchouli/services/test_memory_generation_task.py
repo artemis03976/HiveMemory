@@ -1,4 +1,4 @@
-﻿"""Phase 2: MemoryGenerationTask runtime 鍗曞厓娴嬭瘯"""
+"""Phase 2: MemoryGenerationTask runtime 单元测试"""
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -48,16 +48,16 @@ def _write_task(alias="draft_001"):
 class TestMemoryGenerationTaskRegistry:
     def test_register_and_get(self):
         reg = MemoryGenerationTaskRegistry()
-        job = MemoryGenerationTask(task_id="j1", topic_id="t1", tasks=[])
-        reg.register(job)
-        assert reg.get("j1") is job
+        memory_task = MemoryGenerationTask(task_id="j1", topic_id="t1", tasks=[])
+        reg.register(memory_task)
+        assert reg.get("j1") is memory_task
 
     def test_cancel_existing(self):
         reg = MemoryGenerationTaskRegistry()
-        job = MemoryGenerationTask(task_id="j1", topic_id="t1", tasks=[])
-        reg.register(job)
+        memory_task = MemoryGenerationTask(task_id="j1", topic_id="t1", tasks=[])
+        reg.register(memory_task)
         assert reg.cancel("j1") is True
-        assert job.cancelled is True
+        assert memory_task.cancelled is True
 
     def test_cancel_missing_returns_false(self):
         reg = MemoryGenerationTaskRegistry()
@@ -65,19 +65,19 @@ class TestMemoryGenerationTaskRegistry:
 
     def test_close_sets_status_and_finished_at(self):
         reg = MemoryGenerationTaskRegistry()
-        job = MemoryGenerationTask(task_id="j1", topic_id="t1", tasks=[])
-        reg.register(job)
+        memory_task = MemoryGenerationTask(task_id="j1", topic_id="t1", tasks=[])
+        reg.register(memory_task)
         reg.close("j1", MemoryGenerationTaskStatus.COMPLETED)
-        assert job.status == MemoryGenerationTaskStatus.COMPLETED
-        assert job.finished_at is not None
+        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+        assert memory_task.finished_at is not None
 
-    def test_evicts_old_completed_jobs(self):
+    def test_evicts_old_completed_tasks(self):
         reg = MemoryGenerationTaskRegistry(max_completed=2)
         for i in range(3):
             j = MemoryGenerationTask(task_id=f"j{i}", topic_id="t", tasks=[])
             reg.register(j)
             reg.close(f"j{i}", MemoryGenerationTaskStatus.COMPLETED)
-        # Only 2 completed jobs retained
+        # Only 2 completed tasks retained
         assert len(reg.list_all()) <= 2
 
     def test_list_all(self):
@@ -89,24 +89,24 @@ class TestMemoryGenerationTaskRegistry:
         assert len(reg.list_all()) == 2
 
 
-class TestRunActiveGenerationReturnsJob:
+class TestRunActiveGenerationReturnsTask:
     @pytest.mark.asyncio
-    async def test_returns_memory_generation_job(self):
+    async def test_returns_memory_generation_task(self):
         core, _ = _make_core()
         result = await core.run_active_generation([_write_task()], topic_id="t1")
         assert isinstance(result, MemoryGenerationTask)
         assert result.topic_id == "t1"
 
     @pytest.mark.asyncio
-    async def test_empty_tasks_returns_completed_job_immediately(self):
+    async def test_empty_tasks_returns_completed_task_immediately(self):
         core, _ = _make_core()
-        job = await core.run_active_generation([], topic_id="t1")
-        assert job.status == MemoryGenerationTaskStatus.COMPLETED
-        assert job._bg_task is None
+        memory_task = await core.run_active_generation([], topic_id="t1")
+        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+        assert memory_task._bg_task is None
 
     @pytest.mark.asyncio
     async def test_returns_before_generation_completes(self):
-        """run_active_generation 蹇呴』绔嬪嵆杩斿洖锛屼笉绛夊緟鍚庡彴 task銆?""
+        """run_active_generation 必须立即返回，不等待后台 task。"""
         blocker = asyncio.Event()
 
         gen = MagicMock()
@@ -118,48 +118,48 @@ class TestRunActiveGenerationReturnsJob:
         gen.process = slow_process
         core, _ = _make_core(mock_generation=gen)
 
-        job = await core.run_active_generation([_write_task()], topic_id="t1")
-        # Job was returned while bg_task is still pending
-        assert job._bg_task is not None
-        assert not job._bg_task.done()
+        memory_task = await core.run_active_generation([_write_task()], topic_id="t1")
+        # Task was returned while bg_task is still pending
+        assert memory_task._bg_task is not None
+        assert not memory_task._bg_task.done()
         blocker.set()
-        await job._bg_task  # cleanup
+        await memory_task._bg_task  # cleanup
 
 
-class TestJobLifecycleAfterCompletion:
+class TestTaskLifecycleAfterCompletion:
     @pytest.mark.asyncio
     async def test_completed_after_bg_task_finishes(self):
         core, _ = _make_core()
-        job = await core.run_active_generation([_write_task()], topic_id="t1")
-        if job._bg_task:
-            await job._bg_task
-        assert job.status == MemoryGenerationTaskStatus.COMPLETED
+        memory_task = await core.run_active_generation([_write_task()], topic_id="t1")
+        if memory_task._bg_task:
+            await memory_task._bg_task
+        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
 
     @pytest.mark.asyncio
     async def test_task_progress_status_updated(self):
         core, _ = _make_core()
         task = _write_task("draft_abc")
-        job = await core.run_active_generation([task], topic_id="t1")
-        if job._bg_task:
-            await job._bg_task
-        assert len(job.tasks) == 1
-        assert job.tasks[0].pending_alias == "draft_abc"
-        assert job.tasks[0].source_verb == "WRITE"
+        memory_task = await core.run_active_generation([task], topic_id="t1")
+        if memory_task._bg_task:
+            await memory_task._bg_task
+        assert len(memory_task.tasks) == 1
+        assert memory_task.tasks[0].pending_alias == "draft_abc"
+        assert memory_task.tasks[0].source_verb == "WRITE"
 
     @pytest.mark.asyncio
     async def test_failed_task_progress_marked_failed(self):
         gen = MagicMock()
         gen.process.side_effect = RuntimeError("generation error")
         core, _ = _make_core(mock_generation=gen)
-        job = await core.run_active_generation([_write_task()], topic_id="t1")
-        if job._bg_task:
-            await job._bg_task
-        # Individual task failure is captured per-task; the job still completes
-        assert job.tasks[0].status == MemoryGenerationTaskStatus.FAILED
-        assert "generation error" in job.tasks[0].error
+        memory_task = await core.run_active_generation([_write_task()], topic_id="t1")
+        if memory_task._bg_task:
+            await memory_task._bg_task
+        # Individual item failure is captured per item; the task still completes
+        assert memory_task.tasks[0].status == MemoryGenerationTaskStatus.FAILED
+        assert "generation error" in memory_task.tasks[0].error
 
 
-class TestJobCancellation:
+class TestTaskCancellation:
     @pytest.mark.asyncio
     async def test_cancel_before_start_skips_pending_tasks(self):
         blocker = asyncio.Event()
@@ -177,13 +177,13 @@ class TestJobCancellation:
         # Two tasks: cancel after first starts
         task1 = _write_task("draft_001")
         task2 = _write_task("draft_002")
-        job = await core.run_active_generation([task1, task2], topic_id="t1")
+        memory_task = await core.run_active_generation([task1, task2], topic_id="t1")
 
         # Cancel immediately
-        job.request_cancel()
+        memory_task.request_cancel()
         blocker.set()
-        if job._bg_task:
-            await job._bg_task
+        if memory_task._bg_task:
+            await memory_task._bg_task
 
         # Second task should be cancelled, not run
         assert len(ran_tasks) <= 1
@@ -191,31 +191,31 @@ class TestJobCancellation:
     @pytest.mark.asyncio
     async def test_cancel_task_via_registry(self):
         core, _ = _make_core()
-        job = await core.run_active_generation([_write_task()], topic_id="t1")
-        ok = core.cancel_task(job.task_id)
+        memory_task = await core.run_active_generation([_write_task()], topic_id="t1")
+        ok = core.cancel_task(memory_task.task_id)
         assert ok is True
-        assert job.cancelled is True
+        assert memory_task.cancelled is True
 
     @pytest.mark.asyncio
-    async def test_cancel_nonexistent_job_returns_false(self):
+    async def test_cancel_nonexistent_task_returns_false(self):
         core, _ = _make_core()
         assert core.cancel_task("nonexistent-id") is False
 
 
-class TestJobQueryApi:
+class TestTaskQueryApi:
     @pytest.mark.asyncio
     async def test_get_task_by_id(self):
         core, _ = _make_core()
-        job = await core.run_active_generation([_write_task()], topic_id="t1")
-        found = core.get_task(job.task_id)
-        assert found is job
+        memory_task = await core.run_active_generation([_write_task()], topic_id="t1")
+        found = core.get_task(memory_task.task_id)
+        assert found is memory_task
 
     @pytest.mark.asyncio
-    async def test_list_tasks_includes_job(self):
+    async def test_list_tasks_includes_task(self):
         core, _ = _make_core()
-        job = await core.run_active_generation([_write_task()], topic_id="t1")
-        all_jobs = core.list_tasks()
-        assert job in all_jobs
+        memory_task = await core.run_active_generation([_write_task()], topic_id="t1")
+        all_tasks = core.list_tasks()
+        assert memory_task in all_tasks
 
     def test_get_nonexistent_returns_none(self):
         core, _ = _make_core()

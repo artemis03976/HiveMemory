@@ -211,12 +211,12 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        _job = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
 
-        if _job._bg_task:
+        if _memory_task._bg_task:
 
 
-            await _job._bg_task
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -240,12 +240,12 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        _job = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
 
-        if _job._bg_task:
+        if _memory_task._bg_task:
 
 
-            await _job._bg_task
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -279,12 +279,12 @@ class TestLibrarianCoreGenerateMemory:
 
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        _job = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
 
-        if _job._bg_task:
+        if _memory_task._bg_task:
 
 
-            await _job._bg_task
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -313,12 +313,12 @@ class TestLibrarianCoreGenerateMemory:
         )
         self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
 
-        _job = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
 
-        if _job._bg_task:
+        if _memory_task._bg_task:
 
 
-            await _job._bg_task
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
@@ -352,15 +352,15 @@ class TestLibrarianCoreGenerateMemory:
         self.mock_storage.get_memory = AsyncMock(return_value=None)
         self.core._bus = AsyncMock()
 
-        _job = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
 
-        if _job._bg_task:
+        if _memory_task._bg_task:
 
 
-            await _job._bg_task
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_not_called()
-        # Phase 2: publish is called twice (MEMORY_JOB_TASK_STATUS + PENDING_ATOM_FAILED)
+        # Phase 2: publish is called twice (MEMORY_TASK_ITEM_STATUS + PENDING_ATOM_FAILED)
         assert self.core._bus.publish.await_count >= 1
         last_call_kwargs = self.core._bus.publish.await_args.kwargs
         assert last_call_kwargs["pending_alias"] == "rev_test_003"
@@ -400,14 +400,14 @@ class TestLibrarianCoreGenerateMemory:
             ]
         )
         self.core._bus = AsyncMock()
-        # Phase 2: MEMORY_JOB_TASK_STATUS → PENDING_ATOM_SETTLED (fails) → PENDING_ATOM_FAILED
+        # Phase 2: MEMORY_TASK_ITEM_STATUS → PENDING_ATOM_SETTLED (fails) → PENDING_ATOM_FAILED
         self.core._bus.publish = AsyncMock(side_effect=[None, RuntimeError("publish failed"), None])
 
-        _job = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
 
-        if _job._bg_task:
+        if _memory_task._bg_task:
 
-            await _job._bg_task
+            await _memory_task._bg_task
 
         assert self.core._bus.publish.await_count == 3
         last_call = self.core._bus.publish.await_args_list[-1]
@@ -554,12 +554,12 @@ class TestLibrarianCoreGenerateMemory:
             focus=write_focus,
         )
 
-        _job = await self.core.run_active_generation([task], topic_id="topic_test")
+        _memory_task = await self.core.run_active_generation([task], topic_id="topic_test")
 
-        if _job._bg_task:
+        if _memory_task._bg_task:
 
 
-            await _job._bg_task
+            await _memory_task._bg_task
 
         self.mock_generation.process.assert_called_once()
         request = self.mock_generation.process.call_args[0][0]
