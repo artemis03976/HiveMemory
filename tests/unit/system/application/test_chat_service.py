@@ -196,6 +196,7 @@ class TestChatApplicationService:
             if call.args[0] == GlobalRoutes.ALICE_RUN_AGENT
         )
         assert isinstance(run_call.kwargs["agent_run_context"], AgentRunContext)
+        assert "cancel_event" in run_call.kwargs
 
     @pytest.mark.asyncio
     async def test_chat_stream_emits_prelude_and_done(self, mock_global_bus):
@@ -300,4 +301,59 @@ class TestChatApplicationService:
         assert events[-1]["event"] == "done"
         assert events[-1]["data"]["status"] == "cancelled"
 
+
+    @pytest.mark.asyncio
+    async def test_chat_cancel_after_prepare_skips_non_streaming_run(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        prepared = _make_prepared_run()
+
+        async def route_dispatch(route, *args, **kwargs):
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                svc.cancel_generation("gen-nonstream")
+                return prepared
+            raise AssertionError(f"Unexpected route: {route}")
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        result = await svc.chat(
+            user_message="hi",
+            user_id="u1",
+            generation_id="gen-nonstream",
+        )
+
+        assert result.cancelled is True
+        routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
+        assert routes_called == [GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN]
+
+    @pytest.mark.asyncio
+    async def test_chat_cancel_during_non_streaming_run_skips_finalize(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        prepared = _make_prepared_run()
+        observed_cancel_event = None
+
+        async def route_dispatch(route, *args, **kwargs):
+            nonlocal observed_cancel_event
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT:
+                observed_cancel_event = kwargs["cancel_event"]
+                cancel_result = svc.cancel_generation("gen-nonstream")
+                assert cancel_result.cancelled is True
+                return AgentRunResult(final_text="partial", cancelled=True)
+            raise AssertionError(f"Unexpected route: {route}")
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        result = await svc.chat(
+            user_message="hi",
+            user_id="u1",
+            generation_id="gen-nonstream",
+        )
+
+        assert observed_cancel_event is not None
+        assert observed_cancel_event.is_set()
+        assert result.cancelled is True
+        assert result.final_text == "partial"
+        routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
+        assert GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN not in routes_called
 

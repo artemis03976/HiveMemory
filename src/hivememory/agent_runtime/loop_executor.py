@@ -118,8 +118,13 @@ class AgentLoopExecutor:
             else:
                 result = await self.worker_agent.generate_async(
                     frame.working_history,
+                    cancel_event=cancel_event,
                     **(generation_options or {}),
                 )
+
+            if result.finish_reason == "cancelled":
+                logger.info("Generation cancelled by user")
+                break
 
             if not result.was_mtp_interrupted:
                 p.text_segments.append(result.text)

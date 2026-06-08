@@ -8,6 +8,7 @@ WorkerAgentService 单元测试
 """
 
 import pytest
+import asyncio
 from unittest.mock import Mock, patch
 
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
@@ -176,6 +177,33 @@ class TestWorkerAgentGenerateAsync:
         call_kwargs = mock_completion.call_args[1]
         assert call_kwargs["top_p"] == 0.9
         assert call_kwargs["presence_penalty"] == 0.5
+
+    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    async def test_cancel_event_cancels_completion(self, mock_completion):
+        """非流式 LLM 调用期间 cancel_event 触发时返回 cancelled。"""
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_completion(**kwargs):
+            started.set()
+            await release.wait()
+            return _make_response("late", "stop")
+
+        mock_completion.side_effect = slow_completion
+        cancel_event = asyncio.Event()
+        task = asyncio.create_task(
+            self.service.generate_async(
+                [{"role": "user", "content": "test"}],
+                cancel_event=cancel_event,
+            )
+        )
+
+        await started.wait()
+        cancel_event.set()
+        result = await task
+
+        assert result.finish_reason == "cancelled"
+        assert result.text == ""
 
 
 class _MockStreamResponse:

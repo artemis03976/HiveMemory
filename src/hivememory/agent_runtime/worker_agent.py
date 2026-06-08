@@ -24,6 +24,7 @@ Worker Agent Service - 无状态 LLM 文本生成服务
 """
 
 import logging
+from contextlib import suppress
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import asyncio
@@ -95,27 +96,44 @@ class WorkerAgentService:
     async def generate_async(
         self,
         messages: List[Dict[str, str]],
+        cancel_event: Optional[asyncio.Event] = None,
         **kwargs,
     ) -> GenerationResult:
         runtime_params = self._extract_runtime_params(kwargs)
         try:
-            response = await litellm.acompletion(
-                model=runtime_params["model"],
-                messages=messages,
-                api_key=self._config.api_key,
-                api_base=self._config.api_base,
-                temperature=runtime_params["temperature"],
-                max_tokens=runtime_params["max_tokens"],
-                stop=[MTP_STOP_SEQUENCE],
-                top_p=runtime_params.get("top_p"),
-                **kwargs,
+            response = await self._completion_with_cancel(
+                cancel_event=cancel_event,
+                completion_kwargs=dict(
+                    model=runtime_params["model"],
+                    messages=messages,
+                    api_key=self._config.api_key,
+                    api_base=self._config.api_base,
+                    temperature=runtime_params["temperature"],
+                    max_tokens=runtime_params["max_tokens"],
+                    stop=[MTP_STOP_SEQUENCE],
+                    top_p=runtime_params.get("top_p"),
+                    **kwargs,
+                ),
             )
         except Exception as e:
             logger.error(f"LLM 异步生成失败: {e}")
             raise
 
+        if response is None:
+            return GenerationResult(
+                text="",
+                finish_reason="cancelled",
+                was_mtp_interrupted=False,
+                prefix_text="",
+                mtp_fragment="",
+            )
+
         text = response.choices[0].message.content or ""
         finish_reason = response.choices[0].finish_reason or "stop"
+
+        if cancel_event is not None and cancel_event.is_set():
+            text = ""
+            finish_reason = "cancelled"
 
         if hasattr(response, "usage") and response.usage:
             logger.info(
@@ -141,6 +159,33 @@ class WorkerAgentService:
             prefix_text=text[:last_open] if was_mtp else text,
             mtp_fragment=text[last_open:] if was_mtp else "",
         )
+
+    async def _completion_with_cancel(
+        self,
+        *,
+        cancel_event: Optional[asyncio.Event],
+        completion_kwargs: Dict[str, Any],
+    ) -> Any:
+        completion_task = asyncio.create_task(litellm.acompletion(**completion_kwargs))
+        if cancel_event is None:
+            return await completion_task
+
+        cancel_task = asyncio.create_task(cancel_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {completion_task, cancel_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if cancel_task in done:
+                completion_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await completion_task
+                return None
+            return await completion_task
+        finally:
+            cancel_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await cancel_task
 
     async def generate_stream(
         self,
