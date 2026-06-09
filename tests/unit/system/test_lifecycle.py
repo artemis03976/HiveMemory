@@ -55,8 +55,8 @@ def mock_patchouli():
     p.name = "patchouli"
     p._global_bus = None
     p._scheduler = None
-    p._public_routes_registered = False
     p._maintenance_registered = False
+    p._bridge = MagicMock()
     p.service = MagicMock()
     p.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
     p.start = PatchouliSystem.start.__get__(p, PatchouliSystem)
@@ -185,8 +185,8 @@ class TestPatchouliSystemLocalRoutes:
         patchouli.runtime = runtime
         patchouli._scheduler = None
         patchouli._global_bus = None
-        patchouli._public_routes_registered = False
         patchouli._maintenance_registered = False
+        patchouli._bridge = MagicMock()
         patchouli.service = MagicMock()
         patchouli.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
         patchouli.service.prepare_agent_run = AsyncMock()

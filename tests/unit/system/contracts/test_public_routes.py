@@ -18,10 +18,12 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
+from hivememory.patchouli.runtime.bridge import PatchouliBridge
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
 # ========== Alice ==========
@@ -259,48 +261,9 @@ class TestPatchouliPublicRoutes:
 
     @pytest.mark.asyncio
     async def test_patchouli_public_routes_register_and_unregister(self):
-        system = MagicMock()
-        system._global_bus = self.global_bus
-        system.service = MagicMock()
-        system.service.analyze_and_retrieve = AsyncMock()
-        system.service.prepare_agent_run = AsyncMock()
-        system.service.finalize_agent_run = AsyncMock()
-        system.service.cleanup_prepared_agent_run = AsyncMock()
-        system.service.manual_archive_topic = AsyncMock()
-        system.service.evict_topic = AsyncMock()
-        system.service.record_memory_citation = AsyncMock()
-        system.runtime = MagicMock()
-        system.runtime.librarian_core = MagicMock()
-        system.runtime.librarian_core.submit_interaction = AsyncMock()
-        system.runtime.retrieval_familiar = MagicMock()
-        system.runtime.retrieval_familiar.retrieve_async = AsyncMock()
-        system.runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
-        system.runtime._get_agent_profile = AsyncMock()
-        system._memory_management_service = MagicMock()
-        system._memory_management_service.create_memory = AsyncMock()
-        system._memory_management_service.list_memories = AsyncMock()
-        system._memory_management_service.get_memory = AsyncMock()
-        system._memory_management_service.update_memory = AsyncMock()
-        system._memory_management_service.delete_memory = AsyncMock()
-        system._memory_management_service.record_feedback = AsyncMock()
-        system._agent_profile_management_service = MagicMock()
-        system._agent_profile_management_service.create_agent_profile = AsyncMock()
-        system._agent_profile_management_service.list_agent_profiles = AsyncMock()
-        system._topic_management_service = MagicMock()
-        system._topic_management_service.list_active_topics = AsyncMock()
-        system._topic_management_service.archive_topic = AsyncMock()
-        system._topic_management_service.evict_topic = AsyncMock()
-        system._model_readiness_service = MagicMock()
-        system._model_readiness_service.warmup_models = AsyncMock()
-        system._model_readiness_service.is_models_ready = AsyncMock(return_value=True)
-        system._register_public_routes = PatchouliSystem._register_public_routes.__get__(
-            system, PatchouliSystem
-        )
-        system._unregister_public_routes = PatchouliSystem._unregister_public_routes.__get__(
-            system, PatchouliSystem
-        )
+        bridge = self._make_bridge()
 
-        system._register_public_routes()
+        bridge.mount()
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
@@ -312,7 +275,7 @@ class TestPatchouliPublicRoutes:
         ready = await self.global_bus.request(PatchouliRoutes.MODELS_READY)
         assert ready is True
 
-        system._unregister_public_routes()
+        bridge.unmount()
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN not in routes
@@ -323,42 +286,13 @@ class TestPatchouliPublicRoutes:
 
     @pytest.mark.asyncio
     async def test_patchouli_local_settlement_event_bridges_to_global_bus(self):
-        system = MagicMock()
-        system._global_bus = self.global_bus
-        system.runtime = MagicMock()
-        system.runtime.local_bus = GlobalSystemBus()
-        system._forward_pending_atom_settled = (
-            PatchouliSystem._forward_pending_atom_settled.__get__(
-                system, PatchouliSystem
-            )
-        )
-        system._forward_pending_atom_failed = (
-            PatchouliSystem._forward_pending_atom_failed.__get__(
-                system, PatchouliSystem
-            )
-        )
-        system._forward_pending_atom_cancelled = (
-            PatchouliSystem._forward_pending_atom_cancelled.__get__(
-                system, PatchouliSystem
-            )
-        )
-        system._register_local_event_bridges = (
-            PatchouliSystem._register_local_event_bridges.__get__(
-                system, PatchouliSystem
-            )
-        )
-        system._unregister_local_event_bridges = (
-            PatchouliSystem._unregister_local_event_bridges.__get__(
-                system, PatchouliSystem
-            )
-        )
-
+        bridge = self._make_bridge()
         subscriber = AsyncMock()
         self.global_bus.subscribe(GlobalEvents.PENDING_ATOM_SETTLED, subscriber)
         settlement = object()
 
-        system._register_local_event_bridges()
-        await system.runtime.local_bus.publish(
+        bridge.mount()
+        await bridge._runtime.local_bus.publish(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             settlement=settlement,
         )
@@ -366,8 +300,8 @@ class TestPatchouliPublicRoutes:
         subscriber.assert_awaited_once_with(settlement=settlement)
 
         subscriber.reset_mock()
-        system._unregister_local_event_bridges()
-        await system.runtime.local_bus.publish(
+        bridge.unmount()
+        await bridge._runtime.local_bus.publish(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             settlement=settlement,
         )
@@ -376,38 +310,87 @@ class TestPatchouliPublicRoutes:
 
     @pytest.mark.asyncio
     async def test_patchouli_local_cancelled_event_bridges_to_global_bus(self):
-        system = MagicMock()
-        system._global_bus = self.global_bus
-        system.runtime = MagicMock()
-        system.runtime.local_bus = GlobalSystemBus()
-        system._forward_pending_atom_settled = (
-            PatchouliSystem._forward_pending_atom_settled.__get__(
-                system, PatchouliSystem
-            )
-        )
-        system._forward_pending_atom_failed = (
-            PatchouliSystem._forward_pending_atom_failed.__get__(
-                system, PatchouliSystem
-            )
-        )
-        system._forward_pending_atom_cancelled = (
-            PatchouliSystem._forward_pending_atom_cancelled.__get__(
-                system, PatchouliSystem
-            )
-        )
-        system._register_local_event_bridges = (
-            PatchouliSystem._register_local_event_bridges.__get__(
-                system, PatchouliSystem
-            )
-        )
-
+        bridge = self._make_bridge()
         subscriber = AsyncMock()
         self.global_bus.subscribe(GlobalEvents.PENDING_ATOM_CANCELLED, subscriber)
 
-        system._register_local_event_bridges()
-        await system.runtime.local_bus.publish(
+        bridge.mount()
+        await bridge._runtime.local_bus.publish(
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             pending_alias="draft_cancelled",
         )
 
         subscriber.assert_awaited_once_with(pending_alias="draft_cancelled")
+
+    @pytest.mark.asyncio
+    async def test_patchouli_bridge_emits_single_runtime_atom_event(self):
+        recorder = RecordingRuntimeEventSink()
+        bridge = self._make_bridge(runtime_events=recorder)
+        settlement = PendingAtomSettlement(
+            pending_alias="draft_memory_1234",
+            intent_id="intent_1234",
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="fact_canonical",
+            canonical_uuid="atom-uuid-1",
+        )
+
+        bridge.mount()
+        await bridge._runtime.local_bus.publish(
+            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
+
+        assert len(recorder.events) == 1
+        event = recorder.events[0]
+        assert event.event_type == "memory.atom.settled"
+        assert event.atom_id == "atom-uuid-1"
+        assert event.data["canonical_alias"] == "fact_canonical"
+
+    def _make_bridge(self, runtime_events=None):
+        service = MagicMock()
+        service.analyze_and_retrieve = AsyncMock()
+        service.prepare_agent_run = AsyncMock()
+        service.finalize_agent_run = AsyncMock()
+        service.cleanup_prepared_agent_run = AsyncMock()
+        service.record_memory_citation = AsyncMock()
+
+        runtime = MagicMock()
+        runtime.local_bus = GlobalSystemBus()
+        runtime.librarian_core = MagicMock()
+        runtime.librarian_core.submit_interaction = AsyncMock()
+        runtime.retrieval_familiar = MagicMock()
+        runtime.retrieval_familiar.retrieve_async = AsyncMock()
+        runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
+        runtime._get_agent_profile = AsyncMock()
+
+        memory_management_service = MagicMock()
+        memory_management_service.create_memory = AsyncMock()
+        memory_management_service.list_memories = AsyncMock()
+        memory_management_service.get_memory = AsyncMock()
+        memory_management_service.update_memory = AsyncMock()
+        memory_management_service.delete_memory = AsyncMock()
+        memory_management_service.record_feedback = AsyncMock()
+
+        agent_profile_management_service = MagicMock()
+        agent_profile_management_service.create_agent_profile = AsyncMock()
+        agent_profile_management_service.list_agent_profiles = AsyncMock()
+
+        topic_management_service = MagicMock()
+        topic_management_service.list_active_topics = AsyncMock()
+        topic_management_service.archive_topic = AsyncMock()
+        topic_management_service.evict_topic = AsyncMock()
+
+        model_readiness_service = MagicMock()
+        model_readiness_service.warmup_models = AsyncMock()
+        model_readiness_service.is_models_ready = AsyncMock(return_value=True)
+
+        return PatchouliBridge(
+            runtime=runtime,
+            service=service,
+            memory_management_service=memory_management_service,
+            agent_profile_management_service=agent_profile_management_service,
+            topic_management_service=topic_management_service,
+            model_readiness_service=model_readiness_service,
+            global_bus=self.global_bus,
+            runtime_events=runtime_events,
+        )

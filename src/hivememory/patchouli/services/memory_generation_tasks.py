@@ -430,15 +430,6 @@ class MemoryGenerationTaskController:
 
     async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
         """发布主动链路 PendingAtom 取消事件。"""
-        self._events.emit(
-            RuntimeEvent(
-                event_type=RuntimeEventType.MEMORY_ATOM_CANCELLED,
-                task_type="background",
-                status="cancelled",
-                reason="memory_task_cancelled",
-                data={"pending_alias": pending_alias},
-            )
-        )
         if self._bus is None:
             return
         try:
@@ -451,15 +442,6 @@ class MemoryGenerationTaskController:
 
     async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
         """发布主动链路 PendingAtom 失败事件。"""
-        self._events.emit(
-            RuntimeEvent(
-                event_type=RuntimeEventType.MEMORY_ATOM_FAILED,
-                task_type="background",
-                status="failed",
-                severity="error",
-                data={"pending_alias": pending_alias},
-            )
-        )
         if self._bus is None:
             return
         try:
