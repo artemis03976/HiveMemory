@@ -628,6 +628,16 @@ class SchedulerConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class RuntimeEventsConfig(BaseModel):
+    """RuntimeEvent observability stream configuration."""
+
+    enabled: bool = Field(default=True, description="是否启用 RuntimeEvent 事件流")
+    buffer_size: int = Field(default=1000, description="RuntimeEvent replay 环形缓冲大小")
+    subscriber_queue_size: int = Field(default=100, description="单订阅者事件队列大小")
+
+    model_config = ConfigDict(extra="ignore")
+
+
 # ========== 国际化配置 ==========
 
 class I18nConfig(BaseModel):
@@ -669,6 +679,7 @@ class HiveMemoryConfig(BaseSettings):
     agent_runtime: AgentRuntimeConfig = Field(default_factory=AgentRuntimeConfig)
     koakuma: KoakumaConfig = Field(default_factory=KoakumaConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    runtime_events: RuntimeEventsConfig = Field(default_factory=RuntimeEventsConfig)
     i18n: I18nConfig = Field(default_factory=I18nConfig)
 
     model_config = SettingsConfigDict(

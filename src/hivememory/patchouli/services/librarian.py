@@ -35,6 +35,7 @@ from hivememory.system.runtime.control import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
 )
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:
     from hivememory.engines.generation.engine import MemoryGenerationEngine
@@ -80,6 +81,7 @@ class LibrarianCore:
         perception_layer: Optional["BasePerceptionLayer"] = None,
         generation_engine: Optional["MemoryGenerationEngine"] = None,
         task_registry: Optional[MemoryGenerationTaskRegistry] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ):
         self.storage = storage
         self._bus = bus
@@ -91,6 +93,7 @@ class LibrarianCore:
             bus=bus,
             generation_engine=generation_engine,
             task_registry=task_registry,
+            runtime_events=runtime_events or NullRuntimeEventSink(),
         )
 
         if self.perception_layer and hasattr(self.perception_layer, "set_generation_callback"):

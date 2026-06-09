@@ -11,7 +11,9 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.config import RuntimeEventsConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventBus, RuntimeEventSink
 from hivememory.system.runtime.scheduler.global_scheduler import (
     GlobalMaintenanceScheduler,
 )
@@ -38,11 +40,15 @@ class HiveMemorySystem:
         agent_service: AgentApplicationService,
         topic_service: TopicApplicationService,
         readiness_service: SystemReadinessService,
+        runtime_events: RuntimeEventBus | None = None,
+        runtime_event_sink: RuntimeEventSink | None = None,
     ) -> None:
         self._config = config
 
         self._global_bus = global_bus
         self._scheduler = scheduler
+        self._runtime_events = runtime_events
+        self._runtime_event_sink = runtime_event_sink or NullRuntimeEventSink()
 
         self._patchouli = patchouli
         self._alice = alice
@@ -71,21 +77,42 @@ class HiveMemorySystem:
             tick_seconds=config.scheduler.tick_seconds,
             shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
         )
+        runtime_events_config = getattr(config, "runtime_events", None)
+        if not isinstance(runtime_events_config, RuntimeEventsConfig):
+            runtime_events_config = RuntimeEventsConfig()
+
+        runtime_events = (
+            RuntimeEventBus(
+                buffer_size=runtime_events_config.buffer_size,
+                subscriber_queue_size=runtime_events_config.subscriber_queue_size,
+            )
+            if runtime_events_config.enabled
+            else None
+        )
+        runtime_event_sink: RuntimeEventSink = runtime_events or NullRuntimeEventSink()
 
         # 1. Patchouli 先创建（提供 bus 和 storage，并通过 global bus 调用 Alice）
         patchouli = PatchouliSystem(
             config=config,
             global_bus=global_bus,
             scheduler=scheduler,
+            runtime_events=runtime_event_sink.scoped("patchouli"),
         )
 
         # 2. Alice 创建（使用自有 AliceBus，通过全局总线访问 Patchouli 记忆能力）
         alice = AliceSystem(
             config=config,
             global_bus=global_bus,
+            runtime_events=runtime_event_sink.scoped("alice"),
         )
 
-        chat_service = ChatApplicationService(global_bus=global_bus)
+        chat_service = ChatApplicationService(
+            global_bus=global_bus,
+            runtime_events=runtime_event_sink.scoped(
+                "system",
+                component="chat_application_service",
+            ),
+        )
         ingress_service = PassiveIngressService(
             bus=global_bus,
             config=config,
@@ -119,6 +146,8 @@ class HiveMemorySystem:
             agent_service=agent_service,
             topic_service=topic_service,
             readiness_service=readiness_service,
+            runtime_events=runtime_events,
+            runtime_event_sink=runtime_event_sink,
         )
 
     # ========== 生命周期 ==========
@@ -185,6 +214,14 @@ class HiveMemorySystem:
     @property
     def readiness_service(self) -> SystemReadinessService:
         return self._readiness_service
+
+    @property
+    def runtime_events(self) -> RuntimeEventBus | None:
+        return self._runtime_events
+
+    @property
+    def runtime_event_sink(self) -> RuntimeEventSink:
+        return self._runtime_event_sink
 
     # ========== 配置管理 ==========
 

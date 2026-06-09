@@ -40,6 +40,12 @@ logging:
   websocket_buffer_size: 100
   websocket_max_rate: 200
 
+# ========== RuntimeEvent 事件流配置 ==========
+runtime_events:
+  enabled: true
+  buffer_size: 1000
+  subscriber_queue_size: 100
+
 # ========== LLM 模型配置 ==========
 llm:
   gateway:

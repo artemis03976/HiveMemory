@@ -43,8 +43,10 @@ from hivememory.patchouli.runtime import PatchouliRuntime
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.events import GlobalEvents
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 
 if TYPE_CHECKING:
@@ -73,12 +75,17 @@ class PatchouliSystem(SubsystemProtocol):
         config: HiveMemoryConfig,
         global_bus: Optional[GlobalSystemBus] = None,
         scheduler: Optional["AsyncMaintenanceScheduler"] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ):
         self.config = config
         self._global_bus = global_bus
+        self._runtime_events = runtime_events or NullRuntimeEventSink()
 
         # 1. 初始化 Runtime（运行时负责组装 Retrieval + Librarian 组件图）
-        self.runtime = PatchouliRuntime(config=self.config)
+        self.runtime = PatchouliRuntime(
+            config=self.config,
+            runtime_events=self._runtime_events,
+        )
 
         # 2. 初始化 Gateway
         self._init_gateway()
@@ -375,6 +382,18 @@ class PatchouliSystem(SubsystemProtocol):
         )
 
     async def _forward_pending_atom_settled(self, *, settlement) -> None:
+        self._runtime_events.emit(
+            RuntimeEvent(
+                event_type=RuntimeEventType.MEMORY_ATOM_SETTLED,
+                task_type="background",
+                atom_id=getattr(settlement, "canonical_alias", None),
+                status=getattr(getattr(settlement, "resolution", None), "value", None),
+                data={
+                    "pending_alias": getattr(settlement, "pending_alias", None),
+                    "canonical_alias": getattr(settlement, "canonical_alias", None),
+                },
+            )
+        )
         if self._global_bus is None:
             return
         await self._global_bus.publish(
@@ -383,6 +402,15 @@ class PatchouliSystem(SubsystemProtocol):
         )
 
     async def _forward_pending_atom_failed(self, *, pending_alias: str) -> None:
+        self._runtime_events.emit(
+            RuntimeEvent(
+                event_type=RuntimeEventType.MEMORY_ATOM_FAILED,
+                task_type="background",
+                status="failed",
+                severity="error",
+                data={"pending_alias": pending_alias},
+            )
+        )
         if self._global_bus is None:
             return
         await self._global_bus.publish(
@@ -391,6 +419,15 @@ class PatchouliSystem(SubsystemProtocol):
         )
 
     async def _forward_pending_atom_cancelled(self, *, pending_alias: str) -> None:
+        self._runtime_events.emit(
+            RuntimeEvent(
+                event_type=RuntimeEventType.MEMORY_ATOM_CANCELLED,
+                task_type="background",
+                status="cancelled",
+                reason="memory_task_cancelled",
+                data={"pending_alias": pending_alias},
+            )
+        )
         if self._global_bus is None:
             return
         await self._global_bus.publish(

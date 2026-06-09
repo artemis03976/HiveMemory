@@ -14,6 +14,36 @@ export type KernelConnectionStatus =
   | 'error'
   | 'reconnecting';
 
+export type RuntimeEventConnectionStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'disabled'
+  | 'error';
+
+export type RuntimeEventType =
+  | 'chat.run.created'
+  | 'chat.run.status'
+  | 'chat.run.cancel_requested'
+  | 'chat.run.cancelled'
+  | 'chat.run.completed'
+  | 'chat.run.failed'
+  | 'agent.run.started'
+  | 'agent.run.status'
+  | 'agent.run.completed'
+  | 'agent.run.cancelled'
+  | 'agent.run.failed'
+  | 'memory.task.created'
+  | 'memory.task.status'
+  | 'memory.task.cancel_requested'
+  | 'memory.task.cancelled'
+  | 'memory.task.completed'
+  | 'memory.task.failed'
+  | 'memory.atom.settled'
+  | 'memory.atom.failed'
+  | 'memory.atom.cancelled'
+  | 'event.stream.gap';
+
 /**
  * Log entry from backend WebSocket
  * Matches the JSON format from ws://localhost:8769/api/v1/ws/logs
@@ -41,6 +71,31 @@ export interface LogEntry {
   extra?: Record<string, unknown>;
 }
 
+export interface RuntimeEvent {
+  event_id: string;
+  sequence: number;
+  event_type: RuntimeEventType;
+  timestamp: string;
+  trace_id: string | null;
+  span_name: string | null;
+  task_type: 'foreground' | 'background' | null;
+  source: string | null;
+  subsystem: string | null;
+  component: string | null;
+  severity: 'debug' | 'info' | 'warning' | 'error';
+  generation_id: string | null;
+  agent_run_id: string | null;
+  task_id: string | null;
+  agent_id: string | null;
+  frame_id: string | null;
+  topic_id: string | null;
+  atom_id: string | null;
+  status: string | null;
+  reason: string | null;
+  message: string | null;
+  data: Record<string, unknown>;
+}
+
 /**
  * WebSocket connection state
  */
@@ -50,6 +105,13 @@ export interface ConnectionState {
   connectedAt: number | null; // Unix timestamp
   reconnectAttempts: number;
   lastPingTime: number | null;
+}
+
+export interface RuntimeEventConnectionState {
+  status: RuntimeEventConnectionStatus;
+  error: string | null;
+  connectedAt: number | null;
+  lastEventId: string | null;
 }
 
 /**
@@ -86,8 +148,10 @@ export interface Statistics {
 export interface KernelStore {
   // State
   logs: LogEntry[];
+  runtimeEvents: RuntimeEvent[];
   traceGroups: Map<string, TraceGroup>;
   connection: ConnectionState;
+  runtimeEventConnection: RuntimeEventConnectionState;
   filters: FilterState;
   ui: UIState;
   stats: Statistics;
@@ -99,11 +163,15 @@ export interface KernelStore {
   connect: () => void;
   disconnect: () => void;
   reconnect: () => void;
+  connectRuntimeEvents: () => void;
+  disconnectRuntimeEvents: () => void;
 
   // Actions - Log Management
   addLog: (log: Omit<LogEntry, 'id'>) => void;
   addLogs: (logs: Omit<LogEntry, 'id'>[]) => void;
   clearLogs: () => void;
+  addRuntimeEvent: (event: RuntimeEvent) => void;
+  clearRuntimeEvents: () => void;
 
   // Actions - Trace Management
   toggleTraceCollapse: (trace_id: string) => void;
@@ -122,6 +190,7 @@ export interface KernelStore {
 
   // Internal state (private, prefixed with _)
   _ws: WebSocket | null;
+  _eventSource: EventSource | null;
   _broadcastChannel: BroadcastChannel | null;
   _isPrimaryWindow: boolean;
   _reconnectTimer: ReturnType<typeof setTimeout> | null;
@@ -134,9 +203,12 @@ export interface KernelStore {
  */
 export type BroadcastMessage =
   | { type: 'NEW_LOG'; payload: Omit<LogEntry, 'id'> }
+  | { type: 'NEW_RUNTIME_EVENT'; payload: RuntimeEvent }
   | { type: 'BATCH_LOGS'; payload: Omit<LogEntry, 'id'>[] }
   | { type: 'CLEAR_LOGS' }
+  | { type: 'CLEAR_RUNTIME_EVENTS' }
   | { type: 'CONNECTION_STATE'; payload: ConnectionState }
+  | { type: 'RUNTIME_EVENT_CONNECTION_STATE'; payload: RuntimeEventConnectionState }
   | { type: 'FILTER_UPDATE'; payload: FilterState }
   | { type: 'UI_UPDATE'; payload: Partial<UIState> }
   | { type: 'REQUEST_SYNC' }
@@ -144,6 +216,7 @@ export type BroadcastMessage =
       type: 'FULL_SYNC';
       payload: {
         logs: LogEntry[];
+        runtimeEvents: RuntimeEvent[];
         filters: FilterState;
         ui: UIState;
       }

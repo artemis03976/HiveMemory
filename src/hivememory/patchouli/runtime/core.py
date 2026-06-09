@@ -43,6 +43,7 @@ from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.config import HiveMemoryConfig, load_app_config
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
@@ -81,6 +82,7 @@ class PatchouliRuntime:
     def __init__(
         self,
         config: Optional[HiveMemoryConfig] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ):
         """
         初始化帕秋莉运行时
@@ -89,6 +91,7 @@ class PatchouliRuntime:
             config: 完整的 HiveMemory 配置（可选）
         """
         self.config = config or load_app_config()
+        self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._local_bus = PatchouliBus()
         self._local_routes_registered = False
         self._shutdown_drain_started = False
@@ -434,6 +437,10 @@ class PatchouliRuntime:
             lifecycle_engine=self._engines["lifecycle"],
             perception_layer=self._engines["perception"],
             generation_engine=self._engines["generation"],
+            runtime_events=self._runtime_events.scoped(
+                "patchouli",
+                component="memory_generation_task_controller",
+            ),
         )
 
     @property

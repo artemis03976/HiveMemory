@@ -30,12 +30,14 @@ from hivememory.engines.generation.models import (
     MemoryGenerationResult,
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.control import (
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
 )
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +58,13 @@ class MemoryGenerationTaskController:
         bus: Optional[Any] = None,
         generation_engine: Optional[Any] = None,
         task_registry: Optional[MemoryGenerationTaskRegistry] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self.storage = storage
         self._bus = bus
         self.generation_engine = generation_engine
         self._task_registry = task_registry or MemoryGenerationTaskRegistry()
+        self._events = runtime_events or NullRuntimeEventSink()
 
     async def run_archive_generation(
         self,
@@ -119,10 +123,20 @@ class MemoryGenerationTaskController:
             pending_alias=pending_alias,
         )
         self._task_registry.register(memory_task)
+        self._emit_memory_task_event(
+            RuntimeEventType.MEMORY_TASK_CREATED,
+            memory_task,
+            message="Memory generation task created.",
+        )
 
         # 没有生成引擎时仍返回一个已完成 task，保持调用方契约稳定。
         if skip or self.generation_engine is None:
             self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.COMPLETED)
+            self._emit_memory_task_event(
+                RuntimeEventType.MEMORY_TASK_COMPLETED,
+                memory_task,
+                message="Memory generation task completed without generation engine.",
+            )
             return memory_task
 
         bg_task = asyncio.create_task(
@@ -416,6 +430,15 @@ class MemoryGenerationTaskController:
 
     async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
         """发布主动链路 PendingAtom 取消事件。"""
+        self._events.emit(
+            RuntimeEvent(
+                event_type=RuntimeEventType.MEMORY_ATOM_CANCELLED,
+                task_type="background",
+                status="cancelled",
+                reason="memory_task_cancelled",
+                data={"pending_alias": pending_alias},
+            )
+        )
         if self._bus is None:
             return
         try:
@@ -428,6 +451,15 @@ class MemoryGenerationTaskController:
 
     async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
         """发布主动链路 PendingAtom 失败事件。"""
+        self._events.emit(
+            RuntimeEvent(
+                event_type=RuntimeEventType.MEMORY_ATOM_FAILED,
+                task_type="background",
+                status="failed",
+                severity="error",
+                data={"pending_alias": pending_alias},
+            )
+        )
         if self._bus is None:
             return
         try:
@@ -440,6 +472,10 @@ class MemoryGenerationTaskController:
 
     async def _publish_memory_task_status(self, memory_task: MemoryGenerationTask) -> None:
         """发布 MemoryGenerationTask 的实时状态快照。"""
+        self._emit_memory_task_event(
+            self._event_type_for_task_status(memory_task.status),
+            memory_task,
+        )
         if self._bus is None:
             return
         try:
@@ -463,7 +499,64 @@ class MemoryGenerationTaskController:
 
     def cancel_task(self, task_id: str) -> bool:
         """请求取消指定记忆生成任务。"""
-        return self._task_registry.cancel(task_id)
+        memory_task = self._task_registry.get(task_id)
+        ok = self._task_registry.cancel(task_id)
+        if ok and memory_task is not None:
+            self._emit_memory_task_event(
+                RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
+                memory_task,
+                reason="user_requested",
+            )
+        return ok
+
+    def _emit_memory_task_event(
+        self,
+        event_type: RuntimeEventType,
+        memory_task: MemoryGenerationTask,
+        *,
+        reason: str | None = None,
+        message: str | None = None,
+    ) -> None:
+        self._events.emit(
+            RuntimeEvent(
+                event_type=event_type,
+                task_type="background",
+                task_id=memory_task.task_id,
+                topic_id=memory_task.topic_id,
+                status=memory_task.status.value,
+                reason=reason,
+                message=message,
+                severity="error" if event_type == RuntimeEventType.MEMORY_TASK_FAILED else "info",
+                data={
+                    "label": memory_task.label,
+                    "source": memory_task.source.value,
+                    "pending_alias": memory_task.pending_alias,
+                    "canonical_alias": memory_task.canonical_alias,
+                    "error": memory_task.error,
+                    "created_at": memory_task.created_at.isoformat(),
+                    "started_at": (
+                        memory_task.started_at.isoformat()
+                        if memory_task.started_at is not None
+                        else None
+                    ),
+                    "finished_at": (
+                        memory_task.finished_at.isoformat()
+                        if memory_task.finished_at is not None
+                        else None
+                    ),
+                },
+            )
+        )
+
+    @staticmethod
+    def _event_type_for_task_status(status: MemoryGenerationTaskStatus) -> RuntimeEventType:
+        if status == MemoryGenerationTaskStatus.COMPLETED:
+            return RuntimeEventType.MEMORY_TASK_COMPLETED
+        if status == MemoryGenerationTaskStatus.CANCELLED:
+            return RuntimeEventType.MEMORY_TASK_CANCELLED
+        if status == MemoryGenerationTaskStatus.FAILED:
+            return RuntimeEventType.MEMORY_TASK_FAILED
+        return RuntimeEventType.MEMORY_TASK_STATUS
 
 
 __all__ = ["MemoryGenerationTaskController"]

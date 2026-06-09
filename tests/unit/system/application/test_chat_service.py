@@ -38,8 +38,10 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 
 
@@ -201,7 +203,8 @@ class TestChatApplicationService:
 
     @pytest.mark.asyncio
     async def test_chat_stream_emits_prelude_and_done(self, mock_global_bus):
-        svc = ChatApplicationService(global_bus=mock_global_bus)
+        recorder = RecordingRuntimeEventSink()
+        svc = ChatApplicationService(global_bus=mock_global_bus, runtime_events=recorder)
         events = []
         async for e in svc.chat_stream(user_message="hi", user_id="u1"):
             events.append(e)
@@ -212,6 +215,9 @@ class TestChatApplicationService:
         assert "memory_refs" in event_types
         assert "token" in event_types
         assert "done" in event_types
+        runtime_event_types = [event.event_type for event in recorder.events]
+        assert RuntimeEventType.CHAT_RUN_CREATED in runtime_event_types
+        assert RuntimeEventType.CHAT_RUN_COMPLETED in runtime_event_types
 
     @pytest.mark.asyncio
     async def test_chat_stream_uses_supplied_generation_id(self, mock_global_bus):
@@ -296,7 +302,8 @@ class TestChatApplicationService:
     @pytest.mark.asyncio
     async def test_cancel_before_streaming_returns_cancelled_done(self, mock_global_bus):
         """취消在 ALICE stream 调用前触发 → 提前 return，done.status=cancelled。"""
-        svc = ChatApplicationService(global_bus=mock_global_bus)
+        recorder = RecordingRuntimeEventSink()
+        svc = ChatApplicationService(global_bus=mock_global_bus, runtime_events=recorder)
         prepared = _make_prepared_run()
 
         async def route_dispatch(route, *args, **kwargs):
@@ -317,6 +324,9 @@ class TestChatApplicationService:
         assert done["data"]["status"] == "cancelled"
         assert done["data"]["stopped"] is True
         assert done["data"]["memory_task_ids"] == []
+        runtime_event_types = [event.event_type for event in recorder.events]
+        assert RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED in runtime_event_types
+        assert RuntimeEventType.CHAT_RUN_CANCELLED in runtime_event_types
 
     @pytest.mark.asyncio
     async def test_cancel_event_propagated_to_alice_during_stream(self, mock_global_bus):

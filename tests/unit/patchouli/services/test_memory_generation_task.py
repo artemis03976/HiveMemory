@@ -11,15 +11,17 @@ from hivememory.core.models.pending import (
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.control import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
     MemoryGenerationSource,
 )
+from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
-def _make_core(mock_generation=None, mock_storage=None, bus=None):
+def _make_core(mock_generation=None, mock_storage=None, bus=None, runtime_events=None):
     gen = mock_generation or MagicMock()
     gen.process.return_value = []
     storage = mock_storage or MagicMock()
@@ -34,6 +36,7 @@ def _make_core(mock_generation=None, mock_storage=None, bus=None):
         bus=bus or AsyncMock(),
         generation_engine=gen,
         perception_layer=perception_layer,
+        runtime_events=runtime_events,
     )
     return core, gen
 
@@ -174,6 +177,20 @@ class TestTaskLifecycleAfterCompletion:
         assert _memory_task_statuses(bus) == ["running", "completed"]
 
     @pytest.mark.asyncio
+    async def test_completed_task_publishes_runtime_events(self):
+        recorder = RecordingRuntimeEventSink()
+        core, _ = _make_core(runtime_events=recorder)
+        memory_task = await _single_memory_task(core)
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        event_types = [event.event_type for event in recorder.events]
+        assert RuntimeEventType.MEMORY_TASK_CREATED in event_types
+        assert RuntimeEventType.MEMORY_TASK_STATUS in event_types
+        assert RuntimeEventType.MEMORY_TASK_COMPLETED in event_types
+        assert recorder.events[0].task_id == memory_task.task_id
+
+    @pytest.mark.asyncio
     async def test_task_metadata_updated(self):
         core, _ = _make_core()
         task = _write_task("draft_abc")
@@ -242,11 +259,15 @@ class TestTaskCancellation:
 
     @pytest.mark.asyncio
     async def test_cancel_task_via_registry(self):
-        core, _ = _make_core()
+        recorder = RecordingRuntimeEventSink()
+        core, _ = _make_core(runtime_events=recorder)
         memory_task = await _single_memory_task(core)
         ok = core.cancel_task(memory_task.task_id)
         assert ok is True
         assert memory_task.cancelled is True
+        assert RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED in [
+            event.event_type for event in recorder.events
+        ]
 
     @pytest.mark.asyncio
     async def test_cancel_task_via_registry_cancels_background_task(self):
