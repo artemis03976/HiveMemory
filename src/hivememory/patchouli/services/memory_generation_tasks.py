@@ -243,13 +243,6 @@ class MemoryGenerationTaskController:
             await self._publish_memory_task_status(memory_task)
             return
 
-        if memory_task.cancelled:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_pending_atom_cancelled(task.pending_alias)
-            await self._publish_memory_task_status(memory_task)
-            return
-
         memory_task.started_at = datetime.now(timezone.utc)
         await self._publish_memory_task_status(memory_task)
 

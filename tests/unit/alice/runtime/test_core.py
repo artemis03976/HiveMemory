@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,7 +14,9 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, RetrievalResponse
+from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -69,7 +72,7 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
     context = _build_agent_run_context(memory)
 
     async def _stream(**kwargs):
-        yield {"event": "done"}
+        yield {"event": "done", "data": AgentRunResult(final_text="done").model_dump()}
 
     runtime._orchestrator.run_agent_stream = _stream
 
@@ -77,4 +80,31 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
 
     cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
     assert cached is memory
-    assert events == [{"event": "done"}]
+    assert events == [
+        {"event": "done", "data": AgentRunResult(final_text="done").model_dump()}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_close_emits_cancelled_runtime_event():
+    recorder = RecordingRuntimeEventSink()
+    runtime = AliceRuntime(config=HiveMemoryConfig(), runtime_events=recorder)
+    memory = _build_memory_atom()
+    context = _build_agent_run_context(memory)
+
+    async def _stream(**kwargs):
+        yield {"event": "token", "data": {"content": "hi"}}
+        await asyncio.Event().wait()
+
+    runtime._orchestrator.run_agent_stream = _stream
+
+    stream = runtime.run_agent_stream(context)
+    assert (await stream.__anext__())["event"] == "token"
+
+    await stream.aclose()
+
+    runtime_event_types = [event.event_type for event in recorder.events]
+    assert RuntimeEventType.AGENT_RUN_STARTED in runtime_event_types
+    assert RuntimeEventType.AGENT_RUN_CANCELLED in runtime_event_types
+    assert recorder.events[-1].status == "cancelled"
+    assert recorder.events[-1].data["close_reason"] == "stream_closed"

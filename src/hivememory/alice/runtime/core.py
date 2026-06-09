@@ -333,6 +333,7 @@ class AliceRuntime:
         )
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
+        terminal_emitted = False
         try:
             async for event in self._orchestrator.run_agent_stream(
                 messages=messages,
@@ -348,6 +349,7 @@ class AliceRuntime:
                         agent_run_id,
                         AgentRunResult(**event["data"]),
                     )
+                    terminal_emitted = True
                 yield event
         except Exception:
             self._emit_agent_event(
@@ -358,7 +360,20 @@ class AliceRuntime:
                 severity="error",
                 message="Agent stream run failed.",
             )
+            terminal_emitted = True
             raise
+        finally:
+            if not terminal_emitted:
+                if cancel_event is not None:
+                    cancel_event.set()
+                self._emit_agent_event(
+                    RuntimeEventType.AGENT_RUN_CANCELLED,
+                    agent_run_context,
+                    agent_run_id=agent_run_id,
+                    status="cancelled",
+                    message="Agent stream closed before terminal event.",
+                    data={"close_reason": "stream_closed"},
+                )
 
     def _emit_agent_terminal(
         self,

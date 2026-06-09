@@ -161,7 +161,14 @@ class AgentOrchestrator:
         finally:
             # 不在正常完成路径下 set 外部传入的 cancel_event（否则会污染调用方共享 token）。
             # cancel_event 由调用方（ChatApplicationService）独占管理。
-            await task
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            else:
+                await task
 
     # ------------------------------------------------------------------
     # 内部：SUSPENDED 重入序列

@@ -300,6 +300,52 @@ class TestChatApplicationService:
         assert GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN in routes_called
 
     @pytest.mark.asyncio
+    async def test_chat_stream_close_emits_cancelled_and_cleans_up(self, mock_global_bus):
+        recorder = RecordingRuntimeEventSink()
+        prepared = _make_prepared_run()
+        stream_closed = False
+
+        async def route_dispatch(route, *args, **kwargs):
+            nonlocal stream_closed
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                async def _stream():
+                    nonlocal stream_closed
+                    try:
+                        yield {"event": "token", "data": {"content": "hi"}}
+                        await asyncio.Event().wait()
+                    finally:
+                        stream_closed = True
+
+                return _stream()
+            if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
+                return True
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        svc = ChatApplicationService(global_bus=mock_global_bus, runtime_events=recorder)
+        stream = svc.chat_stream(user_message="hi", user_id="u1")
+
+        assert (await stream.__anext__())["event"] == "generation_id"
+        assert (await stream.__anext__())["event"] == "topic_info"
+        assert (await stream.__anext__())["event"] == "memory_refs"
+        assert (await stream.__anext__())["event"] == "token"
+
+        await stream.aclose()
+
+        runtime_events = [event for event in recorder.events]
+        assert runtime_events[-1].event_type == RuntimeEventType.CHAT_RUN_CANCELLED
+        assert runtime_events[-1].status == "cancelled"
+        assert runtime_events[-1].reason == "stream_closed"
+        assert stream_closed is True
+        routes_called = [
+            call.args[0] for call in mock_global_bus.request.await_args_list
+        ]
+        assert GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN in routes_called
+
+    @pytest.mark.asyncio
     async def test_cancel_before_streaming_returns_cancelled_done(self, mock_global_bus):
         """취消在 ALICE stream 调用前触发 → 提前 return，done.status=cancelled。"""
         recorder = RecordingRuntimeEventSink()

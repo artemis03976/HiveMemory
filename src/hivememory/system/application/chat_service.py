@@ -182,6 +182,8 @@ class ChatApplicationService:
             agent_id=agent_id,
         )
         prepared = None
+        stream = None
+        terminal_emitted = False
 
         try:
             yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
@@ -219,6 +221,7 @@ class ChatApplicationService:
                     agent_id=agent_id,
                     topic_id=prelude.topic_id,
                 )
+                terminal_emitted = True
                 yield self._cancelled_done(run)
                 return
 
@@ -255,6 +258,7 @@ class ChatApplicationService:
                     agent_id=agent_id,
                     topic_id=prelude.topic_id,
                 )
+                terminal_emitted = True
                 yield self._cancelled_done(run, loop_result)
                 return
 
@@ -291,6 +295,7 @@ class ChatApplicationService:
                 topic_id=prelude.topic_id,
                 data={"memory_task_ids": memory_task_ids},
             )
+            terminal_emitted = True
             yield {
                 "event": "done",
                 "data": {
@@ -315,6 +320,7 @@ class ChatApplicationService:
                 severity="error",
                 message="Chat stream failed.",
             )
+            terminal_emitted = True
             if prepared is not None:
                 try:
                     await self._bus.request(
@@ -325,6 +331,34 @@ class ChatApplicationService:
                     logger.warning("清理 prepared run 失败", exc_info=True)
             yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
         finally:
+            if not terminal_emitted:
+                if not run.cancelled:
+                    run.request_cancel("stream_closed")
+                run.status = ChatGenerationRunStatus.CANCELLED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_CANCELLED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    topic_id=prepared.topic_id if prepared is not None else None,
+                    message="Chat stream closed before terminal event.",
+                    data={"close_reason": run.cancel_reason or "stream_closed"},
+                )
+                if stream is not None:
+                    close = getattr(stream, "aclose", None)
+                    if callable(close):
+                        try:
+                            await close()
+                        except Exception:
+                            logger.warning("关闭 Alice stream 失败", exc_info=True)
+                if prepared is not None:
+                    try:
+                        await self._bus.request(
+                            GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+                            prepared_run=prepared,
+                        )
+                    except Exception:
+                        logger.warning("清理 closed prepared run 失败", exc_info=True)
             self._registry.close(run.generation_id, run.status)
             reset_trace_context(tokens)
 
