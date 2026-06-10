@@ -23,6 +23,18 @@ def _task_to_dict(memory_task) -> dict:
     }
 
 
+def _cancel_response(memory_task) -> dict:
+    payload = _task_to_dict(memory_task)
+    payload.update(
+        {
+            "cancelled": memory_task.status.value == "cancelled",
+            "cancel_requested": memory_task.cancelled,
+            "reason": "user_requested" if memory_task.cancelled else None,
+        }
+    )
+    return payload
+
+
 @router.get("")
 async def list_memory_tasks(system=Depends(get_system)):
     tasks = system._patchouli.service.list_memory_tasks()
@@ -39,7 +51,11 @@ async def get_memory_task(task_id: str, system=Depends(get_system)):
 
 @router.post("/{task_id}/cancel")
 async def cancel_memory_task(task_id: str, system=Depends(get_system)):
-    ok = system._patchouli.service.cancel_memory_task(task_id)
+    service = system._patchouli.service
+    ok = service.cancel_memory_task(task_id)
     if not ok:
         raise HTTPException(status_code=404, detail="task not found")
-    return {"task_id": task_id, "cancelled": True}
+    memory_task = service.get_memory_task(task_id)
+    if memory_task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    return _cancel_response(memory_task)

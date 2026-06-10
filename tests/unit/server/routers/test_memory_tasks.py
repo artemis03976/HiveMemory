@@ -61,14 +61,44 @@ def test_list_memory_tasks_serializes_task_source():
 
 def test_cancel_memory_task_calls_service():
     service = MagicMock()
+    memory_task = _memory_task()
+    memory_task.request_cancel()
     service.cancel_memory_task.return_value = True
+    service.get_memory_task.return_value = memory_task
     client = TestClient(_create_test_app(service))
 
     response = client.post("/api/v1/memory-tasks/task_1/cancel")
 
     assert response.status_code == 200
-    assert response.json() == {"task_id": "task_1", "cancelled": True}
+    body = response.json()
+    assert body["task_id"] == "task_1"
+    assert body["status"] == "running"
+    assert body["cancelled"] is False
+    assert body["cancel_requested"] is True
+    assert body["reason"] == "user_requested"
+    assert body["source"] == "WRITE"
+    assert body["pending_alias"] == "draft_abc"
     service.cancel_memory_task.assert_called_once_with("task_1")
+    service.get_memory_task.assert_called_once_with("task_1")
+
+
+def test_cancel_memory_task_returns_terminal_cancelled_state():
+    service = MagicMock()
+    memory_task = _memory_task()
+    memory_task.request_cancel()
+    memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+    service.cancel_memory_task.return_value = True
+    service.get_memory_task.return_value = memory_task
+    client = TestClient(_create_test_app(service))
+
+    response = client.post("/api/v1/memory-tasks/task_1/cancel")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "cancelled"
+    assert body["cancelled"] is True
+    assert body["cancel_requested"] is True
+    assert body["reason"] == "user_requested"
 
 
 def test_cancel_memory_task_does_not_accept_delete():
