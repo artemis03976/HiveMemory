@@ -331,6 +331,52 @@ class TestTaskCancellation:
         core, _ = _make_core()
         assert core.cancel_task("nonexistent-id") is False
 
+    @pytest.mark.asyncio
+    async def test_finish_task_is_idempotent(self):
+        bus = AsyncMock()
+        core, _ = _make_core(bus=bus)
+        memory_task = _task_handle()
+        controller = core._memory_task_controller
+
+        await controller._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
+        await controller._finish_task(memory_task, MemoryGenerationTaskStatus.FAILED)
+
+        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+        assert _memory_task_statuses(bus) == ["completed"]
+
+    @pytest.mark.asyncio
+    async def test_finish_task_closes_registry_when_status_publish_fails(self):
+        bus = AsyncMock()
+        bus.publish.side_effect = RuntimeError("publish failed")
+        core, _ = _make_core(bus=bus)
+        memory_task = _task_handle()
+        controller = core._memory_task_controller
+        controller._task_registry.register(memory_task)
+
+        await controller._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
+
+        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+        assert memory_task.finished_at is not None
+        assert memory_task._terminal_status_published is True
+
+    @pytest.mark.asyncio
+    async def test_finish_task_swallow_cancelled_error_during_status_publish(self):
+        core, _ = _make_core()
+        memory_task = _task_handle()
+        controller = core._memory_task_controller
+        controller._task_registry.register(memory_task)
+
+        async def cancelled_publish(_):
+            raise asyncio.CancelledError()
+
+        controller._publish_memory_task_status = cancelled_publish
+
+        await controller._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
+
+        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+        assert memory_task.finished_at is not None
+        assert memory_task._terminal_status_published is True
+
 
 class TestTaskQueryApi:
     @pytest.mark.asyncio

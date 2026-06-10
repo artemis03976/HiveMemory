@@ -127,6 +127,7 @@ class MemoryGenerationTask:
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     _bg_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
+    _terminal_status_published: bool = field(default=False, repr=False, compare=False)
 
     @property
     def cancelled(self) -> bool:
@@ -177,7 +178,8 @@ class MemoryGenerationTaskRegistry:
         if memory_task is None:
             return
         memory_task.status = status
-        memory_task.finished_at = datetime.now(timezone.utc)
+        if memory_task.finished_at is None:
+            memory_task.finished_at = datetime.now(timezone.utc)
         self._evict_old_completed()
 
     def _evict_old_completed(self) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from enum import Enum
 from typing import Any, AsyncGenerator, Optional
 
 from hivememory.core.models import MemoryAtom
@@ -27,6 +28,14 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
+
+
+class StreamExitReason(str, Enum):
+    RUNNING = "running"
+    TERMINAL = "terminal"
+    FAILED = "failed"
+    CLOSED = "closed"
+    MISSING_DONE = "missing_done"
 
 
 class AliceRuntime:
@@ -333,7 +342,7 @@ class AliceRuntime:
         )
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
-        terminal_emitted = False
+        exit_reason = StreamExitReason.RUNNING
         try:
             async for event in self._orchestrator.run_agent_stream(
                 messages=messages,
@@ -349,21 +358,37 @@ class AliceRuntime:
                         agent_run_id,
                         AgentRunResult(**event["data"]),
                     )
-                    terminal_emitted = True
+                    exit_reason = StreamExitReason.TERMINAL
                 yield event
+            if exit_reason != StreamExitReason.TERMINAL:
+                exit_reason = StreamExitReason.MISSING_DONE
+                self._emit_agent_event(
+                    RuntimeEventType.AGENT_RUN_FAILED,
+                    agent_run_context,
+                    agent_run_id=agent_run_id,
+                    status="failed",
+                    severity="error",
+                    message="Agent stream ended without done event.",
+                )
+                raise RuntimeError("Agent stream ended without done event")
         except Exception:
-            self._emit_agent_event(
-                RuntimeEventType.AGENT_RUN_FAILED,
-                agent_run_context,
-                agent_run_id=agent_run_id,
-                status="failed",
-                severity="error",
-                message="Agent stream run failed.",
-            )
-            terminal_emitted = True
+            if exit_reason not in (
+                StreamExitReason.TERMINAL,
+                StreamExitReason.MISSING_DONE,
+            ):
+                exit_reason = StreamExitReason.FAILED
+                self._emit_agent_event(
+                    RuntimeEventType.AGENT_RUN_FAILED,
+                    agent_run_context,
+                    agent_run_id=agent_run_id,
+                    status="failed",
+                    severity="error",
+                    message="Agent stream run failed.",
+                )
             raise
         finally:
-            if not terminal_emitted:
+            if exit_reason == StreamExitReason.RUNNING:
+                exit_reason = StreamExitReason.CLOSED
                 if cancel_event is not None:
                     cancel_event.set()
                 self._emit_agent_event(

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, Literal, Optional
 
 from hivememory.core.protocol.models import AgentRunResult
 from hivememory.infrastructure.trace_context import (
@@ -183,7 +183,10 @@ class ChatApplicationService:
         )
         prepared = None
         stream = None
-        terminal_emitted = False
+        # 只记录 chat 终态是否已经对外发布；finally 依赖它判断是否需要断流兜底。
+        terminal_state: Literal["completed", "cancelled", "failed"] | None = None
+        # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
+        prepared_finalized = False
 
         try:
             yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
@@ -211,7 +214,7 @@ class ChatApplicationService:
             }
             yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}
 
-            # 若 prepare 后已被取消，提前结束
+            # 分支：用户在 prepare 期间请求取消。跳过 Alice 和 finalize，返回 cancelled done。
             if run.cancelled:
                 run.status = ChatGenerationRunStatus.CANCELLED
                 self._emit_chat_event(
@@ -221,7 +224,7 @@ class ChatApplicationService:
                     agent_id=agent_id,
                     topic_id=prelude.topic_id,
                 )
-                terminal_emitted = True
+                terminal_state = "cancelled"
                 yield self._cancelled_done(run)
                 return
 
@@ -245,10 +248,11 @@ class ChatApplicationService:
                 else:
                     yield event
 
+            # 分支：Alice stream 非异常结束但没有终态 done，按协议错误进入 failed。
             if loop_result is None:
                 raise RuntimeError("Stream ended without done event")
 
-            # 取消路径：跳过 finalize，不触发主动记忆生成
+            # 分支：用户取消或 Alice 响应取消。跳过 finalize，不触发主动记忆生成。
             if run.cancelled or loop_result.cancelled:
                 run.status = ChatGenerationRunStatus.CANCELLED
                 self._emit_chat_event(
@@ -258,7 +262,7 @@ class ChatApplicationService:
                     agent_id=agent_id,
                     topic_id=prelude.topic_id,
                 )
-                terminal_emitted = True
+                terminal_state = "cancelled"
                 yield self._cancelled_done(run, loop_result)
                 return
 
@@ -276,11 +280,13 @@ class ChatApplicationService:
                     "status": run.status.value,
                 },
             }
+            # 分支：正常完成 Alice 后进入 Patchouli finalize；成功后 prepared 不再需要 cleanup。
             memory_tasks = await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 loop_result=loop_result,
             )
+            prepared_finalized = True
             memory_task_ids = [
                 memory_task.task_id
                 for memory_task in (memory_tasks or [])
@@ -295,7 +301,7 @@ class ChatApplicationService:
                 topic_id=prelude.topic_id,
                 data={"memory_task_ids": memory_task_ids},
             )
-            terminal_emitted = True
+            terminal_state = "completed"
             yield {
                 "event": "done",
                 "data": {
@@ -309,6 +315,7 @@ class ChatApplicationService:
             }
 
         except Exception as e:
+            # 分支：prepare / Alice / finalize 任一阶段抛出非取消异常，统一发布 failed。
             logger.error(f"ChatApplicationService.chat_stream 异常: {e}", exc_info=True)
             run.status = ChatGenerationRunStatus.FAILED
             self._emit_chat_event(
@@ -320,18 +327,11 @@ class ChatApplicationService:
                 severity="error",
                 message="Chat stream failed.",
             )
-            terminal_emitted = True
-            if prepared is not None:
-                try:
-                    await self._bus.request(
-                        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
-                        prepared_run=prepared,
-                    )
-                except Exception:
-                    logger.warning("清理 prepared run 失败", exc_info=True)
+            terminal_state = "failed"
             yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
         finally:
-            if not terminal_emitted:
+            # 分支：客户端断开或生成器被提前关闭，且此前没有 completed/cancelled/failed 终态。
+            if terminal_state is None:
                 if not run.cancelled:
                     run.request_cancel("stream_closed")
                 run.status = ChatGenerationRunStatus.CANCELLED
@@ -344,21 +344,24 @@ class ChatApplicationService:
                     message="Chat stream closed before terminal event.",
                     data={"close_reason": run.cancel_reason or "stream_closed"},
                 )
-                if stream is not None:
-                    close = getattr(stream, "aclose", None)
-                    if callable(close):
-                        try:
-                            await close()
-                        except Exception:
-                            logger.warning("关闭 Alice stream 失败", exc_info=True)
-                if prepared is not None:
+                terminal_state = "cancelled"
+            # 统一清理：无论正常、取消、失败还是断流，都尝试关闭 Alice 子流。
+            if stream is not None:
+                close = getattr(stream, "aclose", None)
+                if callable(close):
                     try:
-                        await self._bus.request(
-                            GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
-                            prepared_run=prepared,
-                        )
+                        await close()
                     except Exception:
-                        logger.warning("清理 closed prepared run 失败", exc_info=True)
+                        logger.warning("关闭 Alice stream 失败", exc_info=True)
+            # 统一清理：只要 prepare 成功但 finalize 未成功，就清理可能的新建空 topic。
+            if prepared is not None and not prepared_finalized:
+                try:
+                    await self._bus.request(
+                        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+                        prepared_run=prepared,
+                    )
+                except Exception:
+                    logger.warning("清理 prepared run 失败", exc_info=True)
             self._registry.close(run.generation_id, run.status)
             reset_trace_context(tokens)
 

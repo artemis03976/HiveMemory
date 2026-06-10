@@ -108,3 +108,48 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     assert RuntimeEventType.AGENT_RUN_CANCELLED in runtime_event_types
     assert recorder.events[-1].status == "cancelled"
     assert recorder.events[-1].data["close_reason"] == "stream_closed"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_error_does_not_set_cancel_event():
+    recorder = RecordingRuntimeEventSink()
+    runtime = AliceRuntime(config=HiveMemoryConfig(), runtime_events=recorder)
+    memory = _build_memory_atom()
+    context = _build_agent_run_context(memory)
+    cancel_event = asyncio.Event()
+
+    async def _stream(**kwargs):
+        raise RuntimeError("network unavailable")
+        yield
+
+    runtime._orchestrator.run_agent_stream = _stream
+
+    with pytest.raises(RuntimeError, match="network unavailable"):
+        async for _ in runtime.run_agent_stream(context, cancel_event=cancel_event):
+            pass
+
+    assert cancel_event.is_set() is False
+    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
+    assert recorder.events[-1].status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_without_done_fails_without_setting_cancel_event():
+    recorder = RecordingRuntimeEventSink()
+    runtime = AliceRuntime(config=HiveMemoryConfig(), runtime_events=recorder)
+    memory = _build_memory_atom()
+    context = _build_agent_run_context(memory)
+    cancel_event = asyncio.Event()
+
+    async def _stream(**kwargs):
+        yield {"event": "token", "data": {"content": "hi"}}
+
+    runtime._orchestrator.run_agent_stream = _stream
+
+    with pytest.raises(RuntimeError, match="ended without done"):
+        async for _ in runtime.run_agent_stream(context, cancel_event=cancel_event):
+            pass
+
+    assert cancel_event.is_set() is False
+    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
+    assert recorder.events[-1].message == "Agent stream ended without done event."
