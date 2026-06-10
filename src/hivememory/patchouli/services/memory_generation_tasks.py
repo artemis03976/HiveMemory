@@ -504,6 +504,8 @@ class MemoryGenerationTaskController:
         """发布可观测副作用。失败只记录日志，不影响业务终态收敛。"""
         try:
             await awaitable
+        except asyncio.CancelledError:
+            logger.warning(warning, exc_info=True)
         except Exception:
             logger.warning(warning, exc_info=True)
 

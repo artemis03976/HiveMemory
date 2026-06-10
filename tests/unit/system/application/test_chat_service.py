@@ -19,6 +19,7 @@ from hivememory.core.protocol.models import (
     AgentRunContext,
     AnalyzeAndRetrieveResult,
     AgentRunResult,
+    AgentRunStatus,
     EyeGazeResult,
     RetrievalResponse,
 )
@@ -427,8 +428,13 @@ class TestChatApplicationService:
         svc = ChatApplicationService(global_bus=mock_global_bus)
         prepared = _make_prepared_run()
         chat_result = _make_chat_result()
-        # loop_result 携带 cancelled=True，模拟 Alice 内部响应了 cancel_event
-        cancelled_result = AgentRunResult(**{**chat_result.model_dump(), "cancelled": True})
+        # loop_result 携带 cancelled 状态，模拟 Alice 内部响应了 cancel_event
+        cancelled_result = AgentRunResult(
+            **{
+                **chat_result.model_dump(),
+                "status": AgentRunStatus.CANCELLED,
+            }
+        )
 
         async def route_dispatch(route, *args, **kwargs):
             nonlocal observed_cancel_event
@@ -474,7 +480,7 @@ class TestChatApplicationService:
             generation_id="gen-nonstream",
         )
 
-        assert result.cancelled is True
+        assert result.status == AgentRunStatus.CANCELLED.value
         routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
         assert routes_called == [GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN]
 
@@ -492,7 +498,10 @@ class TestChatApplicationService:
                 observed_cancel_event = kwargs["cancel_event"]
                 cancel_result = svc.cancel_generation("gen-nonstream")
                 assert cancel_result.cancelled is True
-                return AgentRunResult(final_text="partial", cancelled=True)
+                return AgentRunResult(
+                    final_text="partial",
+                    status=AgentRunStatus.CANCELLED,
+                )
             raise AssertionError(f"Unexpected route: {route}")
 
         mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
@@ -505,7 +514,7 @@ class TestChatApplicationService:
 
         assert observed_cancel_event is not None
         assert observed_cancel_event.is_set()
-        assert result.cancelled is True
+        assert result.status == AgentRunStatus.CANCELLED.value
         assert result.final_text == "partial"
         routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
         assert GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN not in routes_called

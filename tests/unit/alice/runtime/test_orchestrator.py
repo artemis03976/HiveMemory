@@ -12,6 +12,7 @@ from hivememory.agent_runtime.models import (
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, RuntimeScope, TurnEvent
 from hivememory.core.mtp.models import MTPCallRequest
+from hivememory.core.protocol.models import AgentRunStatus
 
 
 def _frame(*, depth: int = 0, frame_id: str = "frame-main") -> ExecutionFrame:
@@ -109,7 +110,7 @@ async def test_run_agent_cancelled_cancels_pending_atoms_without_materialize_tas
         cancel_event=cancel_event,
     )
 
-    assert result.cancelled is True
+    assert result.status == AgentRunStatus.CANCELLED.value
     assert result.materialize_tasks == []
     runtime.cancel_tasks_by_run.assert_called_once_with("run-1")
     runtime.collect_tasks_by_run.assert_not_called()

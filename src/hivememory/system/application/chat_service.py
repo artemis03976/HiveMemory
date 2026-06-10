@@ -4,7 +4,7 @@ ChatApplicationService — 顶层主动交互应用服务 (Phase D / v0.4.0)
 v0.4.0 Phase 1 变更：
     - _generation_events dict 替换为 RuntimeControlRegistry
     - cancel_generation() 返回结构化 CancelResult
-    - 取消后默认跳过 run_active_generation（通过 loop_result.cancelled 标志传递）
+    - 取消后默认跳过 run_active_generation（通过 loop_result.status 传递）
     - done 事件携带 status/reason/stopped 稳定字段
 """
 
@@ -14,7 +14,7 @@ import logging
 import uuid
 from typing import Any, AsyncGenerator, Dict, Literal, Optional
 
-from hivememory.core.protocol.models import AgentRunResult
+from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.infrastructure.trace_context import (
     generate_trace_id,
     reset_trace_context,
@@ -103,7 +103,7 @@ class ChatApplicationService:
                 cancel_event=run.cancel_event,
             )
 
-            if run.cancelled or loop_result.cancelled:
+            if run.cancelled or loop_result.status != AgentRunStatus.COMPLETED.value:
                 run.status = ChatGenerationRunStatus.CANCELLED
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
@@ -253,7 +253,7 @@ class ChatApplicationService:
                 raise RuntimeError("Stream ended without done event")
 
             # 分支：用户取消或 Alice 响应取消。跳过 finalize，不触发主动记忆生成。
-            if run.cancelled or loop_result.cancelled:
+            if run.cancelled or loop_result.status != AgentRunStatus.COMPLETED.value:
                 run.status = ChatGenerationRunStatus.CANCELLED
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
@@ -413,8 +413,8 @@ class ChatApplicationService:
         loop_result: Optional[AgentRunResult] = None,
     ) -> AgentRunResult:
         if loop_result is None:
-            return AgentRunResult(cancelled=True)
-        return loop_result.model_copy(update={"cancelled": True})
+            return AgentRunResult(status=AgentRunStatus.CANCELLED)
+        return loop_result.model_copy(update={"status": AgentRunStatus.CANCELLED})
 
     def _emit_chat_status(
         self,

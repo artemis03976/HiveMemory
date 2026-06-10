@@ -6,7 +6,11 @@ from enum import Enum
 from typing import Any, AsyncGenerator, Optional
 
 from hivememory.core.models import MemoryAtom
-from hivememory.core.protocol.models import AgentRunContext, AgentRunResult
+from hivememory.core.protocol.models import (
+    AgentRunContext,
+    AgentRunResult,
+    AgentRunStatus,
+)
 
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
@@ -408,14 +412,14 @@ class AliceRuntime:
     ) -> None:
         event_type = (
             RuntimeEventType.AGENT_RUN_CANCELLED
-            if result.cancelled
+            if result.status == AgentRunStatus.CANCELLED.value
             else RuntimeEventType.AGENT_RUN_COMPLETED
         )
         self._emit_agent_event(
             event_type,
             agent_run_context,
             agent_run_id=agent_run_id,
-            status="cancelled" if result.cancelled else "completed",
+            status=str(result.status),
             data={
                 "mtp_iterations": result.mtp_iterations,
                 "total_iterations": result.total_iterations,
