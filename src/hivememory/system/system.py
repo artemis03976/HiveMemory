@@ -7,6 +7,7 @@ from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.memory_service import MemoryApplicationService
+from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
@@ -37,6 +38,7 @@ class HiveMemorySystem:
         chat_service: ChatApplicationService,
         ingress_service: PassiveIngressService,
         memory_service: MemoryApplicationService,
+        memory_task_service: MemoryTaskApplicationService,
         agent_service: AgentApplicationService,
         topic_service: TopicApplicationService,
         readiness_service: SystemReadinessService,
@@ -56,6 +58,7 @@ class HiveMemorySystem:
         self._chat_service = chat_service
         self._ingress_service = ingress_service
         self._memory_service = memory_service
+        self._memory_task_service = memory_task_service
         self._agent_service = agent_service
         self._topic_service = topic_service
         self._readiness_service = readiness_service
@@ -122,6 +125,9 @@ class HiveMemorySystem:
             global_bus=global_bus,
             config=config,
         )
+        memory_task_service = MemoryTaskApplicationService(
+            global_bus=global_bus,
+        )
         agent_service = AgentApplicationService(
             global_bus=global_bus,
             config=config,
@@ -143,6 +149,7 @@ class HiveMemorySystem:
             chat_service=chat_service,
             ingress_service=ingress_service,
             memory_service=memory_service,
+            memory_task_service=memory_task_service,
             agent_service=agent_service,
             topic_service=topic_service,
             readiness_service=readiness_service,
@@ -202,6 +209,10 @@ class HiveMemorySystem:
     @property
     def memory_service(self) -> MemoryApplicationService:
         return self._memory_service
+
+    @property
+    def memory_task_service(self) -> MemoryTaskApplicationService:
+        return self._memory_task_service
 
     @property
     def agent_service(self) -> AgentApplicationService:

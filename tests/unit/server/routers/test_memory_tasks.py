@@ -1,14 +1,13 @@
 """Memory task router tests."""
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.server.routers.memory_tasks import router
-from hivememory.system.runtime.control import (
+from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
@@ -21,12 +20,7 @@ def _create_test_app(service):
 
     from hivememory.server import deps
 
-    system = SimpleNamespace(
-        _patchouli=SimpleNamespace(
-            service=service,
-        )
-    )
-    app.dependency_overrides[deps.get_system] = lambda: system
+    app.dependency_overrides[deps.get_memory_task_service] = lambda: service
     return app
 
 
@@ -44,7 +38,7 @@ def _memory_task():
 
 def test_list_memory_tasks_serializes_task_source():
     service = MagicMock()
-    service.list_memory_tasks.return_value = [_memory_task()]
+    service.list_memory_tasks = AsyncMock(return_value=[_memory_task()])
     client = TestClient(_create_test_app(service))
 
     response = client.get("/api/v1/memory-tasks")
@@ -63,8 +57,8 @@ def test_cancel_memory_task_calls_service():
     service = MagicMock()
     memory_task = _memory_task()
     memory_task.request_cancel()
-    service.cancel_memory_task.return_value = True
-    service.get_memory_task.return_value = memory_task
+    service.cancel_memory_task = AsyncMock(return_value=True)
+    service.get_memory_task = AsyncMock(return_value=memory_task)
     client = TestClient(_create_test_app(service))
 
     response = client.post("/api/v1/memory-tasks/task_1/cancel")
@@ -78,8 +72,8 @@ def test_cancel_memory_task_calls_service():
     assert body["reason"] == "user_requested"
     assert body["source"] == "WRITE"
     assert body["pending_alias"] == "draft_abc"
-    service.cancel_memory_task.assert_called_once_with("task_1")
-    service.get_memory_task.assert_called_once_with("task_1")
+    service.cancel_memory_task.assert_awaited_once_with("task_1")
+    service.get_memory_task.assert_awaited_once_with("task_1")
 
 
 def test_cancel_memory_task_returns_terminal_cancelled_state():
@@ -87,8 +81,8 @@ def test_cancel_memory_task_returns_terminal_cancelled_state():
     memory_task = _memory_task()
     memory_task.request_cancel()
     memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-    service.cancel_memory_task.return_value = True
-    service.get_memory_task.return_value = memory_task
+    service.cancel_memory_task = AsyncMock(return_value=True)
+    service.get_memory_task = AsyncMock(return_value=memory_task)
     client = TestClient(_create_test_app(service))
 
     response = client.post("/api/v1/memory-tasks/task_1/cancel")
@@ -103,6 +97,7 @@ def test_cancel_memory_task_returns_terminal_cancelled_state():
 
 def test_cancel_memory_task_does_not_accept_delete():
     service = MagicMock()
+    service.cancel_memory_task = AsyncMock()
     client = TestClient(_create_test_app(service))
 
     response = client.delete("/api/v1/memory-tasks/task_1/cancel")

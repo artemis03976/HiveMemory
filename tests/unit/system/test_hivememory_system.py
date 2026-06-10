@@ -45,6 +45,7 @@ def system(mock_patchouli):
     ingress_service.ingest_event = AsyncMock(return_value={"buffered": True})
     ingress_service.flush_ingressor = AsyncMock(return_value=True)
     memory_service = MagicMock()
+    memory_task_service = MagicMock()
     agent_service = MagicMock()
     topic_service = TopicApplicationService(
         global_bus=global_bus,
@@ -60,6 +61,7 @@ def system(mock_patchouli):
         chat_service=chat_service,
         ingress_service=ingress_service,
         memory_service=memory_service,
+        memory_task_service=memory_task_service,
         agent_service=agent_service,
         topic_service=topic_service,
         readiness_service=readiness_service,
@@ -122,6 +124,7 @@ class TestHiveMemorySystem:
         assert system.chat_service is system._chat_service
         assert system.ingress_service is system._ingress_service
         assert system.memory_service is system._memory_service
+        assert system.memory_task_service is system._memory_task_service
         assert system.agent_service is system._agent_service
         assert system.topic_service is system._topic_service
         assert system.readiness_service is system._readiness_service

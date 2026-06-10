@@ -10,14 +10,14 @@ from hivememory.core.models.pending import (
     UpdateFocus,
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
-from hivememory.patchouli.services.librarian import LibrarianCore
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.control import (
+from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
-    MemoryGenerationSource,
 )
+from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 

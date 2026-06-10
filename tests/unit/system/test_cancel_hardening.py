@@ -9,18 +9,18 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.system.runtime.control import (
+    ChatGenerationRunRegistry,
     ChatGenerationRun,
     ChatGenerationRunStatus,
-    RuntimeControlRegistry,
 )
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
 
-class TestRuntimeControlRegistry:
+class TestChatGenerationRunRegistry:
     def setup_method(self):
-        self.registry = RuntimeControlRegistry()
+        self.registry = ChatGenerationRunRegistry()
 
     def test_cancel_sets_event_and_returns_result(self):
         run = ChatGenerationRun(generation_id="gen-1")

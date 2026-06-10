@@ -29,6 +29,8 @@
 版本: 4.0
 """
 
+from __future__ import annotations
+
 import asyncio
 import inspect
 import logging
@@ -39,14 +41,14 @@ from hivememory.core.protocol.models import (
     EyeGazeResult,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.services.librarian import LibrarianCore
-from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.config import HiveMemoryConfig, load_app_config
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
+    from hivememory.patchouli.services.librarian import LibrarianCore
+    from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 logger = logging.getLogger(__name__)
 
@@ -418,6 +420,8 @@ class PatchouliRuntime:
         当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore)
         """
         # 构建被动模式渲染器 (Passive.md §5.2)
+        from hivememory.patchouli.services.librarian import LibrarianCore
+        from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         from hivememory.engines.retrieval.renderer import FullContextRenderer
         from hivememory.system.config import FullRendererConfig
         passive_renderer = FullContextRenderer(

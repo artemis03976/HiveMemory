@@ -26,8 +26,8 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.control import (
     CancelResult,
     ChatGenerationRun,
+    ChatGenerationRunRegistry,
     ChatGenerationRunStatus,
-    RuntimeControlRegistry,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
@@ -43,7 +43,7 @@ class ChatApplicationService:
         runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._bus = global_bus
-        self._registry = RuntimeControlRegistry()
+        self._registry = ChatGenerationRunRegistry()
         self._events = runtime_events or NullRuntimeEventSink()
 
     # ========== 非流式主链路 ==========

@@ -249,6 +249,9 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.SUBMIT_INTERACTION == "patchouli.public.submit_interaction"
         assert PatchouliRoutes.MEMORY_RETRIEVE == "patchouli.public.memory.retrieve"
         assert PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES == "patchouli.public.memory.retrieve_by_aliases"
+        assert PatchouliRoutes.MEMORY_TASK_LIST == "patchouli.public.memory_task.list"
+        assert PatchouliRoutes.MEMORY_TASK_GET == "patchouli.public.memory_task.get"
+        assert PatchouliRoutes.MEMORY_TASK_CANCEL == "patchouli.public.memory_task.cancel"
         assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
         assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"
         assert PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN == "patchouli.public.cleanup_prepared_agent_run"
@@ -268,18 +271,26 @@ class TestPatchouliPublicRoutes:
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
         assert PatchouliRoutes.EVICT_TOPIC in routes
+        assert PatchouliRoutes.MEMORY_TASK_LIST in routes
+        assert PatchouliRoutes.MEMORY_TASK_GET in routes
+        assert PatchouliRoutes.MEMORY_TASK_CANCEL in routes
         assert PatchouliRoutes.RECORD_MEMORY_CITATION in routes
         assert PatchouliRoutes.WARMUP_MODELS in routes
         assert PatchouliRoutes.MODELS_READY in routes
 
         ready = await self.global_bus.request(PatchouliRoutes.MODELS_READY)
         assert ready is True
+        tasks = await self.global_bus.request(PatchouliRoutes.MEMORY_TASK_LIST)
+        assert tasks == ["task"]
 
         bridge.unmount()
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN not in routes
         assert PatchouliRoutes.EVICT_TOPIC not in routes
+        assert PatchouliRoutes.MEMORY_TASK_LIST not in routes
+        assert PatchouliRoutes.MEMORY_TASK_GET not in routes
+        assert PatchouliRoutes.MEMORY_TASK_CANCEL not in routes
         assert PatchouliRoutes.RECORD_MEMORY_CITATION not in routes
         assert PatchouliRoutes.WARMUP_MODELS not in routes
         assert PatchouliRoutes.MODELS_READY not in routes
@@ -371,6 +382,11 @@ class TestPatchouliPublicRoutes:
         memory_management_service.delete_memory = AsyncMock()
         memory_management_service.record_feedback = AsyncMock()
 
+        memory_task_management_service = MagicMock()
+        memory_task_management_service.list_memory_tasks = AsyncMock(return_value=["task"])
+        memory_task_management_service.get_memory_task = AsyncMock()
+        memory_task_management_service.cancel_memory_task = AsyncMock()
+
         agent_profile_management_service = MagicMock()
         agent_profile_management_service.create_agent_profile = AsyncMock()
         agent_profile_management_service.list_agent_profiles = AsyncMock()
@@ -388,6 +404,7 @@ class TestPatchouliPublicRoutes:
             runtime=runtime,
             service=service,
             memory_management_service=memory_management_service,
+            memory_task_management_service=memory_task_management_service,
             agent_profile_management_service=agent_profile_management_service,
             topic_management_service=topic_management_service,
             model_readiness_service=model_readiness_service,

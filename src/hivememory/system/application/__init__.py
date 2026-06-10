@@ -5,6 +5,7 @@ from hivememory.system.application.memory_service import (
     MemoryLifecycleUnavailableError,
     MemoryNotFoundError,
 )
+from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.passive import PassiveMessageIngressor
 from hivememory.system.application.readiness_service import SystemReadinessService
@@ -16,6 +17,7 @@ __all__ = [
     "MemoryApplicationService",
     "MemoryLifecycleUnavailableError",
     "MemoryNotFoundError",
+    "MemoryTaskApplicationService",
     "PassiveMessageIngressor",
     "PassiveIngressService",
     "SystemReadinessService",

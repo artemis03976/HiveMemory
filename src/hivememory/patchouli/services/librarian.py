@@ -30,11 +30,11 @@ from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.services.memory_generation_tasks import (
     MemoryGenerationTaskController,
 )
-from hivememory.prompts.transcript import GenerationTranscriptBuilder
-from hivememory.system.runtime.control import (
+from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
 )
+from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:

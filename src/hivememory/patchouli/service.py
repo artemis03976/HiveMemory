@@ -21,9 +21,9 @@ from hivememory.patchouli.models import (
     StreamPrelude,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.server.models.memory import MemoryResponse
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.control import MemoryGenerationTask
 
 if TYPE_CHECKING:
     from hivememory.patchouli.eye import TheEye

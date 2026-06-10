@@ -35,6 +35,7 @@ from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     MemoryManagementService,
+    MemoryTaskManagementService,
     ModelReadinessService,
     TopicManagementService,
 )
@@ -102,6 +103,9 @@ class PatchouliSystem(SubsystemProtocol):
             storage=self.runtime.storage,
             lifecycle_engine=self.runtime.librarian_core.lifecycle_engine,
         )
+        self._memory_task_management_service = MemoryTaskManagementService(
+            librarian_core=self.runtime.librarian_core,
+        )
         self._agent_profile_management_service = AgentProfileManagementService(
             storage=self.runtime.storage,
         )
@@ -115,6 +119,7 @@ class PatchouliSystem(SubsystemProtocol):
             runtime=self.runtime,
             service=self._service,
             memory_management_service=self._memory_management_service,
+            memory_task_management_service=self._memory_task_management_service,
             agent_profile_management_service=self._agent_profile_management_service,
             topic_management_service=self._topic_management_service,
             model_readiness_service=self._model_readiness_service,

@@ -26,6 +26,9 @@ class PatchouliBridge:
         PatchouliRoutes.MEMORY_UPDATE,
         PatchouliRoutes.MEMORY_DELETE,
         PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
+        PatchouliRoutes.MEMORY_TASK_LIST,
+        PatchouliRoutes.MEMORY_TASK_GET,
+        PatchouliRoutes.MEMORY_TASK_CANCEL,
         PatchouliRoutes.AGENT_PROFILE_CREATE,
         PatchouliRoutes.AGENT_PROFILE_LIST,
         PatchouliRoutes.TOPIC_LIST_ACTIVE,
@@ -48,6 +51,7 @@ class PatchouliBridge:
         runtime: PatchouliRuntime,
         service: PatchouliService,
         memory_management_service: Any,
+        memory_task_management_service: Any,
         agent_profile_management_service: Any,
         topic_management_service: Any,
         model_readiness_service: Any,
@@ -57,6 +61,7 @@ class PatchouliBridge:
         self._runtime = runtime
         self._service = service
         self._memory_management_service = memory_management_service
+        self._memory_task_management_service = memory_task_management_service
         self._agent_profile_management_service = agent_profile_management_service
         self._topic_management_service = topic_management_service
         self._model_readiness_service = model_readiness_service
@@ -124,6 +129,18 @@ class PatchouliBridge:
             (
                 PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
                 self._memory_management_service.record_feedback,
+            ),
+            (
+                PatchouliRoutes.MEMORY_TASK_LIST,
+                self._memory_task_management_service.list_memory_tasks,
+            ),
+            (
+                PatchouliRoutes.MEMORY_TASK_GET,
+                self._memory_task_management_service.get_memory_task,
+            ),
+            (
+                PatchouliRoutes.MEMORY_TASK_CANCEL,
+                self._memory_task_management_service.cancel_memory_task,
             ),
             (
                 PatchouliRoutes.AGENT_PROFILE_CREATE,

@@ -2,7 +2,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from hivememory.server.deps import get_system
+from hivememory.server.deps import get_memory_task_service
+from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 
 router = APIRouter(prefix="/memory-tasks", tags=["memory-tasks"])
 
@@ -36,26 +37,33 @@ def _cancel_response(memory_task) -> dict:
 
 
 @router.get("")
-async def list_memory_tasks(system=Depends(get_system)):
-    tasks = system._patchouli.service.list_memory_tasks()
+async def list_memory_tasks(
+    service: MemoryTaskApplicationService = Depends(get_memory_task_service),
+):
+    tasks = await service.list_memory_tasks()
     return {"tasks": [_task_to_dict(memory_task) for memory_task in tasks]}
 
 
 @router.get("/{task_id}")
-async def get_memory_task(task_id: str, system=Depends(get_system)):
-    memory_task = system._patchouli.service.get_memory_task(task_id)
+async def get_memory_task(
+    task_id: str,
+    service: MemoryTaskApplicationService = Depends(get_memory_task_service),
+):
+    memory_task = await service.get_memory_task(task_id)
     if memory_task is None:
         raise HTTPException(status_code=404, detail="task not found")
     return _task_to_dict(memory_task)
 
 
 @router.post("/{task_id}/cancel")
-async def cancel_memory_task(task_id: str, system=Depends(get_system)):
-    service = system._patchouli.service
-    ok = service.cancel_memory_task(task_id)
+async def cancel_memory_task(
+    task_id: str,
+    service: MemoryTaskApplicationService = Depends(get_memory_task_service),
+):
+    ok = await service.cancel_memory_task(task_id)
     if not ok:
         raise HTTPException(status_code=404, detail="task not found")
-    memory_task = service.get_memory_task(task_id)
+    memory_task = await service.get_memory_task(task_id)
     if memory_task is None:
         raise HTTPException(status_code=404, detail="task not found")
     return _cancel_response(memory_task)
