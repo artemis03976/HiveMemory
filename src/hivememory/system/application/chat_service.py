@@ -367,9 +367,13 @@ class ChatApplicationService:
 
     # ========== Generation 控制 ==========
 
-    def cancel_generation(self, generation_id: str) -> CancelResult:
+    def cancel_generation(
+        self,
+        generation_id: str,
+        reason: str = "user_requested",
+    ) -> CancelResult:
         """幂等取消：重复调用返回当前状态，不报错。"""
-        result = self._registry.cancel(generation_id, reason="user_requested")
+        result = self._registry.cancel(generation_id, reason=reason)
         run = self._registry.get(generation_id)
         self._events.emit(
             RuntimeEvent(

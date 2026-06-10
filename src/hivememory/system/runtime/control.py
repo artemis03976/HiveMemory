@@ -50,7 +50,8 @@ class ChatGenerationRun:
             ChatGenerationRunStatus.FAILED,
         ):
             self.status = ChatGenerationRunStatus.CANCELLING
-            self.cancel_reason = reason
+            if self.cancel_reason is None:
+                self.cancel_reason = reason
         self.cancel_event.set()
 
 
@@ -80,7 +81,7 @@ class RuntimeControlRegistry:
             generation_id=generation_id,
             cancelled=True,
             status=run.status.value,
-            reason=reason,
+            reason=run.cancel_reason or reason,
         )
 
     def close(self, generation_id: str, status: ChatGenerationRunStatus) -> None:

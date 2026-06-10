@@ -43,6 +43,7 @@ from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.system.runtime.control import ChatGenerationRun
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
@@ -272,6 +273,15 @@ class TestChatApplicationService:
         svc = ChatApplicationService(global_bus=mock_global_bus)
         assert svc.cancel_generation("gen-1").cancelled is False
 
+    def test_cancel_generation_preserves_first_reason(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        svc._registry.register(ChatGenerationRun(generation_id="gen-1"))
+        first = svc.cancel_generation("gen-1", reason="client_disconnected")
+        second = svc.cancel_generation("gen-1", reason="stream_closed")
+
+        assert first.reason == "client_disconnected"
+        assert second.reason == "client_disconnected"
+
     @pytest.mark.asyncio
     async def test_chat_stream_cleans_up_prepared_run_on_runtime_error(self, mock_global_bus):
         prepared = _make_prepared_run()
@@ -344,6 +354,42 @@ class TestChatApplicationService:
             call.args[0] for call in mock_global_bus.request.await_args_list
         ]
         assert GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN in routes_called
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_close_preserves_existing_cancel_reason(self, mock_global_bus):
+        recorder = RecordingRuntimeEventSink()
+        prepared = _make_prepared_run()
+
+        async def route_dispatch(route, *args, **kwargs):
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                async def _stream():
+                    yield {"event": "token", "data": {"content": "hi"}}
+                    await asyncio.Event().wait()
+
+                return _stream()
+            if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
+                return True
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        svc = ChatApplicationService(global_bus=mock_global_bus, runtime_events=recorder)
+        stream = svc.chat_stream(user_message="hi", user_id="u1", generation_id="gen-1")
+
+        assert (await stream.__anext__())["event"] == "generation_id"
+        assert (await stream.__anext__())["event"] == "topic_info"
+        assert (await stream.__anext__())["event"] == "memory_refs"
+        assert (await stream.__anext__())["event"] == "token"
+
+        svc.cancel_generation("gen-1", reason="client_disconnected")
+        await stream.aclose()
+
+        runtime_events = [event for event in recorder.events]
+        assert runtime_events[-1].event_type == RuntimeEventType.CHAT_RUN_CANCELLED
+        assert runtime_events[-1].reason == "client_disconnected"
+        assert runtime_events[-1].data["close_reason"] == "client_disconnected"
 
     @pytest.mark.asyncio
     async def test_cancel_before_streaming_returns_cancelled_done(self, mock_global_bus):

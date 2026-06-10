@@ -248,7 +248,10 @@ class TestChatRouter:
 
         generation_id = mock_service.chat_stream.call_args.kwargs["generation_id"]
         assert generation_id
-        mock_service.cancel_generation.assert_called_once_with(generation_id)
+        mock_service.cancel_generation.assert_called_once_with(
+            generation_id,
+            reason="client_disconnected",
+        )
 
     @pytest.mark.asyncio
     async def test_disconnect_before_generation_id_event_cancels_generation(self):
@@ -284,4 +287,7 @@ class TestChatRouter:
         assert stream_started.is_set()
         generation_id = mock_service.chat_stream.call_args.kwargs["generation_id"]
         assert generation_id
-        mock_service.cancel_generation.assert_called_once_with(generation_id)
+        mock_service.cancel_generation.assert_called_once_with(
+            generation_id,
+            reason="client_disconnected",
+        )
