@@ -11,6 +11,7 @@
 
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
+import { useMemoryTaskStore } from '@/stores/memoryTaskStore';
 import type {
   KernelStore,
   LogEntry,
@@ -822,6 +823,7 @@ export const useKernelStore = create<KernelStore>()(
 
         addRuntimeEvent: (event) => {
           const state = get();
+          useMemoryTaskStore.getState().applyRuntimeEvent(event);
           if (state.ui.isPaused) return;
 
           set((state) => {

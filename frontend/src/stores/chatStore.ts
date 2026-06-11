@@ -14,6 +14,7 @@ import { devtools, persist } from 'zustand/middleware';
 import { ChatSSEClient, stopGeneration } from '@/services/chatApi';
 import { createChatSSECallbacks } from '@/stores/chatStore.callbacks';
 import { applyDone, applyStreamError } from '@/stores/chatStore.updaters';
+import { useMemoryTaskStore } from '@/stores/memoryTaskStore';
 import { useTopicStore } from '@/stores/topicStore';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
 import type {
@@ -207,11 +208,12 @@ export const useChatStore = create<ChatStore>()(
                 const status = data.status ?? (data.stopped ? 'cancelled' : 'completed');
                 const isCancelled = status === 'cancelled';
                 const isFailed = status === 'failed';
+                const memoryTaskIds = data.memory_task_ids ?? [];
                 set((s) => ({
                   messages: applyDone(s.messages, assistantMessageId, data.final_text),
                   isStreaming: false,
                   runStatus: status,
-                  currentMemoryTaskIds: data.memory_task_ids ?? [],
+                  currentMemoryTaskIds: memoryTaskIds,
                   lastRunReason: data.reason ?? s.lastRunReason,
                   connection: {
                     status: isFailed ? 'error' : 'connected',
@@ -220,6 +222,10 @@ export const useChatStore = create<ChatStore>()(
                   _currentStreamingMessageId: null,
                   _currentGenerationId: null,
                 }));
+
+                if (memoryTaskIds.length > 0) {
+                  void useMemoryTaskStore.getState().refreshTasksByIds(memoryTaskIds);
+                }
 
                 if (isCancelled || isFailed) {
                   client.disconnect();
