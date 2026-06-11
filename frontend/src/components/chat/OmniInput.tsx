@@ -17,7 +17,7 @@ export default function OmniInput() {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
 
-  const { sendMessage, stopStreaming, isStreaming, currentAgentId, setCurrentAgentId } = useChatStore();
+  const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId } = useChatStore();
 
   const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
   const { agents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
@@ -114,6 +114,21 @@ export default function OmniInput() {
       setMessage('');
     }
   };
+
+  const isCancelling = runStatus === 'cancelling';
+  const isFinalizing = runStatus === 'finalizing';
+  const inputPlaceholder = isCancelling
+    ? '正在取消生成...'
+    : isFinalizing
+      ? '正在整理本轮结果...'
+      : isStreaming
+        ? '正在思考...'
+        : '向智能体提问... (输入 @ 呼叫特定角色)';
+  const stopTitle = isCancelling
+    ? '正在请求停止'
+    : isFinalizing
+      ? '正在收尾，可继续请求停止'
+      : '停止生成';
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (mentionQuery !== null) {
@@ -259,7 +274,7 @@ export default function OmniInput() {
         <textarea
           ref={textareaRef}
           className="w-full bg-transparent border-none focus:ring-0 text-sm py-3 px-4 resize-none placeholder-slate-500 outline-none"
-          placeholder={isStreaming ? "正在思考..." : "向智能体提问... (输入 @ 呼叫特定角色)"}
+          placeholder={inputPlaceholder}
           rows={1}
           value={message}
           onChange={handleMessageChange}
@@ -300,8 +315,14 @@ export default function OmniInput() {
           {isStreaming ? (
             <button
               onClick={stopStreaming}
-              className="p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 bg-red-500/20 text-red-400 hover:bg-red-500/30 hover:text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.3)]"
-              title="停止生成"
+              disabled={isCancelling}
+              className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
+                isCancelling
+                  ? 'bg-magic-metal/20 text-magic-metal cursor-wait animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.25)]'
+                  : 'bg-red-500/20 text-red-400 hover:bg-red-500/30 hover:text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.3)]'
+              }`}
+              title={stopTitle}
+              aria-label={stopTitle}
             >
               <Square className="w-4 h-4" />
             </button>

@@ -19,6 +19,7 @@ import type {
   SubAgentStartEvent,
   SubAgentEndEvent,
   GenerationIdEvent,
+  ChatRunStatusEvent,
 } from '@/types';
 
 export class ChatSSEClient {
@@ -193,6 +194,10 @@ export class ChatSSEClient {
 
       case 'generation_id':
         callbacks.onGenerationId(data as GenerationIdEvent);
+        break;
+
+      case 'run_status':
+        callbacks.onRunStatus(data as ChatRunStatusEvent);
         break;
 
       default:
