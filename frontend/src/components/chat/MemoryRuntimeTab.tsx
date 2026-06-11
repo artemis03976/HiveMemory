@@ -38,7 +38,7 @@ const STATUS_CONFIG: Record<
     textClass: 'text-magic-metal',
   },
   running: {
-    label: '运行中',
+    label: '生成中',
     icon: Loader2,
     iconClass: 'text-magic-water animate-spin',
     dotClass: 'bg-magic-water',
@@ -88,6 +88,10 @@ function canCancelTask(task: MemoryGenerationTask): boolean {
   return (task.status === 'pending' || task.status === 'running') && !task.cancel_requested;
 }
 
+function isCancellingTask(task: MemoryGenerationTask): boolean {
+  return task.cancel_requested === true && !TERMINAL_STATUSES.has(task.status);
+}
+
 function DetailRow({ label, value, danger = false }: { label: string; value: string | null | undefined; danger?: boolean }) {
   return (
     <div className="grid grid-cols-[104px_1fr] gap-3 text-[11px] leading-relaxed">
@@ -115,6 +119,7 @@ function TaskItem({
   const config = STATUS_CONFIG[task.status];
   const StatusIcon = config.icon;
   const alias = getTaskAlias(task);
+  const isCancelling = isCancellingTask(task);
 
   return (
     <motion.div
@@ -140,9 +145,11 @@ function TaskItem({
             )}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-500">
-            <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-slate-400">{task.source}</span>
-            <span className="font-mono text-slate-400">{alias}</span>
+          <div className="mt-2 flex min-w-0 flex-col gap-1 text-[10px] text-slate-500">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-slate-400">{task.source}</span>
+              <span className="min-w-0 truncate font-mono text-slate-400">{alias}</span>
+            </div>
             <span>{formatTime(task.created_at)}</span>
           </div>
         </div>
@@ -150,7 +157,7 @@ function TaskItem({
         <div className="flex shrink-0 items-center gap-2">
           <span className={`flex items-center gap-1 text-[10px] font-semibold ${config.textClass}`}>
             <StatusIcon className={`h-3.5 w-3.5 ${config.iconClass}`} />
-            {task.cancel_requested ? '取消中' : config.label}
+            {isCancelling ? '取消中' : config.label}
           </span>
           <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
         </div>
@@ -178,7 +185,7 @@ function TaskItem({
               <DetailRow label="started_at" value={formatTime(task.started_at)} />
               <DetailRow label="finished_at" value={formatTime(task.finished_at)} />
 
-              {(canCancelTask(task) || task.cancel_requested) && (
+              {(canCancelTask(task) || isCancelling) && (
                 <div className="pt-2">
                   <button
                     type="button"
@@ -186,15 +193,15 @@ function TaskItem({
                       event.stopPropagation();
                       onCancel();
                     }}
-                    disabled={task.cancel_requested}
+                    disabled={isCancelling}
                     className="inline-flex h-8 items-center gap-2 rounded-md border border-magic-fire/30 bg-magic-fire/10 px-3 text-[11px] font-semibold text-magic-fire hover:bg-magic-fire/15 focus:outline-none focus:ring-1 focus:ring-magic-fire/50 disabled:cursor-wait disabled:opacity-60"
                   >
-                    {task.cancel_requested ? (
+                    {isCancelling ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <Square className="h-3.5 w-3.5" />
                     )}
-                    {task.cancel_requested ? '正在取消' : '取消任务'}
+                    {isCancelling ? '正在取消' : '取消任务'}
                   </button>
                 </div>
               )}
