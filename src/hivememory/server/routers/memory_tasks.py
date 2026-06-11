@@ -2,38 +2,11 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from hivememory.patchouli.runtime.memory_tasks import memory_task_to_dto
 from hivememory.server.deps import get_memory_task_service
 from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 
 router = APIRouter(prefix="/memory-tasks", tags=["memory-tasks"])
-
-
-def _task_to_dict(memory_task) -> dict:
-    return {
-        "task_id": memory_task.task_id,
-        "topic_id": memory_task.topic_id,
-        "label": memory_task.label,
-        "source": memory_task.source.value,
-        "pending_alias": memory_task.pending_alias,
-        "status": memory_task.status.value,
-        "canonical_alias": memory_task.canonical_alias,
-        "error": memory_task.error,
-        "created_at": memory_task.created_at.isoformat(),
-        "started_at": memory_task.started_at.isoformat() if memory_task.started_at else None,
-        "finished_at": memory_task.finished_at.isoformat() if memory_task.finished_at else None,
-    }
-
-
-def _cancel_response(memory_task) -> dict:
-    payload = _task_to_dict(memory_task)
-    payload.update(
-        {
-            "cancelled": memory_task.status.value == "cancelled",
-            "cancel_requested": memory_task.cancelled,
-            "reason": "user_requested" if memory_task.cancelled else None,
-        }
-    )
-    return payload
 
 
 @router.get("")
@@ -66,4 +39,4 @@ async def cancel_memory_task(
     memory_task = await service.get_memory_task(task_id)
     if memory_task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    return _cancel_response(memory_task)
+    return memory_task_to_dto(memory_task, reason="user_requested").model_dump()

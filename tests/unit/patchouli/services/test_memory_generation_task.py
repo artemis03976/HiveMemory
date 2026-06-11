@@ -15,6 +15,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
+    memory_task_to_dto,
 )
 from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.system.contracts.runtime_events import RuntimeEventType
@@ -121,6 +122,30 @@ class TestMemoryGenerationTaskRegistry:
         assert len(reg.list_all()) == 2
 
 
+class TestMemoryGenerationTaskDTO:
+    def test_memory_task_to_dto_contains_public_fields(self):
+        memory_task = _task_handle()
+        memory_task.request_cancel()
+
+        dto = memory_task_to_dto(memory_task)
+
+        assert dto.task_id == "j1"
+        assert dto.topic_id == "t1"
+        assert dto.source == "ARCHIVE"
+        assert dto.status == "pending"
+        assert dto.cancel_requested is True
+        assert dto.cancelled is False
+        assert dto.reason == "user_requested"
+        assert dto.created_at == memory_task.created_at.isoformat()
+
+    def test_memory_task_to_dto_accepts_explicit_reason(self):
+        memory_task = _task_handle()
+
+        dto = memory_task_to_dto(memory_task, reason="system")
+
+        assert dto.reason == "system"
+
+
 class TestRunActiveGenerationReturnsTasks:
     @pytest.mark.asyncio
     async def test_returns_single_memory_generation_task_per_pending_atom(self):
@@ -189,6 +214,10 @@ class TestTaskLifecycleAfterCompletion:
         assert RuntimeEventType.MEMORY_TASK_STATUS in event_types
         assert RuntimeEventType.MEMORY_TASK_COMPLETED in event_types
         assert recorder.events[0].task_id == memory_task.task_id
+        assert recorder.events[0].data["task_id"] == memory_task.task_id
+        assert recorder.events[0].data["topic_id"] == memory_task.topic_id
+        assert recorder.events[0].data["cancel_requested"] is False
+        assert recorder.events[0].data["cancelled"] is False
 
     @pytest.mark.asyncio
     async def test_task_metadata_updated(self):
