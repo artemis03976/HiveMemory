@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { Circle, Play, Pause, ArrowDownToLine, ArrowUpFromLine, Trash2, Search, RefreshCw, ChevronRight, User, Activity, Layers, Radio } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useKernelStore } from '@/stores/kernelStore';
+import { useKernelStore } from '@/stores';
 import type { LogLevel, LogEntry, KernelConnectionStatus, RuntimeEventConnectionStatus, RuntimeEvent, SpanGroup, TraceGroup } from '@/types/kernel';
 
 const STATUS_DOT: Record<KernelConnectionStatus, string> = {

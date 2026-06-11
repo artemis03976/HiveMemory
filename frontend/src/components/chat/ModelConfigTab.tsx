@@ -1,6 +1,6 @@
 import { Cpu, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import RangeSlider from '../common/RangeSlider';
-import { useChatRuntimeConfigStore } from '@/stores/chatRuntimeConfigStore';
+import { useChatRuntimeConfigStore } from '@/stores';
 
 export default function ModelConfigTab() {
   const { generationOptions, updateGenerationOptions } = useChatRuntimeConfigStore();

@@ -6,7 +6,7 @@ import type {
   ViewMode,
 } from '@/types/memory';
 
-import { useMemoryViewStore } from '@/stores/memoryViewStore';
+import { useMemoryViewStore } from '@/stores';
 import { MOCK_MEMORIES } from '@/constants/memories';
 import {
   deleteMemory as deleteMemoryApi,

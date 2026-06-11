@@ -2,9 +2,7 @@ import { useState, useEffect } from 'react';
 import ContextSidebar from './chat/ContextSidebar';
 import ChatWorkspace from './chat/ChatWorkspace';
 import KernelVision from './chat/KernelVision';
-import { useTopicStore } from '@/stores/topicStore';
-import { useChatStore } from '@/stores/chatStore';
-import { useChatUiStore } from '@/stores/chatUiStore';
+import { useChatStore, useChatUiStore, useTopicStore } from '@/stores';
 
 export default function ChatLayout() {
   const { topics, fetchTopics } = useTopicStore();

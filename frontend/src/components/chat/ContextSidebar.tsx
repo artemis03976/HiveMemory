@@ -2,7 +2,7 @@ import { Columns, ChevronRight } from 'lucide-react';
 import type { Topic } from '@/types';
 import TopicTab from './TopicTab';
 import ModelConfigTab from './ModelConfigTab';
-import { useChatUiStore } from '@/stores/chatUiStore';
+import { useChatUiStore } from '@/stores';
 
 interface ContextSidebarProps {
   topics: Topic[];

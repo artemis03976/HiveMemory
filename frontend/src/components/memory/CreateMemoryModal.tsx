@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X, Plus, AtSign } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useToastStore } from '@/stores/toastStore';
+import { useToastStore } from '@/stores';
 import { createMemory } from '@/services/memoryApi';
 import { useDraft } from '@/hooks/useDraft';
 import { memoryTypeLabels, type MemoryType } from '@/types/memory';

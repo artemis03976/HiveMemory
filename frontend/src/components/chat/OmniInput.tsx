@@ -2,9 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Paperclip, Hash, Send, Square, BrainCircuit, ChevronDown } from 'lucide-react';
-import { useChatStore } from '@/stores/chatStore';
-import { useChatRuntimeConfigStore } from '@/stores/chatRuntimeConfigStore';
-import { useChatUiStore } from '@/stores/chatUiStore';
+import { useChatRuntimeConfigStore, useChatStore, useChatUiStore } from '@/stores';
 import { Toggle } from '../common/FormControls';
 import { useAgents } from '@/hooks/useAgents';
 import { motion, AnimatePresence } from 'motion/react';

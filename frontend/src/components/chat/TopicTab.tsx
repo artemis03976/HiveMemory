@@ -2,7 +2,7 @@ import { MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { Topic } from '@/types';
 import TopicCard from './TopicCard';
-import { useTopicStore } from '@/stores/topicStore';
+import { useTopicStore } from '@/stores';
 
 interface TopicTabProps {
   topics: Topic[];

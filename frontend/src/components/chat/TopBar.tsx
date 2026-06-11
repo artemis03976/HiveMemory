@@ -1,7 +1,6 @@
 import { MoreVertical } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useChatStore } from '@/stores/chatStore';
-import { useTopicStore } from '@/stores/topicStore';
+import { useChatStore, useTopicStore } from '@/stores';
 import { fetchFoldTokenThreshold } from '@/services/configApi';
 
 interface TopBarProps {

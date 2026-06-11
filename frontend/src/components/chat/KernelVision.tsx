@@ -3,8 +3,7 @@ import { X, ChevronLeft, Database, Terminal, Brain, ThumbsDown, ThumbsUp } from 
 import { motion, AnimatePresence } from 'motion/react';
 import type { MemoryAtom } from '@/types';
 import KernelTerminalTab from './KernelTerminalTab';
-import { useChatUiStore } from '@/stores/chatUiStore';
-import { useToastStore } from '@/stores/toastStore';
+import { useChatUiStore, useToastStore } from '@/stores';
 import { recordMemoryFeedback } from '@/services/memoryApi';
 
 interface KernelVisionProps {

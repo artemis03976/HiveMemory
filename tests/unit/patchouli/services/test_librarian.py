@@ -16,7 +16,10 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationSource
 from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.system.contracts.runtime_events import RuntimeEventType
+from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
 def _make_identity() -> Identity:
@@ -551,6 +554,37 @@ class TestLibrarianCoreGenerateMemory:
 
         assert memory_task is not None
         assert memory_task.canonical_alias == "fact_archive"
+
+    @pytest.mark.asyncio
+    async def test_archive_generation_emits_memory_task_created_event(self):
+        recorder = RecordingRuntimeEventSink()
+        core = LibrarianCore(
+            storage=self.mock_storage,
+            generation_engine=self.mock_generation,
+            runtime_events=recorder,
+        )
+        payload = ArchivePayload(
+            topic_id="topic_test",
+            blocks=_make_logical_blocks(1),
+            state_summary="",
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
+
+        memory_task = await core._on_generate_memory(payload)
+        if memory_task and memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert memory_task is not None
+        assert memory_task.source == MemoryGenerationSource.ARCHIVE
+        created_events = [
+            event
+            for event in recorder.events
+            if event.event_type == RuntimeEventType.MEMORY_TASK_CREATED
+        ]
+        assert len(created_events) == 1
+        assert created_events[0].task_id == memory_task.task_id
+        assert created_events[0].topic_id == "topic_test"
+        assert created_events[0].data["source"] == MemoryGenerationSource.ARCHIVE.value
 
     @pytest.mark.asyncio
     async def test_archive_generation_backfills_canonical_alias_from_atom(self):
