@@ -30,21 +30,21 @@ import logging
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
+from hivememory.patchouli.runtime.bridge import PatchouliBridge
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     MemoryManagementService,
+    MemoryTaskManagementService,
     ModelReadinessService,
     TopicManagementService,
 )
 from hivememory.patchouli.runtime import PatchouliRuntime
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 
 if TYPE_CHECKING:
@@ -73,12 +73,17 @@ class PatchouliSystem(SubsystemProtocol):
         config: HiveMemoryConfig,
         global_bus: Optional[GlobalSystemBus] = None,
         scheduler: Optional["AsyncMaintenanceScheduler"] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ):
         self.config = config
         self._global_bus = global_bus
+        self._runtime_events = runtime_events or NullRuntimeEventSink()
 
         # 1. 初始化 Runtime（运行时负责组装 Retrieval + Librarian 组件图）
-        self.runtime = PatchouliRuntime(config=self.config)
+        self.runtime = PatchouliRuntime(
+            config=self.config,
+            runtime_events=self._runtime_events,
+        )
 
         # 2. 初始化 Gateway
         self._init_gateway()
@@ -98,6 +103,9 @@ class PatchouliSystem(SubsystemProtocol):
             storage=self.runtime.storage,
             lifecycle_engine=self.runtime.librarian_core.lifecycle_engine,
         )
+        self._memory_task_management_service = MemoryTaskManagementService(
+            librarian_core=self.runtime.librarian_core,
+        )
         self._agent_profile_management_service = AgentProfileManagementService(
             storage=self.runtime.storage,
         )
@@ -107,11 +115,20 @@ class PatchouliSystem(SubsystemProtocol):
         self._model_readiness_service = ModelReadinessService(
             runtime=self.runtime,
         )
+        self._bridge = PatchouliBridge(
+            runtime=self.runtime,
+            service=self._service,
+            memory_management_service=self._memory_management_service,
+            memory_task_management_service=self._memory_task_management_service,
+            agent_profile_management_service=self._agent_profile_management_service,
+            topic_management_service=self._topic_management_service,
+            model_readiness_service=self._model_readiness_service,
+            global_bus=global_bus,
+            runtime_events=self._runtime_events,
+        )
 
         self._scheduler = scheduler
-        self._public_routes_registered = False
         self._maintenance_registered = False
-        self._local_events_registered = False
 
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
 
@@ -195,13 +212,7 @@ class PatchouliSystem(SubsystemProtocol):
         if not self.runtime.local_routes_registered:
             self.runtime.mount_local_routes(self.service)
 
-        if self._global_bus and not self._local_events_registered:
-            self._register_local_event_bridges()
-            self._local_events_registered = True
-
-        if self._global_bus and not self._public_routes_registered:
-            self._register_public_routes()
-            self._public_routes_registered = True
+        self._bridge.mount()
 
         if self._scheduler and not self._maintenance_registered:
             self._maintenance_registered = self.register_maintenance_tasks(
@@ -215,13 +226,7 @@ class PatchouliSystem(SubsystemProtocol):
 
         await self.runtime.shutdown_drain()
 
-        if self._global_bus and self._public_routes_registered:
-            self._unregister_public_routes()
-            self._public_routes_registered = False
-
-        if self._global_bus and self._local_events_registered:
-            self._unregister_local_event_bridges()
-            self._local_events_registered = False
+        self._bridge.unmount()
 
         self.runtime.unmount_local_routes()
 
@@ -231,173 +236,6 @@ class PatchouliSystem(SubsystemProtocol):
             "status": "ok" if models_ready else "warming_up",
             "models_ready": models_ready,
         }
-
-    def _register_public_routes(self) -> None:
-        self._global_bus.register(
-            PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE,
-            self.service.analyze_and_retrieve,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.SUBMIT_INTERACTION,
-            self.runtime.librarian_core.submit_interaction,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MEMORY_CREATE,
-            self._memory_management_service.create_memory,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MEMORY_LIST,
-            self._memory_management_service.list_memories,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MEMORY_GET,
-            self._memory_management_service.get_memory,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MEMORY_UPDATE,
-            self._memory_management_service.update_memory,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MEMORY_DELETE,
-            self._memory_management_service.delete_memory,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
-            self._memory_management_service.record_feedback,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.AGENT_PROFILE_CREATE,
-            self._agent_profile_management_service.create_agent_profile,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.AGENT_PROFILE_LIST,
-            self._agent_profile_management_service.list_agent_profiles,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.TOPIC_LIST_ACTIVE,
-            self._topic_management_service.list_active_topics,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MEMORY_RETRIEVE,
-            self.runtime.retrieval_familiar.retrieve_async,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
-            self.runtime.retrieval_familiar.retrieve_by_aliases_async,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.GET_AGENT_PROFILE,
-            self.runtime._get_agent_profile,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.PREPARE_AGENT_RUN,
-            self.service.prepare_agent_run,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.FINALIZE_AGENT_RUN,
-            self.service.finalize_agent_run,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-            self.service.cleanup_prepared_agent_run,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MANUAL_ARCHIVE_TOPIC,
-            self._topic_management_service.archive_topic,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.EVICT_TOPIC,
-            self._topic_management_service.evict_topic,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.RECORD_MEMORY_CITATION,
-            self.service.record_memory_citation,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.WARMUP_MODELS,
-            self._model_readiness_service.warmup_models,
-        )
-        self._global_bus.register(
-            PatchouliRoutes.MODELS_READY,
-            self._model_readiness_service.is_models_ready,
-        )
-
-    def _unregister_public_routes(self) -> None:
-        self._global_bus.unregister(PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE)
-        self._global_bus.unregister(PatchouliRoutes.SUBMIT_INTERACTION)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_CREATE)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_LIST)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_GET)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_UPDATE)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_DELETE)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_RECORD_FEEDBACK)
-        self._global_bus.unregister(PatchouliRoutes.AGENT_PROFILE_CREATE)
-        self._global_bus.unregister(PatchouliRoutes.AGENT_PROFILE_LIST)
-        self._global_bus.unregister(PatchouliRoutes.TOPIC_LIST_ACTIVE)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE)
-        self._global_bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES)
-        self._global_bus.unregister(PatchouliRoutes.GET_AGENT_PROFILE)
-        self._global_bus.unregister(PatchouliRoutes.PREPARE_AGENT_RUN)
-        self._global_bus.unregister(PatchouliRoutes.FINALIZE_AGENT_RUN)
-        self._global_bus.unregister(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN)
-        self._global_bus.unregister(PatchouliRoutes.MANUAL_ARCHIVE_TOPIC)
-        self._global_bus.unregister(PatchouliRoutes.EVICT_TOPIC)
-        self._global_bus.unregister(PatchouliRoutes.RECORD_MEMORY_CITATION)
-        self._global_bus.unregister(PatchouliRoutes.WARMUP_MODELS)
-        self._global_bus.unregister(PatchouliRoutes.MODELS_READY)
-
-    def _register_local_event_bridges(self) -> None:
-        self.runtime.local_bus.subscribe(
-            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
-            self._forward_pending_atom_settled,
-        )
-        self.runtime.local_bus.subscribe(
-            PatchouliLocalEvents.PENDING_ATOM_FAILED,
-            self._forward_pending_atom_failed,
-        )
-        self.runtime.local_bus.subscribe(
-            PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
-            self._forward_pending_atom_cancelled,
-        )
-
-    def _unregister_local_event_bridges(self) -> None:
-        self.runtime.local_bus.unsubscribe(
-            PatchouliLocalEvents.PENDING_ATOM_SETTLED,
-            self._forward_pending_atom_settled,
-        )
-        self.runtime.local_bus.unsubscribe(
-            PatchouliLocalEvents.PENDING_ATOM_FAILED,
-            self._forward_pending_atom_failed,
-        )
-        self.runtime.local_bus.unsubscribe(
-            PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
-            self._forward_pending_atom_cancelled,
-        )
-
-    async def _forward_pending_atom_settled(self, *, settlement) -> None:
-        if self._global_bus is None:
-            return
-        await self._global_bus.publish(
-            GlobalEvents.PENDING_ATOM_SETTLED,
-            settlement=settlement,
-        )
-
-    async def _forward_pending_atom_failed(self, *, pending_alias: str) -> None:
-        if self._global_bus is None:
-            return
-        await self._global_bus.publish(
-            GlobalEvents.PENDING_ATOM_FAILED,
-            pending_alias=pending_alias,
-        )
-
-    async def _forward_pending_atom_cancelled(self, *, pending_alias: str) -> None:
-        if self._global_bus is None:
-            return
-        await self._global_bus.publish(
-            GlobalEvents.PENDING_ATOM_CANCELLED,
-            pending_alias=pending_alias,
-        )
-
 
 __all__ = [
     "PatchouliSystem",

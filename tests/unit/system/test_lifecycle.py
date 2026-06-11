@@ -55,8 +55,8 @@ def mock_patchouli():
     p.name = "patchouli"
     p._global_bus = None
     p._scheduler = None
-    p._public_routes_registered = False
     p._maintenance_registered = False
+    p._bridge = MagicMock()
     p.service = MagicMock()
     p.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
     p.start = PatchouliSystem.start.__get__(p, PatchouliSystem)
@@ -81,6 +81,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
         ingress_service = kwargs.pop("ingress_service", MagicMock())
         chat_service = kwargs.pop("chat_service", MagicMock())
         memory_service = kwargs.pop("memory_service", MagicMock())
+        memory_task_service = kwargs.pop("memory_task_service", MagicMock())
         agent_service = kwargs.pop("agent_service", MagicMock())
         topic_service = kwargs.pop("topic_service", MagicMock())
         readiness_service = kwargs.pop("readiness_service", MagicMock())
@@ -99,6 +100,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             chat_service=chat_service,
             ingress_service=ingress_service,
             memory_service=memory_service,
+            memory_task_service=memory_task_service,
             agent_service=agent_service,
             topic_service=topic_service,
             readiness_service=readiness_service,
@@ -185,8 +187,8 @@ class TestPatchouliSystemLocalRoutes:
         patchouli.runtime = runtime
         patchouli._scheduler = None
         patchouli._global_bus = None
-        patchouli._public_routes_registered = False
         patchouli._maintenance_registered = False
+        patchouli._bridge = MagicMock()
         patchouli.service = MagicMock()
         patchouli.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
         patchouli.service.prepare_agent_run = AsyncMock()

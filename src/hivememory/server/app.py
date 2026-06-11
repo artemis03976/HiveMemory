@@ -128,6 +128,7 @@ from hivememory.server.routers.ingest import router as ingest_router
 from hivememory.server.routers.logs import router as logs_router
 from hivememory.server.routers.memories import router as memories_router
 from hivememory.server.routers.memory_tasks import router as memory_tasks_router
+from hivememory.server.routers.runtime_events import router as runtime_events_router
 from hivememory.server.routers.topics import router as topics_router
 
 app.include_router(agents_router, prefix="/api/v1")
@@ -137,6 +138,7 @@ app.include_router(ingest_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")
 app.include_router(memories_router, prefix="/api/v1")
 app.include_router(memory_tasks_router, prefix="/api/v1")
+app.include_router(runtime_events_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")
 
 # ==========================================

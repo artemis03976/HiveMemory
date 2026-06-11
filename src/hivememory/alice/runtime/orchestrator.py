@@ -26,7 +26,7 @@ from hivememory.agent_runtime.models import (
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
 from hivememory.core.mtp.exceptions import SubAgentExecutionError
-from hivememory.core.protocol.models import AgentRunResult
+from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.engines.memory_compiler import (
     CompiledMemoryArtifact,
     MemoryCompiler,
@@ -161,7 +161,14 @@ class AgentOrchestrator:
         finally:
             # 不在正常完成路径下 set 外部传入的 cancel_event（否则会污染调用方共享 token）。
             # cancel_event 由调用方（ChatApplicationService）独占管理。
-            await task
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            else:
+                await task
 
     # ------------------------------------------------------------------
     # 内部：SUSPENDED 重入序列
@@ -386,12 +393,16 @@ class AgentOrchestrator:
         else:
             tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
         return AgentRunResult(
+            status=(
+                AgentRunStatus.CANCELLED
+                if cancelled
+                else AgentRunStatus.COMPLETED
+            ),
             final_text="".join(p.text_segments),
             mtp_iterations=max(0, p.iteration - 1),
             total_iterations=p.iteration,
             turn_events=p.turn_events,
             materialize_tasks=tasks,
-            cancelled=cancelled,
         )
 
 

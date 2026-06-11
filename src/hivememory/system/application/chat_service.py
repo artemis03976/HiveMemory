@@ -4,7 +4,7 @@ ChatApplicationService — 顶层主动交互应用服务 (Phase D / v0.4.0)
 v0.4.0 Phase 1 变更：
     - _generation_events dict 替换为 RuntimeControlRegistry
     - cancel_generation() 返回结构化 CancelResult
-    - 取消后默认跳过 run_active_generation（通过 loop_result.cancelled 标志传递）
+    - 取消后默认跳过 run_active_generation（通过 loop_result.status 传递）
     - done 事件携带 status/reason/stopped 稳定字段
 """
 
@@ -12,22 +12,24 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, Literal, Optional
 
-from hivememory.core.protocol.models import AgentRunResult
+from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.infrastructure.trace_context import (
     generate_trace_id,
     reset_trace_context,
     set_trace_context,
 )
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.control import (
     CancelResult,
     ChatGenerationRun,
+    ChatGenerationRunRegistry,
     ChatGenerationRunStatus,
-    RuntimeControlRegistry,
 )
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +37,14 @@ logger = logging.getLogger(__name__)
 class ChatApplicationService:
     """顶层聊天应用服务 — 纯总线编排，不直接持有任何子系统引用。"""
 
-    def __init__(self, global_bus: GlobalSystemBus) -> None:
+    def __init__(
+        self,
+        global_bus: GlobalSystemBus,
+        runtime_events: RuntimeEventSink | None = None,
+    ) -> None:
         self._bus = global_bus
-        self._registry = RuntimeControlRegistry()
+        self._registry = ChatGenerationRunRegistry()
+        self._events = runtime_events or NullRuntimeEventSink()
 
     # ========== 非流式主链路 ==========
 
@@ -56,10 +63,17 @@ class ChatApplicationService:
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
         run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
         self._registry.register(run)
+        self._emit_chat_event(
+            RuntimeEventType.CHAT_RUN_CREATED,
+            run,
+            trace_id=trace_id,
+            agent_id=agent_id,
+        )
         prepared = None
 
         try:
             run.status = ChatGenerationRunStatus.PREPARING
+            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -72,9 +86,16 @@ class ChatApplicationService:
 
             if run.cancelled:
                 run.status = ChatGenerationRunStatus.CANCELLED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_CANCELLED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                )
                 return self._cancelled_agent_result()
 
             run.status = ChatGenerationRunStatus.STREAMING
+            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             loop_result: AgentRunResult = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT,
                 agent_run_context=prepared.agent_run_context,
@@ -82,11 +103,24 @@ class ChatApplicationService:
                 cancel_event=run.cancel_event,
             )
 
-            if run.cancelled or loop_result.cancelled:
+            if run.cancelled or loop_result.status != AgentRunStatus.COMPLETED.value:
                 run.status = ChatGenerationRunStatus.CANCELLED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_CANCELLED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    topic_id=prepared.topic_id,
+                )
                 return self._cancelled_agent_result(loop_result)
 
             run.status = ChatGenerationRunStatus.FINALIZING
+            self._emit_chat_status(
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+                topic_id=prepared.topic_id,
+            )
             await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
@@ -94,9 +128,24 @@ class ChatApplicationService:
             )
 
             run.status = ChatGenerationRunStatus.COMPLETED
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_COMPLETED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+                topic_id=prepared.topic_id,
+            )
             return loop_result
         except Exception:
             run.status = ChatGenerationRunStatus.FAILED
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_FAILED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+                topic_id=prepared.topic_id if prepared is not None else None,
+                severity="error",
+            )
             logger.exception("ChatApplicationService.chat 异常")
             raise
         finally:
@@ -126,12 +175,24 @@ class ChatApplicationService:
 
         run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
         self._registry.register(run)
+        self._emit_chat_event(
+            RuntimeEventType.CHAT_RUN_CREATED,
+            run,
+            trace_id=trace_id,
+            agent_id=agent_id,
+        )
         prepared = None
+        stream = None
+        # 只记录 chat 终态是否已经对外发布；finally 依赖它判断是否需要断流兜底。
+        terminal_state: Literal["completed", "cancelled", "failed"] | None = None
+        # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
+        prepared_finalized = False
 
         try:
             yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
 
             run.status = ChatGenerationRunStatus.PREPARING
+            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -153,12 +214,27 @@ class ChatApplicationService:
             }
             yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}
 
-            # 若 prepare 后已被取消，提前结束
+            # 分支：用户在 prepare 期间请求取消。跳过 Alice 和 finalize，返回 cancelled done。
             if run.cancelled:
+                run.status = ChatGenerationRunStatus.CANCELLED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_CANCELLED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    topic_id=prelude.topic_id,
+                )
+                terminal_state = "cancelled"
                 yield self._cancelled_done(run)
                 return
 
             run.status = ChatGenerationRunStatus.STREAMING
+            self._emit_chat_status(
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+                topic_id=prelude.topic_id,
+            )
             loop_result = None
             stream = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT_STREAM,
@@ -172,16 +248,31 @@ class ChatApplicationService:
                 else:
                     yield event
 
+            # 分支：Alice stream 非异常结束但没有终态 done，按协议错误进入 failed。
             if loop_result is None:
                 raise RuntimeError("Stream ended without done event")
 
-            # 取消路径：跳过 finalize，不触发主动记忆生成
-            if run.cancelled or loop_result.cancelled:
+            # 分支：用户取消或 Alice 响应取消。跳过 finalize，不触发主动记忆生成。
+            if run.cancelled or loop_result.status != AgentRunStatus.COMPLETED.value:
                 run.status = ChatGenerationRunStatus.CANCELLED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_CANCELLED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    topic_id=prelude.topic_id,
+                )
+                terminal_state = "cancelled"
                 yield self._cancelled_done(run, loop_result)
                 return
 
             run.status = ChatGenerationRunStatus.FINALIZING
+            self._emit_chat_status(
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+                topic_id=prelude.topic_id,
+            )
             yield {
                 "event": "run_status",
                 "data": {
@@ -189,17 +280,28 @@ class ChatApplicationService:
                     "status": run.status.value,
                 },
             }
+            # 分支：正常完成 Alice 后进入 Patchouli finalize；成功后 prepared 不再需要 cleanup。
             memory_tasks = await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 loop_result=loop_result,
             )
+            prepared_finalized = True
             memory_task_ids = [
                 memory_task.task_id
                 for memory_task in (memory_tasks or [])
             ]
 
             run.status = ChatGenerationRunStatus.COMPLETED
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_COMPLETED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+                topic_id=prelude.topic_id,
+                data={"memory_task_ids": memory_task_ids},
+            )
+            terminal_state = "completed"
             yield {
                 "event": "done",
                 "data": {
@@ -213,9 +315,46 @@ class ChatApplicationService:
             }
 
         except Exception as e:
+            # 分支：prepare / Alice / finalize 任一阶段抛出非取消异常，统一发布 failed。
             logger.error(f"ChatApplicationService.chat_stream 异常: {e}", exc_info=True)
             run.status = ChatGenerationRunStatus.FAILED
-            if prepared is not None:
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_FAILED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+                topic_id=prepared.topic_id if prepared is not None else None,
+                severity="error",
+                message="Chat stream failed.",
+            )
+            terminal_state = "failed"
+            yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
+        finally:
+            # 分支：客户端断开或生成器被提前关闭，且此前没有 completed/cancelled/failed 终态。
+            if terminal_state is None:
+                if not run.cancelled:
+                    run.request_cancel("stream_closed")
+                run.status = ChatGenerationRunStatus.CANCELLED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_CANCELLED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    topic_id=prepared.topic_id if prepared is not None else None,
+                    message="Chat stream closed before terminal event.",
+                    data={"close_reason": run.cancel_reason or "stream_closed"},
+                )
+                terminal_state = "cancelled"
+            # 统一清理：无论正常、取消、失败还是断流，都尝试关闭 Alice 子流。
+            if stream is not None:
+                close = getattr(stream, "aclose", None)
+                if callable(close):
+                    try:
+                        await close()
+                    except Exception:
+                        logger.warning("关闭 Alice stream 失败", exc_info=True)
+            # 统一清理：只要 prepare 成功但 finalize 未成功，就清理可能的新建空 topic。
+            if prepared is not None and not prepared_finalized:
                 try:
                     await self._bus.request(
                         GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
@@ -223,16 +362,31 @@ class ChatApplicationService:
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
-            yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
-        finally:
             self._registry.close(run.generation_id, run.status)
             reset_trace_context(tokens)
 
     # ========== Generation 控制 ==========
 
-    def cancel_generation(self, generation_id: str) -> CancelResult:
+    def cancel_generation(
+        self,
+        generation_id: str,
+        reason: str = "user_requested",
+    ) -> CancelResult:
         """幂等取消：重复调用返回当前状态，不报错。"""
-        return self._registry.cancel(generation_id, reason="user_requested")
+        result = self._registry.cancel(generation_id, reason=reason)
+        run = self._registry.get(generation_id)
+        self._events.emit(
+            RuntimeEvent(
+                event_type=RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
+                generation_id=generation_id,
+                status=result.status,
+                reason=result.reason,
+                data={"cancelled": result.cancelled},
+            )
+        )
+        if run is not None:
+            self._emit_chat_status(run)
+        return result
 
     # ========== 内部辅助 ==========
 
@@ -259,5 +413,49 @@ class ChatApplicationService:
         loop_result: Optional[AgentRunResult] = None,
     ) -> AgentRunResult:
         if loop_result is None:
-            return AgentRunResult(cancelled=True)
-        return loop_result.model_copy(update={"cancelled": True})
+            return AgentRunResult(status=AgentRunStatus.CANCELLED)
+        return loop_result.model_copy(update={"status": AgentRunStatus.CANCELLED})
+
+    def _emit_chat_status(
+        self,
+        run: ChatGenerationRun,
+        *,
+        trace_id: str | None = None,
+        agent_id: str | None = None,
+        topic_id: str | None = None,
+    ) -> None:
+        self._emit_chat_event(
+            RuntimeEventType.CHAT_RUN_STATUS,
+            run,
+            trace_id=trace_id,
+            agent_id=agent_id,
+            topic_id=topic_id,
+        )
+
+    def _emit_chat_event(
+        self,
+        event_type: RuntimeEventType,
+        run: ChatGenerationRun,
+        *,
+        trace_id: str | None = None,
+        agent_id: str | None = None,
+        topic_id: str | None = None,
+        severity: str = "info",
+        message: str | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        self._events.emit(
+            RuntimeEvent(
+                event_type=event_type,
+                trace_id=trace_id,
+                task_type="foreground",
+                generation_id=run.generation_id,
+                agent_id=agent_id,
+                topic_id=topic_id,
+                status=run.status.value,
+                reason=run.cancel_reason,
+                severity=severity,  # type: ignore[arg-type]
+                message=message,
+                data=data or {},
+            )
+        )

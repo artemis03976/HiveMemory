@@ -29,6 +29,8 @@
 版本: 4.0
 """
 
+from __future__ import annotations
+
 import asyncio
 import inspect
 import logging
@@ -39,13 +41,14 @@ from hivememory.core.protocol.models import (
     EyeGazeResult,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.services.librarian import LibrarianCore
-from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.config import HiveMemoryConfig, load_app_config
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
+    from hivememory.patchouli.services.librarian import LibrarianCore
+    from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +84,7 @@ class PatchouliRuntime:
     def __init__(
         self,
         config: Optional[HiveMemoryConfig] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ):
         """
         初始化帕秋莉运行时
@@ -89,6 +93,7 @@ class PatchouliRuntime:
             config: 完整的 HiveMemory 配置（可选）
         """
         self.config = config or load_app_config()
+        self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._local_bus = PatchouliBus()
         self._local_routes_registered = False
         self._shutdown_drain_started = False
@@ -415,6 +420,8 @@ class PatchouliRuntime:
         当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore)
         """
         # 构建被动模式渲染器 (Passive.md §5.2)
+        from hivememory.patchouli.services.librarian import LibrarianCore
+        from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         from hivememory.engines.retrieval.renderer import FullContextRenderer
         from hivememory.system.config import FullRendererConfig
         passive_renderer = FullContextRenderer(
@@ -434,6 +441,10 @@ class PatchouliRuntime:
             lifecycle_engine=self._engines["lifecycle"],
             perception_layer=self._engines["perception"],
             generation_engine=self._engines["generation"],
+            runtime_events=self._runtime_events.scoped(
+                "patchouli",
+                component="memory_generation_task_controller",
+            ),
         )
 
     @property

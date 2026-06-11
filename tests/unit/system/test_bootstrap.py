@@ -11,9 +11,10 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 class _FakePatchouliSystem:
     name = "patchouli"
 
-    def __init__(self, config, global_bus=None, scheduler=None):
+    def __init__(self, config, global_bus=None, scheduler=None, runtime_events=None):
         self.config = config
         self._global_bus = global_bus
+        self._runtime_events = runtime_events
         self._local_bus = MagicMock()
         self._scheduler = scheduler
         self.runtime = MagicMock()

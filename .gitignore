@@ -62,6 +62,9 @@ logs/
 htmlcov/
 .tox/
 tmp_test_archive/
+.test_tmp/
+.pytest-tmp/
+.ruff_cache/
 
 # Model Cache
 .cache/

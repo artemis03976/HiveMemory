@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from enum import Enum
 from typing import Any, AsyncGenerator, Optional
 
 from hivememory.core.models import MemoryAtom
-from hivememory.core.protocol.models import AgentRunContext, AgentRunResult
+from hivememory.core.protocol.models import (
+    AgentRunContext,
+    AgentRunResult,
+    AgentRunStatus,
+)
 
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
@@ -20,10 +26,20 @@ from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.events import GlobalEvents
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
+
+
+class StreamExitReason(str, Enum):
+    RUNNING = "running"
+    TERMINAL = "terminal"
+    FAILED = "failed"
+    CLOSED = "closed"
+    MISSING_DONE = "missing_done"
 
 
 class AliceRuntime:
@@ -33,9 +49,11 @@ class AliceRuntime:
         self,
         config: HiveMemoryConfig,
         global_bus: Optional[GlobalSystemBus] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._config = config
         self._global_bus = global_bus
+        self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._local_bus = AliceBus()
         self._local_routes_registered = False
         self._global_events_registered = False
@@ -282,16 +300,36 @@ class AliceRuntime:
         generation_options: Optional[dict[str, Any]] = None,
         cancel_event=None,
     ) -> AgentRunResult:
+        agent_run_id = f"agent_run_{uuid.uuid4().hex}"
+        self._emit_agent_event(
+            RuntimeEventType.AGENT_RUN_STARTED,
+            agent_run_context,
+            agent_run_id=agent_run_id,
+            status="started",
+        )
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
-        return await self._orchestrator.run_agent(
-            messages=messages,
-            identity=agent_run_context.identity,
-            topic_id=agent_run_context.topic_id,
-            generation_options=generation_options,
-            agent_profile=agent_run_context.agent_profile,
-            cancel_event=cancel_event,
-        )
+        try:
+            result = await self._orchestrator.run_agent(
+                messages=messages,
+                identity=agent_run_context.identity,
+                topic_id=agent_run_context.topic_id,
+                generation_options=generation_options,
+                agent_profile=agent_run_context.agent_profile,
+                cancel_event=cancel_event,
+            )
+            self._emit_agent_terminal(agent_run_context, agent_run_id, result)
+            return result
+        except Exception:
+            self._emit_agent_event(
+                RuntimeEventType.AGENT_RUN_FAILED,
+                agent_run_context,
+                agent_run_id=agent_run_id,
+                status="failed",
+                severity="error",
+                message="Agent run failed.",
+            )
+            raise
 
     async def run_agent_stream(
         self,
@@ -299,17 +337,120 @@ class AliceRuntime:
         generation_options: Optional[dict[str, Any]] = None,
         cancel_event=None,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        agent_run_id = f"agent_run_{uuid.uuid4().hex}"
+        self._emit_agent_event(
+            RuntimeEventType.AGENT_RUN_STARTED,
+            agent_run_context,
+            agent_run_id=agent_run_id,
+            status="started",
+        )
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
-        async for event in self._orchestrator.run_agent_stream(
-            messages=messages,
-            identity=agent_run_context.identity,
-            topic_id=agent_run_context.topic_id,
-            generation_options=generation_options,
-            agent_profile=agent_run_context.agent_profile,
-            cancel_event=cancel_event,
-        ):
-            yield event
+        exit_reason = StreamExitReason.RUNNING
+        try:
+            async for event in self._orchestrator.run_agent_stream(
+                messages=messages,
+                identity=agent_run_context.identity,
+                topic_id=agent_run_context.topic_id,
+                generation_options=generation_options,
+                agent_profile=agent_run_context.agent_profile,
+                cancel_event=cancel_event,
+            ):
+                if event.get("event") == "done":
+                    self._emit_agent_terminal(
+                        agent_run_context,
+                        agent_run_id,
+                        AgentRunResult(**event["data"]),
+                    )
+                    exit_reason = StreamExitReason.TERMINAL
+                yield event
+            if exit_reason != StreamExitReason.TERMINAL:
+                exit_reason = StreamExitReason.MISSING_DONE
+                self._emit_agent_event(
+                    RuntimeEventType.AGENT_RUN_FAILED,
+                    agent_run_context,
+                    agent_run_id=agent_run_id,
+                    status="failed",
+                    severity="error",
+                    message="Agent stream ended without done event.",
+                )
+                raise RuntimeError("Agent stream ended without done event")
+        except Exception:
+            if exit_reason not in (
+                StreamExitReason.TERMINAL,
+                StreamExitReason.MISSING_DONE,
+            ):
+                exit_reason = StreamExitReason.FAILED
+                self._emit_agent_event(
+                    RuntimeEventType.AGENT_RUN_FAILED,
+                    agent_run_context,
+                    agent_run_id=agent_run_id,
+                    status="failed",
+                    severity="error",
+                    message="Agent stream run failed.",
+                )
+            raise
+        finally:
+            if exit_reason == StreamExitReason.RUNNING:
+                exit_reason = StreamExitReason.CLOSED
+                if cancel_event is not None:
+                    cancel_event.set()
+                self._emit_agent_event(
+                    RuntimeEventType.AGENT_RUN_CANCELLED,
+                    agent_run_context,
+                    agent_run_id=agent_run_id,
+                    status="cancelled",
+                    message="Agent stream closed before terminal event.",
+                    data={"close_reason": "stream_closed"},
+                )
+
+    def _emit_agent_terminal(
+        self,
+        agent_run_context: AgentRunContext,
+        agent_run_id: str,
+        result: AgentRunResult,
+    ) -> None:
+        event_type = (
+            RuntimeEventType.AGENT_RUN_CANCELLED
+            if result.status == AgentRunStatus.CANCELLED.value
+            else RuntimeEventType.AGENT_RUN_COMPLETED
+        )
+        self._emit_agent_event(
+            event_type,
+            agent_run_context,
+            agent_run_id=agent_run_id,
+            status=str(result.status),
+            data={
+                "mtp_iterations": result.mtp_iterations,
+                "total_iterations": result.total_iterations,
+                "materialize_task_count": len(result.materialize_tasks),
+            },
+        )
+
+    def _emit_agent_event(
+        self,
+        event_type: RuntimeEventType,
+        agent_run_context: AgentRunContext,
+        *,
+        agent_run_id: str,
+        status: str,
+        severity: str = "info",
+        message: str | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        self._runtime_events.emit(
+            RuntimeEvent(
+                event_type=event_type,
+                task_type="foreground",
+                agent_run_id=agent_run_id,
+                topic_id=agent_run_context.topic_id,
+                agent_id=agent_run_context.identity.agent_id,
+                status=status,
+                severity=severity,  # type: ignore[arg-type]
+                message=message,
+                data=data or {},
+            )
+        )
 
 
 __all__ = ["AliceRuntime"]

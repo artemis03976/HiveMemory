@@ -1,7 +1,7 @@
 """Unit tests for Phase 1: Cancel Contract Hardening
 
 覆盖 RuntimeControlRegistry 幂等性、ChatApplicationService cancel 路径、
-AgentRunResult.cancelled 标志传播。
+AgentRunResult.status 终态传播。
 """
 
 import asyncio
@@ -9,18 +9,18 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.system.runtime.control import (
+    ChatGenerationRunRegistry,
     ChatGenerationRun,
     ChatGenerationRunStatus,
-    RuntimeControlRegistry,
 )
-from hivememory.core.protocol.models import AgentRunResult
+from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
 
-class TestRuntimeControlRegistry:
+class TestChatGenerationRunRegistry:
     def setup_method(self):
-        self.registry = RuntimeControlRegistry()
+        self.registry = ChatGenerationRunRegistry()
 
     def test_cancel_sets_event_and_returns_result(self):
         run = ChatGenerationRun(generation_id="gen-1")
@@ -60,22 +60,22 @@ class TestRuntimeControlRegistry:
         assert run.cancelled is True
 
 
-# ─── AgentRunResult.cancelled ────────────────────────────────────────────────
+# ─── AgentRunResult.status ───────────────────────────────────────────────────
 
-class TestAgentRunResultCancelled:
-    def test_default_cancelled_false(self):
+class TestAgentRunResultStatus:
+    def test_default_status_completed(self):
         result = AgentRunResult()
-        assert result.cancelled is False
+        assert result.status == AgentRunStatus.COMPLETED.value
 
-    def test_cancelled_true_serializes(self):
-        result = AgentRunResult(cancelled=True)
+    def test_cancelled_status_serializes(self):
+        result = AgentRunResult(status=AgentRunStatus.CANCELLED)
         data = result.model_dump()
-        assert data["cancelled"] is True
+        assert data["status"] == "cancelled"
 
-    def test_cancelled_roundtrip(self):
-        result = AgentRunResult(cancelled=True, final_text="partial")
+    def test_status_roundtrip(self):
+        result = AgentRunResult(status=AgentRunStatus.CANCELLED, final_text="partial")
         restored = AgentRunResult(**result.model_dump())
-        assert restored.cancelled is True
+        assert restored.status == AgentRunStatus.CANCELLED.value
 
 
 # ─── ChatApplicationService cancel 路径 ──────────────────────────────────────
@@ -95,7 +95,10 @@ class TestChatServiceCancelPath:
         prepare_result.agent_run_context = MagicMock()
         prepare_result.generation_options = {}
 
-        loop_result = AgentRunResult(final_text="hi", cancelled=True)
+        loop_result = AgentRunResult(
+            final_text="hi",
+            status=AgentRunStatus.CANCELLED,
+        )
 
         async def mock_stream(*_, **__):
             yield {"event": "done", "data": loop_result.model_dump()}

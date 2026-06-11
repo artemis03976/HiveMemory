@@ -11,6 +11,7 @@ from hivememory.infrastructure.websocket_manager import WebSocketConnectionManag
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.memory_service import MemoryApplicationService
+from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
@@ -49,6 +50,11 @@ def get_system() -> HiveMemorySystem:
 def get_memory_service() -> MemoryApplicationService:
     """FastAPI Depends 注入 — 获取记忆 API 应用服务。"""
     return get_system().memory_service
+
+
+def get_memory_task_service() -> MemoryTaskApplicationService:
+    """FastAPI Depends 注入：获取记忆生成任务 API 应用服务。"""
+    return get_system().memory_task_service
 
 
 def get_chat_service() -> ChatApplicationService:

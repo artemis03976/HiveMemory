@@ -48,7 +48,7 @@ async def chat(
                 while not next_event_task.done():
                     if await request.is_disconnected():
                         if generation_id:
-                            service.cancel_generation(generation_id)
+                            service.cancel_generation(generation_id, reason="client_disconnected")
                         next_event_task.cancel()
                         with suppress(asyncio.CancelledError):
                             await next_event_task
@@ -67,12 +67,12 @@ async def chat(
 
                 if await request.is_disconnected():
                     if generation_id:
-                        service.cancel_generation(generation_id)
+                        service.cancel_generation(generation_id, reason="client_disconnected")
                     break
 
         except asyncio.CancelledError:
             if generation_id:
-                service.cancel_generation(generation_id)
+                service.cancel_generation(generation_id, reason="client_disconnected")
             raise
         except Exception as e:
             logger.error(f"chat route stream error: {e}", exc_info=True)

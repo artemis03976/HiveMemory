@@ -16,12 +16,15 @@ import type {
   LogEntry,
   BroadcastMessage,
   TraceGroup,
+  RuntimeEvent,
 } from '@/types/kernel';
 
 // Configuration constants
-const WS_URL = import.meta.env.DEV
-  ? 'ws://localhost:8769/api/v1/ws/logs'
-  : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/v1/ws/logs`;
+const BACKEND_ORIGIN = import.meta.env.VITE_BACKEND_ORIGIN || window.location.origin;
+const API_ORIGIN = new URL(BACKEND_ORIGIN, window.location.origin);
+const WS_PROTOCOL = API_ORIGIN.protocol === 'https:' ? 'wss' : 'ws';
+const WS_URL = `${WS_PROTOCOL}://${API_ORIGIN.host}/api/v1/ws/logs`;
+const RUNTIME_EVENTS_URL = `${API_ORIGIN.origin}/api/v1/runtime-events/stream`;
 
 const BROADCAST_CHANNEL_NAME = 'hivememory_kernel_logs';
 const PRIMARY_WINDOW_KEY = 'hivememory_primary_window';
@@ -273,6 +276,130 @@ function initializeWebSocket(
   set({ _ws: ws });
 }
 
+function initializeRuntimeEventStream(
+  set: (partial: Partial<KernelStore>) => void,
+  get: () => KernelStore
+) {
+  const state = get();
+  if (
+    state._eventSource &&
+    state.runtimeEventConnection.status !== 'disabled' &&
+    state.runtimeEventConnection.status !== 'error'
+  ) {
+    return;
+  }
+
+  const lastEventId = state.runtimeEventConnection.lastEventId;
+  const url = new URL(RUNTIME_EVENTS_URL);
+  if (lastEventId) {
+    url.searchParams.set('last_event_id', lastEventId);
+  }
+
+  set({
+    runtimeEventConnection: {
+      ...state.runtimeEventConnection,
+      status: 'connecting',
+      error: null,
+    },
+  });
+
+  void fetch(`${API_ORIGIN.origin}/api/v1/runtime-events/status`)
+    .then((response) => response.ok ? response.json() : { enabled: false })
+    .then((status: { enabled?: boolean }) => {
+      if (!status.enabled) {
+        set({
+          runtimeEventConnection: {
+            ...get().runtimeEventConnection,
+            status: 'disabled',
+            error: 'RuntimeEvent stream disabled',
+          },
+        });
+        return false;
+      }
+      return true;
+    })
+    .then((enabled) => {
+      if (!enabled) return;
+      openRuntimeEventSource(url, set, get);
+    })
+    .catch((error) => {
+      const message =
+        error instanceof Error ? error.message : 'RuntimeEvent status check failed';
+      set({
+        runtimeEventConnection: {
+          ...get().runtimeEventConnection,
+          status: 'error',
+          error: message,
+        },
+      });
+    });
+}
+
+function openRuntimeEventSource(
+  url: URL,
+  set: (partial: Partial<KernelStore>) => void,
+  get: () => KernelStore
+) {
+  try {
+    const eventSource = new EventSource(url.toString());
+
+    eventSource.onopen = () => {
+      set({
+        runtimeEventConnection: {
+          ...get().runtimeEventConnection,
+          status: 'connected',
+          connectedAt: Date.now(),
+          error: null,
+        },
+      });
+    };
+
+    eventSource.addEventListener('runtime_event', (message) => {
+      try {
+        const runtimeEvent = JSON.parse(message.data) as RuntimeEvent;
+        get().addRuntimeEvent(runtimeEvent);
+
+        const current = get();
+        if (current._isPrimaryWindow && current._broadcastChannel) {
+          current._broadcastChannel.postMessage({
+            type: 'NEW_RUNTIME_EVENT',
+            payload: runtimeEvent,
+          });
+        }
+      } catch (error) {
+        console.error('[KernelStore] Failed to parse RuntimeEvent:', error);
+      }
+    });
+
+    eventSource.onerror = () => {
+      const currentSource = get()._eventSource;
+      const status = currentSource?.readyState === EventSource.CLOSED ? 'disabled' : 'error';
+      set({
+        runtimeEventConnection: {
+          ...get().runtimeEventConnection,
+          status,
+          error:
+            status === 'disabled'
+              ? 'RuntimeEvent stream disabled'
+              : 'RuntimeEvent stream connection error',
+        },
+      });
+    };
+
+    set({ _eventSource: eventSource });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'RuntimeEvent stream initialization failed';
+    set({
+      runtimeEventConnection: {
+        ...get().runtimeEventConnection,
+        status: 'error',
+        error: message,
+      },
+    });
+  }
+}
+
 /**
  * Handle BroadcastChannel messages (all windows)
  */
@@ -286,6 +413,10 @@ function handleBroadcastMessage(
       get().addLog(message.payload);
       break;
 
+    case 'NEW_RUNTIME_EVENT':
+      get().addRuntimeEvent(message.payload);
+      break;
+
     case 'BATCH_LOGS':
       get().addLogs(message.payload);
       break;
@@ -294,8 +425,16 @@ function handleBroadcastMessage(
       set({ logs: [], stats: { ...get().stats, totalLogs: 0, filteredCount: 0 } });
       break;
 
+    case 'CLEAR_RUNTIME_EVENTS':
+      set({ runtimeEvents: [] });
+      break;
+
     case 'CONNECTION_STATE':
       set({ connection: message.payload });
+      break;
+
+    case 'RUNTIME_EVENT_CONNECTION_STATE':
+      set({ runtimeEventConnection: message.payload });
       break;
 
     case 'FILTER_UPDATE':
@@ -314,6 +453,7 @@ function handleBroadcastMessage(
           type: 'FULL_SYNC',
           payload: {
             logs: state.logs,
+            runtimeEvents: state.runtimeEvents,
             filters: state.filters,
             ui: state.ui,
           },
@@ -326,6 +466,7 @@ function handleBroadcastMessage(
       if (!get()._isPrimaryWindow) {
         set({
           logs: message.payload.logs,
+          runtimeEvents: message.payload.runtimeEvents,
           filters: message.payload.filters,
           ui: message.payload.ui,
         });
@@ -371,6 +512,7 @@ export const useKernelStore = create<KernelStore>()(
       (set, get) => ({
         // Initial state
         logs: [],
+        runtimeEvents: [],
         traceGroups: new Map(),
         connection: {
           status: 'disconnected',
@@ -378,6 +520,12 @@ export const useKernelStore = create<KernelStore>()(
           connectedAt: null,
           reconnectAttempts: 0,
           lastPingTime: null,
+        },
+        runtimeEventConnection: {
+          status: 'disconnected',
+          error: null,
+          connectedAt: null,
+          lastEventId: null,
         },
         filters: {
           logLevel: null,
@@ -398,6 +546,7 @@ export const useKernelStore = create<KernelStore>()(
 
         // Internal state
         _ws: null,
+        _eventSource: null,
         _broadcastChannel: null,
         _isPrimaryWindow: false,
         _reconnectTimer: null,
@@ -472,6 +621,7 @@ export const useKernelStore = create<KernelStore>()(
 
             if (isPrimary) {
               initializeWebSocket(set, get);
+              initializeRuntimeEventStream(set, get);
               const heartbeatTimer = startPrimaryHeartbeat(get);
               set({ _statsUpdateTimer: heartbeatTimer });
             } else {
@@ -481,13 +631,18 @@ export const useKernelStore = create<KernelStore>()(
                 console.log('[KernelStore] Requested full sync from primary');
               }
 
-              set({
-                connection: {
-                  ...state.connection,
-                  status: 'connected',
-                  connectedAt: Date.now(),
-                },
-              });
+          set({
+            connection: {
+              ...state.connection,
+              status: 'connected',
+              connectedAt: Date.now(),
+            },
+            runtimeEventConnection: {
+              ...state.runtimeEventConnection,
+              status: 'connected',
+              connectedAt: Date.now(),
+            },
+          });
             }
           } catch (error) {
             const message =
@@ -515,6 +670,12 @@ export const useKernelStore = create<KernelStore>()(
           if (state._ws) {
             state._ws.close();
             set({ _ws: null });
+          }
+
+          // Close BroadcastChannel
+          if (state._eventSource) {
+            state._eventSource.close();
+            set({ _eventSource: null });
           }
 
           // Close BroadcastChannel
@@ -548,6 +709,12 @@ export const useKernelStore = create<KernelStore>()(
             },
             _isPrimaryWindow: false,
             _manualDisconnecting: hasWs,
+            runtimeEventConnection: {
+              ...state.runtimeEventConnection,
+              status: 'disconnected',
+              error: null,
+              connectedAt: null,
+            },
           });
         },
 
@@ -555,6 +722,26 @@ export const useKernelStore = create<KernelStore>()(
           console.log('[KernelStore] Manual reconnect triggered');
           get().disconnect();
           setTimeout(() => get().connect(), 1000);
+        },
+
+        connectRuntimeEvents: () => {
+          initializeRuntimeEventStream(set, get);
+        },
+
+        disconnectRuntimeEvents: () => {
+          const state = get();
+          if (state._eventSource) {
+            state._eventSource.close();
+          }
+          set({
+            _eventSource: null,
+            runtimeEventConnection: {
+              ...state.runtimeEventConnection,
+              status: 'disconnected',
+              error: null,
+              connectedAt: null,
+            },
+          });
         },
 
         // Log actions
@@ -630,6 +817,33 @@ export const useKernelStore = create<KernelStore>()(
           const state = get();
           if (state._isPrimaryWindow && state._broadcastChannel) {
             state._broadcastChannel.postMessage({ type: 'CLEAR_LOGS' });
+          }
+        },
+
+        addRuntimeEvent: (event) => {
+          const state = get();
+          if (state.ui.isPaused) return;
+
+          set((state) => {
+            let runtimeEvents = [...state.runtimeEvents, event];
+            if (runtimeEvents.length > state.ui.maxBufferSize) {
+              runtimeEvents = runtimeEvents.slice(-state.ui.maxBufferSize);
+            }
+            return {
+              runtimeEvents,
+              runtimeEventConnection: {
+                ...state.runtimeEventConnection,
+                lastEventId: event.event_id,
+              },
+            };
+          });
+        },
+
+        clearRuntimeEvents: () => {
+          set({ runtimeEvents: [] });
+          const state = get();
+          if (state._isPrimaryWindow && state._broadcastChannel) {
+            state._broadcastChannel.postMessage({ type: 'CLEAR_RUNTIME_EVENTS' });
           }
         },
 

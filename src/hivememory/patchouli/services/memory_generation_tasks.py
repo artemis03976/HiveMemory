@@ -30,23 +30,34 @@ from hivememory.engines.generation.models import (
     MemoryGenerationResult,
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
-from hivememory.system.runtime.control import (
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
+from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
 )
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
+
+_TERMINAL_STATUSES = frozenset({
+    MemoryGenerationTaskStatus.COMPLETED,
+    MemoryGenerationTaskStatus.CANCELLED,
+    MemoryGenerationTaskStatus.FAILED,
+})
 
 
 class MemoryGenerationTaskController:
     """
     记忆生成任务控制器。
 
-    这是 Phase 2 任务运行时的集中入口。它不负责感知层路由和生命周期
-    gardening，只负责把已经确定要执行的记忆生成请求包装为可观测、可取消、
-    可查询的 MemoryGenerationTask。
+    这里的核心约束是：业务协程拥有 MemoryGenerationTask 的生命周期判断权，
+    但字段写入只能经过 _start_task / _finish_task 两个入口。asyncio.Task
+    本身只负责承载后台执行，不再通过 done_callback 反推 completed/failed/cancelled。
+
+    RuntimeEvent 与本地总线事件都是可观测副作用，必须 best-effort 发布；
+    发布失败不能反向改变业务终态，也不能阻止 registry close。
     """
 
     def __init__(
@@ -56,11 +67,13 @@ class MemoryGenerationTaskController:
         bus: Optional[Any] = None,
         generation_engine: Optional[Any] = None,
         task_registry: Optional[MemoryGenerationTaskRegistry] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self.storage = storage
         self._bus = bus
         self.generation_engine = generation_engine
         self._task_registry = task_registry or MemoryGenerationTaskRegistry()
+        self._events = runtime_events or NullRuntimeEventSink()
 
     async def run_archive_generation(
         self,
@@ -109,7 +122,8 @@ class MemoryGenerationTaskController:
         统一任务工厂：创建运行时句柄、注册任务、绑定后台协程。
 
         返回值必须立即可用，后台生成通过 memory_task._bg_task 继续执行。
-        这保证上层可以先把 task_id 暴露给前端，再由控制面处理取消和状态观察。
+        任务协程必须自行调用 _start_task / _finish_task 完成业务生命周期；
+        此处只负责调度，不通过 done_callback 发布终态。
         """
         memory_task = MemoryGenerationTask(
             task_id=str(uuid.uuid4()),
@@ -119,10 +133,20 @@ class MemoryGenerationTaskController:
             pending_alias=pending_alias,
         )
         self._task_registry.register(memory_task)
+        self._emit_memory_task_event(
+            RuntimeEventType.MEMORY_TASK_CREATED,
+            memory_task,
+            message="Memory generation task created.",
+        )
 
         # 没有生成引擎时仍返回一个已完成 task，保持调用方契约稳定。
         if skip or self.generation_engine is None:
             self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.COMPLETED)
+            self._emit_memory_task_event(
+                RuntimeEventType.MEMORY_TASK_COMPLETED,
+                memory_task,
+                message="Memory generation task completed without generation engine.",
+            )
             return memory_task
 
         bg_task = asyncio.create_task(
@@ -130,53 +154,6 @@ class MemoryGenerationTaskController:
             name=f"memory_task_{memory_task.task_id[:8]}",
         )
         memory_task.attach_task(bg_task)
-
-        def _terminal_status() -> MemoryGenerationTaskStatus:
-            if memory_task.cancelled or memory_task.status == MemoryGenerationTaskStatus.CANCELLED:
-                return MemoryGenerationTaskStatus.CANCELLED
-            if memory_task.status == MemoryGenerationTaskStatus.FAILED:
-                return MemoryGenerationTaskStatus.FAILED
-            return MemoryGenerationTaskStatus.COMPLETED
-
-        def _mark_task_cancelled() -> None:
-            if memory_task.status not in (
-                MemoryGenerationTaskStatus.COMPLETED,
-                MemoryGenerationTaskStatus.FAILED,
-                MemoryGenerationTaskStatus.CANCELLED,
-            ):
-                memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-
-        def _schedule_terminal_status_publish(status: MemoryGenerationTaskStatus) -> None:
-            if memory_task.finished_at is not None or self._bus is None:
-                return
-            memory_task.status = status
-            memory_task.finished_at = datetime.now(timezone.utc)
-            asyncio.create_task(
-                self._publish_memory_task_status(memory_task),
-                name=f"memory_task_status_{memory_task.task_id[:8]}",
-            )
-
-        def _done_callback(t: asyncio.Task) -> None:
-            # 后台 task 被外部 cancel 时，补齐 registry 与实时状态事件。
-            if t.cancelled():
-                _mark_task_cancelled()
-                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.CANCELLED)
-                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
-                return
-
-            exc = t.exception()
-            if memory_task.cancelled:
-                _mark_task_cancelled()
-                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.CANCELLED)
-                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.CANCELLED)
-            elif exc is not None:
-                logger.error(f"memory task {memory_task.task_id} failed: {exc}", exc_info=exc)
-                _schedule_terminal_status_publish(MemoryGenerationTaskStatus.FAILED)
-                self._task_registry.close(memory_task.task_id, MemoryGenerationTaskStatus.FAILED)
-            else:
-                self._task_registry.close(memory_task.task_id, _terminal_status())
-
-        bg_task.add_done_callback(_done_callback)
         return memory_task
 
     async def _run_archive_task(
@@ -184,34 +161,34 @@ class MemoryGenerationTaskController:
         memory_task: MemoryGenerationTask,
         gen_context: GenerationContext,
     ) -> None:
-        """执行被动 ARCHIVE 生成链路，并在终态前回填任务结果。"""
-        memory_task.status = MemoryGenerationTaskStatus.RUNNING
+        """
+        执行被动 ARCHIVE 生成链路。
+
+        本方法只判断业务结果：成功、取消或失败。RUNNING/终态字段写入、
+        RuntimeEvent、本地状态事件和 registry close 都交给 _start_task/_finish_task。
+        """
         if memory_task.cancelled:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_memory_task_status(memory_task)
+            await self._finish_task(memory_task, MemoryGenerationTaskStatus.CANCELLED)
             return
 
-        memory_task.started_at = datetime.now(timezone.utc)
-        await self._publish_memory_task_status(memory_task)
-
+        await self._start_task(memory_task)
         try:
             logger.info(f"Memory generation archive task: {len(gen_context.turns)} turns")
-            request = GenerationRequest(context=gen_context)
-            results = await self._run_generation(request)
+            results = await self._run_generation(GenerationRequest(context=gen_context))
             # 被动链路可能产出多条记忆；Phase 2 先回填第一条可用 canonical_alias。
             self._backfill_memory_task_result(memory_task, results)
-            memory_task.status = MemoryGenerationTaskStatus.COMPLETED
         except asyncio.CancelledError:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+            await self._finish_task(memory_task, MemoryGenerationTaskStatus.CANCELLED)
             raise
         except Exception as e:
             logger.error(f"Archive memory generation failed: {e}", exc_info=True)
-            memory_task.status = MemoryGenerationTaskStatus.FAILED
-            memory_task.error = str(e)
-        finally:
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_memory_task_status(memory_task)
+            await self._finish_task(
+                memory_task,
+                MemoryGenerationTaskStatus.FAILED,
+                error=str(e),
+            )
+        else:
+            await self._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
 
     async def _run_active_task(
         self,
@@ -219,26 +196,21 @@ class MemoryGenerationTaskController:
         task: PendingAtomMaterializeTask,
         gen_context: GenerationContext,
     ) -> None:
-        """执行单个 MTP WRITE/UPDATE 主动生成任务。"""
-        memory_task.status = MemoryGenerationTaskStatus.RUNNING
+        """
+        执行单个 MTP WRITE/UPDATE 主动生成任务。
 
+        主动链路额外关联 PendingAtom：COMPLETED 的 settlement 由 _run_generation
+        根据结果发布；FAILED/CANCELLED 则由 _finish_task 统一发布 pending atom 事件。
+        """
         if memory_task.cancelled:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_pending_atom_cancelled(task.pending_alias)
-            await self._publish_memory_task_status(memory_task)
+            await self._finish_task(
+                memory_task,
+                MemoryGenerationTaskStatus.CANCELLED,
+                pending_alias=task.pending_alias,
+            )
             return
 
-        if memory_task.cancelled:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_pending_atom_cancelled(task.pending_alias)
-            await self._publish_memory_task_status(memory_task)
-            return
-
-        memory_task.started_at = datetime.now(timezone.utc)
-        await self._publish_memory_task_status(memory_task)
-
+        await self._start_task(memory_task)
         try:
             if task.source_verb == "WRITE":
                 results = await self._run_mode_b(task, gen_context)
@@ -250,22 +222,26 @@ class MemoryGenerationTaskController:
                 results,
                 pending_alias=task.pending_alias,
             )
-            memory_task.status = MemoryGenerationTaskStatus.COMPLETED
         except asyncio.CancelledError:
-            memory_task.status = MemoryGenerationTaskStatus.CANCELLED
-            await self._publish_pending_atom_cancelled(task.pending_alias)
+            await self._finish_task(
+                memory_task,
+                MemoryGenerationTaskStatus.CANCELLED,
+                pending_alias=task.pending_alias,
+            )
             raise
         except Exception as e:
             logger.error(
                 f"Active memory generation failed: pending_alias={task.pending_alias}, err={e}",
                 exc_info=True,
             )
-            memory_task.status = MemoryGenerationTaskStatus.FAILED
-            memory_task.error = str(e)
-            await self._publish_pending_atom_failed(task.pending_alias)
-        finally:
-            memory_task.finished_at = datetime.now(timezone.utc)
-            await self._publish_memory_task_status(memory_task)
+            await self._finish_task(
+                memory_task,
+                MemoryGenerationTaskStatus.FAILED,
+                error=str(e),
+                pending_alias=task.pending_alias,
+            )
+        else:
+            await self._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
 
     async def _run_mode_b(
         self,
@@ -440,6 +416,10 @@ class MemoryGenerationTaskController:
 
     async def _publish_memory_task_status(self, memory_task: MemoryGenerationTask) -> None:
         """发布 MemoryGenerationTask 的实时状态快照。"""
+        self._emit_memory_task_event(
+            self._event_type_for_task_status(memory_task.status),
+            memory_task,
+        )
         if self._bus is None:
             return
         try:
@@ -453,6 +433,82 @@ class MemoryGenerationTaskController:
         except Exception as pub_err:
             logger.warning(f"MEMORY_TASK_ITEM_STATUS publish error: {pub_err}")
 
+    async def _start_task(self, memory_task: MemoryGenerationTask) -> None:
+        """
+        进入 RUNNING 状态并发布运行中快照。
+
+        这是唯一允许写入 RUNNING/started_at 的入口。若任务已处于终态，
+        说明取消或失败已经先发生，不能再回退到 running。
+        """
+        if memory_task.status in _TERMINAL_STATUSES:
+            return
+        memory_task.status = MemoryGenerationTaskStatus.RUNNING
+        if memory_task.started_at is None:
+            memory_task.started_at = datetime.now(timezone.utc)
+        await self._publish_memory_task_status(memory_task)
+
+    async def _finish_task(
+        self,
+        memory_task: MemoryGenerationTask,
+        status: MemoryGenerationTaskStatus,
+        *,
+        error: str | None = None,
+        pending_alias: str | None = None,
+    ) -> None:
+        """
+        完成 MemoryGenerationTask 的唯一终态入口。
+
+        该方法先落业务事实：status/error/finished_at；再 best-effort 发布
+        PendingAtom 和 memory.task 终态事件；最后无论发布是否失败都 close registry。
+
+        第一次终态调用胜出，后续调用 no-op。这样可以防止取消、异常和重复
+        cleanup 互相覆盖终态。
+        """
+        if memory_task._terminal_status_published:
+            return
+        if status not in _TERMINAL_STATUSES:
+            raise ValueError(f"Memory task finish status must be terminal: {status}")
+
+        # 先写业务终态，保证后续发布即使失败，查询接口也能看到最终状态。
+        memory_task.status = status
+        if error is not None:
+            memory_task.error = error
+        if memory_task.finished_at is None:
+            memory_task.finished_at = datetime.now(timezone.utc)
+
+        try:
+            # 主动链路的 failed/cancelled PendingAtom 事件跟随任务终态发布。
+            # completed 的 settled 事件由 _run_generation 根据生成结果发布。
+            if pending_alias is not None:
+                if status == MemoryGenerationTaskStatus.CANCELLED:
+                    await self._publish_best_effort(
+                        self._publish_pending_atom_cancelled(pending_alias),
+                        f"pending atom cancel publish failed: {pending_alias}",
+                    )
+                elif status == MemoryGenerationTaskStatus.FAILED:
+                    await self._publish_best_effort(
+                        self._publish_pending_atom_failed(pending_alias),
+                        f"pending atom failed publish failed: {pending_alias}",
+                    )
+
+            await self._publish_best_effort(
+                self._publish_memory_task_status(memory_task),
+                f"memory task terminal publish failed: {memory_task.task_id}",
+            )
+        finally:
+            # 发布失败或发布过程被取消都不能阻止任务进入 closed/可淘汰状态。
+            memory_task._terminal_status_published = True
+            self._task_registry.close(memory_task.task_id, status)
+
+    async def _publish_best_effort(self, awaitable, warning: str) -> None:
+        """发布可观测副作用。失败只记录日志，不影响业务终态收敛。"""
+        try:
+            await awaitable
+        except asyncio.CancelledError:
+            logger.warning(warning, exc_info=True)
+        except Exception:
+            logger.warning(warning, exc_info=True)
+
     def get_task(self, task_id: str) -> Optional[MemoryGenerationTask]:
         """按 task_id 查询运行时任务。"""
         return self._task_registry.get(task_id)
@@ -463,7 +519,64 @@ class MemoryGenerationTaskController:
 
     def cancel_task(self, task_id: str) -> bool:
         """请求取消指定记忆生成任务。"""
-        return self._task_registry.cancel(task_id)
+        memory_task = self._task_registry.get(task_id)
+        ok = self._task_registry.cancel(task_id)
+        if ok and memory_task is not None:
+            self._emit_memory_task_event(
+                RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
+                memory_task,
+                reason="user_requested",
+            )
+        return ok
+
+    def _emit_memory_task_event(
+        self,
+        event_type: RuntimeEventType,
+        memory_task: MemoryGenerationTask,
+        *,
+        reason: str | None = None,
+        message: str | None = None,
+    ) -> None:
+        self._events.emit(
+            RuntimeEvent(
+                event_type=event_type,
+                task_type="background",
+                task_id=memory_task.task_id,
+                topic_id=memory_task.topic_id,
+                status=memory_task.status.value,
+                reason=reason,
+                message=message,
+                severity="error" if event_type == RuntimeEventType.MEMORY_TASK_FAILED else "info",
+                data={
+                    "label": memory_task.label,
+                    "source": memory_task.source.value,
+                    "pending_alias": memory_task.pending_alias,
+                    "canonical_alias": memory_task.canonical_alias,
+                    "error": memory_task.error,
+                    "created_at": memory_task.created_at.isoformat(),
+                    "started_at": (
+                        memory_task.started_at.isoformat()
+                        if memory_task.started_at is not None
+                        else None
+                    ),
+                    "finished_at": (
+                        memory_task.finished_at.isoformat()
+                        if memory_task.finished_at is not None
+                        else None
+                    ),
+                },
+            )
+        )
+
+    @staticmethod
+    def _event_type_for_task_status(status: MemoryGenerationTaskStatus) -> RuntimeEventType:
+        if status == MemoryGenerationTaskStatus.COMPLETED:
+            return RuntimeEventType.MEMORY_TASK_COMPLETED
+        if status == MemoryGenerationTaskStatus.CANCELLED:
+            return RuntimeEventType.MEMORY_TASK_CANCELLED
+        if status == MemoryGenerationTaskStatus.FAILED:
+            return RuntimeEventType.MEMORY_TASK_FAILED
+        return RuntimeEventType.MEMORY_TASK_STATUS
 
 
 __all__ = ["MemoryGenerationTaskController"]

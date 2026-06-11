@@ -1,16 +1,11 @@
-"""Runtime Control Registry — Phase 1 + Phase 2
-
-Phase 1: Cancel Contract Hardening — ChatGenerationRun / RuntimeControlRegistry
-Phase 2: MemoryGenerationTask runtime — MemoryGenerationTask / MemoryGenerationTaskRegistry
-"""
+"""Runtime control handles owned by the system application layer."""
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 class ChatGenerationRunStatus(str, Enum):
@@ -50,12 +45,13 @@ class ChatGenerationRun:
             ChatGenerationRunStatus.FAILED,
         ):
             self.status = ChatGenerationRunStatus.CANCELLING
-            self.cancel_reason = reason
+            if self.cancel_reason is None:
+                self.cancel_reason = reason
         self.cancel_event.set()
 
 
-class RuntimeControlRegistry:
-    """进程内 chat run 注册与取消控制面。"""
+class ChatGenerationRunRegistry:
+    """In-process registry and cancellation surface for chat runs."""
 
     def __init__(self) -> None:
         self._runs: dict[str, ChatGenerationRun] = {}
@@ -80,7 +76,7 @@ class RuntimeControlRegistry:
             generation_id=generation_id,
             cancelled=True,
             status=run.status.value,
-            reason=reason,
+            reason=run.cancel_reason or reason,
         )
 
     def close(self, generation_id: str, status: ChatGenerationRunStatus) -> None:
@@ -89,119 +85,9 @@ class RuntimeControlRegistry:
             run.status = status
 
 
-# ============================================================
-# Phase 2: MemoryGenerationTask runtime
-# ============================================================
-
-
-class MemoryGenerationTaskStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
-
-
-class MemoryGenerationSource(str, Enum):
-    WRITE = "WRITE"      # MTP WRITE 主动链路
-    UPDATE = "UPDATE"    # MTP UPDATE 主动链路
-    ARCHIVE = "ARCHIVE"  # 话题被动归档 (Mode A)
-    MERGE = "MERGE"      # 记忆合并（预留）
-    SPLIT = "SPLIT"      # 记忆分裂（预留）
-
-
-@dataclass
-class MemoryGenerationTask:
-    """单个记忆后台生成任务的运行时句柄。"""
-
-    task_id: str
-    topic_id: str
-    label: str
-    source: MemoryGenerationSource
-    pending_alias: Optional[str] = None
-    cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
-    status: MemoryGenerationTaskStatus = MemoryGenerationTaskStatus.PENDING
-    canonical_alias: Optional[str] = None
-    error: Optional[str] = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    _bg_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
-
-    @property
-    def cancelled(self) -> bool:
-        return self.cancel_event.is_set()
-
-    def request_cancel(self) -> None:
-        if self.status not in (
-            MemoryGenerationTaskStatus.COMPLETED,
-            MemoryGenerationTaskStatus.FAILED,
-            MemoryGenerationTaskStatus.CANCELLED,
-        ):
-            self.cancel_event.set()
-
-    def attach_task(self, task: asyncio.Task) -> None:
-        self._bg_task = task
-
-    def cancel_background_task(self) -> None:
-        if self._bg_task is not None and not self._bg_task.done():
-            self._bg_task.cancel()
-
-
-class MemoryGenerationTaskRegistry:
-    """进程内 memory generation task 注册表。"""
-
-    def __init__(self, max_completed: int = 50) -> None:
-        self._tasks: Dict[str, MemoryGenerationTask] = {}
-        self._max_completed = max_completed
-
-    def register(self, memory_task: MemoryGenerationTask) -> None:
-        self._tasks[memory_task.task_id] = memory_task
-
-    def get(self, task_id: str) -> Optional[MemoryGenerationTask]:
-        return self._tasks.get(task_id)
-
-    def list_all(self) -> List[MemoryGenerationTask]:
-        return list(self._tasks.values())
-
-    def cancel(self, task_id: str) -> bool:
-        memory_task = self._tasks.get(task_id)
-        if memory_task is None:
-            return False
-        memory_task.request_cancel()
-        memory_task.cancel_background_task()
-        return True
-
-    def close(self, task_id: str, status: MemoryGenerationTaskStatus) -> None:
-        memory_task = self._tasks.get(task_id)
-        if memory_task is None:
-            return
-        memory_task.status = status
-        memory_task.finished_at = datetime.now(timezone.utc)
-        self._evict_old_completed()
-
-    def _evict_old_completed(self) -> None:
-        terminal = [
-            j for j in self._tasks.values()
-            if j.status in (
-                MemoryGenerationTaskStatus.COMPLETED,
-                MemoryGenerationTaskStatus.CANCELLED,
-                MemoryGenerationTaskStatus.FAILED,
-            )
-        ]
-        if len(terminal) > self._max_completed:
-            terminal.sort(key=lambda j: j.finished_at or j.created_at)
-            for memory_task in terminal[: len(terminal) - self._max_completed]:
-                self._tasks.pop(memory_task.task_id, None)
-
-
 __all__ = [
-    "ChatGenerationRun",
-    "ChatGenerationRunStatus",
     "CancelResult",
-    "RuntimeControlRegistry",
-    "MemoryGenerationTaskStatus",
-    "MemoryGenerationSource",
-    "MemoryGenerationTask",
-    "MemoryGenerationTaskRegistry",
+    "ChatGenerationRun",
+    "ChatGenerationRunRegistry",
+    "ChatGenerationRunStatus",
 ]

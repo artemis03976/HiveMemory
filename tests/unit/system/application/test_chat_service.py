@@ -19,6 +19,7 @@ from hivememory.core.protocol.models import (
     AgentRunContext,
     AnalyzeAndRetrieveResult,
     AgentRunResult,
+    AgentRunStatus,
     EyeGazeResult,
     RetrievalResponse,
 )
@@ -38,9 +39,12 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.system.runtime.control import ChatGenerationRun
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
@@ -201,7 +205,8 @@ class TestChatApplicationService:
 
     @pytest.mark.asyncio
     async def test_chat_stream_emits_prelude_and_done(self, mock_global_bus):
-        svc = ChatApplicationService(global_bus=mock_global_bus)
+        recorder = RecordingRuntimeEventSink()
+        svc = ChatApplicationService(global_bus=mock_global_bus, runtime_events=recorder)
         events = []
         async for e in svc.chat_stream(user_message="hi", user_id="u1"):
             events.append(e)
@@ -212,6 +217,9 @@ class TestChatApplicationService:
         assert "memory_refs" in event_types
         assert "token" in event_types
         assert "done" in event_types
+        runtime_event_types = [event.event_type for event in recorder.events]
+        assert RuntimeEventType.CHAT_RUN_CREATED in runtime_event_types
+        assert RuntimeEventType.CHAT_RUN_COMPLETED in runtime_event_types
 
     @pytest.mark.asyncio
     async def test_chat_stream_uses_supplied_generation_id(self, mock_global_bus):
@@ -266,6 +274,15 @@ class TestChatApplicationService:
         svc = ChatApplicationService(global_bus=mock_global_bus)
         assert svc.cancel_generation("gen-1").cancelled is False
 
+    def test_cancel_generation_preserves_first_reason(self, mock_global_bus):
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        svc._registry.register(ChatGenerationRun(generation_id="gen-1"))
+        first = svc.cancel_generation("gen-1", reason="client_disconnected")
+        second = svc.cancel_generation("gen-1", reason="stream_closed")
+
+        assert first.reason == "client_disconnected"
+        assert second.reason == "client_disconnected"
+
     @pytest.mark.asyncio
     async def test_chat_stream_cleans_up_prepared_run_on_runtime_error(self, mock_global_bus):
         prepared = _make_prepared_run()
@@ -294,9 +311,92 @@ class TestChatApplicationService:
         assert GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN in routes_called
 
     @pytest.mark.asyncio
+    async def test_chat_stream_close_emits_cancelled_and_cleans_up(self, mock_global_bus):
+        recorder = RecordingRuntimeEventSink()
+        prepared = _make_prepared_run()
+        stream_closed = False
+
+        async def route_dispatch(route, *args, **kwargs):
+            nonlocal stream_closed
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                async def _stream():
+                    nonlocal stream_closed
+                    try:
+                        yield {"event": "token", "data": {"content": "hi"}}
+                        await asyncio.Event().wait()
+                    finally:
+                        stream_closed = True
+
+                return _stream()
+            if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
+                return True
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        svc = ChatApplicationService(global_bus=mock_global_bus, runtime_events=recorder)
+        stream = svc.chat_stream(user_message="hi", user_id="u1")
+
+        assert (await stream.__anext__())["event"] == "generation_id"
+        assert (await stream.__anext__())["event"] == "topic_info"
+        assert (await stream.__anext__())["event"] == "memory_refs"
+        assert (await stream.__anext__())["event"] == "token"
+
+        await stream.aclose()
+
+        runtime_events = [event for event in recorder.events]
+        assert runtime_events[-1].event_type == RuntimeEventType.CHAT_RUN_CANCELLED
+        assert runtime_events[-1].status == "cancelled"
+        assert runtime_events[-1].reason == "stream_closed"
+        assert stream_closed is True
+        routes_called = [
+            call.args[0] for call in mock_global_bus.request.await_args_list
+        ]
+        assert GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN in routes_called
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_close_preserves_existing_cancel_reason(self, mock_global_bus):
+        recorder = RecordingRuntimeEventSink()
+        prepared = _make_prepared_run()
+
+        async def route_dispatch(route, *args, **kwargs):
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                async def _stream():
+                    yield {"event": "token", "data": {"content": "hi"}}
+                    await asyncio.Event().wait()
+
+                return _stream()
+            if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
+                return True
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        svc = ChatApplicationService(global_bus=mock_global_bus, runtime_events=recorder)
+        stream = svc.chat_stream(user_message="hi", user_id="u1", generation_id="gen-1")
+
+        assert (await stream.__anext__())["event"] == "generation_id"
+        assert (await stream.__anext__())["event"] == "topic_info"
+        assert (await stream.__anext__())["event"] == "memory_refs"
+        assert (await stream.__anext__())["event"] == "token"
+
+        svc.cancel_generation("gen-1", reason="client_disconnected")
+        await stream.aclose()
+
+        runtime_events = [event for event in recorder.events]
+        assert runtime_events[-1].event_type == RuntimeEventType.CHAT_RUN_CANCELLED
+        assert runtime_events[-1].reason == "client_disconnected"
+        assert runtime_events[-1].data["close_reason"] == "client_disconnected"
+
+    @pytest.mark.asyncio
     async def test_cancel_before_streaming_returns_cancelled_done(self, mock_global_bus):
         """취消在 ALICE stream 调用前触发 → 提前 return，done.status=cancelled。"""
-        svc = ChatApplicationService(global_bus=mock_global_bus)
+        recorder = RecordingRuntimeEventSink()
+        svc = ChatApplicationService(global_bus=mock_global_bus, runtime_events=recorder)
         prepared = _make_prepared_run()
 
         async def route_dispatch(route, *args, **kwargs):
@@ -317,6 +417,9 @@ class TestChatApplicationService:
         assert done["data"]["status"] == "cancelled"
         assert done["data"]["stopped"] is True
         assert done["data"]["memory_task_ids"] == []
+        runtime_event_types = [event.event_type for event in recorder.events]
+        assert RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED in runtime_event_types
+        assert RuntimeEventType.CHAT_RUN_CANCELLED in runtime_event_types
 
     @pytest.mark.asyncio
     async def test_cancel_event_propagated_to_alice_during_stream(self, mock_global_bus):
@@ -325,8 +428,13 @@ class TestChatApplicationService:
         svc = ChatApplicationService(global_bus=mock_global_bus)
         prepared = _make_prepared_run()
         chat_result = _make_chat_result()
-        # loop_result 携带 cancelled=True，模拟 Alice 内部响应了 cancel_event
-        cancelled_result = AgentRunResult(**{**chat_result.model_dump(), "cancelled": True})
+        # loop_result 携带 cancelled 状态，模拟 Alice 内部响应了 cancel_event
+        cancelled_result = AgentRunResult(
+            **{
+                **chat_result.model_dump(),
+                "status": AgentRunStatus.CANCELLED,
+            }
+        )
 
         async def route_dispatch(route, *args, **kwargs):
             nonlocal observed_cancel_event
@@ -372,7 +480,7 @@ class TestChatApplicationService:
             generation_id="gen-nonstream",
         )
 
-        assert result.cancelled is True
+        assert result.status == AgentRunStatus.CANCELLED.value
         routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
         assert routes_called == [GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN]
 
@@ -390,7 +498,10 @@ class TestChatApplicationService:
                 observed_cancel_event = kwargs["cancel_event"]
                 cancel_result = svc.cancel_generation("gen-nonstream")
                 assert cancel_result.cancelled is True
-                return AgentRunResult(final_text="partial", cancelled=True)
+                return AgentRunResult(
+                    final_text="partial",
+                    status=AgentRunStatus.CANCELLED,
+                )
             raise AssertionError(f"Unexpected route: {route}")
 
         mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
@@ -403,7 +514,7 @@ class TestChatApplicationService:
 
         assert observed_cancel_event is not None
         assert observed_cancel_event.is_set()
-        assert result.cancelled is True
+        assert result.status == AgentRunStatus.CANCELLED.value
         assert result.final_text == "partial"
         routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
         assert GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN not in routes_called

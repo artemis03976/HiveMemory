@@ -173,6 +173,14 @@ class MTPExecutionResult(BaseModel):
     call_request: Optional[MTPCallRequest] = Field(default=None)
 
 
+class AgentRunStatus(str, Enum):
+    """Terminal status for a single Alice agent.run."""
+
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
 class AgentRunResult(BaseModel):
     """上层一次 chat 调用后系统运行至自然中断的完整产出。
 
@@ -182,14 +190,16 @@ class AgentRunResult(BaseModel):
         total_iterations    → 统计
         turn_events         → ActionReducer → TraceReducer → 感知层
         materialize_tasks   → finalize 启动 mode b/c + 组 Settlement
-        cancelled           → v0.4.0: 取消路径标志；true 时 finalize 应跳过主动记忆生成
+        status              → v0.4.0: agent.run 终态；仅 completed 进入 finalize
     """
+    status: AgentRunStatus = Field(default=AgentRunStatus.COMPLETED)
     final_text: str = Field(default="")
     mtp_iterations: int = Field(default=0)
     total_iterations: int = Field(default=1)
     turn_events: List[Any] = Field(default_factory=list)
     materialize_tasks: List[PendingAtomMaterializeTask] = Field(default_factory=list)
-    cancelled: bool = Field(default=False)
+
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class EyeGazeResult(BaseModel):
@@ -303,5 +313,6 @@ __all__ = [
     "InteractionPayload",
     "AnalyzeAndRetrieveResult",
     "MTPExecutionResult",
+    "AgentRunStatus",
     "AgentRunResult",
 ]

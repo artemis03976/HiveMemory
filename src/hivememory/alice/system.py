@@ -15,6 +15,7 @@ from hivememory.alice.service import AliceService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,17 @@ class AliceSystem(SubsystemProtocol):
         self,
         config: HiveMemoryConfig,
         global_bus: Optional[GlobalSystemBus] = None,
+        runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._config = config
         self._global_bus = global_bus
+        self._runtime_events = runtime_events or NullRuntimeEventSink()
 
-        self._runtime = AliceRuntime(config=config, global_bus=global_bus)
+        self._runtime = AliceRuntime(
+            config=config,
+            global_bus=global_bus,
+            runtime_events=self._runtime_events,
+        )
         
         self._service = AliceService(runtime=self._runtime)
 
