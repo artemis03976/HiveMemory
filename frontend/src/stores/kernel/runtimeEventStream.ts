@@ -1,8 +1,12 @@
 import { RUNTIME_EVENTS_STATUS_URL, RUNTIME_EVENTS_URL } from '@/stores/kernel/constants';
+import { EventSourceClient } from '@/transports/sse/eventSourceClient';
+import { markConnected, markConnecting, markDisabled, markError } from '@/transports/state';
 import type { KernelStore, RuntimeEvent } from '@/types/kernel';
 
 type KernelSet = (partial: Partial<KernelStore>) => void;
 type KernelGet = () => KernelStore;
+
+const runtimeEventClient = new EventSourceClient<RuntimeEvent>();
 
 export function initializeRuntimeEventStream(set: KernelSet, get: KernelGet): void {
   const state = get();
@@ -14,18 +18,8 @@ export function initializeRuntimeEventStream(set: KernelSet, get: KernelGet): vo
     return;
   }
 
-  const lastEventId = state.runtimeEventConnection.lastEventId;
-  const url = new URL(RUNTIME_EVENTS_URL);
-  if (lastEventId) {
-    url.searchParams.set('last_event_id', lastEventId);
-  }
-
   set({
-    runtimeEventConnection: {
-      ...state.runtimeEventConnection,
-      status: 'connecting',
-      error: null,
-    },
+    runtimeEventConnection: markConnecting(state.runtimeEventConnection),
   });
 
   void fetch(RUNTIME_EVENTS_STATUS_URL)
@@ -33,11 +27,7 @@ export function initializeRuntimeEventStream(set: KernelSet, get: KernelGet): vo
     .then((status: { enabled?: boolean }) => {
       if (!status.enabled) {
         set({
-          runtimeEventConnection: {
-            ...get().runtimeEventConnection,
-            status: 'disabled',
-            error: 'RuntimeEvent stream disabled',
-          },
+          runtimeEventConnection: markDisabled(get().runtimeEventConnection, 'RuntimeEvent stream disabled'),
         });
         return false;
       }
@@ -45,38 +35,29 @@ export function initializeRuntimeEventStream(set: KernelSet, get: KernelGet): vo
     })
     .then((enabled) => {
       if (!enabled) return;
-      openRuntimeEventSource(url, set, get);
+      openRuntimeEventSource(state.runtimeEventConnection.lastEventId, set, get);
     })
     .catch((error) => {
       const message = error instanceof Error ? error.message : 'RuntimeEvent status check failed';
       set({
-        runtimeEventConnection: {
-          ...get().runtimeEventConnection,
-          status: 'error',
-          error: message,
-        },
+        runtimeEventConnection: markError(get().runtimeEventConnection, message),
       });
     });
 }
 
-function openRuntimeEventSource(url: URL, set: KernelSet, get: KernelGet): void {
+function openRuntimeEventSource(lastEventId: string | null, set: KernelSet, get: KernelGet): void {
   try {
-    const eventSource = new EventSource(url.toString());
-
-    eventSource.onopen = () => {
-      set({
-        runtimeEventConnection: {
-          ...get().runtimeEventConnection,
-          status: 'connected',
-          connectedAt: Date.now(),
-          error: null,
-        },
-      });
-    };
-
-    eventSource.addEventListener('runtime_event', (message) => {
-      try {
-        const runtimeEvent = JSON.parse(message.data) as RuntimeEvent;
+    const eventSource = runtimeEventClient.connect({
+      url: RUNTIME_EVENTS_URL,
+      lastEventId,
+      eventName: 'runtime_event',
+      parseEvent: (data) => JSON.parse(data) as RuntimeEvent,
+      onOpen: () => {
+        set({
+          runtimeEventConnection: markConnected(get().runtimeEventConnection),
+        });
+      },
+      onEvent: (runtimeEvent) => {
         get().addRuntimeEvent(runtimeEvent);
 
         const current = get();
@@ -86,32 +67,27 @@ function openRuntimeEventSource(url: URL, set: KernelSet, get: KernelGet): void 
             payload: runtimeEvent,
           });
         }
-      } catch (error) {
-        console.error('[KernelStore] Failed to parse RuntimeEvent:', error);
-      }
+      },
+      onStatus: (status, error) => {
+        if (status === 'disabled') {
+          set({
+            runtimeEventConnection: markDisabled(get().runtimeEventConnection, error ?? 'RuntimeEvent stream disabled'),
+          });
+          return;
+        }
+        if (status === 'error') {
+          set({
+            runtimeEventConnection: markError(get().runtimeEventConnection, error ?? 'RuntimeEvent stream connection error'),
+          });
+        }
+      },
     });
-
-    eventSource.onerror = () => {
-      const currentSource = get()._eventSource;
-      const status = currentSource?.readyState === EventSource.CLOSED ? 'disabled' : 'error';
-      set({
-        runtimeEventConnection: {
-          ...get().runtimeEventConnection,
-          status,
-          error: status === 'disabled' ? 'RuntimeEvent stream disabled' : 'RuntimeEvent stream connection error',
-        },
-      });
-    };
 
     set({ _eventSource: eventSource });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'RuntimeEvent stream initialization failed';
     set({
-      runtimeEventConnection: {
-        ...get().runtimeEventConnection,
-        status: 'error',
-        error: message,
-      },
+      runtimeEventConnection: markError(get().runtimeEventConnection, message),
     });
   }
 }

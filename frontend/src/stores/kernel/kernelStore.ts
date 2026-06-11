@@ -10,9 +10,10 @@ import { devtools, persist } from 'zustand/middleware';
 import { checkAndClaimPrimaryWindow, handleBroadcastMessage, startPrimaryHeartbeat } from '@/stores/kernel/broadcastSync';
 import { BROADCAST_CHANNEL_NAME, PRIMARY_WINDOW_KEY } from '@/stores/kernel/constants';
 import { appendBounded, groupLogsByTrace, toggleSpanCollapseInGroups, toggleTraceCollapseInGroups } from '@/stores/kernel/logReducers';
-import { initializeWebSocket } from '@/stores/kernel/logWebSocket';
+import { clearWebSocketReconnectTimer, disconnectWebSocket, initializeWebSocket } from '@/stores/kernel/logWebSocket';
 import { initializeRuntimeEventStream } from '@/stores/kernel/runtimeEventStream';
 import { filterLogs } from '@/stores/kernel/selectors';
+import { markConnected, markConnecting, markDisconnected, markError } from '@/transports/state';
 import { useMemoryTaskStore } from '@/stores/memory';
 import type { KernelStore, LogEntry } from '@/types/kernel';
 
@@ -72,10 +73,7 @@ export const useKernelStore = create<KernelStore>()(
 
           console.log('[KernelStore] Connecting...');
           set({
-            connection: {
-              ...state.connection,
-              status: 'connecting',
-            },
+            connection: markConnecting(state.connection),
             _manualDisconnecting: false,
           });
 
@@ -106,14 +104,12 @@ export const useKernelStore = create<KernelStore>()(
 
               set({
                 connection: {
-                  ...state.connection,
-                  status: 'connected',
-                  connectedAt: Date.now(),
+                  ...markConnected(state.connection),
+                  lastPingTime: state.connection.lastPingTime,
                 },
                 runtimeEventConnection: {
-                  ...state.runtimeEventConnection,
-                  status: 'connected',
-                  connectedAt: Date.now(),
+                  ...markConnected(state.runtimeEventConnection),
+                  lastEventId: state.runtimeEventConnection.lastEventId,
                 },
               });
             }
@@ -121,11 +117,7 @@ export const useKernelStore = create<KernelStore>()(
             const message = error instanceof Error ? error.message : 'Kernel connection initialization failed';
             console.error('[KernelStore] Failed to start connection:', error);
             set({
-              connection: {
-                ...get().connection,
-                status: 'error',
-                error: message,
-              },
+              connection: markError(get().connection, message),
             });
           }
         },
@@ -139,7 +131,7 @@ export const useKernelStore = create<KernelStore>()(
           }
 
           if (state._ws) {
-            state._ws.close();
+            disconnectWebSocket();
             set({ _ws: null });
           }
 
@@ -154,7 +146,7 @@ export const useKernelStore = create<KernelStore>()(
           }
 
           if (state._reconnectTimer) {
-            clearTimeout(state._reconnectTimer);
+            clearWebSocketReconnectTimer();
             set({ _reconnectTimer: null });
           }
           if (state._statsUpdateTimer) {
@@ -168,19 +160,14 @@ export const useKernelStore = create<KernelStore>()(
 
           set({
             connection: {
-              status: 'disconnected',
-              error: null,
-              connectedAt: null,
-              reconnectAttempts: 0,
+              ...markDisconnected(state.connection),
               lastPingTime: null,
             },
             _isPrimaryWindow: false,
             _manualDisconnecting: hasWs,
             runtimeEventConnection: {
-              ...state.runtimeEventConnection,
-              status: 'disconnected',
-              error: null,
-              connectedAt: null,
+              ...markDisconnected(state.runtimeEventConnection),
+              lastEventId: state.runtimeEventConnection.lastEventId,
             },
           });
         },
@@ -203,10 +190,8 @@ export const useKernelStore = create<KernelStore>()(
           set({
             _eventSource: null,
             runtimeEventConnection: {
-              ...state.runtimeEventConnection,
-              status: 'disconnected',
-              error: null,
-              connectedAt: null,
+              ...markDisconnected(state.runtimeEventConnection),
+              lastEventId: state.runtimeEventConnection.lastEventId,
             },
           });
         },

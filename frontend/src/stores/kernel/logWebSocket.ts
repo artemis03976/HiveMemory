@@ -5,79 +5,60 @@ import {
   RECONNECT_DELAYS,
   WS_URL,
 } from '@/stores/kernel/constants';
+import { markActivity, markConnected, markDisconnected, markError, markReconnecting } from '@/transports/state';
+import { WebSocketClient } from '@/transports/websocket/websocketClient';
 import type { KernelStore } from '@/types/kernel';
 
 type KernelSet = (partial: Partial<KernelStore>) => void;
 type KernelGet = () => KernelStore;
-type PingWebSocket = WebSocket & { _pingTimer?: ReturnType<typeof setInterval> };
+type LogPayload = Omit<KernelStore['logs'][number], 'id'>;
+
+const websocketClient = new WebSocketClient<LogPayload>();
 
 export function initializeWebSocket(set: KernelSet, get: KernelGet): void {
-  let ws: WebSocket;
-  try {
-    ws = new WebSocket(WS_URL);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'WebSocket initialization failed';
-    console.error('[KernelStore] Failed to initialize WebSocket:', error);
-    set({
-      connection: {
-        ...get().connection,
-        status: 'error',
-        error: message,
-      },
-    });
-    return;
-  }
-
-  const connectTimeout = setTimeout(() => {
-    if (ws.readyState === WebSocket.CONNECTING) {
-      console.error('[KernelStore] WebSocket connection timeout');
-      set({
-        connection: {
-          ...get().connection,
-          status: 'error',
-          error: 'WebSocket connection timeout',
-        },
-      });
-      ws.close();
-    }
-  }, CONNECT_TIMEOUT);
-
-  ws.onopen = () => {
-    const managedWs = ws as PingWebSocket;
-    console.log('[KernelStore] WebSocket connected');
-    clearTimeout(connectTimeout);
-    set({
-      connection: {
-        status: 'connected',
-        error: null,
-        connectedAt: Date.now(),
-        reconnectAttempts: 0,
-        lastPingTime: Date.now(),
-      },
-    });
-
-    managedWs._pingTimer = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send('ping');
-        set({
-          connection: {
-            ...get().connection,
-            lastPingTime: Date.now(),
-          },
-        });
-      }
-    }, PING_INTERVAL);
-  };
-
-  ws.onmessage = (event) => {
-    try {
-      if (event.data === 'pong') return;
-
-      const logData = JSON.parse(event.data);
+  const ws = websocketClient.connect({
+    url: WS_URL,
+    connectTimeoutMs: CONNECT_TIMEOUT,
+    pingIntervalMs: PING_INTERVAL,
+    pingMessage: 'ping',
+    pongMessage: 'pong',
+    retryPolicy: {
+      maxAttempts: MAX_RECONNECT_ATTEMPTS,
+      delays: RECONNECT_DELAYS,
+    },
+    getReconnectAttempts: () => get().connection.reconnectAttempts,
+    shouldReconnect: () => get()._isPrimaryWindow,
+    parseMessage: (data) => {
+      const logData = JSON.parse(data);
       if (!logData.timestamp || !logData.level || !logData.logger) {
         console.warn('[KernelStore] Invalid log entry:', logData);
-        return;
+        return null;
       }
+      return logData as LogPayload;
+    },
+    onOpen: () => {
+      console.log('[KernelStore] WebSocket connected');
+      const connected = markConnected(get().connection);
+      set({
+        connection: {
+          ...connected,
+          lastPingTime: connected.lastActivityAt,
+        },
+      });
+    },
+    onPong: () => {
+      const active = markActivity(get().connection);
+      set({
+        connection: {
+          ...active,
+          lastPingTime: active.lastActivityAt,
+        },
+      });
+    },
+    onMessage: (logData) => {
+      set({
+        connection: markActivity(get().connection),
+      });
 
       get().addLog(logData);
 
@@ -88,81 +69,53 @@ export function initializeWebSocket(set: KernelSet, get: KernelGet): void {
           payload: logData,
         });
       }
-    } catch (error) {
-      console.error('[KernelStore] Failed to parse WebSocket message:', error);
-    }
-  };
-
-  ws.onerror = (error) => {
-    console.error('[KernelStore] WebSocket error:', error);
-    clearTimeout(connectTimeout);
-    set({
-      connection: {
-        ...get().connection,
-        status: 'error',
-        error: 'WebSocket connection error. Check backend status or browser security policy.',
-      },
-    });
-  };
-
-  ws.onclose = () => {
-    const managedWs = ws as PingWebSocket;
-    console.log('[KernelStore] WebSocket closed');
-    clearTimeout(connectTimeout);
-
-    if (managedWs._pingTimer) {
-      clearInterval(managedWs._pingTimer);
-    }
-
-    const state = get();
-    if (state._manualDisconnecting) {
+    },
+    onError: (message, error) => {
+      console.error('[KernelStore] WebSocket error:', error ?? message);
+      set({
+        connection: markError(get().connection, message),
+      });
+    },
+    onClosedByRequest: () => {
+      console.log('[KernelStore] WebSocket closed');
       set({
         connection: {
-          status: 'disconnected',
-          error: null,
-          connectedAt: null,
-          reconnectAttempts: 0,
+          ...markDisconnected(get().connection),
           lastPingTime: null,
         },
         _manualDisconnecting: false,
         _ws: null,
         _reconnectTimer: null,
       });
-      return;
-    }
-
-    const attempts = state.connection.reconnectAttempts;
-    if (attempts < MAX_RECONNECT_ATTEMPTS) {
-      const delay = RECONNECT_DELAYS[Math.min(attempts, RECONNECT_DELAYS.length - 1)];
+    },
+    onReconnecting: (attempt, delay) => {
       console.log(
-        `[KernelStore] Reconnecting in ${delay}ms (attempt ${attempts + 1}/${MAX_RECONNECT_ATTEMPTS})`,
+        `[KernelStore] Reconnecting in ${delay}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`,
       );
 
       set({
-        connection: {
-          ...state.connection,
-          status: 'reconnecting',
-          reconnectAttempts: attempts + 1,
-        },
+        connection: markReconnecting(get().connection, attempt),
       });
-
-      const timer = setTimeout(() => {
-        if (get()._isPrimaryWindow) {
-          initializeWebSocket(set, get);
-        }
-      }, delay);
-
-      set({ _reconnectTimer: timer });
-    } else {
+    },
+    onReconnect: () => {
+      if (get()._isPrimaryWindow) {
+        initializeWebSocket(set, get);
+      }
+    },
+    onReconnectExhausted: () => {
       set({
-        connection: {
-          ...state.connection,
-          status: 'error',
-          error: 'Max reconnection attempts reached',
-        },
+        connection: markError(get().connection, 'Max reconnection attempts reached'),
       });
-    }
-  };
+    },
+  });
 
   set({ _ws: ws });
+}
+
+export function disconnectWebSocket(): void {
+  websocketClient.disconnect();
+}
+
+export function clearWebSocketReconnectTimer(): void {
+  websocketClient.clearReconnectTimer();
 }
