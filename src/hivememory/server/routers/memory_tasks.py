@@ -14,7 +14,7 @@ async def list_memory_tasks(
     service: MemoryTaskApplicationService = Depends(get_memory_task_service),
 ):
     tasks = await service.list_memory_tasks()
-    return {"tasks": [_task_to_dict(memory_task) for memory_task in tasks]}
+    return {"tasks": [memory_task_to_dto(memory_task).model_dump() for memory_task in tasks]}
 
 
 @router.get("/{task_id}")
@@ -25,7 +25,7 @@ async def get_memory_task(
     memory_task = await service.get_memory_task(task_id)
     if memory_task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    return _task_to_dict(memory_task)
+    return memory_task_to_dto(memory_task).model_dump()
 
 
 @router.post("/{task_id}/cancel")

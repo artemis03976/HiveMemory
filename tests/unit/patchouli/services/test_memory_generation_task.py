@@ -3,12 +3,14 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
 from hivememory.core.models.pending import (
     Identity,
     PendingAtomMaterializeTask,
     WriteFocus,
     UpdateFocus,
 )
+from hivememory.engines.generation.models import GenerationContext, MemoryGenerationResult
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
@@ -76,6 +78,27 @@ def _memory_task_statuses(bus):
         for call in bus.publish.await_args_list
         if call.args and call.args[0] == PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS
     ]
+
+
+def _runtime_event_types_for_task(recorder, memory_task):
+    return [
+        event.event_type
+        for event in recorder.events
+        if event.task_id == memory_task.task_id
+    ]
+
+
+def _assert_runtime_event_task_payload(event, memory_task):
+    assert event.task_id == memory_task.task_id
+    assert event.topic_id == memory_task.topic_id
+    assert event.status == memory_task.status.value
+    assert event.data["task_id"] == memory_task.task_id
+    assert event.data["topic_id"] == memory_task.topic_id
+    assert event.data["source"] == memory_task.source.value
+    assert event.data["status"] == memory_task.status.value
+    assert "pending_alias" in event.data
+    assert "cancel_requested" in event.data
+    assert "cancelled" in event.data
 
 
 class TestMemoryGenerationTaskRegistry:
@@ -252,6 +275,135 @@ class TestTaskLifecycleAfterCompletion:
             await memory_task._bg_task
 
         assert _memory_task_statuses(bus) == ["running", "failed"]
+
+
+class TestMemoryTaskRuntimeEventMatrix:
+    @pytest.mark.asyncio
+    async def test_archive_success_pushes_created_status_completed(self):
+        recorder = RecordingRuntimeEventSink()
+        core, _ = _make_core(runtime_events=recorder)
+        controller = core._memory_task_controller
+
+        memory_task = await controller.run_archive_generation(
+            topic_id="topic_archive",
+            gen_context=GenerationContext(),
+        )
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert _runtime_event_types_for_task(recorder, memory_task) == [
+            RuntimeEventType.MEMORY_TASK_CREATED,
+            RuntimeEventType.MEMORY_TASK_STATUS,
+            RuntimeEventType.MEMORY_TASK_COMPLETED,
+        ]
+        assert memory_task.source == MemoryGenerationSource.ARCHIVE
+        _assert_runtime_event_task_payload(recorder.events[-1], memory_task)
+        assert recorder.events[-1].data["pending_alias"] is None
+        assert recorder.events[-1].data["cancelled"] is False
+
+    @pytest.mark.asyncio
+    async def test_archive_failure_pushes_created_status_failed(self):
+        recorder = RecordingRuntimeEventSink()
+        gen = MagicMock()
+        gen.process.side_effect = RuntimeError("archive boom")
+        core, _ = _make_core(mock_generation=gen, runtime_events=recorder)
+        controller = core._memory_task_controller
+
+        memory_task = await controller.run_archive_generation(
+            topic_id="topic_archive",
+            gen_context=GenerationContext(),
+        )
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert _runtime_event_types_for_task(recorder, memory_task) == [
+            RuntimeEventType.MEMORY_TASK_CREATED,
+            RuntimeEventType.MEMORY_TASK_STATUS,
+            RuntimeEventType.MEMORY_TASK_FAILED,
+        ]
+        assert memory_task.status == MemoryGenerationTaskStatus.FAILED
+        assert "archive boom" in memory_task.error
+        _assert_runtime_event_task_payload(recorder.events[-1], memory_task)
+        assert recorder.events[-1].severity == "error"
+        assert recorder.events[-1].data["error"] == "archive boom"
+
+    @pytest.mark.asyncio
+    async def test_active_success_pushes_created_status_completed(self):
+        recorder = RecordingRuntimeEventSink()
+        task = _write_task("draft_matrix")
+        settlement = PendingAtomSettlement(
+            pending_alias=task.pending_alias,
+            intent_id=task.intent_id,
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="fact_matrix",
+            canonical_uuid="uuid_matrix",
+        )
+        results = [
+            MemoryGenerationResult(
+                pending_alias=task.pending_alias,
+                intent_id=task.intent_id,
+                canonical_alias="fact_matrix",
+                settlement=settlement,
+            )
+        ]
+        gen = MagicMock()
+        gen.process.return_value = results
+        core, _ = _make_core(mock_generation=gen, runtime_events=recorder)
+        gen.process.return_value = results
+
+        memory_task = await _single_memory_task(core, task, topic_id="topic_active")
+        if memory_task._bg_task:
+            await memory_task._bg_task
+
+        assert _runtime_event_types_for_task(recorder, memory_task) == [
+            RuntimeEventType.MEMORY_TASK_CREATED,
+            RuntimeEventType.MEMORY_TASK_STATUS,
+            RuntimeEventType.MEMORY_TASK_COMPLETED,
+        ]
+        assert memory_task.source == MemoryGenerationSource.WRITE
+        assert memory_task.canonical_alias == "fact_matrix"
+        _assert_runtime_event_task_payload(recorder.events[-1], memory_task)
+        assert recorder.events[-1].data["pending_alias"] == "draft_matrix"
+        assert recorder.events[-1].data["canonical_alias"] == "fact_matrix"
+
+    @pytest.mark.asyncio
+    async def test_active_cancel_pushes_cancel_requested_and_cancelled(self):
+        recorder = RecordingRuntimeEventSink()
+        started = asyncio.Event()
+        released = asyncio.Event()
+
+        async def blocking_process(_):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                released.set()
+
+        gen = MagicMock()
+        gen.process = blocking_process
+        core, _ = _make_core(mock_generation=gen, runtime_events=recorder)
+
+        memory_task = await _single_memory_task(core, topic_id="topic_active")
+        assert memory_task._bg_task is not None
+        await asyncio.wait_for(started.wait(), timeout=1)
+
+        assert core.cancel_task(memory_task.task_id) is True
+        await asyncio.wait_for(released.wait(), timeout=1)
+        with pytest.raises(asyncio.CancelledError):
+            await memory_task._bg_task
+        await asyncio.sleep(0)
+
+        assert _runtime_event_types_for_task(recorder, memory_task) == [
+            RuntimeEventType.MEMORY_TASK_CREATED,
+            RuntimeEventType.MEMORY_TASK_STATUS,
+            RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
+            RuntimeEventType.MEMORY_TASK_CANCELLED,
+        ]
+        assert memory_task.status == MemoryGenerationTaskStatus.CANCELLED
+        _assert_runtime_event_task_payload(recorder.events[-1], memory_task)
+        assert recorder.events[-2].reason == "user_requested"
+        assert recorder.events[-2].data["cancel_requested"] is True
+        assert recorder.events[-1].data["cancelled"] is True
 
 
 class TestTaskCancellation:
