@@ -66,7 +66,7 @@ export const useMemoryTaskStore = create<MemoryTaskStore>()(
             const tasksById = tasks.reduce<Record<string, MemoryGenerationTask>>((acc, task) => {
               acc[task.task_id] = mergeTask(get().tasksById[task.task_id], task);
               return acc;
-            }, {});
+            }, { ...get().tasksById });
             set({
               tasks: sortTasks(Object.values(tasksById)),
               tasksById,

@@ -3,7 +3,7 @@ import { devtools, persist } from 'zustand/middleware';
 import type { NavTab } from '@/types';
 
 type ContextSidebarTab = 'topics' | 'config';
-type KernelVisionTab = 'context' | 'terminal';
+type KernelVisionTab = 'context' | 'memory-runtime' | 'terminal';
 
 interface ChatUiStore {
   // Global navigation
