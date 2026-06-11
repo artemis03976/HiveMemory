@@ -334,9 +334,10 @@ class TestPatchouliPublicRoutes:
         subscriber.assert_awaited_once_with(pending_alias="draft_cancelled")
 
     @pytest.mark.asyncio
-    async def test_patchouli_bridge_emits_single_runtime_atom_event(self):
-        recorder = RecordingRuntimeEventSink()
-        bridge = self._make_bridge(runtime_events=recorder)
+    async def test_patchouli_bridge_keeps_pending_atom_internal_to_function_bus(self):
+        bridge = self._make_bridge()
+        subscriber = AsyncMock()
+        self.global_bus.subscribe(GlobalEvents.PENDING_ATOM_SETTLED, subscriber)
         settlement = PendingAtomSettlement(
             pending_alias="draft_memory_1234",
             intent_id="intent_1234",
@@ -351,13 +352,9 @@ class TestPatchouliPublicRoutes:
             settlement=settlement,
         )
 
-        assert len(recorder.events) == 1
-        event = recorder.events[0]
-        assert event.event_type == "memory.atom.settled"
-        assert event.atom_id == "atom-uuid-1"
-        assert event.data["canonical_alias"] == "fact_canonical"
+        subscriber.assert_awaited_once_with(settlement=settlement)
 
-    def _make_bridge(self, runtime_events=None):
+    def _make_bridge(self):
         service = MagicMock()
         service.analyze_and_retrieve = AsyncMock()
         service.prepare_agent_run = AsyncMock()
@@ -409,5 +406,4 @@ class TestPatchouliPublicRoutes:
             topic_management_service=topic_management_service,
             model_readiness_service=model_readiness_service,
             global_bus=self.global_bus,
-            runtime_events=runtime_events,
         )

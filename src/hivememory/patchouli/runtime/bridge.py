@@ -9,9 +9,7 @@ from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime import PatchouliRuntime
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.events import GlobalEvents
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 
 class PatchouliBridge:
@@ -56,7 +54,6 @@ class PatchouliBridge:
         topic_management_service: Any,
         model_readiness_service: Any,
         global_bus: GlobalSystemBus | None = None,
-        runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._runtime = runtime
         self._service = service
@@ -66,7 +63,6 @@ class PatchouliBridge:
         self._topic_management_service = topic_management_service
         self._model_readiness_service = model_readiness_service
         self._global_bus = global_bus
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._public_routes_registered = False
         self._local_events_registered = False
 
@@ -241,19 +237,6 @@ class PatchouliBridge:
         )
 
     async def _forward_pending_atom_settled(self, *, settlement) -> None:
-        self._runtime_events.emit(
-            RuntimeEvent(
-                event_type=RuntimeEventType.MEMORY_ATOM_SETTLED,
-                task_type="background",
-                atom_id=getattr(settlement, "canonical_uuid", None),
-                status=getattr(getattr(settlement, "resolution", None), "value", None),
-                data={
-                    "pending_alias": getattr(settlement, "pending_alias", None),
-                    "canonical_alias": getattr(settlement, "canonical_alias", None),
-                    "canonical_uuid": getattr(settlement, "canonical_uuid", None),
-                },
-            )
-        )
         if self._global_bus is None:
             return
         await self._global_bus.publish(
@@ -262,15 +245,6 @@ class PatchouliBridge:
         )
 
     async def _forward_pending_atom_failed(self, *, pending_alias: str) -> None:
-        self._runtime_events.emit(
-            RuntimeEvent(
-                event_type=RuntimeEventType.MEMORY_ATOM_FAILED,
-                task_type="background",
-                status="failed",
-                severity="error",
-                data={"pending_alias": pending_alias},
-            )
-        )
         if self._global_bus is None:
             return
         await self._global_bus.publish(
@@ -279,15 +253,6 @@ class PatchouliBridge:
         )
 
     async def _forward_pending_atom_cancelled(self, *, pending_alias: str) -> None:
-        self._runtime_events.emit(
-            RuntimeEvent(
-                event_type=RuntimeEventType.MEMORY_ATOM_CANCELLED,
-                task_type="background",
-                status="cancelled",
-                reason="memory_task_cancelled",
-                data={"pending_alias": pending_alias},
-            )
-        )
         if self._global_bus is None:
             return
         await self._global_bus.publish(
