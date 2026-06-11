@@ -11,14 +11,31 @@ import {
   XCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useChatStore, useMemoryTaskStore } from '@/stores';
+import { useChatStore, useKernelStore, useMemoryTaskStore } from '@/stores';
 import type { MemoryGenerationTask, MemoryGenerationTaskStatus } from '@/types';
+import type { RuntimeEventConnectionStatus } from '@/types/kernel';
 
 const TERMINAL_STATUSES = new Set<MemoryGenerationTaskStatus>([
   'completed',
   'cancelled',
   'failed',
 ]);
+
+const EVENT_CONNECTION_LABEL: Record<RuntimeEventConnectionStatus, string> = {
+  disconnected: '事件流未连接',
+  connecting: '事件流连接中',
+  connected: '事件流已连接',
+  disabled: '事件流已禁用',
+  error: '事件流错误',
+};
+
+const EVENT_CONNECTION_DOT: Record<RuntimeEventConnectionStatus, string> = {
+  disconnected: 'bg-slate-500',
+  connecting: 'bg-magic-metal animate-pulse',
+  connected: 'bg-magic-wood',
+  disabled: 'bg-slate-600',
+  error: 'bg-magic-fire',
+};
 
 const STATUS_CONFIG: Record<
   MemoryGenerationTaskStatus,
@@ -215,6 +232,8 @@ function TaskItem({
 
 export default function MemoryRuntimeTab() {
   const currentMemoryTaskIds = useChatStore((state) => state.currentMemoryTaskIds);
+  const runtimeEventConnection = useKernelStore((state) => state.runtimeEventConnection);
+  const connectRuntimeEvents = useKernelStore((state) => state.connectRuntimeEvents);
   const tasks = useMemoryTaskStore((state) => state.tasks);
   const connection = useMemoryTaskStore((state) => state.connection);
   const showTerminalTasks = useMemoryTaskStore((state) => state.showTerminalTasks);
@@ -226,6 +245,10 @@ export default function MemoryRuntimeTab() {
   useEffect(() => {
     void fetchTasks();
   }, [fetchTasks]);
+
+  useEffect(() => {
+    connectRuntimeEvents();
+  }, [connectRuntimeEvents]);
 
   const currentTaskIdSet = useMemo(() => new Set(currentMemoryTaskIds), [currentMemoryTaskIds]);
 
@@ -256,6 +279,10 @@ export default function MemoryRuntimeTab() {
           <p className="mt-1 text-[11px] text-slate-500">
             {activeCount} 个活跃任务 · {tasks.length} 个总任务
           </p>
+          <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span className={`h-1.5 w-1.5 rounded-full ${EVENT_CONNECTION_DOT[runtimeEventConnection.status]}`} />
+            <span>{EVENT_CONNECTION_LABEL[runtimeEventConnection.status]}</span>
+          </div>
         </div>
 
         <button
