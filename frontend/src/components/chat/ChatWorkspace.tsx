@@ -1,7 +1,7 @@
 import TopBar from './TopBar';
 import ChatMessage from './ChatMessage';
 import OmniInput from './OmniInput';
-import { useChatStore } from '@/stores/chatStore';
+import { useChatStore } from '@/stores';
 
 interface ChatWorkspaceProps {
   activeTopicTitle: string;

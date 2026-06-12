@@ -36,6 +36,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
+    memory_task_to_payload,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
@@ -537,6 +538,7 @@ class MemoryGenerationTaskController:
         reason: str | None = None,
         message: str | None = None,
     ) -> None:
+        payload = memory_task_to_payload(memory_task, reason=reason)
         self._events.emit(
             RuntimeEvent(
                 event_type=event_type,
@@ -547,24 +549,7 @@ class MemoryGenerationTaskController:
                 reason=reason,
                 message=message,
                 severity="error" if event_type == RuntimeEventType.MEMORY_TASK_FAILED else "info",
-                data={
-                    "label": memory_task.label,
-                    "source": memory_task.source.value,
-                    "pending_alias": memory_task.pending_alias,
-                    "canonical_alias": memory_task.canonical_alias,
-                    "error": memory_task.error,
-                    "created_at": memory_task.created_at.isoformat(),
-                    "started_at": (
-                        memory_task.started_at.isoformat()
-                        if memory_task.started_at is not None
-                        else None
-                    ),
-                    "finished_at": (
-                        memory_task.finished_at.isoformat()
-                        if memory_task.finished_at is not None
-                        else None
-                    ),
-                },
+                data=payload,
             )
         )
 

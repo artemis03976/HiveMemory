@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useAgents, type BackendAgent } from './useAgents';
 import { MOCK_AGENT_CONFIGS } from '@/constants/agents';
 import type { AgentData, AgentProfileConfig, MTPVerb } from '@/types';
-import { useToastStore } from '@/stores/toastStore';
+import { useToastStore } from '@/stores';
 import { createAgent, saveAgent, deleteAgent } from '@/services/agentApi';
 
 

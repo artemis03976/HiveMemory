@@ -64,6 +64,42 @@ class MemoryGenerationTask:
             self._bg_task.cancel()
 
 
+def memory_task_to_payload(
+    memory_task: MemoryGenerationTask,
+    *,
+    reason: str | None = None,
+) -> dict[str, object]:
+    """Serialize one memory task into a stable event payload snapshot."""
+    cancel_requested = memory_task.cancelled
+    cancelled = memory_task.status == MemoryGenerationTaskStatus.CANCELLED
+    return {
+        "task_id": memory_task.task_id,
+        "topic_id": memory_task.topic_id,
+        "label": memory_task.label,
+        "source": memory_task.source.value,
+        "pending_alias": memory_task.pending_alias,
+        "status": memory_task.status.value,
+        "canonical_alias": memory_task.canonical_alias,
+        "error": memory_task.error,
+        "created_at": memory_task.created_at.isoformat(),
+        "started_at": (
+            memory_task.started_at.isoformat()
+            if memory_task.started_at is not None
+            else None
+        ),
+        "finished_at": (
+            memory_task.finished_at.isoformat()
+            if memory_task.finished_at is not None
+            else None
+        ),
+        "cancel_requested": cancel_requested,
+        "cancelled": cancelled,
+        "reason": reason if reason is not None else (
+            "user_requested" if cancel_requested else None
+        ),
+    }
+
+
 class MemoryGenerationTaskRegistry:
     """In-process registry for Patchouli memory generation tasks."""
 
@@ -120,4 +156,5 @@ __all__ = [
     "MemoryGenerationTask",
     "MemoryGenerationTaskRegistry",
     "MemoryGenerationTaskStatus",
+    "memory_task_to_payload",
 ]

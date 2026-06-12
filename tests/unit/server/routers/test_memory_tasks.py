@@ -49,6 +49,9 @@ def test_list_memory_tasks_serializes_task_source():
     assert item["label"] == "draft_abc"
     assert item["source"] == "WRITE"
     assert item["pending_alias"] == "draft_abc"
+    assert item["cancel_requested"] is False
+    assert item["cancelled"] is False
+    assert item["reason"] is None
     assert "source_verb" not in item
     assert "tasks" not in item
 

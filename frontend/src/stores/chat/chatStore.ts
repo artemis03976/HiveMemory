@@ -12,24 +12,40 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { ChatSSEClient, stopGeneration } from '@/services/chatApi';
-import { createChatSSECallbacks } from '@/stores/chatStore.callbacks';
-import { applyDone, applyStreamError } from '@/stores/chatStore.updaters';
-import { useTopicStore } from '@/stores/topicStore';
+import { createChatSSECallbacks } from '@/stores/chat/streamHandlers';
+import { applyDone, applyStreamError } from '@/stores/chat/messageReducers';
+import { useMemoryTaskStore } from '@/stores/memory';
+import { useTopicStore } from '@/stores/topic';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
 import type {
   Message,
   ChatConnectionState,
   ChatRequestParams,
+  ChatRunStatus,
   MemoryAtom,
 } from '@/types';
 
 // ========== Store Interface ==========
+
+const ACTIVE_CHAT_RUN_STATUSES: ChatRunStatus[] = [
+  'preparing',
+  'streaming',
+  'cancelling',
+  'finalizing',
+];
+
+function isActiveChatRunStatus(status: ChatRunStatus): boolean {
+  return ACTIVE_CHAT_RUN_STATUSES.includes(status);
+}
 
 interface ChatStore {
   // State
   messages: Message[];
   connection: ChatConnectionState;
   isStreaming: boolean;
+  runStatus: ChatRunStatus;
+  currentMemoryTaskIds: string[];
+  lastRunReason: string | null;
   currentTopicId: string | null;
   currentAgentId: string;
   retrievedMemories: MemoryAtom[];
@@ -60,6 +76,9 @@ export const useChatStore = create<ChatStore>()(
           error: null,
         },
         isStreaming: false,
+        runStatus: 'idle',
+        currentMemoryTaskIds: [],
+        lastRunReason: null,
         currentTopicId: null,
         currentAgentId: DEFAULT_AGENT_ID,
         retrievedMemories: [],
@@ -73,35 +92,19 @@ export const useChatStore = create<ChatStore>()(
         // Stop streaming action
         stopStreaming: () => {
           const state = get();
-          if (!state.isStreaming) return;
+          if (!isActiveChatRunStatus(state.runStatus)) return;
+          if (state.runStatus === 'cancelling') return;
 
           const generationId = state._currentGenerationId;
           if (generationId) {
-            stopGeneration(generationId);
+            void stopGeneration(generationId);
           }
 
-          if (state._sseClient) {
-            state._sseClient.disconnect();
-          }
-
-          const messageId = state._currentStreamingMessageId;
-          if (messageId) {
-            set((s) => ({
-              messages: applyDone(s.messages, messageId, null),
-              isStreaming: false,
-              connection: { status: 'connected' as const, error: null },
-              _currentStreamingMessageId: null,
-              _currentGenerationId: null,
-              _sseClient: null,
-            }));
-          } else {
-            set({
-              isStreaming: false,
-              connection: { status: 'connected', error: null },
-              _currentGenerationId: null,
-              _sseClient: null,
-            });
-          }
+          set({
+            runStatus: 'cancelling',
+            lastRunReason: 'user_requested',
+            isStreaming: true,
+          });
         },
 
         // Send message action
@@ -128,8 +131,11 @@ export const useChatStore = create<ChatStore>()(
           set({
             messages: [...state.messages, userMessage],
             isStreaming: true,
+            runStatus: 'preparing',
+            currentMemoryTaskIds: [],
+            lastRunReason: null,
             connection: { status: 'connecting', error: null },
-            // 新一轮对话开始时先清空旧的引用记忆，避免后端无 memory_refs 事件时显示陈旧数据
+            // Clear stale referenced memories when a new chat turn starts.
             retrievedMemories: [],
           });
 
@@ -172,21 +178,65 @@ export const useChatStore = create<ChatStore>()(
                 set({ retrievedMemories: memories });
               },
               setGenerationId: (data) => {
+                const current = get();
                 set({ _currentGenerationId: data.generation_id });
+                if (current.runStatus === 'cancelling') {
+                  void stopGeneration(data.generation_id);
+                }
+              },
+              markStreaming: () => {
+                const current = get();
+                if (current.runStatus === 'preparing') {
+                  set({
+                    runStatus: 'streaming',
+                    connection: { status: 'connected', error: null },
+                  });
+                }
+              },
+              setRunStatus: (data) => {
+                set((s) => ({
+                  runStatus: data.status,
+                  lastRunReason: data.reason ?? s.lastRunReason,
+                  isStreaming: isActiveChatRunStatus(data.status),
+                  connection: {
+                    status: data.status === 'failed' ? 'error' : 'connected',
+                    error: data.status === 'failed' ? (data.reason ?? '生成失败') : null,
+                  },
+                }));
               },
               finalizeSuccess: (data) => {
+                const status = data.status ?? (data.stopped ? 'cancelled' : 'completed');
+                const isCancelled = status === 'cancelled';
+                const isFailed = status === 'failed';
+                const memoryTaskIds = data.memory_task_ids ?? [];
                 set((s) => ({
                   messages: applyDone(s.messages, assistantMessageId, data.final_text),
                   isStreaming: false,
-                  connection: { status: 'connected', error: null },
+                  runStatus: status,
+                  currentMemoryTaskIds: memoryTaskIds,
+                  lastRunReason: data.reason ?? s.lastRunReason,
+                  connection: {
+                    status: isFailed ? 'error' : 'connected',
+                    error: isFailed ? (data.reason ?? '生成失败') : null,
+                  },
                   _currentStreamingMessageId: null,
                   _currentGenerationId: null,
                 }));
+
+                if (memoryTaskIds.length > 0) {
+                  void useMemoryTaskStore.getState().refreshTasksByIds(memoryTaskIds);
+                }
+
+                if (isCancelled || isFailed) {
+                  client.disconnect();
+                }
               },
               finalizeError: (errorMessage, errorDetail) => {
                 set((s) => ({
                   messages: applyStreamError(s.messages, assistantMessageId, errorMessage, errorDetail),
                   isStreaming: false,
+                  runStatus: 'failed',
+                  lastRunReason: errorDetail ?? errorMessage,
                   connection: { status: 'error', error: errorMessage },
                   _currentStreamingMessageId: null,
                   _currentGenerationId: null,
@@ -207,7 +257,10 @@ export const useChatStore = create<ChatStore>()(
           } finally {
             // Cleanup
             client.disconnect();
-            set({ _sseClient: null });
+            set((s) => ({
+              _sseClient: null,
+              isStreaming: isActiveChatRunStatus(s.runStatus),
+            }));
           }
         },
 
@@ -217,6 +270,9 @@ export const useChatStore = create<ChatStore>()(
             messages: [],
             currentTopicId: null,
             retrievedMemories: [],
+            currentMemoryTaskIds: [],
+            lastRunReason: null,
+            runStatus: 'idle',
           });
         },
 
@@ -251,7 +307,7 @@ export const useChatStore = create<ChatStore>()(
           currentTopicId: null,
           currentAgentId: state.currentAgentId,
         }),
-        // 测试阶段：升级后统一清空已持久化会话，避免渲染异常导致刷新后继续崩溃
+        // During beta migrations, clear persisted chat messages to avoid stale stream state.
         migrate: (persisted: unknown, version: number) => {
           if (!persisted || typeof persisted !== 'object') return persisted;
           const migrated = persisted as { messages?: unknown; currentTopicId?: unknown; currentAgentId?: unknown };

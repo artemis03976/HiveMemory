@@ -39,9 +39,6 @@ export type RuntimeEventType =
   | 'memory.task.cancelled'
   | 'memory.task.completed'
   | 'memory.task.failed'
-  | 'memory.atom.settled'
-  | 'memory.atom.failed'
-  | 'memory.atom.cancelled'
   | 'event.stream.gap';
 
 /**

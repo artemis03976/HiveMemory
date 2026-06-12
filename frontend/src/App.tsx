@@ -9,7 +9,7 @@ import MemoryLibrary from './components/MemoryLibrary';
 import SettingsPanel from './components/SettingsPanel';
 import AgentManagement from './components/AgentManagement';
 import DynamicToast from './components/common/DynamicToast';
-import { useChatUiStore } from './stores/chatUiStore';
+import { useChatUiStore } from '@/stores';
 
 export default function App() {
   const { activeNavTab, setActiveNavTab } = useChatUiStore();

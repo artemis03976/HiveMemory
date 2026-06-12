@@ -3,67 +3,42 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from hivememory.server.deps import get_memory_task_service
+from hivememory.server.models.memory_task import MemoryTaskListResponse, MemoryTaskResponse
 from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 
 router = APIRouter(prefix="/memory-tasks", tags=["memory-tasks"])
 
 
-def _task_to_dict(memory_task) -> dict:
-    return {
-        "task_id": memory_task.task_id,
-        "topic_id": memory_task.topic_id,
-        "label": memory_task.label,
-        "source": memory_task.source.value,
-        "pending_alias": memory_task.pending_alias,
-        "status": memory_task.status.value,
-        "canonical_alias": memory_task.canonical_alias,
-        "error": memory_task.error,
-        "created_at": memory_task.created_at.isoformat(),
-        "started_at": memory_task.started_at.isoformat() if memory_task.started_at else None,
-        "finished_at": memory_task.finished_at.isoformat() if memory_task.finished_at else None,
-    }
-
-
-def _cancel_response(memory_task) -> dict:
-    payload = _task_to_dict(memory_task)
-    payload.update(
-        {
-            "cancelled": memory_task.status.value == "cancelled",
-            "cancel_requested": memory_task.cancelled,
-            "reason": "user_requested" if memory_task.cancelled else None,
-        }
-    )
-    return payload
-
-
-@router.get("")
+@router.get("", response_model=MemoryTaskListResponse)
 async def list_memory_tasks(
     service: MemoryTaskApplicationService = Depends(get_memory_task_service),
-):
+) -> MemoryTaskListResponse:
     tasks = await service.list_memory_tasks()
-    return {"tasks": [_task_to_dict(memory_task) for memory_task in tasks]}
+    return MemoryTaskListResponse(
+        tasks=[MemoryTaskResponse.from_domain(memory_task) for memory_task in tasks]
+    )
 
 
-@router.get("/{task_id}")
+@router.get("/{task_id}", response_model=MemoryTaskResponse)
 async def get_memory_task(
     task_id: str,
     service: MemoryTaskApplicationService = Depends(get_memory_task_service),
-):
+) -> MemoryTaskResponse:
     memory_task = await service.get_memory_task(task_id)
     if memory_task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    return _task_to_dict(memory_task)
+    return MemoryTaskResponse.from_domain(memory_task)
 
 
-@router.post("/{task_id}/cancel")
+@router.post("/{task_id}/cancel", response_model=MemoryTaskResponse)
 async def cancel_memory_task(
     task_id: str,
     service: MemoryTaskApplicationService = Depends(get_memory_task_service),
-):
+) -> MemoryTaskResponse:
     ok = await service.cancel_memory_task(task_id)
     if not ok:
         raise HTTPException(status_code=404, detail="task not found")
     memory_task = await service.get_memory_task(task_id)
     if memory_task is None:
         raise HTTPException(status_code=404, detail="task not found")
-    return _cancel_response(memory_task)
+    return MemoryTaskResponse.from_domain(memory_task, reason="user_requested")

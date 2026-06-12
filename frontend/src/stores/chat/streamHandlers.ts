@@ -7,10 +7,11 @@ import {
   applySubAgentMtpStart,
   applySubAgentStart,
   applySubAgentToken,
-} from '@/stores/chatStore.updaters';
+} from '@/stores/chat/messageReducers';
 import type {
   ChatDoneEvent,
   GenerationIdEvent,
+  ChatRunStatusEvent,
   MemoryAtom,
   MemoryRefsEvent,
   Message,
@@ -28,6 +29,8 @@ interface CreateChatSSECallbacksDeps {
   setTopicInfo: (data: TopicInfoEvent) => void;
   setRetrievedMemories: (memories: MemoryAtom[]) => void;
   setGenerationId: (data: GenerationIdEvent) => void;
+  setRunStatus: (data: ChatRunStatusEvent) => void;
+  markStreaming: () => void;
   finalizeSuccess: (data: ChatDoneEvent) => void;
   finalizeError: (errorMessage: string, errorDetail?: string) => void;
 }
@@ -37,30 +40,37 @@ export function createChatSSECallbacks(deps: CreateChatSSECallbacksDeps): SSECal
 
   return {
     onToken: (data) => {
+      deps.markStreaming();
       deps.updateMessages((messages) => applyAssistantToken(messages, assistantMessageId, data.content));
     },
 
     onMTPStart: (data: MTPStartEvent) => {
+      deps.markStreaming();
       deps.updateMessages((messages) => applyAssistantMtpStart(messages, assistantMessageId, data));
     },
 
     onMTPResult: (data: MTPResultEvent) => {
+      deps.markStreaming();
       deps.updateMessages((messages) => applyAssistantMtpResult(messages, assistantMessageId, data));
     },
 
     onSubAgentStart: (data: SubAgentStartEvent) => {
+      deps.markStreaming();
       deps.updateMessages((messages) => applySubAgentStart(messages, assistantMessageId, data));
     },
 
     onSubAgentToken: (data) => {
+      deps.markStreaming();
       deps.updateMessages((messages) => applySubAgentToken(messages, assistantMessageId, data.content));
     },
 
     onSubAgentMTPStart: (data: MTPStartEvent) => {
+      deps.markStreaming();
       deps.updateMessages((messages) => applySubAgentMtpStart(messages, assistantMessageId, data));
     },
 
     onSubAgentMTPResult: (data: MTPResultEvent) => {
+      deps.markStreaming();
       deps.updateMessages((messages) => applySubAgentMtpResult(messages, assistantMessageId, data));
     },
 
@@ -93,6 +103,10 @@ export function createChatSSECallbacks(deps: CreateChatSSECallbacksDeps): SSECal
 
     onGenerationId: (data: GenerationIdEvent) => {
       deps.setGenerationId(data);
+    },
+
+    onRunStatus: (data: ChatRunStatusEvent) => {
+      deps.setRunStatus(data);
     },
   };
 }

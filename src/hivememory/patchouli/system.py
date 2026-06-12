@@ -124,7 +124,6 @@ class PatchouliSystem(SubsystemProtocol):
             topic_management_service=self._topic_management_service,
             model_readiness_service=self._model_readiness_service,
             global_bus=global_bus,
-            runtime_events=self._runtime_events,
         )
 
         self._scheduler = scheduler

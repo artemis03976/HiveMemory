@@ -8,26 +8,31 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from hivememory.server.deps import get_system
+from hivememory.server.models.runtime_event import (
+    RuntimeEventDisabledResponse,
+    RuntimeEventResponse,
+    RuntimeEventStatusResponse,
+)
 from hivememory.system.contracts.runtime_events import RuntimeEvent
 
 router = APIRouter(prefix="/runtime-events", tags=["runtime-events"])
 
 
 def _format_sse(event: RuntimeEvent) -> str:
-    data = event.model_dump_json()
+    data = RuntimeEventResponse.from_domain(event).model_dump_json()
     return f"id: {event.event_id}\nevent: runtime_event\ndata: {data}\n\n"
 
 
-@router.get("/status")
-async def runtime_events_status(system=Depends(get_system)):
+@router.get("/status", response_model=RuntimeEventStatusResponse)
+async def runtime_events_status(system=Depends(get_system)) -> RuntimeEventStatusResponse:
     bus = system.runtime_events
     enabled = bus is not None and system.config.runtime_events.enabled
-    return {
-        "enabled": enabled,
-        "buffer_size": system.config.runtime_events.buffer_size,
-        "subscriber_queue_size": system.config.runtime_events.subscriber_queue_size,
-        "latest_sequence": bus.latest_sequence if bus is not None else None,
-    }
+    return RuntimeEventStatusResponse(
+        enabled=enabled,
+        buffer_size=system.config.runtime_events.buffer_size,
+        subscriber_queue_size=system.config.runtime_events.subscriber_queue_size,
+        latest_sequence=bus.latest_sequence if bus is not None else None,
+    )
 
 
 @router.get("/stream")
@@ -39,9 +44,12 @@ async def stream_runtime_events(
 ):
     bus = system.runtime_events
     if bus is None or not system.config.runtime_events.enabled:
+        content = RuntimeEventDisabledResponse(
+            detail="RuntimeEvent stream is disabled"
+        ).model_dump()
         return JSONResponse(
             status_code=503,
-            content={"status": "disabled", "detail": "RuntimeEvent stream is disabled"},
+            content=content,
         )
 
     query_id = last_event_id_query if isinstance(last_event_id_query, str) else None

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { useToastStore } from '@/stores/toastStore';
+import { useToastStore } from '@/stores';
 import { useMemories } from '@/hooks/useMemories';
 import type { MemoryAtom } from '@/types/memory';
 import MemoryAtomCard from './memory/MemoryAtomCard';

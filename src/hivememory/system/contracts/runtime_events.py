@@ -31,10 +31,6 @@ class RuntimeEventType(str, Enum):
     MEMORY_TASK_COMPLETED = "memory.task.completed"
     MEMORY_TASK_FAILED = "memory.task.failed"
 
-    MEMORY_ATOM_SETTLED = "memory.atom.settled"
-    MEMORY_ATOM_FAILED = "memory.atom.failed"
-    MEMORY_ATOM_CANCELLED = "memory.atom.cancelled"
-
     EVENT_STREAM_GAP = "event.stream.gap"
 
 

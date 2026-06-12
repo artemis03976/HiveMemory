@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useToastStore } from '@/stores/toastStore';
+import { useToastStore } from '@/stores';
 import { CheckCircle, AlertCircle, Info, AlertTriangle, X } from 'lucide-react';
 
 export default function DynamicToast() {
