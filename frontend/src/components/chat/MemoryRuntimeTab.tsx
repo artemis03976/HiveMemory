@@ -233,7 +233,6 @@ function TaskItem({
 export default function MemoryRuntimeTab() {
   const currentMemoryTaskIds = useChatStore((state) => state.currentMemoryTaskIds);
   const runtimeEventConnection = useKernelStore((state) => state.runtimeEventConnection);
-  const connectRuntimeEvents = useKernelStore((state) => state.connectRuntimeEvents);
   const tasks = useMemoryTaskStore((state) => state.tasks);
   const connection = useMemoryTaskStore((state) => state.connection);
   const showTerminalTasks = useMemoryTaskStore((state) => state.showTerminalTasks);
@@ -245,10 +244,6 @@ export default function MemoryRuntimeTab() {
   useEffect(() => {
     void fetchTasks();
   }, [fetchTasks]);
-
-  useEffect(() => {
-    connectRuntimeEvents();
-  }, [connectRuntimeEvents]);
 
   const currentTaskIdSet = useMemo(() => new Set(currentMemoryTaskIds), [currentMemoryTaskIds]);
 

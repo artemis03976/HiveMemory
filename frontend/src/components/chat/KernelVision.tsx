@@ -1,9 +1,10 @@
+import { useEffect } from 'react';
 import { X, ChevronLeft, Database, Terminal, Brain, ListChecks } from 'lucide-react';
 import type { MemoryAtom } from '@/types';
 import KernelTerminalTab from './KernelTerminalTab';
 import MemoryRuntimeTab from './MemoryRuntimeTab';
 import ReferencedMemoryTab from './ReferencedMemoryTab';
-import { useChatUiStore } from '@/stores';
+import { useChatUiStore, useKernelStore, useMemoryTaskStore } from '@/stores';
 
 interface KernelVisionProps {
   memories: MemoryAtom[];
@@ -17,10 +18,18 @@ export default function KernelVision({
   onToggleCollapse
 }: KernelVisionProps) {
   const { kernelVisionTab: activeTab, setKernelVisionTab: setActiveTab } = useChatUiStore();
+  const connectRuntimeEvents = useKernelStore((state) => state.connectRuntimeEvents);
+  const activeMemoryTaskCount = useMemoryTaskStore((state) =>
+    state.tasks.filter((task) => task.status === 'pending' || task.status === 'running').length,
+  );
   const panelWidth =
     activeTab === 'terminal' ? 'w-[600px]' : activeTab === 'memory-runtime' ? 'w-[440px]' : 'w-80';
   const tabIndicatorLeft =
     activeTab === 'context' ? '4px' : activeTab === 'memory-runtime' ? 'calc(33.333% + 1px)' : 'calc(66.666% - 2px)';
+
+  useEffect(() => {
+    connectRuntimeEvents();
+  }, [connectRuntimeEvents]);
 
   if (isCollapsed) {
     return (
@@ -73,8 +82,15 @@ export default function KernelVision({
             className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 text-[11px] font-bold tracking-widest rounded-full transition-all duration-300 ${
               activeTab === 'memory-runtime' ? 'text-primary' : 'text-slate-400 hover:text-slate-200'
             }`}
+            aria-label={`Memory Runtime${activeMemoryTaskCount > 0 ? `, ${activeMemoryTaskCount} active tasks` : ''}`}
           >
-            <ListChecks className="w-3.5 h-3.5" /> Runtime
+            <ListChecks className="w-3.5 h-3.5" />
+            <span>Runtime</span>
+            {activeMemoryTaskCount > 0 && (
+              <span className="absolute -right-0.5 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-magic-water/30 bg-surface-container-highest px-1 text-[9px] font-bold leading-none tracking-normal text-magic-water shadow-[0_0_8px_rgba(117,199,255,0.18)]">
+                {activeMemoryTaskCount > 99 ? '99+' : activeMemoryTaskCount}
+              </span>
+            )}
           </button>
           <button 
             onClick={() => setActiveTab('terminal')}
