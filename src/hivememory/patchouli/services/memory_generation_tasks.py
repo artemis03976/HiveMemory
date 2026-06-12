@@ -36,7 +36,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
-    memory_task_to_dto,
+    memory_task_to_payload,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
@@ -538,7 +538,7 @@ class MemoryGenerationTaskController:
         reason: str | None = None,
         message: str | None = None,
     ) -> None:
-        payload = memory_task_to_dto(memory_task, reason=reason).model_dump()
+        payload = memory_task_to_payload(memory_task, reason=reason)
         self._events.emit(
             RuntimeEvent(
                 event_type=event_type,

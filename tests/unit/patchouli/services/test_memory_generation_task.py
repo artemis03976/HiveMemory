@@ -17,7 +17,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskStatus,
-    memory_task_to_dto,
+    memory_task_to_payload,
 )
 from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.system.contracts.runtime_events import RuntimeEventType
@@ -145,28 +145,28 @@ class TestMemoryGenerationTaskRegistry:
         assert len(reg.list_all()) == 2
 
 
-class TestMemoryGenerationTaskDTO:
-    def test_memory_task_to_dto_contains_public_fields(self):
+class TestMemoryGenerationTaskPayload:
+    def test_memory_task_to_payload_contains_public_fields(self):
         memory_task = _task_handle()
         memory_task.request_cancel()
 
-        dto = memory_task_to_dto(memory_task)
+        payload = memory_task_to_payload(memory_task)
 
-        assert dto.task_id == "j1"
-        assert dto.topic_id == "t1"
-        assert dto.source == "ARCHIVE"
-        assert dto.status == "pending"
-        assert dto.cancel_requested is True
-        assert dto.cancelled is False
-        assert dto.reason == "user_requested"
-        assert dto.created_at == memory_task.created_at.isoformat()
+        assert payload["task_id"] == "j1"
+        assert payload["topic_id"] == "t1"
+        assert payload["source"] == "ARCHIVE"
+        assert payload["status"] == "pending"
+        assert payload["cancel_requested"] is True
+        assert payload["cancelled"] is False
+        assert payload["reason"] == "user_requested"
+        assert payload["created_at"] == memory_task.created_at.isoformat()
 
-    def test_memory_task_to_dto_accepts_explicit_reason(self):
+    def test_memory_task_to_payload_accepts_explicit_reason(self):
         memory_task = _task_handle()
 
-        dto = memory_task_to_dto(memory_task, reason="system")
+        payload = memory_task_to_payload(memory_task, reason="system")
 
-        assert dto.reason == "system"
+        assert payload["reason"] == "system"
 
 
 class TestRunActiveGenerationReturnsTasks:

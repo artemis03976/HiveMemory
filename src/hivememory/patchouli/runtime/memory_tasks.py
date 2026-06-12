@@ -8,8 +8,6 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel
-
 
 class MemoryGenerationTaskStatus(str, Enum):
     PENDING = "pending"
@@ -66,59 +64,40 @@ class MemoryGenerationTask:
             self._bg_task.cancel()
 
 
-class MemoryGenerationTaskDTO(BaseModel):
-    """Stable public projection for MemoryGenerationTask API and RuntimeEvent payloads."""
-
-    task_id: str
-    topic_id: str
-    label: str
-    source: str
-    pending_alias: Optional[str] = None
-    status: str
-    canonical_alias: Optional[str] = None
-    error: Optional[str] = None
-    created_at: str
-    started_at: Optional[str] = None
-    finished_at: Optional[str] = None
-    cancel_requested: bool = False
-    cancelled: bool = False
-    reason: Optional[str] = None
-
-
-def memory_task_to_dto(
+def memory_task_to_payload(
     memory_task: MemoryGenerationTask,
     *,
     reason: str | None = None,
-) -> MemoryGenerationTaskDTO:
-    """Serialize one memory task into the shared frontend-facing DTO."""
+) -> dict[str, object]:
+    """Serialize one memory task into a stable event payload snapshot."""
     cancel_requested = memory_task.cancelled
     cancelled = memory_task.status == MemoryGenerationTaskStatus.CANCELLED
-    return MemoryGenerationTaskDTO(
-        task_id=memory_task.task_id,
-        topic_id=memory_task.topic_id,
-        label=memory_task.label,
-        source=memory_task.source.value,
-        pending_alias=memory_task.pending_alias,
-        status=memory_task.status.value,
-        canonical_alias=memory_task.canonical_alias,
-        error=memory_task.error,
-        created_at=memory_task.created_at.isoformat(),
-        started_at=(
+    return {
+        "task_id": memory_task.task_id,
+        "topic_id": memory_task.topic_id,
+        "label": memory_task.label,
+        "source": memory_task.source.value,
+        "pending_alias": memory_task.pending_alias,
+        "status": memory_task.status.value,
+        "canonical_alias": memory_task.canonical_alias,
+        "error": memory_task.error,
+        "created_at": memory_task.created_at.isoformat(),
+        "started_at": (
             memory_task.started_at.isoformat()
             if memory_task.started_at is not None
             else None
         ),
-        finished_at=(
+        "finished_at": (
             memory_task.finished_at.isoformat()
             if memory_task.finished_at is not None
             else None
         ),
-        cancel_requested=cancel_requested,
-        cancelled=cancelled,
-        reason=reason if reason is not None else (
+        "cancel_requested": cancel_requested,
+        "cancelled": cancelled,
+        "reason": reason if reason is not None else (
             "user_requested" if cancel_requested else None
         ),
-    )
+    }
 
 
 class MemoryGenerationTaskRegistry:
@@ -175,8 +154,7 @@ class MemoryGenerationTaskRegistry:
 __all__ = [
     "MemoryGenerationSource",
     "MemoryGenerationTask",
-    "MemoryGenerationTaskDTO",
     "MemoryGenerationTaskRegistry",
     "MemoryGenerationTaskStatus",
-    "memory_task_to_dto",
+    "memory_task_to_payload",
 ]

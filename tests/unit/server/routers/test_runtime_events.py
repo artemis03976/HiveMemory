@@ -22,8 +22,8 @@ async def test_runtime_events_status_enabled():
 
     result = await runtime_events_status(system=system)
 
-    assert result["enabled"] is True
-    assert result["latest_sequence"] == 1
+    assert result.enabled is True
+    assert result.latest_sequence == 1
 
 
 @pytest.mark.asyncio
