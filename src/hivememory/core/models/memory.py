@@ -135,36 +135,41 @@ class Artifacts(BaseModel):
     Artifacts - 原始数据与溯源信息
     通常不加载到 Context, 仅按需查询
     """
+    # ---- 向下兼容字段 (v0.4 及以前) ----
     raw_source_url: Optional[str] = Field(default=None, description="原始URL")
     file_path: Optional[str] = Field(default=None, description="文件路径")
-
     context_ref: List[Dict[str, str]] = Field(
         default_factory=list,
         description="溯源链: [{session_id, msg_id}, ...]"
     )
-
     full_history: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="完整版本历史 (Git-like)"
     )
-
-    # 人偶图纸配置 (多智能体系统)
     agent_config: Optional[Dict[str, Any]] = Field(
         default=None,
         description="人偶图纸配置: {model_name, temperature, permissions: {allowed_mtp_verbs, allowed_sys_tools}}"
     )
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "raw_source_url": "https://docs.python.org/3/library/datetime.html",
-                "file_path": "/project/utils/date_helper.py",
-                "context_ref": [
-                    {"session_id": "sess_01", "msg_id": "msg_05"}
-                ]
-            }
-        }
+    # ---- v0.5.0 正式溯源层 ----
+    refs: List[Any] = Field(
+        default_factory=list,
+        description="ArtifactRef 列表 - 指向本记忆关联的所有 Artifact"
     )
+    provenance: List[Any] = Field(
+        default_factory=list,
+        description="MemoryProvenance 列表 - 记忆生命周期事件流水"
+    )
+    cold_archive: Optional[Any] = Field(
+        default=None,
+        description="ArtifactRef - 指向 L3 归档记录"
+    )
+    revival_keys: List[str] = Field(
+        default_factory=list,
+        description="L3 复活密钥列表"
+    )
+
+    model_config = ConfigDict(extra="ignore")
 
 
 class PayloadLayer(BaseModel):
