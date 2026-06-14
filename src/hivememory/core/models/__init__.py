@@ -6,7 +6,6 @@ HiveMemory 核心数据模型
 
 from .artifact import (
     ArtifactType,
-    SourceIntent,
     ArtifactRef,
     BaseArtifact,
     InteractionTurnSnapshot,
@@ -61,7 +60,6 @@ from .pending import (
 
 __all__ = [
     "ArtifactType",
-    "SourceIntent",
     "ArtifactRef",
     "BaseArtifact",
     "InteractionTurnSnapshot",

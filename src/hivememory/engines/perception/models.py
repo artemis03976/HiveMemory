@@ -326,9 +326,14 @@ class ArchivePayload(BaseModel):
         reason: flush 触发原因
     """
     topic_id: str = Field(..., description="话题 ID")
+    topic_title: str = Field(default="", description="话题标题")
+    topic_summary: str = Field(default="", description="话题展示摘要")
+
     user_id: Optional[str] = Field(default=None, description="用户 ID")
+
     blocks: List[LogicalBlock] = Field(default_factory=list, description="从 buffer flush 出的 blocks")
     state_summary: str = Field(default="", description="话题状态摘要")
+    
     reason: FlushReason = Field(default=FlushReason.IDLE_TIMEOUT, description="flush 触发原因")
     
     model_config = ConfigDict(arbitrary_types_allowed=True)

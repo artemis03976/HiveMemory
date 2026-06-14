@@ -18,26 +18,18 @@ class ArtifactType(str, Enum):
     MEMORY_CREATION = "memory_creation"
     MEMORY_VERSION = "memory_version"
 
-
-class SourceIntent(str, Enum):
-    """兼容保留 - 新代码优先使用 Literal 字符串"""
-    ARCHIVE = "ARCHIVE"
-    WRITE = "WRITE"
-    UPDATE = "UPDATE"
-    IMPORT = "IMPORT"
-    MANUAL = "MANUAL"
-    SYSTEM = "SYSTEM"
-
-
 # ============ 轻量引用 ============
 
 class ArtifactRef(BaseModel):
-    """Artifact 轻量引用 - 存储在 MemoryAtom.payload.artifacts.refs 中"""
+    """Artifact 轻量引用指针 - 存储在 MemoryAtom.payload.artifacts.refs 中"""
     artifact_id: str
     artifact_type: ArtifactType
+
     uri: str = Field(default="", description="文件系统路径或远程 URI")
     sha256: str = ""
+
     created_at: datetime = Field(default_factory=datetime.now)
+    
     summary: str = ""
 
     model_config = ConfigDict(extra="ignore")
@@ -49,13 +41,16 @@ class BaseArtifact(BaseModel):
     """所有 Artifact 共有元数据。写入后不再修改（append-only）。"""
     artifact_id: str = Field(default_factory=lambda: f"art_{uuid4().hex}")
     artifact_type: ArtifactType
+
     schema_version: str = "1"
     created_at: datetime = Field(default_factory=datetime.now)
+    content_hash: Optional[str] = None  # 由 ArtifactStore 在写入时填充
+
     owner_user_id: str = ""
     owner_agent_id: str = ""
+
     title: str = ""
     summary: str = ""
-    content_hash: Optional[str] = None  # 由 ArtifactStore 在写入时填充
 
     model_config = ConfigDict(extra="ignore")
 

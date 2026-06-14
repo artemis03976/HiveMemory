@@ -549,6 +549,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 "blocks": [],
                 "total_tokens": 0,
                 "topic_title": "未知话题",
+                "topic_summary": "",
             }
 
         # 更新访问时间

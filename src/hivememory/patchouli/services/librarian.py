@@ -38,6 +38,7 @@ from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:
+    from hivememory.engines.artifacts.engine import ArtifactEngine
     from hivememory.engines.generation.engine import MemoryGenerationEngine
     from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
@@ -82,12 +83,14 @@ class LibrarianCore:
         generation_engine: Optional["MemoryGenerationEngine"] = None,
         task_registry: Optional[MemoryGenerationTaskRegistry] = None,
         runtime_events: RuntimeEventSink | None = None,
+        artifact_engine: Optional["ArtifactEngine"] = None,
     ):
         self.storage = storage
         self._bus = bus
         self.lifecycle_engine = lifecycle_engine
         self.perception_layer = perception_layer
         self.generation_engine = generation_engine
+        self._artifact_engine = artifact_engine
         self._memory_task_controller = MemoryGenerationTaskController(
             storage=storage,
             bus=bus,
@@ -144,6 +147,17 @@ class LibrarianCore:
             logger.warning("空对话轮次，跳过处理")
             return None
 
+        if self._artifact_engine and payload.blocks:
+            try:
+                await self._artifact_engine.interaction.build_and_store(
+                    topic_id=payload.topic_id,
+                    topic_title=payload.topic_title,
+                    topic_summary=payload.topic_summary,
+                    blocks=payload.blocks,
+                )
+            except Exception:
+                logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
+
         return await self._memory_task_controller.run_archive_generation(
             topic_id=payload.topic_id,
             gen_context=gen_context,
@@ -158,9 +172,20 @@ class LibrarianCore:
         if not tasks:
             return []
 
-        topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
+        topic_context: Dict[str, Any] = {"state_summary": "", "blocks": [], "topic_title": "", "topic_summary": ""}
         if self.perception_layer is not None:
             topic_context = self.perception_layer.get_topic_context(topic_id)
+
+        if self._artifact_engine and topic_context.get("blocks"):
+            try:
+                await self._artifact_engine.interaction.build_and_store(
+                    topic_id=topic_id,
+                    topic_title=topic_context.get("topic_title", ""),
+                    topic_summary=topic_context.get("topic_summary", ""),
+                    blocks=topic_context["blocks"],
+                )
+            except Exception:
+                logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
 
         gen_context = self._build_generation_context(
             topic_context.get("blocks", []),

@@ -176,6 +176,8 @@ class TriggerManager:
                 previous_summary,
                 trigger_reason,
                 buffer.user_id,
+                topic_title=buffer.topic_title,
+                topic_summary=buffer.topic_summary,
                 wait_for_completion=wait_for_archive,
             )
 
@@ -202,6 +204,8 @@ class TriggerManager:
         reason: FlushReason = FlushReason.IDLE_TIMEOUT,
         user_id: Optional[str] = None,
         wait_for_completion: bool = False,
+        topic_title: str = "",
+        topic_summary: str = "",
     ) -> None:
         """
         Archive 原子操作：将 blocks 打包发送给 Librarian
@@ -232,6 +236,8 @@ class TriggerManager:
         # 构建完整的 payload，包含 reason 以便回调函数正确处理
         payload = ArchivePayload(
             topic_id=topic_id,
+            topic_title=topic_title,
+            topic_summary=topic_summary,
             user_id=user_id,
             blocks=blocks_to_archive,
             state_summary=state_summary,
