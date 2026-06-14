@@ -53,7 +53,7 @@ class TestBufferManagerCollaboration:
         identity = Identity(user_id="user1", agent_id="agent1")
 
         # 创建 buffer
-        buffer = manager.create_buffer(user_id=identity.user_id, title="新建话题")
+        buffer = manager.create_buffer(user_id=identity.user_id, topic_title="新建话题")
 
         # 验证 buffer 创建
         assert buffer is not None
@@ -66,8 +66,8 @@ class TestBufferManagerCollaboration:
         identity = Identity(user_id="user1", agent_id="agent1")
 
         # 创建两个话题
-        buf1 = manager.create_buffer(user_id=identity.user_id, title="Topic 1")
-        buf2 = manager.create_buffer(user_id=identity.user_id, title="Topic 2")
+        buf1 = manager.create_buffer(user_id=identity.user_id, topic_title="Topic 1")
+        buf2 = manager.create_buffer(user_id=identity.user_id, topic_title="Topic 2")
 
         # 验证话题隔离
         assert buf1.topic_id != buf2.topic_id
@@ -115,7 +115,7 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         # 验证话题创建
         snapshots = perception.get_active_topics_snapshots(identity)
         assert len(snapshots) == 1
-        assert snapshots[0].title == "新建话题"
+        assert snapshots[0].topic_title == "新建话题"
 
     @pytest.mark.asyncio
     async def test_semantic_flow_buffer_info(self):
@@ -225,7 +225,7 @@ class TestPerceptionAndGenerationCollaboration:
         identity = Identity(user_id="test_user", agent_id="reviewer_doll")
         buffer = perception._buffer_manager.create_buffer(
             user_id=identity.user_id,
-            title="新建话题",
+            topic_title="新建话题",
         )
         topic_id = buffer.topic_id
         perception._buffer_manager.set_last_active_topic(topic_id)

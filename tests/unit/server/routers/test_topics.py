@@ -47,7 +47,7 @@ class _TopicManagementStub:
 def _make_snapshot(topic_id="t1", title="Test Topic"):
     s = MagicMock()
     s.topic_id = topic_id
-    s.title = title
+    s.topic_title = title
     s.state_summary = "summary"
     s.last_turn = {"user": "hi", "assistant": "hello"}
     s.total_tokens = 100
