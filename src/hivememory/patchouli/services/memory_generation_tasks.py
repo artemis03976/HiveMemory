@@ -23,6 +23,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, List, Optional
 
+from hivememory.core.models.artifact import ArtifactRef
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.generation.models import (
     GenerationContext,
@@ -80,13 +81,14 @@ class MemoryGenerationTaskController:
         self,
         topic_id: str,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> MemoryGenerationTask:
         """启动被动归档链路的记忆生成任务。"""
         return await self._create_and_run_task(
             topic_id=topic_id,
             label=topic_id,
             source=MemoryGenerationSource.ARCHIVE,
-            coro_factory=lambda mt: self._run_archive_task(mt, gen_context),
+            coro_factory=lambda mt: self._run_archive_task(mt, gen_context, interaction_ref),
         )
 
     async def run_active_generation(
@@ -95,6 +97,7 @@ class MemoryGenerationTaskController:
         topic_id: str,
         *,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> List[MemoryGenerationTask]:
         """启动 MTP WRITE/UPDATE 主动链路的记忆生成任务。"""
         memory_tasks = []
@@ -105,7 +108,7 @@ class MemoryGenerationTaskController:
                     label=task.pending_alias,
                     source=MemoryGenerationSource(task.source_verb),
                     pending_alias=task.pending_alias,
-                    coro_factory=lambda mt, t=task: self._run_active_task(mt, t, gen_context),
+                    coro_factory=lambda mt, t=task: self._run_active_task(mt, t, gen_context, interaction_ref),
                 )
             )
         return memory_tasks
@@ -161,6 +164,7 @@ class MemoryGenerationTaskController:
         self,
         memory_task: MemoryGenerationTask,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> None:
         """
         执行被动 ARCHIVE 生成链路。
@@ -176,6 +180,8 @@ class MemoryGenerationTaskController:
         try:
             logger.info(f"Memory generation archive task: {len(gen_context.turns)} turns")
             results = await self._run_generation(GenerationRequest(context=gen_context))
+            if interaction_ref is not None:
+                self._attach_interaction_ref(results, interaction_ref)
             # 被动链路可能产出多条记忆；Phase 2 先回填第一条可用 canonical_alias。
             self._backfill_memory_task_result(memory_task, results)
         except asyncio.CancelledError:
@@ -196,6 +202,7 @@ class MemoryGenerationTaskController:
         memory_task: MemoryGenerationTask,
         task: PendingAtomMaterializeTask,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> None:
         """
         执行单个 MTP WRITE/UPDATE 主动生成任务。
@@ -217,6 +224,8 @@ class MemoryGenerationTaskController:
                 results = await self._run_mode_b(task, gen_context)
             else:
                 results = await self._run_mode_c(task, gen_context)
+            if interaction_ref is not None:
+                self._attach_interaction_ref(results, interaction_ref)
             # 主动链路优先按 pending_alias 匹配结果，避免多 result 时串到其他任务。
             self._backfill_memory_task_result(
                 memory_task,
@@ -335,6 +344,24 @@ class MemoryGenerationTaskController:
                         )
 
         return results
+
+    def _attach_interaction_ref(
+        self,
+        results: List[MemoryGenerationResult],
+        interaction_ref: ArtifactRef,
+    ) -> None:
+        """将 interaction_ref 写入成功入库的 MemoryAtom.payload.artifacts.refs，并重新保存。"""
+        for r in results:
+            if r.atom is None:
+                continue
+            try:
+                r.atom.payload.artifacts.refs.append(interaction_ref)
+                self.storage.upsert_memory(r.atom)
+            except Exception:
+                logger.warning(
+                    f"Failed to attach interaction_ref to atom {getattr(r.atom, 'id', '?')}",
+                    exc_info=True,
+                )
 
     def _backfill_memory_task_result(
         self,

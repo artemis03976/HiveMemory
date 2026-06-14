@@ -147,9 +147,10 @@ class LibrarianCore:
             logger.warning("空对话轮次，跳过处理")
             return None
 
+        interaction_ref = None
         if self._artifact_engine and payload.blocks:
             try:
-                await self._artifact_engine.interaction.build_and_store(
+                interaction_ref = await self._artifact_engine.interaction.build_and_store(
                     topic_id=payload.topic_id,
                     topic_title=payload.topic_title,
                     topic_summary=payload.topic_summary,
@@ -161,6 +162,7 @@ class LibrarianCore:
         return await self._memory_task_controller.run_archive_generation(
             topic_id=payload.topic_id,
             gen_context=gen_context,
+            interaction_ref=interaction_ref,
         )
 
     async def run_active_generation(
@@ -176,9 +178,10 @@ class LibrarianCore:
         if self.perception_layer is not None:
             topic_context = self.perception_layer.get_topic_context(topic_id)
 
+        interaction_ref = None
         if self._artifact_engine and topic_context.get("blocks"):
             try:
-                await self._artifact_engine.interaction.build_and_store(
+                interaction_ref = await self._artifact_engine.interaction.build_and_store(
                     topic_id=topic_id,
                     topic_title=topic_context.get("topic_title", ""),
                     topic_summary=topic_context.get("topic_summary", ""),
@@ -195,6 +198,7 @@ class LibrarianCore:
             tasks,
             topic_id,
             gen_context=gen_context,
+            interaction_ref=interaction_ref,
         )
 
     def get_task(self, task_id: str) -> Optional[MemoryGenerationTask]:
