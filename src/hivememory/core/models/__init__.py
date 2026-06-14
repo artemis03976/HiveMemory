@@ -14,9 +14,9 @@ from .artifact import (
     DocumentLocator,
     DocumentArtifact,
     MemoryInputRef,
+    MemoryVersionSnapshot,
     MemoryCreationArtifact,
     MemoryVersionArtifact,
-    MemoryArchiveArtifact,
     MemoryProvenance,
 )
 from .memory import (
@@ -69,9 +69,9 @@ __all__ = [
     "DocumentLocator",
     "DocumentArtifact",
     "MemoryInputRef",
+    "MemoryVersionSnapshot",
     "MemoryCreationArtifact",
     "MemoryVersionArtifact",
-    "MemoryArchiveArtifact",
     "MemoryProvenance",
     "MemoryType",
     "MemoryVisibility",

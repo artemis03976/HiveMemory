@@ -160,9 +160,13 @@ class Artifacts(BaseModel):
         default_factory=list,
         description="MemoryProvenance 列表 - 记忆生命周期事件流水"
     )
-    cold_archive: Optional[Any] = Field(
+    cold_archive_uri: Optional[str] = Field(
         default=None,
-        description="ArtifactRef - 指向 L3 归档记录"
+        description="归档物理存储地址（文件路径或对象存储 URI）"
+    )
+    cold_archive_hash: Optional[str] = Field(
+        default=None,
+        description="归档内容 sha256，用于完整性校验"
     )
     revival_keys: List[str] = Field(
         default_factory=list,
