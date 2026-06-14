@@ -1,7 +1,7 @@
 """
 Artifact 数据模型 - v0.5.0 数据持久化与溯源层
 
-对应设计文档: V0.5.0DataDurabilityAndAsyncColdPathPlan.md Phase 1
+对应设计文档: V0.5.0DataDurabilityAndAsyncColdPathPlan.md Phase 1 & Phase 2
 """
 
 from datetime import datetime
@@ -63,29 +63,48 @@ class BaseArtifact(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ============ InteractionArtifact ============
+# ============ InteractionArtifact (Phase 2) ============
 
-class InteractionMessage(BaseModel):
-    role: str
-    content: str
-    timestamp: datetime = Field(default_factory=datetime.now)
-    turn_id: Optional[str] = None
-    message_id: Optional[str] = None
-    agent_id: Optional[str] = None
-    source: Optional[str] = None
+class InteractionTurnSnapshot(BaseModel):
+    """单轮交互快照 - 原始 LogicalBlock.turn 的 JSON 冻结视图。
+
+    不包含任何记忆归属信息（memory_id / alias / source_intent / capture_policy），
+    仅保留交互本身的内容真相。
+    """
+    block_id: str
+    turn_id: str
+    created_at: Optional[float] = None
+
+    user_id: str = ""
+    agent_id: str = ""
+    team_id: Optional[str] = None
+
+    user_query: str = ""
+    rewritten_query: Optional[str] = None
+    assistant_final_text: str = ""
+
+    # 使用 dict 快照而非强类型对象，避免 runtime 模型变更时破坏 artifact 读取
+    turn_events: List[Dict[str, Any]] = Field(default_factory=list)
+    actions: List[Dict[str, Any]] = Field(default_factory=list)
+    semantic_traces: List[Dict[str, Any]] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
 
 class InteractionArtifact(BaseArtifact):
-    """对话片段 Artifact - 绑定记忆的原始交互记录"""
-    artifact_type: ArtifactType = ArtifactType.INTERACTION
-    messages: List[InteractionMessage] = Field(default_factory=list)
-    memory_id: Optional[str] = None
-    memory_alias: Optional[str] = None
-    topic_id: Optional[str] = None
-    source_mode: Literal["topic_buffer", "active_context", "manual_import"] = "topic_buffer"
-    capture_policy: Literal["full_topic_buffer", "selected_context"] = "full_topic_buffer"
+    """话题原始交互 Artifact - 记录一个 topic 内的完整交互轨迹。
+
+    data body 不嵌入记忆归属信息（memory_id / generation_view /
+    source_intent / source_mode / capture_policy），保持原始性。
+    """
+    artifact_type: Literal[ArtifactType.INTERACTION] = ArtifactType.INTERACTION
+
+    topic_id: str
+    topic_title: str = ""
+    topic_summary: str = ""
+
+    turns: List[InteractionTurnSnapshot] = Field(default_factory=list)
+    captured_at: datetime = Field(default_factory=datetime.now)
 
 
 # ============ DocumentArtifact ============

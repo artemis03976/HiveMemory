@@ -53,6 +53,7 @@ from hivememory.engines.perception.relay_controller import (
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
+from hivememory.engines.perception.artifact_builder import InteractionArtifactBuilder
 
 from typing import Optional
 import logging
@@ -124,4 +125,6 @@ __all__ = [
     "create_relay_controller",
     # 工厂函数
     "create_perception_layer",
+    # Artifact 构建
+    "InteractionArtifactBuilder",
 ]
