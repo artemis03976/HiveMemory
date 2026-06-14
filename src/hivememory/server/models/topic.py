@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class TopicSnapshotResponse(BaseModel):
     topic_id: str
-    title: str
+    topic_title: str
     state_summary: str = ""
     last_turn: Optional[Dict[str, str]] = None
     total_tokens: int = 0

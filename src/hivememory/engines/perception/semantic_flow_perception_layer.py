@@ -431,7 +431,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
             snapshot = TopicSnapshot(
                 topic_id=buffer.topic_id,
-                title=buffer.title,
+                topic_title=buffer.topic_title,
+                topic_summary=buffer.topic_summary,
                 state_summary=buffer.state_summary,
                 last_turn=last_turn,
                 total_tokens=buffer.total_tokens,
@@ -504,7 +505,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         topics = [
             {
                 "topic_id": buf.topic_id,
-                "title": buf.title,
+                "topic_title": buf.topic_title,
+                "topic_summary": buf.topic_summary,
                 "state_summary": buf.state_summary or "",
                 "block_count": len(buf.blocks),
                 "last_accessed_at": buf.last_accessed_at,
@@ -546,7 +548,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 "state_summary": "",
                 "blocks": [],
                 "total_tokens": 0,
-                "title": "未知话题",
+                "topic_title": "未知话题",
             }
 
         # 更新访问时间
@@ -556,10 +558,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         recent_blocks = buffer.blocks[-max_recent_blocks:] if buffer.blocks else []
 
         return {
-            "state_summary": buffer.state_summary,
+            "topic_title": buffer.topic_title,
+            "topic_summary": buffer.topic_summary,
             "blocks": recent_blocks,
             "total_tokens": buffer.total_tokens,
-            "title": buffer.title,
+            "state_summary": buffer.state_summary,
         }
 
     async def create_new_topic(
@@ -583,10 +586,9 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             await self._evict_lru_topic()
         buffer = self._buffer_manager.create_buffer(
             user_id=identity.user_id,
-            title=title or "新建话题",
+            topic_title=title or "新建话题",
+            topic_summary=summary or "",
         )
-        if summary:
-            buffer.state_summary = summary
         return buffer.topic_id
 
     async def _evict_lru_topic(self) -> None:
@@ -599,7 +601,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         logger.info(
             f"LRU 驱逐话题: topic_id={buffer.topic_id}, "
-            f"title={buffer.title}"
+            f"topic_title={buffer.topic_title}"
+            f"topic_summary={buffer.topic_summary}"
         )
 
         # 调用统一调度器（Archive + Evict）
@@ -630,7 +633,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         buffer = self._buffer_manager.get_buffer(topic_id)
         if buffer:
-            buffer.title = title
+            buffer.topic_title = title
             logger.debug(f"话题 {topic_id} 标题更新为: {title}")
 
     # ========== Idle Hibernate (§5.1) ==========

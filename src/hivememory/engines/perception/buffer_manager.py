@@ -157,7 +157,7 @@ class SemanticBufferManager:
                 return buf
             return None
 
-    def create_buffer(self, user_id: str, title: str = "新建话题") -> SemanticBuffer:
+    def create_buffer(self, user_id: str, topic_title: str = "新建话题", topic_summary: str = "") -> SemanticBuffer:
         """
         创建新话题段
 
@@ -165,19 +165,20 @@ class SemanticBufferManager:
 
         Args:
             user_id: 用户标识
-            title: 话题标题
+            topic_title: 话题标题
+            topic_summary: 话题展示摘要（由 Gateway 生成，创建后不再修改）
 
         Returns:
             新创建的 SemanticBuffer（包含新生成的 topic_id）
         """
         with self._lock:
-            buf = SemanticBuffer(user_id=user_id, title=title)
+            buf = SemanticBuffer(user_id=user_id, topic_title=topic_title, topic_summary=topic_summary)
             topic_id = buf.topic_id
 
             self._buffers[topic_id] = buf
             self._update_user_index(user_id, topic_id)
 
-            logger.debug(f"创建新话题段: topic_id={topic_id}, title='{title}', owner={user_id}")
+            logger.debug(f"创建新话题段: topic_id={topic_id}, topic_title='{topic_title}', owner={user_id}")
             return buf
 
     def pop_buffer(self, topic_id: str) -> Optional[SemanticBuffer]:
@@ -197,7 +198,7 @@ class SemanticBufferManager:
             buf = self._buffers.pop(topic_id)
             self._update_user_index(buf.user_id, topic_id, remove=True)
 
-            logger.info(f"移除话题段: topic_id={topic_id}, title='{buf.title}'")
+            logger.info(f"移除话题段: topic_id={topic_id}, topic_title='{buf.topic_title}'")
             return buf
 
     def clear_buffer(self, topic_id: str) -> List[LogicalBlock]:
@@ -219,7 +220,6 @@ class SemanticBufferManager:
             buffer.clear()
 
             # 重置元数据
-            buffer.topic_kernel_vector = None
             buffer.state_summary = ""
 
             logger.debug(f"清空话题段内容: topic_id={topic_id}, 返回 {len(cleared_blocks)} 个 blocks")
@@ -301,15 +301,13 @@ class SemanticBufferManager:
     def update_metadata(
         self,
         topic_id: str,
-        topic_kernel_vector: Optional[List[float]] = None,
         state: Optional[BufferState] = None,
     ) -> None:
         """
-        更新 buffer 元数据
+        更新缓冲区元数据
 
         Args:
             topic_id: 话题 ID
-            topic_kernel_vector: 新的话题核心向量（None 表示不更新）
             state: 新的状态（None 表示不更新）
         """
         with self._lock:
@@ -317,9 +315,6 @@ class SemanticBufferManager:
             if not buffer:
                 logger.error(f"尝试更新不存在的 buffer 元数据: topic_id={topic_id}")
                 return
-
-            if topic_kernel_vector is not None:
-                buffer.topic_kernel_vector = topic_kernel_vector
 
             if state is not None:
                 buffer.state = state
@@ -407,7 +402,6 @@ class SemanticBufferManager:
                     "block_count": len(buffer.blocks),
                     "total_tokens": buffer.total_tokens,
                     "state": buffer.state.value if hasattr(buffer.state, 'value') else buffer.state,
-                    "has_topic_kernel": buffer.topic_kernel_vector is not None,
                 }
             return {"exists": False}
 

@@ -70,7 +70,7 @@ class PerceptionContextConverter:
         lines = ["【活跃话题列表】"]
 
         for idx, snapshot in enumerate(snapshots, 1):
-            lines.append(f"{idx}. [{snapshot.topic_id}: {snapshot.title}]")
+            lines.append(f"{idx}. [{snapshot.topic_id}: {snapshot.topic_title}]")
 
             # 添加状态摘要（如果有）
             if snapshot.state_summary:

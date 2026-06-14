@@ -204,7 +204,6 @@ class SemanticBuffer(BaseModel):
         title: 话题标题，由 TheEye 或 Kernel 异步生成，用于菜单展示
         state_summary: 页折叠后的状态摘要，伪无限上下文基底
         blocks: 已闭合的 LogicalBlock 列表（页表）
-        topic_kernel_vector: 话题核心向量（保留，用于向量相似度回退）
         state: 缓冲区状态
         last_update: 最后写入时间
         last_accessed_at: 最后访问时间（用于 LRU 驱逐）
@@ -213,22 +212,22 @@ class SemanticBuffer(BaseModel):
     topic_id: str = Field(default_factory=lambda: str(uuid4()), description="话题唯一标识")
     user_id: str = Field(default="default", description="用户标识")
 
-    # --- 多智能体调度 (Phase 1) ---
+    # --- 多智能体调度 ---
     #: 当前话题挂载的活跃人偶别名，Kernel 切换 Agent 时更新此指针
     current_agent_id: str = Field(
         default="default",
         description="当前话题挂载的活跃 Agent 别名 (如 coder_doll)"
     )
 
-    # --- 话题元数据 (TopicSegment, Phase 4.5 新增) ---
-    title: str = Field(default="新建话题", description="话题标题，由 TheEye 或 Kernel 异步生成")
-    state_summary: str = Field(default="", description="页折叠后的状态摘要，伪无限上下文基底")
+    # --- 话题元数据 (TopicSegment ---
+    topic_title: str = Field(default="新建话题", description="话题标题，由 TheEye 在话题创建时生成")
+    topic_summary: str = Field(default="", description="话题展示摘要，由 TheEye 在话题创建时生成，面向前端展示")
+
+    # --- 状态摘要 ---
+    state_summary: str = Field(default="", description="页折叠后的状态摘要，伪无限上下文基底，随上下文压缩反复更新")
 
     # --- 页表 (Pages) ---
     blocks: List[LogicalBlock] = Field(default_factory=list)
-
-    # 话题核心（保留，用于向量相似度回退）
-    topic_kernel_vector: Optional[List[float]] = None
 
     # --- 生命周期元数据 ---
     state: BufferState = BufferState.IDLE
@@ -295,8 +294,9 @@ class TopicSnapshot(BaseModel):
         total_tokens: 当前总 token 数
     """
     topic_id: str = Field(..., description="话题唯一标识")
-    title: str = Field(..., description="话题标题")
-    state_summary: str = Field(default="", description="话题状态摘要（如果有折叠）")
+    topic_title: str = Field(..., description="话题标题")
+    topic_summary: str = Field(default="", description="话题展示摘要（创建时由 Gateway 生成，不随折叠更新）")
+    state_summary: str = Field(default="", description="页折叠状态摘要（随上下文压缩更新）")
     last_turn: Optional[Dict[str, str]] = Field(
         default=None,
         description="最后一轮对话 {'user': '...', 'assistant': '...'}"
