@@ -39,6 +39,7 @@ from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import MTPResponseStatus
+from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
 
 
 # ========== Fixtures ==========
@@ -290,7 +291,7 @@ class TestModeCMergePrompt:
         assert result[0].atom.payload.content == "新内容"
         assert result[0].canonical_alias == existing_memory.get_alias()
         assert result[0].canonical_uuid == str(existing_memory.id)
-        mock_storage.upsert_memory.assert_called_once()
+        assert result[0].atom is not None
 
 
 # ========== Test 5: Mode C Fallback ==========
@@ -318,7 +319,7 @@ class TestModeCFallback:
 
         # fallback 应该保底入库
         assert len(result) == 1
-        assert mock_storage.upsert_memory.called
+        assert result[0].atom is not None
         # fallback 拼接: 旧内容 + 新内容
         assert "新增的段落" in result[0].atom.payload.content
         assert existing_memory.payload.content.split("\n")[0] in result[0].atom.payload.content
@@ -463,15 +464,6 @@ class TestApplyUpdate:
         assert result[0].settlement.resolution == PendingAtomResolution.UPDATED
         assert result[0].settlement.canonical_alias == existing_memory.get_alias()
 
-    def test_persisted_to_storage(self, existing_memory, merge_result):
-        mock_storage = MagicMock()
-        engine = MemoryGenerationEngine(
-            storage=mock_storage, extractor=MagicMock(), deduplicator=MagicMock(),
-        )
-        engine._apply_update(existing_memory, merge_result)
-
-        mock_storage.upsert_memory.assert_called_once_with(existing_memory)
-
     def test_multiple_updates_accumulate_history(self, existing_memory):
         engine = MemoryGenerationEngine(
             storage=MagicMock(), extractor=MagicMock(), deduplicator=MagicMock(),
@@ -514,7 +506,7 @@ class TestFlushCallbackModesUpdate:
             storage=mock_storage,
             bus=bus,
             lifecycle_engine=MagicMock(),
-            generation_engine=mock_generation,
+            task_controller=MemoryGenerationTaskController(storage=MagicMock() if 'mock_storage' not in locals() else mock_storage, generation_engine=mock_generation, bus=bus),
         )
 
         blocks = [
@@ -569,7 +561,7 @@ class TestFlushCallbackModesUpdate:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
-            generation_engine=mock_generation,
+            task_controller=MemoryGenerationTaskController(storage=MagicMock() if 'mock_storage' not in locals() else mock_storage, generation_engine=mock_generation, bus=bus),
         )
 
         blocks = [
@@ -613,7 +605,7 @@ class TestFlushCallbackModesUpdate:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
-            generation_engine=mock_generation,
+            task_controller=MemoryGenerationTaskController(storage=MagicMock() if 'mock_storage' not in locals() else mock_storage, generation_engine=mock_generation, bus=bus),
         )
 
         # 将 StreamMessage 转换为 LogicalBlock

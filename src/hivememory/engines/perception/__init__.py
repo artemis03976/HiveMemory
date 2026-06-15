@@ -124,4 +124,6 @@ __all__ = [
     "create_relay_controller",
     # 工厂函数
     "create_perception_layer",
+    # Artifact 构建
+    "InteractionArtifactBuilder",
 ]

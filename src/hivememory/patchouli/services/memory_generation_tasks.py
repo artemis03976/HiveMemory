@@ -21,10 +21,12 @@ import inspect
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, TYPE_CHECKING
 
+from hivememory.core.models.artifact import ArtifactRef, MemoryProvenance, MemoryVersionSnapshot
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.generation.models import (
+    DuplicateDecision,
     GenerationContext,
     GenerationRequest,
     MemoryGenerationResult,
@@ -39,6 +41,9 @@ from hivememory.patchouli.runtime.memory_tasks import (
     memory_task_to_payload,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+
+if TYPE_CHECKING:
+    from hivememory.engines.artifacts.engine import ArtifactEngine
 
 logger = logging.getLogger(__name__)
 
@@ -69,24 +74,27 @@ class MemoryGenerationTaskController:
         generation_engine: Optional[Any] = None,
         task_registry: Optional[MemoryGenerationTaskRegistry] = None,
         runtime_events: RuntimeEventSink | None = None,
+        artifact_engine: Optional["ArtifactEngine"] = None,
     ) -> None:
         self.storage = storage
         self._bus = bus
         self.generation_engine = generation_engine
         self._task_registry = task_registry or MemoryGenerationTaskRegistry()
         self._events = runtime_events or NullRuntimeEventSink()
+        self._artifact_engine = artifact_engine
 
     async def run_archive_generation(
         self,
         topic_id: str,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> MemoryGenerationTask:
         """启动被动归档链路的记忆生成任务。"""
         return await self._create_and_run_task(
             topic_id=topic_id,
             label=topic_id,
             source=MemoryGenerationSource.ARCHIVE,
-            coro_factory=lambda mt: self._run_archive_task(mt, gen_context),
+            coro_factory=lambda mt: self._run_archive_task(mt, gen_context, interaction_ref),
         )
 
     async def run_active_generation(
@@ -95,6 +103,7 @@ class MemoryGenerationTaskController:
         topic_id: str,
         *,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> List[MemoryGenerationTask]:
         """启动 MTP WRITE/UPDATE 主动链路的记忆生成任务。"""
         memory_tasks = []
@@ -105,7 +114,7 @@ class MemoryGenerationTaskController:
                     label=task.pending_alias,
                     source=MemoryGenerationSource(task.source_verb),
                     pending_alias=task.pending_alias,
-                    coro_factory=lambda mt, t=task: self._run_active_task(mt, t, gen_context),
+                    coro_factory=lambda mt, t=task: self._run_active_task(mt, t, gen_context, interaction_ref),
                 )
             )
         return memory_tasks
@@ -161,6 +170,7 @@ class MemoryGenerationTaskController:
         self,
         memory_task: MemoryGenerationTask,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> None:
         """
         执行被动 ARCHIVE 生成链路。
@@ -175,8 +185,12 @@ class MemoryGenerationTaskController:
         await self._start_task(memory_task)
         try:
             logger.info(f"Memory generation archive task: {len(gen_context.turns)} turns")
-            results = await self._run_generation(GenerationRequest(context=gen_context))
-            # 被动链路可能产出多条记忆；Phase 2 先回填第一条可用 canonical_alias。
+            results = await self._run_generation(
+                GenerationRequest(context=gen_context),
+                source_intent="ARCHIVE",
+                interaction_ref=interaction_ref,
+            )
+            # 被动链路可能产出多条记忆；回填第一条可用 canonical_alias。
             self._backfill_memory_task_result(memory_task, results)
         except asyncio.CancelledError:
             await self._finish_task(memory_task, MemoryGenerationTaskStatus.CANCELLED)
@@ -196,6 +210,7 @@ class MemoryGenerationTaskController:
         memory_task: MemoryGenerationTask,
         task: PendingAtomMaterializeTask,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> None:
         """
         执行单个 MTP WRITE/UPDATE 主动生成任务。
@@ -214,9 +229,9 @@ class MemoryGenerationTaskController:
         await self._start_task(memory_task)
         try:
             if task.source_verb == "WRITE":
-                results = await self._run_mode_b(task, gen_context)
+                results = await self._run_mode_b(task, gen_context, interaction_ref)
             else:
-                results = await self._run_mode_c(task, gen_context)
+                results = await self._run_mode_c(task, gen_context, interaction_ref)
             # 主动链路优先按 pending_alias 匹配结果，避免多 result 时串到其他任务。
             self._backfill_memory_task_result(
                 memory_task,
@@ -248,6 +263,7 @@ class MemoryGenerationTaskController:
         self,
         task: PendingAtomMaterializeTask,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> List[MemoryGenerationResult]:
         """Mode B：将 MTP WRITE 请求转换为 GenerationRequest。"""
         from hivememory.core.models.pending import WriteFocus
@@ -262,12 +278,13 @@ class MemoryGenerationTaskController:
             intent_id=task.intent_id,
             pending_alias=task.pending_alias,
         )
-        return await self._run_generation(request)
+        return await self._run_generation(request, source_intent="WRITE", interaction_ref=interaction_ref)
 
     async def _run_mode_c(
         self,
         task: PendingAtomMaterializeTask,
         gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None = None,
     ) -> List[MemoryGenerationResult]:
         """Mode C：加载 UPDATE 目标记忆，并转换为 GenerationRequest。"""
         from uuid import UUID as _UUID
@@ -295,14 +312,21 @@ class MemoryGenerationTaskController:
             intent_id=task.intent_id,
             pending_alias=task.pending_alias,
         )
-        return await self._run_generation(request)
+        return await self._run_generation(request, source_intent="UPDATE", interaction_ref=interaction_ref)
 
-    async def _run_generation(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def _run_generation(
+        self,
+        request: GenerationRequest,
+        source_intent: str = "WRITE",
+        interaction_ref: ArtifactRef | None = None,
+    ) -> List[MemoryGenerationResult]:
         """
-        调用生成引擎并发布 PendingAtom settlement 事件。
+        三步流水线：compute → artifacts → persist。
 
-        返回结构化 MemoryGenerationResult，供任务终态前回填 canonical_alias。
+        持久化职责从 GenerationEngine 上移至此处，确保 artifact refs 在
+        第一次 upsert 时就已挂载到 MemoryAtom，无需二次写入。
         """
+        # Step 1: 纯计算（引擎不再持久化）
         process_result = self.generation_engine.process(request)
         results = (
             await process_result if inspect.isawaitable(process_result)
@@ -316,10 +340,23 @@ class MemoryGenerationTaskController:
             else "No memories extracted"
         )
 
+        # Step 2: 构建 artifact 并将 refs 挂载到 atom（不持久化）
+        await self._build_memory_artifacts(results, request.context, source_intent, interaction_ref)
+
+        # Step 3: 持久化 CREATE/UPDATE 结果（refs 已就位，一次写入）
+        for r in results:
+            if r.duplicate_decision in (DuplicateDecision.CREATE, DuplicateDecision.UPDATE) and r.atom is not None:
+                try:
+                    self.storage.upsert_memory(r.atom)
+                    logger.info(f"✓ 记忆已存储: '{r.atom.index.title}' (ID: {r.atom.id})")
+                except Exception as e:
+                    logger.error(f"存储记忆失败: {e}", exc_info=True)
+                    raise
+
+        # 发布 settlement 事件（主动链路应答桥）
         if self._bus is not None:
             for result in results:
                 if result.settlement is not None:
-                    # Settlement 是主动 WRITE/UPDATE 与 Alice PendingAtomRuntime 的应答桥。
                     try:
                         await self._bus.publish(
                             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
@@ -335,6 +372,76 @@ class MemoryGenerationTaskController:
                         )
 
         return results
+
+    async def _build_memory_artifacts(
+        self,
+        results: List[MemoryGenerationResult],
+        gen_context: GenerationContext,
+        source_intent: str,
+        interaction_ref: ArtifactRef | None,
+    ) -> None:
+        """
+        Step 2: 构建 artifact 并将 refs/provenance 挂载到 atom。
+
+        不负责持久化——所有 upsert 由调用方 _run_generation Step 3 统一执行。
+        """
+        if not self._artifact_engine:
+            if interaction_ref:
+                for r in results:
+                    if r.atom is not None and r.duplicate_decision in (DuplicateDecision.CREATE, DuplicateDecision.UPDATE):
+                        r.atom.payload.artifacts.refs.append(interaction_ref)
+            return
+
+        builder = self._artifact_engine.memory
+        src_refs = [interaction_ref] if interaction_ref else []
+
+        for r in results:
+            atom = r.atom
+            if atom is None:
+                continue
+            try:
+                if r.duplicate_decision == DuplicateDecision.CREATE:
+                    bundle = await builder.build_for_create(
+                        memory=atom,
+                        context=gen_context,
+                        source_intent=source_intent,
+                        source_artifact_refs=src_refs,
+                    )
+                    atom.payload.artifacts.refs.extend([
+                        bundle.initial_version_ref, bundle.creation_ref,
+                    ])
+                    if interaction_ref:
+                        atom.payload.artifacts.refs.append(interaction_ref)
+                    atom.payload.artifacts.provenance.append(MemoryProvenance(
+                        action="created",
+                        source_intent=source_intent,
+                        source_artifacts=src_refs,
+                    ))
+
+                elif r.duplicate_decision == DuplicateDecision.UPDATE:
+                    version_ref = await builder.build_for_update(
+                        memory_after=atom,
+                        snapshot_before=r.memory_before_snapshot,
+                        update_source="UPDATE",
+                        changelog=atom.payload.artifacts.full_history[-1].get("reason") if atom.payload.artifacts.full_history else None,
+                        source_artifact_refs=src_refs,
+                    )
+                    if atom.payload.artifacts.full_history:
+                        atom.payload.artifacts.full_history[-1]["artifact_refs"] = [version_ref.model_dump(mode="json")]
+                    if interaction_ref:
+                        atom.payload.artifacts.refs.append(interaction_ref)
+                    atom.payload.artifacts.refs.append(version_ref)
+                    atom.payload.artifacts.provenance.append(MemoryProvenance(
+                        action="updated",
+                        source_intent=source_intent,
+                        source_artifacts=src_refs,
+                    ))
+
+            except Exception:
+                logger.warning(
+                    f"Failed to build memory artifacts for {getattr(atom, 'id', '?')}",
+                    exc_info=True,
+                )
 
     def _backfill_memory_task_result(
         self,

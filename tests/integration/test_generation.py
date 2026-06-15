@@ -166,9 +166,6 @@ class TestMemoryGenerationEngineLogic:
         assert result[0].atom is not None
         assert result[0].atom.index.title == "Test"
 
-        # 验证存储调用
-        self.mock_storage.upsert_memory.assert_called_once()
-
     def test_process_touch_existing_memory(self):
         """测试 TOUCH 现有记忆"""
         self.mock_extractor.extract.return_value = self.draft
@@ -201,9 +198,8 @@ class TestMemoryGenerationEngineLogic:
         assert result[0].atom is not None
         assert result[0].atom.index.title == "Merged Title"
 
-        # 验证调用了合并和存储
+        # 验证调用了合并
         self.mock_deduplicator.merge_memory.assert_called_once()
-        self.mock_storage.upsert_memory.assert_called_once()
 
     def test_process_discard_memory(self):
         """测试 DISCARD 记忆"""

@@ -160,7 +160,7 @@ class TestTopicModels:
     def test_snapshot_response(self):
         s = TopicSnapshotResponse(
             topic_id="t1",
-            title="Test Topic",
+            topic_title="Test Topic",
             state_summary="summary",
             last_turn={"user": "hi", "assistant": "hello"},
         )

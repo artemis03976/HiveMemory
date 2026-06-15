@@ -46,6 +46,7 @@ from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import MTPResponseStatus
+from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
 
 
 # ========== Fixtures ==========
@@ -252,9 +253,9 @@ class TestModeBFallback:
 
         result = engine.process(request=request)
 
-        # fallback 应该保底入库
+        # fallback 应该保底生成 atom
         assert len(result) == 1
-        assert mock_storage.upsert_memory.called
+        assert result[0].atom is not None
 
     def test_fallback_draft_content(self):
         engine = MemoryGenerationEngine(
@@ -305,7 +306,7 @@ class TestFlushCallbackModes:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
-            generation_engine=mock_generation,
+            task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
         )
 
         # 将 StreamMessage 转换为 LogicalBlock
@@ -356,7 +357,7 @@ class TestFlushCallbackModes:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
-            generation_engine=mock_generation,
+            task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
         )
 
         memory_tasks = await core.run_active_generation([], topic_id="topic_test")
@@ -374,7 +375,7 @@ class TestFlushCallbackModes:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
-            generation_engine=mock_generation,
+            task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
         )
 
         # 将 StreamMessage 转换为 LogicalBlock
@@ -413,7 +414,7 @@ class TestFlushCallbackModes:
             storage=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
-            generation_engine=mock_generation,
+            task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
         )
 
         # 将 StreamMessage 转换为 LogicalBlock

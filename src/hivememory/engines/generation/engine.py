@@ -32,6 +32,7 @@ from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
 )
+from hivememory.core.models.artifact import MemoryVersionSnapshot
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft, GenerationRequest, GenerationContext,
@@ -286,17 +287,19 @@ class MemoryGenerationEngine:
         pending_alias: Optional[str] = None,
     ) -> List[MemoryGenerationResult]:
         """
-        执行版本历史追踪 + 内容更新 + 持久化
+        执行版本历史追踪 + 内容更新。持久化由调用方负责。
 
-        1. Push old content → artifacts.full_history
-        2. 更新 history_summary
-        3. 覆盖 payload.content
-        4. 更新 meta (updated_at, confidence, version)
-        5. 持久化 (重新生成向量)
+        1. 捕获变更前快照
+        2. Push old content → artifacts.full_history
+        3. 更新 history_summary
+        4. 覆盖 payload.content
+        5. 更新 meta (updated_at, confidence, version)
         """
         now = datetime.now()
 
-        # 1. Push History: 旧内容压入 artifacts.full_history
+        before_snapshot = _snapshot(memory)
+
+        # Push History: 旧内容压入 artifacts.full_history
         history_item = {
             "timestamp": now.isoformat(),
             "content": memory.payload.content,
@@ -304,23 +307,20 @@ class MemoryGenerationEngine:
         }
         memory.payload.artifacts.full_history.append(history_item)
 
-        # 2. 更新 history_summary (简化版本记录)
+        # 更新 history_summary
         summary_line = f"{now.strftime('%Y-%m-%d')}: {result.changelog}"
         memory.payload.history_summary.append(summary_line)
 
-        # 3. Update Head: 覆盖 payload.content
+        # Update Head: 覆盖 payload.content
         memory.payload.content = result.new_content
 
-        # 4. 更新 meta
+        # 更新 meta
         memory.meta.updated_at = now
-        memory.meta.confidence_score = 1.0  # Agent 主动修改
+        memory.meta.confidence_score = 1.0
         memory.meta.version += 1
 
-        # 5. 持久化 (重新生成向量)
-        self._save_memory(memory)
-
         logger.info(
-            f"[Mode C] UPDATE 完成: '{memory.index.title}' "
+            f"[Mode C] UPDATE 内容已准备: '{memory.index.title}' "
             f"v{memory.meta.version}, changelog='{result.changelog}'"
         )
 
@@ -330,7 +330,8 @@ class MemoryGenerationEngine:
             atom=memory,
             canonical_alias=memory.get_alias(),
             canonical_uuid=str(memory.id),
-            duplicate_decision=None,
+            duplicate_decision=DuplicateDecision.UPDATE,
+            memory_before_snapshot=before_snapshot,
             settlement=self._build_settlement(
                 intent_id, pending_alias,
                 PendingAtomResolution.UPDATED,
@@ -374,8 +375,8 @@ class MemoryGenerationEngine:
         elif decision == DuplicateDecision.UPDATE:
             logger.info("记忆演化，合并内容")
 
+            before_snapshot = _snapshot(existing_memory)
             merged_memory = self.deduplicator.merge_memory(existing_memory, draft)
-            self._save_memory(merged_memory)
 
             return [MemoryGenerationResult(
                 intent_id=intent_id,
@@ -384,6 +385,7 @@ class MemoryGenerationEngine:
                 canonical_alias=merged_memory.get_alias(),
                 canonical_uuid=str(merged_memory.id),
                 duplicate_decision=DuplicateDecision.UPDATE,
+                memory_before_snapshot=before_snapshot,
                 settlement=self._build_settlement(
                     intent_id, pending_alias,
                     PendingAtomResolution.MERGED,
@@ -395,7 +397,6 @@ class MemoryGenerationEngine:
             logger.info("创建新记忆")
 
             memory = self._draft_to_memory(draft, identity)
-            self._save_memory(memory)
 
             return [MemoryGenerationResult(
                 intent_id=intent_id,
@@ -591,3 +592,15 @@ class MemoryGenerationEngine:
 __all__ = [
     "MemoryGenerationEngine",
 ]
+
+
+def _snapshot(memory: MemoryAtom) -> MemoryVersionSnapshot:
+    """从 MemoryAtom 提取可变字段快照，供 artifact 版本记录使用。"""
+    return MemoryVersionSnapshot(
+        content=memory.payload.content,
+        alias=memory.index.alias,
+        title=memory.index.title,
+        summary=memory.index.summary,
+        tags=list(memory.index.tags),
+        memory_type=memory.index.memory_type.value if memory.index.memory_type else None,
+    )

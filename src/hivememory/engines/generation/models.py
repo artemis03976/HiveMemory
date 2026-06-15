@@ -181,6 +181,7 @@ class MemoryGenerationResult(BaseModel):
     canonical_uuid: Optional[str] = None
 
     duplicate_decision: Optional[DuplicateDecision] = None
+    memory_before_snapshot: Optional[Any] = None  # MemoryVersionSnapshot，UPDATE 时保存变更前快照
 
     settlement: Optional[PendingAtomSettlement] = None
     message: Optional[str] = None

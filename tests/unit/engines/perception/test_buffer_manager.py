@@ -45,12 +45,12 @@ class TestSemanticBufferManagerBasic:
 
     def test_create_buffer(self):
         """测试创建新 buffer"""
-        buffer = self.manager.create_buffer(self.identity.user_id, title="Test Topic")
+        buffer = self.manager.create_buffer(self.identity.user_id, topic_title="Test Topic")
 
         assert buffer is not None
         assert buffer.user_id == "user1"
         assert buffer.current_agent_id == "default"
-        assert buffer.title == "Test Topic"
+        assert buffer.topic_title == "Test Topic"
         assert buffer.topic_id is not None
         assert len(buffer.blocks) == 0
 
@@ -160,19 +160,6 @@ class TestSemanticBufferManagerCRUD:
 
     # ========== update_metadata 测试 ==========
 
-    def test_update_topic_kernel_vector(self):
-        """测试更新话题核心向量"""
-        buffer = self.manager.create_buffer(self.identity.user_id)
-
-        new_vector = [0.1, 0.2, 0.3]
-        self.manager.update_metadata(
-            buffer.topic_id,
-            topic_kernel_vector=new_vector
-        )
-
-        retrieved = self.manager.get_buffer(buffer.topic_id)
-        assert retrieved.topic_kernel_vector == new_vector
-
     def test_update_state(self):
         """测试更新状态"""
         buffer = self.manager.create_buffer(self.identity.user_id)
@@ -191,12 +178,10 @@ class TestSemanticBufferManagerCRUD:
 
         self.manager.update_metadata(
             buffer.topic_id,
-            topic_kernel_vector=[0.1, 0.2],
             state=BufferState.FLUSHING
         )
 
         retrieved = self.manager.get_buffer(buffer.topic_id)
-        assert retrieved.topic_kernel_vector == [0.1, 0.2]
         assert retrieved.state == BufferState.FLUSHING
 
 
@@ -212,13 +197,13 @@ class TestSemanticBufferManagerMultiTopic:
         identity = Identity(user_id="user1", agent_id="agent1")
 
         # 创建两个话题
-        buffer1 = self.manager.create_buffer(identity.user_id, title="Topic 1")
-        buffer2 = self.manager.create_buffer(identity.user_id, title="Topic 2")
+        buffer1 = self.manager.create_buffer(identity.user_id, topic_title="Topic 1")
+        buffer2 = self.manager.create_buffer(identity.user_id, topic_title="Topic 2")
 
         # 两个 buffer 应该有不同的 topic_id
         assert buffer1.topic_id != buffer2.topic_id
-        assert buffer1.title == "Topic 1"
-        assert buffer2.title == "Topic 2"
+        assert buffer1.topic_title == "Topic 1"
+        assert buffer2.topic_title == "Topic 2"
 
         # 可以通过 topic_id 独立获取
         retrieved1 = self.manager.get_buffer(buffer1.topic_id)
@@ -295,18 +280,6 @@ class TestSemanticBufferManagerInfo:
         assert info["block_count"] == 1
         assert info["total_tokens"] == 50
 
-    def test_get_buffer_info_with_topic_kernel(self):
-        """测试获取有话题核心的 buffer 信息"""
-        buffer = self.manager.create_buffer(self.identity.user_id)
-        self.manager.update_metadata(
-            buffer.topic_id,
-            topic_kernel_vector=[0.1, 0.2, 0.3]
-        )
-
-        info = self.manager.get_buffer_info(buffer.topic_id)
-
-        assert info["has_topic_kernel"] is True
-
 
 class TestSemanticBufferActiveTopics:
     """活跃话题筛选测试"""
@@ -320,8 +293,8 @@ class TestSemanticBufferActiveTopics:
         identity = Identity(user_id="user1", agent_id="agent1")
 
         # 创建话题
-        buf1 = self.manager.create_buffer(identity.user_id, title="Topic 1")
-        buf2 = self.manager.create_buffer(identity.user_id, title="Topic 2")
+        buf1 = self.manager.create_buffer(identity.user_id, topic_title="Topic 1")
+        buf2 = self.manager.create_buffer(identity.user_id, topic_title="Topic 2")
 
         # 添加 blocks 以使话题出现在菜单中
         block = LogicalBlock(

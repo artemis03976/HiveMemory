@@ -32,12 +32,11 @@ from hivememory.patchouli.services.memory_generation_tasks import (
 )
 from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
-    MemoryGenerationTaskRegistry,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:
+    from hivememory.engines.artifacts.engine import ArtifactEngine
     from hivememory.engines.generation.engine import MemoryGenerationEngine
     from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
@@ -79,22 +78,15 @@ class LibrarianCore:
         bus: Optional[Any] = None,
         lifecycle_engine: Optional["MemoryLifecycleEngine"] = None,
         perception_layer: Optional["BasePerceptionLayer"] = None,
-        generation_engine: Optional["MemoryGenerationEngine"] = None,
-        task_registry: Optional[MemoryGenerationTaskRegistry] = None,
-        runtime_events: RuntimeEventSink | None = None,
+        task_controller: Optional[MemoryGenerationTaskController] = None,
+        artifact_engine: Optional["ArtifactEngine"] = None,
     ):
         self.storage = storage
         self._bus = bus
         self.lifecycle_engine = lifecycle_engine
         self.perception_layer = perception_layer
-        self.generation_engine = generation_engine
-        self._memory_task_controller = MemoryGenerationTaskController(
-            storage=storage,
-            bus=bus,
-            generation_engine=generation_engine,
-            task_registry=task_registry,
-            runtime_events=runtime_events or NullRuntimeEventSink(),
-        )
+        self._artifact_engine = artifact_engine
+        self._memory_task_controller = task_controller
 
         if self.perception_layer and hasattr(self.perception_layer, "set_generation_callback"):
             self.perception_layer.set_generation_callback(self._on_generate_memory)
@@ -144,9 +136,22 @@ class LibrarianCore:
             logger.warning("空对话轮次，跳过处理")
             return None
 
+        interaction_ref = None
+        if self._artifact_engine and payload.blocks:
+            try:
+                interaction_ref = await self._artifact_engine.interaction.build_and_store(
+                    topic_id=payload.topic_id,
+                    topic_title=payload.topic_title,
+                    topic_summary=payload.topic_summary,
+                    blocks=payload.blocks,
+                )
+            except Exception:
+                logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
+
         return await self._memory_task_controller.run_archive_generation(
             topic_id=payload.topic_id,
             gen_context=gen_context,
+            interaction_ref=interaction_ref,
         )
 
     async def run_active_generation(
@@ -158,9 +163,21 @@ class LibrarianCore:
         if not tasks:
             return []
 
-        topic_context: Dict[str, Any] = {"state_summary": "", "blocks": []}
+        topic_context: Dict[str, Any] = {"state_summary": "", "blocks": [], "topic_title": "", "topic_summary": ""}
         if self.perception_layer is not None:
             topic_context = self.perception_layer.get_topic_context(topic_id)
+
+        interaction_ref = None
+        if self._artifact_engine and topic_context.get("blocks"):
+            try:
+                interaction_ref = await self._artifact_engine.interaction.build_and_store(
+                    topic_id=topic_id,
+                    topic_title=topic_context.get("topic_title", ""),
+                    topic_summary=topic_context.get("topic_summary", ""),
+                    blocks=topic_context["blocks"],
+                )
+            except Exception:
+                logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
 
         gen_context = self._build_generation_context(
             topic_context.get("blocks", []),
@@ -170,6 +187,7 @@ class LibrarianCore:
             tasks,
             topic_id,
             gen_context=gen_context,
+            interaction_ref=interaction_ref,
         )
 
     def get_task(self, task_id: str) -> Optional[MemoryGenerationTask]:

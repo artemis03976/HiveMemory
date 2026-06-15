@@ -652,6 +652,17 @@ class I18nConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+# ========== Artifact 存储配置 ==========
+
+class ArtifactStoreConfig(BaseModel):
+    """本地 Artifact 文件存储配置 (v0.5.0)"""
+    enabled: bool = Field(default=True, description="是否启用 Artifact 持久化")
+    root_dir: str = Field(default=".hivememory/artifacts", description="Artifact 根目录")
+    max_inline_summary_chars: int = Field(default=500, description="ArtifactRef.summary 最大字符数")
+
+    model_config = ConfigDict(extra="ignore")
+
+
 # ========== 主配置类 ==========
 
 class HiveMemoryConfig(BaseSettings):
@@ -676,6 +687,7 @@ class HiveMemoryConfig(BaseSettings):
     generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
+    artifacts: ArtifactStoreConfig = Field(default_factory=ArtifactStoreConfig)
     agent_runtime: AgentRuntimeConfig = Field(default_factory=AgentRuntimeConfig)
     koakuma: KoakumaConfig = Field(default_factory=KoakumaConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)

@@ -303,7 +303,7 @@ class PatchouliRuntime:
         """
         构建所有引擎，返回字典统一管理
 
-        包含：perception, generation, lifecycle, retrieval
+        包含：perception, generation, lifecycle, retrieval, artifact
         不包含：gateway（属于 TheEye 的依赖）
         """
         return {
@@ -311,6 +311,7 @@ class PatchouliRuntime:
             "generation": self._build_generation_engine(),
             "lifecycle": self._build_lifecycle_engine(),
             "retrieval": self._build_retrieval_engine(),
+            "artifact": self._build_artifact_engine(),
         }
 
     def _build_retrieval_engine(self):
@@ -373,6 +374,17 @@ class PatchouliRuntime:
             deduplicator=deduplicator,
         )
 
+    def _build_artifact_engine(self):
+        """[私有构建器] 组装 ArtifactEngine（本地文件系统存储）"""
+        from hivememory.engines.artifacts.engine import ArtifactEngine
+        from hivememory.infrastructure.storage.artifact_store import FilesystemArtifactStore
+
+        artifact_config = self.config.artifacts
+        if not artifact_config.enabled:
+            return None
+        store = FilesystemArtifactStore(root_dir=artifact_config.root_dir)
+        return ArtifactEngine(store=store)
+
     def _build_lifecycle_engine(self):
         """[私有构建器] 组装 Lifecycle 模块"""
         from hivememory.engines.lifecycle import (
@@ -418,9 +430,10 @@ class PatchouliRuntime:
         注册微服务到运行时
 
         当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore)
+        MemoryGenerationTaskController 作为中期记忆生成控制中枢独立构建后注入 LibrarianCore。
         """
-        # 构建被动模式渲染器 (Passive.md §5.2)
         from hivememory.patchouli.services.librarian import LibrarianCore
+        from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         from hivememory.engines.retrieval.renderer import FullContextRenderer
         from hivememory.system.config import FullRendererConfig
@@ -435,16 +448,24 @@ class PatchouliRuntime:
             local_bus=self._local_bus,
         )
 
-        self._services["librarian"] = LibrarianCore(
+        task_controller = MemoryGenerationTaskController(
             storage=self.storage,
             bus=self._local_bus,
-            lifecycle_engine=self._engines["lifecycle"],
-            perception_layer=self._engines["perception"],
             generation_engine=self._engines["generation"],
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="memory_generation_task_controller",
             ),
+            artifact_engine=self._engines["artifact"],
+        )
+
+        self._services["librarian"] = LibrarianCore(
+            storage=self.storage,
+            bus=self._local_bus,
+            lifecycle_engine=self._engines["lifecycle"],
+            perception_layer=self._engines["perception"],
+            task_controller=task_controller,
+            artifact_engine=self._engines["artifact"],
         )
 
     @property

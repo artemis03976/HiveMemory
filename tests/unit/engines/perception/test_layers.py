@@ -152,4 +152,3 @@ class TestSemanticFlowPerceptionLayer:
 
         # 验证 buffer 已清空
         assert len(buffer.blocks) == 0
-        assert buffer.topic_kernel_vector is None

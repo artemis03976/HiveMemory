@@ -52,6 +52,7 @@ async def test_create_new_topic_calls_create_buffer_with_user_id():
 
     assert topic_id == "topic-xyz"
     layer._buffer_manager.create_buffer.assert_called_once_with(
-        user_id="u1",
-        title="新建话题",
-    )
+            user_id="u1",
+            topic_title="新建话题",
+            topic_summary=""
+        )

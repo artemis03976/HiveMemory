@@ -4,6 +4,20 @@ HiveMemory 核心数据模型
 重导出记忆、智能体、交互流转等领域模型，以保持向下兼容性。
 """
 
+from .artifact import (
+    ArtifactType,
+    ArtifactRef,
+    BaseArtifact,
+    InteractionTurnSnapshot,
+    InteractionArtifact,
+    DocumentLocator,
+    DocumentArtifact,
+    MemoryInputRef,
+    MemoryVersionSnapshot,
+    MemoryCreationArtifact,
+    MemoryVersionArtifact,
+    MemoryProvenance,
+)
 from .memory import (
     MemoryType,
     MemoryVisibility,
@@ -45,6 +59,18 @@ from .pending import (
 )
 
 __all__ = [
+    "ArtifactType",
+    "ArtifactRef",
+    "BaseArtifact",
+    "InteractionTurnSnapshot",
+    "InteractionArtifact",
+    "DocumentLocator",
+    "DocumentArtifact",
+    "MemoryInputRef",
+    "MemoryVersionSnapshot",
+    "MemoryCreationArtifact",
+    "MemoryVersionArtifact",
+    "MemoryProvenance",
     "MemoryType",
     "MemoryVisibility",
     "VerificationStatus",
