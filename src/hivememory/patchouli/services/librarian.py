@@ -32,10 +32,8 @@ from hivememory.patchouli.services.memory_generation_tasks import (
 )
 from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
-    MemoryGenerationTaskRegistry,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:
     from hivememory.engines.artifacts.engine import ArtifactEngine
@@ -80,24 +78,15 @@ class LibrarianCore:
         bus: Optional[Any] = None,
         lifecycle_engine: Optional["MemoryLifecycleEngine"] = None,
         perception_layer: Optional["BasePerceptionLayer"] = None,
-        generation_engine: Optional["MemoryGenerationEngine"] = None,
-        task_registry: Optional[MemoryGenerationTaskRegistry] = None,
-        runtime_events: RuntimeEventSink | None = None,
+        task_controller: Optional[MemoryGenerationTaskController] = None,
         artifact_engine: Optional["ArtifactEngine"] = None,
     ):
         self.storage = storage
         self._bus = bus
         self.lifecycle_engine = lifecycle_engine
         self.perception_layer = perception_layer
-        self.generation_engine = generation_engine
         self._artifact_engine = artifact_engine
-        self._memory_task_controller = MemoryGenerationTaskController(
-            storage=storage,
-            bus=bus,
-            generation_engine=generation_engine,
-            task_registry=task_registry,
-            runtime_events=runtime_events or NullRuntimeEventSink(),
-        )
+        self._memory_task_controller = task_controller
 
         if self.perception_layer and hasattr(self.perception_layer, "set_generation_callback"):
             self.perception_layer.set_generation_callback(self._on_generate_memory)

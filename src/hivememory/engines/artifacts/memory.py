@@ -68,8 +68,8 @@ class MemoryArtifactBuilder:
     async def build_for_update(
         self,
         *,
-        memory_before: MemoryAtom,
         memory_after: MemoryAtom,
+        snapshot_before: Optional[MemoryVersionSnapshot] = None,
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
         changelog: Optional[str] = None,
         source_artifact_refs: Optional[List[ArtifactRef]] = None,
@@ -80,7 +80,7 @@ class MemoryArtifactBuilder:
             memory_id=str(memory_after.id),
             version_number=memory_after.meta.version,
             update_source=update_source,
-            snapshot_before=_snapshot(memory_before),
+            snapshot_before=snapshot_before,
             snapshot_after=_snapshot(memory_after),
             changelog=changelog,
             changed_at=datetime.now(),
