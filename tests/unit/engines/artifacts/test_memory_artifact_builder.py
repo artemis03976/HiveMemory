@@ -17,8 +17,10 @@ from hivememory.core.models.artifact import (
     ArtifactRef, ArtifactType,
     MemoryCreationArtifact, MemoryVersionArtifact, MemoryVersionSnapshot,
 )
+from hivememory.core.models.pending import Identity, PendingAtomMaterializeTask, UpdateFocus
 from hivememory.engines.artifacts.memory import MemoryArtifactBuilder, MemoryCreationBundle
-from hivememory.engines.generation.models import GenerationContext
+from hivememory.engines.generation.models import DuplicateDecision, GenerationContext, MemoryGenerationResult
+from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
 
 
 def _ref(artifact_type: ArtifactType = ArtifactType.MEMORY_VERSION) -> ArtifactRef:
@@ -188,3 +190,74 @@ async def test_build_for_update_snapshot_before_and_after(builder, store):
     assert v.snapshot_after.content == "Initial content"
     assert v.version_number == 3
     assert v.update_source == "MERGE"
+
+
+@pytest.mark.asyncio
+async def test_update_provenance_uses_update_intent_and_interaction_ref(store):
+    builder = MemoryArtifactBuilder(store)
+    artifact_engine = MagicMock()
+    artifact_engine.memory = builder
+    controller = MemoryGenerationTaskController(
+        storage=MagicMock(),
+        generation_engine=MagicMock(),
+        artifact_engine=artifact_engine,
+    )
+    atom = _make_atom()
+    atom.payload.artifacts.full_history = [{"reason": "merged new facts"}]
+    atom.payload.artifacts.refs = []
+    atom.payload.artifacts.provenance = []
+    interaction_ref = ArtifactRef(
+        artifact_id="interaction-1",
+        artifact_type=ArtifactType.INTERACTION,
+    )
+    result = MemoryGenerationResult(
+        atom=atom,
+        duplicate_decision=DuplicateDecision.UPDATE,
+        memory_before_snapshot=MemoryVersionSnapshot(content="old"),
+    )
+
+    await controller._build_memory_artifacts(
+        [result],
+        _make_context(),
+        "UPDATE",
+        interaction_ref,
+    )
+
+    provenance = atom.payload.artifacts.provenance[-1]
+    assert provenance.action == "updated"
+    assert provenance.source_intent == "UPDATE"
+    assert provenance.source_artifacts == [interaction_ref]
+    assert atom.payload.artifacts.full_history[-1]["artifact_refs"]
+
+
+@pytest.mark.asyncio
+async def test_run_mode_c_passes_update_source_intent():
+    atom = _make_atom()
+    storage = MagicMock()
+    storage.get_memory = AsyncMock(return_value=atom)
+    controller = MemoryGenerationTaskController(
+        storage=storage,
+        generation_engine=MagicMock(),
+    )
+    controller._run_generation = AsyncMock(return_value=[])
+    interaction_ref = ArtifactRef(
+        artifact_id="interaction-1",
+        artifact_type=ArtifactType.INTERACTION,
+    )
+    task = PendingAtomMaterializeTask(
+        pending_alias="draft_update",
+        intent_id="intent_update",
+        source_verb="UPDATE",
+        identity=Identity(user_id="u1"),
+        focus=UpdateFocus(
+            instruction="merge",
+            base_uuid=str(atom.id),
+            base_alias="fact_test",
+        ),
+    )
+
+    await controller._run_mode_c(task, _make_context(), interaction_ref)
+
+    _, kwargs = controller._run_generation.call_args
+    assert kwargs["source_intent"] == "UPDATE"
+    assert kwargs["interaction_ref"] == interaction_ref

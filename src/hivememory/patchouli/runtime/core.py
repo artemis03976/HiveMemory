@@ -465,6 +465,7 @@ class PatchouliRuntime:
             lifecycle_engine=self._engines["lifecycle"],
             perception_layer=self._engines["perception"],
             task_controller=task_controller,
+            artifact_engine=self._engines["artifact"],
         )
 
     @property

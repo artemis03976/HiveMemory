@@ -312,7 +312,7 @@ class MemoryGenerationTaskController:
             intent_id=task.intent_id,
             pending_alias=task.pending_alias,
         )
-        return await self._run_generation(request, source_intent="WRITE", interaction_ref=interaction_ref)
+        return await self._run_generation(request, source_intent="UPDATE", interaction_ref=interaction_ref)
 
     async def _run_generation(
         self,
@@ -433,7 +433,8 @@ class MemoryGenerationTaskController:
                     atom.payload.artifacts.refs.append(version_ref)
                     atom.payload.artifacts.provenance.append(MemoryProvenance(
                         action="updated",
-                        source_artifacts=[version_ref],
+                        source_intent=source_intent,
+                        source_artifacts=src_refs,
                     ))
 
             except Exception:

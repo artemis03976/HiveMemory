@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
+from hivememory.core.models.artifact import ArtifactRef, MemoryProvenance
+
 
 class MemoryType(str, Enum):
     """记忆类型枚举 - 用于区分记忆的应用场景"""
@@ -152,11 +154,11 @@ class Artifacts(BaseModel):
     )
 
     # ---- v0.5.0 正式溯源层 ----
-    refs: List[Any] = Field(
+    refs: List[ArtifactRef] = Field(
         default_factory=list,
         description="ArtifactRef 列表 - 指向本记忆关联的所有 Artifact"
     )
-    provenance: List[Any] = Field(
+    provenance: List[MemoryProvenance] = Field(
         default_factory=list,
         description="MemoryProvenance 列表 - 记忆生命周期事件流水"
     )

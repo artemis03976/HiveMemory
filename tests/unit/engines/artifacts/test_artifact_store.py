@@ -12,8 +12,9 @@ import json
 import hashlib
 import pytest
 from datetime import datetime
+from pathlib import Path
 
-from hivememory.core.models.artifact import ArtifactType, ArtifactRef, InteractionArtifact
+from hivememory.core.models.artifact import ArtifactType, ArtifactRef, InteractionArtifact, MemoryProvenance
 from hivememory.core.models.memory import Artifacts
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.infrastructure.storage.artifact_store import FilesystemArtifactStore
@@ -68,6 +69,20 @@ async def test_sha256_matches_content(store):
 
 
 @pytest.mark.asyncio
+async def test_get_json_rejects_tampered_content(store):
+    artifact = _make_artifact()
+    ref = await store.put_json(artifact)
+
+    path = Path(ref.uri)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["topic_id"] = "tampered-topic"
+    path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="hash mismatch"):
+        await store.get_json(ref)
+
+
+@pytest.mark.asyncio
 async def test_exists(store):
     artifact = _make_artifact("exists-id")
     assert not await store.exists("exists-id")
@@ -100,6 +115,39 @@ def test_old_artifacts_payload_deserializes():
     assert artifacts.cold_archive_uri is None
     assert artifacts.cold_archive_hash is None
     assert artifacts.revival_keys == []
+
+
+def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
+    payload = {
+        "refs": [
+            {
+                "artifact_id": "interaction-1",
+                "artifact_type": "interaction",
+                "uri": "/tmp/interaction.json",
+                "sha256": "abc",
+            }
+        ],
+        "provenance": [
+            {
+                "action": "updated",
+                "source_intent": "UPDATE",
+                "source_artifacts": [
+                    {
+                        "artifact_id": "interaction-1",
+                        "artifact_type": "interaction",
+                    }
+                ],
+            }
+        ],
+    }
+
+    artifacts = Artifacts.model_validate(payload)
+
+    assert isinstance(artifacts.refs[0], ArtifactRef)
+    assert isinstance(artifacts.provenance[0], MemoryProvenance)
+    assert artifacts.provenance[0].source_intent == "UPDATE"
+    assert isinstance(artifacts.provenance[0].source_artifacts[0], ArtifactRef)
+
 
 
 # ── ArtifactEngine ────────────────────────────────────────────────────────────

@@ -51,6 +51,7 @@ class FilesystemArtifactStore:
     async def put_json(self, artifact: BaseArtifact, *, namespace: Optional[str] = None) -> ArtifactRef:
         def _write() -> ArtifactRef:
             data = artifact.model_dump(mode="json")
+            data["content_hash"] = None
             payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
             sha = hashlib.sha256(payload.encode()).hexdigest()
 
@@ -76,13 +77,33 @@ class FilesystemArtifactStore:
 
     async def get_json(self, ref_or_id: "ArtifactRef | str") -> Dict[str, Any]:
         def _read() -> Dict[str, Any]:
+            expected_hash = None
             if isinstance(ref_or_id, ArtifactRef):
                 path = Path(ref_or_id.uri)
+                expected_hash = ref_or_id.sha256 or None
             else:
                 path = self._find_by_id(ref_or_id)
                 if path is None:
                     raise FileNotFoundError(f"artifact not found: {ref_or_id}")
-            return json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            stored_hash = data.get("content_hash")
+
+            hash_payload = dict(data)
+            hash_payload["content_hash"] = None
+            payload = json.dumps(hash_payload, ensure_ascii=False, separators=(",", ":"))
+            actual_hash = hashlib.sha256(payload.encode()).hexdigest()
+
+            if stored_hash and stored_hash != actual_hash:
+                raise ValueError(
+                    f"artifact hash mismatch for {data.get('artifact_id')}: "
+                    f"stored={stored_hash}, actual={actual_hash}"
+                )
+            if expected_hash and expected_hash != actual_hash:
+                raise ValueError(
+                    f"artifact ref hash mismatch for {data.get('artifact_id')}: "
+                    f"expected={expected_hash}, actual={actual_hash}"
+                )
+            return data
 
         return await asyncio.to_thread(_read)
 
