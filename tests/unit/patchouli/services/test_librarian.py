@@ -18,6 +18,7 @@ from hivememory.engines.generation.models import GenerationRequest
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationSource
 from hivememory.patchouli.services.librarian import LibrarianCore
+from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
@@ -54,6 +55,16 @@ def _make_kernel_logical_blocks(n=2):
     return blocks
 
 
+def _make_controller(generation_engine=None, storage=None, runtime_events=None, bus=None):
+    from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+    return MemoryGenerationTaskController(
+        storage=storage or MagicMock(),
+        generation_engine=generation_engine,
+        runtime_events=runtime_events,
+        bus=bus,
+    )
+
+
 class TestLibrarianCoreInit:
     """初始化测试"""
 
@@ -63,7 +74,6 @@ class TestLibrarianCoreInit:
         core = LibrarianCore(storage=mock_storage)
         assert core.storage is mock_storage
         assert core._bus is None
-        assert core.generation_engine is None
         assert core.perception_layer is None
 
     def test_init_with_all_dependencies(self):
@@ -77,14 +87,13 @@ class TestLibrarianCoreInit:
         core = LibrarianCore(
             storage=mock_storage,
             bus=mock_bus,
-            generation_engine=mock_generation,
+            task_controller=_make_controller(mock_generation, mock_storage),
             perception_layer=mock_perception,
             lifecycle_engine=mock_lifecycle,
         )
 
         assert core.storage is mock_storage
         assert core._bus is mock_bus
-        assert core.generation_engine is mock_generation
         assert core.perception_layer is mock_perception
         assert core.lifecycle_engine is mock_lifecycle
 
@@ -169,7 +178,7 @@ class TestLibrarianCoreGenerateMemory:
         self.mock_storage = MagicMock()
         self.core = LibrarianCore(
             storage=self.mock_storage,
-            generation_engine=self.mock_generation,
+            task_controller=_make_controller(self.mock_generation, self.mock_storage),
         )
 
     def _core_with_context(self, blocks=None, bus=None):
@@ -181,7 +190,7 @@ class TestLibrarianCoreGenerateMemory:
         core = LibrarianCore(
             storage=self.mock_storage,
             bus=bus,
-            generation_engine=self.mock_generation,
+            task_controller=_make_controller(self.mock_generation, self.mock_storage, bus=bus),
             perception_layer=perception_layer,
         )
         return core
@@ -191,7 +200,7 @@ class TestLibrarianCoreGenerateMemory:
         perception_layer = Mock()
         core = LibrarianCore(
             storage=self.mock_storage,
-            generation_engine=self.mock_generation,
+            task_controller=_make_controller(self.mock_generation, self.mock_storage),
             perception_layer=perception_layer,
         )
 
@@ -560,8 +569,7 @@ class TestLibrarianCoreGenerateMemory:
         recorder = RecordingRuntimeEventSink()
         core = LibrarianCore(
             storage=self.mock_storage,
-            generation_engine=self.mock_generation,
-            runtime_events=recorder,
+            task_controller=_make_controller(self.mock_generation, self.mock_storage, runtime_events=recorder),
         )
         payload = ArchivePayload(
             topic_id="topic_test",
@@ -695,7 +703,10 @@ class TestLibrarianCoreGenerateMemory:
     @pytest.mark.asyncio
     async def test_generate_memory_without_generation_engine(self):
         """没有 generation_engine 时跳过处理"""
-        core = LibrarianCore(storage=Mock())
+        core = LibrarianCore(
+            storage=Mock(),
+            task_controller=_make_controller(None, Mock()),
+        )
         blocks = _make_logical_blocks(2)
 
         payload = ArchivePayload(
@@ -754,7 +765,7 @@ class TestLibrarianCoreGenerateMemory:
         mock_perception.get_buffer.return_value = Mock(identity=identity)
         core = LibrarianCore(
             storage=self.mock_storage,
-            generation_engine=self.mock_generation,
+            task_controller=_make_controller(self.mock_generation, self.mock_storage),
             perception_layer=mock_perception,
         )
         blocks = _make_kernel_logical_blocks(2)

@@ -25,6 +25,7 @@ from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
 def _make_core(mock_generation=None, mock_storage=None, bus=None, runtime_events=None):
+    from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
     gen = mock_generation or MagicMock()
     gen.process.return_value = []
     storage = mock_storage or MagicMock()
@@ -34,12 +35,17 @@ def _make_core(mock_generation=None, mock_storage=None, bus=None, runtime_events
         "state_summary": "",
         "blocks": [],
     }
+    task_controller = MemoryGenerationTaskController(
+        storage=storage,
+        generation_engine=gen,
+        bus=bus or AsyncMock(),
+        runtime_events=runtime_events,
+    )
     core = LibrarianCore(
         storage=storage,
         bus=bus or AsyncMock(),
-        generation_engine=gen,
+        task_controller=task_controller,
         perception_layer=perception_layer,
-        runtime_events=runtime_events,
     )
     return core, gen
 
