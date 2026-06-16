@@ -42,7 +42,7 @@ from hivememory.core.protocol.models import (
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.config import HiveMemoryConfig, load_app_config
+from hivememory.system.config import PatchouliConfig, SharedConfig
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 if TYPE_CHECKING:
@@ -83,16 +83,12 @@ class PatchouliRuntime:
 
     def __init__(
         self,
-        config: Optional[HiveMemoryConfig] = None,
+        patchouli_config: PatchouliConfig,
+        shared_config: SharedConfig,
         runtime_events: RuntimeEventSink | None = None,
     ):
-        """
-        初始化帕秋莉运行时
-
-        Args:
-            config: 完整的 HiveMemory 配置（可选）
-        """
-        self.config = config or load_app_config()
+        self._patchouli_config = patchouli_config
+        self._shared_config = shared_config
         self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._local_bus = PatchouliBus()
         self._local_routes_registered = False
@@ -279,17 +275,17 @@ class PatchouliRuntime:
         """
         from hivememory.infrastructure.storage import QdrantMemoryStore
         self.storage = QdrantMemoryStore(
-            qdrant_config=self.config.qdrant,
-            embedding_config=self.config.embedding.default,
+            qdrant_config=self._patchouli_config.storage,
+            embedding_config=self._shared_config.embedding.default,
         )
 
         from hivememory.infrastructure.llm import get_librarian_llm_service
         self.librarian_llm_service = get_librarian_llm_service(
-            config=self.config.llm.librarian
+            config=self._shared_config.llm.librarian
         )
 
         from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
-        reranker_config = self.config.retrieval.retriever.reranker
+        reranker_config = self._patchouli_config.retrieval.retriever.reranker
         if reranker_config.enabled:
             self.reranker_service = get_fast_embed_reranker_service(
                 config=reranker_config
@@ -322,7 +318,7 @@ class PatchouliRuntime:
             BaseContextRenderer, create_renderer,
         )
 
-        config = self.config.retrieval
+        config = self._patchouli_config.retrieval
 
         retriever: BaseMemoryRetriever = create_retriever(
             self.storage,
@@ -344,7 +340,7 @@ class PatchouliRuntime:
         from hivememory.engines.perception import create_perception_layer
 
         return create_perception_layer(
-            config=self.config.perception,
+            config=self._patchouli_config.perception,
             llm_service=self.librarian_llm_service,
         )
 
@@ -356,7 +352,7 @@ class PatchouliRuntime:
             BaseDeduplicator, create_deduplicator,
         )
 
-        config = self.config.generation
+        config = self._patchouli_config.generation
 
         extractor: BaseMemoryExtractor = create_extractor(
             config.extractor,
@@ -379,7 +375,7 @@ class PatchouliRuntime:
         from hivememory.engines.artifacts.engine import ArtifactEngine
         from hivememory.infrastructure.storage.artifact_store import FilesystemArtifactStore
 
-        artifact_config = self.config.artifacts
+        artifact_config = self._patchouli_config.artifacts
         if not artifact_config.enabled:
             return None
         store = FilesystemArtifactStore(root_dir=artifact_config.root_dir)
@@ -396,23 +392,23 @@ class PatchouliRuntime:
         )
 
         vitality_calculator = VitalityCalculator(
-            self.config.lifecycle.vitality_calculator
+            self._patchouli_config.lifecycle.vitality_calculator
         )
 
         reinforcement_engine = DynamicReinforcementEngine(
             storage=self.storage,
-            config=self.config.lifecycle.reinforcement,
+            config=self._patchouli_config.lifecycle.reinforcement,
             vitality_calculator=vitality_calculator
         )
 
         archiver: BaseMemoryArchiver = create_archiver(
             self.storage,
-            self.config.lifecycle.archiver
+            self._patchouli_config.lifecycle.archiver
         )
 
         garbage_collector: BaseGarbageCollector = create_garbage_collector(
             archiver,
-            self.config.lifecycle.garbage_collector
+            self._patchouli_config.lifecycle.garbage_collector
         )
 
         return MemoryLifecycleEngine(

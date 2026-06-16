@@ -1,13 +1,7 @@
 # HiveMemory 主配置文件
 #
-# 配置分层原则:
-# 1. 环境变量 (.env): 仅用于敏感信息 (API Keys)、基础设施地址 (Host/Port) 和环境切换 (Debug/Model)。
-# 2. 此文件 (config.yaml): 用于定义所有业务逻辑参数、算法阈值、默认配置等。
-#
-# 环境变量覆盖机制:
-# 尽管建议遵循上述分层，但所有配置项技术上都支持通过环境变量覆盖。
-# 格式: HIVEMEMORY__<SECTION>__<FIELD> (双下划线分隔)
-# 示例: HIVEMEMORY__PERCEPTION__SEMANTIC_FLOW__IDLE_TIMEOUT_SECONDS=900
+# 环境变量格式: HIVEMEMORY__<SECTION>__<FIELD> (双下划线分隔)
+# 示例: HIVEMEMORY__PATCHOULI__PERCEPTION__ENGINE__IDLE_TIMEOUT_SECONDS=900
 
 # ========== 系统配置 ==========
 system:
@@ -27,10 +21,8 @@ i18n:
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  file_path: null  # 设置为路径以启用文件日志
+  file_path: null
   console_output: true
-
-  # WebSocket 日志广播配置
   websocket_enabled: true
   websocket_namespaces:
     - "hivememory.patchouli.*"
@@ -46,175 +38,170 @@ runtime_events:
   buffer_size: 1000
   subscriber_queue_size: 100
 
-# ========== LLM 模型配置 ==========
-llm:
-  gateway:
-    provider: "litellm"
-    model: "deepseek/deepseek-chat"
-    api_key: null  # 通过环境变量 HIVEMEMORY__LLM__GATEWAY__API_KEY 设置
-    api_base: null
-    temperature: 0.7
-    max_tokens: 4096
+# ========== 跨子系统共享配置 ==========
+shared:
+  llm:
+    gateway:
+      provider: "litellm"
+      model: "deepseek/deepseek-chat"
+      api_key: null  # 通过环境变量 HIVEMEMORY__SHARED__LLM__GATEWAY__API_KEY 设置
+      api_base: null
+      temperature: 0.7
+      max_tokens: 4096
 
-  librarian:
-    provider: "litellm"
-    model: "deepseek/deepseek-chat"
-    api_key: null  # 通过环境变量 HIVEMEMORY__LLM__LIBRARIAN__API_KEY 设置
-    api_base: null
-    temperature: 0.3
-    max_tokens: 4096
-  
-  worker:
-    provider: "litellm"
-    model: "deepseek/deepseek-chat"
-    api_key: null  # 通过环境变量 HIVEMEMORY__LLM__LIBRARIAN__API_KEY 设置
-    api_base: null
-    temperature: 1.0
-    max_tokens: 4096
+    librarian:
+      provider: "litellm"
+      model: "deepseek/deepseek-chat"
+      api_key: null  # 通过环境变量 HIVEMEMORY__SHARED__LLM__LIBRARIAN__API_KEY 设置
+      api_base: null
+      temperature: 0.3
+      max_tokens: 4096
 
-# ========== Embedding 模型配置 ==========
-embedding:
-  default:
-    model_name: "Xenova/bge-m3"
-    device: "cpu"  # 可选: cpu, cuda, mps
-    cache_dir: "data/model_cache"
-    batch_size: 32
-    normalize_embeddings: true
-    dimension: 1024
+    worker:
+      provider: "litellm"
+      model: "deepseek/deepseek-chat"
+      api_key: null  # 通过环境变量 HIVEMEMORY__SHARED__LLM__WORKER__API_KEY 设置
+      api_base: null
+      temperature: 1.0
+      max_tokens: 4096
 
-# ========== 向量数据库配置 ==========
-qdrant:
-  host: "localhost"
-  port: 6333
-  grpc_port: 6334
-  api_key: null  # 通过环境变量 HIVEMEMORY__QDRANT__API_KEY 设置
-  collection_name: "hivememory_main"
-  vector_dimension: 1024
-  distance_metric: "Cosine"
-  on_disk_payload: false
-
-# ========== Gateway 配置 ==========
-gateway:
-  interceptor:
-    enabled: true
-    enable_system: true  # 系统指令拦截
-    enable_chat: true    # 闲聊拦截
-    custom_system_patterns: []  # 自定义系统指令模式
-    custom_chat_patterns: []    # 自定义闲聊模式
-
-  analyzer:
-    enabled: true
-
-# ========== 感知层配置 ==========
-perception:
-  engine:
-    type: "semantic_flow"
-    idle_timeout_seconds: 900  # 15分钟
-    scan_interval_seconds: 30
-
-    # Page Folding 配置
-    fold_token_threshold: 32768  # 页折叠高水位线
-    fold_retain_recent_blocks: 2  # 折叠后保留的最近 block 数量
-
-    # MMU 话题池配置
-    max_resident_topics: 5  # 活跃话题池最大驻留数
-
-    # RelayController 配置
-    relay:
-      engine:
-        type: "simple"  # simple/llm
-
-# ========== 记忆生成配置 ==========
-generation:
-  extractor:
-    enabled: true
-
-  deduplicator:
-    enabled: true
-    high_similarity_threshold: 0.95  # TOUCH/UPDATE 分界
-    low_similarity_threshold: 0.75   # UPDATE/CREATE 分界
-    content_similarity_threshold: 0.9
-    enable_vitality_tracking: true
-
-# ========== 记忆检索配置 ==========
-retrieval:
-  renderer:
-    type: "compact"  # 可选: full, cascade, compact
-    render_format: "xml"  # xml/markdown
-    max_tokens: 2000
-    max_content_length: 500
-    show_artifacts: false
-    stale_days: 90
-
-  retriever:
-    type: "hybrid"
-    top_k: 5
-    score_threshold: 0.0
-    enable_parallel: true
-
-    dense:
-      type: "dense"
-      enabled: true
-      top_k: 50
-      score_threshold: 0.0
-      enable_time_decay: true
-      time_decay_days: 30
-      enable_confidence_boost: true
-
-    sparse:
-      type: "sparse"
-      enabled: true
-      top_k: 50
-      score_threshold: 0.0
-
-    fusion:
-      type: "rrf"  # 可选: rrf, adaptive
-      rrf_k: 60
-      dense_weight: 1.0
-      sparse_weight: 1.0
-      final_top_k: 5
-
-    reranker:
-      enabled: true
-      model_name: "BAAI/bge-reranker-base"
+  embedding:
+    default:
+      model_name: "Xenova/bge-m3"
       device: "cpu"
       cache_dir: "data/model_cache"
-      use_fp16: true
       batch_size: 32
-      top_k: 20
-      normalize_scores: true
+      normalize_embeddings: true
+      dimension: 1024
 
-# ========== 记忆生命周期配置 ==========
-lifecycle:
-  vitality_calculator:
-    code_snippet_weight: 1.0
-    fact_weight: 0.9
-    url_resource_weight: 0.8
-    reflection_weight: 0.7
-    user_profile_weight: 0.6
-    work_in_progress_weight: 0.5
-    default_weight: 0.5
-    max_access_boost: 20.0
-    points_per_access: 2.0
-    decay_lambda: 0.01
+# ========== Patchouli 子系统配置 ==========
+patchouli:
+  storage:
+    host: "localhost"
+    port: 6333
+    grpc_port: 6334
+    api_key: null  # 通过环境变量 HIVEMEMORY__PATCHOULI__STORAGE__API_KEY 设置
+    collection_name: "hivememory_main"
+    vector_dimension: 1024
+    distance_metric: "Cosine"
+    on_disk_payload: false
 
-  reinforcement:
-    enable_event_history: true
-    event_history_limit: 10000
-    hit_boost: 5.0
-    citation_boost: 20.0
-    positive_feedback_boost: 50.0
-    negative_feedback_penalty: -50.0
-    negative_confidence_multiplier: 0.5
+  gateway:
+    interceptor:
+      enabled: true
+      enable_system: true
+      enable_chat: true
+      custom_system_patterns: []
+      custom_chat_patterns: []
+    analyzer:
+      enabled: true
 
-  archiver:
-    archive_dir: "data/archived"
-    compression: true
+  perception:
+    engine:
+      type: "semantic_flow"
+      idle_timeout_seconds: 900
+      scan_interval_seconds: 30
+      fold_token_threshold: 32768
+      fold_retain_recent_blocks: 2
+      max_resident_topics: 5
+      relay:
+        engine:
+          type: "simple"
 
-  garbage_collector:
-    low_watermark: 20.0
-    batch_size: 10
-    enable_schedule: false
-    interval_hours: 24
+  generation:
+    extractor:
+      enabled: true
+    deduplicator:
+      enabled: true
+      high_similarity_threshold: 0.95
+      low_similarity_threshold: 0.75
+      content_similarity_threshold: 0.9
+      enable_vitality_tracking: true
 
-  high_watermark: 80.0
+  retrieval:
+    renderer:
+      type: "compact"
+      max_tokens: 2000
+      max_content_length: 500
+      show_artifacts: false
+      stale_days: 90
+    retriever:
+      type: "hybrid"
+      top_k: 5
+      score_threshold: 0.0
+      enable_parallel: true
+      dense:
+        type: "dense"
+        enabled: true
+        top_k: 50
+        score_threshold: 0.0
+        enable_time_decay: true
+        time_decay_days: 30
+        enable_confidence_boost: true
+      sparse:
+        type: "sparse"
+        enabled: true
+        top_k: 50
+        score_threshold: 0.0
+      fusion:
+        type: "rrf"
+        rrf_k: 60
+        dense_weight: 1.0
+        sparse_weight: 1.0
+        final_top_k: 5
+      reranker:
+        enabled: true
+        model_name: "BAAI/bge-reranker-base"
+        device: "cpu"
+        cache_dir: "data/model_cache"
+        use_fp16: true
+        batch_size: 32
+        top_k: 20
+        normalize_scores: true
+
+  lifecycle:
+    vitality_calculator:
+      code_snippet_weight: 1.0
+      fact_weight: 0.9
+      url_resource_weight: 0.8
+      reflection_weight: 0.7
+      user_profile_weight: 0.6
+      work_in_progress_weight: 0.5
+      default_weight: 0.5
+      max_access_boost: 20.0
+      points_per_access: 2.0
+      decay_lambda: 0.01
+    reinforcement:
+      enable_event_history: true
+      event_history_limit: 10000
+      hit_boost: 5.0
+      citation_boost: 20.0
+      positive_feedback_boost: 50.0
+      negative_feedback_penalty: -50.0
+      negative_confidence_multiplier: 0.5
+    archiver:
+      archive_dir: "data/archived"
+      compression: true
+    garbage_collector:
+      low_watermark: 20.0
+      batch_size: 10
+    high_watermark: 80.0
+
+  artifacts:
+    enabled: true
+    root_dir: ".hivememory/artifacts"
+    max_inline_summary_chars: 500
+
+# ========== Alice 子系统配置 ==========
+alice:
+  koakuma:
+    enabled: true
+    execution_timeout_seconds: 30
+    workspace_path: "./workspace"
+    mtp_prompt:
+      enabled: true
+      include_demo: true
+      include_error_handling: true
+
+  runtime:
+    max_loop_iterations: 10
