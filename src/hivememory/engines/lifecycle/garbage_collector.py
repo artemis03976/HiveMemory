@@ -34,7 +34,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
     Examples:
         >>> gc = PeriodicGarbageCollector(archiver, config)
-        >>> archived_count = gc.collect(refreshed_memories, force=True)
+        >>> archived_count = await gc.collect(refreshed_memories, force=True)
         >>> print(f"Archived {archived_count} memories")
     """
 

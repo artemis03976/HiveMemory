@@ -30,7 +30,6 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 logger = logging.getLogger(__name__)
 
 
-# TODO: 检索链路完全异步化
 class RetrievalFamiliar:
     """
     帕秋莉·检索使魔 (The Retrieval Familiar of Patchouli)
@@ -39,7 +38,7 @@ class RetrievalFamiliar:
     这是一个即时响应的动作（Hot Path），没有复杂的思考，只有精准的执行。
 
     特性：
-        - 同步阻塞
+        - 原生异步 I/O
         - 高并发
         - 本地计算密集
 
@@ -62,7 +61,7 @@ class RetrievalFamiliar:
         engine = RetrievalEngine(retriever=..., renderer=...)
         familiar = RetrievalFamiliar(engine=engine, storage=...)
 
-        result = familiar.retrieve(request)
+        result = await familiar.retrieve(request)
         ```
     """
 

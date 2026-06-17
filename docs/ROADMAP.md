@@ -1,7 +1,7 @@
 # HiveMemory 系统开发路线图
 
 **文档状态**: Living Roadmap  
-**更新时间**: 2026-06-13  
+**更新时间**: 2026-06-17  
 **版本口径**: `v0.x.0` 表示一个可独立验收的系统能力阶段，不等同于所有内部设计文档的 phase 编号。
 
 ---
@@ -18,9 +18,9 @@ HiveMemory 的演进不是从一个普通聊天应用逐步叠功能，而是围
 | v0.2.0 | 多 Agent 隔离与 Agent Profile 虚拟记忆原子 | 已完成 | 将 Agent 身份配置化、记忆化，并支持隔离的多 Agent 运行 |
 | v0.3.0 | 多 Agent CALL、PendingAtom、Alice Orchestrator、MemoryCompiler | 已完成 | 打通 Agent 间调用、临时记忆结算、编排边界与记忆编译入口 |
 | v0.4.0 | Runtime Control 与系统事件观测 | 已完成 / 稳定化 | 将 chat run 与 memory task 建模为可取消、可观测、可审计的运行时对象 |
-| v0.5.0 | Data Durability & Artifact 体系 | 进行中 | 将原始交互与记忆生成 provenance 固化为可追溯的冷资产；建立 artifact 数据底座 |
-| v0.5.1 | 基础设施清理 | 规划中 | Config 重分层（Patchouli/Alice 独立 config）、NoOp 组件补全、cancel_event 传入 MTP executor |
-| v0.5.2 | Async-Native Adaptation | 规划中 | 存储层切换 AsyncQdrantClient，generation/retrieval 全链路原生 async |
+| v0.5.0 | Data Durability & Artifact 体系 | 已完成 | 将原始交互与记忆生成 provenance 固化为可追溯的冷资产；建立 artifact 数据底座 |
+| v0.5.1 | 基础设施清理 | 部分完成 | Config 重分层（Patchouli/Alice 独立 config）、NoOp 组件补全、cancel_event 传入 MTP executor |
+| v0.5.2 | Async-Native Adaptation | 已完成 | 存储层切换 AsyncQdrantClient，generation/retrieval 全链路原生 async，并补齐 lifecycle / runtime health 的异步调用 |
 | v0.5.3 | Patchouli 架构重构 | 规划中 | LibrarianCore 解构，建立 MemoryLibrary + MemoryIngestionPipeline，扩展 RetrievalFamiliar 为全层检索 |
 | v0.6.0 | System Gateway & Commands | 候选规划 | Gateway 上移、复合意图拆分、MTP READ/RUN、Alice Phase 3 |
 | v0.7.0+ | 记忆 split/merge、L3 冷存储复活 | 候选规划 | 在稳定数据底座上扩展高级生命周期行为 |

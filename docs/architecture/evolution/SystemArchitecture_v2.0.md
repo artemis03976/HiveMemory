@@ -15,8 +15,8 @@
 
 | 分身名称 | 对应模块实现 | 所在层级 | 核心职责 | 特性 |
 | :--- | :--- | :--- | :--- | :--- |
-| **真理之眼 (The Eye)** | **Global Gateway** | **交互层 (Interaction)** | 意图识别、查询重写、流量分发 | **同步阻塞**、极低延迟、小模型驱动 |
-| **检索使魔 (Retrieval Familiar)** | **Retrieval Engine** | **热处理层 (Hot Path)** | 混合检索、重排序、上下文渲染 | **同步阻塞**、高并发、本地计算密集 |
+| **真理之眼 (The Eye)** | **Global Gateway** | **交互层 (Interaction)** | 意图识别、查询重写、流量分发 | **原生异步**、极低延迟、小模型驱动 |
+| **检索使魔 (Retrieval Familiar)** | **Retrieval Engine** | **热处理层 (Hot Path)** | 混合检索、重排序、上下文渲染 | **原生异步**、高并发、本地计算密集 |
 | **大图书馆本体 (Librarian Core)** | **Perception Layer + Memory Generation + Lifecycle** | **冷处理层 (Cold Path)** | 话题感知、记忆生成、生命周期管理 | **异步非阻塞**、高智商、SOTA 模型驱动 |
 
 ### 1.2 顶层数据流架构
@@ -155,8 +155,8 @@ src/hivememory
 │
 ├─patchouli                    # [NEW] 人格层：帕秋莉的三位一体分身
 │  │  __init__.py              # 导出 Eye, Familiar, Core
-│  │  eye.py                   # [REFACTOR] 真理之眼 (GlobalGateway/Router, 原 gateway/gateway.py) - 同步阻塞
-│  │  retrieval_familiar.py    # [REFACTOR] 检索使魔 (Retrieval Engine, 原 retrieval/engine.py) - 同步阻塞
+│  │  eye.py                   # [REFACTOR] 真理之眼 (GlobalGateway/Router, 原 gateway/gateway.py) - 原生异步
+│  │  retrieval_familiar.py    # [REFACTOR] 检索使魔 (Retrieval Engine, 原 retrieval/engine.py) - 原生异步
 │  │  librarian_core.py        # [REFACTOR] 馆长本体 (原 agents/patchouli.py) - 异步后台
 │  │  config.py                # [REFACTOR] 帕秋莉的统一配置 (原 config.py)
 │

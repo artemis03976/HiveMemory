@@ -553,7 +553,7 @@ async def run_gardening_once(self) -> GardeningResult:
 
 其内部调用：
 
-- `lifecycle_engine.run_garbage_collection()`
+- `await lifecycle_engine.run_garbage_collection()`
 - 未来的 reinforcement repair / archive compaction / health scan
 
 `start_gardening()` 保留为兼容入口，不再自己起 scheduler；实际定时由 `PatchouliSystem.register_maintenance_tasks()` 注册 `memory_gardening` 任务。
@@ -726,12 +726,12 @@ class MaintenanceTasksConfig(BaseModel):
 
 ## 13.2 风险：所有任务都在主 loop 上，会不会互相阻塞
 
-会，如果任务内部包含长时间同步阻塞操作。
+会，如果任务内部重新引入长时间阻塞的 I/O 或计算。
 
 因此要求：
 
 - 维护任务应尽量 async 化
-- 阻塞 I/O 要显式下沉到线程池或异步实现
+- 阻塞 I/O 要显式改为异步实现，确实无法改造时才隔离到线程池
 - 默认非重入，避免同任务叠加
 
 ## 13.3 取舍：是否需要引入更复杂的调度框架

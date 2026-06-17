@@ -52,8 +52,8 @@ class FileBasedArchiver(BaseMemoryArchiver):
 
     Examples:
         >>> archiver = FileBasedArchiver(storage, archive_dir="data/archived")
-        >>> archiver.archive(memory_id)
-        >>> memory = archiver.resurrect(memory_id)
+        >>> await archiver.archive(memory_id)
+        >>> memory = await archiver.resurrect(memory_id)
     """
 
     def __init__(

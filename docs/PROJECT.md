@@ -87,8 +87,8 @@ HiveMemory 的架构设计面临着一个核心矛盾：**记忆检索的实时�
 
 | 分身名称                          | 对应模块实现                                               | 所在层级                  | 核心职责             | 特性                      |
 | :---------------------------- | :--------------------------------------------------- | :-------------------- | :--------------- | :---------------------- |
-| **真理之眼 (The Eye)**            | `patchouli.eye` / `engines.gateway`                  | **交互层 (Interaction)** | 意图识别、查询重写、流量分发   | **同步阻塞**、极低延迟、小模型驱动     |
-| **检索使魔 (Retrieval Familiar)** | `patchouli.retrieval_familiar` / `engines.retrieval` | **热处理层 (Hot Path)**   | 混合检索、重排序、上下文渲染   | **同步阻塞**、高并发、本地计算密集     |
+| **真理之眼 (The Eye)**            | `patchouli.eye` / `engines.gateway`                  | **交互层 (Interaction)** | 意图识别、查询重写、流量分发   | **原生异步**、极低延迟、小模型驱动     |
+| **检索使魔 (Retrieval Familiar)** | `patchouli.retrieval_familiar` / `engines.retrieval` | **热处理层 (Hot Path)**   | 混合检索、重排序、上下文渲染   | **原生异步**、高并发、本地计算密集     |
 | **大图书馆本体 (Librarian Core)**   | `patchouli.librarian_core` / `engines.perception`等   | **冷处理层 (Cold Path)**  | 话题感知、记忆生成、生命周期管理 | **异步非阻塞**、高智商、SOTA 模型驱动 |
 
 ## 2.2 顶层数据流架构 (Top-level Data Flow)
