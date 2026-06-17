@@ -58,7 +58,7 @@ class TestQdrantMemoryStore:
 
     @pytest.fixture
     def mock_qdrant_client(self):
-        with patch('hivememory.infrastructure.storage.vector_store.AsyncQdrantClient') as mock:
+        with patch('hivememory.infrastructure.storage.qdrant_client.AsyncQdrantClient') as mock:
             yield mock
 
     @pytest.fixture
@@ -86,6 +86,39 @@ class TestQdrantMemoryStore:
         store.embedding_service.encode.side_effect = side_effect
 
         return store
+
+    def test_qdrant_client_uses_configured_transport(self, mock_qdrant_client, mock_embedding_service):
+        q_config = QdrantConfig(
+            host="127.0.0.1",
+            port=6333,
+            grpc_port=6334,
+            prefer_grpc=True,
+            timeout=42,
+            collection_name="test",
+        )
+        e_config = EmbeddingConfig()
+
+        QdrantMemoryStore(qdrant_config=q_config, embedding_config=e_config)
+
+        mock_qdrant_client.assert_called_once_with(
+            host="127.0.0.1",
+            port=6333,
+            grpc_port=6334,
+            prefer_grpc=True,
+            timeout=42,
+        )
+
+    @pytest.mark.asyncio
+    async def test_ensure_ready_waits_for_qdrant_and_collection(self, storage):
+        storage.client.info = AsyncMock(return_value=MagicMock())
+        storage.client.get_collections = AsyncMock(return_value=MagicMock(collections=[]))
+        storage.client.create_collection = AsyncMock()
+
+        await storage.ensure_ready()
+
+        storage.client.info.assert_awaited_once()
+        storage.client.get_collections.assert_awaited_once()
+        storage.client.create_collection.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_upsert_memory_dense_only(self, storage):

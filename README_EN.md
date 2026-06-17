@@ -168,7 +168,7 @@ At minimum, check:
 - `HIVEMEMORY__LLM__GATEWAY__MODEL`
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
 - `HIVEMEMORY__LLM__LIBRARIAN__MODEL`
-- `HIVEMEMORY__QDRANT__HOST` / `PORT`
+- `HIVEMEMORY__PATCHOULI__STORAGE__HOST` / `PORT`
 
 ### 4. Install the backend
 
@@ -236,7 +236,7 @@ HiveMemory currently uses a layered **environment variables + YAML** configurati
 
 - `HIVEMEMORY__LLM__WORKER__MODEL`
 - `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
-- `HIVEMEMORY__QDRANT__HOST`
+- `HIVEMEMORY__PATCHOULI__STORAGE__HOST`
 - `HIVEMEMORY__LOGGING__LEVEL`
 
 ### YAML Configuration

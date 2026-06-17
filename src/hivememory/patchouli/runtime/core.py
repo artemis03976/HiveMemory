@@ -493,6 +493,9 @@ class PatchouliRuntime:
             logger.warning(f"Storage health check failed: {e}")
             return False
 
+    async def ensure_storage_ready(self) -> None:
+        await self.storage.ensure_ready()
+
     async def _get_agent_profile(self, agent_alias: str):
         result = self.storage.get_agent_profile(agent_alias)
         if inspect.isawaitable(result):

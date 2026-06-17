@@ -12,7 +12,6 @@ from typing import List, Optional, Dict, Any, Union
 from uuid import UUID
 import logging
 
-from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
     VectorParams,
@@ -34,6 +33,10 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
 )
 from hivememory.system.config import QdrantConfig, EmbeddingConfig
+from hivememory.infrastructure.storage.qdrant_client import (
+    create_async_qdrant_client,
+    wait_for_qdrant_ready,
+)
 from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 
@@ -70,20 +73,7 @@ class QdrantMemoryStore:
         self.qdrant_config = qdrant_config
         self.embedding_config = embedding_config
 
-        # 初始化 Qdrant 客户端
-        # 本地部署时 api_key 为 None，不传递给客户端
-        client_kwargs = {
-            "host": self.qdrant_config.host,
-            "port": self.qdrant_config.port,
-            "grpc_port": self.qdrant_config.grpc_port,
-            "timeout": 60,
-        }
-
-        # 只有在 api_key 有值时才添加
-        if self.qdrant_config.api_key and self.qdrant_config.api_key.strip():
-            client_kwargs["api_key"] = self.qdrant_config.api_key
-
-        self.client = AsyncQdrantClient(**client_kwargs)
+        self.client = create_async_qdrant_client(self.qdrant_config)
 
         logger.info(f"加载 BGE-M3 Embedding 服务")
 
@@ -96,6 +86,13 @@ class QdrantMemoryStore:
 
         self.collection_name = self.qdrant_config.collection_name
         self.vector_dimension = self.qdrant_config.vector_dimension
+
+    async def ensure_ready(self) -> None:
+        await wait_for_qdrant_ready(
+            self.client,
+            timeout_seconds=self.qdrant_config.startup_timeout_seconds,
+        )
+        await self.create_collection(recreate=False)
 
     async def create_collection(self, recreate: bool = False) -> None:
         try:

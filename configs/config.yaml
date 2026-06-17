@@ -77,9 +77,15 @@ shared:
 # ========== Patchouli 子系统配置 ==========
 patchouli:
   storage:
-    host: "localhost"
+    host: "127.0.0.1"
     port: 6333
     grpc_port: 6334
+    prefer_grpc: true
+    timeout: 60
+    deployment: "external"
+    data_dir: null
+    binary_path: null
+    startup_timeout_seconds: 30
     api_key: null  # 通过环境变量 HIVEMEMORY__PATCHOULI__STORAGE__API_KEY 设置
     collection_name: "hivememory_main"
     vector_dimension: 1024

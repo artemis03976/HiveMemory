@@ -19,6 +19,7 @@ class _FakePatchouliSystem:
         self._scheduler = scheduler
         self.runtime = MagicMock()
         self.runtime.is_models_ready.return_value = True
+        self.runtime.ensure_storage_ready = AsyncMock()
         self.runtime.submit_interaction = AsyncMock(return_value={"status": "ok"})
         self.runtime.handle_hot = AsyncMock(return_value={"intent": "rag"})
         self.service = MagicMock()
@@ -38,6 +39,7 @@ class _FakePatchouliSystem:
         self.health = AsyncMock(return_value={"status": "ok", "models_ready": True})
 
     async def _start_impl(self):
+        await self.runtime.ensure_storage_ready()
         if self._global_bus:
             self._global_bus.register(
                 PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE,
@@ -91,6 +93,7 @@ async def test_start_mounts_patchouli_public_routes_on_global_bus():
 
     await system.start()
 
+    system._patchouli.runtime.ensure_storage_ready.assert_awaited_once()
     assert PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE in system._global_bus.list_routes()
     assert PatchouliRoutes.SUBMIT_INTERACTION in system._global_bus.list_routes()
 
