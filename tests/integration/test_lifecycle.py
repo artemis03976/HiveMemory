@@ -192,19 +192,20 @@ class TestVitalityAndReinforcementCollaboration:
 class TestArchiverAndStorageCollaboration:
     """测试 MemoryArchiver 与存储层的协作"""
 
-    def test_archiver_moves_memory_to_cold_storage(self):
+    @pytest.mark.asyncio
+    async def test_archiver_moves_memory_to_cold_storage(self):
         """测试归档器将记忆移至冷存储"""
         from uuid import uuid4
         mock_storage = Mock()
         archived_memories = {}
 
-        def mock_delete(memory_id):
+        async def mock_delete(memory_id):
             archived_memories[memory_id] = "archived"
 
         mock_storage.delete_memory = mock_delete
         
         # Mock get_memory to return a valid memory
-        mock_storage.get_memory = Mock(return_value=MemoryAtom(
+        mock_storage.get_memory = AsyncMock(return_value=MemoryAtom(
             meta=MetaData(source_agent_id="test", user_id="test", confidence_score=0.8, vitality_score=10.0),
             index=IndexLayer(title="test", summary="这是一个测试用的摘要信息，长度必须超过十个字符", tags=[], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="test")
@@ -220,20 +221,21 @@ class TestArchiverAndStorageCollaboration:
         )
 
         memory_id = uuid4()
-        archiver.archive(memory_id)
+        await archiver.archive(memory_id)
 
         # 验证存储层被调用
         assert memory_id in archived_memories
 
-    def test_archiver_tracks_archived_memories(self):
+    @pytest.mark.asyncio
+    async def test_archiver_tracks_archived_memories(self):
         """测试归档器跟踪已归档的记忆"""
         mock_storage = Mock()
-        mock_storage.get_memory = Mock(return_value=MemoryAtom(
+        mock_storage.get_memory = AsyncMock(return_value=MemoryAtom(
             meta=MetaData(source_agent_id="test", user_id="test", confidence_score=0.8, vitality_score=10.0),
             index=IndexLayer(title="test", summary="这是一个测试用的摘要信息，长度必须超过十个字符", tags=[], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="test")
         ))
-        mock_storage.delete_memory = Mock()
+        mock_storage.delete_memory = AsyncMock()
         
         mock_config = Mock()
         mock_config.archive_dir = "tmp_test_archive"
@@ -251,14 +253,14 @@ class TestArchiverAndStorageCollaboration:
         from uuid import uuid4
         mid = uuid4()
         
-        mock_storage.get_memory = Mock(return_value=MemoryAtom(
+        mock_storage.get_memory = AsyncMock(return_value=MemoryAtom(
             id=mid,
             meta=MetaData(source_agent_id="test", user_id="test", confidence_score=0.8, vitality_score=10.0),
             index=IndexLayer(title="test", summary="这是一个测试用的摘要信息，长度必须超过十个字符", tags=[], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="test")
         ))
         
-        archiver.archive(mid)
+        await archiver.archive(mid)
 
         # 验证归档记录
         record = archiver.get_archive_record(mid)
@@ -269,7 +271,8 @@ class TestArchiverAndStorageCollaboration:
 class TestGarbageCollectorAndVitalityCollaboration:
     """测试 GarbageCollector 与 VitalityCalculator 的协作"""
 
-    def test_gc_uses_vitality_to_find_candidates(self):
+    @pytest.mark.asyncio
+    async def test_gc_uses_vitality_to_find_candidates(self):
         """测试垃圾回收器使用生命力计算查找候选"""
         mock_storage = Mock()
 
@@ -293,8 +296,8 @@ class TestGarbageCollectorAndVitalityCollaboration:
             for i in range(3)
         ]
 
-        mock_storage.get_all_memories = Mock(return_value=memories)
-        mock_storage.delete_memory = Mock()
+        mock_storage.get_all_memories = AsyncMock(return_value=memories)
+        mock_storage.delete_memory = AsyncMock()
         
         mock_vitality_config = Mock()
         mock_vitality_config.code_snippet_weight = 1.0
@@ -314,13 +317,15 @@ class TestGarbageCollectorAndVitalityCollaboration:
         mock_gc_config.low_watermark = 20.0
         mock_gc_config.batch_size = 10
 
+        mock_archiver = Mock()
+        mock_archiver.archive = AsyncMock()
         gc = PeriodicGarbageCollector(
-            archiver=Mock(), # Mock archiver
+            archiver=mock_archiver, # Mock archiver
             config=mock_gc_config,
         )
 
         # 运行垃圾回收
-        collected = gc.collect(mock_storage.get_all_memories())
+        collected = await gc.collect(await mock_storage.get_all_memories())
 
         # 应该收集低生命力记忆
         assert collected >= 0
@@ -332,7 +337,7 @@ class TestLifecycleEngineCoordination:
     def test_engine_coordinates_all_components(self):
         """测试引擎协调所有组件"""
         mock_storage = Mock()
-        mock_storage.get_memory = Mock(return_value=None)
+        mock_storage.get_memory = AsyncMock(return_value=None)
         mock_storage.update_memory = Mock()
         
         # Add config mock for reinforcement engine
@@ -387,7 +392,7 @@ class TestLifecycleEngineCoordination:
     async def test_engine_handles_unknown_memory(self):
         """测试引擎处理未知记忆"""
         mock_storage = Mock()
-        mock_storage.get_memory = Mock(return_value=None)
+        mock_storage.get_memory = AsyncMock(return_value=None)
         
         # Add config mock for reinforcement engine
         mock_reinforcement_config = Mock()
@@ -668,7 +673,10 @@ class TestMemoryLifecycleEngine:
         self.mock_vitality_calculator = Mock()
         self.mock_reinforcement_engine = Mock()
         self.mock_archiver = Mock()
+        self.mock_archiver.archive = AsyncMock()
+        self.mock_archiver.resurrect = AsyncMock()
         self.mock_garbage_collector = Mock()
+        self.mock_garbage_collector.collect = AsyncMock()
         self.mock_reinforcement_engine.reinforce = AsyncMock()
 
         self.engine = MemoryLifecycleEngine(
@@ -785,30 +793,32 @@ class TestMemoryLifecycleEngine:
         archived = await self.engine.run_garbage_collection(force=True)
 
         assert archived == 5
-        self.engine.garbage_collector.collect.assert_called_once_with(
+        self.engine.garbage_collector.collect.assert_awaited_once_with(
             [self.test_memory],
             force=True,
         )
 
-    def test_archive_memory(self):
+    @pytest.mark.asyncio
+    async def test_archive_memory(self):
         """测试手动归档记忆"""
         memory_id = uuid4()
         self.engine.archiver.archive.return_value = None
 
-        self.engine.archive_memory(memory_id)
+        await self.engine.archive_memory(memory_id)
 
-        self.engine.archiver.archive.assert_called_once_with(memory_id)
+        self.engine.archiver.archive.assert_awaited_once_with(memory_id)
 
-    def test_resurrect_memory(self):
+    @pytest.mark.asyncio
+    async def test_resurrect_memory(self):
         """测试唤醒记忆"""
         memory_id = uuid4()
         expected_memory = self.test_memory
         self.engine.archiver.resurrect.return_value = expected_memory
 
-        result = self.engine.resurrect_memory(memory_id)
+        result = await self.engine.resurrect_memory(memory_id)
 
         assert result == expected_memory
-        self.engine.archiver.resurrect.assert_called_once_with(memory_id)
+        self.engine.archiver.resurrect.assert_awaited_once_with(memory_id)
 
     @pytest.mark.asyncio
     async def test_get_low_vitality_memories(self):

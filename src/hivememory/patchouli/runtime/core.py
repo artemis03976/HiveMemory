@@ -476,7 +476,7 @@ class PatchouliRuntime:
 
     # ========== 健康检查 ==========
 
-    def check_storage_health(self) -> bool:
+    async def check_storage_health(self) -> bool:
         """
         存储层健康检查
 
@@ -487,7 +487,7 @@ class PatchouliRuntime:
             bool: True 表示存储可用，False 表示离线
         """
         try:
-            self.storage.client.get_collections()
+            await self.storage.client.get_collections()
             return True
         except Exception as e:
             logger.warning(f"Storage health check failed: {e}")

@@ -29,7 +29,7 @@ class BaseMemoryArchiver(ABC):
     """
 
     @abstractmethod
-    def archive(self, memory_id: UUID) -> None:
+    async def archive(self, memory_id: UUID) -> None:
         """
         归档记忆到冷存储
 
@@ -47,7 +47,7 @@ class BaseMemoryArchiver(ABC):
         pass
 
     @abstractmethod
-    def resurrect(self, memory_id: UUID) -> MemoryAtom:
+    async def resurrect(self, memory_id: UUID) -> MemoryAtom:
         """
         从冷存储唤醒记忆
 
@@ -123,7 +123,7 @@ class BaseGarbageCollector(ABC):
         pass
 
     @abstractmethod
-    def collect(
+    async def collect(
         self,
         memories: Iterable[MemoryAtom],
         force: bool = False,

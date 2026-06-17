@@ -87,7 +87,7 @@ class FileBasedArchiver(BaseMemoryArchiver):
             f"indexed={len(self._index)} memories"
         )
 
-    def archive(self, memory_id: UUID) -> None:
+    async def archive(self, memory_id: UUID) -> None:
         """
         归档记忆到冷存储
 
@@ -103,7 +103,7 @@ class FileBasedArchiver(BaseMemoryArchiver):
             return
 
         # 从热存储获取记忆
-        memory = self.storage.get_memory(memory_id)
+        memory = await self.storage.get_memory(memory_id)
         if memory is None:
             raise ValueError(f"Memory {memory_id} not found in hot storage")
 
@@ -142,14 +142,14 @@ class FileBasedArchiver(BaseMemoryArchiver):
         self._save_index()
 
         # 从热存储删除
-        self.storage.delete_memory(memory_id)
+        await self.storage.delete_memory(memory_id)
 
         logger.info(
             f"Archived memory {memory_id} to {file_path.name} "
             f"({file_size} bytes, vitality={original_vitality:.2f})"
         )
 
-    def resurrect(self, memory_id: UUID) -> MemoryAtom:
+    async def resurrect(self, memory_id: UUID) -> MemoryAtom:
         """
         从冷存储唤醒记忆
 
@@ -184,7 +184,7 @@ class FileBasedArchiver(BaseMemoryArchiver):
         memory = MemoryAtom(**data)
 
         # 写回热存储
-        self.storage.upsert_memory(memory)
+        await self.storage.upsert_memory(memory)
 
         # 从索引删除
         del self._index[str(memory_id)]

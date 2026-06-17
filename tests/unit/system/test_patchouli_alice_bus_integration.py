@@ -41,7 +41,7 @@ async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result
     bus = GlobalSystemBus()
     local_bus = PatchouliBus()
     kernel.local_bus = local_bus
-    kernel.check_storage_health.return_value = True
+    kernel.check_storage_health = AsyncMock(return_value=True)
 
     gaze_result = EyeGazeResult(
         intent=GatewayIntent.RAG,

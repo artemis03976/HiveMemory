@@ -146,9 +146,9 @@ class MemoryLifecycleEngine:
     async def run_garbage_collection(self, force: bool = False) -> int:
         all_memories = await self.storage.get_all_memories()
         await self.refresh_vitality_batch(all_memories, persist=True)
-        return self.garbage_collector.collect(all_memories, force=force)
+        return await self.garbage_collector.collect(all_memories, force=force)
 
-    def archive_memory(self, memory_id: UUID) -> None:
+    async def archive_memory(self, memory_id: UUID) -> None:
         """
         手动归档指定记忆
 
@@ -158,9 +158,9 @@ class MemoryLifecycleEngine:
         Raises:
             ValueError: 记忆不存在
         """
-        self.archiver.archive(memory_id)
+        await self.archiver.archive(memory_id)
 
-    def resurrect_memory(self, memory_id: UUID) -> MemoryAtom:
+    async def resurrect_memory(self, memory_id: UUID) -> MemoryAtom:
         """
         唤醒归档记忆
 
@@ -173,7 +173,7 @@ class MemoryLifecycleEngine:
         Raises:
             ValueError: 记忆未归档
         """
-        return self.archiver.resurrect(memory_id)
+        return await self.archiver.resurrect(memory_id)
 
     async def get_low_vitality_memories(
         self,

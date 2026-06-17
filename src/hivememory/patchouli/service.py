@@ -142,7 +142,7 @@ class PatchouliService:
                 topic_context=topic_context,
                 retrieval_result=retrieval_result,
                 agent_profile=agent_profile,
-                storage_available=self._runtime.check_storage_health(),
+                storage_available=await self._runtime.check_storage_health(),
             )
 
             stream_prelude = StreamPrelude(

@@ -74,3 +74,21 @@ class TestRuntimeShutdownDrain:
         runtime._services[
             "librarian"
         ].perception_layer.flush_all_for_shutdown.assert_awaited_once()
+
+
+class TestRuntimeStorageHealth:
+    @pytest.mark.asyncio
+    async def test_check_storage_health_awaits_qdrant_client(self):
+        runtime = _create_runtime()
+        runtime.storage.client.get_collections = AsyncMock(return_value=Mock())
+
+        assert await runtime.check_storage_health() is True
+        runtime.storage.client.get_collections.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_check_storage_health_returns_false_on_failure(self):
+        runtime = _create_runtime()
+        runtime.storage.client.get_collections = AsyncMock(side_effect=OSError("down"))
+
+        assert await runtime.check_storage_health() is False
+        runtime.storage.client.get_collections.assert_awaited_once()

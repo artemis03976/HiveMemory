@@ -50,7 +50,7 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     bus = GlobalSystemBus()
     local_bus = PatchouliBus()
     kernel.local_bus = local_bus
-    kernel.check_storage_health.return_value = True
+    kernel.check_storage_health = AsyncMock(return_value=True)
     local_bus.register(
         "memory.get_agent_profile",
         AsyncMock(return_value=OMNI_DOLL_PROFILE),
@@ -116,7 +116,7 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
     kernel = MagicMock()
     local_bus = PatchouliBus()
     kernel.local_bus = local_bus
-    kernel.check_storage_health.return_value = True
+    kernel.check_storage_health = AsyncMock(return_value=True)
     local_bus.register(
         "memory.get_agent_profile",
         AsyncMock(return_value=OMNI_DOLL_PROFILE),

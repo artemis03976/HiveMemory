@@ -38,10 +38,14 @@ def _make_memory(vitality_score=50.0) -> MemoryAtom:
 
 def _make_engine():
     storage = AsyncMock()
-    vitality = Mock()  # calculate 是同步方法
+    vitality = Mock()
     reinforcement = AsyncMock()
-    archiver = Mock()  # archive/resurrect/list_archived 是同步方法
-    gc = Mock()  # collect 是同步方法
+    archiver = Mock()
+    archiver.archive = AsyncMock()
+    archiver.resurrect = AsyncMock()
+    archiver.list_archived = Mock()
+    gc = Mock()
+    gc.collect = AsyncMock()
     engine = MemoryLifecycleEngine(
         storage=storage,
         vitality_calculator=vitality,
@@ -194,22 +198,24 @@ class TestLifecycleEngineDelegation:
         assert self.mock_storage.upsert_memory.call_count == 2
         assert m1.meta.vitality_score == pytest.approx(12.0)
         assert m2.meta.vitality_score == pytest.approx(88.0)
-        self.mock_gc.collect.assert_called_once_with([m1, m2], force=True)
+        self.mock_gc.collect.assert_awaited_once_with([m1, m2], force=True)
         assert result == 3
 
-    def test_archive_memory(self):
+    @pytest.mark.asyncio
+    async def test_archive_memory(self):
         mid = uuid4()
-        self.engine.archive_memory(mid)
-        self.mock_archiver.archive.assert_called_once_with(mid)
+        await self.engine.archive_memory(mid)
+        self.mock_archiver.archive.assert_awaited_once_with(mid)
 
-    def test_resurrect_memory(self):
+    @pytest.mark.asyncio
+    async def test_resurrect_memory(self):
         mid = uuid4()
         mem = _make_memory()
         self.mock_archiver.resurrect.return_value = mem
 
-        result = self.engine.resurrect_memory(mid)
+        result = await self.engine.resurrect_memory(mid)
 
-        self.mock_archiver.resurrect.assert_called_once_with(mid)
+        self.mock_archiver.resurrect.assert_awaited_once_with(mid)
         assert result is mem
 
 
