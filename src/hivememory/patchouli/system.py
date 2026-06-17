@@ -81,7 +81,8 @@ class PatchouliSystem(SubsystemProtocol):
 
         # 1. 初始化 Runtime（运行时负责组装 Retrieval + Librarian 组件图）
         self.runtime = PatchouliRuntime(
-            config=self.config,
+            patchouli_config=self.config.patchouli,
+            shared_config=self.config.shared,
             runtime_events=self._runtime_events,
         )
 
@@ -140,7 +141,7 @@ class PatchouliSystem(SubsystemProtocol):
         """
         from hivememory.infrastructure.llm import get_gateway_llm_service
         self._gateway_llm_service = get_gateway_llm_service(
-            config=self.config.llm.gateway
+            config=self.config.shared.llm.gateway
         )
 
         from hivememory.engines.gateway import (
@@ -151,7 +152,7 @@ class PatchouliSystem(SubsystemProtocol):
             create_semantic_analyzer,
         )
 
-        config = self.config.gateway
+        config = self.config.patchouli.gateway
 
         interceptor: BaseInterceptor = create_interceptor(config.interceptor)
 
@@ -180,8 +181,7 @@ class PatchouliSystem(SubsystemProtocol):
 
     def register_maintenance_tasks(self, scheduler) -> bool:
         """向全局维护器注册 Patchouli 子系统的维护任务。"""
-        if not self.config.scheduler.enabled:
-            return False
+        if not self.config.scheduler.enabled:            return False
         tasks_config = self.config.scheduler.tasks
         scheduler.register(
             MaintenanceTaskSpec(

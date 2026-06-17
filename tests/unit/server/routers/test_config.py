@@ -54,7 +54,7 @@ def test_update_config_validation_error_does_not_persist(tmp_path, monkeypatch):
     app = _create_test_app(mock_system)
     client = TestClient(app)
 
-    response = client.post("/api/v1/config", json={"qdrant": {"port": "invalid-port"}})
+    response = client.post("/api/v1/config", json={"patchouli": {"storage": {"port": "invalid-port"}}})
     assert response.status_code == 400
     assert mock_system.config is old_config
     with open(config_path, "r", encoding="utf-8") as f:

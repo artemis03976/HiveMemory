@@ -62,13 +62,10 @@ def _create_runtime_with_koakuma():
          patch.object(PatchouliRuntime, "_build_engines", return_value={}), \
          patch.object(PatchouliRuntime, "_register_services"):
 
-        mock_config = Mock()
-        mock_config.koakuma.enabled = True
-        mock_config.koakuma.mtp_prompt.enabled = True
-        mock_config.koakuma.mtp_prompt.include_demo = True
-        mock_config.koakuma.mtp_prompt.include_error_handling = True
+        mock_patchouli_config = Mock()
+        mock_shared_config = Mock()
 
-        runtime = PatchouliRuntime(config=mock_config)
+        runtime = PatchouliRuntime(patchouli_config=mock_patchouli_config, shared_config=mock_shared_config)
         runtime.storage = Mock()
 
         def _get_agent_profile(agent_alias: str):
@@ -79,11 +76,10 @@ def _create_runtime_with_koakuma():
             return profile or OMNI_DOLL_PROFILE
 
         def _get_mtp_prompt(self, profile=None):
-            prompt_config = self.config.koakuma.mtp_prompt
             builder = MTPPromptBuilder(
                 language="en",
-                include_demo=prompt_config.include_demo,
-                include_error_handling=prompt_config.include_error_handling,
+                include_demo=True,
+                include_error_handling=True,
                 allowed_verbs=getattr(profile, "allowed_mtp_verbs", None),
                 allowed_runtime_tools=getattr(profile, "allowed_sys_tools", None),
             )
@@ -93,7 +89,7 @@ def _create_runtime_with_koakuma():
         runtime.get_mtp_prompt = MethodType(_get_mtp_prompt, runtime)
 
         # 创建真实的 Koakuma 实例
-        koakuma = KoakumaRuntime(bus=None, config=None)
+        koakuma = KoakumaRuntime(bus=None, config=None, alias_resolver=Mock())
         runtime._services = {"koakuma": koakuma}
 
         return runtime, koakuma
@@ -346,11 +342,11 @@ class TestSecurityScenarios:
         context = MTPExecutionContext(agent_profile=profile)
 
         # sys_clock 应该通过
-        koakuma._check_tool_permission("sys_clock")
+        koakuma._check_tool_permission("sys_clock", context=context)
 
         # sys_clock_evil 不应该通过（不是前缀匹配）
         with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("sys_clock_evil")
+            koakuma._check_tool_permission("sys_clock_evil", context=context)
 
     async def test_profile_switch_updates_permissions(self):
         """Profile 切换正确更新权限"""
@@ -369,7 +365,7 @@ class TestSecurityScenarios:
 
         # WRITE 应该被拒绝
         with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE", context=context)
+            koakuma._check_verb_permission("WRITE", context=context1)
 
         # 切换到第二个 profile：宽松
         permissive_atom = _make_profile_atom(
@@ -383,8 +379,8 @@ class TestSecurityScenarios:
         context2 = MTPExecutionContext(agent_profile=profile2)
 
         # WRITE 现在应该通过
-        koakuma._check_verb_permission("WRITE", context=context)
-        koakuma._check_tool_permission("sys_write_file", context=context)
+        koakuma._check_verb_permission("WRITE", context=context2)
+        koakuma._check_tool_permission("sys_write_file", context=context2)
 
 
 @pytest.mark.asyncio

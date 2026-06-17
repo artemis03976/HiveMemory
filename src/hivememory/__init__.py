@@ -186,8 +186,10 @@ from hivememory.engines.perception import (
     TriggerManager,
     DECISION_MATRIX,
     BaseRelayController,
+    NoOpRelayController,
     SimpleRelayController,
     LLMRelayController,
+    NullPerceptionLayer,
     create_relay_controller,
     create_perception_layer,
 )
@@ -379,8 +381,10 @@ __all__ = [
     "TriggerManager",
     "DECISION_MATRIX",
     "BaseRelayController",
+    "NoOpRelayController",
     "SimpleRelayController",
     "LLMRelayController",
+    "NullPerceptionLayer",
     "create_relay_controller",
     "create_perception_layer",
     # ========== Server Models ==========

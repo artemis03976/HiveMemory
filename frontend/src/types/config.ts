@@ -72,15 +72,15 @@ export interface GatewayConfig {
 
 export interface RelayEngineConfig {
   type: 'simple' | 'llm';
-  max_processing_tokens: number;
 }
 
 export interface RelayConfig {
+  enable: boolean;
   engine: RelayEngineConfig;
 }
 
 export interface PerceptionEngineConfig {
-  type: string;
+  enable: boolean;
   idle_timeout_seconds: number;
   scan_interval_seconds: number;
   fold_token_threshold: number;

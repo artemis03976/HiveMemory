@@ -83,12 +83,8 @@ class RuleInterceptor(BaseInterceptor):
         self.enable_system = config.enable_system
         self.enable_chat = config.enable_chat
 
-        # 编译正则表达式
-        system_patterns = config.custom_system_patterns or self.SYSTEM_PATTERNS
-        chat_patterns = config.custom_chat_patterns or self.CHAT_PATTERNS
-
-        self._system_regex = [re.compile(p, re.IGNORECASE) for p in system_patterns]
-        self._chat_regex = [re.compile(p, re.IGNORECASE) for p in chat_patterns]
+        self._system_regex = [re.compile(p, re.IGNORECASE) for p in self.SYSTEM_PATTERNS]
+        self._chat_regex = [re.compile(p, re.IGNORECASE) for p in self.CHAT_PATTERNS]
 
         logger.debug(
             f"RuleInterceptor initialized: "

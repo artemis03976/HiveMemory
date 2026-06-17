@@ -101,14 +101,14 @@ class TriggerManager:
     def __init__(
         self,
         buffer_manager: "SemanticBufferManager",
-        relay_controller: Optional["BaseRelayController"] = None,
+        relay_controller: "BaseRelayController",
     ) -> None:
         """
         初始化 TriggerManager
 
         Args:
             buffer_manager: SemanticBufferManager 实例（用于读取/修改 buffer 状态）
-            relay_controller: RelayController 实例（用于生成摘要，可选）
+            relay_controller: RelayController 实例（用于生成摘要）
         """
         self._buffer_manager = buffer_manager
         self._relay_controller = relay_controller
@@ -279,10 +279,6 @@ class TriggerManager:
 
         特性：同步阻塞（必须等待摘要生成完成）
         """
-        if not self._relay_controller:
-            logger.warning("RelayController 未注入，跳过 Compact")
-            return
-
         buffer = self._buffer_manager.get_buffer(topic_id)
         if not buffer:
             return

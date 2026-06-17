@@ -20,7 +20,7 @@ def _create_runtime():
         ),
         patch.object(PatchouliRuntime, "_register_services"),
     ):
-        runtime = PatchouliRuntime(config=Mock())
+        runtime = PatchouliRuntime(patchouli_config=Mock(), shared_config=Mock())
         runtime._services = {
             "retrieval": Mock(),
             "librarian": Mock(),

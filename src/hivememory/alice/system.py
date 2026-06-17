@@ -42,7 +42,8 @@ class AliceSystem(SubsystemProtocol):
         self._runtime_events = runtime_events or NullRuntimeEventSink()
 
         self._runtime = AliceRuntime(
-            config=config,
+            alice_config=config.alice,
+            shared_config=config.shared,
             global_bus=global_bus,
             runtime_events=self._runtime_events,
         )

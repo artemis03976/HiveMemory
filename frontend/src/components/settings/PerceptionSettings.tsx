@@ -1,12 +1,15 @@
-import { SettingSection, SettingRow, Input } from '../common/FormControls';
+import { SettingSection, SettingRow, Input, Toggle } from '../common/FormControls';
 import type { SettingsWithValidationProps } from '@/types/settings';
 
 export function PerceptionSettings({ config, updateConfig }: SettingsWithValidationProps) {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <SettingSection title="感知引擎 (Perception Engine)">
-        <SettingRow label="引擎类型" description="用于语义流感知的算法模型。">
-          <Input value={config.perception.engine.type} disabled className="opacity-50" />
+        <SettingRow label="启用引擎" description="关闭后使用 NullPerceptionLayer 跳过感知处理。">
+          <Toggle
+            checked={config.perception.engine.enable}
+            onChange={(v: boolean) => updateConfig('perception.engine.enable', v)}
+          />
         </SettingRow>
         <SettingRow label="空闲超时 (秒)" description="非活跃话题被折叠归档前的等待时间。">
           <Input 
