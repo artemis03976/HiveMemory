@@ -39,6 +39,17 @@ def test_new_llm_env_vars_override_legacy_aliases(monkeypatch):
 
 
 def test_legacy_llm_env_vars_load_from_dotenv_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    for key in (
+        "HIVEMEMORY__LLM__WORKER__MODEL",
+        "HIVEMEMORY__LLM__WORKER__API_KEY",
+        "HIVEMEMORY__LLM__WORKER__API_BASE",
+        "HIVEMEMORY__SHARED__LLM__WORKER__MODEL",
+        "HIVEMEMORY__SHARED__LLM__WORKER__API_KEY",
+        "HIVEMEMORY__SHARED__LLM__WORKER__API_BASE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
     config_dir = tmp_path / "configs"
     config_dir.mkdir()
     config_path = config_dir / "config.yaml"
@@ -63,7 +74,6 @@ shared:
         encoding="utf-8",
     )
 
-    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HIVEMEMORY_CONFIG_PATH", str(config_path))
 
     config = HiveMemoryConfig()
