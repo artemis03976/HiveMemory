@@ -208,6 +208,8 @@ class PatchouliSystem(SubsystemProtocol):
         return scheduler.unregister_owner(self._MAINTENANCE_OWNER)
 
     async def start(self) -> None:
+        await self.runtime.ensure_storage_ready()
+
         if not self.runtime.local_routes_registered:
             self.runtime.mount_local_routes(self.service)
 

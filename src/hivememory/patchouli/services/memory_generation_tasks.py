@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -295,11 +294,7 @@ class MemoryGenerationTaskController:
         assert isinstance(focus, UpdateFocus)
         logger.info(f"Mode C UPDATE: alias='{focus.base_alias}'")
 
-        existing_result = self.storage.get_memory(_UUID(focus.base_uuid))
-        existing = (
-            await existing_result if inspect.isawaitable(existing_result)
-            else existing_result
-        )
+        existing = await self.storage.get_memory(_UUID(focus.base_uuid))
         if existing is None:
             logger.error(f"UPDATE target memory not found: {focus.base_uuid}")
             raise RuntimeError(f"UPDATE target memory not found: {focus.base_uuid}")
@@ -327,11 +322,7 @@ class MemoryGenerationTaskController:
         第一次 upsert 时就已挂载到 MemoryAtom，无需二次写入。
         """
         # Step 1: 纯计算（引擎不再持久化）
-        process_result = self.generation_engine.process(request)
-        results = (
-            await process_result if inspect.isawaitable(process_result)
-            else process_result
-        )
+        results = await self.generation_engine.process(request)
 
         memories = [r.atom for r in results if r.atom is not None]
         logger.info(
@@ -347,7 +338,7 @@ class MemoryGenerationTaskController:
         for r in results:
             if r.duplicate_decision in (DuplicateDecision.CREATE, DuplicateDecision.UPDATE) and r.atom is not None:
                 try:
-                    self.storage.upsert_memory(r.atom)
+                    await self.storage.upsert_memory(r.atom)
                     logger.info(f"✓ 记忆已存储: '{r.atom.index.title}' (ID: {r.atom.id})")
                 except Exception as e:
                     logger.error(f"存储记忆失败: {e}", exc_info=True)

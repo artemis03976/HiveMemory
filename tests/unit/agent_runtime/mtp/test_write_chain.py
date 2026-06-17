@@ -16,7 +16,7 @@ WRITE 指令执行链路测试
 
 import asyncio
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch, call, AsyncMock
 from datetime import datetime
 
 from hivememory.core.models import (
@@ -99,18 +99,16 @@ def sample_draft() -> ExtractedMemoryDraft:
     )
 
 
-def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
-    return asyncio.run(koakuma.execute_mtp(text, context=context))
+async def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+    return await koakuma.execute_mtp(text, context=context)
 
 
-def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+async def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
     from .conftest import normalize_worker_agent_mtp_output
 
-    return asyncio.run(
-        koakuma.intercept_and_execute(
-            normalize_worker_agent_mtp_output(assistant_text),
-            context=context,
-        )
+    return await koakuma.intercept_and_execute(
+        normalize_worker_agent_mtp_output(assistant_text),
+        context=context,
     )
 
 
@@ -177,14 +175,15 @@ class TestGenerationRequest:
 class TestModeBExtraction:
     """验证 Generation Engine Mode B 路径"""
 
-    def test_mode_b_calls_extractor_with_write_metadata(self, identity, sample_context):
+    @pytest.mark.asyncio
+    async def test_mode_b_calls_extractor_with_write_metadata(self, identity, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
             title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"],
             memory_type="FACT", content="端口改为 9090",
             confidence_score=1.0, has_value=True, alias_suffix="fix_cors",
         )
-        mock_dedup = MagicMock()
+        mock_dedup = AsyncMock()
         mock_dedup.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         mock_storage = MagicMock()
 
@@ -195,7 +194,7 @@ class TestModeBExtraction:
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
         request = GenerationRequest(context=sample_context, write_focus=focus)
 
-        result = engine.process(request=request)
+        result = await engine.process(request=request)
 
         # 验证 extractor 被调用时 metadata 包含 mode=write
         call_args = mock_extractor.extract.call_args
@@ -205,14 +204,15 @@ class TestModeBExtraction:
         assert metadata["write_reason"] == "修复 CORS"
         assert len(result) == 1
 
-    def test_mode_a_no_write_metadata(self, sample_context):
+    @pytest.mark.asyncio
+    async def test_mode_a_no_write_metadata(self, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
             title="Test Memory", summary="这是一条测试记忆，用于验证 Mode A 路径", tags=["test"],
             memory_type="FACT", content="test content for mode a",
             confidence_score=0.8, has_value=True, alias_suffix="test",
         )
-        mock_dedup = MagicMock()
+        mock_dedup = AsyncMock()
         mock_dedup.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         mock_storage = MagicMock()
 
@@ -221,7 +221,7 @@ class TestModeBExtraction:
         )
 
         request = GenerationRequest(context=sample_context)
-        result = engine.process(request)
+        result = await engine.process(request)
 
         call_args = mock_extractor.extract.call_args
         metadata = call_args[1]["metadata"] if "metadata" in call_args[1] else call_args[0][1]
@@ -233,10 +233,11 @@ class TestModeBExtraction:
 class TestModeBFallback:
     """验证 LLM 提取失败时的 fallback 草稿构建"""
 
-    def test_fallback_when_extractor_returns_none(self, identity, sample_context):
+    @pytest.mark.asyncio
+    async def test_fallback_when_extractor_returns_none(self, identity, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None  # LLM 失败
-        mock_dedup = MagicMock()
+        mock_dedup = AsyncMock()
         mock_dedup.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         mock_storage = MagicMock()
 
@@ -251,7 +252,7 @@ class TestModeBFallback:
         )
         request = GenerationRequest(context=sample_context, write_focus=focus)
 
-        result = engine.process(request=request)
+        result = await engine.process(request=request)
 
         # fallback 应该保底生成 atom
         assert len(result) == 1
@@ -461,9 +462,10 @@ class TestKoakumaWriteE2E:
         koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
-    def test_write_basic(self, write_koakuma):
+    @pytest.mark.asyncio
+    async def test_write_basic(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="端口从 8080 改为 9090" reason="修复 CORS"'
-        result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
+        result = await _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
         assert result.success
@@ -475,9 +477,10 @@ class TestKoakumaWriteE2E:
         assert focus.reason == "修复 CORS"
         assert pending.identity.user_id == "test_user"
 
-    def test_write_with_title(self, write_koakuma):
+    @pytest.mark.asyncio
+    async def test_write_with_title(self, write_koakuma):
         agent_text = '⟪ WRITE | * | title="Fix CORS" content="端口改为 9090" reason="修复"'
-        result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
+        result = await _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
         pending = write_koakuma.pending_runtime.get(result.pending_alias)
@@ -485,16 +488,18 @@ class TestKoakumaWriteE2E:
         focus = pending.focus
         assert focus.title == "Fix CORS"
 
-    def test_write_missing_content(self, write_koakuma):
+    @pytest.mark.asyncio
+    async def test_write_missing_content(self, write_koakuma):
         agent_text = '⟪ WRITE | * | reason="no content"'
-        result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
+        result = await _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
         assert result.pending_alias is None
 
-    def test_write_response_contains_ack(self, write_koakuma):
+    @pytest.mark.asyncio
+    async def test_write_response_contains_ack(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="test content"'
-        result = _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
+        result = await _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
 
         assert result is not None
         assert result.pending_alias is not None
@@ -502,7 +507,8 @@ class TestKoakumaWriteE2E:
         assert result.pending_alias in result.response_content
         assert "ack" in result.formatted_response.lower()
 
-    def test_write_deferred_capture_always_ack(self):
+    @pytest.mark.asyncio
+    async def test_write_deferred_capture_always_ack(self):
         """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""
         from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
@@ -518,7 +524,7 @@ class TestKoakumaWriteE2E:
         )
 
         agent_text = '⟪ WRITE | * | content="test"'
-        result = _intercept_and_execute(koakuma, agent_text, context=context)
+        result = await _intercept_and_execute(koakuma, agent_text, context=context)
 
         assert result is not None
         assert result.success
@@ -543,10 +549,11 @@ class TestFlushReasonActiveGenerationRemoved:
 class TestEngineUnifiedAPI:
     """验证 process() 统一使用 GenerationRequest"""
 
-    def test_request_param_mode_a(self, sample_context):
+    @pytest.mark.asyncio
+    async def test_request_param_mode_a(self, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None
-        mock_dedup = MagicMock()
+        mock_dedup = AsyncMock()
         mock_storage = MagicMock()
 
         engine = MemoryGenerationEngine(
@@ -554,13 +561,14 @@ class TestEngineUnifiedAPI:
         )
 
         request = GenerationRequest(context=sample_context)
-        result = engine.process(request)
+        result = await engine.process(request)
         assert result == []
         mock_extractor.extract.assert_called_once()
 
-    def test_empty_request_returns_empty(self):
+    @pytest.mark.asyncio
+    async def test_empty_request_returns_empty(self):
         engine = MemoryGenerationEngine(
-            storage=MagicMock(), extractor=MagicMock(), deduplicator=MagicMock(),
+            storage=MagicMock(), extractor=MagicMock(), deduplicator=AsyncMock(),
         )
-        result = engine.process(GenerationRequest())
+        result = await engine.process(GenerationRequest())
         assert result == []

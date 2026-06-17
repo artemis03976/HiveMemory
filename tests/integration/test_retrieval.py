@@ -18,7 +18,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 from hivememory.core.models import (
     Identity,
@@ -116,7 +116,8 @@ class TestDenseAndSparseRetrieverCollaboration:
         assert len(fused.results) > 0
         # RRF 应该重新排序结果
 
-    def test_hybrid_retriever_calls_both_retrievers(self):
+    @pytest.mark.asyncio
+    async def test_hybrid_retriever_calls_both_retrievers(self):
         """测试混合检索器调用两种检索器"""
         mock_storage = Mock()
         
@@ -124,10 +125,10 @@ class TestDenseAndSparseRetrieverCollaboration:
         
         # Mock internal retrievers
         dense_retriever = Mock()
-        dense_retriever.retrieve = Mock(return_value=SearchResults())
+        dense_retriever.retrieve = AsyncMock(return_value=SearchResults())
         
         sparse_retriever = Mock()
-        sparse_retriever.retrieve = Mock(return_value=SearchResults())
+        sparse_retriever.retrieve = AsyncMock(return_value=SearchResults())
         
         fusion = Mock()
         fusion.fuse = Mock(return_value=SearchResults())
@@ -140,7 +141,7 @@ class TestDenseAndSparseRetrieverCollaboration:
         )
 
         query = RetrievalQuery(semantic_query="Python代码")
-        results = hybrid.retrieve(query, top_k=5)
+        results = await hybrid.retrieve(query, top_k=5)
 
         # 验证两种检索器都被调用
         assert results is not None
@@ -258,7 +259,8 @@ class TestRendererAndResultsCollaboration:
 class TestQueryAndFilterCollaboration:
     """测试查询与过滤器的协作"""
 
-    def test_query_with_filters(self):
+    @pytest.mark.asyncio
+    async def test_query_with_filters(self):
         """测试带过滤条件的查询"""
         mock_storage = Mock()
         # Mock search_memories to return a list of dicts as expected by DenseRetriever
@@ -275,7 +277,7 @@ class TestQueryAndFilterCollaboration:
             "id": "2"
         }
         
-        mock_storage.search_memories = Mock(return_value=[hit1, hit2])
+        mock_storage.search_memories = AsyncMock(return_value=[hit1, hit2])
 
         retriever = DenseRetriever(storage=mock_storage, config=DenseRetrieverConfig())
 
@@ -284,7 +286,7 @@ class TestQueryAndFilterCollaboration:
             filters=QueryFilters(memory_type=MemoryType.CODE_SNIPPET),
         )
 
-        results = retriever.retrieve(query, top_k=5)
+        results = await retriever.retrieve(query, top_k=5)
         
         # Verify search_memories called with correct filters
         mock_storage.search_memories.assert_called()
@@ -322,7 +324,8 @@ class TestQueryAndFilterCollaboration:
 class TestHybridRetrieverOrchestration:
     """测试 HybridRetriever 的整体编排"""
 
-    def test_hybrid_full_pipeline(self):
+    @pytest.mark.asyncio
+    async def test_hybrid_full_pipeline(self):
         """测试混合检索完整流程"""
         mock_storage = Mock()
         
@@ -332,12 +335,12 @@ class TestHybridRetrieverOrchestration:
         
         # Mock internal retrievers
         dense_retriever = Mock()
-        dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
+        dense_retriever.retrieve = AsyncMock(return_value=SearchResults(results=[
             SearchResult(memory=create_test_memory("语义结果", "内容"), score=0.8)
         ]))
         
         sparse_retriever = Mock()
-        sparse_retriever.retrieve = Mock(return_value=SearchResults(results=[
+        sparse_retriever.retrieve = AsyncMock(return_value=SearchResults(results=[
             SearchResult(memory=create_test_memory("关键词结果", "内容"), score=0.9)
         ]))
 
@@ -351,14 +354,15 @@ class TestHybridRetrieverOrchestration:
         )
 
         query = RetrievalQuery(semantic_query="Python代码")
-        results = hybrid.retrieve(query, top_k=5)
+        results = await hybrid.retrieve(query, top_k=5)
 
         # 验证结果
         assert results is not None
         assert results.results is not None
         assert len(results.results) > 0
 
-    def test_hybrid_with_reranking(self):
+    @pytest.mark.asyncio
+    async def test_hybrid_with_reranking(self):
         """测试混合检索带重排序"""
         mock_storage = Mock()
         
@@ -367,12 +371,12 @@ class TestHybridRetrieverOrchestration:
         
         # Mock retrievers
         dense_retriever = Mock()
-        dense_retriever.retrieve = Mock(return_value=SearchResults(results=[
+        dense_retriever.retrieve = AsyncMock(return_value=SearchResults(results=[
             SearchResult(memory=create_test_memory(f"结果{i}", "内容"), score=0.9)
             for i in range(5)
         ]))
         sparse_retriever = Mock()
-        sparse_retriever.retrieve = Mock(return_value=SearchResults())
+        sparse_retriever.retrieve = AsyncMock(return_value=SearchResults())
         
         fusion = ReciprocalRankFusion(config=ReciprocalRankFusionConfig())
 
@@ -391,7 +395,7 @@ class TestHybridRetrieverOrchestration:
         )
 
         query = RetrievalQuery(semantic_query="查询")
-        results = hybrid.retrieve(query, top_k=3)
+        results = await hybrid.retrieve(query, top_k=3)
 
         # 验证结果数量被限制
         assert len(results.results) == 1

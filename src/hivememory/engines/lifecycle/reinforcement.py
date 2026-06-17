@@ -79,7 +79,7 @@ class DynamicReinforcementEngine:
             EventType.FEEDBACK_NEGATIVE: self.config.negative_feedback_penalty,
         }
 
-    def reinforce(self, memory_id: UUID, event: MemoryEvent) -> ReinforcementResult:
+    async def reinforce(self, memory_id: UUID, event: MemoryEvent) -> ReinforcementResult:
         """
         处理强化事件
 
@@ -94,7 +94,7 @@ class DynamicReinforcementEngine:
             ValueError: 记忆不存在
         """
         # 从存储获取当前记忆
-        memory = self.storage.get_memory(memory_id)
+        memory = await self.storage.get_memory(memory_id)
         if memory is None:
             logger.warning(f"Memory not found for reinforcement: {memory_id}")
             raise ValueError(f"Memory {memory_id} not found")
@@ -120,7 +120,7 @@ class DynamicReinforcementEngine:
         memory.meta.vitality_score = new_vitality
 
         # 持久化到存储
-        self.storage.upsert_memory(memory)
+        await self.storage.upsert_memory(memory)
 
         # 创建结果
         result = ReinforcementResult(

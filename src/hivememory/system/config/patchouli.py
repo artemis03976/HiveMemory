@@ -5,9 +5,15 @@ from pydantic import BaseModel, Field, ConfigDict
 # ========== Storage ==========
 
 class QdrantConfig(BaseModel):
-    host: str = Field(default="localhost")
+    host: str = Field(default="127.0.0.1")
     port: int = Field(default=6333)
     grpc_port: int = Field(default=6334)
+    prefer_grpc: bool = Field(default=True)
+    timeout: int = Field(default=60)
+    deployment: Literal["external", "sidecar"] = Field(default="external")
+    data_dir: Optional[str] = Field(default=None)
+    binary_path: Optional[str] = Field(default=None)
+    startup_timeout_seconds: int = Field(default=30)
     api_key: Optional[str] = Field(default=None)
     collection_name: str = Field(default="hivememory_main")
     vector_dimension: int = Field(default=1024)

@@ -171,16 +171,9 @@ class ChatApplicationService:
                   -> [finalize if not cancelled] -> done
         """
         trace_id = generate_trace_id("stream")
-        tokens = set_trace_context(trace_id, "ChatApp.Stream", "foreground")
+        tokens = None
 
         run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
-        self._registry.register(run)
-        self._emit_chat_event(
-            RuntimeEventType.CHAT_RUN_CREATED,
-            run,
-            trace_id=trace_id,
-            agent_id=agent_id,
-        )
         prepared = None
         stream = None
         # 只记录 chat 终态是否已经对外发布；finally 依赖它判断是否需要断流兜底。
@@ -189,6 +182,14 @@ class ChatApplicationService:
         prepared_finalized = False
 
         try:
+            tokens = set_trace_context(trace_id, "ChatApp.Stream", "foreground")
+            self._registry.register(run)
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_CREATED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+            )
             yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
 
             run.status = ChatGenerationRunStatus.PREPARING
@@ -363,7 +364,8 @@ class ChatApplicationService:
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
             self._registry.close(run.generation_id, run.status)
-            reset_trace_context(tokens)
+            if tokens is not None:
+                reset_trace_context(tokens)
 
     # ========== Generation 控制 ==========
 

@@ -1,6 +1,7 @@
 """Unit tests for the lifecycle garbage collector."""
 
-from unittest.mock import Mock
+import pytest
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 from hivememory.core.models import (
@@ -36,6 +37,7 @@ def _make_memory(title: str, vitality_score: float | None) -> MemoryAtom:
 class TestPeriodicGarbageCollector:
     def setup_method(self):
         self.mock_archiver = Mock()
+        self.mock_archiver.archive = AsyncMock()
         self.config = GarbageCollectorConfig(
             low_watermark=20.0,
             batch_size=10,
@@ -77,35 +79,39 @@ class TestPeriodicGarbageCollector:
 
         assert candidates == []
 
-    def test_collect_archives_candidates(self):
+    @pytest.mark.asyncio
+    async def test_collect_archives_candidates(self):
         self.mock_archiver.is_archived.return_value = False
 
-        archived = self.gc.collect([self.low_vitality_memory])
+        archived = await self.gc.collect([self.low_vitality_memory])
 
         assert archived == 1
-        self.mock_archiver.archive.assert_called_once_with(
+        self.mock_archiver.archive.assert_awaited_once_with(
             self.low_vitality_memory.id
         )
 
-    def test_collect_skips_already_archived(self):
+    @pytest.mark.asyncio
+    async def test_collect_skips_already_archived(self):
         self.mock_archiver.is_archived.return_value = True
 
-        archived = self.gc.collect([self.low_vitality_memory])
+        archived = await self.gc.collect([self.low_vitality_memory])
 
         assert archived == 0
         self.mock_archiver.archive.assert_not_called()
 
-    def test_collect_respects_batch_size(self):
+    @pytest.mark.asyncio
+    async def test_collect_respects_batch_size(self):
         memories = [_make_memory(f"M{i}", 15.0) for i in range(20)]
         self.mock_archiver.is_archived.return_value = False
 
-        archived = self.gc.collect(memories, batch_size=10)
+        archived = await self.gc.collect(memories, batch_size=10)
 
         assert archived == 10
-        assert self.mock_archiver.archive.call_count == 10
+        assert self.mock_archiver.archive.await_count == 10
 
-    def test_collect_no_candidates(self):
-        archived = self.gc.collect([])
+    @pytest.mark.asyncio
+    async def test_collect_no_candidates(self):
+        archived = await self.gc.collect([])
 
         assert archived == 0
 
@@ -119,8 +125,7 @@ class TestPeriodicGarbageCollector:
         assert "runs_count" in stats
 
     def test_reset_stats(self):
-        self.mock_archiver.is_archived.return_value = False
-        self.gc.collect([self.low_vitality_memory])
+        self.gc._update_stats(scanned=1, archived=1)
 
         self.gc.reset_stats()
 
@@ -129,10 +134,11 @@ class TestPeriodicGarbageCollector:
         assert stats["total_archived"] == 0
         assert stats["runs_count"] == 0
 
-    def test_collect_updates_stats(self):
+    @pytest.mark.asyncio
+    async def test_collect_updates_stats(self):
         self.mock_archiver.is_archived.return_value = False
 
-        self.gc.collect([self.low_vitality_memory, self.high_vitality_memory])
+        await self.gc.collect([self.low_vitality_memory, self.high_vitality_memory])
 
         stats = self.gc.get_stats()
         assert stats["last_run"] is not None
@@ -140,11 +146,12 @@ class TestPeriodicGarbageCollector:
         assert stats["total_archived"] == 1
         assert stats["runs_count"] == 1
 
-    def test_collect_with_custom_threshold(self):
+    @pytest.mark.asyncio
+    async def test_collect_with_custom_threshold(self):
         medium_vitality_memory = _make_memory("Medium", 30.0)
         self.mock_archiver.is_archived.return_value = False
 
-        archived = self.gc.collect(
+        archived = await self.gc.collect(
             [medium_vitality_memory],
             batch_size=10,
             vitality_threshold=50.0,

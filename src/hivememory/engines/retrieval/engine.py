@@ -26,7 +26,7 @@ class RetrievalEngine:
         self.retriever = retriever
         self.renderer = renderer
 
-    def retrieve(
+    async def retrieve(
         self,
         query: RetrievalQuery,
         top_k: int = 5,
@@ -35,7 +35,7 @@ class RetrievalEngine:
     ) -> RetrievalResult:
         start_time = time.time()
 
-        search_results = self.retriever.retrieve(
+        search_results = await self.retriever.retrieve(
             query=query,
             top_k=top_k,
             score_threshold=score_threshold,

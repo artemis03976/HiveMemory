@@ -1,4 +1,4 @@
-﻿"""
+"""
 HiveMemory - 分布式记忆管理系统
 
 帕秋莉体系 v3.0 (Eye + Runtime):
@@ -144,7 +144,6 @@ from hivememory.engines.retrieval import (
     DenseRetriever,
     SparseRetriever,
     HybridRetriever,
-    CachedRetriever,
     ReciprocalRankFusion,
     AdaptiveWeightedFusion,
     NoopReranker,
@@ -342,7 +341,6 @@ __all__ = [
     "DenseRetriever",
     "SparseRetriever",
     "HybridRetriever",
-    "CachedRetriever",
     "ReciprocalRankFusion",
     "AdaptiveWeightedFusion",
     "NoopReranker",

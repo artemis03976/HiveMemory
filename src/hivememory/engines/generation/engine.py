@@ -95,7 +95,7 @@ class MemoryGenerationEngine:
 
         logger.info("MemoryGenerationEngine 初始化完成")
 
-    def process(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def process(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
         """
         处理对话片段，提取记忆原子 (三模式)
 
@@ -115,13 +115,13 @@ class MemoryGenerationEngine:
 
         # 路由到对应模式
         if request.is_update:
-            return self._process_mode_c(request)
+            return await self._process_mode_c(request)
         elif request.is_write:
-            return self._process_mode_b(request)
+            return await self._process_mode_b(request)
         else:
-            return self._process_mode_a(request)
+            return await self._process_mode_a(request)
 
-    def _process_mode_a(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def _process_mode_a(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
         """
         Mode A: 被动观察模式 (默认)
 
@@ -146,9 +146,9 @@ class MemoryGenerationEngine:
             return []
 
         # Step 2-4: 查重 → 构建 → 持久化 (Mode A 无 intent)
-        return self._dedup_and_persist(draft, identity)
+        return await self._dedup_and_persist(draft, identity)
 
-    def _process_mode_b(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def _process_mode_b(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
         """
         Mode B: 主动响应模式 (WRITE 指令触发)
 
@@ -179,7 +179,7 @@ class MemoryGenerationEngine:
             draft = self._build_fallback_draft(focus)
 
         # Step 2-4: 查重 → 构建 → 持久化 (携带 intent 追踪)
-        return self._dedup_and_persist(
+        return await self._dedup_and_persist(
             draft, identity,
             intent_id=request.intent_id,
             pending_alias=request.pending_alias,
@@ -206,7 +206,7 @@ class MemoryGenerationEngine:
             alias_suffix="",
         )
 
-    def _process_mode_c(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def _process_mode_c(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
         """
         Mode C: 合并更新模式 (UPDATE 指令触发)
 
@@ -339,7 +339,7 @@ class MemoryGenerationEngine:
             ),
         )]
 
-    def _dedup_and_persist(
+    async def _dedup_and_persist(
         self,
         draft: ExtractedMemoryDraft,
         identity: Identity,
@@ -350,13 +350,13 @@ class MemoryGenerationEngine:
         查重 → 构建 → 持久化 (Mode A/B 共用)
         """
 
-        decision, existing_memory = self.deduplicator.check_duplicate(draft)
+        decision, existing_memory = await self.deduplicator.check_duplicate(draft)
 
         # 根据决策执行操作
         if decision == DuplicateDecision.TOUCH:
             logger.info("记忆重复，更新访问时间")
 
-            self.storage.update_access_info(existing_memory.id)
+            await self.storage.update_access_info(existing_memory.id)
 
             return [MemoryGenerationResult(
                 intent_id=intent_id,
@@ -567,7 +567,7 @@ class MemoryGenerationEngine:
 
         return f"{prefix}_{suffix}"
 
-    def _save_memory(self, memory: MemoryAtom) -> None:
+    async def _save_memory(self, memory: MemoryAtom) -> None:
         """
         保存记忆到向量数据库
 
@@ -581,8 +581,7 @@ class MemoryGenerationEngine:
             >>> orchestrator._save_memory(memory)
         """
         try:
-            self.storage.upsert_memory(memory)
-            logger.info(f"✓ 记忆已存储: '{memory.index.title}' (ID: {memory.id})")
+            await self.storage.upsert_memory(memory)
 
         except Exception as e:
             logger.error(f"存储记忆失败: {e}", exc_info=True)

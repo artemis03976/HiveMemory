@@ -10,8 +10,9 @@ HiveMemory - 强化引擎单元测试
 """
 
 import pytest
+import pytest_asyncio
 from datetime import datetime
-from unittest.mock import Mock, MagicMock
+from unittest.mock import AsyncMock, Mock, MagicMock
 from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
@@ -25,7 +26,7 @@ class TestDynamicReinforcementEngine:
 
     def setup_method(self):
         """测试初始化"""
-        self.mock_storage = Mock()
+        self.mock_storage = AsyncMock()
         self.mock_vitality_calc = Mock()
 
         self.config = ReinforcementEngineConfig(
@@ -57,7 +58,8 @@ class TestDynamicReinforcementEngine:
             payload=PayloadLayer(content="Content"),
         )
 
-    def test_hit_event(self):
+    @pytest.mark.asyncio
+    async def test_hit_event(self):
         """测试 HIT 事件增加生命力"""
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 50.0
@@ -68,14 +70,15 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        result = self.engine.reinforce(self.test_memory.id, event)
+        result = await self.engine.reinforce(self.test_memory.id, event)
 
         assert result.event_type == EventType.HIT
         assert result.previous_vitality == 50.0
         assert result.new_vitality == 55.0
         assert self.mock_storage.upsert_memory.called
 
-    def test_citation_resets_decay(self):
+    @pytest.mark.asyncio
+    async def test_citation_resets_decay(self):
         """测试 CITATION 事件重置衰减"""
         # 将 updated_at 设置为过去时间，确保更新后的时间肯定更大
         from datetime import timedelta
@@ -91,7 +94,7 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        result = self.engine.reinforce(self.test_memory.id, event)
+        result = await self.engine.reinforce(self.test_memory.id, event)
 
         assert result.event_type == EventType.CITATION
 
@@ -99,7 +102,8 @@ class TestDynamicReinforcementEngine:
         updated_memory = self.mock_storage.upsert_memory.call_args[0][0]
         assert updated_memory.meta.updated_at > original_updated_at
 
-    def test_negative_feedback_reduces_confidence(self):
+    @pytest.mark.asyncio
+    async def test_negative_feedback_reduces_confidence(self):
         """测试负面反馈降低置信度"""
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 25.0  # 降低后
@@ -110,14 +114,15 @@ class TestDynamicReinforcementEngine:
             source="user"
         )
 
-        result = self.engine.reinforce(self.test_memory.id, event)
+        result = await self.engine.reinforce(self.test_memory.id, event)
 
         assert result.event_type == EventType.FEEDBACK_NEGATIVE
         assert result.new_confidence < result.previous_confidence
         # 应该降低 50%
         assert abs(result.new_confidence - 0.4) < 0.01  # 0.8 * 0.5
 
-    def test_positive_feedback_increases_vitality(self):
+    @pytest.mark.asyncio
+    async def test_positive_feedback_increases_vitality(self):
         """测试正面反馈增加生命力"""
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 100.0  # 大幅提升
@@ -128,12 +133,13 @@ class TestDynamicReinforcementEngine:
             source="user"
         )
 
-        result = self.engine.reinforce(self.test_memory.id, event)
+        result = await self.engine.reinforce(self.test_memory.id, event)
 
         assert result.event_type == EventType.FEEDBACK_POSITIVE
         assert result.new_vitality > result.previous_vitality
 
-    def test_negative_feedback_applies_vitality_penalty_after_recalculate(self):
+    @pytest.mark.asyncio
+    async def test_negative_feedback_applies_vitality_penalty_after_recalculate(self):
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 80.0
 
@@ -143,12 +149,13 @@ class TestDynamicReinforcementEngine:
             source="user",
         )
 
-        result = self.engine.reinforce(self.test_memory.id, event)
+        result = await self.engine.reinforce(self.test_memory.id, event)
 
         assert result.new_vitality == 30.0
         assert result.new_confidence == pytest.approx(0.4)
 
-    def test_reinforcement_clamps_vitality_to_valid_range(self):
+    @pytest.mark.asyncio
+    async def test_reinforcement_clamps_vitality_to_valid_range(self):
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 90.0
 
@@ -158,11 +165,12 @@ class TestDynamicReinforcementEngine:
             source="user",
         )
 
-        result = self.engine.reinforce(self.test_memory.id, event)
+        result = await self.engine.reinforce(self.test_memory.id, event)
 
         assert result.new_vitality == 100.0
 
-    def test_memory_not_found(self):
+    @pytest.mark.asyncio
+    async def test_memory_not_found(self):
         """测试记忆不存在时抛出异常"""
         self.mock_storage.get_memory.return_value = None
 
@@ -173,9 +181,10 @@ class TestDynamicReinforcementEngine:
         )
 
         with pytest.raises(ValueError):
-            self.engine.reinforce(uuid4(), event)
+            await self.engine.reinforce(uuid4(), event)
 
-    def test_access_count_increments(self):
+    @pytest.mark.asyncio
+    async def test_access_count_increments(self):
         """测试访问计数增加"""
         original_count = self.test_memory.meta.access_count
 
@@ -188,13 +197,14 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        self.engine.reinforce(self.test_memory.id, event)
+        await self.engine.reinforce(self.test_memory.id, event)
 
         # 获取更新的记忆
         updated_memory = self.mock_storage.upsert_memory.call_args[0][0]
         assert updated_memory.meta.access_count == original_count + 1
 
-    def test_last_accessed_at_updated(self):
+    @pytest.mark.asyncio
+    async def test_last_accessed_at_updated(self):
         """测试最后访问时间更新"""
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
@@ -205,13 +215,14 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        self.engine.reinforce(self.test_memory.id, event)
+        await self.engine.reinforce(self.test_memory.id, event)
 
         # 获取更新的记忆
         updated_memory = self.mock_storage.upsert_memory.call_args[0][0]
         assert updated_memory.meta.last_accessed_at is not None
 
-    def test_event_history_tracked(self):
+    @pytest.mark.asyncio
+    async def test_event_history_tracked(self):
         """测试事件历史跟踪"""
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
@@ -222,13 +233,14 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        self.engine.reinforce(self.test_memory.id, event)
+        await self.engine.reinforce(self.test_memory.id, event)
 
         history = self.engine.get_event_history()
         assert len(history) == 1
         assert history[0].event_type == EventType.HIT
 
-    def test_event_history_filtered_by_memory(self):
+    @pytest.mark.asyncio
+    async def test_event_history_filtered_by_memory(self):
         """测试按记忆ID过滤历史"""
         memory1_id = uuid4()
         memory2_id = uuid4()
@@ -275,15 +287,16 @@ class TestDynamicReinforcementEngine:
         event1 = MemoryEvent(event_type=EventType.HIT, memory_id=memory1_id, source="test")
         event2 = MemoryEvent(event_type=EventType.HIT, memory_id=memory2_id, source="test")
 
-        self.engine.reinforce(memory1_id, event1)
-        self.engine.reinforce(memory2_id, event2)
+        await self.engine.reinforce(memory1_id, event1)
+        await self.engine.reinforce(memory2_id, event2)
 
         # 过滤 memory1 的事件
         history = self.engine.get_event_history(memory_id=memory1_id)
         assert len(history) == 1
         assert history[0].memory_id == memory1_id
 
-    def test_clear_history(self):
+    @pytest.mark.asyncio
+    async def test_clear_history(self):
         """测试清空历史"""
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
@@ -294,13 +307,14 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        self.engine.reinforce(self.test_memory.id, event)
+        await self.engine.reinforce(self.test_memory.id, event)
         assert len(self.engine.get_event_history()) == 1
 
         self.engine.clear_history()
         assert len(self.engine.get_event_history()) == 0
 
-    def test_get_stats(self):
+    @pytest.mark.asyncio
+    async def test_get_stats(self):
         """测试获取统计信息"""
         self.mock_storage.get_memory.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
@@ -312,7 +326,7 @@ class TestDynamicReinforcementEngine:
                 memory_id=self.test_memory.id,
                 source=f"test{i}"
             )
-            self.engine.reinforce(self.test_memory.id, event)
+            await self.engine.reinforce(self.test_memory.id, event)
 
         stats = self.engine.get_stats()
         assert stats["total_events"] == 3

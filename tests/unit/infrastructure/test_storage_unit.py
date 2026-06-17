@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 from uuid import uuid4
 
 from qdrant_client.models import Document
@@ -15,6 +15,7 @@ from hivememory.core.models import (
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.system.config import QdrantConfig, EmbeddingConfig
 from hivememory.core.mtp.exceptions import StorageReadError
+
 
 class TestQdrantMemoryStore:
     @staticmethod
@@ -57,7 +58,7 @@ class TestQdrantMemoryStore:
 
     @pytest.fixture
     def mock_qdrant_client(self):
-        with patch('hivememory.infrastructure.storage.vector_store.QdrantClient') as mock:
+        with patch('hivememory.infrastructure.storage.qdrant_client.AsyncQdrantClient') as mock:
             yield mock
 
     @pytest.fixture
@@ -70,7 +71,7 @@ class TestQdrantMemoryStore:
         q_config = QdrantConfig(host="localhost", port=6333, collection_name="test")
         e_config = EmbeddingConfig()
         store = QdrantMemoryStore(qdrant_config=q_config, embedding_config=e_config)
-        
+
         # Mock embedding service encode method behavior
         def side_effect(dense_texts=None, sparse_texts=None):
             if sparse_texts:
@@ -81,45 +82,84 @@ class TestQdrantMemoryStore:
             else:
                 # Dense only
                 return [0.1] * 1024
-        
+
         store.embedding_service.encode.side_effect = side_effect
-        
+
         return store
 
-    def test_upsert_memory_dense_only(self, storage):
+    def test_qdrant_client_uses_configured_transport(self, mock_qdrant_client, mock_embedding_service):
+        q_config = QdrantConfig(
+            host="127.0.0.1",
+            port=6333,
+            grpc_port=6334,
+            prefer_grpc=True,
+            timeout=42,
+            collection_name="test",
+        )
+        e_config = EmbeddingConfig()
+
+        QdrantMemoryStore(qdrant_config=q_config, embedding_config=e_config)
+
+        mock_qdrant_client.assert_called_once_with(
+            host="127.0.0.1",
+            port=6333,
+            grpc_port=6334,
+            prefer_grpc=True,
+            timeout=42,
+        )
+
+    @pytest.mark.asyncio
+    async def test_ensure_ready_waits_for_qdrant_and_collection(self, storage):
+        storage.client.info = AsyncMock(return_value=MagicMock())
+        storage.client.get_collections = AsyncMock(return_value=MagicMock(collections=[]))
+        storage.client.create_collection = AsyncMock()
+
+        await storage.ensure_ready()
+
+        storage.client.info.assert_awaited_once()
+        storage.client.get_collections.assert_awaited_once()
+        storage.client.create_collection.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_upsert_memory_dense_only(self, storage):
         memory = MemoryAtom(
             meta=MetaData(source_agent_id="agent1", user_id="user1"),
             index=IndexLayer(title="Test", summary="Summary must be longer than 10 chars", tags=["tag"], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="Content")
         )
-        
-        storage.upsert_memory(memory, use_sparse=False)
-        
+
+        storage.client.upsert = AsyncMock()
+
+        await storage.upsert_memory(memory, use_sparse=False)
+
         # 验证是否调用了 embedding service
         storage.embedding_service.encode.assert_called_once()
-        
+
         # 验证是否调用了 upsert
         storage.client.upsert.assert_called_once()
         call_args = storage.client.upsert.call_args
         points = call_args.kwargs['points']
         assert len(points) == 1
-        
+
         # 验证 point.vector 中包含 dense_text
         vector = points[0].vector
         assert "dense_text" in vector
         assert vector["dense_text"] == [0.1] * 1024
-        
+
         # 验证 memory.index 上确实没有 embedding 属性
         assert not hasattr(memory.index, 'embedding')
 
-    def test_upsert_memory_hybrid(self, storage):
+    @pytest.mark.asyncio
+    async def test_upsert_memory_hybrid(self, storage):
         memory = MemoryAtom(
             meta=MetaData(source_agent_id="agent1", user_id="user1"),
             index=IndexLayer(title="Test", summary="Summary must be longer than 10 chars", tags=["tag"], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="Content")
         )
 
-        storage.upsert_memory(memory, use_sparse=True)
+        storage.client.upsert = AsyncMock()
+
+        await storage.upsert_memory(memory, use_sparse=True)
 
         storage.client.upsert.assert_called_once()
         points = storage.client.upsert.call_args.kwargs['points']
@@ -132,7 +172,8 @@ class TestQdrantMemoryStore:
         assert vector["sparse_text"].text
         assert vector["sparse_text"].model == "qdrant/bm25"
 
-    def test_search_memories_sparse_uses_bm25_document_query(self, storage):
+    @pytest.mark.asyncio
+    async def test_search_memories_sparse_uses_bm25_document_query(self, storage):
         mock_point = MagicMock()
         mock_point.payload = self._make_memory().to_qdrant_payload()
         mock_point.score = 0.42
@@ -140,9 +181,9 @@ class TestQdrantMemoryStore:
 
         response = MagicMock()
         response.points = [mock_point]
-        storage.client.query_points.return_value = response
+        storage.client.query_points = AsyncMock(return_value=response)
 
-        results = storage.search_memories(
+        results = await storage.search_memories(
             query_text="red braised lamb recipe",
             top_k=3,
             filters={"meta.user_id": "user1"},
@@ -156,7 +197,8 @@ class TestQdrantMemoryStore:
         assert call_args["query"].text == "red braised lamb recipe"
         assert call_args["query"].model == "qdrant/bm25"
 
-    def test_search_memories_dense_uses_dense_vector_query(self, storage):
+    @pytest.mark.asyncio
+    async def test_search_memories_dense_uses_dense_vector_query(self, storage):
         mock_point = MagicMock()
         mock_point.payload = self._make_memory().to_qdrant_payload()
         mock_point.score = 0.88
@@ -164,9 +206,9 @@ class TestQdrantMemoryStore:
 
         response = MagicMock()
         response.points = [mock_point]
-        storage.client.query_points.return_value = response
+        storage.client.query_points = AsyncMock(return_value=response)
 
-        results = storage.search_memories(
+        results = await storage.search_memories(
             query_text="dense query",
             top_k=2,
             mode="dense",
@@ -192,7 +234,8 @@ class TestQdrantMemoryStore:
 
     # ========== get_memory_by_alias ==========
 
-    def test_get_memory_by_alias_found(self, storage):
+    @pytest.mark.asyncio
+    async def test_get_memory_by_alias_found(self, storage):
         """scroll 返回匹配点时，正确还原 MemoryAtom"""
         mem = MemoryAtom(
             meta=MetaData(source_agent_id="agent1", user_id="user1"),
@@ -209,28 +252,30 @@ class TestQdrantMemoryStore:
 
         mock_point = MagicMock()
         mock_point.payload = payload
-        storage.client.scroll.return_value = ([mock_point], None)
+        storage.client.scroll = AsyncMock(return_value=([mock_point], None))
 
-        result = storage.get_memory_by_alias("code_my_tool")
+        result = await storage.get_memory_by_alias("code_my_tool")
 
         assert result is not None
         assert result.index.alias == "code_my_tool"
         assert result.payload.content == "print('hello')"
         storage.client.scroll.assert_called_once()
 
-    def test_get_memory_by_alias_not_found(self, storage):
+    @pytest.mark.asyncio
+    async def test_get_memory_by_alias_not_found(self, storage):
         """scroll 返回空列表时，返回 None"""
-        storage.client.scroll.return_value = ([], None)
+        storage.client.scroll = AsyncMock(return_value=([], None))
 
-        result = storage.get_memory_by_alias("nonexistent_alias")
+        result = await storage.get_memory_by_alias("nonexistent_alias")
 
         assert result is None
 
-    def test_get_memory_by_alias_with_user_filter(self, storage):
+    @pytest.mark.asyncio
+    async def test_get_memory_by_alias_with_user_filter(self, storage):
         """传入 user_id 时，filter 应包含 meta.user_id"""
-        storage.client.scroll.return_value = ([], None)
+        storage.client.scroll = AsyncMock(return_value=([], None))
 
-        storage.get_memory_by_alias("some_alias", user_id="user_42")
+        await storage.get_memory_by_alias("some_alias", user_id="user_42")
 
         call_args = storage.client.scroll.call_args
         scroll_filter = call_args.kwargs.get("scroll_filter") or call_args[1].get("scroll_filter")
@@ -239,33 +284,37 @@ class TestQdrantMemoryStore:
         assert "index.alias" in field_keys
         assert "meta.user_id" in field_keys
 
-    def test_get_memory_by_alias_exception(self, storage):
+    @pytest.mark.asyncio
+    async def test_get_memory_by_alias_exception(self, storage):
         """storage 异常时抛出 StorageReadError"""
-        storage.client.scroll.side_effect = Exception("Connection refused")
+        storage.client.scroll = AsyncMock(side_effect=Exception("Connection refused"))
 
         with pytest.raises(StorageReadError):
-            storage.get_memory_by_alias("broken_alias")
+            await storage.get_memory_by_alias("broken_alias")
 
     # ========== get_agent_profile ==========
 
-    def test_get_agent_profile_found(self, storage):
+    @pytest.mark.asyncio
+    async def test_get_agent_profile_found(self, storage):
         profile_atom = self._make_profile_atom(agent_id="coder_doll")
-        storage.get_memory_by_alias = MagicMock(return_value=profile_atom)
+        storage.get_memory_by_alias = AsyncMock(return_value=profile_atom)
 
-        result = storage.get_agent_profile("coder_doll")
+        result = await storage.get_agent_profile("coder_doll")
 
         assert result.persona == "You are a test agent."
         storage.get_memory_by_alias.assert_called_once_with("coder_doll")
 
-    def test_get_agent_profile_not_found_returns_omni(self, storage):
-        storage.get_memory_by_alias = MagicMock(return_value=None)
+    @pytest.mark.asyncio
+    async def test_get_agent_profile_not_found_returns_omni(self, storage):
+        storage.get_memory_by_alias = AsyncMock(return_value=None)
 
-        result = storage.get_agent_profile("nonexistent_agent")
+        result = await storage.get_agent_profile("nonexistent_agent")
 
         assert result is OMNI_DOLL_PROFILE
         storage.get_memory_by_alias.assert_called_once_with("nonexistent_agent")
 
-    def test_get_agent_profile_wrong_type_returns_omni(self, storage):
+    @pytest.mark.asyncio
+    async def test_get_agent_profile_wrong_type_returns_omni(self, storage):
         wrong_atom = MemoryAtom(
             id=uuid4(),
             meta=MetaData(user_id="test", source_agent_id="test"),
@@ -278,13 +327,14 @@ class TestQdrantMemoryStore:
             ),
             payload=PayloadLayer(content="Some content"),
         )
-        storage.get_memory_by_alias = MagicMock(return_value=wrong_atom)
+        storage.get_memory_by_alias = AsyncMock(return_value=wrong_atom)
 
-        result = storage.get_agent_profile("not_a_profile")
+        result = await storage.get_agent_profile("not_a_profile")
 
         assert result is OMNI_DOLL_PROFILE
 
-    def test_get_agent_profile_broken_atom_returns_omni(self, storage):
+    @pytest.mark.asyncio
+    async def test_get_agent_profile_broken_atom_returns_omni(self, storage):
         broken_atom = MemoryAtom(
             id=uuid4(),
             meta=MetaData(user_id="system", source_agent_id="system"),
@@ -300,17 +350,18 @@ class TestQdrantMemoryStore:
                 artifacts={},
             ),
         )
-        storage.get_memory_by_alias = MagicMock(return_value=broken_atom)
+        storage.get_memory_by_alias = AsyncMock(return_value=broken_atom)
 
-        result = storage.get_agent_profile("broken_agent")
+        result = await storage.get_agent_profile("broken_agent")
 
         assert result is OMNI_DOLL_PROFILE
 
     @pytest.mark.parametrize("alias", ["", "default", "omni_doll"])
-    def test_get_agent_profile_builtin_alias_returns_omni(self, storage, alias):
-        storage.get_memory_by_alias = MagicMock()
+    @pytest.mark.asyncio
+    async def test_get_agent_profile_builtin_alias_returns_omni(self, storage, alias):
+        storage.get_memory_by_alias = AsyncMock()
 
-        result = storage.get_agent_profile(alias)
+        result = await storage.get_agent_profile(alias)
 
         assert result is OMNI_DOLL_PROFILE
         storage.get_memory_by_alias.assert_not_called()

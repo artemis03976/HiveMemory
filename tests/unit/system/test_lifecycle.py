@@ -27,6 +27,7 @@ def _build_runtime_with_local_bus():
     runtime.retrieval_familiar.retrieve_async = AsyncMock()
     runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
     runtime.storage = MagicMock()
+    runtime.ensure_storage_ready = AsyncMock()
     runtime.mount_local_routes = PatchouliRuntime.mount_local_routes.__get__(
         runtime, PatchouliRuntime
     )
@@ -46,6 +47,7 @@ def mock_patchouli():
     runtime = MagicMock()
     runtime.is_models_ready.return_value = True
     runtime.local_routes_registered = False
+    runtime.ensure_storage_ready = AsyncMock()
     runtime.mount_local_routes = MagicMock(side_effect=lambda service: setattr(runtime, "local_routes_registered", True))
     runtime.unmount_local_routes = MagicMock(side_effect=lambda: setattr(runtime, "local_routes_registered", False))
     runtime.shutdown_drain = AsyncMock(return_value={"success": True})

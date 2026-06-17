@@ -13,8 +13,10 @@ services:
     environment:
       - HIVEMEMORY_SERVE_FRONTEND=true
       # Docker 内通过服务名连接 Qdrant
-      - HIVEMEMORY__QDRANT__HOST=qdrant
-      - HIVEMEMORY__QDRANT__PORT=6333
+      - HIVEMEMORY__PATCHOULI__STORAGE__HOST=qdrant
+      - HIVEMEMORY__PATCHOULI__STORAGE__PORT=6333
+      - HIVEMEMORY__PATCHOULI__STORAGE__GRPC_PORT=6334
+      - HIVEMEMORY__PATCHOULI__STORAGE__PREFER_GRPC=true
       # 指定配置文件路径（挂载到容器内）
       - HIVEMEMORY_CONFIG_PATH=/app/configs/config.yaml
     volumes:
@@ -24,7 +26,7 @@ services:
       - ../logs:/app/logs
     depends_on:
       qdrant:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -46,6 +48,11 @@ services:
     environment:
       - QDRANT__SERVICE__HTTP_PORT=6333
       - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     restart: unless-stopped
     networks:
       - hivememory_network

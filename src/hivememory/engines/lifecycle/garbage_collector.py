@@ -34,7 +34,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
     Examples:
         >>> gc = PeriodicGarbageCollector(archiver, config)
-        >>> archived_count = gc.collect(refreshed_memories, force=True)
+        >>> archived_count = await gc.collect(refreshed_memories, force=True)
         >>> print(f"Archived {archived_count} memories")
     """
 
@@ -90,7 +90,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         logger.info(f"Found {len(candidates)} candidates for archival")
         return [memory_id for memory_id, _ in candidates]
 
-    def collect(
+    async def collect(
         self,
         memories: Iterable[MemoryAtom],
         force: bool = False,
@@ -134,7 +134,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
                         skipped_count += 1
                         continue
 
-                self.archiver.archive(memory_id)
+                await self.archiver.archive(memory_id)
                 archived_count += 1
                 logger.info(f"Successfully archived {memory_id}")
             except Exception as exc:

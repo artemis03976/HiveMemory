@@ -63,7 +63,6 @@ from hivememory.engines.retrieval.retriever import (
     DenseRetriever,
     SparseRetriever,
     HybridRetriever,
-    CachedRetriever,
     create_retriever,
 )
 from hivememory.engines.retrieval.fusion import (
@@ -108,7 +107,6 @@ __all__ = [
     "DenseRetriever",
     "SparseRetriever",
     "HybridRetriever",
-    "CachedRetriever",
     "ReciprocalRankFusion",
     "AdaptiveWeightedFusion",
     "NoopReranker",

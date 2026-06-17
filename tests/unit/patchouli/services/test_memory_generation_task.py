@@ -26,10 +26,12 @@ from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 def _make_core(mock_generation=None, mock_storage=None, bus=None, runtime_events=None):
     from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
-    gen = mock_generation or MagicMock()
-    gen.process.return_value = []
-    storage = mock_storage or MagicMock()
-    storage.get_memory = AsyncMock(return_value=MagicMock())
+    gen = mock_generation if mock_generation is not None else MagicMock()
+    if mock_generation is None:
+        gen.process = AsyncMock(return_value=[])
+    storage = mock_storage if mock_storage is not None else MagicMock()
+    if mock_storage is None:
+        storage.get_memory = AsyncMock(return_value=MagicMock())
     perception_layer = MagicMock()
     perception_layer.get_topic_context.return_value = {
         "state_summary": "",
@@ -353,9 +355,8 @@ class TestMemoryTaskRuntimeEventMatrix:
             )
         ]
         gen = MagicMock()
-        gen.process.return_value = results
+        gen.process = AsyncMock(return_value=results)
         core, _ = _make_core(mock_generation=gen, runtime_events=recorder)
-        gen.process.return_value = results
 
         memory_task = await _single_memory_task(core, task, topic_id="topic_active")
         if memory_task._bg_task:

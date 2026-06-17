@@ -109,17 +109,17 @@ class MockQdrantMemoryStore:
         self.memories: Dict[UUID, MemoryAtom] = {}
         self._call_log: List[Dict] = []
 
-    def get_memory(self, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get_memory(self, memory_id: UUID) -> Optional[MemoryAtom]:
         """获取记忆"""
         self._call_log.append({"method": "get_memory", "memory_id": memory_id})
         return self.memories.get(memory_id)
 
-    def upsert_memory(self, memory: MemoryAtom) -> None:
+    async def upsert_memory(self, memory: MemoryAtom) -> None:
         """插入或更新记忆"""
         self._call_log.append({"method": "upsert_memory", "memory_id": memory.id})
         self.memories[memory.id] = memory
 
-    def delete_memory(self, memory_id: UUID) -> bool:
+    async def delete_memory(self, memory_id: UUID) -> bool:
         """删除记忆"""
         self._call_log.append({"method": "delete_memory", "memory_id": memory_id})
         if memory_id in self.memories:
@@ -395,7 +395,8 @@ class TestReinforcement:
     验证 DynamicReinforcementEngine 对各种事件的处理。
     """
 
-    def test_lif_rnf_001_hit_event(self, mock_storage, reinforcement_engine):
+    @pytest.mark.asyncio
+    async def test_lif_rnf_001_hit_event(self, mock_storage, reinforcement_engine):
         """
         LIF-RNF-001: 检索命中 (HIT)
 
@@ -411,7 +412,7 @@ class TestReinforcement:
             confidence_score=0.8,
             access_count=0,
         )
-        mock_storage.upsert_memory(memory)
+        await mock_storage.upsert_memory(memory)
 
         initial_vitality = memory.meta.vitality_score
         initial_access_count = memory.meta.access_count
@@ -422,10 +423,10 @@ class TestReinforcement:
             memory_id=memory.id,
             source="test",
         )
-        result = reinforcement_engine.reinforce(memory.id, event)
+        result = await reinforcement_engine.reinforce(memory.id, event)
 
         # 获取更新后的记忆
-        updated_memory = mock_storage.get_memory(memory.id)
+        updated_memory = await mock_storage.get_memory(memory.id)
 
         # 验证
         assert updated_memory.meta.access_count == initial_access_count + 1, (
@@ -443,7 +444,8 @@ class TestReinforcement:
             f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}"
         )
 
-    def test_lif_rnf_002_citation_event(self, mock_storage, reinforcement_engine):
+    @pytest.mark.asyncio
+    async def test_lif_rnf_002_citation_event(self, mock_storage, reinforcement_engine):
         """
         LIF-RNF-002: 引用强化 (CITATION)
 
@@ -461,7 +463,7 @@ class TestReinforcement:
             access_count=5,
         )
         old_updated_at = old_memory.meta.updated_at
-        mock_storage.upsert_memory(old_memory)
+        await mock_storage.upsert_memory(old_memory)
 
         # 触发 CITATION 事件
         event = MemoryEvent(
@@ -469,10 +471,10 @@ class TestReinforcement:
             memory_id=old_memory.id,
             source="test",
         )
-        result = reinforcement_engine.reinforce(old_memory.id, event)
+        result = await reinforcement_engine.reinforce(old_memory.id, event)
 
         # 获取更新后的记忆
-        updated_memory = mock_storage.get_memory(old_memory.id)
+        updated_memory = await mock_storage.get_memory(old_memory.id)
 
         # 验证 updated_at 被更新（时间衰减重置）
         assert updated_memory.meta.updated_at > old_updated_at, (
@@ -492,7 +494,8 @@ class TestReinforcement:
             f"Decay Reset: True"
         )
 
-    def test_lif_rnf_003_negative_feedback(self, mock_storage, reinforcement_engine):
+    @pytest.mark.asyncio
+    async def test_lif_rnf_003_negative_feedback(self, mock_storage, reinforcement_engine):
         """
         LIF-RNF-003: 用户负面反馈 (FEEDBACK_NEGATIVE)
 
@@ -508,7 +511,7 @@ class TestReinforcement:
             confidence_score=0.9,
             access_count=10,
         )
-        mock_storage.upsert_memory(memory)
+        await mock_storage.upsert_memory(memory)
 
         initial_confidence = memory.meta.confidence_score
 
@@ -518,10 +521,10 @@ class TestReinforcement:
             memory_id=memory.id,
             source="user",
         )
-        result = reinforcement_engine.reinforce(memory.id, event)
+        result = await reinforcement_engine.reinforce(memory.id, event)
 
         # 获取更新后的记忆
-        updated_memory = mock_storage.get_memory(memory.id)
+        updated_memory = await mock_storage.get_memory(memory.id)
 
         # 验证置信度降低 (乘以 0.5)
         expected_confidence = initial_confidence * case["expected_confidence_multiplier"]
@@ -537,7 +540,8 @@ class TestReinforcement:
             f"Confidence: {result.previous_confidence:.2f} -> {result.new_confidence:.2f}"
         )
 
-    def test_lif_rnf_004_positive_feedback(self, mock_storage, reinforcement_engine):
+    @pytest.mark.asyncio
+    async def test_lif_rnf_004_positive_feedback(self, mock_storage, reinforcement_engine):
         """
         LIF-RNF-004: 用户正面反馈 (FEEDBACK_POSITIVE)
 
@@ -553,7 +557,7 @@ class TestReinforcement:
             confidence_score=0.7,
             access_count=5,
         )
-        mock_storage.upsert_memory(memory)
+        await mock_storage.upsert_memory(memory)
 
         initial_access_count = memory.meta.access_count
 
@@ -563,10 +567,10 @@ class TestReinforcement:
             memory_id=memory.id,
             source="user",
         )
-        result = reinforcement_engine.reinforce(memory.id, event)
+        result = await reinforcement_engine.reinforce(memory.id, event)
 
         # 获取更新后的记忆
-        updated_memory = mock_storage.get_memory(memory.id)
+        updated_memory = await mock_storage.get_memory(memory.id)
 
         # 验证生命力提升
         assert result.new_vitality > result.previous_vitality, (
@@ -596,7 +600,8 @@ class TestArchiving:
     验证 FileBasedArchiver 的归档和唤醒流程。
     """
 
-    def test_lif_arc_001_archive_trigger(self, mock_storage, archiver):
+    @pytest.mark.asyncio
+    async def test_lif_arc_001_archive_trigger(self, mock_storage, archiver):
         """
         LIF-ARC-001: 归档触发
 
@@ -610,19 +615,19 @@ class TestArchiving:
             template_name="low_vitality",
             vitality_score=case["initial_vitality"],
         )
-        mock_storage.upsert_memory(memory)
+        await mock_storage.upsert_memory(memory)
         memory_id = memory.id
 
         # 验证记忆在热存储中
-        assert mock_storage.get_memory(memory_id) is not None, (
+        assert await mock_storage.get_memory(memory_id) is not None, (
             "Memory should exist in hot storage before archive"
         )
 
         # 执行归档
-        archiver.archive(memory_id)
+        await archiver.archive(memory_id)
 
         # 验证记忆从热存储中删除
-        assert mock_storage.get_memory(memory_id) is None, (
+        assert await mock_storage.get_memory(memory_id) is None, (
             "Memory should be deleted from hot storage after archive"
         )
 
@@ -645,7 +650,8 @@ class TestArchiving:
             f"Archived to {Path(record.storage_path).name}"
         )
 
-    def test_lif_arc_002_resurrect_flow(self, mock_storage, archiver):
+    @pytest.mark.asyncio
+    async def test_lif_arc_002_resurrect_flow(self, mock_storage, archiver):
         """
         LIF-ARC-002: 唤醒流程
 
@@ -659,7 +665,7 @@ class TestArchiving:
             template_name="fact",
             vitality_score=5.0,
         )
-        mock_storage.upsert_memory(original_memory)
+        await mock_storage.upsert_memory(original_memory)
         memory_id = original_memory.id
 
         # 保存原始数据用于比较
@@ -668,14 +674,14 @@ class TestArchiving:
         original_tags = original_memory.index.tags.copy()
 
         # 归档
-        archiver.archive(memory_id)
+        await archiver.archive(memory_id)
         assert archiver.is_archived(memory_id), "Memory should be archived"
 
         # 唤醒
-        resurrected_memory = archiver.resurrect(memory_id)
+        resurrected_memory = await archiver.resurrect(memory_id)
 
         # 验证记忆回到热存储
-        assert mock_storage.get_memory(memory_id) is not None, (
+        assert await mock_storage.get_memory(memory_id) is not None, (
             "Memory should be back in hot storage"
         )
 
@@ -697,7 +703,8 @@ class TestArchiving:
             f"Data integrity verified: title, content, tags all match"
         )
 
-    def test_lif_arc_003_archive_idempotency(self, mock_storage, archiver):
+    @pytest.mark.asyncio
+    async def test_lif_arc_003_archive_idempotency(self, mock_storage, archiver):
         """
         LIF-ARC-003: 归档幂等性
 
@@ -711,11 +718,11 @@ class TestArchiving:
             template_name="low_vitality",
             vitality_score=5.0,
         )
-        mock_storage.upsert_memory(memory)
+        await mock_storage.upsert_memory(memory)
         memory_id = memory.id
 
         # 第一次归档
-        archiver.archive(memory_id)
+        await archiver.archive(memory_id)
         assert archiver.is_archived(memory_id), "Memory should be archived"
 
         # 获取归档记录
@@ -724,7 +731,7 @@ class TestArchiving:
 
         # 第二次归档（应该是幂等的，不产生错误）
         try:
-            archiver.archive(memory_id)
+            await archiver.archive(memory_id)
             no_error = True
         except Exception as e:
             no_error = False

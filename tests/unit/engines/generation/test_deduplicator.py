@@ -9,7 +9,7 @@
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime
 from uuid import uuid4
 
@@ -26,7 +26,7 @@ class TestMemoryDeduplicator:
 
     def setup_method(self):
         """每个测试方法前执行"""
-        self.mock_storage = Mock(spec=QdrantMemoryStore)
+        self.mock_storage = AsyncMock(spec=QdrantMemoryStore)
         self.config = DeduplicatorConfig()
         self.deduplicator = MemoryDeduplicator(
             storage=self.mock_storage,
@@ -89,16 +89,18 @@ class TestMemoryDeduplicator:
         
         assert self.deduplicator._calculate_text_similarity(text1, text2) == 0.5
 
-    def test_check_duplicate_create(self):
+    @pytest.mark.asyncio
+    async def test_check_duplicate_create(self):
         """测试判定为 CREATE (无相似记忆)"""
         self.mock_storage.search_memories.return_value = []
         
-        decision, memory = self.deduplicator.check_duplicate(self.draft)
+        decision, memory = await self.deduplicator.check_duplicate(self.draft)
         
         assert decision == DuplicateDecision.CREATE
         assert memory is None
 
-    def test_check_duplicate_touch(self):
+    @pytest.mark.asyncio
+    async def test_check_duplicate_touch(self):
         """测试判定为 TOUCH (高相似度 + 内容一致)"""
         # 模拟找到高相似度记忆
         self.mock_storage.search_memories.return_value = [{
@@ -107,12 +109,13 @@ class TestMemoryDeduplicator:
         }]
         
         # 内容一致 (draft 和 existing 内容相同)
-        decision, memory = self.deduplicator.check_duplicate(self.draft)
+        decision, memory = await self.deduplicator.check_duplicate(self.draft)
         
         assert decision == DuplicateDecision.TOUCH
         assert memory == self.existing_memory
 
-    def test_check_duplicate_update_high_score_diff_content(self):
+    @pytest.mark.asyncio
+    async def test_check_duplicate_update_high_score_diff_content(self):
         """测试判定为 UPDATE (高相似度 + 内容不同)"""
         self.mock_storage.search_memories.return_value = [{
             "score": 0.98,
@@ -122,30 +125,32 @@ class TestMemoryDeduplicator:
         # 修改 draft 内容
         self.draft.content = "def quicksort_v2(): pass"
         
-        decision, memory = self.deduplicator.check_duplicate(self.draft)
+        decision, memory = await self.deduplicator.check_duplicate(self.draft)
         
         assert decision == DuplicateDecision.UPDATE
         assert memory == self.existing_memory
 
-    def test_check_duplicate_update_medium_score(self):
+    @pytest.mark.asyncio
+    async def test_check_duplicate_update_medium_score(self):
         """测试判定为 UPDATE (中等相似度)"""
         self.mock_storage.search_memories.return_value = [{
             "score": 0.85,  # 0.75 < 0.85 < 0.95
             "memory": self.existing_memory
         }]
         
-        decision, memory = self.deduplicator.check_duplicate(self.draft)
+        decision, memory = await self.deduplicator.check_duplicate(self.draft)
         
         assert decision == DuplicateDecision.UPDATE
 
-    def test_check_duplicate_create_low_score(self):
+    @pytest.mark.asyncio
+    async def test_check_duplicate_create_low_score(self):
         """测试判定为 CREATE (低相似度)"""
         self.mock_storage.search_memories.return_value = [{
             "score": 0.5,  # < 0.75
             "memory": self.existing_memory
         }]
         
-        decision, memory = self.deduplicator.check_duplicate(self.draft)
+        decision, memory = await self.deduplicator.check_duplicate(self.draft)
         
         assert decision == DuplicateDecision.CREATE
         assert memory == self.existing_memory

@@ -142,7 +142,7 @@ class PatchouliService:
                 topic_context=topic_context,
                 retrieval_result=retrieval_result,
                 agent_profile=agent_profile,
-                storage_available=self._runtime.check_storage_health(),
+                storage_available=await self._runtime.check_storage_health(),
             )
 
             stream_prelude = StreamPrelude(
@@ -200,7 +200,7 @@ class PatchouliService:
                 topic_id=agent_context.topic_id,
             )
 
-        self._record_retrieval_hits(prepared_run)
+        await self._record_retrieval_hits(prepared_run)
         return memory_tasks
 
     # ========== Phase 2: Memory Task API ==========
@@ -291,7 +291,7 @@ class PatchouliService:
             raise RuntimeError("PatchouliService 尚未接入 PatchouliBus")
         return self._local_bus
 
-    def _record_retrieval_hits(self, prepared_run: PreparedAgentRun) -> None:
+    async def _record_retrieval_hits(self, prepared_run: PreparedAgentRun) -> None:
         lifecycle = getattr(self._runtime.librarian_core, "lifecycle_engine", None)
         if lifecycle is None:
             return
@@ -308,7 +308,9 @@ class PatchouliService:
                 continue
             seen.add(memory_key)
             try:
-                lifecycle.record_hit(memory_id, source="retrieval.finalize")
+                result = lifecycle.record_hit(memory_id, source="retrieval.finalize")
+                if inspect.isawaitable(result):
+                    await result
             except Exception:
                 logger.warning(
                     "Failed to record retrieval HIT for memory_id=%s",

@@ -73,7 +73,7 @@ class MemoryDeduplicator(BaseDeduplicator):
         self.storage = storage
         self.config = config
 
-    def check_duplicate(
+    async def check_duplicate(
         self,
         draft: ExtractedMemoryDraft,
         threshold: float = 0.75
@@ -104,9 +104,9 @@ class MemoryDeduplicator(BaseDeduplicator):
             # 使用 summary 作为查询文本（比 title 更有区分度）
             query_text = f"{draft.title} {draft.summary}"
 
-            results = self.storage.search_memories(
+            results = await self.storage.search_memories(
                 query_text=query_text,
-                top_k=1,  # 只需要最相似的一条
+                top_k=1,
                 score_threshold=threshold,
             )
 
@@ -354,7 +354,7 @@ class NoOpDeduplicator(BaseDeduplicator):
     用于在配置未启用查重器时作为默认实现。
     """
 
-    def check_duplicate(
+    async def check_duplicate(
         self,
         draft: ExtractedMemoryDraft,
         threshold: float = 0.75

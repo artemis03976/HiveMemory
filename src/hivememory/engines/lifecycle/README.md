@@ -32,7 +32,7 @@
 活跃度刷新由调用方控制其作用域（caller-scoped）：
 
 - 检索和记忆 API 的读取路径在返回记忆前会刷新它们的活跃度，通常使用 `persist=False`（不持久化）。
-- `MemoryLifecycleEngine.run_garbage_collection()` 会加载所有活跃的记忆，使用 `persist=True` 刷新其活跃度，然后将刷新后的记忆集合传递给 `garbage_collector.collect(...)`。
+- `MemoryLifecycleEngine.run_garbage_collection()` 会加载所有活跃的记忆，使用 `persist=True` 刷新其活跃度，然后将刷新后的记忆集合异步传递给 `garbage_collector.collect(...)`。
 - `PeriodicGarbageCollector` 本身不包含 `VitalityCalculator`；它仅处理那些 `meta.vitality_score` 已经被引擎或调用方刷新过的记忆。
 
 这种设计避免了计算器与垃圾回收器之间的循环依赖，并确保引擎始终作为唯一的编排者。
@@ -50,7 +50,7 @@
 手动执行方式：
 
 ```python
-archived_count = lifecycle_engine.run_garbage_collection(force=True)
+archived_count = await lifecycle_engine.run_garbage_collection(force=True)
 ```
 
 ## 公共 API 接口
@@ -61,9 +61,9 @@ lifecycle_engine.refresh_vitality_batch(memories, persist=False)
 lifecycle_engine.record_hit(memory_id, source="retrieval.finalize")
 lifecycle_engine.record_citation(memory_id, source="mtp.read")
 lifecycle_engine.record_feedback(memory_id, positive=True, source="ui.memory_ref")
-lifecycle_engine.run_garbage_collection(force=False)
-lifecycle_engine.archive_memory(memory_id)
-lifecycle_engine.resurrect_memory(memory_id)
+await lifecycle_engine.run_garbage_collection(force=False)
+await lifecycle_engine.archive_memory(memory_id)
+memory = await lifecycle_engine.resurrect_memory(memory_id)
 ```
 
 `VitalityCalculator.calculate(memory)` 保持纯粹：它仅计算分数，不负责持久化。

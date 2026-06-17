@@ -171,22 +171,25 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
 
 
 class TestAgentProfileManagementService:
-    def test_create_agent_profile_writes_storage(self):
+    @pytest.mark.asyncio
+    async def test_create_agent_profile_writes_storage(self):
         storage = MagicMock()
+        storage.upsert_memory = AsyncMock()
         service = AgentProfileManagementService(storage=storage)
         atom = _make_memory_atom(title="Worker")
 
-        result = asyncio.run(service.create_agent_profile(atom))
+        result = await service.create_agent_profile(atom)
 
         assert result is atom
         storage.upsert_memory.assert_called_once_with(atom)
 
-    def test_list_agent_profiles_uses_agent_profile_filter(self):
+    @pytest.mark.asyncio
+    async def test_list_agent_profiles_uses_agent_profile_filter(self):
         storage = MagicMock()
+        storage.get_all_memories = AsyncMock(return_value=[])
         service = AgentProfileManagementService(storage=storage)
-        storage.get_all_memories.return_value = []
 
-        assert asyncio.run(service.list_agent_profiles()) == []
+        assert await service.list_agent_profiles() == []
         storage.get_all_memories.assert_called_once_with(
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=100,
