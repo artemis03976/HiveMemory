@@ -120,6 +120,7 @@ class FrameExecutionStatus(str, Enum):
 
     COMPLETED = "completed"   # 自然收敛
     SUSPENDED = "suspended"   # 命中 CALL，等待编排派生子 agent
+    CANCELLED = "cancelled"   # 收到取消信号，提前退出
 
 
 @dataclass

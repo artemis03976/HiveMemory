@@ -57,6 +57,7 @@ class MTPResponseStatus(str, Enum):
     ACK = "ack"
     WARNING = "warning"
     SUSPEND = "suspend"
+    CANCELLED = "cancelled"
 
 
 class MTPTarget(BaseModel):

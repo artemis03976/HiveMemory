@@ -162,14 +162,18 @@ class AgentLoopExecutor:
                 logger.info("Generation cancelled before MTP execution")
                 break
 
-            # TODO: Propagate cancel_event into the MTP executor itself so long-running
-            # tool/syscall execution can stop while it is in progress.
+            if cancel_event is not None and hasattr(self._mtp_executor, "set_cancel_event"):
+                self._mtp_executor.set_cancel_event(cancel_event)
             mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,
                 context=mtp_context,
             )
             if cancel_event is not None and cancel_event.is_set():
                 logger.info("Generation cancelled after MTP execution")
+                break
+
+            if mtp_result is not None and mtp_result.response_status == "cancelled":
+                logger.info("MTP execution cancelled")
                 break
 
             if mtp_result is not None and mtp_result.command:
@@ -289,6 +293,8 @@ class AgentLoopExecutor:
             ))
             p.sequence += 1
 
+        if cancel_event is not None and cancel_event.is_set():
+            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
     async def execute_frame_stream(

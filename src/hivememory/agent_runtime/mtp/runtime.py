@@ -24,6 +24,7 @@
 版本: 1.0
 """
 
+import asyncio
 import time
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -155,6 +156,8 @@ class KoakumaRuntime:
         )
 
         self._compiler = MemoryCompiler()
+
+        self.cancel_event: Optional[asyncio.Event] = None
 
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
 
@@ -302,6 +305,16 @@ class KoakumaRuntime:
         if last_open == -1:
             return None
 
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            return MTPExecutionResult(
+                command=None,
+                response_status=MTPResponseStatus.CANCELLED.value,
+                response_content="",
+                formatted_response="",
+                success=False,
+                execution_time_ms=0.0,
+            )
+
         # 提取从 ⟪ 开始的文本片段
         mtp_fragment = assistant_text[last_open:]
 
@@ -355,6 +368,8 @@ class KoakumaRuntime:
             )
 
         try:
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                return MTPResponse(status=MTPResponseStatus.CANCELLED, content="")
             # 权限沙箱：校验 MTP 动词权限 (Phase 1 多智能体)
             self._check_verb_permission(command.verb.value, context=context)
             return await handler(command, context)

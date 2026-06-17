@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Optional, TYPE_CHECKING
 
@@ -27,6 +28,9 @@ class KoakumaMTPExecutor(MTPExecutor):
 
     def __init__(self, koakuma: "KoakumaRuntime") -> None:
         self._koakuma = koakuma
+
+    def set_cancel_event(self, cancel_event: Optional[asyncio.Event]) -> None:
+        self._koakuma.cancel_event = cancel_event
 
     async def intercept_and_execute(
         self,
