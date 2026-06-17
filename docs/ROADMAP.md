@@ -245,12 +245,15 @@ v0.5.0 的意义：把“对话事实”和“记忆事实”从运行时缓存�
 - MTP READ 从简单读取 payload 升级为读取版本历史、provenance、artifact 来源。
 - MTP RUN 从执行 `payload.content` 升级为从记忆原子编译 executable asset。
 - 引入权限快照、构建过程、运行前检查和执行结果 artifact。
+- **隔离沙箱执行环境**：引入 Docker 或等效容器隔离，替换当前 dev-grade `subprocess` 占位实现；沙箱具备进程级隔离、资源限制与可审计的执行结果。
+- **MTP RUN 真取消**：基于隔离沙箱的 `kill()` 能力，实现 `cancel_event` 触发时对正在执行的 RUN 指令的主动中断（而非依赖 timeout 自然退出）；syscall handler 升级为 async，与 v0.5.1 已落地的 checkpoint 取消语义完整衔接。
 
 依赖：
 
 - MemoryCompiler IR 继续推进。
 - v0.5.0 的 artifact/provenance。
 - v0.4.0 的 cancel 与 runtime event。
+- v0.5.1 的 `CANCELLED` 状态与 MTP executor checkpoint 取消基础。
 
 ### v0.8.0 候选: Alice Phase 3 顶层编排
 
