@@ -1,8 +1,8 @@
 # Patchouli 子系统重构规划
 
 **文档状态**: 规划中  
-**关联版本**: v0.5.1（预计）  
-**前置条件**: v0.5.0 全部 Phase 完成
+**关联版本**: v0.5.3（预计）  
+**前置条件**: v0.5.2 全部 Phase 完成（AsyncQdrantClient + generation/retrieval async-native）
 
 ---
 

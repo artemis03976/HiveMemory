@@ -12,23 +12,23 @@ def test_agent_runtime_builds_engine_facade():
 
     runtime = AgentRuntime(
         mtp_executor=mtp_executor,
-        config=config,
+        alice_config=config.alice,
+        shared_config=config.shared,
     )
 
     assert isinstance(runtime._loop_executor, AgentLoopExecutor)
     assert runtime._loop_executor._mtp_executor is mtp_executor
-    # 迭代上限由门面从 config.agent_runtime 内部消化
-    assert runtime._max_iterations == config.agent_runtime.max_loop_iterations
+    assert runtime._max_iterations == config.alice.runtime.max_loop_iterations
 
 
 def test_agent_runtime_accepts_injected_loop_executor():
     """门面支持注入预构建的 loop_executor（测试/高级装配 seam）。"""
-    config = HiveMemoryConfig()
     injected = MagicMock()
 
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
-        config=config,
+        alice_config=MagicMock(),
+        shared_config=MagicMock(),
         loop_executor=injected,
     )
 

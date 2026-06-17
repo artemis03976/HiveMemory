@@ -15,7 +15,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, RetrievalResponse
 from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.config import HiveMemoryConfig, AliceConfig, SharedConfig
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
@@ -51,7 +51,7 @@ def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
 
 @pytest.mark.asyncio
 async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
-    runtime = AliceRuntime(config=HiveMemoryConfig())
+    runtime = AliceRuntime(alice_config=HiveMemoryConfig().alice, shared_config=HiveMemoryConfig().shared)
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
     runtime._orchestrator.run_agent = AsyncMock(
@@ -67,7 +67,7 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
 
 @pytest.mark.asyncio
 async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution():
-    runtime = AliceRuntime(config=HiveMemoryConfig())
+    runtime = AliceRuntime(alice_config=HiveMemoryConfig().alice, shared_config=HiveMemoryConfig().shared)
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
 
@@ -88,7 +88,7 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
 @pytest.mark.asyncio
 async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     recorder = RecordingRuntimeEventSink()
-    runtime = AliceRuntime(config=HiveMemoryConfig(), runtime_events=recorder)
+    runtime = AliceRuntime(alice_config=HiveMemoryConfig().alice, shared_config=HiveMemoryConfig().shared, runtime_events=recorder)
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
 
@@ -113,7 +113,7 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
 @pytest.mark.asyncio
 async def test_run_agent_stream_error_does_not_set_cancel_event():
     recorder = RecordingRuntimeEventSink()
-    runtime = AliceRuntime(config=HiveMemoryConfig(), runtime_events=recorder)
+    runtime = AliceRuntime(alice_config=HiveMemoryConfig().alice, shared_config=HiveMemoryConfig().shared, runtime_events=recorder)
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
     cancel_event = asyncio.Event()
@@ -136,7 +136,7 @@ async def test_run_agent_stream_error_does_not_set_cancel_event():
 @pytest.mark.asyncio
 async def test_run_agent_stream_without_done_fails_without_setting_cancel_event():
     recorder = RecordingRuntimeEventSink()
-    runtime = AliceRuntime(config=HiveMemoryConfig(), runtime_events=recorder)
+    runtime = AliceRuntime(alice_config=HiveMemoryConfig().alice, shared_config=HiveMemoryConfig().shared, runtime_events=recorder)
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
     cancel_event = asyncio.Event()

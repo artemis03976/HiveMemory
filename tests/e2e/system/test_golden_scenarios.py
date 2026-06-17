@@ -212,7 +212,7 @@ class SystemScenarioTestSystem:
     def __init__(
         self,
         config: Optional[HiveMemoryConfig] = None,
-        max_processing_tokens: int = 2048,
+        fold_token_threshold: int = 2048,
         print_signals: bool = True,
     ):
         """
@@ -220,7 +220,7 @@ class SystemScenarioTestSystem:
 
         Args:
             config: HiveMemory 配置
-            max_processing_tokens: Token 溢出阈值
+            fold_token_threshold: Token 溢出阈值
             print_signals: 是否打印中间信号
         """
         self.config = config or load_app_config()
@@ -233,7 +233,7 @@ class SystemScenarioTestSystem:
         self._init_infrastructure()
 
         # 2. 构建引擎
-        self._perception_layer = self._build_perception_layer(max_processing_tokens)
+        self._perception_layer = self._build_perception_layer(fold_token_threshold)
         self._generation_engine = self._build_generation_engine()
         self._gateway_engine = self._build_gateway_engine()
         self._retrieval_engine = self._build_retrieval_engine()
@@ -325,12 +325,12 @@ class SystemScenarioTestSystem:
 
         return GatewayEngine(interceptor=interceptor, semantic_analyzer=semantic_analyzer)
 
-    def _build_perception_layer(self, max_processing_tokens: int):
+    def _build_perception_layer(self, fold_token_threshold: int):
         """构建感知层"""
         from hivememory.engines.perception import create_perception_layer
 
         perception_config = self.config.perception
-        perception_config.engine.max_processing_tokens = max_processing_tokens
+        perception_config.engine.fold_token_threshold = fold_token_threshold
 
         return create_perception_layer(
             config=perception_config,

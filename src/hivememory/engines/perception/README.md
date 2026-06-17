@@ -123,7 +123,7 @@ layer.stop_idle_monitor()
 ```python
 from hivememory.perception import LLMRelayController
 
-controller = LLMRelayController(max_processing_tokens=8192)
+controller = LLMRelayController()
 if controller.should_trigger_relay(buffer, new_block):
     summary = controller.generate_summary(buffer.blocks)
     # 将 summary 注入下一个 buffer

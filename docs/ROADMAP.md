@@ -18,8 +18,12 @@ HiveMemory 的演进不是从一个普通聊天应用逐步叠功能，而是围
 | v0.2.0 | 多 Agent 隔离与 Agent Profile 虚拟记忆原子 | 已完成 | 将 Agent 身份配置化、记忆化，并支持隔离的多 Agent 运行 |
 | v0.3.0 | 多 Agent CALL、PendingAtom、Alice Orchestrator、MemoryCompiler | 已完成 | 打通 Agent 间调用、临时记忆结算、编排边界与记忆编译入口 |
 | v0.4.0 | Runtime Control 与系统事件观测 | 已完成 / 稳定化 | 将 chat run 与 memory task 建模为可取消、可观测、可审计的运行时对象 |
-| v0.5.0 | Data Durability 与 Async Cold Path | 规划中 | 将原始交互、检索证据、记忆生成 provenance 固化为可追溯的数据资产 |
-| v0.6.0+ | Gateway 上移、MTP READ/RUN、Alice Phase 3、记忆 split/merge | 候选规划 | 在稳定运行时与数据底座上继续扩展系统级智能行为 |
+| v0.5.0 | Data Durability & Artifact 体系 | 进行中 | 将原始交互与记忆生成 provenance 固化为可追溯的冷资产；建立 artifact 数据底座 |
+| v0.5.1 | 基础设施清理 | 规划中 | Config 重分层（Patchouli/Alice 独立 config）、NoOp 组件补全、cancel_event 传入 MTP executor |
+| v0.5.2 | Async-Native Adaptation | 规划中 | 存储层切换 AsyncQdrantClient，generation/retrieval 全链路原生 async |
+| v0.5.3 | Patchouli 架构重构 | 规划中 | LibrarianCore 解构，建立 MemoryLibrary + MemoryIngestionPipeline，扩展 RetrievalFamiliar 为全层检索 |
+| v0.6.0 | System Gateway & Commands | 候选规划 | Gateway 上移、复合意图拆分、MTP READ/RUN、Alice Phase 3 |
+| v0.7.0+ | 记忆 split/merge、L3 冷存储复活 | 候选规划 | 在稳定数据底座上扩展高级生命周期行为 |
 
 ---
 
@@ -226,6 +230,8 @@ v0.5.0 的意义：把“对话事实”和“记忆事实”从运行时缓存�
 - 支持 `/clear` 等系统指令的统一解析与执行。
 - 增加复合意图识别与任务拆分。
 - 让 Gateway 的拆分结果能被 Patchouli、Alice 与下游 task runner 消费。
+- **完善 Gateway 自定义拦截规则**：重新引入 `RuleInterceptor` 的自定义规则注入机制（`custom_system_patterns` / `custom_chat_patterns`），与系统指令注册表打通，支持运行时动态扩展拦截规则。
+- **Gateway LLM 降级与重试**：为 `LLMAnalyzer` 增加重试策略（指数退避）、超时控制与降级路径，LLM 调用失败时自动回退到 `NoOpSemanticAnalyzer` 的保守结果，而非将异常上抛给 TheEye。
 
 依赖：
 

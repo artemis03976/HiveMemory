@@ -304,6 +304,7 @@ class TestFlushCallbackModes:
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
+            perception_layer=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
             task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
@@ -355,6 +356,7 @@ class TestFlushCallbackModes:
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
+            perception_layer=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
             task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
@@ -373,6 +375,7 @@ class TestFlushCallbackModes:
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
+            perception_layer=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
             task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
@@ -412,6 +415,7 @@ class TestFlushCallbackModes:
         bus = make_mock_bus(mock_generation=mock_generation)
         core = LibrarianCore(
             storage=MagicMock(),
+            perception_layer=MagicMock(),
             bus=bus,
             lifecycle_engine=MagicMock(),
             task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),

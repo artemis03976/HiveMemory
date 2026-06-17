@@ -702,6 +702,113 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         return result
 
 
+class NullPerceptionLayer(BasePerceptionLayer):
+    """Disabled perception layer with the same public surface as SemanticFlow."""
+
+    def set_generation_callback(self, callback: Callable[[Dict[str, Any]], Any]) -> None:
+        self._generation_callback = callback
+
+    def ingest_payload(self, payload: InteractionPayload) -> None:
+        return None
+
+    async def route_and_ingest(
+        self,
+        topic_id: str,
+        payload: InteractionPayload,
+    ) -> str:
+        return topic_id
+
+    def get_buffer(
+        self,
+        topic_id: str,
+    ) -> Optional[Any]:
+        return None
+
+    def clear_buffer(
+        self,
+        topic_id: str,
+    ) -> bool:
+        return False
+
+    def list_active_buffers(self) -> List[str]:
+        return []
+
+    def get_buffer_info(
+        self,
+        topic_id: str,
+    ) -> Dict[str, Any]:
+        return {
+            "exists": False,
+            "topic_id": topic_id,
+            "mode": "null",
+        }
+
+    def get_active_topics_snapshots(
+        self,
+        identity: Optional[Identity] = None,
+    ) -> List[Any]:
+        return []
+
+    async def manual_trigger(
+        self,
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "topic_id": topic_id or "unknown",
+            "message": "perception_layer disabled",
+            "blocks_archived": 0,
+        }
+
+    async def prepare_topic(
+        self,
+        target_topic_id: str,
+        new_topic_title: Optional[str],
+        new_topic_summary: Optional[str],
+        identity: Identity,
+    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+        return (
+            target_topic_id,
+            {"topics": [], "max_resident_topics": 0, "current_count": 0},
+            {
+                "state_summary": "",
+                "blocks": [],
+                "total_tokens": 0,
+                "topic_title": new_topic_title or "",
+                "topic_summary": new_topic_summary or "",
+            },
+        )
+
+    def get_topic_context(
+        self,
+        topic_id: str,
+        max_recent_blocks: int = 5,
+    ) -> Dict[str, Any]:
+        return {
+            "state_summary": "",
+            "blocks": [],
+            "total_tokens": 0,
+            "topic_title": "",
+            "topic_summary": "",
+        }
+
+    def swap_out_topic(self, topic_id: str) -> None:
+        return None
+
+    async def scan_idle_buffers_once(self) -> List[str]:
+        return []
+
+    async def flush_all_for_shutdown(self) -> Dict[str, Any]:
+        return {
+            "success": True,
+            "trigger_reason": FlushReason.SHUTDOWN.value,
+            "flushed_topics": [],
+            "skipped_topics": [],
+            "archived_blocks": 0,
+        }
+
+
 __all__ = [
     "SemanticFlowPerceptionLayer",
+    "NullPerceptionLayer",
 ]
