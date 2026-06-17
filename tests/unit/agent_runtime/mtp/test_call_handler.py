@@ -60,6 +60,8 @@ class TestKoakumaHandleCall:
             runtime_scope=RuntimeScope(depth=depth),
         )
 
+        koakuma.cancel_event = None  # instance var not in MagicMock spec
+
         # 绑定真实方法
         import types
         koakuma._handle_call = types.MethodType(
