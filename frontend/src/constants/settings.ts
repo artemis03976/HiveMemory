@@ -74,16 +74,16 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
   },
   perception: {
     engine: {
-      type: 'semantic_flow',
+      enable: true,
       idle_timeout_seconds: 900,
       scan_interval_seconds: 30,
       fold_token_threshold: 32768,
       fold_retain_recent_blocks: 5,
       max_resident_topics: 10,
       relay: {
+        enable: true,
         engine: {
           type: 'simple',
-          max_processing_tokens: 8192,
         },
       },
     },

@@ -403,7 +403,6 @@
       "description": "验证 Buffer Token 累计超过 2048 时触�?TOKEN_OVERFLOW flush，多轮对话逐渐累积",
       "input": {
         "identity": {"user_id": "test_user_005a", "agent_id": "test_agent", "session_id": "session_005a"},
-        "max_processing_tokens": 2048,
         "interactions": [
           {
             "role": "user",
@@ -449,7 +448,6 @@
       "description": "验证单次大量 Token 输入导致溢出",
       "input": {
         "identity": {"user_id": "test_user_005b", "agent_id": "test_agent", "session_id": "session_005b"},
-        "max_processing_tokens": 2048,
         "interactions": [
           {
             "role": "user",
@@ -486,7 +484,6 @@
       "description": "验证 Token 接近但未超过阈值时不触�?flush",
       "input": {
         "identity": {"user_id": "test_user_005c", "agent_id": "test_agent", "session_id": "session_005c"},
-        "max_processing_tokens": 8192,
         "interactions": [
           {
             "role": "user",

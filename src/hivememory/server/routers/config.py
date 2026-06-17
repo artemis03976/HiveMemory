@@ -22,15 +22,12 @@ class ConfigResponse(BaseModel):
     """配置响应模型"""
     system: Dict[str, Any]
     logging: Dict[str, Any]
-    llm: Dict[str, Any]
-    embedding: Dict[str, Any]
-    qdrant: Dict[str, Any]
-    gateway: Dict[str, Any]
-    perception: Dict[str, Any]
-    generation: Dict[str, Any]
-    retrieval: Dict[str, Any]
-    lifecycle: Dict[str, Any]
-    koakuma: Dict[str, Any]
+    scheduler: Dict[str, Any]
+    runtime_events: Dict[str, Any]
+    i18n: Dict[str, Any]
+    shared: Dict[str, Any]
+    patchouli: Dict[str, Any]
+    alice: Dict[str, Any]
 
 
 def _build_config_without_path_override(config_data: Dict[str, Any] | None = None) -> HiveMemoryConfig:

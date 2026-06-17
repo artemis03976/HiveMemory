@@ -80,13 +80,10 @@ class TestTriggerManagerInit:
         assert manager._buffer_manager is self.mock_buffer_manager
         assert manager._relay_controller is self.mock_relay_controller
 
-    def test_init_without_relay_controller(self):
-        """测试不带 RelayController 初始化"""
-        manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
-        )
-        assert manager._buffer_manager is self.mock_buffer_manager
-        assert manager._relay_controller is None
+    def test_init_requires_relay_controller(self):
+        """TriggerManager requires explicit RelayController injection."""
+        with pytest.raises(TypeError):
+            TriggerManager(buffer_manager=self.mock_buffer_manager)
 
 
 class TestTriggerManagerDependencyInjection:
@@ -97,6 +94,7 @@ class TestTriggerManagerDependencyInjection:
         self.mock_buffer_manager = Mock()
         self.manager = TriggerManager(
             buffer_manager=self.mock_buffer_manager,
+            relay_controller=Mock(),
         )
 
     def test_set_generation_callback(self):
@@ -282,6 +280,7 @@ class TestTriggerManagerArchiveTopic:
 
         self.manager = TriggerManager(
             buffer_manager=self.mock_buffer_manager,
+            relay_controller=Mock(),
         )
         self.manager.set_generation_callback(self.mock_callback)
 
@@ -291,7 +290,10 @@ class TestTriggerManagerArchiveTopic:
     @pytest.mark.asyncio
     async def test_archive_without_callback(self):
         """测试无回调时跳过 Archive"""
-        manager = TriggerManager(buffer_manager=self.mock_buffer_manager)
+        manager = TriggerManager(
+            buffer_manager=self.mock_buffer_manager,
+            relay_controller=Mock(),
+        )
 
         blocks = [
             LogicalBlock(
@@ -421,23 +423,6 @@ class TestTriggerManagerCompactTopic:
         # 验证 state_summary 更新
         assert buffer.state_summary == "New summary"
         self.mock_relay_controller.generate_summary.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_compact_without_relay_controller(self):
-        """测试无 RelayController 时跳过 Compact"""
-        manager = TriggerManager(buffer_manager=self.mock_buffer_manager)
-
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(user_query="test", assistant_final_text="test"),
-                total_tokens=10,
-            )
-        ]
-
-        await manager._compact_topic(self.topic_id, blocks, "summary")
-
-        # 不应该抛出异常
-        self.mock_relay_controller.generate_summary.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_compact_without_buffer(self):

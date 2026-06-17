@@ -44,19 +44,18 @@ class MemoryGatewayConfig(BaseModel):
 
 class SimpleRelayConfig(BaseModel):
     type: Literal["simple"] = Field(default="simple")
-    max_processing_tokens: int = Field(default=8192)
 
     model_config = ConfigDict(extra="ignore")
 
 
 class LLMRelayConfig(BaseModel):
     type: Literal["llm"] = Field(default="llm")
-    max_processing_tokens: int = Field(default=8192)
 
     model_config = ConfigDict(extra="ignore")
 
 
 class RelayControllerConfig(BaseModel):
+    enable: bool = Field(default=True)
     engine: Union[SimpleRelayConfig, LLMRelayConfig] = Field(
         default_factory=SimpleRelayConfig,
         discriminator="type",
@@ -66,9 +65,7 @@ class RelayControllerConfig(BaseModel):
 
 
 class SemanticFlowPerceptionConfig(BaseModel):
-    type: Literal["semantic_flow"] = Field(default="semantic_flow")
-    max_processing_tokens: int = Field(default=8192)
-    enable_smart_summary: bool = Field(default=False)
+    enable: bool = Field(default=True)
     idle_timeout_seconds: int = Field(default=900)
     scan_interval_seconds: int = Field(default=30)
     fold_token_threshold: int = Field(default=32768)

@@ -14,6 +14,7 @@ from uuid import uuid4
 from hivememory.core.models import Identity, TurnRecord, UpdateFocus, WriteFocus
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
+from hivememory.engines.perception.semantic_flow_perception_layer import NullPerceptionLayer
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationSource
@@ -65,16 +66,25 @@ def _make_controller(generation_engine=None, storage=None, runtime_events=None, 
     )
 
 
+def _null_perception():
+    return NullPerceptionLayer()
+
+
 class TestLibrarianCoreInit:
     """初始化测试"""
 
-    def test_init_with_storage_only(self):
-        """只有 storage 时正常初始化"""
+    def test_init_requires_perception_layer(self):
+        """perception_layer 必须显式注入"""
+        with pytest.raises(TypeError):
+            LibrarianCore(storage=Mock())
+
+    def test_init_with_null_perception_layer(self):
+        """使用 NullPerceptionLayer 时正常初始化"""
         mock_storage = Mock()
-        core = LibrarianCore(storage=mock_storage)
+        core = LibrarianCore(storage=mock_storage, perception_layer=_null_perception())
         assert core.storage is mock_storage
         assert core._bus is None
-        assert core.perception_layer is None
+        assert isinstance(core.perception_layer, NullPerceptionLayer)
 
     def test_init_with_all_dependencies(self):
         """注入所有依赖时正常初始化"""
@@ -124,19 +134,12 @@ class TestLibrarianCorePerceptionDelegation:
         assert result["success"] is True
         self.perception.manual_trigger.assert_called_once_with("topic_1")
 
-    @pytest.mark.asyncio
-    async def test_manual_archive_topic_without_perception(self):
-        core = LibrarianCore(storage=Mock(), perception_layer=None)
-        result = await core.manual_archive_topic("topic_x")
-        assert result["success"] is False
-
-
 class TestLibrarianCoreGardening:
     @pytest.mark.asyncio
     async def test_run_gardening_once_calls_lifecycle_gc(self):
         lifecycle = Mock()
         lifecycle.run_garbage_collection.return_value = 3
-        core = LibrarianCore(storage=Mock(), lifecycle_engine=lifecycle)
+        core = LibrarianCore(storage=Mock(), perception_layer=_null_perception(), lifecycle_engine=lifecycle)
 
         result = await core.run_gardening_once()
 
@@ -148,7 +151,7 @@ class TestLibrarianCoreGardening:
 
     @pytest.mark.asyncio
     async def test_run_gardening_once_without_lifecycle_returns_failure(self):
-        core = LibrarianCore(storage=Mock(), lifecycle_engine=None)
+        core = LibrarianCore(storage=Mock(), perception_layer=_null_perception(), lifecycle_engine=None)
 
         result = await core.run_gardening_once()
 
@@ -160,7 +163,7 @@ class TestLibrarianCoreGardening:
     async def test_run_gardening_once_catches_lifecycle_error(self):
         lifecycle = Mock()
         lifecycle.run_garbage_collection.side_effect = RuntimeError("boom")
-        core = LibrarianCore(storage=Mock(), lifecycle_engine=lifecycle)
+        core = LibrarianCore(storage=Mock(), perception_layer=_null_perception(), lifecycle_engine=lifecycle)
 
         result = await core.run_gardening_once()
 
@@ -178,6 +181,7 @@ class TestLibrarianCoreGenerateMemory:
         self.mock_storage = MagicMock()
         self.core = LibrarianCore(
             storage=self.mock_storage,
+            perception_layer=_null_perception(),
             task_controller=_make_controller(self.mock_generation, self.mock_storage),
         )
 
@@ -569,6 +573,7 @@ class TestLibrarianCoreGenerateMemory:
         recorder = RecordingRuntimeEventSink()
         core = LibrarianCore(
             storage=self.mock_storage,
+            perception_layer=_null_perception(),
             task_controller=_make_controller(self.mock_generation, self.mock_storage, runtime_events=recorder),
         )
         payload = ArchivePayload(
@@ -705,6 +710,7 @@ class TestLibrarianCoreGenerateMemory:
         """没有 generation_engine 时跳过处理"""
         core = LibrarianCore(
             storage=Mock(),
+            perception_layer=_null_perception(),
             task_controller=_make_controller(None, Mock()),
         )
         blocks = _make_logical_blocks(2)

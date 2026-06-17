@@ -151,7 +151,7 @@ def setup_test_env(max_tokens: int = 2048) -> SemanticFlowPerceptionLayer:
 
     # 4. 创建 SemanticFlowPerceptionLayer 配置
     perception_config = SemanticFlowPerceptionConfig(
-        max_processing_tokens=max_tokens,
+        fold_token_threshold=max_tokens,
         idle_timeout_seconds=900,
         scan_interval_seconds=30,
     )

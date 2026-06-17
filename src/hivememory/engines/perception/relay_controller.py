@@ -245,6 +245,17 @@ class LLMRelayController(BaseRelayController):
             return simple_controller._generate_simple_summary(blocks)
 
 
+class NoOpRelayController(BaseRelayController):
+    """RelayController disabled implementation."""
+
+    def generate_summary(
+        self,
+        blocks_to_fold: List[LogicalBlock],
+        previous_summary: Optional[str] = None
+    ) -> str:
+        return previous_summary or ""
+
+
 # ========== 工厂函数 ==========
 
 def create_relay_controller(
@@ -272,6 +283,9 @@ def create_relay_controller(
     """
     from hivememory.system.config import SimpleRelayConfig, LLMRelayConfig
 
+    if not config.enable:
+        return NoOpRelayController()
+
     impl_config = config.engine
 
     if isinstance(impl_config, SimpleRelayConfig):
@@ -285,6 +299,7 @@ def create_relay_controller(
 
 __all__ = [
     "BaseRelayController",
+    "NoOpRelayController",
     "SimpleRelayController",
     "LLMRelayController",
     "create_relay_controller",

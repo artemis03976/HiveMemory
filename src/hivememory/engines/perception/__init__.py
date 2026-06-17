@@ -46,12 +46,14 @@ from hivememory.engines.perception.trigger_manager import (
 )
 from hivememory.engines.perception.relay_controller import (
     BaseRelayController,
+    NoOpRelayController,
     SimpleRelayController,
     LLMRelayController,
     create_relay_controller,
 )
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
+    NullPerceptionLayer,
 )
 
 from typing import Optional
@@ -63,7 +65,7 @@ logger = logging.getLogger(__name__)
 def create_perception_layer(
     config: MemoryPerceptionConfig,
     llm_service=None,
-) -> SemanticFlowPerceptionLayer:
+) -> BasePerceptionLayer:
     """
     创建感知层 (MMU) 实例
 
@@ -86,6 +88,9 @@ def create_perception_layer(
         )
         impl_config = SemanticFlowPerceptionConfig()
 
+    if not impl_config.enable:
+        return NullPerceptionLayer()
+
     relay_config = getattr(config, "relay", None) or impl_config.relay
     relay_controller = create_relay_controller(
         config=relay_config,
@@ -103,6 +108,7 @@ def create_perception_layer(
 __all__ = [
     # 感知层实现
     "SemanticFlowPerceptionLayer",
+    "NullPerceptionLayer",
     # 接口
     "BasePerceptionLayer",
     # 数据模型
@@ -119,6 +125,7 @@ __all__ = [
     "DECISION_MATRIX",
     # 接力控制器 / Page Folding 摘要生成器
     "BaseRelayController",
+    "NoOpRelayController",
     "SimpleRelayController",
     "LLMRelayController",
     "create_relay_controller",
