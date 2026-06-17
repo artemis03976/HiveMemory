@@ -11,9 +11,9 @@
 import logging
 import math
 import time
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Tuple, Union
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.system.config import (
@@ -66,7 +66,7 @@ class DenseRetriever(BaseMemoryRetriever):
         self.storage = storage
         self.config = config
 
-    def retrieve(
+    async def retrieve(
         self,
         query: RetrievalQuery,
         top_k: Optional[int] = None,
@@ -96,8 +96,7 @@ class DenseRetriever(BaseMemoryRetriever):
         logger.info(f"Dense检索: '{search_text[:50]}...', filters={filters}")
 
         try:
-            # 执行稠密向量检索
-            raw_results = self.storage.search_memories(
+            raw_results = await self.storage.search_memories(
                 query_text=search_text,
                 top_k=top_k,
                 score_threshold=score_threshold,
@@ -105,7 +104,7 @@ class DenseRetriever(BaseMemoryRetriever):
                 mode="dense"
             )
         except (StorageOfflineError, StorageReadError):
-            raise  # Must propagate to Koakuma
+            raise
         except Exception as e:
             logger.error(f"Dense检索失败: {e}", exc_info=True)
             return SearchResults(latency_ms=(time.time() - start_time) * 1000)
@@ -199,7 +198,7 @@ class SparseRetriever(BaseMemoryRetriever):
         self.storage = storage
         self.config = config
 
-    def retrieve(
+    async def retrieve(
         self,
         query: RetrievalQuery,
         top_k: Optional[int] = None,
@@ -229,8 +228,7 @@ class SparseRetriever(BaseMemoryRetriever):
         logger.info(f"Sparse检索: '{search_text[:50]}...', filters={filters}")
 
         try:
-            # 执行稀疏向量检索
-            raw_results = self.storage.search_memories(
+            raw_results = await self.storage.search_memories(
                 query_text=search_text,
                 top_k=top_k,
                 score_threshold=score_threshold,
@@ -238,7 +236,7 @@ class SparseRetriever(BaseMemoryRetriever):
                 mode="sparse"
             )
         except (StorageOfflineError, StorageReadError):
-            raise  # Must propagate to Koakuma
+            raise
         except Exception as e:
             logger.error(f"Sparse检索失败: {e}", exc_info=True)
             return SearchResults(latency_ms=(time.time() - start_time) * 1000)
@@ -306,7 +304,7 @@ class HybridRetriever(BaseMemoryRetriever):
         self.fusion = fusion
         self.reranker = reranker
 
-    def retrieve(
+    async def retrieve(
         self,
         query: RetrievalQuery,
         top_k: Optional[int] = None,
@@ -332,9 +330,9 @@ class HybridRetriever(BaseMemoryRetriever):
 
         # 并行召回
         if self.enable_parallel:
-            dense_results, sparse_results = self._parallel_recall(query)
+            dense_results, sparse_results = await self._parallel_recall(query)
         else:
-            dense_results, sparse_results = self._sequential_recall(query)
+            dense_results, sparse_results = await self._sequential_recall(query)
 
         # RRF 融合
         fused_results = self.fusion.fuse(dense_results, sparse_results)
@@ -358,118 +356,37 @@ class HybridRetriever(BaseMemoryRetriever):
         fused_results.results = fused_results.results[:top_k]
 
         latency = (time.time() - start_time) * 1000
-        logger.info(
-            f"混合检索完成: 返回 {len(fused_results)} 条结果, "
-            f"耗时 {latency:.1f}ms"
-        )
+        logger.info(f"混合检索完成: 返回 {len(fused_results)} 条结果, 耗时 {latency:.1f}ms")
 
         return fused_results
 
-    def _parallel_recall(
+    async def _parallel_recall(
         self,
         query: RetrievalQuery
     ) -> Tuple[SearchResults, SearchResults]:
-        """并行执行稠密和稀疏检索"""
-        dense_results = None
-        sparse_results = None
+        """asyncio.gather 并行执行稠密和稀疏检索"""
+        results = await asyncio.gather(
+            self.dense_retriever.retrieve(query),
+            self.sparse_retriever.retrieve(query),
+            return_exceptions=True,
+        )
+        dense_results = results[0] if not isinstance(results[0], Exception) else SearchResults()
+        sparse_results = results[1] if not isinstance(results[1], Exception) else SearchResults()
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = {
-                executor.submit(self.dense_retriever.retrieve, query): "dense",
-                executor.submit(self.sparse_retriever.retrieve, query): "sparse"
-            }
-
-            for future in as_completed(futures):
-                result_type = futures[future]
-                try:
-                    if result_type == "dense":
-                        dense_results = future.result()
-                    else:
-                        sparse_results = future.result()
-                except (StorageOfflineError, StorageReadError):
-                    raise  # propagate system faults
-                except Exception as e:
-                    logger.error(f"{result_type.capitalize()} 检索失败: {e}", exc_info=True)
-
-        # 返回空结果作为 fallback
-        if dense_results is None:
-            dense_results = SearchResults()
-        if sparse_results is None:
-            sparse_results = SearchResults()
+        for r in results:
+            if isinstance(r, (StorageOfflineError, StorageReadError)):
+                raise r
 
         return dense_results, sparse_results
 
-    def _sequential_recall(
+    async def _sequential_recall(
         self,
         query: RetrievalQuery
     ) -> Tuple[SearchResults, SearchResults]:
         """顺序执行稠密和稀疏检索"""
-        dense_results = self.dense_retriever.retrieve(query)
-        sparse_results = self.sparse_retriever.retrieve(query)
+        dense_results = await self.dense_retriever.retrieve(query)
+        sparse_results = await self.sparse_retriever.retrieve(query)
         return dense_results, sparse_results
-
-
-class CachedRetriever(BaseMemoryRetriever):
-    """
-    带缓存的检索器
-    
-    简单的内存缓存装饰器，用于减少重复检索的开销。
-    """
-    
-    def __init__(
-        self,
-        retriever: BaseMemoryRetriever,
-        cache_ttl_seconds: int = 60,
-        max_cache_size: int = 100
-    ):
-        """
-        初始化缓存检索器
-        
-        Args:
-            retriever: 被装饰的检索器
-            cache_ttl_seconds: 缓存过期时间 (秒)
-            max_cache_size: 最大缓存条目数
-        """
-        self.retriever = retriever
-        self.ttl = cache_ttl_seconds
-        self.max_size = max_cache_size
-        self._cache: Dict[str, Tuple[float, SearchResults]] = {}
-        
-    def retrieve(
-        self,
-        query: RetrievalQuery,
-        top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None
-    ) -> SearchResults:
-        """
-        执行检索 (带缓存)
-        """
-        # 生成缓存键
-        cache_key = f"{query.semantic_query}_{top_k}_{score_threshold}"
-        
-        now = time.time()
-        
-        # 检查缓存
-        if cache_key in self._cache:
-            timestamp, result = self._cache[cache_key]
-            if now - timestamp < self.ttl:
-                logger.debug(f"缓存命中: {cache_key}")
-                return result
-            else:
-                del self._cache[cache_key]
-        
-        # 执行检索
-        result = self.retriever.retrieve(query, top_k, score_threshold)
-        
-        # 更新缓存
-        if len(self._cache) >= self.max_size:
-            # 简单清理: FIFO
-            first_key = next(iter(self._cache))
-            del self._cache[first_key]
-            
-        self._cache[cache_key] = (now, result)
-        
-        return result
 
 
 def create_retriever(

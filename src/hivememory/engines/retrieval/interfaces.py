@@ -32,7 +32,7 @@ class BaseMemoryRetriever(ABC):
     """
 
     @abstractmethod
-    def retrieve(
+    async def retrieve(
         self,
         query: RetrievalQuery,
         top_k: int = 5,

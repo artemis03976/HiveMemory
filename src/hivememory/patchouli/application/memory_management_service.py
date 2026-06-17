@@ -20,7 +20,7 @@ class MemoryManagementService:
         self._lifecycle_engine = lifecycle_engine
 
     async def create_memory(self, atom: MemoryAtom) -> MemoryAtom:
-        self._storage.upsert_memory(atom)
+        await self._storage.upsert_memory(atom)
         return atom
 
     async def list_memories(
@@ -34,7 +34,7 @@ class MemoryManagementService:
     ) -> list[MemoryAtom]:
         excluded = set(exclude_types or [])
         if query:
-            results = self._storage.search_memories(
+            results = await self._storage.search_memories(
                 query_text=query,
                 top_k=limit,
                 filters=filters,
@@ -45,7 +45,7 @@ class MemoryManagementService:
                 if "memory" in result
             ]
         else:
-            atoms = self._storage.get_all_memories(
+            atoms = await self._storage.get_all_memories(
                 filters=filters,
                 limit=limit,
             )
@@ -55,7 +55,7 @@ class MemoryManagementService:
             if self._memory_type_value(atom.index.memory_type) not in excluded
         ]
         if refresh_vitality:
-            self._refresh_vitality_for_response(atoms)
+            await self._refresh_vitality_for_response(atoms)
         return atoms
 
     async def get_memory(
@@ -64,9 +64,9 @@ class MemoryManagementService:
         *,
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
-        atom = self._storage.get_memory(self._normalize_uuid(memory_id))
+        atom = await self._storage.get_memory(self._normalize_uuid(memory_id))
         if atom is not None and refresh_vitality:
-            self._refresh_vitality_for_response([atom])
+            await self._refresh_vitality_for_response([atom])
         return atom
 
     async def update_memory(
@@ -80,7 +80,7 @@ class MemoryManagementService:
         tags: list[str] | None = None,
         agent_config: dict | None = None,
     ) -> MemoryAtom | None:
-        atom = self._storage.get_memory(self._normalize_uuid(memory_id))
+        atom = await self._storage.get_memory(self._normalize_uuid(memory_id))
         if atom is None:
             return None
 
@@ -98,11 +98,11 @@ class MemoryManagementService:
             atom.payload.artifacts.agent_config = agent_config
         atom.meta.updated_at = datetime.now(timezone.utc)
 
-        self._storage.upsert_memory(atom)
+        await self._storage.upsert_memory(atom)
         return atom
 
     async def delete_memory(self, memory_id: UUID | str) -> bool:
-        return self._storage.delete_memory(self._normalize_uuid(memory_id))
+        return await self._storage.delete_memory(self._normalize_uuid(memory_id))
 
     async def record_feedback(
         self,
@@ -114,7 +114,7 @@ class MemoryManagementService:
         if self._lifecycle_engine is None:
             raise RuntimeError("Memory lifecycle engine is unavailable")
 
-        return self._lifecycle_engine.record_feedback(
+        return await self._lifecycle_engine.record_feedback(
             self._normalize_uuid(memory_id),
             positive=positive,
             source=source,
@@ -128,10 +128,10 @@ class MemoryManagementService:
     def _memory_type_value(memory_type: MemoryType | str) -> str:
         return memory_type.value if hasattr(memory_type, "value") else str(memory_type)
 
-    def _refresh_vitality_for_response(self, atoms: list[MemoryAtom]) -> None:
+    async def _refresh_vitality_for_response(self, atoms: list[MemoryAtom]) -> None:
         if self._lifecycle_engine is None or not atoms:
             return
         try:
-            self._lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
+            await self._lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
         except Exception:
             return

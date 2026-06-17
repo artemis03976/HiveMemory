@@ -108,7 +108,7 @@ class BaseDeduplicator(ABC):
     """
 
     @abstractmethod
-    def check_duplicate(
+    async def check_duplicate(
         self,
         draft: "ExtractedMemoryDraft",
         threshold: float = 0.75

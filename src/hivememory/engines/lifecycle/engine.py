@@ -83,7 +83,7 @@ class MemoryLifecycleEngine:
 
         logger.info("MemoryLifecycleEngine initialized with all components")
 
-    def refresh_vitality(
+    async def refresh_vitality(
         self,
         memory: MemoryAtom,
         *,
@@ -93,10 +93,10 @@ class MemoryLifecycleEngine:
         vitality = self.vitality_calculator.calculate(memory)
         memory.meta.vitality_score = vitality
         if persist:
-            self.storage.upsert_memory(memory)
+            await self.storage.upsert_memory(memory)
         return vitality
 
-    def refresh_vitality_batch(
+    async def refresh_vitality_batch(
         self,
         memories: Iterable[MemoryAtom],
         *,
@@ -105,75 +105,22 @@ class MemoryLifecycleEngine:
         """Refresh vitality scores for the caller-provided memory collection."""
         results = []
         for memory in memories:
-            vitality = self.refresh_vitality(memory, persist=persist)
+            vitality = await self.refresh_vitality(memory, persist=persist)
             results.append((memory.id, vitality))
         return results
 
-    def record_event(self, event: MemoryEvent) -> ReinforcementResult:
-        """
-        记录生命周期事件
+    async def record_event(self, event: MemoryEvent) -> ReinforcementResult:
+        return await self.reinforcement_engine.reinforce(event.memory_id, event)
 
-        Args:
-            event: 事件对象
+    async def record_hit(self, memory_id: UUID, source: str = "system") -> ReinforcementResult:
+        event = MemoryEvent(event_type=EventType.HIT, memory_id=memory_id, source=source)
+        return await self.record_event(event)
 
-        Returns:
-            ReinforcementResult: 强化结果
+    async def record_citation(self, memory_id: UUID, source: str = "system") -> ReinforcementResult:
+        event = MemoryEvent(event_type=EventType.CITATION, memory_id=memory_id, source=source)
+        return await self.record_event(event)
 
-        Raises:
-            ValueError: 记忆不存在
-        """
-        return self.reinforcement_engine.reinforce(event.memory_id, event)
-
-    def record_hit(
-        self,
-        memory_id: UUID,
-        source: str = "system"
-    ) -> ReinforcementResult:
-        """
-        记录检索命中事件 (HIT)
-
-        Args:
-            memory_id: 记忆ID
-            source: 事件来源
-
-        Returns:
-            ReinforcementResult: 强化结果
-        """
-        event = MemoryEvent(
-            event_type=EventType.HIT,
-            memory_id=memory_id,
-            source=source
-        )
-        return self.record_event(event)
-
-    def record_citation(
-        self,
-        memory_id: UUID,
-        source: str = "system"
-    ) -> ReinforcementResult:
-        """
-        记录主动引用事件 (CITATION)
-
-        Args:
-            memory_id: 记忆ID
-            source: 事件来源
-
-        Returns:
-            ReinforcementResult: 强化结果
-        """
-        event = MemoryEvent(
-            event_type=EventType.CITATION,
-            memory_id=memory_id,
-            source=source
-        )
-        return self.record_event(event)
-
-    def record_feedback(
-        self,
-        memory_id: UUID,
-        positive: bool,
-        source: str = "user"
-    ) -> ReinforcementResult:
+    async def record_feedback(self, memory_id: UUID, positive: bool, source: str = "user") -> ReinforcementResult:
         """
         记录用户反馈事件
 
@@ -194,20 +141,11 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source
         )
-        return self.record_event(event)
+        return await self.record_event(event)
 
-    def run_garbage_collection(self, force: bool = False) -> int:
-        """
-        运行垃圾回收
-
-        Args:
-            force: 强制执行
-
-        Returns:
-            int: 归档的记忆数量
-        """
-        all_memories = self.storage.get_all_memories()
-        self.refresh_vitality_batch(all_memories, persist=True)
+    async def run_garbage_collection(self, force: bool = False) -> int:
+        all_memories = await self.storage.get_all_memories()
+        await self.refresh_vitality_batch(all_memories, persist=True)
         return self.garbage_collector.collect(all_memories, force=force)
 
     def archive_memory(self, memory_id: UUID) -> None:

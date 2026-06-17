@@ -12,7 +12,7 @@ from typing import List, Optional, Dict, Any, Union
 from uuid import UUID
 import logging
 
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
     VectorParams,
@@ -44,7 +44,7 @@ _compiler = MemoryCompiler()
 
 class QdrantMemoryStore:
     """
-    Qdrant 向量存储管理器
+    Qdrant 向量存储管理器 (async-native)
 
     职责:
     1. 管理向量集合生命周期
@@ -83,58 +83,23 @@ class QdrantMemoryStore:
         if self.qdrant_config.api_key and self.qdrant_config.api_key.strip():
             client_kwargs["api_key"] = self.qdrant_config.api_key
 
-        self.client = QdrantClient(**client_kwargs)
+        self.client = AsyncQdrantClient(**client_kwargs)
 
-        # 部分环境下 Qdrant HTTP 端点可能被网关拦截返回 502，
-        # 这里探测一次并自动回退到 gRPC 以保证读写链路可用。
-        try:
-            self.client.get_collections()
-        except Exception as e:
-            err_text = str(e)
-            if "Unexpected Response: 502" in err_text:
-                logger.warning(
-                    "Qdrant HTTP endpoint returned 502, fallback to gRPC client. "
-                    "host=%s port=%s grpc_port=%s",
-                    self.qdrant_config.host,
-                    self.qdrant_config.port,
-                    self.qdrant_config.grpc_port,
-                )
-                grpc_kwargs = {
-                    **client_kwargs,
-                    "prefer_grpc": True,
-                    "check_compatibility": False,
-                }
-                self.client = QdrantClient(**grpc_kwargs)
-            else:
-                raise
-
-        # 初始化 BGE-M3 Embedding 服务 (支持 Dense + Sparse)
         logger.info(f"加载 BGE-M3 Embedding 服务")
-        
-        # 确保配置指向 BGE-M3 模型
+
         bge_config = self.embedding_config
         if "bge-m3" not in bge_config.model_name.lower():
             logger.info("当前 Embedding 配置非 BGE-M3，自动调整模型名称以适配存储层")
             bge_config = bge_config.model_copy(update={"model_name": "Xenova/bge-m3"})
-            
+
         self.embedding_service = get_bge_m3_service(config=bge_config)
 
         self.collection_name = self.qdrant_config.collection_name
         self.vector_dimension = self.qdrant_config.vector_dimension
 
-    def create_collection(self, recreate: bool = False) -> None:
-        """
-        创建向量集合 (包含稠密和稀疏向量配置)
-
-        Args:
-            recreate: 如果集合已存在，是否删除并重建
-
-        Raises:
-            Exception: 创建失败时抛出
-        """
+    async def create_collection(self, recreate: bool = False) -> None:
         try:
-            # 检查集合是否存在
-            collections = self.client.get_collections().collections
+            collections = (await self.client.get_collections()).collections
             collection_exists = any(
                 col.name == self.collection_name for col in collections
             )
@@ -142,13 +107,12 @@ class QdrantMemoryStore:
             if collection_exists:
                 if recreate:
                     logger.warning(f"删除已存在的集合: {self.collection_name}")
-                    self.client.delete_collection(self.collection_name)
+                    await self.client.delete_collection(self.collection_name)
                 else:
                     logger.info(f"集合已存在且有稀疏向量配置: {self.collection_name}")
                     return
 
-            # 创建新集合 (支持稠密和稀疏向量)
-            self.client.create_collection(
+            await self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config={
                     "dense_text": VectorParams(
@@ -168,7 +132,7 @@ class QdrantMemoryStore:
             logger.error(f"创建集合失败: {e}")
             raise
 
-    def upsert_memory(
+    async def upsert_memory(
         self,
         memory: MemoryAtom,
         use_sparse: bool = True,
@@ -205,7 +169,7 @@ class QdrantMemoryStore:
                     },
                     payload=memory.to_qdrant_payload(),
                 )
-                self.client.upsert(
+                await self.client.upsert(
                     collection_name=self.collection_name,
                     points=[point],
                 )
@@ -219,11 +183,11 @@ class QdrantMemoryStore:
                 point = PointStruct(
                     id=str(memory.id),
                     vector={
-                        "dense_text": embedding,  # 命名稠密向量
+                        "dense_text": embedding,
                     },
                     payload=memory.to_qdrant_payload(),
                 )
-                self.client.upsert(
+                await self.client.upsert(
                     collection_name=self.collection_name,
                     points=[point],
                 )
@@ -233,21 +197,12 @@ class QdrantMemoryStore:
             logger.error(f"存储记忆失败: {e}")
             raise
 
-    def get_memory(self, memory_id: UUID) -> Optional[MemoryAtom]:
-        """
-        根据 ID 获取记忆
-
-        Args:
-            memory_id: 记忆UUID
-
-        Returns:
-            MemoryAtom 对象，不存在则返回 None
-        """
+    async def get_memory(self, memory_id: UUID) -> Optional[MemoryAtom]:
         from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
         from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 
         try:
-            points = self.client.retrieve(
+            points = await self.client.retrieve(
                 collection_name=self.collection_name,
                 ids=[str(memory_id)],
                 with_payload=True,
@@ -271,7 +226,7 @@ class QdrantMemoryStore:
             logger.error(f"Unexpected storage error in get_memory: {e}", exc_info=True)
             raise StorageReadError(cause=e) from e
 
-    def get_memory_by_alias(
+    async def get_memory_by_alias(
         self,
         alias: str,
         user_id: Optional[str] = None,
@@ -298,7 +253,7 @@ class QdrantMemoryStore:
 
             filter_obj = self._build_filter(filters)
 
-            scroll_result = self.client.scroll(
+            scroll_result = await self.client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=filter_obj,
                 limit=1,
@@ -322,17 +277,12 @@ class QdrantMemoryStore:
             logger.error(f"Unexpected storage error in get_memory_by_alias (alias={alias}): {e}", exc_info=True)
             raise StorageReadError(cause=e) from e
 
-    def get_agent_profile(self, agent_alias: str) -> AgentProfile:
-        """
-        根据 agent alias 加载图纸配置，不存在时回退到 omni_doll。
-
-        这是一个基于 alias 的基础存储能力，供 Patchouli/Alice 等上层运行时复用。
-        """
+    async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
         if not agent_alias or agent_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
         try:
-            atom = self.get_memory_by_alias(agent_alias)
+            atom = await self.get_memory_by_alias(agent_alias)
             if atom:
                 profile = AgentProfile.from_atom(atom)
                 if profile:
@@ -347,7 +297,7 @@ class QdrantMemoryStore:
         )
         return OMNI_DOLL_PROFILE
 
-    def search_memories(
+    async def search_memories(
         self,
         query_text: str,
         top_k: int = 5,
@@ -376,8 +326,7 @@ class QdrantMemoryStore:
                 filter_obj = self._build_filter(filters) if filters else None
 
             if mode == "sparse":
-                # BM25 检索 - 使用 Qdrant 原生 BM25 Document 查询
-                search_result = self.client.query_points(
+                search_result = await self.client.query_points(
                     collection_name=self.collection_name,
                     query=Document(text=query_text, model="qdrant/bm25"),
                     using="sparse_text",
@@ -390,7 +339,7 @@ class QdrantMemoryStore:
             else:
                 # 稠密向量检索 - 使用 query_points API
                 query_vector = self.embedding_service.encode(dense_texts=query_text)
-                search_result = self.client.query_points(
+                search_result = await self.client.query_points(
                     collection_name=self.collection_name,
                     query=query_vector,
                     using="dense_text",  # 指定使用稠密向量配置
@@ -425,18 +374,9 @@ class QdrantMemoryStore:
             from hivememory.core.mtp.exceptions import StorageReadError
             raise StorageReadError(cause=e) from e
 
-    def delete_memory(self, memory_id: UUID) -> bool:
-        """
-        删除记忆
-
-        Args:
-            memory_id: 记忆UUID
-
-        Returns:
-            是否成功删除
-        """
+    async def delete_memory(self, memory_id: UUID) -> bool:
         try:
-            self.client.delete(
+            await self.client.delete(
                 collection_name=self.collection_name,
                 points_selector=[str(memory_id)],
             )
@@ -447,18 +387,11 @@ class QdrantMemoryStore:
             logger.error(f"删除记忆失败: {e}")
             return False
 
-    def update_access_info(self, memory_id: UUID) -> None:
-        """
-        更新记忆的访问信息(访问计数、最后访问时间)
-
-        Args:
-            memory_id: 记忆UUID
-        """
+    async def update_access_info(self, memory_id: UUID) -> None:
         from datetime import datetime
 
         try:
-            # 获取当前记忆
-            memory = self.get_memory(memory_id)
+            memory = await self.get_memory(memory_id)
             if not memory:
                 return
 
@@ -466,25 +399,15 @@ class QdrantMemoryStore:
             memory.meta.access_count += 1
             memory.meta.last_accessed_at = datetime.now()
 
-            # 重新存储
-            self.upsert_memory(memory)
+            await self.upsert_memory(memory)
 
         except Exception as e:
             logger.error(f"更新访问信息失败: {e}")
 
-    def count_memories(self, filters: Optional[Dict[str, Any]] = None) -> int:
-        """
-        统计记忆数量
-
-        Args:
-            filters: 过滤条件
-
-        Returns:
-            记忆数量
-        """
+    async def count_memories(self, filters: Optional[Dict[str, Any]] = None) -> int:
         try:
             filter_obj = self._build_filter(filters) if filters else None
-            result = self.client.count(
+            result = await self.client.count(
                 collection_name=self.collection_name,
                 count_filter=filter_obj,
             )
@@ -494,7 +417,7 @@ class QdrantMemoryStore:
             logger.error(f"统计记忆数量失败: {e}")
             return 0
 
-    def get_all_memories(
+    async def get_all_memories(
         self,
         filters: Optional[Dict[str, Any]] = None,
         limit: int = 100
@@ -514,18 +437,17 @@ class QdrantMemoryStore:
         try:
             filter_obj = self._build_filter(filters) if filters else None
 
-            # 使用 scroll API 获取所有点
-            scroll_result = self.client.scroll(
+            scroll_result = await self.client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=filter_obj,
                 limit=limit,
                 with_payload=True,
-                with_vectors=False,  # 不需要向量
+                with_vectors=False,
             )
 
             # 解析结果
             memories = []
-            for point in scroll_result[0]:  # scroll_result = (points, next_page_offset)
+            for point in scroll_result[0]:
                 memory = self._payload_to_memory(point.payload)
                 memories.append(memory)
 
@@ -536,7 +458,7 @@ class QdrantMemoryStore:
             logger.error(f"获取所有记忆失败: {e}")
             return []
 
-    def get_memories_by_vitality_range(
+    async def get_memories_by_vitality_range(
         self,
         min_vitality: float = 0.0,
         max_vitality: float = 100.0,
@@ -563,8 +485,7 @@ class QdrantMemoryStore:
 
             filter_obj = self._build_filter(filters)
 
-            # 使用 scroll API 获取记忆
-            scroll_result = self.client.scroll(
+            scroll_result = await self.client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=filter_obj,
                 limit=limit,
@@ -585,18 +506,7 @@ class QdrantMemoryStore:
             logger.error(f"按生命力范围获取记忆失败: {e}")
             return []
 
-    def batch_delete_memories(self, memory_ids: List[UUID]) -> int:
-        """
-        批量删除记忆
-
-        用于垃圾回收器批量归档后删除。
-
-        Args:
-            memory_ids: 记忆ID列表
-
-        Returns:
-            成功删除的数量
-        """
+    async def batch_delete_memories(self, memory_ids: List[UUID]) -> int:
         if not memory_ids:
             return 0
 
@@ -604,7 +514,7 @@ class QdrantMemoryStore:
             # 转换为字符串ID列表
             str_ids = [str(mid) for mid in memory_ids]
 
-            self.client.delete(
+            await self.client.delete(
                 collection_name=self.collection_name,
                 points_selector=str_ids,
             )

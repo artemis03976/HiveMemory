@@ -15,7 +15,6 @@
 """
 
 from typing import Any, List, Optional
-import asyncio
 import time
 import logging
 
@@ -90,7 +89,7 @@ class RetrievalFamiliar:
 
         logger.info("RetrievalFamiliar (检索使魔) 初始化完成")
 
-    def retrieve(self, request: RetrievalRequest, mode: str = "active") -> RetrievalResponse:
+    async def retrieve(self, request: RetrievalRequest, mode: str = "active") -> RetrievalResponse:
         """
         检索相关记忆
 
@@ -135,7 +134,7 @@ class RetrievalFamiliar:
                 filters=query_filters,
             )
 
-            engine_result = self.engine.retrieve(query=query)
+            engine_result = await self.engine.retrieve(query=query)
 
             response.memories = engine_result.memories
             response.memories_count = engine_result.memories_count
@@ -182,13 +181,13 @@ class RetrievalFamiliar:
         request: RetrievalRequest,
         mode: str = "active",
     ) -> RetrievalResponse:
-        """Async bus entrypoint for the currently synchronous retrieval engine."""
-        response = await asyncio.to_thread(self.retrieve, request, mode)
+        """Async bus entrypoint for retrieval."""
+        response = await self.retrieve(request, mode)
         await self._refresh_vitality_for_memories(response.memories)
         self._rerender_response(response, mode)
         return response
 
-    def retrieve_by_aliases(
+    async def retrieve_by_aliases(
         self,
         aliases: List[str],
         identity: Optional[Identity] = None,
@@ -214,7 +213,7 @@ class RetrievalFamiliar:
                     continue
                 seen_aliases.add(normalized)
 
-                atom = self.storage.get_memory_by_alias(normalized, user_id)
+                atom = await self.storage.get_memory_by_alias(normalized, user_id)
                 if atom is None:
                     logger.warning(f"Alias not found during alias retrieval: {normalized}")
                     continue
@@ -246,17 +245,12 @@ class RetrievalFamiliar:
         mode: str = "active",
     ) -> RetrievalResponse:
         """Async bus entrypoint for exact alias retrieval."""
-        response = await asyncio.to_thread(
-            self.retrieve_by_aliases,
-            aliases,
-            identity,
-            mode,
-        )
+        response = await self.retrieve_by_aliases(aliases, identity, mode)
         await self._refresh_vitality_for_memories(response.memories)
         self._rerender_response(response, mode)
         return response
 
-    def update_access_stats(self, memories: List[MemoryAtom]) -> None:
+    async def update_access_stats(self, memories: List[MemoryAtom]) -> None:
         """
         更新被引用记忆的访问统计
 
@@ -264,7 +258,7 @@ class RetrievalFamiliar:
         """
         for memory in memories:
             try:
-                self.storage.update_access_info(memory.id)
+                await self.storage.update_access_info(memory.id)
             except Exception as e:
                 logger.warning(f"更新访问统计失败: {memory.id} - {e}")
 
