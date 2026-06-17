@@ -173,23 +173,25 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
 class TestMemoryManagementService:
     @pytest.fixture
     def storage(self):
-        return MagicMock()
+        return AsyncMock()
 
-    def test_create_memory_writes_storage(self, storage):
+    @pytest.mark.asyncio
+    async def test_create_memory_writes_storage(self, storage):
         service = MemoryManagementService(storage=storage)
         atom = _make_memory_atom(title="Created memory")
 
-        result = asyncio.run(service.create_memory(atom))
+        result = await service.create_memory(atom)
 
         assert result is atom
         storage.upsert_memory.assert_called_once_with(atom)
 
-    def test_list_memories_uses_filters_and_refreshes_vitality(
+    @pytest.mark.asyncio
+    async def test_list_memories_uses_filters_and_refreshes_vitality(
         self,
         storage,
     ):
         atom = _make_memory_atom()
-        lifecycle = MagicMock()
+        lifecycle = AsyncMock()
         lifecycle.refresh_vitality_batch.side_effect = (
             lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 33.0)
         )
@@ -197,12 +199,12 @@ class TestMemoryManagementService:
             storage=storage,
             lifecycle_engine=lifecycle,
         )
-        storage.get_all_memories.return_value = [atom]
+        storage.get_all_memories = AsyncMock(return_value=[atom])
 
-        atoms = asyncio.run(service.list_memories(
+        atoms = await service.list_memories(
             filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
             limit=10,
-        ))
+        )
 
         storage.get_all_memories.assert_called_once_with(
             filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
@@ -212,21 +214,22 @@ class TestMemoryManagementService:
         assert atoms == [atom]
         assert atoms[0].meta.vitality_score == 33.0
 
-    def test_list_memories_search_excludes_agent_profiles(self, storage):
+    @pytest.mark.asyncio
+    async def test_list_memories_search_excludes_agent_profiles(self, storage):
         service = MemoryManagementService(storage=storage)
         fact = _make_memory_atom(title="Fact")
         profile = _make_memory_atom(title="Agent")
         profile.index.memory_type = MemoryType.AGENT_PROFILE
-        storage.search_memories.return_value = [
+        storage.search_memories = AsyncMock(return_value=[
             {"memory": fact, "score": 0.9},
             {"memory": profile, "score": 0.8},
-        ]
+        ])
 
-        atoms = asyncio.run(service.list_memories(
+        atoms = await service.list_memories(
             query="test",
             limit=5,
             exclude_types=[MemoryType.AGENT_PROFILE.value],
-        ))
+        )
 
         storage.search_memories.assert_called_once_with(
             query_text="test",
@@ -235,18 +238,20 @@ class TestMemoryManagementService:
         )
         assert atoms == [fact]
 
-    def test_get_memory_returns_none_when_not_found(self, storage):
+    @pytest.mark.asyncio
+    async def test_get_memory_returns_none_when_not_found(self, storage):
         service = MemoryManagementService(storage=storage)
-        storage.get_memory.return_value = None
+        storage.get_memory = AsyncMock(return_value=None)
 
-        assert asyncio.run(service.get_memory(uuid4())) is None
+        assert await service.get_memory(uuid4()) is None
 
-    def test_update_memory_updates_editable_fields(self, storage):
+    @pytest.mark.asyncio
+    async def test_update_memory_updates_editable_fields(self, storage):
         service = MemoryManagementService(storage=storage)
         atom = _make_memory_atom()
-        storage.get_memory.return_value = atom
+        storage.get_memory = AsyncMock(return_value=atom)
 
-        updated = asyncio.run(service.update_memory(
+        updated = await service.update_memory(
             atom.id,
             title="Updated",
             summary="Updated summary",
@@ -254,7 +259,7 @@ class TestMemoryManagementService:
             alias="updated-alias",
             tags=["updated"],
             agent_config={"mode": "test"},
-        ))
+        )
 
         assert updated is atom
         assert atom.index.title == "Updated"
@@ -265,27 +270,28 @@ class TestMemoryManagementService:
         assert atom.payload.artifacts.agent_config == {"mode": "test"}
         storage.upsert_memory.assert_called_once_with(atom)
 
-    def test_record_feedback_uses_lifecycle(self, storage):
+    @pytest.mark.asyncio
+    async def test_record_feedback_uses_lifecycle(self, storage):
         mid = uuid4()
-        lifecycle = MagicMock()
-        lifecycle.record_feedback.return_value = ReinforcementResult(
+        lifecycle = AsyncMock()
+        lifecycle.record_feedback = AsyncMock(return_value=ReinforcementResult(
             memory_id=mid,
             previous_vitality=40.0,
             new_vitality=90.0,
             previous_confidence=0.8,
             new_confidence=0.8,
             event_type=EventType.FEEDBACK_POSITIVE,
-        )
+        ))
         service = MemoryManagementService(
             storage=storage,
             lifecycle_engine=lifecycle,
         )
 
-        result = asyncio.run(service.record_feedback(
+        result = await service.record_feedback(
             mid,
             positive=True,
             source="ui.memory_ref",
-        ))
+        )
 
         lifecycle.record_feedback.assert_called_once_with(
             mid,

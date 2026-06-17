@@ -12,7 +12,7 @@ GenerationTranscriptBuilder / GenerationContext 单测
 """
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 from hivememory.core.models import Identity, TraceItem, TurnRecord, WriteFocus
 from hivememory.engines.generation.models import (
@@ -304,7 +304,7 @@ class TestEngineWithGenerationContext:
         from hivememory.engines.generation.engine import MemoryGenerationEngine
         storage = MagicMock()
         extractor = MagicMock()
-        deduplicator = MagicMock()
+        deduplicator = AsyncMock()
 
         if extractor_returns is not None:
             extractor.extract.return_value = extractor_returns
@@ -313,6 +313,11 @@ class TestEngineWithGenerationContext:
             draft.has_value = False
             extractor.extract.return_value = draft
 
+        if deduplicator_returns is not None:
+            deduplicator.check_duplicate.return_value = deduplicator_returns
+        else:
+            deduplicator.check_duplicate.return_value = (MagicMock(), MagicMock())
+
         engine = MemoryGenerationEngine(
             storage=storage,
             extractor=extractor,
@@ -320,7 +325,8 @@ class TestEngineWithGenerationContext:
         )
         return engine, extractor, deduplicator
 
-    def test_process_with_context_calls_extractor(self):
+    @pytest.mark.asyncio
+    async def test_process_with_context_calls_extractor(self):
         """context 存在时调用 extractor.extract"""
         engine, extractor, _ = self._make_engine()
         ctx = GenerationContext(
@@ -328,33 +334,36 @@ class TestEngineWithGenerationContext:
             turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())]
         )
         req = GenerationRequest(context=ctx)
-        engine.process(req)
+        await engine.process(req)
         extractor.extract.assert_called_once()
         transcript = extractor.extract.call_args[1]["transcript"]
         assert "[Turn 1]" in transcript
         assert "摘要" in transcript or "[Topic State]" in transcript
 
-    def test_process_empty_context_skipped(self):
+    @pytest.mark.asyncio
+    async def test_process_empty_context_skipped(self):
         """context 为空时跳过 extractor"""
         engine, extractor, _ = self._make_engine()
         req = GenerationRequest(context=GenerationContext())  # no turns
-        result = engine.process(req)
+        result = await engine.process(req)
         assert result == []
         extractor.extract.assert_not_called()
 
-    def test_process_without_context_and_focus_skipped(self):
+    @pytest.mark.asyncio
+    async def test_process_without_context_and_focus_skipped(self):
         """无上下文且无 focus 时直接跳过"""
         engine, extractor, _ = self._make_engine()
         req = GenerationRequest()
-        result = engine.process(req)
+        result = await engine.process(req)
         assert result == []
         extractor.extract.assert_not_called()
 
-    def test_process_mode_b_with_context(self):
+    @pytest.mark.asyncio
+    async def test_process_mode_b_with_context(self):
         """Mode B (write_focus) + context 兼容"""
+        from hivememory.engines.generation.models import DuplicateDecision
         engine, extractor, deduplicator = self._make_engine()
         from hivememory.engines.generation.models import ExtractedMemoryDraft
-        from hivememory.engines.generation.models import DuplicateDecision
         draft = ExtractedMemoryDraft(
             title="test_title", summary="a summary longer than ten chars", tags=["a"], memory_type="FACT",
             content="test content here", confidence_score=0.9, has_value=True,
@@ -368,7 +377,7 @@ class TestEngineWithGenerationContext:
         ])
         focus = WriteFocus(content="content to write")
         req = GenerationRequest(context=ctx, write_focus=focus)
-        engine.process(req)
+        await engine.process(req)
 
         extractor.extract.assert_called_once()
         call_kwargs = extractor.extract.call_args[1]

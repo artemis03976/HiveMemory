@@ -18,7 +18,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import AsyncMock, Mock, MagicMock, patch
 from datetime import datetime, timedelta
 from typing import List
 from uuid import uuid4
@@ -50,10 +50,11 @@ from hivememory.engines.lifecycle.models import (
 class TestVitalityAndReinforcementCollaboration:
     """测试 VitalityCalculator 与 ReinforcementEngine 的协作"""
 
-    def test_reinforcement_updates_vitality(self):
+    @pytest.mark.asyncio
+    async def test_reinforcement_updates_vitality(self):
         """测试强化事件更新生命力分数"""
         mock_storage = Mock()
-        mock_storage.update_memory = Mock()
+        mock_storage.upsert_memory = AsyncMock()
         
         # Mock configs
         mock_reinforcement_config = Mock()
@@ -102,7 +103,7 @@ class TestVitalityAndReinforcementCollaboration:
         )
         
         # Mock get_memory to return the memory
-        mock_storage.get_memory = Mock(return_value=memory)
+        mock_storage.get_memory = AsyncMock(return_value=memory)
 
         # 记录初始生命力
         initial_vitality = calculator.calculate(memory)
@@ -113,16 +114,17 @@ class TestVitalityAndReinforcementCollaboration:
             event_type=EventType.HIT,
             source="test"
         )
-        result = reinforcement.reinforce(memory.id, event)
+        result = await reinforcement.reinforce(memory.id, event)
 
         # 验证强化结果
         assert result is not None
         assert result.new_vitality > initial_vitality, "HIT事件应该增加生命力"
 
-    def test_multiple_reinforcement_events_cumulative(self):
+    @pytest.mark.asyncio
+    async def test_multiple_reinforcement_events_cumulative(self):
         """测试多次强化事件的累积效果"""
         mock_storage = Mock()
-        mock_storage.update_memory = Mock()
+        mock_storage.upsert_memory = AsyncMock()
         
         # Mock configs
         mock_reinforcement_config = Mock()
@@ -170,7 +172,7 @@ class TestVitalityAndReinforcementCollaboration:
         )
         
         # Mock get_memory
-        mock_storage.get_memory = Mock(return_value=memory)
+        mock_storage.get_memory = AsyncMock(return_value=memory)
 
         vitality_scores = []
         for event_type in [EventType.HIT, EventType.CITATION, EventType.FEEDBACK_POSITIVE]:
@@ -179,7 +181,7 @@ class TestVitalityAndReinforcementCollaboration:
                 event_type=event_type,
                 source="test"
             )
-            result = reinforcement.reinforce(memory.id, event)
+            result = await reinforcement.reinforce(memory.id, event)
             vitality_scores.append(result.new_vitality)
 
         # 验证生命力逐步上升
@@ -381,7 +383,8 @@ class TestLifecycleEngineCoordination:
         assert engine.archiver is archiver
         assert engine.garbage_collector is gc
 
-    def test_engine_handles_unknown_memory(self):
+    @pytest.mark.asyncio
+    async def test_engine_handles_unknown_memory(self):
         """测试引擎处理未知记忆"""
         mock_storage = Mock()
         mock_storage.get_memory = Mock(return_value=None)
@@ -447,7 +450,7 @@ class TestLifecycleEngineCoordination:
             payload=PayloadLayer(content="Content"),
         )
 
-        vitality = engine.refresh_vitality(memory, persist=False)
+        vitality = await engine.refresh_vitality(memory, persist=False)
 
         assert 0.0 <= vitality <= 100.0
 
@@ -580,10 +583,11 @@ class TestVitalityCalculation:
 class TestEventTypeHandling:
     """测试不同事件类型的处理"""
 
-    def test_all_event_types_produce_results(self):
+    @pytest.mark.asyncio
+    async def test_all_event_types_produce_results(self):
         """测试所有事件类型都能产生结果"""
         mock_storage = Mock()
-        mock_storage.update_memory = Mock()
+        mock_storage.upsert_memory = AsyncMock()
         
         # Add config mock for reinforcement engine
         mock_reinforcement_config = Mock()
@@ -631,7 +635,7 @@ class TestEventTypeHandling:
         )
         
         # Mock get_memory
-        mock_storage.get_memory = Mock(return_value=memory)
+        mock_storage.get_memory = AsyncMock(return_value=memory)
 
         event_types = [
             EventType.HIT,
@@ -646,7 +650,7 @@ class TestEventTypeHandling:
                 event_type=event_type,
                 source="test"
             )
-            result = reinforcement.reinforce(memory.id, event)
+            result = await reinforcement.reinforce(memory.id, event)
             assert result is not None, f"{event_type} 应该产生结果"
             assert result.event_type == event_type
 
@@ -657,12 +661,15 @@ class TestMemoryLifecycleEngine:
     def setup_method(self):
         """测试初始化"""
         self.mock_storage = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.get_all_memories = AsyncMock()
 
         # Mock components
         self.mock_vitality_calculator = Mock()
         self.mock_reinforcement_engine = Mock()
         self.mock_archiver = Mock()
         self.mock_garbage_collector = Mock()
+        self.mock_reinforcement_engine.reinforce = AsyncMock()
 
         self.engine = MemoryLifecycleEngine(
             storage=self.mock_storage,
@@ -694,27 +701,30 @@ class TestMemoryLifecycleEngine:
         """清理"""
         pass
 
-    def test_refresh_vitality(self):
+    @pytest.mark.asyncio
+    async def test_refresh_vitality(self):
         """测试计算生命力"""
         self.engine.vitality_calculator.calculate.return_value = 75.0
 
-        vitality = self.engine.refresh_vitality(self.test_memory, persist=False)
+        vitality = await self.engine.refresh_vitality(self.test_memory, persist=False)
 
         assert vitality == 75.0
         assert self.test_memory.meta.vitality_score == 75.0
         self.engine.vitality_calculator.calculate.assert_called_once_with(self.test_memory)
         self.mock_storage.upsert_memory.assert_not_called()
 
-    def test_refresh_vitality_with_persist(self):
+    @pytest.mark.asyncio
+    async def test_refresh_vitality_with_persist(self):
         """测试计算不存在的记忆抛出异常"""
         self.engine.vitality_calculator.calculate.return_value = 75.0
 
-        vitality = self.engine.refresh_vitality(self.test_memory, persist=True)
+        vitality = await self.engine.refresh_vitality(self.test_memory, persist=True)
 
         assert vitality == 75.0
         self.mock_storage.upsert_memory.assert_called_once_with(self.test_memory)
 
-    def test_record_hit_convenience(self):
+    @pytest.mark.asyncio
+    async def test_record_hit_convenience(self):
         """测试 record_hit 便捷方法"""
         memory_id = uuid4()
         self.engine.reinforcement_engine.reinforce.return_value = MagicMock(
@@ -722,7 +732,7 @@ class TestMemoryLifecycleEngine:
             previous_vitality=50.0,
         )
 
-        result = self.engine.record_hit(memory_id)
+        result = await self.engine.record_hit(memory_id)
 
         assert result.new_vitality == 55.0
 
@@ -732,43 +742,47 @@ class TestMemoryLifecycleEngine:
         assert event.event_type == EventType.HIT
         assert event.memory_id == memory_id
 
-    def test_record_citation_convenience(self):
+    @pytest.mark.asyncio
+    async def test_record_citation_convenience(self):
         """测试 record_citation 便捷方法"""
         memory_id = uuid4()
         self.engine.reinforcement_engine.reinforce.return_value = MagicMock()
 
-        result = self.engine.record_citation(memory_id)
+        result = await self.engine.record_citation(memory_id)
 
         call_args = self.engine.reinforcement_engine.reinforce.call_args
         assert call_args[0][1].event_type == EventType.CITATION
 
-    def test_record_feedback_positive(self):
+    @pytest.mark.asyncio
+    async def test_record_feedback_positive(self):
         """测试记录正面反馈"""
         memory_id = uuid4()
         self.engine.reinforcement_engine.reinforce.return_value = MagicMock()
 
-        self.engine.record_feedback(memory_id, positive=True)
+        await self.engine.record_feedback(memory_id, positive=True)
 
         call_args = self.engine.reinforcement_engine.reinforce.call_args
         assert call_args[0][1].event_type == EventType.FEEDBACK_POSITIVE
 
-    def test_record_feedback_negative(self):
+    @pytest.mark.asyncio
+    async def test_record_feedback_negative(self):
         """测试记录负面反馈"""
         memory_id = uuid4()
         self.engine.reinforcement_engine.reinforce.return_value = MagicMock()
 
-        self.engine.record_feedback(memory_id, positive=False)
+        await self.engine.record_feedback(memory_id, positive=False)
 
         call_args = self.engine.reinforcement_engine.reinforce.call_args
         assert call_args[0][1].event_type == EventType.FEEDBACK_NEGATIVE
 
-    def test_run_garbage_collection(self):
+    @pytest.mark.asyncio
+    async def test_run_garbage_collection(self):
         """测试运行垃圾回收"""
         self.mock_storage.get_all_memories.return_value = [self.test_memory]
         self.engine.vitality_calculator.calculate.return_value = 55.0
         self.engine.garbage_collector.collect.return_value = 5
 
-        archived = self.engine.run_garbage_collection(force=True)
+        archived = await self.engine.run_garbage_collection(force=True)
 
         assert archived == 5
         self.engine.garbage_collector.collect.assert_called_once_with(
@@ -796,7 +810,8 @@ class TestMemoryLifecycleEngine:
         assert result == expected_memory
         self.engine.archiver.resurrect.assert_called_once_with(memory_id)
 
-    def test_get_low_vitality_memories(self):
+    @pytest.mark.asyncio
+    async def test_get_low_vitality_memories(self):
         """测试获取低生命力记忆"""
         # 模拟返回记忆
         self.mock_storage.get_all_memories.return_value = [
@@ -804,13 +819,14 @@ class TestMemoryLifecycleEngine:
         ]
         self.engine.vitality_calculator.calculate.return_value = 15.0
 
-        low_memories = self.engine.get_low_vitality_memories(threshold=20.0)
+        low_memories = await self.engine.get_low_vitality_memories(threshold=20.0)
 
         assert len(low_memories) == 1
         assert low_memories[0][0] == self.test_memory.id
         assert low_memories[0][1] == 15.0
 
-    def test_get_low_vitality_memories_respects_limit(self):
+    @pytest.mark.asyncio
+    async def test_get_low_vitality_memories_respects_limit(self):
         """测试获取低生命力记忆时遵守限制"""
         # 创建多个记忆
         memories = []
@@ -837,7 +853,7 @@ class TestMemoryLifecycleEngine:
         self.mock_storage.get_all_memories.return_value = memories
         self.engine.vitality_calculator.calculate.return_value = 15.0
 
-        low_memories = self.engine.get_low_vitality_memories(threshold=20.0, limit=5)
+        low_memories = await self.engine.get_low_vitality_memories(threshold=20.0, limit=5)
 
         # 应该只返回 5 个
         assert len(low_memories) == 5

@@ -12,7 +12,7 @@ MemoryGenerationEngine 单元测试
 """
 
 import pytest
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, patch, call, AsyncMock
 from uuid import uuid4
 from datetime import datetime
 
@@ -99,48 +99,54 @@ class TestGenerationEngineRouting:
         self.mock_storage = Mock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
+        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             storage=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
 
-    def test_empty_messages_no_focus_returns_empty(self):
+    @pytest.mark.asyncio
+    async def test_empty_messages_no_focus_returns_empty(self):
         """空消息且无 focus 时早返回"""
         request = GenerationRequest()
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
         assert result == []
         self.mock_extractor.extract.assert_not_called()
 
-    def test_routes_to_mode_a(self):
+    @pytest.mark.asyncio
+    async def test_routes_to_mode_a(self):
         """无 focus 时走 Mode A"""
         msgs = _make_messages()
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         self.mock_extractor.extract.assert_called_once()
         assert len(result) == 1
 
-    def test_routes_to_mode_b(self):
+    @pytest.mark.asyncio
+    async def test_routes_to_mode_b(self):
         """有 write_focus 时走 Mode B"""
         focus = WriteFocus(content="保存这段代码")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         call_kwargs = self.mock_extractor.extract.call_args
         assert call_kwargs[1]["metadata"]["mode"] == "write"
 
-    def test_routes_to_mode_c(self):
+    @pytest.mark.asyncio
+    async def test_routes_to_mode_c(self):
         """有 update_focus 时走 Mode C"""
         existing = _make_memory()
         uf = UpdateFocus(
@@ -150,14 +156,14 @@ class TestGenerationEngineRouting:
         )
         merge_result = MergeResult(new_content="新内容", changelog="添加了错误处理")
         self.mock_extractor.merge.return_value = merge_result
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = GenerationRequest(
             context=GenerationContext(),
             update_focus=uf,
             existing_memory=existing,
         )
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         self.mock_extractor.merge.assert_called_once()
         assert len(result) == 1
@@ -170,52 +176,58 @@ class TestGenerationEngineModeA:
         self.mock_storage = Mock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
+        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             storage=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
 
-    def test_mode_a_extract_success(self):
+    @pytest.mark.asyncio
+    async def test_mode_a_extract_success(self):
         """正常提取流程"""
         msgs = _make_messages()
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         assert len(result) == 1
         assert result[0].atom.index.title == "测试记忆"
 
-    def test_mode_a_extract_no_value(self):
+    @pytest.mark.asyncio
+    async def test_mode_a_extract_no_value(self):
         """LLM 判断无价值返回空"""
         msgs = _make_messages()
         draft = _make_draft(has_value=False)
         self.mock_extractor.extract.return_value = draft
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         assert result == []
         self.mock_deduplicator.check_duplicate.assert_not_called()
 
-    def test_mode_a_extract_returns_none(self):
+    @pytest.mark.asyncio
+    async def test_mode_a_extract_returns_none(self):
         """LLM 返回 None 时返回空"""
         msgs = _make_messages()
         self.mock_extractor.extract.return_value = None
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         assert result == []
 
-    def test_mode_a_empty_messages(self):
+    @pytest.mark.asyncio
+    async def test_mode_a_empty_messages(self):
         """Mode A 空消息列表返回空"""
         request = GenerationRequest()
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
         assert result == []
 
 
@@ -226,34 +238,38 @@ class TestGenerationEngineModeB:
         self.mock_storage = Mock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
+        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             storage=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
 
-    def test_mode_b_extract_success(self):
+    @pytest.mark.asyncio
+    async def test_mode_b_extract_success(self):
         """正常 WRITE 流程"""
         focus = WriteFocus(content="重要代码片段", reason="保存备用")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         assert len(result) == 1
 
-    def test_mode_b_fallback_on_extract_failure(self):
+    @pytest.mark.asyncio
+    async def test_mode_b_fallback_on_extract_failure(self):
         """LLM 提取失败时启用 fallback"""
         focus = WriteFocus(content="重要内容不能丢", reason="保存")
         self.mock_extractor.extract.return_value = None
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         # fallback 应保证内容不丢失
         assert len(result) == 1
@@ -285,6 +301,8 @@ class TestGenerationEngineModeC:
         self.mock_storage = Mock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
+        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             storage=self.mock_storage,
             extractor=self.mock_extractor,
@@ -306,19 +324,21 @@ class TestGenerationEngineModeC:
             existing_memory=existing,
         )
 
-    def test_mode_c_merge_success(self):
+    @pytest.mark.asyncio
+    async def test_mode_c_merge_success(self):
         """正常 UPDATE 合并流程"""
         merge_result = MergeResult(new_content="合并后内容", changelog="更新了内容")
         self.mock_extractor.merge.return_value = merge_result
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = self._make_update_request()
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "合并后内容"
 
-    def test_mode_c_no_existing_memory(self):
+    @pytest.mark.asyncio
+    async def test_mode_c_no_existing_memory(self):
         """existing_memory=None 时返回空"""
         uf = UpdateFocus(
             instruction="更新",
@@ -326,30 +346,32 @@ class TestGenerationEngineModeC:
             base_alias="fact_test",
         )
         request = GenerationRequest(context=GenerationContext(), update_focus=uf)
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         assert result == []
         self.mock_extractor.merge.assert_not_called()
 
-    def test_mode_c_fallback_on_merge_failure(self):
+    @pytest.mark.asyncio
+    async def test_mode_c_fallback_on_merge_failure(self):
         """LLM 合并失败时启用 fallback"""
         self.mock_extractor.merge.return_value = None
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = self._make_update_request(content="追加内容")
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         assert len(result) == 1
         assert "追加内容" in result[0].atom.payload.content
 
-    def test_mode_c_fallback_no_content(self):
+    @pytest.mark.asyncio
+    async def test_mode_c_fallback_no_content(self):
         """fallback 仅有 instruction 无 content 时保留旧内容"""
         existing = _make_memory()
         self.mock_extractor.merge.return_value = None
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert_memory = AsyncMock()
 
         request = self._make_update_request(existing=existing, content=None)
-        result = self.engine.process(request)
+        result = await self.engine.process(request)
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "旧内容"
@@ -379,25 +401,30 @@ class TestGenerationEngineDedup:
         self.mock_storage = Mock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
+        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             storage=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
 
-    def test_dedup_touch(self):
+    @pytest.mark.asyncio
+    async def test_dedup_touch(self):
         """TOUCH 决策只更新访问时间"""
         existing = _make_memory()
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.TOUCH, existing)
+        self.mock_storage.update_access_info = AsyncMock()
 
-        result = self.engine._dedup_and_persist(draft, _make_identity())
+        result = await self.engine._dedup_and_persist(draft, _make_identity())
 
         self.mock_storage.update_access_info.assert_called_once_with(existing.id)
         assert result[0].atom is existing
         assert result[0].duplicate_decision == DuplicateDecision.TOUCH
 
-    def test_dedup_update(self):
+    @pytest.mark.asyncio
+    async def test_dedup_update(self):
         """UPDATE 决策合并内容，不持久化（持久化由 TaskController 负责）"""
         existing = _make_memory()
         merged = _make_memory(title="合并后")
@@ -405,7 +432,7 @@ class TestGenerationEngineDedup:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
         self.mock_deduplicator.merge_memory.return_value = merged
 
-        result = self.engine._dedup_and_persist(draft, _make_identity())
+        result = await self.engine._dedup_and_persist(draft, _make_identity())
 
         self.mock_deduplicator.merge_memory.assert_called_once_with(existing, draft)
         self.mock_storage.upsert_memory.assert_not_called()
@@ -413,23 +440,25 @@ class TestGenerationEngineDedup:
         assert result[0].duplicate_decision == DuplicateDecision.UPDATE
         assert result[0].memory_before_snapshot is not None
 
-    def test_dedup_create(self):
+    @pytest.mark.asyncio
+    async def test_dedup_create(self):
         """CREATE 决策创建新记忆，不持久化（持久化由 TaskController 负责）"""
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
-        result = self.engine._dedup_and_persist(draft, _make_identity())
+        result = await self.engine._dedup_and_persist(draft, _make_identity())
 
         self.mock_storage.upsert_memory.assert_not_called()
         assert len(result) == 1
         assert result[0].atom.index.title == "测试记忆"
 
-    def test_dedup_discard(self):
+    @pytest.mark.asyncio
+    async def test_dedup_discard(self):
         """DISCARD 决策返回空"""
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None)
 
-        result = self.engine._dedup_and_persist(draft, _make_identity())
+        result = await self.engine._dedup_and_persist(draft, _make_identity())
 
         assert len(result) == 1
         assert result[0].atom is None

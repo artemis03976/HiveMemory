@@ -101,18 +101,16 @@ def merge_result() -> MergeResult:
     )
 
 
-def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
-    return asyncio.run(koakuma.execute_mtp(text, context=context))
+async def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+    return await koakuma.execute_mtp(text, context=context)
 
 
-def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+async def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
     from .conftest import normalize_worker_agent_mtp_output
 
-    return asyncio.run(
-        koakuma.intercept_and_execute(
-            normalize_worker_agent_mtp_output(assistant_text),
-            context=context,
-        )
+    return await koakuma.intercept_and_execute(
+        normalize_worker_agent_mtp_output(assistant_text),
+        context=context,
     )
 
 
@@ -233,7 +231,8 @@ class TestGenerationRequestUpdate:
 class TestModeCMergePrompt:
     """验证 Generation Engine Mode C 路径调用 extractor.merge()"""
 
-    def test_mode_c_calls_merge_not_extract(self, identity, sample_context, existing_memory):
+    @pytest.mark.asyncio
+    async def test_mode_c_calls_merge_not_extract(self, identity, sample_context, existing_memory):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = MergeResult(
             new_content="端口改为 9090", changelog="更新端口",
@@ -256,7 +255,7 @@ class TestModeCMergePrompt:
             update_focus=uf,
             existing_memory=existing_memory,
         )
-        result = engine.process(request=request)
+        result = await engine.process(request=request)
 
         # merge() 被调用，extract() 不被调用
         mock_extractor.merge.assert_called_once()
@@ -269,7 +268,8 @@ class TestModeCMergePrompt:
         assert metadata["mode"] == "update"
         assert metadata["instruction"] == "把端口改成 9090"
 
-    def test_mode_c_returns_updated_memory(self, identity, existing_memory):
+    @pytest.mark.asyncio
+    async def test_mode_c_returns_updated_memory(self, identity, existing_memory):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = MergeResult(
             new_content="新内容", changelog="测试更新",
@@ -285,7 +285,7 @@ class TestModeCMergePrompt:
             base_alias="fact_api_port",
         )
         request = GenerationRequest(update_focus=uf, existing_memory=existing_memory)
-        result = engine.process(request=request)
+        result = await engine.process(request=request)
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "新内容"
@@ -299,7 +299,8 @@ class TestModeCMergePrompt:
 class TestModeCFallback:
     """验证 LLM 合并失败时的 fallback 拼接"""
 
-    def test_fallback_when_merge_returns_none(self, identity, existing_memory):
+    @pytest.mark.asyncio
+    async def test_fallback_when_merge_returns_none(self, identity, existing_memory):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = None  # LLM 失败
         mock_storage = MagicMock()
@@ -315,7 +316,7 @@ class TestModeCFallback:
             base_alias="fact_api_port",
         )
         request = GenerationRequest(update_focus=uf, existing_memory=existing_memory)
-        result = engine.process(request=request)
+        result = await engine.process(request=request)
 
         # fallback 应该保底入库
         assert len(result) == 1
@@ -358,7 +359,8 @@ class TestModeCFallback:
         assert "Fallback" in result.changelog
         assert "删除过时信息" in result.changelog
 
-    def test_mode_c_no_existing_memory_returns_empty(self, identity):
+    @pytest.mark.asyncio
+    async def test_mode_c_no_existing_memory_returns_empty(self, identity):
         """existing_memory 未注入时应返回空列表"""
         mock_extractor = MagicMock()
         mock_storage = MagicMock()
@@ -375,7 +377,7 @@ class TestModeCFallback:
         # 不注入 existing_memory (默认 None)
 
         request = GenerationRequest(update_focus=uf)
-        result = engine.process(request=request)
+        result = await engine.process(request=request)
 
         assert result == []
         mock_extractor.merge.assert_not_called()
@@ -642,7 +644,7 @@ class TestKoakumaUpdateE2E:
 
     @pytest.fixture
     def update_koakuma(self, existing_memory) -> KoakumaRuntime:
-        mock_librarian = MagicMock()
+        mock_librarian = AsyncMock()
         mock_librarian.handle_update_signal.return_value = [existing_memory]
 
         from .conftest import make_koakuma_runtime, make_mock_bus
@@ -654,9 +656,10 @@ class TestKoakumaUpdateE2E:
         koakuma.atom_cache.ingest_atom(existing_memory)
         return koakuma
 
-    def test_update_basic(self, update_koakuma):
+    @pytest.mark.asyncio
+    async def test_update_basic(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="把端口改成 9090"'
-        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
+        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert result.success
@@ -668,9 +671,10 @@ class TestKoakumaUpdateE2E:
         assert focus.instruction == "把端口改成 9090"
         assert focus.base_alias == "fact_api_port"
 
-    def test_update_with_content(self, update_koakuma):
+    @pytest.mark.asyncio
+    async def test_update_with_content(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="替换端口" content="port = 9090"'
-        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
+        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert result.success
@@ -681,9 +685,10 @@ class TestKoakumaUpdateE2E:
         assert focus.content == "port = 9090"
         assert focus.instruction == "替换端口"
 
-    def test_update_response_contains_ack(self, update_koakuma):
+    @pytest.mark.asyncio
+    async def test_update_response_contains_ack(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test update"'
-        result = _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
+        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
 
         assert result is not None
         assert result.pending_alias is not None
@@ -706,7 +711,8 @@ class TestKoakumaUpdateValidation:
         koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
         return koakuma
 
-    def test_missing_instruction(self, validation_koakuma):
+    @pytest.mark.asyncio
+    async def test_missing_instruction(self, validation_koakuma):
         # 注册 alias 但不提供 instruction
         validation_koakuma.atom_cache.ingest_atom(
             MemoryAtom(
@@ -722,21 +728,23 @@ class TestKoakumaUpdateValidation:
             )
         )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
-        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
         assert result.pending_alias is None
 
-    def test_alias_not_found(self, validation_koakuma):
+    @pytest.mark.asyncio
+    async def test_alias_not_found(self, validation_koakuma):
         agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
-        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
         assert result.pending_alias is None
 
-    def test_pending_alias_rejected(self, validation_koakuma):
+    @pytest.mark.asyncio
+    async def test_pending_alias_rejected(self, validation_koakuma):
         pending = validation_koakuma.pending_runtime.register_write(
             content="pending content",
             title="Pending Note",
@@ -745,7 +753,7 @@ class TestKoakumaUpdateValidation:
         )
 
         agent_text = f'⟪ UPDATE | {pending.pending_alias} | instruction="test"'
-        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert not result.success
@@ -753,12 +761,13 @@ class TestKoakumaUpdateValidation:
         assert "pending" in result.formatted_response.lower()
         assert result.pending_alias is None
 
-    def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
+    @pytest.mark.asyncio
+    async def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
         validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
             "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
         )
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
 
         assert result is not None
         assert not result.success
@@ -766,7 +775,8 @@ class TestKoakumaUpdateValidation:
         assert "Service Unavailable" in result.formatted_response
         assert result.pending_alias is None
 
-    def test_update_deferred_capture_always_ack(self, existing_memory):
+    @pytest.mark.asyncio
+    async def test_update_deferred_capture_always_ack(self, existing_memory):
         """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
         from .conftest import make_koakuma_runtime, make_mock_bus
         bus = make_mock_bus()
@@ -783,7 +793,7 @@ class TestKoakumaUpdateValidation:
         koakuma.atom_cache.ingest_atom(existing_memory)
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = _intercept_and_execute(koakuma, agent_text, context=context)
+        result = await _intercept_and_execute(koakuma, agent_text, context=context)
 
         assert result is not None
         assert result.success

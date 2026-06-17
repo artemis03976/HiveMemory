@@ -53,8 +53,9 @@ class TestRetrievalFamiliarRetrieve:
     """retrieve() 方法测试"""
 
     def setup_method(self):
-        self.mock_storage = Mock()
+        self.mock_storage = AsyncMock()
         self.mock_engine = Mock()
+        self.mock_engine.retrieve = AsyncMock()
         self.mock_passive_renderer = Mock()
         self.familiar = RetrievalFamiliar(
             storage=self.mock_storage,
@@ -62,83 +63,91 @@ class TestRetrievalFamiliarRetrieve:
             passive_renderer=self.mock_passive_renderer,
         )
 
-    def test_retrieve_basic(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_basic(self):
         """基础检索流程"""
         mem = _make_memory()
         self.mock_engine.retrieve.return_value = _make_engine_result([mem])
 
-        response = self.familiar.retrieve(_make_request())
+        response = await self.familiar.retrieve(_make_request())
 
-        self.mock_engine.retrieve.assert_called_once()
+        self.mock_engine.retrieve.assert_awaited_once()
         assert response.memories_count == 1
 
-    def test_retrieve_user_id_filter(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_user_id_filter(self):
         """user_id 作为安全基线过滤"""
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(_make_request(user_id="user_abc"))
+        await self.familiar.retrieve(_make_request(user_id="user_abc"))
 
         call_args = self.mock_engine.retrieve.call_args
         query = call_args[1]["query"]
         assert query.filters.user_id == "user_abc"
 
-    def test_retrieve_no_mtp_filters(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_no_mtp_filters(self):
         """request.filters=None 时只有 user_id 过滤"""
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(_make_request(filters=None))
+        await self.familiar.retrieve(_make_request(filters=None))
 
         call_args = self.mock_engine.retrieve.call_args
         query = call_args[1]["query"]
         assert query.filters.user_id == "u1"
         assert query.filters.memory_type is None
 
-    def test_retrieve_with_memory_type_filter(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_with_memory_type_filter(self):
         """合并 memory_type 过滤"""
         filters = QueryFilters(memory_type="CODE_SNIPPET")
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(_make_request(filters=filters))
+        await self.familiar.retrieve(_make_request(filters=filters))
 
         call_args = self.mock_engine.retrieve.call_args
         query = call_args[1]["query"]
         assert query.filters.memory_type == "CODE_SNIPPET"
 
-    def test_retrieve_with_tags_filter(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_with_tags_filter(self):
         """合并 tags 过滤"""
         filters = QueryFilters(tags=["python", "docker"])
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(_make_request(filters=filters))
+        await self.familiar.retrieve(_make_request(filters=filters))
 
         call_args = self.mock_engine.retrieve.call_args
         query = call_args[1]["query"]
         assert query.filters.tags == ["python", "docker"]
 
-    def test_retrieve_with_min_confidence_filter(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_with_min_confidence_filter(self):
         """min_confidence > 0 时合并"""
         filters = QueryFilters(min_confidence=0.8)
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(_make_request(filters=filters))
+        await self.familiar.retrieve(_make_request(filters=filters))
 
         call_args = self.mock_engine.retrieve.call_args
         query = call_args[1]["query"]
         assert query.filters.min_confidence == 0.8
 
-    def test_retrieve_min_confidence_zero_ignored(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_min_confidence_zero_ignored(self):
         """min_confidence=0 不合并"""
         filters = QueryFilters(min_confidence=0)
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(_make_request(filters=filters))
+        await self.familiar.retrieve(_make_request(filters=filters))
 
         call_args = self.mock_engine.retrieve.call_args
         query = call_args[1]["query"]
         # 默认值应保持不变
         assert query.filters.min_confidence == 0
 
-    def test_retrieve_active_mode_uses_engine_context(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_active_mode_uses_engine_context(self):
         """active 模式使用 engine 默认渲染"""
         mem = _make_memory()
         self.mock_engine.retrieve.return_value = _make_engine_result(
@@ -146,7 +155,7 @@ class TestRetrievalFamiliarRetrieve:
         )
         self.mock_engine.renderer.render.return_value = "engine_rendered"
 
-        response = self.familiar.retrieve(_make_request(), mode="active")
+        response = await self.familiar.retrieve(_make_request(), mode="active")
 
         assert response.rendered_context == "engine_rendered"
         self.mock_passive_renderer.render.assert_not_called()
@@ -193,18 +202,20 @@ class TestRetrievalFamiliarRetrieve:
         assert response.memories == [mem]
         assert response.rendered_context == "rerendered"
 
-    def test_retrieve_passive_mode_uses_passive_renderer(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_passive_mode_uses_passive_renderer(self):
         """passive 模式使用 passive_renderer"""
         mem = _make_memory()
         self.mock_engine.retrieve.return_value = _make_engine_result([mem])
         self.mock_passive_renderer.render.return_value = "passive_rendered"
 
-        response = self.familiar.retrieve(_make_request(), mode="passive")
+        response = await self.familiar.retrieve(_make_request(), mode="passive")
 
         self.mock_passive_renderer.render.assert_called_once()
         assert response.rendered_context == "passive_rendered"
 
-    def test_retrieve_passive_no_renderer_fallback(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_passive_no_renderer_fallback(self):
         """passive 模式无 renderer 时 fallback 到 engine 渲染"""
         familiar = RetrievalFamiliar(
             storage=self.mock_storage,
@@ -217,25 +228,27 @@ class TestRetrievalFamiliarRetrieve:
         )
         self.mock_engine.renderer.render.return_value = "engine_ctx"
 
-        response = familiar.retrieve(_make_request(), mode="passive")
+        response = await familiar.retrieve(_make_request(), mode="passive")
 
         assert response.rendered_context == "engine_ctx"
 
-    def test_retrieve_passive_empty_results_fallback(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_passive_empty_results_fallback(self):
         """passive 模式空结果时 fallback"""
         self.mock_engine.retrieve.return_value = _make_engine_result(
             [], rendered="", is_empty=True
         )
 
-        response = self.familiar.retrieve(_make_request(), mode="passive")
+        response = await self.familiar.retrieve(_make_request(), mode="passive")
 
         self.mock_passive_renderer.render.assert_not_called()
 
-    def test_retrieve_exception_returns_empty(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_exception_returns_empty(self):
         """engine 抛异常时返回空 response"""
         self.mock_engine.retrieve.side_effect = RuntimeError("engine error")
 
-        response = self.familiar.retrieve(_make_request())
+        response = await self.familiar.retrieve(_make_request())
 
         assert response.memories_count == 0
         assert response.latency_ms >= 0
@@ -245,8 +258,8 @@ class TestRetrievalFamiliarIdentityPropagation:
     """§3.3 identity 完整传播测试"""
 
     def setup_method(self):
-        self.mock_storage = Mock()
-        self.mock_engine = Mock()
+        self.mock_storage = AsyncMock()
+        self.mock_engine = AsyncMock()
         self.familiar = RetrievalFamiliar(
             storage=self.mock_storage,
             engine=self.mock_engine,
@@ -255,12 +268,13 @@ class TestRetrievalFamiliarIdentityPropagation:
     def _get_query_filters(self) -> QueryFilters:
         return self.mock_engine.retrieve.call_args[1]["query"].filters
 
-    def test_identity_propagated_to_engine(self):
+    @pytest.mark.asyncio
+    async def test_identity_propagated_to_engine(self):
         """完整 identity 对象传播到 engine 的 QueryFilters"""
         identity = Identity(user_id="u1", agent_id="coder_doll", team_id="team_a")
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(RetrievalRequest(
+        await self.familiar.retrieve(RetrievalRequest(
             semantic_query="test", identity=identity,
         ))
 
@@ -269,19 +283,21 @@ class TestRetrievalFamiliarIdentityPropagation:
         assert qf.identity.agent_id == "coder_doll"
         assert qf.identity.team_id == "team_a"
 
-    def test_team_id_none_propagated(self):
+    @pytest.mark.asyncio
+    async def test_team_id_none_propagated(self):
         """team_id=None 时 identity 仍正确传播"""
         identity = Identity(user_id="u1", agent_id="default", team_id=None)
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(RetrievalRequest(
+        await self.familiar.retrieve(RetrievalRequest(
             semantic_query="test", identity=identity,
         ))
 
         qf = self._get_query_filters()
         assert qf.identity.team_id is None
 
-    def test_mtp_filter_cannot_override_identity(self):
+    @pytest.mark.asyncio
+    async def test_mtp_filter_cannot_override_identity(self):
         """MTP filter 不能覆盖 identity 安全基线"""
         identity = Identity(user_id="u1", agent_id="coder_doll")
         mtp_filters = QueryFilters(
@@ -290,7 +306,7 @@ class TestRetrievalFamiliarIdentityPropagation:
         )
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        self.familiar.retrieve(RetrievalRequest(
+        await self.familiar.retrieve(RetrievalRequest(
             semantic_query="test", identity=identity, filters=mtp_filters,
         ))
 
@@ -306,8 +322,10 @@ class TestRetrievalFamiliarRetrieveByAliases:
     """retrieve_by_aliases() 精确取回并复用统一 renderer。"""
 
     def setup_method(self):
-        self.mock_storage = Mock()
+        self.mock_storage = AsyncMock()
         self.mock_engine = Mock()
+        self.mock_engine.retrieve = AsyncMock()
+        self.mock_engine.retrieve_by_aliases = AsyncMock()
         self.mock_passive_renderer = Mock()
         self.familiar = RetrievalFamiliar(
             storage=self.mock_storage,
@@ -315,17 +333,18 @@ class TestRetrievalFamiliarRetrieveByAliases:
             passive_renderer=self.mock_passive_renderer,
         )
 
-    def test_retrieve_by_aliases_renders_with_engine(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_by_aliases_renders_with_engine(self):
         mem = _make_memory("alias memory")
         self.mock_storage.get_memory_by_alias.return_value = mem
         self.mock_engine.render_memories.return_value = "rendered aliases"
 
-        response = self.familiar.retrieve_by_aliases(
+        response = await self.familiar.retrieve_by_aliases(
             aliases=["fact_a"],
             identity=Identity(user_id="u1"),
         )
 
-        self.mock_storage.get_memory_by_alias.assert_called_once_with("fact_a", "u1")
+        self.mock_storage.get_memory_by_alias.assert_awaited_once_with("fact_a", "u1")
         self.mock_engine.render_memories.assert_called_once_with([mem])
         assert response.memories == [mem]
         assert response.memories_count == 1
@@ -350,12 +369,13 @@ class TestRetrievalFamiliarRetrieveByAliases:
         assert self.mock_engine.render_memories.call_count == 2
         assert response.rendered_context == "fresh aliases"
 
-    def test_retrieve_by_aliases_deduplicates_and_skips_missing(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_by_aliases_deduplicates_and_skips_missing(self):
         mem = _make_memory("alias memory")
         self.mock_storage.get_memory_by_alias.side_effect = [mem, None]
         self.mock_engine.render_memories.return_value = "rendered"
 
-        response = self.familiar.retrieve_by_aliases(
+        response = await self.familiar.retrieve_by_aliases(
             aliases=["fact_a", "fact_a", "", "fact_missing"],
             identity=Identity(user_id="u1"),
         )
@@ -365,12 +385,13 @@ class TestRetrievalFamiliarRetrieveByAliases:
         assert response.memories == [mem]
         assert response.rendered_context == "rendered"
 
-    def test_retrieve_by_aliases_passive_uses_passive_renderer(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_by_aliases_passive_uses_passive_renderer(self):
         mem = _make_memory("alias memory")
         self.mock_storage.get_memory_by_alias.return_value = mem
         self.mock_passive_renderer.render.return_value = "passive rendered"
 
-        response = self.familiar.retrieve_by_aliases(
+        response = await self.familiar.retrieve_by_aliases(
             aliases=["fact_a"],
             identity=Identity(user_id="u1"),
             mode="passive",
@@ -385,22 +406,25 @@ class TestRetrievalFamiliarAccessStats:
     """update_access_stats() 测试"""
 
     def setup_method(self):
-        self.mock_storage = Mock()
+        self.mock_storage = AsyncMock()
+        self.mock_engine = Mock()
         self.familiar = RetrievalFamiliar(
             storage=self.mock_storage,
-            engine=Mock(),
+            engine=self.mock_engine,
         )
 
-    def test_update_access_stats(self):
+    @pytest.mark.asyncio
+    async def test_update_access_stats(self):
         """逐条调用 storage.update_access_info"""
         m1 = _make_memory("m1")
         m2 = _make_memory("m2")
 
-        self.familiar.update_access_stats([m1, m2])
+        await self.familiar.update_access_stats([m1, m2])
 
         assert self.mock_storage.update_access_info.call_count == 2
 
-    def test_update_access_stats_per_item_failure(self):
+    @pytest.mark.asyncio
+    async def test_update_access_stats_per_item_failure(self):
         """单条失败不影响其他"""
         m1 = _make_memory("m1")
         m2 = _make_memory("m2")
@@ -408,11 +432,12 @@ class TestRetrievalFamiliarAccessStats:
             RuntimeError("fail"), None
         ]
 
-        self.familiar.update_access_stats([m1, m2])
+        await self.familiar.update_access_stats([m1, m2])
 
         assert self.mock_storage.update_access_info.call_count == 2
 
-    def test_update_access_stats_empty_list(self):
+    @pytest.mark.asyncio
+    async def test_update_access_stats_empty_list(self):
         """空列表不报错"""
-        self.familiar.update_access_stats([])
+        await self.familiar.update_access_stats([])
         self.mock_storage.update_access_info.assert_not_called()

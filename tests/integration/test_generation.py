@@ -19,7 +19,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import AsyncMock, Mock, MagicMock, patch
 from typing import List
 
 from hivememory.core.models import (
@@ -51,7 +51,8 @@ from hivememory.infrastructure.storage import QdrantMemoryStore
 class TestExtractorAndDeduplicatorCollaboration:
     """测试 Extractor 与 Deduplicator 的协作 (Integration Level)"""
 
-    def test_extractor_calls_deduplicator(self):
+    @pytest.mark.asyncio
+    async def test_extractor_calls_deduplicator(self):
         """测试 Extractor 输出可被 Deduplicator 处理"""
         # 创建 Mock LLM 服务
         mock_llm = Mock()
@@ -68,7 +69,9 @@ class TestExtractorAndDeduplicatorCollaboration:
         ''')
 
         extractor = LLMMemoryExtractor(llm_service=mock_llm, config=ExtractorConfig())
-        deduplicator = MemoryDeduplicator(storage=Mock(), config=DeduplicatorConfig())
+        mock_storage = Mock()
+        mock_storage.search_memories = AsyncMock(return_value=[])
+        deduplicator = MemoryDeduplicator(storage=mock_storage, config=DeduplicatorConfig())
 
         # 提取记忆
         draft = extractor.extract(
@@ -80,7 +83,7 @@ class TestExtractorAndDeduplicatorCollaboration:
         assert draft.title == "Python 函数"
 
         # 应用去重检查
-        decision, existing = deduplicator.check_duplicate(draft)
+        decision, existing = await deduplicator.check_duplicate(draft)
 
         # 验证去重逻辑被调用 (Mock storage 会返回空，所以应该是 CREATE)
         assert decision == DuplicateDecision.CREATE
@@ -94,6 +97,9 @@ class TestMemoryGenerationEngineLogic:
         self.mock_storage = Mock(spec=QdrantMemoryStore)
         self.mock_extractor = Mock(spec=BaseMemoryExtractor)
         self.mock_deduplicator = Mock(spec=BaseDeduplicator)
+        self.mock_storage.update_access_info = AsyncMock()
+        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_deduplicator.check_duplicate = AsyncMock()
         
         self.engine = MemoryGenerationEngine(
             storage=self.mock_storage,
@@ -140,38 +146,42 @@ class TestMemoryGenerationEngineLogic:
             )
         return GenerationContext(turns=turns)
 
-    def test_process_empty_messages(self):
+    @pytest.mark.asyncio
+    async def test_process_empty_messages(self):
         """测试空消息列表"""
-        result = self.engine.process(GenerationRequest())
+        result = await self.engine.process(GenerationRequest())
         assert result == []
 
-    def test_process_extraction_fails(self):
+    @pytest.mark.asyncio
+    async def test_process_extraction_fails(self):
         """测试提取失败"""
         self.mock_extractor.extract.return_value = None
         
-        result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
+        result = await self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert result == []
         self.mock_deduplicator.check_duplicate.assert_not_called()
 
-    def test_process_create_new_memory(self):
+    @pytest.mark.asyncio
+    async def test_process_create_new_memory(self):
         """测试创建新记忆流程"""
         self.mock_extractor.extract.return_value = self.draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         
-        result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
+        result = await self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
         assert result[0].duplicate_decision == DuplicateDecision.CREATE
         assert result[0].atom is not None
         assert result[0].atom.index.title == "Test"
 
-    def test_process_touch_existing_memory(self):
+    @pytest.mark.asyncio
+    async def test_process_touch_existing_memory(self):
         """测试 TOUCH 现有记忆"""
         self.mock_extractor.extract.return_value = self.draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.TOUCH, self.memory_atom)
         
-        result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
+        result = await self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
         assert result[0].duplicate_decision == DuplicateDecision.TOUCH
@@ -181,7 +191,8 @@ class TestMemoryGenerationEngineLogic:
         self.mock_storage.update_access_info.assert_called_once_with(self.memory_atom.id)
         self.mock_storage.upsert_memory.assert_not_called()
 
-    def test_process_update_memory(self):
+    @pytest.mark.asyncio
+    async def test_process_update_memory(self):
         """测试 UPDATE 记忆演化"""
         self.mock_extractor.extract.return_value = self.draft
         
@@ -191,7 +202,7 @@ class TestMemoryGenerationEngineLogic:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, self.memory_atom)
         self.mock_deduplicator.merge_memory.return_value = merged_memory
         
-        result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
+        result = await self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         
         assert len(result) == 1
         assert result[0].duplicate_decision == DuplicateDecision.UPDATE
@@ -201,13 +212,14 @@ class TestMemoryGenerationEngineLogic:
         # 验证调用了合并
         self.mock_deduplicator.merge_memory.assert_called_once()
 
-    def test_process_discard_memory(self):
+    @pytest.mark.asyncio
+    async def test_process_discard_memory(self):
         """测试 DISCARD 记忆"""
         self.mock_extractor.extract.return_value = self.draft
         # 模拟返回一个不在 (TOUCH, UPDATE, CREATE) 中的决策值，触发 else 分支 (DISCARD)
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None)
         
-        result = self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
+        result = await self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
         assert len(result) == 1
         assert result[0].duplicate_decision == DuplicateDecision.DISCARD
         assert result[0].atom is None
@@ -240,7 +252,8 @@ class TestMemoryGenerationEngineLogic:
 class TestEngineComponentCoordination:
     """测试 MemoryGenerationEngine 对各组件的编排 (Integration Level Mocking)"""
 
-    def test_engine_full_pipeline(self):
+    @pytest.mark.asyncio
+    async def test_engine_full_pipeline(self):
         """测试完整的处理流程：Extract -> Deduplicate"""
         mock_llm = Mock()
         mock_llm.complete_with_retry = Mock(return_value='''
@@ -256,7 +269,7 @@ class TestEngineComponentCoordination:
         ''')
 
         mock_deduplicator = Mock()
-        mock_deduplicator.check_duplicate = Mock(return_value=(DuplicateDecision.CREATE, None))
+        mock_deduplicator.check_duplicate = AsyncMock(return_value=(DuplicateDecision.CREATE, None))
 
         engine = MemoryGenerationEngine(
             storage=Mock(),
@@ -272,7 +285,7 @@ class TestEngineComponentCoordination:
         context = GenerationContext(
             turns=[GenerationTurn(user_query="测试内容", assistant_final_text="测试回复", identity=Identity())]
         )
-        result = engine.process(GenerationRequest(context=context))
+        result = await engine.process(GenerationRequest(context=context))
 
         assert result is not None
         assert len(result) == 1

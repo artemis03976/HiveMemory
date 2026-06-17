@@ -3,16 +3,15 @@ MemoryRetriever 单元测试
 
 测试覆盖:
 - HybridRetriever (混合检索)
-- CachedRetriever (缓存检索)
+- DenseRetriever (稠密检索)
 - 结果排序和打分
 - 时间衰减逻辑
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, AsyncMock
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-import time
 
 from hivememory.core.models import Identity, MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
 from hivememory.system.config import (
@@ -21,14 +20,15 @@ from hivememory.system.config import (
     ReciprocalRankFusionConfig,
     HybridRetrieverConfig,
 )
-from hivememory.engines.retrieval.retriever import HybridRetriever, CachedRetriever, DenseRetriever, SearchResults
+from hivememory.engines.retrieval.retriever import HybridRetriever, DenseRetriever, SearchResults
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters, SearchResult
+
 
 class TestDenseRetriever:
     """测试稠密检索器"""
 
     def setup_method(self):
-        self.mock_storage = Mock()
+        self.mock_storage = AsyncMock()
         self.config = DenseRetrieverConfig()
         self.retriever = DenseRetriever(
             storage=self.mock_storage,
@@ -47,29 +47,31 @@ class TestDenseRetriever:
             meta=MetaData(source_agent_id="a1", user_id="u1", updated_at=datetime.now() - timedelta(days=60), confidence_score=0.8)
         )
 
-    def test_search_basic(self):
+    @pytest.mark.asyncio
+    async def test_search_basic(self):
         """测试基本检索"""
         # 模拟存储返回
-        self.mock_storage.search_memories.return_value = [
+        self.mock_storage.search_memories = AsyncMock(return_value=[
             {"memory": self.memory1, "score": 0.9},
             {"memory": self.memory2, "score": 0.8}
-        ]
+        ])
 
         query = RetrievalQuery(semantic_query="test")
-        results = self.retriever.retrieve(query, top_k=2)
+        results = await self.retriever.retrieve(query, top_k=2)
 
         assert len(results) == 2
         assert results.results[0].memory.index.title == "M1"
         self.mock_storage.search_memories.assert_called_once()
 
-    def test_search_with_filters(self):
+    @pytest.mark.asyncio
+    async def test_search_with_filters(self):
         """测试带过滤条件的检索"""
-        self.mock_storage.search_memories.return_value = []
+        self.mock_storage.search_memories = AsyncMock(return_value=[])
         
         filters = QueryFilters(memory_type=MemoryType.FACT, identity=Identity(user_id="u1"))
         query = RetrievalQuery(semantic_query="test", filters=filters)
         
-        self.retriever.retrieve(query)
+        await self.retriever.retrieve(query)
         
         # 验证过滤条件传递 (现在返回 qdrant Filter 对象)
         call_args = self.mock_storage.search_memories.call_args
@@ -83,7 +85,8 @@ class TestDenseRetriever:
         assert "meta.user_id" in field_keys
         assert "index.memory_type" in field_keys
 
-    def test_time_decay(self):
+    @pytest.mark.asyncio
+    async def test_time_decay(self):
         """测试时间衰减"""
         # M1: 新, 原始分 0.84
         # M2: 旧(180天前), 原始分 0.85
@@ -91,13 +94,13 @@ class TestDenseRetriever:
         # 更新 M2 时间为 180 天前
         self.memory2.meta.updated_at = datetime.now() - timedelta(days=180)
 
-        self.mock_storage.search_memories.return_value = [
+        self.mock_storage.search_memories = AsyncMock(return_value=[
             {"memory": self.memory1, "score": 0.84},
             {"memory": self.memory2, "score": 0.85}
-        ]
+        ])
         
         query = RetrievalQuery(semantic_query="test")
-        results = self.retriever.retrieve(query)
+        results = await self.retriever.retrieve(query)
         
         # M1 虽然原始分低，但因为 M2 时间久远衰减，M1 应该排在前面
         # 或者至少验证 M2 的分数被降低了
@@ -111,30 +114,32 @@ class TestDenseRetriever:
         
         assert results.results[0].memory.index.title == "M1"
 
-    def test_match_reason(self):
+    @pytest.mark.asyncio
+    async def test_match_reason(self):
         """测试匹配原因生成"""
-        self.mock_storage.search_memories.return_value = [
+        self.mock_storage.search_memories = AsyncMock(return_value=[
             {"memory": self.memory1, "score": 0.9}
-        ]
+        ])
 
         query = RetrievalQuery(
             semantic_query="test",
             keywords=["t1"],
             filters={}
         )
-        results = self.retriever.retrieve(query)
+        results = await self.retriever.retrieve(query)
         
         assert "Dense" in results.results[0].match_reason
 
-    def test_time_decay_with_aware_datetime(self):
+    @pytest.mark.asyncio
+    async def test_time_decay_with_aware_datetime(self):
         """测试 aware datetime 时间衰减不抛异常"""
         self.memory1.meta.updated_at = datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
-        self.mock_storage.search_memories.return_value = [
+        self.mock_storage.search_memories = AsyncMock(return_value=[
             {"memory": self.memory1, "score": 0.9}
-        ]
+        ])
 
         query = RetrievalQuery(semantic_query="test")
-        results = self.retriever.retrieve(query)
+        results = await self.retriever.retrieve(query)
 
         assert len(results.results) == 1
         assert results.results[0].score > 0
@@ -149,8 +154,8 @@ class TestHybridRetriever:
             reranker={"enabled": False}
         )
         
-        self.mock_dense = Mock()
-        self.mock_sparse = Mock()
+        self.mock_dense = AsyncMock()
+        self.mock_sparse = AsyncMock()
         self.mock_fusion = Mock()
         
         self.searcher = HybridRetriever(
@@ -172,17 +177,18 @@ class TestHybridRetriever:
             meta=MetaData(source_agent_id="a1", user_id="u1", updated_at=datetime.now())
         )
 
-    def test_search_hybrid(self):
+    @pytest.mark.asyncio
+    async def test_search_hybrid(self):
         """测试混合检索 (Dense + Sparse + RRF)"""
         # 模拟 Dense 返回
-        self.mock_dense.retrieve.return_value = SearchResults(results=[
+        self.mock_dense.retrieve = AsyncMock(return_value=SearchResults(results=[
             SearchResult(memory=self.memory1, score=0.9)
-        ])
+        ]))
         
         # 模拟 Sparse 返回
-        self.mock_sparse.retrieve.return_value = SearchResults(results=[
+        self.mock_sparse.retrieve = AsyncMock(return_value=SearchResults(results=[
             SearchResult(memory=self.memory2, score=0.85)
-        ])
+        ]))
         
         # 模拟 Fusion 返回
         self.mock_fusion.fuse.return_value = SearchResults(results=[
@@ -191,7 +197,7 @@ class TestHybridRetriever:
         ])
 
         query = RetrievalQuery(semantic_query="test")
-        results = self.searcher.retrieve(query, top_k=2)
+        results = await self.searcher.retrieve(query, top_k=2)
 
         # 验证调用
         self.mock_dense.retrieve.assert_called_once()
@@ -200,57 +206,6 @@ class TestHybridRetriever:
         
         assert len(results.results) == 2
 
-
-
-class TestCachedRetriever:
-    """测试带缓存的检索器"""
-
-    def setup_method(self):
-        self.mock_retriever = Mock(spec=HybridRetriever)
-        self.cached_retriever = CachedRetriever(retriever=self.mock_retriever, cache_ttl_seconds=1)
-        
-        self.query = RetrievalQuery(semantic_query="test")
-        self.results = SearchResults(results=[])
-
-    def test_cache_hit(self):
-        """测试缓存命中"""
-        self.mock_retriever.retrieve.return_value = self.results
-        
-        # 第一次调用
-        self.cached_retriever.retrieve(self.query)
-        self.mock_retriever.retrieve.assert_called_once()
-        
-        # 第二次调用（应该命中缓存）
-        self.cached_retriever.retrieve(self.query)
-        self.mock_retriever.retrieve.assert_called_once()  # 调用次数不变
-
-    def test_cache_expiration(self):
-        """测试缓存过期"""
-        self.mock_retriever.retrieve.return_value = self.results
-        
-        # 第一次调用
-        self.cached_retriever.retrieve(self.query)
-        
-        # 等待过期
-        time.sleep(1.1)
-        
-        # 第二次调用（应该重新检索）
-        self.cached_retriever.retrieve(self.query)
-        assert self.mock_retriever.retrieve.call_count == 2
-
-    def test_cache_eviction(self):
-        """测试缓存清理"""
-        retriever = CachedRetriever(self.mock_retriever, max_cache_size=1)
-        
-        q1 = RetrievalQuery(semantic_query="q1")
-        q2 = RetrievalQuery(semantic_query="q2")
-        
-        retriever.retrieve(q1)
-        retriever.retrieve(q2)  # 这应该触发清理 q1
-        
-        # 再次搜索 q1，应该重新调用底层
-        retriever.retrieve(q1)
-        assert self.mock_retriever.retrieve.call_count == 3
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

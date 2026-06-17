@@ -175,7 +175,7 @@ class MemoryLifecycleEngine:
         """
         return self.archiver.resurrect(memory_id)
 
-    def get_low_vitality_memories(
+    async def get_low_vitality_memories(
         self,
         threshold: float = 20.0,
         limit: int = 100
@@ -191,8 +191,8 @@ class MemoryLifecycleEngine:
             List[Tuple[UUID, float]]: (memory_id, vitality) 列表，按生命力升序
         """
         # 获取所有记忆
-        all_memories = self.storage.get_all_memories(limit=10000)
-        refreshed = self.refresh_vitality_batch(all_memories, persist=False)
+        all_memories = await self.storage.get_all_memories(limit=10000)
+        refreshed = await self.refresh_vitality_batch(all_memories, persist=False)
         results = [
             (memory_id, vitality)
             for memory_id, vitality in refreshed
