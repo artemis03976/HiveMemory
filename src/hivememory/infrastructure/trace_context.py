@@ -88,6 +88,12 @@ def reset_trace_context(
     Args:
         tokens: set_trace_context() 返回的 Token 元组
     """
-    current_trace_id.reset(tokens[0])
-    current_span_name.reset(tokens[1])
-    current_task_type.reset(tokens[2])
+    try:
+        current_trace_id.reset(tokens[0])
+        current_span_name.reset(tokens[1])
+        current_task_type.reset(tokens[2])
+    except ValueError:
+        logging.getLogger(__name__).debug(
+            "Skipping trace context reset because token belongs to another context",
+            exc_info=True,
+        )

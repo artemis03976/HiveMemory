@@ -393,6 +393,38 @@ class TestChatApplicationService:
         assert runtime_events[-1].data["close_reason"] == "client_disconnected"
 
     @pytest.mark.asyncio
+    async def test_chat_stream_close_after_task_driven_next_event_does_not_cross_context_fail(
+        self,
+        mock_global_bus,
+    ):
+        prepared = _make_prepared_run()
+
+        async def route_dispatch(route, *args, **kwargs):
+            if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
+                return prepared
+            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+                async def _stream():
+                    yield {"event": "token", "data": {"content": "hi"}}
+                    await asyncio.Event().wait()
+
+                return _stream()
+            if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
+                return True
+            return None
+
+        mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
+
+        svc = ChatApplicationService(global_bus=mock_global_bus)
+        stream = svc.chat_stream(user_message="hi", user_id="u1")
+
+        assert (await asyncio.create_task(stream.__anext__()))["event"] == "generation_id"
+        assert (await asyncio.create_task(stream.__anext__()))["event"] == "topic_info"
+        assert (await asyncio.create_task(stream.__anext__()))["event"] == "memory_refs"
+        assert (await asyncio.create_task(stream.__anext__()))["event"] == "token"
+
+        await stream.aclose()
+
+    @pytest.mark.asyncio
     async def test_cancel_before_streaming_returns_cancelled_done(self, mock_global_bus):
         """취消在 ALICE stream 调用前触发 → 提前 return，done.status=cancelled。"""
         recorder = RecordingRuntimeEventSink()

@@ -172,6 +172,7 @@ async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
     kernel.librarian_core = MagicMock()
     kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
     kernel.librarian_core.lifecycle_engine = MagicMock()
+    kernel.librarian_core.lifecycle_engine.record_hit = AsyncMock()
     service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
 
     memory = _build_memory_atom()
@@ -205,7 +206,7 @@ async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
 
     await service.finalize_agent_run(prepared_run, AgentRunResult(final_text="done"))
 
-    kernel.librarian_core.lifecycle_engine.record_hit.assert_called_once_with(
+    kernel.librarian_core.lifecycle_engine.record_hit.assert_awaited_once_with(
         memory.id,
         source="retrieval.finalize",
     )
