@@ -230,6 +230,8 @@ v0.5.0 的意义：把“对话事实”和“记忆事实”从运行时缓存�
 - 支持 `/clear` 等系统指令的统一解析与执行。
 - 增加复合意图识别与任务拆分。
 - 让 Gateway 的拆分结果能被 Patchouli、Alice 与下游 task runner 消费。
+- **完善 Gateway 自定义拦截规则**：重新引入 `RuleInterceptor` 的自定义规则注入机制（`custom_system_patterns` / `custom_chat_patterns`），与系统指令注册表打通，支持运行时动态扩展拦截规则。
+- **Gateway LLM 降级与重试**：为 `LLMAnalyzer` 增加重试策略（指数退避）、超时控制与降级路径，LLM 调用失败时自动回退到 `NoOpSemanticAnalyzer` 的保守结果，而非将异常上抛给 TheEye。
 
 依赖：
 

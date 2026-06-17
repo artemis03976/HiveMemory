@@ -23,8 +23,6 @@ class RuleInterceptorConfig(BaseModel):
     enabled: bool = Field(default=True)
     enable_system: bool = Field(default=True)
     enable_chat: bool = Field(default=True)
-    custom_system_patterns: List[str] = Field(default_factory=list)
-    custom_chat_patterns: List[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 

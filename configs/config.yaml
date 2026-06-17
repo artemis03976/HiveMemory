@@ -91,8 +91,6 @@ patchouli:
       enabled: true
       enable_system: true
       enable_chat: true
-      custom_system_patterns: []
-      custom_chat_patterns: []
     analyzer:
       enabled: true
 

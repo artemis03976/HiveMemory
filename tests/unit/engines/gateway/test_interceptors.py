@@ -56,24 +56,6 @@ class TestRuleInterceptor:
         assert result is not None
         assert result.intent == GatewayIntent.CHAT
 
-    def test_custom_patterns(self):
-        """测试自定义模式"""
-        custom_system = [r"^/custom$"]
-        custom_chat = [r"^测试$"]
-
-        config = RuleInterceptorConfig(
-            custom_system_patterns=custom_system,
-            custom_chat_patterns=custom_chat
-        )
-
-        interceptor = RuleInterceptor(config=config)
-
-        result = interceptor.intercept("/custom")
-        assert result.intent == GatewayIntent.SYSTEM
-
-        result = interceptor.intercept("测试")
-        assert result.intent == GatewayIntent.CHAT
-
     def test_add_pattern_dynamically(self):
         """测试动态添加模式"""
         config = RuleInterceptorConfig()
