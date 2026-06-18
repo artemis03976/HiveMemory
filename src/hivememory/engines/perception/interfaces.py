@@ -123,53 +123,6 @@ class BasePerceptionLayer(ABC):
     # ========== 抽象接口 ==========
 
     @abstractmethod
-    def get_buffer(
-        self,
-        topic_id: str,
-    ) -> Optional[Any]:
-        """
-        获取缓冲区对象
-
-        返回类型: SemanticBuffer
-
-        Args:
-            topic_id: 话题 ID
-
-        Returns:
-            缓冲区对象，不存在返回 None
-        """
-        pass
-
-    @abstractmethod
-    def clear_buffer(
-        self,
-        topic_id: str,
-    ) -> bool:
-        """清理指定的缓冲区"""
-        pass
-
-    @abstractmethod
-    def list_active_buffers(self) -> List[str]:
-        """列出所有活跃的缓冲区 key"""
-        pass
-
-    @abstractmethod
-    def get_buffer_info(
-        self,
-        topic_id: str,
-    ) -> Dict[str, Any]:
-        """
-        获取缓冲区信息
-
-        Args:
-            topic_id: 话题 ID
-
-        Returns:
-            Dict: 缓冲区信息字典
-        """
-        pass
-
-    @abstractmethod
     async def manual_trigger(
         self,
         topic_id: Optional[str] = None,

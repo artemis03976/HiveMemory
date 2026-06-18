@@ -83,7 +83,7 @@ class TestBlockTokenComputation:
         snapshots = self.layer.get_active_topics_snapshots(identity)
         topic_id = snapshots[0].topic_id
 
-        buffer = self.layer.get_buffer(topic_id)
+        buffer = self.layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
         assert buffer.blocks[0].total_tokens > 0
         assert buffer.total_tokens > 0
@@ -104,7 +104,7 @@ class TestBlockTokenComputation:
         snapshots = self.layer.get_active_topics_snapshots(identity)
         topic_id = snapshots[0].topic_id
 
-        buffer = self.layer.get_buffer(topic_id)
+        buffer = self.layer._short_term_store.get_buffer(topic_id)
         block = buffer.blocks[0]
         # tokens 应包含 user_query + clean_response + trace fields
         assert block.total_tokens > 0
@@ -134,7 +134,7 @@ class TestPageFoldingThreshold:
             else:
                 await layer.route_and_ingest(topic_id, _make_payload(f"msg{i}", f"reply{i}", identity))
 
-        buffer = layer.get_buffer(topic_id)
+        buffer = layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 5
         assert buffer.state_summary == ""
 
@@ -169,7 +169,7 @@ class TestPageFoldingThreshold:
         # 手动触发 fold_blocks（模拟 token 溢出场景）
         layer._short_term_store.fold_blocks(topic_id, "Test summary", 2)
 
-        buffer = layer.get_buffer(topic_id)
+        buffer = layer._short_term_store.get_buffer(topic_id)
         # 折叠后应只保留最近 2 个 blocks
         assert len(buffer.blocks) <= 2
         # state_summary 应被写入
@@ -233,7 +233,7 @@ class TestPageFoldingCumulative:
         for i in range(4):
             await layer.route_and_ingest(topic_id, _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity))
 
-        buffer = layer.get_buffer(topic_id)
+        buffer = layer._short_term_store.get_buffer(topic_id)
         first_summary = buffer.state_summary
         assert first_summary != ""
 
@@ -241,7 +241,7 @@ class TestPageFoldingCumulative:
         for i in range(4):
             await layer.route_and_ingest(topic_id, _make_payload(f"wave2 q{i} " * 20, f"wave2 a{i} " * 20, identity))
 
-        buffer = layer.get_buffer(topic_id)
+        buffer = layer._short_term_store.get_buffer(topic_id)
         # 累积摘要应包含分隔符
         assert "---" in buffer.state_summary
         # 第一次摘要应被保留在累积摘要中

@@ -320,11 +320,10 @@ class PatchouliService:
 
     async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:
         try:
-            buf = self._runtime.librarian_core.perception_layer.get_buffer(topic_id)
-            if buf and not buf.blocks:
-                self._runtime.librarian_core.perception_layer.swap_out_topic(topic_id)
+            cleaned = self._runtime.librarian_core.perception_layer.discard_if_empty(topic_id)
+            if cleaned:
                 logger.info(f"已清理预创建的空话题: {topic_id}")
-                return True
+            return cleaned
         except Exception:
             logger.warning("清理预创建空话题失败", exc_info=True)
         return False

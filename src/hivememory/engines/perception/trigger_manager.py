@@ -277,10 +277,6 @@ class TriggerManager:
 
         特性：同步阻塞（必须等待摘要生成完成）
         """
-        buffer = self._store.get_buffer(topic_id)
-        if not buffer:
-            return
-
         # 调用 RelayController 生成摘要（已包含 previous_summary 合并逻辑）
         new_summary = self._relay_controller.generate_summary(
             blocks_to_fold=blocks_to_fold,
@@ -290,7 +286,7 @@ class TriggerManager:
         # 计算与写入分离：通过 Store 命名方法写入，不直接操作 buffer 字段
         self._store.update_summary(topic_id, new_summary)
 
-        logger.debug(f"Compact: 生成新摘要，长度={len(new_summary)}")
+        logger.debug(f"Compact: 生成新摘要，topic_id={topic_id}")
 
 
 __all__ = [

@@ -331,69 +331,14 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             "blocks_archived": blocks_count,
         }
 
-    def get_buffer(
-        self,
-        topic_id: str,
-    ) -> Optional[SemanticBuffer]:
-        """
-        获取指定 Buffer
-
-        Args:
-            topic_id: 话题 ID
-
-        Returns:
-            SemanticBuffer: 缓冲区对象，不存在则返回 None
-        """
-        return self._short_term_store.get_buffer(topic_id)
-
-    def clear_buffer(
-        self,
-        topic_id: str,
-    ) -> bool:
-        """
-        清理指定的 Buffer
-
-        Args:
-            topic_id: 话题 ID
-
-        Returns:
-            bool: 是否成功清理
-        """
-        # clear_buffer 原意是清空内容，不移除 topic
-        cleared = self._short_term_store.clear_buffer(topic_id)
-        if cleared is not None:  # 如果 buffer 存在，clear_buffer 返回 list (可能为空)
-            self._short_term_store.update_metadata(
-                topic_id,
-                state=BufferState.IDLE,
-            )
+    def discard_if_empty(self, topic_id: str) -> bool:
+        """话题存在且无 blocks 时驱逐并返回 True，否则返回 False。"""
+        info = self._short_term_store.get_buffer_info(topic_id)
+        if info.get("exists") and info.get("block_count", 0) == 0:
+            self._short_term_store.pop_buffer(topic_id)
+            logger.info(f"已清理无内容话题: {topic_id}")
             return True
         return False
-
-    def list_active_buffers(self) -> List[str]:
-        """
-        列出所有活跃的 Buffer
-
-        Returns:
-            List[str]: topic_id 列表
-        """
-        return [b.topic_id for b in self._short_term_store.get_all_buffers()]
-
-    def get_buffer_info(
-        self,
-        topic_id: str,
-    ) -> Dict[str, Any]:
-        """
-        获取缓冲区信息
-
-        Args:
-            topic_id: 话题 ID
-
-        Returns:
-            Dict: 缓冲区信息字典
-        """
-        info = self._short_term_store.get_buffer_info(topic_id)
-        info["mode"] = "semantic_flow"
-        return info
 
     # ========== 话题路由与管理 ==========
 
@@ -622,28 +567,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     def swap_out_topic(
         self, topic_id: str
-    ) -> Optional[SemanticBuffer]:
+    ) -> bool:
         """
-        显式换出指定话题
-
-        Args:
-            topic_id: 话题的 ID
-
-        Returns:
-            被换出的 SemanticBuffer，不存在返回 None
+        显式换出指定话题，返回是否存在该话题。
         """
-        return self._short_term_store.pop_buffer(topic_id)
-
-    def update_topic_title(
-        self, topic_id: str, title: str
-    ) -> None:
-        """
-        更新话题标题
-        """
-        buffer = self._short_term_store.get_buffer(topic_id)
-        if buffer:
-            buffer.topic_title = title
-            logger.debug(f"话题 {topic_id} 标题更新为: {title}")
+        return self._short_term_store.pop_buffer(topic_id) is not None
 
     # ========== Idle Hibernate (§5.1) ==========
 
@@ -677,18 +605,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     async def flush_all_for_shutdown(self) -> Dict[str, Any]:
         """进程关闭前强制归档并驱逐所有活跃话题。"""
-        topic_ids = list(self.list_active_buffers())
+        topic_ids = [b.topic_id for b in self._short_term_store.get_all_buffers()]
         flushed_topics: List[str] = []
         skipped_topics: List[str] = []
         archived_blocks = 0
 
         for topic_id in topic_ids:
-            buffer = self.get_buffer(topic_id)
-            if buffer is None or not buffer.blocks:
+            info = self._short_term_store.get_buffer_info(topic_id)
+            block_count = info.get("block_count", 0) if info.get("exists") else 0
+            if not block_count:
                 skipped_topics.append(topic_id)
                 continue
 
-            archived_blocks += len(buffer.blocks)
+            archived_blocks += block_count
             await self._trigger_manager.resolve_topic(
                 topic_id=topic_id,
                 trigger_reason=FlushReason.SHUTDOWN,
@@ -725,31 +654,6 @@ class NullPerceptionLayer(BasePerceptionLayer):
         payload: InteractionPayload,
     ) -> str:
         return topic_id
-
-    def get_buffer(
-        self,
-        topic_id: str,
-    ) -> Optional[Any]:
-        return None
-
-    def clear_buffer(
-        self,
-        topic_id: str,
-    ) -> bool:
-        return False
-
-    def list_active_buffers(self) -> List[str]:
-        return []
-
-    def get_buffer_info(
-        self,
-        topic_id: str,
-    ) -> Dict[str, Any]:
-        return {
-            "exists": False,
-            "topic_id": topic_id,
-            "mode": "null",
-        }
 
     def get_active_topics_snapshots(
         self,

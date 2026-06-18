@@ -82,7 +82,7 @@ class TestSemanticFlowPerceptionLayer:
         topic_id = snapshots[0].topic_id
 
         # Verify: block 应该已完成并加入 buffer
-        buffer = self.layer.get_buffer(topic_id)
+        buffer = self.layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
         assert buffer.blocks[0].identity.agent_id == "a1"
 
@@ -98,7 +98,7 @@ class TestSemanticFlowPerceptionLayer:
         topic_id = snapshots[0].topic_id
 
         # 验证第一个 block 已加入
-        buffer = self.layer.get_buffer(topic_id)
+        buffer = self.layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
 
         # 第二轮：继续摄入（MMU 模式下话题路由由 TheEye 完成，ingest_payload 只做添加）
@@ -117,7 +117,7 @@ class TestSemanticFlowPerceptionLayer:
         snapshots = self.layer.get_active_topics_snapshots(identity)
         topic_id = snapshots[0].topic_id
 
-        buffer = self.layer.get_buffer(topic_id)
+        buffer = self.layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
 
         # 第二轮：继续摄入（Relay 已断开，不再触发 Token 溢出 flush）
@@ -143,12 +143,12 @@ class TestSemanticFlowPerceptionLayer:
         snapshots = self.layer.get_active_topics_snapshots(identity)
         topic_id = snapshots[0].topic_id
 
-        buffer = self.layer.get_buffer(topic_id)
+        buffer = self.layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
 
         # 清理
-        result = self.layer.clear_buffer(topic_id)
-        assert result is True
+        result = self.layer._short_term_store.clear_buffer(topic_id)
+        assert result is not None  # clear_buffer returns cleared blocks list
 
         # 验证 buffer 已清空
         assert len(buffer.blocks) == 0

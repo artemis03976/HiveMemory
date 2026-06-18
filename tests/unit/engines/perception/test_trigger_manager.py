@@ -447,9 +447,10 @@ class TestTriggerManagerCompactTopic:
         self.mock_relay_controller.generate_summary.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_compact_without_buffer(self):
-        """测试无 buffer 时跳过 Compact"""
+    async def test_compact_always_generates_summary(self):
+        """_compact_topic 不做存在性检查；存在性由 resolve_topic 保证。"""
         self.mock_buffer_manager.get_buffer.return_value = None
+        self.mock_relay_controller.generate_summary.return_value = "summary"
 
         blocks = [
             LogicalBlock(
@@ -460,4 +461,5 @@ class TestTriggerManagerCompactTopic:
 
         await self.manager._compact_topic(self.topic_id, blocks, "summary")
 
-        self.mock_relay_controller.generate_summary.assert_not_called()
+        # generate_summary 仍会被调用；update_summary 在 store 层做 no-op
+        self.mock_relay_controller.generate_summary.assert_called_once()
