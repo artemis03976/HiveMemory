@@ -74,16 +74,16 @@ class TestTriggerManagerInit:
     def test_init_with_relay_controller(self):
         """测试带 RelayController 初始化"""
         manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
+            store=self.mock_buffer_manager,
             relay_controller=self.mock_relay_controller,
         )
-        assert manager._buffer_manager is self.mock_buffer_manager
+        assert manager._store is self.mock_buffer_manager
         assert manager._relay_controller is self.mock_relay_controller
 
     def test_init_requires_relay_controller(self):
         """TriggerManager requires explicit RelayController injection."""
         with pytest.raises(TypeError):
-            TriggerManager(buffer_manager=self.mock_buffer_manager)
+            TriggerManager(store=self.mock_buffer_manager)
 
 
 class TestTriggerManagerDependencyInjection:
@@ -93,7 +93,7 @@ class TestTriggerManagerDependencyInjection:
         """每个测试方法前初始化"""
         self.mock_buffer_manager = Mock()
         self.manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
+            store=self.mock_buffer_manager,
             relay_controller=Mock(),
         )
 
@@ -119,8 +119,23 @@ class TestTriggerManagerResolveTopic:
         self.mock_relay_controller = Mock()
         self.mock_callback = AsyncMock(return_value=None)
 
+        # clear_blocks / update_summary 需要实际操作 buffer 对象，否则断言失败
+        def _clear_blocks(topic_id):
+            buf = self.mock_buffer_manager.get_buffer.return_value
+            if buf:
+                buf.blocks.clear()
+                buf.total_tokens = 0
+
+        def _update_summary(topic_id, summary):
+            buf = self.mock_buffer_manager.get_buffer.return_value
+            if buf:
+                buf.state_summary = summary
+
+        self.mock_buffer_manager.clear_blocks.side_effect = _clear_blocks
+        self.mock_buffer_manager.update_summary.side_effect = _update_summary
+
         self.manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
+            store=self.mock_buffer_manager,
             relay_controller=self.mock_relay_controller,
         )
         self.manager.set_generation_callback(self.mock_callback)
@@ -279,7 +294,7 @@ class TestTriggerManagerArchiveTopic:
         self.mock_callback = AsyncMock(return_value=None)
 
         self.manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
+            store=self.mock_buffer_manager,
             relay_controller=Mock(),
         )
         self.manager.set_generation_callback(self.mock_callback)
@@ -291,7 +306,7 @@ class TestTriggerManagerArchiveTopic:
     async def test_archive_without_callback(self):
         """测试无回调时跳过 Archive"""
         manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
+            store=self.mock_buffer_manager,
             relay_controller=Mock(),
         )
 
@@ -392,8 +407,15 @@ class TestTriggerManagerCompactTopic:
         self.mock_buffer_manager = Mock()
         self.mock_relay_controller = Mock()
 
+        def _update_summary(topic_id, summary):
+            buf = self.mock_buffer_manager.get_buffer.return_value
+            if buf:
+                buf.state_summary = summary
+
+        self.mock_buffer_manager.update_summary.side_effect = _update_summary
+
         self.manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
+            store=self.mock_buffer_manager,
             relay_controller=self.mock_relay_controller,
         )
 

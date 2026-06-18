@@ -152,7 +152,7 @@ class TestPageFoldingThreshold:
         identity = _make_identity()
 
         # 直接使用 BufferManager 创建 buffer 并添加 blocks
-        buffer = layer._buffer_manager.create_buffer(identity.user_id)
+        buffer = layer._short_term_store.create_buffer(identity.user_id)
         topic_id = buffer.topic_id
 
         # 添加多个小 blocks，总 token 会超过阈值
@@ -164,10 +164,10 @@ class TestPageFoldingThreshold:
                 ),
                 total_tokens=20,  # 每个 block 20 tokens
             )
-            layer._buffer_manager.add_block(topic_id, block)
+            layer._short_term_store.add_block(topic_id, block)
 
         # 手动触发 fold_blocks（模拟 token 溢出场景）
-        layer._buffer_manager.fold_blocks(topic_id, "Test summary", 2)
+        layer._short_term_store.fold_blocks(topic_id, "Test summary", 2)
 
         buffer = layer.get_buffer(topic_id)
         # 折叠后应只保留最近 2 个 blocks
@@ -192,7 +192,7 @@ class TestPageFoldingThreshold:
         identity = _make_identity()
 
         # 直接使用 BufferManager 创建 buffer 并添加 blocks
-        buffer = layer._buffer_manager.create_buffer(identity.user_id)
+        buffer = layer._short_term_store.create_buffer(identity.user_id)
         topic_id = buffer.topic_id
 
         # 添加多个小 blocks
@@ -204,10 +204,10 @@ class TestPageFoldingThreshold:
                 ),
                 total_tokens=20,
             )
-            layer._buffer_manager.add_block(topic_id, block)
+            layer._short_term_store.add_block(topic_id, block)
 
         # 手动触发 fold_blocks（不经过 resolve_topic，所以不会触发 Archive 回调）
-        layer._buffer_manager.fold_blocks(topic_id, "Test summary", 2)
+        layer._short_term_store.fold_blocks(topic_id, "Test summary", 2)
 
         mock_callback.assert_not_called()
 

@@ -37,24 +37,17 @@ logger = logging.getLogger(__name__)
 
 class SemanticBufferManager:
     """
+    .. deprecated::
+        Phase 1 重构后已废弃，将在后续版本清除。
+        请改用 ``patchouli.memory_library.ShortTermMemoryStore``。
+
+        替换关系：
+            SemanticBufferManager  →  ShortTermMemoryStore
+            _buffers / _user_index →  InMemoryShortTermStorage（由 ShortTermMemoryStore 持有）
+
     话题管理器 / MMU (TopicManager / Memory Management Unit)
 
     短期记忆的中央调度器，管理活跃话题池的生命周期。
-    类似操作系统的 MMU，负责话题的换入(Swap-in)、换出(Swap-out)和 LRU 驱逐。
-
-    映射关系 (ShortTermMemory.md §2.1):
-        TopicManager = SemanticBufferManager
-        active_topics = _buffers
-
-    架构变更 (Phase 4.5):
-        - _buffers 的 key 改为 topic_id
-        - 新增 _user_index 索引：user_id:agent_id -> Set[topic_id]
-        - 所有 CRUD 操作通过 topic_id 完成
-
-    职责:
-        - 管理活跃话题池 (Dict[str, SemanticBuffer/TopicSegment])，key 为 topic_id
-        - 提供线程安全的 CRUD 操作
-        - 提供话题路由 (route) 与换出 (swap_out)
         - LRU 驱逐判定
 
     Examples:

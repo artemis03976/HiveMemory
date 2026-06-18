@@ -33,7 +33,6 @@ import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from hivememory.core.models import ActionReducer, Identity, TurnRecord
-from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
@@ -46,6 +45,10 @@ from hivememory.engines.perception.models import (
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.utils.token_estimator import estimate_tokens
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         config: SemanticFlowPerceptionConfig,
         relay_controller: BaseRelayController,
+        short_term_store: Optional["ShortTermMemoryStore"] = None,
     ):
         """
         初始化语义流感知层 (MMU)
@@ -84,6 +88,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Args:
             config: SemanticFlowPerceptionConfig 配置对象
             relay_controller: 接力控制器 / Page Folding 摘要生成器
+            short_term_store: 短期记忆存储（由 MemoryLibrary 创建后注入）
         """
         super().__init__()
 
@@ -95,14 +100,17 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         self._relay_controller = relay_controller
 
-        # BufferManager 作为 MMU（话题管理器）
-        self._buffer_manager = SemanticBufferManager(
-            max_resident_topics=config.max_resident_topics
-        )
+        # 短期记忆存储（由 MemoryLibrary 注入；未注入时自动创建，向后兼容）
+        if short_term_store is None:
+            from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
+            short_term_store = ShortTermMemoryStore(
+                max_resident_topics=config.max_resident_topics
+            )
+        self._short_term_store = short_term_store
 
         # TriggerManager 负责话题结算调度
         self._trigger_manager = TriggerManager(
-            buffer_manager=self._buffer_manager,
+            store=self._short_term_store,
             relay_controller=self._relay_controller,
         )
 
@@ -136,7 +144,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         if topic_id == "NEW_TOPIC":
             topic_id = await self.create_new_topic(payload.identity)
         else:
-            buffer = self._buffer_manager.get_buffer(topic_id)
+            buffer = self._short_term_store.get_buffer(topic_id)
             if buffer is None:
                 logger.warning(f"话题 {topic_id} 不存在，回退到 NEW_TOPIC")
                 topic_id = await self.create_new_topic(payload.identity)
@@ -145,7 +153,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         await self.ingest_payload(payload, topic_id)
 
         # 更新最后活跃话题
-        self._buffer_manager.set_last_active_topic(topic_id)
+        self._short_term_store.set_last_active_topic(topic_id)
 
         return topic_id
 
@@ -211,13 +219,13 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         )
 
         # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
-        self._buffer_manager.add_block(topic_id, block)
+        self._short_term_store.add_block(topic_id, block)
 
         # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
         await self._maybe_fold_pages(topic_id)
 
         # 重置状态
-        self._buffer_manager.update_metadata(
+        self._short_term_store.update_metadata(
             topic_id, state=BufferState.IDLE
         )
 
@@ -225,7 +233,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         Page Folding: token 溢出时触发 Compact 操作
         """
-        buffer = self._buffer_manager.get_buffer(topic_id)
+        buffer = self._short_term_store.get_buffer(topic_id)
         if buffer is None:
             return
 
@@ -278,7 +286,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         # 解析目标话题
         target_topic_id = topic_id
         if target_topic_id is None:
-            target_topic_id = self._buffer_manager.get_last_active_topic()
+            target_topic_id = self._short_term_store.get_last_active_topic()
 
         if target_topic_id is None:
             raise ValueError(
@@ -286,7 +294,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             )
 
         # 验证话题存在
-        buffer = self._buffer_manager.get_buffer(target_topic_id)
+        buffer = self._short_term_store.get_buffer(target_topic_id)
         if buffer is None:
             return {
                 "success": False,
@@ -336,7 +344,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             SemanticBuffer: 缓冲区对象，不存在则返回 None
         """
-        return self._buffer_manager.get_buffer(topic_id)
+        return self._short_term_store.get_buffer(topic_id)
 
     def clear_buffer(
         self,
@@ -352,9 +360,9 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             bool: 是否成功清理
         """
         # clear_buffer 原意是清空内容，不移除 topic
-        cleared = self._buffer_manager.clear_buffer(topic_id)
+        cleared = self._short_term_store.clear_buffer(topic_id)
         if cleared is not None:  # 如果 buffer 存在，clear_buffer 返回 list (可能为空)
-            self._buffer_manager.update_metadata(
+            self._short_term_store.update_metadata(
                 topic_id,
                 state=BufferState.IDLE,
             )
@@ -368,7 +376,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             List[str]: topic_id 列表
         """
-        return [b.topic_id for b in self._buffer_manager.get_all_buffers()]
+        return [b.topic_id for b in self._short_term_store.get_all_buffers()]
 
     def get_buffer_info(
         self,
@@ -383,7 +391,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             Dict: 缓冲区信息字典
         """
-        info = self._buffer_manager.get_buffer_info(topic_id)
+        info = self._short_term_store.get_buffer_info(topic_id)
         info["mode"] = "semantic_flow"
         return info
 
@@ -412,9 +420,9 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 获取 buffers
         if identity:
-            buffers = self._buffer_manager.get_buffers_by_owner(identity.user_id)
+            buffers = self._short_term_store.get_buffers_by_owner(identity.user_id)
         else:
-            buffers = self._buffer_manager.get_all_buffers()
+            buffers = self._short_term_store.get_all_buffers()
 
         snapshots = []
         for buffer in buffers:
@@ -471,7 +479,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 summary=new_topic_summary,
             )
         else:
-            buffer = self._buffer_manager.get_buffer(target_topic_id)
+            buffer = self._short_term_store.get_buffer(target_topic_id)
             if buffer is None:
                 logger.warning(f"话题 {target_topic_id} 不存在，回退到创建新话题")
                 topic_id = await self.create_new_topic(
@@ -498,7 +506,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             Dict: {topics: [...], max_resident_topics, current_count}
         """
-        buffers = self._buffer_manager.get_buffers_by_owner(identity.user_id)
+        buffers = self._short_term_store.get_buffers_by_owner(identity.user_id)
         buffers_sorted = sorted(
             buffers, key=lambda b: b.last_accessed_at, reverse=True
         )
@@ -516,7 +524,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         ]
         return {
             "topics": topics,
-            "max_resident_topics": self._buffer_manager.max_resident_topics,
+            "max_resident_topics": self._short_term_store.max_resident_topics,
             "current_count": len(buffers),
         }
 
@@ -541,7 +549,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             }
         """
         # 获取 buffer
-        buffer = self._buffer_manager.get_buffer(topic_id)
+        buffer = self._short_term_store.get_buffer(topic_id)
         if buffer is None:
             logger.warning(f"话题不存在: topic_id={topic_id}，返回空上下文")
             return {
@@ -583,9 +591,9 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             str: 新创建的 topic_id
         """
-        if self._buffer_manager.needs_eviction():
+        if self._short_term_store.needs_eviction():
             await self._evict_lru_topic()
-        buffer = self._buffer_manager.create_buffer(
+        buffer = self._short_term_store.create_buffer(
             user_id=identity.user_id,
             topic_title=title or "新建话题",
             topic_summary=summary or "",
@@ -596,7 +604,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         LRU 驱逐：找到最久未访问的话题，调用统一调度器
         """
-        buffer = self._buffer_manager.get_lru_buffer()
+        buffer = self._short_term_store.get_lru_buffer()
         if buffer is None:
             return
 
@@ -624,7 +632,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             被换出的 SemanticBuffer，不存在返回 None
         """
-        return self._buffer_manager.pop_buffer(topic_id)
+        return self._short_term_store.pop_buffer(topic_id)
 
     def update_topic_title(
         self, topic_id: str, title: str
@@ -632,7 +640,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         更新话题标题
         """
-        buffer = self._buffer_manager.get_buffer(topic_id)
+        buffer = self._short_term_store.get_buffer(topic_id)
         if buffer:
             buffer.topic_title = title
             logger.debug(f"话题 {topic_id} 标题更新为: {title}")
@@ -649,7 +657,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             List[str]: 被 flush 的 topic_id 列表
         """
         flushed_keys = []
-        all_buffers = self._buffer_manager.get_all_buffers()
+        all_buffers = self._short_term_store.get_all_buffers()
 
         for buffer in all_buffers:
             if buffer.is_idle(self._idle_timeout_seconds):

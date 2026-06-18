@@ -65,16 +65,16 @@ logger = logging.getLogger(__name__)
 def create_perception_layer(
     config: MemoryPerceptionConfig,
     llm_service=None,
+    short_term_store=None,
 ) -> BasePerceptionLayer:
     """
     创建感知层 (MMU) 实例
 
-    Phase 4.5 简化版：仅创建 SemanticFlowPerceptionLayer。
-    embedding_service / reranker_service 参数保留向后兼容签名但不再使用。
-
     Args:
         config: 感知层配置 (MemoryPerceptionConfig)
         llm_service: LLM 服务（用于 LLMRelayController 摘要生成）
+        short_term_store: ShortTermMemoryStore 实例（由 MemoryLibrary 创建后注入）。
+            为 None 时自动创建（向后兼容，仅用于测试场景）。
 
     Returns:
         SemanticFlowPerceptionLayer 实例
@@ -97,9 +97,17 @@ def create_perception_layer(
         llm_service=llm_service
     )
 
+    # 若未注入 store，自动创建（测试 / 向后兼容路径）
+    if short_term_store is None:
+        from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
+        short_term_store = ShortTermMemoryStore(
+            max_resident_topics=impl_config.max_resident_topics
+        )
+
     perception = SemanticFlowPerceptionLayer(
         config=impl_config,
         relay_controller=relay_controller,
+        short_term_store=short_term_store,
     )
 
     return perception
@@ -118,7 +126,7 @@ __all__ = [
     "SemanticBuffer",
     "FlushEvent",
     "FlushReason",
-    # 缓冲区管理器
+    # 缓冲区管理器 — DEPRECATED: 请改用 patchouli.memory_library.ShortTermMemoryStore
     "SemanticBufferManager",
     # 话题结算调度器
     "TriggerManager",

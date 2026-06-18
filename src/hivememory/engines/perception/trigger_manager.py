@@ -33,8 +33,8 @@ from hivememory.engines.perception.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.engines.perception.buffer_manager import SemanticBufferManager
     from hivememory.engines.perception.relay_controller import BaseRelayController
+    from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -88,29 +88,29 @@ class TriggerManager:
         | MANUAL           | ✅      | ✅      | ❌    |
 
     依赖:
-        - SemanticBufferManager: 读取 buffer 状态、执行 evict
+        - ShortTermMemoryStore: 读取 buffer 状态、执行 evict（原 SemanticBufferManager，已废弃）
         - RelayController: 生成摘要
         - on_generate_memory 回调: 发送归档事件给 Librarian
 
     Examples:
-        >>> trigger_manager = TriggerManager(buffer_manager, relay_controller)
+        >>> trigger_manager = TriggerManager(store, relay_controller)
         >>> trigger_manager.set_generation_callback(callback)
-        >>> await trigger_manager.resolve_topic(identity, FlushReason.IDLE_TIMEOUT)
+        >>> await trigger_manager.resolve_topic(topic_id, FlushReason.IDLE_TIMEOUT)
     """
 
     def __init__(
         self,
-        buffer_manager: "SemanticBufferManager",
+        store: "ShortTermMemoryStore",
         relay_controller: "BaseRelayController",
     ) -> None:
         """
         初始化 TriggerManager
 
         Args:
-            buffer_manager: SemanticBufferManager 实例（用于读取/修改 buffer 状态）
+            store: ShortTermMemoryStore 实例（短期记忆存储，替代旧 SemanticBufferManager）
             relay_controller: RelayController 实例（用于生成摘要）
         """
-        self._buffer_manager = buffer_manager
+        self._store = store
         self._relay_controller = relay_controller
         self._on_generate_memory: Optional[Callable] = None
 
@@ -140,7 +140,7 @@ class TriggerManager:
         wait_for_archive: bool = False,
     ) -> None:
         """统一的话题结算调度器。"""
-        buffer = self._buffer_manager.get_buffer(topic_id)
+        buffer = self._store.get_buffer(topic_id)
         if not buffer or not buffer.blocks:
             logger.debug("resolve_topic: buffer 为空或不存在，跳过结算")
             return
@@ -186,13 +186,11 @@ class TriggerManager:
             await self._compact_topic(topic_id, blocks_snapshot, previous_summary)
 
         # 无论是否 Compact，只要发生结算，旧 Blocks 都必须清空
-        buffer.blocks.clear()
-        buffer.total_tokens = 0
-        buffer.last_update = datetime.now().timestamp()
+        self._store.clear_blocks(topic_id)
 
         # Action 3: Evict（内存清理）
         if need_evict:
-            self._buffer_manager.pop_buffer(topic_id)
+            self._store.pop_buffer(topic_id)
 
     # ========== 原子操作 ==========
 
@@ -279,7 +277,7 @@ class TriggerManager:
 
         特性：同步阻塞（必须等待摘要生成完成）
         """
-        buffer = self._buffer_manager.get_buffer(topic_id)
+        buffer = self._store.get_buffer(topic_id)
         if not buffer:
             return
 
@@ -289,8 +287,8 @@ class TriggerManager:
             previous_summary=previous_summary
         )
 
-        buffer.state_summary = new_summary
-        buffer.last_update = datetime.now().timestamp()
+        # 计算与写入分离：通过 Store 命名方法写入，不直接操作 buffer 字段
+        self._store.update_summary(topic_id, new_summary)
 
         logger.debug(f"Compact: 生成新摘要，长度={len(new_summary)}")
 

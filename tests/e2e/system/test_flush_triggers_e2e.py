@@ -130,7 +130,7 @@ def _get_topic_id(
     """
     layer = _get_perception_layer(system)
     owner = Identity(user_id=user_id, agent_id=agent_id)
-    buffers = layer._buffer_manager.get_buffers_by_owner(owner)
+    buffers = layer._short_term_store.get_buffers_by_owner(owner)
     if not buffers:
         raise AssertionError(
             f"未找到任何活跃话题: user_id={user_id}, agent_id={agent_id}"
@@ -370,10 +370,10 @@ class TestIdleHibernate:
         _cleanup_all_buffers(e2e_system)
 
         original_timeout = layer._idle_timeout_seconds
-        original_max = layer._buffer_manager.max_resident_topics
+        original_max = layer._short_term_store.max_resident_topics
         try:
             layer._idle_timeout_seconds = 1
-            layer._buffer_manager.max_resident_topics = 2
+            layer._short_term_store.max_resident_topics = 2
 
             # 填满 2 个话题（使用不同 agent_id 隔离）
             agent_ids = ["idle-slot-a0", "idle-slot-a1"]
@@ -414,7 +414,7 @@ class TestIdleHibernate:
 
         finally:
             layer._idle_timeout_seconds = original_timeout
-            layer._buffer_manager.max_resident_topics = original_max
+            layer._short_term_store.max_resident_topics = original_max
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)
 
@@ -440,9 +440,9 @@ class TestLRUEviction:
         # 清空残留 buffer，避免池容量干扰
         _cleanup_all_buffers(e2e_system)
 
-        original_max = layer._buffer_manager.max_resident_topics
+        original_max = layer._short_term_store.max_resident_topics
         try:
-            layer._buffer_manager.max_resident_topics = 2
+            layer._short_term_store.max_resident_topics = 2
 
             # 话题 A (最早) - 使用 agent_id 隔离
             aid_a = "lru-topic-a"
@@ -495,7 +495,7 @@ class TestLRUEviction:
             )
 
         finally:
-            layer._buffer_manager.max_resident_topics = original_max
+            layer._short_term_store.max_resident_topics = original_max
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)
 
@@ -531,9 +531,9 @@ class TestLRUEviction:
         # 清空残留 buffer，避免池容量干扰
         _cleanup_all_buffers(e2e_system)
 
-        original_max = layer._buffer_manager.max_resident_topics
+        original_max = layer._short_term_store.max_resident_topics
         try:
-            layer._buffer_manager.max_resident_topics = 1
+            layer._short_term_store.max_resident_topics = 1
 
             # 话题 X (使用 agent_id 隔离)
             aid_x = "lru-replace-x"
@@ -569,6 +569,6 @@ class TestLRUEviction:
             logger.info("FLUSH-E2E-003: LRU 驱逐后新话题正常工作")
 
         finally:
-            layer._buffer_manager.max_resident_topics = original_max
+            layer._short_term_store.max_resident_topics = original_max
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)

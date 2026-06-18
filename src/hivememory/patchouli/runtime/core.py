@@ -269,9 +269,7 @@ class PatchouliRuntime:
         """
         初始化运行时基础设施组件（单例服务）
 
-        包含：存储层、Librarian LLM、Reranker
-        不包含：Gateway LLM（属于 TheEye 的依赖，由 PatchouliSystem 管理）
-        不包含：感知层 Embedding（感知层已不再使用 Embedding）
+        包含：存储层、Librarian LLM、Reranker、MemoryLibrary
         """
         from hivememory.infrastructure.storage import QdrantMemoryStore
         self.storage = QdrantMemoryStore(
@@ -292,6 +290,36 @@ class PatchouliRuntime:
             )
         else:
             self.reranker_service = None
+
+        # MemoryLibrary：三层存储协调层，在引擎构建前初始化以便注入
+        self.memory_library = self._build_memory_library()
+
+    def _build_memory_library(self):
+        """构建 MemoryLibrary（三层存储协调层）"""
+        from hivememory.patchouli.memory_library import (
+            MemoryLibrary,
+            ShortTermMemoryStore,
+            MidTermMemoryStore,
+            LongTermMemoryStore,
+            QdrantStorageAdapter,
+            FileBasedStorageAdapter,
+        )
+
+        perception_config = self._patchouli_config.perception.engine
+        max_resident = getattr(perception_config, "max_resident_topics", 5)
+
+        short_term = ShortTermMemoryStore(max_resident_topics=max_resident)
+        mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(self.storage))
+
+        archiver_config = self._patchouli_config.lifecycle.archiver
+        long_term = LongTermMemoryStore(
+            port=FileBasedStorageAdapter(
+                archive_dir=archiver_config.archive_dir,
+                compress=archiver_config.compression,
+            )
+        )
+
+        return MemoryLibrary(short_term=short_term, mid_term=mid_term, long_term=long_term)
 
     # ========== 引擎构建 ==========
 
@@ -336,12 +364,13 @@ class PatchouliRuntime:
         )
 
     def _build_perception_layer(self):
-        """[私有构建器] 组装 Perception 层"""
+        """[私有构建器] 组装 Perception 层，注入 MemoryLibrary.short_term"""
         from hivememory.engines.perception import create_perception_layer
 
         return create_perception_layer(
             config=self._patchouli_config.perception,
             llm_service=self.librarian_llm_service,
+            short_term_store=self.memory_library.short_term,
         )
 
     def _build_generation_engine(self):
