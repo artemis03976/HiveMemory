@@ -62,56 +62,41 @@ PatchouliRuntime（极薄的对外协调层）
 
 ```
 MemoryLibrary
-├── ShortTermStore    ← SemanticBufferManager（当前在 PerceptionLayer 内）
+├── ShortTermMemoryStore    ← SemanticBufferManager（当前在 PerceptionLayer 内）
 │     - 内存态 buffer
-│     - topic 创建/归档/查询
-│     - flush 触发（短期 → 中期 转移入口）
+│     - topic 创建/查询/驱逐
+│     - 为 MemoryIngestionPipeline 提供 buffer 读取能力（不编排生成流程）
 │
-├── MidTermStore      ← QdrantMemoryStore（当前直接暴露）
+├── MidTermMemoryStore      ← QdrantMemoryStore（当前直接暴露）
 │     - 向量数据库 CRUD
 │     - 精确/模糊检索（由 RetrievalFamiliar 调用）
 │
-└── LongTermStore     ← ArchiveStore（待实现）
+└── LongTermMemoryStore     ← ArchiveStore（待实现）
       - 冷存储（文件系统 / SQL）
       - 归档记录管理
       - 复活键（revival_keys）管理
 ```
 
-**状态转移协议**（Library 内部管理，外部只感知事件）：
+**状态转移协议**：
+
+`SemanticBuffer → MemoryAtom` 涉及 LLM 提取、查重、向量编码等生成过程，**不是存储层的状态迁移**，由 `MemoryIngestionPipeline` 编排，MemoryLibrary 只提供两端的读写能力。
 
 ```
-ShortTermStore.flush() → MidTermStore.upsert()   # 短期 → 中期
-MidTermStore.archive() → LongTermStore.persist() # 中期 → 长期
-LongTermStore.revive() → MidTermStore.upsert()   # 长期 → 中期（复活）
+# 短期 → 中期：Pipeline 驱动，不是 Library 方法
+TriggerManager 触发 → MemoryIngestionPipeline.ingest(ArchivePayload)
+    → LLM 提取 / 查重 / 向量编码
+    → MidTermMemoryStore.upsert()
+
+# 中期 → 长期：MemoryLibrary 直接管理（纯数据搬运）
+MemoryLibrary.archive(memory_id)
+    → MidTermMemoryStore.get() → LongTermMemoryStore.persist() → MidTermMemoryStore.delete()
+
+# 长期 → 中期：MemoryLibrary 直接管理（纯数据搬运）
+MemoryLibrary.revive(memory_id)
+    → LongTermMemoryStore.load() → MidTermMemoryStore.upsert() → LongTermMemoryStore.remove()
 ```
 
-### 2.3 RetrievalFamiliar（扩展）
-
-从"仅限中期向量检索"扩展为"三层统一检索入口"。
-
-| 检索类型 | 对应层 | 当前状态 |
-|---|---|---|
-| Topic buffer 查询、话题快照 | 短期 | 分散在 LibrarianCore 方法中 |
-| 精确取回（alias）、模糊语义检索 | 中期 | 已实现 |
-| 冷存储复活检索（revival_keys） | 长期 | 待实现 |
-
-将 LibrarianCore 中现有的 topic context 相关方法（`get_topic_context`、`get_active_topics_snapshots`）迁移至 RetrievalFamiliar，对外提供统一的"取书"接口。
-
-### 2.4 MemoryIngestionPipeline
-
-已基本成型（v0.5.0）。主要工作是将其从 LibrarianCore 内部组件升格为独立的流水线服务。
-
-```
-InteractionArtifactBuilder
-    ↓ (topic raw interaction snapshot)
-MemoryGenerationTaskController
-    ↓ (compute → artifacts → persist 三步)
-MemoryLibrary.MidTermStore
-```
-
-LibrarianCore 目前承担的"感知回调路由"职责（`_on_generate_memory`、`run_active_generation`）迁移至 Pipeline 的入口。
-
-### 2.5 StoragePort 抽象层
+### 2.3 StoragePort 抽象层
 
 三层存储的结构形态一致：**XxxMemoryStore 持有 XxxStoragePort，Port 多态实现**。各层 Port 契约根据数据语义分别定义。
 
@@ -186,7 +171,7 @@ MidTermMemoryStore.archive(id)       → LongTermMemoryStore.persist() + MidTerm
 LongTermMemoryStore.revive(id)       → MidTermMemoryStore.upsert()   + LongTermMemoryStore.remove()
 ```
 
-### 2.6 感知层解耦
+### 2.4 感知层解耦
 
 感知层（PerceptionLayer + TriggerManager）目前与存储实现深度纠缠，是短期记忆解耦的主要工作面。
 
@@ -244,7 +229,7 @@ TriggerManager(short_term_store=...)
 
 `_archive_topic` 操作的是调用方在 `resolve_topic` 中提前提取的 `blocks_snapshot`，自身不访问任何 buffer 字段。感知层解耦对该方法无影响。它通过 `_on_generate_memory` 回调触发 Pipeline，属于 Step 4（MemoryIngestionPipeline 独立化）的范畴，与感知层解耦是独立的重构步骤，互不阻塞。
 
-### 2.7 中期记忆系统重构要点
+### 2.5 中期记忆系统重构要点
 
 #### Deduplicator 搜索优化
 
@@ -274,7 +259,7 @@ def check_duplicate(
 
 **生命力维护链路**（vitality 衰减 / 强化 / 垃圾回收）：LifecycleEngine 目前直接持有 `QdrantMemoryStore` 做 vitality 更新和批量删除，同样需要切换到 `MidTermStoragePort`。两条链路可独立推进。
 
-### 2.8 长期记忆系统重构
+### 2.6 长期记忆系统重构要点
 
 `FileBasedArchiver` 承担的职责（归档、索引维护、resurrect）就是 `LongTermStoragePort` 的 `FileBasedStorageAdapter` 实现的完整映射。
 
@@ -285,7 +270,7 @@ def check_duplicate(
 
 长期存储是三层中改动最干净的部分，无深度耦合，可最后推进。
 
-### 2.9 ArtifactStore（附属资产仓库）
+### 2.7 ArtifactStore（附属资产仓库）
 
 `ArtifactStore` 与 `LongTermMemoryStore` 一样依赖外部持久化介质（文件系统 / SQL / 对象存储等），但它不属于三级记忆体系本身。Artifact 不是第四级记忆，而是记忆原子的附属资产与溯源产物，通常与 `MemoryAtom` 强关联，并以 append-only 形式保存 interaction snapshot、memory creation、memory version 等不可变记录。
 
