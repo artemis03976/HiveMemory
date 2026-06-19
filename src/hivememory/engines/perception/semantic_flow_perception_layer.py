@@ -40,7 +40,6 @@ from hivememory.engines.perception.models import (
     BufferState,
     FlushReason,
     LogicalBlock,
-    SemanticBuffer,
 )
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.core.protocol.models import InteractionPayload
@@ -144,8 +143,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         if topic_id == "NEW_TOPIC":
             topic_id = await self.create_new_topic(payload.identity)
         else:
-            buffer = self._short_term_store.get_buffer(topic_id)
-            if buffer is None:
+            if not self._short_term_store.topic_exists(topic_id):
                 logger.warning(f"话题 {topic_id} 不存在，回退到 NEW_TOPIC")
                 topic_id = await self.create_new_topic(payload.identity)
 
@@ -233,24 +231,24 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         Page Folding: token 溢出时触发 Compact 操作
         """
-        buffer = self._short_term_store.get_buffer(topic_id)
-        if buffer is None:
+        topic_data = self._short_term_store.get_topic_data(topic_id, touch=False)
+        if topic_data is None:
             return
 
         threshold = self.config.fold_token_threshold
 
         logger.debug(
             f"_maybe_fold_pages: topic_id={topic_id}, "
-            f"total_tokens={buffer.total_tokens}, threshold={threshold}, "
-            f"blocks_count={len(buffer.blocks)}"
+            f"total_tokens={topic_data.total_tokens}, threshold={threshold}, "
+            f"blocks_count={topic_data.block_count}"
         )
 
-        if buffer.total_tokens <= threshold:
+        if topic_data.total_tokens <= threshold:
             return
 
         logger.info(
             f"Token 溢出: topic_id={topic_id}, "
-            f"total_tokens={buffer.total_tokens} > threshold={threshold}"
+            f"total_tokens={topic_data.total_tokens} > threshold={threshold}"
         )
 
         # 调用统一调度器
@@ -294,8 +292,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             )
 
         # 验证话题存在
-        buffer = self._short_term_store.get_buffer(target_topic_id)
-        if buffer is None:
+        topic_data = self._short_term_store.get_topic_data(target_topic_id)
+        if topic_data is None:
             return {
                 "success": False,
                 "topic_id": target_topic_id,
@@ -303,7 +301,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 "blocks_archived": 0,
             }
 
-        if not buffer.blocks:
+        if topic_data.is_empty:
             return {
                 "success": True,
                 "topic_id": target_topic_id,
@@ -311,7 +309,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 "blocks_archived": 0,
             }
 
-        blocks_count = len(buffer.blocks)
+        blocks_count = topic_data.block_count
 
         # 调用统一调度器（MANUAL 触发）
         await self._trigger_manager.resolve_topic(
@@ -361,38 +359,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             List[TopicSnapshot]: 话题快照列表
         """
-        from hivememory.engines.perception.models import TopicSnapshot
-
-        # 获取 buffers
-        if identity:
-            buffers = self._short_term_store.get_buffers_by_owner(identity.user_id)
-        else:
-            buffers = self._short_term_store.get_all_buffers()
-
-        snapshots = []
-        for buffer in buffers:
-            # 只返回有内容的话题
-            if not buffer.blocks:
-                continue
-
-            # 获取最后一个 block
-            last_block = buffer.blocks[-1]
-            last_turn = {
-                "user": last_block.user_query,
-                "assistant": last_block.assistant_final_text,
-            }
-
-            snapshot = TopicSnapshot(
-                topic_id=buffer.topic_id,
-                topic_title=buffer.topic_title,
-                topic_summary=buffer.topic_summary,
-                state_summary=buffer.state_summary,
-                last_turn=last_turn,
-                total_tokens=buffer.total_tokens,
-            )
-            snapshots.append(snapshot)
-
-        return snapshots
+        topic_data = self._short_term_store.list_topic_data(
+            user_id=identity.user_id if identity else None,
+            include_empty=False,
+        )
+        return [topic.to_topic_snapshot() for topic in topic_data]
 
     async def prepare_topic(
         self,
@@ -424,8 +395,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 summary=new_topic_summary,
             )
         else:
-            buffer = self._short_term_store.get_buffer(target_topic_id)
-            if buffer is None:
+            if not self._short_term_store.topic_exists(target_topic_id):
                 logger.warning(f"话题 {target_topic_id} 不存在，回退到创建新话题")
                 topic_id = await self.create_new_topic(
                     identity=identity,
@@ -451,26 +421,26 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             Dict: {topics: [...], max_resident_topics, current_count}
         """
-        buffers = self._short_term_store.get_buffers_by_owner(identity.user_id)
-        buffers_sorted = sorted(
-            buffers, key=lambda b: b.last_accessed_at, reverse=True
+        topics_data = self._short_term_store.list_topic_data(identity.user_id)
+        topics_sorted = sorted(
+            topics_data, key=lambda t: t.last_accessed_at, reverse=True
         )
         topics = [
             {
-                "topic_id": buf.topic_id,
-                "topic_title": buf.topic_title,
-                "topic_summary": buf.topic_summary,
-                "state_summary": buf.state_summary or "",
-                "block_count": len(buf.blocks),
-                "last_accessed_at": buf.last_accessed_at,
-                "total_tokens": buf.total_tokens,
+                "topic_id": topic.topic_id,
+                "topic_title": topic.topic_title,
+                "topic_summary": topic.topic_summary,
+                "state_summary": topic.state_summary or "",
+                "block_count": topic.block_count,
+                "last_accessed_at": topic.last_accessed_at,
+                "total_tokens": topic.total_tokens,
             }
-            for buf in buffers_sorted
+            for topic in topics_sorted
         ]
         return {
             "topics": topics,
             "max_resident_topics": self._short_term_store.max_resident_topics,
-            "current_count": len(buffers),
+            "current_count": len(topics_data),
         }
 
     def get_topic_context(
@@ -493,9 +463,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 "title": str,
             }
         """
-        # 获取 buffer
-        buffer = self._short_term_store.get_buffer(topic_id)
-        if buffer is None:
+        topic_data = self._short_term_store.get_topic_data(topic_id)
+        if topic_data is None:
             logger.warning(f"话题不存在: topic_id={topic_id}，返回空上下文")
             return {
                 "state_summary": "",
@@ -505,18 +474,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 "topic_summary": "",
             }
 
-        # 更新访问时间
-        buffer.last_accessed_at = datetime.now().timestamp()
-
-        # 获取最近的 N 个 blocks
-        recent_blocks = buffer.blocks[-max_recent_blocks:] if buffer.blocks else []
-
         return {
-            "topic_title": buffer.topic_title,
-            "topic_summary": buffer.topic_summary,
-            "blocks": recent_blocks,
-            "total_tokens": buffer.total_tokens,
-            "state_summary": buffer.state_summary,
+            "topic_title": topic_data.topic_title,
+            "topic_summary": topic_data.topic_summary,
+            "blocks": topic_data.recent_blocks(max_recent_blocks),
+            "total_tokens": topic_data.total_tokens,
+            "state_summary": topic_data.state_summary,
         }
 
     async def create_new_topic(
@@ -549,19 +512,20 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         LRU 驱逐：找到最久未访问的话题，调用统一调度器
         """
-        buffer = self._short_term_store.get_lru_buffer()
-        if buffer is None:
+        topics = self._short_term_store.list_topic_data()
+        if not topics:
             return
+        topic = min(topics, key=lambda t: t.last_accessed_at)
 
         logger.info(
-            f"LRU 驱逐话题: topic_id={buffer.topic_id}, "
-            f"topic_title={buffer.topic_title}"
-            f"topic_summary={buffer.topic_summary}"
+            f"LRU 驱逐话题: topic_id={topic.topic_id}, "
+            f"topic_title={topic.topic_title}"
+            f"topic_summary={topic.topic_summary}"
         )
 
         # 调用统一调度器（Archive + Evict）
         await self._trigger_manager.resolve_topic(
-            topic_id=buffer.topic_id,
+            topic_id=topic.topic_id,
             trigger_reason=FlushReason.LRU_EVICTION,
         )
 
@@ -585,45 +549,43 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             List[str]: 被 flush 的 topic_id 列表
         """
         flushed_keys = []
-        all_buffers = self._short_term_store.get_all_buffers()
+        topics = self._short_term_store.list_topic_data()
 
-        for buffer in all_buffers:
-            if buffer.is_idle(self._idle_timeout_seconds):
+        for topic in topics:
+            if topic.is_idle(self._idle_timeout_seconds):
                 logger.info(
-                    f"检测到空闲话题: topic_id={buffer.topic_id}, "
-                    f"idle_time={(datetime.now().timestamp() - buffer.last_update):.1f}s"
+                    f"检测到空闲话题: topic_id={topic.topic_id}, "
+                    f"idle_time={(datetime.now().timestamp() - topic.last_update):.1f}s"
                 )
 
                 await self._trigger_manager.resolve_topic(
-                    topic_id=buffer.topic_id,
+                    topic_id=topic.topic_id,
                     trigger_reason=FlushReason.IDLE_TIMEOUT,
                 )
 
-                flushed_keys.append(buffer.topic_id)
+                flushed_keys.append(topic.topic_id)
 
         return flushed_keys
 
     async def flush_all_for_shutdown(self) -> Dict[str, Any]:
         """进程关闭前强制归档并驱逐所有活跃话题。"""
-        topic_ids = [b.topic_id for b in self._short_term_store.get_all_buffers()]
+        topics = self._short_term_store.list_topic_data()
         flushed_topics: List[str] = []
         skipped_topics: List[str] = []
         archived_blocks = 0
 
-        for topic_id in topic_ids:
-            info = self._short_term_store.get_buffer_info(topic_id)
-            block_count = info.get("block_count", 0) if info.get("exists") else 0
-            if not block_count:
-                skipped_topics.append(topic_id)
+        for topic in topics:
+            if topic.is_empty:
+                skipped_topics.append(topic.topic_id)
                 continue
 
-            archived_blocks += block_count
+            archived_blocks += topic.block_count
             await self._trigger_manager.resolve_topic(
-                topic_id=topic_id,
+                topic_id=topic.topic_id,
                 trigger_reason=FlushReason.SHUTDOWN,
                 wait_for_archive=True,
             )
-            flushed_topics.append(topic_id)
+            flushed_topics.append(topic.topic_id)
 
         result = {
             "success": True,

@@ -1,0 +1,68 @@
+"""Read models exposed by MemoryLibrary stores."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from hivememory.engines.perception.models import BufferState, LogicalBlock, TopicSnapshot
+
+
+class TopicData(BaseModel):
+    """Immutable read view of a short-term topic buffer.
+
+    This is the public data shape for short-term storage reads. Callers should
+    consume TopicData instead of receiving the mutable SemanticBuffer entity.
+    """
+
+    topic_id: str
+    user_id: str
+    current_agent_id: str = "default"
+    topic_title: str
+    topic_summary: str = ""
+    state_summary: str = ""
+    blocks: tuple[LogicalBlock, ...] = Field(default_factory=tuple)
+    state: BufferState = BufferState.IDLE
+    last_update: float
+    last_accessed_at: float
+    total_tokens: int = 0
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, use_enum_values=True)
+
+    @property
+    def block_count(self) -> int:
+        return len(self.blocks)
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.blocks
+
+    def recent_blocks(self, limit: int) -> list[LogicalBlock]:
+        if limit <= 0:
+            return []
+        return list(self.blocks[-limit:])
+
+    def is_idle(self, timeout_seconds: int) -> bool:
+        return (datetime.now().timestamp() - self.last_update) > timeout_seconds
+
+    def to_topic_snapshot(self) -> TopicSnapshot:
+        last_turn: Optional[dict[str, str]] = None
+        if self.blocks:
+            last_block = self.blocks[-1]
+            last_turn = {
+                "user": last_block.user_query,
+                "assistant": last_block.assistant_final_text,
+            }
+        return TopicSnapshot(
+            topic_id=self.topic_id,
+            topic_title=self.topic_title,
+            topic_summary=self.topic_summary,
+            state_summary=self.state_summary,
+            last_turn=last_turn,
+            total_tokens=self.total_tokens,
+        )
+
+
+__all__ = ["TopicData"]

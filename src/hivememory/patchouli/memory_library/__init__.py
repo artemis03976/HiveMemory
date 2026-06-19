@@ -3,6 +3,7 @@ from hivememory.patchouli.memory_library.ports import (
     MidTermStoragePort,
     LongTermStoragePort,
 )
+from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.memory_library.stores import (
     ShortTermMemoryStore,
     MidTermMemoryStore,
@@ -19,6 +20,7 @@ __all__ = [
     "ShortTermStoragePort",
     "MidTermStoragePort",
     "LongTermStoragePort",
+    "TopicData",
     "ShortTermMemoryStore",
     "MidTermMemoryStore",
     "LongTermMemoryStore",

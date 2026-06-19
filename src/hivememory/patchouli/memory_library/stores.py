@@ -31,6 +31,7 @@ from hivememory.core.models import MemoryAtom
 from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.engines.perception.models import BufferState, LogicalBlock, SemanticBuffer
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
+from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.memory_library.ports import (
     LongTermStoragePort,
     MidTermStoragePort,
@@ -83,6 +84,38 @@ class ShortTermMemoryStore:
 
     def get_buffers_by_owner(self, user_id: str) -> List[SemanticBuffer]:
         return self._port._list_by_user_sync(user_id)
+
+    def get_topic_data(self, topic_id: str, *, touch: bool = True) -> Optional[TopicData]:
+        """Return an immutable topic read view without exposing SemanticBuffer."""
+        buf = self._port._get_sync(topic_id)
+        if buf is None:
+            return None
+        if touch:
+            buf.last_accessed_at = datetime.now().timestamp()
+            self._last_active_topic_id = topic_id
+        return self._to_topic_data(buf)
+
+    def list_topic_data(
+        self,
+        user_id: Optional[str] = None,
+        *,
+        include_empty: bool = True,
+    ) -> List[TopicData]:
+        """Return immutable read views for active topics."""
+        if user_id is None:
+            buffers = self._port._list_all_sync()
+        else:
+            buffers = self._port._list_by_user_sync(user_id)
+        if not include_empty:
+            buffers = [buf for buf in buffers if buf.blocks]
+        return [self._to_topic_data(buf) for buf in buffers]
+
+    def topic_exists(self, topic_id: str, *, touch: bool = True) -> bool:
+        return self.get_topic_data(topic_id, touch=touch) is not None
+
+    def has_blocks(self, topic_id: str) -> bool:
+        data = self.get_topic_data(topic_id, touch=False)
+        return bool(data and data.blocks)
 
     def create_buffer(
         self,
@@ -196,6 +229,21 @@ class ShortTermMemoryStore:
                 "state": buf.state.value if hasattr(buf.state, "value") else buf.state,
             }
         return {"exists": False}
+
+    def _to_topic_data(self, buf: SemanticBuffer) -> TopicData:
+        return TopicData(
+            topic_id=buf.topic_id,
+            user_id=buf.user_id,
+            current_agent_id=buf.current_agent_id,
+            topic_title=buf.topic_title,
+            topic_summary=buf.topic_summary,
+            state_summary=buf.state_summary,
+            blocks=tuple(block.model_copy(deep=True) for block in buf.blocks),
+            state=buf.state,
+            last_update=buf.last_update,
+            last_accessed_at=buf.last_accessed_at,
+            total_tokens=buf.total_tokens,
+        )
 
 
 # ============ MidTermMemoryStore ============
