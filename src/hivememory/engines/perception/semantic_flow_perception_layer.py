@@ -31,7 +31,7 @@ Note:
 
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 from hivememory.core.models import ActionReducer, Identity, TurnRecord
 from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
@@ -350,13 +350,14 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         new_topic_title: Optional[str],
         new_topic_summary: Optional[str],
         identity: Identity,
-    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+    ) -> str:
         """
-        预创建/刷新话题，返回 (topic_id, pool_snapshot, topic_context)
+        确保目标话题存在并返回真实 topic_id。
 
-        在 LLM 生成之前调用，将驱逐和创建提前执行：
+        在 LLM 生成之前调用，将话题生命周期写操作提前执行：
         - 已有话题: 刷新 last_accessed_at 置顶
         - 新话题: 分配 UUID，保存 title/summary，检查 LRU 驱逐
+        话题池与上下文读模型由 RetrievalFamiliar 负责读取。
 
         Args:
             target_topic_id: "NEW_TOPIC" 或已有 topic_id
@@ -365,7 +366,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             identity: 用户身份
 
         Returns:
-            (topic_id, pool_snapshot, topic_context)
+            str: 可用的真实 topic_id
         """
         if target_topic_id == "NEW_TOPIC":
             topic_id = await self.create_new_topic(
@@ -385,55 +386,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 # 已有话题：刷新访问时间（置顶）
                 topic_id = target_topic_id
 
-        pool_snapshot = self.get_topic_pool_snapshot(identity)
-        # TODO: migrate consumption chain to TopicData, remove compat dict (§2.3 RetrievalFamiliar)
-        topic_data = self._short_term_store.get_topic_data(topic_id)
-        if topic_data is None:
-            topic_context: Dict[str, Any] = {
-                "state_summary": "", "blocks": [], "total_tokens": 0,
-                "topic_title": "未知话题", "topic_summary": "",
-            }
-        else:
-            topic_context = {
-                "topic_title": topic_data.topic_title,
-                "topic_summary": topic_data.topic_summary,
-                "blocks": topic_data.recent_blocks(5),
-                "total_tokens": topic_data.total_tokens,
-                "state_summary": topic_data.state_summary,
-            }
-        return topic_id, pool_snapshot, topic_context
-
-    def get_topic_pool_snapshot(self, identity: Identity) -> Dict[str, Any]:
-        """
-        返回完整话题池状态供前端直接渲染
-
-        Args:
-            identity: 用户身份
-
-        Returns:
-            Dict: {topics: [...], max_resident_topics, current_count}
-        """
-        topics_data = self._short_term_store.list_topic_data(identity.user_id)
-        topics_sorted = sorted(
-            topics_data, key=lambda t: t.last_accessed_at, reverse=True
-        )
-        topics = [
-            {
-                "topic_id": topic.topic_id,
-                "topic_title": topic.topic_title,
-                "topic_summary": topic.topic_summary,
-                "state_summary": topic.state_summary or "",
-                "block_count": topic.block_count,
-                "last_accessed_at": topic.last_accessed_at,
-                "total_tokens": topic.total_tokens,
-            }
-            for topic in topics_sorted
-        ]
-        return {
-            "topics": topics,
-            "max_resident_topics": self._short_term_store.max_resident_topics,
-            "current_count": len(topics_data),
-        }
+        return topic_id
 
     async def create_new_topic(
         self,
@@ -587,18 +540,8 @@ class NullPerceptionLayer(BasePerceptionLayer):
         new_topic_title: Optional[str],
         new_topic_summary: Optional[str],
         identity: Identity,
-    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
-        return (
-            target_topic_id,
-            {"topics": [], "max_resident_topics": 0, "current_count": 0},
-            {
-                "state_summary": "",
-                "blocks": [],
-                "total_tokens": 0,
-                "topic_title": new_topic_title or "",
-                "topic_summary": new_topic_summary or "",
-            },
-        )
+    ) -> str:
+        return target_topic_id
 
     def get_topic_context(
         self,

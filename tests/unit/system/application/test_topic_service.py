@@ -58,7 +58,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             identity=identity,
             topic_id="topic_1",
             user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
+            topic_context=None,
             retrieval_result=RetrievalResponse(),
             agent_profile=OMNI_DOLL_PROFILE,
             storage_available=True,
@@ -66,7 +66,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
         stream_prelude=StreamPrelude(
             topic_id="topic_1",
             is_new_topic=False,
-            pool_snapshot={},
+            pool_topics=[],
             memory_refs=[],
         ),
         gaze_result=gaze_result,
@@ -174,7 +174,7 @@ class TestTopicApplicationService:
     @pytest.fixture
     def librarian_core(self):
         librarian = MagicMock()
-        librarian.perception_layer.buffer_manager.pop_buffer.return_value = object()
+        librarian.perception_layer.swap_out_topic.return_value = True
         return librarian
 
     @pytest.fixture

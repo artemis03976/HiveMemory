@@ -42,6 +42,9 @@ async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result
     local_bus = PatchouliBus()
     kernel.local_bus = local_bus
     kernel.check_storage_health = AsyncMock(return_value=True)
+    kernel.retrieval_familiar.list_active_topics.return_value = []
+    kernel.retrieval_familiar.get_short_term_topic.return_value = None
+    kernel.memory_library.short_term.max_resident_topics = 5
 
     gaze_result = EyeGazeResult(
         intent=GatewayIntent.RAG,
@@ -68,7 +71,7 @@ async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result
     )
     local_bus.register(
         "librarian.prepare_topic",
-        AsyncMock(return_value=("topic_1", {"topics": []}, {"blocks": []})),
+        AsyncMock(return_value="topic_1"),
     )
     local_bus.register(
         "memory.retrieve",
@@ -88,6 +91,9 @@ async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result
     assert prepared.topic_id == "topic_1"
     assert isinstance(prepared.agent_run_context, AgentRunContext)
     assert prepared.agent_run_context.retrieval_result is retrieval_result
+    assert prepared.agent_run_context.topic_context is None
+    assert prepared.stream_prelude.pool_topics == []
+    assert prepared.stream_prelude.max_resident_topics == 5
     assert prepared.stream_prelude.memory_refs[0]["alias"] == "mem_alias"
 
 
@@ -108,7 +114,7 @@ async def test_finalize_agent_run_reads_focus_from_loop_result():
             identity=identity,
             topic_id="topic_1",
             user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
+            topic_context=None,
             retrieval_result=RetrievalResponse(),
             agent_profile=OMNI_DOLL_PROFILE,
             storage_available=True,
@@ -125,7 +131,7 @@ async def test_finalize_agent_run_reads_focus_from_loop_result():
         stream_prelude=StreamPrelude(
             topic_id="topic_1",
             is_new_topic=False,
-            pool_snapshot={},
+            pool_topics=[],
             memory_refs=[],
         ),
     )
@@ -182,7 +188,7 @@ async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
             identity=identity,
             topic_id="topic_1",
             user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
+            topic_context=None,
             retrieval_result=RetrievalResponse(memories=[memory, memory]),
             agent_profile=OMNI_DOLL_PROFILE,
             storage_available=True,
@@ -199,7 +205,7 @@ async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
         stream_prelude=StreamPrelude(
             topic_id="topic_1",
             is_new_topic=False,
-            pool_snapshot={},
+            pool_topics=[],
             memory_refs=[],
         ),
     )
@@ -234,7 +240,7 @@ async def test_finalize_agent_run_returns_memory_generation_tasks():
             identity=identity,
             topic_id="topic_1",
             user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
+            topic_context=None,
             retrieval_result=RetrievalResponse(),
             agent_profile=OMNI_DOLL_PROFILE,
             storage_available=True,
@@ -251,7 +257,7 @@ async def test_finalize_agent_run_returns_memory_generation_tasks():
         stream_prelude=StreamPrelude(
             topic_id="topic_1",
             is_new_topic=False,
-            pool_snapshot={},
+            pool_topics=[],
             memory_refs=[],
         ),
     )
@@ -281,7 +287,7 @@ async def test_finalize_agent_run_hit_failure_does_not_fail_finalize():
             identity=identity,
             topic_id="topic_1",
             user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
+            topic_context=None,
             retrieval_result=RetrievalResponse(memories=[memory]),
             agent_profile=OMNI_DOLL_PROFILE,
             storage_available=True,
@@ -298,7 +304,7 @@ async def test_finalize_agent_run_hit_failure_does_not_fail_finalize():
         stream_prelude=StreamPrelude(
             topic_id="topic_1",
             is_new_topic=False,
-            pool_snapshot={},
+            pool_topics=[],
             memory_refs=[],
         ),
     )

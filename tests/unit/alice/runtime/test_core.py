@@ -42,7 +42,7 @@ def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
         identity=Identity(user_id="u1", agent_id="omni_doll"),
         topic_id="topic_1",
         user_message="hello",
-        topic_context={"blocks": [], "state_summary": ""},
+        topic_context=None,
         retrieval_result=RetrievalResponse(memories=[memory], rendered_context="ctx"),
         agent_profile=OMNI_DOLL_PROFILE,
         storage_available=True,

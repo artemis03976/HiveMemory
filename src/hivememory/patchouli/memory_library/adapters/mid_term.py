@@ -34,6 +34,9 @@ class QdrantStorageAdapter(MidTermStoragePort):
     async def get_by_alias(self, alias: str, user_id: Optional[str] = None) -> Optional[MemoryAtom]:
         return await self._store.get_memory_by_alias(alias, user_id)
 
+    async def update_access_info(self, memory_id: UUID) -> None:
+        await self._store.update_access_info(memory_id)
+
     async def delete(self, memory_id: UUID) -> bool:
         return await self._store.delete_memory(memory_id)
 

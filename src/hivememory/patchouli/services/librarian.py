@@ -19,7 +19,7 @@ from __future__ import annotations
 import inspect
 import logging
 from time import monotonic
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from hivememory.core.models import Identity
 from hivememory.core.models.pending import PendingAtomMaterializeTask
@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from hivememory.engines.generation.engine import MemoryGenerationEngine
     from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
+    from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +80,14 @@ class LibrarianCore:
         perception_layer: "BasePerceptionLayer",
         bus: Optional[Any] = None,
         lifecycle_engine: Optional["MemoryLifecycleEngine"] = None,
+        retrieval_familiar: Optional["RetrievalFamiliar"] = None,
         task_controller: Optional[MemoryGenerationTaskController] = None,
         artifact_engine: Optional["ArtifactEngine"] = None,
     ):
         self.storage = storage
         self._bus = bus
         self.lifecycle_engine = lifecycle_engine
+        self._retrieval_familiar = retrieval_familiar
         self.perception_layer = perception_layer
         self._artifact_engine = artifact_engine
         self._memory_task_controller = task_controller
@@ -161,36 +164,25 @@ class LibrarianCore:
         if not tasks:
             return []
 
-        # TODO: migrate consumption chain to TopicData, remove compat dict (§2.3 RetrievalFamiliar)
-        topic_context: Dict[str, Any] = {"state_summary": "", "blocks": [], "topic_title": "", "topic_summary": ""}
-        store = getattr(self.perception_layer, "short_term_store", None)
-        if store is not None:
-            topic_data = store.get_topic_data(topic_id)
-            if topic_data is not None:
-                topic_context = {
-                    "topic_title": topic_data.topic_title,
-                    "topic_summary": topic_data.topic_summary,
-                    "blocks": topic_data.recent_blocks(5),
-                    "total_tokens": topic_data.total_tokens,
-                    "state_summary": topic_data.state_summary,
-                }
+        topic_data = None
+        if self._retrieval_familiar is not None:
+            topic_data = self._retrieval_familiar.get_short_term_topic(topic_id)
+        blocks = topic_data.recent_blocks(5) if topic_data is not None else []
+        state_summary = topic_data.state_summary if topic_data is not None else ""
 
         interaction_ref = None
-        if self._artifact_engine and topic_context.get("blocks"):
+        if self._artifact_engine and blocks:
             try:
                 interaction_ref = await self._artifact_engine.interaction.build_and_store(
                     topic_id=topic_id,
-                    topic_title=topic_context.get("topic_title", ""),
-                    topic_summary=topic_context.get("topic_summary", ""),
-                    blocks=topic_context["blocks"],
+                    topic_title=topic_data.topic_title if topic_data is not None else "",
+                    topic_summary=topic_data.topic_summary if topic_data is not None else "",
+                    blocks=blocks,
                 )
             except Exception:
                 logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
 
-        gen_context = self._build_generation_context(
-            topic_context.get("blocks", []),
-            topic_context.get("state_summary", ""),
-        )
+        gen_context = self._build_generation_context(blocks, state_summary)
         return await self._memory_task_controller.run_active_generation(
             tasks,
             topic_id,
@@ -259,20 +251,6 @@ class LibrarianCore:
 
     # ========== 感知层代理 API ==========
 
-    def get_active_topics_snapshots(
-        self,
-        identity: Identity,
-    ) -> List:  # List[TopicSnapshot]
-        # TODO: 迁移至 RetrievalFamiliar 短期检索入口 (§2.3)
-        store = getattr(self.perception_layer, "short_term_store", None)
-        if store is None:
-            return []
-        topic_data = store.list_topic_data(
-            user_id=identity.user_id,
-            include_empty=False,
-        )
-        return [t.to_topic_snapshot() for t in topic_data]
-
     async def manual_archive_topic(
         self,
         topic_id: Optional[str] = None,
@@ -296,9 +274,9 @@ class LibrarianCore:
         new_topic_title: Optional[str],
         new_topic_summary: Optional[str],
         identity: Identity,
-    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+    ) -> str:
         """
-        预创建/刷新话题（代理感知层接口），同时获取话题上下文
+        预创建/刷新话题（代理感知层写侧接口）。
 
         Args:
             target_topic_id: "NEW_TOPIC" 或已有 topic_id
@@ -307,7 +285,7 @@ class LibrarianCore:
             identity: 用户身份
 
         Returns:
-            (real_topic_id, pool_snapshot, topic_context)
+            real_topic_id
         """
         return await self.perception_layer.prepare_topic(
             target_topic_id, new_topic_title, new_topic_summary, identity

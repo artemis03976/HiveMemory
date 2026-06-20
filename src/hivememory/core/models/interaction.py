@@ -55,6 +55,28 @@ class Identity(BaseModel):
     )
 
 
+class TopicSnapshot(BaseModel):
+    """
+    话题快照，用于 TheEye 路由决策与前端话题池展示。
+
+    该模型属于系统级只读契约，不再归属于感知层内部模型。
+    """
+
+    topic_id: str = Field(..., description="话题唯一标识")
+    topic_title: str = Field(..., description="话题标题")
+    topic_summary: str = Field(default="", description="话题展示摘要（创建时由 Gateway 生成，不随折叠更新）")
+    state_summary: str = Field(default="", description="页折叠状态摘要（随上下文压缩更新）")
+    last_turn: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="最后一轮对话 {'user': '...', 'assistant': '...'}"
+    )
+    total_tokens: int = Field(default=0, description="当前总 token 数")
+    block_count: int = Field(default=0, description="当前话题包含的 block 数")
+    last_accessed_at: float = Field(default=0.0, description="最后访问时间戳")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
 class StreamMessageType(str, Enum):
     """流式消息类型枚举"""
     USER = "user"             # 用户查询

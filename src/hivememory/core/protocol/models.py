@@ -7,10 +7,12 @@
 版本: 3.0
 """
 
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -22,6 +24,12 @@ from hivememory.core.mtp.models import MTPCallRequest
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
 from hivememory.engines.retrieval.models import QueryFilters
+
+if TYPE_CHECKING:
+    from hivememory.patchouli.memory_library.models import TopicData
+else:
+    # 运行时避免 core.protocol -> patchouli 包初始化 -> core.protocol 的循环导入。
+    TopicData = Any
 
 
 class MessageType(str, Enum):
@@ -153,7 +161,7 @@ class AgentRunContext(BaseModel):
     identity: Identity = Field(default_factory=Identity)
     topic_id: str = Field(default="")
     user_message: str = Field(default="")
-    topic_context: Dict[str, Any] = Field(default_factory=dict)
+    topic_context: Optional["TopicData"] = Field(default=None)
     retrieval_result: RetrievalResponse = Field(default_factory=RetrievalResponse)
     agent_profile: AgentProfile
     storage_available: bool = Field(default=True)

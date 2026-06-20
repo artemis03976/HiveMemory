@@ -58,7 +58,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             identity=identity,
             topic_id="topic_1",
             user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
+            topic_context=None,
             retrieval_result=RetrievalResponse(),
             agent_profile=OMNI_DOLL_PROFILE,
             storage_available=True,
@@ -66,7 +66,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
         stream_prelude=StreamPrelude(
             topic_id="topic_1",
             is_new_topic=False,
-            pool_snapshot={},
+            pool_topics=[],
             memory_refs=[],
         ),
         gaze_result=gaze_result,
@@ -174,23 +174,27 @@ class TestTopicManagementService:
     @pytest.fixture
     def librarian_core(self):
         librarian = MagicMock()
-        librarian.perception_layer.buffer_manager.pop_buffer.return_value = object()
+        librarian.perception_layer.swap_out_topic.return_value = True
         return librarian
 
-    def test_list_active_topics_uses_librarian_core(self, librarian_core):
+    def test_list_active_topics_uses_retrieval_familiar(self, librarian_core):
         identity = Identity(user_id="u1")
-        librarian_core.get_active_topics_snapshots.return_value = ["snapshot"]
-        service = TopicManagementService(librarian_core=librarian_core)
+        retrieval_familiar = MagicMock()
+        retrieval_familiar.list_active_topics.return_value = ["snapshot"]
+        service = TopicManagementService(
+            librarian_core=librarian_core,
+            retrieval_familiar=retrieval_familiar,
+        )
 
         assert asyncio.run(service.list_active_topics(identity=identity)) == ["snapshot"]
-        librarian_core.get_active_topics_snapshots.assert_called_once_with(identity)
+        retrieval_familiar.list_active_topics.assert_called_once_with(identity)
 
-    def test_evict_topic_uses_buffer_manager(self, librarian_core):
+    def test_evict_topic_uses_perception_swap_out(self, librarian_core):
         service = TopicManagementService(librarian_core=librarian_core)
 
         result = asyncio.run(service.evict_topic(topic_id="t1"))
 
         assert result == {"success": True, "message": "话题 t1 已删除"}
-        librarian_core.perception_layer.buffer_manager.pop_buffer.assert_called_once_with("t1")
+        librarian_core.perception_layer.swap_out_topic.assert_called_once_with("t1")
 
 

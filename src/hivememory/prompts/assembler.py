@@ -37,15 +37,19 @@ class AgentPromptAssembler:
         if context.agent_profile and context.agent_profile.persona:
             builder.with_persona(context.agent_profile.persona)
 
+        topic_context = context.topic_context
+        topic_state = topic_context.state_summary if topic_context is not None else ""
+        recent_blocks = topic_context.recent_blocks(5) if topic_context is not None else []
+
         builder.with_memory_context(context.retrieval_result.rendered_context)
-        builder.with_topic_state(context.topic_context.get("state_summary", ""))
+        builder.with_topic_state(topic_state)
 
         system_prompt = builder.build()
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
         history_messages = PerceptionContextConverter.blocks_to_messages(
-            blocks=context.topic_context.get("blocks", []),
+            blocks=recent_blocks,
             current_agent_id=context.identity.agent_id,
         )
         messages.extend(history_messages)

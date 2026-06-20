@@ -7,7 +7,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.engines.perception.models import BufferState, LogicalBlock, TopicSnapshot
+from hivememory.core.models import TopicSnapshot
+from hivememory.engines.perception.models import BufferState, LogicalBlock
 
 
 class TopicData(BaseModel):
@@ -62,6 +63,8 @@ class TopicData(BaseModel):
             state_summary=self.state_summary,
             last_turn=last_turn,
             total_tokens=self.total_tokens,
+            block_count=self.block_count,
+            last_accessed_at=self.last_accessed_at,
         )
 
 

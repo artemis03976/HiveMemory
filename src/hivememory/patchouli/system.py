@@ -112,6 +112,7 @@ class PatchouliSystem(SubsystemProtocol):
         )
         self._topic_management_service = TopicManagementService(
             librarian_core=self.runtime.librarian_core,
+            retrieval_familiar=self.runtime.retrieval_familiar,
         )
         self._model_readiness_service = ModelReadinessService(
             runtime=self.runtime,

@@ -122,12 +122,19 @@ class PatchouliService:
             )
 
             is_new = gaze_result.target_topic == "NEW_TOPIC"
-            real_topic_id, pool_snapshot, topic_context = await self._require_local_bus().request(
+            real_topic_id = await self._require_local_bus().request(
                 PatchouliLocalRoutes.PREPARE_TOPIC,
                 target_topic_id=gaze_result.target_topic,
                 new_topic_title=gaze_result.new_topic_title,
                 new_topic_summary=gaze_result.new_topic_summary,
                 identity=identity,
+            )
+            pool_topics = self._runtime.retrieval_familiar.list_active_topics(
+                identity,
+                include_empty=True,
+            )
+            topic_context = self._runtime.retrieval_familiar.get_short_term_topic(
+                real_topic_id,
             )
 
             retrieval_result = await self.retrieve_for_gaze(
@@ -148,7 +155,8 @@ class PatchouliService:
             stream_prelude = StreamPrelude(
                 topic_id=real_topic_id,
                 is_new_topic=is_new,
-                pool_snapshot=pool_snapshot,
+                pool_topics=pool_topics,
+                max_resident_topics=self._runtime.memory_library.short_term.max_resident_topics,
                 memory_refs=[
                     MemoryResponse.from_atom(m).model_dump(mode="json")
                     for m in retrieval_result.memories
@@ -253,10 +261,10 @@ class PatchouliService:
 
     async def evict_topic(self, topic_id: str) -> dict[str, Any]:
         """从活跃话题池中驱逐话题，不归档、不写长期记忆。"""
-        buf = self._runtime.librarian_core.perception_layer.buffer_manager.pop_buffer(
+        removed = self._runtime.librarian_core.perception_layer.swap_out_topic(
             topic_id
         )
-        if buf is None:
+        if not removed:
             return {"success": False, "message": "话题不存在或已被驱逐"}
         return {"success": True, "message": f"话题 {topic_id} 已删除"}
 

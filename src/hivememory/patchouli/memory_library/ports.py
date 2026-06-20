@@ -67,6 +67,9 @@ class MidTermStoragePort(ABC):
     async def get_by_alias(self, alias: str, user_id: Optional[str] = None) -> Optional[MemoryAtom]: ...
 
     @abstractmethod
+    async def update_access_info(self, memory_id: UUID) -> None: ...
+
+    @abstractmethod
     async def delete(self, memory_id: UUID) -> bool: ...
 
     @abstractmethod

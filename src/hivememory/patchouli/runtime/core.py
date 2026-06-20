@@ -151,7 +151,7 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
-            self.librarian_core.get_active_topics_snapshots,
+            self.retrieval_familiar.list_active_topics,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.PREPARE_AGENT_RUN,
@@ -476,8 +476,8 @@ class PatchouliRuntime:
         )
 
         self._services["retrieval"] = RetrievalFamiliar(
-            storage=self.storage,
             engine=self._engines["retrieval"],
+            memory_library=self.memory_library,
             passive_renderer=passive_renderer,
             local_bus=self._local_bus,
         )
@@ -497,6 +497,7 @@ class PatchouliRuntime:
             storage=self.storage,
             bus=self._local_bus,
             lifecycle_engine=self._engines["lifecycle"],
+            retrieval_familiar=self.retrieval_familiar,
             perception_layer=self._engines["perception"],
             task_controller=task_controller,
             artifact_engine=self._engines["artifact"],

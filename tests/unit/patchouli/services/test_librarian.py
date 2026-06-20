@@ -16,6 +16,7 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.perception.models import FlushReason, LogicalBlock, ArchivePayload
 from hivememory.engines.perception.semantic_flow_perception_layer import NullPerceptionLayer
 from hivememory.engines.generation.models import GenerationRequest
+from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationSource
 from hivememory.patchouli.services.librarian import LibrarianCore
@@ -56,10 +57,28 @@ def _make_kernel_logical_blocks(n=2):
     return blocks
 
 
+def _make_topic_data(blocks=None, state_summary=""):
+    return TopicData(
+        topic_id="topic_test",
+        user_id="u1",
+        topic_title="测试话题",
+        topic_summary="测试摘要",
+        state_summary=state_summary,
+        blocks=tuple(blocks or []),
+        last_update=1.0,
+        last_accessed_at=1.0,
+    )
+
+
 def _make_controller(generation_engine=None, storage=None, runtime_events=None, bus=None):
     from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+    mid_term = storage or MagicMock()
+    if not hasattr(mid_term, "get"):
+        mid_term.get = AsyncMock()
+    if not hasattr(mid_term, "upsert"):
+        mid_term.upsert = AsyncMock()
     return MemoryGenerationTaskController(
-        storage=storage or MagicMock(),
+        mid_term=mid_term,
         generation_engine=generation_engine,
         runtime_events=runtime_events,
         bus=bus,
@@ -119,14 +138,7 @@ class TestLibrarianCorePerceptionDelegation:
             "message": "ok",
             "blocks_archived": 1,
         })
-        self.perception.get_active_topics_snapshots = Mock(return_value=["snapshot"])
         self.core = LibrarianCore(storage=Mock(), perception_layer=self.perception)
-
-    def test_get_active_topics_snapshots(self):
-        identity = _make_identity()
-        result = self.core.get_active_topics_snapshots(identity)
-        assert result == ["snapshot"]
-        self.perception.get_active_topics_snapshots.assert_called_once_with(identity)
 
     @pytest.mark.asyncio
     async def test_manual_archive_topic(self):
@@ -187,15 +199,16 @@ class TestLibrarianCoreGenerateMemory:
 
     def _core_with_context(self, blocks=None, bus=None):
         perception_layer = Mock()
-        perception_layer.get_topic_context.return_value = {
-            "state_summary": "",
-            "blocks": blocks if blocks is not None else [],
-        }
+        retrieval_familiar = Mock()
+        retrieval_familiar.get_short_term_topic.return_value = _make_topic_data(
+            blocks=blocks if blocks is not None else [],
+        )
         core = LibrarianCore(
             storage=self.mock_storage,
             bus=bus,
             task_controller=_make_controller(self.mock_generation, self.mock_storage, bus=bus),
             perception_layer=perception_layer,
+            retrieval_familiar=retrieval_familiar,
         )
         return core
 
@@ -211,7 +224,6 @@ class TestLibrarianCoreGenerateMemory:
         memory_tasks = await core.run_active_generation([], topic_id="topic_test")
 
         assert memory_tasks == []
-        perception_layer.get_topic_context.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_generate_memory_mode_a_default(self):
@@ -296,6 +308,37 @@ class TestLibrarianCoreGenerateMemory:
         assert request.update_focus is None
 
     @pytest.mark.asyncio
+    async def test_run_active_generation_uses_retrieval_familiar_topic_context(self):
+        blocks = _make_logical_blocks(1)
+        retrieval_familiar = Mock()
+        retrieval_familiar.get_short_term_topic.return_value = _make_topic_data(
+            blocks=blocks,
+            state_summary="状态摘要",
+        )
+        core = LibrarianCore(
+            storage=self.mock_storage,
+            task_controller=_make_controller(self.mock_generation, self.mock_storage),
+            perception_layer=Mock(),
+            retrieval_familiar=retrieval_familiar,
+        )
+        task = PendingAtomMaterializeTask(
+            pending_alias="draft_retrieval_context",
+            intent_id="intent_retrieval_context",
+            source_verb="WRITE",
+            identity=_make_identity(),
+            focus=WriteFocus(content="测试写入内容"),
+        )
+
+        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
+        if memory_tasks[0]._bg_task:
+            await memory_tasks[0]._bg_task
+
+        retrieval_familiar.get_short_term_topic.assert_called_once_with("topic_test")
+        request = self.mock_generation.process.call_args[0][0]
+        assert request.context.state_summary == "状态摘要"
+        assert len(request.context.turns) == 1
+
+    @pytest.mark.asyncio
     async def test_generate_memory_mode_c_update_success(self):
         """主动 UPDATE 由 finalize 直驱 run_active_generation"""
         blocks = _make_logical_blocks(2)
@@ -314,7 +357,7 @@ class TestLibrarianCoreGenerateMemory:
             focus=update_focus,
         )
 
-        self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
+        self.mock_storage.get = AsyncMock(return_value=existing_memory)
 
         memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
@@ -345,7 +388,7 @@ class TestLibrarianCoreGenerateMemory:
             identity=_make_identity(),
             focus=update_focus,
         )
-        self.mock_storage.get_memory = AsyncMock(return_value=existing_memory)
+        self.mock_storage.get = AsyncMock(return_value=existing_memory)
 
         memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
@@ -381,7 +424,7 @@ class TestLibrarianCoreGenerateMemory:
             focus=update_focus,
         )
 
-        self.mock_storage.get_memory = AsyncMock(return_value=None)
+        self.mock_storage.get = AsyncMock(return_value=None)
 
         memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
         _memory_task = memory_tasks[0]
@@ -525,7 +568,7 @@ class TestLibrarianCoreGenerateMemory:
             identity=_make_identity(),
             focus=update_focus,
         )
-        self.mock_storage.get_memory = AsyncMock(return_value=Mock())
+        self.mock_storage.get = AsyncMock(return_value=Mock())
         self.mock_generation.process = AsyncMock(
             return_value=[
                 MemoryGenerationResult(
