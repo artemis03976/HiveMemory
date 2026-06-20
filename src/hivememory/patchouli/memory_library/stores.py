@@ -106,10 +106,10 @@ class ShortTermMemoryStore:
         return [self._to_topic_data(buf, deep_copy=deep_copy) for buf in buffers]
 
     def topic_exists(self, topic_id: str, *, touch: bool = True) -> bool:
-        return self.get_topic_data(topic_id, touch=touch) is not None
+        return self.get_topic_data(topic_id, touch=touch, deep_copy=False) is not None
 
     def has_blocks(self, topic_id: str) -> bool:
-        data = self.get_topic_data(topic_id, touch=False)
+        data = self.get_topic_data(topic_id, touch=False, deep_copy=False)
         return bool(data and data.blocks)
 
     def create_buffer(

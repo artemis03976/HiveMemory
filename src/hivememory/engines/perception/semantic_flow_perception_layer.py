@@ -185,8 +185,10 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             str: 新创建的 topic_id
         """
+        # 在创建前检查是否需要驱逐话题
         if self._short_term_store.needs_eviction():
             await self._evict_lru_topic()
+
         buffer = self._short_term_store.create_buffer(
             user_id=identity.user_id,
             topic_title=title or "新建话题",
@@ -236,7 +238,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             str: 最终路由到的 topic_id
         """
-        # 话题生命周期判断统一收敛到 prepare_topic
+        # 重新检查创建情况，避免预创建后某些错误导致的异常
         topic_id = await self.prepare_topic(
             target_topic_id=topic_id,
             new_topic_title=None,

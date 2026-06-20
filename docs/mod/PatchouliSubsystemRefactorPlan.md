@@ -585,8 +585,6 @@ max_resident_topics: int = 0
 
 ## 4. LibrarianCore 编排职责解构
 
-> 本章待详细设计。以下为占位概要。
-
 ### 4.1 目标
 
 将 `LibrarianCore` 中残留的编排逻辑拆解为若干条各自独立的处理链路，每条链路对应一个具体的记忆流程。
@@ -618,7 +616,97 @@ LifecycleEngine 不拆分，整体作为独立链路的执行单元，由事件�
 
 上述链路独立后，LibrarianCore 剩余职责应已清空。退场方式：
 - 保留为薄代理层（方法委托到各链路入口），供向后兼容过渡期使用
-- 过渡期结束后直接删除，由 `PatchouliRuntime` 承担剩余的薄路由
+- 过渡期结束后直接删除，由 `PatchouliService` 承担剩余的薄路由
+
+### 4.4 第一步：Application Service 注入去中介化
+
+Phase 4 的起点。LibrarianCore 中有 5 个纯代理方法，均可直接下沉到对应的 Application Service，无需经过中间人。
+
+#### 现状：双层代理
+
+```
+MemoryTaskManagementService → LibrarianCore → MemoryGenerationTaskController
+TopicManagementService      → LibrarianCore → PerceptionLayer
+```
+
+`TopicManagementService.evict_topic` 甚至已经在越权访问 `librarian_core.perception_layer.swap_out_topic()`——属性链穿透说明依赖注入本来就应该是 `PerceptionLayer`，不是 `LibrarianCore`。
+
+#### MemoryTaskManagementService
+
+`get_task / list_tasks / cancel_task` 三个方法在 LibrarianCore 中是对 `_memory_task_controller` 的无逻辑透传。将注入目标从 `librarian_core` 改为直接持有 `task_controller`：
+
+```python
+class MemoryTaskManagementService:
+    def __init__(self, *, task_controller: MemoryGenerationTaskController) -> None:
+        self._task_controller = task_controller
+
+    async def list_memory_tasks(self): return self._task_controller.list_tasks()
+    async def get_memory_task(self, task_id): return self._task_controller.get_task(task_id)
+    async def cancel_memory_task(self, task_id): return self._task_controller.cancel_task(task_id)
+```
+
+#### TopicManagementService
+
+`manual_archive_topic / prepare_topic` 在 LibrarianCore 中是对 `perception_layer` 的无逻辑透传。将注入目标改为直接持有 `perception_layer`，同时吸收 `prepare_topic`，并清理 `evict_topic` 的属性链穿透：
+
+```python
+class TopicManagementService:
+    def __init__(
+        self,
+        *,
+        perception_layer: BasePerceptionLayer,
+        retrieval_familiar: RetrievalFamiliar | None = None,
+    ) -> None:
+        self._perception_layer = perception_layer
+        self._retrieval_familiar = retrieval_familiar
+
+    async def list_active_topics(self, *, identity: Identity): ...   # 不变
+
+    async def archive_topic(self, *, topic_id: str | None = None) -> dict:
+        return await self._perception_layer.manual_trigger(topic_id)
+
+    async def evict_topic(self, *, topic_id: str) -> dict:
+        removed = self._perception_layer.swap_out_topic(topic_id)    # 去掉属性链
+        ...
+
+    async def prepare_topic(
+        self,
+        target_topic_id: str,
+        new_topic_title: str | None,
+        new_topic_summary: str | None,
+        identity: Identity,
+    ) -> str:
+        return await self._perception_layer.prepare_topic(
+            target_topic_id, new_topic_title, new_topic_summary, identity
+        )
+```
+
+`archive_topic` 即原 `manual_archive_topic` 的公开名，两者语义相同，统一。
+
+#### LibrarianCore 中删除的方法
+
+| 方法 | 去向 |
+|---|---|
+| `get_task` | `MemoryTaskManagementService` 直接持有 `task_controller` |
+| `list_tasks` | 同上 |
+| `cancel_task` | 同上 |
+| `manual_archive_topic` | `TopicManagementService.archive_topic` |
+| `prepare_topic` | `TopicManagementService.prepare_topic` |
+
+此外，`LibrarianCore.__init__` 的 `storage: QdrantMemoryStore` 参数自 Phase 1-3 完成后已无任何方法调用 `self.storage`，随本次一并删除。
+
+#### Bus 路由更新
+
+`PatchouliRuntime.mount_local_routes` 中两处注册点需同步修改（当前指向 LibrarianCore 的代理方法，迁移后直接指向感知层）：
+
+| 路由常量 | 现在 | 迁移后 |
+|---|---|---|
+| `PREPARE_TOPIC` | `self.librarian_core.prepare_topic` | `self._engines["perception"].prepare_topic` |
+| `MANUAL_ARCHIVE_TOPIC` | `self.librarian_core.manual_archive_topic` | `self._engines["perception"].manual_trigger` |
+
+#### 装配点调整
+
+`PatchouliRuntime._register_services()` 中 `task_controller` 当前是局部变量，仅传入 LibrarianCore。`MemoryTaskManagementService` 也需要它，因此需将其提升为可被 Application Service 层访问的引用。最简方案：存为运行时属性 `self._task_controller = task_controller`，供 `PatchouliService`（或负责构建 Application Services 的装配点）注入使用。
 
 ---
 
