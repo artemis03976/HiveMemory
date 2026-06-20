@@ -47,14 +47,18 @@ LibrarianCore 同时做了两类性质不同的事：
 PatchouliRuntime（极薄的对外协调层）
 ├── MemoryLibrary            ← 三级存储 + 状态转移
 ├── RetrievalFamiliar        ← 全层检索服务（扩展）
-└── MemoryIngestionPipeline  ← 生成写入管道
-      └── MemoryGenerationTaskController（已存在）
+├── MemoryGenerationCoordinator ← 生成入口协调与 spec 构建
+├── MemoryGenerationFamiliar ← 生成写入业务门面
+├── LifecycleFamiliar        ← 生命周期维护业务门面
+└── MemoryGenerationTaskController ← 生成任务控制面（已存在，收窄）
 ```
 
 **图书馆隐喻的对应**：
 - `MemoryLibrary`：书库，管书的物理存放和流转
 - `RetrievalFamiliar`：使魔，代理人去库里取书
-- `MemoryIngestionPipeline`：写书流程，新书入库的完整流水线
+- `MemoryGenerationCoordinator`：入口协调者，把原始请求整理为任务需求
+- `MemoryGenerationFamiliar`：使魔，代理人把材料写成书并入库
+- `LifecycleFamiliar`：使魔，代理人维护书的活性、归档与复活
 
 ### 2.2 MemoryLibrary
 
@@ -65,7 +69,7 @@ MemoryLibrary
 ├── ShortTermMemoryStore    ← SemanticBufferManager（当前在 PerceptionLayer 内）
 │     - 内存态 buffer
 │     - topic 创建/查询/驱逐
-│     - 为 MemoryIngestionPipeline 提供 buffer 读取能力（不编排生成流程）
+│     - 为 MemoryGenerationFamiliar / RetrievalFamiliar 提供 topic 读取能力（不编排生成流程）
 │
 ├── MidTermMemoryStore      ← QdrantMemoryStore（当前直接暴露）
 │     - 向量数据库 CRUD
@@ -79,11 +83,13 @@ MemoryLibrary
 
 **状态转移协议**：
 
-`SemanticBuffer → MemoryAtom` 涉及 LLM 提取、查重、向量编码等生成过程，**不是存储层的状态迁移**，由 `MemoryIngestionPipeline` 编排，MemoryLibrary 只提供两端的读写能力。
+`SemanticBuffer → MemoryAtom` 涉及 LLM 提取、查重、向量编码等生成过程，**不是存储层的状态迁移**。原始触发先由 `MemoryGenerationCoordinator` 整理为统一任务需求，再交给 `MemoryGenerationTaskController` 创建任务，最终由 `MemoryGenerationFamiliar` 执行生成写入。MemoryLibrary 只提供两端的读写能力。
 
 ```
-# 短期 → 中期：Pipeline 驱动，不是 Library 方法
-TriggerManager 触发 → MemoryIngestionPipeline.ingest(ArchivePayload)
+# 短期 → 中期：Generation 驱动，不是 Library 方法
+TriggerManager 触发 → MemoryGenerationCoordinator.submit_archive(ArchivePayload)
+    → MemoryGenerationTaskController.submit(spec)
+    → MemoryGenerationFamiliar.execute(spec)
     → LLM 提取 / 查重 / 向量编码
     → MidTermMemoryStore.upsert()
 
@@ -227,7 +233,7 @@ TriggerManager(short_term_store=...)
 
 #### `_archive_topic` 不受影响
 
-`_archive_topic` 操作的是调用方在 `resolve_topic` 中提前提取的 `blocks_snapshot`，自身不访问任何 buffer 字段。感知层解耦对该方法无影响。它通过 `_on_generate_memory` 回调触发 Pipeline，属于 Step 4（MemoryIngestionPipeline 独立化）的范畴，与感知层解耦是独立的重构步骤，互不阻塞。
+`_archive_topic` 操作的是调用方在 `resolve_topic` 中提前提取的 `blocks_snapshot`，自身不访问任何 buffer 字段。感知层解耦对该方法无影响。它通过 `_on_generate_memory` 回调触发生成链路，属于 Step 4（MemoryGenerationFamiliar 独立化）的范畴，与感知层解耦是独立的重构步骤，互不阻塞。
 
 ### 2.5 中期记忆系统重构要点
 
@@ -235,23 +241,23 @@ TriggerManager(short_term_store=...)
 
 `MemoryDeduplicator` 目前自持 `QdrantMemoryStore` 仅为执行一次 `search_memories`，导致对存储层的不必要直接依赖。
 
-**方案：将 dedup 改为纯决策引擎，搜索职责交还给 MemoryIngestionPipeline。**
+**方案：将 dedup 改为纯决策引擎，搜索职责交还给 MemoryGenerationFamiliar。**
 
 ```python
 # 重构前：dedup 内部发起搜索
 async def check_duplicate(self, draft) -> Tuple[Decision, Optional[MemoryAtom]]:
     results = await self.storage.search_memories(...)  # 自持存储，自己搜
 
-# 重构后：dedup 只做决策，候选由 Pipeline 传入
+# 重构后：dedup 只做决策，候选由 MemoryGenerationFamiliar 传入
 def check_duplicate(
     self,
     draft: ExtractedMemoryDraft,
-    candidates: list[SearchResult],  # Pipeline 检索后传入
+    candidates: list[SearchResult],  # MemoryGenerationFamiliar 检索后传入
 ) -> Tuple[DuplicateDecision, Optional[MemoryAtom]]:
     ...  # 纯逻辑，无 I/O
 ```
 
-`MemoryDeduplicator` 不再持有任何存储引用，`merge_memory` / `_make_decision` 等逻辑不变。Pipeline 在摄入步骤中执行搜索（`MidTermMemoryStore.search()`），将结果传入 dedup——搜索本就在这一步发生，不增加额外网络往返。
+`MemoryDeduplicator` 不再持有任何存储引用，`merge_memory` / `_make_decision` 等逻辑不变。`MemoryGenerationFamiliar` 在生成写入步骤中执行搜索（`MidTermMemoryStore.search()`），将结果传入 dedup——搜索本就在这一步发生，不增加额外网络往返。
 
 #### 两条主要处理链路
 
@@ -284,7 +290,7 @@ MemoryLibrary
 └── ArtifactRepository / ArtifactStore
 ```
 
-但需要注意：`MemoryLibrary` 只负责 artifact 仓库的持有、注入和基础读写能力暴露，不负责决定何时构建 creation/version/interaction artifact。Artifact 的构建逻辑仍然属于 `ArtifactEngine` / builder，写入链路由 `MemoryIngestionPipeline` 编排。
+但需要注意：`MemoryLibrary` 只负责 artifact 仓库的持有、注入和基础读写能力暴露，不负责决定何时构建 creation/version/interaction artifact。Artifact 的构建逻辑仍然属于 `ArtifactEngine` / builder，生成写入链路由 `MemoryGenerationFamiliar` 编排。
 
 目标结构保持与其他存储系统一致：
 
@@ -308,7 +314,7 @@ ArtifactRepository / Store
 ArtifactEngine / Builders
     → 只管如何从 interaction、memory create、memory update 构造 artifact
 
-MemoryIngestionPipeline
+MemoryGenerationFamiliar
     → 编排 compute → artifact build/store → attach refs → memory persist
 ```
 
@@ -410,7 +416,7 @@ def list_active_topics(
 
 #### 调用方影响
 
-`patchouli/application/topic_management_service.py` 中调用 `get_active_topics_snapshots` 的位置无需改动，委托层保持接口兼容；待 Phase 5 LibrarianCore 退场后，调用方直接切换至 `RetrievalFamiliar.list_active_topics`。
+过渡期内 `PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS` 可继续保持兼容签名，但 handler 应直接切换至 `RetrievalFamiliar.list_active_topics(identity)`。Phase 4 总线契约收束后，`patchouli/application/topic_management_service.py` 不再直接持有 `RetrievalFamiliar`，而是通过 `topic.list_active` local route 请求该能力。
 
 ### 3.4 topic_context compat dict 迁移
 
@@ -583,130 +589,453 @@ max_resident_topics: int = 0
 
 ---
 
-## 4. LibrarianCore 编排职责解构
+## 4. 总线契约收束与 LibrarianCore 编排职责解构
 
 ### 4.1 目标
 
-将 `LibrarianCore` 中残留的编排逻辑拆解为若干条各自独立的处理链路，每条链路对应一个具体的记忆流程。
+Phase 4 的起点不是继续把 `LibrarianCore` 的代理方法下沉到更多具体服务，而是先修正 Patchouli 子系统的总线边界：
 
-### 4.2 主要处理链路
+1. `PatchouliBridge` 只做公开路由暴露与名称翻译，不直接持有 runtime / engine / storage / controller 等实现层对象。
+2. `patchouli.application.*` 与 `PatchouliService` 作为公开用例编排层，只持有 `PatchouliBus`，所有操作通过 local routes 请求。
+3. `PatchouliLocalRoutes` 表达 Patchouli 子系统内部可组合的能力原语，而不是把所有 public workflow 原样镜像一份。
+4. `PatchouliRuntime` 作为装配根仍可持有具体组件，并负责把内部能力挂载到 local bus；runtime/domain service 持有实现依赖本身不是问题，问题是 application/bridge 层穿透到实现层。
 
-**记忆摄入链路**（MemoryIngestionPipeline）
+完成上述边界收束后，`LibrarianCore` 的剩余职责再进行拆解，最终退场。
 
-```
-感知层 archive 回调
-    → InteractionArtifactBuilder
-    → MemoryGenerationTaskController（dedup → create/update → upsert）
-    → MidTermMemoryStore
-```
+### 4.2 当前边界问题
 
-当前 `LibrarianCore._on_generate_memory` / `run_active_generation` 是该链路的入口碎片，迁移后由 Pipeline 统一承接。
+#### Bridge 越权
 
-**生命力维护链路**（LifecycleMaintenancePipeline）
+当前 `PatchouliBridge` 直接绑定多类具体对象的方法：
 
 ```
-定时触发 / 事件触发
-    → LifecycleEngine（vitality 衰减 / 强化 / GC）
-    → MidTermMemoryStore / LongTermMemoryStore
+GlobalRoutes
+  → PatchouliBridge
+      → PatchouliService / PatchouliRuntime / LibrarianCore
+      → MemoryManagementService / TopicManagementService / ModelReadinessService
+      → storage / task_controller / perception_layer / retrieval_familiar
 ```
 
-LifecycleEngine 不拆分，整体作为独立链路的执行单元，由事件或调度器驱动，不再经由 LibrarianCore 中转。
-
-### 4.3 LibrarianCore 退场策略
-
-上述链路独立后，LibrarianCore 剩余职责应已清空。退场方式：
-- 保留为薄代理层（方法委托到各链路入口），供向后兼容过渡期使用
-- 过渡期结束后直接删除，由 `PatchouliService` 承担剩余的薄路由
-
-### 4.4 第一步：Application Service 注入去中介化
-
-Phase 4 的起点。LibrarianCore 中有 5 个纯代理方法，均可直接下沉到对应的 Application Service，无需经过中间人。
-
-#### 现状：双层代理
+这使 bridge 同时知道公开 API、运行时对象图和具体 handler 归属。正确职责应收束为：
 
 ```
-MemoryTaskManagementService → LibrarianCore → MemoryGenerationTaskController
-TopicManagementService      → LibrarianCore → PerceptionLayer
+GlobalRoutes
+  → PatchouliBridge
+      → Patchouli public application service（只持有 local bus）
+          → PatchouliLocalRoutes
+              → runtime/domain handlers
 ```
 
-`TopicManagementService.evict_topic` 甚至已经在越权访问 `librarian_core.perception_layer.swap_out_topic()`——属性链穿透说明依赖注入本来就应该是 `PerceptionLayer`，不是 `LibrarianCore`。
+Bridge 可以持有一个 route map 或一组 public application service，但这些 service 必须是 bus-only；Bridge 不应再直接引用 `runtime.librarian_core`、`runtime.retrieval_familiar`、`runtime._task_controller`、`runtime._engines[...]` 或 `storage`。
 
-#### MemoryTaskManagementService
+#### LocalRoutes 不完整且混入 public workflow
 
-`get_task / list_tasks / cancel_task` 三个方法在 LibrarianCore 中是对 `_memory_task_controller` 的无逻辑透传。将注入目标从 `librarian_core` 改为直接持有 `task_controller`：
+当前 local routes 主要覆盖 `PatchouliService.prepare_agent_run()` 内部需要的少数能力，例如 `GET_AGENT_PROFILE`、`PREPARE_TOPIC`、`MEMORY_RETRIEVE`。但 memory/task/topic/profile/model 等 public application service 仍直接持有具体组件，说明 local bus 没有覆盖 application service 所需的完整能力原语。
+
+同时，`PREPARE_AGENT_RUN`、`FINALIZE_AGENT_RUN`、`CLEANUP_PREPARED_AGENT_RUN` 是面向 system 层 `ChatApplicationService` 的完整工作流入口，Patchouli 内部目前不会通过 local bus 请求这些 route。它们应保留为 public routes，不应作为 local routes 常量存在。
+
+#### PatchouliService / Application Services 持有 runtime
+
+`PatchouliService` 现在既持有 `PatchouliRuntime` 又持有 `TheEye`，并在方法中直接访问 `runtime.retrieval_familiar`、`runtime.memory_library`、`runtime.librarian_core`、`runtime.check_storage_health()`。
+
+`patchouli.application.*` 也直接持有 `storage`、`lifecycle_engine`、`task_controller`、`perception_layer`、`retrieval_familiar`、`runtime` 等实现层对象。这会导致 public use-case 层与 runtime 装配细节耦合，继续扩大 LibrarianCore 退场时的迁移面。
+
+### 4.3 分层契约
+
+#### GlobalSystemBus：跨子系统公开契约
+
+`GlobalSystemBus` 只服务跨子系统调用与 HTTP/API 入口。典型调用方包括：
+
+- system application service（如 `ChatApplicationService`、`MemoryApplicationService`）
+- Alice 子系统（MTP / profile resolver / alias resolver）
+- server router 间接调用的 system application service
+
+这些调用方只能看到 `PatchouliRoutes` / `GlobalRoutes.PATCHOULI_*`，不能知道 Patchouli 内部由哪个 engine、service 或 store 执行。
+
+#### PatchouliBridge：公开路由转发层
+
+Bridge 的职责：
+
+- 注册 / 卸载 `PatchouliRoutes`
+- 将 `PatchouliRoutes.X` 转发到 bus-only public application service 的方法
+- 将 Patchouli local events 选择性转发为 global events
+
+Bridge 不负责：
+
+- 选择 runtime 内部具体组件
+- 拼装业务流程
+- 调用 storage / engine / controller
+- 暴露 local route 给外部调用方
+
+#### PatchouliLocalBus：子系统内部能力总线
+
+Local bus 是 Patchouli 子系统内业务代码的唯一依赖入口。它需要覆盖两类能力：
+
+1. 子系统内部服务间通信，例如 RetrievalFamiliar 请求 lifecycle 刷新生命力。
+2. public application service 编排所需的内部能力，例如 memory CRUD、topic prepare、model readiness、agent profile 查询。
+
+Local bus 上的 route 应是可组合的领域能力原语，而不是完整外部 workflow。
+
+#### Runtime / Domain：实现层
+
+`PatchouliRuntime` 仍是装配根，负责：
+
+- 构建 MemoryLibrary、engine、RetrievalFamiliar、MemoryGenerationCoordinator、MemoryGenerationFamiliar、LifecycleFamiliar
+- 注册 local route handler
+- 管理模型预热、存储健康、shutdown drain、维护任务注册等 runtime 行为
+
+Domain service / engine 可以直接持有其必要依赖，但这些依赖不向 application/bridge 层泄漏。
+
+### 4.4 LocalRoutes 重整
+
+#### 删除 public workflow 镜像
+
+以下 local routes 从 `PatchouliLocalRoutes` 移除：
+
+| Local route | 原因 |
+|---|---|
+| `PREPARE_AGENT_RUN` | 完整 public workflow，仅由 system `ChatApplicationService` 通过 global route 调用 |
+| `FINALIZE_AGENT_RUN` | 同上 |
+| `CLEANUP_PREPARED_AGENT_RUN` | 同上 |
+
+这些 route 继续作为 `PatchouliRoutes` / `GlobalRoutes.PATCHOULI_*` 存在，由 public application service 使用 local primitives 编排实现。
+
+#### 补齐内部能力原语
+
+新增或规范化以下 local routes。命名建议按领域分组，避免 `service.*` 这类含糊前缀。
+
+| 分组 | Local route | Handler 归属 |
+|---|---|---|
+| gateway | `gateway.gaze` | `TheEye.gaze` |
+| passive | `passive.analyze_and_retrieve` | bus-only public service 编排，或拆为 `gateway.gaze + memory.retrieve` 后删除 |
+| ingestion | `ingestion.submit_interaction` | 当前 `LibrarianCore.submit_interaction`，后续直接挂载 `PerceptionLayer.route_and_ingest` 的薄适配 |
+| generation | `generation.submit_archive` | 当前 `LibrarianCore._on_generate_memory`，后续迁至 `MemoryGenerationCoordinator.submit_archive` |
+| generation | `generation.submit_active` | 当前 `LibrarianCore.run_active_generation`，后续迁至 `MemoryGenerationCoordinator.submit_active` |
+| memory | `memory.create` / `memory.list` / `memory.get` / `memory.update` / `memory.delete` | `MemoryLibrary.mid_term` 或 MemoryManagement domain handler |
+| memory | `memory.retrieve` / `memory.retrieve_by_aliases` | `RetrievalFamiliar` |
+| memory | `memory.record_feedback` / `memory.record_citation` / `memory.record_hit` | `LifecycleFamiliar` |
+| memory_task | `memory_task.list` / `memory_task.get` / `memory_task.cancel` | `MemoryGenerationTaskController` |
+| agent_profile | `agent_profile.create` / `agent_profile.list` / `agent_profile.get` | profile domain handler / mid-term store |
+| topic | `topic.prepare` | PerceptionLayer |
+| topic | `topic.list_active` | `RetrievalFamiliar.list_active_topics` |
+| topic | `topic.get_short_term` | `RetrievalFamiliar.get_short_term_topic` |
+| topic | `topic.manual_archive` / `topic.evict` / `topic.discard_if_empty` | PerceptionLayer |
+| lifecycle | `lifecycle.refresh_memory_vitality` | `LifecycleFamiliar.refresh_memory_vitality` |
+| lifecycle | `lifecycle.run_gardening_once` | `LifecycleFamiliar.run_gardening_once` |
+| runtime | `runtime.storage_health` | `PatchouliRuntime.check_storage_health` |
+| runtime | `runtime.models.warmup` / `runtime.models.ready` | `PatchouliRuntime.warmup_models` / `is_models_ready` |
+
+兼容期可以保留旧常量别名，但新代码只使用分组后的 route 名称。
+
+### 4.5 Public Application Service 改造
+
+所有 `patchouli.application.*` service 的构造函数统一改为只接收 `PatchouliBus`：
 
 ```python
-class MemoryTaskManagementService:
-    def __init__(self, *, task_controller: MemoryGenerationTaskController) -> None:
-        self._task_controller = task_controller
-
-    async def list_memory_tasks(self): return self._task_controller.list_tasks()
-    async def get_memory_task(self, task_id): return self._task_controller.get_task(task_id)
-    async def cancel_memory_task(self, task_id): return self._task_controller.cancel_task(task_id)
+class MemoryManagementService:
+    def __init__(self, bus: PatchouliBus) -> None:
+        self._bus = bus
 ```
 
-#### TopicManagementService
+示例映射：
 
-`manual_archive_topic / prepare_topic` 在 LibrarianCore 中是对 `perception_layer` 的无逻辑透传。将注入目标改为直接持有 `perception_layer`，同时吸收 `prepare_topic`，并清理 `evict_topic` 的属性链穿透：
+| Public service 方法 | 迁移后请求的 local route |
+|---|---|
+| `MemoryManagementService.create_memory` | `memory.create` |
+| `MemoryManagementService.list_memories` | `memory.list` + 可选 `lifecycle.refresh_memory_vitality` |
+| `MemoryManagementService.record_feedback` | `memory.record_feedback` |
+| `MemoryTaskManagementService.list_memory_tasks` | `memory_task.list` |
+| `AgentProfileManagementService.create_agent_profile` | `agent_profile.create` |
+| `AgentProfileManagementService.list_agent_profiles` | `agent_profile.list` |
+| `TopicManagementService.list_active_topics` | `topic.list_active` |
+| `TopicManagementService.archive_topic` | `topic.manual_archive` |
+| `TopicManagementService.evict_topic` | `topic.evict` |
+| `ModelReadinessService.warmup_models` | `runtime.models.warmup` |
+| `ModelReadinessService.is_models_ready` | `runtime.models.ready` |
+
+`PatchouliService` 也按同一规则改造。它可以作为主动交互 public service 保留，但不能再持有 `PatchouliRuntime` / `TheEye`。其 `prepare_agent_run()` 通过 local routes 编排：
+
+```
+agent_profile.get
+topic.list_active
+gateway.gaze
+topic.prepare
+topic.list_active(include_empty=True)
+topic.get_short_term
+memory.retrieve
+runtime.storage_health
+```
+
+`finalize_agent_run()` 通过 local routes 编排：
+
+```
+ingestion.submit_interaction
+generation.submit_active
+memory.record_hit / memory.record_citation（按最终命名）
+```
+
+`cleanup_prepared_agent_run()` 通过 `topic.discard_if_empty` 实现。
+
+### 4.6 Bridge 改造
+
+Bridge 的构造参数从“完整对象图”收束为：
 
 ```python
-class TopicManagementService:
+class PatchouliBridge:
     def __init__(
         self,
         *,
-        perception_layer: BasePerceptionLayer,
-        retrieval_familiar: RetrievalFamiliar | None = None,
+        local_bus: PatchouliBus,
+        global_bus: GlobalSystemBus | None = None,
+        public_api: PatchouliPublicApi,
     ) -> None:
-        self._perception_layer = perception_layer
-        self._retrieval_familiar = retrieval_familiar
-
-    async def list_active_topics(self, *, identity: Identity): ...   # 不变
-
-    async def archive_topic(self, *, topic_id: str | None = None) -> dict:
-        return await self._perception_layer.manual_trigger(topic_id)
-
-    async def evict_topic(self, *, topic_id: str) -> dict:
-        removed = self._perception_layer.swap_out_topic(topic_id)    # 去掉属性链
         ...
-
-    async def prepare_topic(
-        self,
-        target_topic_id: str,
-        new_topic_title: str | None,
-        new_topic_summary: str | None,
-        identity: Identity,
-    ) -> str:
-        return await self._perception_layer.prepare_topic(
-            target_topic_id, new_topic_title, new_topic_summary, identity
-        )
 ```
 
-`archive_topic` 即原 `manual_archive_topic` 的公开名，两者语义相同，统一。
+其中 `PatchouliPublicApi` 可以是一个聚合对象，也可以是一组 bus-only application services。关键约束是：这些对象不能持有 runtime / engine / storage / controller。
 
-#### LibrarianCore 中删除的方法
+Bridge 注册 public routes 时只绑定 public API 方法：
 
-| 方法 | 去向 |
-|---|---|
-| `get_task` | `MemoryTaskManagementService` 直接持有 `task_controller` |
-| `list_tasks` | 同上 |
-| `cancel_task` | 同上 |
-| `manual_archive_topic` | `TopicManagementService.archive_topic` |
-| `prepare_topic` | `TopicManagementService.prepare_topic` |
+```python
+GlobalRoutes.PATCHOULI_MEMORY_LIST      -> public_api.memory.list_memories
+GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN -> public_api.chat.prepare_agent_run
+GlobalRoutes.PATCHOULI_MODELS_READY     -> public_api.readiness.is_models_ready
+```
 
-此外，`LibrarianCore.__init__` 的 `storage: QdrantMemoryStore` 参数自 Phase 1-3 完成后已无任何方法调用 `self.storage`，随本次一并删除。
+如果某个 public route 只是 local route 的一层同名暴露，也可以由 Bridge 使用通用转发器：
 
-#### Bus 路由更新
+```python
+async def forward(local_route: str, *args, **kwargs):
+    return await self._local_bus.request(local_route, *args, **kwargs)
+```
 
-`PatchouliRuntime.mount_local_routes` 中两处注册点需同步修改（当前指向 LibrarianCore 的代理方法，迁移后直接指向感知层）：
+但完整 workflow（如 `prepare_agent_run`）不应由 Bridge 拼装，仍由 public application service 编排。
 
-| 路由常量 | 现在 | 迁移后 |
+### 4.7 LibrarianCore 解构
+
+总线边界收束后，`LibrarianCore` 不再承担 public API 代理职责，只剩感知入口薄代理、记忆生成回调粘合与生命周期维护入口。这些职责应继续拆入对应组件，最终让 `LibrarianCore` 退场。
+
+#### 生成入口协调：MemoryGenerationCoordinator
+
+`LibrarianCore` 剩余的 `_on_generate_memory()`、`run_active_generation()` 不应直接迁入 `MemoryGenerationFamiliar`。生成链路的时序应先进入 `MemoryGenerationTaskController` 创建任务，再由 Controller 在 task coroutine 中调用生成业务服务。为避免 Controller 重新吸收 Archive / MTP / split-merge 等来源细节，需要新增一个很薄的入口协调类：
+
+```text
+MemoryGenerationCoordinator
+    → 接收原始生成入口数据：ArchivePayload / PendingAtomMaterializeTask / future evolution plan
+    → 构建 MemoryGenerationTaskSpec
+    → 调用 MemoryGenerationTaskController.submit(spec) / submit_many(specs)
+```
+
+`MemoryGenerationCoordinator` 只做 raw input → spec，不执行生成、不持久化结果、不发布事件。它可以先以内聚私有 builder 的形式存在：
+
+| Builder | 输入 | 输出 |
 |---|---|---|
-| `PREPARE_TOPIC` | `self.librarian_core.prepare_topic` | `self._engines["perception"].prepare_topic` |
-| `MANUAL_ARCHIVE_TOPIC` | `self.librarian_core.manual_archive_topic` | `self._engines["perception"].manual_trigger` |
+| `_build_archive_spec()` | `ArchivePayload` | `MemoryGenerationTaskSpec(source=ARCHIVE, ...)` |
+| `_build_active_specs()` | `PendingAtomMaterializeTask[] + topic_id` | `MemoryGenerationTaskSpec(source=WRITE/UPDATE, ...)[]` |
+| `_build_evolution_specs()` future | split / merge plan | `MemoryGenerationTaskSpec(source=SPLIT/MERGE, ...)[]` |
 
-#### 装配点调整
+如果未来 split / merge 的组装逻辑明显复杂，再将这些 builder 拆成 `ArchiveGenerationAdapter`、`ActiveMtpGenerationAdapter`、`MemoryEvolutionGenerationAdapter`。当前阶段不需要提前引入多 adapter 层。
 
-`PatchouliRuntime._register_services()` 中 `task_controller` 当前是局部变量，仅传入 LibrarianCore。`MemoryTaskManagementService` 也需要它，因此需将其提升为可被 Application Service 层访问的引用。最简方案：存为运行时属性 `self._task_controller = task_controller`，供 `PatchouliService`（或负责构建 Application Services 的装配点）注入使用。
+`submit_interaction()` 本身只是把 `InteractionPayload` 送入感知层，不属于 generation，也不进入 `MemoryGenerationCoordinator`。迁移后 `ingestion.submit_interaction` 应直接调用 `PerceptionLayer.route_and_ingest` 的薄适配方法。真正创建生成任务的是感知层 archive 回调产出的 `ArchivePayload`。
+
+#### 生成写入业务类：MemoryGenerationFamiliar
+
+`MemoryGenerationFamiliar` 是与 `RetrievalFamiliar`、`LifecycleFamiliar` 同级的 Patchouli 内部业务门面。它不表示一条单一的 ingestion pipeline，而表示“根据统一任务需求执行生成，并把结果提交为中期记忆变更”的业务能力。
+
+命名理由：
+
+- 与 `RetrievalFamiliar` / `LifecycleFamiliar` 对齐：三者分别覆盖读、写、生命周期维护三个主要业务面。
+- 比 `MemoryIngestionPipeline` 更准确：主动 MTP 生成与未来 split / merge 维护链路都不属于摄入，但都属于 generation。
+- 避免继续扩大 `MemoryGenerationTaskController`：Controller 应只管任务生命周期，不应承载 Mode B / Mode C 组装、artifact 构建和持久化提交。
+
+职责边界：
+
+```
+MemoryGenerationFamiliar
+    → MemoryGenerationEngine：生成、更新、查重决策等算法计算
+    → ArtifactEngine：interaction / creation / version artifact 构建
+    → MidTermMemoryStore / MemoryLibrary.mid_term：提交 CREATE / UPDATE 结果
+```
+
+`MemoryGenerationFamiliar` 承接当前 `MemoryGenerationTaskController` 中的数据面方法：
+
+| 当前方法 | 迁移后归属 | 说明 |
+|---|---|---|
+| `_run_mode_b()` | `MemoryGenerationFamiliar` | MTP WRITE 请求组装与执行 |
+| `_run_mode_c()` | `MemoryGenerationFamiliar` | MTP UPDATE 目标读取、请求组装与执行 |
+| `_run_generation()` | `MemoryGenerationFamiliar` | compute → artifact → persist 主流程 |
+| `_build_memory_artifacts()` | `MemoryGenerationFamiliar` | creation / version artifact 构建与 refs 挂载 |
+
+`MemoryGenerationFamiliar` 的主入口收束为：
+
+```python
+async def execute(self, spec: MemoryGenerationTaskSpec) -> list[MemoryGenerationResult]:
+    ...
+```
+
+允许在 `execute()` 内部按 `spec.source` 分派到 archive / write / update / future split / merge 的执行逻辑，但这种分派属于生成业务，不属于 task controller。
+
+#### MemoryGenerationTaskController 收窄
+
+迁移后 `MemoryGenerationTaskController` 不再按来源暴露 `run_archive_generation()` / `run_active_generation()`，也不再保留 `_run_archive_task()` / `_run_active_task()` 两套执行函数。Controller 只接收已经规范化的 `MemoryGenerationTaskSpec`：
+
+```
+MemoryGenerationTaskController
+    → submit(spec) / submit_many(specs)
+    → _create_and_run_task(spec)
+    → _run_task(memory_task, spec)
+    → _start_task() / _finish_task()
+```
+
+统一执行时序：
+
+```text
+MemoryGenerationCoordinator
+    → MemoryGenerationTaskController.submit(spec)
+        → 创建 MemoryGenerationTask
+        → 注册 MemoryGenerationTaskRegistry
+        → 启动统一 _run_task(memory_task, spec)
+            → MemoryGenerationFamiliar.execute(spec)
+            → backfill task result
+            → 根据 result / task 终态发布事件
+```
+
+Controller 可以根据 `spec.pending_alias`、`spec.source`、`task.status` 处理 task 元信息、取消、失败和 settlement 事件，但不应知道 WRITE 如何组装 `GenerationRequest`、UPDATE 如何读取目标记忆、ARCHIVE 如何构建上下文。这些全部由 `MemoryGenerationFamiliar.execute(spec)` 处理。
+
+`MemoryGenerationFamiliar` 的输出契约必须保持纯结果返回：**所有方法只返回 `MemoryGenerationResult` / result list，不直接发布事件**。当前 `_run_generation()` 在 persist 后直接 publish `PENDING_ATOM_SETTLED` 的职责应剥离出去，迁移到调用方或任务编排层处理。这样可以保证生成业务类不依赖事件总线，也不会把主动 MTP 应答桥的职责混入通用生成执行逻辑。
+
+三条生成链路的边界如下：
+
+```
+被动话题归档
+    PerceptionLayer.route_and_ingest()
+        → TriggerManager archive_topic
+        → MemoryGenerationCoordinator.submit_archive(ArchivePayload)
+        → MemoryGenerationTaskController.submit(spec)
+        → MemoryGenerationFamiliar.execute(spec)
+        → Controller 处理 task result / event
+
+主动 MTP 生成
+    PatchouliService / public application service 解析 materialize_tasks
+        → generation.submit_active
+        → MemoryGenerationCoordinator 构建 WRITE / UPDATE specs
+        → MemoryGenerationTaskController.submit_many(specs)
+        → MemoryGenerationFamiliar.execute(spec)
+        → Controller 处理 task result / settlement event
+
+维护期 split / merge（future）
+    LifecycleFamiliar.run_gardening_once()
+        → MemoryEvolutionEngine 规划 split / merge
+        → MemoryGenerationCoordinator 构建 MERGE / SPLIT specs
+        → MemoryGenerationTaskController.submit_many(specs)
+        → MemoryGenerationFamiliar.execute(spec)
+        → Controller 处理 task result / event
+```
+
+local routes 同步切换：
+
+| Local route | 迁移前 | 迁移后 |
+|---|---|---|
+| `ingestion.submit_interaction` | `LibrarianCore.submit_interaction` | `PerceptionLayer.route_and_ingest` 薄适配 |
+| `generation.submit_archive` | `LibrarianCore._on_generate_memory` | `MemoryGenerationCoordinator.submit_archive` |
+| `generation.submit_active` | `LibrarianCore.run_active_generation` | `MemoryGenerationCoordinator.submit_active` |
+
+短期到中期的写入不命名为 archive。`SemanticBuffer / TopicData → MemoryAtom` 是 materialize / consolidate 过程，属于 `MemoryGenerationFamiliar`；`archive` 保留给中期到长期的生命周期归档。
+
+#### 生命周期业务类：LifecycleFamiliar
+
+生命周期相关职责先从 `LibrarianCore` 中拆出为独立业务类，命名为 `LifecycleFamiliar`。
+
+命名理由：
+
+- 与 `RetrievalFamiliar` 对齐：二者都是围绕单个能力域的 Patchouli 内部业务门面，向 local bus 暴露可组合能力。
+- 比 `MemoryGardener` 更宽：gardening 只覆盖定时维护 / GC，无法表达 hit、citation、feedback、revive 等事件响应。
+- 避免与 `MemoryLifecycleEngine` 混淆：`Engine` 负责算法和策略，`Familiar` 负责业务入口、事件响应与总线挂载。
+
+职责边界：
+
+```
+LifecycleFamiliar
+    → MemoryLifecycleEngine：生命力计算、事件强化、GC 策略
+    → MemoryLibrary：需要跨层状态转移时调用 archive / revive
+```
+
+`LifecycleFamiliar` 承接以下业务入口：
+
+| 方法 | 说明 |
+|---|---|
+| `run_gardening_once()` | 从 `LibrarianCore` 迁入，作为全局维护调度器的单次 lifecycle 维护入口 |
+| `refresh_memory_vitality(memories, persist=False)` | 当前 runtime local handler 下沉，用于检索结果展示前刷新生命力 |
+| `record_hit(memory_id, source)` | 响应检索命中事件，例如 active finalize 后记录 retrieval hit |
+| `record_citation(memory_id, source)` | 响应 MTP READ / RUN 等主动引用事件 |
+| `record_feedback(memory_id, positive, source)` | 响应 UI 或用户反馈事件 |
+| `revive_memory(memory_id)` | 长期记忆复活入口，底层通过 `MemoryLibrary.revive()` 执行跨层状态转移 |
+
+`archive_memory(memory_id)` 暂不固定为 `LifecycleFamiliar` 的公开方法。它涉及“谁负责触发中期到长期的归档决策”的边界，需要与后续 `MemoryGenerationFamiliar` 和 `MemoryLibrary` 状态转移链路一起确定。现阶段只确认：短期到中期是生成写入，不命名为 archive；如果 lifecycle 维护链路需要将中期记忆移入长期层，应通过 `MemoryLibrary.archive()` 执行跨层搬运，而不是让 `MemoryLifecycleEngine` 或 LongTermStore 自行穿透中期存储。
+
+归档查询不放入 `LifecycleFamiliar`。`list_archived()` / `is_archived()` 这类读取能力归 `RetrievalFamiliar`，因为 RetrievalFamiliar 在本次重构中的定位是三级记忆的统一读操作者。
+
+#### 生命力维护链路
+
+```
+定时触发 / 事件触发
+    → LifecycleFamiliar
+        → MemoryLifecycleEngine（vitality 衰减 / 强化 / GC）
+        → MemoryLibrary（必要时执行 archive / revive 状态转移）
+```
+
+`MemoryLifecycleEngine` 不拆分，整体作为生命周期算法/策略执行单元；但对外 local route、事件响应和调度器入口均收束到 `LifecycleFamiliar`，不再经由 `LibrarianCore` 中转。
+
+调度器回调同步从：
+
+```python
+runtime.librarian_core.run_gardening_once
+```
+
+迁移为：
+
+```python
+runtime.lifecycle_familiar.run_gardening_once
+```
+
+#### 与 v0.9.0 记忆 split / merge 的关系
+
+需要区分两类 merge：
+
+1. 写入期 merge：当前 generation / dedup 中的 merge 属于生成写入链路，回答“新写入内容与已有记忆是否重复、是否应合并”。它仍归 `MemoryGenerationFamiliar` / Generation 体系，不归 `LifecycleFamiliar`。
+2. 维护期 split / merge：v0.9.0 计划中的记忆分裂与合并如果用于整理已有记忆库结构，则属于生命周期维护的子域，但算法复杂度足够高，不应塞进 `MemoryLifecycleEngine`。
+
+未来引入维护期 split / merge 时，新增独立引擎，例如：
+
+```python
+MemoryEvolutionEngine
+```
+
+其接入方式：
+
+```
+LifecycleFamiliar.run_gardening_once()
+    → MemoryLifecycleEngine：刷新 vitality / 强化 / GC
+    → MemoryEvolutionEngine（future）：规划并执行 split / merge
+    → MemoryLibrary / MidTermMemoryStore：持久化结构调整结果
+```
+
+即：split / merge 属于 lifecycle 维护域，但以独立引擎接入；`LifecycleFamiliar` 负责调度和业务边界，不承载算法实现。
+
+#### 感知回调迁移
+
+当前 `LibrarianCore.__init__` 中通过 `perception_layer.set_generation_callback(self._on_generate_memory)` 建立感知层到记忆生成的回调。迁移后回调目标改为 `MemoryGenerationCoordinator.submit_archive` 或其轻量适配方法，`LibrarianCore` 不再需要持有 `perception_layer` 仅用于设置回调。
+
+### 4.8 迁移顺序
+
+1. 扩展 `PatchouliLocalRoutes`，补齐 application service 所需的内部能力原语。
+2. 从 local routes 移除 `PREPARE_AGENT_RUN` / `FINALIZE_AGENT_RUN` / `CLEANUP_PREPARED_AGENT_RUN`，保留 public routes。
+3. 将 `patchouli.application.*` 改为只持有 `PatchouliBus`。
+4. 将 `PatchouliService` 改为只持有 `PatchouliBus`，通过 `gateway.gaze`、`topic.*`、`memory.*`、`ingestion.*`、`runtime.*` 编排主动交互。
+5. 收窄 `PatchouliBridge` 构造参数，只依赖 global bus、local bus、bus-only public API。
+6. 引入 `LifecycleFamiliar`，承接 `run_gardening_once`、vitality refresh、hit / citation / feedback 事件响应与 revive 入口。
+7. 引入 `MemoryGenerationCoordinator` 与 `MemoryGenerationFamiliar`：前者承接 archive 回调、active generation 与 future evolution 的入口转型，后者承接生成执行数据面；`submit_interaction` 直接改挂感知层薄适配。
+8. 删除或保留空壳兼容期 `LibrarianCore`；过渡期结束后从 runtime 服务图中移除。
 
 ---
 
@@ -720,11 +1049,11 @@ class TopicManagementService:
 
 待设计：事件类型定义、SystemBus 接入点、订阅关系。
 
-### 5.2 patchouli/application 对外 API 重构
+### 5.2 Public API 事件与错误契约
 
-`patchouli/application/` 层目前的内部实现直接依赖 `LibrarianCore` 方法。LibrarianCore 退场后，各 Application Service 需要改为直接调用对应的 `MemoryLibrary`、`RetrievalFamiliar`、Pipeline 入口。
+Phase 4 已将 `patchouli/application/` 层改造为 bus-only public use-case 层。后续需要补充的是公开 API 的错误结构、超时策略与事件可观测性，而不是再让 Application Service 直接调用 `MemoryLibrary`、`RetrievalFamiliar` 或 `MemoryGenerationFamiliar`。
 
-待设计：各 Service 的依赖重映射、接口兼容性保证。
+待设计：public route 的异常映射、`BusRouteUnavailableError` 处理、runtime event 字段、前端可消费的错误码。
 
 ---
 
@@ -733,12 +1062,12 @@ class TopicManagementService:
 以下阶段按依赖顺序排列，每个阶段可独立完成和测试。
 
 | 阶段 | 主要工作 | 前置依赖 |
-|---|---|---|---|
+|---|---|---|
 | **Phase 1** | MemoryLibrary 骨架建立：三层 Store + StoragePort 接口定义，InMemory / Qdrant / File 适配器，感知层注入改造 | v0.5.2 完成 |
 | **Phase 2** | Deduplicator 改为纯决策引擎；TaskController / LifecycleEngine 存储依赖切换到 MidTermStoragePort；ArtifactStore 上移至 MemoryLibrary | Phase 1 |
 | **Phase 3** | RetrievalFamiliar 扩展：topic context 方法迁入，三层检索入口统一 | Phase 1 |
-| **Phase 4** | LibrarianCore 编排职责解构：MemoryIngestionPipeline 独立化，LifecycleMaintenancePipeline 独立化 | Phase 2 + 3 | 
-| **Phase 5** | LibrarianCore 退场（保留代理层或直接删除）；patchouli/application 依赖重映射 | Phase 4 |
+| **Phase 4** | 总线契约收束：补齐 local primitives，移除 public workflow local 镜像，Application Service / PatchouliService 改为 bus-only，Bridge 收窄 | Phase 2 + 3 |
+| **Phase 5** | LibrarianCore 编排职责解构：LifecycleFamiliar 独立化，MemoryGenerationCoordinator / MemoryGenerationFamiliar 独立化，感知回调迁移，TaskController 缩回控制面，LibrarianCore 退场（保留代理层或直接删除） | Phase 4 |
 | **Phase 6** | 事件流接入 MemoryLibrary 状态转移；LongTermStore 完整实现（DBBasedStorageAdapter） | Phase 4 |
 
 **不在本次规划范围内**：记忆 split/merge 机制、MTP READ 历史编译、图数据库适配器。
