@@ -214,13 +214,13 @@ class PatchouliService:
     # ========== Phase 2: Memory Task API ==========
 
     def list_memory_tasks(self) -> List[MemoryGenerationTask]:
-        return self._runtime.librarian_core.list_tasks()
+        return self._runtime._task_controller.list_tasks()
 
     def get_memory_task(self, task_id: str) -> MemoryGenerationTask | None:
-        return self._runtime.librarian_core.get_task(task_id)
+        return self._runtime._task_controller.get_task(task_id)
 
     def cancel_memory_task(self, task_id: str) -> bool:
-        return self._runtime.librarian_core.cancel_task(task_id)
+        return self._runtime._task_controller.cancel_task(task_id)
 
     async def record_memory_citation(
         self,
@@ -257,7 +257,7 @@ class PatchouliService:
         用户主动保存当前对话状态。语义为"立即归档 + 生成摘要并保留内存"。
         话题不会被驱逐，可以继续接收新的交互。
         """
-        return await self._runtime.librarian_core.manual_archive_topic(topic_id)
+        return await self._runtime._engines["perception"].manual_trigger(topic_id)
 
     async def evict_topic(self, topic_id: str) -> dict[str, Any]:
         """从活跃话题池中驱逐话题，不归档、不写长期记忆。"""

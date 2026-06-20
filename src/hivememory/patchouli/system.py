@@ -105,13 +105,13 @@ class PatchouliSystem(SubsystemProtocol):
             lifecycle_engine=self.runtime.librarian_core.lifecycle_engine,
         )
         self._memory_task_management_service = MemoryTaskManagementService(
-            librarian_core=self.runtime.librarian_core,
+            task_controller=self.runtime._task_controller,
         )
         self._agent_profile_management_service = AgentProfileManagementService(
             storage=self.runtime.storage,
         )
         self._topic_management_service = TopicManagementService(
-            librarian_core=self.runtime.librarian_core,
+            perception_layer=self.runtime._engines["perception"],
             retrieval_familiar=self.runtime.retrieval_familiar,
         )
         self._model_readiness_service = ModelReadinessService(

@@ -26,7 +26,6 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.generation.models import GenerationContext
 from hivememory.engines.perception.models import ArchivePayload
-from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.patchouli.services.memory_generation_tasks import (
     MemoryGenerationTaskController,
 )
@@ -76,7 +75,6 @@ class LibrarianCore:
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
         perception_layer: "BasePerceptionLayer",
         bus: Optional[Any] = None,
         lifecycle_engine: Optional["MemoryLifecycleEngine"] = None,
@@ -84,7 +82,6 @@ class LibrarianCore:
         task_controller: Optional[MemoryGenerationTaskController] = None,
         artifact_engine: Optional["ArtifactEngine"] = None,
     ):
-        self.storage = storage
         self._bus = bus
         self.lifecycle_engine = lifecycle_engine
         self._retrieval_familiar = retrieval_familiar
@@ -190,15 +187,6 @@ class LibrarianCore:
             interaction_ref=interaction_ref,
         )
 
-    def get_task(self, task_id: str) -> Optional[MemoryGenerationTask]:
-        return self._memory_task_controller.get_task(task_id)
-
-    def list_tasks(self) -> List[MemoryGenerationTask]:
-        return self._memory_task_controller.list_tasks()
-
-    def cancel_task(self, task_id: str) -> bool:
-        return self._memory_task_controller.cancel_task(task_id)
-
     def _build_generation_context(
         self,
         blocks: List[Any],
@@ -248,48 +236,6 @@ class LibrarianCore:
             result["duration_ms"] = (monotonic() - start) * 1000
 
         return result
-
-    # ========== 感知层代理 API ==========
-
-    async def manual_archive_topic(
-        self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        手动触发话题结算 (Archive + Compact)
-
-        代理感知层的 manual_trigger 接口，供上层统一调用。
-
-        Args:
-            topic_id: 目标话题 ID。如果为 None，使用 last_active_topic_id。
-
-        Returns:
-            Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
-        """
-        return await self.perception_layer.manual_trigger(topic_id)
-
-    async def prepare_topic(
-        self,
-        target_topic_id: str,
-        new_topic_title: Optional[str],
-        new_topic_summary: Optional[str],
-        identity: Identity,
-    ) -> str:
-        """
-        预创建/刷新话题（代理感知层写侧接口）。
-
-        Args:
-            target_topic_id: "NEW_TOPIC" 或已有 topic_id
-            new_topic_title: Gateway 生成的新话题标题
-            new_topic_summary: Gateway 生成的新话题摘要
-            identity: 用户身份
-
-        Returns:
-            real_topic_id
-        """
-        return await self.perception_layer.prepare_topic(
-            target_topic_id, new_topic_title, new_topic_summary, identity
-        )
 
 
 __all__ = [

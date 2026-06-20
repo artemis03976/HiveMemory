@@ -147,7 +147,7 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.PREPARE_TOPIC,
-            self.librarian_core.prepare_topic,
+            self._engines["perception"].prepare_topic,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
@@ -167,7 +167,7 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MANUAL_ARCHIVE_TOPIC,
-            self.librarian_core.manual_archive_topic,
+            self._engines["perception"].manual_trigger,
         )
         self._local_routes_registered = True
 
@@ -482,7 +482,7 @@ class PatchouliRuntime:
             local_bus=self._local_bus,
         )
 
-        task_controller = MemoryGenerationTaskController(
+        self._task_controller = MemoryGenerationTaskController(
             mid_term=self.memory_library.mid_term,
             bus=self._local_bus,
             generation_engine=self._engines["generation"],
@@ -494,12 +494,11 @@ class PatchouliRuntime:
         )
 
         self._services["librarian"] = LibrarianCore(
-            storage=self.storage,
             bus=self._local_bus,
             lifecycle_engine=self._engines["lifecycle"],
             retrieval_familiar=self.retrieval_familiar,
             perception_layer=self._engines["perception"],
-            task_controller=task_controller,
+            task_controller=self._task_controller,
             artifact_engine=self._engines["artifact"],
         )
 
