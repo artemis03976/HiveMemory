@@ -318,24 +318,268 @@ MemoryIngestionPipeline
 
 ## 3. RetrievalFamiliar 能力增强
 
-> 本章待详细设计。以下为占位概要。
-
 ### 3.1 目标
 
 将 `RetrievalFamiliar` 从"仅限中期向量检索"扩展为**三层统一检索入口**，同时承接从 `LibrarianCore` 迁出的 topic context 查询职责。
 
+**依赖变更**：Phase 3 以 `memory_library: MemoryLibrary` **替换** `storage: QdrantMemoryStore`。所有层的查询均通过 `self._memory_library` 访问对应 Store，不直接持有任何 Port 或存储实现。
+
+```python
+def __init__(
+    self,
+    engine: RetrievalEngine,
+    memory_library: MemoryLibrary,
+    passive_renderer: Optional[BaseContextRenderer] = None,
+    local_bus: Optional[Any] = None,
+):
+    ...
+    self._memory_library = memory_library
+```
+
+`storage: QdrantMemoryStore` 为 Phase 1-2 遗留参数，随本次重构移除。现有两处 `self.storage` 用途迁移至 `mid_term`：
+
+| 原调用 | 迁移后 |
+|---|---|
+| `storage.get_memory_by_alias(alias, user_id)` | `memory_library.mid_term.get_by_alias(alias, user_id)` |
+| `storage.update_access_info(memory.id)` | `memory_library.mid_term` 需补充 `update_access_info(memory_id)` ，适配器包装现有实现 |
+
 ### 3.2 迁移项
 
-| 来源 | 迁移内容 | 目标层 |
+| 来源 | 迁移内容 | 目标层 | 状态 |
+|---|---|---|---|
+| `LibrarianCore.get_active_topics_snapshots` | `list_active_topics` | 短期检索 | Phase 3 |
+| `LibrarianCore` / 感知层 `prepare_topic` | `get_short_term_topic` | 短期检索 | Phase 3 |
+| 现有 retrieval engine | 精确取回（alias）、语义检索 | 中期检索 | 已实现 |
+| `self.storage`（Phase 1-2 遗留） | `get_by_alias` / `update_access_info` 切换至 `mid_term` | 中期检索 | Phase 3 清理 |
+| 待实现 | `query_archive`、`is_archived` | 长期检索 | Phase 3 |
+
+### 3.3 `list_active_topics`
+
+#### 现状与问题
+
+`LibrarianCore.get_active_topics_snapshots()`（librarian.py:262）持有感知层引用，通过 `getattr(self.perception_layer, "short_term_store", None)` 越权绕过架构边界直接访问 `ShortTermMemoryStore`：
+
+```python
+store = getattr(self.perception_layer, "short_term_store", None)
+if store is None:
+    return []
+topic_data = store.list_topic_data(user_id=identity.user_id, include_empty=False)
+return [t.to_topic_snapshot() for t in topic_data]
+```
+
+#### 新方法设计
+
+```python
+# retrieval.py — RetrievalFamiliar
+def list_active_topics(
+    self,
+    identity: Identity,
+    *,
+    include_empty: bool = False,
+    sort_by_access: bool = True,
+) -> List[TopicSnapshot]:
+    """
+    列出指定用户的话题快照（短期检索入口）。
+
+    兼顾两个迁移来源：
+    - get_active_topics_snapshots: include_empty=False（默认）
+    - get_topic_pool_snapshot: include_empty=True, sort_by_access=True
+
+    通过 MemoryLibrary.short_term 访问，不穿透到 PerceptionLayer。
+    返回的 TopicSnapshot 已包含 block_count / last_accessed_at（见 §3.6）。
+    """
+    topics = self._memory_library.short_term.list_topic_data(
+        user_id=identity.user_id,
+        include_empty=include_empty,
+        deep_copy=False,
+    )
+    if sort_by_access:
+        topics = sorted(topics, key=lambda t: t.last_accessed_at, reverse=True)
+    return [t.to_topic_snapshot() for t in topics]
+```
+
+方法为同步调用，返回 `List[TopicSnapshot]`，与迁移前的 `get_active_topics_snapshots` 签名保持兼容。`get_topic_pool_snapshot` 的调用方改用 `include_empty=True` 变体（详见 §3.6）。
+
+#### 迁移步骤
+
+1. `RetrievalFamiliar.__init__` 注入 `memory_library`（见 §3.1）
+2. 添加 `list_active_topics(identity)` 方法
+3. `LibrarianCore.get_active_topics_snapshots` 删除，路由方法应同步改为使用 `retrieval_familiar.list_active_topics(identity)`
+4. `LibrarianCore` 不再需要持有 `perception_layer` 仅为此方法；`getattr` 模式随迁移删除
+5. `SemanticFlowPerceptionLayer.get_topic_pool_snapshot` 删除，`StreamPrelude` 构建处改为调用 `list_active_topics(identity, include_empty=True)`（见 §3.6）
+
+#### 调用方影响
+
+`patchouli/application/topic_management_service.py` 中调用 `get_active_topics_snapshots` 的位置无需改动，委托层保持接口兼容；待 Phase 5 LibrarianCore 退场后，调用方直接切换至 `RetrievalFamiliar.list_active_topics`。
+
+### 3.4 topic_context compat dict 迁移
+
+两处 TODO（semantic_flow_perception_layer.py:389、librarian.py:164）均将 `TopicData` 降格为 `Dict[str, Any]` 对外传递。两条调用链路独立，可分别推进。
+
+#### Path 1：prepare_topic → 前台 Agent 历史上下文
+
+**现状调用链**
+
+```
+SemanticFlowPerceptionLayer.prepare_topic()    # [TODO:389] 构建 compat dict
+  → return (topic_id, pool_snapshot, topic_context: Dict)
+LibrarianCore.prepare_topic()                  # 薄委托
+  → PatchouliLocalRoutes.PREPARE_TOPIC（总线）
+PatchouliService.prepare_agent_run()
+  → AgentRunContext(topic_context=topic_context)   # core/protocol/models.py:156
+prompts/assembler.py
+  → topic_context.get("state_summary") → SystemPromptBuilder.with_topic_state()
+  → topic_context.get("blocks")        → PerceptionContextConverter.blocks_to_messages()
+```
+
+**迁移步骤**
+
+1. `SemanticFlowPerceptionLayer.prepare_topic()` 直接返回 `TopicData`（或 `None`），删除 compat dict 构建逻辑：
+   ```python
+   topic_data = self._short_term_store.get_topic_data(topic_id)
+   return topic_id, pool_snapshot, topic_data   # TopicData | None，不再包装为 dict
+   ```
+2. `AgentRunContext.topic_context` 字段类型由 `Dict[str, Any]` 改为 `Optional[TopicData]`
+3. `prompts/assembler.py` 更新两处访问：
+   ```python
+   # 旧
+   topic_context.get("state_summary", "")
+   topic_context.get("blocks", [])
+   # 新
+   context.topic_context.state_summary if context.topic_context else ""
+   context.topic_context.recent_blocks(5) if context.topic_context else []
+   ```
+
+**涉及文件**：`semantic_flow_perception_layer.py`、`core/protocol/models.py`、`prompts/assembler.py`
+
+#### Path 2：finalize_agent_run → 记忆生成背景信息
+
+**现状调用链**
+
+```
+PatchouliService.finalize_agent_run()
+  → LibrarianCore.run_active_generation(tasks, topic_id)  # [TODO:164]
+      getattr(perception_layer, "short_term_store") → store.get_topic_data() → compat dict
+      ├─ ArtifactEngine.interaction.build_and_store(topic_title, topic_summary, blocks)
+      └─ _build_generation_context(blocks, state_summary) → GenerationContext
+           → MemoryGenerationTaskController.run_active_generation()
+```
+
+**迁移步骤**
+
+1. `LibrarianCore.run_active_generation()` 通过 `RetrievalFamiliar.get_short_term_topic(topic_id)` 取 `TopicData`，删除 `getattr` 越权模式：
+   ```python
+   topic_data = self._retrieval_familiar.get_short_term_topic(topic_id)
+   ```
+2. `ArtifactEngine.interaction.build_and_store()` 直接取字段（`topic_data.topic_title` 等），或重载接受 `Optional[TopicData]`
+3. `_build_generation_context()` 直接取 `topic_data.recent_blocks(5)` 和 `topic_data.state_summary`
+
+**涉及文件**：`librarian.py`
+
+两条路径均无需改动 `ShortTermMemoryStore` 或 `TriggerManager`，感知层解耦（§2.4）对这两处无阻塞关系。
+
+### 3.5 ShortTermMemoryStore 读方法 deep_copy 开关
+
+#### 现状
+
+`ShortTermMemoryStore._to_topic_data()` 目前对所有 block 无条件执行深拷贝：
+
+```python
+blocks=tuple(block.model_copy(deep=True) for block in buf.blocks)
+```
+
+这对需要操作 block 数据的写路径是必要的，但对纯读路径（如 `list_active_topics` 只消费 `TopicSnapshot`，根本不暴露 block 内容）是无效开销。
+
+#### 方案
+
+`get_topic_data` / `list_topic_data` 增加 `deep_copy: bool = True` 参数，下穿至 `_to_topic_data`：
+
+```python
+def get_topic_data(self, topic_id, *, touch=True, deep_copy=True) -> Optional[TopicData]: ...
+def list_topic_data(self, user_id=None, *, include_empty=True, deep_copy=True) -> List[TopicData]: ...
+
+def _to_topic_data(self, buf, *, deep_copy=True) -> TopicData:
+    return TopicData(
+        ...
+        blocks=tuple(block.model_copy(deep=True) for block in buf.blocks)
+               if deep_copy else tuple(buf.blocks),
+        ...
+    )
+```
+
+默认值保持 `True`，对现有调用方无感知变更。
+
+#### 调用规则
+
+| 调用场景 | `deep_copy` | 理由 |
 |---|---|---|
-| `LibrarianCore` | `get_topic_context`、`get_active_topics_snapshots` | 短期检索 |
-| 现有 retrieval engine | 精确取回（alias）、语义检索 | 中期检索（已实现，保持） |
-| 待实现 | revival_keys 冷存储检索 | 长期检索 |
+| `list_active_topics` → `list_topic_data` | `False` | 只消费 `to_topic_snapshot()`，block 不对外暴露 |
+| `get_short_term_topic` → `get_topic_data` | `False` | 只读取 summary/title/token count |
+| `prepare_topic` / `run_active_generation` 拿 blocks 传下游 | `True`（默认） | blocks 会进入 generation context，需隔离 |
+| `TriggerManager` 内部 compact/fold | `True`（默认） | 需要修改 block 列表 |
 
-### 3.3 注意事项
+### 3.6 TopicSnapshot 扩展与 get_topic_pool_snapshot 迁移
 
-- `RetrievalFamiliar` 持有 `MemoryLibrary` 引用，通过各层 Store 接口检索，不绕过 Library 直接访问 Port
-- 短期 topic 查询目前分散在 `SemanticFlowPerceptionLayer` 中，迁移时需与感知层解耦（§2.6）协调时序
+#### 字段扩展
+
+`TopicSnapshot` 新增两个标量字段，使其能够承接 pool snapshot 的前端展示需求：
+
+```python
+class TopicSnapshot(BaseModel):
+    topic_id: str
+    topic_title: str
+    topic_summary: str = ""
+    state_summary: str = ""
+    last_turn: Optional[Dict[str, str]] = None
+    total_tokens: int = 0
+    block_count: int = 0           # 新增
+    last_accessed_at: float = 0.0  # 新增
+```
+
+`TopicData.to_topic_snapshot()` 填充这两个字段：
+
+```python
+def to_topic_snapshot(self) -> TopicSnapshot:
+    ...
+    return TopicSnapshot(
+        ...,
+        block_count=self.block_count,
+        last_accessed_at=self.last_accessed_at,
+    )
+```
+
+#### 归属迁移
+
+`TopicSnapshot` 从 `engines/perception/models.py`（感知层内部）迁移至 `core/models.py`（`Identity`、`TurnRecord` 的所在位置）。`engines/perception/models.py` 保留 re-export 向后兼容。
+
+迁移后的消费方分布：
+
+| 消费方 | 主要用到的字段 |
+|---|---|
+| TheEye 话题路由 | `topic_id`, `topic_title`, `state_summary`, `last_turn`, `total_tokens` |
+| `list_active_topics`（默认） | `topic_id`, `topic_title`, `topic_summary`, `state_summary` |
+| StreamPrelude / pool snapshot | 全部字段，`last_accessed_at` 用于排序，`block_count` 用于展示 |
+
+#### get_topic_pool_snapshot 迁移
+
+`SemanticFlowPerceptionLayer.get_topic_pool_snapshot()` 废弃。调用方改为：
+
+```python
+retrieval_familiar.list_active_topics(identity, include_empty=True)
+# sort_by_access=True 默认已启用，last_accessed_at 降序
+```
+
+pool wrapper 中的容器元数据（`max_resident_topics`、`current_count`）不属于 per-topic 信息，迁入 `StreamPrelude`：
+
+```python
+# 当前：pool_snapshot: Dict[str, Any]
+# 迁移后：
+pool_topics: List[TopicSnapshot] = Field(default_factory=list)
+max_resident_topics: int = 0
+# current_count 由 len(pool_topics) 推导，不单独存储
+```
+
+**涉及文件**：`core/models.py`（新增 TopicSnapshot）、`engines/perception/models.py`（保留 re-export）、`patchouli/memory_library/models.py`（`to_topic_snapshot` 填充新字段）、`semantic_flow_perception_layer.py`（删除 `get_topic_pool_snapshot`）、`patchouli/models.py`（StreamPrelude 字段替换）
 
 ---
 
