@@ -338,32 +338,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             return True
         return False
 
+    @property
+    def short_term_store(self):
+        return self._short_term_store
+
     # ========== 话题路由与管理 ==========
-
-    def get_active_topics_snapshots(
-        self,
-        identity: Optional[Identity] = None,
-    ) -> List["TopicSnapshot"]:
-        """
-        获取活跃话题快照列表（用于 TheEye 路由决策）
-
-        每个快照包含:
-        - topic_id: 话题 ID
-        - title: 话题标题
-        - state_summary: 状态摘要（如果有折叠）
-        - last_turn: 最后一轮对话 {"user": "...", "assistant": "..."}
-
-        Args:
-            identity: 可选，如果提供则只返回该用户的话题
-
-        Returns:
-            List[TopicSnapshot]: 话题快照列表
-        """
-        topic_data = self._short_term_store.list_topic_data(
-            user_id=identity.user_id if identity else None,
-            include_empty=False,
-        )
-        return [topic.to_topic_snapshot() for topic in topic_data]
 
     async def prepare_topic(
         self,
@@ -407,8 +386,21 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 topic_id = target_topic_id
 
         pool_snapshot = self.get_topic_pool_snapshot(identity)
-        topic_context = self.get_topic_context(topic_id, max_recent_blocks=5)
-
+        # TODO: migrate consumption chain to TopicData, remove compat dict (§2.3 RetrievalFamiliar)
+        topic_data = self._short_term_store.get_topic_data(topic_id)
+        if topic_data is None:
+            topic_context: Dict[str, Any] = {
+                "state_summary": "", "blocks": [], "total_tokens": 0,
+                "topic_title": "未知话题", "topic_summary": "",
+            }
+        else:
+            topic_context = {
+                "topic_title": topic_data.topic_title,
+                "topic_summary": topic_data.topic_summary,
+                "blocks": topic_data.recent_blocks(5),
+                "total_tokens": topic_data.total_tokens,
+                "state_summary": topic_data.state_summary,
+            }
         return topic_id, pool_snapshot, topic_context
 
     def get_topic_pool_snapshot(self, identity: Identity) -> Dict[str, Any]:
@@ -441,45 +433,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             "topics": topics,
             "max_resident_topics": self._short_term_store.max_resident_topics,
             "current_count": len(topics_data),
-        }
-
-    def get_topic_context(
-        self,
-        topic_id: str,
-        max_recent_blocks: int = 5,
-    ) -> Dict[str, Any]:
-        """
-        获取话题的完整上下文用于 Prompt 组装
-
-        Args:
-            topic_id: 话题 ID
-            max_recent_blocks: 返回最近的 N 个 blocks
-
-        Returns:
-            Dict: {
-                "state_summary": str,
-                "blocks": List[LogicalBlock],
-                "total_tokens": int,
-                "title": str,
-            }
-        """
-        topic_data = self._short_term_store.get_topic_data(topic_id)
-        if topic_data is None:
-            logger.warning(f"话题不存在: topic_id={topic_id}，返回空上下文")
-            return {
-                "state_summary": "",
-                "blocks": [],
-                "total_tokens": 0,
-                "topic_title": "未知话题",
-                "topic_summary": "",
-            }
-
-        return {
-            "topic_title": topic_data.topic_title,
-            "topic_summary": topic_data.topic_summary,
-            "blocks": topic_data.recent_blocks(max_recent_blocks),
-            "total_tokens": topic_data.total_tokens,
-            "state_summary": topic_data.state_summary,
         }
 
     async def create_new_topic(
@@ -616,12 +569,6 @@ class NullPerceptionLayer(BasePerceptionLayer):
         payload: InteractionPayload,
     ) -> str:
         return topic_id
-
-    def get_active_topics_snapshots(
-        self,
-        identity: Optional[Identity] = None,
-    ) -> List[Any]:
-        return []
 
     async def manual_trigger(
         self,

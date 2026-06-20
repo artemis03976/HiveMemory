@@ -108,18 +108,6 @@ class BasePerceptionLayer(ABC):
         """
         self.ingest_payload(payload)
 
-    def get_active_topics_snapshots(
-        self,
-        identity: Optional["Identity"] = None,
-    ) -> List[Any]:
-        """
-        获取活跃话题快照列表，供路由决策使用
-
-        默认实现：返回空列表（无多话题快照能力）。
-        SemanticFlowPerceptionLayer 重写此方法。
-        """
-        return []
-
     # ========== 抽象接口 ==========
 
     @abstractmethod

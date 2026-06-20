@@ -161,8 +161,19 @@ class LibrarianCore:
         if not tasks:
             return []
 
+        # TODO: migrate consumption chain to TopicData, remove compat dict (§2.3 RetrievalFamiliar)
         topic_context: Dict[str, Any] = {"state_summary": "", "blocks": [], "topic_title": "", "topic_summary": ""}
-        topic_context = self.perception_layer.get_topic_context(topic_id)
+        store = getattr(self.perception_layer, "short_term_store", None)
+        if store is not None:
+            topic_data = store.get_topic_data(topic_id)
+            if topic_data is not None:
+                topic_context = {
+                    "topic_title": topic_data.topic_title,
+                    "topic_summary": topic_data.topic_summary,
+                    "blocks": topic_data.recent_blocks(5),
+                    "total_tokens": topic_data.total_tokens,
+                    "state_summary": topic_data.state_summary,
+                }
 
         interaction_ref = None
         if self._artifact_engine and topic_context.get("blocks"):
@@ -252,16 +263,15 @@ class LibrarianCore:
         self,
         identity: Identity,
     ) -> List:  # List[TopicSnapshot]
-        """
-        获取活跃话题快照列表（代理感知层接口）
-
-        Args:
-            identity: 用户身份标识
-
-        Returns:
-            List[TopicSnapshot]: 话题快照列表
-        """
-        return self.perception_layer.get_active_topics_snapshots(identity)
+        # TODO: 迁移至 RetrievalFamiliar 短期检索入口 (§2.3)
+        store = getattr(self.perception_layer, "short_term_store", None)
+        if store is None:
+            return []
+        topic_data = store.list_topic_data(
+            user_id=identity.user_id,
+            include_empty=False,
+        )
+        return [t.to_topic_snapshot() for t in topic_data]
 
     async def manual_archive_topic(
         self,
