@@ -69,7 +69,7 @@ class TestIdleHibernateSwapOut:
         await layer.route_and_ingest("NEW_TOPIC", _make_payload("question", "answer", identity))
 
         # 验证话题在活跃池中
-        active = [b.topic_id for b in layer._short_term_store.get_all_buffers()]
+        active = [topic.topic_id for topic in layer._short_term_store.list_topic_data()]
         assert len(active) == 1
 
         # 等待超时
@@ -80,7 +80,7 @@ class TestIdleHibernateSwapOut:
 
         # 验证话题已被 flush 并 swap-out
         assert len(flushed) == 1
-        active_after = [b.topic_id for b in layer._short_term_store.get_all_buffers()]
+        active_after = [topic.topic_id for topic in layer._short_term_store.list_topic_data()]
         assert len(active_after) == 0
 
     @pytest.mark.asyncio
@@ -128,7 +128,7 @@ class TestIdleHibernateSwapOut:
         await layer.route_and_ingest("NEW_TOPIC", _make_payload("q1", "a1", id1))
         await layer.route_and_ingest("NEW_TOPIC", _make_payload("q2", "a2", id2))
 
-        assert len([b.topic_id for b in layer._short_term_store.get_all_buffers()]) == 2
+        assert len([topic.topic_id for topic in layer._short_term_store.list_topic_data()]) == 2
 
         # 等待超时并扫描
         time.sleep(1.5)
@@ -139,7 +139,7 @@ class TestIdleHibernateSwapOut:
         id3 = _make_identity("u3", "a3")
         await layer.route_and_ingest("NEW_TOPIC", _make_payload("q3", "a3", id3))
 
-        active = [b.topic_id for b in layer._short_term_store.get_all_buffers()]
+        active = [topic.topic_id for topic in layer._short_term_store.list_topic_data()]
         assert len(active) == 1
 
     @pytest.mark.asyncio
@@ -164,6 +164,5 @@ class TestIdleHibernateSwapOut:
         assert result["trigger_reason"] == FlushReason.SHUTDOWN.value
         assert len(result["flushed_topics"]) == 2
         assert result["archived_blocks"] == 2
-        assert [b.topic_id for b in layer._short_term_store.get_all_buffers()] == []
+        assert [topic.topic_id for topic in layer._short_term_store.list_topic_data()] == []
         assert mock_callback.await_count == 2
-

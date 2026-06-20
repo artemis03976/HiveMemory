@@ -132,7 +132,7 @@ class LongTermStoragePort(ABC):
 
 class ArtifactStoragePort(ABC):
     """
-    Artifact 附属资产仓库 Port — append-only 持久化存储。
+    Artifact 记忆附属资产仓库 Port — append-only 持久化存储。
 
     实现：
         FilesystemArtifactStorageAdapter（Phase 2，从 infrastructure/storage 迁入）

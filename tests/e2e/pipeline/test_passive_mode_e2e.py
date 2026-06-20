@@ -110,13 +110,10 @@ def _collect_user_blocks(
 ) -> List[Any]:
     perception = _get_perception_layer(system)
     blocks: List[Any] = []
-    for topic_id in perception.list_active_buffers():
-        buffer = perception.get_buffer(topic_id)
-        if not buffer or not buffer.identity:
+    for topic_data in perception.short_term_store.list_topic_data(user_id=user_id):
+        if topic_data.current_agent_id != agent_id:
             continue
-        if buffer.identity.user_id != user_id or buffer.identity.agent_id != agent_id:
-            continue
-        blocks.extend(buffer.blocks)
+        blocks.extend(topic_data.blocks)
     return blocks
 
 

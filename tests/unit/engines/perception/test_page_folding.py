@@ -80,10 +80,11 @@ class TestBlockTokenComputation:
 
         topic_id = await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
-        buffer = self.layer._short_term_store.get_buffer(topic_id)
-        assert len(buffer.blocks) == 1
-        assert buffer.blocks[0].total_tokens > 0
-        assert buffer.total_tokens > 0
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 1
+        assert topic_data.blocks[0].total_tokens > 0
+        assert topic_data.total_tokens > 0
 
     @pytest.mark.asyncio
     async def test_block_tokens_include_traces(self):
@@ -98,8 +99,9 @@ class TestBlockTokenComputation:
 
         topic_id = await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
-        buffer = self.layer._short_term_store.get_buffer(topic_id)
-        block = buffer.blocks[0]
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        block = topic_data.blocks[0]
         # tokens 应包含 user_query + clean_response + trace fields
         assert block.total_tokens > 0
 
@@ -126,9 +128,10 @@ class TestPageFoldingThreshold:
             else:
                 await layer.route_and_ingest(topic_id, _make_payload(f"msg{i}", f"reply{i}", identity))
 
-        buffer = layer._short_term_store.get_buffer(topic_id)
-        assert len(buffer.blocks) == 5
-        assert buffer.state_summary == ""
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 5
+        assert topic_data.state_summary == ""
 
     @pytest.mark.asyncio
     async def test_fold_triggered_above_threshold(self):
@@ -158,14 +161,15 @@ class TestPageFoldingThreshold:
             )
             layer._short_term_store.add_block(topic_id, block)
 
-        # 手动触发 fold_blocks（模拟 token 溢出场景）
-        layer._short_term_store.fold_blocks(topic_id, "Test summary", 2)
+        # 手动触发摘要更新与 blocks 裁剪（模拟 token 溢出场景）
+        layer._short_term_store.update_summary(topic_id, "Test summary", retain_count=2)
 
-        buffer = layer._short_term_store.get_buffer(topic_id)
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
         # 折叠后应只保留最近 2 个 blocks
-        assert len(buffer.blocks) <= 2
+        assert len(topic_data.blocks) <= 2
         # state_summary 应被写入
-        assert buffer.state_summary == "Test summary"
+        assert topic_data.state_summary == "Test summary"
 
     @pytest.mark.asyncio
     async def test_fold_does_not_trigger_generation_callback(self):
@@ -198,8 +202,8 @@ class TestPageFoldingThreshold:
             )
             layer._short_term_store.add_block(topic_id, block)
 
-        # 手动触发 fold_blocks（不经过 resolve_topic，所以不会触发 Archive 回调）
-        layer._short_term_store.fold_blocks(topic_id, "Test summary", 2)
+        # 手动触发摘要更新与 blocks 裁剪（不经过 resolve_topic，所以不会触发 Archive 回调）
+        layer._short_term_store.update_summary(topic_id, "Test summary", retain_count=2)
 
         mock_callback.assert_not_called()
 
@@ -225,16 +229,18 @@ class TestPageFoldingCumulative:
         for i in range(4):
             await layer.route_and_ingest(topic_id, _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity))
 
-        buffer = layer._short_term_store.get_buffer(topic_id)
-        first_summary = buffer.state_summary
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        first_summary = topic_data.state_summary
         assert first_summary != ""
 
         # 第二波：继续摄入，触发第二次折叠
         for i in range(4):
             await layer.route_and_ingest(topic_id, _make_payload(f"wave2 q{i} " * 20, f"wave2 a{i} " * 20, identity))
 
-        buffer = layer._short_term_store.get_buffer(topic_id)
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
         # 累积摘要应包含分隔符
-        assert "---" in buffer.state_summary
+        assert "---" in topic_data.state_summary
         # 第一次摘要应被保留在累积摘要中
-        assert first_summary in buffer.state_summary
+        assert first_summary in topic_data.state_summary

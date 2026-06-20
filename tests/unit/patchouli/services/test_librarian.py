@@ -809,9 +809,7 @@ class TestLibrarianCoreGenerateMemory:
 
     @pytest.mark.asyncio
     async def test_generate_memory_kernel_blocks_with_topic_identity(self):
-        identity = _make_identity()
         mock_perception = Mock()
-        mock_perception.get_buffer.return_value = Mock(identity=identity)
         core = LibrarianCore(
             storage=self.mock_storage,
             task_controller=_make_controller(self.mock_generation, self.mock_storage),

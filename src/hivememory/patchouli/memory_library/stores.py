@@ -5,7 +5,7 @@ MemoryLibrary 三层 Store
 
 ShortTermMemoryStore:
     - 持有 InMemoryShortTermStorage（Phase 1），future 可替换为 RedisShortTermStorage
-    - 承接短期话题调度方法（add_block / fold_blocks / LRU 等）
+    - 承接短期话题调度方法（add_block / update_summary / LRU 等）
     - 新增命名写入方法：clear_blocks / update_summary / update_title
     - 所有 buffer 字段写操作必须通过命名方法，不允许调用方直接写字段
 
@@ -63,7 +63,7 @@ class ShortTermMemoryStore:
         self._last_active_topic_id: Optional[str] = None
         logger.info(f"ShortTermMemoryStore 初始化, max_resident={max_resident_topics}")
 
-    # ── last_active tracking ──
+    # ========== 最后活跃话题记录 ==========
 
     def get_last_active_topic(self) -> Optional[str]:
         return self._last_active_topic_id
@@ -71,20 +71,7 @@ class ShortTermMemoryStore:
     def set_last_active_topic(self, topic_id: str) -> None:
         self._last_active_topic_id = topic_id
 
-    # ── CRUD ──
-
-    def get_buffer(self, topic_id: str) -> Optional[SemanticBuffer]:
-        buf = self._port._get_sync(topic_id)
-        if buf is not None:
-            buf.last_accessed_at = datetime.now().timestamp()
-            self._last_active_topic_id = topic_id
-        return buf
-
-    def get_all_buffers(self) -> List[SemanticBuffer]:
-        return self._port._list_all_sync()
-
-    def get_buffers_by_owner(self, user_id: str) -> List[SemanticBuffer]:
-        return self._port._list_by_user_sync(user_id)
+    # ========== CRUD ==========
 
     def get_topic_data(
         self,
@@ -142,7 +129,7 @@ class ShortTermMemoryStore:
             logger.info(f"移除话题段: topic_id={topic_id}")
         return buf
 
-    # ── 写操作（命名方法，禁止调用方直接写 buffer 字段）──
+    # ========== 写操作（命名方法，禁止调用方直接写 buffer 字段）==========
 
     def add_block(self, topic_id: str, block: LogicalBlock) -> None:
         buf = self._port._get_sync(topic_id)
@@ -162,13 +149,25 @@ class ShortTermMemoryStore:
         buf.total_tokens = 0
         buf.last_update = datetime.now().timestamp()
 
-    def update_summary(self, topic_id: str, summary: str) -> None:
-        """写入 state_summary（替代 buffer.state_summary = summary）。"""
+    def update_summary(
+        self,
+        topic_id: str,
+        summary: str,
+        *,
+        retain_count: Optional[int] = None,
+    ) -> int:
+        """写入 state_summary，并可选保留最近 N 个 blocks。"""
         buf = self._port._get_sync(topic_id)
         if buf is None:
-            return
+            return 0
         buf.state_summary = summary
         buf.last_update = datetime.now().timestamp()
+        if retain_count is None or len(buf.blocks) <= retain_count:
+            return 0
+        folded = len(buf.blocks) - retain_count
+        buf.blocks = buf.blocks[-retain_count:]
+        buf.total_tokens = sum(b.total_tokens for b in buf.blocks)
+        return folded
 
     def update_title(self, topic_id: str, title: str) -> None:
         """写入 topic_title（替代 buffer.topic_title = title）。"""
@@ -189,19 +188,6 @@ class ShortTermMemoryStore:
         buf.last_update = datetime.now().timestamp()
         return cleared
 
-    def fold_blocks(self, topic_id: str, state_summary: str, retain_count: int) -> int:
-        buf = self._port._get_sync(topic_id)
-        if buf is None:
-            return 0
-        buf.state_summary = state_summary
-        buf.last_update = datetime.now().timestamp()
-        if len(buf.blocks) <= retain_count:
-            return 0
-        folded = len(buf.blocks) - retain_count
-        buf.blocks = buf.blocks[-retain_count:]
-        buf.total_tokens = sum(b.total_tokens for b in buf.blocks)
-        return folded
-
     def update_metadata(self, topic_id: str, state: Optional[BufferState] = None) -> None:
         buf = self._port._get_sync(topic_id)
         if buf is None:
@@ -210,7 +196,7 @@ class ShortTermMemoryStore:
             buf.state = state
         buf.last_update = datetime.now().timestamp()
 
-    # ── LRU ──
+    # ========== LRU ==========
 
     def get_lru_buffer(self) -> Optional[SemanticBuffer]:
         bufs = self._port._list_all_sync()
@@ -224,7 +210,7 @@ class ShortTermMemoryStore:
     def get_active_topic_buffer_count(self) -> int:
         return self._port._count()
 
-    # ── info ──
+    # ========== info ==========
 
     def get_buffer_info(self, topic_id: str) -> Dict[str, Any]:
         buf = self._port._get_sync(topic_id)

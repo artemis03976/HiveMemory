@@ -2,7 +2,7 @@
 InMemoryShortTermStorage — ShortTermStoragePort 的内存态实现
 
 将短期话题池的底层存储职责收敛到此适配器。
-LRU 驱逐、fold_blocks 等上层调度逻辑保留在 ShortTermMemoryStore。
+LRU 驱逐、摘要更新与 blocks 裁剪等上层调度逻辑保留在 ShortTermMemoryStore。
 
 版本: 0.1.0 (Phase 1)
 """

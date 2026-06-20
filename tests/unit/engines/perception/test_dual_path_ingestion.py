@@ -80,8 +80,9 @@ async def test_structured_path_persists_assistant_final_text():
 
     topic_id = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    buffer = layer._short_term_store.get_buffer(topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
 
     assert block.assistant_final_text == "clean reply"
     assert len(block.turn_events) == 1
@@ -123,8 +124,9 @@ async def test_structured_path_reduces_turn_events_to_actions():
 
     topic_id = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    buffer = layer._short_term_store.get_buffer(topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert len(block.actions) == 1
     assert block.actions[0].action_id == "a1"
     assert block.actions[0].tool_kind == "READ"
@@ -147,8 +149,9 @@ async def test_structured_path_persists_payload_mtp_traces():
 
     topic_id = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    buffer = layer._short_term_store.get_buffer(topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert [t.action for t in block.semantic_traces] == ["SEARCH"]
 
 
@@ -165,8 +168,9 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
 
     topic_id = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    buffer = layer._short_term_store.get_buffer(topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert block.semantic_traces == []
 
 
@@ -182,8 +186,9 @@ async def test_structured_path_empty_final_text_stays_empty():
 
     topic_id = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    buffer = layer._short_term_store.get_buffer(topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert block.assistant_final_text == ""
 
 
@@ -199,6 +204,7 @@ async def test_assistant_message_no_longer_persists_as_block_field():
 
     topic_id = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    buffer = layer._short_term_store.get_buffer(topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert block.assistant_final_text == "clean"

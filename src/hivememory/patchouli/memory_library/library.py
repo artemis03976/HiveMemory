@@ -51,7 +51,7 @@ class MemoryLibrary:
         self.artifact_store = artifact_store
         logger.info("MemoryLibrary 初始化完成")
 
-    # ── 中期 → 长期（归档） ──
+    # ========== 中期 → 长期（归档） ==========
 
     async def archive(self, memory_id: UUID) -> None:
         """
@@ -66,7 +66,7 @@ class MemoryLibrary:
         await self.mid_term.delete(memory_id)
         logger.info(f"记忆已归档至冷存储: {memory_id}")
 
-    # ── 长期 → 中期（复活） ──
+    # ========== 长期 → 中期（复活） ==========
 
     async def revive(self, memory_id: UUID) -> None:
         """

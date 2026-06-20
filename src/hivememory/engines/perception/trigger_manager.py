@@ -128,9 +128,6 @@ class TriggerManager:
         self._on_generate_memory = callback
         logger.debug("generation_callback 已注入到 TriggerManager")
 
-    def set_relay_controller(self, relay_controller: "BaseRelayController") -> None:
-        self._relay_controller = relay_controller
-
     # ========== 统一调度器 ==========
 
     async def resolve_topic(
@@ -140,9 +137,9 @@ class TriggerManager:
         wait_for_archive: bool = False,
     ) -> None:
         """统一的话题结算调度器。"""
-        buffer = self._store.get_buffer(topic_id)
-        if not buffer or not buffer.blocks:
-            logger.debug("resolve_topic: buffer 为空或不存在，跳过结算")
+        topic_data = self._store.get_topic_data(topic_id)
+        if topic_data is None or topic_data.is_empty:
+            logger.debug("resolve_topic: topic_data 为空或不存在，跳过结算")
             return
 
         # 1. 查表：决策开关
@@ -159,12 +156,11 @@ class TriggerManager:
             f"resolve_topic: topic_id={topic_id}, "
             f"reason={trigger_reason.value}, "
             f"actions=[Archive={need_archive}, Compact={need_compact}, Evict={need_evict}], "
-            f"blocks={len(buffer.blocks)}"
+            f"blocks={topic_data.block_count}"
         )
 
-        # 2. 提取数据快照（防止后续操作污染）
-        blocks_snapshot = buffer.blocks.copy()
-        previous_summary = buffer.state_summary
+        # 2. 提取只读快照，后续写操作统一通过 Store 命名方法执行。
+        blocks_snapshot = list(topic_data.blocks)
 
         # ================= 执行区 =================
 
@@ -173,17 +169,17 @@ class TriggerManager:
             await self._archive_topic(
                 topic_id,
                 blocks_snapshot,
-                previous_summary,
+                topic_data.state_summary,
                 trigger_reason,
-                buffer.user_id,
-                topic_title=buffer.topic_title,
-                topic_summary=buffer.topic_summary,
+                topic_data.user_id,
+                topic_title=topic_data.topic_title,
+                topic_summary=topic_data.topic_summary,
                 wait_for_completion=wait_for_archive,
             )
 
         # Action 2: Compact（同步阻塞）
         if need_compact:
-            await self._compact_topic(topic_id, blocks_snapshot, previous_summary)
+            await self._compact_topic(topic_id, blocks_snapshot, topic_data.state_summary)
 
         # 无论是否 Compact，只要发生结算，旧 Blocks 都必须清空
         self._store.clear_blocks(topic_id)

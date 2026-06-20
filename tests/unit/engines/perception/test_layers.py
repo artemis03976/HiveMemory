@@ -77,10 +77,11 @@ class TestSemanticFlowPerceptionLayer:
         # 路由到新话题并摄入，topic_id 由路由入口直接返回。
         topic_id = await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
-        # Verify: block 应该已完成并加入 buffer
-        buffer = self.layer._short_term_store.get_buffer(topic_id)
-        assert len(buffer.blocks) == 1
-        assert buffer.blocks[0].identity.agent_id == "a1"
+        # Verify: block 应该已完成并加入话题数据
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 1
+        assert topic_data.blocks[0].identity.agent_id == "a1"
 
     @pytest.mark.asyncio
     async def test_route_and_ingest_reuses_topic_buffer(self):
@@ -91,14 +92,17 @@ class TestSemanticFlowPerceptionLayer:
         topic_id = await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("old topic", "old response", identity))
 
         # 验证第一个 block 已加入
-        buffer = self.layer._short_term_store.get_buffer(topic_id)
-        assert len(buffer.blocks) == 1
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 1
 
         # 第二轮：继续摄入（MMU 模式下话题路由由 TheEye 完成，ingest_payload 只做添加）
         await self.layer.route_and_ingest(topic_id, _make_payload("new topic", "new response", identity))
 
-        # 验证两个 block 都在同一 buffer 中（无自动漂移检测）
-        assert len(buffer.blocks) == 2
+        # 验证两个 block 都在同一话题中（无自动漂移检测）
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 2
 
     @pytest.mark.asyncio
     async def test_token_overflow_relay(self):
@@ -107,14 +111,17 @@ class TestSemanticFlowPerceptionLayer:
 
         topic_id = await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("first", "response1", identity))
 
-        buffer = self.layer._short_term_store.get_buffer(topic_id)
-        assert len(buffer.blocks) == 1
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 1
 
         # 第二轮：继续摄入（Relay 已断开，不再触发 Token 溢出 flush）
         await self.layer.route_and_ingest(topic_id, _make_payload("second", "response2", identity))
 
-        # 验证两个 block 都在 buffer 中
-        assert len(buffer.blocks) == 2
+        # 验证两个 block 都在话题数据中
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 2
 
     @pytest.mark.asyncio
     async def test_manual_trigger_without_active_topic(self):
@@ -130,12 +137,15 @@ class TestSemanticFlowPerceptionLayer:
 
         topic_id = await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("hi", "hello", identity))
 
-        buffer = self.layer._short_term_store.get_buffer(topic_id)
-        assert len(buffer.blocks) == 1
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 1
 
         # 清理
         result = self.layer._short_term_store.clear_buffer(topic_id)
         assert result is not None  # clear_buffer returns cleared blocks list
 
-        # 验证 buffer 已清空
-        assert len(buffer.blocks) == 0
+        # 验证话题 blocks 已清空
+        topic_data = self.layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 0
