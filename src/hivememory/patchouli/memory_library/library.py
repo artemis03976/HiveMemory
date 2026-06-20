@@ -15,12 +15,14 @@ MemoryLibrary — 三级存储协调层（书库）
 from __future__ import annotations
 
 import logging
+from typing import Optional
 from uuid import UUID
 
 from hivememory.patchouli.memory_library.stores import (
     LongTermMemoryStore,
     MidTermMemoryStore,
     ShortTermMemoryStore,
+    ArtifactStore,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,10 +43,12 @@ class MemoryLibrary:
         short_term: ShortTermMemoryStore,
         mid_term: MidTermMemoryStore,
         long_term: LongTermMemoryStore,
+        artifact_store: Optional[ArtifactStore] = None,
     ) -> None:
         self.short_term = short_term
         self.mid_term = mid_term
         self.long_term = long_term
+        self.artifact_store = artifact_store
         logger.info("MemoryLibrary 初始化完成")
 
     # ── 中期 → 长期（归档） ──

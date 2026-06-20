@@ -65,4 +65,16 @@ class TopicData(BaseModel):
         )
 
 
-__all__ = ["TopicData"]
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class ArtifactIntegrityResult:
+    artifact_id: str
+    ok: bool
+    stored_hash: Optional[str] = None
+    actual_hash: Optional[str] = None
+
+
+__all__ = ["TopicData", "ArtifactIntegrityResult"]

@@ -13,7 +13,7 @@ HiveMemory - Generation 模块接口抽象层
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from hivememory.core.models import MemoryAtom, StreamMessage
 from hivememory.engines.generation.models import (
@@ -108,26 +108,20 @@ class BaseDeduplicator(ABC):
     """
 
     @abstractmethod
-    async def check_duplicate(
+    def check_duplicate(
         self,
         draft: "ExtractedMemoryDraft",
-        threshold: float = 0.75
-    ) -> DuplicateDecision:
+        candidates: list,
+    ) -> "Tuple[DuplicateDecision, Optional[MemoryAtom]]":
         """
-        检查记忆草稿是否重复
+        检查记忆草稿是否重复（纯决策，无 I/O）
 
         Args:
             draft: LLM 提取的记忆草稿
-            threshold: 相似度阈值，默认 0.75
+            candidates: 调用方预先检索的候选结果列表（空列表 → CREATE）
 
         Returns:
-            DuplicateDecision: 决策结果 (CREATE/UPDATE/TOUCH/DISCARD)
-
-        Examples:
-            >>> dedup = MemoryDeduplicator(storage)
-            >>> decision = dedup.check_duplicate(draft)
-            >>> if decision == DuplicateDecision.UPDATE:
-            ...     merged = dedup.merge_memory(existing, draft)
+            (DuplicateDecision, Optional[MemoryAtom])
         """
         pass
 

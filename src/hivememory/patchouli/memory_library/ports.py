@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
+from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
 from hivememory.engines.perception.models import SemanticBuffer
 from hivememory.engines.lifecycle.models import ArchiveRecord
 
@@ -124,8 +125,40 @@ class LongTermStoragePort(ABC):
     ) -> List[ArchiveRecord]: ...
 
 
+# ============ ArtifactStoragePort ============
+
+class ArtifactStoragePort(ABC):
+    """
+    Artifact 附属资产仓库 Port — append-only 持久化存储。
+
+    实现：
+        FilesystemArtifactStorageAdapter（Phase 2，从 infrastructure/storage 迁入）
+        SQLArtifactStorageAdapter（future）
+    """
+
+    @abstractmethod
+    async def put(self, artifact: BaseArtifact) -> ArtifactRef: ...
+
+    @abstractmethod
+    async def get(self, ref_or_id: "ArtifactRef | str") -> Dict[str, Any]: ...
+
+    @abstractmethod
+    async def exists(self, artifact_id: str) -> bool: ...
+
+    @abstractmethod
+    async def list_by_memory(
+        self,
+        memory_id: str,
+        artifact_type: Optional[ArtifactType] = None,
+    ) -> List[ArtifactRef]: ...
+
+    @abstractmethod
+    async def verify(self, ref: ArtifactRef) -> "ArtifactIntegrityResult": ...
+
+
 __all__ = [
     "ShortTermStoragePort",
     "MidTermStoragePort",
     "LongTermStoragePort",
+    "ArtifactStoragePort",
 ]

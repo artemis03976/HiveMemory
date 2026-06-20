@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from hivememory.core.models.artifact import ArtifactRef, DocumentArtifact, DocumentLocator
-from hivememory.infrastructure.storage.artifact_store import ArtifactStore
+from hivememory.patchouli.memory_library import ArtifactStore
 
 _DOC_FIELDS = set(DocumentArtifact.model_fields)
 
@@ -31,4 +31,4 @@ class DocumentArtifactBuilder:
             locators=locators or [],
             **{k: v for k, v in kwargs.items() if k in _DOC_FIELDS},
         )
-        return await self._store.put_json(artifact)
+        return await self._store.put(artifact)

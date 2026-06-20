@@ -14,7 +14,7 @@ from hivememory.core.models.artifact import (
 )
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.engines.generation.models import GenerationContext
-from hivememory.infrastructure.storage.artifact_store import ArtifactStore
+from hivememory.patchouli.memory_library import ArtifactStore
 
 
 class MemoryCreationBundle(BaseModel):
@@ -50,7 +50,7 @@ class MemoryArtifactBuilder:
             source_artifacts=source_artifact_refs,
             source_memory_refs=source_memory_refs or [],
         )
-        v1_ref = await self._store.put_json(v1)
+        v1_ref = await self._store.put(v1)
 
         # 2. creation artifact — initial_version_ref 指向 v1
         creation = MemoryCreationArtifact(
@@ -61,7 +61,7 @@ class MemoryArtifactBuilder:
             source_memory_refs=source_memory_refs or [],
             initial_version_ref=v1_ref,
         )
-        creation_ref = await self._store.put_json(creation)
+        creation_ref = await self._store.put(creation)
 
         return MemoryCreationBundle(creation_ref=creation_ref, initial_version_ref=v1_ref)
 
@@ -87,7 +87,7 @@ class MemoryArtifactBuilder:
             source_artifacts=source_artifact_refs or [],
             source_memory_refs=source_memory_refs or [],
         )
-        return await self._store.put_json(version)
+        return await self._store.put(version)
 
 
 def _snapshot(memory: MemoryAtom) -> MemoryVersionSnapshot:

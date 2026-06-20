@@ -319,7 +319,19 @@ class PatchouliRuntime:
             )
         )
 
-        return MemoryLibrary(short_term=short_term, mid_term=mid_term, long_term=long_term)
+        artifact_config = self._patchouli_config.artifacts
+        artifact_store = None
+        if artifact_config.enabled:
+            from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
+            from hivememory.patchouli.memory_library.stores import ArtifactStore
+            artifact_store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=artifact_config.root_dir))
+
+        return MemoryLibrary(
+            short_term=short_term,
+            mid_term=mid_term,
+            long_term=long_term,
+            artifact_store=artifact_store,
+        )
 
     # ========== 引擎构建 ==========
 
@@ -389,25 +401,22 @@ class PatchouliRuntime:
         )
 
         deduplicator: BaseDeduplicator = create_deduplicator(
-            self.storage,
             config.deduplicator
         )
 
         return MemoryGenerationEngine(
-            storage=self.storage,
+            mid_term=self.memory_library.mid_term,
             extractor=extractor,
             deduplicator=deduplicator,
         )
 
     def _build_artifact_engine(self):
-        """[私有构建器] 组装 ArtifactEngine（本地文件系统存储）"""
+        """[私有构建器] 组装 ArtifactEngine — store 由 MemoryLibrary 统一持有"""
         from hivememory.engines.artifacts.engine import ArtifactEngine
-        from hivememory.infrastructure.storage.artifact_store import FilesystemArtifactStore
 
-        artifact_config = self._patchouli_config.artifacts
-        if not artifact_config.enabled:
+        store = self.memory_library.artifact_store
+        if store is None:
             return None
-        store = FilesystemArtifactStore(root_dir=artifact_config.root_dir)
         return ArtifactEngine(store=store)
 
     def _build_lifecycle_engine(self):
@@ -425,7 +434,7 @@ class PatchouliRuntime:
         )
 
         reinforcement_engine = DynamicReinforcementEngine(
-            storage=self.storage,
+            mid_term=self.memory_library.mid_term,
             config=self._patchouli_config.lifecycle.reinforcement,
             vitality_calculator=vitality_calculator
         )
@@ -441,7 +450,7 @@ class PatchouliRuntime:
         )
 
         return MemoryLifecycleEngine(
-            storage=self.storage,
+            mid_term=self.memory_library.mid_term,
             vitality_calculator=vitality_calculator,
             reinforcement_engine=reinforcement_engine,
             archiver=archiver,
@@ -474,7 +483,7 @@ class PatchouliRuntime:
         )
 
         task_controller = MemoryGenerationTaskController(
-            storage=self.storage,
+            mid_term=self.memory_library.mid_term,
             bus=self._local_bus,
             generation_engine=self._engines["generation"],
             runtime_events=self._runtime_events.scoped(

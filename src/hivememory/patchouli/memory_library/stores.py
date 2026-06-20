@@ -36,6 +36,7 @@ from hivememory.patchouli.memory_library.ports import (
     LongTermStoragePort,
     MidTermStoragePort,
     ShortTermStoragePort,
+    ArtifactStoragePort,
 )
 
 logger = logging.getLogger(__name__)
@@ -336,8 +337,33 @@ class LongTermMemoryStore:
         return await self._port.query(limit=limit, vitality_threshold=vitality_threshold)
 
 
+# ============ ArtifactStore ============
+
+class ArtifactStore:
+    """Artifact 附属资产仓库（书库隐喻的附属档案室）。"""
+
+    def __init__(self, port: ArtifactStoragePort) -> None:
+        self._port = port
+
+    async def put(self, artifact) -> "ArtifactRef":
+        return await self._port.put(artifact)
+
+    async def get(self, ref_or_id) -> dict:
+        return await self._port.get(ref_or_id)
+
+    async def exists(self, artifact_id: str) -> bool:
+        return await self._port.exists(artifact_id)
+
+    async def list_by_memory(self, memory_id: str, artifact_type=None) -> list:
+        return await self._port.list_by_memory(memory_id, artifact_type)
+
+    async def verify(self, ref) -> "ArtifactIntegrityResult":
+        return await self._port.verify(ref)
+
+
 __all__ = [
     "ShortTermMemoryStore",
     "MidTermMemoryStore",
     "LongTermMemoryStore",
+    "ArtifactStore",
 ]

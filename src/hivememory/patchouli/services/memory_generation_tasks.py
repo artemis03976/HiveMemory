@@ -43,6 +43,7 @@ from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventS
 
 if TYPE_CHECKING:
     from hivememory.engines.artifacts.engine import ArtifactEngine
+    from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +69,14 @@ class MemoryGenerationTaskController:
     def __init__(
         self,
         *,
-        storage: Any,
+        mid_term: "MidTermMemoryStore",
         bus: Optional[Any] = None,
         generation_engine: Optional[Any] = None,
         task_registry: Optional[MemoryGenerationTaskRegistry] = None,
         runtime_events: RuntimeEventSink | None = None,
         artifact_engine: Optional["ArtifactEngine"] = None,
     ) -> None:
-        self.storage = storage
+        self._mid_term = mid_term
         self._bus = bus
         self.generation_engine = generation_engine
         self._task_registry = task_registry or MemoryGenerationTaskRegistry()
@@ -294,7 +295,7 @@ class MemoryGenerationTaskController:
         assert isinstance(focus, UpdateFocus)
         logger.info(f"Mode C UPDATE: alias='{focus.base_alias}'")
 
-        existing = await self.storage.get_memory(_UUID(focus.base_uuid))
+        existing = await self._mid_term.get(_UUID(focus.base_uuid))
         if existing is None:
             logger.error(f"UPDATE target memory not found: {focus.base_uuid}")
             raise RuntimeError(f"UPDATE target memory not found: {focus.base_uuid}")
@@ -338,7 +339,7 @@ class MemoryGenerationTaskController:
         for r in results:
             if r.duplicate_decision in (DuplicateDecision.CREATE, DuplicateDecision.UPDATE) and r.atom is not None:
                 try:
-                    await self.storage.upsert_memory(r.atom)
+                    await self._mid_term.upsert(r.atom)
                     logger.info(f"✓ 记忆已存储: '{r.atom.index.title}' (ID: {r.atom.id})")
                 except Exception as e:
                     logger.error(f"存储记忆失败: {e}", exc_info=True)

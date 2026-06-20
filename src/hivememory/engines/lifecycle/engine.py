@@ -23,7 +23,10 @@ from hivememory.engines.lifecycle.models import (
     EventType,
     ReinforcementResult,
 )
-from hivememory.infrastructure.storage import QdrantMemoryStore
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -55,32 +58,17 @@ class MemoryLifecycleEngine:
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
+        mid_term: "MidTermMemoryStore",
         vitality_calculator: VitalityCalculator,
         reinforcement_engine: DynamicReinforcementEngine,
         archiver: BaseMemoryArchiver,
         garbage_collector: BaseGarbageCollector,
     ):
-        """
-        初始化记忆生命周期管理器
-
-        Args:
-            storage: 向量存储实例 (QdrantMemoryStore)
-            vitality_calculator: 生命力计算器
-            reinforcement_engine: 强化引擎
-            archiver: 归档器
-            garbage_collector: 垃圾回收器
-
-        Note:
-            所有组件参数都是必需的。如需使用默认配置创建组件，
-            请使用 create_default_lifecycle_engine 工厂函数。
-        """
-        self.storage = storage
+        self._mid_term = mid_term
         self.vitality_calculator = vitality_calculator
         self.reinforcement_engine = reinforcement_engine
         self.archiver = archiver
         self.garbage_collector = garbage_collector
-
         logger.info("MemoryLifecycleEngine initialized with all components")
 
     async def refresh_vitality(
@@ -93,7 +81,7 @@ class MemoryLifecycleEngine:
         vitality = self.vitality_calculator.calculate(memory)
         memory.meta.vitality_score = vitality
         if persist:
-            await self.storage.upsert_memory(memory)
+            await self._mid_term.upsert(memory)
         return vitality
 
     async def refresh_vitality_batch(
@@ -144,7 +132,7 @@ class MemoryLifecycleEngine:
         return await self.record_event(event)
 
     async def run_garbage_collection(self, force: bool = False) -> int:
-        all_memories = await self.storage.get_all_memories()
+        all_memories = await self._mid_term.scroll(limit=10000)
         await self.refresh_vitality_batch(all_memories, persist=True)
         return await self.garbage_collector.collect(all_memories, force=force)
 

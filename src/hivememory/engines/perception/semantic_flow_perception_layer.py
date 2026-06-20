@@ -118,7 +118,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     def set_generation_callback(self, callback: Callable[[Dict[str, Any]], Any]) -> None:
         self._trigger_manager.set_generation_callback(callback)
 
-    # ========== Kernel 模式载荷摄入 (v3.0) ==========
+    # ========== 短期记忆上下文摄入==========
 
     async def route_and_ingest(
         self,
