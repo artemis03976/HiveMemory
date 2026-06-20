@@ -8,7 +8,7 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
 核心组件:
     - BasePerceptionLayer: 感知层基类
     - SemanticFlowPerceptionLayer: 语义流感知层 / MMU（多话题并发管理）
-    - SemanticBufferManager: 话题管理器 (TopicManager) - 纯状态管理
+    - ShortTermMemoryStore: 短期话题状态存储与调度入口
     - TriggerManager: 话题结算调度器 - Flush 触发逻辑
     - SemanticBuffer: 话题段 (TopicSegment)
     - LogicalBlock: 页 (Page)
@@ -39,7 +39,6 @@ from hivememory.engines.perception.models import (
     FlushEvent,
     FlushReason,
 )
-from hivememory.engines.perception.buffer_manager import SemanticBufferManager
 from hivememory.engines.perception.trigger_manager import (
     TriggerManager,
     DECISION_MATRIX,
@@ -126,8 +125,6 @@ __all__ = [
     "SemanticBuffer",
     "FlushEvent",
     "FlushReason",
-    # 缓冲区管理器 — DEPRECATED: 请改用 patchouli.memory_library.ShortTermMemoryStore
-    "SemanticBufferManager",
     # 话题结算调度器
     "TriggerManager",
     "DECISION_MATRIX",

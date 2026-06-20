@@ -1,4 +1,4 @@
-"""
+﻿"""
 TriggerManager 单元测试
 
 测试覆盖:
@@ -68,22 +68,22 @@ class TestTriggerManagerInit:
 
     def setup_method(self):
         """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
+        self.mock_short_term_store = Mock()
         self.mock_relay_controller = Mock()
 
     def test_init_with_relay_controller(self):
         """测试带 RelayController 初始化"""
         manager = TriggerManager(
-            store=self.mock_buffer_manager,
+            store=self.mock_short_term_store,
             relay_controller=self.mock_relay_controller,
         )
-        assert manager._store is self.mock_buffer_manager
+        assert manager._store is self.mock_short_term_store
         assert manager._relay_controller is self.mock_relay_controller
 
     def test_init_requires_relay_controller(self):
         """TriggerManager requires explicit RelayController injection."""
         with pytest.raises(TypeError):
-            TriggerManager(store=self.mock_buffer_manager)
+            TriggerManager(store=self.mock_short_term_store)
 
 
 class TestTriggerManagerDependencyInjection:
@@ -91,9 +91,9 @@ class TestTriggerManagerDependencyInjection:
 
     def setup_method(self):
         """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
+        self.mock_short_term_store = Mock()
         self.manager = TriggerManager(
-            store=self.mock_buffer_manager,
+            store=self.mock_short_term_store,
             relay_controller=Mock(),
         )
 
@@ -115,27 +115,27 @@ class TestTriggerManagerResolveTopic:
 
     def setup_method(self):
         """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
+        self.mock_short_term_store = Mock()
         self.mock_relay_controller = Mock()
         self.mock_callback = AsyncMock(return_value=None)
 
         # clear_blocks / update_summary 需要实际操作 buffer 对象，否则断言失败
         def _clear_blocks(topic_id):
-            buf = self.mock_buffer_manager.get_buffer.return_value
+            buf = self.mock_short_term_store.get_buffer.return_value
             if buf:
                 buf.blocks.clear()
                 buf.total_tokens = 0
 
         def _update_summary(topic_id, summary):
-            buf = self.mock_buffer_manager.get_buffer.return_value
+            buf = self.mock_short_term_store.get_buffer.return_value
             if buf:
                 buf.state_summary = summary
 
-        self.mock_buffer_manager.clear_blocks.side_effect = _clear_blocks
-        self.mock_buffer_manager.update_summary.side_effect = _update_summary
+        self.mock_short_term_store.clear_blocks.side_effect = _clear_blocks
+        self.mock_short_term_store.update_summary.side_effect = _update_summary
 
         self.manager = TriggerManager(
-            store=self.mock_buffer_manager,
+            store=self.mock_short_term_store,
             relay_controller=self.mock_relay_controller,
         )
         self.manager.set_generation_callback(self.mock_callback)
@@ -165,14 +165,14 @@ class TestTriggerManagerResolveTopic:
     @pytest.mark.asyncio
     async def test_resolve_topic_empty_buffer(self):
         """测试空 buffer 跳过结算"""
-        self.mock_buffer_manager.get_buffer.return_value = None
+        self.mock_short_term_store.get_buffer.return_value = None
 
         await self.manager.resolve_topic(self.topic_id, FlushReason.IDLE_TIMEOUT)
 
         # 不应该调用任何依赖
         self.mock_callback.assert_not_called()
         self.mock_relay_controller.generate_summary.assert_not_called()
-        self.mock_buffer_manager.pop_buffer.assert_not_called()
+        self.mock_short_term_store.pop_buffer.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_resolve_topic_buffer_no_blocks(self):
@@ -182,7 +182,7 @@ class TestTriggerManagerResolveTopic:
             current_agent_id=self.identity.agent_id,
             topic_id=self.topic_id,
         )
-        self.mock_buffer_manager.get_buffer.return_value = buffer
+        self.mock_short_term_store.get_buffer.return_value = buffer
 
         await self.manager.resolve_topic(self.topic_id, FlushReason.IDLE_TIMEOUT)
 
@@ -193,7 +193,7 @@ class TestTriggerManagerResolveTopic:
     async def test_resolve_topic_idle_timeout(self):
         """测试 IDLE_TIMEOUT 触发 Archive + Evict"""
         buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
+        self.mock_short_term_store.get_buffer.return_value = buffer
 
         await self.manager.resolve_topic(self.topic_id, FlushReason.IDLE_TIMEOUT)
         await asyncio.sleep(0)
@@ -204,7 +204,7 @@ class TestTriggerManagerResolveTopic:
         assert call_args[0][0].user_id == self.identity.user_id
 
         # 验证 Evict 被调用
-        self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
+        self.mock_short_term_store.pop_buffer.assert_called_once_with(self.topic_id)
 
         # 验证 buffer 被清空
         assert len(buffer.blocks) == 0
@@ -214,7 +214,7 @@ class TestTriggerManagerResolveTopic:
     async def test_resolve_topic_token_overflow(self):
         """测试 TOKEN_OVERFLOW 触发 Compact"""
         buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
+        self.mock_short_term_store.get_buffer.return_value = buffer
         self.mock_relay_controller.generate_summary.return_value = "Test summary"
 
         await self.manager.resolve_topic(self.topic_id, FlushReason.TOKEN_OVERFLOW)
@@ -226,7 +226,7 @@ class TestTriggerManagerResolveTopic:
         self.mock_callback.assert_not_called()
 
         # 验证 Evict 未被调用
-        self.mock_buffer_manager.pop_buffer.assert_not_called()
+        self.mock_short_term_store.pop_buffer.assert_not_called()
 
         # 验证 buffer 状态
         assert buffer.state_summary == "Test summary"
@@ -237,7 +237,7 @@ class TestTriggerManagerResolveTopic:
     async def test_resolve_topic_manual(self):
         """测试 MANUAL 触发 Archive + Compact"""
         buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
+        self.mock_short_term_store.get_buffer.return_value = buffer
         self.mock_relay_controller.generate_summary.return_value = "Test summary"
 
         await self.manager.resolve_topic(self.topic_id, FlushReason.MANUAL)
@@ -256,7 +256,7 @@ class TestTriggerManagerResolveTopic:
     async def test_resolve_topic_lru_eviction(self):
         """测试 LRU_EVICTION 触发 Archive + Evict"""
         buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
+        self.mock_short_term_store.get_buffer.return_value = buffer
 
         await self.manager.resolve_topic(self.topic_id, FlushReason.LRU_EVICTION)
         await asyncio.sleep(0)
@@ -265,13 +265,13 @@ class TestTriggerManagerResolveTopic:
         self.mock_callback.assert_called_once()
 
         # 验证 Evict 被调用
-        self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
+        self.mock_short_term_store.pop_buffer.assert_called_once_with(self.topic_id)
 
     @pytest.mark.asyncio
     async def test_resolve_topic_shutdown_waits_for_archive(self):
         """测试 SHUTDOWN 触发时等待 Archive 完成后再驱逐"""
         buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
+        self.mock_short_term_store.get_buffer.return_value = buffer
 
         await self.manager.resolve_topic(
             self.topic_id,
@@ -280,7 +280,7 @@ class TestTriggerManagerResolveTopic:
         )
 
         self.mock_callback.assert_awaited_once()
-        self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
+        self.mock_short_term_store.pop_buffer.assert_called_once_with(self.topic_id)
         assert len(buffer.blocks) == 0
         assert buffer.total_tokens == 0
 
@@ -290,11 +290,11 @@ class TestTriggerManagerArchiveTopic:
 
     def setup_method(self):
         """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
+        self.mock_short_term_store = Mock()
         self.mock_callback = AsyncMock(return_value=None)
 
         self.manager = TriggerManager(
-            store=self.mock_buffer_manager,
+            store=self.mock_short_term_store,
             relay_controller=Mock(),
         )
         self.manager.set_generation_callback(self.mock_callback)
@@ -306,7 +306,7 @@ class TestTriggerManagerArchiveTopic:
     async def test_archive_without_callback(self):
         """测试无回调时跳过 Archive"""
         manager = TriggerManager(
-            store=self.mock_buffer_manager,
+            store=self.mock_short_term_store,
             relay_controller=Mock(),
         )
 
@@ -404,18 +404,18 @@ class TestTriggerManagerCompactTopic:
 
     def setup_method(self):
         """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
+        self.mock_short_term_store = Mock()
         self.mock_relay_controller = Mock()
 
         def _update_summary(topic_id, summary):
-            buf = self.mock_buffer_manager.get_buffer.return_value
+            buf = self.mock_short_term_store.get_buffer.return_value
             if buf:
                 buf.state_summary = summary
 
-        self.mock_buffer_manager.update_summary.side_effect = _update_summary
+        self.mock_short_term_store.update_summary.side_effect = _update_summary
 
         self.manager = TriggerManager(
-            store=self.mock_buffer_manager,
+            store=self.mock_short_term_store,
             relay_controller=self.mock_relay_controller,
         )
 
@@ -430,7 +430,7 @@ class TestTriggerManagerCompactTopic:
             current_agent_id=self.identity.agent_id,
             topic_id=self.topic_id,
         )
-        self.mock_buffer_manager.get_buffer.return_value = buffer
+        self.mock_short_term_store.get_buffer.return_value = buffer
         self.mock_relay_controller.generate_summary.return_value = "New summary"
 
         blocks = [
@@ -449,7 +449,7 @@ class TestTriggerManagerCompactTopic:
     @pytest.mark.asyncio
     async def test_compact_always_generates_summary(self):
         """_compact_topic 不做存在性检查；存在性由 resolve_topic 保证。"""
-        self.mock_buffer_manager.get_buffer.return_value = None
+        self.mock_short_term_store.get_buffer.return_value = None
         self.mock_relay_controller.generate_summary.return_value = "summary"
 
         blocks = [

@@ -88,7 +88,7 @@ class TriggerManager:
         | MANUAL           | ✅      | ✅      | ❌    |
 
     依赖:
-        - ShortTermMemoryStore: 读取 buffer 状态、执行 evict（原 SemanticBufferManager，已废弃）
+        - ShortTermMemoryStore: 读取 buffer 状态、执行 evict
         - RelayController: 生成摘要
         - on_generate_memory 回调: 发送归档事件给 Librarian
 
@@ -107,7 +107,7 @@ class TriggerManager:
         初始化 TriggerManager
 
         Args:
-            store: ShortTermMemoryStore 实例（短期记忆存储，替代旧 SemanticBufferManager）
+            store: ShortTermMemoryStore 实例（短期记忆存储）
             relay_controller: RelayController 实例（用于生成摘要）
         """
         self._store = store

@@ -74,12 +74,8 @@ class TestSemanticFlowPerceptionLayer:
         identity = Identity(user_id="u1", agent_id="a1")
         payload = _make_payload("hi", "hello", identity)
 
-        # 路由到新话题并摄入
-        await self.layer.route_and_ingest("NEW_TOPIC", payload)
-
-        # 获取 topic_id
-        snapshots = self.layer.get_active_topics_snapshots(identity)
-        topic_id = snapshots[0].topic_id
+        # 路由到新话题并摄入，topic_id 由路由入口直接返回。
+        topic_id = await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
         # Verify: block 应该已完成并加入 buffer
         buffer = self.layer._short_term_store.get_buffer(topic_id)
@@ -92,10 +88,7 @@ class TestSemanticFlowPerceptionLayer:
         identity = Identity(user_id="u1", agent_id="a1")
 
         # 第一轮：路由到新话题
-        await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("old topic", "old response", identity))
-
-        snapshots = self.layer.get_active_topics_snapshots(identity)
-        topic_id = snapshots[0].topic_id
+        topic_id = await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("old topic", "old response", identity))
 
         # 验证第一个 block 已加入
         buffer = self.layer._short_term_store.get_buffer(topic_id)
@@ -112,10 +105,7 @@ class TestSemanticFlowPerceptionLayer:
         """测试 Token 溢出 (Phase 4.5: Relay 已断开，仅验证多 block 累积)"""
         identity = Identity(user_id="u1", agent_id="a1")
 
-        await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("first", "response1", identity))
-
-        snapshots = self.layer.get_active_topics_snapshots(identity)
-        topic_id = snapshots[0].topic_id
+        topic_id = await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("first", "response1", identity))
 
         buffer = self.layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
@@ -138,10 +128,7 @@ class TestSemanticFlowPerceptionLayer:
         """测试清理 buffer"""
         identity = Identity(user_id="u1", agent_id="a1")
 
-        await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("hi", "hello", identity))
-
-        snapshots = self.layer.get_active_topics_snapshots(identity)
-        topic_id = snapshots[0].topic_id
+        topic_id = await self.layer.route_and_ingest("NEW_TOPIC", _make_payload("hi", "hello", identity))
 
         buffer = self.layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 1

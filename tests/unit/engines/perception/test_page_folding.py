@@ -78,10 +78,7 @@ class TestBlockTokenComputation:
         identity = _make_identity()
         payload = _make_payload("What is Python?", "Python is a language", identity)
 
-        await self.layer.route_and_ingest("NEW_TOPIC", payload)
-
-        snapshots = self.layer.get_active_topics_snapshots(identity)
-        topic_id = snapshots[0].topic_id
+        topic_id = await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
         buffer = self.layer._short_term_store.get_buffer(topic_id)
         assert len(buffer.blocks) == 1
@@ -99,10 +96,7 @@ class TestBlockTokenComputation:
         identity = _make_identity()
         payload = _make_payload("q", "a", identity, traces=traces)
 
-        await self.layer.route_and_ingest("NEW_TOPIC", payload)
-
-        snapshots = self.layer.get_active_topics_snapshots(identity)
-        topic_id = snapshots[0].topic_id
+        topic_id = await self.layer.route_and_ingest("NEW_TOPIC", payload)
 
         buffer = self.layer._short_term_store.get_buffer(topic_id)
         block = buffer.blocks[0]
@@ -128,9 +122,7 @@ class TestPageFoldingThreshold:
         topic_id = None
         for i in range(5):
             if topic_id is None:
-                await layer.route_and_ingest("NEW_TOPIC", _make_payload(f"msg{i}", f"reply{i}", identity))
-                snapshots = layer.get_active_topics_snapshots(identity)
-                topic_id = snapshots[0].topic_id
+                topic_id = await layer.route_and_ingest("NEW_TOPIC", _make_payload(f"msg{i}", f"reply{i}", identity))
             else:
                 await layer.route_and_ingest(topic_id, _make_payload(f"msg{i}", f"reply{i}", identity))
 

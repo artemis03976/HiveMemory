@@ -13,15 +13,15 @@ HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory M
     - 异步空闲超时监控
 
 映射关系 (ShortTermMemory.md):
-    TopicManager (MMU) = SemanticBufferManager
+    TopicManager (MMU) = ShortTermMemoryStore
     TopicSegment = SemanticBuffer
     Pages = blocks (List[LogicalBlock])
 
 Note:
     Phase 4.5 重构：
     - 移除旧版语义吸附依赖（话题路由由 TheEye 完成）
-    - 新增 route_and_ingest / swap_out_topic / get_active_topics_snapshots
-    - BufferManager 升级为 MMU（含 LRU 驱逐）
+    - 新增 route_and_ingest / swap_out_topic
+    - 短期话题状态由 ShortTermMemoryStore 承接（含 LRU 驱逐）
 
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
@@ -63,7 +63,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         - 空闲超时：长期不活跃的话题自动换出
 
     架构：
-        - BufferManager (MMU): 话题池管理（CRUD + 路由 + LRU）
+        - ShortTermMemoryStore (MMU): 话题池管理（CRUD + 路由 + LRU）
         - PerceptionLayer: 编排和协调
 
     Examples:
@@ -117,226 +117,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     def set_generation_callback(self, callback: Callable[[Dict[str, Any]], Any]) -> None:
         self._trigger_manager.set_generation_callback(callback)
-
-    # ========== 短期记忆上下文摄入==========
-
-    async def route_and_ingest(
-        self,
-        topic_id: str,
-        payload: InteractionPayload,
-    ) -> str:
-        """
-        MMU 核心方法：路由到指定话题并摄入载荷
-
-        流程:
-            - NEW_TOPIC: 检查驱逐 → 创建新话题 → ingest_payload
-            - 已有 topic_id: 换入话题 → ingest_payload（不存在则回退到 NEW_TOPIC）
-
-        Args:
-            topic_id: 目标话题 ID 或 "NEW_TOPIC"
-            payload: Kernel → Perception 的原子传输包
-
-        Returns:
-            str: 最终路由到的 topic_id
-        """
-        # 统一处理：需要创建新话题的情况
-        if topic_id == "NEW_TOPIC":
-            topic_id = await self.create_new_topic(payload.identity)
-        else:
-            if not self._short_term_store.topic_exists(topic_id):
-                logger.warning(f"话题 {topic_id} 不存在，回退到 NEW_TOPIC")
-                topic_id = await self.create_new_topic(payload.identity)
-
-        # 摄入载荷
-        await self.ingest_payload(payload, topic_id)
-
-        # 更新最后活跃话题
-        self._short_term_store.set_last_active_topic(topic_id)
-
-        return topic_id
-
-    async def ingest_payload(
-        self,
-        payload: InteractionPayload,
-        topic_id: str,
-    ) -> None:
-        """
-        摄入完整交互载荷
-
-        从 InteractionPayload 直接构建 LogicalBlock。
-
-        流程:
-            1. 消费 Patchouli 后处理完成的结构化 payload 字段
-            2. 构建 LogicalBlock (v3.0 字段)
-            3. 信号检查:
-               - URGENT (write_focus/update_focus): 添加 block → 立即 flush
-               - NORMAL: 直接添加 block
-
-        Args:
-            payload: Kernel → Perception 的原子传输包
-            topic_id: 目标话题 ID
-        """
-        if not payload.turn_events:
-            raise ValueError(
-                "InteractionPayload.turn_events is required; "
-                "legacy assistant_message fallback has been removed."
-            )
-
-        clean_text = payload.assistant_final_text or ""
-        actions = ActionReducer.reduce(payload.turn_events)
-        traces = payload.mtp_traces
-
-        logger.debug(
-            "ingest_payload: 结构化单路径, "
-            f"turn_events={len(payload.turn_events)}, traces={len(traces)}, "
-            f"actions={len(actions)}"
-        )
-
-        # 2. 构建 LogicalBlock
-        block = LogicalBlock(
-            turn=TurnRecord(
-                identity=payload.identity,
-                user_query=payload.user_message,
-                rewritten_query=payload.rewritten_query,
-                assistant_final_text=payload.assistant_final_text or clean_text,
-                turn_events=payload.turn_events,
-                actions=actions,
-                semantic_traces=traces,
-            ),
-            worth_saving=payload.worth_saving,
-        )
-
-        # 2.5 计算 block 的 total_tokens
-        block.total_tokens = (
-            estimate_tokens(block.user_query)
-            + estimate_tokens(block.assistant_final_text)
-            + sum(
-                estimate_tokens(t.query or "") + estimate_tokens(t.target or "")
-                for t in block.semantic_traces
-            )
-        )
-
-        # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
-        self._short_term_store.add_block(topic_id, block)
-
-        # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
-        await self._maybe_fold_pages(topic_id)
-
-        # 重置状态
-        self._short_term_store.update_metadata(
-            topic_id, state=BufferState.IDLE
-        )
-
-    async def _maybe_fold_pages(self, topic_id: str) -> None:
-        """
-        Page Folding: token 溢出时触发 Compact 操作
-        """
-        topic_data = self._short_term_store.get_topic_data(topic_id, touch=False)
-        if topic_data is None:
-            return
-
-        threshold = self.config.fold_token_threshold
-
-        logger.debug(
-            f"_maybe_fold_pages: topic_id={topic_id}, "
-            f"total_tokens={topic_data.total_tokens}, threshold={threshold}, "
-            f"blocks_count={topic_data.block_count}"
-        )
-
-        if topic_data.total_tokens <= threshold:
-            return
-
-        logger.info(
-            f"Token 溢出: topic_id={topic_id}, "
-            f"total_tokens={topic_data.total_tokens} > threshold={threshold}"
-        )
-
-        # 调用统一调度器
-        await self._trigger_manager.resolve_topic(
-            topic_id=topic_id,
-            trigger_reason=FlushReason.TOKEN_OVERFLOW,
-        )
-
-    async def manual_trigger(
-        self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        手动触发话题结算 (Archive + Compact)
-
-        语义：立即归档 + 生成摘要并保留内存。
-        当用户主动请求保存当前对话状态时使用。不同于其他触发原因，
-        MANUAL 触发会同时执行 Archive 和 Compact，但不会 Evict 话题。
-
-        Args:
-            topic_id: 目标话题 ID。如果为 None，则使用 last_active_topic_id 作为回退。
-
-        Returns:
-            Dict: 包含以下键的字典:
-                - success: bool - 操作是否成功
-                - topic_id: str - 实际操作的话题 ID
-                - message: str - 操作结果描述
-                - blocks_archived: int - 归档的 block 数量
-
-        Raises:
-            ValueError: 如果 topic_id 未指定且没有 last_active_topic_id
-        """
-        # 解析目标话题
-        target_topic_id = topic_id
-        if target_topic_id is None:
-            target_topic_id = self._short_term_store.get_last_active_topic()
-
-        if target_topic_id is None:
-            raise ValueError(
-                "manual_trigger: 未指定 topic_id 且没有活跃话题可回退"
-            )
-
-        # 验证话题存在
-        topic_data = self._short_term_store.get_topic_data(target_topic_id)
-        if topic_data is None:
-            return {
-                "success": False,
-                "topic_id": target_topic_id,
-                "message": f"话题 {target_topic_id} 不存在",
-                "blocks_archived": 0,
-            }
-
-        if topic_data.is_empty:
-            return {
-                "success": True,
-                "topic_id": target_topic_id,
-                "message": "话题为空，无需处理",
-                "blocks_archived": 0,
-            }
-
-        blocks_count = topic_data.block_count
-
-        # 调用统一调度器（MANUAL 触发）
-        await self._trigger_manager.resolve_topic(
-            topic_id=target_topic_id,
-            trigger_reason=FlushReason.MANUAL,
-        )
-
-        logger.info(
-            f"manual_trigger 完成: topic_id={target_topic_id}, "
-            f"blocks_archived={blocks_count}"
-        )
-
-        return {
-            "success": True,
-            "topic_id": target_topic_id,
-            "message": f"成功归档 {blocks_count} 个 blocks",
-            "blocks_archived": blocks_count,
-        }
-
-    def discard_if_empty(self, topic_id: str) -> bool:
-        """话题存在且无 blocks 时驱逐并返回 True，否则返回 False。"""
-        info = self._short_term_store.get_buffer_info(topic_id)
-        if info.get("exists") and info.get("block_count", 0) == 0:
-            self._short_term_store.pop_buffer(topic_id)
-            logger.info(f"已清理无内容话题: {topic_id}")
-            return True
-        return False
 
     @property
     def short_term_store(self):
@@ -435,6 +215,221 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             trigger_reason=FlushReason.LRU_EVICTION,
         )
 
+    # ========== 短期记忆上下文摄入==========
+
+    async def route_and_ingest(
+        self,
+        topic_id: str,
+        payload: InteractionPayload,
+    ) -> str:
+        """
+        MMU 核心方法：路由到指定话题并摄入载荷
+
+        流程:
+            - prepare_topic: 确保话题存在（必要时创建 / 驱逐）
+            - ingest_payload: 将载荷写入最终话题
+
+        Args:
+            topic_id: 目标话题 ID 或 "NEW_TOPIC"
+            payload: Kernel → Perception 的原子传输包
+
+        Returns:
+            str: 最终路由到的 topic_id
+        """
+        # 话题生命周期判断统一收敛到 prepare_topic
+        topic_id = await self.prepare_topic(
+            target_topic_id=topic_id,
+            new_topic_title=None,
+            new_topic_summary=None,
+            identity=payload.identity,
+        )
+
+        # 摄入载荷
+        await self.ingest_payload(payload, topic_id)
+
+        # 更新最后活跃话题
+        self._short_term_store.set_last_active_topic(topic_id)
+
+        return topic_id
+
+    async def ingest_payload(
+        self,
+        payload: InteractionPayload,
+        topic_id: str,
+    ) -> None:
+        """
+        摄入完整交互载荷
+
+        从 InteractionPayload 直接构建 LogicalBlock。
+
+        流程:
+            1. 消费 Patchouli 后处理完成的结构化 payload 字段
+            2. 构建 LogicalBlock (v3.0 字段)
+            3. 信号检查:
+               - URGENT (write_focus/update_focus): 添加 block → 立即 flush
+               - NORMAL: 直接添加 block
+
+        Args:
+            payload: Kernel → Perception 的原子传输包
+            topic_id: 目标话题 ID
+        """
+        if not payload.turn_events:
+            raise ValueError(
+                "InteractionPayload.turn_events is required; "
+                "legacy assistant_message fallback has been removed."
+            )
+
+        clean_text = payload.assistant_final_text or ""
+        actions = ActionReducer.reduce(payload.turn_events)
+        traces = payload.mtp_traces
+
+        logger.debug(
+            "ingest_payload: 结构化单路径, "
+            f"turn_events={len(payload.turn_events)}, traces={len(traces)}, "
+            f"actions={len(actions)}"
+        )
+
+        # 2. 构建 LogicalBlock
+        block = LogicalBlock(
+            turn=TurnRecord(
+                identity=payload.identity,
+                user_query=payload.user_message,
+                rewritten_query=payload.rewritten_query,
+                assistant_final_text=payload.assistant_final_text or clean_text,
+                turn_events=payload.turn_events,
+                actions=actions,
+                semantic_traces=traces,
+            ),
+            worth_saving=payload.worth_saving,
+        )
+
+        # 2.5 计算 block 的 total_tokens
+        block.total_tokens = (
+            estimate_tokens(block.user_query)
+            + estimate_tokens(block.assistant_final_text)
+            + sum(
+                estimate_tokens(t.query or "") + estimate_tokens(t.target or "")
+                for t in block.semantic_traces
+            )
+        )
+
+        # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
+        self._short_term_store.add_block(topic_id, block)
+
+        # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
+        await self._maybe_fold_pages(topic_id)
+
+        # 重置状态
+        self._short_term_store.update_metadata(
+            topic_id, state=BufferState.IDLE
+        )
+
+    # ========== 上下文溢出检查 ==========
+
+    async def _maybe_fold_pages(self, topic_id: str) -> None:
+        """
+        Page Folding: token 溢出时触发 Compact 操作
+        """
+        topic_data = self._short_term_store.get_topic_data(topic_id, touch=False)
+        if topic_data is None:
+            return
+
+        threshold = self.config.fold_token_threshold
+
+        logger.debug(
+            f"_maybe_fold_pages: topic_id={topic_id}, "
+            f"total_tokens={topic_data.total_tokens}, threshold={threshold}, "
+            f"blocks_count={topic_data.block_count}"
+        )
+
+        if topic_data.total_tokens <= threshold:
+            return
+
+        logger.info(
+            f"Token 溢出: topic_id={topic_id}, "
+            f"total_tokens={topic_data.total_tokens} > threshold={threshold}"
+        )
+
+        # 调用统一调度器
+        await self._trigger_manager.resolve_topic(
+            topic_id=topic_id,
+            trigger_reason=FlushReason.TOKEN_OVERFLOW,
+        )
+
+    # ========== 手动话题管理 ==========
+
+    async def manual_trigger(
+        self,
+        topic_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        手动触发话题结算 (Archive + Compact)
+
+        语义：立即归档 + 生成摘要并保留内存。
+        当用户主动请求保存当前对话状态时使用。不同于其他触发原因，
+        MANUAL 触发会同时执行 Archive 和 Compact，但不会 Evict 话题。
+
+        Args:
+            topic_id: 目标话题 ID。如果为 None，则使用 last_active_topic_id 作为回退。
+
+        Returns:
+            Dict: 包含以下键的字典:
+                - success: bool - 操作是否成功
+                - topic_id: str - 实际操作的话题 ID
+                - message: str - 操作结果描述
+                - blocks_archived: int - 归档的 block 数量
+
+        Raises:
+            ValueError: 如果 topic_id 未指定且没有 last_active_topic_id
+        """
+        # 解析目标话题
+        target_topic_id = topic_id
+        if target_topic_id is None:
+            target_topic_id = self._short_term_store.get_last_active_topic()
+
+        if target_topic_id is None:
+            raise ValueError(
+                "manual_trigger: 未指定 topic_id 且没有活跃话题可回退"
+            )
+
+        # 验证话题存在
+        topic_data = self._short_term_store.get_topic_data(target_topic_id)
+        if topic_data is None:
+            return {
+                "success": False,
+                "topic_id": target_topic_id,
+                "message": f"话题 {target_topic_id} 不存在",
+                "blocks_archived": 0,
+            }
+
+        if topic_data.is_empty:
+            return {
+                "success": True,
+                "topic_id": target_topic_id,
+                "message": "话题为空，无需处理",
+                "blocks_archived": 0,
+            }
+
+        blocks_count = topic_data.block_count
+
+        # 调用统一调度器（MANUAL 触发）
+        await self._trigger_manager.resolve_topic(
+            topic_id=target_topic_id,
+            trigger_reason=FlushReason.MANUAL,
+        )
+
+        logger.info(
+            f"manual_trigger 完成: topic_id={target_topic_id}, "
+            f"blocks_archived={blocks_count}"
+        )
+
+        return {
+            "success": True,
+            "topic_id": target_topic_id,
+            "message": f"成功归档 {blocks_count} 个 blocks",
+            "blocks_archived": blocks_count,
+        }
+
     def swap_out_topic(
         self, topic_id: str
     ) -> bool:
@@ -443,7 +438,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         return self._short_term_store.pop_buffer(topic_id) is not None
 
-    # ========== Idle Hibernate (§5.1) ==========
+    def discard_if_empty(self, topic_id: str) -> bool:
+        """话题存在且无 blocks 时驱逐并返回 True，否则返回 False。"""
+        info = self._short_term_store.get_buffer_info(topic_id)
+        if info.get("exists") and info.get("block_count", 0) == 0:
+            self._short_term_store.pop_buffer(topic_id)
+            logger.info(f"已清理无内容话题: {topic_id}")
+            return True
+        return False
+
+    # ========== 空闲超时触发归档 ==========
 
     async def scan_idle_buffers_once(self) -> List[str]:
         """
@@ -542,19 +546,6 @@ class NullPerceptionLayer(BasePerceptionLayer):
         identity: Identity,
     ) -> str:
         return target_topic_id
-
-    def get_topic_context(
-        self,
-        topic_id: str,
-        max_recent_blocks: int = 5,
-    ) -> Dict[str, Any]:
-        return {
-            "state_summary": "",
-            "blocks": [],
-            "total_tokens": 0,
-            "topic_title": "",
-            "topic_summary": "",
-        }
 
     def swap_out_topic(self, topic_id: str) -> None:
         return None

@@ -129,17 +129,17 @@ if controller.should_trigger_relay(buffer, new_block):
     # 将 summary 注入下一个 buffer
 ```
 
-### 5. `buffer_manager.py` - 话题管理器 / MMU
+### 5. `ShortTermMemoryStore` - 话题状态存储 / MMU
 
 **职责**: 管理活跃话题池的生命周期，提供 CRUD 操作、LRU 驱逐判定和话题路由。
 
 **用法**:
 ```python
-from hivememory.perception import SemanticBufferManager
+from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 
-manager = SemanticBufferManager(max_resident_topics=5)
-buffer = manager.create_topic_buffer(identity)
-buffers = manager.get_all_buffers()
+store = ShortTermMemoryStore(max_resident_topics=5)
+buffer = store.create_buffer(user_id=identity.user_id)
+buffers = store.get_all_buffers()
 ```
 
 ---
@@ -190,7 +190,7 @@ perception.stop_idle_monitor()
 | `MANUAL` | 用户手动调用 | 调用 manual_trigger() | 用户代码 |
 | `MTP_WRITE` | MTP WRITE 指令 | 载荷摄入时 | SemanticFlowPerceptionLayer |
 | `MTP_UPDATE` | MTP UPDATE 指令 | 载荷摄入时 | SemanticFlowPerceptionLayer |
-| `LRU_EVICTION` | 活跃话题池满 | 新话题创建时 | SemanticBufferManager |
+| `LRU_EVICTION` | 活跃话题池满 | 新话题创建时 | ShortTermMemoryStore |
 
 ---
 

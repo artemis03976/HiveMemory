@@ -5,7 +5,7 @@ MemoryLibrary 三层 Store
 
 ShortTermMemoryStore:
     - 持有 InMemoryShortTermStorage（Phase 1），future 可替换为 RedisShortTermStorage
-    - 保留 SemanticBufferManager 的全部调度方法（add_block / fold_blocks / LRU 等）
+    - 承接短期话题调度方法（add_block / fold_blocks / LRU 等）
     - 新增命名写入方法：clear_blocks / update_summary / update_title
     - 所有 buffer 字段写操作必须通过命名方法，不允许调用方直接写字段
 
@@ -178,7 +178,7 @@ class ShortTermMemoryStore:
         buf.topic_title = title
 
     def clear_buffer(self, topic_id: str) -> List[LogicalBlock]:
-        """清空话题段内容，保留在活跃池中（向后兼容 SemanticBufferManager.clear_buffer）。"""
+        """清空话题段内容，保留在活跃池中。"""
         buf = self._port._get_sync(topic_id)
         if buf is None:
             return []

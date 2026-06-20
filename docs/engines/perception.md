@@ -8,11 +8,10 @@
 
 ```
 src/hivememory/engines/perception/
-├── semantic_flow_perception_layer.py  # SemanticFlowPerceptionLayer �?MMU 主入�?
-├── buffer_manager.py                  # SemanticBufferManager �?话题�?CRUD + LRU
-├── trigger_manager.py                 # TriggerManager �?统一结算调度�?
-├── relay_controller.py                # SimpleRelayController / LLMRelayController �?页折叠摘�?
-├── context_converter.py               # ContextConverter �?Block �?StreamMessage 转换
+├── semantic_flow_perception_layer.py  # SemanticFlowPerceptionLayer / MMU 主入口
+├── trigger_manager.py                 # TriggerManager / 统一结算调度
+├── relay_controller.py                # SimpleRelayController / LLMRelayController / 页折叠摘要
+├── context_converter.py               # ContextConverter / Block 到 StreamMessage 转换
 ├── models.py                          # 核心数据模型（LogicalBlock / SemanticBuffer 等）
 └── interfaces.py                      # 抽象接口定义
 ```
@@ -133,12 +132,12 @@ class InteractionPayload(BaseModel):
 - **单窗口多线程（Single-Window, Multi-Track�?*：用户只需面对一个无边界的聊天窗口，系统在后台自动维护多个独立的**话题段（Topic Segments�?*，每个话题拥有绝对纯净的上下文�?
 - **动态换入换出（Swap-in/out�?*：感知层作为 MMU，根�?TheEye 的路由决策，动态将对应的话�?Buffer 换入 Kernel 的工作区；对于长期不活跃的话题，则将其换出并移交 Generation Engine 进行固化�?
 
-### 5.3.2 SemanticBufferManager（话题管理器 / MMU�?
+### 5.3.2 ShortTermMemoryStore（话题状态存储 / MMU）
 
-`SemanticBufferManager` 是短期记忆的中央调度器，管理活跃话题池的生命周期�?
+`ShortTermMemoryStore` 是短期记忆的中央调度器，管理活跃话题池的生命周期。
 
 ```python
-class SemanticBufferManager:
+class ShortTermMemoryStore:
     _buffers: Dict[str, SemanticBuffer]   # 活跃话题池，key �?topic_id
     _user_index: Dict[str, Set[str]]      # 用户索引：user_id:agent_id -> Set[topic_id]
     max_resident_topics: int              # 最大驻留话题数（默�?5�?
@@ -176,7 +175,7 @@ route_and_ingest(topic_id, payload)
     �?      �?      NORMAL �?add_block
     �?      └── _maybe_fold_pages() �?TOKEN_OVERFLOW 检�?
     �?
-    └── buffer_manager.set_last_active_topic(topic_id)
+    └── short_term_store.set_last_active_topic(topic_id)
 ```
 
 对外暴露的关键方法：
