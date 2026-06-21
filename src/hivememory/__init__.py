@@ -230,6 +230,12 @@ def __getattr__(name: str):
     if name == "RetrievalFamiliar":
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         return RetrievalFamiliar
+    if name == "PerceptionFamiliar":
+        from hivememory.patchouli.services.perception import PerceptionFamiliar
+        return PerceptionFamiliar
+    if name == "LifecycleFamiliar":
+        from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+        return LifecycleFamiliar
     if name == "LibrarianCore":
         from hivememory.patchouli.services.librarian import LibrarianCore
         return LibrarianCore
@@ -405,7 +411,9 @@ __all__ = [
     "PatchouliService",
     "PatchouliSystem",
     "TheEye",
+    "PerceptionFamiliar",
     "RetrievalFamiliar",
+    "LifecycleFamiliar",
     "LibrarianCore",
 ]
 

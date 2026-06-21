@@ -48,6 +48,8 @@ from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventS
 if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.librarian import LibrarianCore
+    from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+    from hivememory.patchouli.services.perception import PerceptionFamiliar
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 logger = logging.getLogger(__name__)
@@ -123,7 +125,11 @@ class PatchouliRuntime:
 
         self._local_bus.register(
             PatchouliLocalRoutes.SUBMIT_INTERACTION,
-            self.librarian_core.submit_interaction,
+            self.perception_familiar.submit_interaction,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.GENERATION_SUBMIT_ARCHIVE,
+            self._submit_archive_generation,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.ANALYZE_AND_RETRIEVE,
@@ -139,7 +145,27 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
-            self._refresh_memory_vitality,
+            self.lifecycle_familiar.refresh_memory_vitality,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.LIFECYCLE_RUN_GARDENING_ONCE,
+            self.lifecycle_familiar.run_gardening_once,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_RECORD_HIT,
+            self.lifecycle_familiar.record_hit,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_RECORD_CITATION,
+            self.lifecycle_familiar.record_citation,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
+            self.lifecycle_familiar.record_feedback,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_REVIVE,
+            self.lifecycle_familiar.revive_memory,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
@@ -147,11 +173,19 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.PREPARE_TOPIC,
-            self._engines["perception"].prepare_topic,
+            self.perception_familiar.prepare_topic,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
             self.retrieval_familiar.list_active_topics,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.TOPIC_EVICT,
+            self.perception_familiar.evict_topic,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
+            self.perception_familiar.discard_if_empty,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.PREPARE_AGENT_RUN,
@@ -167,7 +201,7 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MANUAL_ARCHIVE_TOPIC,
-            self._engines["perception"].manual_trigger,
+            self.perception_familiar.manual_archive_topic,
         )
         self._local_routes_registered = True
 
@@ -250,7 +284,7 @@ class PatchouliRuntime:
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
 
-        perception_result = await self.librarian_core.perception_layer.flush_all_for_shutdown()
+        perception_result = await self.perception_familiar.flush_all_for_shutdown()
         result = {
             "success": True,
             "observer_payloads_submitted": 0,
@@ -467,7 +501,9 @@ class PatchouliRuntime:
         MemoryGenerationTaskController 作为中期记忆生成控制中枢独立构建后注入 LibrarianCore。
         """
         from hivememory.patchouli.services.librarian import LibrarianCore
+        from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
         from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+        from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         from hivememory.engines.retrieval.renderer import FullContextRenderer
         from hivememory.system.config import FullRendererConfig
@@ -493,19 +529,37 @@ class PatchouliRuntime:
             artifact_engine=self._engines["artifact"],
         )
 
+        self._services["perception"] = PerceptionFamiliar(
+            perception_layer=self._engines["perception"],
+            bus=self._local_bus,
+        )
+
+        self._services["lifecycle"] = LifecycleFamiliar(
+            lifecycle_engine=self._engines["lifecycle"],
+            memory_library=self.memory_library,
+        )
+
         self._services["librarian"] = LibrarianCore(
             bus=self._local_bus,
-            lifecycle_engine=self._engines["lifecycle"],
             retrieval_familiar=self.retrieval_familiar,
-            perception_layer=self._engines["perception"],
             task_controller=self._task_controller,
             artifact_engine=self._engines["artifact"],
         )
 
     @property
+    def perception_familiar(self) -> PerceptionFamiliar:
+        """访问感知使魔服务。"""
+        return self._services["perception"]
+
+    @property
     def retrieval_familiar(self) -> RetrievalFamiliar:
         """访问检索使魔服务"""
         return self._services["retrieval"]
+
+    @property
+    def lifecycle_familiar(self) -> LifecycleFamiliar:
+        """访问生命周期使魔服务。"""
+        return self._services["lifecycle"]
 
     @property
     def librarian_core(self) -> LibrarianCore:
@@ -540,18 +594,37 @@ class PatchouliRuntime:
             return await result
         return result
 
-    async def _refresh_memory_vitality(
-        self,
-        memories,
-        persist: bool = False,
-    ):
-        lifecycle = self._engines.get("lifecycle")
-        if lifecycle is None:
-            raise RuntimeError("lifecycle engine is not available")
-        result = lifecycle.refresh_vitality_batch(memories, persist=persist)
-        if inspect.isawaitable(result):
-            return await result
-        return result
+    async def _submit_archive_generation(self, payload):
+        """过渡期 archive 生成入口，后续由 MemoryGenerationCoordinator 接管。"""
+        from hivememory.prompts.transcript import GenerationTranscriptBuilder
+
+        builder = GenerationTranscriptBuilder()
+        gen_context = builder.build_context(
+            payload.blocks,
+            state_summary=payload.state_summary,
+        )
+        if not gen_context.turns:
+            logger.warning("空对话轮次，跳过处理")
+            return None
+
+        interaction_ref = None
+        artifact_engine = self._engines.get("artifact")
+        if artifact_engine and payload.blocks:
+            try:
+                interaction_ref = await artifact_engine.interaction.build_and_store(
+                    topic_id=payload.topic_id,
+                    topic_title=payload.topic_title,
+                    topic_summary=payload.topic_summary,
+                    blocks=payload.blocks,
+                )
+            except Exception:
+                logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
+
+        return await self._task_controller.run_archive_generation(
+            topic_id=payload.topic_id,
+            gen_context=gen_context,
+            interaction_ref=interaction_ref,
+        )
 
 
 __all__ = [

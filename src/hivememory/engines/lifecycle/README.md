@@ -43,7 +43,7 @@
 
 - 归属（owner）: `patchouli`
 - 任务名（name）: `memory_gardening`
-- 回调（callback）: `runtime.librarian_core.run_gardening_once`
+- 回调（callback）: `runtime.lifecycle_familiar.run_gardening_once`
 
 系统不再使用本地生命周期调度器、APScheduler 或 `ScheduledGarbageCollector`。
 

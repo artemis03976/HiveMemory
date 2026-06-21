@@ -14,10 +14,10 @@ class MemoryManagementService:
         self,
         *,
         storage: Any,
-        lifecycle_engine: Any | None = None,
+        lifecycle_familiar: Any | None = None,
     ) -> None:
         self._storage = storage
-        self._lifecycle_engine = lifecycle_engine
+        self._lifecycle_familiar = lifecycle_familiar
 
     async def create_memory(self, atom: MemoryAtom) -> MemoryAtom:
         await self._storage.upsert_memory(atom)
@@ -111,10 +111,10 @@ class MemoryManagementService:
         positive: bool,
         source: str,
     ):
-        if self._lifecycle_engine is None:
+        if self._lifecycle_familiar is None:
             raise RuntimeError("Memory lifecycle engine is unavailable")
 
-        return await self._lifecycle_engine.record_feedback(
+        return await self._lifecycle_familiar.record_feedback(
             self._normalize_uuid(memory_id),
             positive=positive,
             source=source,
@@ -129,9 +129,9 @@ class MemoryManagementService:
         return memory_type.value if hasattr(memory_type, "value") else str(memory_type)
 
     async def _refresh_vitality_for_response(self, atoms: list[MemoryAtom]) -> None:
-        if self._lifecycle_engine is None or not atoms:
+        if self._lifecycle_familiar is None or not atoms:
             return
         try:
-            await self._lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
+            await self._lifecycle_familiar.refresh_memory_vitality(atoms, persist=False)
         except Exception:
             return

@@ -100,7 +100,7 @@ class PatchouliBridge:
             ),
             (
                 PatchouliRoutes.SUBMIT_INTERACTION,
-                self._runtime.librarian_core.submit_interaction,
+                self._runtime.perception_familiar.submit_interaction,
             ),
             (
                 PatchouliRoutes.MEMORY_CREATE,

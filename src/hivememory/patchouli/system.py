@@ -102,7 +102,7 @@ class PatchouliSystem(SubsystemProtocol):
         )
         self._memory_management_service = MemoryManagementService(
             storage=self.runtime.storage,
-            lifecycle_engine=self.runtime.librarian_core.lifecycle_engine,
+            lifecycle_familiar=self.runtime.lifecycle_familiar,
         )
         self._memory_task_management_service = MemoryTaskManagementService(
             task_controller=self.runtime._task_controller,
@@ -111,7 +111,7 @@ class PatchouliSystem(SubsystemProtocol):
             storage=self.runtime.storage,
         )
         self._topic_management_service = TopicManagementService(
-            perception_layer=self.runtime._engines["perception"],
+            perception_familiar=self.runtime.perception_familiar,
             retrieval_familiar=self.runtime.retrieval_familiar,
         )
         self._model_readiness_service = ModelReadinessService(
@@ -191,7 +191,7 @@ class PatchouliSystem(SubsystemProtocol):
                 interval_seconds=tasks_config.perception_idle_flush_interval_seconds,
                 enabled=tasks_config.enable_perception_idle_flush,
             ),
-            self.runtime.librarian_core.perception_layer.scan_idle_buffers_once,
+            self.runtime.perception_familiar.scan_idle_buffers_once,
         )
         scheduler.register(
             MaintenanceTaskSpec(
@@ -200,7 +200,7 @@ class PatchouliSystem(SubsystemProtocol):
                 interval_seconds=tasks_config.lifecycle_gc_interval_hours * 3600,
                 enabled=tasks_config.enable_lifecycle_gc,
             ),
-            self.runtime.librarian_core.run_gardening_once,
+            self.runtime.lifecycle_familiar.run_gardening_once,
         )
         return True
 

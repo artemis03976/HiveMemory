@@ -2,30 +2,49 @@
 
 
 class PatchouliLocalRoutes:
-    SUBMIT_INTERACTION = "librarian.submit_interaction"
+    INGESTION_SUBMIT_INTERACTION = "ingestion.submit_interaction"
     ANALYZE_AND_RETRIEVE = "passive.analyze_and_retrieve"
     MEMORY_RETRIEVE = "memory.retrieve"
     MEMORY_RETRIEVE_BY_ALIASES = "memory.retrieve_by_aliases"
+    MEMORY_RECORD_HIT = "memory.record_hit"
+    MEMORY_RECORD_CITATION = "memory.record_citation"
+    MEMORY_RECORD_FEEDBACK = "memory.record_feedback"
+    MEMORY_REVIVE = "memory.revive"
     REFRESH_MEMORY_VITALITY = "lifecycle.refresh_memory_vitality"
+    LIFECYCLE_RUN_GARDENING_ONCE = "lifecycle.run_gardening_once"
+    GENERATION_SUBMIT_ARCHIVE = "generation.submit_archive"
     GET_AGENT_PROFILE = "memory.get_agent_profile"
-    PREPARE_TOPIC = "librarian.prepare_topic"
+    TOPIC_PREPARE = "topic.prepare"
     GET_ACTIVE_TOPICS_SNAPSHOTS = "librarian.get_active_topics_snapshots"
+    TOPIC_MANUAL_ARCHIVE = "topic.manual_archive"
+    TOPIC_EVICT = "topic.evict"
+    TOPIC_DISCARD_IF_EMPTY = "topic.discard_if_empty"
     PREPARE_AGENT_RUN = "service.prepare_agent_run"
     FINALIZE_AGENT_RUN = "service.finalize_agent_run"
     CLEANUP_PREPARED_AGENT_RUN = "service.cleanup_prepared_agent_run"
-    MANUAL_ARCHIVE_TOPIC = "librarian.manual_archive_topic"
+    MANUAL_ARCHIVE_TOPIC = TOPIC_MANUAL_ARCHIVE
+    PREPARE_TOPIC = TOPIC_PREPARE
+    SUBMIT_INTERACTION = INGESTION_SUBMIT_INTERACTION
 
     ALL = (
-        SUBMIT_INTERACTION,
+        INGESTION_SUBMIT_INTERACTION,
         ANALYZE_AND_RETRIEVE,
         MEMORY_RETRIEVE,
         MEMORY_RETRIEVE_BY_ALIASES,
+        MEMORY_RECORD_HIT,
+        MEMORY_RECORD_CITATION,
+        MEMORY_RECORD_FEEDBACK,
+        MEMORY_REVIVE,
         REFRESH_MEMORY_VITALITY,
+        LIFECYCLE_RUN_GARDENING_ONCE,
+        GENERATION_SUBMIT_ARCHIVE,
         GET_AGENT_PROFILE,
-        PREPARE_TOPIC,
+        TOPIC_PREPARE,
         GET_ACTIVE_TOPICS_SNAPSHOTS,
+        TOPIC_MANUAL_ARCHIVE,
+        TOPIC_EVICT,
+        TOPIC_DISCARD_IF_EMPTY,
         PREPARE_AGENT_RUN,
         FINALIZE_AGENT_RUN,
         CLEANUP_PREPARED_AGENT_RUN,
-        MANUAL_ARCHIVE_TOPIC,
     )
