@@ -596,9 +596,11 @@ max_resident_topics: int = 0
 Phase 4 的起点不是继续把 `LibrarianCore` 的代理方法下沉到更多具体服务，而是先修正 Patchouli 子系统的总线边界：
 
 1. `PatchouliBridge` 只做公开路由暴露与名称翻译，不直接持有 runtime / engine / storage / controller 等实现层对象。
-2. `patchouli.application.*` 与 `PatchouliService` 作为公开用例编排层，只持有 `PatchouliBus`，所有操作通过 local routes 请求。
+2. `patchouli.application.*` 作为公开用例编排层，只持有 `PatchouliBus`，所有操作通过 local routes 请求。
 3. `PatchouliLocalRoutes` 表达 Patchouli 子系统内部可组合的能力原语，而不是把所有 public workflow 原样镜像一份。
 4. `PatchouliRuntime` 作为装配根仍可持有具体组件，并负责把内部能力挂载到 local bus；runtime/domain service 持有实现依赖本身不是问题，问题是 application/bridge 层穿透到实现层。
+
+`PatchouliService` 的纯 bus 改造不作为 Phase 4 的前置条件。它当前混有主动交互 workflow 与 task/topic/memory 代理 API，应先在 LibrarianCore 解构过程中把代理 API 下放到对应 controller / familiar / application service，最终只保留 `prepare_agent_run`、`finalize_agent_run` 这类组合入口，再进行 bus-only 改造。
 
 完成上述边界收束后，`LibrarianCore` 的剩余职责再进行拆解，最终退场。
 
@@ -636,7 +638,7 @@ Bridge 可以持有一个 route map 或一组 public application service，但�
 
 #### PatchouliService / Application Services 持有 runtime
 
-`PatchouliService` 现在既持有 `PatchouliRuntime` 又持有 `TheEye`，并在方法中直接访问 `runtime.retrieval_familiar`、`runtime.memory_library`、`runtime.librarian_core`、`runtime.check_storage_health()`。
+`PatchouliService` 现在既持有 `PatchouliRuntime` 又持有 `TheEye`，并在方法中直接访问 `runtime.retrieval_familiar`、`runtime.memory_library`、`runtime.librarian_core`、`runtime.check_storage_health()`。但它还混有 `get_memory_task` 等本应归属 controller / application service 的 API，因此不应急着整体改成 bus-only；更稳妥的顺序是先剥离这些代理 API，再处理剩余主动交互 workflow。
 
 `patchouli.application.*` 也直接持有 `storage`、`lifecycle_engine`、`task_controller`、`perception_layer`、`retrieval_familiar`、`runtime` 等实现层对象。这会导致 public use-case 层与 runtime 装配细节耦合，继续扩大 LibrarianCore 退场时的迁移面。
 
@@ -753,7 +755,15 @@ class MemoryManagementService:
 | `ModelReadinessService.warmup_models` | `runtime.models.warmup` |
 | `ModelReadinessService.is_models_ready` | `runtime.models.ready` |
 
-`PatchouliService` 也按同一规则改造。它可以作为主动交互 public service 保留，但不能再持有 `PatchouliRuntime` / `TheEye`。其 `prepare_agent_run()` 通过 local routes 编排：
+`PatchouliService` 不在本步骤强制改为 bus-only。它当前混合了主动交互 workflow 与若干代理 API，例如 `get_memory_task` 这类能力应由 `MemoryGenerationTaskController` / `MemoryTaskManagementService` 自身提供，不应长期停留在 `PatchouliService`。
+
+因此 `PatchouliService` 的处理顺序调整为：
+
+1. 在 LibrarianCore 解构过程中，逐步移除 task/topic/memory/profile/model 等代理 API。
+2. 保留 `prepare_agent_run()`、`finalize_agent_run()` 作为主动交互组合入口。
+3. 等 `LifecycleFamiliar`、`MemoryGenerationCoordinator`、`MemoryGenerationFamiliar` 和 local primitives 稳定后，再将这两个组合入口改为只持有 `PatchouliBus`。
+
+最终形态中，`prepare_agent_run()` 通过 local routes 编排：
 
 ```
 agent_profile.get
@@ -774,7 +784,7 @@ generation.submit_active
 memory.record_hit / memory.record_citation（按最终命名）
 ```
 
-`cleanup_prepared_agent_run()` 通过 `topic.discard_if_empty` 实现。
+`cleanup_prepared_agent_run()` 如果仍需保留，则通过 `topic.discard_if_empty` 实现；若只作为 prepare/finalize 的临时配套 API，可随 public workflow 整理一并评估是否保留。
 
 ### 4.6 Bridge 改造
 
@@ -1031,11 +1041,12 @@ LifecycleFamiliar.run_gardening_once()
 1. 扩展 `PatchouliLocalRoutes`，补齐 application service 所需的内部能力原语。
 2. 从 local routes 移除 `PREPARE_AGENT_RUN` / `FINALIZE_AGENT_RUN` / `CLEANUP_PREPARED_AGENT_RUN`，保留 public routes。
 3. 将 `patchouli.application.*` 改为只持有 `PatchouliBus`。
-4. 将 `PatchouliService` 改为只持有 `PatchouliBus`，通过 `gateway.gaze`、`topic.*`、`memory.*`、`ingestion.*`、`runtime.*` 编排主动交互。
-5. 收窄 `PatchouliBridge` 构造参数，只依赖 global bus、local bus、bus-only public API。
-6. 引入 `LifecycleFamiliar`，承接 `run_gardening_once`、vitality refresh、hit / citation / feedback 事件响应与 revive 入口。
-7. 引入 `MemoryGenerationCoordinator` 与 `MemoryGenerationFamiliar`：前者承接 archive 回调、active generation 与 future evolution 的入口转型，后者承接生成执行数据面；`submit_interaction` 直接改挂感知层薄适配。
+4. 收窄 `PatchouliBridge` 构造参数，只依赖 global bus、local bus、bus-only public API，只做翻译工作而不管挂载。
+5. 引入 `LifecycleFamiliar`，承接 `run_gardening_once`、vitality refresh、hit / citation / feedback 事件响应与 revive 入口。
+6. 引入 `MemoryGenerationCoordinator` 与 `MemoryGenerationFamiliar`：前者承接 archive 回调、active generation 与 future evolution 的入口转型，后者承接生成执行数据面；`submit_interaction` 直接改挂感知层薄适配。
+7. 将 `PatchouliService` 中混入的 task/topic/memory/profile/model 代理 API 下放到对应 controller、familiar 或 bus-only application service，保留 `prepare_agent_run()` / `finalize_agent_run()` 作为主动交互组合入口。
 8. 删除或保留空壳兼容期 `LibrarianCore`；过渡期结束后从 runtime 服务图中移除。
+9. 在 LibrarianCore 解构完成后，将瘦身后的 `PatchouliService` 改为只持有 `PatchouliBus`，通过 `gateway.gaze`、`topic.*`、`memory.*`、`ingestion.*`、`generation.*`、`runtime.*` 编排主动交互。
 
 ---
 
@@ -1051,7 +1062,7 @@ LifecycleFamiliar.run_gardening_once()
 
 ### 5.2 Public API 事件与错误契约
 
-Phase 4 已将 `patchouli/application/` 层改造为 bus-only public use-case 层。后续需要补充的是公开 API 的错误结构、超时策略与事件可观测性，而不是再让 Application Service 直接调用 `MemoryLibrary`、`RetrievalFamiliar` 或 `MemoryGenerationFamiliar`。
+Phase 4 先将 `patchouli/application/` 层改造为 bus-only public use-case 层；`PatchouliService` 的 bus-only 改造后置到 LibrarianCore 解构结束后。后续需要补充的是公开 API 的错误结构、超时策略与事件可观测性，而不是再让 Application Service 直接调用 `MemoryLibrary`、`RetrievalFamiliar` 或 `MemoryGenerationFamiliar`。
 
 待设计：public route 的异常映射、`BusRouteUnavailableError` 处理、runtime event 字段、前端可消费的错误码。
 
@@ -1066,9 +1077,10 @@ Phase 4 已将 `patchouli/application/` 层改造为 bus-only public use-case �
 | **Phase 1** | MemoryLibrary 骨架建立：三层 Store + StoragePort 接口定义，InMemory / Qdrant / File 适配器，感知层注入改造 | v0.5.2 完成 |
 | **Phase 2** | Deduplicator 改为纯决策引擎；TaskController / LifecycleEngine 存储依赖切换到 MidTermStoragePort；ArtifactStore 上移至 MemoryLibrary | Phase 1 |
 | **Phase 3** | RetrievalFamiliar 扩展：topic context 方法迁入，三层检索入口统一 | Phase 1 |
-| **Phase 4** | 总线契约收束：补齐 local primitives，移除 public workflow local 镜像，Application Service / PatchouliService 改为 bus-only，Bridge 收窄 | Phase 2 + 3 |
+| **Phase 4** | 总线契约收束：补齐 local primitives，移除 public workflow local 镜像，`patchouli.application.*` 改为 bus-only，Bridge 收窄 | Phase 2 + 3 |
 | **Phase 5** | LibrarianCore 编排职责解构：LifecycleFamiliar 独立化，MemoryGenerationCoordinator / MemoryGenerationFamiliar 独立化，感知回调迁移，TaskController 缩回控制面，LibrarianCore 退场（保留代理层或直接删除） | Phase 4 |
-| **Phase 6** | 事件流接入 MemoryLibrary 状态转移；LongTermStore 完整实现（DBBasedStorageAdapter） | Phase 4 |
+| **Phase 6** | PatchouliService 瘦身与 bus-only 改造：移除 task/topic/memory 等代理 API，仅保留 prepare/finalize 组合入口并通过 local routes 编排 | Phase 5 |
+| **Phase 7** | 事件流接入 MemoryLibrary 状态转移；LongTermStore 完整实现（DBBasedStorageAdapter） | Phase 4 |
 
 **不在本次规划范围内**：记忆 split/merge 机制、MTP READ 历史编译、图数据库适配器。
 
