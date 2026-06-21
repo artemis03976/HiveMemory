@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.librarian import LibrarianCore
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+    from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
     from hivememory.patchouli.services.perception import PerceptionFamiliar
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
@@ -130,6 +131,10 @@ class PatchouliRuntime:
         self._local_bus.register(
             PatchouliLocalRoutes.GENERATION_SUBMIT_ARCHIVE,
             self._submit_archive_generation,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
+            self.memory_generation_familiar.execute,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.ANALYZE_AND_RETRIEVE,
@@ -502,6 +507,7 @@ class PatchouliRuntime:
         """
         from hivememory.patchouli.services.librarian import LibrarianCore
         from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+        from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
         from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
         from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
@@ -518,15 +524,19 @@ class PatchouliRuntime:
             local_bus=self._local_bus,
         )
 
-        self._task_controller = MemoryGenerationTaskController(
-            mid_term=self.memory_library.mid_term,
-            bus=self._local_bus,
+        self._services["generation"] = MemoryGenerationFamiliar(
             generation_engine=self._engines["generation"],
+            mid_term=self.memory_library.mid_term,
+            artifact_engine=self._engines["artifact"],
+        )
+
+        self._task_controller = MemoryGenerationTaskController(
+            bus=self._local_bus,
+            generation_familiar=self.memory_generation_familiar,
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="memory_generation_task_controller",
             ),
-            artifact_engine=self._engines["artifact"],
         )
 
         self._services["perception"] = PerceptionFamiliar(
@@ -555,6 +565,11 @@ class PatchouliRuntime:
     def retrieval_familiar(self) -> RetrievalFamiliar:
         """访问检索使魔服务"""
         return self._services["retrieval"]
+
+    @property
+    def memory_generation_familiar(self) -> MemoryGenerationFamiliar:
+        """访问记忆生成使魔服务。"""
+        return self._services["generation"]
 
     @property
     def lifecycle_familiar(self) -> LifecycleFamiliar:

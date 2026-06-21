@@ -13,6 +13,7 @@ class PatchouliLocalRoutes:
     REFRESH_MEMORY_VITALITY = "lifecycle.refresh_memory_vitality"
     LIFECYCLE_RUN_GARDENING_ONCE = "lifecycle.run_gardening_once"
     GENERATION_SUBMIT_ARCHIVE = "generation.submit_archive"
+    GENERATION_EXECUTE_SPEC = "generation.execute_spec"
     GET_AGENT_PROFILE = "memory.get_agent_profile"
     TOPIC_PREPARE = "topic.prepare"
     GET_ACTIVE_TOPICS_SNAPSHOTS = "librarian.get_active_topics_snapshots"
@@ -38,6 +39,7 @@ class PatchouliLocalRoutes:
         REFRESH_MEMORY_VITALITY,
         LIFECYCLE_RUN_GARDENING_ONCE,
         GENERATION_SUBMIT_ARCHIVE,
+        GENERATION_EXECUTE_SPEC,
         GET_AGENT_PROFILE,
         TOPIC_PREPARE,
         GET_ACTIVE_TOPICS_SNAPSHOTS,

@@ -236,6 +236,9 @@ def __getattr__(name: str):
     if name == "LifecycleFamiliar":
         from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
         return LifecycleFamiliar
+    if name == "MemoryGenerationFamiliar":
+        from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+        return MemoryGenerationFamiliar
     if name == "LibrarianCore":
         from hivememory.patchouli.services.librarian import LibrarianCore
         return LibrarianCore
@@ -414,6 +417,7 @@ __all__ = [
     "PerceptionFamiliar",
     "RetrievalFamiliar",
     "LifecycleFamiliar",
+    "MemoryGenerationFamiliar",
     "LibrarianCore",
 ]
 
