@@ -1,9 +1,4 @@
-"""记忆生成任务控制器。
-
-该模块只保留任务生命周期控制面：创建/注册任务、状态推进、取消处理、
-RuntimeEvent 与 PendingAtom 事件发布。实际生成执行数据面由
-MemoryGenerationFamiliar 承接。
-"""
+"""记忆生成任务控制器。"""
 
 from __future__ import annotations
 
@@ -11,24 +6,20 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
-from hivememory.core.models.artifact import ArtifactRef
-from hivememory.core.models.pending import PendingAtomMaterializeTask
-from hivememory.engines.generation.models import GenerationContext, MemoryGenerationResult
+from hivememory.engines.generation.models import MemoryGenerationResult
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.memory_tasks import (
-    MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
+    MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
     memory_task_to_payload,
 )
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
-
-if TYPE_CHECKING:
-    from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 
 logger = logging.getLogger(__name__)
 
@@ -47,83 +38,47 @@ class MemoryGenerationTaskController:
     def __init__(
         self,
         *,
-        bus: Optional[Any] = None,
-        generation_familiar: "MemoryGenerationFamiliar",
+        bus: Any,
         task_registry: Optional[MemoryGenerationTaskRegistry] = None,
         runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._bus = bus
         self._task_registry = task_registry or MemoryGenerationTaskRegistry()
         self._events = runtime_events or NullRuntimeEventSink()
-        self._generation_familiar = generation_familiar
 
-    async def run_archive_generation(
+    async def submit_generation(
         self,
-        topic_id: str,
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None = None,
+        spec: MemoryGenerationTaskSpec,
     ) -> MemoryGenerationTask:
-        """启动被动 ARCHIVE 记忆生成任务。"""
+        """提交单个规范化生成任务。"""
         return await self._create_and_run_task(
-            topic_id=topic_id,
-            label=topic_id,
-            source=MemoryGenerationSource.ARCHIVE,
-            coro_factory=lambda mt: self._run_archive_task(
-                mt,
-                gen_context,
-                interaction_ref,
-            ),
+            spec=spec,
+            coro_factory=lambda mt: self._run_task(mt, spec),
         )
 
-    async def run_active_generation(
+    async def submit_generation_many(
         self,
-        tasks: List[PendingAtomMaterializeTask],
-        topic_id: str,
-        *,
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None = None,
+        specs: List[MemoryGenerationTaskSpec],
     ) -> List[MemoryGenerationTask]:
-        """启动 MTP WRITE/UPDATE 主动记忆生成任务。"""
+        """提交多个规范化生成任务。"""
         memory_tasks: List[MemoryGenerationTask] = []
-        for task in tasks:
-            memory_tasks.append(
-                await self._create_and_run_task(
-                    topic_id=topic_id,
-                    label=task.pending_alias,
-                    source=MemoryGenerationSource(task.source_verb),
-                    pending_alias=task.pending_alias,
-                    coro_factory=lambda mt, t=task: self._run_active_task(
-                        mt,
-                        t,
-                        gen_context,
-                        interaction_ref,
-                    ),
-                )
-            )
+        for spec in specs:
+            memory_tasks.append(await self.submit_generation(spec))
         return memory_tasks
 
     async def _create_and_run_task(
         self,
-        topic_id: str,
-        label: str,
-        source: MemoryGenerationSource,
+        *,
+        spec: MemoryGenerationTaskSpec,
         coro_factory: Callable[[MemoryGenerationTask], Any],
-        pending_alias: Optional[str] = None,
-        skip: bool = False,
     ) -> MemoryGenerationTask:
-        """
-        统一任务工厂：创建运行时句柄、注册任务、绑定后台协程。
-
-        返回值必须立即可用，后台生成通过 memory_task._bg_task 继续执行。
-        任务协程必须自行调用 _start_task / _finish_task 完成业务生命周期；
-        此处只负责调度，不通过 done_callback 发布终态。
-        """
+        """创建运行时任务句柄并调度后台协程。"""
         memory_task = MemoryGenerationTask(
             task_id=str(uuid.uuid4()),
-            topic_id=topic_id,
-            label=label,
-            source=source,
-            pending_alias=pending_alias,
+            topic_id=spec.topic_id,
+            label=spec.label,
+            source=spec.source,
+            pending_alias=spec.pending_alias,
         )
         self._task_registry.register(memory_task)
         self._emit_memory_task_event(
@@ -132,19 +87,6 @@ class MemoryGenerationTaskController:
             message="Memory generation task created.",
         )
 
-        # 没有生成数据面时仍返回一个已完成任务，保持调用方契约稳定。
-        if skip or self._generation_familiar is None:
-            self._task_registry.close(
-                memory_task.task_id,
-                MemoryGenerationTaskStatus.COMPLETED,
-            )
-            self._emit_memory_task_event(
-                RuntimeEventType.MEMORY_TASK_COMPLETED,
-                memory_task,
-                message="Memory generation task completed without generation familiar.",
-            )
-            return memory_task
-
         bg_task = asyncio.create_task(
             coro_factory(memory_task),
             name=f"memory_task_{memory_task.task_id[:8]}",
@@ -152,85 +94,49 @@ class MemoryGenerationTaskController:
         memory_task.attach_task(bg_task)
         return memory_task
 
-    async def _run_archive_task(
+    async def _run_task(
         self,
         memory_task: MemoryGenerationTask,
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None = None,
+        spec: MemoryGenerationTaskSpec,
     ) -> None:
-        """执行被动 ARCHIVE 任务的控制流程。"""
-        if memory_task.cancelled:
-            await self._finish_task(memory_task, MemoryGenerationTaskStatus.CANCELLED)
-            return
-
-        await self._start_task(memory_task)
-        try:
-            results = await self._generation_familiar.run_archive_generation(
-                gen_context,
-                interaction_ref=interaction_ref,
-            )
-            self._backfill_memory_task_result(memory_task, results)
-            await self._publish_settlements(results)
-        except asyncio.CancelledError:
-            await self._finish_task(memory_task, MemoryGenerationTaskStatus.CANCELLED)
-            raise
-        except Exception as exc:
-            logger.error(f"Archive memory generation failed: {exc}", exc_info=True)
-            await self._finish_task(
-                memory_task,
-                MemoryGenerationTaskStatus.FAILED,
-                error=str(exc),
-            )
-        else:
-            await self._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
-
-    async def _run_active_task(
-        self,
-        memory_task: MemoryGenerationTask,
-        task: PendingAtomMaterializeTask,
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None = None,
-    ) -> None:
-        """执行单个 MTP WRITE/UPDATE 主动生成任务的控制流程。"""
+        """执行单个规范化生成任务的控制流程。"""
         if memory_task.cancelled:
             await self._finish_task(
                 memory_task,
                 MemoryGenerationTaskStatus.CANCELLED,
-                pending_alias=task.pending_alias,
+                pending_alias=spec.pending_alias,
             )
             return
 
         await self._start_task(memory_task)
         try:
-            results = await self._generation_familiar.run_active_generation(
-                task,
-                gen_context,
-                interaction_ref=interaction_ref,
+            results = await self._bus.request(
+                PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
+                spec,
             )
             self._backfill_memory_task_result(
                 memory_task,
                 results,
-                pending_alias=task.pending_alias,
+                pending_alias=spec.pending_alias,
             )
             await self._publish_settlements(results)
         except asyncio.CancelledError:
             await self._finish_task(
                 memory_task,
                 MemoryGenerationTaskStatus.CANCELLED,
-                pending_alias=task.pending_alias,
+                pending_alias=spec.pending_alias,
             )
             raise
         except Exception as exc:
             logger.error(
-                f"Active memory generation failed: "
-                f"pending_alias={task.pending_alias}, err={exc}",
+                f"Memory generation failed: label={spec.label}, err={exc}",
                 exc_info=True,
             )
             await self._finish_task(
                 memory_task,
                 MemoryGenerationTaskStatus.FAILED,
                 error=str(exc),
-                pending_alias=task.pending_alias,
+                pending_alias=spec.pending_alias,
             )
         else:
             await self._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
@@ -287,8 +193,6 @@ class MemoryGenerationTaskController:
         results: List[MemoryGenerationResult],
     ) -> None:
         """发布主动链路的 PendingAtom settlement 事件。"""
-        if self._bus is None:
-            return
         for result in results:
             if result.settlement is None:
                 continue
@@ -308,8 +212,6 @@ class MemoryGenerationTaskController:
 
     async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
         """发布主动链路 PendingAtom 取消事件。"""
-        if self._bus is None:
-            return
         try:
             await self._bus.publish(
                 PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
@@ -320,8 +222,6 @@ class MemoryGenerationTaskController:
 
     async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
         """发布主动链路 PendingAtom 失败事件。"""
-        if self._bus is None:
-            return
         try:
             await self._bus.publish(
                 PatchouliLocalEvents.PENDING_ATOM_FAILED,
@@ -339,8 +239,6 @@ class MemoryGenerationTaskController:
             self._event_type_for_task_status(memory_task.status),
             memory_task,
         )
-        if self._bus is None:
-            return
         try:
             await self._bus.publish(
                 PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS,

@@ -3,21 +3,16 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, List
-from uuid import UUID
+from typing import TYPE_CHECKING, List
 
 from hivememory.core.models.artifact import ArtifactRef, MemoryProvenance
-from hivememory.core.models.pending import (
-    PendingAtomMaterializeTask,
-    UpdateFocus,
-    WriteFocus,
-)
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     GenerationContext,
     GenerationRequest,
     MemoryGenerationResult,
 )
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskSpec
 
 if TYPE_CHECKING:
     from hivememory.engines.artifacts.engine import ArtifactEngine
@@ -42,106 +37,15 @@ class MemoryGenerationFamiliar:
         self._artifact_engine = artifact_engine
         logger.info("MemoryGenerationFamiliar 初始化完成")
 
-    async def run_archive_generation(
-        self,
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None = None,
-    ) -> List[MemoryGenerationResult]:
-        """执行被动 ARCHIVE 生成链路。"""
-        logger.info(f"Memory generation archive task: {len(gen_context.turns)} turns")
-        return await self._run_generation(
-            GenerationRequest(context=gen_context),
-            source_intent="ARCHIVE",
-            interaction_ref=interaction_ref,
-        )
-
-    async def run_active_generation(
-        self,
-        task: PendingAtomMaterializeTask,
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None = None,
-    ) -> List[MemoryGenerationResult]:
-        """执行单个 MTP WRITE/UPDATE 主动生成链路。"""
-        if task.source_verb == "WRITE":
-            return await self._run_mode_b(task, gen_context, interaction_ref)
-        return await self._run_mode_c(task, gen_context, interaction_ref)
-
     async def execute(
         self,
-        request: GenerationRequest | Any,
-        *,
-        source_intent: str = "WRITE",
-        interaction_ref: ArtifactRef | None = None,
+        spec: MemoryGenerationTaskSpec,
     ) -> List[MemoryGenerationResult]:
-        """过渡期通用执行入口，后续由 MemoryGenerationTaskSpec 固化协议。"""
-        if isinstance(request, GenerationRequest):
-            return await self._run_generation(
-                request,
-                source_intent=source_intent,
-                interaction_ref=interaction_ref,
-            )
-
-        generation_request = getattr(request, "request", None)
-        if isinstance(generation_request, GenerationRequest):
-            return await self._run_generation(
-                generation_request,
-                source_intent=getattr(request, "source_intent", source_intent),
-                interaction_ref=getattr(request, "interaction_ref", interaction_ref),
-            )
-
-        raise TypeError("MemoryGenerationFamiliar.execute requires a GenerationRequest")
-
-    async def _run_mode_b(
-        self,
-        task: PendingAtomMaterializeTask,
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None = None,
-    ) -> List[MemoryGenerationResult]:
-        """Mode B：将 MTP WRITE 请求转换为 GenerationRequest。"""
-        focus = task.focus
-        assert isinstance(focus, WriteFocus)
-        logger.info(f"Mode B WRITE: content='{focus.content[:50]}...'")
-        request = GenerationRequest(
-            context=gen_context,
-            write_focus=focus,
-            identity=task.identity,
-            intent_id=task.intent_id,
-            pending_alias=task.pending_alias,
-        )
+        """执行统一生成任务规范，只返回结果不发布事件。"""
         return await self._run_generation(
-            request,
-            source_intent="WRITE",
-            interaction_ref=interaction_ref,
-        )
-
-    async def _run_mode_c(
-        self,
-        task: PendingAtomMaterializeTask,
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None = None,
-    ) -> List[MemoryGenerationResult]:
-        """Mode C：加载 UPDATE 目标记忆，并转换为 GenerationRequest。"""
-        focus = task.focus
-        assert isinstance(focus, UpdateFocus)
-        logger.info(f"Mode C UPDATE: alias='{focus.base_alias}'")
-
-        existing = await self._mid_term.get(UUID(focus.base_uuid))
-        if existing is None:
-            logger.error(f"UPDATE target memory not found: {focus.base_uuid}")
-            raise RuntimeError(f"UPDATE target memory not found: {focus.base_uuid}")
-
-        request = GenerationRequest(
-            context=gen_context,
-            update_focus=focus,
-            existing_memory=existing,
-            identity=task.identity,
-            intent_id=task.intent_id,
-            pending_alias=task.pending_alias,
-        )
-        return await self._run_generation(
-            request,
-            source_intent="UPDATE",
-            interaction_ref=interaction_ref,
+            spec.request,
+            source_intent=spec.source_intent,
+            interaction_ref=spec.interaction_ref,
         )
 
     async def _run_generation(
@@ -150,8 +54,8 @@ class MemoryGenerationFamiliar:
         source_intent: str = "WRITE",
         interaction_ref: ArtifactRef | None = None,
     ) -> List[MemoryGenerationResult]:
-        """执行 compute -> artifacts -> persist 三步流水线，只返回结果不发布事件。"""
-        # Step 1：纯计算，GenerationEngine 不再负责持久化。
+        """执行 compute -> artifacts -> persist 三步流水线。"""
+        # Step 1：纯计算，GenerationEngine 不负责持久化。
         results = await self._generation_engine.process(request)
 
         memories = [result.atom for result in results if result.atom is not None]

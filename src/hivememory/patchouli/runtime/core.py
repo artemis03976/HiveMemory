@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from hivememory.patchouli.services.librarian import LibrarianCore
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
     from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+    from hivememory.patchouli.services.memory_generation_coordinator import MemoryGenerationCoordinator
     from hivememory.patchouli.services.perception import PerceptionFamiliar
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
@@ -130,11 +131,23 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GENERATION_SUBMIT_ARCHIVE,
-            self._submit_archive_generation,
+            self.memory_generation_coordinator.submit_archive,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
+            self.memory_generation_coordinator.submit_active,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
             self.memory_generation_familiar.execute,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
+            self._task_controller.submit_generation,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
+            self._task_controller.submit_generation_many,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.ANALYZE_AND_RETRIEVE,
@@ -147,6 +160,10 @@ class PatchouliRuntime:
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
             self.retrieval_familiar.retrieve_by_aliases_async,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_GET,
+            self.memory_library.mid_term.get,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
@@ -179,6 +196,10 @@ class PatchouliRuntime:
         self._local_bus.register(
             PatchouliLocalRoutes.PREPARE_TOPIC,
             self.perception_familiar.prepare_topic,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.TOPIC_GET_SHORT_TERM,
+            self.retrieval_familiar.get_short_term_topic,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
@@ -508,6 +529,7 @@ class PatchouliRuntime:
         from hivememory.patchouli.services.librarian import LibrarianCore
         from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
         from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+        from hivememory.patchouli.services.memory_generation_coordinator import MemoryGenerationCoordinator
         from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
         from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
@@ -530,9 +552,13 @@ class PatchouliRuntime:
             artifact_engine=self._engines["artifact"],
         )
 
+        self._services["generation_coordinator"] = MemoryGenerationCoordinator(
+            bus=self._local_bus,
+            artifact_engine=self._engines["artifact"],
+        )
+
         self._task_controller = MemoryGenerationTaskController(
             bus=self._local_bus,
-            generation_familiar=self.memory_generation_familiar,
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="memory_generation_task_controller",
@@ -551,9 +577,6 @@ class PatchouliRuntime:
 
         self._services["librarian"] = LibrarianCore(
             bus=self._local_bus,
-            retrieval_familiar=self.retrieval_familiar,
-            task_controller=self._task_controller,
-            artifact_engine=self._engines["artifact"],
         )
 
     @property
@@ -570,6 +593,11 @@ class PatchouliRuntime:
     def memory_generation_familiar(self) -> MemoryGenerationFamiliar:
         """访问记忆生成使魔服务。"""
         return self._services["generation"]
+
+    @property
+    def memory_generation_coordinator(self) -> MemoryGenerationCoordinator:
+        """访问记忆生成协调器。"""
+        return self._services["generation_coordinator"]
 
     @property
     def lifecycle_familiar(self) -> LifecycleFamiliar:
@@ -609,7 +637,7 @@ class PatchouliRuntime:
             return await result
         return result
 
-    async def _submit_archive_generation(self, payload):
+    async def _legacy_archive_generation_removed(self, payload):
         """过渡期 archive 生成入口，后续由 MemoryGenerationCoordinator 接管。"""
         from hivememory.prompts.transcript import GenerationTranscriptBuilder
 
@@ -635,11 +663,7 @@ class PatchouliRuntime:
             except Exception:
                 logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
 
-        return await self._task_controller.run_archive_generation(
-            topic_id=payload.topic_id,
-            gen_context=gen_context,
-            interaction_ref=interaction_ref,
-        )
+        raise RuntimeError("legacy archive generation handler has been removed")
 
 
 __all__ = [

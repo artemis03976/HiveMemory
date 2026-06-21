@@ -200,8 +200,9 @@ class PatchouliService:
 
         memory_tasks: List[MemoryGenerationTask] = []
         if loop_result.materialize_tasks:
-            memory_tasks = await self._runtime.librarian_core.run_active_generation(
-                tasks=loop_result.materialize_tasks,
+            memory_tasks = await self._require_local_bus().request(
+                PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
+                loop_result.materialize_tasks,
                 topic_id=agent_context.topic_id,
             )
 
