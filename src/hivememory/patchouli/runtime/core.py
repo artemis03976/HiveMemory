@@ -552,7 +552,6 @@ class PatchouliRuntime:
 
         self._services["generation_coordinator"] = MemoryGenerationCoordinator(
             bus=self._local_bus,
-            artifact_engine=self._engines["artifact"],
         )
 
         self._task_controller = MemoryGenerationTaskController(

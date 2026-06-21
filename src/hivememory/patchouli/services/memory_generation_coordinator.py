@@ -1,4 +1,4 @@
-"""Patchouli 记忆生成入口协调器。"""
+"""Patchouli memory generation entrypoint coordinator."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import logging
 from typing import TYPE_CHECKING, Any, List
 from uuid import UUID
 
-from hivememory.core.models.artifact import ArtifactRef
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.engines.perception.models import ArchivePayload
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.memory_tasks import (
+    InteractionArtifactInput,
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
@@ -19,7 +19,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
 
 if TYPE_CHECKING:
-    from hivememory.engines.artifacts.engine import ArtifactEngine
+    from hivememory.engines.perception.models import LogicalBlock
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,8 @@ class MemoryGenerationCoordinator:
         self,
         *,
         bus: Any,
-        artifact_engine: "ArtifactEngine | None" = None,
     ) -> None:
         self._bus = bus
-        self._artifact_engine = artifact_engine
         self._transcript_builder = GenerationTranscriptBuilder()
 
     async def submit_archive(self, payload: ArchivePayload) -> MemoryGenerationTask | None:
@@ -47,19 +45,18 @@ class MemoryGenerationCoordinator:
             logger.warning("空对话轮次，跳过被动生成")
             return None
 
-        interaction_ref = await self._build_interaction_ref(
-            topic_id=payload.topic_id,
-            topic_title=payload.topic_title,
-            topic_summary=payload.topic_summary,
-            blocks=payload.blocks,
-        )
         spec = MemoryGenerationTaskSpec(
             topic_id=payload.topic_id,
             label=payload.topic_id,
             source=MemoryGenerationSource.ARCHIVE,
             request=GenerationRequest(context=gen_context),
             source_intent="ARCHIVE",
-            interaction_ref=interaction_ref,
+            interaction_input=self._build_interaction_input(
+                topic_id=payload.topic_id,
+                topic_title=payload.topic_title,
+                topic_summary=payload.topic_summary,
+                blocks=payload.blocks,
+            ),
         )
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
@@ -85,7 +82,7 @@ class MemoryGenerationCoordinator:
             blocks,
             state_summary=state_summary,
         )
-        interaction_ref = await self._build_interaction_ref(
+        interaction_input = self._build_interaction_input(
             topic_id=topic_id,
             topic_title=topic_data.topic_title if topic_data is not None else "",
             topic_summary=topic_data.topic_summary if topic_data is not None else "",
@@ -97,7 +94,7 @@ class MemoryGenerationCoordinator:
                 task,
                 topic_id=topic_id,
                 gen_context=gen_context,
-                interaction_ref=interaction_ref,
+                interaction_input=interaction_input,
             )
             for task in tasks
         ]
@@ -112,7 +109,7 @@ class MemoryGenerationCoordinator:
         *,
         topic_id: str,
         gen_context,
-        interaction_ref: ArtifactRef | None,
+        interaction_input: InteractionArtifactInput | None,
     ) -> MemoryGenerationTaskSpec:
         source = MemoryGenerationSource(task.source_verb)
         focus = task.focus
@@ -153,31 +150,27 @@ class MemoryGenerationCoordinator:
             source=source,
             request=request,
             source_intent=source_intent,
-            interaction_ref=interaction_ref,
+            interaction_input=interaction_input,
             pending_alias=task.pending_alias,
         )
 
-    async def _build_interaction_ref(
+    def _build_interaction_input(
         self,
         *,
         topic_id: str,
         topic_title: str,
         topic_summary: str,
-        blocks: List[Any],
-    ) -> ArtifactRef | None:
-        """构建交互 artifact；失败不阻断生成链路。"""
-        if self._artifact_engine is None or not blocks:
+        blocks: List["LogicalBlock"],
+    ) -> InteractionArtifactInput | None:
+        """将原始交互数据冻结为生成数据平面的交互输入。"""
+        if not blocks:
             return None
-        try:
-            return await self._artifact_engine.interaction.build_and_store(
-                topic_id=topic_id,
-                topic_title=topic_title,
-                topic_summary=topic_summary,
-                blocks=blocks,
-            )
-        except Exception:
-            logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
-            return None
+        return InteractionArtifactInput(
+            topic_id=topic_id,
+            topic_title=topic_title,
+            topic_summary=topic_summary,
+            blocks=tuple(blocks),
+        )
 
 
 __all__ = ["MemoryGenerationCoordinator"]

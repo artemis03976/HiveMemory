@@ -12,7 +12,10 @@ from hivememory.engines.generation.models import (
     GenerationRequest,
     MemoryGenerationResult,
 )
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskSpec
+from hivememory.patchouli.runtime.memory_tasks import (
+    InteractionArtifactInput,
+    MemoryGenerationTaskSpec,
+)
 
 if TYPE_CHECKING:
     from hivememory.engines.artifacts.engine import ArtifactEngine
@@ -42,10 +45,13 @@ class MemoryGenerationFamiliar:
         spec: MemoryGenerationTaskSpec,
     ) -> List[MemoryGenerationResult]:
         """执行统一生成任务规范，只返回结果不发布事件。"""
+        interaction_ref = await self._build_interaction_artifact(
+            spec.interaction_input,
+        )
         return await self._run_generation(
             spec.request,
             source_intent=spec.source_intent,
-            interaction_ref=spec.interaction_ref,
+            interaction_ref=interaction_ref,
         )
 
     async def _run_generation(
@@ -91,6 +97,26 @@ class MemoryGenerationFamiliar:
                     raise
 
         return results
+
+    async def _build_interaction_artifact(
+        self,
+        interaction_input: InteractionArtifactInput | None,
+    ) -> ArtifactRef | None:
+        """构建原始交互 artifact。"""
+        if self._artifact_engine is None or interaction_input is None:
+            return None
+        if not interaction_input.blocks:
+            return None
+        try:
+            return await self._artifact_engine.interaction.build_and_store(
+                topic_id=interaction_input.topic_id,
+                topic_title=interaction_input.topic_title,
+                topic_summary=interaction_input.topic_summary,
+                blocks=interaction_input.blocks,
+            )
+        except Exception:
+            logger.warning("Failed to build interaction artifact", exc_info=True)
+            return None
 
     async def _build_memory_artifacts(
         self,
