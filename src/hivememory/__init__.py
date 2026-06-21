@@ -5,8 +5,10 @@ HiveMemory - 分布式记忆管理系统
     - PatchouliSystem (The Facility): 外层容器，持有 Eye + Runtime
     - TheEye (真理之眼): Ingress Gateway，意图识别、查询重写
     - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
+        - PerceptionFamiliar (感知使魔): 话题缓冲、归档触发
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
-        - LibrarianCore (馆长本体): 话题感知、记忆生成、生命周期管理
+        - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
+        - LifecycleFamiliar (生命周期使魔): 活力维护、园艺任务
 
 使用示例:
     >>> from hivememory import PatchouliSystem, HiveMemoryConfig
@@ -242,9 +244,6 @@ def __getattr__(name: str):
     if name == "MemoryGenerationCoordinator":
         from hivememory.patchouli.services.memory_generation_coordinator import MemoryGenerationCoordinator
         return MemoryGenerationCoordinator
-    if name == "LibrarianCore":
-        from hivememory.patchouli.services.librarian import LibrarianCore
-        return LibrarianCore
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -422,7 +421,6 @@ __all__ = [
     "LifecycleFamiliar",
     "MemoryGenerationFamiliar",
     "MemoryGenerationCoordinator",
-    "LibrarianCore",
 ]
 
 

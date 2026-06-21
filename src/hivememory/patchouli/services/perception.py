@@ -1,7 +1,6 @@
 """Patchouli 感知使魔。
 
-承接旧 LibrarianCore 中对感知层的代理职责，让 PerceptionLayer 保持为
-不感知总线和生成链路的底层 engine。
+承接感知层代理职责，让 PerceptionLayer 保持为不感知总线和生成链路的底层 engine。
 """
 
 from __future__ import annotations

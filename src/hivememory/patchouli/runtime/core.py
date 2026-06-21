@@ -3,7 +3,7 @@
 
 定位：记忆域 Runtime 宿主 与 State Manager (状态管理器)
 职责：
-    - 管理 RetrievalFamiliar (检索) 和 LibrarianCore (感知/生成/生命周期)
+    - 管理 Perception/Retrieval/Generation/Lifecycle 使魔与生成协调器
     - 基础设施初始化（存储、Librarian LLM、Reranker）
     - 引擎构建（Perception、Generation、Lifecycle、Retrieval）
     - 持有 Patchouli local bus 与内部能力路由
@@ -18,11 +18,11 @@
     │  PatchouliSystem (The Facility)         │
     │                                         │
     │  TheEye ──→ PatchouliRuntime            │
+    │               ├── PerceptionFamiliar    │
     │               ├── RetrievalFamiliar     │
-    │               └── LibrarianCore         │
-    │                    ├── Perception       │
-    │                    ├── Generation       │
-    │                    └── Lifecycle        │
+    │               ├── GenerationFamiliar    │
+    │               ├── GenerationCoordinator │
+    │               └── LifecycleFamiliar     │
     └─────────────────────────────────────────┘
 
 作者: HiveMemory Team
@@ -47,7 +47,6 @@ from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventS
 
 if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
-    from hivememory.patchouli.services.librarian import LibrarianCore
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
     from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
     from hivememory.patchouli.services.memory_generation_coordinator import MemoryGenerationCoordinator
@@ -61,7 +60,7 @@ class PatchouliRuntime:
     """
     帕秋莉运行时 (Patchouli Runtime) - v4.0
 
-    记忆域运行时装配根，管理 RetrievalFamiliar 与 LibrarianCore 两个核心组件。
+    记忆域运行时装配根，管理感知、检索、生成、生命周期等内部服务。
     不持有 TheEye (Gateway)，TheEye 独立于 Runtime 之外运行。
 
     职责:
@@ -523,10 +522,9 @@ class PatchouliRuntime:
         """
         注册微服务到运行时
 
-        当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore)
-        MemoryGenerationTaskController 作为中期记忆生成控制中枢独立构建后注入 LibrarianCore。
+        当前注册：perception、retrieval、generation、generation_coordinator、lifecycle。
+        MemoryGenerationTaskController 通过 local bus 请求生成执行，不再注入馆长本体。
         """
-        from hivememory.patchouli.services.librarian import LibrarianCore
         from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
         from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
         from hivememory.patchouli.services.memory_generation_coordinator import MemoryGenerationCoordinator
@@ -575,10 +573,6 @@ class PatchouliRuntime:
             memory_library=self.memory_library,
         )
 
-        self._services["librarian"] = LibrarianCore(
-            bus=self._local_bus,
-        )
-
     @property
     def perception_familiar(self) -> PerceptionFamiliar:
         """访问感知使魔服务。"""
@@ -603,11 +597,6 @@ class PatchouliRuntime:
     def lifecycle_familiar(self) -> LifecycleFamiliar:
         """访问生命周期使魔服务。"""
         return self._services["lifecycle"]
-
-    @property
-    def librarian_core(self) -> LibrarianCore:
-        """访问馆长本体服务"""
-        return self._services["librarian"]
 
     # ========== 健康检查 ==========
 
@@ -636,35 +625,6 @@ class PatchouliRuntime:
         if inspect.isawaitable(result):
             return await result
         return result
-
-    async def _legacy_archive_generation_removed(self, payload):
-        """过渡期 archive 生成入口，后续由 MemoryGenerationCoordinator 接管。"""
-        from hivememory.prompts.transcript import GenerationTranscriptBuilder
-
-        builder = GenerationTranscriptBuilder()
-        gen_context = builder.build_context(
-            payload.blocks,
-            state_summary=payload.state_summary,
-        )
-        if not gen_context.turns:
-            logger.warning("空对话轮次，跳过处理")
-            return None
-
-        interaction_ref = None
-        artifact_engine = self._engines.get("artifact")
-        if artifact_engine and payload.blocks:
-            try:
-                interaction_ref = await artifact_engine.interaction.build_and_store(
-                    topic_id=payload.topic_id,
-                    topic_title=payload.topic_title,
-                    topic_summary=payload.topic_summary,
-                    blocks=payload.blocks,
-                )
-            except Exception:
-                logger.warning("InteractionArtifact 写入失败，继续生成流程", exc_info=True)
-
-        raise RuntimeError("legacy archive generation handler has been removed")
-
 
 __all__ = [
     "PatchouliRuntime",

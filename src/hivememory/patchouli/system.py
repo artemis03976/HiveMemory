@@ -64,8 +64,10 @@ class PatchouliSystem(SubsystemProtocol):
     架构:
         - TheEye (真理之眼): Ingress Gateway，流量入口、意图判断、查询重写
         - PatchouliRuntime (帕秋莉运行时): 记忆域运行时宿主
+            - PerceptionFamiliar (感知使魔): 话题缓冲与归档触发
             - RetrievalFamiliar (检索使魔): 上下文检索 (Hot)
-            - LibrarianCore (馆长本体): 后台记忆维护 (Cold)
+            - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
+            - LifecycleFamiliar (生命周期使魔): 活力维护与园艺任务
     """
 
     def __init__(
@@ -79,7 +81,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
 
-        # 1. 初始化 Runtime（运行时负责组装 Retrieval + Librarian 组件图）
+        # 1. 初始化 Runtime（运行时负责组装感知、检索、生成、生命周期组件图）
         self.runtime = PatchouliRuntime(
             patchouli_config=self.config.patchouli,
             shared_config=self.config.shared,
