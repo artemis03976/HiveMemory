@@ -937,6 +937,8 @@ LifecycleFamiliar.run_gardening_once()
 
 第 5 章在 `LibrarianCore` 解构完成后执行。此时 lifecycle、generation、task、retrieval、perception 等能力都有稳定业务落点，public API 可以逐个迁移到 bus-only application service，而不需要把临时业务逻辑塞进 `PatchouliRuntime`。
 
+本章的核心判断是：**`patchouli.application.*` 与 `PatchouliService` 中对外公开的方法，均应视为 public API handler。Patchouli 内部业务不应依赖这些 public API 方法；内部协作只通过 local route 请求领域能力原语。**
+
 ### 5.1 迁移原则
 
 1. 先确定 API 的自然归属，再补 local route。不得为了满足 bus-only 形式而在 runtime 中实现业务逻辑。
@@ -944,6 +946,28 @@ LifecycleFamiliar.run_gardening_once()
 3. `PatchouliBridge` 只做公开路由名称翻译和转发，不直接绑定 engine / store / controller。
 4. `PatchouliLocalRoutes` 只表达 Patchouli 内部可组合能力，不镜像完整 public workflow。
 5. `patchouli.application.*` 作为 public use-case 层，只持有 `PatchouliBus`。
+6. public API 方法负责组合 local primitives；不得让 public API 方法请求一个同名 local handler 来绕开自身复杂度。
+7. 如果某个能力会被 Patchouli 内部复用，应抽成 local primitive；如果只面向 system / server / Alice 等外部调用方，则保留为 public route。
+
+换言之，正确方向是：
+
+```
+GlobalRoute
+  → public application service method
+      → local primitive routes
+          → Familiar / controller / domain handler
+```
+
+错误方向是：
+
+```
+GlobalRoute
+  → public application service method
+      → local route with same public workflow name
+          → runtime 临时 handler / public service 自身
+```
+
+后者会让 runtime 变成业务 handler 容器，也会让 local routes 退化为 public routes 的镜像。
 
 ### 5.2 当前边界问题
 
@@ -976,6 +1000,8 @@ Bridge 可以持有一个 route map 或一组 public application service，但�
 当前 local routes 主要覆盖 `PatchouliService.prepare_agent_run()` 内部需要的少数能力，例如 `GET_AGENT_PROFILE`、`PREPARE_TOPIC`、`MEMORY_RETRIEVE`。但 memory/task/topic/profile/model 等 public application service 仍直接持有具体组件，说明 local bus 没有覆盖 application service 所需的完整能力原语。
 
 同时，`PREPARE_AGENT_RUN`、`FINALIZE_AGENT_RUN`、`CLEANUP_PREPARED_AGENT_RUN` 是面向 system 层 `ChatApplicationService` 的完整工作流入口，Patchouli 内部目前不会通过 local bus 请求这些 route。它们应保留为 public routes，不应作为 local routes 常量存在。
+
+`ANALYZE_AND_RETRIEVE` 也需要按同一规则重新评估：如果它只作为外部 passive ingress / prepare 前置能力使用，则应保留在 public API 层，由 application service 内部组合 `gateway.gaze` 与 `memory.retrieve`；只有当 Patchouli 内部业务确实需要复用“分析并检索”这个组合能力时，才保留对应 local route。
 
 #### PatchouliService / Application Services 持有 runtime
 
@@ -1020,6 +1046,8 @@ Local bus 是 Patchouli 子系统内业务代码、控制面组件、public appl
 
 Local bus 上的 route 应是可组合的领域能力原语，而不是完整外部 workflow。
 
+public application service 可以调用 local bus，但这不意味着 public API 本身要出现在 local bus 上。它只是 local primitives 的调用方之一，职责是对外 API 的 use-case 编排。
+
 #### Runtime / Domain：实现层
 
 `PatchouliRuntime` 仍是装配根，负责：
@@ -1041,8 +1069,11 @@ Domain service / engine 可以直接持有其必要依赖，但这些依赖不�
 | `PREPARE_AGENT_RUN` | 完整 public workflow，仅由 system `ChatApplicationService` 通过 global route 调用 |
 | `FINALIZE_AGENT_RUN` | 同上 |
 | `CLEANUP_PREPARED_AGENT_RUN` | 同上 |
+| `ANALYZE_AND_RETRIEVE` | 若仅面向 passive ingress / public API，则不作为 local primitive；改由 public service 组合 `gateway.gaze + memory.retrieve` |
 
 这些 route 继续作为 `PatchouliRoutes` / `GlobalRoutes.PATCHOULI_*` 存在，由 public application service 使用 local primitives 编排实现。
+
+不得为了删除直接 runtime 依赖而新增 `service.prepare_agent_run`、`service.finalize_agent_run` 这类同名 local handler。public workflow 的复杂度属于 public application service；local bus 只承载 workflow 内部可复用的能力节点。
 
 #### 补齐内部能力原语
 
@@ -1051,7 +1082,6 @@ Domain service / engine 可以直接持有其必要依赖，但这些依赖不�
 | 分组 | Local route | Handler 归属 |
 |---|---|---|
 | gateway | `gateway.gaze` | `TheEye.gaze` |
-| passive | `passive.analyze_and_retrieve` | bus-only public service 编排，或拆为 `gateway.gaze + memory.retrieve` 后删除 |
 | ingestion | `ingestion.submit_interaction` | `PerceptionFamiliar.submit_interaction` |
 | generation | `generation.submit_archive` | `MemoryGenerationCoordinator.submit_archive` |
 | generation | `generation.submit_active` | `MemoryGenerationCoordinator.submit_active` |
@@ -1076,15 +1106,18 @@ Domain service / engine 可以直接持有其必要依赖，但这些依赖不�
 
 ### 5.5 Application Service 逐个迁移
 
-迁移顺序按“已有明确落点优先”推进：
+Application service 是 public API 编排层。其 public 方法均默认面向外部调用方，包括 system application service、server router、Alice 子系统或其他通过 `GlobalSystemBus` 访问 Patchouli 的调用方。Patchouli 内部业务不得调用这些 public 方法；如存在内部复用需求，应把可复用能力下沉为 local primitive。
 
-| 服务 | 迁移重点 | 目标落点 |
-|---|---|---|
-| `MemoryTaskManagementService` | task list/get/cancel | `MemoryGenerationTaskController` 暴露的 `memory_task.*` routes |
-| `TopicManagementService` | active topic 查询、手动归档、驱逐、空 topic 清理 | `RetrievalFamiliar` + `PerceptionLayer` 的 `topic.*` routes |
-| `MemoryManagementService` | memory CRUD、feedback、citation、hit | `MemoryLibrary.mid_term` / `RetrievalFamiliar` / `LifecycleFamiliar` |
-| `AgentProfileManagementService` | profile CRUD / 查询 | profile domain handler 或 mid-term store |
-| `ModelReadinessService` | warmup / ready | `PatchouliRuntime` 的 runtime primitives |
+应用服务迁移按“落点明确、风险从低到高”推进。优先处理薄代理和已有自然 handler 的 API，最后处理 `PatchouliService.prepare_agent_run()` / `finalize_agent_run()` 这类组合 workflow。
+
+| 顺序 | 服务 | 迁移重点 | 目标落点 |
+|---|---|---|---|
+| 1 | `MemoryTaskManagementService` | task list/get/cancel | `MemoryGenerationTaskController` 暴露的 `memory_task.*` routes |
+| 2 | `ModelReadinessService` | warmup / ready | `PatchouliRuntime` 的 runtime primitives |
+| 3 | `TopicManagementService` | active topic 查询、手动归档、驱逐、空 topic 清理 | `RetrievalFamiliar` + `PerceptionFamiliar` 的 `topic.*` routes |
+| 4 | `MemoryManagementService` | memory CRUD、feedback、citation、hit | `MemoryLibrary.mid_term` / `RetrievalFamiliar` / `LifecycleFamiliar` |
+| 5 | `AgentProfileManagementService` | profile CRUD / 查询 | profile domain handler 或 mid-term store |
+| 6 | `PatchouliService` | prepare/finalize/cleanup 组合 workflow | local primitives 编排 |
 
 每迁移一个 service，同步完成：
 
@@ -1092,7 +1125,24 @@ Domain service / engine 可以直接持有其必要依赖，但这些依赖不�
 2. 在 runtime 装配阶段注册 handler。
 3. 将 application service 构造函数改为只接收 `PatchouliBus`。
 4. 移除该 service 对 runtime、store、engine、controller、familiar 的直接引用。
-5. 为 public route 到 local route 的错误映射补测试。
+5. 保持 public method 签名和返回模型稳定，避免同时重构调用方。
+
+测试迁移与重构在第 5 章代码调整完成后集中处理；本阶段只保留必要的 smoke check / 编译检查，避免旧 `LibrarianCore` 测试与新路由边界交叉拖慢迁移。
+
+迁移后每个 public 方法应保留 use-case 语义。例如 `prepare_agent_run()` 仍负责准备一次 Agent run 所需的完整上下文；它不会退化为：
+
+```python
+return await self._bus.request(PatchouliLocalRoutes.PREPARE_AGENT_RUN, ...)
+```
+
+而是显式组合内部能力：
+
+```python
+agent_profile = await self._bus.request(PatchouliLocalRoutes.AGENT_PROFILE_GET, ...)
+topics = await self._bus.request(PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, ...)
+gaze = await self._bus.request(PatchouliLocalRoutes.GATEWAY_GAZE, ...)
+...
+```
 
 构造函数统一形态：
 
@@ -1179,23 +1229,84 @@ GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN -> public_api.chat.prepare_agent_run
 GlobalRoutes.PATCHOULI_MODELS_READY      -> public_api.readiness.is_models_ready
 ```
 
-如果某个 public route 只是 local route 的一层同名暴露，也可以由 Bridge 使用通用转发器：
+即使某个 public route 当前只是 local route 的薄代理，也优先由对应 public application service 方法完成转发。这样 public API 的参数校验、错误映射、返回模型和未来兼容策略都有稳定落点。Bridge 不保留通用 local forwarder，避免外部路由绕过 public API 层直接触达 local primitives。
 
-```python
-async def forward(local_route: str, *args, **kwargs):
-    return await self._local_bus.request(local_route, *args, **kwargs)
-```
+完整 workflow（如 `prepare_agent_run`）不应由 Bridge 拼装，也不应在 runtime 中新增同名 handler，仍由 public application service 编排。
 
-但完整 workflow（如 `prepare_agent_run`）不应由 Bridge 拼装，仍由 public application service 编排。
+### 5.8 实施顺序
 
-### 5.8 清理顺序
+第 5 章按以下批次推进。核心原则是先建立自然 handler，再切 public API；不在 runtime 中补临时业务 handler，也不让 public API 请求同名 local workflow。
 
-当 public application service 已经改为 bus-only 后，再清理 local routes 与 Bridge：
+#### Step 1：冻结边界与命名
 
-1. 从 `PatchouliLocalRoutes` 移除 `PREPARE_AGENT_RUN` / `FINALIZE_AGENT_RUN` / `CLEANUP_PREPARED_AGENT_RUN` 这类 public workflow 镜像，保留对应 public routes。
-2. 保留必要旧 route 常量别名作为短期兼容，但新代码只使用分组命名，例如 `memory_task.get`、`topic.list_active`。
-3. 将 `PatchouliBridge` 构造参数收窄为 global bus、local bus、bus-only public API。
-4. Bridge 注册 public routes 时只绑定 public application service 方法；简单同名转发可以使用通用 forwarder，完整 workflow 仍由 application service 编排。
+1. 盘点 `PatchouliRoutes` 与 `PatchouliLocalRoutes`，标记 public-only workflow：
+   `PREPARE_AGENT_RUN`、`FINALIZE_AGENT_RUN`、`CLEANUP_PREPARED_AGENT_RUN`，以及待评估的 `ANALYZE_AND_RETRIEVE`。
+2. 新代码禁止继续新增 `service.*` / public workflow mirror 形式的 local route。
+3. 规范 local primitive 命名，优先补齐 `memory_task.*`、`topic.*`、`memory.*`、`agent_profile.*`、`runtime.*`。
+
+#### Step 2：补齐低风险 local primitives
+
+先注册已经有明确落点的 primitives：
+
+| 能力组 | 优先 route | Handler |
+|---|---|---|
+| memory_task | `memory_task.list/get/cancel` | `MemoryGenerationTaskController` |
+| runtime | `runtime.models.warmup/ready`、`runtime.storage_health` | `PatchouliRuntime` |
+| topic | `topic.list_active/get_short_term/prepare/manual_archive/evict/discard_if_empty` | `RetrievalFamiliar` / `PerceptionFamiliar` |
+| lifecycle | `memory.record_hit/citation/feedback`、`lifecycle.refresh_memory_vitality` | `LifecycleFamiliar` |
+
+这一批只新增或规范化 local primitives，不迁移复杂 public workflow。
+
+#### Step 3：迁移薄 public application services
+
+按以下顺序把 application service 改为只持有 `PatchouliBus`：
+
+1. `MemoryTaskManagementService`
+2. `ModelReadinessService`
+3. `TopicManagementService`
+
+这些服务大多是薄代理，迁移后 Bridge 仍可以继续绑定其 public 方法，调用方无感。
+
+#### Step 4：迁移 memory / profile public API
+
+补齐 memory CRUD 与 profile 相关 primitives 后，再迁移：
+
+1. `MemoryManagementService`
+2. `AgentProfileManagementService`
+
+如果某个 API 缺少自然 handler，不在 runtime 中写临时 handler；应先补 domain handler 或明确落到 `MemoryLibrary.mid_term` / profile domain service。
+
+#### Step 5：瘦身 PatchouliService
+
+1. 将 task/topic/memory/profile/model 代理 API 移出 `PatchouliService`，归还给对应 application service。
+2. `PatchouliService` 剩余职责收束为主动交互组合 workflow：`prepare_agent_run()`、`finalize_agent_run()`、`cleanup_prepared_agent_run()`、必要的 `record_memory_citation()`。
+3. 将这些方法改为只持有 `PatchouliBus` 与必要 public workflow 依赖，通过 local primitives 显式编排：
+   `gateway.gaze`、`topic.*`、`memory.retrieve`、`ingestion.submit_interaction`、`generation.submit_active`、`memory.record_hit`、`runtime.storage_health`。
+
+#### Step 6：收窄 Bridge
+
+当所有 public API 对象均已 bus-only 后，再调整 `PatchouliBridge`：
+
+1. 构造参数收窄为 `global_bus`、`local_bus`、bus-only public API 聚合。
+2. public routes 只绑定 public application service 方法。
+3. Bridge 不直接引用 runtime、Familiar、controller、engine、store，也不保留通用 local forwarder。
+
+#### Step 7：删除 public workflow local 镜像
+
+最后清理 local contract：
+
+1. 从 `PatchouliLocalRoutes` 移除 `PREPARE_AGENT_RUN` / `FINALIZE_AGENT_RUN` / `CLEANUP_PREPARED_AGENT_RUN`。
+2. 若 `ANALYZE_AND_RETRIEVE` 确认为 public-only，也从 local routes 移除；否则保留为明确的内部组合 primitive。
+3. 保留必要旧 route 常量别名作为短期兼容，但新代码只使用分组命名，例如 `memory_task.get`、`topic.list_active`。
+
+#### Step 8：测试迁移与回归
+
+第 5 章代码边界稳定后，再集中迁移测试：
+
+1. 删除或重写旧 `LibrarianCore` / direct runtime 依赖测试。
+2. 为 public route → application service → local primitive 的映射补契约测试。
+3. 为缺失 route、错误映射、public-only route 不出现在 local routes 中补回归测试。
+4. 最后再做端到端链路测试，验证 prepare/finalize、passive ingest、memory task、topic 管理等 public API 仍保持外部行为稳定。
 
 ---
 
