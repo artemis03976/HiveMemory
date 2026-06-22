@@ -103,14 +103,13 @@ class PatchouliSystem(SubsystemProtocol):
             global_bus=global_bus,
         )
         self._memory_management_service = MemoryManagementService(
-            storage=self.runtime.storage,
-            lifecycle_familiar=self.runtime.lifecycle_familiar,
+            bus=self.runtime.local_bus,
         )
         self._memory_task_management_service = MemoryTaskManagementService(
             bus=self.runtime.local_bus,
         )
         self._agent_profile_management_service = AgentProfileManagementService(
-            storage=self.runtime.storage,
+            bus=self.runtime.local_bus,
         )
         self._topic_management_service = TopicManagementService(
             bus=self.runtime.local_bus,

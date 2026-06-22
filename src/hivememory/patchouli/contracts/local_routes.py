@@ -33,8 +33,6 @@ class PatchouliLocalRoutes:
     MEMORY_TASK_GET = "memory_task.get"
     MEMORY_TASK_CANCEL = "memory_task.cancel"
 
-    AGENT_PROFILE_CREATE = "agent_profile.create"
-    AGENT_PROFILE_LIST = "agent_profile.list"
     GET_AGENT_PROFILE = "memory.get_agent_profile"
 
     TOPIC_PREPARE = "topic.prepare"
@@ -82,8 +80,6 @@ class PatchouliLocalRoutes:
         MEMORY_TASK_LIST,
         MEMORY_TASK_GET,
         MEMORY_TASK_CANCEL,
-        AGENT_PROFILE_CREATE,
-        AGENT_PROFILE_LIST,
         GET_AGENT_PROFILE,
         TOPIC_PREPARE,
         TOPIC_GET_SHORT_TERM,

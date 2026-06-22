@@ -1104,12 +1104,12 @@ Domain service / engine 可以直接持有其必要依赖，但这些依赖不�
 | generation | `generation.submit_active` | `MemoryGenerationCoordinator.submit_active` |
 | generation | `generation.submit_evolution` | `MemoryGenerationCoordinator.submit_evolution` future |
 | generation | `generation.execute_spec` | `MemoryGenerationFamiliar.execute` |
-| memory | `memory.create` / `memory.list` / `memory.get` / `memory.update` / `memory.delete` | `MemoryLibrary.mid_term` 或 MemoryManagement domain handler |
+| memory | `memory.create` / `memory.update` / `memory.delete` | `MemoryLibrary.mid_term` |
+| memory | `memory.list` / `memory.get` / `memory.get_agent_profile` | `RetrievalFamiliar` |
 | memory | `memory.retrieve` / `memory.retrieve_by_aliases` | `RetrievalFamiliar` |
 | memory | `memory.record_feedback` / `memory.record_citation` / `memory.record_hit` | `LifecycleFamiliar` |
 | memory_task | `memory_task.submit_generation` / `memory_task.submit_generation_many` | `MemoryGenerationTaskController` |
 | memory_task | `memory_task.list` / `memory_task.get` / `memory_task.cancel` | `MemoryGenerationTaskController` |
-| agent_profile | `agent_profile.create` / `agent_profile.list` / `agent_profile.get` | profile domain handler / mid-term store |
 | topic | `topic.prepare` | `PerceptionFamiliar.prepare_topic` |
 | topic | `topic.list_active` | `RetrievalFamiliar.list_active_topics` |
 | topic | `topic.get_short_term` | `RetrievalFamiliar.get_short_term_topic` |
@@ -1133,7 +1133,7 @@ Application service 是 public API 编排层。其 public 方法均默认面向�
 | 2 | `ModelReadinessService` | warmup / ready | `PatchouliRuntime` 的 runtime primitives |
 | 3 | `TopicManagementService` | active topic 查询、手动归档、驱逐、空 topic 清理 | `RetrievalFamiliar` + `PerceptionFamiliar` 的 `topic.*` routes |
 | 4 | `MemoryManagementService` | memory CRUD、feedback、citation、hit | `MemoryLibrary.mid_term` / `RetrievalFamiliar` / `LifecycleFamiliar` |
-| 5 | `AgentProfileManagementService` | profile CRUD / 查询 | profile domain handler 或 mid-term store |
+| 5 | `AgentProfileManagementService` | profile 创建 / 查询 | 复用 `memory.create` / `memory.list`；profile get-by-alias 走 `memory.get_agent_profile` |
 | 6 | `PatchouliService` | prepare/finalize/cleanup 组合 workflow | local primitives 编排 |
 
 每迁移一个 service，同步完成：
@@ -1155,7 +1155,7 @@ return await self._bus.request(PatchouliLocalRoutes.PREPARE_AGENT_RUN, ...)
 而是显式组合内部能力：
 
 ```python
-agent_profile = await self._bus.request(PatchouliLocalRoutes.AGENT_PROFILE_GET, ...)
+agent_profile = await self._bus.request(PatchouliLocalRoutes.GET_AGENT_PROFILE, ...)
 topics = await self._bus.request(PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, ...)
 gaze = await self._bus.request(PatchouliLocalRoutes.GATEWAY_GAZE, ...)
 ...
@@ -1177,8 +1177,8 @@ class MemoryManagementService:
 | `MemoryManagementService.list_memories` | `memory.list` + 可选 `lifecycle.refresh_memory_vitality` |
 | `MemoryManagementService.record_feedback` | `memory.record_feedback` |
 | `MemoryTaskManagementService.list_memory_tasks` | `memory_task.list` |
-| `AgentProfileManagementService.create_agent_profile` | `agent_profile.create` |
-| `AgentProfileManagementService.list_agent_profiles` | `agent_profile.list` |
+| `AgentProfileManagementService.create_agent_profile` | `memory.create`（强制 `MemoryType.AGENT_PROFILE`） |
+| `AgentProfileManagementService.list_agent_profiles` | `memory.list` + `index.memory_type = AGENT_PROFILE` filter |
 | `TopicManagementService.list_active_topics` | `topic.list_active` |
 | `TopicManagementService.archive_topic` | `topic.manual_archive` |
 | `TopicManagementService.evict_topic` | `topic.evict` |
@@ -1194,7 +1194,7 @@ class MemoryManagementService:
 | task 代理 API，例如 `get_memory_task` | `MemoryTaskManagementService` / `memory_task.*` |
 | topic 代理 API | `TopicManagementService` / `topic.*` |
 | memory 代理 API | `MemoryManagementService` / `memory.*` |
-| profile / model 代理 API | 对应 application service / `agent_profile.*` / `runtime.models.*` |
+| profile / model 代理 API | 对应 application service；profile 复用 `memory.*`，model 使用 `runtime.models.*` |
 | `prepare_agent_run()` / `finalize_agent_run()` | 暂保留为主动交互组合入口，最后改为 bus-only 编排 |
 
 最终 `prepare_agent_run()` 通过 local routes 编排：

@@ -32,7 +32,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -165,6 +164,14 @@ class PatchouliRuntime:
             service.analyze_and_retrieve,
         )
         self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_CREATE,
+            self.memory_library.mid_term.upsert,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_LIST,
+            self.retrieval_familiar.list_memories,
+        )
+        self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
             self.retrieval_familiar.retrieve_async,
         )
@@ -174,7 +181,15 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_GET,
-            self.memory_library.mid_term.get,
+            self.retrieval_familiar.get_memory,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_UPDATE,
+            self.memory_library.mid_term.upsert,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_DELETE,
+            self.memory_library.mid_term.delete,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
@@ -214,7 +229,7 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
-            self._get_agent_profile,
+            self.retrieval_familiar.get_agent_profile,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.PREPARE_TOPIC,
@@ -630,12 +645,6 @@ class PatchouliRuntime:
 
     async def ensure_storage_ready(self) -> None:
         await self.storage.ensure_ready()
-
-    async def _get_agent_profile(self, agent_alias: str):
-        result = self.storage.get_agent_profile(agent_alias)
-        if inspect.isawaitable(result):
-            return await result
-        return result
 
 __all__ = [
     "PatchouliRuntime",

@@ -15,10 +15,18 @@
 """
 
 from typing import Any, List, Optional
+from uuid import UUID
 import time
 import logging
 
-from hivememory.core.models import Identity, MemoryAtom, TopicSnapshot
+from hivememory.core.models import (
+    AgentProfile,
+    Identity,
+    MemoryAtom,
+    MemoryType,
+    OMNI_DOLL_PROFILE,
+    TopicSnapshot,
+)
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
@@ -132,6 +140,52 @@ class RetrievalFamiliar:
         return [topic.to_topic_snapshot() for topic in topics]
 
     # ========== 中期记忆查询 ========== 
+
+    async def get_memory(self, memory_id: UUID | str) -> Optional[MemoryAtom]:
+        """Read a mid-term memory atom by id."""
+        normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
+        return await self._memory_library.mid_term.get(normalized_id)
+
+    async def list_memories(
+        self,
+        *,
+        query: Optional[str] = None,
+        filters: Optional[dict[str, Any]] = None,
+        limit: int = 20,
+    ) -> List[MemoryAtom]:
+        """List or search mid-term memories without applying public API policy."""
+        if query:
+            results = await self._memory_library.mid_term.search(
+                query=query,
+                top_k=limit,
+                filters=filters,
+            )
+            return [result["memory"] for result in results if "memory" in result]
+        return await self._memory_library.mid_term.scroll(
+            filters=filters,
+            limit=limit,
+        )
+
+    async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
+        """Resolve an agent profile from mid-term memory atoms."""
+        if not agent_alias or agent_alias in ("default", "omni_doll"):
+            return OMNI_DOLL_PROFILE
+
+        try:
+            atom = await self._memory_library.mid_term.get_by_alias(agent_alias)
+            if atom is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
+                profile = AgentProfile.from_atom(atom)
+                if profile is not None:
+                    return profile
+        except Exception as e:
+            logger.warning(
+                f"Failed to load agent profile '{agent_alias}' from memory library: {e}"
+            )
+
+        logger.info(
+            f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE."
+        )
+        return OMNI_DOLL_PROFILE
 
     async def retrieve(self, request: RetrievalRequest, mode: str = "active") -> RetrievalResponse:
         """

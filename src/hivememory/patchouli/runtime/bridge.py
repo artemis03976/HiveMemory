@@ -160,7 +160,7 @@ class PatchouliBridge:
             ),
             (
                 PatchouliRoutes.GET_AGENT_PROFILE,
-                self._runtime._get_agent_profile,
+                self._runtime.retrieval_familiar.get_agent_profile,
             ),
             (
                 PatchouliRoutes.PREPARE_AGENT_RUN,

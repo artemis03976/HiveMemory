@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom, MemoryType
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 
 class MemoryManagementService:
@@ -13,14 +13,12 @@ class MemoryManagementService:
     def __init__(
         self,
         *,
-        storage: Any,
-        lifecycle_familiar: Any | None = None,
+        bus,
     ) -> None:
-        self._storage = storage
-        self._lifecycle_familiar = lifecycle_familiar
+        self._bus = bus
 
     async def create_memory(self, atom: MemoryAtom) -> MemoryAtom:
-        await self._storage.upsert_memory(atom)
+        await self._bus.request(PatchouliLocalRoutes.MEMORY_CREATE, atom)
         return atom
 
     async def list_memories(
@@ -33,23 +31,12 @@ class MemoryManagementService:
         refresh_vitality: bool = True,
     ) -> list[MemoryAtom]:
         excluded = set(exclude_types or [])
-        if query:
-            results = await self._storage.search_memories(
-                query_text=query,
-                top_k=limit,
-                filters=filters,
-            )
-            atoms = [
-                result["memory"]
-                for result in results
-                if "memory" in result
-            ]
-        else:
-            atoms = await self._storage.get_all_memories(
-                filters=filters,
-                limit=limit,
-            )
-
+        atoms = await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_LIST,
+            query=query,
+            filters=filters,
+            limit=limit,
+        )
         atoms = [
             atom for atom in atoms
             if self._memory_type_value(atom.index.memory_type) not in excluded
@@ -64,7 +51,10 @@ class MemoryManagementService:
         *,
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
-        atom = await self._storage.get_memory(self._normalize_uuid(memory_id))
+        atom = await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_GET,
+            self._normalize_uuid(memory_id),
+        )
         if atom is not None and refresh_vitality:
             await self._refresh_vitality_for_response([atom])
         return atom
@@ -80,7 +70,10 @@ class MemoryManagementService:
         tags: list[str] | None = None,
         agent_config: dict | None = None,
     ) -> MemoryAtom | None:
-        atom = await self._storage.get_memory(self._normalize_uuid(memory_id))
+        atom = await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_GET,
+            self._normalize_uuid(memory_id),
+        )
         if atom is None:
             return None
 
@@ -98,11 +91,14 @@ class MemoryManagementService:
             atom.payload.artifacts.agent_config = agent_config
         atom.meta.updated_at = datetime.now(timezone.utc)
 
-        await self._storage.upsert_memory(atom)
+        await self._bus.request(PatchouliLocalRoutes.MEMORY_UPDATE, atom)
         return atom
 
     async def delete_memory(self, memory_id: UUID | str) -> bool:
-        return await self._storage.delete_memory(self._normalize_uuid(memory_id))
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_DELETE,
+            self._normalize_uuid(memory_id),
+        )
 
     async def record_feedback(
         self,
@@ -111,10 +107,8 @@ class MemoryManagementService:
         positive: bool,
         source: str,
     ):
-        if self._lifecycle_familiar is None:
-            raise RuntimeError("Memory lifecycle engine is unavailable")
-
-        return await self._lifecycle_familiar.record_feedback(
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
             self._normalize_uuid(memory_id),
             positive=positive,
             source=source,
@@ -129,9 +123,13 @@ class MemoryManagementService:
         return memory_type.value if hasattr(memory_type, "value") else str(memory_type)
 
     async def _refresh_vitality_for_response(self, atoms: list[MemoryAtom]) -> None:
-        if self._lifecycle_familiar is None or not atoms:
+        if not atoms:
             return
         try:
-            await self._lifecycle_familiar.refresh_memory_vitality(atoms, persist=False)
+            await self._bus.request(
+                PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
+                atoms,
+                persist=False,
+            )
         except Exception:
             return
