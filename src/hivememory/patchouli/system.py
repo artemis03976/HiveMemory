@@ -107,17 +107,16 @@ class PatchouliSystem(SubsystemProtocol):
             lifecycle_familiar=self.runtime.lifecycle_familiar,
         )
         self._memory_task_management_service = MemoryTaskManagementService(
-            task_controller=self.runtime._task_controller,
+            bus=self.runtime.local_bus,
         )
         self._agent_profile_management_service = AgentProfileManagementService(
             storage=self.runtime.storage,
         )
         self._topic_management_service = TopicManagementService(
-            perception_familiar=self.runtime.perception_familiar,
-            retrieval_familiar=self.runtime.retrieval_familiar,
+            bus=self.runtime.local_bus,
         )
         self._model_readiness_service = ModelReadinessService(
-            runtime=self.runtime,
+            self.runtime.local_bus,
         )
         self._bridge = PatchouliBridge(
             runtime=self.runtime,

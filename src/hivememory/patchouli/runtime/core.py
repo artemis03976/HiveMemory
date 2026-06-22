@@ -149,6 +149,18 @@ class PatchouliRuntime:
             self._task_controller.submit_generation_many,
         )
         self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_LIST,
+            self._task_controller.list_tasks,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_GET,
+            self._task_controller.get_task,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_CANCEL,
+            self._task_controller.cancel_task,
+        )
+        self._local_bus.register(
             PatchouliLocalRoutes.ANALYZE_AND_RETRIEVE,
             service.analyze_and_retrieve,
         )
@@ -171,6 +183,18 @@ class PatchouliRuntime:
         self._local_bus.register(
             PatchouliLocalRoutes.LIFECYCLE_RUN_GARDENING_ONCE,
             self.lifecycle_familiar.run_gardening_once,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.RUNTIME_MODELS_WARMUP,
+            self.warmup_models,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.RUNTIME_MODELS_READY,
+            self.is_models_ready,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
+            self.check_storage_health,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_RECORD_HIT,
@@ -201,7 +225,7 @@ class PatchouliRuntime:
             self.retrieval_familiar.get_short_term_topic,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
+            PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
             self.retrieval_familiar.list_active_topics,
         )
         self._local_bus.register(
@@ -211,18 +235,6 @@ class PatchouliRuntime:
         self._local_bus.register(
             PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
             self.perception_familiar.discard_if_empty,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.PREPARE_AGENT_RUN,
-            service.prepare_agent_run,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.FINALIZE_AGENT_RUN,
-            service.finalize_agent_run,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.CLEANUP_PREPARED_AGENT_RUN,
-            service.cleanup_prepared_agent_run,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MANUAL_ARCHIVE_TOPIC,

@@ -3,34 +3,30 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.core.models import Identity
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.services.perception import PerceptionFamiliar
-    from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+    from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
 class TopicManagementService:
     """Patchouli public topic management application service."""
 
-    def __init__(
-        self,
-        *,
-        perception_familiar: "PerceptionFamiliar",
-        retrieval_familiar: "RetrievalFamiliar | None" = None,
-    ) -> None:
-        self._perception_familiar = perception_familiar
-        self._retrieval_familiar = retrieval_familiar
+    def __init__(self, *, bus: "PatchouliBus") -> None:
+        # Topic public API 只通过 local bus 组合 topic primitives，不直接持有 familiar。
+        self._bus = bus
 
     async def list_active_topics(self, *, identity: Identity):
-        if self._retrieval_familiar is None:
-            return []
-        return self._retrieval_familiar.list_active_topics(identity)
+        return await self._bus.request(
+            PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
+            identity=identity,
+        )
 
     async def archive_topic(self, *, topic_id: str | None = None) -> dict:
-        return await self._perception_familiar.manual_archive_topic(topic_id)
+        return await self._bus.request(PatchouliLocalRoutes.TOPIC_MANUAL_ARCHIVE, topic_id)
 
     async def evict_topic(self, *, topic_id: str) -> dict:
-        return await self._perception_familiar.evict_topic(topic_id)
+        return await self._bus.request(PatchouliLocalRoutes.TOPIC_EVICT, topic_id)
 
     async def prepare_topic(
         self,
@@ -39,7 +35,8 @@ class TopicManagementService:
         new_topic_summary: str | None,
         identity: Identity,
     ) -> str:
-        return await self._perception_familiar.prepare_topic(
+        return await self._bus.request(
+            PatchouliLocalRoutes.TOPIC_PREPARE,
             target_topic_id,
             new_topic_title,
             new_topic_summary,
