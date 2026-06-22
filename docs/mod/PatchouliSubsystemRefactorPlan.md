@@ -939,6 +939,17 @@ LifecycleFamiliar.run_gardening_once()
 
 本章的核心判断是：**`patchouli.application.*` 与 `PatchouliService` 中对外公开的方法，均应视为 public API handler。Patchouli 内部业务不应依赖这些 public API 方法；内部协作只通过 local route 请求领域能力原语。**
 
+这不意味着 application service 被放到 Patchouli 外部。它仍然是 Patchouli 子系统内部对象，只是由 `PatchouliBridge` 把其 public 方法挂载到 `GlobalSystemBus`，供外层调用方访问。完整调用链应为：
+
+```
+system / server / Alice
+  → GlobalSystemBus / PatchouliRoutes
+      → PatchouliBridge（挂载 public route）
+          → Patchouli public application service method
+              → PatchouliLocalBus / local primitive routes
+                  → Familiar / controller / runtime primitive / domain handler
+```
+
 ### 5.1 迁移原则
 
 1. 先确定 API 的自然归属，再补 local route。不得为了满足 bus-only 形式而在 runtime 中实现业务逻辑。
@@ -1023,6 +1034,8 @@ Bridge 可以持有一个 route map 或一组 public application service，但�
 
 #### PatchouliBridge：公开路由转发层
 
+Bridge 是 Patchouli public API 的挂载适配器。它负责把 Patchouli 内部的 bus-only public application service 方法注册到 `GlobalSystemBus`，使外层调用方只能通过 `PatchouliRoutes` 访问 Patchouli。
+
 Bridge 的职责：
 
 - 注册 / 卸载 `PatchouliRoutes`
@@ -1036,7 +1049,11 @@ Bridge 不负责：
 - 调用 storage / engine / controller
 - 暴露 local route 给外部调用方
 
+因此，Bridge 可以知道“某个 public route 对应哪个 public application service 方法”，但不能知道“这个方法内部组合了哪些 local routes”。
+
 #### PatchouliLocalBus：子系统内部能力总线
+
+Local bus 仅供 Patchouli 子系统内部对象使用。这里的“内部对象”包括 Familiar、controller、coordinator、runtime primitive，以及 public application service。外部调用方不能直接看到或请求 `PatchouliLocalRoutes`。
 
 Local bus 是 Patchouli 子系统内业务代码、控制面组件、public application service 的唯一跨组件通信入口。它需要覆盖三类能力：
 
@@ -1046,7 +1063,7 @@ Local bus 是 Patchouli 子系统内业务代码、控制面组件、public appl
 
 Local bus 上的 route 应是可组合的领域能力原语，而不是完整外部 workflow。
 
-public application service 可以调用 local bus，但这不意味着 public API 本身要出现在 local bus 上。它只是 local primitives 的调用方之一，职责是对外 API 的 use-case 编排。
+public application service 可以调用 local bus，但这不意味着 public API 本身要出现在 local bus 上。它只是 local primitives 的调用方之一，职责是对外 API 的 use-case 编排。换言之，`prepare_agent_run()` 可以组合 `topic.prepare`、`memory.retrieve`、`runtime.storage_health`，但不应存在 `service.prepare_agent_run` 作为同名 local workflow。
 
 #### Runtime / Domain：实现层
 
@@ -1212,14 +1229,15 @@ class PatchouliBridge:
     def __init__(
         self,
         *,
-        local_bus: PatchouliBus,
         global_bus: GlobalSystemBus | None = None,
         public_api: PatchouliPublicApi,
     ) -> None:
         ...
 ```
 
-其中 `PatchouliPublicApi` 可以是一个聚合对象，也可以是一组 bus-only application services。关键约束是：这些对象不能持有 runtime / engine / storage / controller。
+其中 `PatchouliPublicApi` 可以是一个聚合对象，也可以是一组 bus-only application services。关键约束是：这些对象不能持有 runtime / engine / storage / controller；它们内部自行持有 `PatchouliBus` 并完成 public use-case 编排。
+
+Bridge 可以为了 local event → global event 转发持有 `PatchouliBus` 或事件订阅端口，但不能用它把 public route 直接 forward 到 local route。
 
 Bridge 注册 public routes 时只绑定 public API 方法：
 
