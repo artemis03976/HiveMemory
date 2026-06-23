@@ -73,7 +73,7 @@ class MemoryGenerationCoordinator:
             return []
 
         topic_data = await self._bus.request(
-            PatchouliLocalRoutes.TOPIC_GET_SHORT_TERM,
+            PatchouliLocalRoutes.TOPIC_GET,
             topic_id,
         )
         blocks = topic_data.recent_blocks(5) if topic_data is not None else []

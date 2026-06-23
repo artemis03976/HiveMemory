@@ -520,11 +520,11 @@ class TestRetrievalFamiliarShortTermTopics:
             deep_copy=False,
         )
 
-    def test_get_short_term_topic_defaults_to_deep_copy(self):
+    def test_get_topic_defaults_to_deep_copy(self):
         topic_data = _make_topic_data()
         self.mock_library.short_term.get_topic_data.return_value = topic_data
 
-        result = self.familiar.get_short_term_topic("topic_1")
+        result = self.familiar.get_topic("topic_1")
 
         self.mock_library.short_term.get_topic_data.assert_called_once_with(
             "topic_1",
@@ -533,8 +533,8 @@ class TestRetrievalFamiliarShortTermTopics:
         )
         assert result is topic_data
 
-    def test_get_short_term_topic_can_skip_deep_copy(self):
-        self.familiar.get_short_term_topic("topic_1", touch=False, deep_copy=False)
+    def test_get_topic_can_skip_deep_copy(self):
+        self.familiar.get_topic("topic_1", touch=False, deep_copy=False)
 
         self.mock_library.short_term.get_topic_data.assert_called_once_with(
             "topic_1",

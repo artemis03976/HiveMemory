@@ -43,7 +43,7 @@ async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result
     kernel.local_bus = local_bus
     kernel.check_storage_health = AsyncMock(return_value=True)
     kernel.retrieval_familiar.list_active_topics.return_value = []
-    kernel.retrieval_familiar.get_short_term_topic.return_value = None
+    kernel.retrieval_familiar.get_topic.return_value = None
     kernel.memory_library.short_term.max_resident_topics = 5
 
     gaze_result = EyeGazeResult(

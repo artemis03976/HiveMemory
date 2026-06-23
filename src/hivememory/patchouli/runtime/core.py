@@ -127,6 +127,7 @@ class PatchouliRuntime:
             PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
             self.perception_familiar.submit_interaction,
         )
+
         self._local_bus.register(
             PatchouliLocalRoutes.GENERATION_SUBMIT_ARCHIVE,
             self.memory_generation_coordinator.submit_archive,
@@ -139,6 +140,7 @@ class PatchouliRuntime:
             PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
             self.memory_generation_familiar.execute,
         )
+
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
             self._task_controller.submit_generation,
@@ -159,10 +161,12 @@ class PatchouliRuntime:
             PatchouliLocalRoutes.MEMORY_TASK_CANCEL,
             self._task_controller.cancel_task,
         )
+
         self._local_bus.register(
             PatchouliLocalRoutes.GATEWAY_GAZE,
             service.gaze,
         )
+
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_CREATE,
             self.memory_library.mid_term.upsert,
@@ -191,6 +195,7 @@ class PatchouliRuntime:
             PatchouliLocalRoutes.MEMORY_DELETE,
             self.memory_library.mid_term.delete,
         )
+
         self._local_bus.register(
             PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
             self.lifecycle_familiar.refresh_memory_vitality,
@@ -199,6 +204,7 @@ class PatchouliRuntime:
             PatchouliLocalRoutes.LIFECYCLE_RUN_GARDENING_ONCE,
             self.lifecycle_familiar.run_gardening_once,
         )
+
         self._local_bus.register(
             PatchouliLocalRoutes.RUNTIME_MODELS_WARMUP,
             self.warmup_models,
@@ -211,6 +217,7 @@ class PatchouliRuntime:
             PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
             self.check_storage_health,
         )
+
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_RECORD_HIT,
             self.lifecycle_familiar.record_hit,
@@ -227,17 +234,19 @@ class PatchouliRuntime:
             PatchouliLocalRoutes.MEMORY_REVIVE,
             self.lifecycle_familiar.revive_memory,
         )
+
         self._local_bus.register(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
             self.retrieval_familiar.get_agent_profile,
         )
+        
         self._local_bus.register(
             PatchouliLocalRoutes.TOPIC_PREPARE,
             self.perception_familiar.prepare_topic,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.TOPIC_GET_SHORT_TERM,
-            self.retrieval_familiar.get_short_term_topic,
+            PatchouliLocalRoutes.TOPIC_GET,
+            self.retrieval_familiar.get_topic,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,

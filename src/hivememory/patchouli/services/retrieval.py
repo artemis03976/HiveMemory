@@ -99,7 +99,7 @@ class RetrievalFamiliar:
 
     # ========== 短期记忆查询 ========== 
 
-    def get_short_term_topic(
+    def get_topic(
         self,
         topic_id: str,
         *,

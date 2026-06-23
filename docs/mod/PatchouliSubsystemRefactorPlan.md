@@ -361,7 +361,7 @@ def __init__(
 | 来源 | 迁移内容 | 目标层 | 状态 |
 |---|---|---|---|
 | `LibrarianCore.get_active_topics_snapshots` | `list_active_topics` | 短期检索 | Phase 3 |
-| `LibrarianCore` / 感知层 `prepare_topic` | `get_short_term_topic` | 短期检索 | Phase 3 |
+| `LibrarianCore` / 感知层 `prepare_topic` | `get_topic` | 短期检索 | Phase 3 |
 | 现有 retrieval engine | 精确取回（alias）、语义检索 | 中期检索 | 已实现 |
 | `self.storage`（Phase 1-2 遗留） | `get_by_alias` / `update_access_info` 切换至 `mid_term` | 中期检索 | Phase 3 清理 |
 | 待实现 | `query_archive`、`is_archived` | 长期检索 | Phase 3 |
@@ -482,9 +482,9 @@ PatchouliService.finalize_agent_run()
 **迁移步骤**
 
 1. `LibrarianCore.run_active_generation()` 不再作为主动生成入口；入口迁移为 `generation.submit_active` local route。
-2. 若构建 active generation spec 需要短期 topic 上下文，优先由调用方传入 `TopicData` 或必要快照；必须在生成链路内部补齐时，通过 local bus 请求 `topic.get_short_term`，不得直接持有 `RetrievalFamiliar` 或 perception store：
+2. 若构建 active generation spec 需要短期 topic 上下文，优先由调用方传入 `TopicData` 或必要快照；必须在生成链路内部补齐时，通过 local bus 请求 `topic.get`，不得直接持有 `RetrievalFamiliar` 或 perception store：
    ```python
-   topic_data = await bus.request("topic.get_short_term", topic_id)
+   topic_data = await bus.request("topic.get", topic_id)
    ```
 3. `ArtifactEngine.interaction.build_and_store()` 直接取字段（`topic_data.topic_title` 等），或重载接受 `Optional[TopicData]`。
 4. `GenerationContext` 构建迁入 `MemoryGenerationFamiliar` 或 spec builder，使用 `topic_data.recent_blocks(5)` 和 `topic_data.state_summary`。
@@ -529,7 +529,7 @@ def _to_topic_data(self, buf, *, deep_copy=True) -> TopicData:
 | 调用场景 | `deep_copy` | 理由 |
 |---|---|---|
 | `list_active_topics` → `list_topic_data` | `False` | 只消费 `to_topic_snapshot()`，block 不对外暴露 |
-| `get_short_term_topic` → `get_topic_data` | `False` | 只读取 summary/title/token count |
+| `get_topic` → `get_topic_data` | `False` | 只读取 summary/title/token count |
 | `prepare_topic` / `run_active_generation` 拿 blocks 传下游 | `True`（默认） | blocks 会进入 generation context，需隔离 |
 | `TriggerManager` 内部 compact/fold | `True`（默认） | 需要修改 block 列表 |
 
@@ -724,7 +724,7 @@ await self._bus.request("memory_task.submit_generation", spec)
 await self._bus.request("memory_task.submit_generation_many", specs)
 ```
 
-如果构建 spec 需要补齐短期 topic 或已有 memory，优先由调用方传入必要上下文；必须跨域读取时，Coordinator 也只能通过 local bus 请求 `topic.get_short_term` / `memory.get`，不得直接持有 `RetrievalFamiliar` 或 store。
+如果构建 spec 需要补齐短期 topic 或已有 memory，优先由调用方传入必要上下文；必须跨域读取时，Coordinator 也只能通过 local bus 请求 `topic.get` / `memory.get`，不得直接持有 `RetrievalFamiliar` 或 store。
 
 #### MemoryGenerationTaskController
 
@@ -1112,7 +1112,7 @@ Domain service / engine 可以直接持有其必要依赖，但这些依赖不�
 | memory_task | `memory_task.list` / `memory_task.get` / `memory_task.cancel` | `MemoryGenerationTaskController` |
 | topic | `topic.prepare` | `PerceptionFamiliar.prepare_topic` |
 | topic | `topic.list_active` | `RetrievalFamiliar.list_active_topics` |
-| topic | `topic.get_short_term` | `RetrievalFamiliar.get_short_term_topic` |
+| topic | `topic.get` | `RetrievalFamiliar.get_topic` |
 | topic | `topic.manual_archive` / `topic.evict` / `topic.discard_if_empty` | `PerceptionFamiliar` |
 | lifecycle | `lifecycle.refresh_memory_vitality` | `LifecycleFamiliar.refresh_memory_vitality` |
 | lifecycle | `lifecycle.run_gardening_once` | `LifecycleFamiliar.run_gardening_once` |
@@ -1205,7 +1205,7 @@ topic.list_active
 gateway.gaze
 topic.prepare
 topic.list_active(include_empty=True)
-topic.get_short_term
+topic.get
 memory.retrieve
 runtime.storage_health
 ```
@@ -1270,7 +1270,7 @@ GlobalRoutes.PATCHOULI_MODELS_READY      -> public_api.readiness.is_models_ready
 |---|---|---|
 | memory_task | `memory_task.list/get/cancel` | `MemoryGenerationTaskController` |
 | runtime | `runtime.models.warmup/ready`、`runtime.storage_health` | `PatchouliRuntime` |
-| topic | `topic.list_active/get_short_term/prepare/manual_archive/evict/discard_if_empty` | `RetrievalFamiliar` / `PerceptionFamiliar` |
+| topic | `topic.list_active/get/prepare/manual_archive/evict/discard_if_empty` | `RetrievalFamiliar` / `PerceptionFamiliar` |
 | lifecycle | `memory.record_hit/citation/feedback`、`lifecycle.refresh_memory_vitality` | `LifecycleFamiliar` |
 
 这一批只新增或规范化 local primitives，不迁移复杂 public workflow。

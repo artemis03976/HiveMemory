@@ -126,7 +126,7 @@ class PatchouliService:
                 include_empty=True,
             )
             topic_context = await self._require_local_bus().request(
-                PatchouliLocalRoutes.TOPIC_GET_SHORT_TERM,
+                PatchouliLocalRoutes.TOPIC_GET,
                 real_topic_id,
             )
 

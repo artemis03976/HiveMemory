@@ -200,7 +200,7 @@ class TestLibrarianCoreGenerateMemory:
     def _core_with_context(self, blocks=None, bus=None):
         perception_layer = Mock()
         retrieval_familiar = Mock()
-        retrieval_familiar.get_short_term_topic.return_value = _make_topic_data(
+        retrieval_familiar.get_topic.return_value = _make_topic_data(
             blocks=blocks if blocks is not None else [],
         )
         core = LibrarianCore(
@@ -311,7 +311,7 @@ class TestLibrarianCoreGenerateMemory:
     async def test_run_active_generation_uses_retrieval_familiar_topic_context(self):
         blocks = _make_logical_blocks(1)
         retrieval_familiar = Mock()
-        retrieval_familiar.get_short_term_topic.return_value = _make_topic_data(
+        retrieval_familiar.get_topic.return_value = _make_topic_data(
             blocks=blocks,
             state_summary="状态摘要",
         )
@@ -333,7 +333,7 @@ class TestLibrarianCoreGenerateMemory:
         if memory_tasks[0]._bg_task:
             await memory_tasks[0]._bg_task
 
-        retrieval_familiar.get_short_term_topic.assert_called_once_with("topic_test")
+        retrieval_familiar.get_topic.assert_called_once_with("topic_test")
         request = self.mock_generation.process.call_args[0][0]
         assert request.context.state_summary == "状态摘要"
         assert len(request.context.turns) == 1

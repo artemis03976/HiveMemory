@@ -40,7 +40,7 @@ class PatchouliLocalRoutes:
     GATEWAY_GAZE = "gateway.gaze"
 
     TOPIC_PREPARE = "topic.prepare"
-    TOPIC_GET_SHORT_TERM = "topic.get_short_term"
+    TOPIC_GET = "topic.get"
     TOPIC_LIST_ACTIVE = "topic.list_active"
     TOPIC_MANUAL_ARCHIVE = "topic.manual_archive"
     TOPIC_EVICT = "topic.evict"
@@ -76,7 +76,7 @@ class PatchouliLocalRoutes:
         GET_AGENT_PROFILE,
         GATEWAY_GAZE,
         TOPIC_PREPARE,
-        TOPIC_GET_SHORT_TERM,
+        TOPIC_GET,
         TOPIC_LIST_ACTIVE,
         TOPIC_MANUAL_ARCHIVE,
         TOPIC_EVICT,
