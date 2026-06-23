@@ -214,7 +214,6 @@ class ChatApplicationService:
                         topic.model_dump(mode="json")
                         for topic in prelude.pool_topics
                     ],
-                    "max_resident_topics": prelude.max_resident_topics,
                 },
             }
             yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}

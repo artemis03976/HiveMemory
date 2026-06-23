@@ -164,6 +164,10 @@ class PatchouliRuntime:
             service.analyze_and_retrieve,
         )
         self._local_bus.register(
+            PatchouliLocalRoutes.GATEWAY_GAZE,
+            service.gaze,
+        )
+        self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_CREATE,
             self.memory_library.mid_term.upsert,
         )

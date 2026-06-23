@@ -6,7 +6,7 @@ from typing import Any
 
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
-from hivememory.patchouli.runtime import PatchouliRuntime
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -46,7 +46,7 @@ class PatchouliBridge:
     def __init__(
         self,
         *,
-        runtime: PatchouliRuntime,
+        local_bus: PatchouliBus | None = None,
         service: PatchouliService,
         memory_management_service: Any,
         memory_task_management_service: Any,
@@ -55,7 +55,9 @@ class PatchouliBridge:
         model_readiness_service: Any,
         global_bus: GlobalSystemBus | None = None,
     ) -> None:
-        self._runtime = runtime
+        if local_bus is None:
+            raise ValueError("PatchouliBridge requires a PatchouliBus")
+        self._local_bus = local_bus
         self._service = service
         self._memory_management_service = memory_management_service
         self._memory_task_management_service = memory_task_management_service
@@ -100,7 +102,7 @@ class PatchouliBridge:
             ),
             (
                 PatchouliRoutes.SUBMIT_INTERACTION,
-                self._runtime.perception_familiar.submit_interaction,
+                self._service.submit_interaction,
             ),
             (
                 PatchouliRoutes.MEMORY_CREATE,
@@ -152,15 +154,15 @@ class PatchouliBridge:
             ),
             (
                 PatchouliRoutes.MEMORY_RETRIEVE,
-                self._runtime.retrieval_familiar.retrieve_async,
+                self._memory_management_service.retrieve,
             ),
             (
                 PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
-                self._runtime.retrieval_familiar.retrieve_by_aliases_async,
+                self._memory_management_service.retrieve_by_aliases,
             ),
             (
                 PatchouliRoutes.GET_AGENT_PROFILE,
-                self._runtime.retrieval_familiar.get_agent_profile,
+                self._agent_profile_management_service.get_agent_profile,
             ),
             (
                 PatchouliRoutes.PREPARE_AGENT_RUN,
@@ -209,29 +211,29 @@ class PatchouliBridge:
             self._global_bus.unregister(route)
 
     def _register_local_event_bridges(self) -> None:
-        self._runtime.local_bus.subscribe(
+        self._local_bus.subscribe(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             self._forward_pending_atom_settled,
         )
-        self._runtime.local_bus.subscribe(
+        self._local_bus.subscribe(
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             self._forward_pending_atom_failed,
         )
-        self._runtime.local_bus.subscribe(
+        self._local_bus.subscribe(
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             self._forward_pending_atom_cancelled,
         )
 
     def _unregister_local_event_bridges(self) -> None:
-        self._runtime.local_bus.unsubscribe(
+        self._local_bus.unsubscribe(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             self._forward_pending_atom_settled,
         )
-        self._runtime.local_bus.unsubscribe(
+        self._local_bus.unsubscribe(
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             self._forward_pending_atom_failed,
         )
-        self._runtime.local_bus.unsubscribe(
+        self._local_bus.unsubscribe(
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             self._forward_pending_atom_cancelled,
         )

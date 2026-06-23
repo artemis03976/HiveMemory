@@ -17,14 +17,12 @@ class StreamPrelude:
     is_new_topic: bool
     pool_topics: List[TopicSnapshot]
     memory_refs: List[Any]
-    max_resident_topics: int = 0
 
     @property
     def pool_snapshot(self) -> Dict[str, Any]:
         """兼容旧前端包格式；新代码应直接使用 pool_topics。"""
         return {
             "topics": [topic.model_dump(mode="json") for topic in self.pool_topics],
-            "max_resident_topics": self.max_resident_topics,
             "current_count": len(self.pool_topics),
         }
 

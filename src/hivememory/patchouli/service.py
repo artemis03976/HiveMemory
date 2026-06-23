@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, List
+from typing import Any, List
 from uuid import UUID
 
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
@@ -19,11 +19,8 @@ from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.server.models.memory import MemoryResponse
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
-if TYPE_CHECKING:
-    from hivememory.patchouli.eye import TheEye
-    from hivememory.patchouli.runtime import PatchouliRuntime
+from hivememory.patchouli.eye import TheEye
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +30,12 @@ class PatchouliService:
 
     def __init__(
         self,
-        runtime: PatchouliRuntime,
+        bus: PatchouliBus,
+        *,
         eye: TheEye,
-        global_bus: GlobalSystemBus | None = None,
-        local_bus: PatchouliBus | None = None,
     ) -> None:
-        self._runtime = runtime
         self._eye = eye
-        self._global_bus = global_bus
-        self._local_bus = local_bus or runtime.local_bus
+        self._local_bus = bus
 
     async def analyze_and_retrieve(
         self,
@@ -52,7 +46,7 @@ class PatchouliService:
         mode: str = "active",
     ) -> AnalyzeAndRetrieveResult:
         """执行 Patchouli 的标准分析与预检索入口。"""
-        gaze_result = await self._eye.gaze(
+        gaze_result = await self.gaze(
             query=query,
             topic_snapshots=topic_snapshots,
             identity=identity,
@@ -107,11 +101,12 @@ class PatchouliService:
                 agent_id,
             )
             topic_snapshots = await self._require_local_bus().request(
-                PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
+                PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
                 identity=identity,
             )
 
-            gaze_result = await self._eye.gaze(
+            gaze_result = await self._require_local_bus().request(
+                PatchouliLocalRoutes.GATEWAY_GAZE,
                 query=user_message,
                 topic_snapshots=topic_snapshots,
                 identity=identity,
@@ -125,11 +120,13 @@ class PatchouliService:
                 new_topic_summary=gaze_result.new_topic_summary,
                 identity=identity,
             )
-            pool_topics = self._runtime.retrieval_familiar.list_active_topics(
-                identity,
+            pool_topics = await self._require_local_bus().request(
+                PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
+                identity=identity,
                 include_empty=True,
             )
-            topic_context = self._runtime.retrieval_familiar.get_short_term_topic(
+            topic_context = await self._require_local_bus().request(
+                PatchouliLocalRoutes.TOPIC_GET_SHORT_TERM,
                 real_topic_id,
             )
 
@@ -145,14 +142,15 @@ class PatchouliService:
                 topic_context=topic_context,
                 retrieval_result=retrieval_result,
                 agent_profile=agent_profile,
-                storage_available=await self._runtime.check_storage_health(),
+                storage_available=await self._require_local_bus().request(
+                    PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
+                ),
             )
 
             stream_prelude = StreamPrelude(
                 topic_id=real_topic_id,
                 is_new_topic=is_new,
                 pool_topics=pool_topics,
-                max_resident_topics=self._runtime.memory_library.short_term.max_resident_topics,
                 memory_refs=[
                     MemoryResponse.from_atom(m).model_dump(mode="json")
                     for m in retrieval_result.memories
@@ -209,14 +207,18 @@ class PatchouliService:
         await self._record_retrieval_hits(prepared_run)
         return memory_tasks
 
-    def list_memory_tasks(self) -> List[MemoryGenerationTask]:
-        return self._runtime._task_controller.list_tasks()
-
-    def get_memory_task(self, task_id: str) -> MemoryGenerationTask | None:
-        return self._runtime._task_controller.get_task(task_id)
-
-    def cancel_memory_task(self, task_id: str) -> bool:
-        return self._runtime._task_controller.cancel_task(task_id)
+    async def submit_interaction(
+        self,
+        payload: InteractionPayload,
+        *,
+        target_topic_id: str | None = None,
+        target_topic: str | None = None,
+    ) -> Any:
+        return await self._require_local_bus().request(
+            PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
+            payload,
+            target_topic_id=target_topic_id or target_topic or "NEW_TOPIC",
+        )
 
     async def record_memory_citation(
         self,
@@ -231,6 +233,15 @@ class PatchouliService:
             source=source,
         )
 
+    async def gaze(self, *, query: str, topic_snapshots: Any, identity: Identity):
+        if self._eye is None:
+            raise RuntimeError("Patchouli gateway is unavailable")
+        return await self._eye.gaze(
+            query=query,
+            topic_snapshots=topic_snapshots,
+            identity=identity,
+        )
+
     async def cleanup_prepared_agent_run(
         self,
         prepared_run: PreparedAgentRun,
@@ -239,23 +250,6 @@ class PatchouliService:
         if not prepared_run.stream_prelude.is_new_topic:
             return False
         return await self._cleanup_empty_topic_if_needed(prepared_run.topic_id)
-
-    async def manual_archive_topic(
-        self,
-        topic_id: str | None = None,
-    ) -> dict[str, Any]:
-        """手动归档话题。"""
-        return await self._require_local_bus().request(
-            PatchouliLocalRoutes.TOPIC_MANUAL_ARCHIVE,
-            topic_id,
-        )
-
-    async def evict_topic(self, topic_id: str) -> dict[str, Any]:
-        """从活跃话题池中驱逐话题，不归档、不写长期记忆。"""
-        return await self._require_local_bus().request(
-            PatchouliLocalRoutes.TOPIC_EVICT,
-            topic_id,
-        )
 
     async def retrieve_for_gaze(
         self,
@@ -276,11 +270,6 @@ class PatchouliService:
             )
 
         return RetrievalResponse()
-
-    def _require_global_bus(self) -> GlobalSystemBus:
-        if self._global_bus is None:
-            raise RuntimeError("PatchouliService 尚未接入 GlobalSystemBus")
-        return self._global_bus
 
     def _require_local_bus(self) -> PatchouliBus:
         if self._local_bus is None:

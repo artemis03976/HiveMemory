@@ -35,6 +35,8 @@ class PatchouliLocalRoutes:
 
     GET_AGENT_PROFILE = "memory.get_agent_profile"
 
+    GATEWAY_GAZE = "gateway.gaze"
+
     TOPIC_PREPARE = "topic.prepare"
     TOPIC_GET_SHORT_TERM = "topic.get_short_term"
     TOPIC_LIST_ACTIVE = "topic.list_active"
@@ -81,6 +83,7 @@ class PatchouliLocalRoutes:
         MEMORY_TASK_GET,
         MEMORY_TASK_CANCEL,
         GET_AGENT_PROFILE,
+        GATEWAY_GAZE,
         TOPIC_PREPARE,
         TOPIC_GET_SHORT_TERM,
         GET_ACTIVE_TOPICS_SNAPSHOTS,

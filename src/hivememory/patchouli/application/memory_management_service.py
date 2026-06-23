@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom, MemoryType
+from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 
@@ -112,6 +113,30 @@ class MemoryManagementService:
             self._normalize_uuid(memory_id),
             positive=positive,
             source=source,
+        )
+
+    async def retrieve(
+        self,
+        request: RetrievalRequest,
+        mode: str = "active",
+    ) -> RetrievalResponse:
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_RETRIEVE,
+            request,
+            mode,
+        )
+
+    async def retrieve_by_aliases(
+        self,
+        aliases: list[str],
+        identity=None,
+        mode: str = "active",
+    ) -> RetrievalResponse:
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+            aliases,
+            identity,
+            mode,
         )
 
     @staticmethod

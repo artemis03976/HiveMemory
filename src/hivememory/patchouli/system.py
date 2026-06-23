@@ -98,9 +98,8 @@ class PatchouliSystem(SubsystemProtocol):
 
         # 4. Patchouli 对外能力门面
         self._service = PatchouliService(
-            runtime=self.runtime,
+            bus=self.runtime.local_bus,
             eye=self.eye,
-            global_bus=global_bus,
         )
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
@@ -118,14 +117,14 @@ class PatchouliSystem(SubsystemProtocol):
             self.runtime.local_bus,
         )
         self._bridge = PatchouliBridge(
-            runtime=self.runtime,
+            local_bus=self.runtime.local_bus,
+            global_bus=global_bus,
             service=self._service,
             memory_management_service=self._memory_management_service,
             memory_task_management_service=self._memory_task_management_service,
             agent_profile_management_service=self._agent_profile_management_service,
             topic_management_service=self._topic_management_service,
             model_readiness_service=self._model_readiness_service,
-            global_bus=global_bus,
         )
 
         self._scheduler = scheduler

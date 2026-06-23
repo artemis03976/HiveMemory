@@ -18,7 +18,6 @@ export interface Topic {
   model: string;
   messageCount?: number;
   lastActive?: number;
-  willEvict?: boolean;
   totalTokens?: number;
 }
 
