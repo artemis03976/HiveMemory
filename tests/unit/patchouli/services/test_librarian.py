@@ -20,7 +20,7 @@ from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationSource
 from hivememory.patchouli.services.librarian import LibrarianCore
-from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
@@ -71,7 +71,7 @@ def _make_topic_data(blocks=None, state_summary=""):
 
 
 def _make_controller(generation_engine=None, storage=None, runtime_events=None, bus=None):
-    from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+    from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
     mid_term = storage or MagicMock()
     if not hasattr(mid_term, "get"):
         mid_term.get = AsyncMock()

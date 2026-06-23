@@ -39,7 +39,7 @@ from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import MTPResponseStatus
-from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
 
 
 # ========== Fixtures ==========

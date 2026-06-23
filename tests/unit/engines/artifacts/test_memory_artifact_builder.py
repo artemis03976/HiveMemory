@@ -20,7 +20,7 @@ from hivememory.core.models.artifact import (
 from hivememory.core.models.pending import Identity, PendingAtomMaterializeTask, UpdateFocus
 from hivememory.engines.artifacts.memory import MemoryArtifactBuilder, MemoryCreationBundle
 from hivememory.engines.generation.models import DuplicateDecision, GenerationContext, MemoryGenerationResult
-from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
 
 
 def _ref(artifact_type: ArtifactType = ArtifactType.MEMORY_VERSION) -> ArtifactRef:

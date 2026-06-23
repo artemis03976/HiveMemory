@@ -114,7 +114,7 @@ class PatchouliService:
 
             is_new = gaze_result.target_topic == "NEW_TOPIC"
             real_topic_id = await self._require_local_bus().request(
-                PatchouliLocalRoutes.PREPARE_TOPIC,
+                PatchouliLocalRoutes.TOPIC_PREPARE,
                 target_topic_id=gaze_result.target_topic,
                 new_topic_title=gaze_result.new_topic_title,
                 new_topic_summary=gaze_result.new_topic_summary,

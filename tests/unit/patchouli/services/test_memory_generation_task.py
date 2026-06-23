@@ -25,7 +25,7 @@ from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
 def _make_core(mock_generation=None, mock_storage=None, bus=None, runtime_events=None):
-    from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+    from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
     gen = mock_generation if mock_generation is not None else MagicMock()
     if mock_generation is None:
         gen.process = AsyncMock(return_value=[])

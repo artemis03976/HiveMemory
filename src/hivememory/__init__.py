@@ -242,7 +242,7 @@ def __getattr__(name: str):
         from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
         return MemoryGenerationFamiliar
     if name == "MemoryGenerationCoordinator":
-        from hivememory.patchouli.services.memory_generation_coordinator import MemoryGenerationCoordinator
+        from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
         return MemoryGenerationCoordinator
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

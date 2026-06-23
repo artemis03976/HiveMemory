@@ -1,12 +1,14 @@
-"""Patchouli 子系统内部路由常量，仅供 PatchouliBus 本地挂载与调用。"""
+"""Patchouli subsystem-local route constants."""
 
 
 class PatchouliLocalRoutes:
-    # 新增 local route 时必须保持领域 primitive 语义，禁止继续添加 service.* 形式的 public workflow 镜像。
-    INGESTION_SUBMIT_INTERACTION = "ingestion.submit_interaction"
+    """Internal PatchouliBus route names.
 
-    # ANALYZE_AND_RETRIEVE 仍处于待评估兼容期，本阶段不迁移也不删除。
-    ANALYZE_AND_RETRIEVE = "passive.analyze_and_retrieve"
+    Local routes describe composable Patchouli primitives. Public workflows such
+    as prepare/finalize agent run belong to Patchouli public routes instead.
+    """
+
+    INGESTION_SUBMIT_INTERACTION = "ingestion.submit_interaction"
 
     MEMORY_CREATE = "memory.create"
     MEMORY_LIST = "memory.list"
@@ -40,7 +42,6 @@ class PatchouliLocalRoutes:
     TOPIC_PREPARE = "topic.prepare"
     TOPIC_GET_SHORT_TERM = "topic.get_short_term"
     TOPIC_LIST_ACTIVE = "topic.list_active"
-    GET_ACTIVE_TOPICS_SNAPSHOTS = TOPIC_LIST_ACTIVE
     TOPIC_MANUAL_ARCHIVE = "topic.manual_archive"
     TOPIC_EVICT = "topic.evict"
     TOPIC_DISCARD_IF_EMPTY = "topic.discard_if_empty"
@@ -49,18 +50,8 @@ class PatchouliLocalRoutes:
     RUNTIME_MODELS_READY = "runtime.models.ready"
     RUNTIME_STORAGE_HEALTH = "runtime.storage_health"
 
-    # 以下常量仅保留给旧代码短期识别 public-only workflow；runtime 不再注册这些 local route。
-    PREPARE_AGENT_RUN = "service.prepare_agent_run"
-    FINALIZE_AGENT_RUN = "service.finalize_agent_run"
-    CLEANUP_PREPARED_AGENT_RUN = "service.cleanup_prepared_agent_run"
-
-    MANUAL_ARCHIVE_TOPIC = TOPIC_MANUAL_ARCHIVE
-    PREPARE_TOPIC = TOPIC_PREPARE
-    SUBMIT_INTERACTION = INGESTION_SUBMIT_INTERACTION
-
     ALL = (
         INGESTION_SUBMIT_INTERACTION,
-        ANALYZE_AND_RETRIEVE,
         MEMORY_CREATE,
         MEMORY_LIST,
         MEMORY_GET,
@@ -86,7 +77,7 @@ class PatchouliLocalRoutes:
         GATEWAY_GAZE,
         TOPIC_PREPARE,
         TOPIC_GET_SHORT_TERM,
-        GET_ACTIVE_TOPICS_SNAPSHOTS,
+        TOPIC_LIST_ACTIVE,
         TOPIC_MANUAL_ARCHIVE,
         TOPIC_EVICT,
         TOPIC_DISCARD_IF_EMPTY,

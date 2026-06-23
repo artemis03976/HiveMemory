@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
     from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-    from hivememory.patchouli.services.memory_generation_coordinator import MemoryGenerationCoordinator
+    from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
     from hivememory.patchouli.services.perception import PerceptionFamiliar
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
@@ -124,7 +124,7 @@ class PatchouliRuntime:
             return
 
         self._local_bus.register(
-            PatchouliLocalRoutes.SUBMIT_INTERACTION,
+            PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
             self.perception_familiar.submit_interaction,
         )
         self._local_bus.register(
@@ -158,10 +158,6 @@ class PatchouliRuntime:
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_TASK_CANCEL,
             self._task_controller.cancel_task,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.ANALYZE_AND_RETRIEVE,
-            service.analyze_and_retrieve,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GATEWAY_GAZE,
@@ -236,7 +232,7 @@ class PatchouliRuntime:
             self.retrieval_familiar.get_agent_profile,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.PREPARE_TOPIC,
+            PatchouliLocalRoutes.TOPIC_PREPARE,
             self.perception_familiar.prepare_topic,
         )
         self._local_bus.register(
@@ -256,7 +252,7 @@ class PatchouliRuntime:
             self.perception_familiar.discard_if_empty,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.MANUAL_ARCHIVE_TOPIC,
+            PatchouliLocalRoutes.TOPIC_MANUAL_ARCHIVE,
             self.perception_familiar.manual_archive_topic,
         )
         self._local_routes_registered = True
@@ -558,8 +554,8 @@ class PatchouliRuntime:
         """
         from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
         from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-        from hivememory.patchouli.services.memory_generation_coordinator import MemoryGenerationCoordinator
-        from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+        from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
+        from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
         from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         from hivememory.engines.retrieval.renderer import FullContextRenderer
