@@ -28,10 +28,8 @@ from hivememory.core.models import (
     PayloadLayer,
     StreamMessage,
     StreamMessageType,
-    TurnRecord,
     WriteFocus,
 )
-from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     GenerationRequest,
@@ -39,14 +37,12 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
     ExtractedMemoryDraft,
 )
-from hivememory.engines.perception.models import FlushReason, ArchivePayload
+from hivememory.engines.perception.models import FlushReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
-from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import MTPResponseStatus
-from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
 
 
 # ========== Fixtures ==========
@@ -97,6 +93,13 @@ def sample_draft() -> ExtractedMemoryDraft:
         has_value=True,
         alias_suffix="fix_cors",
     )
+
+
+def _mock_mid_term():
+    mid_term = MagicMock()
+    mid_term.search = AsyncMock(return_value=[])
+    mid_term.upsert = AsyncMock()
+    return mid_term
 
 
 async def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
@@ -183,12 +186,12 @@ class TestModeBExtraction:
             memory_type="FACT", content="端口改为 9090",
             confidence_score=1.0, has_value=True, alias_suffix="fix_cors",
         )
-        mock_dedup = AsyncMock()
+        mock_dedup = MagicMock()
         mock_dedup.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        mock_storage = MagicMock()
+        mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            storage=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
+            mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
@@ -212,12 +215,12 @@ class TestModeBExtraction:
             memory_type="FACT", content="test content for mode a",
             confidence_score=0.8, has_value=True, alias_suffix="test",
         )
-        mock_dedup = AsyncMock()
+        mock_dedup = MagicMock()
         mock_dedup.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        mock_storage = MagicMock()
+        mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            storage=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
+            mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
         request = GenerationRequest(context=sample_context)
@@ -237,12 +240,12 @@ class TestModeBFallback:
     async def test_fallback_when_extractor_returns_none(self, identity, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None  # LLM 失败
-        mock_dedup = AsyncMock()
+        mock_dedup = MagicMock()
         mock_dedup.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        mock_storage = MagicMock()
+        mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            storage=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
+            mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
         focus = WriteFocus(
@@ -260,7 +263,7 @@ class TestModeBFallback:
 
     def test_fallback_draft_content(self):
         engine = MemoryGenerationEngine(
-            storage=MagicMock(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
         )
         focus = WriteFocus(
             content="端口从 8080 改为 9090",
@@ -278,172 +281,29 @@ class TestModeBFallback:
 
     def test_fallback_draft_no_title(self):
         engine = MemoryGenerationEngine(
-            storage=MagicMock(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
         )
         focus = WriteFocus(content="A very long content that should be truncated for title")
         draft = engine._build_fallback_draft(focus)
         assert draft.title == focus.content[:50]
 
 
-# ========== Test 5: Double Processing Guard ==========
-
-import pytest
-from hivememory.engines.perception.models import LogicalBlock
-from hivememory.core.models import StreamMessage, StreamMessageType
+# ========== Test 5: Active WRITE boundary ==========
 
 
-class TestFlushCallbackModes:
-    """验证主动生成与被动归档已按新边界分离"""
+class TestActiveWriteBoundary:
+    """Active WRITE generation is no longer represented as a perception flush."""
 
-    @pytest.mark.asyncio
-    async def test_run_active_generation_triggers_mode_b(self, sample_messages):
-        """主动 WRITE 由 run_active_generation 直驱 Mode B"""
-        mock_generation = MagicMock()
-        mock_generation.process.return_value = []
+    def test_mtp_write_flush_reason_removed(self):
+        assert "MTP_WRITE" not in FlushReason.__members__
 
-        from .conftest import make_mock_bus
-        bus = make_mock_bus(mock_generation=mock_generation)
-        core = LibrarianCore(
-            storage=MagicMock(),
-            perception_layer=MagicMock(),
-            bus=bus,
-            lifecycle_engine=MagicMock(),
-            task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
-        )
+    def test_write_focus_stays_on_generation_request(self):
+        focus = WriteFocus(content="port = 9090", reason="fix cors")
+        request = GenerationRequest(write_focus=focus)
 
-        # 将 StreamMessage 转换为 LogicalBlock
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=msg.identity,
-                    user_query=msg.content,
-                    assistant_final_text=msg.content if i % 2 == 1 else "",
-                )
-            )
-            for i, msg in enumerate(sample_messages)
-        ]
-
-        focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
-        core.perception_layer = MagicMock()
-        core.perception_layer.get_topic_context.return_value = {
-            "state_summary": "",
-            "blocks": blocks,
-        }
-        task = PendingAtomMaterializeTask(
-            pending_alias="draft_fix_cors_0001",
-            intent_id="intent_fix_cors_0001",
-            source_verb="WRITE",
-            identity=Identity(user_id="test_user"),
-            focus=focus,
-        )
-        memory_tasks = await core.run_active_generation([task], topic_id="topic_test")
-        memory_task = memory_tasks[0]
-        if memory_task._bg_task:
-            await memory_task._bg_task
-
-        mock_generation.process.assert_called_once()
-        request = mock_generation.process.call_args[0][0]
-        assert request.write_focus is not None
-        assert request.write_focus.content == "端口改为 9090"
+        assert request.is_write
+        assert request.write_focus is focus
         assert request.update_focus is None
-
-    @pytest.mark.asyncio
-    async def test_run_active_generation_without_tasks_is_noop(self, sample_messages):
-        """没有 materialize_tasks 时主动生成应直接跳过"""
-        mock_generation = MagicMock()
-        mock_generation.process.return_value = []
-
-        from .conftest import make_mock_bus
-        bus = make_mock_bus(mock_generation=mock_generation)
-        core = LibrarianCore(
-            storage=MagicMock(),
-            perception_layer=MagicMock(),
-            bus=bus,
-            lifecycle_engine=MagicMock(),
-            task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
-        )
-
-        memory_tasks = await core.run_active_generation([], topic_id="topic_test")
-        mock_generation.process.assert_not_called()
-        assert memory_tasks == []
-
-    @pytest.mark.asyncio
-    async def test_normal_flush_triggers_mode_a(self, sample_messages):
-        mock_generation = MagicMock()
-        mock_generation.process.return_value = []
-
-        from .conftest import make_mock_bus
-        bus = make_mock_bus(mock_generation=mock_generation)
-        core = LibrarianCore(
-            storage=MagicMock(),
-            perception_layer=MagicMock(),
-            bus=bus,
-            lifecycle_engine=MagicMock(),
-            task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
-        )
-
-        # 将 StreamMessage 转换为 LogicalBlock
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=msg.identity,
-                    user_query=msg.content,
-                    assistant_final_text=msg.content if i % 2 == 1 else "",
-                )
-            )
-            for i, msg in enumerate(sample_messages)
-        ]
-
-        # 普通被动 flush 应该触发 Mode A
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
-            reason=FlushReason.MANUAL,
-        )
-        memory_task = await core._on_generate_memory(payload)
-        if memory_task and memory_task._bg_task:
-            await memory_task._bg_task
-
-        mock_generation.process.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_manual_flush_triggers_mode_a(self, sample_messages):
-        mock_generation = MagicMock()
-        mock_generation.process.return_value = []
-
-        from .conftest import make_mock_bus
-        bus = make_mock_bus(mock_generation=mock_generation)
-        core = LibrarianCore(
-            storage=MagicMock(),
-            perception_layer=MagicMock(),
-            bus=bus,
-            lifecycle_engine=MagicMock(),
-            task_controller=MemoryGenerationTaskController(storage=MagicMock(), generation_engine=mock_generation, bus=bus),
-        )
-
-        # 将 StreamMessage 转换为 LogicalBlock
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=msg.identity,
-                    user_query=msg.content,
-                    assistant_final_text=msg.content if i % 2 == 1 else "",
-                )
-            )
-            for i, msg in enumerate(sample_messages)
-        ]
-
-        payload = ArchivePayload(
-            topic_id="topic_test",
-            blocks=blocks,
-            state_summary="",
-            reason=FlushReason.MANUAL,
-        )
-        memory_task = await core._on_generate_memory(payload)
-        if memory_task and memory_task._bg_task:
-            await memory_task._bg_task
-        mock_generation.process.assert_called_once()
 
 
 # ========== Test 7: Koakuma WRITE E2E ==========
@@ -553,11 +413,11 @@ class TestEngineUnifiedAPI:
     async def test_request_param_mode_a(self, sample_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None
-        mock_dedup = AsyncMock()
-        mock_storage = MagicMock()
+        mock_dedup = MagicMock()
+        mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            storage=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
+            mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
         request = GenerationRequest(context=sample_context)
@@ -568,7 +428,7 @@ class TestEngineUnifiedAPI:
     @pytest.mark.asyncio
     async def test_empty_request_returns_empty(self):
         engine = MemoryGenerationEngine(
-            storage=MagicMock(), extractor=MagicMock(), deduplicator=AsyncMock(),
+            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=AsyncMock(),
         )
         result = await engine.process(GenerationRequest())
         assert result == []

@@ -17,12 +17,13 @@ from pathlib import Path
 from hivememory.core.models.artifact import ArtifactType, ArtifactRef, InteractionArtifact, MemoryProvenance
 from hivememory.core.models.memory import Artifacts
 from hivememory.engines.artifacts.engine import ArtifactEngine
-from hivememory.infrastructure.storage.artifact_store import FilesystemArtifactStore
+from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
+from hivememory.patchouli.memory_library.stores import ArtifactStore
 
 
 @pytest.fixture
 def store(tmp_path):
-    return FilesystemArtifactStore(root_dir=str(tmp_path))
+    return ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
 
 
 def _make_artifact(artifact_id: str = "test-id") -> InteractionArtifact:
@@ -40,13 +41,13 @@ def _make_artifact(artifact_id: str = "test-id") -> InteractionArtifact:
 @pytest.mark.asyncio
 async def test_put_and_get_roundtrip(store):
     artifact = _make_artifact()
-    ref = await store.put_json(artifact)
+    ref = await store.put(artifact)
 
     assert ref.artifact_id == "test-id"
     assert ref.artifact_type == ArtifactType.INTERACTION
     assert ref.uri is not None
 
-    data = await store.get_json(ref)
+    data = await store.get(ref)
     assert data["artifact_id"] == "test-id"
     assert data["topic_id"] == "topic-1"
 
@@ -54,9 +55,9 @@ async def test_put_and_get_roundtrip(store):
 @pytest.mark.asyncio
 async def test_sha256_matches_content(store):
     artifact = _make_artifact()
-    ref = await store.put_json(artifact)
+    ref = await store.put(artifact)
 
-    data = await store.get_json(ref)
+    data = await store.get(ref)
     stored_hash = data["content_hash"]
 
     # put_json 在 content_hash=null 时计算 sha256，之后才写入真实值
@@ -71,7 +72,7 @@ async def test_sha256_matches_content(store):
 @pytest.mark.asyncio
 async def test_get_json_rejects_tampered_content(store):
     artifact = _make_artifact()
-    ref = await store.put_json(artifact)
+    ref = await store.put(artifact)
 
     path = Path(ref.uri)
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -79,22 +80,22 @@ async def test_get_json_rejects_tampered_content(store):
     path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     with pytest.raises(ValueError, match="hash mismatch"):
-        await store.get_json(ref)
+        await store.get(ref)
 
 
 @pytest.mark.asyncio
 async def test_exists(store):
     artifact = _make_artifact("exists-id")
     assert not await store.exists("exists-id")
-    await store.put_json(artifact)
+    await store.put(artifact)
     assert await store.exists("exists-id")
 
 
 @pytest.mark.asyncio
 async def test_get_by_id_string(store):
     artifact = _make_artifact("str-lookup")
-    await store.put_json(artifact)
-    data = await store.get_json("str-lookup")
+    await store.put(artifact)
+    data = await store.get("str-lookup")
     assert data["artifact_id"] == "str-lookup"
 
 
@@ -153,7 +154,7 @@ def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
 # ── ArtifactEngine ────────────────────────────────────────────────────────────
 
 def test_artifact_engine_holds_all_builders(tmp_path):
-    store = FilesystemArtifactStore(str(tmp_path))
+    store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
     engine = ArtifactEngine(store)
     assert engine.interaction is not None
     assert engine.document is not None

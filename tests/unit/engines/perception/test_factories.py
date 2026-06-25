@@ -4,6 +4,7 @@ from hivememory.engines.perception.relay_controller import (
     create_relay_controller,
 )
 from hivememory.engines.perception.semantic_flow_perception_layer import NullPerceptionLayer
+from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import MemoryPerceptionConfig, RelayControllerConfig
 
 
@@ -18,6 +19,6 @@ def test_disabled_perception_config_returns_null_layer():
     config = MemoryPerceptionConfig()
     config.engine.enable = False
 
-    layer = create_perception_layer(config)
+    layer = create_perception_layer(config, short_term_store=ShortTermMemoryStore())
 
     assert isinstance(layer, NullPerceptionLayer)

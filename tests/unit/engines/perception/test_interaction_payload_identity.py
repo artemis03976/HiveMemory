@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch, MagicMock
 from hivememory.core.models import Identity, TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
+from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
 
 
@@ -12,6 +13,7 @@ async def test_ingest_payload_uses_identity_agent_id():
     layer = SemanticFlowPerceptionLayer(
         config=SemanticFlowPerceptionConfig(),
         relay_controller=Mock(),
+        short_term_store=ShortTermMemoryStore(),
     )
     captured_blocks = []
     layer._short_term_store.add_block = Mock(
@@ -42,6 +44,7 @@ async def test_create_new_topic_calls_create_buffer_with_user_id():
     layer = SemanticFlowPerceptionLayer(
         config=SemanticFlowPerceptionConfig(),
         relay_controller=Mock(),
+        short_term_store=ShortTermMemoryStore(),
     )
     fake_buffer = MagicMock()
     fake_buffer.topic_id = "topic-xyz"
