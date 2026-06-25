@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 from typing import Dict, List, Optional, Set
 
-from hivememory.engines.perception.models import SemanticBuffer
+from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
 
 

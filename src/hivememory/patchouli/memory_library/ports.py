@@ -15,7 +15,7 @@ from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
-from hivememory.engines.perception.models import SemanticBuffer
+from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.engines.lifecycle.models import ArchiveRecord
 
 

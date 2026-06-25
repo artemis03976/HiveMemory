@@ -34,10 +34,12 @@ from hivememory.engines.perception.interfaces import (
 from hivememory.engines.perception.models import (
     TraceItem,
     LogicalBlock,
-    BufferState,
-    SemanticBuffer,
     FlushEvent,
     FlushReason,
+)
+from hivememory.patchouli.memory_library.buffer import (
+    BufferState,
+    SemanticBuffer,
 )
 from hivememory.engines.perception.trigger_manager import (
     TriggerManager,

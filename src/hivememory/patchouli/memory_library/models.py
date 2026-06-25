@@ -8,7 +8,8 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import TopicSnapshot
-from hivememory.engines.perception.models import BufferState, LogicalBlock
+from hivememory.engines.perception.models import LogicalBlock
+from hivememory.patchouli.memory_library.buffer import BufferState
 
 
 class TopicData(BaseModel):

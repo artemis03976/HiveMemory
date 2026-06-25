@@ -29,7 +29,8 @@ from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.lifecycle.models import ArchiveRecord
-from hivememory.engines.perception.models import BufferState, LogicalBlock, SemanticBuffer
+from hivememory.engines.perception.models import LogicalBlock
+from hivememory.patchouli.memory_library.buffer import BufferState, SemanticBuffer
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.memory_library.ports import (

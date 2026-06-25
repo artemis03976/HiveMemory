@@ -19,12 +19,12 @@ from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
-    BufferState,
     FlushEvent,
     FlushReason,
     LogicalBlock,
     TopicMaterializeTask,
 )
+from hivememory.patchouli.memory_library.buffer import BufferState
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.utils.token_estimator import estimate_tokens
