@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.core.models import Identity
+from hivememory.engines.perception.models import TopicSettlement
 from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
@@ -37,10 +38,15 @@ class TopicApplicationService:
         )
 
     async def archive_topic(self, *, topic_id: str | None = None) -> dict:
-        return await self._global_bus.request(
+        settlement: TopicSettlement = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC,
             topic_id=topic_id,
         )
+        return {
+            "success": True,
+            "topic_id": settlement.topic_id,
+            "blocks_archived": settlement.blocks_settled,
+        }
 
     async def evict_topic(self, *, topic_id: str) -> dict:
         return await self._global_bus.request(

@@ -40,6 +40,7 @@ from hivememory.engines.perception.models import (
     BufferState,
     FlushReason,
     LogicalBlock,
+    TopicSettlement,
 )
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.core.protocol.models import InteractionPayload
@@ -351,79 +352,29 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             trigger_reason=FlushReason.TOKEN_OVERFLOW,
         )
 
-    # ========== 手动话题管理 ==========
+    # ========== 话题结算原语 ==========
 
-    async def manual_trigger(
+    async def settle_topic(
         self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        手动触发话题结算 (Archive + Compact)
-
-        语义：立即归档 + 生成摘要并保留内存。
-        当用户主动请求保存当前对话状态时使用。不同于其他触发原因，
-        MANUAL 触发会同时执行 Archive 和 Compact，但不会 Evict 话题。
-
-        Args:
-            topic_id: 目标话题 ID。如果为 None，则使用 last_active_topic_id 作为回退。
-
-        Returns:
-            Dict: 包含以下键的字典:
-                - success: bool - 操作是否成功
-                - topic_id: str - 实际操作的话题 ID
-                - message: str - 操作结果描述
-                - blocks_archived: int - 归档的 block 数量
-
-        Raises:
-            ValueError: 如果 topic_id 未指定且没有 last_active_topic_id
-        """
-        # 解析目标话题
-        target_topic_id = topic_id
-        if target_topic_id is None:
-            target_topic_id = self._short_term_store.get_last_active_topic()
-
-        if target_topic_id is None:
-            raise ValueError(
-                "manual_trigger: 未指定 topic_id 且没有活跃话题可回退"
-            )
-
-        # 验证话题存在
-        topic_data = self._short_term_store.get_topic_data(target_topic_id)
-        if topic_data is None:
-            return {
-                "success": False,
-                "topic_id": target_topic_id,
-                "message": f"话题 {target_topic_id} 不存在",
-                "blocks_archived": 0,
-            }
-
-        if topic_data.is_empty:
-            return {
-                "success": True,
-                "topic_id": target_topic_id,
-                "message": "话题为空，无需处理",
-                "blocks_archived": 0,
-            }
-
-        blocks_count = topic_data.block_count
-
-        # 调用统一调度器（MANUAL 触发）
+        topic_id: str,
+        reason: FlushReason = FlushReason.MANUAL,
+        wait_for_completion: bool = False,
+    ) -> TopicSettlement:
+        """原子话题结算，不含策略判断。由 PerceptionFamiliar 调用。"""
+        topic_data = self._short_term_store.get_topic_data(topic_id)
+        blocks_count = topic_data.block_count if topic_data else 0
+        
         await self._trigger_manager.resolve_topic(
-            topic_id=target_topic_id,
-            trigger_reason=FlushReason.MANUAL,
+            topic_id=topic_id,
+            trigger_reason=reason,
+            wait_for_archive=wait_for_completion,
         )
 
-        logger.info(
-            f"manual_trigger 完成: topic_id={target_topic_id}, "
-            f"blocks_archived={blocks_count}"
+        return TopicSettlement(
+            topic_id=topic_id, 
+            blocks_settled=blocks_count, 
+            reason=reason
         )
-
-        return {
-            "success": True,
-            "topic_id": target_topic_id,
-            "message": f"成功归档 {blocks_count} 个 blocks",
-            "blocks_archived": blocks_count,
-        }
 
     def swap_out_topic(
         self, topic_id: str
@@ -442,18 +393,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             return True
         return False
 
-    # ========== 感知层原语（供 PerceptionFamiliar 调用） ==========
-
-    async def trigger_archive(
-        self, topic_id: str, reason: FlushReason, wait_for_archive: bool = False
-    ) -> None:
-        """触发指定话题归档，策略判断由 PerceptionFamiliar 负责。"""
-        await self._trigger_manager.resolve_topic(
-            topic_id=topic_id,
-            trigger_reason=reason,
-            wait_for_archive=wait_for_archive,
-        )
-
 
 class NullPerceptionLayer(BasePerceptionLayer):
     """Disabled perception layer with the same public surface as SemanticFlow."""
@@ -471,16 +410,13 @@ class NullPerceptionLayer(BasePerceptionLayer):
     ) -> str:
         return topic_id
 
-    async def manual_trigger(
+    async def settle_topic(
         self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        return {
-            "success": False,
-            "topic_id": topic_id or "unknown",
-            "message": "perception_layer disabled",
-            "blocks_archived": 0,
-        }
+        topic_id: str,
+        reason: FlushReason = FlushReason.MANUAL,
+        wait_for_completion: bool = False,
+    ) -> TopicSettlement:
+        return TopicSettlement(topic_id=topic_id, blocks_settled=0, reason=reason)
 
     async def prepare_topic(
         self,

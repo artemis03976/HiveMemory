@@ -262,7 +262,7 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.TOPIC_MANUAL_ARCHIVE,
-            self.perception_familiar.manual_archive_topic,
+            self.perception_familiar.manual_settle_topic,
         )
         self._local_routes_registered = True
 

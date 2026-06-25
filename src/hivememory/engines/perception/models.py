@@ -311,6 +311,13 @@ class ArchivePayload(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class TopicSettlement(BaseModel):
+    """话题结算结果，由 PerceptionFamiliar 构造，供上层消费。"""
+    topic_id: str
+    blocks_settled: int
+    reason: FlushReason
+
+
 __all__ = [
     "FlushReason",
     "BufferState",
@@ -321,4 +328,5 @@ __all__ = [
     "SemanticBuffer",
     "TopicSnapshot",
     "ArchivePayload",
+    "TopicSettlement",
 ]

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import ArchivePayload, FlushReason
+from hivememory.engines.perception.models import ArchivePayload, FlushReason, TopicSettlement
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 if TYPE_CHECKING:
@@ -75,9 +75,21 @@ class PerceptionFamiliar:
             identity,
         )
 
-    async def manual_archive_topic(self, topic_id: Optional[str] = None) -> dict[str, Any]:
-        """手动归档指定话题。"""
-        return await self.perception_layer.manual_trigger(topic_id)
+    async def manual_settle_topic(self, topic_id: Optional[str] = None) -> TopicSettlement:
+        """手动结算指定话题，返回结算结果供上层构造响应。"""
+        target_id = topic_id or self._short_term.get_last_active_topic()
+        if not target_id:
+            raise ValueError("未指定 topic_id 且无活跃话题")
+
+        topic = self._short_term.get_topic_data(target_id)
+        if topic is None:
+            raise KeyError(f"话题 {target_id} 不存在")
+ 
+        if topic.is_empty:
+            return TopicSettlement(topic_id=target_id, blocks_settled=0, reason=FlushReason.MANUAL)
+        settlement = await self.perception_layer.settle_topic(target_id, FlushReason.MANUAL, wait_for_completion=True)
+        logger.info("manual_settle_topic 完成: topic_id=%s, blocks=%d", target_id, settlement.blocks_settled)
+        return settlement
 
     async def evict_topic(self, topic_id: str) -> dict[str, Any]:
         """从活跃话题池中驱逐话题，不触发归档。"""
@@ -100,7 +112,7 @@ class PerceptionFamiliar:
                     topic.topic_id,
                     datetime.now().timestamp() - topic.last_update,
                 )
-                await self.perception_layer.trigger_archive(topic.topic_id, FlushReason.IDLE_TIMEOUT)
+                await self.perception_layer.settle_topic(topic.topic_id, FlushReason.IDLE_TIMEOUT)
                 flushed.append(topic.topic_id)
         return flushed
 
@@ -112,8 +124,8 @@ class PerceptionFamiliar:
                 skipped.append(topic.topic_id)
                 continue
             archived_blocks += topic.block_count
-            await self.perception_layer.trigger_archive(
-                topic.topic_id, FlushReason.SHUTDOWN, wait_for_archive=True
+            await self.perception_layer.settle_topic(
+                topic.topic_id, FlushReason.SHUTDOWN, wait_for_completion=True
             )
             flushed.append(topic.topic_id)
         logger.info(

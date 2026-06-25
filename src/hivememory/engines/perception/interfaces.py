@@ -15,6 +15,7 @@ from typing import List, Optional, Any, Dict, Callable, TYPE_CHECKING
 from hivememory.core.models import StreamMessage
 from hivememory.engines.perception.models import (
     FlushReason,
+    TopicSettlement,
 )
 from hivememory.core.protocol.models import InteractionPayload
 
@@ -57,10 +58,14 @@ class BasePerceptionLayer(ABC):
 
     # ========== 感知层原语（供 PerceptionFamiliar 调用） ==========
 
-    async def trigger_archive(
-        self, topic_id: str, reason: FlushReason, wait_for_archive: bool = False
-    ) -> None:
-        """触发指定话题归档，不包含策略逻辑。"""
+    @abstractmethod
+    async def settle_topic(
+        self,
+        topic_id: str,
+        reason: FlushReason = FlushReason.MANUAL,
+        wait_for_completion: bool = False,
+    ) -> TopicSettlement:
+        """原子话题结算，不含任何策略判断。话题不存在时行为由实现定义。"""
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
@@ -97,27 +102,6 @@ class BasePerceptionLayer(ABC):
 
     # ========== 抽象接口 ==========
 
-    @abstractmethod
-    async def manual_trigger(
-        self,
-        topic_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        手动触发话题结算 (Archive + Compact)
-
-        语义：立即归档 + 生成摘要并保留内存。
-        话题不会被驱逐，可以继续接收新的交互。
-
-        Args:
-            topic_id: 目标话题 ID。如果为 None，则使用 last_active_topic_id 作为回退。
-
-        Returns:
-            Dict: 包含 success, topic_id, message, blocks_archived 的结果字典
-
-        Raises:
-            ValueError: 如果 topic_id 未指定且没有 last_active_topic_id
-        """
-        pass
 
 
 class BaseRelayController(ABC):
