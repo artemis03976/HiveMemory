@@ -6,16 +6,19 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import ArchivePayload
+from hivememory.engines.perception.models import ArchivePayload, FlushReason
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 if TYPE_CHECKING:
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
+    from hivememory.patchouli.memory_library.library import MemoryLibrary
     from hivememory.patchouli.runtime.bus import PatchouliBus
+    from hivememory.system.config.patchouli import MemoryPerceptionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +31,13 @@ class PerceptionFamiliar:
         *,
         perception_layer: "BasePerceptionLayer",
         bus: "PatchouliBus",
+        config: "MemoryPerceptionConfig",
+        memory_library: "MemoryLibrary",
     ) -> None:
         self.perception_layer = perception_layer
         self._bus = bus
+        self._idle_timeout_seconds = config.idle_timeout_seconds
+        self._short_term = memory_library.short_term
 
         if hasattr(self.perception_layer, "set_generation_callback"):
             self.perception_layer.set_generation_callback(self._on_archive_payload)
@@ -84,12 +91,42 @@ class PerceptionFamiliar:
         return self.perception_layer.discard_if_empty(topic_id)
 
     async def scan_idle_buffers_once(self) -> list[str]:
-        """扫描并 flush 空闲话题，供维护调度器调用。"""
-        return await self.perception_layer.scan_idle_buffers_once()
+        """扫描并 flush 空闲超时话题，策略由 Familiar 持有。"""
+        flushed = []
+        for topic in self._short_term.list_topic_data():
+            if topic.is_idle(self._idle_timeout_seconds):
+                logger.info(
+                    "检测到空闲话题: topic_id=%s, idle_time=%.1fs",
+                    topic.topic_id,
+                    datetime.now().timestamp() - topic.last_update,
+                )
+                await self.perception_layer.trigger_archive(topic.topic_id, FlushReason.IDLE_TIMEOUT)
+                flushed.append(topic.topic_id)
+        return flushed
 
     async def flush_all_for_shutdown(self) -> dict[str, Any]:
-        """服务关闭前强制 flush 所有活跃话题。"""
-        return await self.perception_layer.flush_all_for_shutdown()
+        """服务关闭前强制归档所有活跃话题。"""
+        flushed, skipped, archived_blocks = [], [], 0
+        for topic in self._short_term.list_topic_data():
+            if topic.is_empty:
+                skipped.append(topic.topic_id)
+                continue
+            archived_blocks += topic.block_count
+            await self.perception_layer.trigger_archive(
+                topic.topic_id, FlushReason.SHUTDOWN, wait_for_archive=True
+            )
+            flushed.append(topic.topic_id)
+        logger.info(
+            "shutdown flush 完成: flushed=%d, skipped=%d, archived_blocks=%d",
+            len(flushed), len(skipped), archived_blocks,
+        )
+        return {
+            "success": True,
+            "trigger_reason": FlushReason.SHUTDOWN.value,
+            "flushed_topics": flushed,
+            "skipped_topics": skipped,
+            "archived_blocks": archived_blocks,
+        }
 
     async def _on_archive_payload(self, payload: ArchivePayload) -> Any:
         """感知层归档回调：通过总线进入生成入口。"""

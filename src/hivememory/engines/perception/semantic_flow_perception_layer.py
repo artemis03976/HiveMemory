@@ -93,18 +93,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         self.config = config
 
-        # 空闲超时监控器配置（由基类管理）
-        self._idle_timeout_seconds = config.idle_timeout_seconds
-        self._scan_interval_seconds = config.scan_interval_seconds
-
         self._relay_controller = relay_controller
 
-        # 短期记忆存储（由 MemoryLibrary 注入；未注入时自动创建，向后兼容）
+        # 短期记忆存储必须由 MemoryLibrary 创建后注入，不允许引擎自行实例化
         if short_term_store is None:
-            from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-            short_term_store = ShortTermMemoryStore(
-                max_resident_topics=config.max_resident_topics
-            )
+            raise ValueError("未注入 short_term_store")
         self._short_term_store = short_term_store
 
         # TriggerManager 负责话题结算调度
@@ -449,68 +442,17 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             return True
         return False
 
-    # ========== 空闲超时触发归档 ==========
+    # ========== 感知层原语（供 PerceptionFamiliar 调用） ==========
 
-    async def scan_idle_buffers_once(self) -> List[str]:
-        """
-        扫描并 flush 所有空闲超时的 buffer（供 SystemAsyncScheduler 调用）
-
-        统一使用 FlushReason.IDLE_TIMEOUT（archive + evict, 无 compact）。
-
-        Returns:
-            List[str]: 被 flush 的 topic_id 列表
-        """
-        flushed_keys = []
-        topics = self._short_term_store.list_topic_data()
-
-        for topic in topics:
-            if topic.is_idle(self._idle_timeout_seconds):
-                logger.info(
-                    f"检测到空闲话题: topic_id={topic.topic_id}, "
-                    f"idle_time={(datetime.now().timestamp() - topic.last_update):.1f}s"
-                )
-
-                await self._trigger_manager.resolve_topic(
-                    topic_id=topic.topic_id,
-                    trigger_reason=FlushReason.IDLE_TIMEOUT,
-                )
-
-                flushed_keys.append(topic.topic_id)
-
-        return flushed_keys
-
-    async def flush_all_for_shutdown(self) -> Dict[str, Any]:
-        """进程关闭前强制归档并驱逐所有活跃话题。"""
-        topics = self._short_term_store.list_topic_data()
-        flushed_topics: List[str] = []
-        skipped_topics: List[str] = []
-        archived_blocks = 0
-
-        for topic in topics:
-            if topic.is_empty:
-                skipped_topics.append(topic.topic_id)
-                continue
-
-            archived_blocks += topic.block_count
-            await self._trigger_manager.resolve_topic(
-                topic_id=topic.topic_id,
-                trigger_reason=FlushReason.SHUTDOWN,
-                wait_for_archive=True,
-            )
-            flushed_topics.append(topic.topic_id)
-
-        result = {
-            "success": True,
-            "trigger_reason": FlushReason.SHUTDOWN.value,
-            "flushed_topics": flushed_topics,
-            "skipped_topics": skipped_topics,
-            "archived_blocks": archived_blocks,
-        }
-        logger.info(
-            f"shutdown flush 完成: flushed={len(flushed_topics)}, "
-            f"skipped={len(skipped_topics)}, archived_blocks={archived_blocks}"
+    async def trigger_archive(
+        self, topic_id: str, reason: FlushReason, wait_for_archive: bool = False
+    ) -> None:
+        """触发指定话题归档，策略判断由 PerceptionFamiliar 负责。"""
+        await self._trigger_manager.resolve_topic(
+            topic_id=topic_id,
+            trigger_reason=reason,
+            wait_for_archive=wait_for_archive,
         )
-        return result
 
 
 class NullPerceptionLayer(BasePerceptionLayer):
@@ -551,18 +493,6 @@ class NullPerceptionLayer(BasePerceptionLayer):
 
     def swap_out_topic(self, topic_id: str) -> None:
         return None
-
-    async def scan_idle_buffers_once(self) -> List[str]:
-        return []
-
-    async def flush_all_for_shutdown(self) -> Dict[str, Any]:
-        return {
-            "success": True,
-            "trigger_reason": FlushReason.SHUTDOWN.value,
-            "flushed_topics": [],
-            "skipped_topics": [],
-            "archived_blocks": 0,
-        }
 
 
 __all__ = [

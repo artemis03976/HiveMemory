@@ -44,13 +44,7 @@ class BasePerceptionLayer(ABC):
     """
 
     def __init__(self, *args, **kwargs):
-        """
-        基类构造函数。
-
-        注意：使用 *args, **kwargs 以兼容子类的不同构造函数签名。
-        """
         super().__init__(*args, **kwargs)
-        self._idle_timeout_seconds: int = 900
 
     def set_flush_callback(self, callback: Callable[[List[StreamMessage], FlushReason], None]) -> None:
         """
@@ -61,19 +55,12 @@ class BasePerceptionLayer(ABC):
         """
         self.on_flush_callback = callback
 
-    # ========== 调度器调用接口 ==========
+    # ========== 感知层原语（供 PerceptionFamiliar 调用） ==========
 
-    async def scan_idle_buffers_once(self) -> List[str]:
-        """
-        扫描并 flush 所有空闲超时的 buffer（供 SystemAsyncScheduler 调用）
-
-        子类应重写此方法以实现具体扫描逻辑。
-        默认实现返回空列表。
-
-        Returns:
-            List[str]: 被 flush 的 topic_id 列表
-        """
-        return []
+    async def trigger_archive(
+        self, topic_id: str, reason: FlushReason, wait_for_archive: bool = False
+    ) -> None:
+        """触发指定话题归档，不包含策略逻辑。"""
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 

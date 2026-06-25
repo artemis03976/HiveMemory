@@ -72,8 +72,6 @@ class RelayControllerConfig(BaseModel):
 
 class SemanticFlowPerceptionConfig(BaseModel):
     enable: bool = Field(default=True)
-    idle_timeout_seconds: int = Field(default=900)
-    scan_interval_seconds: int = Field(default=30)
     fold_token_threshold: int = Field(default=32768)
     fold_retain_recent_blocks: int = Field(default=2)
     max_resident_topics: int = Field(default=5)
@@ -83,6 +81,8 @@ class SemanticFlowPerceptionConfig(BaseModel):
 
 
 class MemoryPerceptionConfig(BaseModel):
+    idle_timeout_seconds: int = Field(default=900)
+    scan_interval_seconds: int = Field(default=30)
     engine: SemanticFlowPerceptionConfig = Field(default_factory=SemanticFlowPerceptionConfig)
 
     model_config = ConfigDict(extra="ignore")

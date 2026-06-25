@@ -582,7 +582,7 @@ class PatchouliRuntime:
 
         self._services["generation"] = MemoryGenerationFamiliar(
             generation_engine=self._engines["generation"],
-            mid_term=self.memory_library.mid_term,
+            memory_library=self.memory_library,
             artifact_engine=self._engines["artifact"],
         )
 
@@ -601,6 +601,8 @@ class PatchouliRuntime:
         self._services["perception"] = PerceptionFamiliar(
             perception_layer=self._engines["perception"],
             bus=self._local_bus,
+            config=self._patchouli_config.perception,
+            memory_library=self.memory_library,
         )
 
         self._services["lifecycle"] = LifecycleFamiliar(

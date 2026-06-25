@@ -20,7 +20,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
 if TYPE_CHECKING:
     from hivememory.engines.artifacts.engine import ArtifactEngine
     from hivememory.engines.generation.engine import MemoryGenerationEngine
-    from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
+    from hivememory.patchouli.memory_library.library import MemoryLibrary
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +32,11 @@ class MemoryGenerationFamiliar:
         self,
         *,
         generation_engine: "MemoryGenerationEngine",
-        mid_term: "MidTermMemoryStore",
+        memory_library: "MemoryLibrary",
         artifact_engine: "ArtifactEngine | None" = None,
     ) -> None:
         self._generation_engine = generation_engine
-        self._mid_term = mid_term
+        self._mid_term = memory_library.mid_term
         self._artifact_engine = artifact_engine
         logger.info("MemoryGenerationFamiliar 初始化完成")
 
