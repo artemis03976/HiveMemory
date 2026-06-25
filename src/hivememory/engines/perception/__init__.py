@@ -36,6 +36,7 @@ from hivememory.engines.perception.models import (
     LogicalBlock,
     FlushEvent,
     FlushReason,
+    TopicMaterializeTask,
 )
 from hivememory.patchouli.memory_library.buffer import (
     BufferState,
@@ -120,6 +121,7 @@ __all__ = [
     "SemanticBuffer",
     "FlushEvent",
     "FlushReason",
+    "TopicMaterializeTask",
     # 话题结算调度器
     "TriggerManager",
     "DECISION_MATRIX",

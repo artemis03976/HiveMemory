@@ -76,14 +76,13 @@ class PerceptionFamiliar:
             len(payload.materialize_tasks),
         )
 
+        # 检查是否需要先驱逐 LRU 话题，独立发出 task
+        await self._maybe_evict_lru()
+
         topic_id, settle_payload = await self.perception_layer.route_and_ingest(target_topic_id, payload)
 
         if settle_payload is not None:
-            await self._bus.request(
-                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, 
-                settle_payload
-            )
-
+            await self._bus.request(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, settle_payload)
         return topic_id
 
     async def prepare_topic(
@@ -94,12 +93,29 @@ class PerceptionFamiliar:
         identity: Identity,
     ) -> str:
         """确保目标短期话题存在，并返回真实 topic_id。"""
+        # 检查是否需要先驱逐 LRU 话题，独立发出 task
+        await self._maybe_evict_lru()
+
         return await self.perception_layer.prepare_topic(
             target_topic_id,
             new_topic_title,
             new_topic_summary,
             identity,
         )
+
+    async def _maybe_evict_lru(self) -> None:
+        """池满时驱逐 LRU 话题并提交结算任务。"""
+        if not self._short_term.needs_eviction():
+            return
+            
+        lru = self._short_term.get_lru_buffer()
+        if lru is None:
+            return
+
+        settle_payload = await self.perception_layer.settle_topic(lru.topic_id, FlushReason.LRU_EVICTION)
+
+        if settle_payload is not None:
+            await self._bus.request(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, settle_payload)
 
     async def manual_settle_topic(self, topic_id: Optional[str] = None) -> MemoryGenerationTask | None:
         """手动结算指定话题，返回生成任务句柄（None 表示话题为空无需生成）。"""

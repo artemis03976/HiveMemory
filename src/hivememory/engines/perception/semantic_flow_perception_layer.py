@@ -131,46 +131,14 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         summary: Optional[str] = None,
     ) -> str:
         """
-        创建新话题（必要时先执行 LRU 驱逐）
-
-        Args:
-            identity: 新话题的归属身份
-            title: 可选话题标题
-            summary: 可选话题摘要
-
-        Returns:
-            str: 新创建的 topic_id
+        创建新话题。调用方负责在必要时提前执行 LRU 驱逐。
         """
-        # 在创建前检查是否需要驱逐话题
-        if self._short_term_store.needs_eviction():
-            await self._evict_lru_topic()
-
         buffer = self._short_term_store.create_buffer(
             user_id=identity.user_id,
             topic_title=title or "新建话题",
             topic_summary=summary or "",
         )
         return buffer.topic_id
-
-    async def _evict_lru_topic(self) -> None:
-        """
-        LRU 驱逐：找到最久未访问的话题，调用统一调度器
-        """
-        topics = self._short_term_store.list_topic_data()
-        if not topics:
-            return
-        topic = min(topics, key=lambda t: t.last_accessed_at)
-
-        logger.info(
-            f"LRU 驱逐话题: topic_id={topic.topic_id}, "
-            f"topic_title={topic.topic_title}"
-            f"topic_summary={topic.topic_summary}"
-        )
-
-        # 调用统一调度器（Archive + Evict）
-        await self._trigger_manager.resolve_topic(
-            FlushEvent(topic_id=topic.topic_id, reason=FlushReason.LRU_EVICTION)
-        )
 
     # ========== 短期记忆上下文摄入 ==========
 
