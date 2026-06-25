@@ -129,8 +129,8 @@ class PatchouliRuntime:
         )
 
         self._local_bus.register(
-            PatchouliLocalRoutes.GENERATION_SUBMIT_ARCHIVE,
-            self.memory_generation_coordinator.submit_archive,
+            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+            self.memory_generation_coordinator.submit_settlement,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
@@ -261,7 +261,7 @@ class PatchouliRuntime:
             self.perception_familiar.discard_if_empty,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.TOPIC_MANUAL_ARCHIVE,
+            PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
             self.perception_familiar.manual_settle_topic,
         )
         self._local_routes_registered = True
@@ -354,7 +354,7 @@ class PatchouliRuntime:
         }
         logger.info(
             f"shutdown drain 完成: observer_payloads=0, "
-            f"flushed_topics={len(perception_result['flushed_topics'])}"
+            f"flushed_topics={len(perception_result.flushed_topics)}"
         )
         return result
 

@@ -5,42 +5,26 @@ HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory M
     作为短期记忆的 MMU（内存管理单元），管理多话题的生命周期。
     负责话题路由(route)、换入(swap-in)、换出(swap-out)和 LRU 驱逐。
 
-特性:
-    - LogicalBlock 作为处理单元（页 / Page）
-    - 多话题并发管理（活跃话题池）
-    - LRU 驱逐策略
-    - URGENT 信号立即 flush
-    - 异步空闲超时监控
-
-映射关系 (ShortTermMemory.md):
-    TopicManager (MMU) = ShortTermMemoryStore
-    TopicSegment = SemanticBuffer
-    Pages = blocks (List[LogicalBlock])
-
-Note:
-    Phase 4.5 重构：
-    - 移除旧版语义吸附依赖（话题路由由 TheEye 完成）
-    - 新增 route_and_ingest / swap_out_topic
-    - 短期话题状态由 ShortTermMemoryStore 承接（含 LRU 驱逐）
-
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 4.5.0
+版本: 5.0.0
 """
 
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from hivememory.core.models import ActionReducer, Identity, TurnRecord
 from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
     BufferState,
+    FlushEvent,
     FlushReason,
     LogicalBlock,
     TopicSettlement,
+    TopicMaterializeTask,
 )
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.core.protocol.models import InteractionPayload
@@ -55,25 +39,11 @@ logger = logging.getLogger(__name__)
 
 class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     """
-    语义流感知层 / MMU (Phase 4.5 重构版)
+    语义流感知层 / MMU (Phase 5.0)
 
-    作为短期记忆的内存管理单元 (MMU)，管理多话题的并发生命周期：
-        - 话题路由：根据 TheEye 的 target_topic 将载荷路由到正确话题
-        - LRU 驱逐：活跃话题池满时驱逐最久未访问的话题
-        - URGENT 信号：write_focus/update_focus 触发立即 flush
-        - 空闲超时：长期不活跃的话题自动换出
-
-    架构：
-        - ShortTermMemoryStore (MMU): 话题池管理（CRUD + 路由 + LRU）
-        - PerceptionLayer: 编排和协调
-
-    Examples:
-        >>> config = SemanticFlowPerceptionConfig()
-        >>> perception = SemanticFlowPerceptionLayer(
-        ...     config=config
-        ... )
-        >>> perception.set_generation_callback(on_generate_memory)
-        >>> perception.route_and_ingest("NEW_TOPIC", payload)
+    作为短期记忆的内存管理单元 (MMU)，管理多话题的并发生命周期。
+    TriggerManager 只负责决策和原子操作，不主动触发生成链路
+    settle payload 通过返回值传递给调用方（PerceptionFamiliar）统一提交。
     """
 
     def __init__(
@@ -108,13 +78,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         )
 
         logger.info("SemanticFlowPerceptionLayer (MMU) 初始化完成")
-
-    def set_generation_callback(self, callback: Callable[[Dict[str, Any]], Any]) -> None:
-        self._trigger_manager.set_generation_callback(callback)
-
-    @property
-    def short_term_store(self):
-        return self._short_term_store
 
     # ========== 话题路由与管理 ==========
 
@@ -207,30 +170,22 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 调用统一调度器（Archive + Evict）
         await self._trigger_manager.resolve_topic(
-            topic_id=topic.topic_id,
-            trigger_reason=FlushReason.LRU_EVICTION,
+            FlushEvent(topic_id=topic.topic_id, reason=FlushReason.LRU_EVICTION)
         )
 
-    # ========== 短期记忆上下文摄入==========
+    # ========== 短期记忆上下文摄入 ==========
 
     async def route_and_ingest(
         self,
         topic_id: str,
         payload: InteractionPayload,
-    ) -> str:
+    ) -> Tuple[str, Optional[TopicMaterializeTask]]:
         """
-        MMU 核心方法：路由到指定话题并摄入载荷
-
-        流程:
-            - prepare_topic: 确保话题存在（必要时创建 / 驱逐）
-            - ingest_payload: 将载荷写入最终话题
-
-        Args:
-            topic_id: 目标话题 ID 或 "NEW_TOPIC"
-            payload: Kernel → Perception 的原子传输包
+        MMU 核心方法：路由到指定话题并摄入载荷。
 
         Returns:
-            str: 最终路由到的 topic_id
+            (real_topic_id, TopicMaterializeTask | None)
+            调用方负责将 TopicMaterializeTask 提交给生成链路。
         """
         # 重新检查创建情况，避免预创建后某些错误导致的异常
         topic_id = await self.prepare_topic(
@@ -239,35 +194,20 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             new_topic_summary=None,
             identity=payload.identity,
         )
-
-        # 摄入载荷
-        await self.ingest_payload(payload, topic_id)
-
-        # 更新最后活跃话题
+        settle_payload = await self.ingest_payload(payload, topic_id)
         self._short_term_store.set_last_active_topic(topic_id)
-
-        return topic_id
+        return topic_id, settle_payload
 
     async def ingest_payload(
         self,
         payload: InteractionPayload,
         topic_id: str,
-    ) -> None:
+    ) -> Optional[TopicMaterializeTask]:
         """
-        摄入完整交互载荷
+        摄入完整交互载荷。
 
-        从 InteractionPayload 直接构建 LogicalBlock。
-
-        流程:
-            1. 消费 Patchouli 后处理完成的结构化 payload 字段
-            2. 构建 LogicalBlock (v3.0 字段)
-            3. 信号检查:
-               - URGENT (write_focus/update_focus): 添加 block → 立即 flush
-               - NORMAL: 直接添加 block
-
-        Args:
-            payload: Kernel → Perception 的原子传输包
-            topic_id: 目标话题 ID
+        Returns:
+            如发生 TOKEN_OVERFLOW 结算则返回 TopicMaterializeTask，否则 None
         """
         if not payload.turn_events:
             raise ValueError(
@@ -278,12 +218,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         clean_text = payload.assistant_final_text or ""
         actions = ActionReducer.reduce(payload.turn_events)
         traces = payload.mtp_traces
-
-        logger.debug(
-            "ingest_payload: 结构化单路径, "
-            f"turn_events={len(payload.turn_events)}, traces={len(traces)}, "
-            f"actions={len(actions)}"
-        )
 
         # 2. 构建 LogicalBlock
         block = LogicalBlock(
@@ -311,24 +245,24 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
         self._short_term_store.add_block(topic_id, block)
-
+        
         # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
-        await self._maybe_fold_pages(topic_id)
-
+        settle_payload = await self._maybe_fold_pages(topic_id)
+        
         # 重置状态
-        self._short_term_store.update_metadata(
-            topic_id, state=BufferState.IDLE
-        )
+        self._short_term_store.update_metadata(topic_id, state=BufferState.IDLE)
+
+        return settle_payload
 
     # ========== 上下文溢出检查 ==========
 
-    async def _maybe_fold_pages(self, topic_id: str) -> None:
+    async def _maybe_fold_pages(self, topic_id: str) -> Optional[TopicMaterializeTask]:
         """
         Page Folding: token 溢出时触发 Compact 操作
         """
         topic_data = self._short_term_store.get_topic_data(topic_id, touch=False)
         if topic_data is None:
-            return
+            return None
 
         threshold = self.config.fold_token_threshold
 
@@ -339,17 +273,14 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         )
 
         if topic_data.total_tokens <= threshold:
-            return
+            return None
 
         logger.info(
             f"Token 溢出: topic_id={topic_id}, "
             f"total_tokens={topic_data.total_tokens} > threshold={threshold}"
         )
-
-        # 调用统一调度器
-        await self._trigger_manager.resolve_topic(
-            topic_id=topic_id,
-            trigger_reason=FlushReason.TOKEN_OVERFLOW,
+        return await self._trigger_manager.resolve_topic(
+            FlushEvent(topic_id=topic_id, reason=FlushReason.TOKEN_OVERFLOW)
         )
 
     # ========== 话题结算原语 ==========
@@ -359,26 +290,22 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
         wait_for_completion: bool = False,
-    ) -> TopicSettlement:
-        """原子话题结算，不含策略判断。由 PerceptionFamiliar 调用。"""
+    ) -> Tuple[TopicSettlement, Optional[TopicMaterializeTask]]:
+        """
+        原子话题结算，不含策略判断。由 PerceptionFamiliar 调用。
+
+        Returns:
+            (TopicSettlement, TopicMaterializeTask | None)
+        """
         topic_data = self._short_term_store.get_topic_data(topic_id)
         blocks_count = topic_data.block_count if topic_data else 0
-        
-        await self._trigger_manager.resolve_topic(
-            topic_id=topic_id,
-            trigger_reason=reason,
-            wait_for_archive=wait_for_completion,
-        )
 
-        return TopicSettlement(
-            topic_id=topic_id, 
-            blocks_settled=blocks_count, 
-            reason=reason
+        settle_payload = await self._trigger_manager.resolve_topic(
+            FlushEvent(topic_id=topic_id, reason=reason, wait_for_completion=wait_for_completion)
         )
+        return TopicSettlement(topic_id=topic_id, blocks_settled=blocks_count, reason=reason), settle_payload
 
-    def swap_out_topic(
-        self, topic_id: str
-    ) -> bool:
+    def swap_out_topic(self, topic_id: str) -> bool:
         """
         显式换出指定话题，返回是否存在该话题。
         """
@@ -397,26 +324,23 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 class NullPerceptionLayer(BasePerceptionLayer):
     """Disabled perception layer with the same public surface as SemanticFlow."""
 
-    def set_generation_callback(self, callback: Callable[[Dict[str, Any]], Any]) -> None:
-        self._generation_callback = callback
-
-    def ingest_payload(self, payload: InteractionPayload) -> None:
+    async def ingest_payload(self, payload: InteractionPayload, topic_id: str) -> None:
         return None
 
     async def route_and_ingest(
         self,
         topic_id: str,
         payload: InteractionPayload,
-    ) -> str:
-        return topic_id
+    ) -> Tuple[str, None]:
+        return topic_id, None
 
     async def settle_topic(
         self,
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
         wait_for_completion: bool = False,
-    ) -> TopicSettlement:
-        return TopicSettlement(topic_id=topic_id, blocks_settled=0, reason=reason)
+    ) -> Tuple[TopicSettlement, None]:
+        return TopicSettlement(topic_id=topic_id, blocks_settled=0, reason=reason), None
 
     async def prepare_topic(
         self,

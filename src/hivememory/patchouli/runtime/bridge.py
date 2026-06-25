@@ -36,7 +36,7 @@ class PatchouliBridge:
         PatchouliRoutes.PREPARE_AGENT_RUN,
         PatchouliRoutes.FINALIZE_AGENT_RUN,
         PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-        PatchouliRoutes.MANUAL_ARCHIVE_TOPIC,
+        PatchouliRoutes.MANUAL_SETTLE_TOPIC,
         PatchouliRoutes.EVICT_TOPIC,
         PatchouliRoutes.RECORD_MEMORY_CITATION,
         PatchouliRoutes.WARMUP_MODELS,
@@ -177,8 +177,8 @@ class PatchouliBridge:
                 self._service.cleanup_prepared_agent_run,
             ),
             (
-                PatchouliRoutes.MANUAL_ARCHIVE_TOPIC,
-                self._topic_management_service.archive_topic,
+                PatchouliRoutes.MANUAL_SETTLE_TOPIC,
+                self._topic_management_service.settle_topic,
             ),
             (
                 PatchouliRoutes.EVICT_TOPIC,

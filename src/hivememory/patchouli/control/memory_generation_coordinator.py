@@ -8,7 +8,7 @@ from uuid import UUID
 
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.generation.models import GenerationRequest
-from hivememory.engines.perception.models import ArchivePayload
+from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
@@ -35,8 +35,8 @@ class MemoryGenerationCoordinator:
         self._bus = bus
         self._transcript_builder = GenerationTranscriptBuilder()
 
-    async def submit_archive(self, payload: ArchivePayload) -> MemoryGenerationTask | None:
-        """将感知层 ArchivePayload 转为 ARCHIVE 任务规范。"""
+    async def submit_settlement(self, payload: TopicMaterializeTask) -> MemoryGenerationTask | None:
+        """将感知层 TopicMaterializeTask 转为 SETTLEMENT 任务规范。"""
         gen_context = self._transcript_builder.build_context(
             payload.blocks,
             state_summary=payload.state_summary,
@@ -50,7 +50,7 @@ class MemoryGenerationCoordinator:
             label=payload.topic_id,
             source=MemoryGenerationSource.ARCHIVE,
             request=GenerationRequest(context=gen_context),
-            source_intent="ARCHIVE",
+            source_intent="SETTLEMENT",
             interaction_input=self._build_interaction_input(
                 topic_id=payload.topic_id,
                 topic_title=payload.topic_title,

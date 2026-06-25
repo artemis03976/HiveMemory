@@ -53,39 +53,16 @@ class BufferState(str, Enum):
 
 class FlushEvent(BaseModel):
     """
-    统一的 Flush 决策输出
-
-    由 PerceptionLayer 或 Relay 产生，表示需要触发 buffer flush。
-    PerceptionLayer 根据此事件执行 flush 操作。
+    话题结算触发指令，TriggerManager.resolve_topic 的统一输入协议。
 
     Attributes:
-        flush_reason: flush 原因
-        blocks_to_flush: 要刷出的 blocks（不包含触发 flush 的新 block）
-        relay_summary: 接力摘要（仅 TOKEN_OVERFLOW 时生成）
-        triggered_by_block: 触发此 flush 的新 block（将在 flush 后添加到 buffer）
-        write_focus: WRITE 指令控制信号（仅 MTP_WRITE flush 时携带）
-        update_focus: UPDATE 指令控制信号（仅 MTP_UPDATE flush 时携带）
+        topic_id: 目标话题 ID
+        reason: 触发结算的原因
+        wait_for_completion: 是否等待结算完成（用于 shutdown drain 场景）
     """
-    flush_reason: FlushReason
-    blocks_to_flush: List["LogicalBlock"] = Field(
-        default_factory=list,
-        description="要刷出的 blocks（不包含触发 flush 的新 block）"
-    )
-    relay_summary: Optional[str] = Field(
-        default=None,
-        description="接力摘要（仅 TOKEN_OVERFLOW 时生成）"
-    )
-    triggered_by_block: Optional["LogicalBlock"] = Field(
-        default=None,
-        description="触发此 flush 的新 block"
-    )
-
-    @property
-    def has_blocks(self) -> bool:
-        """检查是否有 blocks 需要 flush"""
-        return len(self.blocks_to_flush) > 0
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    topic_id: str
+    reason: FlushReason
+    wait_for_completion: bool = False
 
 
 # ============ 逻辑原子块 ============
@@ -110,7 +87,6 @@ class LogicalBlock(BaseModel):
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     total_tokens: int = 0
 
-    # ========== 多智能体身份溯源 (Phase 1) ==========
     #: Gateway 意图分类结果
     gateway_intent: Optional[str] = Field(
         default=None,
@@ -121,12 +97,6 @@ class LogicalBlock(BaseModel):
     worth_saving: Optional[bool] = Field(
         default=None,
         description="Gateway 记忆价值判断"
-    )
-
-    #: 优先级控制信号
-    priority: str = Field(
-        default="NORMAL",
-        description="NORMAL | URGENT"
     )
 
     @property
@@ -278,14 +248,14 @@ class SemanticBuffer(BaseModel):
         return (current_time - self.last_update) > timeout_seconds
 
 
-# ============ 归档载荷 (Perception -> Librarian) ============
+# ============ 话题结算载荷 (Perception -> Generation) ============
 
-class ArchivePayload(BaseModel):
+class TopicMaterializeTask(BaseModel):
     """
-    Perception -> GenerationEngine 的归档传输包
+    Perception -> Generation 的话题结算传输包
 
-    当 TriggerManager 触发 Archive 操作时，将 buffer 中的 blocks 打包为此结构
-    发送给 GenerationEngine 进行记忆生成。
+    当 TriggerManager 触发话题结算时，将 buffer 中的 blocks 打包为此结构
+    发送给 Generation 模块进行记忆生成。
 
     每个 LogicalBlock 自行携带 identity，无需在 payload 层面统一标识。
 
@@ -294,7 +264,6 @@ class ArchivePayload(BaseModel):
         user_id: 用户 ID（可选，用于兼容性）
         blocks: 从 buffer flush 出的 LogicalBlock 列表（每个 block 携带自己的 identity）
         state_summary: 话题状态摘要（如果有折叠）
-        focus: write_focus 或 update_focus（仅 MTP_WRITE/UPDATE 时有值）
         reason: flush 触发原因
     """
     topic_id: str = Field(..., description="话题 ID")
@@ -305,9 +274,9 @@ class ArchivePayload(BaseModel):
 
     blocks: List[LogicalBlock] = Field(default_factory=list, description="从 buffer flush 出的 blocks")
     state_summary: str = Field(default="", description="话题状态摘要")
-    
+
     reason: FlushReason = Field(default=FlushReason.IDLE_TIMEOUT, description="flush 触发原因")
-    
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -327,6 +296,6 @@ __all__ = [
     "LogicalBlock",
     "SemanticBuffer",
     "TopicSnapshot",
-    "ArchivePayload",
+    "TopicMaterializeTask",
     "TopicSettlement",
 ]

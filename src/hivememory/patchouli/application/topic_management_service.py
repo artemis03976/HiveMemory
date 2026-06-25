@@ -22,8 +22,8 @@ class TopicManagementService:
             identity=identity,
         )
 
-    async def archive_topic(self, *, topic_id: str | None = None) -> dict:
-        return await self._bus.request(PatchouliLocalRoutes.TOPIC_MANUAL_ARCHIVE, topic_id)
+    async def settle_topic(self, *, topic_id: str | None = None) -> dict:
+        return await self._bus.request(PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE, topic_id)
 
     async def evict_topic(self, *, topic_id: str) -> dict:
         return await self._bus.request(PatchouliLocalRoutes.TOPIC_EVICT, topic_id)

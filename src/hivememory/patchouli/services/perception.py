@@ -9,9 +9,11 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
+from pydantic import BaseModel
+
 from hivememory.core.models import Identity
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import ArchivePayload, FlushReason, TopicSettlement
+from hivememory.engines.perception.models import FlushReason, TopicSettlement
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 if TYPE_CHECKING:
@@ -22,6 +24,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+# ========== Application-level response models ==========
+
+class TopicEvictResult(BaseModel):
+    success: bool
+    message: str
+
+
+class ShutdownFlushResult(BaseModel):
+    success: bool
+    trigger_reason: str
+    flushed_topics: list[str]
+    skipped_topics: list[str]
+    archived_blocks: int
+
+
+# ========== PerceptionFamiliar ==========
 
 class PerceptionFamiliar:
     """感知业务门面，负责摄入与短期话题管理。"""
@@ -39,16 +58,13 @@ class PerceptionFamiliar:
         self._idle_timeout_seconds = config.idle_timeout_seconds
         self._short_term = memory_library.short_term
 
-        if hasattr(self.perception_layer, "set_generation_callback"):
-            self.perception_layer.set_generation_callback(self._on_archive_payload)
-
         logger.info("PerceptionFamiliar 初始化完成")
 
     async def submit_interaction(
         self,
         payload: InteractionPayload,
         target_topic_id: str = "NEW_TOPIC",
-    ) -> Any:
+    ) -> str:
         """摄入完整交互载荷，并交给感知层完成话题路由。"""
         logger.info(
             "PerceptionFamiliar 摄入交互载荷: "
@@ -58,7 +74,16 @@ class PerceptionFamiliar:
             len(payload.mtp_traces),
             len(payload.materialize_tasks),
         )
-        return await self.perception_layer.route_and_ingest(target_topic_id, payload)
+
+        topic_id, settle_payload = await self.perception_layer.route_and_ingest(target_topic_id, payload)
+
+        if settle_payload is not None:
+            await self._bus.request(
+                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, 
+                settle_payload
+            )
+
+        return topic_id
 
     async def prepare_topic(
         self,
@@ -87,23 +112,36 @@ class PerceptionFamiliar:
  
         if topic.is_empty:
             return TopicSettlement(topic_id=target_id, blocks_settled=0, reason=FlushReason.MANUAL)
-        settlement = await self.perception_layer.settle_topic(target_id, FlushReason.MANUAL, wait_for_completion=True)
-        logger.info("manual_settle_topic 完成: topic_id=%s, blocks=%d", target_id, settlement.blocks_settled)
+
+        settlement, settle_payload = await self.perception_layer.settle_topic(
+            target_id, FlushReason.MANUAL, wait_for_completion=True
+        )
+        if settle_payload is not None:
+            await self._bus.request(
+                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, 
+                settle_payload
+            )
+        
+        logger.info(
+            "manual_settle_topic 完成: topic_id=%s, blocks=%d", 
+            target_id, settlement.blocks_settled
+        )
+
         return settlement
 
-    async def evict_topic(self, topic_id: str) -> dict[str, Any]:
-        """从活跃话题池中驱逐话题，不触发归档。"""
+    async def evict_topic(self, topic_id: str) -> TopicEvictResult:
+        """从活跃话题池中驱逐话题，不触发结算。"""
         removed = self.perception_layer.swap_out_topic(topic_id)
         if not removed:
-            return {"success": False, "message": "话题不存在或已被驱逐"}
-        return {"success": True, "message": f"话题 {topic_id} 已删除"}
+            return TopicEvictResult(success=False, message="话题不存在或已被驱逐")
+        return TopicEvictResult(success=True, message=f"话题 {topic_id} 已删除")
 
     def discard_if_empty(self, topic_id: str) -> bool:
         """话题为空时清理该话题。"""
         return self.perception_layer.discard_if_empty(topic_id)
 
     async def scan_idle_buffers_once(self) -> list[str]:
-        """扫描并 flush 空闲超时话题，策略由 Familiar 持有。"""
+        """扫描并 settle 空闲超时话题，策略由 Familiar 持有。"""
         flushed = []
         for topic in self._short_term.list_topic_data():
             if topic.is_idle(self._idle_timeout_seconds):
@@ -112,40 +150,51 @@ class PerceptionFamiliar:
                     topic.topic_id,
                     datetime.now().timestamp() - topic.last_update,
                 )
-                await self.perception_layer.settle_topic(topic.topic_id, FlushReason.IDLE_TIMEOUT)
+                _, settle_payload = await self.perception_layer.settle_topic(
+                    topic.topic_id, FlushReason.IDLE_TIMEOUT
+                )
+                if settle_payload is not None:
+                    await self._bus.request(
+                        PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, 
+                        settle_payload
+                    )
                 flushed.append(topic.topic_id)
         return flushed
 
-    async def flush_all_for_shutdown(self) -> dict[str, Any]:
-        """服务关闭前强制归档所有活跃话题。"""
+    async def flush_all_for_shutdown(self) -> ShutdownFlushResult:
+        """服务关闭前强制结算所有活跃话题。"""
         flushed, skipped, archived_blocks = [], [], 0
         for topic in self._short_term.list_topic_data():
             if topic.is_empty:
                 skipped.append(topic.topic_id)
                 continue
             archived_blocks += topic.block_count
-            await self.perception_layer.settle_topic(
+            _, settle_payload = await self.perception_layer.settle_topic(
                 topic.topic_id, FlushReason.SHUTDOWN, wait_for_completion=True
             )
+            if settle_payload is not None:
+                await self._bus.request(
+                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, 
+                    settle_payload
+                )
             flushed.append(topic.topic_id)
+
         logger.info(
             "shutdown flush 完成: flushed=%d, skipped=%d, archived_blocks=%d",
             len(flushed), len(skipped), archived_blocks,
         )
-        return {
-            "success": True,
-            "trigger_reason": FlushReason.SHUTDOWN.value,
-            "flushed_topics": flushed,
-            "skipped_topics": skipped,
-            "archived_blocks": archived_blocks,
-        }
-
-    async def _on_archive_payload(self, payload: ArchivePayload) -> Any:
-        """感知层归档回调：通过总线进入生成入口。"""
-        return await self._bus.request(
-            PatchouliLocalRoutes.GENERATION_SUBMIT_ARCHIVE,
-            payload,
+        
+        return ShutdownFlushResult(
+            success=True,
+            trigger_reason=FlushReason.SHUTDOWN.value,
+            flushed_topics=flushed,
+            skipped_topics=skipped,
+            archived_blocks=archived_blocks,
         )
 
 
-__all__ = ["PerceptionFamiliar"]
+__all__ = [
+    "PerceptionFamiliar", 
+    "TopicEvictResult", 
+    "ShutdownFlushResult"
+]

@@ -25,7 +25,7 @@ class PatchouliLocalRoutes:
     REFRESH_MEMORY_VITALITY = "lifecycle.refresh_memory_vitality"
     LIFECYCLE_RUN_GARDENING_ONCE = "lifecycle.run_gardening_once"
 
-    GENERATION_SUBMIT_ARCHIVE = "generation.submit_archive"
+    GENERATION_SUBMIT_SETTLEMENT = "generation.submit_settlement"
     GENERATION_SUBMIT_ACTIVE = "generation.submit_active"
     GENERATION_EXECUTE_SPEC = "generation.execute_spec"
 
@@ -42,7 +42,7 @@ class PatchouliLocalRoutes:
     TOPIC_PREPARE = "topic.prepare"
     TOPIC_GET = "topic.get"
     TOPIC_LIST_ACTIVE = "topic.list_active"
-    TOPIC_MANUAL_ARCHIVE = "topic.manual_archive"
+    TOPIC_MANUAL_SETTLE = "topic.manual_settle"
     TOPIC_EVICT = "topic.evict"
     TOPIC_DISCARD_IF_EMPTY = "topic.discard_if_empty"
 
@@ -65,7 +65,7 @@ class PatchouliLocalRoutes:
         MEMORY_REVIVE,
         REFRESH_MEMORY_VITALITY,
         LIFECYCLE_RUN_GARDENING_ONCE,
-        GENERATION_SUBMIT_ARCHIVE,
+        GENERATION_SUBMIT_SETTLEMENT,
         GENERATION_SUBMIT_ACTIVE,
         GENERATION_EXECUTE_SPEC,
         MEMORY_TASK_SUBMIT_GENERATION,
@@ -78,7 +78,7 @@ class PatchouliLocalRoutes:
         TOPIC_PREPARE,
         TOPIC_GET,
         TOPIC_LIST_ACTIVE,
-        TOPIC_MANUAL_ARCHIVE,
+        TOPIC_MANUAL_SETTLE,
         TOPIC_EVICT,
         TOPIC_DISCARD_IF_EMPTY,
         RUNTIME_MODELS_WARMUP,

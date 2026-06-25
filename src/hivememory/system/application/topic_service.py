@@ -37,9 +37,9 @@ class TopicApplicationService:
             identity=identity,
         )
 
-    async def archive_topic(self, *, topic_id: str | None = None) -> dict:
+    async def settle_topic(self, *, topic_id: str | None = None) -> dict:
         settlement: TopicSettlement = await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC,
+            GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
             topic_id=topic_id,
         )
         return {
