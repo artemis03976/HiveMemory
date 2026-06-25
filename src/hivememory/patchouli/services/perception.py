@@ -13,7 +13,8 @@ from pydantic import BaseModel
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import FlushReason, TopicSettlement
+from hivememory.engines.perception.models import FlushReason
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 if TYPE_CHECKING:
@@ -100,8 +101,8 @@ class PerceptionFamiliar:
             identity,
         )
 
-    async def manual_settle_topic(self, topic_id: Optional[str] = None) -> TopicSettlement:
-        """手动结算指定话题，返回结算结果供上层构造响应。"""
+    async def manual_settle_topic(self, topic_id: Optional[str] = None) -> MemoryGenerationTask | None:
+        """手动结算指定话题，返回生成任务句柄（None 表示话题为空无需生成）。"""
         target_id = topic_id or self._short_term.get_last_active_topic()
         if not target_id:
             raise ValueError("未指定 topic_id 且无活跃话题")
@@ -111,23 +112,23 @@ class PerceptionFamiliar:
             raise KeyError(f"话题 {target_id} 不存在")
  
         if topic.is_empty:
-            return TopicSettlement(topic_id=target_id, blocks_settled=0, reason=FlushReason.MANUAL)
+            return None
 
-        settlement, settle_payload = await self.perception_layer.settle_topic(
+        settle_payload = await self.perception_layer.settle_topic(
             target_id, FlushReason.MANUAL, wait_for_completion=True
         )
-        if settle_payload is not None:
-            await self._bus.request(
-                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, 
-                settle_payload
-            )
-        
-        logger.info(
-            "manual_settle_topic 完成: topic_id=%s, blocks=%d", 
-            target_id, settlement.blocks_settled
-        )
+        if settle_payload is None:
+            return None
 
-        return settlement
+        task: MemoryGenerationTask | None = await self._bus.request(
+            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+            settle_payload,
+        )
+        logger.info(
+            "manual_settle_topic 完成: topic_id=%s, task_id=%s",
+            target_id, task.task_id if task else None,
+        )
+        return task
 
     async def evict_topic(self, topic_id: str) -> TopicEvictResult:
         """从活跃话题池中驱逐话题，不触发结算。"""
@@ -150,7 +151,7 @@ class PerceptionFamiliar:
                     topic.topic_id,
                     datetime.now().timestamp() - topic.last_update,
                 )
-                _, settle_payload = await self.perception_layer.settle_topic(
+                settle_payload = await self.perception_layer.settle_topic(
                     topic.topic_id, FlushReason.IDLE_TIMEOUT
                 )
                 if settle_payload is not None:

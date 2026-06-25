@@ -23,7 +23,6 @@ from hivememory.engines.perception.models import (
     FlushEvent,
     FlushReason,
     LogicalBlock,
-    TopicSettlement,
     TopicMaterializeTask,
 )
 from hivememory.system.config import SemanticFlowPerceptionConfig
@@ -290,20 +289,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
         wait_for_completion: bool = False,
-    ) -> Tuple[TopicSettlement, Optional[TopicMaterializeTask]]:
+    ) -> Optional[TopicMaterializeTask]:
         """
         原子话题结算，不含策略判断。由 PerceptionFamiliar 调用。
-
+        
         Returns:
-            (TopicSettlement, TopicMaterializeTask | None)
+            TopicMaterializeTask | None
         """
-        topic_data = self._short_term_store.get_topic_data(topic_id)
-        blocks_count = topic_data.block_count if topic_data else 0
-
-        settle_payload = await self._trigger_manager.resolve_topic(
+        return await self._trigger_manager.resolve_topic(
             FlushEvent(topic_id=topic_id, reason=reason, wait_for_completion=wait_for_completion)
         )
-        return TopicSettlement(topic_id=topic_id, blocks_settled=blocks_count, reason=reason), settle_payload
 
     def swap_out_topic(self, topic_id: str) -> bool:
         """
@@ -339,8 +334,8 @@ class NullPerceptionLayer(BasePerceptionLayer):
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
         wait_for_completion: bool = False,
-    ) -> Tuple[TopicSettlement, None]:
-        return TopicSettlement(topic_id=topic_id, blocks_settled=0, reason=reason), None
+    ) -> Optional[TopicMaterializeTask]:
+        return None
 
     async def prepare_topic(
         self,

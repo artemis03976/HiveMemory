@@ -14,7 +14,6 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Tuple, TYPE_CHECKING
 from hivememory.engines.perception.models import (
     FlushReason,
-    TopicSettlement,
     TopicMaterializeTask,
 )
 from hivememory.core.protocol.models import InteractionPayload
@@ -52,14 +51,8 @@ class BasePerceptionLayer(ABC):
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
         wait_for_completion: bool = False,
-    ) -> Tuple[TopicSettlement, Optional[TopicMaterializeTask]]:
-        """
-        原子话题结算，不含任何策略判断。
-
-        Returns:
-            (TopicSettlement, TopicMaterializeTask | None)
-            TopicMaterializeTask 由调用方提交给生成链路；TOKEN_OVERFLOW 时为 None。
-        """
+    ) -> Optional[TopicMaterializeTask]:
+        """原子话题结算，不含任何策略判断。话题不存在或为空时返回 None。"""
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.core.models import Identity
-from hivememory.engines.perception.models import TopicSettlement
 from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
@@ -38,15 +37,14 @@ class TopicApplicationService:
         )
 
     async def settle_topic(self, *, topic_id: str | None = None) -> dict:
-        settlement: TopicSettlement = await self._global_bus.request(
+        from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
+        task: MemoryGenerationTask | None = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
             topic_id=topic_id,
         )
-        return {
-            "success": True,
-            "topic_id": settlement.topic_id,
-            "blocks_archived": settlement.blocks_settled,
-        }
+        if task is None:
+            return {"success": False, "message": "话题为空，无需生成"}
+        return {"success": True, "task_id": task.task_id, "topic_id": task.topic_id}
 
     async def evict_topic(self, *, topic_id: str) -> dict:
         return await self._global_bus.request(
