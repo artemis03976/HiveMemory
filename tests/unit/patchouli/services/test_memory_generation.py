@@ -1,0 +1,494 @@
+"""
+MemoryGenerationFamiliar 单元测试
+
+测试覆盖:
+- execute: 完整生成流程（compute -> artifact -> persist）
+- _run_generation: 生成执行三步流水线
+- _build_interaction_artifact: 交互 artifact 构建
+- _build_memory_artifacts: CREATE/UPDATE artifact 挂载
+"""
+
+import pytest
+from unittest.mock import AsyncMock, Mock, MagicMock
+from uuid import uuid4
+
+from hivememory.core.models import (
+    Identity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+)
+from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryProvenance
+from hivememory.core.models.pending import WriteFocus
+from hivememory.engines.generation.models import (
+    DuplicateDecision,
+    GenerationContext,
+    GenerationRequest,
+    MemoryGenerationResult,
+)
+from hivememory.engines.perception.models import LogicalBlock, TurnRecord
+from hivememory.patchouli.runtime.memory_tasks import (
+    InteractionArtifactInput,
+    MemoryGenerationSource,
+    MemoryGenerationTaskSpec,
+)
+from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+
+
+def _make_memory_atom(title="test_memory", memory_id=None) -> MemoryAtom:
+    return MemoryAtom(
+        id=memory_id or uuid4(),
+        meta=MetaData(source_agent_id="a1", user_id="u1"),
+        index=IndexLayer(
+            title=title,
+            summary=f"This is a valid summary for {title} with enough chars",
+            tags=["t1"],
+            memory_type=MemoryType.FACT,
+            alias=f"alias_{title}",
+        ),
+        payload=PayloadLayer(content="content"),
+    )
+
+
+def _make_gen_result(
+    alias="test",
+    decision=DuplicateDecision.CREATE,
+    atom=None,
+):
+    return MemoryGenerationResult(
+        pending_alias=alias,
+        intent_id=f"intent_{alias}",
+        canonical_alias=f"fact_{alias}",
+        atom=atom,
+        duplicate_decision=decision,
+    )
+
+
+def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_interaction_input=True):
+    spec = MemoryGenerationTaskSpec(
+        topic_id=topic_id,
+        label="test",
+        source=source,
+        request=GenerationRequest(
+            context=GenerationContext(),
+            write_focus=WriteFocus(content="remember this"),
+            identity=Identity(user_id="u1"),
+            intent_id="intent_1",
+            pending_alias="test",
+        ),
+        source_intent="WRITE",
+        interaction_input=InteractionArtifactInput(
+            topic_id=topic_id,
+            topic_title="Test Topic",
+            topic_summary="Test Summary",
+            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
+        ) if include_interaction_input else None,
+    )
+    return spec
+
+
+class TestMemoryGenerationFamiliarExecute:
+    """execute() 方法测试"""
+
+    def _make_familiar(self, gen_engine=None, mid_term=None, artifact_engine=None):
+        gen_engine = gen_engine or Mock()
+        gen_engine.process = AsyncMock(return_value=[])
+
+        mid_term = mid_term or Mock()
+        mid_term.upsert = AsyncMock()
+
+        memory_lib = Mock()
+        memory_lib.mid_term = mid_term
+
+        return MemoryGenerationFamiliar(
+            generation_engine=gen_engine,
+            memory_library=memory_lib,
+            artifact_engine=artifact_engine,
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_builds_interaction_artifact_and_runs_generation(self):
+        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+        spec = _make_spec()
+
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(return_value=[])
+
+        artifact_engine = Mock()
+        artifact_engine.interaction = Mock()
+        artifact_engine.interaction.build_and_store = AsyncMock(return_value=interaction_ref)
+        artifact_engine.memory = Mock()
+
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+
+        familiar = self._make_familiar(
+            gen_engine=gen_engine,
+            mid_term=mid_term,
+            artifact_engine=artifact_engine,
+        )
+
+        results = await familiar.execute(spec)
+
+        gen_engine.process.assert_awaited_once()
+        artifact_engine.interaction.build_and_store.assert_awaited_once()
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_execute_with_no_interaction_input_skips_artifact_build(self):
+        spec = _make_spec(include_interaction_input=False)
+
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(return_value=[])
+
+        artifact_engine = Mock()
+        artifact_engine.interaction = Mock()
+        artifact_engine.interaction.build_and_store = AsyncMock()
+
+        familiar = self._make_familiar(
+            gen_engine=gen_engine,
+            artifact_engine=artifact_engine,
+        )
+
+        await familiar.execute(spec)
+
+        artifact_engine.interaction.build_and_store.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_continues_when_artifact_build_fails(self):
+        """验证当 artifact 构建失败时，execute 仍继续执行生成流程"""
+        spec = _make_spec()
+
+        gen_engine = Mock()
+        gen_result = _make_gen_result(alias="test", atom=_make_memory_atom())
+        gen_engine.process = AsyncMock(return_value=[gen_result])
+
+        artifact_engine = Mock()
+        artifact_engine.interaction = Mock()
+        artifact_engine.interaction.build_and_store = AsyncMock(side_effect=RuntimeError("build failed"))
+
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+
+        memory_lib = Mock()
+        memory_lib.mid_term = mid_term
+
+        familiar = MemoryGenerationFamiliar(
+            generation_engine=gen_engine,
+            memory_library=memory_lib,
+            artifact_engine=artifact_engine,
+        )
+
+        results = await familiar.execute(spec)
+
+        # 即使 artifact 构建失败，生成仍应继续
+        gen_engine.process.assert_awaited_once()
+        # CREATE 决策的 atom 仍应被写入
+        assert mid_term.upsert.await_count == 1
+
+
+class TestMemoryGenerationFamiliarRunGeneration:
+    """_run_generation() 方法测试"""
+
+    def _make_familiar(self, gen_engine=None, mid_term=None, artifact_engine=None):
+        gen_engine = gen_engine or Mock()
+        mid_term = mid_term or Mock()
+        memory_lib = Mock()
+        memory_lib.mid_term = mid_term
+        return MemoryGenerationFamiliar(
+            generation_engine=gen_engine,
+            memory_library=memory_lib,
+            artifact_engine=artifact_engine,
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_generation_computes_and_returns_results(self):
+        gen_result = _make_gen_result(alias="test")
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(return_value=[gen_result])
+
+        familiar = self._make_familiar(gen_engine=gen_engine)
+
+        request = GenerationRequest(
+            context=GenerationContext(),
+            write_focus=WriteFocus(content="test"),
+            identity=Identity(user_id="u1"),
+            intent_id="intent_1",
+            pending_alias="test",
+        )
+
+        results = await familiar._run_generation(request)
+
+        assert results == [gen_result]
+        gen_engine.process.assert_awaited_once_with(request)
+
+    @pytest.mark.asyncio
+    async def test_run_generation_upserts_created_atoms(self):
+        atom = _make_memory_atom()
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(return_value=[gen_result])
+
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+
+        familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
+
+        request = GenerationRequest(
+            context=GenerationContext(),
+            write_focus=WriteFocus(content="test"),
+            identity=Identity(user_id="u1"),
+            intent_id="intent_1",
+            pending_alias="test",
+        )
+
+        await familiar._run_generation(request)
+
+        mid_term.upsert.assert_awaited_once_with(atom)
+
+    @pytest.mark.asyncio
+    async def test_run_generation_upserts_updated_atoms(self):
+        atom = _make_memory_atom()
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.UPDATE, atom=atom)
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(return_value=[gen_result])
+
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+
+        familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
+
+        request = GenerationRequest(
+            context=GenerationContext(),
+            write_focus=WriteFocus(content="test"),
+            identity=Identity(user_id="u1"),
+            intent_id="intent_1",
+            pending_alias="test",
+        )
+
+        await familiar._run_generation(request)
+
+        mid_term.upsert.assert_awaited_once_with(atom)
+
+    @pytest.mark.asyncio
+    async def test_run_generation_skips_upsert_for_discard_decision(self):
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.DISCARD, atom=None)
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(return_value=[gen_result])
+
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+
+        familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
+
+        request = GenerationRequest(
+            context=GenerationContext(),
+            write_focus=WriteFocus(content="test"),
+            identity=Identity(user_id="u1"),
+            intent_id="intent_1",
+            pending_alias="test",
+        )
+
+        await familiar._run_generation(request)
+
+        mid_term.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_generation_raises_on_upsert_failure(self):
+        atom = _make_memory_atom()
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(return_value=[gen_result])
+
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock(side_effect=RuntimeError("upsert failed"))
+
+        familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
+
+        request = GenerationRequest(
+            context=GenerationContext(),
+            write_focus=WriteFocus(content="test"),
+            identity=Identity(user_id="u1"),
+            intent_id="intent_1",
+            pending_alias="test",
+        )
+
+        with pytest.raises(RuntimeError, match="upsert failed"):
+            await familiar._run_generation(request)
+
+
+class TestMemoryGenerationFamiliarArtifacts:
+    """Artifact 构建方法测试"""
+
+    def _make_familiar(self, gen_engine=None, mid_term=None, artifact_engine=None):
+        gen_engine = gen_engine or Mock()
+        mid_term = mid_term or Mock()
+        memory_lib = Mock()
+        memory_lib.mid_term = mid_term
+        return MemoryGenerationFamiliar(
+            generation_engine=gen_engine,
+            memory_library=memory_lib,
+            artifact_engine=artifact_engine,
+        )
+
+    @pytest.mark.asyncio
+    async def test_build_interaction_artifact_returns_ref(self):
+        interaction_ref = ArtifactRef(artifact_id="ref_1", artifact_type=ArtifactType.INTERACTION)
+        artifact_engine = Mock()
+        artifact_engine.interaction = Mock()
+        artifact_engine.interaction.build_and_store = AsyncMock(return_value=interaction_ref)
+
+        familiar = self._make_familiar(artifact_engine=artifact_engine)
+
+        input_data = InteractionArtifactInput(
+            topic_id="t1",
+            topic_title="Test",
+            topic_summary="Summary",
+            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
+        )
+
+        result = await familiar._build_interaction_artifact(input_data)
+
+        assert result is interaction_ref
+
+    @pytest.mark.asyncio
+    async def test_build_interaction_artifact_returns_none_when_no_engine(self):
+        familiar = self._make_familiar(artifact_engine=None)
+
+        input_data = InteractionArtifactInput(
+            topic_id="t1",
+            topic_title="Test",
+            topic_summary="Summary",
+            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
+        )
+
+        result = await familiar._build_interaction_artifact(input_data)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_build_interaction_artifact_returns_none_when_no_blocks(self):
+        artifact_engine = Mock()
+        familiar = self._make_familiar(artifact_engine=artifact_engine)
+
+        input_data = InteractionArtifactInput(
+            topic_id="t1",
+            topic_title="Test",
+            topic_summary="Summary",
+            blocks=(),
+        )
+
+        result = await familiar._build_interaction_artifact(input_data)
+
+        assert result is None
+        artifact_engine.interaction.build_and_store.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_build_interaction_artifact_returns_none_on_build_failure(self):
+        artifact_engine = Mock()
+        artifact_engine.interaction = Mock()
+        artifact_engine.interaction.build_and_store = AsyncMock(side_effect=RuntimeError("build failed"))
+
+        familiar = self._make_familiar(artifact_engine=artifact_engine)
+
+        input_data = InteractionArtifactInput(
+            topic_id="t1",
+            topic_title="Test",
+            topic_summary="Summary",
+            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
+        )
+
+        result = await familiar._build_interaction_artifact(input_data)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_build_memory_artifacts_for_create_attaches_refs(self):
+        atom = _make_memory_atom()
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
+        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+
+        memory_bundle = Mock()
+        memory_bundle.initial_version_ref = ArtifactRef(artifact_id="version_1", artifact_type=ArtifactType.MEMORY_VERSION)
+        memory_bundle.creation_ref = ArtifactRef(artifact_id="creation_1", artifact_type=ArtifactType.MEMORY_CREATION)
+
+        artifact_engine = Mock()
+        artifact_engine.memory = Mock()
+        artifact_engine.memory.build_for_create = AsyncMock(return_value=memory_bundle)
+
+        familiar = self._make_familiar(artifact_engine=artifact_engine)
+
+        await familiar._build_memory_artifacts(
+            [gen_result],
+            GenerationContext(),
+            "WRITE",
+            interaction_ref,
+        )
+
+        # 检查 artifact refs 是否被添加
+        assert len(atom.payload.artifacts.refs) >= 2  # version + creation
+
+    @pytest.mark.asyncio
+    async def test_build_memory_artifacts_for_update_attaches_version_ref(self):
+        atom = _make_memory_atom()
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.UPDATE, atom=atom)
+        gen_result.memory_before_snapshot = Mock()
+        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+
+        version_bundle = Mock()
+        version_bundle.artifact_ref = ArtifactRef(artifact_id="version_2", artifact_type=ArtifactType.MEMORY_VERSION)
+
+        artifact_engine = Mock()
+        artifact_engine.memory = Mock()
+        artifact_engine.memory.build_for_update = AsyncMock(return_value=version_bundle)
+
+        familiar = self._make_familiar(artifact_engine=artifact_engine)
+
+        await familiar._build_memory_artifacts(
+            [gen_result],
+            GenerationContext(),
+            "UPDATE",
+            interaction_ref,
+        )
+
+        artifact_engine.memory.build_for_update.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_build_memory_artifacts_without_engine_appends_interaction_ref(self):
+        atom = _make_memory_atom()
+        atom.payload.artifacts.refs = []
+        atom.payload.artifacts.provenance = []
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
+        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+
+        familiar = self._make_familiar(artifact_engine=None)
+
+        await familiar._build_memory_artifacts(
+            [gen_result],
+            GenerationContext(),
+            "WRITE",
+            interaction_ref,
+        )
+
+        assert interaction_ref in atom.payload.artifacts.refs
+
+    @pytest.mark.asyncio
+    async def test_build_memory_artifacts_ignores_results_without_atoms(self):
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=None)
+        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+
+        artifact_engine = Mock()
+        artifact_engine.memory = Mock()
+
+        familiar = self._make_familiar(artifact_engine=artifact_engine)
+
+        await familiar._build_memory_artifacts(
+            [gen_result],
+            GenerationContext(),
+            "WRITE",
+            interaction_ref,
+        )
+
+        artifact_engine.memory.build_for_create.assert_not_called()
