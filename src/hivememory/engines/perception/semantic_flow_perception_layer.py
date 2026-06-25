@@ -256,7 +256,6 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
-        wait_for_completion: bool = False,
     ) -> Optional[TopicMaterializeTask]:
         """
         原子话题结算，不含策略判断。由 PerceptionFamiliar 调用。
@@ -265,7 +264,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             TopicMaterializeTask | None
         """
         return await self._trigger_manager.resolve_topic(
-            FlushEvent(topic_id=topic_id, reason=reason, wait_for_completion=wait_for_completion)
+            FlushEvent(topic_id=topic_id, reason=reason)
         )
 
     def swap_out_topic(self, topic_id: str) -> bool:
@@ -301,7 +300,6 @@ class NullPerceptionLayer(BasePerceptionLayer):
         self,
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
-        wait_for_completion: bool = False,
     ) -> Optional[TopicMaterializeTask]:
         return None
 

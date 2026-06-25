@@ -131,7 +131,7 @@ class PerceptionFamiliar:
             return None
 
         settle_payload = await self.perception_layer.settle_topic(
-            target_id, FlushReason.MANUAL, wait_for_completion=True
+            target_id, FlushReason.MANUAL
         )
         if settle_payload is None:
             return None
@@ -179,15 +179,20 @@ class PerceptionFamiliar:
         return flushed
 
     async def flush_all_for_shutdown(self) -> ShutdownFlushResult:
-        """服务关闭前强制结算所有活跃话题。"""
+        """服务关闭前强制结算所有活跃话题。
+
+        TODO: 目前仅保证任务提交完成，不等待生成执行完毕。
+              未来需在 MemoryGenerationTaskController 提供 drain_all() 接口，
+              在此调用以确保 shutdown 前所有记忆生成任务执行完毕。
+        """
         flushed, skipped, archived_blocks = [], [], 0
         for topic in self._short_term.list_topic_data():
             if topic.is_empty:
                 skipped.append(topic.topic_id)
                 continue
             archived_blocks += topic.block_count
-            _, settle_payload = await self.perception_layer.settle_topic(
-                topic.topic_id, FlushReason.SHUTDOWN, wait_for_completion=True
+            settle_payload = await self.perception_layer.settle_topic(
+                topic.topic_id, FlushReason.SHUTDOWN
             )
             if settle_payload is not None:
                 await self._bus.request(

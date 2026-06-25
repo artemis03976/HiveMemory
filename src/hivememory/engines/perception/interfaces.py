@@ -50,7 +50,6 @@ class BasePerceptionLayer(ABC):
         self,
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
-        wait_for_completion: bool = False,
     ) -> Optional[TopicMaterializeTask]:
         """原子话题结算，不含任何策略判断。话题不存在或为空时返回 None。"""
 

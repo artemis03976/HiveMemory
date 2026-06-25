@@ -39,6 +39,14 @@ class FlushReason(str, Enum):
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
     SHUTDOWN = "shutdown"  # 进程关闭时的全局强制归档
 
+
+class BufferState(str, Enum):
+    """Buffer 状态枚举"""
+    IDLE = "idle"
+    PROCESSING = "processing"
+    FLUSHING = "flushing"
+
+
 # ============ Flush 事件 ============
 
 class FlushEvent(BaseModel):
@@ -48,11 +56,9 @@ class FlushEvent(BaseModel):
     Attributes:
         topic_id: 目标话题 ID
         reason: 触发结算的原因
-        wait_for_completion: 是否等待结算完成（用于 shutdown drain 场景）
     """
     topic_id: str
     reason: FlushReason
-    wait_for_completion: bool = False
 
 
 # ============ 逻辑原子块 ============
