@@ -77,7 +77,7 @@ class PerceptionFamiliar:
         )
 
         # 检查是否需要先驱逐 LRU 话题，独立发出 task
-        await self._maybe_evict_lru()
+        await self._maybe_evict_lru(target_topic_id)
 
         topic_id, settle_payload = await self.perception_layer.route_and_ingest(target_topic_id, payload)
 
@@ -94,7 +94,7 @@ class PerceptionFamiliar:
     ) -> str:
         """确保目标短期话题存在，并返回真实 topic_id。"""
         # 检查是否需要先驱逐 LRU 话题，独立发出 task
-        await self._maybe_evict_lru()
+        await self._maybe_evict_lru(target_topic_id)
 
         return await self.perception_layer.prepare_topic(
             target_topic_id,
@@ -103,8 +103,11 @@ class PerceptionFamiliar:
             identity,
         )
 
-    async def _maybe_evict_lru(self) -> None:
-        """池满时驱逐 LRU 话题并提交结算任务。"""
+    async def _maybe_evict_lru(self, target_topic_id: str) -> None:
+        """需要创建新话题且池满时，驱逐 LRU 话题并提交结算任务。"""
+        # 命中已有话题时无需驱逐
+        if target_topic_id != "NEW_TOPIC" and self._short_term.topic_exists(target_topic_id):
+            return
         if not self._short_term.needs_eviction():
             return
             

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.models import Identity
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 
 if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -22,7 +23,7 @@ class TopicManagementService:
             identity=identity,
         )
 
-    async def settle_topic(self, *, topic_id: str | None = None) -> dict:
+    async def settle_topic(self, *, topic_id: str | None = None) -> MemoryGenerationTask | None:
         return await self._bus.request(PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE, topic_id)
 
     async def evict_topic(self, *, topic_id: str) -> dict:

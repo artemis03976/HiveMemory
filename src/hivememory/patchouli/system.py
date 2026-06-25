@@ -114,7 +114,7 @@ class PatchouliSystem(SubsystemProtocol):
             bus=self.runtime.local_bus,
         )
         self._model_readiness_service = ModelReadinessService(
-            self.runtime.local_bus,
+            bus=self.runtime.local_bus,
         )
         self._bridge = PatchouliBridge(
             local_bus=self.runtime.local_bus,
@@ -181,7 +181,8 @@ class PatchouliSystem(SubsystemProtocol):
 
     def register_maintenance_tasks(self, scheduler) -> bool:
         """向全局维护器注册 Patchouli 子系统的维护任务。"""
-        if not self.config.scheduler.enabled:            return False
+        if not self.config.scheduler.enabled:            
+            return False
         tasks_config = self.config.scheduler.tasks
         scheduler.register(
             MaintenanceTaskSpec(
