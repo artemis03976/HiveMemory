@@ -19,9 +19,7 @@ def mock_patchouli():
     p.runtime.warmup_models = AsyncMock()
     p.health = AsyncMock(return_value={"status": "ok", "models_ready": True})
     p.runtime.storage = MagicMock()
-    p.runtime.librarian_core = MagicMock()
     p.service = MagicMock()
-    p.service.manual_archive_topic = AsyncMock(return_value={"archived": 1})
     return p
 
 

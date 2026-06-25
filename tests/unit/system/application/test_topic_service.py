@@ -172,17 +172,11 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
 
 class TestTopicApplicationService:
     @pytest.fixture
-    def librarian_core(self):
-        librarian = MagicMock()
-        librarian.perception_layer.swap_out_topic.return_value = True
-        return librarian
-
-    @pytest.fixture
     def bus(self):
         return GlobalSystemBus()
 
     @pytest.fixture
-    def service(self, bus, passive_config, librarian_core):
+    def service(self, bus, passive_config):
         return TopicApplicationService(
             global_bus=bus,
             config=passive_config,
@@ -199,13 +193,14 @@ class TestTopicApplicationService:
         assert identity.user_id == "u1"
 
     @pytest.mark.asyncio
-    async def test_archive_topic_uses_public_route(self, service, bus):
-        handler = AsyncMock(return_value={"success": True, "topic_id": "t1"})
-        bus.register(GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC, handler)
+    async def test_settle_topic_uses_public_route(self, service, bus):
+        task = MagicMock(task_id="memtask_1", topic_id="t1")
+        handler = AsyncMock(return_value=task)
+        bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
 
-        result = await service.archive_topic(topic_id="t1")
+        result = await service.settle_topic(topic_id="t1")
 
-        assert result == {"success": True, "topic_id": "t1"}
+        assert result == {"success": True, "task_id": "memtask_1", "topic_id": "t1"}
         handler.assert_awaited_once_with(topic_id="t1")
 
     @pytest.mark.asyncio

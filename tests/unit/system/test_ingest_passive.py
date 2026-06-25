@@ -377,9 +377,8 @@ def sys_passive():
     eye.gaze = AsyncMock(return_value=_make_gaze_result())
 
     runtime = MagicMock()
-    runtime.librarian_core = MagicMock()
-    runtime.librarian_core.perception_layer = MagicMock()
-    runtime.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
+    runtime.perception_familiar = MagicMock()
+    runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
         return_value={
             "success": True,
             "trigger_reason": "shutdown",
@@ -565,10 +564,10 @@ class TestSystemSchedulerIntegration:
         sys_passive.unregister_maintenance_tasks = types.MethodType(
             Real.unregister_maintenance_tasks, sys_passive
         )
-        sys_passive.runtime.librarian_core = MagicMock()
-        sys_passive.runtime.librarian_core.perception_layer = MagicMock()
-        sys_passive.runtime.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock()
-        sys_passive.runtime.librarian_core.run_gardening_once = AsyncMock()
+        sys_passive.runtime.perception_familiar = MagicMock()
+        sys_passive.runtime.perception_familiar.scan_idle_buffers_once = AsyncMock()
+        sys_passive.runtime.lifecycle_familiar = MagicMock()
+        sys_passive.runtime.lifecycle_familiar.run_gardening_once = AsyncMock()
 
         assert sys_passive.register_maintenance_tasks(scheduler) is True
         task_specs = {spec.name: spec for spec in scheduler.list_tasks()}
@@ -594,12 +593,12 @@ class TestSystemSchedulerIntegration:
         sys_passive.config = MagicMock()
         sys_passive.config.scheduler = MagicMock(enabled=True, tasks=tasks)
         scheduler = GlobalMaintenanceScheduler(tick_seconds=0.01, shutdown_wait_seconds=0.2)
-        sys_passive.runtime.librarian_core = MagicMock()
-        sys_passive.runtime.librarian_core.perception_layer = MagicMock()
-        sys_passive.runtime.librarian_core.perception_layer.scan_idle_buffers_once = AsyncMock(
+        sys_passive.runtime.perception_familiar = MagicMock()
+        sys_passive.runtime.perception_familiar.scan_idle_buffers_once = AsyncMock(
             return_value=["topic_001"]
         )
-        sys_passive.runtime.librarian_core.run_gardening_once = AsyncMock()
+        sys_passive.runtime.lifecycle_familiar = MagicMock()
+        sys_passive.runtime.lifecycle_familiar.run_gardening_once = AsyncMock()
 
         sys_passive.register_maintenance_tasks = types.MethodType(
             Real.register_maintenance_tasks, sys_passive
@@ -614,7 +613,7 @@ class TestSystemSchedulerIntegration:
         await scheduler.stop()
         sys_passive.unregister_maintenance_tasks(scheduler)
 
-        sys_passive.runtime.librarian_core.perception_layer.scan_idle_buffers_once.assert_awaited()
+        sys_passive.runtime.perception_familiar.scan_idle_buffers_once.assert_awaited()
         sys_passive.submit_interaction.assert_not_awaited()
 
 
@@ -622,36 +621,38 @@ class TestShutdownDrain:
     """shutdown_drain() 编排测试"""
 
     def test_shutdown_drain_flushes_perception_only(self, sys_passive):
-        sys_passive.runtime.librarian_core = MagicMock()
-        sys_passive.runtime.librarian_core.perception_layer = MagicMock()
-        sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
-            return_value={
-                "success": True,
-                "trigger_reason": "shutdown",
-                "flushed_topics": ["t1"],
-                "skipped_topics": [],
-                "archived_blocks": 1,
-            }
+        from hivememory.patchouli.services.perception import ShutdownFlushResult
+
+        sys_passive.runtime.perception_familiar = MagicMock()
+        sys_passive.runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
+            return_value=ShutdownFlushResult(
+                success=True,
+                trigger_reason="shutdown",
+                flushed_topics=["t1"],
+                skipped_topics=[],
+                archived_blocks=1,
+            )
         )
 
         result = asyncio.run(sys_passive.runtime.shutdown_drain())
 
         sys_passive.submit_interaction.assert_not_called()
-        sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
+        sys_passive.runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
         assert result["observer_payloads_submitted"] == 0
-        assert result["perception"]["trigger_reason"] == "shutdown"
+        assert result["perception"].trigger_reason == "shutdown"
 
     def test_shutdown_drain_is_reentrant(self, sys_passive):
-        sys_passive.runtime.librarian_core = MagicMock()
-        sys_passive.runtime.librarian_core.perception_layer = MagicMock()
-        sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown = AsyncMock(
-            return_value={
-                "success": True,
-                "trigger_reason": "shutdown",
-                "flushed_topics": [],
-                "skipped_topics": [],
-                "archived_blocks": 0,
-            }
+        from hivememory.patchouli.services.perception import ShutdownFlushResult
+
+        sys_passive.runtime.perception_familiar = MagicMock()
+        sys_passive.runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
+            return_value=ShutdownFlushResult(
+                success=True,
+                trigger_reason="shutdown",
+                flushed_topics=[],
+                skipped_topics=[],
+                archived_blocks=0,
+            )
         )
 
         first = asyncio.run(sys_passive.runtime.shutdown_drain())
@@ -659,7 +660,7 @@ class TestShutdownDrain:
 
         assert first["reentrant"] is False
         assert second["reentrant"] is True
-        sys_passive.runtime.librarian_core.perception_layer.flush_all_for_shutdown.assert_awaited_once()
+        sys_passive.runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
 
 
 class TestIngestFullRoundTrip:
