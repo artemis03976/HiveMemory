@@ -303,8 +303,10 @@ class TestEngineWithGenerationContext:
     def _make_engine(self, extractor_returns=None, deduplicator_returns=None):
         from hivememory.engines.generation.engine import MemoryGenerationEngine
         storage = MagicMock()
+        storage.search = AsyncMock(return_value=[])
+        storage.upsert = AsyncMock()
         extractor = MagicMock()
-        deduplicator = AsyncMock()
+        deduplicator = MagicMock()
 
         if extractor_returns is not None:
             extractor.extract.return_value = extractor_returns
@@ -319,7 +321,7 @@ class TestEngineWithGenerationContext:
             deduplicator.check_duplicate.return_value = (MagicMock(), MagicMock())
 
         engine = MemoryGenerationEngine(
-            storage=storage,
+            mid_term=storage,
             extractor=extractor,
             deduplicator=deduplicator,
         )

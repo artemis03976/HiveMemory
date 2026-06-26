@@ -14,7 +14,7 @@ from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.server.routers.topics import router
 
 
-def _create_test_app(librarian_core, *, manual_archive_topic=None, evict_topic=None):
+def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=None):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
 
@@ -22,8 +22,8 @@ def _create_test_app(librarian_core, *, manual_archive_topic=None, evict_topic=N
     bus = GlobalSystemBus()
     management = _TopicManagementStub(librarian_core)
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, management.list_active_topics)
-    if manual_archive_topic is not None:
-        bus.register(GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC, manual_archive_topic)
+    if manual_settle_topic is not None:
+        bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, manual_settle_topic)
     if evict_topic is not None:
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, evict_topic)
     service = TopicApplicationService(
@@ -84,21 +84,21 @@ class TestTopicsRouter:
 
     def test_archive_topic(self):
         librarian_core = MagicMock()
-        manual_archive_topic = AsyncMock(return_value={
-            "success": True,
-            "topic_id": "t1",
-            "message": "Topic settled",
-            "blocks_archived": 5,
-        })
 
-        app = _create_test_app(librarian_core, manual_archive_topic=manual_archive_topic)
+        async def manual_settle_topic(topic_id=None):
+            task_result = MagicMock()
+            task_result.task_id = "task-1"
+            task_result.topic_id = topic_id
+            return task_result
+
+        app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_topic)
         client = TestClient(app)
 
-        response = client.post("/api/v1/topics/t1/archive")
+        response = client.post("/api/v1/topics/t1/settle")
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["blocks_archived"] == 5
+        assert data["topic_id"] == "t1"
 
     def test_delete_topic(self):
         librarian_core = MagicMock()

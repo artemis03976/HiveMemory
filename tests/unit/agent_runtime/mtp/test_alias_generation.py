@@ -141,7 +141,7 @@ class TestDraftToMemoryAlias:
     def engine(self):
         """提供 MemoryGenerationEngine 实例 (mock 依赖)"""
         return MemoryGenerationEngine(
-            storage=MagicMock(),
+            mid_term=MagicMock(),
             extractor=MagicMock(),
             deduplicator=MagicMock(),
         )

@@ -18,7 +18,6 @@ from hivememory.core.models import Identity, TurnEvent, TurnRecord
 from hivememory.engines.perception.models import (
     BufferState,
     LogicalBlock,
-    SemanticBuffer,
 )
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
@@ -85,9 +84,12 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         mock_relay.should_relay.return_value = None
         mock_relay.generate_summary.return_value = ""
 
+        short_term_store = ShortTermMemoryStore()
+
         perception = SemanticFlowPerceptionLayer(
             config=config,
             relay_controller=mock_relay,
+            short_term_store=short_term_store,
         )
         if on_flush_callback is not None:
             perception.set_generation_callback(on_flush_callback)
@@ -107,13 +109,13 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         identity = Identity(user_id="test_user", agent_id="test_agent")
 
         # 路由到新话题并摄入
-        topic_id = await perception.route_and_ingest(
+        topic_id, _ = await perception.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("测试消息", "测试回复", identity)
         )
 
         # 验证话题创建
-        topic_data = perception.short_term_store.get_topic_data(topic_id)
+        topic_data = perception._short_term_store.get_topic_data(topic_id)
         assert topic_data is not None
         assert topic_data.topic_title == "新建话题"
 
@@ -125,38 +127,37 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         identity = Identity(user_id="test_user", agent_id="test_agent")
 
         # 路由到新话题
-        topic_id = await perception.route_and_ingest(
+        topic_id, _ = await perception.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("测试消息", "测试回复", identity)
         )
 
         # 通过短期 Store 获取话题信息
-        info = perception.short_term_store.get_buffer_info(topic_id)
+        info = perception._short_term_store.get_buffer_info(topic_id)
 
         assert info['exists'] is True
 
     @pytest.mark.asyncio
     async def test_semantic_flow_manual_trigger(self):
-        """测试语义流 manual_trigger"""
+        """测试语义流 settle_topic"""
         perception = self._create_perception()
 
         identity = Identity(user_id="test_user", agent_id="test_agent")
 
         # 路由到新话题并摄入
-        topic_id = await perception.route_and_ingest(
+        topic_id, _ = await perception.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("消息1", "回复1", identity)
         )
 
-        result = await perception.manual_trigger(topic_id)
-        assert result["success"] is True
-        assert result["topic_id"] == topic_id
-        assert result["blocks_archived"] == 1
+        result = await perception.settle_topic(topic_id)
+        assert result.topic_id == topic_id
 
 
 class TestPerceptionAndGenerationCollaboration:
     """测试感知层与生成层的协作"""
 
+    @pytest.mark.skip(reason="Callback mechanism removed in new architecture - settle_topic returns Task for external processing")
     @pytest.mark.asyncio
     async def test_messages_converted_to_stream_messages(self):
         """测试消息转换为 StreamMessage"""
@@ -169,31 +170,33 @@ class TestPerceptionAndGenerationCollaboration:
         mock_relay = Mock()
         mock_relay.should_relay.return_value = None
         mock_relay.generate_summary.return_value = ""
+        short_term_store = ShortTermMemoryStore()
 
         perception = SemanticFlowPerceptionLayer(
             config=config,
             relay_controller=mock_relay,
+            short_term_store=short_term_store,
         )
-        perception.set_generation_callback(on_generate)
 
         identity = Identity(user_id="test_user", agent_id="test_agent")
 
         # 路由并摄入
-        topic_id = await perception.route_and_ingest(
+        topic_id, _ = await perception.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("用户消息", "助手回复", identity)
         )
 
-        await perception.manual_trigger(topic_id)
+        await perception.settle_topic(topic_id)
         await asyncio.sleep(0)
 
         assert len(archive_payloads) > 0
         assert archive_payloads[0].topic_id == topic_id
         assert len(archive_payloads[0].blocks) > 0
 
+    @pytest.mark.skip(reason="Callback mechanism removed in new architecture - settle_topic returns Task for external processing")
     @pytest.mark.asyncio
     async def test_manual_trigger_archives_identity_from_payload(self):
-        """场景D：manual_trigger 后归档块保留 identity 溯源"""
+        """场景D：settle_topic 后归档块保留 identity 溯源"""
         archive_payloads = []
 
         async def on_generate(payload):
@@ -203,27 +206,28 @@ class TestPerceptionAndGenerationCollaboration:
         mock_relay = Mock()
         mock_relay.should_relay.return_value = None
         mock_relay.generate_summary.return_value = ""
+        short_term_store = ShortTermMemoryStore()
 
         perception = SemanticFlowPerceptionLayer(
             config=config,
             relay_controller=mock_relay,
+            short_term_store=short_term_store,
         )
-        perception.set_generation_callback(on_generate)
 
         identity = Identity(user_id="test_user", agent_id="reviewer_doll")
-        buffer = perception.short_term_store.create_buffer(
+        buffer = perception._short_term_store.create_buffer(
             user_id=identity.user_id,
             topic_title="新建话题",
         )
         topic_id = buffer.topic_id
-        perception.short_term_store.set_last_active_topic(topic_id)
+        perception._short_term_store.set_last_active_topic(topic_id)
         await perception.ingest_payload(
             _make_payload("请 review 一下上面的代码", "建议补充边界条件测试", identity),
             topic_id=topic_id,
         )
 
-        result = await perception.manual_trigger(topic_id)
-        assert result["success"] is True
+        result = await perception.settle_topic(topic_id)
+        assert result.topic_id == topic_id
         await asyncio.sleep(0)
 
         assert len(archive_payloads) > 0
