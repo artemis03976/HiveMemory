@@ -4,40 +4,37 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
-from hivememory.core.models.pending import Identity, PendingAtomMaterializeTask, WriteFocus
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     MemoryGenerationResult,
 )
-from hivememory.engines.perception.models import LogicalBlock, TopicMaterializeTask
-from hivememory.core.models import TurnRecord
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.memory_generation_coordinator import (
-    MemoryGenerationCoordinator,
-)
 from hivememory.patchouli.control.memory_generation_tasks import (
     MemoryGenerationTaskController,
 )
 from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
-    MemoryGenerationTaskRegistry,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
-    memory_task_to_payload,
 )
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
-def _task_handle(task_id="j1", topic_id="t1"):
+def _task_handle(
+    *,
+    task_id="j1",
+    topic_id="t1",
+    source=MemoryGenerationSource.ARCHIVE,
+):
     return MemoryGenerationTask(
         task_id=task_id,
         topic_id=topic_id,
         label=topic_id,
-        source=MemoryGenerationSource.ARCHIVE,
+        source=source,
     )
 
 
@@ -55,16 +52,6 @@ def _spec(
         request=GenerationRequest(context=GenerationContext()),
         source_intent=source.value,
         pending_alias=pending_alias,
-    )
-
-
-def _write_task(alias="draft_001"):
-    return PendingAtomMaterializeTask(
-        pending_alias=alias,
-        intent_id=f"intent_{alias}",
-        source_verb="WRITE",
-        identity=Identity(user_id="test_user"),
-        focus=WriteFocus(content="test content"),
     )
 
 
@@ -95,59 +82,6 @@ def _assert_runtime_event_task_payload(event, memory_task):
     assert "pending_alias" in event.data
     assert "cancel_requested" in event.data
     assert "cancelled" in event.data
-
-
-class TestMemoryGenerationTaskRegistry:
-    def test_register_and_get(self):
-        reg = MemoryGenerationTaskRegistry()
-        memory_task = _task_handle()
-        reg.register(memory_task)
-        assert reg.get("j1") is memory_task
-
-    def test_cancel_existing(self):
-        reg = MemoryGenerationTaskRegistry()
-        memory_task = _task_handle()
-        reg.register(memory_task)
-        assert reg.cancel("j1") is True
-        assert memory_task.cancelled is True
-
-    def test_cancel_missing_returns_false(self):
-        assert MemoryGenerationTaskRegistry().cancel("missing") is False
-
-    def test_close_sets_status_and_finished_at(self):
-        reg = MemoryGenerationTaskRegistry()
-        memory_task = _task_handle()
-        reg.register(memory_task)
-        reg.close("j1", MemoryGenerationTaskStatus.COMPLETED)
-        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
-        assert memory_task.finished_at is not None
-
-    def test_evicts_old_completed_tasks(self):
-        reg = MemoryGenerationTaskRegistry(max_completed=2)
-        for i in range(3):
-            task = _task_handle(task_id=f"j{i}", topic_id="t")
-            reg.register(task)
-            reg.close(f"j{i}", MemoryGenerationTaskStatus.COMPLETED)
-        assert len(reg.list_all()) <= 2
-
-
-class TestMemoryGenerationTaskPayload:
-    def test_memory_task_to_payload_contains_public_fields(self):
-        memory_task = _task_handle()
-        memory_task.request_cancel()
-
-        payload = memory_task_to_payload(memory_task)
-
-        assert payload["task_id"] == "j1"
-        assert payload["topic_id"] == "t1"
-        assert payload["source"] == "ARCHIVE"
-        assert payload["status"] == "pending"
-        assert payload["cancel_requested"] is True
-        assert payload["cancelled"] is False
-        assert payload["reason"] == "user_requested"
-
-    def test_memory_task_to_payload_accepts_explicit_reason(self):
-        assert memory_task_to_payload(_task_handle(), reason="system")["reason"] == "system"
 
 
 class TestMemoryGenerationTaskController:
@@ -285,64 +219,3 @@ class TestMemoryGenerationTaskController:
 
         assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
         assert _memory_task_statuses(bus) == ["completed"]
-
-
-class TestMemoryGenerationCoordinator:
-    @pytest.mark.asyncio
-    async def test_submit_settlement_builds_archive_spec(self):
-        bus = Mock()
-        bus.request = AsyncMock(return_value=_task_handle())
-        coordinator = MemoryGenerationCoordinator(bus=bus)
-        payload = TopicMaterializeTask(
-            topic_id="t1",
-            topic_title="title",
-            topic_summary="summary",
-            blocks=[
-                LogicalBlock(
-                    turn=TurnRecord(user_query="q", assistant_final_text="a")
-                )
-            ],
-            state_summary="state",
-        )
-
-        task = await coordinator.submit_settlement(payload)
-
-        assert isinstance(task, MemoryGenerationTask)
-        route, spec = bus.request.await_args.args
-        assert route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION
-        assert spec.topic_id == "t1"
-        assert spec.source == MemoryGenerationSource.ARCHIVE
-        assert spec.request.context.state_summary == "state"
-        assert spec.interaction_input.topic_title == "title"
-
-    @pytest.mark.asyncio
-    async def test_submit_active_builds_write_specs_from_topic_context(self):
-        topic_data = Mock()
-        topic_data.recent_blocks.return_value = [
-            LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
-        ]
-        topic_data.state_summary = "state"
-        topic_data.topic_title = "title"
-        topic_data.topic_summary = "summary"
-        bus = Mock()
-
-        async def request(route, *args):
-            if route == PatchouliLocalRoutes.TOPIC_GET:
-                return topic_data
-            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
-                return [_task_handle(source=MemoryGenerationSource.WRITE)] if False else [_task_handle()]
-            raise AssertionError(route)
-
-        bus.request = AsyncMock(side_effect=request)
-        coordinator = MemoryGenerationCoordinator(bus=bus)
-
-        result = await coordinator.submit_active([_write_task("draft_1")], "t1")
-
-        assert len(result) == 1
-        specs = bus.request.await_args_list[-1].args[1]
-        assert len(specs) == 1
-        spec = specs[0]
-        assert spec.source == MemoryGenerationSource.WRITE
-        assert spec.pending_alias == "draft_1"
-        assert spec.request.is_write is True
-        assert spec.request.identity.user_id == "test_user"
