@@ -46,7 +46,8 @@ class PatchouliService:
         mode: str = "active",
     ) -> AnalyzeAndRetrieveResult:
         """执行 Patchouli 的标准分析与预检索入口。"""
-        gaze_result = await self.gaze(
+        gaze_result = await self._require_local_bus().request(
+            PatchouliLocalRoutes.GATEWAY_GAZE,
             query=query,
             topic_snapshots=topic_snapshots,
             identity=identity,
