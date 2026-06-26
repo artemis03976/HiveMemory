@@ -13,6 +13,7 @@ import threading
 from typing import Dict, List, Optional, Set
 
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
+from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
 
 
@@ -56,6 +57,13 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
     async def list_all(self) -> List[SemanticBuffer]:
         with self._lock:
             return list(self._buffers.values())
+
+    async def check_health(self) -> StorageHealthComponent:
+        return StorageHealthComponent(
+            name="short_term",
+            healthy=True,
+            detail="in-memory",
+        )
 
     # ── sync shortcuts（供 ShortTermMemoryStore 内部直接访问，避免 async 强转） ──
 

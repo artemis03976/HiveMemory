@@ -20,6 +20,7 @@ from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.lifecycle.models import ArchiveRecord
+from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import LongTermStoragePort
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,20 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             records = [r for r in records if r.original_vitality <= vitality_threshold]
         records.sort(key=lambda r: r.archived_at, reverse=True)
         return records[:limit]
+
+    async def check_health(self) -> StorageHealthComponent:
+        try:
+            self._archive_dir.mkdir(parents=True, exist_ok=True)
+            probe = self._archive_dir / ".healthcheck"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return StorageHealthComponent(name="long_term", healthy=True)
+        except Exception as exc:
+            return StorageHealthComponent(
+                name="long_term",
+                healthy=False,
+                detail=str(exc),
+            )
 
     # ── 内部辅助 ──
 

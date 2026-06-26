@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
+from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 
 from typing import TYPE_CHECKING
@@ -68,6 +69,17 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def count(self, filters: Optional[Dict[str, Any]] = None) -> int:
         return await self._store.count_memories(filters)
+
+    async def check_health(self) -> StorageHealthComponent:
+        try:
+            await self._store.client.get_collections()
+            return StorageHealthComponent(name="mid_term", healthy=True)
+        except Exception as exc:
+            return StorageHealthComponent(
+                name="mid_term",
+                healthy=False,
+                detail=str(exc),
+            )
 
 
 __all__ = ["QdrantStorageAdapter"]

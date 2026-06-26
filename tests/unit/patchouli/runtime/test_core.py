@@ -3,6 +3,10 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.memory_library.models import (
+    StorageHealthComponent,
+    StorageHealthReport,
+)
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.services.perception import ShutdownFlushResult
@@ -115,20 +119,39 @@ class TestRuntimeLocalRoutes:
 
 class TestRuntimeStorageHealth:
     @pytest.mark.asyncio
-    async def test_check_storage_health_awaits_qdrant_client(self):
+    async def test_check_storage_health_uses_memory_library_report(self):
         runtime = _create_runtime()
-        runtime.storage.client.get_collections = AsyncMock(return_value=Mock())
+        runtime.memory_library.check_storage_health = AsyncMock(
+            return_value=StorageHealthReport(
+                components=(
+                    StorageHealthComponent("short_term", True),
+                    StorageHealthComponent("mid_term", True),
+                    StorageHealthComponent("long_term", True),
+                )
+            )
+        )
 
         assert await runtime.check_storage_health() is True
-        runtime.storage.client.get_collections.assert_awaited_once()
+        runtime.memory_library.check_storage_health.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_check_storage_health_returns_false_on_failure(self):
+    async def test_check_storage_health_returns_false_on_required_failure(self):
         runtime = _create_runtime()
-        runtime.storage.client.get_collections = AsyncMock(side_effect=OSError("down"))
+        runtime.memory_library.check_storage_health = AsyncMock(
+            return_value=StorageHealthReport(
+                components=(
+                    StorageHealthComponent("short_term", True),
+                    StorageHealthComponent(
+                        "mid_term",
+                        False,
+                        detail="qdrant down",
+                    ),
+                )
+            )
+        )
 
         assert await runtime.check_storage_health() is False
-        runtime.storage.client.get_collections.assert_awaited_once()
+        runtime.memory_library.check_storage_health.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_ensure_storage_ready_delegates_to_store(self):

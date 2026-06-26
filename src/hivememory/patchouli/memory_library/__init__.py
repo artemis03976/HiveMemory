@@ -4,7 +4,12 @@ from hivememory.patchouli.memory_library.ports import (
     LongTermStoragePort,
     ArtifactStoragePort,
 )
-from hivememory.patchouli.memory_library.models import TopicData, ArtifactIntegrityResult
+from hivememory.patchouli.memory_library.models import (
+    ArtifactIntegrityResult,
+    StorageHealthComponent,
+    StorageHealthReport,
+    TopicData,
+)
 from hivememory.patchouli.memory_library.stores import (
     ShortTermMemoryStore,
     MidTermMemoryStore,
@@ -25,6 +30,8 @@ __all__ = [
     "LongTermStoragePort",
     "ArtifactStoragePort",
     "ArtifactIntegrityResult",
+    "StorageHealthComponent",
+    "StorageHealthReport",
     "TopicData",
     "ShortTermMemoryStore",
     "MidTermMemoryStore",

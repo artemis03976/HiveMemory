@@ -31,6 +31,7 @@ from hivememory.patchouli.memory_library import (
     ArtifactStore,
 )
 from hivememory.patchouli.memory_library.models import TopicData
+from hivememory.patchouli.memory_library.models import StorageHealthComponent
 
 
 def _make_memory(title="test_memory", memory_id=None) -> MemoryAtom:
@@ -407,6 +408,120 @@ class TestMemoryLibraryArchiveRevive:
         self.mock_long_term.load.assert_awaited_once_with(memory.id)
         self.mock_mid_term.upsert.assert_awaited_once_with(memory)
         self.mock_long_term.remove.assert_awaited_once_with(memory.id)
+
+
+class TestMemoryLibraryStorageHealth:
+    """MemoryLibrary storage health aggregation tests."""
+
+    def setup_method(self):
+        self.short_term = Mock(spec=ShortTermMemoryStore)
+        self.mid_term = Mock(spec=MidTermMemoryStore)
+        self.long_term = Mock(spec=LongTermMemoryStore)
+        self.artifact_store = Mock(spec=ArtifactStore)
+        self.library = MemoryLibrary(
+            short_term=self.short_term,
+            mid_term=self.mid_term,
+            long_term=self.long_term,
+            artifact_store=self.artifact_store,
+        )
+
+    @pytest.mark.asyncio
+    async def test_check_storage_health_reports_all_stores(self):
+        self.short_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("short_term", True)
+        )
+        self.mid_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("mid_term", True)
+        )
+        self.long_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("long_term", True)
+        )
+        self.artifact_store.check_health = AsyncMock(
+            return_value=StorageHealthComponent("artifact", True, required=False)
+        )
+
+        report = await self.library.check_storage_health()
+
+        assert report.healthy is True
+        assert [component.name for component in report.components] == [
+            "short_term",
+            "mid_term",
+            "long_term",
+            "artifact",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_check_storage_health_fails_when_required_store_fails(self):
+        self.short_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("short_term", True)
+        )
+        self.mid_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("mid_term", False, detail="qdrant down")
+        )
+        self.long_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("long_term", True)
+        )
+        self.artifact_store.check_health = AsyncMock(
+            return_value=StorageHealthComponent("artifact", True, required=False)
+        )
+
+        report = await self.library.check_storage_health()
+
+        assert report.healthy is False
+        assert report.components[1].detail == "qdrant down"
+
+    @pytest.mark.asyncio
+    async def test_check_storage_health_ignores_optional_artifact_failure(self):
+        self.short_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("short_term", True)
+        )
+        self.mid_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("mid_term", True)
+        )
+        self.long_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("long_term", True)
+        )
+        self.artifact_store.check_health = AsyncMock(
+            return_value=StorageHealthComponent(
+                "artifact",
+                False,
+                required=False,
+                detail="artifact store down",
+            )
+        )
+
+        report = await self.library.check_storage_health()
+
+        assert report.healthy is True
+        assert report.components[-1].healthy is False
+
+    @pytest.mark.asyncio
+    async def test_check_storage_health_marks_missing_artifact_store_disabled(self):
+        library = MemoryLibrary(
+            short_term=self.short_term,
+            mid_term=self.mid_term,
+            long_term=self.long_term,
+            artifact_store=None,
+        )
+        self.short_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("short_term", True)
+        )
+        self.mid_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("mid_term", True)
+        )
+        self.long_term.check_health = AsyncMock(
+            return_value=StorageHealthComponent("long_term", True)
+        )
+
+        report = await library.check_storage_health()
+
+        assert report.healthy is True
+        assert report.components[-1] == StorageHealthComponent(
+            name="artifact",
+            healthy=True,
+            required=False,
+            detail="disabled",
+        )
 
 
 class TestShortTermMemoryLibraryBoundary:

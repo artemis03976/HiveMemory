@@ -640,12 +640,21 @@ class PatchouliRuntime:
         Returns:
             bool: True 表示存储可用，False 表示离线
         """
-        try:
-            await self.storage.client.get_collections()
-            return True
-        except Exception as e:
-            logger.warning(f"Storage health check failed: {e}")
-            return False
+        report = await self.memory_library.check_storage_health()
+        if not report.healthy:
+            unhealthy = [
+                component
+                for component in report.components
+                if component.required and not component.healthy
+            ]
+            logger.warning(
+                "Storage health check failed: %s",
+                {
+                    component.name: component.detail
+                    for component in unhealthy
+                },
+            )
+        return report.healthy
 
     async def ensure_storage_ready(self) -> None:
         await self.storage.ensure_ready()

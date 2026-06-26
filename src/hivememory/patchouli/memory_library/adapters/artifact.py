@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
-from hivememory.patchouli.memory_library.models import ArtifactIntegrityResult
+from hivememory.patchouli.memory_library.models import (
+    ArtifactIntegrityResult,
+    StorageHealthComponent,
+)
 from hivememory.patchouli.memory_library.ports import ArtifactStoragePort
 
 logger = logging.getLogger(__name__)
@@ -115,6 +118,28 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
                 actual_hash=actual_hash,
             )
         return await asyncio.to_thread(_verify)
+
+    async def check_health(self) -> StorageHealthComponent:
+        def _check() -> StorageHealthComponent:
+            try:
+                self._root.mkdir(parents=True, exist_ok=True)
+                probe = self._root / ".healthcheck"
+                probe.write_text("ok", encoding="utf-8")
+                probe.unlink(missing_ok=True)
+                return StorageHealthComponent(
+                    name="artifact",
+                    healthy=True,
+                    required=False,
+                )
+            except Exception as exc:
+                return StorageHealthComponent(
+                    name="artifact",
+                    healthy=False,
+                    required=False,
+                    detail=str(exc),
+                )
+
+        return await asyncio.to_thread(_check)
 
 
 __all__ = ["FilesystemArtifactStorageAdapter"]

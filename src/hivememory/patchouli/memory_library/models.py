@@ -81,4 +81,30 @@ class ArtifactIntegrityResult:
     actual_hash: Optional[str] = None
 
 
-__all__ = ["TopicData", "ArtifactIntegrityResult"]
+@dataclass(frozen=True)
+class StorageHealthComponent:
+    name: str
+    healthy: bool
+    required: bool = True
+    detail: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class StorageHealthReport:
+    components: tuple[StorageHealthComponent, ...]
+
+    @property
+    def healthy(self) -> bool:
+        return all(
+            component.healthy
+            for component in self.components
+            if component.required
+        )
+
+
+__all__ = [
+    "TopicData",
+    "ArtifactIntegrityResult",
+    "StorageHealthComponent",
+    "StorageHealthReport",
+]

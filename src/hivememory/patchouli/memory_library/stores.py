@@ -32,7 +32,10 @@ from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.engines.perception.models import LogicalBlock
 from hivememory.patchouli.memory_library.buffer import BufferState, SemanticBuffer
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
-from hivememory.patchouli.memory_library.models import TopicData
+from hivememory.patchouli.memory_library.models import (
+    StorageHealthComponent,
+    TopicData,
+)
 from hivememory.patchouli.memory_library.ports import (
     LongTermStoragePort,
     MidTermStoragePort,
@@ -241,6 +244,9 @@ class ShortTermMemoryStore:
             total_tokens=buf.total_tokens,
         )
 
+    async def check_health(self) -> StorageHealthComponent:
+        return await self._port.check_health()
+
 
 # ============ MidTermMemoryStore ============
 
@@ -302,6 +308,23 @@ class MidTermMemoryStore:
     async def count(self, filters=None) -> int:
         return await self._primary.count(filters)
 
+    async def check_health(self) -> StorageHealthComponent:
+        primary_health = await self._primary.check_health()
+        if not primary_health.healthy:
+            return primary_health
+
+        for index, secondary in enumerate(self._secondary):
+            secondary_health = await secondary.check_health()
+            if not secondary_health.healthy and secondary_health.required:
+                return StorageHealthComponent(
+                    name=f"mid_term.secondary.{index}",
+                    healthy=False,
+                    required=True,
+                    detail=secondary_health.detail,
+                )
+
+        return primary_health
+
 
 # ============ LongTermMemoryStore ============
 
@@ -335,6 +358,9 @@ class LongTermMemoryStore:
     ) -> List[ArchiveRecord]:
         return await self._port.query(limit=limit, vitality_threshold=vitality_threshold)
 
+    async def check_health(self) -> StorageHealthComponent:
+        return await self._port.check_health()
+
 
 # ============ ArtifactStore ============
 
@@ -358,6 +384,9 @@ class ArtifactStore:
 
     async def verify(self, ref) -> "ArtifactIntegrityResult":
         return await self._port.verify(ref)
+
+    async def check_health(self) -> StorageHealthComponent:
+        return await self._port.check_health()
 
 
 __all__ = [

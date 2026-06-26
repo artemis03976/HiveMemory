@@ -18,6 +18,10 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from hivememory.patchouli.memory_library.models import (
+    StorageHealthComponent,
+    StorageHealthReport,
+)
 from hivememory.patchouli.memory_library.stores import (
     LongTermMemoryStore,
     MidTermMemoryStore,
@@ -78,6 +82,27 @@ class MemoryLibrary:
         await self.mid_term.upsert(memory)
         await self.long_term.remove(memory_id)
         logger.info(f"记忆已从冷存储复活至向量库: {memory_id}")
+
+
+    async def check_storage_health(self) -> StorageHealthReport:
+        """Return a health report for the complete memory storage system."""
+        components = [
+            await self.short_term.check_health(),
+            await self.mid_term.check_health(),
+            await self.long_term.check_health(),
+        ]
+        if self.artifact_store is None:
+            components.append(
+                StorageHealthComponent(
+                    name="artifact",
+                    healthy=True,
+                    required=False,
+                    detail="disabled",
+                )
+            )
+        else:
+            components.append(await self.artifact_store.check_health())
+        return StorageHealthReport(components=tuple(components))
 
 
 __all__ = ["MemoryLibrary"]

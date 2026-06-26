@@ -16,6 +16,7 @@ from uuid import UUID
 from hivememory.core.models import MemoryAtom
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
+from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.engines.lifecycle.models import ArchiveRecord
 
 
@@ -44,6 +45,9 @@ class ShortTermStoragePort(ABC):
 
     @abstractmethod
     async def list_all(self) -> List[SemanticBuffer]: ...
+
+    async def check_health(self) -> StorageHealthComponent:
+        return StorageHealthComponent(name="short_term", healthy=True)
 
 
 # ============ MidTermStoragePort ============
@@ -95,6 +99,9 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def count(self, filters: Optional[Dict[str, Any]] = None) -> int: ...
 
+    async def check_health(self) -> StorageHealthComponent:
+        return StorageHealthComponent(name="mid_term", healthy=True)
+
 
 # ============ LongTermStoragePort ============
 
@@ -128,6 +135,9 @@ class LongTermStoragePort(ABC):
         vitality_threshold: Optional[float] = None,
     ) -> List[ArchiveRecord]: ...
 
+    async def check_health(self) -> StorageHealthComponent:
+        return StorageHealthComponent(name="long_term", healthy=True)
+
 
 # ============ ArtifactStoragePort ============
 
@@ -158,6 +168,9 @@ class ArtifactStoragePort(ABC):
 
     @abstractmethod
     async def verify(self, ref: ArtifactRef) -> "ArtifactIntegrityResult": ...
+
+    async def check_health(self) -> StorageHealthComponent:
+        return StorageHealthComponent(name="artifact", healthy=True, required=False)
 
 
 __all__ = [
