@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
@@ -10,6 +11,18 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+
+
+@dataclass(frozen=True)
+class PatchouliPublicApi:
+    """Public Patchouli API surface mounted by PatchouliBridge."""
+
+    chat: PatchouliService
+    memory: Any
+    memory_tasks: Any
+    agent_profiles: Any
+    topics: Any
+    readiness: Any
 
 
 class PatchouliBridge:
@@ -47,23 +60,13 @@ class PatchouliBridge:
         self,
         *,
         local_bus: PatchouliBus | None = None,
-        service: PatchouliService,
-        memory_management_service: Any,
-        memory_task_management_service: Any,
-        agent_profile_management_service: Any,
-        topic_management_service: Any,
-        model_readiness_service: Any,
+        public_api: PatchouliPublicApi,
         global_bus: GlobalSystemBus | None = None,
     ) -> None:
         if local_bus is None:
             raise ValueError("PatchouliBridge requires a PatchouliBus")
         self._local_bus = local_bus
-        self._service = service
-        self._memory_management_service = memory_management_service
-        self._memory_task_management_service = memory_task_management_service
-        self._agent_profile_management_service = agent_profile_management_service
-        self._topic_management_service = topic_management_service
-        self._model_readiness_service = model_readiness_service
+        self._public_api = public_api
         self._global_bus = global_bus
         self._public_routes_registered = False
         self._local_events_registered = False
@@ -98,103 +101,103 @@ class PatchouliBridge:
         return [
             (
                 PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE,
-                self._service.analyze_and_retrieve,
+                self._public_api.chat.analyze_and_retrieve,
             ),
             (
                 PatchouliRoutes.SUBMIT_INTERACTION,
-                self._service.submit_interaction,
+                self._public_api.chat.submit_interaction,
             ),
             (
                 PatchouliRoutes.MEMORY_CREATE,
-                self._memory_management_service.create_memory,
+                self._public_api.memory.create_memory,
             ),
             (
                 PatchouliRoutes.MEMORY_LIST,
-                self._memory_management_service.list_memories,
+                self._public_api.memory.list_memories,
             ),
             (
                 PatchouliRoutes.MEMORY_GET,
-                self._memory_management_service.get_memory,
+                self._public_api.memory.get_memory,
             ),
             (
                 PatchouliRoutes.MEMORY_UPDATE,
-                self._memory_management_service.update_memory,
+                self._public_api.memory.update_memory,
             ),
             (
                 PatchouliRoutes.MEMORY_DELETE,
-                self._memory_management_service.delete_memory,
+                self._public_api.memory.delete_memory,
             ),
             (
                 PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
-                self._memory_management_service.record_feedback,
+                self._public_api.memory.record_feedback,
             ),
             (
                 PatchouliRoutes.MEMORY_TASK_LIST,
-                self._memory_task_management_service.list_memory_tasks,
+                self._public_api.memory_tasks.list_memory_tasks,
             ),
             (
                 PatchouliRoutes.MEMORY_TASK_GET,
-                self._memory_task_management_service.get_memory_task,
+                self._public_api.memory_tasks.get_memory_task,
             ),
             (
                 PatchouliRoutes.MEMORY_TASK_CANCEL,
-                self._memory_task_management_service.cancel_memory_task,
+                self._public_api.memory_tasks.cancel_memory_task,
             ),
             (
                 PatchouliRoutes.AGENT_PROFILE_CREATE,
-                self._agent_profile_management_service.create_agent_profile,
+                self._public_api.agent_profiles.create_agent_profile,
             ),
             (
                 PatchouliRoutes.AGENT_PROFILE_LIST,
-                self._agent_profile_management_service.list_agent_profiles,
+                self._public_api.agent_profiles.list_agent_profiles,
             ),
             (
                 PatchouliRoutes.TOPIC_LIST_ACTIVE,
-                self._topic_management_service.list_active_topics,
+                self._public_api.topics.list_active_topics,
             ),
             (
                 PatchouliRoutes.MEMORY_RETRIEVE,
-                self._memory_management_service.retrieve,
+                self._public_api.memory.retrieve,
             ),
             (
                 PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
-                self._memory_management_service.retrieve_by_aliases,
+                self._public_api.memory.retrieve_by_aliases,
             ),
             (
                 PatchouliRoutes.GET_AGENT_PROFILE,
-                self._agent_profile_management_service.get_agent_profile,
+                self._public_api.agent_profiles.get_agent_profile,
             ),
             (
                 PatchouliRoutes.PREPARE_AGENT_RUN,
-                self._service.prepare_agent_run,
+                self._public_api.chat.prepare_agent_run,
             ),
             (
                 PatchouliRoutes.FINALIZE_AGENT_RUN,
-                self._service.finalize_agent_run,
+                self._public_api.chat.finalize_agent_run,
             ),
             (
                 PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-                self._service.cleanup_prepared_agent_run,
+                self._public_api.chat.cleanup_prepared_agent_run,
             ),
             (
                 PatchouliRoutes.MANUAL_SETTLE_TOPIC,
-                self._topic_management_service.settle_topic,
+                self._public_api.topics.settle_topic,
             ),
             (
                 PatchouliRoutes.EVICT_TOPIC,
-                self._topic_management_service.evict_topic,
+                self._public_api.topics.evict_topic,
             ),
             (
                 PatchouliRoutes.RECORD_MEMORY_CITATION,
-                self._service.record_memory_citation,
+                self._public_api.chat.record_memory_citation,
             ),
             (
                 PatchouliRoutes.WARMUP_MODELS,
-                self._model_readiness_service.warmup_models,
+                self._public_api.readiness.warmup_models,
             ),
             (
                 PatchouliRoutes.MODELS_READY,
-                self._model_readiness_service.is_models_ready,
+                self._public_api.readiness.is_models_ready,
             ),
         ]
 
@@ -263,4 +266,4 @@ class PatchouliBridge:
         )
 
 
-__all__ = ["PatchouliBridge"]
+__all__ = ["PatchouliBridge", "PatchouliPublicApi"]

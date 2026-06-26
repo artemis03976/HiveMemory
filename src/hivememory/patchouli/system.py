@@ -30,7 +30,7 @@ import logging
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from hivememory.patchouli.runtime.bridge import PatchouliBridge
+from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
@@ -116,15 +116,18 @@ class PatchouliSystem(SubsystemProtocol):
         self._model_readiness_service = ModelReadinessService(
             bus=self.runtime.local_bus,
         )
+        self._public_api = PatchouliPublicApi(
+            chat=self._service,
+            memory=self._memory_management_service,
+            memory_tasks=self._memory_task_management_service,
+            agent_profiles=self._agent_profile_management_service,
+            topics=self._topic_management_service,
+            readiness=self._model_readiness_service,
+        )
         self._bridge = PatchouliBridge(
             local_bus=self.runtime.local_bus,
             global_bus=global_bus,
-            service=self._service,
-            memory_management_service=self._memory_management_service,
-            memory_task_management_service=self._memory_task_management_service,
-            agent_profile_management_service=self._agent_profile_management_service,
-            topic_management_service=self._topic_management_service,
-            model_readiness_service=self._model_readiness_service,
+            public_api=self._public_api,
         )
 
         self._scheduler = scheduler

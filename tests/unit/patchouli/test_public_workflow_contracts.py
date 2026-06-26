@@ -32,7 +32,7 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
-from hivememory.patchouli.runtime.bridge import PatchouliBridge
+from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.events import GlobalEvents
@@ -96,14 +96,17 @@ def _prepared_run(
 
 def _wire_public_bridge(local_bus: PatchouliBus, global_bus: GlobalSystemBus):
     service = PatchouliService(bus=local_bus, eye=MagicMock())
+    public_api = PatchouliPublicApi(
+        chat=service,
+        memory=MemoryManagementService(bus=local_bus),
+        memory_tasks=MemoryTaskManagementService(bus=local_bus),
+        agent_profiles=AgentProfileManagementService(bus=local_bus),
+        topics=TopicManagementService(bus=local_bus),
+        readiness=ModelReadinessService(local_bus),
+    )
     bridge = PatchouliBridge(
         local_bus=local_bus,
-        service=service,
-        memory_management_service=MemoryManagementService(bus=local_bus),
-        memory_task_management_service=MemoryTaskManagementService(bus=local_bus),
-        agent_profile_management_service=AgentProfileManagementService(bus=local_bus),
-        topic_management_service=TopicManagementService(bus=local_bus),
-        model_readiness_service=ModelReadinessService(local_bus),
+        public_api=public_api,
         global_bus=global_bus,
     )
     return service, bridge
