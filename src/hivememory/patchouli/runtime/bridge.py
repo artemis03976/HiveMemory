@@ -28,33 +28,6 @@ class PatchouliPublicApi:
 class PatchouliBridge:
     """Bridge Patchouli local capabilities and events to system-level buses."""
 
-    _PUBLIC_ROUTES = (
-        PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE,
-        PatchouliRoutes.SUBMIT_INTERACTION,
-        PatchouliRoutes.MEMORY_CREATE,
-        PatchouliRoutes.MEMORY_LIST,
-        PatchouliRoutes.MEMORY_GET,
-        PatchouliRoutes.MEMORY_UPDATE,
-        PatchouliRoutes.MEMORY_DELETE,
-        PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
-        PatchouliRoutes.MEMORY_TASK_LIST,
-        PatchouliRoutes.MEMORY_TASK_GET,
-        PatchouliRoutes.MEMORY_TASK_CANCEL,
-        PatchouliRoutes.AGENT_PROFILE_CREATE,
-        PatchouliRoutes.AGENT_PROFILE_LIST,
-        PatchouliRoutes.TOPIC_LIST_ACTIVE,
-        PatchouliRoutes.MEMORY_RETRIEVE,
-        PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
-        PatchouliRoutes.GET_AGENT_PROFILE,
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        PatchouliRoutes.FINALIZE_AGENT_RUN,
-        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-        PatchouliRoutes.MANUAL_SETTLE_TOPIC,
-        PatchouliRoutes.EVICT_TOPIC,
-        PatchouliRoutes.RECORD_MEMORY_CITATION,
-        PatchouliRoutes.WARMUP_MODELS,
-        PatchouliRoutes.MODELS_READY,
-    )
 
     def __init__(
         self,
@@ -210,7 +183,7 @@ class PatchouliBridge:
     def _unregister_public_routes(self) -> None:
         if self._global_bus is None:
             return
-        for route in self._PUBLIC_ROUTES:
+        for route, _ in self._public_route_bindings():
             self._global_bus.unregister(route)
 
     def _register_local_event_bridges(self) -> None:
