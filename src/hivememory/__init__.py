@@ -159,7 +159,6 @@ from hivememory.engines.retrieval import (
 
 from hivememory.engines.lifecycle import (
     MemoryLifecycleEngine,
-    BaseMemoryArchiver,
     BaseGarbageCollector,
     EventType,
     ReinforcementResult,
@@ -168,8 +167,6 @@ from hivememory.engines.lifecycle import (
     ArchiveRecord,
     VitalityCalculator,
     DynamicReinforcementEngine,
-    FileBasedArchiver,
-    create_archiver,
     PeriodicGarbageCollector,
     create_garbage_collector,
 )
@@ -362,7 +359,6 @@ __all__ = [
     "create_renderer",
     # ========== Lifecycle Engine ==========
     "MemoryLifecycleEngine",
-    "BaseMemoryArchiver",
     "BaseGarbageCollector",
     "EventType",
     "ReinforcementResult",
@@ -371,8 +367,6 @@ __all__ = [
     "ArchiveRecord",
     "VitalityCalculator",
     "DynamicReinforcementEngine",
-    "FileBasedArchiver",
-    "create_archiver",
     "PeriodicGarbageCollector",
     "create_garbage_collector",
     # ========== Perception Engine ==========
@@ -425,4 +419,3 @@ __all__ = [
 
 
 __version__ = "0.1.0"
-

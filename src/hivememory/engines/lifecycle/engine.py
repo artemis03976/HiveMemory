@@ -4,27 +4,23 @@ HiveMemory - 生命周期管理器
 协调所有生命周期组件，提供统一操作接口。
 
 作者: HiveMemory Team
-版本: 0.2.0
+版本: 1.0.0
 """
 
 import logging
-from typing import Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.lifecycle.interfaces import (
-    BaseMemoryArchiver,
-    BaseGarbageCollector,
+from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
+from hivememory.engines.lifecycle.models import (
+    EventType,
+    MemoryEvent,
+    ReinforcementResult,
 )
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
-from hivememory.engines.lifecycle.models import (
-    MemoryEvent,
-    EventType,
-    ReinforcementResult,
-)
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
@@ -32,42 +28,18 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryLifecycleEngine:
-    """
-    记忆生命周期管理器
-
-    统一协调所有生命周期组件:
-    - VitalityCalculator: 生命力计算
-    - ReinforcementEngine: 强化事件处理
-    - MemoryArchiver: 冷存储管理
-    - GarbageCollector: 垃圾回收
-
-    Examples:
-        >>> # 推荐：使用工厂函数
-        >>> from hivememory.engines.lifecycle import create_default_lifecycle_engine
-        >>> engine = create_default_lifecycle_engine(storage)
-        >>>
-        >>> # 高级：手动注入组件
-        >>> engine = MemoryLifecycleEngine(
-        ...     storage=storage,
-        ...     vitality_calculator=my_calculator,
-        ...     reinforcement_engine=my_engine,
-        ...     archiver=my_archiver,
-        ...     garbage_collector=my_gc,
-        ... )
-    """
+    """Coordinate lifecycle scoring, reinforcement events, and garbage collection."""
 
     def __init__(
         self,
         mid_term: "MidTermMemoryStore",
         vitality_calculator: VitalityCalculator,
         reinforcement_engine: DynamicReinforcementEngine,
-        archiver: BaseMemoryArchiver,
         garbage_collector: BaseGarbageCollector,
     ):
         self._mid_term = mid_term
         self.vitality_calculator = vitality_calculator
         self.reinforcement_engine = reinforcement_engine
-        self.archiver = archiver
         self.garbage_collector = garbage_collector
         logger.info("MemoryLifecycleEngine initialized with all components")
 
@@ -100,28 +72,39 @@ class MemoryLifecycleEngine:
     async def record_event(self, event: MemoryEvent) -> ReinforcementResult:
         return await self.reinforcement_engine.reinforce(event.memory_id, event)
 
-    async def record_hit(self, memory_id: UUID, source: str = "system") -> ReinforcementResult:
-        event = MemoryEvent(event_type=EventType.HIT, memory_id=memory_id, source=source)
+    async def record_hit(
+        self,
+        memory_id: UUID,
+        source: str = "system",
+    ) -> ReinforcementResult:
+        event = MemoryEvent(
+            event_type=EventType.HIT,
+            memory_id=memory_id,
+            source=source,
+        )
         return await self.record_event(event)
 
-    async def record_citation(self, memory_id: UUID, source: str = "system") -> ReinforcementResult:
-        event = MemoryEvent(event_type=EventType.CITATION, memory_id=memory_id, source=source)
+    async def record_citation(
+        self,
+        memory_id: UUID,
+        source: str = "system",
+    ) -> ReinforcementResult:
+        event = MemoryEvent(
+            event_type=EventType.CITATION,
+            memory_id=memory_id,
+            source=source,
+        )
         return await self.record_event(event)
 
-    async def record_feedback(self, memory_id: UUID, positive: bool, source: str = "user") -> ReinforcementResult:
-        """
-        记录用户反馈事件
-
-        Args:
-            memory_id: 记忆ID
-            positive: 是否正面反馈
-            source: 事件来源
-
-        Returns:
-            ReinforcementResult: 强化结果
-        """
+    async def record_feedback(
+        self,
+        memory_id: UUID,
+        positive: bool,
+        source: str = "user",
+    ) -> ReinforcementResult:
         event_type = (
-            EventType.FEEDBACK_POSITIVE if positive
+            EventType.FEEDBACK_POSITIVE
+            if positive
             else EventType.FEEDBACK_NEGATIVE
         )
         event = MemoryEvent(
@@ -135,33 +118,6 @@ class MemoryLifecycleEngine:
         all_memories = await self._mid_term.scroll(limit=10000)
         await self.refresh_vitality_batch(all_memories, persist=True)
         return await self.garbage_collector.collect(all_memories, force=force)
-
-    async def archive_memory(self, memory_id: UUID) -> None:
-        """
-        手动归档指定记忆
-
-        Args:
-            memory_id: 记忆ID
-
-        Raises:
-            ValueError: 记忆不存在
-        """
-        await self.archiver.archive(memory_id)
-
-    async def resurrect_memory(self, memory_id: UUID) -> MemoryAtom:
-        """
-        唤醒归档记忆
-
-        Args:
-            memory_id: 记忆ID
-
-        Returns:
-            MemoryAtom: 唤醒的记忆
-
-        Raises:
-            ValueError: 记忆未归档
-        """
-        return await self.archiver.resurrect(memory_id)
 
     async def get_low_vitality_memories(
         self,
@@ -178,8 +134,7 @@ class MemoryLifecycleEngine:
         Returns:
             List[Tuple[UUID, float]]: (memory_id, vitality) 列表，按生命力升序
         """
-        # 获取所有记忆
-        all_memories = await self.storage.get_all_memories(limit=10000)
+        all_memories = await self._mid_term.scroll(limit=10000)
         refreshed = await self.refresh_vitality_batch(all_memories, persist=False)
         results = [
             (memory_id, vitality)
@@ -208,23 +163,6 @@ class MemoryLifecycleEngine:
             return self.reinforcement_engine.get_event_history(memory_id, limit)
         return []
 
-    def get_archived_memories(
-        self,
-        limit: int = 100,
-        vitality_threshold: Optional[float] = None
-    ) -> List:
-        """
-        获取已归档的记忆列表
-
-        Args:
-            limit: 最大返回数量
-            vitality_threshold: 过滤归档时的生命力阈值
-
-        Returns:
-            List[ArchiveRecord]: 归档记录列表
-        """
-        return self.archiver.list_archived(limit, vitality_threshold)
-
     def get_stats(self) -> dict:
         """
         获取统计信息
@@ -242,12 +180,6 @@ class MemoryLifecycleEngine:
 
         if hasattr(self.reinforcement_engine, "get_stats"):
             stats["reinforcement"] = self.reinforcement_engine.get_stats()
-
-        # 添加归档统计
-        if hasattr(self.archiver, "_index"):
-            stats["archive"] = {
-                "total_archived": len(self.archiver._index)
-            }
 
         return stats
 

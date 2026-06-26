@@ -82,6 +82,7 @@ class MidTermStoragePort(ABC):
         top_k: int,
         filters: Optional[Dict[str, Any]] = None,
         mode: str = "dense",
+        score_threshold: float = 0.0,
     ) -> List[Dict[str, Any]]: ...
 
     @abstractmethod

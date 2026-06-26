@@ -49,10 +49,12 @@ class QdrantStorageAdapter(MidTermStoragePort):
         top_k: int,
         filters: Optional[Dict[str, Any]] = None,
         mode: str = "dense",
+        score_threshold: float = 0.0,
     ) -> List[Dict[str, Any]]:
         return await self._store.search_memories(
             query_text=query,
             top_k=top_k,
+            score_threshold=score_threshold,
             filters=filters,
             mode=mode,
         )

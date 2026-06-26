@@ -541,3 +541,41 @@ class TestRetrievalFamiliarShortTermTopics:
             touch=False,
             deep_copy=False,
         )
+
+
+class TestRetrievalFamiliarArchiveQueries:
+    """Long-term archive read access belongs to RetrievalFamiliar."""
+
+    def setup_method(self):
+        self.mock_library = _make_memory_library()
+        self.mock_engine = Mock()
+        self.familiar = RetrievalFamiliar(
+            engine=self.mock_engine,
+            memory_library=self.mock_library,
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_archive_delegates_to_long_term_store(self):
+        records = [Mock()]
+        self.mock_library.long_term.query.return_value = records
+
+        result = await self.familiar.query_archive(
+            limit=50,
+            vitality_threshold=10.0,
+        )
+
+        self.mock_library.long_term.query.assert_awaited_once_with(
+            limit=50,
+            vitality_threshold=10.0,
+        )
+        assert result == records
+
+    @pytest.mark.asyncio
+    async def test_is_archived_delegates_to_long_term_store(self):
+        memory_id = uuid4()
+        self.mock_library.long_term.is_archived.return_value = True
+
+        result = await self.familiar.is_archived(memory_id)
+
+        self.mock_library.long_term.is_archived.assert_awaited_once_with(memory_id)
+        assert result is True

@@ -31,7 +31,7 @@ class TestDenseRetriever:
         self.mock_storage = AsyncMock()
         self.config = DenseRetrieverConfig()
         self.retriever = DenseRetriever(
-            storage=self.mock_storage,
+            mid_term=self.mock_storage,
             config=self.config
         )
         
@@ -51,7 +51,7 @@ class TestDenseRetriever:
     async def test_search_basic(self):
         """测试基本检索"""
         # 模拟存储返回
-        self.mock_storage.search_memories = AsyncMock(return_value=[
+        self.mock_storage.search = AsyncMock(return_value=[
             {"memory": self.memory1, "score": 0.9},
             {"memory": self.memory2, "score": 0.8}
         ])
@@ -61,12 +61,12 @@ class TestDenseRetriever:
 
         assert len(results) == 2
         assert results.results[0].memory.index.title == "M1"
-        self.mock_storage.search_memories.assert_called_once()
+        self.mock_storage.search.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_search_with_filters(self):
         """测试带过滤条件的检索"""
-        self.mock_storage.search_memories = AsyncMock(return_value=[])
+        self.mock_storage.search = AsyncMock(return_value=[])
         
         filters = QueryFilters(memory_type=MemoryType.FACT, identity=Identity(user_id="u1"))
         query = RetrievalQuery(semantic_query="test", filters=filters)
@@ -74,7 +74,7 @@ class TestDenseRetriever:
         await self.retriever.retrieve(query)
         
         # 验证过滤条件传递 (现在返回 qdrant Filter 对象)
-        call_args = self.mock_storage.search_memories.call_args
+        call_args = self.mock_storage.search.call_args
         qdrant_filter = call_args.kwargs["filters"]
         # Filter 对象的 must 条件中应包含 user_id 和 memory_type
         must_conditions = qdrant_filter.must
@@ -94,7 +94,7 @@ class TestDenseRetriever:
         # 更新 M2 时间为 180 天前
         self.memory2.meta.updated_at = datetime.now() - timedelta(days=180)
 
-        self.mock_storage.search_memories = AsyncMock(return_value=[
+        self.mock_storage.search = AsyncMock(return_value=[
             {"memory": self.memory1, "score": 0.84},
             {"memory": self.memory2, "score": 0.85}
         ])
@@ -117,7 +117,7 @@ class TestDenseRetriever:
     @pytest.mark.asyncio
     async def test_match_reason(self):
         """测试匹配原因生成"""
-        self.mock_storage.search_memories = AsyncMock(return_value=[
+        self.mock_storage.search = AsyncMock(return_value=[
             {"memory": self.memory1, "score": 0.9}
         ])
 
@@ -134,7 +134,7 @@ class TestDenseRetriever:
     async def test_time_decay_with_aware_datetime(self):
         """测试 aware datetime 时间衰减不抛异常"""
         self.memory1.meta.updated_at = datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
-        self.mock_storage.search_memories = AsyncMock(return_value=[
+        self.mock_storage.search = AsyncMock(return_value=[
             {"memory": self.memory1, "score": 0.9}
         ])
 

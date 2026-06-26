@@ -456,7 +456,7 @@ class PatchouliRuntime:
         config = self._patchouli_config.retrieval
 
         retriever: BaseMemoryRetriever = create_retriever(
-            self.storage,
+            self.memory_library.mid_term,
             config.retriever,
             self.reranker_service
         )
@@ -520,7 +520,6 @@ class PatchouliRuntime:
             MemoryLifecycleEngine,
             VitalityCalculator,
             DynamicReinforcementEngine,
-            BaseMemoryArchiver, create_archiver,
             BaseGarbageCollector, create_garbage_collector,
         )
 
@@ -534,13 +533,8 @@ class PatchouliRuntime:
             vitality_calculator=vitality_calculator
         )
 
-        archiver: BaseMemoryArchiver = create_archiver(
-            self.storage,
-            self._patchouli_config.lifecycle.archiver
-        )
-
         garbage_collector: BaseGarbageCollector = create_garbage_collector(
-            archiver,
+            self.memory_library,
             self._patchouli_config.lifecycle.garbage_collector
         )
 
@@ -548,7 +542,6 @@ class PatchouliRuntime:
             mid_term=self.memory_library.mid_term,
             vitality_calculator=vitality_calculator,
             reinforcement_engine=reinforcement_engine,
-            archiver=archiver,
             garbage_collector=garbage_collector,
         )
 

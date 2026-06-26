@@ -292,8 +292,9 @@ class MidTermMemoryStore:
         top_k: int,
         filters=None,
         mode: str = "dense",
+        score_threshold: float = 0.0,
     ):
-        return await self._primary.search(query, top_k, filters, mode)
+        return await self._primary.search(query, top_k, filters, mode, score_threshold)
 
     async def scroll(self, filters=None, limit: int = 100) -> List[MemoryAtom]:
         return await self._primary.scroll(filters, limit)

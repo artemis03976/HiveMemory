@@ -277,9 +277,9 @@ class TestQueryAndFilterCollaboration:
             "id": "2"
         }
         
-        mock_storage.search_memories = AsyncMock(return_value=[hit1, hit2])
+        mock_storage.search = AsyncMock(return_value=[hit1, hit2])
 
-        retriever = DenseRetriever(storage=mock_storage, config=DenseRetrieverConfig())
+        retriever = DenseRetriever(mid_term=mock_storage, config=DenseRetrieverConfig())
 
         query = RetrievalQuery(
             semantic_query="Python",
@@ -288,9 +288,9 @@ class TestQueryAndFilterCollaboration:
 
         results = await retriever.retrieve(query, top_k=5)
         
-        # Verify search_memories called with correct filters
-        mock_storage.search_memories.assert_called()
-        call_args = mock_storage.search_memories.call_args
+        # Verify mid-term search called with correct filters
+        mock_storage.search.assert_called()
+        call_args = mock_storage.search.call_args
         assert call_args is not None
         
         # Verify results
@@ -406,7 +406,7 @@ class TestHybridRetrieverOrchestration:
         mock_storage = Mock()
         config = DenseRetrieverConfig()
         
-        retriever = create_retriever(storage=mock_storage, config=config)
+        retriever = create_retriever(mid_term=mock_storage, config=config)
         
         assert isinstance(retriever, DenseRetriever)
 

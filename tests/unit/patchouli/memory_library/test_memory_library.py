@@ -293,7 +293,7 @@ class TestMidTermMemoryStore:
 
         await self.store.search("query", top_k=5)
 
-        self.mock_primary.search.assert_awaited_once_with("query", 5, None, "dense")
+        self.mock_primary.search.assert_awaited_once_with("query", 5, None, "dense", 0.0)
 
     @pytest.mark.asyncio
     async def test_scroll_delegates_to_primary(self):

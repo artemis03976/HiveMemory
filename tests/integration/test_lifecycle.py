@@ -1,914 +1,199 @@
-"""
-生命周期引擎组件协作测试
+"""Integration tests for lifecycle components on the Patchouli memory boundary."""
 
-测试生命周期引擎内部各组件之间的协作：
-- VitalityCalculator 与 ReinforcementEngine 的协作
-- MemoryArchiver 与存储层的交互
-- GarbageCollector 与 VitalityCalculator 的配合
-- LifecycleEngine 的整体编排
+from __future__ import annotations
 
-不测试：与外部存储（Qdrant）的交互
-"""
-
-import sys
-from pathlib import Path
-
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / "src"))
+from uuid import UUID, uuid4
 
 import pytest
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
-from datetime import datetime, timedelta
-from typing import List
-from uuid import uuid4
 
 from hivememory.core.models import (
-    MemoryAtom,
-    MetaData,
     IndexLayer,
-    PayloadLayer,
+    MemoryAtom,
     MemoryType,
+    MetaData,
+    PayloadLayer,
 )
-from hivememory.engines.lifecycle.interfaces import (
-    BaseMemoryArchiver,
-    BaseGarbageCollector,
-)
-from hivememory.engines.lifecycle.vitality import VitalityCalculator, VitalityCalculator
-from hivememory.engines.lifecycle.archiver import FileBasedArchiver
 from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
-from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 from hivememory.engines.lifecycle.garbage_collector import PeriodicGarbageCollector
-from hivememory.engines.lifecycle.models import (
-    MemoryEvent,
-    EventType,
-    ReinforcementResult,
-    ArchiveRecord,
+from hivememory.engines.lifecycle.models import EventType, MemoryEvent
+from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
+from hivememory.engines.lifecycle.vitality import VitalityCalculator
+from hivememory.patchouli.memory_library import (
+    LongTermMemoryStore,
+    MemoryLibrary,
+    MidTermMemoryStore,
+    ShortTermMemoryStore,
+)
+from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.system.config import (
+    GarbageCollectorConfig,
+    ReinforcementEngineConfig,
+    VitalityCalculatorConfig,
 )
 
 
-class TestVitalityAndReinforcementCollaboration:
-    """测试 VitalityCalculator 与 ReinforcementEngine 的协作"""
-
-    @pytest.mark.asyncio
-    async def test_reinforcement_updates_vitality(self):
-        """测试强化事件更新生命力分数"""
-        mock_storage = Mock()
-        mock_storage.upsert_memory = AsyncMock()
-        
-        # Mock configs
-        mock_reinforcement_config = Mock()
-        mock_reinforcement_config.vitality_adjustments = None
-        mock_reinforcement_config.hit_boost = 5.0
-        mock_reinforcement_config.citation_boost = 20.0
-        mock_reinforcement_config.positive_feedback_boost = 50.0
-        mock_reinforcement_config.negative_feedback_penalty = -50.0
-        mock_reinforcement_config.event_history_limit = 1000
-        mock_reinforcement_config.enable_event_history = True
-        
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
-
-        calculator = VitalityCalculator(config=mock_vitality_config)
-        reinforcement = DynamicReinforcementEngine(
-            storage=mock_storage,
-            vitality_calculator=calculator,
-            config=mock_reinforcement_config
-        )
-
-        # 创建测试记忆
-        memory = MemoryAtom(
-            meta=MetaData(
-                source_agent_id="test_agent",
-                user_id="test_user",
-                confidence_score=0.8,
-                access_count=0,
-            ),
-            index=IndexLayer(
-                title="测试记忆",
-                summary="这是一个测试用的摘要信息，长度必须超过十个字符",
-                tags=["test"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(content="测试内容"),
-        )
-        
-        # Mock get_memory to return the memory
-        mock_storage.get_memory = AsyncMock(return_value=memory)
-
-        # 记录初始生命力
-        initial_vitality = calculator.calculate(memory)
-
-        # 应用 HIT 事件
-        event = MemoryEvent(
-            memory_id=memory.id,
-            event_type=EventType.HIT,
-            source="test"
-        )
-        result = await reinforcement.reinforce(memory.id, event)
-
-        # 验证强化结果
-        assert result is not None
-        assert result.new_vitality > initial_vitality, "HIT事件应该增加生命力"
-
-    @pytest.mark.asyncio
-    async def test_multiple_reinforcement_events_cumulative(self):
-        """测试多次强化事件的累积效果"""
-        mock_storage = Mock()
-        mock_storage.upsert_memory = AsyncMock()
-        
-        # Mock configs
-        mock_reinforcement_config = Mock()
-        mock_reinforcement_config.vitality_adjustments = None
-        mock_reinforcement_config.hit_boost = 5.0
-        mock_reinforcement_config.citation_boost = 20.0
-        mock_reinforcement_config.positive_feedback_boost = 50.0
-        mock_reinforcement_config.negative_feedback_penalty = -50.0
-        mock_reinforcement_config.event_history_limit = 1000
-        mock_reinforcement_config.enable_event_history = True
-        
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
-
-        calculator = VitalityCalculator(config=mock_vitality_config)
-        reinforcement = DynamicReinforcementEngine(
-            storage=mock_storage,
-            vitality_calculator=calculator,
-            config=mock_reinforcement_config
-        )
-
-        memory = MemoryAtom(
-            meta=MetaData(
-                source_agent_id="test_agent",
-                user_id="test_user",
-                confidence_score=0.8,
-                access_count=0,
-            ),
-            index=IndexLayer(
-                title="测试记忆",
-                summary="这是一个测试用的摘要信息，长度必须超过十个字符",
-                tags=["test"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(content="测试内容"),
-        )
-        
-        # Mock get_memory
-        mock_storage.get_memory = AsyncMock(return_value=memory)
-
-        vitality_scores = []
-        for event_type in [EventType.HIT, EventType.CITATION, EventType.FEEDBACK_POSITIVE]:
-            event = MemoryEvent(
-                memory_id=memory.id,
-                event_type=event_type,
-                source="test"
-            )
-            result = await reinforcement.reinforce(memory.id, event)
-            vitality_scores.append(result.new_vitality)
-
-        # 验证生命力逐步上升
-        assert vitality_scores[0] < vitality_scores[1], "CITATION应该比HIT增加更多"
-        assert vitality_scores[1] < vitality_scores[2], "FEEDBACK_POSITIVE应该继续增加"
+def _make_memory(title: str = "Test", vitality_score: float = 50.0) -> MemoryAtom:
+    return MemoryAtom(
+        id=uuid4(),
+        meta=MetaData(
+            source_agent_id="agent1",
+            user_id="user1",
+            confidence_score=0.8,
+            vitality_score=vitality_score,
+        ),
+        index=IndexLayer(
+            title=title,
+            summary=f"Summary for {title} with enough length",
+            tags=["test"],
+            memory_type=MemoryType.FACT,
+        ),
+        payload=PayloadLayer(content="content"),
+    )
 
 
-class TestArchiverAndStorageCollaboration:
-    """测试 MemoryArchiver 与存储层的协作"""
+class InMemoryMidTermPort:
+    def __init__(self) -> None:
+        self.memories: dict[UUID, MemoryAtom] = {}
 
-    @pytest.mark.asyncio
-    async def test_archiver_moves_memory_to_cold_storage(self):
-        """测试归档器将记忆移至冷存储"""
-        from uuid import uuid4
-        mock_storage = Mock()
-        archived_memories = {}
+    async def upsert(self, memory: MemoryAtom) -> None:
+        self.memories[memory.id] = memory
 
-        async def mock_delete(memory_id):
-            archived_memories[memory_id] = "archived"
+    async def get(self, memory_id: UUID) -> MemoryAtom | None:
+        return self.memories.get(memory_id)
 
-        mock_storage.delete_memory = mock_delete
-        
-        # Mock get_memory to return a valid memory
-        mock_storage.get_memory = AsyncMock(return_value=MemoryAtom(
-            meta=MetaData(source_agent_id="test", user_id="test", confidence_score=0.8, vitality_score=10.0),
-            index=IndexLayer(title="test", summary="这是一个测试用的摘要信息，长度必须超过十个字符", tags=[], memory_type=MemoryType.FACT),
-            payload=PayloadLayer(content="test")
-        ))
-        
-        mock_config = Mock()
-        mock_config.archive_dir = "tmp_test_archive"
-        mock_config.compression = False
+    async def get_by_alias(self, alias: str, user_id: str | None = None) -> MemoryAtom | None:
+        return None
 
-        archiver = FileBasedArchiver(
-            storage=mock_storage,
-            config=mock_config
-        )
+    async def update_access_info(self, memory_id: UUID) -> None:
+        memory = self.memories.get(memory_id)
+        if memory is not None:
+            memory.meta.access_count += 1
 
-        memory_id = uuid4()
-        await archiver.archive(memory_id)
+    async def delete(self, memory_id: UUID) -> bool:
+        return self.memories.pop(memory_id, None) is not None
 
-        # 验证存储层被调用
-        assert memory_id in archived_memories
+    async def batch_delete(self, ids: list[UUID]) -> int:
+        count = 0
+        for memory_id in ids:
+            if await self.delete(memory_id):
+                count += 1
+        return count
 
-    @pytest.mark.asyncio
-    async def test_archiver_tracks_archived_memories(self):
-        """测试归档器跟踪已归档的记忆"""
-        mock_storage = Mock()
-        mock_storage.get_memory = AsyncMock(return_value=MemoryAtom(
-            meta=MetaData(source_agent_id="test", user_id="test", confidence_score=0.8, vitality_score=10.0),
-            index=IndexLayer(title="test", summary="这是一个测试用的摘要信息，长度必须超过十个字符", tags=[], memory_type=MemoryType.FACT),
-            payload=PayloadLayer(content="test")
-        ))
-        mock_storage.delete_memory = AsyncMock()
-        
-        mock_config = Mock()
-        mock_config.archive_dir = "tmp_test_archive"
-        mock_config.compression = False
-
-        archiver = FileBasedArchiver(
-            storage=mock_storage,
-            config=mock_config
-        )
-
-        memory_id = "test_memory_id"
-        # We need to mock get_memory to return something, handled above
-        # But MemoryAtom id is generated.
-        # Let's create a memory with fixed ID
-        from uuid import uuid4
-        mid = uuid4()
-        
-        mock_storage.get_memory = AsyncMock(return_value=MemoryAtom(
-            id=mid,
-            meta=MetaData(source_agent_id="test", user_id="test", confidence_score=0.8, vitality_score=10.0),
-            index=IndexLayer(title="test", summary="这是一个测试用的摘要信息，长度必须超过十个字符", tags=[], memory_type=MemoryType.FACT),
-            payload=PayloadLayer(content="test")
-        ))
-        
-        await archiver.archive(mid)
-
-        # 验证归档记录
-        record = archiver.get_archive_record(mid)
-        assert record is not None
-        assert record.memory_id == mid
-
-
-class TestGarbageCollectorAndVitalityCollaboration:
-    """测试 GarbageCollector 与 VitalityCalculator 的协作"""
-
-    @pytest.mark.asyncio
-    async def test_gc_uses_vitality_to_find_candidates(self):
-        """测试垃圾回收器使用生命力计算查找候选"""
-        mock_storage = Mock()
-
-        # 创建不同生命力分数的记忆
-        memories = [
-            MemoryAtom(
-                meta=MetaData(
-                    source_agent_id="test_agent",
-                    user_id="test_user",
-                    confidence_score=0.1,
-                    vitality_score=5.0,
-                ),
-                index=IndexLayer(
-                    title=f"低价值记忆{i}",
-                    summary="这是一个测试用的摘要信息，长度必须超过十个字符",
-                    tags=["test"],
-                    memory_type=MemoryType.WORK_IN_PROGRESS,
-                ),
-                payload=PayloadLayer(content="内容"),
-            )
-            for i in range(3)
+    async def search(
+        self,
+        query: str,
+        top_k: int,
+        filters=None,
+        mode: str = "dense",
+        score_threshold: float = 0.0,
+    ):
+        return [
+            {"memory": memory, "score": 1.0}
+            for memory in list(self.memories.values())[:top_k]
         ]
 
-        mock_storage.get_all_memories = AsyncMock(return_value=memories)
-        mock_storage.delete_memory = AsyncMock()
-        
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
+    async def scroll(self, filters=None, limit: int = 100) -> list[MemoryAtom]:
+        return list(self.memories.values())[:limit]
 
-        calculator = VitalityCalculator(config=mock_vitality_config)
-        
-        mock_gc_config = Mock()
-        mock_gc_config.low_watermark = 20.0
-        mock_gc_config.batch_size = 10
+    async def count(self, filters=None) -> int:
+        return len(self.memories)
 
-        mock_archiver = Mock()
-        mock_archiver.archive = AsyncMock()
-        gc = PeriodicGarbageCollector(
-            archiver=mock_archiver, # Mock archiver
-            config=mock_gc_config,
+
+@pytest.fixture
+def lifecycle_stack(tmp_path):
+    short_term = ShortTermMemoryStore()
+    mid_port = InMemoryMidTermPort()
+    mid_term = MidTermMemoryStore(primary=mid_port)
+    long_term = LongTermMemoryStore(
+        FileBasedStorageAdapter(
+            archive_dir=str(tmp_path / "archive"),
+            compress=False,
         )
-
-        # 运行垃圾回收
-        collected = await gc.collect(await mock_storage.get_all_memories())
-
-        # 应该收集低生命力记忆
-        assert collected >= 0
-
-
-class TestLifecycleEngineCoordination:
-    """测试 LifecycleEngine 的整体编排"""
-
-    def test_engine_coordinates_all_components(self):
-        """测试引擎协调所有组件"""
-        mock_storage = Mock()
-        mock_storage.get_memory = AsyncMock(return_value=None)
-        mock_storage.update_memory = Mock()
-        
-        # Add config mock for reinforcement engine
-        mock_reinforcement_config = Mock()
-        mock_reinforcement_config.vitality_adjustments = None
-        mock_reinforcement_config.hit_boost = 5.0
-        mock_reinforcement_config.citation_boost = 20.0
-        mock_reinforcement_config.positive_feedback_boost = 50.0
-        mock_reinforcement_config.negative_feedback_penalty = -50.0
-        mock_reinforcement_config.event_history_limit = 1000
-        mock_reinforcement_config.enable_event_history = True
-
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
-        
-        mock_archiver_config = Mock()
-        mock_archiver_config.archive_dir = "tmp_test_archive"
-        mock_archiver_config.compression = False
-        
-        mock_gc_config = Mock()
-        mock_gc_config.low_watermark = 20.0
-        mock_gc_config.batch_size = 10
-
-        calculator = VitalityCalculator(config=mock_vitality_config)
-        reinforcement = DynamicReinforcementEngine(storage=mock_storage, vitality_calculator=calculator, config=mock_reinforcement_config)
-        archiver = FileBasedArchiver(storage=mock_storage, config=mock_archiver_config)
-        gc = PeriodicGarbageCollector(archiver=archiver, config=mock_gc_config)
-
-        engine = MemoryLifecycleEngine(
-            storage=mock_storage,
-            vitality_calculator=calculator,
-            reinforcement_engine=reinforcement,
-            archiver=archiver,
-            garbage_collector=gc,
-        )
-
-        assert engine.vitality_calculator is calculator
-        assert engine.reinforcement_engine is reinforcement
-        assert engine.archiver is archiver
-        assert engine.garbage_collector is gc
-
-    @pytest.mark.asyncio
-    async def test_engine_handles_unknown_memory(self):
-        """测试引擎处理未知记忆"""
-        mock_storage = Mock()
-        mock_storage.get_memory = AsyncMock(return_value=None)
-        
-        # Add config mock for reinforcement engine
-        mock_reinforcement_config = Mock()
-        mock_reinforcement_config.vitality_adjustments = None
-        mock_reinforcement_config.hit_boost = 5.0
-        mock_reinforcement_config.citation_boost = 20.0
-        mock_reinforcement_config.positive_feedback_boost = 50.0
-        mock_reinforcement_config.negative_feedback_penalty = -50.0
-        mock_reinforcement_config.event_history_limit = 1000
-        mock_reinforcement_config.enable_event_history = True
-
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
-        
-        mock_archiver_config = Mock()
-        mock_archiver_config.archive_dir = "tmp_test_archive"
-        mock_archiver_config.compression = False
-        
-        mock_gc_config = Mock()
-        mock_gc_config.low_watermark = 20.0
-        mock_gc_config.batch_size = 10
-
-        calculator = VitalityCalculator(config=mock_vitality_config)
-        reinforcement = DynamicReinforcementEngine(storage=mock_storage, vitality_calculator=calculator, config=mock_reinforcement_config)
-        archiver = FileBasedArchiver(storage=mock_storage, config=mock_archiver_config)
-        gc = PeriodicGarbageCollector(archiver=archiver, config=mock_gc_config)
-
-        engine = MemoryLifecycleEngine(
-            storage=mock_storage,
-            vitality_calculator=calculator,
-            reinforcement_engine=reinforcement,
-            archiver=archiver,
-            garbage_collector=gc,
-        )
-
-        # Refreshing vitality is now caller-scoped: the caller supplies the
-        # memory object that needs a fresh score.
-        memory = MemoryAtom(
-            meta=MetaData(
-                source_agent_id="agent1",
-                user_id="user1",
-                confidence_score=0.8,
-                vitality_score=60.0,
-            ),
-            index=IndexLayer(
-                title="Test",
-                summary="Test summary with enough length",
-                tags=["test"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(content="Content"),
-        )
-
-        vitality = await engine.refresh_vitality(memory, persist=False)
-
-        assert 0.0 <= vitality <= 100.0
-
-
-class TestVitalityCalculation:
-    """测试生命力计算逻辑"""
-
-    def test_vitality_formula_components(self):
-        """测试生命力公式各组件"""
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
-
-        calculator = VitalityCalculator(config=mock_vitality_config)
-
-        # 高置信度 + 高固有价值类型
-        memory = MemoryAtom(
-            meta=MetaData(
-                source_agent_id="test_agent",
-                user_id="test_user",
-                confidence_score=0.95,
-                access_count=10,
-            ),
-            index=IndexLayer(
-                title="Python代码",
-                summary="重要代码片段，长度超过十个字符",
-                tags=["python", "code"],
-                memory_type=MemoryType.CODE_SNIPPET,
-            ),
-            payload=PayloadLayer(content="def test(): pass"),
-        )
-
-        vitality = calculator.calculate(memory)
-
-        # CODE_SNIPPET 类型 + 高置信度 + 访问量 = 应该有较高生命力
-        assert vitality > 50, "高价值记忆应该有较高生命力"
-
-    def test_vitality_decay_over_time(self):
-        """测试生命力随时间衰减"""
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
-
-        calculator = VitalityCalculator(config=mock_vitality_config)
-
-        memory = MemoryAtom(
-            meta=MetaData(
-                source_agent_id="test_agent",
-                user_id="test_user",
-                confidence_score=0.8,
-                created_at=datetime.now() - timedelta(days=30),
-                last_accessed_at=datetime.now() - timedelta(days=30),
-            ),
-            index=IndexLayer(
-                title="旧记忆",
-                summary="很久以前的记忆，长度超过十个字符",
-                tags=["old"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(content="内容"),
-        )
-
-        vitality = calculator.calculate(memory)
-
-        # 旧记忆应该有较低生命力
-        # （具体值取决于衰减公式）
-
-    def test_different_memory_type_weights(self):
-        """测试不同记忆类型的权重"""
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
-
-        calculator = VitalityCalculator(config=mock_vitality_config)
-
-        memories = [
-            MemoryAtom(
-                meta=MetaData(
-                    source_agent_id="test_agent",
-                    user_id="test_user",
-                    confidence_score=0.8,
-                ),
-                index=IndexLayer(
-                    title=title,
-                    summary="这是一个测试用的摘要信息，长度必须超过十个字符",
-                    tags=["test"],
-                    memory_type=mem_type,
-                ),
-                payload=PayloadLayer(content="内容"),
-            )
-            for title, mem_type in [
-                ("代码片段", MemoryType.CODE_SNIPPET),
-                ("用户偏好", MemoryType.USER_PROFILE),
-                ("事实", MemoryType.FACT),
-                ("进行中", MemoryType.WORK_IN_PROGRESS),
-            ]
-        ]
-
-        vitalities = [calculator.calculate(m) for m in memories]
-
-        # CODE_SNIPPET 应该有最高或较高的权重
-        code_vitality = vitalities[0]
-        assert code_vitality > 0
-
-
-class TestEventTypeHandling:
-    """测试不同事件类型的处理"""
-
-    @pytest.mark.asyncio
-    async def test_all_event_types_produce_results(self):
-        """测试所有事件类型都能产生结果"""
-        mock_storage = Mock()
-        mock_storage.upsert_memory = AsyncMock()
-        
-        # Add config mock for reinforcement engine
-        mock_reinforcement_config = Mock()
-        mock_reinforcement_config.vitality_adjustments = None
-        mock_reinforcement_config.hit_boost = 5.0
-        mock_reinforcement_config.citation_boost = 20.0
-        mock_reinforcement_config.positive_feedback_boost = 50.0
-        mock_reinforcement_config.negative_feedback_penalty = -50.0
-        mock_reinforcement_config.event_history_limit = 1000
-        mock_reinforcement_config.enable_event_history = True
-        mock_reinforcement_config.negative_confidence_multiplier = 0.5
-
-        mock_vitality_config = Mock()
-        mock_vitality_config.code_snippet_weight = 1.0
-        mock_vitality_config.fact_weight = 0.9
-        mock_vitality_config.url_resource_weight = 0.8
-        mock_vitality_config.reflection_weight = 0.7
-        mock_vitality_config.user_profile_weight = 0.6
-        mock_vitality_config.work_in_progress_weight = 0.5
-        mock_vitality_config.default_weight = 0.5
-        mock_vitality_config.decay_lambda = 0.01
-        mock_vitality_config.points_per_access = 2.0
-        mock_vitality_config.max_access_boost = 20.0
-
-        calculator = VitalityCalculator(config=mock_vitality_config)
-        reinforcement = DynamicReinforcementEngine(
-            storage=mock_storage,
-            vitality_calculator=calculator,
-            config=mock_reinforcement_config
-        )
-
-        memory = MemoryAtom(
-            meta=MetaData(
-                source_agent_id="test_agent",
-                user_id="test_user",
-                confidence_score=0.8,
-            ),
-            index=IndexLayer(
-                title="测试",
-                summary="这是一个测试用的摘要信息，长度必须超过十个字符",
-                tags=["test"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(content="内容"),
-        )
-        
-        # Mock get_memory
-        mock_storage.get_memory = AsyncMock(return_value=memory)
-
-        event_types = [
-            EventType.HIT,
-            EventType.CITATION,
-            EventType.FEEDBACK_POSITIVE,
-            EventType.FEEDBACK_NEGATIVE,
-        ]
-
-        for event_type in event_types:
-            event = MemoryEvent(
-                memory_id=memory.id,
-                event_type=event_type,
-                source="test"
-            )
-            result = await reinforcement.reinforce(memory.id, event)
-            assert result is not None, f"{event_type} 应该产生结果"
-            assert result.event_type == event_type
-
-
-class TestMemoryLifecycleEngine:
-    """测试生命周期引擎"""
-
-    def setup_method(self):
-        """测试初始化"""
-        self.mock_storage = Mock()
-        self.mock_storage.upsert_memory = AsyncMock()
-        self.mock_storage.get_all_memories = AsyncMock()
-
-        # Mock components
-        self.mock_vitality_calculator = Mock()
-        self.mock_reinforcement_engine = Mock()
-        self.mock_archiver = Mock()
-        self.mock_archiver.archive = AsyncMock()
-        self.mock_archiver.resurrect = AsyncMock()
-        self.mock_garbage_collector = Mock()
-        self.mock_garbage_collector.collect = AsyncMock()
-        self.mock_reinforcement_engine.reinforce = AsyncMock()
-
-        self.engine = MemoryLifecycleEngine(
-            storage=self.mock_storage,
-            vitality_calculator=self.mock_vitality_calculator,
-            reinforcement_engine=self.mock_reinforcement_engine,
-            archiver=self.mock_archiver,
-            garbage_collector=self.mock_garbage_collector
-        )
-
-        # 创建测试记忆
-        self.test_memory = MemoryAtom(
-            id=uuid4(),
-            meta=MetaData(
-                source_agent_id="agent1",
-                user_id="user1",
-                confidence_score=0.8,
-                vitality_score=60.0,
-            ),
-            index=IndexLayer(
-                title="Test",
-                summary="Test summary with enough length",
-                tags=["test"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(content="Content"),
-        )
-
-    def teardown_method(self):
-        """清理"""
-        pass
-
-    @pytest.mark.asyncio
-    async def test_refresh_vitality(self):
-        """测试计算生命力"""
-        self.engine.vitality_calculator.calculate.return_value = 75.0
-
-        vitality = await self.engine.refresh_vitality(self.test_memory, persist=False)
-
-        assert vitality == 75.0
-        assert self.test_memory.meta.vitality_score == 75.0
-        self.engine.vitality_calculator.calculate.assert_called_once_with(self.test_memory)
-        self.mock_storage.upsert_memory.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_refresh_vitality_with_persist(self):
-        """测试计算不存在的记忆抛出异常"""
-        self.engine.vitality_calculator.calculate.return_value = 75.0
-
-        vitality = await self.engine.refresh_vitality(self.test_memory, persist=True)
-
-        assert vitality == 75.0
-        self.mock_storage.upsert_memory.assert_called_once_with(self.test_memory)
-
-    @pytest.mark.asyncio
-    async def test_record_hit_convenience(self):
-        """测试 record_hit 便捷方法"""
-        memory_id = uuid4()
-        self.engine.reinforcement_engine.reinforce.return_value = MagicMock(
-            new_vitality=55.0,
-            previous_vitality=50.0,
-        )
-
-        result = await self.engine.record_hit(memory_id)
-
-        assert result.new_vitality == 55.0
-
-        # 验证事件类型正确
-        call_args = self.engine.reinforcement_engine.reinforce.call_args
-        event = call_args[0][1]
-        assert event.event_type == EventType.HIT
-        assert event.memory_id == memory_id
-
-    @pytest.mark.asyncio
-    async def test_record_citation_convenience(self):
-        """测试 record_citation 便捷方法"""
-        memory_id = uuid4()
-        self.engine.reinforcement_engine.reinforce.return_value = MagicMock()
-
-        result = await self.engine.record_citation(memory_id)
-
-        call_args = self.engine.reinforcement_engine.reinforce.call_args
-        assert call_args[0][1].event_type == EventType.CITATION
-
-    @pytest.mark.asyncio
-    async def test_record_feedback_positive(self):
-        """测试记录正面反馈"""
-        memory_id = uuid4()
-        self.engine.reinforcement_engine.reinforce.return_value = MagicMock()
-
-        await self.engine.record_feedback(memory_id, positive=True)
-
-        call_args = self.engine.reinforcement_engine.reinforce.call_args
-        assert call_args[0][1].event_type == EventType.FEEDBACK_POSITIVE
-
-    @pytest.mark.asyncio
-    async def test_record_feedback_negative(self):
-        """测试记录负面反馈"""
-        memory_id = uuid4()
-        self.engine.reinforcement_engine.reinforce.return_value = MagicMock()
-
-        await self.engine.record_feedback(memory_id, positive=False)
-
-        call_args = self.engine.reinforcement_engine.reinforce.call_args
-        assert call_args[0][1].event_type == EventType.FEEDBACK_NEGATIVE
-
-    @pytest.mark.asyncio
-    async def test_run_garbage_collection(self):
-        """测试运行垃圾回收"""
-        self.mock_storage.get_all_memories.return_value = [self.test_memory]
-        self.engine.vitality_calculator.calculate.return_value = 55.0
-        self.engine.garbage_collector.collect.return_value = 5
-
-        archived = await self.engine.run_garbage_collection(force=True)
-
-        assert archived == 5
-        self.engine.garbage_collector.collect.assert_awaited_once_with(
-            [self.test_memory],
-            force=True,
-        )
-
-    @pytest.mark.asyncio
-    async def test_archive_memory(self):
-        """测试手动归档记忆"""
-        memory_id = uuid4()
-        self.engine.archiver.archive.return_value = None
-
-        await self.engine.archive_memory(memory_id)
-
-        self.engine.archiver.archive.assert_awaited_once_with(memory_id)
-
-    @pytest.mark.asyncio
-    async def test_resurrect_memory(self):
-        """测试唤醒记忆"""
-        memory_id = uuid4()
-        expected_memory = self.test_memory
-        self.engine.archiver.resurrect.return_value = expected_memory
-
-        result = await self.engine.resurrect_memory(memory_id)
-
-        assert result == expected_memory
-        self.engine.archiver.resurrect.assert_awaited_once_with(memory_id)
-
-    @pytest.mark.asyncio
-    async def test_get_low_vitality_memories(self):
-        """测试获取低生命力记忆"""
-        # 模拟返回记忆
-        self.mock_storage.get_all_memories.return_value = [
-            self.test_memory,
-        ]
-        self.engine.vitality_calculator.calculate.return_value = 15.0
-
-        low_memories = await self.engine.get_low_vitality_memories(threshold=20.0)
-
-        assert len(low_memories) == 1
-        assert low_memories[0][0] == self.test_memory.id
-        assert low_memories[0][1] == 15.0
-
-    @pytest.mark.asyncio
-    async def test_get_low_vitality_memories_respects_limit(self):
-        """测试获取低生命力记忆时遵守限制"""
-        # 创建多个记忆
-        memories = []
-        for i in range(10):
-            memories.append(
-                MemoryAtom(
-                    id=uuid4(),
-                    meta=MetaData(
-                        source_agent_id="a",
-                        user_id="u",
-                        vitality_score=10.0,
-                        confidence_score=0.8,
-                    ),
-                    index=IndexLayer(
-                        title=f"M{i}",
-                        summary="summary limit test",
-                        tags=[],
-                        memory_type=MemoryType.FACT,
-                    ),
-                    payload=PayloadLayer(content="c"),
-                )
-            )
-
-        self.mock_storage.get_all_memories.return_value = memories
-        self.engine.vitality_calculator.calculate.return_value = 15.0
-
-        low_memories = await self.engine.get_low_vitality_memories(threshold=20.0, limit=5)
-
-        # 应该只返回 5 个
-        assert len(low_memories) == 5
-
-    def test_get_event_history(self):
-        """测试获取事件历史"""
-        self.engine.reinforcement_engine.get_event_history.return_value = [
-            MagicMock(memory_id=uuid4())
-        ]
-
-        history = self.engine.get_event_history()
-
-        assert len(history) == 1
-        self.engine.reinforcement_engine.get_event_history.assert_called_once()
-
-    def test_get_stats(self):
-        """测试获取统计信息"""
-        self.engine.garbage_collector.get_stats.return_value = {
-            "last_run": "2025-01-01",
-            "total_archived": 10,
-        }
-        self.engine.reinforcement_engine.get_stats.return_value = {
-            "total_events": 50,
-        }
-
-        # 设置索引
-        self.engine.archiver._index = {str(uuid4()): Mock()}
-
-        stats = self.engine.get_stats()
-
-        assert "garbage_collector" in stats
-        assert "archive" in stats
-        assert stats["archive"]["total_archived"] == 1
-
-    def test_get_archived_memories(self):
-        """测试获取已归档记忆列表"""
-        self.engine.archiver.list_archived.return_value = [
-            Mock(memory_id=uuid4())
-        ]
-
-        archived = self.engine.get_archived_memories()
-
-        assert len(archived) == 1
-        self.engine.archiver.list_archived.assert_called_once()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    )
+    memory_library = MemoryLibrary(
+        short_term=short_term,
+        mid_term=mid_term,
+        long_term=long_term,
+    )
+
+    vitality = VitalityCalculator(VitalityCalculatorConfig())
+    reinforcement = DynamicReinforcementEngine(
+        mid_term=mid_term,
+        vitality_calculator=vitality,
+        config=ReinforcementEngineConfig(enable_event_history=True),
+    )
+    garbage_collector = PeriodicGarbageCollector(
+        memory_library=memory_library,
+        config=GarbageCollectorConfig(low_watermark=20.0, batch_size=10),
+    )
+    engine = MemoryLifecycleEngine(
+        mid_term=mid_term,
+        vitality_calculator=vitality,
+        reinforcement_engine=reinforcement,
+        garbage_collector=garbage_collector,
+    )
+    return engine, memory_library, mid_port
+
+
+@pytest.mark.asyncio
+async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
+    engine, memory_library, _ = lifecycle_stack
+    memory = _make_memory()
+    await memory_library.mid_term.upsert(memory)
+
+    result = await engine.record_hit(memory.id, source="integration")
+    updated = await memory_library.mid_term.get(memory.id)
+
+    assert result.event_type == EventType.HIT
+    assert updated.meta.access_count == 1
+    assert updated.meta.vitality_score >= result.previous_vitality
+
+
+@pytest.mark.asyncio
+async def test_memory_library_archive_and_revive_moves_between_stores(lifecycle_stack):
+    _, memory_library, _ = lifecycle_stack
+    memory = _make_memory(vitality_score=10.0)
+    await memory_library.mid_term.upsert(memory)
+
+    await memory_library.archive(memory.id)
+
+    assert await memory_library.mid_term.get(memory.id) is None
+    assert await memory_library.long_term.is_archived(memory.id) is True
+
+    await memory_library.revive(memory.id)
+
+    assert await memory_library.mid_term.get(memory.id) is not None
+    assert await memory_library.long_term.is_archived(memory.id) is False
+
+
+@pytest.mark.asyncio
+async def test_garbage_collection_archives_low_vitality_memory(lifecycle_stack):
+    engine, memory_library, _ = lifecycle_stack
+    low = _make_memory("low", vitality_score=5.0)
+    high = _make_memory("high", vitality_score=90.0)
+    await memory_library.mid_term.upsert(low)
+    await memory_library.mid_term.upsert(high)
+    engine.vitality_calculator.calculate = lambda memory: (
+        5.0 if memory.id == low.id else 90.0
+    )
+
+    archived = await engine.run_garbage_collection(force=True)
+
+    assert archived == 1
+    assert await memory_library.long_term.is_archived(low.id) is True
+    assert await memory_library.mid_term.get(high.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_event_history_is_exposed(lifecycle_stack):
+    engine, memory_library, _ = lifecycle_stack
+    memory = _make_memory()
+    await memory_library.mid_term.upsert(memory)
+
+    await engine.record_event(
+        MemoryEvent(event_type=EventType.CITATION, memory_id=memory.id, source="integration")
+    )
+
+    history = engine.get_event_history(memory.id)
+    assert len(history) == 1
+    assert history[0].event_type == EventType.CITATION
