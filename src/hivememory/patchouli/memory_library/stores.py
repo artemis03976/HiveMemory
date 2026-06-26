@@ -53,8 +53,8 @@ class ShortTermMemoryStore:
     短期记忆存储（MMU）
 
     持有 ShortTermStoragePort 实现，提供 buffer CRUD 与上层调度方法。
-    Phase 1 使用 InMemoryShortTermStorage，其 _get_sync / _put_sync 等 sync
-    快捷方法供本 Store 直接调用，保持所有公开方法同步以与感知层兼容。
+    Port contract is synchronous because the perception layer uses this store on
+    its hot path without await points.
     """
 
     def __init__(
@@ -62,7 +62,7 @@ class ShortTermMemoryStore:
         port: Optional[ShortTermStoragePort] = None,
         max_resident_topics: int = 5,
     ) -> None:
-        self._port: InMemoryShortTermStorage = port or InMemoryShortTermStorage()  # type: ignore[assignment]
+        self._port: ShortTermStoragePort = port or InMemoryShortTermStorage()
         self.max_resident_topics = max_resident_topics
         self._last_active_topic_id: Optional[str] = None
         logger.info(f"ShortTermMemoryStore 初始化, max_resident={max_resident_topics}")
@@ -85,7 +85,7 @@ class ShortTermMemoryStore:
         deep_copy: bool = True,
     ) -> Optional[TopicData]:
         """Return an immutable topic read view without exposing SemanticBuffer."""
-        buf = self._port._get_sync(topic_id)
+        buf = self._port.get(topic_id)
         if buf is None:
             return None
         if touch:
@@ -102,9 +102,9 @@ class ShortTermMemoryStore:
     ) -> List[TopicData]:
         """Return immutable read views for active topics."""
         if user_id is None:
-            buffers = self._port._list_all_sync()
+            buffers = self._port.list_all()
         else:
-            buffers = self._port._list_by_user_sync(user_id)
+            buffers = self._port.list_by_user(user_id)
         if not include_empty:
             buffers = [buf for buf in buffers if buf.blocks]
         return [self._to_topic_data(buf, deep_copy=deep_copy) for buf in buffers]
@@ -123,12 +123,12 @@ class ShortTermMemoryStore:
         topic_summary: str = "",
     ) -> SemanticBuffer:
         buf = SemanticBuffer(user_id=user_id, topic_title=topic_title, topic_summary=topic_summary)
-        self._port._put_sync(buf.topic_id, buf)
+        self._port.put(buf.topic_id, buf)
         logger.debug(f"创建话题段: topic_id={buf.topic_id}, owner={user_id}")
         return buf
 
     def pop_buffer(self, topic_id: str) -> Optional[SemanticBuffer]:
-        buf = self._port._pop_sync(topic_id)
+        buf = self._port.pop(topic_id)
         if buf is not None:
             logger.info(f"移除话题段: topic_id={topic_id}")
         return buf
@@ -136,7 +136,7 @@ class ShortTermMemoryStore:
     # ========== 写操作（命名方法，禁止调用方直接写 buffer 字段）==========
 
     def add_block(self, topic_id: str, block: LogicalBlock) -> None:
-        buf = self._port._get_sync(topic_id)
+        buf = self._port.get(topic_id)
         if buf is None:
             logger.error(f"add_block: topic_id={topic_id} 不存在")
             return
@@ -146,7 +146,7 @@ class ShortTermMemoryStore:
 
     def clear_blocks(self, topic_id: str) -> None:
         """清空 blocks 并重置 token 计数（替代 buffer.blocks.clear() + total_tokens=0）。"""
-        buf = self._port._get_sync(topic_id)
+        buf = self._port.get(topic_id)
         if buf is None:
             return
         buf.blocks.clear()
@@ -161,7 +161,7 @@ class ShortTermMemoryStore:
         retain_count: Optional[int] = None,
     ) -> int:
         """写入 state_summary，并可选保留最近 N 个 blocks。"""
-        buf = self._port._get_sync(topic_id)
+        buf = self._port.get(topic_id)
         if buf is None:
             return 0
         buf.state_summary = summary
@@ -175,14 +175,14 @@ class ShortTermMemoryStore:
 
     def update_title(self, topic_id: str, title: str) -> None:
         """写入 topic_title（替代 buffer.topic_title = title）。"""
-        buf = self._port._get_sync(topic_id)
+        buf = self._port.get(topic_id)
         if buf is None:
             return
         buf.topic_title = title
 
     def clear_buffer(self, topic_id: str) -> List[LogicalBlock]:
         """清空话题段内容，保留在活跃池中。"""
-        buf = self._port._get_sync(topic_id)
+        buf = self._port.get(topic_id)
         if buf is None:
             return []
         cleared = buf.blocks.copy()
@@ -193,7 +193,7 @@ class ShortTermMemoryStore:
         return cleared
 
     def update_metadata(self, topic_id: str, state: Optional[BufferState] = None) -> None:
-        buf = self._port._get_sync(topic_id)
+        buf = self._port.get(topic_id)
         if buf is None:
             return
         if state is not None:
@@ -202,22 +202,23 @@ class ShortTermMemoryStore:
 
     # ========== LRU ==========
 
-    def get_lru_buffer(self) -> Optional[SemanticBuffer]:
-        bufs = self._port._list_all_sync()
+    def get_lru_topic(self) -> Optional[str]:
+        """返回访问时间最久远的话题 topic_id，无话题时返回 None。"""
+        bufs = self._port.list_all()
         if not bufs:
             return None
-        return min(bufs, key=lambda b: b.last_accessed_at)
+        return min(bufs, key=lambda b: b.last_accessed_at).topic_id
 
     def needs_eviction(self) -> bool:
-        return self._port._count() >= self.max_resident_topics
+        return self._port.count() >= self.max_resident_topics
 
     def get_active_topic_buffer_count(self) -> int:
-        return self._port._count()
+        return self._port.count()
 
     # ========== info ==========
 
     def get_buffer_info(self, topic_id: str) -> Dict[str, Any]:
-        buf = self._port._get_sync(topic_id)
+        buf = self._port.get(topic_id)
         if buf:
             return {
                 "exists": True,

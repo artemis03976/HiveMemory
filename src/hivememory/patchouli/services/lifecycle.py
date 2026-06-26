@@ -5,10 +5,9 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 from time import monotonic
-from typing import TYPE_CHECKING, Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, List, Tuple
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
@@ -26,8 +25,8 @@ class LifecycleFamiliar:
     def __init__(
         self,
         *,
-        lifecycle_engine: Optional["MemoryLifecycleEngine"],
-        memory_library: Optional["MemoryLibrary"] = None,
+        lifecycle_engine: "MemoryLifecycleEngine",
+        memory_library: "MemoryLibrary",
     ) -> None:
         self.lifecycle_engine = lifecycle_engine
         self._memory_library = memory_library
@@ -42,17 +41,8 @@ class LifecycleFamiliar:
             "duration_ms": 0.0,
             "error": None,
         }
-
-        if self.lifecycle_engine is None:
-            result["error"] = "lifecycle_engine is not available"
-            result["duration_ms"] = (monotonic() - start) * 1000
-            logger.warning("Lifecycle gardening skipped: lifecycle_engine is not available")
-            return result
-
         try:
-            archived = self.lifecycle_engine.run_garbage_collection(force=False)
-            if inspect.isawaitable(archived):
-                archived = await archived
+            archived = await self.lifecycle_engine.run_garbage_collection(force=False)
             result["success"] = True
             result["archived_count"] = int(archived or 0)
         except Exception as exc:
@@ -60,36 +50,23 @@ class LifecycleFamiliar:
             logger.error("Lifecycle gardening failed: %s", exc, exc_info=True)
         finally:
             result["duration_ms"] = (monotonic() - start) * 1000
-
         return result
 
     async def refresh_memory_vitality(
         self,
         memories: Iterable[MemoryAtom],
         persist: bool = False,
-    ) -> Any:
+    ) -> List[Tuple[UUID, float]]:
         """批量刷新记忆生命力。"""
-        lifecycle = self._require_lifecycle_engine()
-        result = lifecycle.refresh_vitality_batch(memories, persist=persist)
-        if inspect.isawaitable(result):
-            return await result
-        return result
+        return await self.lifecycle_engine.refresh_vitality_batch(memories, persist=persist)
 
     async def record_hit(self, memory_id: UUID | str, source: str = "system") -> Any:
         """记录一次命中事件。"""
-        lifecycle = self._require_lifecycle_engine()
-        result = lifecycle.record_hit(self._normalize_uuid(memory_id), source=source)
-        if inspect.isawaitable(result):
-            return await result
-        return result
+        return await self.lifecycle_engine.record_hit(self._normalize_uuid(memory_id), source=source)
 
     async def record_citation(self, memory_id: UUID | str, source: str = "system") -> Any:
         """记录一次引用事件。"""
-        lifecycle = self._require_lifecycle_engine()
-        result = lifecycle.record_citation(self._normalize_uuid(memory_id), source=source)
-        if inspect.isawaitable(result):
-            return await result
-        return result
+        return await self.lifecycle_engine.record_citation(self._normalize_uuid(memory_id), source=source)
 
     async def record_feedback(
         self,
@@ -99,26 +76,15 @@ class LifecycleFamiliar:
         source: str = "user",
     ) -> Any:
         """记录用户反馈事件。"""
-        lifecycle = self._require_lifecycle_engine()
-        result = lifecycle.record_feedback(
+        return await self.lifecycle_engine.record_feedback(
             self._normalize_uuid(memory_id),
             positive=positive,
             source=source,
         )
-        if inspect.isawaitable(result):
-            return await result
-        return result
 
     async def revive_memory(self, memory_id: UUID | str) -> None:
         """从长期存储复活记忆到中期存储。"""
-        if self._memory_library is None:
-            raise RuntimeError("memory_library is not available")
         await self._memory_library.revive(self._normalize_uuid(memory_id))
-
-    def _require_lifecycle_engine(self) -> "MemoryLifecycleEngine":
-        if self.lifecycle_engine is None:
-            raise RuntimeError("lifecycle_engine is not available")
-        return self.lifecycle_engine
 
     @staticmethod
     def _normalize_uuid(memory_id: UUID | str) -> UUID:

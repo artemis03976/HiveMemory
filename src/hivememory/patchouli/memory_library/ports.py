@@ -26,25 +26,32 @@ class ShortTermStoragePort(ABC):
     """
     短期存储 Port — topic_id → SemanticBuffer 的键值映射。
 
+    ShortTermMemoryStore exposes synchronous APIs to the perception layer, so the
+    short-term port is synchronous as well. Async backends should hide their I/O
+    boundary behind an adapter instead of leaking await points into the store.
+
     实现：
         InMemoryShortTermStorage（内存态，Phase 1）
         RedisShortTermStorage（future）
     """
 
     @abstractmethod
-    async def get(self, topic_id: str) -> Optional[SemanticBuffer]: ...
+    def get(self, topic_id: str) -> Optional[SemanticBuffer]: ...
 
     @abstractmethod
-    async def put(self, topic_id: str, buffer: SemanticBuffer) -> None: ...
+    def put(self, topic_id: str, buffer: SemanticBuffer) -> None: ...
 
     @abstractmethod
-    async def pop(self, topic_id: str) -> Optional[SemanticBuffer]: ...
+    def pop(self, topic_id: str) -> Optional[SemanticBuffer]: ...
 
     @abstractmethod
-    async def list_by_user(self, user_id: str) -> List[SemanticBuffer]: ...
+    def list_by_user(self, user_id: str) -> List[SemanticBuffer]: ...
 
     @abstractmethod
-    async def list_all(self) -> List[SemanticBuffer]: ...
+    def list_all(self) -> List[SemanticBuffer]: ...
+
+    @abstractmethod
+    def count(self) -> int: ...
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(name="short_term", healthy=True)

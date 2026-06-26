@@ -29,17 +29,17 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
         self._user_index: Dict[str, Set[str]] = {}
         self._lock = threading.RLock()
 
-    async def get(self, topic_id: str) -> Optional[SemanticBuffer]:
+    def get(self, topic_id: str) -> Optional[SemanticBuffer]:
         with self._lock:
             return self._buffers.get(topic_id)
 
-    async def put(self, topic_id: str, buffer: SemanticBuffer) -> None:
+    def put(self, topic_id: str, buffer: SemanticBuffer) -> None:
         with self._lock:
             self._buffers[topic_id] = buffer
             uid = buffer.user_id
             self._user_index.setdefault(uid, set()).add(topic_id)
 
-    async def pop(self, topic_id: str) -> Optional[SemanticBuffer]:
+    def pop(self, topic_id: str) -> Optional[SemanticBuffer]:
         with self._lock:
             buf = self._buffers.pop(topic_id, None)
             if buf is not None:
@@ -49,14 +49,18 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
                     self._user_index.pop(buf.user_id, None)
             return buf
 
-    async def list_by_user(self, user_id: str) -> List[SemanticBuffer]:
+    def list_by_user(self, user_id: str) -> List[SemanticBuffer]:
         with self._lock:
             ids = self._user_index.get(user_id, set())
             return [self._buffers[t] for t in ids if t in self._buffers]
 
-    async def list_all(self) -> List[SemanticBuffer]:
+    def list_all(self) -> List[SemanticBuffer]:
         with self._lock:
             return list(self._buffers.values())
+
+    def count(self) -> int:
+        with self._lock:
+            return len(self._buffers)
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(
@@ -65,39 +69,25 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
             detail="in-memory",
         )
 
-    # ── sync shortcuts（供 ShortTermMemoryStore 内部直接访问，避免 async 强转） ──
+    # Backward-compatible aliases for older tests and diagnostics.
 
     def _get_sync(self, topic_id: str) -> Optional[SemanticBuffer]:
-        with self._lock:
-            return self._buffers.get(topic_id)
+        return self.get(topic_id)
 
     def _put_sync(self, topic_id: str, buffer: SemanticBuffer) -> None:
-        with self._lock:
-            self._buffers[topic_id] = buffer
-            self._user_index.setdefault(buffer.user_id, set()).add(topic_id)
+        self.put(topic_id, buffer)
 
     def _pop_sync(self, topic_id: str) -> Optional[SemanticBuffer]:
-        with self._lock:
-            buf = self._buffers.pop(topic_id, None)
-            if buf is not None:
-                topics = self._user_index.get(buf.user_id, set())
-                topics.discard(topic_id)
-                if not topics:
-                    self._user_index.pop(buf.user_id, None)
-            return buf
+        return self.pop(topic_id)
 
     def _list_by_user_sync(self, user_id: str) -> List[SemanticBuffer]:
-        with self._lock:
-            ids = self._user_index.get(user_id, set())
-            return [self._buffers[t] for t in ids if t in self._buffers]
+        return self.list_by_user(user_id)
 
     def _list_all_sync(self) -> List[SemanticBuffer]:
-        with self._lock:
-            return list(self._buffers.values())
+        return self.list_all()
 
     def _count(self) -> int:
-        with self._lock:
-            return len(self._buffers)
+        return self.count()
 
 
 __all__ = ["InMemoryShortTermStorage"]

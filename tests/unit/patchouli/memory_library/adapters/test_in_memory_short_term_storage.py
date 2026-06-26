@@ -7,9 +7,7 @@ InMemoryShortTermStorage 单元测试
 - 线程安全性测试
 """
 
-import pytest
 import threading
-from unittest.mock import AsyncMock
 
 from hivememory.core.models import TurnRecord
 from hivememory.engines.perception.models import LogicalBlock
@@ -32,44 +30,39 @@ class TestInMemoryShortTermStorageBasic:
     def setup_method(self):
         self.storage = InMemoryShortTermStorage()
 
-    @pytest.mark.asyncio
-    async def test_get_returns_none_for_missing(self):
-        result = await self.storage.get("missing")
+    def test_get_returns_none_for_missing(self):
+        result = self.storage.get("missing")
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_put_and_get(self):
+    def test_put_and_get(self):
         buf = _make_buffer("t1", "u1")
-        await self.storage.put("t1", buf)
+        self.storage.put("t1", buf)
 
-        result = await self.storage.get("t1")
+        result = self.storage.get("t1")
         assert result is buf
 
-    @pytest.mark.asyncio
-    async def test_put_overwrites_existing(self):
+    def test_put_overwrites_existing(self):
         buf1 = _make_buffer("t1", "u1")
         buf2 = _make_buffer("t1", "u2")
 
-        await self.storage.put("t1", buf1)
-        await self.storage.put("t1", buf2)
+        self.storage.put("t1", buf1)
+        self.storage.put("t1", buf2)
 
-        result = await self.storage.get("t1")
+        result = self.storage.get("t1")
         assert result is buf2
         assert result.user_id == "u2"
 
-    @pytest.mark.asyncio
-    async def test_pop_returns_and_removes(self):
+    def test_pop_returns_and_removes(self):
         buf = _make_buffer("t1", "u1")
-        await self.storage.put("t1", buf)
+        self.storage.put("t1", buf)
 
-        result = await self.storage.pop("t1")
+        result = self.storage.pop("t1")
 
         assert result is buf
-        assert await self.storage.get("t1") is None
+        assert self.storage.get("t1") is None
 
-    @pytest.mark.asyncio
-    async def test_pop_returns_none_for_missing(self):
-        result = await self.storage.pop("missing")
+    def test_pop_returns_none_for_missing(self):
+        result = self.storage.pop("missing")
         assert result is None
 
 
@@ -79,36 +72,37 @@ class TestInMemoryShortTermStorageList:
     def setup_method(self):
         self.storage = InMemoryShortTermStorage()
 
-    @pytest.mark.asyncio
-    async def test_list_by_user_returns_user_buffers(self):
-        await self.storage.put("t1", _make_buffer("t1", "u1"))
-        await self.storage.put("t2", _make_buffer("t2", "u1"))
-        await self.storage.put("t3", _make_buffer("t3", "u2"))
+    def test_list_by_user_returns_user_buffers(self):
+        self.storage.put("t1", _make_buffer("t1", "u1"))
+        self.storage.put("t2", _make_buffer("t2", "u1"))
+        self.storage.put("t3", _make_buffer("t3", "u2"))
 
-        result = await self.storage.list_by_user("u1")
+        result = self.storage.list_by_user("u1")
 
         assert len(result) == 2
         topic_ids = {b.topic_id for b in result}
         assert topic_ids == {"t1", "t2"}
 
-    @pytest.mark.asyncio
-    async def test_list_by_user_returns_empty_for_no_such_user(self):
-        result = await self.storage.list_by_user("missing")
+    def test_list_by_user_returns_empty_for_no_such_user(self):
+        result = self.storage.list_by_user("missing")
         assert result == []
 
-    @pytest.mark.asyncio
-    async def test_list_all_returns_all_buffers(self):
-        await self.storage.put("t1", _make_buffer("t1", "u1"))
-        await self.storage.put("t2", _make_buffer("t2", "u2"))
+    def test_list_all_returns_all_buffers(self):
+        self.storage.put("t1", _make_buffer("t1", "u1"))
+        self.storage.put("t2", _make_buffer("t2", "u2"))
 
-        result = await self.storage.list_all()
+        result = self.storage.list_all()
 
         assert len(result) == 2
 
-    @pytest.mark.asyncio
-    async def test_list_all_returns_empty_when_empty(self):
-        result = await self.storage.list_all()
+    def test_list_all_returns_empty_when_empty(self):
+        result = self.storage.list_all()
         assert result == []
+
+    def test_count_returns_buffer_count(self):
+        assert self.storage.count() == 0
+        self.storage.put("t1", _make_buffer("t1", "u1"))
+        assert self.storage.count() == 1
 
 
 class TestInMemoryShortTermStorageSync:
@@ -119,7 +113,7 @@ class TestInMemoryShortTermStorageSync:
 
     def test_get_sync(self):
         buf = _make_buffer("t1", "u1")
-        self.storage._put_sync("t1", buf)
+        self.storage.put("t1", buf)
 
         result = self.storage._get_sync("t1")
         assert result is buf
@@ -132,29 +126,29 @@ class TestInMemoryShortTermStorageSync:
         buf = _make_buffer("t1", "u1")
         self.storage._put_sync("t1", buf)
 
-        assert self.storage._get_sync("t1") is buf
+        assert self.storage.get("t1") is buf
 
     def test_pop_sync(self):
         buf = _make_buffer("t1", "u1")
-        self.storage._put_sync("t1", buf)
+        self.storage.put("t1", buf)
 
         result = self.storage._pop_sync("t1")
 
         assert result is buf
-        assert self.storage._get_sync("t1") is None
+        assert self.storage.get("t1") is None
 
     def test_list_by_user_sync(self):
-        self.storage._put_sync("t1", _make_buffer("t1", "u1"))
-        self.storage._put_sync("t2", _make_buffer("t2", "u1"))
-        self.storage._put_sync("t3", _make_buffer("t3", "u2"))
+        self.storage.put("t1", _make_buffer("t1", "u1"))
+        self.storage.put("t2", _make_buffer("t2", "u1"))
+        self.storage.put("t3", _make_buffer("t3", "u2"))
 
         result = self.storage._list_by_user_sync("u1")
 
         assert len(result) == 2
 
     def test_list_all_sync(self):
-        self.storage._put_sync("t1", _make_buffer("t1", "u1"))
-        self.storage._put_sync("t2", _make_buffer("t2", "u2"))
+        self.storage.put("t1", _make_buffer("t1", "u1"))
+        self.storage.put("t2", _make_buffer("t2", "u2"))
 
         result = self.storage._list_all_sync()
 
@@ -163,13 +157,13 @@ class TestInMemoryShortTermStorageSync:
     def test_count(self):
         assert self.storage._count() == 0
 
-        self.storage._put_sync("t1", _make_buffer("t1", "u1"))
+        self.storage.put("t1", _make_buffer("t1", "u1"))
         assert self.storage._count() == 1
 
-        self.storage._put_sync("t2", _make_buffer("t2", "u1"))
+        self.storage.put("t2", _make_buffer("t2", "u1"))
         assert self.storage._count() == 2
 
-        self.storage._pop_sync("t1")
+        self.storage.pop("t1")
         assert self.storage._count() == 1
 
 
@@ -192,7 +186,7 @@ class TestInMemoryShortTermStorageThreadSafety:
         def get_task(topic_id):
             try:
                 for i in range(100):
-                    storage._get_sync(f"{topic_id}_{i}")
+                    storage.get(f"{topic_id}_{i}")
             except Exception as e:
                 errors.append(e)
 

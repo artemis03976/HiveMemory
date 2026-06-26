@@ -111,11 +111,11 @@ class PerceptionFamiliar:
         if not self._short_term.needs_eviction():
             return
             
-        lru = self._short_term.get_lru_buffer()
-        if lru is None:
+        lru_topic_id = self._short_term.get_lru_topic()
+        if lru_topic_id is None:
             return
 
-        settle_payload = await self.perception_layer.settle_topic(lru.topic_id, FlushReason.LRU_EVICTION)
+        settle_payload = await self.perception_layer.settle_topic(lru_topic_id, FlushReason.LRU_EVICTION)
 
         if settle_payload is not None:
             await self._bus.request(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, settle_payload)

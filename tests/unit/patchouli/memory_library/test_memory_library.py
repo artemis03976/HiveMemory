@@ -30,8 +30,10 @@ from hivememory.patchouli.memory_library import (
     LongTermMemoryStore,
     ArtifactStore,
 )
+from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
+from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
 
 
 def _make_memory(title="test_memory", memory_id=None) -> MemoryAtom:
@@ -61,6 +63,31 @@ def _make_topic_data(topic_id="t1", user_id="u1", blocks=None, last_accessed_at=
         last_accessed_at=last_accessed_at,
         total_tokens=10,
     )
+
+
+class FakeShortTermStoragePort(ShortTermStoragePort):
+    """Port-only fake; intentionally has no private _*_sync methods."""
+
+    def __init__(self) -> None:
+        self.buffers: dict[str, SemanticBuffer] = {}
+
+    def get(self, topic_id: str) -> SemanticBuffer | None:
+        return self.buffers.get(topic_id)
+
+    def put(self, topic_id: str, buffer: SemanticBuffer) -> None:
+        self.buffers[topic_id] = buffer
+
+    def pop(self, topic_id: str) -> SemanticBuffer | None:
+        return self.buffers.pop(topic_id, None)
+
+    def list_by_user(self, user_id: str) -> list[SemanticBuffer]:
+        return [buf for buf in self.buffers.values() if buf.user_id == user_id]
+
+    def list_all(self) -> list[SemanticBuffer]:
+        return list(self.buffers.values())
+
+    def count(self) -> int:
+        return len(self.buffers)
 
 
 class TestShortTermMemoryStore:
@@ -179,7 +206,7 @@ class TestShortTermMemoryStore:
 
         assert self.store.needs_eviction() is True
 
-    def test_get_lru_buffer_returns_oldest_accessed(self):
+    def test_get_lru_topic_returns_oldest_accessed(self):
         buf1 = self.store.create_buffer("u1")
         buf2 = self.store.create_buffer("u1")
 
@@ -187,9 +214,9 @@ class TestShortTermMemoryStore:
         buf1.last_accessed_at = 100.0
         buf2.last_accessed_at = 200.0
 
-        lru = self.store.get_lru_buffer()
+        lru = self.store.get_lru_topic()
 
-        assert lru.topic_id == buf1.topic_id
+        assert lru == buf1.topic_id
 
     def test_pop_buffer_removes_and_returns(self):
         buf = self.store.create_buffer("u1")
@@ -223,6 +250,24 @@ class TestShortTermMemoryStore:
         self.store.set_last_active_topic(buf2.topic_id)
 
         assert self.store.get_last_active_topic() == buf2.topic_id
+
+    def test_store_uses_short_term_port_contract_not_private_adapter_methods(self):
+        port = FakeShortTermStoragePort()
+        store = ShortTermMemoryStore(port=port, max_resident_topics=2)
+
+        buf = store.create_buffer("u1", topic_title="portable")
+        block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
+        store.add_block(buf.topic_id, block)
+
+        assert store.get_active_topic_buffer_count() == 1
+        assert store.get_lru_topic() == buf.topic_id
+        data = store.get_topic_data(buf.topic_id, deep_copy=False)
+        assert data.topic_title == "portable"
+        assert data.blocks == (block,)
+
+        removed = store.pop_buffer(buf.topic_id)
+        assert removed is buf
+        assert store.get_active_topic_buffer_count() == 0
 
 
 class TestMidTermMemoryStore:
