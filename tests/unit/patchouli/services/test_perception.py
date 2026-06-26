@@ -197,7 +197,7 @@ class TestPerceptionFamiliar:
         store = Mock()
         store.topic_exists.return_value = False
         store.needs_eviction.return_value = True
-        store.get_lru_buffer.return_value = lru
+        store.get_lru_topic.return_value = "old_topic"
         bus = Mock()
         bus.request = AsyncMock(return_value=None)
         familiar = PerceptionFamiliar(
