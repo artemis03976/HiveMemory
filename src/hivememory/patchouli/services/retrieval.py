@@ -5,13 +5,9 @@
 职责：
     - 混合检索 (Dense + Sparse + RRF)
     - 重排序 (Reranking)
-    - 上下文渲染
     - 访问统计更新
 
-基于原 MemoryRetrievalEngine (engines/retrieval/engine.py) 改造
-
-作者: HiveMemory Team
-版本: 2.2 (乐观检索策略)
+版本: 3.0 (Phase C — renderer 解耦)
 """
 
 from typing import Any, List, Optional
@@ -28,7 +24,6 @@ from hivememory.core.models import (
     TopicSnapshot,
 )
 from hivememory.engines.retrieval.engine import RetrievalEngine
-from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
@@ -44,7 +39,6 @@ class RetrievalFamiliar:
     帕秋莉·检索使魔 (The Retrieval Familiar of Patchouli)
 
     当"真理之眼"确认需要查书时，帕秋莉会召唤使魔去书架取书。
-    这是一个即时响应的动作（Hot Path），没有复杂的思考，只有精准的执行。
 
     特性：
         - 原生异步 I/O
@@ -57,28 +51,13 @@ class RetrievalFamiliar:
         3. 调用 RetrievalEngine 进行数据检索
         4. 处理副作用 (如统计更新)
 
-    乐观检索策略：
-        - 不再从 Gateway 接收 filters
-        - 仅根据 user_id 创建过滤条件
-        - 让 Reranker 来排序所有相关记忆
-
-    使用示例:
-        ```python
-        from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-        from hivememory.engines.retrieval.engine import RetrievalEngine
-        # ...
-        engine = RetrievalEngine(retriever=..., renderer=...)
-        familiar = RetrievalFamiliar(engine=engine, memory_library=...)
-
-        result = await familiar.retrieve(request)
-        ```
+    rendered_context 由调用方填充 (Phase D)。
     """
 
     def __init__(
         self,
         engine: RetrievalEngine,
         memory_library: MemoryLibrary,
-        passive_renderer: Optional[BaseContextRenderer] = None,
         local_bus: Optional[Any] = None,
     ):
         """
@@ -87,12 +66,10 @@ class RetrievalFamiliar:
         Args:
             engine: 检索引擎实例
             memory_library: 三级记忆书库，用于短/中/长期读入口
-            passive_renderer: 被动模式渲染器 (FullContextRenderer)，
-                              用于 Passive Observer Mode 的上下文降级渲染
+            local_bus: 本地总线，用于与其他服务通信
         """
         self.engine = engine
         self._memory_library = memory_library
-        self._passive_renderer = passive_renderer
         self._local_bus = local_bus
 
         logger.info("RetrievalFamiliar (检索使魔) 初始化完成")
@@ -142,7 +119,9 @@ class RetrievalFamiliar:
     # ========== 中期记忆查询 ========== 
 
     async def get_memory(self, memory_id: UUID | str) -> Optional[MemoryAtom]:
-        """Read a mid-term memory atom by id."""
+        """
+        根据记忆 ID 读取中期记忆原子。
+        """
         normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
         return await self._memory_library.mid_term.get(normalized_id)
 
@@ -153,7 +132,9 @@ class RetrievalFamiliar:
         filters: Optional[dict[str, Any]] = None,
         limit: int = 20,
     ) -> List[MemoryAtom]:
-        """List or search mid-term memories without applying public API policy."""
+        """
+        根据查询和过滤条件列出中期记忆原子。
+        """
         if query:
             results = await self._memory_library.mid_term.search(
                 query=query,
@@ -167,7 +148,9 @@ class RetrievalFamiliar:
         )
 
     async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
-        """Resolve an agent profile from mid-term memory atoms."""
+        """
+        根据Agent别名读取Agent配置文件。
+        """
         if not agent_alias or agent_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
@@ -187,25 +170,9 @@ class RetrievalFamiliar:
         )
         return OMNI_DOLL_PROFILE
 
-    async def retrieve(self, request: RetrievalRequest, mode: str = "active") -> RetrievalResponse:
+    async def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
         """
-        检索相关记忆
-
-        完整流程:
-        1. 根据 user_id 创建基础过滤条件 (安全基线)
-        2. 合并 MTP filter 传入的额外过滤维度 (如 type:CODE)
-        3. 构建查询对象 (RetrievalQuery)
-        4. 调用 Engine 执行检索
-        5. 根据 mode 选择渲染策略:
-           - active: 使用 Engine 内置 renderer (CompactContext/Cascade)
-           - passive: 使用 FullContextRenderer 降级渲染 (Passive.md §5.2)
-
-        Args:
-            request: 检索请求协议消息
-            mode: 运行模式 ("active" | "passive")
-
-        Returns:
-            RetrievalResponse 对象
+        检索相关记忆，不填充 rendered_context（由调用方编译，Phase D）。
         """
         start_time = time.time()
 
@@ -238,64 +205,34 @@ class RetrievalFamiliar:
             response.memories_count = engine_result.memories_count
             response.latency_ms = engine_result.latency_ms
 
-            # Step 5: 渲染策略分流 (Passive.md §5.2)
-            if (
-                mode == "passive"
-                and self._passive_renderer is not None
-                and engine_result.search_results
-                and not engine_result.search_results.is_empty()
-            ):
-                # 被动模式: 使用 FullContextRenderer 降级渲染
-                # 外部 Agent 不懂 MTP，无法使用 READ 获取详情，
-                # 因此直接注入完整 Payload 文本
-                response.rendered_context = self._passive_renderer.render(
-                    engine_result.search_results.results
-                )
-            else:
-                if engine_result.search_results and not engine_result.search_results.is_empty():
-                    response.rendered_context = self.engine.renderer.render(
-                        engine_result.search_results.results
-                    )
-                else:
-                    response.rendered_context = engine_result.rendered_context
-
             logger.info(
                 f"检索完成: query='{request.semantic_query[:20]}...', "
-                f"mode={mode}, filters={query_filters}, "
+                f"filters={query_filters}, "
                 f"使魔取回了 {response.memories_count} 条记忆, "
                 f"latency={response.latency_ms:.1f}ms"
             )
 
         except (StorageOfflineError, StorageReadError):
-            raise  # Must propagate to Koakuma's _route_and_execute
+            raise
         except Exception as e:
             logger.error(f"检索失败: {e}", exc_info=True)
             response.latency_ms = (time.time() - start_time) * 1000
 
         return response
 
-    async def retrieve_async(
-        self,
-        request: RetrievalRequest,
-        mode: str = "active",
-    ) -> RetrievalResponse:
-        """Async bus entrypoint for retrieval."""
-        response = await self.retrieve(request, mode)
+    async def retrieve_async(self, request: RetrievalRequest) -> RetrievalResponse:
+        """Async bus entrypoint — search + vitality refresh only."""
+        response = await self.retrieve(request)
         await self._refresh_vitality_for_memories(response.memories)
-        self._rerender_response(response, mode)
         return response
 
     async def retrieve_by_aliases(
         self,
         aliases: List[str],
         identity: Optional[Identity] = None,
-        mode: str = "active",
     ) -> RetrievalResponse:
         """
-        精确按 alias 取回记忆并复用 Retrieval renderer 渲染上下文。
-
-        该入口与 retrieve() 并列：retrieve() 负责语义检索，retrieve_by_aliases()
-        负责已知 alias 的精确取回。二者最终都返回 RetrievalResponse.rendered_context。
+        精确按 alias 取回记忆。rendered_context 由调用方填充 (Phase D)。
         """
         start_time = time.time()
         response = RetrievalResponse()
@@ -319,13 +256,6 @@ class RetrievalFamiliar:
 
             response.memories = memories
             response.memories_count = len(memories)
-
-            if memories:
-                if mode == "passive" and self._passive_renderer is not None:
-                    response.rendered_context = self._passive_renderer.render(memories)
-                else:
-                    response.rendered_context = self.engine.render_memories(memories)
-
             response.latency_ms = (time.time() - start_time) * 1000
 
         except (StorageOfflineError, StorageReadError):
@@ -340,12 +270,10 @@ class RetrievalFamiliar:
         self,
         aliases: List[str],
         identity: Optional[Identity] = None,
-        mode: str = "active",
     ) -> RetrievalResponse:
         """Async bus entrypoint for exact alias retrieval."""
-        response = await self.retrieve_by_aliases(aliases, identity, mode)
+        response = await self.retrieve_by_aliases(aliases, identity)
         await self._refresh_vitality_for_memories(response.memories)
-        self._rerender_response(response, mode)
         return response
 
     async def update_access_stats(self, memories: List[MemoryAtom]) -> None:
@@ -368,14 +296,18 @@ class RetrievalFamiliar:
         limit: int = 100,
         vitality_threshold: Optional[float] = None,
     ):
-        """查询长期冷存储归档记录。"""
+        """
+        查询长期冷存储归档记录。
+        """
         return await self._memory_library.long_term.query(
             limit=limit,
             vitality_threshold=vitality_threshold,
         )
 
     async def is_archived(self, memory_id) -> bool:
-        """检查记忆是否已进入长期冷存储。"""
+        """
+        检查记忆是否已进入长期冷存储。
+        """
         return await self._memory_library.long_term.is_archived(memory_id)
 
     # ========== 内部辅助方法 ========== 
@@ -391,14 +323,6 @@ class RetrievalFamiliar:
             )
         except Exception as e:
             logger.warning(f"Failed to refresh retrieval vitality scores: {e}")
-
-    def _rerender_response(self, response: RetrievalResponse, mode: str) -> None:
-        if not response.memories:
-            return
-        if mode == "passive" and self._passive_renderer is not None:
-            response.rendered_context = self._passive_renderer.render(response.memories)
-        else:
-            response.rendered_context = self.engine.render_memories(response.memories)
 
 
 __all__ = [

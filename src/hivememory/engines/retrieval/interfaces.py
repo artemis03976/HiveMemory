@@ -1,21 +1,15 @@
 """
 HiveMemory - Retrieval 模块接口抽象层
 
-定义了记忆检索模块的所有核心接口，遵循依赖倒置原则，便于扩展和测试。
-
 接口列表:
 - BaseMemoryRetriever: 记忆检索器接口
-- BaseContextRenderer: 上下文渲染器接口
 - BaseReranker: 重排序器接口
-
-作者: HiveMemory Team
-版本: 0.1.0
+- BaseFusion: 融合算法接口
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
 
-from hivememory.engines.retrieval.models import RetrievalQuery, SearchResults, RenderFormat
+from hivememory.engines.retrieval.models import RetrievalQuery, SearchResults
 
 
 # ========== 接口定义 ==========
@@ -110,48 +104,8 @@ class BaseReranker(ABC):
         pass
 
 
-class BaseContextRenderer(ABC):
-    """
-    上下文渲染器接口
-
-    职责:
-        将检索到的记忆渲染为适合注入 LLM Context 的格式。
-
-    实现策略:
-        - XML 标签格式（Claude/GPT-4 推荐）
-        - Markdown 格式（通用）
-        - 极简格式（最小化 Token）
-    """
-
-    @abstractmethod
-    def render(
-        self,
-        results: List,
-        render_format: Optional["RenderFormat"] = None
-    ) -> str:
-        """
-        渲染记忆列表为上下文字符串
-        
-        Args:
-            results: SearchResult 列表或 MemoryAtom 列表
-            render_format: 输出格式（可选，覆盖默认）
-        
-        Returns:
-            str: 渲染后的上下文字符串
-        
-        Examples:
-            >>> renderer = BaseContextRenderer(format=RenderFormat.XML)
-            >>> context = renderer.render(search_results.results)
-            >>> print(context)
-            <memory_context>...
-        """
-        pass
-
-
 __all__ = [
-    # 接口
     "BaseMemoryRetriever",
-    "BaseContextRenderer",
     "BaseFusion",
     "BaseReranker",
 ]
