@@ -24,6 +24,7 @@ from hivememory.system.config.patchouli import (
     VitalityCalculatorConfig, ReinforcementEngineConfig, ArchiverConfig,
     GarbageCollectorConfig, MemoryLifecycleConfig,
     ArtifactStoreConfig,
+    PatchouliShutdownConfig,
     PatchouliConfig,
 )
 from hivememory.system.config.alice import (
@@ -285,6 +286,7 @@ __all__ = [
     "VitalityCalculatorConfig", "ReinforcementEngineConfig", "ArchiverConfig",
     "GarbageCollectorConfig", "MemoryLifecycleConfig",
     "ArtifactStoreConfig",
+    "PatchouliShutdownConfig",
     "PatchouliConfig",
     # alice
     "MTPPromptConfig", "KoakumaConfig", "AgentRuntimeConfig",

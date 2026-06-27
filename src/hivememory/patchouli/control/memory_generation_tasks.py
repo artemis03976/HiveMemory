@@ -16,6 +16,8 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
+    MemoryGenerationTaskWaitResult,
+    MemoryGenerationTaskWaitSummary,
     memory_task_to_payload,
 )
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
@@ -329,6 +331,87 @@ class MemoryGenerationTaskController:
     def list_tasks(self) -> List[MemoryGenerationTask]:
         """列出当前 registry 中仍保留的任务。"""
         return self._task_registry.list_all()
+
+    async def wait_task(
+        self,
+        task_id: str,
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitResult:
+        """等待指定后台记忆生成任务完成，不取消或接管后台任务。"""
+        memory_task = self._task_registry.get(task_id)
+        if memory_task is None:
+            return MemoryGenerationTaskWaitResult.not_found(task_id)
+
+        bg_task = memory_task._bg_task
+        if bg_task is None or bg_task.done():
+            return MemoryGenerationTaskWaitResult.from_task(memory_task)
+
+        try:
+            await asyncio.wait_for(asyncio.shield(bg_task), timeout=timeout)
+        except TimeoutError:
+            return MemoryGenerationTaskWaitResult.from_task(
+                memory_task,
+                timed_out=True,
+            )
+        except asyncio.CancelledError:
+            if bg_task.done():
+                return MemoryGenerationTaskWaitResult.from_task(memory_task)
+            raise
+
+        return MemoryGenerationTaskWaitResult.from_task(memory_task)
+
+    async def wait_many(
+        self,
+        task_ids: List[str],
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitSummary:
+        """等待一批指定后台记忆生成任务完成。"""
+        if not task_ids:
+            return MemoryGenerationTaskWaitSummary.from_results([])
+
+        waiters = [
+            asyncio.create_task(
+                self.wait_task(task_id, timeout=None),
+                name=f"memory_task_wait_{task_id[:8]}",
+            )
+            for task_id in task_ids
+        ]
+        done, pending = await asyncio.wait(waiters, timeout=timeout)
+
+        results: List[MemoryGenerationTaskWaitResult] = []
+        for task_id, waiter in zip(task_ids, waiters):
+            if waiter in done:
+                results.append(waiter.result())
+            else:
+                waiter.cancel()
+                memory_task = self._task_registry.get(task_id)
+                if memory_task is None:
+                    results.append(
+                        MemoryGenerationTaskWaitResult.not_found(task_id)
+                    )
+                else:
+                    results.append(
+                        MemoryGenerationTaskWaitResult.from_task(
+                            memory_task,
+                            timed_out=True,
+                        )
+                    )
+
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        return MemoryGenerationTaskWaitSummary.from_results(results)
+
+    async def wait_all(
+        self,
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitSummary:
+        """等待调用瞬间所有仍在后台执行的记忆生成任务完成。"""
+        task_ids = [
+            memory_task.task_id
+            for memory_task in self._task_registry.list_all()
+            if memory_task._bg_task is not None and not memory_task._bg_task.done()
+        ]
+        return await self.wait_many(task_ids, timeout=timeout)
 
     def cancel_task(self, task_id: str) -> bool:
         """请求取消指定记忆生成任务。"""

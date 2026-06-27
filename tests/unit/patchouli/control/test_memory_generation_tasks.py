@@ -19,6 +19,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
+    MemoryGenerationTaskWaitSummary,
 )
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
@@ -219,3 +220,122 @@ class TestMemoryGenerationTaskController:
 
         assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
         assert _memory_task_statuses(bus) == ["completed"]
+
+    @pytest.mark.asyncio
+    async def test_wait_task_waits_for_background_completion(self):
+        blocker = asyncio.Event()
+
+        async def request(route, spec):
+            await blocker.wait()
+            return []
+
+        bus = Mock()
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(bus=bus)
+
+        memory_task = await controller.submit_generation(_spec())
+        waiter = asyncio.create_task(controller.wait_task(memory_task.task_id))
+
+        await asyncio.sleep(0)
+        assert not waiter.done()
+        blocker.set()
+        result = await waiter
+
+        assert result.found is True
+        assert result.timed_out is False
+        assert result.status == MemoryGenerationTaskStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_wait_task_timeout_does_not_cancel_background_task(self):
+        blocker = asyncio.Event()
+
+        async def request(route, spec):
+            await blocker.wait()
+            return []
+
+        bus = Mock()
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(bus=bus)
+
+        memory_task = await controller.submit_generation(_spec())
+        result = await controller.wait_task(memory_task.task_id, timeout=0.01)
+
+        assert result.found is True
+        assert result.timed_out is True
+        assert memory_task._bg_task is not None
+        assert not memory_task._bg_task.done()
+
+        blocker.set()
+        await memory_task._bg_task
+        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_wait_task_returns_not_found_for_missing_task(self):
+        bus = Mock()
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(bus=bus)
+
+        result = await controller.wait_task("missing-task")
+
+        assert result.found is False
+        assert result.task_id == "missing-task"
+
+    @pytest.mark.asyncio
+    async def test_wait_many_summarizes_mixed_results(self):
+        blocker = asyncio.Event()
+
+        async def request(route, spec):
+            await blocker.wait()
+            return []
+
+        bus = Mock()
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(bus=bus)
+
+        memory_task = await controller.submit_generation(_spec())
+        summary = await controller.wait_many(
+            [memory_task.task_id, "missing-task"],
+            timeout=0.01,
+        )
+
+        assert isinstance(summary, MemoryGenerationTaskWaitSummary)
+        assert summary.requested == 2
+        assert summary.found == 1
+        assert summary.missing == 1
+        assert summary.timed_out == 1
+        assert summary.running == 1
+
+        blocker.set()
+        await memory_task._bg_task
+
+    @pytest.mark.asyncio
+    async def test_wait_all_waits_for_current_running_tasks(self):
+        blocker = asyncio.Event()
+
+        async def request(route, spec):
+            await blocker.wait()
+            return []
+
+        bus = Mock()
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(bus=bus)
+
+        first = await controller.submit_generation(_spec(label="first"))
+        second = await controller.submit_generation(_spec(label="second"))
+        waiter = asyncio.create_task(controller.wait_all())
+
+        await asyncio.sleep(0)
+        assert not waiter.done()
+        blocker.set()
+        summary = await waiter
+
+        assert summary.requested == 2
+        assert summary.completed == 2
+        assert {result.task_id for result in summary.results} == {
+            first.task_id,
+            second.task_id,
+        }

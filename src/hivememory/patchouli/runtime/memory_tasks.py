@@ -92,6 +92,93 @@ class MemoryGenerationTask:
             self._bg_task.cancel()
 
 
+@dataclass(frozen=True)
+class MemoryGenerationTaskWaitResult:
+    """Result snapshot for waiting on one memory generation task."""
+
+    task_id: str
+    found: bool
+    timed_out: bool = False
+    status: Optional[MemoryGenerationTaskStatus] = None
+    canonical_alias: Optional[str] = None
+    error: Optional[str] = None
+
+    @classmethod
+    def from_task(
+        cls,
+        memory_task: MemoryGenerationTask,
+        *,
+        timed_out: bool = False,
+    ) -> "MemoryGenerationTaskWaitResult":
+        return cls(
+            task_id=memory_task.task_id,
+            found=True,
+            timed_out=timed_out,
+            status=memory_task.status,
+            canonical_alias=memory_task.canonical_alias,
+            error=memory_task.error,
+        )
+
+    @classmethod
+    def not_found(cls, task_id: str) -> "MemoryGenerationTaskWaitResult":
+        return cls(task_id=task_id, found=False)
+
+
+@dataclass(frozen=True)
+class MemoryGenerationTaskWaitSummary:
+    """Aggregate result for waiting on multiple memory generation tasks."""
+
+    requested: int
+    found: int
+    missing: int
+    completed: int
+    failed: int
+    cancelled: int
+    pending: int
+    running: int
+    timed_out: int
+    results: tuple[MemoryGenerationTaskWaitResult, ...]
+
+    @classmethod
+    def from_results(
+        cls,
+        results: list[MemoryGenerationTaskWaitResult],
+    ) -> "MemoryGenerationTaskWaitSummary":
+        found = [result for result in results if result.found]
+        return cls(
+            requested=len(results),
+            found=len(found),
+            missing=sum(1 for result in results if not result.found),
+            completed=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.COMPLETED
+            ),
+            failed=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.FAILED
+            ),
+            cancelled=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.CANCELLED
+            ),
+            pending=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.PENDING
+            ),
+            running=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.RUNNING
+            ),
+            timed_out=sum(1 for result in results if result.timed_out),
+            results=tuple(results),
+        )
+
+
 def memory_task_to_payload(
     memory_task: MemoryGenerationTask,
     *,
@@ -186,5 +273,7 @@ __all__ = [
     "MemoryGenerationTaskSpec",
     "MemoryGenerationTaskRegistry",
     "MemoryGenerationTaskStatus",
+    "MemoryGenerationTaskWaitResult",
+    "MemoryGenerationTaskWaitSummary",
     "memory_task_to_payload",
 ]

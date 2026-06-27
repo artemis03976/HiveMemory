@@ -303,6 +303,14 @@ class ArtifactStoreConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+# ========== Shutdown ==========
+
+class PatchouliShutdownConfig(BaseModel):
+    generation_wait_timeout_seconds: float = Field(default=30.0, ge=0)
+
+    model_config = ConfigDict(extra="ignore")
+
+
 # ========== PatchouliConfig ==========
 
 class PatchouliConfig(BaseModel):
@@ -313,5 +321,6 @@ class PatchouliConfig(BaseModel):
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
     artifacts: ArtifactStoreConfig = Field(default_factory=ArtifactStoreConfig)
+    shutdown: PatchouliShutdownConfig = Field(default_factory=PatchouliShutdownConfig)
 
     model_config = ConfigDict(extra="ignore")
