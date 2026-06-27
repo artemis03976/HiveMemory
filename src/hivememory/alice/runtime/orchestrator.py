@@ -28,10 +28,8 @@ from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
 from hivememory.core.mtp.exceptions import SubAgentExecutionError
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.engines.memory_compiler import (
-    CompiledMemory,
     MemoryCompiler,
     MemoryCompileOptions,
-    MemoryCompileTarget,
     MemoryEnvelopeTarget,
 )
 
@@ -328,7 +326,7 @@ class AgentOrchestrator:
         if not aliases:
             return ""
         compiler = MemoryCompiler()
-        artifacts: List[CompiledMemory] = []
+        sources = []
         context = MTPExecutionContext(identity=identity)
         for alias in aliases:
             try:
@@ -339,19 +337,14 @@ class AgentOrchestrator:
             if resolved.kind in {"pending", "redirect", "atom"} and (
                 resolved.pending is not None or resolved.atom is not None
             ):
-                artifact = compiler.compile(
-                    resolved,
-                    MemoryCompileTarget.SHARED_CONTEXT,
-                    MemoryCompileOptions(requested_alias=alias, language=language),
-                )
-                artifacts.append(artifact)
+                sources.append(resolved)
             else:
                 logger.warning(f"Context ref alias not found: {alias}")
-        if not artifacts:
+        if not sources:
             logger.warning(f"No rendered context returned for context_refs: {aliases}")
             return ""
         return compiler.compile(
-            artifacts,
+            sources,
             MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
             MemoryCompileOptions(language=language),
         ).text

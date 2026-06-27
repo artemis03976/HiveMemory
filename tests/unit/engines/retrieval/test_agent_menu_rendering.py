@@ -74,47 +74,35 @@ class TestRAGMenuRendering:
 
     def test_render_agent_menu(self):
         """通过 MemoryCompiler envelope 渲染子代理区域"""
+        from hivememory.core.models import IndexLayer, MetaData, PayloadLayer
         from hivememory.engines.memory_compiler import (
-            CompiledMemoryArtifact,
             MemoryCompiler,
-            MemoryCompileTarget,
-            MemoryEnvelopeSection,
             MemoryEnvelopeTarget,
         )
 
-        artifacts = [
-            CompiledMemoryArtifact(
-                target=MemoryCompileTarget.AGENT_PROFILE_MENU,
-                text=(
-                    '\n<agent_profile alias="coder_doll">\n'
-                    "- **角色**: Backend Developer\n"
-                    "- **能力特长**: Specializes in Python/FastAPI development\n"
-                    "</agent_profile>"
+        agents = [
+            MemoryAtom(
+                meta=MetaData(source_agent_id="system", user_id="u1"),
+                index=IndexLayer(
+                    title="coder_doll",
+                    summary="Backend Developer",
+                    memory_type=MemoryType.AGENT_PROFILE,
+                    alias="coder_doll",
                 ),
-                source_kind="memory_atom",
-                alias="coder_doll",
+                payload=PayloadLayer(content="Specializes in Python/FastAPI development"),
             ),
-            CompiledMemoryArtifact(
-                target=MemoryCompileTarget.AGENT_PROFILE_MENU,
-                text=(
-                    '\n<agent_profile alias="translator_doll">\n'
-                    "- **角色**: EN Translator\n"
-                    "- **能力特长**: Chinese-English translation expert\n"
-                    "</agent_profile>"
+            MemoryAtom(
+                meta=MetaData(source_agent_id="system", user_id="u1"),
+                index=IndexLayer(
+                    title="translator_doll",
+                    summary="EN Translator",
+                    memory_type=MemoryType.AGENT_PROFILE,
+                    alias="translator_doll",
                 ),
-                source_kind="memory_atom",
-                alias="translator_doll",
+                payload=PayloadLayer(content="Chinese-English translation expert"),
             ),
         ]
-        envelope = MemoryCompiler().wrap(
-            envelope_target=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            sections=[
-                MemoryEnvelopeSection(
-                    kind="agent_profiles",
-                    artifacts=artifacts,
-                )
-            ],
-        )
+        envelope = MemoryCompiler().compile(agents, MemoryEnvelopeTarget.RETRIEVAL_CONTEXT)
         section = envelope.text
 
         assert "可用子代理" in section
@@ -124,25 +112,30 @@ class TestRAGMenuRendering:
         assert "EN Translator" in section
 
     def test_render_agent_menu_empty(self):
-        """无子代理且有记忆时通过 retrieval envelope 渲染占位提示"""
+        """无子代理 section 时不渲染子代理区域"""
         from hivememory.i18n import get_memory_envelope_text, get_default_language
+        from hivememory.core.models import IndexLayer, MetaData, PayloadLayer
         from hivememory.engines.memory_compiler import (
             MemoryCompiler,
-            MemoryEnvelopeSection,
             MemoryEnvelopeTarget,
         )
 
         agent_empty_hint = get_memory_envelope_text("retrieval_agent_empty_hint", get_default_language().value)
-        envelope = MemoryCompiler().wrap(
-            envelope_target=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            sections=[
-                MemoryEnvelopeSection(
-                    kind="agent_profiles",
-                    empty_text=agent_empty_hint,
-                )
-            ],
+        atom = MemoryAtom(
+            meta=MetaData(source_agent_id="a1", user_id="u1"),
+            index=IndexLayer(
+                title="regular memory",
+                summary="regular memory summary",
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="regular memory content"),
         )
-        assert agent_empty_hint in envelope.text
+        envelope = MemoryCompiler().compile(
+            [atom],
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+        )
+        assert agent_empty_hint not in envelope.text
+        assert "### 可用子代理" not in envelope.text
 
     def test_separate_no_agents(self):
         """无 AGENT_PROFILE 时分离正常"""

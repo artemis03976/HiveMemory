@@ -43,7 +43,8 @@ def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
         topic_id="topic_1",
         user_message="hello",
         topic_context=None,
-        retrieval_result=RetrievalResponse(memories=[memory], rendered_context="ctx"),
+        retrieval_result=RetrievalResponse(memories=[memory]),
+        memory_context="ctx",
         agent_profile=OMNI_DOLL_PROFILE,
         storage_available=True,
     )

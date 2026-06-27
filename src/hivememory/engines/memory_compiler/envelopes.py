@@ -24,12 +24,14 @@ from hivememory.engines.memory_compiler.models import (
 from hivememory.utils import estimate_tokens
 
 
-def compile_envelope(
+def compile_envelope_from_ir(
     bundle: MemoryBundleIR,
     *,
     options: MemoryCompileOptions | None = None,
 ) -> CompiledMemoryEnvelope:
-    """Compile envelope text around a memory bundle."""
+    """
+    将 MemoryBundleIR 编译为 envelope target 的终态文本。
+    """
     opts = options or MemoryCompileOptions()
 
     # A2: 如果 section 有 units，按策略编译为 artifacts
@@ -87,31 +89,31 @@ def _compile_units_for_target(
     target: MemoryCompileTarget,
     options: MemoryCompileOptions,
 ) -> List[CompiledMemoryArtifact]:
-    from hivememory.engines.memory_compiler.handlers.targets import compile_from_ir
+    from hivememory.engines.memory_compiler.handlers.targets import compile_unit_from_ir
 
-    return [compile_from_ir(unit, target, options) for unit in units]
+    return [compile_unit_from_ir(unit, target, options) for unit in units]
 
 
 def _compile_units_with_strategy(
     units: List[MemoryUnitIR],
     options: MemoryCompileOptions,
 ) -> List[CompiledMemoryArtifact]:
-    from hivememory.engines.memory_compiler.handlers.targets import compile_from_ir
+    from hivememory.engines.memory_compiler.handlers.targets import compile_unit_from_ir
 
     cfg = options.retrieval_strategy_config
 
     if isinstance(cfg, FullStrategyConfig):
-        return _apply_full_strategy(units, cfg, options, compile_from_ir)
+        return _apply_full_strategy(units, cfg, options, compile_unit_from_ir)
     if isinstance(cfg, CascadeStrategyConfig):
-        return _apply_cascade_strategy(units, cfg, options, compile_from_ir)
+        return _apply_cascade_strategy(units, cfg, options, compile_unit_from_ir)
     if isinstance(cfg, CompactStrategyConfig):
-        return _apply_compact_strategy(units, cfg, options, compile_from_ir)
+        return _apply_compact_strategy(units, cfg, options, compile_unit_from_ir)
 
     # 无策略配置：全量 PROMPT_FULL
-    return [compile_from_ir(u, MemoryCompileTarget.PROMPT_FULL, options) for u in units]
+    return [compile_unit_from_ir(u, MemoryCompileTarget.PROMPT_FULL, options) for u in units]
 
 
-def _apply_full_strategy(units, cfg: FullStrategyConfig, opts, compile_from_ir):
+def _apply_full_strategy(units, cfg: FullStrategyConfig, opts, compile_unit_from_ir):
     artifacts: List[CompiledMemoryArtifact] = []
     total = 0
     unit_opts = opts.model_copy(update={
@@ -119,7 +121,7 @@ def _apply_full_strategy(units, cfg: FullStrategyConfig, opts, compile_from_ir):
         "stale_days": cfg.stale_days,
     })
     for unit in units:
-        artifact = compile_from_ir(unit, MemoryCompileTarget.PROMPT_FULL, unit_opts)
+        artifact = compile_unit_from_ir(unit, MemoryCompileTarget.PROMPT_FULL, unit_opts)
         if total + len(artifact.text) > cfg.max_tokens:
             break
         artifacts.append(artifact)
@@ -127,12 +129,12 @@ def _apply_full_strategy(units, cfg: FullStrategyConfig, opts, compile_from_ir):
     return artifacts
 
 
-def _apply_cascade_strategy(units, cfg: CascadeStrategyConfig, opts, compile_from_ir):
+def _apply_cascade_strategy(units, cfg: CascadeStrategyConfig, opts, compile_unit_from_ir):
     artifacts: List[CompiledMemoryArtifact] = []
     remaining = cfg.max_memory_tokens
     for i, unit in enumerate(units):
         if i < cfg.full_payload_count:
-            a = compile_from_ir(
+            a = compile_unit_from_ir(
                 unit,
                 MemoryCompileTarget.PROMPT_FULL,
                 opts.model_copy(update={"max_content_length": cfg.max_content_length}),
@@ -142,7 +144,7 @@ def _apply_cascade_strategy(units, cfg: CascadeStrategyConfig, opts, compile_fro
                 artifacts.append(a)
                 remaining -= tokens
                 continue
-        a = compile_from_ir(
+        a = compile_unit_from_ir(
             unit,
             MemoryCompileTarget.PROMPT_INDEX,
             opts.model_copy(update={"max_summary_length": cfg.index_max_summary_length}),
@@ -156,12 +158,12 @@ def _apply_cascade_strategy(units, cfg: CascadeStrategyConfig, opts, compile_fro
     return artifacts
 
 
-def _apply_compact_strategy(units, cfg: CompactStrategyConfig, opts, compile_from_ir):
+def _apply_compact_strategy(units, cfg: CompactStrategyConfig, opts, compile_unit_from_ir):
     artifacts: List[CompiledMemoryArtifact] = []
     remaining = cfg.max_memory_tokens
     index_opts = opts.model_copy(update={"max_summary_length": cfg.index_max_summary_length})
     for unit in units:
-        a = compile_from_ir(unit, MemoryCompileTarget.PROMPT_INDEX, index_opts)
+        a = compile_unit_from_ir(unit, MemoryCompileTarget.PROMPT_INDEX, index_opts)
         tokens = estimate_tokens(a.text)
         if tokens <= remaining:
             artifacts.append(a)

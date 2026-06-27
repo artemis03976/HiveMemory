@@ -49,7 +49,7 @@ class TestRetrievalEngine:
 
         assert result.memories_count == 1
         assert len(result.memories) == 1
-        assert result.rendered_context == ""
+        assert not hasattr(result, "rendered_context")
 
     @pytest.mark.asyncio
     async def test_retrieve_empty_results(self):
@@ -57,7 +57,7 @@ class TestRetrievalEngine:
 
         result = await self.engine.retrieve(_make_query())
 
-        assert result.rendered_context == ""
+        assert not hasattr(result, "rendered_context")
         assert result.memories_count == 0
 
     @pytest.mark.asyncio
@@ -81,7 +81,7 @@ class TestRetrievalEngine:
         assert result.memories == [mem]
         assert result.search_results is search_results
         assert result.memories_count == 1
-        assert result.rendered_context == ""
+        assert not hasattr(result, "rendered_context")
 
     @pytest.mark.asyncio
     async def test_retrieve_latency_measured(self):

@@ -25,12 +25,14 @@ from hivememory.engines.memory_compiler.models import (
 )
 
 
-def compile_from_ir(
+def compile_unit_from_ir(
     unit: MemoryUnitIR,
     target: MemoryCompileTarget,
     options: MemoryCompileOptions,
 ) -> CompiledMemoryArtifact:
-    """Compile a normalized memory unit into the requested target."""
+    """
+    将 MemoryUnitIR 编译为指定 unit target 的终态文本。
+    """
     if target == MemoryCompileTarget.PROMPT_FULL:
         return compile_prompt_full(unit, target, options)
     if target == MemoryCompileTarget.PROMPT_INDEX:

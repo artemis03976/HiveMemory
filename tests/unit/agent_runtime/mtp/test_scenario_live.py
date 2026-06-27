@@ -76,7 +76,6 @@ def _make_retrieval_response(memories: list) -> RetrievalResponse:
     """构造 RetrievalResponse"""
     return RetrievalResponse(
         memories=memories,
-        rendered_context="",
         memories_count=len(memories),
     )
 

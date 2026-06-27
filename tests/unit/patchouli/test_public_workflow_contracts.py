@@ -119,7 +119,6 @@ async def test_public_prepare_agent_run_composes_local_primitives_through_bridge
     identity = Identity(user_id="u1", agent_id="omni_doll", session_id="s1")
     retrieval_result = RetrievalResponse(
         memories=[_memory_atom()],
-        rendered_context="<memory>ctx</memory>",
     )
     calls: list[str] = []
 
@@ -267,7 +266,6 @@ async def test_public_passive_analyze_and_retrieve_composes_gateway_and_retrieva
     retrieve = AsyncMock(
         return_value=RetrievalResponse(
             memories=[_memory_atom()],
-            rendered_context="<memory>ctx</memory>",
         )
     )
     local_bus.register(PatchouliLocalRoutes.GATEWAY_GAZE, gaze)
@@ -286,7 +284,7 @@ async def test_public_passive_analyze_and_retrieve_composes_gateway_and_retrieva
 
     assert isinstance(result, AnalyzeAndRetrieveResult)
     assert result.gaze_result.rewritten_query == "rewritten query"
-    assert result.retrieval_result.rendered_context == "<memory>ctx</memory>"
+    assert result.retrieval_result.memories[0].get_alias() == "memory_alias"
     gaze.assert_awaited_once_with(
         query="raw query",
         topic_snapshots=["topic"],

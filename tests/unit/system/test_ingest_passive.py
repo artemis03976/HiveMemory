@@ -389,7 +389,6 @@ def sys_passive():
     retrieve = AsyncMock(
         return_value=MagicMock(
             is_empty=MagicMock(return_value=False),
-            rendered_context="<mem>ctx</mem>",
             memories=[],
         )
     )

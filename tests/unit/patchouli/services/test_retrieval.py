@@ -34,7 +34,6 @@ def _make_engine_result(memories=None, is_empty=False):
     result.memories = memories or []
     result.memories_count = len(result.memories)
     result.latency_ms = 10.0
-    result.rendered_context = ""
     if is_empty:
         result.search_results = SearchResults(results=[])
     else:
@@ -147,14 +146,14 @@ class TestRetrievalFamiliarRetrieve:
         assert query.filters.min_confidence == 0
 
     @pytest.mark.asyncio
-    async def test_retrieve_rendered_context_empty(self):
-        """rendered_context 由调用方填充 (Phase D)，此处始终为空"""
+    async def test_retrieve_does_not_compile_context(self):
+        """检索服务只返回记忆原子，不产出 Agent 可读文本"""
         mem = _make_memory()
         self.mock_engine.retrieve.return_value = _make_engine_result([mem])
 
         response = await self.familiar.retrieve(_make_request())
 
-        assert response.rendered_context == ""
+        assert not hasattr(response, "rendered_context")
 
     @pytest.mark.asyncio
     async def test_retrieve_async_refreshes_vitality_through_local_bus(self):
@@ -259,7 +258,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
         self.mock_library.mid_term.get_by_alias.assert_awaited_once_with("fact_a", "u1")
         assert response.memories == [mem]
         assert response.memories_count == 1
-        assert response.rendered_context == ""
+        assert not hasattr(response, "rendered_context")
 
     @pytest.mark.asyncio
     async def test_retrieve_by_aliases_async_refreshes_vitality(self):

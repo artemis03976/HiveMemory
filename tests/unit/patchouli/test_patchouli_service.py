@@ -28,7 +28,6 @@ def _make_gaze_result(intent=GatewayIntent.RAG, **kwargs):
 def _make_retrieval_response(empty=False):
     return RetrievalResponse(
         memories=[],
-        rendered_context="" if empty else "<memory>context</memory>",
     )
 
 
@@ -53,7 +52,7 @@ async def test_retrieve_for_gaze_rag_intent(service_with_local_bus):
     result = await service.retrieve_for_gaze(gaze)
 
     assert isinstance(result, RetrievalResponse)
-    assert result.rendered_context == "<memory>context</memory>"
+    assert not hasattr(result, "rendered_context")
     retrieve.assert_awaited_once()
     request = retrieve.await_args.args[0]
     assert request.semantic_query == "重写查询"
@@ -70,7 +69,7 @@ async def test_retrieve_for_gaze_chat_intent_skips_retrieval(service_with_local_
 
     result = await service.retrieve_for_gaze(gaze)
 
-    assert result.rendered_context == ""
+    assert result.memories == []
     retrieve.assert_not_called()
 
 
@@ -83,7 +82,7 @@ async def test_retrieve_for_gaze_retrieval_disabled(service_with_local_bus):
 
     result = await service.retrieve_for_gaze(gaze, enable_retrieval=False)
 
-    assert result.rendered_context == ""
+    assert result.memories == []
     retrieve.assert_not_called()
 
 
@@ -96,5 +95,4 @@ async def test_retrieve_for_gaze_empty_retrieval(service_with_local_bus):
 
     result = await service.retrieve_for_gaze(gaze)
 
-    assert result.rendered_context == ""
     assert result.memories == []
