@@ -7,7 +7,7 @@
     - 重排序 (Reranking)
     - 访问统计更新
 
-版本: 3.0 (Phase C — renderer 解耦)
+版本: 3.0 (Phase C — 编译解耦)
 """
 
 from typing import Any, List, Optional
@@ -51,7 +51,7 @@ class RetrievalFamiliar:
         3. 调用 RetrievalEngine 进行数据检索
         4. 处理副作用 (如统计更新)
 
-    rendered_context 由调用方填充 (Phase D)。
+    检索结果只包含记忆原子与元信息，Agent 可读文本由调用方通过 MemoryCompiler 编译。
     """
 
     def __init__(
@@ -172,7 +172,7 @@ class RetrievalFamiliar:
 
     async def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
         """
-        检索相关记忆，不填充 rendered_context（由调用方编译，Phase D）。
+        检索相关记忆，返回原子与元信息
         """
         start_time = time.time()
 
@@ -221,7 +221,9 @@ class RetrievalFamiliar:
         return response
 
     async def retrieve_async(self, request: RetrievalRequest) -> RetrievalResponse:
-        """Async bus entrypoint — search + vitality refresh only."""
+        """
+        异步总线入口：只执行检索与活跃度刷新。
+        """
         response = await self.retrieve(request)
         await self._refresh_vitality_for_memories(response.memories)
         return response
@@ -232,7 +234,7 @@ class RetrievalFamiliar:
         identity: Optional[Identity] = None,
     ) -> RetrievalResponse:
         """
-        精确按 alias 取回记忆。rendered_context 由调用方填充 (Phase D)。
+        精确按 alias 取回记忆。
         """
         start_time = time.time()
         response = RetrievalResponse()
@@ -271,7 +273,9 @@ class RetrievalFamiliar:
         aliases: List[str],
         identity: Optional[Identity] = None,
     ) -> RetrievalResponse:
-        """Async bus entrypoint for exact alias retrieval."""
+        """
+        精确别名检索的异步总线入口。
+        """
         response = await self.retrieve_by_aliases(aliases, identity)
         await self._refresh_vitality_for_memories(response.memories)
         return response

@@ -4,7 +4,7 @@ import logging
 from typing import Any, List
 from uuid import UUID
 
-from hivememory.engines.memory_compiler import compile_retrieval_context
+from hivememory.engines.memory_compiler import MemoryCompiler, MemoryEnvelopeTarget
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -134,7 +134,14 @@ class PatchouliService:
                 gaze_result,
                 enable_retrieval=enable_memory_retrieval,
             )
-            memory_context = compile_retrieval_context(retrieval_result.memories)
+            memory_context = (
+                MemoryCompiler().compile(
+                    retrieval_result.memories,
+                    MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                ).text
+                if retrieval_result.memories
+                else ""
+            )
 
             agent_run_context = AgentRunContext(
                 identity=identity,

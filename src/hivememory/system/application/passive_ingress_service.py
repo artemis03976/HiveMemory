@@ -125,12 +125,21 @@ class PassiveIngressService:
             gaze_result = outcome.gaze_result
             retrieval_result = outcome.retrieval_result
             from hivememory.engines.memory_compiler import (
-                compile_retrieval_context, MemoryCompileOptions, FullStrategyConfig,
+                FullStrategyConfig,
+                MemoryCompileOptions,
+                MemoryCompiler,
+                MemoryEnvelopeTarget,
             )
-            memory_text = compile_retrieval_context(
-                retrieval_result.memories,
-                MemoryCompileOptions(retrieval_strategy_config=FullStrategyConfig()),
-            ) or None
+
+            memory_text = (
+                MemoryCompiler().compile(
+                    retrieval_result.memories,
+                    MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                    MemoryCompileOptions(retrieval_strategy_config=FullStrategyConfig()),
+                ).text
+                if retrieval_result.memories
+                else None
+            )
             return {
                 "intent": gaze_result.intent.value,
                 "rewritten": gaze_result.rewritten_query,

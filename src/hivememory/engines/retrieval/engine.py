@@ -38,7 +38,6 @@ class RetrievalEngine:
 
         return RetrievalResult(
             memories=memories,
-            rendered_context="",
             latency_ms=latency_ms,
             memories_count=len(memories),
             search_results=search_results,

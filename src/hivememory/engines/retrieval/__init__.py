@@ -40,7 +40,6 @@ from hivememory.engines.retrieval.models import (
     RetrievalResult,
     SearchResult,
     SearchResults,
-    RenderFormat,
 )
 
 # Engine
@@ -76,7 +75,6 @@ __all__ = [
     "RetrievalResult",
     "SearchResult",
     "SearchResults",
-    "RenderFormat",
     # 接口
     "BaseMemoryRetriever",
     "BaseReranker",

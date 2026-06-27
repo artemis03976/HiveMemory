@@ -12,6 +12,7 @@ from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionI
 from hivememory.engines.memory_compiler.models import (
     CascadeStrategyConfig,
     CompactStrategyConfig,
+    CompiledMemory,
     CompiledMemoryArtifact,
     CompiledMemoryEnvelope,
     FullStrategyConfig,
@@ -47,7 +48,7 @@ def compile_envelope(
     if opts.format:
         metadata["format"] = opts.format
 
-    return CompiledMemoryEnvelope(
+    return CompiledMemory(
         target=bundle.purpose,
         text=text,
         sections=[_to_envelope_section(section) for section in resolved_sections],
@@ -64,8 +65,31 @@ def _resolve_section_units(
     """将 section.units 按检索策略编译为 artifacts；已有 artifacts 则直接返回。"""
     if not section.units:
         return section
-    artifacts = _compile_units_with_strategy(section.units, options)
+    if section.kind == "agent_profiles":
+        artifacts = _compile_units_for_target(
+            section.units,
+            MemoryCompileTarget.AGENT_PROFILE_MENU,
+            options,
+        )
+    elif section.kind == "default":
+        artifacts = _compile_units_for_target(
+            section.units,
+            MemoryCompileTarget.SHARED_CONTEXT,
+            options,
+        )
+    else:
+        artifacts = _compile_units_with_strategy(section.units, options)
     return section.model_copy(update={"artifacts": artifacts})
+
+
+def _compile_units_for_target(
+    units: List[MemoryUnitIR],
+    target: MemoryCompileTarget,
+    options: MemoryCompileOptions,
+) -> List[CompiledMemoryArtifact]:
+    from hivememory.engines.memory_compiler.handlers.targets import compile_from_ir
+
+    return [compile_from_ir(unit, target, options) for unit in units]
 
 
 def _compile_units_with_strategy(
