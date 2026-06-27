@@ -7,6 +7,7 @@ from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, MetaData,
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
 def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
@@ -176,7 +177,6 @@ async def test_retrieve_routes_to_memory_retrieve(bus):
     bus.request.assert_awaited_once_with(
         PatchouliLocalRoutes.MEMORY_RETRIEVE,
         request,
-        "passive",
     )
 
 
@@ -193,5 +193,51 @@ async def test_retrieve_by_aliases_routes_to_memory_retrieve_by_aliases(bus):
         PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
         ["a", "b"],
         "identity",
-        "active",
     )
+
+
+@pytest.mark.asyncio
+async def test_retrieve_does_not_forward_deprecated_mode_to_local_handler():
+    local_bus = PatchouliBus()
+    service = MemoryManagementService(bus=local_bus)
+    request = RetrievalRequest(semantic_query="query")
+    response = RetrievalResponse()
+    seen = {}
+
+    async def retrieve_handler(actual_request):
+        seen["request"] = actual_request
+        return response
+
+    local_bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, retrieve_handler)
+
+    result = await service.retrieve(request, mode="passive")
+
+    assert result is response
+    assert seen["request"] is request
+
+
+@pytest.mark.asyncio
+async def test_retrieve_by_aliases_does_not_forward_deprecated_mode_to_local_handler():
+    local_bus = PatchouliBus()
+    service = MemoryManagementService(bus=local_bus)
+    response = RetrievalResponse()
+    seen = {}
+
+    async def retrieve_by_aliases_handler(aliases, identity=None):
+        seen["aliases"] = aliases
+        seen["identity"] = identity
+        return response
+
+    local_bus.register(
+        PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+        retrieve_by_aliases_handler,
+    )
+
+    result = await service.retrieve_by_aliases(
+        ["a", "b"],
+        identity="identity",
+        mode="active",
+    )
+
+    assert result is response
+    assert seen == {"aliases": ["a", "b"], "identity": "identity"}

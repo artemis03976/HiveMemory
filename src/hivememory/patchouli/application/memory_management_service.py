@@ -123,7 +123,6 @@ class MemoryManagementService:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
             request,
-            mode,
         )
 
     async def retrieve_by_aliases(
@@ -136,7 +135,6 @@ class MemoryManagementService:
             PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
             aliases,
             identity,
-            mode,
         )
 
     @staticmethod
