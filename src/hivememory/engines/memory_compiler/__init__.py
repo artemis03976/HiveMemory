@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from hivememory.engines.memory_compiler.compiler import MemoryCompiler
-from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR, MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CascadeStrategyConfig,
     CompiledMemory,
@@ -27,9 +26,6 @@ __all__ = [
     "CompiledMemoryEnvelope",
     "MemoryEnvelopeSection",
     "MemoryCompileOptions",
-    "MemorySectionIR",
-    "MemoryBundleIR",
-    "MemoryUnitIR",
     "FullStrategyConfig",
     "CascadeStrategyConfig",
     "CompactStrategyConfig",

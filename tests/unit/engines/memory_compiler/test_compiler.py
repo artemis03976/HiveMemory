@@ -19,6 +19,7 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
 )
+from hivememory.engines.memory_compiler.builders import build_memory_atom_ir
 from hivememory.engines.memory_compiler.envelopes import compile_envelope_from_ir
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 from hivememory.i18n import set_default_language
@@ -703,12 +704,11 @@ class TestEnvelopeCompilation:
         assert "相关记忆" not in envelope.text
 
     def test_compile_envelope_from_ir_empty_section_hint(self, compiler, agent_profile_atom):
-        agent_artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
         bundle = MemoryBundleIR(
             purpose=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
             sections=[
                 MemorySectionIR(kind="memories", empty_text="No memories"),
-                MemorySectionIR(kind="agent_profiles", artifacts=[agent_artifact]),
+                MemorySectionIR(kind="agent_profiles", units=[build_memory_atom_ir(agent_profile_atom)]),
             ],
         )
         envelope = compile_envelope_from_ir(
@@ -817,11 +817,10 @@ class TestEnvelopeCompilation:
         assert "No shared memory artifacts." in envelope.text
 
     def test_compile_envelope_accepts_retrieval_bundle_ir(self, compiler, sample_atom):
-        artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL)
         bundle = MemoryBundleIR(
             purpose=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
             sections=[
-                MemorySectionIR(kind="memories", artifacts=[artifact]),
+                MemorySectionIR(kind="memories", units=[build_memory_atom_ir(sample_atom)]),
                 MemorySectionIR(kind="agent_profiles", empty_text="No agents"),
             ],
         )
@@ -834,10 +833,9 @@ class TestEnvelopeCompilation:
         assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
 
     def test_compile_envelope_accepts_mtp_read_bundle_ir(self, compiler, sample_atom):
-        artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
         bundle = MemoryBundleIR(
             purpose=MemoryEnvelopeTarget.MTP_READ_RESPONSE,
-            sections=[MemorySectionIR(kind="default", artifacts=[artifact])],
+            sections=[MemorySectionIR(kind="default", units=[build_memory_atom_ir(sample_atom)])],
         )
 
         envelope = compile_envelope_from_ir(bundle)
