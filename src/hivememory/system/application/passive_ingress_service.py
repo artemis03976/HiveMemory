@@ -125,17 +125,17 @@ class PassiveIngressService:
             gaze_result = outcome.gaze_result
             retrieval_result = outcome.retrieval_result
             from hivememory.engines.memory_compiler import (
-                FullStrategyConfig,
                 MemoryCompileOptions,
                 MemoryCompiler,
                 MemoryEnvelopeTarget,
             )
+            from hivememory.system.config.memory_compiler import FullContextStrategyConfig
 
             memory_text = (
                 MemoryCompiler().compile(
                     retrieval_result.memories,
                     MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-                    MemoryCompileOptions(retrieval_strategy_config=FullStrategyConfig()),
+                    MemoryCompileOptions(retrieval_strategy_config=FullContextStrategyConfig()),
                 ).text
                 if retrieval_result.memories
                 else None

@@ -4,7 +4,11 @@ import logging
 from typing import Any, List
 from uuid import UUID
 
-from hivememory.engines.memory_compiler import MemoryCompiler, MemoryEnvelopeTarget
+from hivememory.engines.memory_compiler import (
+    MemoryCompileOptions,
+    MemoryCompiler,
+    MemoryEnvelopeTarget,
+)
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -20,6 +24,7 @@ from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.server.models.memory import MemoryResponse
+from hivememory.system.config import MemoryCompilerConfig
 
 from hivememory.patchouli.eye import TheEye
 
@@ -34,9 +39,12 @@ class PatchouliService:
         bus: PatchouliBus,
         *,
         eye: TheEye,
+        memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
         self._eye = eye
         self._local_bus = bus
+        self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
+        self._compiler = MemoryCompiler()
 
     async def analyze_and_retrieve(
         self,
@@ -135,9 +143,14 @@ class PatchouliService:
                 enable_retrieval=enable_memory_retrieval,
             )
             memory_context = (
-                MemoryCompiler().compile(
+                self._compiler.compile(
                     retrieval_result.memories,
                     MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                    MemoryCompileOptions(
+                        retrieval_strategy_config=(
+                            self._memory_compiler_config.retrieval_context.strategy
+                        ),
+                    ),
                 ).text
                 if retrieval_result.memories
                 else ""

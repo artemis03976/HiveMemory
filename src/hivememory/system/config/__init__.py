@@ -20,12 +20,20 @@ from hivememory.system.config.patchouli import (
     ExtractorConfig, DeduplicatorConfig, MemoryGenerationConfig,
     ReciprocalRankFusionConfig, RetrievalModeConfig, AdaptiveWeightedFusionConfig,
     RerankerConfig, DenseRetrieverConfig, SparseRetrieverConfig, HybridRetrieverConfig,
-    FullRendererConfig, CascadeRendererConfig, CompactRendererConfig, MemoryRetrievalConfig,
+    MemoryRetrievalConfig,
     VitalityCalculatorConfig, ReinforcementEngineConfig, ArchiverConfig,
     GarbageCollectorConfig, MemoryLifecycleConfig,
     ArtifactStoreConfig,
     PatchouliShutdownConfig,
     PatchouliConfig,
+)
+from hivememory.system.config.memory_compiler import (
+    CascadeContextStrategyConfig,
+    CompactContextStrategyConfig,
+    FullContextStrategyConfig,
+    MemoryCompilerConfig,
+    RetrievalContextCompileConfig,
+    RetrievalContextStrategyConfig,
 )
 from hivememory.system.config.alice import (
     MTPPromptConfig, KoakumaConfig, AgentRuntimeConfig,
@@ -209,6 +217,7 @@ class HiveMemoryConfig(BaseSettings):
     i18n: I18nConfig = Field(default_factory=I18nConfig)
 
     shared: SharedConfig = Field(default_factory=SharedConfig)
+    memory_compiler: MemoryCompilerConfig = Field(default_factory=MemoryCompilerConfig)
     patchouli: PatchouliConfig = Field(default_factory=PatchouliConfig)
     alice: AliceConfig = Field(default_factory=AliceConfig)
 
@@ -282,12 +291,19 @@ __all__ = [
     "ExtractorConfig", "DeduplicatorConfig", "MemoryGenerationConfig",
     "ReciprocalRankFusionConfig", "RetrievalModeConfig", "AdaptiveWeightedFusionConfig",
     "RerankerConfig", "DenseRetrieverConfig", "SparseRetrieverConfig", "HybridRetrieverConfig",
-    "FullRendererConfig", "CascadeRendererConfig", "CompactRendererConfig", "MemoryRetrievalConfig",
+    "MemoryRetrievalConfig",
     "VitalityCalculatorConfig", "ReinforcementEngineConfig", "ArchiverConfig",
     "GarbageCollectorConfig", "MemoryLifecycleConfig",
     "ArtifactStoreConfig",
     "PatchouliShutdownConfig",
     "PatchouliConfig",
+    # memory compiler
+    "FullContextStrategyConfig",
+    "CascadeContextStrategyConfig",
+    "CompactContextStrategyConfig",
+    "RetrievalContextStrategyConfig",
+    "RetrievalContextCompileConfig",
+    "MemoryCompilerConfig",
     # alice
     "MTPPromptConfig", "KoakumaConfig", "AgentRuntimeConfig",
     "AliceConfig",

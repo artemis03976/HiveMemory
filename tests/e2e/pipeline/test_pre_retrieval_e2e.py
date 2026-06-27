@@ -342,13 +342,14 @@ class HotPathTestSystem:
 
         # 2. 构建引擎
         self._gateway_engine = self._build_gateway_engine()
+        self.memory_library = self._build_memory_library()
         self._retrieval_engine = self._build_retrieval_engine()
 
         # 3. 初始化分身
         self.eye = TheEye(engine=self._gateway_engine)
         self.retrieval_familiar = RetrievalFamiliar(
-            storage=self.storage,
             engine=self._retrieval_engine,
+            memory_library=self.memory_library,
         )
 
         console.print("[green]Hot Path 测试系统初始化完成[/green]")
@@ -401,22 +402,47 @@ class HotPathTestSystem:
         from hivememory.engines.retrieval import (
             RetrievalEngine,
             create_retriever,
-            create_renderer,
         )
 
         retriever = create_retriever(
             config=self.config.retrieval.retriever,
-            storage=self.storage,
+            mid_term=self.memory_library.mid_term,
             reranker_service=self.reranker_service,
-        )
-
-        renderer = create_renderer(
-            config=self.config.retrieval.renderer,
         )
 
         return RetrievalEngine(
             retriever=retriever,
-            renderer=renderer,
+        )
+
+    def _build_memory_library(self):
+        """构建 MemoryLibrary（三层存储协调层）"""
+        from hivememory.patchouli.memory_library import (
+            FileBasedStorageAdapter,
+            LongTermMemoryStore,
+            MemoryLibrary,
+            MidTermMemoryStore,
+            QdrantStorageAdapter,
+            ShortTermMemoryStore,
+        )
+
+        perception_config = self.config.patchouli.perception.engine
+        max_resident = getattr(perception_config, "max_resident_topics", 5)
+
+        short_term = ShortTermMemoryStore(max_resident_topics=max_resident)
+        mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(self.storage))
+
+        archiver_config = self.config.patchouli.lifecycle.archiver
+        long_term = LongTermMemoryStore(
+            port=FileBasedStorageAdapter(
+                archive_dir=archiver_config.archive_dir,
+                compress=archiver_config.compression,
+            )
+        )
+
+        return MemoryLibrary(
+            short_term=short_term,
+            mid_term=mid_term,
+            long_term=long_term,
         )
 
     def set_test_id(self, test_id: str) -> None:
@@ -494,7 +520,7 @@ class HotPathTestSystem:
                 keywords=gaze_result.search_keywords,
                 identity=gaze_result.identity,
             )
-            retrieval_response = self.retrieval_familiar.retrieve(retrieval_request)
+            retrieval_response = asyncio.run(self.retrieval_familiar.retrieve(retrieval_request))
 
             # 打印检索结果摘要
             if self.print_signals:
@@ -1222,11 +1248,11 @@ class TestThresholdFiltering:
         print_test_result(console, "HP-RET-005-B", True)
 
 
-class TestRenderFormat:
+class TestContextCompilation:
     """
-    HP-RET-006: 渲染格式验证
+    HP-RET-006: 检索上下文编译验证
 
-    验证 XML 和 Markdown 格式输出包含正确的标签结构。
+    验证 RetrievalFamiliar 返回记忆原子后，可由 MemoryCompiler 按策略编译为上下文。
     """
 
     @pytest.fixture(autouse=True)
@@ -1237,11 +1263,9 @@ class TestRenderFormat:
         yield
 
     def test_hp_ret_006_a_xml(self):
-        """HP-RET-006-A: 渲染格式验证 - XML"""
+        """HP-RET-006-A: 默认 Compact 上下文编译"""
         test_case = get_test_case_by_id("HP-RET-006-A")
         self.system.set_test_id(test_case["id"])
-
-        expected = test_case["expected"]
 
         # 使用一个会返回结果的查询
         gaze_result, response = self.system.process_full_retrieval(
@@ -1249,33 +1273,65 @@ class TestRenderFormat:
         )
 
         assert response is not None, "应返回检索结果"
-        assert response.rendered_context, "应有渲染内容"
+        assert response.memories, "应返回可编译的记忆"
 
-        # 验证 XML 格式
-        assert_render_contains(response.rendered_context, expected["contains"])
-        if expected.get("not_contains"):
-            assert_render_not_contains(response.rendered_context, expected["not_contains"])
+        from hivememory.engines.memory_compiler import (
+            MemoryCompiler,
+            MemoryCompileOptions,
+            MemoryEnvelopeTarget,
+        )
+
+        memory_context = MemoryCompiler().compile(
+            response.memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(language="zh"),
+        ).text
+
+        assert "<memory_context>" in memory_context
+        assert "相关记忆" in memory_context
+        assert "摘要" in memory_context
 
         print_test_result(console, "HP-RET-006-A", True)
-        console.print(f"    [dim]渲染格式: XML[/dim]")
+        console.print(f"    [dim]上下文策略: compact[/dim]")
 
     def test_hp_ret_006_b_markdown(self):
-        """HP-RET-006-B: 渲染格式验证 - Markdown"""
+        """HP-RET-006-B: Full 策略上下文编译"""
         test_case = get_test_case_by_id("HP-RET-006-B")
         self.system.set_test_id(test_case["id"])
 
-        # 注意：此测试需要配置 Markdown 渲染器
-        # 当前默认可能是 XML，此测试可能需要调整
-        console.print("[yellow]注意: 此测试依赖渲染器配置，可能需要调整[/yellow]")
+        gaze_result, response = self.system.process_full_retrieval(
+            "请找一下 Python 排序算法实现"
+        )
+
+        assert response is not None, "应返回检索结果"
+        assert response.memories, "应返回可编译的记忆"
+
+        from hivememory.engines.memory_compiler import (
+            MemoryCompiler,
+            MemoryCompileOptions,
+            MemoryEnvelopeTarget,
+        )
+        from hivememory.system.config.memory_compiler import FullContextStrategyConfig
+
+        memory_context = MemoryCompiler().compile(
+            response.memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(
+                language="zh",
+                retrieval_strategy_config=FullContextStrategyConfig(max_tokens=4000),
+            ),
+        ).text
+
+        assert "<memory_context>" in memory_context
+        assert "相关记忆" in memory_context
 
         print_test_result(console, "HP-RET-006-B", True)
+        console.print(f"    [dim]上下文策略: full[/dim]")
 
     def test_hp_ret_006_c_cascade(self):
-        """HP-RET-006-C: 渲染格式验证 - Cascade XML"""
+        """HP-RET-006-C: Cascade 策略上下文编译"""
         test_case = get_test_case_by_id("HP-RET-006-C")
         self.system.set_test_id(test_case["id"])
-
-        expected = test_case["expected"]
 
         # 使用一个会返回多条结果的查询
         gaze_result, response = self.system.process_full_retrieval(
@@ -1283,13 +1339,32 @@ class TestRenderFormat:
         )
 
         assert response is not None, "应返回检索结果"
+        assert response.memories, "应返回可编译的记忆"
 
-        # 验证包含 memory_block 标签
-        if response.rendered_context:
-            assert_render_contains(response.rendered_context, expected["contains"])
+        from hivememory.engines.memory_compiler import (
+            MemoryCompiler,
+            MemoryCompileOptions,
+            MemoryEnvelopeTarget,
+        )
+        from hivememory.system.config.memory_compiler import CascadeContextStrategyConfig
+
+        memory_context = MemoryCompiler().compile(
+            response.memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(
+                language="zh",
+                retrieval_strategy_config=CascadeContextStrategyConfig(
+                    full_payload_count=1,
+                    max_memory_tokens=2000,
+                ),
+            ),
+        ).text
+
+        assert "<memory_context>" in memory_context
+        assert "相关记忆" in memory_context
 
         print_test_result(console, "HP-RET-006-C", True)
-        console.print(f"    [dim]Cascade 渲染: 第一条完整，其余摘要[/dim]")
+        console.print(f"    [dim]上下文策略: cascade[/dim]")
 
 
 # ========== 模块级 Fixture ==========

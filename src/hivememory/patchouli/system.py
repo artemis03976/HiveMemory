@@ -100,6 +100,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
             eye=self.eye,
+            memory_compiler_config=self.config.memory_compiler,
         )
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,

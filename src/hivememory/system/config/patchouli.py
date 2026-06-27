@@ -203,34 +203,6 @@ class HybridRetrieverConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class FullRendererConfig(BaseModel):
-    type: Literal["full"] = "full"
-    max_tokens: int = Field(default=2000)
-    max_content_length: int = Field(default=500)
-    show_artifacts: bool = Field(default=False)
-    stale_days: int = Field(default=90)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class CascadeRendererConfig(BaseModel):
-    type: Literal["cascade"] = "cascade"
-    max_memory_tokens: int = Field(default=2000)
-    full_payload_count: int = Field(default=1)
-    max_content_length: int = Field(default=500)
-    index_max_summary_length: int = Field(default=100)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class CompactRendererConfig(BaseModel):
-    type: Literal["compact"] = "compact"
-    max_memory_tokens: int = Field(default=2000)
-    index_max_summary_length: int = Field(default=100)
-
-    model_config = ConfigDict(extra="ignore")
-
-
 class MemoryRetrievalConfig(BaseModel):
     retriever: Union[HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig] = Field(
         default_factory=HybridRetrieverConfig,

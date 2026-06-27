@@ -15,13 +15,13 @@ from hivememory.engines.memory_compiler.handlers import compile_unit_from_ir
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR, MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemory,
-    FullStrategyConfig,
     MemoryCompileOptions,
     MemoryCompileTarget,
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
 )
 from hivememory.i18n.resolver import get_default_language
+from hivememory.system.config.memory_compiler import CompactContextStrategyConfig
 
 
 class MemoryCompiler:
@@ -93,7 +93,9 @@ class MemoryCompiler:
             target == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT
             and opts.retrieval_strategy_config is None
         ):
-            opts = opts.model_copy(update={"retrieval_strategy_config": FullStrategyConfig()})
+            opts = opts.model_copy(
+                update={"retrieval_strategy_config": CompactContextStrategyConfig()}
+            )
         return opts
 
     def _handle_unit_target(

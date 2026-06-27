@@ -77,7 +77,7 @@ from hivememory.i18n.mtp_runtime import get_mtp_info_text
 if TYPE_CHECKING:
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
     from hivememory.agent_runtime.resolver import ResolveResult
-    from hivememory.system.config import KoakumaConfig
+    from hivememory.system.config import KoakumaConfig, MemoryCompilerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +130,7 @@ class KoakumaRuntime:
         config: Optional["KoakumaConfig"] = None,
         *,
         alias_resolver: RuntimeAliasResolver,
+        memory_compiler_config: Optional["MemoryCompilerConfig"] = None,
     ):
         """
         初始化 Koakuma MTP 运行时
@@ -148,6 +149,7 @@ class KoakumaRuntime:
         self._formatter = MTPFormatter()
 
         self._alias_resolver = alias_resolver
+        self._memory_compiler_config = memory_compiler_config
 
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
@@ -456,6 +458,13 @@ class KoakumaRuntime:
         content = self._compiler.compile(
             result.memories,
             MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(
+                retrieval_strategy_config=(
+                    self._memory_compiler_config.retrieval_context.strategy
+                    if self._memory_compiler_config is not None
+                    else None
+                ),
+            ),
         ).text
         response_warnings = list(filter_warnings)
 

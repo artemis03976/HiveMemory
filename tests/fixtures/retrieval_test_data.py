@@ -6,7 +6,7 @@ HiveMemory Retrieval Module Test Data Fixtures
 设计原则:
     - 覆盖混合检索的各种场景（纯语义、纯关键词、混合冲突）
     - 覆盖重排序的各种情况（精排优化、阈值过滤）
-    - 覆盖渲染的各种格式（XML、Markdown、Cascade）
+    - 覆盖检索上下文编译的各种策略（Full、Compact、Cascade）
 
 作者: HiveMemory Team
 版本: 1.0.0
@@ -382,51 +382,48 @@ RERANKING_TEST_CASES = [
 ]
 
 
-# ========== Group 3: 渲染测试用例 ==========
+# ========== Group 3: 上下文编译测试用例 ==========
 
 RENDERING_TEST_CASES = [
     {
         "id": "RET-RND-001",
-        "name": "XML 格式渲染",
-        "description": "验证 XML 格式输出包含正确的标签结构",
+        "name": "Full 策略上下文编译",
+        "description": "验证 Full 策略输出包含 memory_context 结构和完整内容",
         "priority": "P0",
-        "format": "xml",
+        "strategy": "full",
         "memory_ids": [
             "550e8400-e29b-41d4-a716-446655440101",  # golden-fruit-001
             "550e8400-e29b-41d4-a716-446655440102",  # golden-fruit-002
         ],
         "expected_contains": [
-            "<system_memory_context>",
-            "</system_memory_context>",
-            "<memory_block",
-            "</memory_block>",
+            "<memory_context>",
+            "</memory_context>",
+            "相关记忆",
         ],
-        "expected_not_contains": [
-            "## 相关记忆上下文",  # Markdown 标题
-        ],
+        "expected_not_contains": [],
     },
     {
         "id": "RET-RND-002",
-        "name": "Markdown 格式渲染",
-        "description": "验证 Markdown 格式输出包含正确的标题和格式",
+        "name": "Compact 策略上下文编译",
+        "description": "验证 Compact 策略输出包含摘要且省略完整内容",
         "priority": "P1",
-        "format": "markdown",
+        "strategy": "compact",
         "memory_ids": ["550e8400-e29b-41d4-a716-446655440501"],  # golden-code-001
         "expected_contains": [
-            "## 相关记忆上下文",
-            "###",
+            "<memory_context>",
+            "相关记忆",
+            "摘要",
         ],
         "expected_not_contains": [
-            "<system_memory_context>",  # XML 标签
+            "def quicksort",
         ],
     },
     {
         "id": "RET-RND-003",
-        "name": "瀑布式渲染 (Cascade)",
-        "description": "验证 Top-N 完整渲染，其余降级为 Index 视图",
+        "name": "Cascade 策略上下文编译",
+        "description": "验证 Top-N 完整编译，其余降级为 Index 视图",
         "priority": "P1",
-        "renderer_type": "cascade",
-        "format": "xml",
+        "strategy": "cascade",
         "memory_ids": [
             "550e8400-e29b-41d4-a716-446655440101",  # golden-fruit-001
             "550e8400-e29b-41d4-a716-446655440102",  # golden-fruit-002
