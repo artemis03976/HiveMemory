@@ -33,7 +33,6 @@ from hivememory.engines.retrieval import (
     SparseRetriever,
     HybridRetriever,
     CrossEncoderReranker,
-    RenderFormat,
     ReciprocalRankFusion,
     create_retriever,
 )
