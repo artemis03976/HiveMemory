@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import List, Tuple, Union
 
 from hivememory.core.models import MemoryAtom
@@ -28,6 +29,7 @@ class MemoryCompiler:
     记忆编译外观层。
 
     Phase 2B: source -> IR -> target 的完整收束。
+    Phase A:  compile() 同时接受 MemoryEnvelopeTarget，直接返回 CompiledMemoryEnvelope。
     """
 
     def __init__(self) -> None:
@@ -42,11 +44,17 @@ class MemoryCompiler:
             "PendingAtomSettlement",
             List[MemoryAtom],
             List["ResolveResult"],
+            List[MemorySectionIR],
         ],
-        target: MemoryCompileTarget,
+        target: Union[MemoryCompileTarget, MemoryEnvelopeTarget],
         options: MemoryCompileOptions | None = None,
-    ) -> CompiledMemoryArtifact | List[CompiledMemoryArtifact]:
+    ) -> CompiledMemoryArtifact | List[CompiledMemoryArtifact] | CompiledMemoryEnvelope:
         opts = self._resolve_options(options)
+
+        # A3: envelope target 路径
+        if isinstance(target, MemoryEnvelopeTarget):
+            sections = source if isinstance(source, list) else []
+            return self._compile_envelope(sections, target, opts)
 
         if isinstance(source, list):
             return [self._compile_single(item, target, opts) for item in source]
@@ -59,8 +67,18 @@ class MemoryCompiler:
         envelope_target: MemoryEnvelopeTarget = MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
         options: MemoryCompileOptions | None = None,
         sections: List[MemoryEnvelopeSection] | None = None,
-        # TODO: sections 参数类型应迁移为 List[MemorySectionIR]，当前保留旧类型以兼容调用方
     ) -> CompiledMemoryEnvelope:
+        """
+        .. deprecated:: Phase A
+            Use ``compile(sections, envelope_target, options)`` instead.
+            ``wrap()`` will be removed in a future release.
+        """
+        warnings.warn(
+            "MemoryCompiler.wrap() is deprecated. "
+            "Use compile(sections_ir, MemoryEnvelopeTarget, options) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         opts = self._resolve_options(options)
         bundle = self._build_bundle_ir(
             artifacts=artifacts,
@@ -69,6 +87,23 @@ class MemoryCompiler:
             options=opts,
         )
         return compile_envelope(bundle, options=opts)
+
+    # --------- internal ---------
+
+    def _compile_envelope(
+        self,
+        sections: List[MemorySectionIR | MemoryEnvelopeSection],
+        target: MemoryEnvelopeTarget,
+        options: MemoryCompileOptions,
+    ) -> CompiledMemoryEnvelope:
+        """A3/A4: envelope 编译路径，接受 IR 或 DTO sections。"""
+        ir_sections = [
+            s if isinstance(s, MemorySectionIR) else _to_bundle_section(s)
+            for s in (sections or [])
+        ]
+        metadata = {"format": options.format} if options.format else {}
+        bundle = MemoryBundleIR(purpose=target, sections=ir_sections, metadata=metadata)
+        return compile_envelope(bundle, options=options)
 
     def _resolve_options(self, options: MemoryCompileOptions | None) -> MemoryCompileOptions:
         opts = options or MemoryCompileOptions()

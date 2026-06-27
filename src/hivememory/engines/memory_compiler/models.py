@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -59,6 +59,39 @@ class CompiledMemoryEnvelope(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class FullStrategyConfig(BaseModel):
+    """完整渲染策略：按字符上限截断。"""
+
+    strategy: Literal["full"] = "full"
+    max_tokens: int = 2000
+    max_content_length: int = 500
+    stale_days: int = 90
+
+
+class CascadeStrategyConfig(BaseModel):
+    """瀑布策略：Top-N 完整渲染 + 其余 Index，受 token 预算限制。"""
+
+    strategy: Literal["cascade"] = "cascade"
+    max_memory_tokens: int = 2000
+    full_payload_count: int = 3
+    max_content_length: int = 500
+    index_max_summary_length: int = 100
+
+
+class CompactStrategyConfig(BaseModel):
+    """紧凑策略：仅渲染 Index 层。"""
+
+    strategy: Literal["compact"] = "compact"
+    max_memory_tokens: int = 2000
+    index_max_summary_length: int = 100
+
+
+RetrievalStrategyConfig = Annotated[
+    Union[FullStrategyConfig, CascadeStrategyConfig, CompactStrategyConfig],
+    Field(discriminator="strategy"),
+]
+
+
 class MemoryCompileOptions(BaseModel):
     """单次编译的选项参数。"""
 
@@ -70,3 +103,5 @@ class MemoryCompileOptions(BaseModel):
     canonical_alias: Optional[str] = None
     format: Optional[Literal["xml", "markdown", "plain"]] = None
     language: Optional[str] = None
+    # Phase A: envelope 编译时的检索渲染策略
+    retrieval_strategy_config: Optional[RetrievalStrategyConfig] = None

@@ -2,14 +2,18 @@
 
 from hivememory.engines.memory_compiler.compiler import MemoryCompiler
 from hivememory.engines.memory_compiler.models import (
+    CascadeStrategyConfig,
     CompiledMemoryArtifact,
     CompiledMemoryEnvelope,
+    CompactStrategyConfig,
+    FullStrategyConfig,
     MemoryCompileOptions,
     MemoryCompileTarget,
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
+    RetrievalStrategyConfig,
 )
-from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
+from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR, MemoryUnitIR
 
 __all__ = [
     "MemoryCompiler",
@@ -21,4 +25,10 @@ __all__ = [
     "MemoryCompileOptions",
     "MemorySectionIR",
     "MemoryBundleIR",
+    "MemoryUnitIR",
+    # Phase A: retrieval strategy configs
+    "FullStrategyConfig",
+    "CascadeStrategyConfig",
+    "CompactStrategyConfig",
+    "RetrievalStrategyConfig",
 ]
