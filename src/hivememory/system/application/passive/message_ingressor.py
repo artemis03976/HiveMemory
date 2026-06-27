@@ -53,7 +53,6 @@ class PassiveMessageIngressor:
             GlobalRoutes.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE,
             query=content,
             identity=identity,
-            mode="passive",
         )
         buffer = self._buffers.get_buffer(identity)
         flushed = buffer.accept_user(

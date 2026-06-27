@@ -449,16 +449,9 @@ class KoakumaRuntime:
                 ],
             )
 
-        content = result.rendered_context
+        from hivememory.engines.memory_compiler import compile_retrieval_context
+        content = compile_retrieval_context(result.memories)
         response_warnings = list(filter_warnings)
-        if not content:
-            logger.warning(
-                "RetrievalResponse for MTP SEARCH contains memories but no rendered_context."
-            )
-            content = ""
-            response_warnings.append(
-                MTPWarningInfo(message_key="mtp.search.rendered_context_missing")
-            )
 
         # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
         self.atom_cache.ingest_atoms(result.memories)

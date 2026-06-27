@@ -124,12 +124,19 @@ class PassiveIngressService:
         ):
             gaze_result = outcome.gaze_result
             retrieval_result = outcome.retrieval_result
+            from hivememory.engines.memory_compiler import (
+                compile_retrieval_context, MemoryCompileOptions, FullStrategyConfig,
+            )
+            memory_text = compile_retrieval_context(
+                retrieval_result.memories,
+                MemoryCompileOptions(retrieval_strategy_config=FullStrategyConfig()),
+            ) or None
             return {
                 "intent": gaze_result.intent.value,
                 "rewritten": gaze_result.rewritten_query,
                 "keywords": gaze_result.search_keywords,
                 "worth_saving": gaze_result.worth_saving,
-                "memory": retrieval_result.rendered_context or None,
+                "memory": memory_text,
             }
 
         if outcome.kind == "buffered":

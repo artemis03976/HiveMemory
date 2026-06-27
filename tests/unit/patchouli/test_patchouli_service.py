@@ -59,7 +59,6 @@ async def test_retrieve_for_gaze_rag_intent(service_with_local_bus):
     assert request.semantic_query == "重写查询"
     assert request.keywords == ["kw1"]
     assert request.user_id == "u1"
-    assert retrieve.await_args.args[1] == "active"
 
 
 @pytest.mark.asyncio

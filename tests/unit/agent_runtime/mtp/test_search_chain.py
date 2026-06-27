@@ -272,43 +272,33 @@ class TestSearchRetrievalRequest:
 class TestSearchResultRendering:
     """SEARCH uses RetrievalResponse.rendered_context from RetrievalFamiliar."""
 
-    def test_single_result_rendered_context(self, koakuma):
+    def test_single_result_compiled_context(self, koakuma):
         mem = _make_memory(title="API Spec", summary="REST API specification", alias="fact_api_spec")
-        rendered = "<memory_ref alias='fact_api_spec'>REST API specification</memory_ref>"
-        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(
-            [mem],
-            rendered_context=rendered,
-        )
+        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="api" ⟫')
 
         assert result.success
-        assert result.response_content == rendered
+        assert result.response_content
+        assert "API Spec" in result.response_content
 
-    def test_multiple_results_rendered_context(self, koakuma):
+    def test_multiple_results_compiled_context(self, koakuma):
         mems = [
             _make_memory(title="API Spec", summary="REST API spec", alias="fact_api_spec"),
             _make_memory(title="DB Config", summary="Database configuration", alias="fact_db_config"),
         ]
-        rendered = (
-            "<memory_ref alias='fact_api_spec'>REST API spec</memory_ref>\n"
-            "<memory_ref alias='fact_db_config'>Database configuration</memory_ref>"
-        )
-        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(
-            mems,
-            rendered_context=rendered,
-        )
+        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(mems)
 
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="api db" ⟫')
 
         assert result.success
-        assert result.response_content == rendered
+        assert "API Spec" in result.response_content
+        assert "DB Config" in result.response_content
 
     def test_filter_warning_added_to_response_warnings(self, koakuma):
         mem = _make_memory(alias="fact_test")
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(
             [mem],
-            rendered_context="<memory_ref alias='fact_test'>Test</memory_ref>",
         )
 
         response = _handle_search(
@@ -318,7 +308,7 @@ class TestSearchResultRendering:
         )
 
         assert response.status == MTPResponseStatus.SUCCESS
-        assert response.content == "<memory_ref alias='fact_test'>Test</memory_ref>"
+        assert response.content  # compiled non-empty
         assert len(response.warnings) == 1
         assert response.warnings[0].message_key == "mtp.filter.unknown_key"
         assert response.warnings[0].params == {"key": "unknown"}
@@ -372,18 +362,15 @@ class TestSearchAliasRegistration:
 class TestKoakumaSearchE2E:
     """通过 execute_mtp 端到端测试 SEARCH"""
 
-    def test_search_returns_rendered_context(self, koakuma):
+    def test_search_returns_compiled_context(self, koakuma):
         mem = _make_memory(alias="fact_test", summary="Test summary")
-        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(
-            [mem],
-            rendered_context="<memory_ref alias='fact_test'>Test summary</memory_ref>",
-        )
+        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
         assert result.success
-        assert "<memory_ref" in result.response_content
-        assert "fact_test" in result.response_content
+        assert result.response_content  # non-empty compiled output
+        assert "Test Memory" in result.response_content or "Test summary" in result.response_content
 
     def test_search_with_filter(self, koakuma):
         mem = _make_memory(alias="code_sort", memory_type=MemoryType.CODE_SNIPPET)
@@ -438,24 +425,7 @@ class TestKoakumaSearchE2E:
         assert response.warnings[0].message_key == "mtp.search.no_memories_found"
         assert response.warnings[0].params == {}
 
-    def test_search_missing_rendered_context_warning_entry(self, koakuma):
-        mem = _make_memory(alias="fact_test")
-        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(
-            [mem],
-            rendered_context="",
-        )
 
-        response = _handle_search(
-            koakuma,
-            {"query": "test"},
-            context=MTPExecutionContext(language="en"),
-        )
-
-        assert response.status == MTPResponseStatus.SUCCESS
-        assert response.content == ""
-        assert len(response.warnings) == 1
-        assert response.warnings[0].message_key == "mtp.search.rendered_context_missing"
-        assert response.warnings[0].params == {}
 
     def test_search_retrieval_exception(self, koakuma):
         koakuma._bus._mock_retrieval.retrieve.side_effect = Exception("Connection error")

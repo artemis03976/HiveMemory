@@ -163,6 +163,10 @@ class AgentRunContext(BaseModel):
     user_message: str = Field(default="")
     topic_context: Optional["TopicData"] = Field(default=None)
     retrieval_result: RetrievalResponse = Field(default_factory=RetrievalResponse)
+    # Phase D: pre-compiled memory context text for system prompt injection.
+    # retrieval_result.rendered_context is no longer filled; use this field instead.
+    # retrieval_result itself is retained for memory atom access (atom_cache, hit recording).
+    memory_context: str = Field(default="")
     agent_profile: AgentProfile
     storage_available: bool = Field(default=True)
 

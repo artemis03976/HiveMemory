@@ -4,6 +4,7 @@ import logging
 from typing import Any, List
 from uuid import UUID
 
+from hivememory.engines.memory_compiler import compile_retrieval_context
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -43,7 +44,6 @@ class PatchouliService:
         identity: Identity,
         topic_snapshots: Any = None,
         enable_retrieval: bool = True,
-        mode: str = "active",
     ) -> AnalyzeAndRetrieveResult:
         """执行 Patchouli 的标准分析与预检索入口。"""
         gaze_result = await self._require_local_bus().request(
@@ -55,7 +55,6 @@ class PatchouliService:
         retrieval_result = await self.retrieve_for_gaze(
             gaze_result,
             enable_retrieval=enable_retrieval,
-            mode=mode,
         )
         return AnalyzeAndRetrieveResult(
             gaze_result=gaze_result,
@@ -135,6 +134,7 @@ class PatchouliService:
                 gaze_result,
                 enable_retrieval=enable_memory_retrieval,
             )
+            memory_context = compile_retrieval_context(retrieval_result.memories)
 
             agent_run_context = AgentRunContext(
                 identity=identity,
@@ -142,6 +142,7 @@ class PatchouliService:
                 user_message=user_message,
                 topic_context=topic_context,
                 retrieval_result=retrieval_result,
+                memory_context=memory_context,
                 agent_profile=agent_profile,
                 storage_available=await self._require_local_bus().request(
                     PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
@@ -256,7 +257,6 @@ class PatchouliService:
         self,
         gaze_result,
         enable_retrieval: bool = True,
-        mode: str = "active",
     ) -> RetrievalResponse:
         if enable_retrieval and gaze_result.intent == GatewayIntent.RAG:
             retrieval_request = RetrievalRequest(
@@ -267,7 +267,6 @@ class PatchouliService:
             return await self._require_local_bus().request(
                 PatchouliLocalRoutes.MEMORY_RETRIEVE,
                 retrieval_request,
-                mode,
             )
 
         return RetrievalResponse()

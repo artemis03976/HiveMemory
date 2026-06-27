@@ -282,7 +282,6 @@ async def test_public_passive_analyze_and_retrieve_composes_gateway_and_retrieva
         identity=identity,
         topic_snapshots=["topic"],
         enable_retrieval=True,
-        mode="passive",
     )
 
     assert isinstance(result, AnalyzeAndRetrieveResult)
@@ -294,7 +293,6 @@ async def test_public_passive_analyze_and_retrieve_composes_gateway_and_retrieva
         identity=identity,
     )
     retrieve.assert_awaited_once()
-    assert retrieve.await_args.args[1] == "passive"
     service._eye.gaze.assert_not_awaited()
 
 
