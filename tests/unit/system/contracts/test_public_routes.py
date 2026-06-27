@@ -18,7 +18,8 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
-from hivememory.patchouli.runtime.bridge import PatchouliBridge
+from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -303,7 +304,7 @@ class TestPatchouliPublicRoutes:
         settlement = object()
 
         bridge.mount()
-        await bridge._runtime.local_bus.publish(
+        await bridge._test_local_bus.publish(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             settlement=settlement,
         )
@@ -312,7 +313,7 @@ class TestPatchouliPublicRoutes:
 
         subscriber.reset_mock()
         bridge.unmount()
-        await bridge._runtime.local_bus.publish(
+        await bridge._test_local_bus.publish(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             settlement=settlement,
         )
@@ -326,7 +327,7 @@ class TestPatchouliPublicRoutes:
         self.global_bus.subscribe(GlobalEvents.PENDING_ATOM_CANCELLED, subscriber)
 
         bridge.mount()
-        await bridge._runtime.local_bus.publish(
+        await bridge._test_local_bus.publish(
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             pending_alias="draft_cancelled",
         )
@@ -347,7 +348,7 @@ class TestPatchouliPublicRoutes:
         )
 
         bridge.mount()
-        await bridge._runtime.local_bus.publish(
+        await bridge._test_local_bus.publish(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             settlement=settlement,
         )
@@ -362,14 +363,7 @@ class TestPatchouliPublicRoutes:
         service.cleanup_prepared_agent_run = AsyncMock()
         service.record_memory_citation = AsyncMock()
 
-        runtime = MagicMock()
-        runtime.local_bus = GlobalSystemBus()
-        runtime.librarian_core = MagicMock()
-        runtime.librarian_core.submit_interaction = AsyncMock()
-        runtime.retrieval_familiar = MagicMock()
-        runtime.retrieval_familiar.retrieve_async = AsyncMock()
-        runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
-        runtime._get_agent_profile = AsyncMock()
+        local_bus = PatchouliBus()
 
         memory_management_service = MagicMock()
         memory_management_service.create_memory = AsyncMock()
@@ -378,6 +372,8 @@ class TestPatchouliPublicRoutes:
         memory_management_service.update_memory = AsyncMock()
         memory_management_service.delete_memory = AsyncMock()
         memory_management_service.record_feedback = AsyncMock()
+        memory_management_service.retrieve = AsyncMock()
+        memory_management_service.retrieve_by_aliases = AsyncMock()
 
         memory_task_management_service = MagicMock()
         memory_task_management_service.list_memory_tasks = AsyncMock(return_value=["task"])
@@ -387,23 +383,29 @@ class TestPatchouliPublicRoutes:
         agent_profile_management_service = MagicMock()
         agent_profile_management_service.create_agent_profile = AsyncMock()
         agent_profile_management_service.list_agent_profiles = AsyncMock()
+        agent_profile_management_service.get_agent_profile = AsyncMock()
 
         topic_management_service = MagicMock()
         topic_management_service.list_active_topics = AsyncMock()
-        topic_management_service.archive_topic = AsyncMock()
+        topic_management_service.settle_topic = AsyncMock()
         topic_management_service.evict_topic = AsyncMock()
 
         model_readiness_service = MagicMock()
         model_readiness_service.warmup_models = AsyncMock()
         model_readiness_service.is_models_ready = AsyncMock(return_value=True)
 
-        return PatchouliBridge(
-            runtime=runtime,
-            service=service,
-            memory_management_service=memory_management_service,
-            memory_task_management_service=memory_task_management_service,
-            agent_profile_management_service=agent_profile_management_service,
-            topic_management_service=topic_management_service,
-            model_readiness_service=model_readiness_service,
+        public_api = PatchouliPublicApi(
+            chat=service,
+            memory=memory_management_service,
+            memory_tasks=memory_task_management_service,
+            agent_profiles=agent_profile_management_service,
+            topics=topic_management_service,
+            readiness=model_readiness_service,
+        )
+        bridge = PatchouliBridge(
+            local_bus=local_bus,
+            public_api=public_api,
             global_bus=self.global_bus,
         )
+        bridge._test_local_bus = local_bus
+        return bridge

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -17,12 +18,13 @@ def _build_runtime_with_local_bus():
     runtime._local_routes_registered = False
     runtime.local_routes_registered = False
     runtime.local_bus = runtime._local_bus
-    runtime.librarian_core = MagicMock()
-    runtime.librarian_core.submit_interaction = AsyncMock()
-    runtime.librarian_core.prepare_topic = AsyncMock()
-    runtime.librarian_core.get_active_topics_snapshots = AsyncMock()
-    runtime.librarian_core.manual_archive_topic = AsyncMock()
+    runtime.perception_familiar = MagicMock()
+    runtime.perception_familiar.submit_interaction = AsyncMock()
+    runtime.perception_familiar.prepare_topic = AsyncMock()
+    runtime.perception_familiar.manual_settle_topic = AsyncMock()
     runtime.retrieval_familiar = MagicMock()
+    runtime.retrieval_familiar.list_active_topics = AsyncMock()
+    runtime.retrieval_familiar.get_topic = AsyncMock()
     runtime.retrieval_familiar.retrieve = MagicMock()
     runtime.retrieval_familiar.retrieve_async = AsyncMock()
     runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
@@ -199,40 +201,26 @@ class TestPatchouliSystemLocalRoutes:
         patchouli.start = PatchouliSystem.start.__get__(patchouli, PatchouliSystem)
         patchouli.stop = PatchouliSystem.stop.__get__(patchouli, PatchouliSystem)
 
-        assert "librarian.submit_interaction" not in runtime.local_bus.list_routes()
-        assert "passive.analyze_and_retrieve" not in runtime.local_bus.list_routes()
-        assert "memory.retrieve" not in runtime.local_bus.list_routes()
-        assert "memory.retrieve_by_aliases" not in runtime.local_bus.list_routes()
-        assert "lifecycle.refresh_memory_vitality" not in runtime.local_bus.list_routes()
-        assert "librarian.prepare_topic" not in runtime.local_bus.list_routes()
-        assert "librarian.get_active_topics_snapshots" not in runtime.local_bus.list_routes()
-        assert "librarian.manual_archive_topic" not in runtime.local_bus.list_routes()
+        public_only_routes = {
+            "passive.analyze_and_retrieve",
+            "service.prepare_agent_run",
+            "service.finalize_agent_run",
+            "service.cleanup_prepared_agent_run",
+        }
+
+        assert not set(PatchouliLocalRoutes.ALL).intersection(
+            runtime.local_bus.list_routes()
+        )
 
         await patchouli.start()
 
-        assert "librarian.submit_interaction" in runtime.local_bus.list_routes()
-        assert "passive.analyze_and_retrieve" in runtime.local_bus.list_routes()
-        assert "memory.retrieve" in runtime.local_bus.list_routes()
-        assert "memory.retrieve_by_aliases" in runtime.local_bus.list_routes()
-        assert "lifecycle.refresh_memory_vitality" in runtime.local_bus.list_routes()
-        assert "librarian.prepare_topic" in runtime.local_bus.list_routes()
-        assert "librarian.get_active_topics_snapshots" in runtime.local_bus.list_routes()
-        assert "service.prepare_agent_run" in runtime.local_bus.list_routes()
-        assert "service.finalize_agent_run" in runtime.local_bus.list_routes()
-        assert "service.cleanup_prepared_agent_run" in runtime.local_bus.list_routes()
-        assert "librarian.manual_archive_topic" in runtime.local_bus.list_routes()
+        routes = set(runtime.local_bus.list_routes())
+        assert set(PatchouliLocalRoutes.ALL).issubset(routes)
+        assert public_only_routes.isdisjoint(routes)
 
         await patchouli.stop()
 
-        assert "librarian.submit_interaction" not in runtime.local_bus.list_routes()
-        assert "passive.analyze_and_retrieve" not in runtime.local_bus.list_routes()
-        assert "memory.retrieve" not in runtime.local_bus.list_routes()
-        assert "memory.retrieve_by_aliases" not in runtime.local_bus.list_routes()
-        assert "lifecycle.refresh_memory_vitality" not in runtime.local_bus.list_routes()
-        assert "librarian.prepare_topic" not in runtime.local_bus.list_routes()
-        assert "librarian.get_active_topics_snapshots" not in runtime.local_bus.list_routes()
-        assert "service.prepare_agent_run" not in runtime.local_bus.list_routes()
-        assert "service.finalize_agent_run" not in runtime.local_bus.list_routes()
-        assert "service.cleanup_prepared_agent_run" not in runtime.local_bus.list_routes()
-        assert "librarian.manual_archive_topic" not in runtime.local_bus.list_routes()
+        routes = set(runtime.local_bus.list_routes())
+        assert not set(PatchouliLocalRoutes.ALL).intersection(routes)
+        assert public_only_routes.isdisjoint(routes)
         runtime.shutdown_drain.assert_awaited_once()

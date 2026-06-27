@@ -6,7 +6,12 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
+
+from hivememory.engines.generation.models import GenerationRequest
+
+if TYPE_CHECKING:
+    from hivememory.engines.perception.models import LogicalBlock
 
 
 class MemoryGenerationTaskStatus(str, Enum):
@@ -23,6 +28,29 @@ class MemoryGenerationSource(str, Enum):
     ARCHIVE = "ARCHIVE"
     MERGE = "MERGE"
     SPLIT = "SPLIT"
+
+
+@dataclass(frozen=True)
+class InteractionArtifactInput:
+    """Raw interaction data carried to the generation data plane."""
+
+    topic_id: str
+    topic_title: str = ""
+    topic_summary: str = ""
+    blocks: tuple["LogicalBlock", ...] = ()
+
+
+@dataclass(frozen=True)
+class MemoryGenerationTaskSpec:
+    """控制面与生成数据面之间的统一任务协议。"""
+
+    topic_id: str
+    label: str
+    source: MemoryGenerationSource
+    request: GenerationRequest
+    source_intent: str
+    interaction_input: InteractionArtifactInput | None = None
+    pending_alias: Optional[str] = None
 
 
 @dataclass
@@ -154,6 +182,8 @@ class MemoryGenerationTaskRegistry:
 __all__ = [
     "MemoryGenerationSource",
     "MemoryGenerationTask",
+    "InteractionArtifactInput",
+    "MemoryGenerationTaskSpec",
     "MemoryGenerationTaskRegistry",
     "MemoryGenerationTaskStatus",
     "memory_task_to_payload",

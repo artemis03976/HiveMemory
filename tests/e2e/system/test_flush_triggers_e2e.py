@@ -129,13 +129,15 @@ def _get_topic_id(
         AssertionError: 未找到任何活跃话题
     """
     layer = _get_perception_layer(system)
-    owner = Identity(user_id=user_id, agent_id=agent_id)
-    buffers = layer._buffer_manager.get_buffers_by_owner(owner)
-    if not buffers:
+    topics = [
+        topic for topic in layer.short_term_store.list_topic_data(user_id=user_id)
+        if topic.current_agent_id == agent_id
+    ]
+    if not topics:
         raise AssertionError(
             f"未找到任何活跃话题: user_id={user_id}, agent_id={agent_id}"
         )
-    return max(buffers, key=lambda b: b.last_accessed_at).topic_id
+    return max(topics, key=lambda topic: topic.last_accessed_at).topic_id
 
 
 def _passive_ingest_round(
@@ -202,15 +204,16 @@ class TestPageFolding:
 
             # 检查 buffer 状态
             topic_id = _get_topic_id(e2e_system, user_id, agent_id)
-            buffer = layer.get_buffer(topic_id)
+            topic_data = layer.short_term_store.get_topic_data(topic_id, touch=False)
+            assert topic_data is not None
 
             # 折叠后应只保留最近 1 个 block
-            assert len(buffer.blocks) <= 1, (
-                f"折叠后应最多保留 1 个 block, 实际 {len(buffer.blocks)}"
+            assert len(topic_data.blocks) <= 1, (
+                f"折叠后应最多保留 1 个 block, 实际 {len(topic_data.blocks)}"
             )
 
             # state_summary 应被写入
-            assert buffer.state_summary != "", (
+            assert topic_data.state_summary != "", (
                 "折叠后 state_summary 应非空"
             )
 
@@ -222,8 +225,8 @@ class TestPageFolding:
 
             logger.info(
                 f"FLUSH-E2E-001: Page Folding 验证通过, "
-                f"blocks={len(buffer.blocks)}, "
-                f"summary_len={len(buffer.state_summary)}"
+                f"blocks={len(topic_data.blocks)}, "
+                f"summary_len={len(topic_data.state_summary)}"
             )
 
         _cleanup_all_buffers(e2e_system)
@@ -256,8 +259,9 @@ class TestPageFolding:
 
             # 确认折叠已发生
             topic_id = _get_topic_id(e2e_system, user_id, agent_id)
-            buffer = layer.get_buffer(topic_id)
-            assert buffer.state_summary != "", "应已触发折叠"
+            topic_data = layer.short_term_store.get_topic_data(topic_id, touch=False)
+            assert topic_data is not None
+            assert topic_data.state_summary != "", "应已触发折叠"
 
         # 等待足够时间确认无异步 Generation
         time.sleep(FLUSH_SETTLE_SECONDS)
@@ -370,10 +374,10 @@ class TestIdleHibernate:
         _cleanup_all_buffers(e2e_system)
 
         original_timeout = layer._idle_timeout_seconds
-        original_max = layer._buffer_manager.max_resident_topics
+        original_max = layer._short_term_store.max_resident_topics
         try:
             layer._idle_timeout_seconds = 1
-            layer._buffer_manager.max_resident_topics = 2
+            layer._short_term_store.max_resident_topics = 2
 
             # 填满 2 个话题（使用不同 agent_id 隔离）
             agent_ids = ["idle-slot-a0", "idle-slot-a1"]
@@ -414,7 +418,7 @@ class TestIdleHibernate:
 
         finally:
             layer._idle_timeout_seconds = original_timeout
-            layer._buffer_manager.max_resident_topics = original_max
+            layer._short_term_store.max_resident_topics = original_max
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)
 
@@ -440,9 +444,9 @@ class TestLRUEviction:
         # 清空残留 buffer，避免池容量干扰
         _cleanup_all_buffers(e2e_system)
 
-        original_max = layer._buffer_manager.max_resident_topics
+        original_max = layer._short_term_store.max_resident_topics
         try:
-            layer._buffer_manager.max_resident_topics = 2
+            layer._short_term_store.max_resident_topics = 2
 
             # 话题 A (最早) - 使用 agent_id 隔离
             aid_a = "lru-topic-a"
@@ -495,7 +499,7 @@ class TestLRUEviction:
             )
 
         finally:
-            layer._buffer_manager.max_resident_topics = original_max
+            layer._short_term_store.max_resident_topics = original_max
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)
 
@@ -531,9 +535,9 @@ class TestLRUEviction:
         # 清空残留 buffer，避免池容量干扰
         _cleanup_all_buffers(e2e_system)
 
-        original_max = layer._buffer_manager.max_resident_topics
+        original_max = layer._short_term_store.max_resident_topics
         try:
-            layer._buffer_manager.max_resident_topics = 1
+            layer._short_term_store.max_resident_topics = 1
 
             # 话题 X (使用 agent_id 隔离)
             aid_x = "lru-replace-x"
@@ -561,14 +565,15 @@ class TestLRUEviction:
             assert topic_y in active_y, "Y 应在活跃池"
 
             # Y 的 buffer 应有数据
-            buffer_y = layer.get_buffer(topic_y)
-            assert len(buffer_y.blocks) >= 1, (
-                f"Y 的 buffer 应有 block, 实际 {len(buffer_y.blocks)}"
+            topic_y_data = layer.short_term_store.get_topic_data(topic_y, touch=False)
+            assert topic_y_data is not None
+            assert len(topic_y_data.blocks) >= 1, (
+                f"Y 的话题数据应有 block, 实际 {len(topic_y_data.blocks)}"
             )
 
             logger.info("FLUSH-E2E-003: LRU 驱逐后新话题正常工作")
 
         finally:
-            layer._buffer_manager.max_resident_topics = original_max
+            layer._short_term_store.max_resident_topics = original_max
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)

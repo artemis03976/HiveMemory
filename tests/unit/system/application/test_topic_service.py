@@ -58,7 +58,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             identity=identity,
             topic_id="topic_1",
             user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
+            topic_context=None,
             retrieval_result=RetrievalResponse(),
             agent_profile=OMNI_DOLL_PROFILE,
             storage_available=True,
@@ -66,7 +66,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
         stream_prelude=StreamPrelude(
             topic_id="topic_1",
             is_new_topic=False,
-            pool_snapshot={},
+            pool_topics=[],
             memory_refs=[],
         ),
         gaze_result=gaze_result,
@@ -172,17 +172,11 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
 
 class TestTopicApplicationService:
     @pytest.fixture
-    def librarian_core(self):
-        librarian = MagicMock()
-        librarian.perception_layer.buffer_manager.pop_buffer.return_value = object()
-        return librarian
-
-    @pytest.fixture
     def bus(self):
         return GlobalSystemBus()
 
     @pytest.fixture
-    def service(self, bus, passive_config, librarian_core):
+    def service(self, bus, passive_config):
         return TopicApplicationService(
             global_bus=bus,
             config=passive_config,
@@ -199,13 +193,14 @@ class TestTopicApplicationService:
         assert identity.user_id == "u1"
 
     @pytest.mark.asyncio
-    async def test_archive_topic_uses_public_route(self, service, bus):
-        handler = AsyncMock(return_value={"success": True, "topic_id": "t1"})
-        bus.register(GlobalRoutes.PATCHOULI_MANUAL_ARCHIVE_TOPIC, handler)
+    async def test_settle_topic_uses_public_route(self, service, bus):
+        task = MagicMock(task_id="memtask_1", topic_id="t1")
+        handler = AsyncMock(return_value=task)
+        bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
 
-        result = await service.archive_topic(topic_id="t1")
+        result = await service.settle_topic(topic_id="t1")
 
-        assert result == {"success": True, "topic_id": "t1"}
+        assert result == {"success": True, "task_id": "memtask_1", "topic_id": "t1"}
         handler.assert_awaited_once_with(topic_id="t1")
 
     @pytest.mark.asyncio

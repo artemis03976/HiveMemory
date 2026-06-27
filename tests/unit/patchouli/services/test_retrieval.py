@@ -12,6 +12,8 @@ from uuid import uuid4
 
 from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
+from hivememory.engines.perception.models import LogicalBlock
+from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
@@ -49,17 +51,49 @@ def _make_engine_result(memories=None, rendered="<ctx>", is_empty=False):
 def _make_request(query="测试查询", user_id="u1", filters=None):
     return RetrievalRequest(semantic_query=query, identity=Identity(user_id=user_id), filters=filters)
 
+
+def _make_memory_library():
+    library = Mock()
+    library.short_term = Mock()
+    library.mid_term = Mock()
+    library.long_term = Mock()
+    library.mid_term.get_by_alias = AsyncMock()
+    library.mid_term.update_access_info = AsyncMock()
+    library.long_term.query = AsyncMock()
+    library.long_term.is_archived = AsyncMock()
+    return library
+
+
+def _make_topic_data(
+    topic_id="topic_1",
+    user_id="u1",
+    blocks=None,
+    last_accessed_at=1.0,
+):
+    return TopicData(
+        topic_id=topic_id,
+        user_id=user_id,
+        topic_title=f"title-{topic_id}",
+        topic_summary=f"summary-{topic_id}",
+        state_summary=f"state-{topic_id}",
+        blocks=tuple(blocks or []),
+        last_update=last_accessed_at,
+        last_accessed_at=last_accessed_at,
+        total_tokens=10,
+    )
+
+
 class TestRetrievalFamiliarRetrieve:
     """retrieve() 方法测试"""
 
     def setup_method(self):
-        self.mock_storage = AsyncMock()
+        self.mock_library = _make_memory_library()
         self.mock_engine = Mock()
         self.mock_engine.retrieve = AsyncMock()
         self.mock_passive_renderer = Mock()
         self.familiar = RetrievalFamiliar(
-            storage=self.mock_storage,
             engine=self.mock_engine,
+            memory_library=self.mock_library,
             passive_renderer=self.mock_passive_renderer,
         )
 
@@ -218,8 +252,8 @@ class TestRetrievalFamiliarRetrieve:
     async def test_retrieve_passive_no_renderer_fallback(self):
         """passive 模式无 renderer 时 fallback 到 engine 渲染"""
         familiar = RetrievalFamiliar(
-            storage=self.mock_storage,
             engine=self.mock_engine,
+            memory_library=self.mock_library,
             passive_renderer=None,
         )
         mem = _make_memory()
@@ -258,11 +292,11 @@ class TestRetrievalFamiliarIdentityPropagation:
     """§3.3 identity 完整传播测试"""
 
     def setup_method(self):
-        self.mock_storage = AsyncMock()
+        self.mock_library = _make_memory_library()
         self.mock_engine = AsyncMock()
         self.familiar = RetrievalFamiliar(
-            storage=self.mock_storage,
             engine=self.mock_engine,
+            memory_library=self.mock_library,
         )
 
     def _get_query_filters(self) -> QueryFilters:
@@ -322,21 +356,21 @@ class TestRetrievalFamiliarRetrieveByAliases:
     """retrieve_by_aliases() 精确取回并复用统一 renderer。"""
 
     def setup_method(self):
-        self.mock_storage = AsyncMock()
+        self.mock_library = _make_memory_library()
         self.mock_engine = Mock()
         self.mock_engine.retrieve = AsyncMock()
         self.mock_engine.retrieve_by_aliases = AsyncMock()
         self.mock_passive_renderer = Mock()
         self.familiar = RetrievalFamiliar(
-            storage=self.mock_storage,
             engine=self.mock_engine,
+            memory_library=self.mock_library,
             passive_renderer=self.mock_passive_renderer,
         )
 
     @pytest.mark.asyncio
     async def test_retrieve_by_aliases_renders_with_engine(self):
         mem = _make_memory("alias memory")
-        self.mock_storage.get_memory_by_alias.return_value = mem
+        self.mock_library.mid_term.get_by_alias.return_value = mem
         self.mock_engine.render_memories.return_value = "rendered aliases"
 
         response = await self.familiar.retrieve_by_aliases(
@@ -344,7 +378,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
             identity=Identity(user_id="u1"),
         )
 
-        self.mock_storage.get_memory_by_alias.assert_awaited_once_with("fact_a", "u1")
+        self.mock_library.mid_term.get_by_alias.assert_awaited_once_with("fact_a", "u1")
         self.mock_engine.render_memories.assert_called_once_with([mem])
         assert response.memories == [mem]
         assert response.memories_count == 1
@@ -353,7 +387,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
     @pytest.mark.asyncio
     async def test_retrieve_by_aliases_async_refreshes_vitality_through_local_bus(self):
         mem = _make_memory("alias memory")
-        self.mock_storage.get_memory_by_alias.return_value = mem
+        self.mock_library.mid_term.get_by_alias.return_value = mem
         self.mock_engine.render_memories.side_effect = ["stale", "fresh aliases"]
         bus = PatchouliBus()
         refresh = AsyncMock(return_value=[(mem.id, 41.0)])
@@ -372,7 +406,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
     @pytest.mark.asyncio
     async def test_retrieve_by_aliases_deduplicates_and_skips_missing(self):
         mem = _make_memory("alias memory")
-        self.mock_storage.get_memory_by_alias.side_effect = [mem, None]
+        self.mock_library.mid_term.get_by_alias.side_effect = [mem, None]
         self.mock_engine.render_memories.return_value = "rendered"
 
         response = await self.familiar.retrieve_by_aliases(
@@ -380,7 +414,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
             identity=Identity(user_id="u1"),
         )
 
-        assert self.mock_storage.get_memory_by_alias.call_count == 2
+        assert self.mock_library.mid_term.get_by_alias.call_count == 2
         self.mock_engine.render_memories.assert_called_once_with([mem])
         assert response.memories == [mem]
         assert response.rendered_context == "rendered"
@@ -388,7 +422,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
     @pytest.mark.asyncio
     async def test_retrieve_by_aliases_passive_uses_passive_renderer(self):
         mem = _make_memory("alias memory")
-        self.mock_storage.get_memory_by_alias.return_value = mem
+        self.mock_library.mid_term.get_by_alias.return_value = mem
         self.mock_passive_renderer.render.return_value = "passive rendered"
 
         response = await self.familiar.retrieve_by_aliases(
@@ -406,38 +440,142 @@ class TestRetrievalFamiliarAccessStats:
     """update_access_stats() 测试"""
 
     def setup_method(self):
-        self.mock_storage = AsyncMock()
+        self.mock_library = _make_memory_library()
         self.mock_engine = Mock()
         self.familiar = RetrievalFamiliar(
-            storage=self.mock_storage,
             engine=self.mock_engine,
+            memory_library=self.mock_library,
         )
 
     @pytest.mark.asyncio
     async def test_update_access_stats(self):
-        """逐条调用 storage.update_access_info"""
+        """逐条调用 mid_term.update_access_info"""
         m1 = _make_memory("m1")
         m2 = _make_memory("m2")
 
         await self.familiar.update_access_stats([m1, m2])
 
-        assert self.mock_storage.update_access_info.call_count == 2
+        assert self.mock_library.mid_term.update_access_info.call_count == 2
 
     @pytest.mark.asyncio
     async def test_update_access_stats_per_item_failure(self):
         """单条失败不影响其他"""
         m1 = _make_memory("m1")
         m2 = _make_memory("m2")
-        self.mock_storage.update_access_info.side_effect = [
+        self.mock_library.mid_term.update_access_info.side_effect = [
             RuntimeError("fail"), None
         ]
 
         await self.familiar.update_access_stats([m1, m2])
 
-        assert self.mock_storage.update_access_info.call_count == 2
+        assert self.mock_library.mid_term.update_access_info.call_count == 2
 
     @pytest.mark.asyncio
     async def test_update_access_stats_empty_list(self):
         """空列表不报错"""
         await self.familiar.update_access_stats([])
-        self.mock_storage.update_access_info.assert_not_called()
+        self.mock_library.mid_term.update_access_info.assert_not_called()
+
+
+class TestRetrievalFamiliarShortTermTopics:
+    """短期话题读入口测试"""
+
+    def setup_method(self):
+        self.mock_library = _make_memory_library()
+        self.mock_engine = Mock()
+        self.familiar = RetrievalFamiliar(
+            engine=self.mock_engine,
+            memory_library=self.mock_library,
+        )
+
+    def test_list_active_topics_excludes_empty_and_sorts_by_access(self):
+        block = LogicalBlock()
+        old_topic = _make_topic_data("old", blocks=[block], last_accessed_at=1.0)
+        empty_topic = _make_topic_data("empty", blocks=[], last_accessed_at=3.0)
+        new_topic = _make_topic_data("new", blocks=[block], last_accessed_at=2.0)
+        self.mock_library.short_term.list_topic_data.return_value = [
+            old_topic,
+            empty_topic,
+            new_topic,
+        ]
+
+        snapshots = self.familiar.list_active_topics(Identity(user_id="u1"))
+
+        self.mock_library.short_term.list_topic_data.assert_called_once_with(
+            user_id="u1",
+            include_empty=False,
+            deep_copy=False,
+        )
+        assert [snapshot.topic_id for snapshot in snapshots] == ["new", "old"]
+        assert snapshots[0].block_count == 1
+
+    def test_list_active_topics_include_empty_passthrough(self):
+        self.mock_library.short_term.list_topic_data.return_value = []
+
+        self.familiar.list_active_topics(Identity(user_id="u1"), include_empty=True)
+
+        self.mock_library.short_term.list_topic_data.assert_called_once_with(
+            user_id="u1",
+            include_empty=True,
+            deep_copy=False,
+        )
+
+    def test_get_topic_defaults_to_deep_copy(self):
+        topic_data = _make_topic_data()
+        self.mock_library.short_term.get_topic_data.return_value = topic_data
+
+        result = self.familiar.get_topic("topic_1")
+
+        self.mock_library.short_term.get_topic_data.assert_called_once_with(
+            "topic_1",
+            touch=True,
+            deep_copy=True,
+        )
+        assert result is topic_data
+
+    def test_get_topic_can_skip_deep_copy(self):
+        self.familiar.get_topic("topic_1", touch=False, deep_copy=False)
+
+        self.mock_library.short_term.get_topic_data.assert_called_once_with(
+            "topic_1",
+            touch=False,
+            deep_copy=False,
+        )
+
+
+class TestRetrievalFamiliarArchiveQueries:
+    """Long-term archive read access belongs to RetrievalFamiliar."""
+
+    def setup_method(self):
+        self.mock_library = _make_memory_library()
+        self.mock_engine = Mock()
+        self.familiar = RetrievalFamiliar(
+            engine=self.mock_engine,
+            memory_library=self.mock_library,
+        )
+
+    @pytest.mark.asyncio
+    async def test_query_archive_delegates_to_long_term_store(self):
+        records = [Mock()]
+        self.mock_library.long_term.query.return_value = records
+
+        result = await self.familiar.query_archive(
+            limit=50,
+            vitality_threshold=10.0,
+        )
+
+        self.mock_library.long_term.query.assert_awaited_once_with(
+            limit=50,
+            vitality_threshold=10.0,
+        )
+        assert result == records
+
+    @pytest.mark.asyncio
+    async def test_is_archived_delegates_to_long_term_store(self):
+        memory_id = uuid4()
+        self.mock_library.long_term.is_archived.return_value = True
+
+        result = await self.familiar.is_archived(memory_id)
+
+        self.mock_library.long_term.is_archived.assert_awaited_once_with(memory_id)
+        assert result is True

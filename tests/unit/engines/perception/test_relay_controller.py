@@ -18,9 +18,9 @@ from hivememory.engines.perception.relay_controller import SimpleRelayController
 from hivememory.engines.perception.models import (
     FlushEvent,
     LogicalBlock,
-    SemanticBuffer,
     FlushReason,
 )
+from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.core.models import StreamMessage, StreamMessageType
 
 

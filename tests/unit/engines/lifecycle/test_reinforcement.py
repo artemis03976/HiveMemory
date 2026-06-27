@@ -10,9 +10,8 @@ HiveMemory - 强化引擎单元测试
 """
 
 import pytest
-import pytest_asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, Mock, MagicMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
@@ -26,7 +25,7 @@ class TestDynamicReinforcementEngine:
 
     def setup_method(self):
         """测试初始化"""
-        self.mock_storage = AsyncMock()
+        self.mock_mid_term = AsyncMock()
         self.mock_vitality_calc = Mock()
 
         self.config = ReinforcementEngineConfig(
@@ -34,7 +33,7 @@ class TestDynamicReinforcementEngine:
         )
 
         self.engine = DynamicReinforcementEngine(
-            storage=self.mock_storage,
+            mid_term=self.mock_mid_term,
             vitality_calculator=self.mock_vitality_calc,
             config=self.config,
         )
@@ -61,7 +60,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_hit_event(self):
         """测试 HIT 事件增加生命力"""
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 50.0
 
         event = MemoryEvent(
@@ -75,7 +74,7 @@ class TestDynamicReinforcementEngine:
         assert result.event_type == EventType.HIT
         assert result.previous_vitality == 50.0
         assert result.new_vitality == 55.0
-        assert self.mock_storage.upsert_memory.called
+        assert self.mock_mid_term.upsert.called
 
     @pytest.mark.asyncio
     async def test_citation_resets_decay(self):
@@ -85,7 +84,7 @@ class TestDynamicReinforcementEngine:
         self.test_memory.meta.updated_at -= timedelta(seconds=1)
         original_updated_at = self.test_memory.meta.updated_at
 
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 70.0  # 提升效果
 
         event = MemoryEvent(
@@ -99,13 +98,13 @@ class TestDynamicReinforcementEngine:
         assert result.event_type == EventType.CITATION
 
         # CITATION 应该更新记忆的 updated_at
-        updated_memory = self.mock_storage.upsert_memory.call_args[0][0]
+        updated_memory = self.mock_mid_term.upsert.call_args[0][0]
         assert updated_memory.meta.updated_at > original_updated_at
 
     @pytest.mark.asyncio
     async def test_negative_feedback_reduces_confidence(self):
         """测试负面反馈降低置信度"""
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 25.0  # 降低后
 
         event = MemoryEvent(
@@ -124,7 +123,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_positive_feedback_increases_vitality(self):
         """测试正面反馈增加生命力"""
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 100.0  # 大幅提升
 
         event = MemoryEvent(
@@ -140,7 +139,7 @@ class TestDynamicReinforcementEngine:
 
     @pytest.mark.asyncio
     async def test_negative_feedback_applies_vitality_penalty_after_recalculate(self):
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 80.0
 
         event = MemoryEvent(
@@ -156,7 +155,7 @@ class TestDynamicReinforcementEngine:
 
     @pytest.mark.asyncio
     async def test_reinforcement_clamps_vitality_to_valid_range(self):
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 90.0
 
         event = MemoryEvent(
@@ -172,7 +171,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_memory_not_found(self):
         """测试记忆不存在时抛出异常"""
-        self.mock_storage.get_memory.return_value = None
+        self.mock_mid_term.get.return_value = None
 
         event = MemoryEvent(
             event_type=EventType.HIT,
@@ -188,7 +187,7 @@ class TestDynamicReinforcementEngine:
         """测试访问计数增加"""
         original_count = self.test_memory.meta.access_count
 
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         event = MemoryEvent(
@@ -200,13 +199,13 @@ class TestDynamicReinforcementEngine:
         await self.engine.reinforce(self.test_memory.id, event)
 
         # 获取更新的记忆
-        updated_memory = self.mock_storage.upsert_memory.call_args[0][0]
+        updated_memory = self.mock_mid_term.upsert.call_args[0][0]
         assert updated_memory.meta.access_count == original_count + 1
 
     @pytest.mark.asyncio
     async def test_last_accessed_at_updated(self):
         """测试最后访问时间更新"""
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         event = MemoryEvent(
@@ -218,13 +217,13 @@ class TestDynamicReinforcementEngine:
         await self.engine.reinforce(self.test_memory.id, event)
 
         # 获取更新的记忆
-        updated_memory = self.mock_storage.upsert_memory.call_args[0][0]
+        updated_memory = self.mock_mid_term.upsert.call_args[0][0]
         assert updated_memory.meta.last_accessed_at is not None
 
     @pytest.mark.asyncio
     async def test_event_history_tracked(self):
         """测试事件历史跟踪"""
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         event = MemoryEvent(
@@ -280,7 +279,7 @@ class TestDynamicReinforcementEngine:
             payload=PayloadLayer(content="Content"),
         )
 
-        self.mock_storage.get_memory.side_effect = [memory1, memory2]
+        self.mock_mid_term.get.side_effect = [memory1, memory2]
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         # 记录两个事件
@@ -298,7 +297,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_clear_history(self):
         """测试清空历史"""
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         event = MemoryEvent(
@@ -316,7 +315,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_get_stats(self):
         """测试获取统计信息"""
-        self.mock_storage.get_memory.return_value = self.test_memory
+        self.mock_mid_term.get.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         # 记录多个事件

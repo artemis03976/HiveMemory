@@ -5,8 +5,10 @@ HiveMemory - 分布式记忆管理系统
     - PatchouliSystem (The Facility): 外层容器，持有 Eye + Runtime
     - TheEye (真理之眼): Ingress Gateway，意图识别、查询重写
     - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
+        - PerceptionFamiliar (感知使魔): 话题缓冲、归档触发
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
-        - LibrarianCore (馆长本体): 话题感知、记忆生成、生命周期管理
+        - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
+        - LifecycleFamiliar (生命周期使魔): 活力维护、园艺任务
 
 使用示例:
     >>> from hivememory import PatchouliSystem, HiveMemoryConfig
@@ -157,7 +159,6 @@ from hivememory.engines.retrieval import (
 
 from hivememory.engines.lifecycle import (
     MemoryLifecycleEngine,
-    BaseMemoryArchiver,
     BaseGarbageCollector,
     EventType,
     ReinforcementResult,
@@ -166,8 +167,6 @@ from hivememory.engines.lifecycle import (
     ArchiveRecord,
     VitalityCalculator,
     DynamicReinforcementEngine,
-    FileBasedArchiver,
-    create_archiver,
     PeriodicGarbageCollector,
     create_garbage_collector,
 )
@@ -181,7 +180,6 @@ from hivememory.engines.perception import (
     SemanticBuffer,
     FlushEvent,
     FlushReason,
-    SemanticBufferManager,
     TriggerManager,
     DECISION_MATRIX,
     BaseRelayController,
@@ -231,9 +229,18 @@ def __getattr__(name: str):
     if name == "RetrievalFamiliar":
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         return RetrievalFamiliar
-    if name == "LibrarianCore":
-        from hivememory.patchouli.services.librarian import LibrarianCore
-        return LibrarianCore
+    if name == "PerceptionFamiliar":
+        from hivememory.patchouli.services.perception import PerceptionFamiliar
+        return PerceptionFamiliar
+    if name == "LifecycleFamiliar":
+        from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+        return LifecycleFamiliar
+    if name == "MemoryGenerationFamiliar":
+        from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+        return MemoryGenerationFamiliar
+    if name == "MemoryGenerationCoordinator":
+        from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
+        return MemoryGenerationCoordinator
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -352,7 +359,6 @@ __all__ = [
     "create_renderer",
     # ========== Lifecycle Engine ==========
     "MemoryLifecycleEngine",
-    "BaseMemoryArchiver",
     "BaseGarbageCollector",
     "EventType",
     "ReinforcementResult",
@@ -361,8 +367,6 @@ __all__ = [
     "ArchiveRecord",
     "VitalityCalculator",
     "DynamicReinforcementEngine",
-    "FileBasedArchiver",
-    "create_archiver",
     "PeriodicGarbageCollector",
     "create_garbage_collector",
     # ========== Perception Engine ==========
@@ -375,7 +379,6 @@ __all__ = [
     "SemanticBuffer",
     "FlushEvent",
     "FlushReason",
-    "SemanticBufferManager",
     "TriggerManager",
     "DECISION_MATRIX",
     "BaseRelayController",
@@ -407,10 +410,12 @@ __all__ = [
     "PatchouliService",
     "PatchouliSystem",
     "TheEye",
+    "PerceptionFamiliar",
     "RetrievalFamiliar",
-    "LibrarianCore",
+    "LifecycleFamiliar",
+    "MemoryGenerationFamiliar",
+    "MemoryGenerationCoordinator",
 ]
 
 
 __version__ = "0.1.0"
-

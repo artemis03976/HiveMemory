@@ -15,7 +15,7 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
 
 import re
 import logging
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import Optional, Tuple
 from datetime import datetime
 
 from hivememory.system.config import DeduplicatorConfig
@@ -27,7 +27,6 @@ from hivememory.core.models import (
 )
 from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
 from hivememory.engines.generation.interfaces import BaseDeduplicator
-from hivememory.infrastructure.storage import QdrantMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -51,95 +50,52 @@ class MemoryDeduplicator(BaseDeduplicator):
         | < 0.75         | -          | CREATE   | 创建新记忆     |
 
     Examples:
-        >>> from hivememory.infrastructure.storage import QdrantMemoryStore
-        >>> dedup = MemoryDeduplicator(QdrantMemoryStore())
-        >>> decision, existing = dedup.check_duplicate(draft)
+        >>> dedup = MemoryDeduplicator(config)
+        >>> decision, existing = dedup.check_duplicate(draft, candidates)
         >>> if decision == DuplicateDecision.UPDATE:
         ...     merged = dedup.merge_memory(existing, draft)
     """
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
         config: DeduplicatorConfig,
     ):
-        """
-        初始化查重管理器
-
-        Args:
-            storage: 向量存储实例 (QdrantMemoryStore)
-            config: 查重器配置
-        """
-        self.storage = storage
         self.config = config
 
-    async def check_duplicate(
+    def check_duplicate(
         self,
         draft: ExtractedMemoryDraft,
-        threshold: float = 0.75
+        candidates: list,
     ) -> Tuple[DuplicateDecision, Optional[MemoryAtom]]:
         """
-        检查记忆草稿是否重复
+        纯决策：在调用方传入的候选列表上执行查重逻辑，无 I/O。
 
         Args:
             draft: LLM 提取的记忆草稿
-            threshold: 相似度阈值 (覆盖默认值)
+            candidates: 搜索结果列表（每项含 "score" 和 "memory"）
 
         Returns:
-            Tuple[DuplicateDecision, Optional[MemoryAtom]]:
-                - 决策结果 (CREATE/UPDATE/TOUCH/DISCARD)
-                - 现有记忆 (如果存在)
-
-        Examples:
-            >>> decision, existing = dedup.check_duplicate(draft)
-            >>> if decision == DuplicateDecision.CREATE:
-            ...     print("创建新记忆")
-            >>> elif decision == DuplicateDecision.UPDATE:
-            ...     merged = dedup.merge_memory(existing, draft)
+            (DuplicateDecision, Optional[MemoryAtom])
         """
-        try:
-            # Step 1: 向量检索最相似记忆
-            logger.debug(f"检索与 '{draft.title}' 相似的记忆...")
-
-            # 使用 summary 作为查询文本（比 title 更有区分度）
-            query_text = f"{draft.title} {draft.summary}"
-
-            results = await self.storage.search_memories(
-                query_text=query_text,
-                top_k=1,
-                score_threshold=threshold,
-            )
-
-            # Step 2: 如果没有相似记忆，直接创建
-            if not results:
-                logger.debug("未找到相似记忆，判定为 CREATE")
-                return DuplicateDecision.CREATE, None
-
-            # Step 3: 提取最相似记忆及其分数
-            top_result = results[0]
-            similarity_score = top_result["score"]
-            existing_memory = top_result["memory"]
-
-            logger.info(
-                f"找到相似记忆: '{existing_memory.index.title}' "
-                f"(相似度: {similarity_score:.3f})"
-            )
-
-            # Step 4: 决策矩阵判断
-            decision = self._make_decision(
-                similarity_score=similarity_score,
-                draft=draft,
-                existing=existing_memory
-            )
-
-            logger.info(f"查重决策: {decision.value}")
-
-            return decision, existing_memory
-
-        except Exception as e:
-            logger.error(f"查重检测失败: {e}", exc_info=True)
-            # 失败时默认创建新记忆（安全策略）
+        if not candidates:
             return DuplicateDecision.CREATE, None
+
+        top_result = candidates[0]
+        similarity_score = top_result["score"]
+        existing_memory = top_result["memory"]
+
+        logger.info(
+            f"找到相似记忆: '{existing_memory.index.title}' "
+            f"(相似度: {similarity_score:.3f})"
+        )
+
+        decision = self._make_decision(
+            similarity_score=similarity_score,
+            draft=draft,
+            existing=existing_memory,
+        )
+        logger.info(f"查重决策: {decision.value}")
+        return decision, existing_memory
 
     def _make_decision(
         self,
@@ -354,21 +310,11 @@ class NoOpDeduplicator(BaseDeduplicator):
     用于在配置未启用查重器时作为默认实现。
     """
 
-    async def check_duplicate(
+    def check_duplicate(
         self,
         draft: ExtractedMemoryDraft,
-        threshold: float = 0.75
+        candidates: list,
     ) -> Tuple[DuplicateDecision, Optional[MemoryAtom]]:
-        """
-        检查重复 (No-Op)
-
-        Args:
-            draft: 记忆草稿
-            threshold: 阈值
-
-        Returns:
-            CREATE, None
-        """
         return DuplicateDecision.CREATE, None
 
     def merge_memory(
@@ -391,37 +337,13 @@ class NoOpDeduplicator(BaseDeduplicator):
 
 # 便捷函数
 def create_deduplicator(
-    storage: QdrantMemoryStore,
     config: DeduplicatorConfig,
 ) -> BaseDeduplicator:
-    """
-    创建查重器
-
-    Args:
-        storage: QdrantMemoryStore 实例
-        config: 查重器配置
-
-    Returns:
-        BaseDeduplicator: 查重器实例或 NoOp 实例
-
-    Examples:
-        >>> # 使用默认配置
-        >>> dedup = create_deduplicator(storage)
-        >>>
-        >>> # 使用自定义配置
-        >>> from hivememory.system.config import DeduplicatorConfig
-        >>> config = DeduplicatorConfig(enabled=False)
-        >>> dedup = create_deduplicator(storage, config)
-    """
     if not config.enabled:
         logger.info("Deduplicator 已禁用 (No-Op)")
         return NoOpDeduplicator()
-
     logger.info("Deduplicator 已启用")
-    return MemoryDeduplicator(
-        storage=storage,
-        config=config,
-    )
+    return MemoryDeduplicator(config=config)
 
 
 __all__ = [

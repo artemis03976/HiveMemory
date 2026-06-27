@@ -1,12 +1,20 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
-from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.core.models import (
+    Identity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    OMNI_DOLL_PROFILE,
+    PayloadLayer,
+)
 from hivememory.core.protocol.models import EyeGazeResult, RetrievalResponse
+from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -19,16 +27,29 @@ def _build_memory_atom() -> MemoryAtom:
             vitality_score=88.0,
         ),
         index=IndexLayer(
-            title="Python 工具函数",
-            summary="这是一个用于日期解析的工具函数摘要文本",
+            title="Python utility function",
+            summary="A helper function for date parsing",
             tags=["python", "utils"],
             memory_type=MemoryType.CODE_SNIPPET,
             alias="code_parse_date",
         ),
-        payload=PayloadLayer(
-            content="def parse_date(s): return s",
-        ),
+        payload=PayloadLayer(content="def parse_date(s): return s"),
     )
+
+
+def _register_prepare_routes(
+    bus: PatchouliBus,
+    *,
+    eye: MagicMock,
+    retrieval_result,
+) -> None:
+    bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, AsyncMock(return_value=OMNI_DOLL_PROFILE))
+    bus.register(PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+    bus.register(PatchouliLocalRoutes.GATEWAY_GAZE, eye.gaze)
+    bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, AsyncMock(return_value="topic-1"))
+    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=None))
+    bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, AsyncMock(return_value=retrieval_result))
+    bus.register(PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH, AsyncMock(return_value=True))
 
 
 def test_chat_stream_memory_refs_uses_flatten_schema():
@@ -44,41 +65,16 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
             target_topic="NEW_TOPIC",
         )
     )
-
-    memory_atom = _build_memory_atom()
-    kernel = MagicMock()
-    bus = GlobalSystemBus()
     local_bus = PatchouliBus()
-    kernel.local_bus = local_bus
-    kernel.check_storage_health = AsyncMock(return_value=True)
-    local_bus.register(
-        "memory.get_agent_profile",
-        AsyncMock(return_value=OMNI_DOLL_PROFILE),
-    )
-    local_bus.register(
-        "librarian.get_active_topics_snapshots",
-        AsyncMock(return_value=[]),
-    )
-    local_bus.register(
-        "librarian.prepare_topic",
-        AsyncMock(
-            return_value=(
-                "topic-1",
-                {"topics": [], "max_resident_topics": 5, "current_count": 1},
-                {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
-            )
+    _register_prepare_routes(
+        local_bus,
+        eye=eye,
+        retrieval_result=RetrievalResponse(
+            rendered_context="",
+            memories=[_build_memory_atom()],
         ),
     )
-    local_bus.register(
-        "memory.retrieve",
-        AsyncMock(
-            return_value=RetrievalResponse(
-                rendered_context="",
-                memories=[memory_atom],
-            )
-        ),
-    )
-    service = PatchouliService(runtime=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
+    service = PatchouliService(bus=local_bus, eye=eye)
 
     prepared = asyncio.run(
         service.prepare_agent_run(
@@ -112,40 +108,13 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
             target_topic="NEW_TOPIC",
         )
     )
-
-    kernel = MagicMock()
     local_bus = PatchouliBus()
-    kernel.local_bus = local_bus
-    kernel.check_storage_health = AsyncMock(return_value=True)
-    local_bus.register(
-        "memory.get_agent_profile",
-        AsyncMock(return_value=OMNI_DOLL_PROFILE),
+    _register_prepare_routes(
+        local_bus,
+        eye=eye,
+        retrieval_result=RetrievalResponse(rendered_context="", memories=[]),
     )
-    local_bus.register(
-        "librarian.get_active_topics_snapshots",
-        AsyncMock(return_value=[]),
-    )
-    local_bus.register(
-        "librarian.prepare_topic",
-        AsyncMock(
-            return_value=(
-                "topic-1",
-                {"topics": [], "max_resident_topics": 5, "current_count": 1},
-                {"state_summary": "", "blocks": [], "total_tokens": 0, "title": "新话题"},
-            )
-        ),
-    )
-    local_bus.register(
-        "memory.retrieve",
-        AsyncMock(
-            return_value=MagicMock(
-                is_empty=MagicMock(return_value=True),
-                rendered_context=None,
-                memories=[],
-            )
-        ),
-    )
-    service = PatchouliService(runtime=kernel, eye=eye, local_bus=local_bus)
+    service = PatchouliService(bus=local_bus, eye=eye)
 
     prepared = asyncio.run(
         service.prepare_agent_run(
@@ -153,4 +122,5 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
             user_id="user-1",
         )
     )
+
     assert prepared.stream_prelude.memory_refs == []

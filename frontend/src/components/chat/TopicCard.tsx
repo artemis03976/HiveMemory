@@ -42,9 +42,7 @@ export default function TopicCard({
               <div className={`w-2 h-2 rounded-full transition-all duration-500 shrink-0 ${
                 isActive
                   ? 'bg-magic-wood shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse'
-                  : topic.willEvict
-                    ? 'bg-magic-earth shadow-[0_0_6px_rgba(245,158,11,0.4)]'
-                    : 'bg-magic-metal'
+                  : 'bg-magic-metal'
               }`} />
               
               {/* 标题 */}

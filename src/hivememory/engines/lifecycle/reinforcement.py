@@ -25,8 +25,11 @@ from hivememory.engines.lifecycle.models import (
     ReinforcementResult,
 )
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
-from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.system.config import ReinforcementEngineConfig
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -53,25 +56,14 @@ class DynamicReinforcementEngine:
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
+        mid_term: "MidTermMemoryStore",
         config: ReinforcementEngineConfig,
         vitality_calculator: VitalityCalculator,
     ):
-        """
-        初始化强化引擎
-
-        Args:
-            storage: 向量存储实例 (QdrantMemoryStore)
-            config: 强化引擎配置
-            vitality_calculator: 生命力计算器
-        """
-        self.storage = storage
+        self._mid_term = mid_term
         self.config = config
         self._event_history: List[ReinforcementResult] = []
-        
         self.vitality_calculator = vitality_calculator
-
-        # 设置生命力调整值
         self.vitality_adjustments = {
             EventType.HIT: self.config.hit_boost,
             EventType.CITATION: self.config.citation_boost,
@@ -94,7 +86,7 @@ class DynamicReinforcementEngine:
             ValueError: 记忆不存在
         """
         # 从存储获取当前记忆
-        memory = await self.storage.get_memory(memory_id)
+        memory = await self._mid_term.get(memory_id)
         if memory is None:
             logger.warning(f"Memory not found for reinforcement: {memory_id}")
             raise ValueError(f"Memory {memory_id} not found")
@@ -120,7 +112,7 @@ class DynamicReinforcementEngine:
         memory.meta.vitality_score = new_vitality
 
         # 持久化到存储
-        await self.storage.upsert_memory(memory)
+        await self._mid_term.upsert(memory)
 
         # 创建结果
         result = ReinforcementResult(

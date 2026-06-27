@@ -82,6 +82,7 @@ class TopicInfoEvent(BaseModel):
     """topic_info 事件: 话题路由结果"""
     topic_id: str
     is_new: bool
+    pool_topics: list[dict] = Field(default_factory=list)
 
 
 class ChatDoneEvent(BaseModel):

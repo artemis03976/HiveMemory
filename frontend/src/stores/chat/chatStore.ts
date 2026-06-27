@@ -168,8 +168,14 @@ export const useChatStore = create<ChatStore>()(
               },
               setTopicInfo: (data) => {
                 set({ currentTopicId: data.topic_id });
-                if (data.pool) {
-                  useTopicStore.getState().setTopicsFromPool(data.pool, data.topic_id);
+                if (data.pool_topics) {
+                  useTopicStore.getState().setTopicsFromPool(
+                    {
+                      topics: data.pool_topics,
+                      current_count: data.pool_topics.length,
+                    },
+                    data.topic_id
+                  );
                 } else {
                   useTopicStore.getState().fetchTopics();
                 }

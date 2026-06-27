@@ -9,90 +9,10 @@ HiveMemory - Lifecycle 模块接口抽象层
 """
 
 from abc import ABC, abstractmethod
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
-
-
-class BaseMemoryArchiver(ABC):
-    """
-    冷存储管理器接口
-
-    职责:
-        管理记忆的冷热数据迁移。
-
-    存储层级:
-        L1: Working Context (当前对话)
-        L2: Active Vector Memory (Qdrant)
-        L3: Archival Storage (文件系统/DB)
-    """
-
-    @abstractmethod
-    async def archive(self, memory_id: UUID) -> None:
-        """
-        归档记忆到冷存储
-
-        流程:
-            1. 从热存储获取记忆
-            2. 序列化并保存到冷存储
-            3. 从热存储删除
-
-        Args:
-            memory_id: 记忆ID
-
-        Raises:
-            ValueError: 记忆不存在或已归档
-        """
-        pass
-
-    @abstractmethod
-    async def resurrect(self, memory_id: UUID) -> MemoryAtom:
-        """
-        从冷存储唤醒记忆
-
-        流程:
-            1. 从冷存储加载记忆
-            2. 写回热存储
-            3. 从冷存储删除
-
-        Args:
-            memory_id: 记忆ID
-
-        Returns:
-            MemoryAtom: 唤醒的记忆原子
-
-        Raises:
-            ValueError: 记忆不在冷存储中
-        """
-        pass
-
-    def is_archived(self, memory_id: UUID) -> bool:
-        """
-        检查记忆是否已归档 (可选实现)
-
-        Args:
-            memory_id: 记忆ID
-
-        Returns:
-            bool: 是否已归档
-        """
-        return False
-
-    def list_archived(
-        self,
-        limit: int = 100
-    ) -> List["ArchiveRecord"]:
-        """
-        列出已归档的记忆 (可选实现)
-
-        Args:
-            limit: 最大返回数量
-
-        Returns:
-            List[ArchiveRecord]: 归档记录列表
-        """
-        return []
 
 
 class BaseGarbageCollector(ABC):
@@ -151,6 +71,5 @@ class BaseGarbageCollector(ABC):
 
 
 __all__ = [
-    "BaseMemoryArchiver",
     "BaseGarbageCollector",
 ]

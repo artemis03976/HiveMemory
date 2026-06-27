@@ -29,7 +29,6 @@ class TestMemoryDeduplicator:
         self.mock_storage = AsyncMock(spec=QdrantMemoryStore)
         self.config = DeduplicatorConfig()
         self.deduplicator = MemoryDeduplicator(
-            storage=self.mock_storage,
             config=self.config
         )
         
@@ -89,69 +88,64 @@ class TestMemoryDeduplicator:
         
         assert self.deduplicator._calculate_text_similarity(text1, text2) == 0.5
 
-    @pytest.mark.asyncio
-    async def test_check_duplicate_create(self):
+    def test_check_duplicate_create(self):
         """测试判定为 CREATE (无相似记忆)"""
-        self.mock_storage.search_memories.return_value = []
-        
-        decision, memory = await self.deduplicator.check_duplicate(self.draft)
-        
+        candidates = []
+
+        decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
+
         assert decision == DuplicateDecision.CREATE
         assert memory is None
 
-    @pytest.mark.asyncio
-    async def test_check_duplicate_touch(self):
+    def test_check_duplicate_touch(self):
         """测试判定为 TOUCH (高相似度 + 内容一致)"""
         # 模拟找到高相似度记忆
-        self.mock_storage.search_memories.return_value = [{
+        candidates = [{
             "score": 0.98,
             "memory": self.existing_memory
         }]
-        
+
         # 内容一致 (draft 和 existing 内容相同)
-        decision, memory = await self.deduplicator.check_duplicate(self.draft)
-        
+        decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
+
         assert decision == DuplicateDecision.TOUCH
         assert memory == self.existing_memory
 
-    @pytest.mark.asyncio
-    async def test_check_duplicate_update_high_score_diff_content(self):
+    def test_check_duplicate_update_high_score_diff_content(self):
         """测试判定为 UPDATE (高相似度 + 内容不同)"""
-        self.mock_storage.search_memories.return_value = [{
+        candidates = [{
             "score": 0.98,
             "memory": self.existing_memory
         }]
-        
+
         # 修改 draft 内容
         self.draft.content = "def quicksort_v2(): pass"
-        
-        decision, memory = await self.deduplicator.check_duplicate(self.draft)
-        
+
+        decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
+
         assert decision == DuplicateDecision.UPDATE
         assert memory == self.existing_memory
 
-    @pytest.mark.asyncio
-    async def test_check_duplicate_update_medium_score(self):
+    def test_check_duplicate_update_medium_score(self):
         """测试判定为 UPDATE (中等相似度)"""
-        self.mock_storage.search_memories.return_value = [{
+        candidates = [{
             "score": 0.85,  # 0.75 < 0.85 < 0.95
             "memory": self.existing_memory
         }]
-        
-        decision, memory = await self.deduplicator.check_duplicate(self.draft)
-        
+
+        decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
+
         assert decision == DuplicateDecision.UPDATE
 
-    @pytest.mark.asyncio
-    async def test_check_duplicate_create_low_score(self):
+    def test_check_duplicate_create_low_score(self):
         """测试判定为 CREATE (低相似度)"""
-        self.mock_storage.search_memories.return_value = [{
+        candidates = [{
             "score": 0.5,  # < 0.75
             "memory": self.existing_memory
         }]
-        
-        decision, memory = await self.deduplicator.check_duplicate(self.draft)
-        
+
+        decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
+
         assert decision == DuplicateDecision.CREATE
         assert memory == self.existing_memory
 

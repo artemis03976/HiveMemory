@@ -70,8 +70,8 @@ class TestExtractorAndDeduplicatorCollaboration:
 
         extractor = LLMMemoryExtractor(llm_service=mock_llm, config=ExtractorConfig())
         mock_storage = Mock()
-        mock_storage.search_memories = AsyncMock(return_value=[])
-        deduplicator = MemoryDeduplicator(storage=mock_storage, config=DeduplicatorConfig())
+        mock_storage.search = AsyncMock(return_value=[])
+        deduplicator = MemoryDeduplicator(config=DeduplicatorConfig())
 
         # 提取记忆
         draft = extractor.extract(
@@ -83,7 +83,7 @@ class TestExtractorAndDeduplicatorCollaboration:
         assert draft.title == "Python 函数"
 
         # 应用去重检查
-        decision, existing = await deduplicator.check_duplicate(draft)
+        decision, existing = deduplicator.check_duplicate(draft, [])
 
         # 验证去重逻辑被调用 (Mock storage 会返回空，所以应该是 CREATE)
         assert decision == DuplicateDecision.CREATE
@@ -97,12 +97,12 @@ class TestMemoryGenerationEngineLogic:
         self.mock_storage = Mock(spec=QdrantMemoryStore)
         self.mock_extractor = Mock(spec=BaseMemoryExtractor)
         self.mock_deduplicator = Mock(spec=BaseDeduplicator)
-        self.mock_storage.update_access_info = AsyncMock()
-        self.mock_storage.upsert_memory = AsyncMock()
-        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.upsert = AsyncMock()
+        self.mock_deduplicator.check_duplicate = Mock()
         
         self.engine = MemoryGenerationEngine(
-            storage=self.mock_storage,
+            mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator
         )
@@ -187,9 +187,8 @@ class TestMemoryGenerationEngineLogic:
         assert result[0].duplicate_decision == DuplicateDecision.TOUCH
         assert result[0].atom == self.memory_atom
 
-        # 验证只更新访问信息，不重新插入
-        self.mock_storage.update_access_info.assert_called_once_with(self.memory_atom.id)
-        self.mock_storage.upsert_memory.assert_not_called()
+        # 验证调用了 upsert
+        self.mock_storage.upsert.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_update_memory(self):
@@ -223,7 +222,7 @@ class TestMemoryGenerationEngineLogic:
         assert len(result) == 1
         assert result[0].duplicate_decision == DuplicateDecision.DISCARD
         assert result[0].atom is None
-        self.mock_storage.upsert_memory.assert_not_called()
+        self.mock_storage.upsert.assert_not_called()
 
     def test_draft_to_memory_conversion(self):
         """测试草稿转 MemoryAtom"""
@@ -268,11 +267,15 @@ class TestEngineComponentCoordination:
             }
         ''')
 
+        mock_mid_term = Mock()
+        mock_mid_term.search = AsyncMock(return_value=[])
+        mock_mid_term.upsert = AsyncMock()
+
         mock_deduplicator = Mock()
-        mock_deduplicator.check_duplicate = AsyncMock(return_value=(DuplicateDecision.CREATE, None))
+        mock_deduplicator.check_duplicate = Mock(return_value=(DuplicateDecision.CREATE, None))
 
         engine = MemoryGenerationEngine(
-            storage=Mock(),
+            mid_term=mock_mid_term,
             extractor=LLMMemoryExtractor(llm_service=mock_llm, config=ExtractorConfig()),
             deduplicator=mock_deduplicator,
         )

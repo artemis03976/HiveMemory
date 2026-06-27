@@ -1,4 +1,4 @@
-# 8 核心功能 V：记忆生命周期管理 (Lifecycle Management)
+﻿# 8 核心功能 V：记忆生命周期管理 (Lifecycle Management)
 
 > **[归属分身：大图书馆本体 (Librarian Core)]**
 
@@ -316,11 +316,8 @@ data/archived/
 | `record_citation(memory_id, source)` | 记录主动引用事件（CITATION） |
 | `record_feedback(memory_id, positive, source)` | 记录用户反馈事件 |
 | `await run_garbage_collection(force)` | 获取全量活跃记忆，刷新生命力并异步运行垃圾回收 |
-| `await archive_memory(memory_id)` | 异步手动归档指定记忆 |
-| `await resurrect_memory(memory_id)` | 异步唤醒归档记忆 |
 | `get_low_vitality_memories(threshold, limit)` | 获取低于阈值的记忆列表 |
 | `get_event_history(memory_id, limit)` | 获取事件历史 |
-| `get_archived_memories(limit, vitality_threshold)` | 获取已归档的记忆列表 |
 | `get_stats()` | 获取统计信息 |
 
 ***

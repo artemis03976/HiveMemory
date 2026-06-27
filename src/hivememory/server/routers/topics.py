@@ -36,13 +36,13 @@ async def list_topics(
     return TopicListResponse(topics=topics)
 
 
-@router.post("/topics/{topic_id}/archive", response_model=TriggerResponse)
-async def archive_topic(
+@router.post("/topics/{topic_id}/settle", response_model=TriggerResponse)
+async def settle_topic(
     topic_id: str,
     service: TopicApplicationService = Depends(get_topic_service),
 ):
-    """手动归档话题"""
-    result = await service.archive_topic(topic_id=topic_id)
+    """手动结算话题"""
+    result = await service.settle_topic(topic_id=topic_id)
     return TriggerResponse(**result)
 
 

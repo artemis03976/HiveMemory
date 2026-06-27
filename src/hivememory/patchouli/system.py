@@ -30,7 +30,7 @@ import logging
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from hivememory.patchouli.runtime.bridge import PatchouliBridge
+from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
@@ -64,8 +64,10 @@ class PatchouliSystem(SubsystemProtocol):
     架构:
         - TheEye (真理之眼): Ingress Gateway，流量入口、意图判断、查询重写
         - PatchouliRuntime (帕秋莉运行时): 记忆域运行时宿主
+            - PerceptionFamiliar (感知使魔): 话题缓冲与归档触发
             - RetrievalFamiliar (检索使魔): 上下文检索 (Hot)
-            - LibrarianCore (馆长本体): 后台记忆维护 (Cold)
+            - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
+            - LifecycleFamiliar (生命周期使魔): 活力维护与园艺任务
     """
 
     def __init__(
@@ -79,7 +81,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
 
-        # 1. 初始化 Runtime（运行时负责组装 Retrieval + Librarian 组件图）
+        # 1. 初始化 Runtime（运行时负责组装感知、检索、生成、生命周期组件图）
         self.runtime = PatchouliRuntime(
             patchouli_config=self.config.patchouli,
             shared_config=self.config.shared,
@@ -96,35 +98,36 @@ class PatchouliSystem(SubsystemProtocol):
 
         # 4. Patchouli 对外能力门面
         self._service = PatchouliService(
-            runtime=self.runtime,
+            bus=self.runtime.local_bus,
             eye=self.eye,
-            global_bus=global_bus,
         )
         self._memory_management_service = MemoryManagementService(
-            storage=self.runtime.storage,
-            lifecycle_engine=self.runtime.librarian_core.lifecycle_engine,
+            bus=self.runtime.local_bus,
         )
         self._memory_task_management_service = MemoryTaskManagementService(
-            librarian_core=self.runtime.librarian_core,
+            bus=self.runtime.local_bus,
         )
         self._agent_profile_management_service = AgentProfileManagementService(
-            storage=self.runtime.storage,
+            bus=self.runtime.local_bus,
         )
         self._topic_management_service = TopicManagementService(
-            librarian_core=self.runtime.librarian_core,
+            bus=self.runtime.local_bus,
         )
         self._model_readiness_service = ModelReadinessService(
-            runtime=self.runtime,
+            bus=self.runtime.local_bus,
+        )
+        self._public_api = PatchouliPublicApi(
+            chat=self._service,
+            memory=self._memory_management_service,
+            memory_tasks=self._memory_task_management_service,
+            agent_profiles=self._agent_profile_management_service,
+            topics=self._topic_management_service,
+            readiness=self._model_readiness_service,
         )
         self._bridge = PatchouliBridge(
-            runtime=self.runtime,
-            service=self._service,
-            memory_management_service=self._memory_management_service,
-            memory_task_management_service=self._memory_task_management_service,
-            agent_profile_management_service=self._agent_profile_management_service,
-            topic_management_service=self._topic_management_service,
-            model_readiness_service=self._model_readiness_service,
+            local_bus=self.runtime.local_bus,
             global_bus=global_bus,
+            public_api=self._public_api,
         )
 
         self._scheduler = scheduler
@@ -181,7 +184,8 @@ class PatchouliSystem(SubsystemProtocol):
 
     def register_maintenance_tasks(self, scheduler) -> bool:
         """向全局维护器注册 Patchouli 子系统的维护任务。"""
-        if not self.config.scheduler.enabled:            return False
+        if not self.config.scheduler.enabled:            
+            return False
         tasks_config = self.config.scheduler.tasks
         scheduler.register(
             MaintenanceTaskSpec(
@@ -190,7 +194,7 @@ class PatchouliSystem(SubsystemProtocol):
                 interval_seconds=tasks_config.perception_idle_flush_interval_seconds,
                 enabled=tasks_config.enable_perception_idle_flush,
             ),
-            self.runtime.librarian_core.perception_layer.scan_idle_buffers_once,
+            self.runtime.perception_familiar.scan_idle_buffers_once,
         )
         scheduler.register(
             MaintenanceTaskSpec(
@@ -199,7 +203,7 @@ class PatchouliSystem(SubsystemProtocol):
                 interval_seconds=tasks_config.lifecycle_gc_interval_hours * 3600,
                 enabled=tasks_config.enable_lifecycle_gc,
             ),
-            self.runtime.librarian_core.run_gardening_once,
+            self.runtime.lifecycle_familiar.run_gardening_once,
         )
         return True
 

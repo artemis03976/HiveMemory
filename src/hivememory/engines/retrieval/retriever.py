@@ -13,7 +13,7 @@ import math
 import time
 import asyncio
 from datetime import datetime
-from typing import Optional, Dict, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.system.config import (
@@ -34,8 +34,10 @@ from hivememory.engines.retrieval.models import (
 from hivememory.engines.retrieval.fusion import create_fusion
 from hivememory.engines.retrieval.reranker import NoopReranker, create_reranker
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
-from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.infrastructure.rerank.base import BaseRerankService
+
+if TYPE_CHECKING:
+    from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 
 logger = logging.getLogger(__name__)
@@ -53,17 +55,17 @@ class DenseRetriever(BaseMemoryRetriever):
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
+        mid_term: "MidTermMemoryStore",
         config: DenseRetrieverConfig
     ):
         """
         初始化稠密检索器
 
         Args:
-            storage: QdrantMemoryStore 实例
+            mid_term: 中期记忆存储
             config: 检索器配置
         """
-        self.storage = storage
+        self.mid_term = mid_term
         self.config = config
 
     async def retrieve(
@@ -96,12 +98,12 @@ class DenseRetriever(BaseMemoryRetriever):
         logger.info(f"Dense检索: '{search_text[:50]}...', filters={filters}")
 
         try:
-            raw_results = await self.storage.search_memories(
-                query_text=search_text,
+            raw_results = await self.mid_term.search(
+                query=search_text,
                 top_k=top_k,
-                score_threshold=score_threshold,
                 filters=filters,
-                mode="dense"
+                mode="dense",
+                score_threshold=score_threshold,
             )
         except (StorageOfflineError, StorageReadError):
             raise
@@ -185,17 +187,17 @@ class SparseRetriever(BaseMemoryRetriever):
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
+        mid_term: "MidTermMemoryStore",
         config: SparseRetrieverConfig
     ):
         """
         初始化稀疏检索器
 
         Args:
-            storage: QdrantMemoryStore 实例
+            mid_term: 中期记忆存储
             config: 检索器配置
         """
-        self.storage = storage
+        self.mid_term = mid_term
         self.config = config
 
     async def retrieve(
@@ -228,12 +230,12 @@ class SparseRetriever(BaseMemoryRetriever):
         logger.info(f"Sparse检索: '{search_text[:50]}...', filters={filters}")
 
         try:
-            raw_results = await self.storage.search_memories(
-                query_text=search_text,
+            raw_results = await self.mid_term.search(
+                query=search_text,
                 top_k=top_k,
-                score_threshold=score_threshold,
                 filters=filters,
-                mode="sparse"
+                mode="sparse",
+                score_threshold=score_threshold,
             )
         except (StorageOfflineError, StorageReadError):
             raise
@@ -390,7 +392,7 @@ class HybridRetriever(BaseMemoryRetriever):
 
 
 def create_retriever(
-    storage: QdrantMemoryStore, 
+    mid_term: "MidTermMemoryStore",
     config: Union[HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig],
     reranker_service: BaseRerankService = None
 ) -> BaseMemoryRetriever:
@@ -403,7 +405,7 @@ def create_retriever(
     - HybridRetrieverConfig -> HybridRetriever
 
     Args:
-        storage: QdrantMemoryStore 实例
+        mid_term: 中期记忆存储
         config: 检索器配置
         reranker_service: Rerank 服务实例
 
@@ -412,20 +414,20 @@ def create_retriever(
     """
     # 多态分发
     if isinstance(config, DenseRetrieverConfig):
-        return DenseRetriever(storage, config)
+        return DenseRetriever(mid_term, config)
 
     if isinstance(config, SparseRetrieverConfig):
-        return SparseRetriever(storage, config)
+        return SparseRetriever(mid_term, config)
     
     if isinstance(config, HybridRetrieverConfig):
         # 1. 创建子检索器
         dense_retriever = None
         if config.dense.enabled:
-            dense_retriever = DenseRetriever(storage, config.dense)
+            dense_retriever = DenseRetriever(mid_term, config.dense)
             
         sparse_retriever = None
         if config.sparse.enabled:
-            sparse_retriever = SparseRetriever(storage, config.sparse)
+            sparse_retriever = SparseRetriever(mid_term, config.sparse)
             
         # 2. 创建 Fusion
         fusion = create_fusion(config.fusion)

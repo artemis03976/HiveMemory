@@ -66,13 +66,19 @@ from hivememory.core.models import MemoryAtom, MemoryType
 # Lifecycle 组件
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
-from hivememory.engines.lifecycle.archiver import FileBasedArchiver
 from hivememory.engines.lifecycle.models import (
     EventType,
     MemoryEvent,
     ReinforcementResult,
     ArchiveRecord,
 )
+from hivememory.patchouli.memory_library import (
+    LongTermMemoryStore,
+    MemoryLibrary,
+    MidTermMemoryStore,
+    ShortTermMemoryStore,
+)
+from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
 
 # 配置
 from hivememory.system.config import (
@@ -94,6 +100,64 @@ from tests.fixtures.lifecycle_test_data import (
 )
 
 console = Console(force_terminal=True, legacy_windows=False)
+
+
+class _MockMidTermAdapter:
+    def __init__(self, storage):
+        self._storage = storage
+
+    async def upsert(self, memory: MemoryAtom) -> None:
+        await self._storage.upsert_memory(memory)
+
+    async def get(self, memory_id: UUID) -> Optional[MemoryAtom]:
+        return await self._storage.get_memory(memory_id)
+
+    async def get_by_alias(self, alias: str, user_id: Optional[str] = None) -> Optional[MemoryAtom]:
+        return None
+
+    async def update_access_info(self, memory_id: UUID) -> None:
+        return None
+
+    async def delete(self, memory_id: UUID) -> bool:
+        return await self._storage.delete_memory(memory_id)
+
+    async def batch_delete(self, ids: List[UUID]) -> int:
+        count = 0
+        for memory_id in ids:
+            if await self.delete(memory_id):
+                count += 1
+        return count
+
+    async def search(self, query: str, top_k: int, filters=None, mode: str = "dense", score_threshold: float = 0.0):
+        return []
+
+    async def scroll(self, filters=None, limit: int = 100) -> List[MemoryAtom]:
+        return self._storage.list_all_memories(limit=limit)
+
+    async def count(self, filters=None) -> int:
+        return self._storage.count
+
+
+class _LegacyArchiverFixture:
+    def __init__(self, memory_library: MemoryLibrary):
+        self._library = memory_library
+
+    async def archive(self, memory_id: UUID) -> None:
+        if await self._library.long_term.is_archived(memory_id):
+            return
+        await self._library.archive(memory_id)
+
+    async def resurrect(self, memory_id: UUID) -> MemoryAtom:
+        memory = await self._library.long_term.load(memory_id)
+        await self._library.revive(memory_id)
+        return memory
+
+    async def is_archived(self, memory_id: UUID) -> bool:
+        return await self._library.long_term.is_archived(memory_id)
+
+    async def get_archive_record(self, memory_id: UUID) -> Optional[ArchiveRecord]:
+        records = await self._library.long_term.query(limit=100)
+        return next((record for record in records if record.memory_id == memory_id), None)
 
 
 # ========== Mock Storage ==========
@@ -230,12 +294,19 @@ def archiver_config(tmp_path) -> ArchiverConfig:
 
 
 @pytest.fixture
-def archiver(mock_storage, archiver_config) -> FileBasedArchiver:
+def archiver(mock_storage, archiver_config) -> _LegacyArchiverFixture:
     """提供归档器实例"""
-    return FileBasedArchiver(
-        storage=mock_storage,
-        config=archiver_config,
+    memory_library = MemoryLibrary(
+        short_term=ShortTermMemoryStore(),
+        mid_term=MidTermMemoryStore(primary=_MockMidTermAdapter(mock_storage)),
+        long_term=LongTermMemoryStore(
+            FileBasedStorageAdapter(
+                archive_dir=archiver_config.archive_dir,
+                compress=archiver_config.compression,
+            )
+        ),
     )
+    return _LegacyArchiverFixture(memory_library)
 
 
 # ========== 测试类: 评分逻辑 ==========
@@ -597,7 +668,7 @@ class TestArchiving:
     """
     归档与唤醒测试
 
-    验证 FileBasedArchiver 的归档和唤醒流程。
+    验证 MemoryLibrary + LongTermMemoryStore 的归档和唤醒流程。
     """
 
     @pytest.mark.asyncio
@@ -632,12 +703,12 @@ class TestArchiving:
         )
 
         # 验证记忆在冷存储中
-        assert archiver.is_archived(memory_id), (
+        assert await archiver.is_archived(memory_id), (
             "Memory should be in cold storage after archive"
         )
 
         # 验证归档文件存在
-        record = archiver.get_archive_record(memory_id)
+        record = await archiver.get_archive_record(memory_id)
         assert record is not None, "Archive record should exist"
         assert Path(record.storage_path).exists(), (
             f"Archive file should exist at {record.storage_path}"
@@ -675,7 +746,7 @@ class TestArchiving:
 
         # 归档
         await archiver.archive(memory_id)
-        assert archiver.is_archived(memory_id), "Memory should be archived"
+        assert await archiver.is_archived(memory_id), "Memory should be archived"
 
         # 唤醒
         resurrected_memory = await archiver.resurrect(memory_id)
@@ -686,7 +757,7 @@ class TestArchiving:
         )
 
         # 验证不再在冷存储中
-        assert not archiver.is_archived(memory_id), (
+        assert not await archiver.is_archived(memory_id), (
             "Memory should not be in cold storage after resurrect"
         )
 
@@ -723,10 +794,10 @@ class TestArchiving:
 
         # 第一次归档
         await archiver.archive(memory_id)
-        assert archiver.is_archived(memory_id), "Memory should be archived"
+        assert await archiver.is_archived(memory_id), "Memory should be archived"
 
         # 获取归档记录
-        first_record = archiver.get_archive_record(memory_id)
+        first_record = await archiver.get_archive_record(memory_id)
         first_path = first_record.storage_path
 
         # 第二次归档（应该是幂等的，不产生错误）
@@ -738,7 +809,7 @@ class TestArchiving:
             console.print(f"[yellow]Warning: Second archive raised {type(e).__name__}[/yellow]")
 
         # 验证没有重复文件
-        record_after = archiver.get_archive_record(memory_id)
+        record_after = await archiver.get_archive_record(memory_id)
         assert record_after.storage_path == first_path, (
             "Archive path should remain the same"
         )

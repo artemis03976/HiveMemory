@@ -3,7 +3,7 @@
 
 定位：记忆域 Runtime 宿主 与 State Manager (状态管理器)
 职责：
-    - 管理 RetrievalFamiliar (检索) 和 LibrarianCore (感知/生成/生命周期)
+    - 管理 Perception/Retrieval/Generation/Lifecycle 使魔与生成协调器
     - 基础设施初始化（存储、Librarian LLM、Reranker）
     - 引擎构建（Perception、Generation、Lifecycle、Retrieval）
     - 持有 Patchouli local bus 与内部能力路由
@@ -18,11 +18,11 @@
     │  PatchouliSystem (The Facility)         │
     │                                         │
     │  TheEye ──→ PatchouliRuntime            │
+    │               ├── PerceptionFamiliar    │
     │               ├── RetrievalFamiliar     │
-    │               └── LibrarianCore         │
-    │                    ├── Perception       │
-    │                    ├── Generation       │
-    │                    └── Lifecycle        │
+    │               ├── GenerationFamiliar    │
+    │               ├── GenerationCoordinator │
+    │               └── LifecycleFamiliar     │
     └─────────────────────────────────────────┘
 
 作者: HiveMemory Team
@@ -32,7 +32,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -47,7 +46,10 @@ from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventS
 
 if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
-    from hivememory.patchouli.services.librarian import LibrarianCore
+    from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+    from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+    from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
+    from hivememory.patchouli.services.perception import PerceptionFamiliar
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 logger = logging.getLogger(__name__)
@@ -57,7 +59,7 @@ class PatchouliRuntime:
     """
     帕秋莉运行时 (Patchouli Runtime) - v4.0
 
-    记忆域运行时装配根，管理 RetrievalFamiliar 与 LibrarianCore 两个核心组件。
+    记忆域运行时装配根，管理感知、检索、生成、生命周期等内部服务。
     不持有 TheEye (Gateway)，TheEye 独立于 Runtime 之外运行。
 
     职责:
@@ -122,12 +124,56 @@ class PatchouliRuntime:
             return
 
         self._local_bus.register(
-            PatchouliLocalRoutes.SUBMIT_INTERACTION,
-            self.librarian_core.submit_interaction,
+            PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
+            self.perception_familiar.submit_interaction,
+        )
+
+        self._local_bus.register(
+            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+            self.memory_generation_coordinator.submit_settlement,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.ANALYZE_AND_RETRIEVE,
-            service.analyze_and_retrieve,
+            PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
+            self.memory_generation_coordinator.submit_active,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
+            self.memory_generation_familiar.execute,
+        )
+
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
+            self._task_controller.submit_generation,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
+            self._task_controller.submit_generation_many,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_LIST,
+            self._task_controller.list_tasks,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_GET,
+            self._task_controller.get_task,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_CANCEL,
+            self._task_controller.cancel_task,
+        )
+
+        self._local_bus.register(
+            PatchouliLocalRoutes.GATEWAY_GAZE,
+            service.gaze,
+        )
+
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_CREATE,
+            self.memory_library.mid_term.upsert,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_LIST,
+            self.retrieval_familiar.list_memories,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
@@ -138,36 +184,85 @@ class PatchouliRuntime:
             self.retrieval_familiar.retrieve_by_aliases_async,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
-            self._refresh_memory_vitality,
+            PatchouliLocalRoutes.MEMORY_GET,
+            self.retrieval_familiar.get_memory,
         )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_UPDATE,
+            self.memory_library.mid_term.upsert,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_DELETE,
+            self.memory_library.mid_term.delete,
+        )
+
+        self._local_bus.register(
+            PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
+            self.lifecycle_familiar.refresh_memory_vitality,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.LIFECYCLE_RUN_GARDENING_ONCE,
+            self.lifecycle_familiar.run_gardening_once,
+        )
+
+        self._local_bus.register(
+            PatchouliLocalRoutes.RUNTIME_MODELS_WARMUP,
+            self.warmup_models,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.RUNTIME_MODELS_READY,
+            self.is_models_ready,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
+            self.check_storage_health,
+        )
+
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_RECORD_HIT,
+            self.lifecycle_familiar.record_hit,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_RECORD_CITATION,
+            self.lifecycle_familiar.record_citation,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
+            self.lifecycle_familiar.record_feedback,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_REVIVE,
+            self.lifecycle_familiar.revive_memory,
+        )
+
         self._local_bus.register(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
-            self._get_agent_profile,
+            self.retrieval_familiar.get_agent_profile,
+        )
+        
+        self._local_bus.register(
+            PatchouliLocalRoutes.TOPIC_PREPARE,
+            self.perception_familiar.prepare_topic,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.PREPARE_TOPIC,
-            self.librarian_core.prepare_topic,
+            PatchouliLocalRoutes.TOPIC_GET,
+            self.retrieval_familiar.get_topic,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.GET_ACTIVE_TOPICS_SNAPSHOTS,
-            self.librarian_core.get_active_topics_snapshots,
+            PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
+            self.retrieval_familiar.list_active_topics,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.PREPARE_AGENT_RUN,
-            service.prepare_agent_run,
+            PatchouliLocalRoutes.TOPIC_EVICT,
+            self.perception_familiar.evict_topic,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.FINALIZE_AGENT_RUN,
-            service.finalize_agent_run,
+            PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
+            self.perception_familiar.discard_if_empty,
         )
         self._local_bus.register(
-            PatchouliLocalRoutes.CLEANUP_PREPARED_AGENT_RUN,
-            service.cleanup_prepared_agent_run,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MANUAL_ARCHIVE_TOPIC,
-            self.librarian_core.manual_archive_topic,
+            PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
+            self.perception_familiar.manual_settle_topic,
         )
         self._local_routes_registered = True
 
@@ -250,7 +345,7 @@ class PatchouliRuntime:
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
 
-        perception_result = await self.librarian_core.perception_layer.flush_all_for_shutdown()
+        perception_result = await self.perception_familiar.flush_all_for_shutdown()
         result = {
             "success": True,
             "observer_payloads_submitted": 0,
@@ -259,7 +354,7 @@ class PatchouliRuntime:
         }
         logger.info(
             f"shutdown drain 完成: observer_payloads=0, "
-            f"flushed_topics={len(perception_result['flushed_topics'])}"
+            f"flushed_topics={len(perception_result.flushed_topics)}"
         )
         return result
 
@@ -269,9 +364,7 @@ class PatchouliRuntime:
         """
         初始化运行时基础设施组件（单例服务）
 
-        包含：存储层、Librarian LLM、Reranker
-        不包含：Gateway LLM（属于 TheEye 的依赖，由 PatchouliSystem 管理）
-        不包含：感知层 Embedding（感知层已不再使用 Embedding）
+        包含：存储层、Librarian LLM、Reranker、MemoryLibrary
         """
         from hivememory.infrastructure.storage import QdrantMemoryStore
         self.storage = QdrantMemoryStore(
@@ -292,6 +385,48 @@ class PatchouliRuntime:
             )
         else:
             self.reranker_service = None
+
+        # MemoryLibrary：三层存储协调层，在引擎构建前初始化以便注入
+        self.memory_library = self._build_memory_library()
+
+    def _build_memory_library(self):
+        """构建 MemoryLibrary（三层存储协调层）"""
+        from hivememory.patchouli.memory_library import (
+            MemoryLibrary,
+            ShortTermMemoryStore,
+            MidTermMemoryStore,
+            LongTermMemoryStore,
+            QdrantStorageAdapter,
+            FileBasedStorageAdapter,
+        )
+
+        perception_config = self._patchouli_config.perception.engine
+        max_resident = getattr(perception_config, "max_resident_topics", 5)
+
+        short_term = ShortTermMemoryStore(max_resident_topics=max_resident)
+        mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(self.storage))
+
+        archiver_config = self._patchouli_config.lifecycle.archiver
+        long_term = LongTermMemoryStore(
+            port=FileBasedStorageAdapter(
+                archive_dir=archiver_config.archive_dir,
+                compress=archiver_config.compression,
+            )
+        )
+
+        artifact_config = self._patchouli_config.artifacts
+        artifact_store = None
+        if artifact_config.enabled:
+            from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
+            from hivememory.patchouli.memory_library.stores import ArtifactStore
+            artifact_store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=artifact_config.root_dir))
+
+        return MemoryLibrary(
+            short_term=short_term,
+            mid_term=mid_term,
+            long_term=long_term,
+            artifact_store=artifact_store,
+        )
 
     # ========== 引擎构建 ==========
 
@@ -321,7 +456,7 @@ class PatchouliRuntime:
         config = self._patchouli_config.retrieval
 
         retriever: BaseMemoryRetriever = create_retriever(
-            self.storage,
+            self.memory_library.mid_term,
             config.retriever,
             self.reranker_service
         )
@@ -336,12 +471,13 @@ class PatchouliRuntime:
         )
 
     def _build_perception_layer(self):
-        """[私有构建器] 组装 Perception 层"""
+        """[私有构建器] 组装 Perception 层，注入 MemoryLibrary.short_term"""
         from hivememory.engines.perception import create_perception_layer
 
         return create_perception_layer(
             config=self._patchouli_config.perception,
             llm_service=self.librarian_llm_service,
+            short_term_store=self.memory_library.short_term,
         )
 
     def _build_generation_engine(self):
@@ -360,25 +496,22 @@ class PatchouliRuntime:
         )
 
         deduplicator: BaseDeduplicator = create_deduplicator(
-            self.storage,
             config.deduplicator
         )
 
         return MemoryGenerationEngine(
-            storage=self.storage,
+            mid_term=self.memory_library.mid_term,
             extractor=extractor,
             deduplicator=deduplicator,
         )
 
     def _build_artifact_engine(self):
-        """[私有构建器] 组装 ArtifactEngine（本地文件系统存储）"""
+        """[私有构建器] 组装 ArtifactEngine — store 由 MemoryLibrary 统一持有"""
         from hivememory.engines.artifacts.engine import ArtifactEngine
-        from hivememory.infrastructure.storage.artifact_store import FilesystemArtifactStore
 
-        artifact_config = self._patchouli_config.artifacts
-        if not artifact_config.enabled:
+        store = self.memory_library.artifact_store
+        if store is None:
             return None
-        store = FilesystemArtifactStore(root_dir=artifact_config.root_dir)
         return ArtifactEngine(store=store)
 
     def _build_lifecycle_engine(self):
@@ -387,7 +520,6 @@ class PatchouliRuntime:
             MemoryLifecycleEngine,
             VitalityCalculator,
             DynamicReinforcementEngine,
-            BaseMemoryArchiver, create_archiver,
             BaseGarbageCollector, create_garbage_collector,
         )
 
@@ -396,26 +528,20 @@ class PatchouliRuntime:
         )
 
         reinforcement_engine = DynamicReinforcementEngine(
-            storage=self.storage,
+            mid_term=self.memory_library.mid_term,
             config=self._patchouli_config.lifecycle.reinforcement,
             vitality_calculator=vitality_calculator
         )
 
-        archiver: BaseMemoryArchiver = create_archiver(
-            self.storage,
-            self._patchouli_config.lifecycle.archiver
-        )
-
         garbage_collector: BaseGarbageCollector = create_garbage_collector(
-            archiver,
+            self.memory_library,
             self._patchouli_config.lifecycle.garbage_collector
         )
 
         return MemoryLifecycleEngine(
-            storage=self.storage,
+            mid_term=self.memory_library.mid_term,
             vitality_calculator=vitality_calculator,
             reinforcement_engine=reinforcement_engine,
-            archiver=archiver,
             garbage_collector=garbage_collector,
         )
 
@@ -425,11 +551,14 @@ class PatchouliRuntime:
         """
         注册微服务到运行时
 
-        当前注册：retrieval (RetrievalFamiliar), librarian (LibrarianCore)
-        MemoryGenerationTaskController 作为中期记忆生成控制中枢独立构建后注入 LibrarianCore。
+        当前注册：perception、retrieval、generation、generation_coordinator、lifecycle。
+        MemoryGenerationTaskController 通过 local bus 请求生成执行，不再注入馆长本体。
         """
-        from hivememory.patchouli.services.librarian import LibrarianCore
-        from hivememory.patchouli.services.memory_generation_tasks import MemoryGenerationTaskController
+        from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+        from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+        from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
+        from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
+        from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         from hivememory.engines.retrieval.renderer import FullContextRenderer
         from hivememory.system.config import FullRendererConfig
@@ -438,31 +567,46 @@ class PatchouliRuntime:
         )
 
         self._services["retrieval"] = RetrievalFamiliar(
-            storage=self.storage,
             engine=self._engines["retrieval"],
+            memory_library=self.memory_library,
             passive_renderer=passive_renderer,
             local_bus=self._local_bus,
         )
 
-        task_controller = MemoryGenerationTaskController(
-            storage=self.storage,
-            bus=self._local_bus,
+        self._services["generation"] = MemoryGenerationFamiliar(
             generation_engine=self._engines["generation"],
+            memory_library=self.memory_library,
+            artifact_engine=self._engines["artifact"],
+        )
+
+        self._services["generation_coordinator"] = MemoryGenerationCoordinator(
+            bus=self._local_bus,
+        )
+
+        self._task_controller = MemoryGenerationTaskController(
+            bus=self._local_bus,
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="memory_generation_task_controller",
             ),
-            artifact_engine=self._engines["artifact"],
         )
 
-        self._services["librarian"] = LibrarianCore(
-            storage=self.storage,
-            bus=self._local_bus,
-            lifecycle_engine=self._engines["lifecycle"],
+        self._services["perception"] = PerceptionFamiliar(
             perception_layer=self._engines["perception"],
-            task_controller=task_controller,
-            artifact_engine=self._engines["artifact"],
+            bus=self._local_bus,
+            config=self._patchouli_config.perception,
+            memory_library=self.memory_library,
         )
+
+        self._services["lifecycle"] = LifecycleFamiliar(
+            lifecycle_engine=self._engines["lifecycle"],
+            memory_library=self.memory_library,
+        )
+
+    @property
+    def perception_familiar(self) -> PerceptionFamiliar:
+        """访问感知使魔服务。"""
+        return self._services["perception"]
 
     @property
     def retrieval_familiar(self) -> RetrievalFamiliar:
@@ -470,9 +614,19 @@ class PatchouliRuntime:
         return self._services["retrieval"]
 
     @property
-    def librarian_core(self) -> LibrarianCore:
-        """访问馆长本体服务"""
-        return self._services["librarian"]
+    def memory_generation_familiar(self) -> MemoryGenerationFamiliar:
+        """访问记忆生成使魔服务。"""
+        return self._services["generation"]
+
+    @property
+    def memory_generation_coordinator(self) -> MemoryGenerationCoordinator:
+        """访问记忆生成协调器。"""
+        return self._services["generation_coordinator"]
+
+    @property
+    def lifecycle_familiar(self) -> LifecycleFamiliar:
+        """访问生命周期使魔服务。"""
+        return self._services["lifecycle"]
 
     # ========== 健康检查 ==========
 
@@ -486,35 +640,24 @@ class PatchouliRuntime:
         Returns:
             bool: True 表示存储可用，False 表示离线
         """
-        try:
-            await self.storage.client.get_collections()
-            return True
-        except Exception as e:
-            logger.warning(f"Storage health check failed: {e}")
-            return False
+        report = await self.memory_library.check_storage_health()
+        if not report.healthy:
+            unhealthy = [
+                component
+                for component in report.components
+                if component.required and not component.healthy
+            ]
+            logger.warning(
+                "Storage health check failed: %s",
+                {
+                    component.name: component.detail
+                    for component in unhealthy
+                },
+            )
+        return report.healthy
 
     async def ensure_storage_ready(self) -> None:
         await self.storage.ensure_ready()
-
-    async def _get_agent_profile(self, agent_alias: str):
-        result = self.storage.get_agent_profile(agent_alias)
-        if inspect.isawaitable(result):
-            return await result
-        return result
-
-    async def _refresh_memory_vitality(
-        self,
-        memories,
-        persist: bool = False,
-    ):
-        lifecycle = self._engines.get("lifecycle")
-        if lifecycle is None:
-            raise RuntimeError("lifecycle engine is not available")
-        result = lifecycle.refresh_vitality_batch(memories, persist=persist)
-        if inspect.isawaitable(result):
-            return await result
-        return result
-
 
 __all__ = [
     "PatchouliRuntime",

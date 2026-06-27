@@ -16,10 +16,9 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 
 import re
 import logging
-from typing import Dict, List, Optional
 from datetime import datetime
+from typing import Dict, List, Optional, TYPE_CHECKING
 
-from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.models import (
     Identity,
     IndexLayer,
@@ -43,6 +42,10 @@ from hivememory.engines.generation.interfaces import (
     BaseMemoryExtractor,
     BaseDeduplicator,
 )
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -76,23 +79,13 @@ class MemoryGenerationEngine:
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
+        mid_term: "MidTermMemoryStore",
         extractor: BaseMemoryExtractor,
         deduplicator: BaseDeduplicator,
     ):
-        """
-        初始化引擎
-
-        Args:
-            storage: 向量存储实例
-            extractor: 记忆提取器（必需）
-            deduplicator: 查重器（必需）
-
-        """
-        self.storage = storage
+        self._mid_term = mid_term
         self.extractor = extractor
         self.deduplicator = deduplicator
-
         logger.info("MemoryGenerationEngine 初始化完成")
 
     async def process(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
@@ -349,14 +342,23 @@ class MemoryGenerationEngine:
         """
         查重 → 构建 → 持久化 (Mode A/B 共用)
         """
+        query_text = f"{draft.title} {draft.summary}"
+        candidates = await self._mid_term.search(
+            query=query_text,
+            top_k=1,
+            filters=None,
+            mode="dense",
+        )
 
-        decision, existing_memory = await self.deduplicator.check_duplicate(draft)
+        decision, existing_memory = self.deduplicator.check_duplicate(draft, candidates)
 
         # 根据决策执行操作
         if decision == DuplicateDecision.TOUCH:
             logger.info("记忆重复，更新访问时间")
 
-            await self.storage.update_access_info(existing_memory.id)
+            existing_memory.meta.access_count += 1
+            existing_memory.meta.updated_at = datetime.now()
+            await self._mid_term.upsert(existing_memory)
 
             return [MemoryGenerationResult(
                 intent_id=intent_id,
@@ -566,27 +568,6 @@ class MemoryGenerationEngine:
         suffix = suffix[:40]
 
         return f"{prefix}_{suffix}"
-
-    async def _save_memory(self, memory: MemoryAtom) -> None:
-        """
-        保存记忆到向量数据库
-
-        Args:
-            memory: MemoryAtom 对象
-
-        Raises:
-            Exception: 存储失败时抛出
-
-        Examples:
-            >>> orchestrator._save_memory(memory)
-        """
-        try:
-            await self.storage.upsert_memory(memory)
-
-        except Exception as e:
-            logger.error(f"存储记忆失败: {e}", exc_info=True)
-            raise
-
 
 __all__ = [
     "MemoryGenerationEngine",

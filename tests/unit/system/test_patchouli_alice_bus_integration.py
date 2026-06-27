@@ -1,17 +1,32 @@
-"""Patchouli prepare/finalize 通过 GlobalSystemBus 调用 Alice 的单元测试"""
+"""Patchouli prepare/finalize workflow tests against local route primitives."""
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from types import SimpleNamespace
 
-from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE, TurnEvent
+from hivememory.core.models import (
+    Identity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    OMNI_DOLL_PROFILE,
+    PayloadLayer,
+    TurnEvent,
+)
 from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
-from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, EyeGazeResult, RetrievalResponse
+from hivememory.core.protocol.models import (
+    AgentRunContext,
+    AgentRunResult,
+    EyeGazeResult,
+    RetrievalResponse,
+)
 from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -34,104 +49,85 @@ def _build_memory_atom() -> MemoryAtom:
     )
 
 
-@pytest.mark.asyncio
-async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result():
-    kernel = MagicMock()
-    eye = MagicMock()
-    bus = GlobalSystemBus()
-    local_bus = PatchouliBus()
-    kernel.local_bus = local_bus
-    kernel.check_storage_health = AsyncMock(return_value=True)
-
-    gaze_result = EyeGazeResult(
+def _gaze_result(identity: Identity) -> EyeGazeResult:
+    return EyeGazeResult(
         intent=GatewayIntent.RAG,
-        rewritten_query="rewritten query",
+        rewritten_query="rewritten",
         search_keywords=["tag"],
         worth_saving=True,
         raw_query="hi",
-        identity=Identity(user_id="u1"),
+        identity=identity,
         target_topic="topic_1",
     )
+
+
+def _prepared_run(
+    *,
+    identity: Identity | None = None,
+    retrieval_result: RetrievalResponse | None = None,
+) -> PreparedAgentRun:
+    identity = identity or Identity(user_id="u1", agent_id="omni_doll")
+    return PreparedAgentRun(
+        agent_run_context=AgentRunContext(
+            identity=identity,
+            topic_id="topic_1",
+            user_message="hi",
+            topic_context=None,
+            retrieval_result=retrieval_result or RetrievalResponse(),
+            agent_profile=OMNI_DOLL_PROFILE,
+            storage_available=True,
+        ),
+        gaze_result=_gaze_result(identity),
+        stream_prelude=StreamPrelude(
+            topic_id="topic_1",
+            is_new_topic=False,
+            pool_topics=[],
+            memory_refs=[],
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result():
+    identity = Identity(user_id="u1", agent_id="omni_doll")
+    bus = PatchouliBus()
+    eye = MagicMock()
     retrieval_result = RetrievalResponse(
         memories=[_build_memory_atom()],
         rendered_context="<memory>ctx</memory>",
     )
 
-    eye.gaze = AsyncMock(return_value=gaze_result)
-    local_bus.register(
-        "memory.get_agent_profile",
-        AsyncMock(return_value=OMNI_DOLL_PROFILE),
-    )
-    local_bus.register(
-        "librarian.get_active_topics_snapshots",
-        AsyncMock(return_value=[]),
-    )
-    local_bus.register(
-        "librarian.prepare_topic",
-        AsyncMock(return_value=("topic_1", {"topics": []}, {"blocks": []})),
-    )
-    local_bus.register(
-        "memory.retrieve",
-        AsyncMock(
-            return_value=retrieval_result
-        ),
-    )
+    bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, AsyncMock(return_value=OMNI_DOLL_PROFILE))
+    bus.register(PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+    bus.register(PatchouliLocalRoutes.GATEWAY_GAZE, AsyncMock(return_value=_gaze_result(identity)))
+    bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, AsyncMock(return_value="topic_1"))
+    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=None))
+    bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, AsyncMock(return_value=retrieval_result))
+    bus.register(PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH, AsyncMock(return_value=True))
 
-    service = PatchouliService(runtime=kernel, eye=eye, global_bus=bus, local_bus=local_bus)
+    service = PatchouliService(bus=bus, eye=eye)
 
-    prepared = await service.prepare_agent_run(
-        user_message="hi",
-        user_id="u1",
-    )
+    prepared = await service.prepare_agent_run(user_message="hi", user_id="u1")
 
     assert prepared.identity.user_id == "u1"
     assert prepared.topic_id == "topic_1"
     assert isinstance(prepared.agent_run_context, AgentRunContext)
     assert prepared.agent_run_context.retrieval_result is retrieval_result
+    assert prepared.agent_run_context.topic_context is None
+    assert prepared.stream_prelude.pool_topics == []
     assert prepared.stream_prelude.memory_refs[0]["alias"] == "mem_alias"
 
 
 @pytest.mark.asyncio
-async def test_finalize_agent_run_reads_focus_from_loop_result():
-    kernel = MagicMock()
-    kernel.librarian_core = MagicMock()
-    kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
-    service = PatchouliService(
-        runtime=kernel,
-        eye=MagicMock(),
-        global_bus=GlobalSystemBus(),
-    )
-
-    identity = Identity(user_id="u1", agent_id="omni_doll")
-    prepared_run = PreparedAgentRun(
-        agent_run_context=AgentRunContext(
-            identity=identity,
-            topic_id="topic_1",
-            user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
-            retrieval_result=RetrievalResponse(),
-            agent_profile=OMNI_DOLL_PROFILE,
-            storage_available=True,
-        ),
-        gaze_result=EyeGazeResult(
-            intent=GatewayIntent.RAG,
-            rewritten_query="rewritten",
-            search_keywords=[],
-            worth_saving=True,
-            raw_query="hi",
-            identity=identity,
-            target_topic="topic_1",
-        ),
-        stream_prelude=StreamPrelude(
-            topic_id="topic_1",
-            is_new_topic=False,
-            pool_snapshot={},
-            memory_refs=[],
-        ),
-    )
+async def test_finalize_agent_run_submits_interaction_payload_to_local_route():
+    bus = PatchouliBus()
+    submit_interaction = AsyncMock(return_value=None)
+    bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, submit_interaction)
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, AsyncMock())
+    service = PatchouliService(bus=bus, eye=MagicMock())
 
     await service.finalize_agent_run(
-        prepared_run=prepared_run,
+        prepared_run=_prepared_run(),
         loop_result=AgentRunResult(
             final_text="done",
             turn_events=[
@@ -159,8 +155,9 @@ async def test_finalize_agent_run_reads_focus_from_loop_result():
         ),
     )
 
-    kernel.librarian_core.submit_interaction.assert_awaited_once()
-    payload = kernel.librarian_core.submit_interaction.await_args.args[0]
+    submit_interaction.assert_awaited_once()
+    payload = submit_interaction.await_args.args[0]
+    assert submit_interaction.await_args.kwargs == {"target_topic_id": "topic_1"}
     assert payload.mtp_traces
     assert payload.mtp_traces[0].action == "SEARCH"
     assert payload.materialize_tasks == []
@@ -168,58 +165,30 @@ async def test_finalize_agent_run_reads_focus_from_loop_result():
 
 @pytest.mark.asyncio
 async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
-    kernel = MagicMock()
-    kernel.librarian_core = MagicMock()
-    kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
-    kernel.librarian_core.lifecycle_engine = MagicMock()
-    kernel.librarian_core.lifecycle_engine.record_hit = AsyncMock()
-    service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
-
+    bus = PatchouliBus()
+    record_hit = AsyncMock()
     memory = _build_memory_atom()
-    identity = Identity(user_id="u1", agent_id="omni_doll")
-    prepared_run = PreparedAgentRun(
-        agent_run_context=AgentRunContext(
-            identity=identity,
-            topic_id="topic_1",
-            user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
-            retrieval_result=RetrievalResponse(memories=[memory, memory]),
-            agent_profile=OMNI_DOLL_PROFILE,
-            storage_available=True,
-        ),
-        gaze_result=EyeGazeResult(
-            intent=GatewayIntent.RAG,
-            rewritten_query="rewritten",
-            search_keywords=[],
-            worth_saving=True,
-            raw_query="hi",
-            identity=identity,
-            target_topic="topic_1",
-        ),
-        stream_prelude=StreamPrelude(
-            topic_id="topic_1",
-            is_new_topic=False,
-            pool_snapshot={},
-            memory_refs=[],
-        ),
+    bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, AsyncMock(return_value=None))
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, record_hit)
+    service = PatchouliService(bus=bus, eye=MagicMock())
+
+    await service.finalize_agent_run(
+        _prepared_run(retrieval_result=RetrievalResponse(memories=[memory, memory])),
+        AgentRunResult(final_text="done"),
     )
 
-    await service.finalize_agent_run(prepared_run, AgentRunResult(final_text="done"))
-
-    kernel.librarian_core.lifecycle_engine.record_hit.assert_awaited_once_with(
-        memory.id,
-        source="retrieval.finalize",
-    )
+    record_hit.assert_awaited_once_with(memory.id, source="retrieval.finalize")
 
 
 @pytest.mark.asyncio
-async def test_finalize_agent_run_returns_memory_generation_tasks():
-    kernel = MagicMock()
-    kernel.librarian_core = MagicMock()
-    kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
+async def test_finalize_agent_run_returns_active_memory_generation_tasks():
+    bus = PatchouliBus()
     memory_tasks = [SimpleNamespace(task_id="memtask_1")]
-    kernel.librarian_core.run_active_generation = AsyncMock(return_value=memory_tasks)
-    service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
+    submit_active = AsyncMock(return_value=memory_tasks)
+    bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, AsyncMock(return_value=None))
+    bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, submit_active)
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, AsyncMock())
+    service = PatchouliService(bus=bus, eye=MagicMock())
 
     identity = Identity(user_id="u1", agent_id="omni_doll")
     materialize_task = PendingAtomMaterializeTask(
@@ -229,100 +198,44 @@ async def test_finalize_agent_run_returns_memory_generation_tasks():
         identity=identity,
         focus=WriteFocus(content="remember this"),
     )
-    prepared_run = PreparedAgentRun(
-        agent_run_context=AgentRunContext(
-            identity=identity,
-            topic_id="topic_1",
-            user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
-            retrieval_result=RetrievalResponse(),
-            agent_profile=OMNI_DOLL_PROFILE,
-            storage_available=True,
-        ),
-        gaze_result=EyeGazeResult(
-            intent=GatewayIntent.RAG,
-            rewritten_query="rewritten",
-            search_keywords=[],
-            worth_saving=True,
-            raw_query="hi",
-            identity=identity,
-            target_topic="topic_1",
-        ),
-        stream_prelude=StreamPrelude(
-            topic_id="topic_1",
-            is_new_topic=False,
-            pool_snapshot={},
-            memory_refs=[],
-        ),
-    )
 
     result = await service.finalize_agent_run(
-        prepared_run,
+        _prepared_run(identity=identity),
         AgentRunResult(final_text="done", materialize_tasks=[materialize_task]),
     )
 
     assert result == memory_tasks
-    kernel.librarian_core.run_active_generation.assert_awaited_once()
+    submit_active.assert_awaited_once_with([materialize_task], topic_id="topic_1")
 
 
 @pytest.mark.asyncio
 async def test_finalize_agent_run_hit_failure_does_not_fail_finalize():
-    kernel = MagicMock()
-    kernel.librarian_core = MagicMock()
-    kernel.librarian_core.submit_interaction = AsyncMock(return_value=None)
-    kernel.librarian_core.lifecycle_engine = MagicMock()
-    kernel.librarian_core.lifecycle_engine.record_hit.side_effect = RuntimeError("boom")
-    service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
-
+    bus = PatchouliBus()
+    record_hit = AsyncMock(side_effect=RuntimeError("boom"))
     memory = _build_memory_atom()
-    identity = Identity(user_id="u1", agent_id="omni_doll")
-    prepared_run = PreparedAgentRun(
-        agent_run_context=AgentRunContext(
-            identity=identity,
-            topic_id="topic_1",
-            user_message="hi",
-            topic_context={"blocks": [], "state_summary": ""},
-            retrieval_result=RetrievalResponse(memories=[memory]),
-            agent_profile=OMNI_DOLL_PROFILE,
-            storage_available=True,
-        ),
-        gaze_result=EyeGazeResult(
-            intent=GatewayIntent.RAG,
-            rewritten_query="rewritten",
-            search_keywords=[],
-            worth_saving=True,
-            raw_query="hi",
-            identity=identity,
-            target_topic="topic_1",
-        ),
-        stream_prelude=StreamPrelude(
-            topic_id="topic_1",
-            is_new_topic=False,
-            pool_snapshot={},
-            memory_refs=[],
-        ),
+    bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, AsyncMock(return_value=None))
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, record_hit)
+    service = PatchouliService(bus=bus, eye=MagicMock())
+
+    result = await service.finalize_agent_run(
+        _prepared_run(retrieval_result=RetrievalResponse(memories=[memory])),
+        AgentRunResult(final_text="done"),
     )
 
-    await service.finalize_agent_run(prepared_run, AgentRunResult(final_text="done"))
-
-    kernel.librarian_core.submit_interaction.assert_awaited_once()
-    kernel.librarian_core.lifecycle_engine.record_hit.assert_called_once()
+    assert result == []
+    record_hit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_record_memory_citation_calls_lifecycle():
-    kernel = MagicMock()
-    kernel.librarian_core = MagicMock()
-    kernel.librarian_core.lifecycle_engine = MagicMock()
-    service = PatchouliService(runtime=kernel, eye=MagicMock(), global_bus=GlobalSystemBus())
+async def test_record_memory_citation_calls_local_lifecycle_route():
+    bus = PatchouliBus()
     memory = _build_memory_atom()
     expected = {"success": True}
-    kernel.librarian_core.lifecycle_engine.record_citation.return_value = expected
+    record_citation = AsyncMock(return_value=expected)
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_CITATION, record_citation)
+    service = PatchouliService(bus=bus, eye=MagicMock())
 
     result = await service.record_memory_citation(str(memory.id), source="mtp.read")
 
     assert result is expected
-    kernel.librarian_core.lifecycle_engine.record_citation.assert_called_once_with(
-        memory.id,
-        source="mtp.read",
-    )
+    record_citation.assert_awaited_once_with(memory.id, source="mtp.read")

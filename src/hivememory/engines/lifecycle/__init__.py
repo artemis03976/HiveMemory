@@ -6,7 +6,6 @@ HiveMemory - 记忆生命周期管理模块 (MemoryLifeCycleManagement)
 核心组件:
 - VitalityCalculator: 生命力分数计算器
 - ReinforcementEngine: 动态强化引擎
-- MemoryArchiver: 冷存储管理器
 - GarbageCollector: 垃圾回收器
 - LifecycleEngine: 统一协调层
 
@@ -21,7 +20,6 @@ import logging
 
 # 接口
 from hivememory.engines.lifecycle.interfaces import (
-    BaseMemoryArchiver,
     BaseGarbageCollector,
 )
 
@@ -40,12 +38,6 @@ from hivememory.engines.lifecycle.vitality import VitalityCalculator
 # 具体实现 - 强化引擎
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 
-# 具体实现 - 归档器
-from hivememory.engines.lifecycle.archiver import (
-    FileBasedArchiver,
-    create_archiver,
-)
-
 # 具体实现 - 垃圾回收器
 from hivememory.engines.lifecycle.garbage_collector import (
     PeriodicGarbageCollector,
@@ -60,7 +52,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     # === 接口 ===
-    "BaseMemoryArchiver",
     "BaseGarbageCollector",
     # === 类型 ===
     "EventType",
@@ -72,9 +63,6 @@ __all__ = [
     "VitalityCalculator",
     # === 强化引擎 ===
     "DynamicReinforcementEngine",
-    # === 归档器 ===
-    "FileBasedArchiver",
-    "create_archiver",
     # === 垃圾回收器 ===
     "PeriodicGarbageCollector",
     "create_garbage_collector",

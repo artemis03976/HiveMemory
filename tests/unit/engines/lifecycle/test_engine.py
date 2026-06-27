@@ -37,33 +37,27 @@ def _make_memory(vitality_score=50.0) -> MemoryAtom:
 
 
 def _make_engine():
-    storage = AsyncMock()
+    mid_term = AsyncMock()
     vitality = Mock()
     reinforcement = AsyncMock()
-    archiver = Mock()
-    archiver.archive = AsyncMock()
-    archiver.resurrect = AsyncMock()
-    archiver.list_archived = Mock()
     gc = Mock()
     gc.collect = AsyncMock()
     engine = MemoryLifecycleEngine(
-        storage=storage,
+        mid_term=mid_term,
         vitality_calculator=vitality,
         reinforcement_engine=reinforcement,
-        archiver=archiver,
         garbage_collector=gc,
     )
-    return engine, storage, vitality, reinforcement, archiver, gc
+    return engine, mid_term, vitality, reinforcement, gc
 
 
 class TestLifecycleEngineVitality:
     def setup_method(self):
         (
             self.engine,
-            self.mock_storage,
+            self.mock_mid_term,
             self.mock_vitality,
             self.mock_reinforcement,
-            self.mock_archiver,
             self.mock_gc,
         ) = _make_engine()
 
@@ -76,7 +70,7 @@ class TestLifecycleEngineVitality:
 
         assert result == 72.0
         assert mem.meta.vitality_score == pytest.approx(72.0)
-        self.mock_storage.upsert_memory.assert_not_called()
+        self.mock_mid_term.upsert.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_refresh_vitality_persist(self):
@@ -87,7 +81,7 @@ class TestLifecycleEngineVitality:
 
         assert result == 72.0
         assert mem.meta.vitality_score == pytest.approx(72.0)
-        self.mock_storage.upsert_memory.assert_called_once_with(mem)
+        self.mock_mid_term.upsert.assert_awaited_once_with(mem)
 
     @pytest.mark.asyncio
     async def test_refresh_vitality_batch(self):
@@ -100,7 +94,7 @@ class TestLifecycleEngineVitality:
         assert results == [(m1.id, 30.0), (m2.id, 80.0)]
         assert m1.meta.vitality_score == pytest.approx(30.0)
         assert m2.meta.vitality_score == pytest.approx(80.0)
-        self.mock_storage.upsert_memory.assert_not_called()
+        self.mock_mid_term.upsert.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_refresh_vitality_batch_persist(self):
@@ -110,17 +104,16 @@ class TestLifecycleEngineVitality:
 
         await self.engine.refresh_vitality_batch([m1, m2], persist=True)
 
-        assert self.mock_storage.upsert_memory.call_count == 2
+        assert self.mock_mid_term.upsert.await_count == 2
 
 
 class TestLifecycleEngineEvents:
     def setup_method(self):
         (
             self.engine,
-            self.mock_storage,
+            self.mock_mid_term,
             self.mock_vitality,
             self.mock_reinforcement,
-            self.mock_archiver,
             self.mock_gc,
         ) = _make_engine()
         self.mock_reinforcement.reinforce.return_value = AsyncMock(
@@ -177,10 +170,9 @@ class TestLifecycleEngineDelegation:
     def setup_method(self):
         (
             self.engine,
-            self.mock_storage,
+            self.mock_mid_term,
             self.mock_vitality,
             self.mock_reinforcement,
-            self.mock_archiver,
             self.mock_gc,
         ) = _make_engine()
 
@@ -188,45 +180,27 @@ class TestLifecycleEngineDelegation:
     async def test_run_garbage_collection_refreshes_before_collect(self):
         m1 = _make_memory(vitality_score=10.0)
         m2 = _make_memory(vitality_score=90.0)
-        self.mock_storage.get_all_memories.return_value = [m1, m2]
+        self.mock_mid_term.scroll.return_value = [m1, m2]
         self.mock_vitality.calculate.side_effect = [12.0, 88.0]
         self.mock_gc.collect.return_value = 3
 
         result = await self.engine.run_garbage_collection(force=True)
 
-        self.mock_storage.get_all_memories.assert_called_once_with()
-        assert self.mock_storage.upsert_memory.call_count == 2
+        self.mock_mid_term.scroll.assert_awaited_once_with(limit=10000)
+        assert self.mock_mid_term.upsert.await_count == 2
         assert m1.meta.vitality_score == pytest.approx(12.0)
         assert m2.meta.vitality_score == pytest.approx(88.0)
         self.mock_gc.collect.assert_awaited_once_with([m1, m2], force=True)
         assert result == 3
-
-    @pytest.mark.asyncio
-    async def test_archive_memory(self):
-        mid = uuid4()
-        await self.engine.archive_memory(mid)
-        self.mock_archiver.archive.assert_awaited_once_with(mid)
-
-    @pytest.mark.asyncio
-    async def test_resurrect_memory(self):
-        mid = uuid4()
-        mem = _make_memory()
-        self.mock_archiver.resurrect.return_value = mem
-
-        result = await self.engine.resurrect_memory(mid)
-
-        self.mock_archiver.resurrect.assert_awaited_once_with(mid)
-        assert result is mem
 
 
 class TestLifecycleEngineQueries:
     def setup_method(self):
         (
             self.engine,
-            self.mock_storage,
+            self.mock_mid_term,
             self.mock_vitality,
             self.mock_reinforcement,
-            self.mock_archiver,
             self.mock_gc,
         ) = _make_engine()
 
@@ -235,7 +209,7 @@ class TestLifecycleEngineQueries:
         m1 = _make_memory()
         m2 = _make_memory()
         m3 = _make_memory()
-        self.mock_storage.get_all_memories.return_value = [m1, m2, m3]
+        self.mock_mid_term.scroll.return_value = [m1, m2, m3]
         self.mock_vitality.calculate.side_effect = [10.0, 50.0, 5.0]
 
         results = await self.engine.get_low_vitality_memories(threshold=20.0)
@@ -248,7 +222,7 @@ class TestLifecycleEngineQueries:
     async def test_get_low_vitality_memories_with_limit(self):
         m1 = _make_memory()
         m2 = _make_memory()
-        self.mock_storage.get_all_memories.return_value = [m1, m2]
+        self.mock_mid_term.scroll.return_value = [m1, m2]
         self.mock_vitality.calculate.side_effect = [5.0, 10.0]
 
         results = await self.engine.get_low_vitality_memories(threshold=20.0, limit=1)
@@ -258,7 +232,7 @@ class TestLifecycleEngineQueries:
     @pytest.mark.asyncio
     async def test_get_low_vitality_memories_none_below_threshold(self):
         m1 = _make_memory()
-        self.mock_storage.get_all_memories.return_value = [m1]
+        self.mock_mid_term.scroll.return_value = [m1]
         self.mock_vitality.calculate.return_value = 90.0
 
         results = await self.engine.get_low_vitality_memories(threshold=20.0)
@@ -284,33 +258,18 @@ class TestLifecycleEngineQueries:
 
         assert results == []
 
-    def test_get_archived_memories(self):
-        mock_records = [Mock()]
-        self.mock_archiver.list_archived.return_value = mock_records
-
-        results = self.engine.get_archived_memories(
-            limit=50,
-            vitality_threshold=10.0,
-        )
-
-        self.mock_archiver.list_archived.assert_called_once_with(50, 10.0)
-        assert results == mock_records
-
     def test_get_stats(self):
         self.mock_gc.get_stats.return_value = {"collected": 5}
         self.mock_reinforcement.get_stats = Mock(return_value={"events": 10})
-        self.mock_archiver.configure_mock(**{"_index": {}})
 
         stats = self.engine.get_stats()
 
         assert stats["garbage_collector"] == {"collected": 5}
         assert stats["reinforcement"] == {"events": 10}
-        assert stats["archive"] == {"total_archived": 0}
 
     def test_get_stats_without_optional_methods(self):
         del self.mock_gc.get_stats
         del self.mock_reinforcement.get_stats
-        self.engine.archiver = Mock(spec=["archive", "resurrect", "list_archived"])
 
         stats = self.engine.get_stats()
 

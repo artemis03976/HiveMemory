@@ -1,441 +1,266 @@
-"""
-TriggerManager 单元测试
-
-测试覆盖:
-- DECISION_MATRIX 决策矩阵
-- resolve_topic 调度器（使用 topic_id）
-- 三种原子操作 (Archive/Compact/Evict)
-- 依赖注入
-
-Note:
-    Phase 4.5 重构：resolve_topic 从 Identity 改为 topic_id
-"""
-
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, Mock
 
 from hivememory.core.models import Identity, TurnRecord
-from hivememory.engines.perception.trigger_manager import TriggerManager, DECISION_MATRIX
 from hivememory.engines.perception.models import (
+    FlushEvent,
     FlushReason,
     LogicalBlock,
-    SemanticBuffer,
+    TopicMaterializeTask,
 )
+from hivememory.engines.perception.trigger_manager import DECISION_MATRIX, TriggerManager
+from hivememory.patchouli.memory_library.models import TopicData
+from unittest.mock import Mock
 
 
 class TestDecisionMatrix:
-    """DECISION_MATRIX 决策矩阵测试"""
-
-    def test_token_overflow_actions(self):
-        """TOKEN_OVERFLOW: Compact only"""
+    def test_token_overflow_compacts_only(self):
         actions = DECISION_MATRIX[FlushReason.TOKEN_OVERFLOW]
-        assert actions["archive"] is False
-        assert actions["compact"] is True
-        assert actions["evict"] is False
+        assert actions == {"settle": False, "compact": True, "evict": False}
 
-    def test_idle_timeout_actions(self):
-        """IDLE_TIMEOUT: Archive + Evict"""
+    def test_idle_timeout_settles_and_evicts(self):
         actions = DECISION_MATRIX[FlushReason.IDLE_TIMEOUT]
-        assert actions["archive"] is True
-        assert actions["compact"] is False
-        assert actions["evict"] is True
+        assert actions == {"settle": True, "compact": False, "evict": True}
 
-    def test_lru_eviction_actions(self):
-        """LRU_EVICTION: Archive + Evict"""
+    def test_lru_eviction_settles_and_evicts(self):
         actions = DECISION_MATRIX[FlushReason.LRU_EVICTION]
-        assert actions["archive"] is True
-        assert actions["compact"] is False
-        assert actions["evict"] is True
+        assert actions == {"settle": True, "compact": False, "evict": True}
 
-    def test_manual_actions(self):
-        """MANUAL: Archive + Compact"""
-        actions = DECISION_MATRIX[FlushReason.MANUAL]
-        assert actions["archive"] is True
-        assert actions["compact"] is True
-        assert actions["evict"] is False
-
-    def test_shutdown_actions(self):
-        """SHUTDOWN: Archive + Evict"""
+    def test_shutdown_settles_and_evicts(self):
         actions = DECISION_MATRIX[FlushReason.SHUTDOWN]
-        assert actions["archive"] is True
-        assert actions["compact"] is False
-        assert actions["evict"] is True
+        assert actions == {"settle": True, "compact": False, "evict": True}
+
+    def test_manual_settles_and_compacts_without_evict(self):
+        actions = DECISION_MATRIX[FlushReason.MANUAL]
+        assert actions == {"settle": True, "compact": True, "evict": False}
+
+    def test_active_write_reasons_are_not_perception_flush_reasons(self):
+        reason_names = {reason.name for reason in FlushReason}
+        assert "MTP_WRITE" not in reason_names
+        assert "MTP_UPDATE" not in reason_names
+        assert "MTP_WRITE" not in {reason.name for reason in DECISION_MATRIX}
+        assert "MTP_UPDATE" not in {reason.name for reason in DECISION_MATRIX}
 
 
 class TestTriggerManagerInit:
-    """TriggerManager 初始化测试"""
-
-    def setup_method(self):
-        """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
-        self.mock_relay_controller = Mock()
-
     def test_init_with_relay_controller(self):
-        """测试带 RelayController 初始化"""
-        manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
-            relay_controller=self.mock_relay_controller,
-        )
-        assert manager._buffer_manager is self.mock_buffer_manager
-        assert manager._relay_controller is self.mock_relay_controller
+        store = Mock()
+        relay = Mock()
+
+        manager = TriggerManager(store=store, relay_controller=relay)
+
+        assert manager._store is store
+        assert manager._relay_controller is relay
 
     def test_init_requires_relay_controller(self):
-        """TriggerManager requires explicit RelayController injection."""
         with pytest.raises(TypeError):
-            TriggerManager(buffer_manager=self.mock_buffer_manager)
-
-
-class TestTriggerManagerDependencyInjection:
-    """TriggerManager 依赖注入测试"""
-
-    def setup_method(self):
-        """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
-        self.manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
-            relay_controller=Mock(),
-        )
-
-    def test_set_generation_callback(self):
-        """测试注入 generation callback"""
-        callback = AsyncMock(return_value=None)
-        self.manager.set_generation_callback(callback)
-        assert self.manager._on_generate_memory is callback
-
-    def test_set_relay_controller(self):
-        """测试注入 RelayController"""
-        mock_relay = Mock()
-        self.manager.set_relay_controller(mock_relay)
-        assert self.manager._relay_controller is mock_relay
+            TriggerManager(store=Mock())
 
 
 class TestTriggerManagerResolveTopic:
-    """TriggerManager resolve_topic 测试"""
-
     def setup_method(self):
-        """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
-        self.mock_relay_controller = Mock()
-        self.mock_callback = AsyncMock(return_value=None)
-
-        self.manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
-            relay_controller=self.mock_relay_controller,
-        )
-        self.manager.set_generation_callback(self.mock_callback)
-
-        self.topic_id = "test_topic_123"
+        self.store = Mock()
+        self.relay = Mock()
+        self.manager = TriggerManager(store=self.store, relay_controller=self.relay)
+        self.topic_id = "topic_1"
         self.identity = Identity(user_id="user1", agent_id="agent1")
 
-    def _create_buffer_with_blocks(self, block_count: int = 3) -> SemanticBuffer:
-        """辅助方法：创建带有 blocks 的 buffer"""
-        buffer = SemanticBuffer(
-            user_id=self.identity.user_id,
-            current_agent_id=self.identity.agent_id,
-            topic_id=self.topic_id,
-        )
-        for i in range(block_count):
-            block = LogicalBlock(
+    def _topic_data(self, block_count: int = 3) -> TopicData:
+        blocks = tuple(
+            LogicalBlock(
                 turn=TurnRecord(
+                    identity=self.identity,
                     user_query=f"Query {i}",
                     assistant_final_text=f"Response {i}",
                 ),
                 total_tokens=100,
             )
-            buffer.blocks.append(block)
-        buffer.total_tokens = block_count * 100
-        return buffer
-
-    @pytest.mark.asyncio
-    async def test_resolve_topic_empty_buffer(self):
-        """测试空 buffer 跳过结算"""
-        self.mock_buffer_manager.get_buffer.return_value = None
-
-        await self.manager.resolve_topic(self.topic_id, FlushReason.IDLE_TIMEOUT)
-
-        # 不应该调用任何依赖
-        self.mock_callback.assert_not_called()
-        self.mock_relay_controller.generate_summary.assert_not_called()
-        self.mock_buffer_manager.pop_buffer.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_resolve_topic_buffer_no_blocks(self):
-        """测试无 blocks 的 buffer 跳过结算"""
-        buffer = SemanticBuffer(
+            for i in range(block_count)
+        )
+        return TopicData(
+            topic_id=self.topic_id,
             user_id=self.identity.user_id,
             current_agent_id=self.identity.agent_id,
+            topic_title="Test topic",
+            topic_summary="Topic summary",
+            blocks=blocks,
+            last_update=1.0,
+            last_accessed_at=1.0,
+            total_tokens=block_count * 100,
+            state_summary="previous summary",
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_topic_data_returns_none(self):
+        self.store.get_topic_data.return_value = None
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.IDLE_TIMEOUT)
+        )
+
+        assert result is None
+        self.relay.generate_summary.assert_not_called()
+        self.store.clear_blocks.assert_not_called()
+        self.store.pop_buffer.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_topic_data_without_blocks_returns_none(self):
+        self.store.get_topic_data.return_value = TopicData(
             topic_id=self.topic_id,
-        )
-        self.mock_buffer_manager.get_buffer.return_value = buffer
-
-        await self.manager.resolve_topic(self.topic_id, FlushReason.IDLE_TIMEOUT)
-
-        # 不应该调用任何依赖
-        self.mock_callback.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_resolve_topic_idle_timeout(self):
-        """测试 IDLE_TIMEOUT 触发 Archive + Evict"""
-        buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
-
-        await self.manager.resolve_topic(self.topic_id, FlushReason.IDLE_TIMEOUT)
-        await asyncio.sleep(0)
-
-        # 验证 Archive 被调用
-        self.mock_callback.assert_called_once()
-        call_args = self.mock_callback.call_args
-        assert call_args[0][0].user_id == self.identity.user_id
-
-        # 验证 Evict 被调用
-        self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
-
-        # 验证 buffer 被清空
-        assert len(buffer.blocks) == 0
-        assert buffer.total_tokens == 0
-
-    @pytest.mark.asyncio
-    async def test_resolve_topic_token_overflow(self):
-        """测试 TOKEN_OVERFLOW 触发 Compact"""
-        buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
-        self.mock_relay_controller.generate_summary.return_value = "Test summary"
-
-        await self.manager.resolve_topic(self.topic_id, FlushReason.TOKEN_OVERFLOW)
-
-        # 验证 Compact 被调用
-        self.mock_relay_controller.generate_summary.assert_called_once()
-
-        # 验证 Archive 未被调用
-        self.mock_callback.assert_not_called()
-
-        # 验证 Evict 未被调用
-        self.mock_buffer_manager.pop_buffer.assert_not_called()
-
-        # 验证 buffer 状态
-        assert buffer.state_summary == "Test summary"
-        assert len(buffer.blocks) == 0
-        assert buffer.total_tokens == 0
-
-    @pytest.mark.asyncio
-    async def test_resolve_topic_manual(self):
-        """测试 MANUAL 触发 Archive + Compact"""
-        buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
-        self.mock_relay_controller.generate_summary.return_value = "Test summary"
-
-        await self.manager.resolve_topic(self.topic_id, FlushReason.MANUAL)
-        await asyncio.sleep(0)
-
-        # 验证 Archive 被调用
-        self.mock_callback.assert_called_once()
-
-        # 验证 Compact 被调用
-        self.mock_relay_controller.generate_summary.assert_called_once()
-
-        # 验证 buffer 被清空
-        assert len(buffer.blocks) == 0
-
-    @pytest.mark.asyncio
-    async def test_resolve_topic_lru_eviction(self):
-        """测试 LRU_EVICTION 触发 Archive + Evict"""
-        buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
-
-        await self.manager.resolve_topic(self.topic_id, FlushReason.LRU_EVICTION)
-        await asyncio.sleep(0)
-
-        # 验证 Archive 被调用
-        self.mock_callback.assert_called_once()
-
-        # 验证 Evict 被调用
-        self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
-
-    @pytest.mark.asyncio
-    async def test_resolve_topic_shutdown_waits_for_archive(self):
-        """测试 SHUTDOWN 触发时等待 Archive 完成后再驱逐"""
-        buffer = self._create_buffer_with_blocks()
-        self.mock_buffer_manager.get_buffer.return_value = buffer
-
-        await self.manager.resolve_topic(
-            self.topic_id,
-            FlushReason.SHUTDOWN,
-            wait_for_archive=True,
-        )
-
-        self.mock_callback.assert_awaited_once()
-        self.mock_buffer_manager.pop_buffer.assert_called_once_with(self.topic_id)
-        assert len(buffer.blocks) == 0
-        assert buffer.total_tokens == 0
-
-
-class TestTriggerManagerArchiveTopic:
-    """TriggerManager _archive_topic 测试"""
-
-    def setup_method(self):
-        """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
-        self.mock_callback = AsyncMock(return_value=None)
-
-        self.manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
-            relay_controller=Mock(),
-        )
-        self.manager.set_generation_callback(self.mock_callback)
-
-        self.topic_id = "test_topic_123"
-        self.identity = Identity(user_id="user1", agent_id="agent1")
-
-    @pytest.mark.asyncio
-    async def test_archive_without_callback(self):
-        """测试无回调时跳过 Archive"""
-        manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
-            relay_controller=Mock(),
-        )
-
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(user_query="test", assistant_final_text="test"),
-                total_tokens=10,
-            )
-        ]
-
-        await manager._archive_topic(
-            self.topic_id,
-            blocks,
-            "summary",
-            reason=FlushReason.IDLE_TIMEOUT,
-        )
-
-        # 不应该抛出异常
-        assert True
-
-    @pytest.mark.asyncio
-    async def test_archive_filters_worth_saving_false(self):
-        """测试过滤 worth_saving=False 的 block"""
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(user_query="test1", assistant_final_text="test1"),
-                worth_saving=True,
-                total_tokens=10,
-            ),
-            LogicalBlock(
-                turn=TurnRecord(user_query="test2", assistant_final_text="test2"),
-                worth_saving=False,
-                total_tokens=10,
-            ),
-            LogicalBlock(
-                turn=TurnRecord(user_query="test3", assistant_final_text="test3"),
-                worth_saving=None,
-                total_tokens=10,
-            ),
-        ]
-
-        await self.manager._archive_topic(
-            self.topic_id,
-            blocks,
-            "summary",
-            reason=FlushReason.IDLE_TIMEOUT,
-        )
-        await asyncio.sleep(0)
-
-        # 验证只发射了 2 个 block (worth_saving=True 和 None)
-        call_args = self.mock_callback.call_args
-        emitted_blocks = call_args[0][0].blocks
-        assert len(emitted_blocks) == 2
-
-    @pytest.mark.asyncio
-    async def test_archive_payload_contains_identity(self):
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(user_query="test", assistant_final_text="test"),
-                total_tokens=10,
-            )
-        ]
-
-        await self.manager._archive_topic(
-            self.topic_id,
-            blocks,
-            "summary",
-            reason=FlushReason.IDLE_TIMEOUT,
             user_id=self.identity.user_id,
+            current_agent_id=self.identity.agent_id,
+            topic_title="Empty topic",
+            last_update=1.0,
+            last_accessed_at=1.0,
         )
-        await asyncio.sleep(0)
 
-        call_args = self.mock_callback.call_args
-        assert call_args[0][0].user_id == self.identity.user_id
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.IDLE_TIMEOUT)
+        )
+
+        assert result is None
+        self.relay.generate_summary.assert_not_called()
+        self.store.clear_blocks.assert_not_called()
+        self.store.pop_buffer.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_archive_skips_all_filtered(self):
-        """测试所有 blocks 被过滤时跳过 Archive"""
+    async def test_token_overflow_compacts_and_returns_no_settlement(self):
+        self.store.get_topic_data.return_value = self._topic_data()
+        self.relay.generate_summary.return_value = "new summary"
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.TOKEN_OVERFLOW)
+        )
+
+        assert result is None
+        self.relay.generate_summary.assert_called_once()
+        self.store.update_summary.assert_called_once_with(self.topic_id, "new summary")
+        self.store.clear_blocks.assert_called_once_with(self.topic_id)
+        self.store.pop_buffer.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_idle_timeout_returns_settlement_and_evicts(self):
+        self.store.get_topic_data.return_value = self._topic_data()
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.IDLE_TIMEOUT)
+        )
+
+        assert isinstance(result, TopicMaterializeTask)
+        assert result.topic_id == self.topic_id
+        assert result.reason == FlushReason.IDLE_TIMEOUT
+        assert len(result.blocks) == 3
+        self.relay.generate_summary.assert_not_called()
+        self.store.clear_blocks.assert_called_once_with(self.topic_id)
+        self.store.pop_buffer.assert_called_once_with(self.topic_id)
+
+    @pytest.mark.asyncio
+    async def test_lru_eviction_returns_settlement_and_evicts(self):
+        self.store.get_topic_data.return_value = self._topic_data()
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.LRU_EVICTION)
+        )
+
+        assert isinstance(result, TopicMaterializeTask)
+        assert result.reason == FlushReason.LRU_EVICTION
+        self.store.clear_blocks.assert_called_once_with(self.topic_id)
+        self.store.pop_buffer.assert_called_once_with(self.topic_id)
+
+    @pytest.mark.asyncio
+    async def test_shutdown_returns_settlement_and_evicts(self):
+        self.store.get_topic_data.return_value = self._topic_data()
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.SHUTDOWN)
+        )
+
+        assert isinstance(result, TopicMaterializeTask)
+        assert result.reason == FlushReason.SHUTDOWN
+        self.store.clear_blocks.assert_called_once_with(self.topic_id)
+        self.store.pop_buffer.assert_called_once_with(self.topic_id)
+
+    @pytest.mark.asyncio
+    async def test_manual_returns_settlement_compacts_and_keeps_topic(self):
+        self.store.get_topic_data.return_value = self._topic_data()
+        self.relay.generate_summary.return_value = "manual summary"
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.MANUAL)
+        )
+
+        assert isinstance(result, TopicMaterializeTask)
+        assert result.reason == FlushReason.MANUAL
+        self.relay.generate_summary.assert_called_once()
+        self.store.update_summary.assert_called_once_with(self.topic_id, "manual summary")
+        self.store.clear_blocks.assert_called_once_with(self.topic_id)
+        self.store.pop_buffer.assert_not_called()
+
+
+class TestTriggerManagerSettlePayload:
+    def setup_method(self):
+        self.manager = TriggerManager(store=Mock(), relay_controller=Mock())
+
+    @pytest.mark.asyncio
+    async def test_settlement_filters_worth_saving_false(self):
         blocks = [
             LogicalBlock(
-                turn=TurnRecord(user_query="test", assistant_final_text="test"),
+                turn=TurnRecord(user_query="keep", assistant_final_text="keep"),
+                worth_saving=True,
+            ),
+            LogicalBlock(
+                turn=TurnRecord(user_query="drop", assistant_final_text="drop"),
                 worth_saving=False,
-                total_tokens=10,
-            )
+            ),
+            LogicalBlock(
+                turn=TurnRecord(user_query="default", assistant_final_text="default"),
+                worth_saving=None,
+            ),
         ]
 
-        await self.manager._archive_topic(self.topic_id, blocks, "summary", None)
-        await asyncio.sleep(0)
+        payload = self.manager._build_settle_payload(
+            topic_id="topic_1",
+            blocks_snapshot=blocks,
+            state_summary="summary",
+            reason=FlushReason.IDLE_TIMEOUT,
+            user_id="u1",
+        )
 
-        self.mock_callback.assert_not_called()
+        assert payload is not None
+        assert len(payload.blocks) == 2
+        assert [block.user_query for block in payload.blocks] == ["keep", "default"]
+
+    @pytest.mark.asyncio
+    async def test_settlement_returns_none_when_all_blocks_filtered(self):
+        payload = self.manager._build_settle_payload(
+            topic_id="topic_1",
+            blocks_snapshot=[
+                LogicalBlock(
+                    turn=TurnRecord(user_query="drop", assistant_final_text="drop"),
+                    worth_saving=False,
+                )
+            ],
+            state_summary="summary",
+            reason=FlushReason.IDLE_TIMEOUT,
+        )
+
+        assert payload is None
 
 
 class TestTriggerManagerCompactTopic:
-    """TriggerManager _compact_topic 测试"""
-
-    def setup_method(self):
-        """每个测试方法前初始化"""
-        self.mock_buffer_manager = Mock()
-        self.mock_relay_controller = Mock()
-
-        self.manager = TriggerManager(
-            buffer_manager=self.mock_buffer_manager,
-            relay_controller=self.mock_relay_controller,
-        )
-
-        self.topic_id = "test_topic_123"
-        self.identity = Identity(user_id="user1", agent_id="agent1")
-
     @pytest.mark.asyncio
     async def test_compact_updates_state_summary(self):
-        """测试 Compact 更新 state_summary"""
-        buffer = SemanticBuffer(
-            user_id=self.identity.user_id,
-            current_agent_id=self.identity.agent_id,
-            topic_id=self.topic_id,
+        store = Mock()
+        relay = Mock()
+        relay.generate_summary.return_value = "new summary"
+        manager = TriggerManager(store=store, relay_controller=relay)
+        blocks = [
+            LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
+        ]
+
+        await manager._compact_topic("topic_1", blocks, "previous summary")
+
+        relay.generate_summary.assert_called_once_with(
+            blocks_to_fold=blocks,
+            previous_summary="previous summary",
         )
-        self.mock_buffer_manager.get_buffer.return_value = buffer
-        self.mock_relay_controller.generate_summary.return_value = "New summary"
-
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(user_query="test", assistant_final_text="test"),
-                total_tokens=10,
-            )
-        ]
-
-        await self.manager._compact_topic(self.topic_id, blocks, "previous summary")
-
-        # 验证 state_summary 更新
-        assert buffer.state_summary == "New summary"
-        self.mock_relay_controller.generate_summary.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_compact_without_buffer(self):
-        """测试无 buffer 时跳过 Compact"""
-        self.mock_buffer_manager.get_buffer.return_value = None
-
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(user_query="test", assistant_final_text="test"),
-                total_tokens=10,
-            )
-        ]
-
-        await self.manager._compact_topic(self.topic_id, blocks, "summary")
-
-        self.mock_relay_controller.generate_summary.assert_not_called()
+        store.update_summary.assert_called_once_with("topic_1", "new summary")

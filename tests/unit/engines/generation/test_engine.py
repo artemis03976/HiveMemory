@@ -97,12 +97,14 @@ class TestGenerationEngineRouting:
 
     def setup_method(self):
         self.mock_storage = Mock()
+        self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
-        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.check_duplicate = Mock()
         self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
-            storage=self.mock_storage,
+            mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
@@ -122,7 +124,7 @@ class TestGenerationEngineRouting:
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
         result = await self.engine.process(request)
@@ -137,7 +139,7 @@ class TestGenerationEngineRouting:
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
         result = await self.engine.process(request)
@@ -156,7 +158,7 @@ class TestGenerationEngineRouting:
         )
         merge_result = MergeResult(new_content="新内容", changelog="添加了错误处理")
         self.mock_extractor.merge.return_value = merge_result
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(
             context=GenerationContext(),
@@ -174,12 +176,14 @@ class TestGenerationEngineModeA:
 
     def setup_method(self):
         self.mock_storage = Mock()
+        self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
-        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.check_duplicate = Mock()
         self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
-            storage=self.mock_storage,
+            mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
@@ -191,7 +195,7 @@ class TestGenerationEngineModeA:
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
         result = await self.engine.process(request)
@@ -236,12 +240,14 @@ class TestGenerationEngineModeB:
 
     def setup_method(self):
         self.mock_storage = Mock()
+        self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
-        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.check_duplicate = Mock()
         self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
-            storage=self.mock_storage,
+            mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
@@ -253,7 +259,7 @@ class TestGenerationEngineModeB:
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
         result = await self.engine.process(request)
@@ -266,7 +272,7 @@ class TestGenerationEngineModeB:
         focus = WriteFocus(content="重要内容不能丢", reason="保存")
         self.mock_extractor.extract.return_value = None
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
         result = await self.engine.process(request)
@@ -299,12 +305,14 @@ class TestGenerationEngineModeC:
 
     def setup_method(self):
         self.mock_storage = Mock()
+        self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
-        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.check_duplicate = Mock()
         self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
-            storage=self.mock_storage,
+            mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
@@ -329,7 +337,7 @@ class TestGenerationEngineModeC:
         """正常 UPDATE 合并流程"""
         merge_result = MergeResult(new_content="合并后内容", changelog="更新了内容")
         self.mock_extractor.merge.return_value = merge_result
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request()
         result = await self.engine.process(request)
@@ -355,7 +363,7 @@ class TestGenerationEngineModeC:
     async def test_mode_c_fallback_on_merge_failure(self):
         """LLM 合并失败时启用 fallback"""
         self.mock_extractor.merge.return_value = None
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(content="追加内容")
         result = await self.engine.process(request)
@@ -368,7 +376,7 @@ class TestGenerationEngineModeC:
         """fallback 仅有 instruction 无 content 时保留旧内容"""
         existing = _make_memory()
         self.mock_extractor.merge.return_value = None
-        self.mock_storage.upsert_memory = AsyncMock()
+        self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(existing=existing, content=None)
         result = await self.engine.process(request)
@@ -380,7 +388,7 @@ class TestGenerationEngineModeC:
         """版本历史追踪"""
         existing = _make_memory()
         merge_result = MergeResult(new_content="新版本", changelog="v2 更新")
-        self.mock_storage.upsert_memory = Mock()
+        self.mock_storage.upsert = Mock()
 
         result = self.engine._apply_update(existing, merge_result)
 
@@ -399,12 +407,14 @@ class TestGenerationEngineDedup:
 
     def setup_method(self):
         self.mock_storage = Mock()
+        self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
-        self.mock_deduplicator.check_duplicate = AsyncMock()
+        self.mock_deduplicator.check_duplicate = Mock()
         self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
-            storage=self.mock_storage,
+            mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
         )
@@ -415,11 +425,10 @@ class TestGenerationEngineDedup:
         existing = _make_memory()
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.TOUCH, existing)
-        self.mock_storage.update_access_info = AsyncMock()
 
         result = await self.engine._dedup_and_persist(draft, _make_identity())
 
-        self.mock_storage.update_access_info.assert_called_once_with(existing.id)
+        self.mock_storage.upsert.assert_called_once_with(existing)
         assert result[0].atom is existing
         assert result[0].duplicate_decision == DuplicateDecision.TOUCH
 
@@ -435,7 +444,7 @@ class TestGenerationEngineDedup:
         result = await self.engine._dedup_and_persist(draft, _make_identity())
 
         self.mock_deduplicator.merge_memory.assert_called_once_with(existing, draft)
-        self.mock_storage.upsert_memory.assert_not_called()
+        self.mock_storage.upsert.assert_not_called()
         assert result[0].atom is merged
         assert result[0].duplicate_decision == DuplicateDecision.UPDATE
         assert result[0].memory_before_snapshot is not None
@@ -448,7 +457,7 @@ class TestGenerationEngineDedup:
 
         result = await self.engine._dedup_and_persist(draft, _make_identity())
 
-        self.mock_storage.upsert_memory.assert_not_called()
+        self.mock_storage.upsert.assert_not_called()
         assert len(result) == 1
         assert result[0].atom.index.title == "测试记忆"
 
@@ -463,7 +472,7 @@ class TestGenerationEngineDedup:
         assert len(result) == 1
         assert result[0].atom is None
         assert result[0].duplicate_decision == DuplicateDecision.DISCARD
-        self.mock_storage.upsert_memory.assert_not_called()
+        self.mock_storage.upsert.assert_not_called()
 
 
 class TestGenerationEngineAlias:
@@ -509,7 +518,7 @@ class TestGenerationEngineHelpers:
 
     def setup_method(self):
         self.engine = MemoryGenerationEngine(
-            storage=Mock(), extractor=Mock(), deduplicator=Mock(),
+            mid_term=Mock(), extractor=Mock(), deduplicator=Mock(),
         )
 
     def test_render_transcript(self):

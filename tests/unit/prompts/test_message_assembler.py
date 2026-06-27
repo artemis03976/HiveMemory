@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from hivememory.core.models import AgentProfile, Identity
 from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
+from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.i18n import set_default_language
 import pytest
@@ -26,6 +27,18 @@ def _make_koakuma_config():
     )
 
 
+def _make_topic_data(state_summary="state"):
+    return TopicData(
+        topic_id="topic_1",
+        user_id="u1",
+        topic_title="测试话题",
+        state_summary=state_summary,
+        blocks=(),
+        last_update=1.0,
+        last_accessed_at=1.0,
+    )
+
+
 def test_build_main_agent_messages_from_context():
     assembler = AgentPromptAssembler(_make_koakuma_config())
     profile = AgentProfile(
@@ -38,7 +51,7 @@ def test_build_main_agent_messages_from_context():
         identity=Identity(user_id="u1", agent_id="omni_doll"),
         topic_id="topic_1",
         user_message="hello",
-        topic_context={"state_summary": "state", "blocks": []},
+        topic_context=_make_topic_data("state"),
         retrieval_result=RetrievalResponse(
             memories=[],
             rendered_context="<memory>ctx</memory>",
@@ -69,7 +82,7 @@ def test_build_main_agent_messages_includes_storage_notice_when_offline():
         identity=Identity(user_id="u1", agent_id="omni_doll"),
         topic_id="topic_1",
         user_message="hello",
-        topic_context={"state_summary": "", "blocks": []},
+        topic_context=None,
         retrieval_result=RetrievalResponse(),
         agent_profile=profile,
         storage_available=False,

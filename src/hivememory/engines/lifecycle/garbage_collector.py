@@ -11,11 +11,12 @@ from typing import Any, Dict, Iterable, List, Optional
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.lifecycle.interfaces import (
-    BaseGarbageCollector,
-    BaseMemoryArchiver,
-)
+from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.system.config import GarbageCollectorConfig
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from hivememory.patchouli.memory_library.library import MemoryLibrary
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +34,17 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         3. 批量归档
 
     Examples:
-        >>> gc = PeriodicGarbageCollector(archiver, config)
+        >>> gc = PeriodicGarbageCollector(memory_library, config)
         >>> archived_count = await gc.collect(refreshed_memories, force=True)
         >>> print(f"Archived {archived_count} memories")
     """
 
     def __init__(
         self,
-        archiver: BaseMemoryArchiver,
+        memory_library: "MemoryLibrary",
         config: GarbageCollectorConfig,
     ):
-        self.archiver = archiver
+        self.memory_library = memory_library
         self.config = config
         self._stats: Dict[str, Any] = {
             "last_run": None,
@@ -128,13 +129,12 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
         for memory_id in candidate_ids:
             try:
-                if hasattr(self.archiver, "is_archived"):
-                    if self.archiver.is_archived(memory_id):
-                        logger.debug("Memory %s already archived", memory_id)
-                        skipped_count += 1
-                        continue
+                if await self.memory_library.long_term.is_archived(memory_id):
+                    logger.debug("Memory %s already archived", memory_id)
+                    skipped_count += 1
+                    continue
 
-                await self.archiver.archive(memory_id)
+                await self.memory_library.archive(memory_id)
                 archived_count += 1
                 logger.info(f"Successfully archived {memory_id}")
             except Exception as exc:
@@ -180,21 +180,21 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
 
 def create_garbage_collector(
-    archiver: BaseMemoryArchiver,
+    memory_library: "MemoryLibrary",
     config: GarbageCollectorConfig,
 ) -> BaseGarbageCollector:
     """
     创建默认垃圾回收器
 
     Args:
-        archiver: 归档器实例
+        memory_library: 记忆书库，负责跨层归档
         config: 垃圾回收器配置
 
     Returns:
         BaseGarbageCollector: 垃圾回收器实例
     """
     return PeriodicGarbageCollector(
-        archiver=archiver,
+        memory_library=memory_library,
         config=config,
     )
 

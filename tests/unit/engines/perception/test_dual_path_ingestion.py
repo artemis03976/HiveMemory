@@ -15,6 +15,7 @@ from hivememory.core.protocol import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
+from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
 
 
@@ -22,8 +23,11 @@ def _make_layer() -> SemanticFlowPerceptionLayer:
     config = SemanticFlowPerceptionConfig()
     relay = Mock()
     relay.should_relay.return_value = None
-    layer = SemanticFlowPerceptionLayer(config=config, relay_controller=relay)
-    layer.set_generation_callback(Mock())
+    layer = SemanticFlowPerceptionLayer(
+        config=config,
+        relay_controller=relay,
+        short_term_store=ShortTermMemoryStore(),
+    )
     return layer
 
 
@@ -78,11 +82,11 @@ async def test_structured_path_persists_assistant_final_text():
         turn_events=[turn_event],
     )
 
-    await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    snapshots = layer.get_active_topics_snapshots(_identity())
-    buffer = layer.get_buffer(snapshots[0].topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
 
     assert block.assistant_final_text == "clean reply"
     assert len(block.turn_events) == 1
@@ -122,11 +126,11 @@ async def test_structured_path_reduces_turn_events_to_actions():
         ],
     )
 
-    await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    snapshots = layer.get_active_topics_snapshots(_identity())
-    buffer = layer.get_buffer(snapshots[0].topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert len(block.actions) == 1
     assert block.actions[0].action_id == "a1"
     assert block.actions[0].tool_kind == "READ"
@@ -147,11 +151,11 @@ async def test_structured_path_persists_payload_mtp_traces():
         turn_events=[_turn_event()],
     )
 
-    await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    snapshots = layer.get_active_topics_snapshots(_identity())
-    buffer = layer.get_buffer(snapshots[0].topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert [t.action for t in block.semantic_traces] == ["SEARCH"]
 
 
@@ -166,11 +170,11 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
         turn_events=[_turn_event()],
     )
 
-    await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    snapshots = layer.get_active_topics_snapshots(_identity())
-    buffer = layer.get_buffer(snapshots[0].topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert block.semantic_traces == []
 
 
@@ -184,11 +188,11 @@ async def test_structured_path_empty_final_text_stays_empty():
         turn_events=[_turn_event()],
     )
 
-    await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    snapshots = layer.get_active_topics_snapshots(_identity())
-    buffer = layer.get_buffer(snapshots[0].topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert block.assistant_final_text == ""
 
 
@@ -202,9 +206,9 @@ async def test_assistant_message_no_longer_persists_as_block_field():
         turn_events=[_turn_event()],
     )
 
-    await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    snapshots = layer.get_active_topics_snapshots(_identity())
-    buffer = layer.get_buffer(snapshots[0].topic_id)
-    block = buffer.blocks[0]
+    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    assert topic_data is not None
+    block = topic_data.blocks[0]
     assert block.assistant_final_text == "clean"

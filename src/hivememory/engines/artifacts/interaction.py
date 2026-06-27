@@ -9,7 +9,7 @@ from hivememory.core.models.artifact import (
     InteractionTurnSnapshot,
 )
 from hivememory.engines.perception.models import LogicalBlock
-from hivememory.infrastructure.storage.artifact_store import ArtifactStore
+from hivememory.patchouli.memory_library import ArtifactStore
 
 
 class InteractionArtifactBuilder:
@@ -36,7 +36,7 @@ class InteractionArtifactBuilder:
             turns=[_snapshot(b) for b in blocks],
             captured_at=datetime.now(),
         )
-        return await self._store.put_json(artifact)
+        return await self._store.put(artifact)
 
 
 def _snapshot(block: LogicalBlock) -> InteractionTurnSnapshot:

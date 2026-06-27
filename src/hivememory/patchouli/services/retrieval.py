@@ -15,17 +15,26 @@
 """
 
 from typing import Any, List, Optional
+from uuid import UUID
 import time
 import logging
 
-from hivememory.core.models import Identity, MemoryAtom
+from hivememory.core.models import (
+    AgentProfile,
+    Identity,
+    MemoryAtom,
+    MemoryType,
+    OMNI_DOLL_PROFILE,
+    TopicSnapshot,
+)
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.interfaces import BaseContextRenderer
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
-from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.memory_library.library import MemoryLibrary
+from hivememory.patchouli.memory_library.models import TopicData
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +68,7 @@ class RetrievalFamiliar:
         from hivememory.engines.retrieval.engine import RetrievalEngine
         # ...
         engine = RetrievalEngine(retriever=..., renderer=...)
-        familiar = RetrievalFamiliar(engine=engine, storage=...)
+        familiar = RetrievalFamiliar(engine=engine, memory_library=...)
 
         result = await familiar.retrieve(request)
         ```
@@ -67,8 +76,8 @@ class RetrievalFamiliar:
 
     def __init__(
         self,
-        storage: QdrantMemoryStore,
         engine: RetrievalEngine,
+        memory_library: MemoryLibrary,
         passive_renderer: Optional[BaseContextRenderer] = None,
         local_bus: Optional[Any] = None,
     ):
@@ -76,17 +85,107 @@ class RetrievalFamiliar:
         初始化检索使魔
 
         Args:
-            storage: QdrantMemoryStore 实例 (用于更新统计)
             engine: 检索引擎实例
+            memory_library: 三级记忆书库，用于短/中/长期读入口
             passive_renderer: 被动模式渲染器 (FullContextRenderer)，
                               用于 Passive Observer Mode 的上下文降级渲染
         """
-        self.storage = storage
         self.engine = engine
+        self._memory_library = memory_library
         self._passive_renderer = passive_renderer
         self._local_bus = local_bus
 
         logger.info("RetrievalFamiliar (检索使魔) 初始化完成")
+
+    # ========== 短期记忆查询 ========== 
+
+    def get_topic(
+        self,
+        topic_id: str,
+        *,
+        touch: bool = True,
+        deep_copy: bool = True,
+    ) -> Optional[TopicData]:
+        """
+        读取短期话题上下文。
+        """
+        return self._memory_library.short_term.get_topic_data(
+            topic_id,
+            touch=touch,
+            deep_copy=deep_copy,
+        )
+
+    def list_active_topics(
+        self,
+        identity: Identity,
+        *,
+        include_empty: bool = False,
+        sort_by_access: bool = True,
+    ) -> List[TopicSnapshot]:
+        """
+        列出指定用户的话题快照（短期检索入口）。
+
+        默认排除空话题，供 TheEye 路由决策使用；include_empty=True
+        时可承接前端话题池展示。
+        """
+        topics = self._memory_library.short_term.list_topic_data(
+            user_id=identity.user_id,
+            include_empty=include_empty,
+            deep_copy=False,
+        )
+        if not include_empty:
+            topics = [topic for topic in topics if not topic.is_empty]
+        if sort_by_access:
+            topics = sorted(topics, key=lambda t: t.last_accessed_at, reverse=True)
+        return [topic.to_topic_snapshot() for topic in topics]
+
+    # ========== 中期记忆查询 ========== 
+
+    async def get_memory(self, memory_id: UUID | str) -> Optional[MemoryAtom]:
+        """Read a mid-term memory atom by id."""
+        normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
+        return await self._memory_library.mid_term.get(normalized_id)
+
+    async def list_memories(
+        self,
+        *,
+        query: Optional[str] = None,
+        filters: Optional[dict[str, Any]] = None,
+        limit: int = 20,
+    ) -> List[MemoryAtom]:
+        """List or search mid-term memories without applying public API policy."""
+        if query:
+            results = await self._memory_library.mid_term.search(
+                query=query,
+                top_k=limit,
+                filters=filters,
+            )
+            return [result["memory"] for result in results if "memory" in result]
+        return await self._memory_library.mid_term.scroll(
+            filters=filters,
+            limit=limit,
+        )
+
+    async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
+        """Resolve an agent profile from mid-term memory atoms."""
+        if not agent_alias or agent_alias in ("default", "omni_doll"):
+            return OMNI_DOLL_PROFILE
+
+        try:
+            atom = await self._memory_library.mid_term.get_by_alias(agent_alias)
+            if atom is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
+                profile = AgentProfile.from_atom(atom)
+                if profile is not None:
+                    return profile
+        except Exception as e:
+            logger.warning(
+                f"Failed to load agent profile '{agent_alias}' from memory library: {e}"
+            )
+
+        logger.info(
+            f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE."
+        )
+        return OMNI_DOLL_PROFILE
 
     async def retrieve(self, request: RetrievalRequest, mode: str = "active") -> RetrievalResponse:
         """
@@ -212,7 +311,7 @@ class RetrievalFamiliar:
                     continue
                 seen_aliases.add(normalized)
 
-                atom = await self.storage.get_memory_by_alias(normalized, user_id)
+                atom = await self._memory_library.mid_term.get_by_alias(normalized, user_id)
                 if atom is None:
                     logger.warning(f"Alias not found during alias retrieval: {normalized}")
                     continue
@@ -257,10 +356,29 @@ class RetrievalFamiliar:
         """
         for memory in memories:
             try:
-                await self.storage.update_access_info(memory.id)
+                await self._memory_library.mid_term.update_access_info(memory.id)
             except Exception as e:
                 logger.warning(f"更新访问统计失败: {memory.id} - {e}")
 
+    # ========== 长期记忆查询 ========== 
+
+    async def query_archive(
+        self,
+        *,
+        limit: int = 100,
+        vitality_threshold: Optional[float] = None,
+    ):
+        """查询长期冷存储归档记录。"""
+        return await self._memory_library.long_term.query(
+            limit=limit,
+            vitality_threshold=vitality_threshold,
+        )
+
+    async def is_archived(self, memory_id) -> bool:
+        """检查记忆是否已进入长期冷存储。"""
+        return await self._memory_library.long_term.is_archived(memory_id)
+
+    # ========== 内部辅助方法 ========== 
 
     async def _refresh_vitality_for_memories(self, memories: List[MemoryAtom]) -> None:
         if not memories or self._local_bus is None:

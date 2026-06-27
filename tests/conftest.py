@@ -22,7 +22,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import StreamMessage, MemoryAtom, Identity
-from hivememory.engines.perception.models import FlushReason, FlushEvent, LogicalBlock, SemanticBuffer
+from hivememory.engines.perception.models import FlushReason, FlushEvent, LogicalBlock
 from hivememory.system.config import HiveMemoryConfig
 from unittest.mock import patch
 

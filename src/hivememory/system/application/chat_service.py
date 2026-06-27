@@ -4,7 +4,7 @@ ChatApplicationService — 顶层主动交互应用服务 (Phase D / v0.4.0)
 v0.4.0 Phase 1 变更：
     - _generation_events dict 替换为 RuntimeControlRegistry
     - cancel_generation() 返回结构化 CancelResult
-    - 取消后默认跳过 run_active_generation（通过 loop_result.status 传递）
+    - 取消后默认跳过主动生成提交（通过 loop_result.status 传递）
     - done 事件携带 status/reason/stopped 稳定字段
 """
 
@@ -210,7 +210,10 @@ class ChatApplicationService:
                 "data": {
                     "topic_id": prelude.topic_id,
                     "is_new": prelude.is_new_topic,
-                    "pool": prelude.pool_snapshot,
+                    "pool_topics": [
+                        topic.model_dump(mode="json")
+                        for topic in prelude.pool_topics
+                    ],
                 },
             }
             yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}

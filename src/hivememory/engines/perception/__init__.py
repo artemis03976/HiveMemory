@@ -8,7 +8,7 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
 核心组件:
     - BasePerceptionLayer: 感知层基类
     - SemanticFlowPerceptionLayer: 语义流感知层 / MMU（多话题并发管理）
-    - SemanticBufferManager: 话题管理器 (TopicManager) - 纯状态管理
+    - ShortTermMemoryStore: 短期话题状态存储与调度入口
     - TriggerManager: 话题结算调度器 - Flush 触发逻辑
     - SemanticBuffer: 话题段 (TopicSegment)
     - LogicalBlock: 页 (Page)
@@ -34,12 +34,14 @@ from hivememory.engines.perception.interfaces import (
 from hivememory.engines.perception.models import (
     TraceItem,
     LogicalBlock,
-    BufferState,
-    SemanticBuffer,
     FlushEvent,
     FlushReason,
+    TopicMaterializeTask,
 )
-from hivememory.engines.perception.buffer_manager import SemanticBufferManager
+from hivememory.patchouli.memory_library.buffer import (
+    BufferState,
+    SemanticBuffer,
+)
 from hivememory.engines.perception.trigger_manager import (
     TriggerManager,
     DECISION_MATRIX,
@@ -65,16 +67,16 @@ logger = logging.getLogger(__name__)
 def create_perception_layer(
     config: MemoryPerceptionConfig,
     llm_service=None,
+    *,
+    short_term_store,
 ) -> BasePerceptionLayer:
     """
     创建感知层 (MMU) 实例
 
-    Phase 4.5 简化版：仅创建 SemanticFlowPerceptionLayer。
-    embedding_service / reranker_service 参数保留向后兼容签名但不再使用。
-
     Args:
         config: 感知层配置 (MemoryPerceptionConfig)
         llm_service: LLM 服务（用于 LLMRelayController 摘要生成）
+        short_term_store: ShortTermMemoryStore 实例，必须由 PatchouliRuntime 从 MemoryLibrary 注入
 
     Returns:
         SemanticFlowPerceptionLayer 实例
@@ -100,6 +102,7 @@ def create_perception_layer(
     perception = SemanticFlowPerceptionLayer(
         config=impl_config,
         relay_controller=relay_controller,
+        short_term_store=short_term_store,
     )
 
     return perception
@@ -118,8 +121,7 @@ __all__ = [
     "SemanticBuffer",
     "FlushEvent",
     "FlushReason",
-    # 缓冲区管理器
-    "SemanticBufferManager",
+    "TopicMaterializeTask",
     # 话题结算调度器
     "TriggerManager",
     "DECISION_MATRIX",

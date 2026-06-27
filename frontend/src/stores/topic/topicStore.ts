@@ -61,8 +61,7 @@ export const useTopicStore = create<TopicStore>()(
       },
 
       setTopicsFromPool: (pool: TopicPoolInfo, activeTopicId: string) => {
-        const isFull = pool.current_count >= pool.max_resident_topics;
-        const topics: Topic[] = pool.topics.map((t, idx) => ({
+        const topics: Topic[] = pool.topics.map((t) => ({
           id: t.topic_id,
           title: t.title,
           summary: t.state_summary || undefined,
@@ -70,7 +69,6 @@ export const useTopicStore = create<TopicStore>()(
           model: 'GPT-4o',
           lastActive: t.last_accessed_at * 1000,
           messageCount: t.block_count,
-          willEvict: isFull && idx === pool.topics.length - 1 && t.topic_id !== activeTopicId,
           totalTokens: t.total_tokens,
         }));
         set({ topics, isLoading: false, error: null });

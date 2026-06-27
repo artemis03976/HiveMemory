@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from hivememory.core.models import AgentProfile, Identity
+from hivememory.core.models import AgentProfile, Identity, TopicSnapshot
 from hivememory.core.protocol.models import AgentRunContext, EyeGazeResult
 
 
@@ -15,8 +15,16 @@ class StreamPrelude:
 
     topic_id: str
     is_new_topic: bool
-    pool_snapshot: Dict[str, Any]
+    pool_topics: List[TopicSnapshot]
     memory_refs: List[Any]
+
+    @property
+    def pool_snapshot(self) -> Dict[str, Any]:
+        """兼容旧前端包格式；新代码应直接使用 pool_topics。"""
+        return {
+            "topics": [topic.model_dump(mode="json") for topic in self.pool_topics],
+            "current_count": len(self.pool_topics),
+        }
 
 
 @dataclass

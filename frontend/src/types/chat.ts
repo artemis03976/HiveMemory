@@ -48,14 +48,13 @@ export interface TopicPoolInfo {
     last_accessed_at: number;
     total_tokens: number;
   }>;
-  max_resident_topics: number;
   current_count: number;
 }
 
 export interface TopicInfoEvent {
   topic_id: string;
   is_new: boolean;
-  pool?: TopicPoolInfo;
+  pool_topics?: TopicPoolInfo['topics'];
 }
 
 export type ChatRunStatus =

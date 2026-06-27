@@ -1,29 +1,15 @@
-"""
-Page Folding 单元测试
-
-测试覆盖:
-- block total_tokens 计算修复验证
-- 低于阈值时不触发折叠
-- 超阈值后旧 blocks 被丢弃，state_summary 被写入
-- 折叠过程不触发 generation_callback
-- 连续折叠时 state_summary 累积
-
-参考: ShortTermMemory.md §4.2
-
-Note:
-    Phase 4.5 重构：使用 topic_id 替代 session_id
-"""
+from unittest.mock import Mock
 
 import pytest
-from unittest.mock import Mock, AsyncMock
 
-from hivememory.core.models import Identity, StreamMessage, StreamMessageType, TurnEvent, TurnRecord
+from hivememory.core.models import Identity, TraceItem, TurnEvent, TurnRecord
+from hivememory.core.protocol import InteractionPayload
+from hivememory.engines.perception.models import LogicalBlock
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
-from hivememory.engines.perception.models import TraceItem, FlushReason, LogicalBlock
+from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.core.protocol import InteractionPayload
 
 
 def _make_identity():
@@ -31,8 +17,7 @@ def _make_identity():
 
 
 def _make_payload(user_msg="hello", assistant_msg="world", identity=None, traces=None):
-    if identity is None:
-        identity = _make_identity()
+    identity = identity or _make_identity()
     return InteractionPayload(
         user_message=user_msg,
         assistant_final_text=assistant_msg,
@@ -49,200 +34,161 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None, traces
     )
 
 
-def _make_large_payload(token_target, identity=None):
-    """构造一个大 payload，使 block.total_tokens 接近 token_target"""
-    # estimate_tokens 大约按 len/4 估算，所以 content 长度 ~= token_target * 4
-    content = "x" * (token_target * 4)
-    return _make_payload(
-        user_msg=content,
-        assistant_msg="short reply",
-        identity=identity,
+def _make_layer(
+    *,
+    fold_token_threshold=999999,
+    fold_retain_recent_blocks=2,
+    relay=None,
+    store=None,
+):
+    config = SemanticFlowPerceptionConfig(
+        fold_token_threshold=fold_token_threshold,
+        fold_retain_recent_blocks=fold_retain_recent_blocks,
+    )
+    relay = relay or Mock()
+    relay.should_relay.return_value = None
+    return SemanticFlowPerceptionLayer(
+        config=config,
+        relay_controller=relay,
+        short_term_store=store or ShortTermMemoryStore(),
     )
 
 
 class TestBlockTokenComputation:
-    """验证 ingest_payload 后 block.total_tokens > 0"""
-
-    def setup_method(self):
-        self.config = SemanticFlowPerceptionConfig(
-            fold_token_threshold=999999,  # 不触发折叠
-        )
-        self.mock_relay = Mock()
-        self.mock_relay.should_relay.return_value = None
-        self.layer = SemanticFlowPerceptionLayer(config=self.config, relay_controller=self.mock_relay)
-
     @pytest.mark.asyncio
     async def test_block_total_tokens_computed(self):
-        """ingest_payload 后 block.total_tokens 应 > 0"""
+        layer = _make_layer()
 
-        identity = _make_identity()
-        payload = _make_payload("What is Python?", "Python is a language", identity)
+        topic_id, settle_payload = await layer.route_and_ingest(
+            "NEW_TOPIC",
+            _make_payload("What is Python?", "Python is a language"),
+        )
 
-        await self.layer.route_and_ingest("NEW_TOPIC", payload)
-
-        snapshots = self.layer.get_active_topics_snapshots(identity)
-        topic_id = snapshots[0].topic_id
-
-        buffer = self.layer.get_buffer(topic_id)
-        assert len(buffer.blocks) == 1
-        assert buffer.blocks[0].total_tokens > 0
-        assert buffer.total_tokens > 0
+        assert settle_payload is None
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 1
+        assert topic_data.blocks[0].total_tokens > 0
+        assert topic_data.total_tokens > 0
 
     @pytest.mark.asyncio
     async def test_block_tokens_include_traces(self):
-        """traces 中的 query/target 也应计入 total_tokens"""
-
+        layer = _make_layer()
         traces = [
             TraceItem(action="SEARCH", query="how to sort a list"),
             TraceItem(action="READ", target="my_notes_alias"),
         ]
-        identity = _make_identity()
-        payload = _make_payload("q", "a", identity, traces=traces)
 
-        await self.layer.route_and_ingest("NEW_TOPIC", payload)
+        topic_id, settle_payload = await layer.route_and_ingest(
+            "NEW_TOPIC",
+            _make_payload("q", "a", traces=traces),
+        )
 
-        snapshots = self.layer.get_active_topics_snapshots(identity)
-        topic_id = snapshots[0].topic_id
-
-        buffer = self.layer.get_buffer(topic_id)
-        block = buffer.blocks[0]
-        # tokens 应包含 user_query + clean_response + trace fields
-        assert block.total_tokens > 0
+        assert settle_payload is None
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert topic_data.blocks[0].total_tokens > 0
 
 
 class TestPageFoldingThreshold:
-    """验证 Page Folding 阈值逻辑"""
-
     @pytest.mark.asyncio
     async def test_fold_not_triggered_below_threshold(self):
-        """低于阈值时 state_summary 保持为空"""
-        config = SemanticFlowPerceptionConfig(
-            fold_token_threshold=999999,
-        )
-        mock_relay = Mock()
-        mock_relay.should_relay.return_value = None
-        layer = SemanticFlowPerceptionLayer(config=config, relay_controller=mock_relay)
+        layer = _make_layer(fold_token_threshold=999999)
         identity = _make_identity()
 
-        # 路由到新话题
         topic_id = None
+        settle_payload = None
         for i in range(5):
-            if topic_id is None:
-                await layer.route_and_ingest("NEW_TOPIC", _make_payload(f"msg{i}", f"reply{i}", identity))
-                snapshots = layer.get_active_topics_snapshots(identity)
-                topic_id = snapshots[0].topic_id
-            else:
-                await layer.route_and_ingest(topic_id, _make_payload(f"msg{i}", f"reply{i}", identity))
+            target = topic_id or "NEW_TOPIC"
+            topic_id, settle_payload = await layer.route_and_ingest(
+                target,
+                _make_payload(f"msg{i}", f"reply{i}", identity),
+            )
 
-        buffer = layer.get_buffer(topic_id)
-        assert len(buffer.blocks) == 5
-        assert buffer.state_summary == ""
+        assert settle_payload is None
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert len(topic_data.blocks) == 5
+        assert topic_data.state_summary == ""
 
     @pytest.mark.asyncio
-    async def test_fold_triggered_above_threshold(self):
-        """超阈值后旧 blocks 被丢弃，state_summary 被写入，保留最近 N 个"""
-        config = SemanticFlowPerceptionConfig(
-            fold_token_threshold=100,  # 较低阈值
-            fold_retain_recent_blocks=2,
+    async def test_token_overflow_compacts_clears_blocks_and_returns_no_settlement(self):
+        relay = Mock()
+        relay.should_relay.return_value = None
+        relay.generate_summary.return_value = "Test summary"
+        layer = _make_layer(fold_token_threshold=10, relay=relay)
+
+        topic_id, settle_payload = await layer.route_and_ingest(
+            "NEW_TOPIC",
+            _make_payload("x" * 400, "short reply"),
         )
-        mock_relay = Mock()
-        mock_relay.should_relay.return_value = None
-        mock_relay.generate_summary = Mock(return_value="Test summary")  # Mock generate_summary
-        layer = SemanticFlowPerceptionLayer(config=config, relay_controller=mock_relay)
-        identity = _make_identity()
 
-        # 直接使用 BufferManager 创建 buffer 并添加 blocks
-        buffer = layer._buffer_manager.create_buffer(identity.user_id)
-        topic_id = buffer.topic_id
-
-        # 添加多个小 blocks，总 token 会超过阈值
-        for i in range(10):
-            block = LogicalBlock(
-                turn=TurnRecord(
-                    user_query=f"question {i}",
-                    assistant_final_text=f"answer {i}",
-                ),
-                total_tokens=20,  # 每个 block 20 tokens
-            )
-            layer._buffer_manager.add_block(topic_id, block)
-
-        # 手动触发 fold_blocks（模拟 token 溢出场景）
-        layer._buffer_manager.fold_blocks(topic_id, "Test summary", 2)
-
-        buffer = layer.get_buffer(topic_id)
-        # 折叠后应只保留最近 2 个 blocks
-        assert len(buffer.blocks) <= 2
-        # state_summary 应被写入
-        assert buffer.state_summary == "Test summary"
+        assert settle_payload is None
+        relay.generate_summary.assert_called_once()
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert topic_data.state_summary == "Test summary"
+        assert topic_data.blocks == ()
+        assert topic_data.total_tokens == 0
 
     @pytest.mark.asyncio
-    async def test_fold_does_not_trigger_generation_callback(self):
-        """折叠过程中不应触发 generation_callback"""
-        config = SemanticFlowPerceptionConfig(
-            fold_token_threshold=100,
-            fold_retain_recent_blocks=2,
-        )
-        mock_relay = Mock()
-        mock_relay.should_relay.return_value = None
-        mock_relay.generate_summary = Mock(return_value="Test summary")  # Mock generate_summary
-        layer = SemanticFlowPerceptionLayer(config=config, relay_controller=mock_relay)
-        mock_callback = AsyncMock(return_value=None)
-        layer.set_generation_callback(mock_callback)
-
-        identity = _make_identity()
-
-        # 直接使用 BufferManager 创建 buffer 并添加 blocks
-        buffer = layer._buffer_manager.create_buffer(identity.user_id)
+    async def test_store_update_summary_can_retain_recent_blocks_independently(self):
+        store = ShortTermMemoryStore()
+        buffer = store.create_buffer(_make_identity().user_id)
         topic_id = buffer.topic_id
 
-        # 添加多个小 blocks
         for i in range(10):
-            block = LogicalBlock(
-                turn=TurnRecord(
-                    user_query=f"question {i}",
-                    assistant_final_text=f"answer {i}",
+            store.add_block(
+                topic_id,
+                LogicalBlock(
+                    turn=TurnRecord(
+                        user_query=f"question {i}",
+                        assistant_final_text=f"answer {i}",
+                    ),
+                    total_tokens=20,
                 ),
-                total_tokens=20,
             )
-            layer._buffer_manager.add_block(topic_id, block)
 
-        # 手动触发 fold_blocks（不经过 resolve_topic，所以不会触发 Archive 回调）
-        layer._buffer_manager.fold_blocks(topic_id, "Test summary", 2)
+        folded = store.update_summary(topic_id, "Test summary", retain_count=2)
 
-        mock_callback.assert_not_called()
+        topic_data = store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert folded == 8
+        assert len(topic_data.blocks) == 2
+        assert topic_data.state_summary == "Test summary"
+        assert topic_data.total_tokens == 40
 
 
 class TestPageFoldingCumulative:
-    """验证连续折叠时 state_summary 累积"""
-
     @pytest.mark.asyncio
     async def test_fold_cumulative_summary(self):
-        """连续两次折叠，验证 state_summary 以 --- 分隔累积"""
-        config = SemanticFlowPerceptionConfig(
-            fold_token_threshold=50,
-            fold_retain_recent_blocks=1,
+        relay = Mock()
+        relay.should_relay.return_value = None
+        relay.generate_summary.side_effect = (
+            lambda blocks_to_fold, previous_summary: previous_summary + "---folded"
         )
-        mock_relay = Mock()
-        mock_relay.should_relay.return_value = None
-        mock_relay.generate_summary = Mock(side_effect=lambda blocks_to_fold, previous_summary: previous_summary + "---folded")
-        layer = SemanticFlowPerceptionLayer(config=config, relay_controller=mock_relay)
+        layer = _make_layer(fold_token_threshold=50, relay=relay)
         identity = _make_identity()
 
-        # 第一波：触发第一次折叠
         topic_id = await layer.create_new_topic(identity)
         for i in range(4):
-            await layer.route_and_ingest(topic_id, _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity))
+            await layer.route_and_ingest(
+                topic_id,
+                _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity),
+            )
 
-        buffer = layer.get_buffer(topic_id)
-        first_summary = buffer.state_summary
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        first_summary = topic_data.state_summary
         assert first_summary != ""
 
-        # 第二波：继续摄入，触发第二次折叠
         for i in range(4):
-            await layer.route_and_ingest(topic_id, _make_payload(f"wave2 q{i} " * 20, f"wave2 a{i} " * 20, identity))
+            await layer.route_and_ingest(
+                topic_id,
+                _make_payload(f"wave2 q{i} " * 20, f"wave2 a{i} " * 20, identity),
+            )
 
-        buffer = layer.get_buffer(topic_id)
-        # 累积摘要应包含分隔符
-        assert "---" in buffer.state_summary
-        # 第一次摘要应被保留在累积摘要中
-        assert first_summary in buffer.state_summary
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert "---" in topic_data.state_summary
+        assert first_summary in topic_data.state_summary

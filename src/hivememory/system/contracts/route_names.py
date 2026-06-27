@@ -24,7 +24,7 @@ class RouteNames:
     PATCHOULI_PREPARE_AGENT_RUN = "patchouli.public.prepare_agent_run"
     PATCHOULI_FINALIZE_AGENT_RUN = "patchouli.public.finalize_agent_run"
     PATCHOULI_CLEANUP_PREPARED_AGENT_RUN = "patchouli.public.cleanup_prepared_agent_run"
-    PATCHOULI_MANUAL_ARCHIVE_TOPIC = "patchouli.public.manual_archive_topic"
+    PATCHOULI_MANUAL_SETTLE_TOPIC = "patchouli.public.manual_settle_topic"
     PATCHOULI_EVICT_TOPIC = "patchouli.public.evict_topic"
     PATCHOULI_RECORD_MEMORY_CITATION = "patchouli.public.record_memory_citation"
     PATCHOULI_WARMUP_MODELS = "patchouli.public.models.warmup"

@@ -39,6 +39,7 @@ from .interaction import (
     AgentAction,
     TraceItem,
     TurnRecord,
+    TopicSnapshot,
 )
 from .agent import (
     AgentProfile,
@@ -89,6 +90,7 @@ __all__ = [
     "AgentAction",
     "TraceItem",
     "TurnRecord",
+    "TopicSnapshot",
     "AgentProfile",
     "OMNI_DOLL_PROFILE",
     "PendingAtomStatus",
