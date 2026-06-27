@@ -89,6 +89,7 @@ class AgentOrchestrator:
             topic_id=topic_id or "",
             identity=identity,
         )
+        self._record_initial_user_event(main_frame, messages)
         while True:
             engine_result = await self._agent_runtime.run_frame(
                 frame=main_frame,
@@ -121,6 +122,7 @@ class AgentOrchestrator:
             topic_id=topic_id or "",
             identity=identity,
         )
+        self._record_initial_user_event(main_frame, messages)
 
         queue: asyncio.Queue = asyncio.Queue()
 
@@ -167,6 +169,43 @@ class AgentOrchestrator:
                     pass
             else:
                 await task
+
+    def _record_initial_user_event(
+        self,
+        frame: ExecutionFrame,
+        messages: List[Dict[str, str]],
+    ) -> None:
+        """
+        记录初始用户消息（如果存在）作为首个 TurnEvent。
+        """
+        content = self._current_user_message(messages)
+        if not content:
+            return
+        if any(event.kind == "user_message" for event in frame.progress.turn_events):
+            return
+
+        for event in frame.progress.turn_events:
+            event.sequence += 1
+
+        frame.progress.turn_events.insert(
+            0,
+            TurnEvent(
+                kind="user_message",
+                sequence=0,
+                role="user",
+                content=content,
+            ),
+        )
+        frame.progress.sequence = max(
+            frame.progress.sequence + 1,
+            max((event.sequence for event in frame.progress.turn_events), default=-1) + 1,
+        )
+
+    def _current_user_message(self, messages: List[Dict[str, str]]) -> str:
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                return str(message.get("content") or "")
+        return ""
 
     # ------------------------------------------------------------------
     # 内部：SUSPENDED 重入序列

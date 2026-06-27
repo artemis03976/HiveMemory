@@ -84,6 +84,11 @@ async def test_run_agent_assembles_result_from_completed_frame():
     assert result.final_text == "hello world"
     assert result.mtp_iterations == 2
     assert result.total_iterations == 3
+    assert result.turn_events[0].kind == "user_message"
+    assert result.turn_events[0].sequence == 0
+    assert result.turn_events[0].content == "hello"
+    assert result.turn_events[1].kind == "assistant_message"
+    assert result.turn_events[1].sequence == 1
     assert result.turn_events == frame.progress.turn_events
     assert result.materialize_tasks == []
     runtime.collect_tasks_by_run.assert_called_once_with("run-1")
@@ -114,6 +119,64 @@ async def test_run_agent_cancelled_cancels_pending_atoms_without_materialize_tas
     assert result.materialize_tasks == []
     runtime.cancel_tasks_by_run.assert_called_once_with("run-1")
     runtime.collect_tasks_by_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_agent_records_current_user_message_before_execution():
+    frame = _frame()
+    runtime = SimpleNamespace(
+        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        collect_tasks_by_run=MagicMock(return_value=[]),
+        cancel_tasks_by_run=MagicMock(return_value=[]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(frame, runtime=runtime)
+
+    result = await orchestrator.run_agent(
+        messages=[
+            {"role": "system", "content": "constraints"},
+            {"role": "user", "content": "previous"},
+            {"role": "assistant", "content": "old answer"},
+            {"role": "user", "content": "current"},
+        ],
+        identity=frame.identity,
+        topic_id="topic-1",
+    )
+
+    assert [event.kind for event in result.turn_events] == ["user_message"]
+    assert result.turn_events[0].sequence == 0
+    assert result.turn_events[0].content == "current"
+    assert frame.progress.sequence == 1
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_records_current_user_message():
+    frame = _frame()
+
+    async def run_frame_stream(**_kwargs):
+        if False:
+            yield None
+
+    runtime = SimpleNamespace(
+        run_frame_stream=run_frame_stream,
+        collect_tasks_by_run=MagicMock(return_value=[]),
+        cancel_tasks_by_run=MagicMock(return_value=[]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(frame, runtime=runtime)
+
+    events = []
+    async for event in orchestrator.run_agent_stream(
+        messages=[{"role": "user", "content": "stream current"}],
+        identity=frame.identity,
+        topic_id="topic-1",
+    ):
+        events.append(event)
+
+    done = next(event for event in events if event["event"] == "done")
+    assert done["data"]["turn_events"][0]["kind"] == "user_message"
+    assert done["data"]["turn_events"][0]["sequence"] == 0
+    assert done["data"]["turn_events"][0]["content"] == "stream current"
 
 
 @pytest.mark.asyncio
