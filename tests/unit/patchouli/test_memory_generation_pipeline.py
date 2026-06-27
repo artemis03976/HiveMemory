@@ -209,3 +209,34 @@ async def test_active_update_fetches_existing_memory_before_generation():
     assert spec.pending_alias == "draft_update"
     assert spec.request.is_update is True
     assert spec.request.existing_memory is existing
+
+
+@pytest.mark.asyncio
+async def test_active_batch_skips_missing_update_and_runs_valid_write():
+    bus = PatchouliBus()
+    coordinator = _wire_generation_pipeline(bus)
+    failed = []
+    execute_spec = AsyncMock(return_value=_settlement_result("draft_write"))
+    bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
+    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
+    bus.register(PatchouliLocalRoutes.MEMORY_GET, AsyncMock(return_value=None))
+    bus.subscribe(
+        PatchouliLocalEvents.PENDING_ATOM_FAILED,
+        lambda **kwargs: _capture_event(failed, **kwargs),
+    )
+
+    memory_tasks = await coordinator.submit_active(
+        [
+            _write_task("draft_write"),
+            _update_task(str(uuid4()), "draft_update"),
+        ],
+        "topic_1",
+    )
+    await memory_tasks[0]._bg_task
+
+    assert len(memory_tasks) == 1
+    assert memory_tasks[0].status == MemoryGenerationTaskStatus.COMPLETED
+    spec = execute_spec.await_args.args[0]
+    assert spec.source == MemoryGenerationSource.WRITE
+    assert spec.pending_alias == "draft_write"
+    assert failed == [{"pending_alias": "draft_update"}]

@@ -145,30 +145,41 @@ class TestSemanticBufferIsIdle:
 
     def test_is_idle_within_timeout(self):
         buf = SemanticBuffer()
-        buf.last_update = datetime.now().timestamp()
+        fixed_now = datetime(2026, 1, 1, 12, 0, 0)
+        buf.last_update = fixed_now.timestamp()
 
-        assert buf.is_idle(timeout_seconds=900) is False
+        with patch("hivememory.patchouli.memory_library.buffer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            assert buf.is_idle(timeout_seconds=900) is False
 
     def test_is_idle_beyond_timeout(self):
         buf = SemanticBuffer()
-        buf.last_update = (datetime.now() - timedelta(seconds=1000)).timestamp()
+        fixed_now = datetime(2026, 1, 1, 12, 0, 0)
+        buf.last_update = (fixed_now - timedelta(seconds=1000)).timestamp()
 
-        assert buf.is_idle(timeout_seconds=900) is True
+        with patch("hivememory.patchouli.memory_library.buffer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            assert buf.is_idle(timeout_seconds=900) is True
 
     def test_is_idle_exactly_at_boundary(self):
         buf = SemanticBuffer()
-        old_time = datetime.now() - timedelta(seconds=900)
-        buf.last_update = old_time.timestamp()
+        fixed_now = datetime(2026, 1, 1, 12, 0, 0)
+        buf.last_update = (fixed_now - timedelta(seconds=900)).timestamp()
 
         # is_idle 使用 > timeout，所以 900 秒刚好时返回 False
-        assert buf.is_idle(timeout_seconds=900) is False
+        with patch("hivememory.patchouli.memory_library.buffer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            assert buf.is_idle(timeout_seconds=900) is False
 
     def test_is_idle_custom_timeout(self):
         buf = SemanticBuffer()
-        buf.last_update = (datetime.now() - timedelta(seconds=100)).timestamp()
+        fixed_now = datetime(2026, 1, 1, 12, 0, 0)
+        buf.last_update = (fixed_now - timedelta(seconds=100)).timestamp()
 
-        assert buf.is_idle(timeout_seconds=60) is True
-        assert buf.is_idle(timeout_seconds=300) is False
+        with patch("hivememory.patchouli.memory_library.buffer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            assert buf.is_idle(timeout_seconds=60) is True
+            assert buf.is_idle(timeout_seconds=300) is False
 
 
 class TestSemanticBufferStateEnum:

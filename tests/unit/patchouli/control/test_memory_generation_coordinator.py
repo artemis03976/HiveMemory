@@ -18,6 +18,7 @@ from hivememory.core.models.pending import (
     WriteFocus,
 )
 from hivememory.engines.perception.models import LogicalBlock, TopicMaterializeTask
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation_coordinator import (
     MemoryGenerationCoordinator,
@@ -206,7 +207,7 @@ class TestMemoryGenerationCoordinator:
         assert spec.request.existing_memory is existing
 
     @pytest.mark.asyncio
-    async def test_submit_active_update_raises_when_target_missing(self):
+    async def test_submit_active_update_target_missing_marks_pending_failed(self):
         memory_id = uuid4()
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]
@@ -223,13 +224,91 @@ class TestMemoryGenerationCoordinator:
             raise AssertionError(route)
 
         bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
         coordinator = MemoryGenerationCoordinator(bus=bus)
 
-        with pytest.raises(RuntimeError, match="UPDATE target memory not found"):
-            await coordinator.submit_active(
-                [_update_task(str(memory_id), "draft_update")],
-                "t1",
-            )
+        result = await coordinator.submit_active(
+            [_update_task(str(memory_id), "draft_update")],
+            "t1",
+        )
 
+        assert result == []
         requested_routes = [call.args[0] for call in bus.request.await_args_list]
         assert PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY not in requested_routes
+        bus.publish.assert_awaited_once_with(
+            PatchouliLocalEvents.PENDING_ATOM_FAILED,
+            pending_alias="draft_update",
+        )
+
+    @pytest.mark.asyncio
+    async def test_submit_active_skips_failed_update_but_submits_write(self):
+        missing_id = uuid4()
+        topic_data = Mock()
+        topic_data.recent_blocks.return_value = [_topic_block()]
+        topic_data.state_summary = "state"
+        topic_data.topic_title = "title"
+        topic_data.topic_summary = "summary"
+        bus = Mock()
+
+        async def request(route, *args):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic_data
+            if route == PatchouliLocalRoutes.MEMORY_GET:
+                return None
+            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
+                return [_task_handle(source=MemoryGenerationSource.WRITE)]
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus)
+
+        result = await coordinator.submit_active(
+            [
+                _write_task("draft_write"),
+                _update_task(str(missing_id), "draft_update"),
+            ],
+            "t1",
+        )
+
+        assert len(result) == 1
+        specs = bus.request.await_args_list[-1].args[1]
+        assert len(specs) == 1
+        assert specs[0].source == MemoryGenerationSource.WRITE
+        assert specs[0].pending_alias == "draft_write"
+        bus.publish.assert_awaited_once_with(
+            PatchouliLocalEvents.PENDING_ATOM_FAILED,
+            pending_alias="draft_update",
+        )
+
+    @pytest.mark.asyncio
+    async def test_submit_active_invalid_update_uuid_marks_pending_failed(self):
+        topic_data = Mock()
+        topic_data.recent_blocks.return_value = [_topic_block()]
+        topic_data.state_summary = "state"
+        topic_data.topic_title = "title"
+        topic_data.topic_summary = "summary"
+        bus = Mock()
+
+        async def request(route, *args):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic_data
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus)
+
+        result = await coordinator.submit_active(
+            [_update_task("not-a-uuid", "draft_update")],
+            "t1",
+        )
+
+        assert result == []
+        requested_routes = [call.args[0] for call in bus.request.await_args_list]
+        assert PatchouliLocalRoutes.MEMORY_GET not in requested_routes
+        assert PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY not in requested_routes
+        bus.publish.assert_awaited_once_with(
+            PatchouliLocalEvents.PENDING_ATOM_FAILED,
+            pending_alias="draft_update",
+        )
