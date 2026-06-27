@@ -33,18 +33,15 @@ from hivememory.engines.retrieval import (
     SparseRetriever,
     HybridRetriever,
     CrossEncoderReranker,
-    FullContextRenderer,
-    RenderFormat,
     ReciprocalRankFusion,
     create_retriever,
 )
 from hivememory.system.config import (
-    RerankerConfig, 
-    ReciprocalRankFusionConfig, 
-    HybridRetrieverConfig, 
-    DenseRetrieverConfig, 
+    RerankerConfig,
+    ReciprocalRankFusionConfig,
+    HybridRetrieverConfig,
+    DenseRetrieverConfig,
     SparseRetrieverConfig,
-    FullRendererConfig,
 )
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
@@ -190,70 +187,6 @@ class TestRerankerAndRetrieverCollaboration:
         assert len(reranked.results) == 3
         assert reranked.results[0].memory.index.title == "高分结果"
         assert reranked.results[2].memory.index.title == "低分结果"
-
-
-class TestRendererAndResultsCollaboration:
-    """测试 ContextRenderer 与检索结果的协作"""
-
-    def test_renderer_formats_results(self):
-        """测试渲染器格式化结果"""
-        results = [
-            SearchResult(
-                memory=create_test_memory("测试记忆", "测试内容"),
-                score=0.9,
-                match_reason="语义匹配",
-            ),
-        ]
-
-        # 测试 XML 格式
-        renderer_xml = FullContextRenderer(FullRendererConfig())
-        xml_output = renderer_xml.render(results)
-
-        assert "测试记忆" in xml_output or "测试内容" in xml_output
-        assert len(xml_output) > 0
-
-    def test_renderer_markdown_format(self):
-        """测试 Markdown 格式渲染"""
-        results = [
-            SearchResult(
-                memory=create_test_memory("Python代码", "def test(): pass"),
-                score=0.9,
-                match_reason="代码匹配",
-            ),
-            SearchResult(
-                memory=create_test_memory("Python文档", "文档内容"),
-                score=0.8,
-                match_reason="文档匹配",
-            ),
-        ]
-
-        renderer_md = FullContextRenderer(FullRendererConfig())
-        md_output = renderer_md.render(results, render_format=RenderFormat.MARKDOWN)
-
-        # 验证 Markdown 格式
-        assert "Python代码" in md_output or "Python文档" in md_output
-        assert len(md_output) > 0
-
-    def test_renderer_respects_token_limit(self):
-        """测试渲染器遵守 token 限制"""
-        # 创建大量结果
-        results = [
-            SearchResult(
-                memory=create_test_memory(f"记忆{i}", "内容" * 100),
-                score=0.9 - i * 0.1,
-                match_reason="测试",
-            )
-            for i in range(10)
-        ]
-
-        from hivememory.system.config import FullRendererConfig
-        config = FullRendererConfig(max_tokens=100)
-        renderer = FullContextRenderer(config)
-        output = renderer.render(results)
-
-        # 输出应该被截断
-        assert len(output) > 0
-        # 不应该包含所有记忆
 
 
 class TestQueryAndFilterCollaboration:

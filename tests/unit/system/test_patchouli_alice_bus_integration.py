@@ -94,7 +94,6 @@ async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result
     eye = MagicMock()
     retrieval_result = RetrievalResponse(
         memories=[_build_memory_atom()],
-        rendered_context="<memory>ctx</memory>",
     )
 
     bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, AsyncMock(return_value=OMNI_DOLL_PROFILE))

@@ -52,10 +52,8 @@ def test_build_main_agent_messages_from_context():
         topic_id="topic_1",
         user_message="hello",
         topic_context=_make_topic_data("state"),
-        retrieval_result=RetrievalResponse(
-            memories=[],
-            rendered_context="<memory>ctx</memory>",
-        ),
+        retrieval_result=RetrievalResponse(memories=[]),
+        memory_context="<memory>ctx</memory>",
         agent_profile=profile,
         storage_available=True,
     )

@@ -130,15 +130,11 @@ class RetrievalResponse(ProtocolMessage):
     检索结果协议消息
     
     从 RetrievalFamiliar 返回的检索结果，供外部 Worker Agent 使用
-    包含完整的检索信息和渲染后的上下文
     """
     msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
 
     # 检索到的记忆
     memories: List[MemoryAtom] = Field(default_factory=list)  
-
-    # 渲染后的上下文字符串
-    rendered_context: str = ""  
     
     # 元信息
     latency_ms: float = 0.0  # 总耗时
@@ -147,22 +143,19 @@ class RetrievalResponse(ProtocolMessage):
     def is_empty(self) -> bool:
         """检查是否没有检索到任何记忆"""
         return len(self.memories) == 0
-    
-    def get_context_for_prompt(self) -> str:
-        """获取可直接注入 System Prompt 的上下文"""
-        if self.is_empty():
-            return ""
-        return self.rendered_context
 
 
 class AgentRunContext(BaseModel):
-    """Neutral context prepared for Alice to assemble and execute an Agent run."""
+    """供 Alice 组装并执行 Agent run 的中立上下文。"""
 
     identity: Identity = Field(default_factory=Identity)
     topic_id: str = Field(default="")
     user_message: str = Field(default="")
     topic_context: Optional["TopicData"] = Field(default=None)
     retrieval_result: RetrievalResponse = Field(default_factory=RetrievalResponse)
+    # 已编译的记忆上下文文本，用于注入 system prompt。
+    # retrieval_result 只保留记忆原子，供缓存、引用记录等流程使用。
+    memory_context: str = Field(default="")
     agent_profile: AgentProfile
     storage_available: bool = Field(default=True)
 

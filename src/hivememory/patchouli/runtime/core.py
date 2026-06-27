@@ -447,11 +447,7 @@ class PatchouliRuntime:
 
     def _build_retrieval_engine(self):
         """[私有构建器] 构建 Retrieval 引擎"""
-        from hivememory.engines.retrieval import (
-            RetrievalEngine,
-            BaseMemoryRetriever, create_retriever,
-            BaseContextRenderer, create_renderer,
-        )
+        from hivememory.engines.retrieval import RetrievalEngine, BaseMemoryRetriever, create_retriever
 
         config = self._patchouli_config.retrieval
 
@@ -461,14 +457,7 @@ class PatchouliRuntime:
             self.reranker_service
         )
 
-        renderer: BaseContextRenderer = create_renderer(
-            config.renderer,
-        )
-
-        return RetrievalEngine(
-            retriever=retriever,
-            renderer=renderer,
-        )
+        return RetrievalEngine(retriever=retriever)
 
     def _build_perception_layer(self):
         """[私有构建器] 组装 Perception 层，注入 MemoryLibrary.short_term"""
@@ -560,16 +549,10 @@ class PatchouliRuntime:
         from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
         from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-        from hivememory.engines.retrieval.renderer import FullContextRenderer
-        from hivememory.system.config import FullRendererConfig
-        passive_renderer = FullContextRenderer(
-            FullRendererConfig(),
-        )
 
         self._services["retrieval"] = RetrievalFamiliar(
             engine=self._engines["retrieval"],
             memory_library=self.memory_library,
-            passive_renderer=passive_renderer,
             local_bus=self._local_bus,
         )
 

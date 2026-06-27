@@ -70,7 +70,6 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
         local_bus,
         eye=eye,
         retrieval_result=RetrievalResponse(
-            rendered_context="",
             memories=[_build_memory_atom()],
         ),
     )
@@ -112,7 +111,7 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
     _register_prepare_routes(
         local_bus,
         eye=eye,
-        retrieval_result=RetrievalResponse(rendered_context="", memories=[]),
+        retrieval_result=RetrievalResponse(memories=[]),
     )
     service = PatchouliService(bus=local_bus, eye=eye)
 

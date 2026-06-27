@@ -48,8 +48,10 @@ class MemoryUnitIR(BaseModel):
 
 class MemorySectionIR(BaseModel):
     kind: str
-    # Phase 2C 过渡形态：artifacts 存储已编译的 CompiledMemoryArtifact。
-    # 后续迁移时应替换为 List[MemoryUnitIR]，由 envelope 层直接消费结构化单元。
+    # Phase A: 结构化单元，由 envelope 层按策略编译。
+    # retrieval 场景下，MemoryUnitIR.metadata 应注入检索元数据（score/rank）。
+    units: List[MemoryUnitIR] = Field(default_factory=list)
+    # 向后兼容：已编译的 artifact 列表；优先使用 units。
     artifacts: List[CompiledMemoryArtifact] = Field(default_factory=list)
     empty_text: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)

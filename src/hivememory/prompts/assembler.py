@@ -41,7 +41,7 @@ class AgentPromptAssembler:
         topic_state = topic_context.state_summary if topic_context is not None else ""
         recent_blocks = topic_context.recent_blocks(5) if topic_context is not None else []
 
-        builder.with_memory_context(context.retrieval_result.rendered_context)
+        builder.with_memory_context(context.memory_context)
         builder.with_topic_state(topic_state)
 
         system_prompt = builder.build()

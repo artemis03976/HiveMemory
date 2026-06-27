@@ -9,63 +9,30 @@ HiveMemory - Retrieval 模块数据模型
 
 from datetime import datetime
 from typing import List, Optional, Tuple
-from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 
-from hivememory.core.models import MemoryAtom, MemoryType, Identity
-
-
-class RenderFormat(str, Enum):
-    """检索上下文渲染格式枚举。"""
-
-    XML = "xml"
-    MARKDOWN = "markdown"
-
-
-# ========== 数据模型 ==========
+from hivememory.core.models import Identity, MemoryAtom, MemoryType
 
 
 class QueryFilters(BaseModel):
-    """
-    结构化过滤条件模型
+    """Structured retrieval filters."""
 
-    用于检索引擎的过滤条件传递。
-    定义了检索时可用的所有过滤维度。
-
-    identity 统一承载请求者身份 (user_id, agent_id, team_id)，
-    用于 Visibility Scope Filtering (MutiAgentSystem.md §3.3):
-      - PUBLIC: 全局可见
-      - WORKSPACE: team_id 匹配时可见
-      - PRIVATE: source_agent_id 匹配当前 agent_id 时可见
-
-    Attributes:
-        identity: 请求者身份标识 (替代原 user_id + source_agent_id)
-        memory_type: 记忆类型过滤
-        time_range: 时间范围过滤
-        tags: 标签过滤
-        min_confidence: 最小置信度过滤
-    """
     identity: Optional[Identity] = None
     memory_type: Optional[MemoryType] = None
     time_range: Optional[Tuple[datetime, datetime]] = None
     tags: List[str] = Field(default_factory=list)
     min_confidence: float = 0.0
 
-    # ---- 向后兼容属性 ----
-
     @property
     def user_id(self) -> Optional[str]:
-        """兼容属性: 从 identity 中提取 user_id"""
         return self.identity.user_id if self.identity else None
 
     @property
     def source_agent_id(self) -> Optional[str]:
-        """兼容属性: 从 identity 中提取 agent_id"""
         return self.identity.agent_id if self.identity else None
 
     def is_empty(self) -> bool:
-        """检查过滤条件是否为空"""
         return (
             self.identity is None
             and self.memory_type is None
@@ -152,25 +119,15 @@ class SearchResults(BaseModel):
 class RetrievalResult(BaseModel):
     """
     RetrievalEngine 统一输出数据模型
-
-    面向上层业务（如 RetrievalFamiliar）的结构化返回：
-    - memories: 便于后续业务处理（访问统计、排序、二次过滤等）
-    - rendered_context: 可直接注入 prompt 的上下文
     """
 
     memories: List[MemoryAtom] = Field(default_factory=list)
-    rendered_context: str = ""
     latency_ms: float = 0.0
     memories_count: int = 0
     search_results: Optional[SearchResults] = None
 
     def is_empty(self) -> bool:
         return len(self.memories) == 0
-
-    def get_context_for_prompt(self) -> str:
-        if self.is_empty():
-            return ""
-        return self.rendered_context
 
 
 # ========== 导出列表 ==========
@@ -181,5 +138,4 @@ __all__ = [
     "SearchResult",
     "SearchResults",
     "RetrievalResult",
-    "RenderFormat",
 ]

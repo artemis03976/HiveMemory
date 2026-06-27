@@ -167,7 +167,7 @@ async def test_record_feedback_requests_lifecycle_route(bus):
 async def test_retrieve_routes_to_memory_retrieve(bus):
     service = MemoryManagementService(bus=bus)
     request = RetrievalRequest(semantic_query="query")
-    response = RetrievalResponse(rendered_context="<memory>ctx</memory>")
+    response = RetrievalResponse()
     bus.request.return_value = response
 
     result = await service.retrieve(request, mode="passive")

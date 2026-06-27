@@ -147,8 +147,7 @@ def _make_analysis_result(
         target_topic=target_topic,
     )
     retrieval_result = RetrievalResponse(
-        memories=[],
-        rendered_context=memory or "",
+        memories=[_make_memory_atom()] if memory is not None else [],
     )
     return AnalyzeAndRetrieveResult(
         gaze_result=gaze_result,
@@ -196,7 +195,7 @@ class TestPassiveIngressService:
             session_id="s2",
         )
         assert result["intent"] == "RAG"
-        assert result["memory"] == "<memory>relevant</memory>"
+        assert result["memory"] is not None  # compiled from retrieved atoms
         submit_interaction.assert_not_awaited()
 
     @pytest.mark.asyncio

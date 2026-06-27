@@ -136,9 +136,7 @@ from hivememory.engines.retrieval import (
     RetrievalResult,
     SearchResult,
     SearchResults,
-    RenderFormat,
     BaseMemoryRetriever,
-    BaseContextRenderer,
     BaseReranker,
     BaseFusion,
     FilterConverter,
@@ -151,10 +149,6 @@ from hivememory.engines.retrieval import (
     NoopReranker,
     CrossEncoderReranker,
     create_retriever,
-    FullContextRenderer,
-    CascadeContextRenderer,
-    CompactContextRenderer,
-    create_renderer,
 )
 
 from hivememory.engines.lifecycle import (
@@ -338,9 +332,7 @@ __all__ = [
     "RetrievalResult",
     "SearchResult",
     "SearchResults",
-    "RenderFormat",
     "BaseMemoryRetriever",
-    "BaseContextRenderer",
     "BaseReranker",
     "BaseFusion",
     "FilterConverter",
@@ -353,10 +345,6 @@ __all__ = [
     "NoopReranker",
     "CrossEncoderReranker",
     "create_retriever",
-    "FullContextRenderer",
-    "CascadeContextRenderer",
-    "CompactContextRenderer",
-    "create_renderer",
     # ========== Lifecycle Engine ==========
     "MemoryLifecycleEngine",
     "BaseGarbageCollector",

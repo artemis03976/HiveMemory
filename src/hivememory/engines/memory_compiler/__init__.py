@@ -1,24 +1,33 @@
-"""MemoryCompiler unified memory-to-artifact compilation layer."""
+"""MemoryCompiler unified memory-to-text compilation layer."""
+
+from __future__ import annotations
 
 from hivememory.engines.memory_compiler.compiler import MemoryCompiler
 from hivememory.engines.memory_compiler.models import (
+    CascadeStrategyConfig,
+    CompiledMemory,
     CompiledMemoryArtifact,
     CompiledMemoryEnvelope,
+    CompactStrategyConfig,
+    FullStrategyConfig,
     MemoryCompileOptions,
     MemoryCompileTarget,
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
+    RetrievalStrategyConfig,
 )
-from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 
 __all__ = [
     "MemoryCompiler",
     "MemoryCompileTarget",
     "MemoryEnvelopeTarget",
+    "CompiledMemory",
     "CompiledMemoryArtifact",
     "CompiledMemoryEnvelope",
     "MemoryEnvelopeSection",
     "MemoryCompileOptions",
-    "MemorySectionIR",
-    "MemoryBundleIR",
+    "FullStrategyConfig",
+    "CascadeStrategyConfig",
+    "CompactStrategyConfig",
+    "RetrievalStrategyConfig",
 ]

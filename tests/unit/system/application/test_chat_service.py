@@ -153,7 +153,6 @@ def _make_analysis_result(
     )
     retrieval_result = RetrievalResponse(
         memories=[],
-        rendered_context=memory or "",
     )
     return AnalyzeAndRetrieveResult(
         gaze_result=gaze_result,

@@ -1,15 +1,15 @@
-"""MemoryCompiler 核心数据模型。"""
+"""Core data models for MemoryCompiler."""
 
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
 
 class MemoryCompileTarget(str, Enum):
-    """编译目标 — 决定输出格式与内容选择策略。"""
+    """Unit compile targets."""
 
     PROMPT_FULL = "prompt_full"
     PROMPT_INDEX = "prompt_index"
@@ -22,18 +22,19 @@ class MemoryCompileTarget(str, Enum):
 
 
 class MemoryEnvelopeTarget(str, Enum):
-    """Envelope target — decides how compiled artifacts are delivered."""
+    """Envelope compile targets."""
 
     RETRIEVAL_CONTEXT = "retrieval_context"
     MTP_READ_RESPONSE = "mtp_read_response"
     SHARED_CONTEXT_INJECTION = "shared_context_injection"
 
 
-class CompiledMemoryArtifact(BaseModel):
-    """compile() 调用的结构化输出。"""
+class CompiledMemory(BaseModel):
+    """Unified compile() output for unit artifacts and envelope text."""
 
-    target: MemoryCompileTarget
+    target: MemoryCompileTarget | MemoryEnvelopeTarget
     text: str
+    sections: List["MemoryEnvelopeSection"] = Field(default_factory=list)
     source_kind: str = ""
     alias: Optional[str] = None
     memory_id: Optional[str] = None
@@ -43,20 +44,49 @@ class CompiledMemoryArtifact(BaseModel):
 
 
 class MemoryEnvelopeSection(BaseModel):
-    """A named section in a memory envelope."""
+    """A named section in a compiled memory envelope."""
 
     kind: str
-    artifacts: List[CompiledMemoryArtifact] = Field(default_factory=list)
+    artifacts: List[CompiledMemory] = Field(default_factory=list)
     empty_text: Optional[str] = None
 
 
-class CompiledMemoryEnvelope(BaseModel):
-    """wrap() 调用的结构化输出。"""
+# Compatibility type names. They point to the unified runtime model.
+CompiledMemoryArtifact = CompiledMemory
+CompiledMemoryEnvelope = CompiledMemory
 
-    target: MemoryEnvelopeTarget
-    text: str
-    sections: List[MemoryEnvelopeSection] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+class FullStrategyConfig(BaseModel):
+    """完整渲染策略：按字符上限截断。"""
+
+    strategy: Literal["full"] = "full"
+    max_tokens: int = 2000
+    max_content_length: int = 500
+    stale_days: int = 90
+
+
+class CascadeStrategyConfig(BaseModel):
+    """瀑布策略：Top-N 完整渲染 + 其余 Index，受 token 预算限制。"""
+
+    strategy: Literal["cascade"] = "cascade"
+    max_memory_tokens: int = 2000
+    full_payload_count: int = 3
+    max_content_length: int = 500
+    index_max_summary_length: int = 100
+
+
+class CompactStrategyConfig(BaseModel):
+    """紧凑策略：仅渲染 Index 层。"""
+
+    strategy: Literal["compact"] = "compact"
+    max_memory_tokens: int = 2000
+    index_max_summary_length: int = 100
+
+
+RetrievalStrategyConfig = Annotated[
+    Union[FullStrategyConfig, CascadeStrategyConfig, CompactStrategyConfig],
+    Field(discriminator="strategy"),
+]
 
 
 class MemoryCompileOptions(BaseModel):
@@ -70,3 +100,4 @@ class MemoryCompileOptions(BaseModel):
     canonical_alias: Optional[str] = None
     format: Optional[Literal["xml", "markdown", "plain"]] = None
     language: Optional[str] = None
+    retrieval_strategy_config: Optional[RetrievalStrategyConfig] = None

@@ -232,10 +232,6 @@ class CompactRendererConfig(BaseModel):
 
 
 class MemoryRetrievalConfig(BaseModel):
-    renderer: Union[FullRendererConfig, CascadeRendererConfig, CompactRendererConfig] = Field(
-        default_factory=FullRendererConfig,
-        discriminator="type",
-    )
     retriever: Union[HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig] = Field(
         default_factory=HybridRetrieverConfig,
         discriminator="type",

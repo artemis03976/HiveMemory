@@ -371,9 +371,6 @@ _WARNING_TEXT_ZH: dict[str, str] = {
         "Note: Filter 解析失败。结果范围可能比预期更宽。"
     ),
     "mtp.search.no_memories_found": "未找到相关记忆。请尝试不同的 query。",
-    "mtp.search.rendered_context_missing": (
-        "搜索已完成，但没有返回可渲染的上下文。"
-    ),
     "mtp.run.alias_redirected": (
         "[Alias Redirected]"
         "请求的别名: {requested_alias}"
@@ -408,9 +405,6 @@ _WARNING_TEXT_EN: dict[str, str] = {
         "Note: Filter parsing failed. Results may be broader than expected."
     ),
     "mtp.search.no_memories_found": "No memories found. Try a different query.",
-    "mtp.search.rendered_context_missing": (
-        "Search completed, but no rendered context was returned."
-    ),
     "mtp.run.alias_redirected": (
         "[Alias Redirected]"
         "Requested alias: {requested_alias}"

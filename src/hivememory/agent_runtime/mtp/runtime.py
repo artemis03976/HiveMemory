@@ -46,7 +46,12 @@ from hivememory.agent_runtime.cache import KoakumaAtomCache
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
-from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget, MemoryCompileOptions
+from hivememory.engines.memory_compiler import (
+    MemoryCompiler,
+    MemoryCompileTarget,
+    MemoryCompileOptions,
+    MemoryEnvelopeTarget,
+)
 from hivememory.core.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,
@@ -404,8 +409,7 @@ class KoakumaRuntime:
         """
         处理 SEARCH 指令 (Section 2.2)
 
-        调用 RetrievalFamiliar 进行模糊检索，返回 RetrievalResponse.rendered_context。
-        具体渲染由 Retrieval 链路统一完成，Koakuma 只负责执行与缓存别名。
+        调用 RetrievalFamiliar 进行模糊检索，再通过 MemoryCompiler 编译为 Agent 可读文本。
 
         Type A 数据类响应 (Section 3.3.3)
 
@@ -449,16 +453,11 @@ class KoakumaRuntime:
                 ],
             )
 
-        content = result.rendered_context
+        content = self._compiler.compile(
+            result.memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+        ).text
         response_warnings = list(filter_warnings)
-        if not content:
-            logger.warning(
-                "RetrievalResponse for MTP SEARCH contains memories but no rendered_context."
-            )
-            content = ""
-            response_warnings.append(
-                MTPWarningInfo(message_key="mtp.search.rendered_context_missing")
-            )
 
         # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
         self.atom_cache.ingest_atoms(result.memories)

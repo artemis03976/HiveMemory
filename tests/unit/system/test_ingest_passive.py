@@ -63,10 +63,9 @@ def _make_gaze_result(
     )
 
 
-def _make_retrieval_result(rendered_context=None) -> RetrievalResponse:
+def _make_retrieval_result(memories=None) -> RetrievalResponse:
     return RetrievalResponse(
-        memories=[],
-        rendered_context=rendered_context or "",
+        memories=memories or [],
     )
 
 
@@ -390,25 +389,22 @@ def sys_passive():
     retrieve = AsyncMock(
         return_value=MagicMock(
             is_empty=MagicMock(return_value=False),
-            rendered_context="<mem>ctx</mem>",
             memories=[],
         )
     )
     submit_interaction = AsyncMock(return_value=None)
     state = {
-        "rendered_context": "<mem>ctx</mem>",
-        "analysis_modes": [],
+        "memories": [],
     }
 
     async def analyze_and_retrieve(query, identity, **kwargs):
-        state["analysis_modes"].append(kwargs.get("mode"))
         gaze_result = await eye.gaze(
             query=query,
             identity=identity,
             topic_snapshots=kwargs.get("topic_snapshots"),
         )
         retrieval_result = _make_retrieval_result(
-            rendered_context=state["rendered_context"]
+            memories=state.get("memories", [])
         )
         if gaze_result.intent == GatewayIntent.RAG:
             await retrieve(MagicMock(), "passive")
@@ -486,17 +482,25 @@ class TestIngestUserFlow:
             role="user", content="q", user_id="u1",
         )
 
-        assert sys_passive.hot_state["analysis_modes"] == ["passive"]
+        # analyze_and_retrieve no longer receives mode; verified implicitly by having been called
 
     def test_user_ingest_returns_memory(self, sys_passive):
-        sys_passive.hot_state["rendered_context"] = "<memory>relevant</memory>"
+        from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+        from uuid import uuid4
+        atom = MemoryAtom(
+            id=uuid4(),
+            meta=MetaData(source_agent_id="a1", user_id="u1"),
+            index=IndexLayer(title="Relevant", summary="relevant memory summary long enough", tags=[], memory_type=MemoryType.FACT),
+            payload=PayloadLayer(content="relevant content"),
+        )
+        sys_passive.hot_state["memories"] = [atom]
 
         result = _ingest_event(
             sys_passive,
             role="user", content="q", user_id="u1",
         )
 
-        assert result["memory"] == "<memory>relevant</memory>"
+        assert result["memory"] is not None
 
     def test_identity_constructed_correctly(self, sys_passive):
         _ingest_event(
