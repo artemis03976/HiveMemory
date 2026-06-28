@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom, MemoryType
@@ -20,8 +19,7 @@ class MemoryManagementService:
         self._bus = bus
 
     async def create_memory(self, atom: MemoryAtom) -> MemoryAtom:
-        await self._bus.request(PatchouliLocalRoutes.MEMORY_CREATE, atom)
-        return atom
+        return await self._bus.request(PatchouliLocalRoutes.MEMORY_CREATE, atom)
 
     async def list_memories(
         self,
@@ -72,29 +70,16 @@ class MemoryManagementService:
         tags: list[str] | None = None,
         agent_config: dict | None = None,
     ) -> MemoryAtom | None:
-        atom = await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_GET,
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_UPDATE,
             normalize_uuid(memory_id),
+            title=title,
+            summary=summary,
+            content=content,
+            alias=alias,
+            tags=tags,
+            agent_config=agent_config,
         )
-        if atom is None:
-            return None
-
-        if title is not None:
-            atom.index.title = title
-        if summary is not None:
-            atom.index.summary = summary
-        if content is not None:
-            atom.payload.content = content
-        if alias is not None:
-            atom.index.alias = alias or None
-        if tags is not None:
-            atom.index.tags = tags
-        if agent_config is not None:
-            atom.payload.artifacts.agent_config = agent_config
-        atom.meta.updated_at = datetime.now(timezone.utc)
-
-        await self._bus.request(PatchouliLocalRoutes.MEMORY_UPDATE, atom)
-        return atom
 
     async def delete_memory(self, memory_id: UUID | str) -> bool:
         return await self._bus.request(

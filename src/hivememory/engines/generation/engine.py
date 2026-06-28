@@ -277,7 +277,7 @@ class MemoryGenerationEngine:
         """
         now = datetime.now()
 
-        before_snapshot = _snapshot(memory)
+        before_snapshot = MemoryVersionSnapshot.from_memory_atom(memory)
 
         if dedup_draft is not None:
             self._merge_dedup_index(memory, dedup_draft)
@@ -508,15 +508,3 @@ class MemoryGenerationEngine:
 __all__ = [
     "MemoryGenerationEngine",
 ]
-
-
-def _snapshot(memory: MemoryAtom) -> MemoryVersionSnapshot:
-    """从 MemoryAtom 提取可变字段快照，供 artifact 版本记录使用。"""
-    return MemoryVersionSnapshot(
-        content=memory.payload.content,
-        alias=memory.index.alias,
-        title=memory.index.title,
-        summary=memory.index.summary,
-        tags=list(memory.index.tags),
-        memory_type=memory.index.memory_type.value if memory.index.memory_type else None,
-    )

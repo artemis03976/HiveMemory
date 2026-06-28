@@ -599,3 +599,103 @@ class TestMemoryGenerationFamiliarArtifacts:
         )
 
         artifact_engine.memory.build_for_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_external_memory_builds_manual_creation_artifacts(self):
+        atom = _make_memory_atom()
+        memory_bundle = Mock()
+        memory_bundle.initial_version_ref = ArtifactRef(
+            artifact_id="version_1",
+            artifact_type=ArtifactType.MEMORY_VERSION,
+        )
+        memory_bundle.creation_ref = ArtifactRef(
+            artifact_id="creation_1",
+            artifact_type=ArtifactType.MEMORY_CREATION,
+        )
+
+        artifact_engine = Mock()
+        artifact_engine.memory = Mock()
+        artifact_engine.memory.build_for_create = AsyncMock(return_value=memory_bundle)
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+        familiar = self._make_familiar(
+            mid_term=mid_term,
+            artifact_engine=artifact_engine,
+        )
+
+        result = await familiar.create_external_memory(atom)
+
+        assert result is atom
+        artifact_engine.memory.build_for_create.assert_awaited_once()
+        call = artifact_engine.memory.build_for_create.await_args.kwargs
+        assert call["memory"] is atom
+        assert call["source_intent"] == "MANUAL"
+        assert call["source_artifact_refs"] == []
+        assert memory_bundle.initial_version_ref in atom.payload.artifacts.refs
+        assert memory_bundle.creation_ref in atom.payload.artifacts.refs
+        assert atom.payload.artifacts.provenance[-1].action == "created"
+        assert atom.payload.artifacts.provenance[-1].source_intent == "MANUAL"
+        mid_term.upsert.assert_awaited_once_with(atom)
+
+    @pytest.mark.asyncio
+    async def test_update_external_memory_builds_manual_version_artifact(self):
+        atom = _make_memory_atom()
+        original_version = atom.meta.version
+        version_ref = ArtifactRef(
+            artifact_id="version_2",
+            artifact_type=ArtifactType.MEMORY_VERSION,
+        )
+
+        artifact_engine = Mock()
+        artifact_engine.memory = Mock()
+        artifact_engine.memory.build_for_update = AsyncMock(return_value=version_ref)
+        mid_term = Mock()
+        mid_term.get = AsyncMock(return_value=atom)
+        mid_term.upsert = AsyncMock()
+        familiar = self._make_familiar(
+            mid_term=mid_term,
+            artifact_engine=artifact_engine,
+        )
+
+        result = await familiar.update_external_memory(
+            atom.id,
+            title="Updated",
+            summary="Updated summary",
+            content="Updated content",
+            alias="updated-alias",
+            tags=["updated"],
+            agent_config={"mode": "test"},
+        )
+
+        assert result is atom
+        assert atom.index.title == "Updated"
+        assert atom.index.summary == "Updated summary"
+        assert atom.payload.content == "Updated content"
+        assert atom.index.alias == "updated-alias"
+        assert atom.index.tags == ["updated"]
+        assert atom.payload.artifacts.agent_config == {"mode": "test"}
+        assert atom.meta.version == original_version + 1
+        artifact_engine.memory.build_for_update.assert_awaited_once()
+        call = artifact_engine.memory.build_for_update.await_args.kwargs
+        assert call["memory_after"] is atom
+        assert call["snapshot_before"].title == "test_memory"
+        assert call["snapshot_before"].content == "content"
+        assert call["update_source"] == "MANUAL_EDIT"
+        assert call["source_artifact_refs"] == []
+        assert "Manual edit:" in call["changelog"]
+        assert version_ref in atom.payload.artifacts.refs
+        assert atom.payload.artifacts.provenance[-1].action == "manual_edit"
+        assert atom.payload.artifacts.provenance[-1].source_intent == "MANUAL"
+        mid_term.upsert.assert_awaited_once_with(atom)
+
+    @pytest.mark.asyncio
+    async def test_update_external_memory_returns_none_when_missing(self):
+        mid_term = Mock()
+        mid_term.get = AsyncMock(return_value=None)
+        mid_term.upsert = AsyncMock()
+        familiar = self._make_familiar(mid_term=mid_term)
+
+        result = await familiar.update_external_memory(uuid4(), title="Updated")
+
+        assert result is None
+        mid_term.upsert.assert_not_called()

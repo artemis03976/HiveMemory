@@ -153,6 +153,19 @@ class MemoryVersionSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    @classmethod
+    def from_memory_atom(cls, memory: Any) -> "MemoryVersionSnapshot":
+        """Build the canonical mutable-field snapshot for a MemoryAtom."""
+        memory_type = memory.index.memory_type
+        return cls(
+            content=memory.payload.content,
+            alias=memory.index.alias,
+            title=memory.index.title,
+            summary=memory.index.summary,
+            tags=list(memory.index.tags),
+            memory_type=memory_type.value if hasattr(memory_type, "value") else memory_type,
+        )
+
 
 class MemoryCreationArtifact(BaseArtifact):
     """记忆创建 Artifact - genesis provenance，一旦写入不再更新。

@@ -45,7 +45,7 @@ class MemoryArtifactBuilder:
             version_number=1,
             update_source="CREATE",
             snapshot_before=None,
-            snapshot_after=_snapshot(memory),
+            snapshot_after=MemoryVersionSnapshot.from_memory_atom(memory),
             changed_at=datetime.now(),
             source_artifacts=source_artifact_refs,
             source_memory_refs=source_memory_refs or [],
@@ -81,21 +81,10 @@ class MemoryArtifactBuilder:
             version_number=memory_after.meta.version,
             update_source=update_source,
             snapshot_before=snapshot_before,
-            snapshot_after=_snapshot(memory_after),
+            snapshot_after=MemoryVersionSnapshot.from_memory_atom(memory_after),
             changelog=changelog,
             changed_at=datetime.now(),
             source_artifacts=source_artifact_refs or [],
             source_memory_refs=source_memory_refs or [],
         )
         return await self._store.put(version)
-
-
-def _snapshot(memory: MemoryAtom) -> MemoryVersionSnapshot:
-    return MemoryVersionSnapshot(
-        content=memory.payload.content,
-        alias=memory.index.alias,
-        title=memory.index.title,
-        summary=memory.index.summary,
-        tags=list(memory.index.tags),
-        memory_type=memory.index.memory_type.value if memory.index.memory_type else None,
-    )

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List
+from uuid import UUID
 
-from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
-from hivememory.core.models.artifact import ArtifactRef, MemoryProvenance
+from hivememory.core.models import MemoryAtom, PendingAtomResolution, PendingAtomSettlement
+from hivememory.core.models.artifact import (
+    ArtifactRef,
+    MemoryProvenance,
+    MemoryVersionSnapshot,
+)
 from hivememory.engines.generation.models import DuplicateDecision, GenerationContext
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
@@ -47,6 +53,101 @@ class MemoryGenerationFamiliar:
             spec.interaction_input,
         )
         return await self._run_generation(spec, interaction_ref=interaction_ref)
+
+    async def create_external_memory(self, atom: MemoryAtom) -> MemoryAtom:
+        """Persist a MemoryAtom created outside the generation pipeline."""
+        await self._build_memory_artifacts(
+            [
+                MemoryGenerationResult(
+                    atom=atom,
+                    duplicate_decision=DuplicateDecision.CREATE,
+                )
+            ],
+            GenerationContext(),
+            "MANUAL",
+            None,
+        )
+        await self._mid_term.upsert(atom)
+        return atom
+
+    async def update_external_memory(
+        self,
+        memory_id: UUID,
+        *,
+        title: str | None = None,
+        summary: str | None = None,
+        content: str | None = None,
+        alias: str | None = None,
+        tags: list[str] | None = None,
+        agent_config: dict | None = None,
+    ) -> MemoryAtom | None:
+        """Apply an external manual edit and persist its version artifact."""
+        atom = await self._mid_term.get(memory_id)
+        if atom is None:
+            return None
+
+        before_snapshot = MemoryVersionSnapshot.from_memory_atom(atom)
+        changed_fields = self._apply_external_update(
+            atom,
+            title=title,
+            summary=summary,
+            content=content,
+            alias=alias,
+            tags=tags,
+            agent_config=agent_config,
+        )
+        atom.meta.updated_at = datetime.now(timezone.utc)
+        atom.meta.version += 1
+
+        await self._build_memory_artifacts(
+            [
+                MemoryGenerationResult(
+                    atom=atom,
+                    duplicate_decision=DuplicateDecision.UPDATE,
+                    memory_before_snapshot=before_snapshot,
+                    changelog=_manual_changelog(changed_fields),
+                )
+            ],
+            GenerationContext(),
+            "MANUAL",
+            None,
+            update_source="MANUAL_EDIT",
+            update_action="manual_edit",
+        )
+        await self._mid_term.upsert(atom)
+        return atom
+
+    @staticmethod
+    def _apply_external_update(
+        atom: MemoryAtom,
+        *,
+        title: str | None,
+        summary: str | None,
+        content: str | None,
+        alias: str | None,
+        tags: list[str] | None,
+        agent_config: dict | None,
+    ) -> list[str]:
+        changed_fields: list[str] = []
+        if title is not None:
+            atom.index.title = title
+            changed_fields.append("title")
+        if summary is not None:
+            atom.index.summary = summary
+            changed_fields.append("summary")
+        if content is not None:
+            atom.payload.content = content
+            changed_fields.append("content")
+        if alias is not None:
+            atom.index.alias = alias or None
+            changed_fields.append("alias")
+        if tags is not None:
+            atom.index.tags = tags
+            changed_fields.append("tags")
+        if agent_config is not None:
+            atom.payload.artifacts.agent_config = agent_config
+            changed_fields.append("agent_config")
+        return changed_fields
 
     async def _run_generation(
         self,
@@ -187,6 +288,8 @@ class MemoryGenerationFamiliar:
         gen_context: GenerationContext,
         source_intent: str,
         interaction_ref: ArtifactRef | None,
+        update_source: str = "UPDATE",
+        update_action: str = "updated",
     ) -> None:
         """构建 artifact 并挂载 refs/provenance，不负责发布事件。"""
         if not self._artifact_engine:
@@ -232,7 +335,7 @@ class MemoryGenerationFamiliar:
                     version_ref = await builder.build_for_update(
                         memory_after=atom,
                         snapshot_before=result.memory_before_snapshot,
-                        update_source="UPDATE",
+                        update_source=update_source,
                         changelog=result.changelog,
                         source_artifact_refs=src_refs,
                     )
@@ -241,7 +344,7 @@ class MemoryGenerationFamiliar:
                     atom.payload.artifacts.refs.append(version_ref)
                     atom.payload.artifacts.provenance.append(
                         MemoryProvenance(
-                            action="updated",
+                            action=update_action,
                             source_intent=source_intent,
                             source_artifacts=src_refs,
                         )
@@ -255,3 +358,9 @@ class MemoryGenerationFamiliar:
 
 
 __all__ = ["MemoryGenerationFamiliar"]
+
+
+def _manual_changelog(changed_fields: list[str]) -> str:
+    if not changed_fields:
+        return "Manual edit: metadata refreshed"
+    return f"Manual edit: {', '.join(changed_fields)}"

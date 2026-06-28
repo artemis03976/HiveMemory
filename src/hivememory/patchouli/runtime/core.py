@@ -182,7 +182,7 @@ class PatchouliRuntime:
 
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_CREATE,
-            self.memory_library.mid_term.upsert,
+            self.memory_generation_familiar.create_external_memory,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_LIST,
@@ -202,7 +202,7 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_UPDATE,
-            self.memory_library.mid_term.upsert,
+            self.memory_generation_familiar.update_external_memory,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_DELETE,
