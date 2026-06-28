@@ -51,7 +51,6 @@ def _spec(
         label=label,
         source=source,
         request=GenerationRequest(context=GenerationContext()),
-        source_intent=source.value,
         pending_alias=pending_alias,
     )
 

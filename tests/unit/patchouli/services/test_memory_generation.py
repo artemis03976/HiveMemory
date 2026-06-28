@@ -4,8 +4,8 @@ MemoryGenerationFamiliar 单元测试
 测试覆盖:
 - execute: 完整生成流程（compute -> artifact -> persist）
 - _run_generation: 生成执行三步流水线
-- _build_interaction_artifact: 交互 artifact 构建
-- _build_memory_artifacts: CREATE/UPDATE artifact 挂载
+- _capture_interaction_artifact: 交互 artifact 构建
+- _attach_memory_artifacts: CREATE/UPDATE artifact 挂载
 """
 
 import pytest
@@ -89,7 +89,6 @@ def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_inter
             write_focus=WriteFocus(content="remember this"),
             identity=Identity(user_id="u1"),
         ),
-        source_intent="WRITE",
         interaction_input=InteractionArtifactInput(
             topic_id=topic_id,
             topic_title="Test Topic",
@@ -236,7 +235,6 @@ class TestMemoryGenerationFamiliarRunGeneration:
             label=spec.label,
             source=spec.source,
             request=request,
-            source_intent=spec.source_intent,
             interaction_input=None,
         )
 
@@ -271,7 +269,6 @@ class TestMemoryGenerationFamiliarRunGeneration:
             label=spec.label,
             source=spec.source,
             request=request,
-            source_intent=spec.source_intent,
             interaction_input=None,
         )
 
@@ -303,7 +300,6 @@ class TestMemoryGenerationFamiliarRunGeneration:
             label=spec.label,
             source=spec.source,
             request=request,
-            source_intent=spec.source_intent,
             interaction_input=None,
         )
 
@@ -334,7 +330,6 @@ class TestMemoryGenerationFamiliarRunGeneration:
             label=spec.label,
             source=spec.source,
             request=request,
-            source_intent=spec.source_intent,
             interaction_input=None,
         )
 
@@ -366,7 +361,6 @@ class TestMemoryGenerationFamiliarRunGeneration:
             label=spec.label,
             source=spec.source,
             request=request,
-            source_intent=spec.source_intent,
             interaction_input=None,
         )
 
@@ -441,7 +435,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         )
 
     @pytest.mark.asyncio
-    async def test_build_interaction_artifact_returns_ref(self):
+    async def test_capture_interaction_artifact_returns_ref(self):
         interaction_ref = ArtifactRef(artifact_id="ref_1", artifact_type=ArtifactType.INTERACTION)
         artifact_engine = Mock()
         artifact_engine.interaction = Mock()
@@ -456,12 +450,12 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._build_interaction_artifact(input_data)
+        result = await familiar._capture_interaction_artifact(input_data)
 
         assert result is interaction_ref
 
     @pytest.mark.asyncio
-    async def test_build_interaction_artifact_returns_none_when_no_engine(self):
+    async def test_capture_interaction_artifact_returns_none_when_no_engine(self):
         familiar = self._make_familiar(artifact_engine=None)
 
         input_data = InteractionArtifactInput(
@@ -471,12 +465,12 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._build_interaction_artifact(input_data)
+        result = await familiar._capture_interaction_artifact(input_data)
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_build_interaction_artifact_returns_none_when_no_blocks(self):
+    async def test_capture_interaction_artifact_returns_none_when_no_blocks(self):
         artifact_engine = Mock()
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
@@ -487,13 +481,13 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(),
         )
 
-        result = await familiar._build_interaction_artifact(input_data)
+        result = await familiar._capture_interaction_artifact(input_data)
 
         assert result is None
         artifact_engine.interaction.build_and_store.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_build_interaction_artifact_returns_none_on_build_failure(self):
+    async def test_capture_interaction_artifact_returns_none_on_build_failure(self):
         artifact_engine = Mock()
         artifact_engine.interaction = Mock()
         artifact_engine.interaction.build_and_store = AsyncMock(side_effect=RuntimeError("build failed"))
@@ -507,12 +501,12 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._build_interaction_artifact(input_data)
+        result = await familiar._capture_interaction_artifact(input_data)
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_build_memory_artifacts_for_create_attaches_refs(self):
+    async def test_attach_memory_artifacts_for_create_attaches_refs(self):
         atom = _make_memory_atom()
         gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
@@ -527,18 +521,19 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
-        await familiar._build_memory_artifacts(
+        await familiar._attach_memory_artifacts(
             [gen_result],
             GenerationContext(),
-            "WRITE",
             interaction_ref,
+            creation_intent="WRITE",
+            provenance_intent="WRITE",
         )
 
         # 检查 artifact refs 是否被添加
         assert len(atom.payload.artifacts.refs) >= 2  # version + creation
 
     @pytest.mark.asyncio
-    async def test_build_memory_artifacts_for_update_attaches_version_ref(self):
+    async def test_attach_memory_artifacts_for_update_attaches_version_ref(self):
         atom = _make_memory_atom()
         gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.UPDATE, atom=atom)
         gen_result.memory_before_snapshot = Mock()
@@ -553,17 +548,18 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
-        await familiar._build_memory_artifacts(
+        await familiar._attach_memory_artifacts(
             [gen_result],
             GenerationContext(),
-            "UPDATE",
             interaction_ref,
+            creation_intent="SYSTEM",
+            provenance_intent="UPDATE",
         )
 
         artifact_engine.memory.build_for_update.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_build_memory_artifacts_without_engine_appends_interaction_ref(self):
+    async def test_attach_memory_artifacts_without_engine_appends_interaction_ref(self):
         atom = _make_memory_atom()
         atom.payload.artifacts.refs = []
         atom.payload.artifacts.provenance = []
@@ -572,17 +568,18 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         familiar = self._make_familiar(artifact_engine=None)
 
-        await familiar._build_memory_artifacts(
+        await familiar._attach_memory_artifacts(
             [gen_result],
             GenerationContext(),
-            "WRITE",
             interaction_ref,
+            creation_intent="WRITE",
+            provenance_intent="WRITE",
         )
 
         assert interaction_ref in atom.payload.artifacts.refs
 
     @pytest.mark.asyncio
-    async def test_build_memory_artifacts_ignores_results_without_atoms(self):
+    async def test_attach_memory_artifacts_ignores_results_without_atoms(self):
         gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=None)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
@@ -591,11 +588,12 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
-        await familiar._build_memory_artifacts(
+        await familiar._attach_memory_artifacts(
             [gen_result],
             GenerationContext(),
-            "WRITE",
             interaction_ref,
+            creation_intent="WRITE",
+            provenance_intent="WRITE",
         )
 
         artifact_engine.memory.build_for_create.assert_not_called()

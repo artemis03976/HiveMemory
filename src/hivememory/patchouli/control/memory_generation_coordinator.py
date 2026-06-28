@@ -56,7 +56,6 @@ class MemoryGenerationCoordinator:
             label=payload.topic_id,
             source=MemoryGenerationSource.ARCHIVE,
             request=GenerationRequest(context=gen_context),
-            source_intent="SETTLEMENT",
             interaction_input=self._build_interaction_input(
                 topic_id=payload.topic_id,
                 topic_title=payload.topic_title,
@@ -159,7 +158,6 @@ class MemoryGenerationCoordinator:
                 write_focus=focus,
                 identity=task.identity,
             )
-            source_intent = "WRITE"
         elif source == MemoryGenerationSource.UPDATE:
             if not isinstance(focus, UpdateFocus):
                 raise SpecBuildError(f"UPDATE focus must be UpdateFocus, got {type(focus)}")
@@ -183,7 +181,6 @@ class MemoryGenerationCoordinator:
                 existing_memory=existing,
                 identity=task.identity,
             )
-            source_intent = "UPDATE"
         else:
             raise ValueError(f"Unsupported active generation source: {source}")
 
@@ -192,7 +189,6 @@ class MemoryGenerationCoordinator:
             label=task.pending_alias,
             source=source,
             request=request,
-            source_intent=source_intent,
             interaction_input=interaction_input,
             intent_id=task.intent_id,
             pending_alias=task.pending_alias,

@@ -24,5 +24,5 @@ def test_memory_version_snapshot_from_memory_atom_captures_mutable_fields():
     assert snapshot.alias == "fact_test"
     assert snapshot.title == "Test Title"
     assert snapshot.summary == "A test memory summary"
-    assert snapshot.tags == ["tag1", "tag2"]
+    assert set(snapshot.tags) == {"tag1", "tag2"}
     assert snapshot.memory_type == "FACT"

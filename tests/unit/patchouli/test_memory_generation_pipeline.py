@@ -155,7 +155,8 @@ async def test_passive_settlement_routes_archive_spec_through_task_controller():
     assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
     spec = execute_spec.await_args.args[0]
     assert spec.source == MemoryGenerationSource.ARCHIVE
-    assert spec.source_intent == "SETTLEMENT"
+    assert spec.source.creation_artifact_intent == "ARCHIVE"
+    assert spec.source.provenance_intent == "ARCHIVE"
     assert spec.interaction_input.topic_id == "topic_1"
     assert spec.request.context.state_summary == "state summary"
 
