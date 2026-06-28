@@ -14,7 +14,13 @@ import pytest
 from datetime import datetime
 from pathlib import Path
 
-from hivememory.core.models.artifact import ArtifactType, ArtifactRef, InteractionArtifact, MemoryProvenance
+from hivememory.core.models.artifact import (
+    ArtifactType,
+    ArtifactRef,
+    InteractionArtifact,
+    MemoryEventLog,
+    MemoryEventType,
+)
 from hivememory.core.models.memory import Artifacts
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
@@ -115,13 +121,13 @@ def test_old_artifacts_payload_ignores_removed_legacy_fields():
     assert not hasattr(artifacts, "context_ref")
     assert not hasattr(artifacts, "full_history")
     assert artifacts.refs == []
-    assert artifacts.provenance == []
+    assert artifacts.events == []
     assert artifacts.cold_archive_uri is None
     assert artifacts.cold_archive_hash is None
     assert artifacts.revival_keys == []
 
 
-def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
+def test_artifacts_payload_deserializes_refs_and_events_as_models():
     payload = {
         "refs": [
             {
@@ -131,11 +137,10 @@ def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
                 "sha256": "abc",
             }
         ],
-        "provenance": [
+        "events": [
             {
-                "action": "updated",
-                "source_intent": "UPDATE",
-                "source_artifacts": [
+                "event_type": "versioned",
+                "artifact_refs": [
                     {
                         "artifact_id": "interaction-1",
                         "artifact_type": "interaction",
@@ -148,9 +153,9 @@ def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
     artifacts = Artifacts.model_validate(payload)
 
     assert isinstance(artifacts.refs[0], ArtifactRef)
-    assert isinstance(artifacts.provenance[0], MemoryProvenance)
-    assert artifacts.provenance[0].source_intent == "UPDATE"
-    assert isinstance(artifacts.provenance[0].source_artifacts[0], ArtifactRef)
+    assert isinstance(artifacts.events[0], MemoryEventLog)
+    assert artifacts.events[0].event_type == MemoryEventType.VERSIONED
+    assert isinstance(artifacts.events[0].artifact_refs[0], ArtifactRef)
 
 
 

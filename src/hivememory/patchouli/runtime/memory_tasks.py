@@ -53,18 +53,6 @@ class MemoryGenerationSource(str, Enum):
         return "SYSTEM"
 
     @property
-    def provenance_intent(
-        self,
-    ) -> Literal["ARCHIVE", "WRITE", "UPDATE", "IMPORT", "MANUAL", "SYSTEM"]:
-        if self == MemoryGenerationSource.ARCHIVE:
-            return "ARCHIVE"
-        if self == MemoryGenerationSource.WRITE:
-            return "WRITE"
-        if self == MemoryGenerationSource.UPDATE:
-            return "UPDATE"
-        return "SYSTEM"
-
-    @property
     def version_update_source(
         self,
     ) -> Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"]:

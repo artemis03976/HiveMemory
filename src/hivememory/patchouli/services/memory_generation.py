@@ -10,7 +10,8 @@ from uuid import UUID
 from hivememory.core.models import MemoryAtom, PendingAtomResolution, PendingAtomSettlement
 from hivememory.core.models.artifact import (
     ArtifactRef,
-    MemoryProvenance,
+    MemoryEventLog,
+    MemoryEventType,
     MemoryVersionSnapshot,
 )
 from hivememory.engines.generation.models import DuplicateDecision, GenerationContext
@@ -69,8 +70,7 @@ class MemoryGenerationFamiliar:
             ],
             GenerationContext(),
             None,
-            creation_intent="MANUAL",
-            provenance_intent="MANUAL",
+            creation_source="MANUAL",
         )
         await self._mid_term.upsert(atom)
         return atom
@@ -117,10 +117,8 @@ class MemoryGenerationFamiliar:
             ],
             GenerationContext(),
             None,
-            creation_intent="MANUAL",
-            provenance_intent="MANUAL",
+            creation_source="MANUAL",
             update_source="MANUAL_EDIT",
-            update_action="manual_edit",
         )
         await self._mid_term.upsert(atom)
         return atom
@@ -184,8 +182,7 @@ class MemoryGenerationFamiliar:
             results,
             spec.request.context,
             interaction_ref,
-            creation_intent=spec.source.creation_artifact_intent,
-            provenance_intent=spec.source.provenance_intent,
+            creation_source=spec.source.creation_artifact_intent,
             update_source=spec.source.version_update_source,
         )
 
@@ -299,20 +296,11 @@ class MemoryGenerationFamiliar:
         gen_context: GenerationContext,
         interaction_ref: ArtifactRef | None,
         *,
-        creation_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
-        provenance_intent: Literal[
-            "ARCHIVE",
-            "WRITE",
-            "UPDATE",
-            "IMPORT",
-            "MANUAL",
-            "SYSTEM",
-        ],
+        creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "UPDATE",
-        update_action: Literal["updated", "merged", "manual_edit"] = "updated",
     ) -> None:
         """
-        构建 artifact 并挂载 refs/provenance，不负责发布事件。
+        构建 artifact 并挂载 refs/events，不负责发布事件。
         """
         if not self._artifact_engine:
             if interaction_ref:
@@ -322,7 +310,7 @@ class MemoryGenerationFamiliar:
                         and result.duplicate_decision
                         in (DuplicateDecision.CREATE, DuplicateDecision.UPDATE)
                     ):
-                        result.atom.payload.artifacts.refs.append(interaction_ref)
+                        self._append_artifact_ref_once(result.atom, interaction_ref)
             return
 
         src_refs = [interaction_ref] if interaction_ref else []
@@ -337,19 +325,17 @@ class MemoryGenerationFamiliar:
                         atom=atom,
                         gen_context=gen_context,
                         source_artifact_refs=src_refs,
-                        interaction_ref=interaction_ref,
-                        creation_intent=creation_intent,
+                        creation_source=creation_source,
                     )
+                    self._append_artifact_ref_once(atom, interaction_ref)
 
                 elif result.duplicate_decision == DuplicateDecision.UPDATE:
                     await self._attach_update_artifact(
                         result=result,
                         source_artifact_refs=src_refs,
-                        interaction_ref=interaction_ref,
-                        provenance_intent=provenance_intent,
                         update_source=update_source,
-                        update_action=update_action,
                     )
+                    self._append_artifact_ref_once(atom, interaction_ref)
 
             except Exception:
                 logger.warning(
@@ -363,25 +349,24 @@ class MemoryGenerationFamiliar:
         atom: MemoryAtom,
         gen_context: GenerationContext,
         source_artifact_refs: list[ArtifactRef],
-        interaction_ref: ArtifactRef | None,
-        creation_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
+        creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
     ) -> None:
         bundle = await self._artifact_engine.memory.build_for_create(
             memory=atom,
             context=gen_context,
-            source_intent=creation_intent,
+            source_intent=creation_source,
             source_artifact_refs=source_artifact_refs,
         )
+
+        # 挂载 refs/events
         atom.payload.artifacts.refs.extend(
             [bundle.initial_version_ref, bundle.creation_ref]
         )
-        if interaction_ref:
-            atom.payload.artifacts.refs.append(interaction_ref)
-        atom.payload.artifacts.provenance.append(
-            MemoryProvenance(
-                action="created",
-                source_intent=creation_intent,
-                source_artifacts=source_artifact_refs,
+
+        atom.payload.artifacts.events.append(
+            MemoryEventLog(
+                event_type=MemoryEventType.CREATED,
+                artifact_refs=[bundle.initial_version_ref, bundle.creation_ref],
             )
         )
 
@@ -390,17 +375,7 @@ class MemoryGenerationFamiliar:
         *,
         result: MemoryGenerationResult,
         source_artifact_refs: list[ArtifactRef],
-        interaction_ref: ArtifactRef | None,
-        provenance_intent: Literal[
-            "ARCHIVE",
-            "WRITE",
-            "UPDATE",
-            "IMPORT",
-            "MANUAL",
-            "SYSTEM",
-        ],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
-        update_action: Literal["updated", "merged", "manual_edit"],
     ) -> None:
         atom = result.atom
         if atom is None:
@@ -412,16 +387,30 @@ class MemoryGenerationFamiliar:
             changelog=result.changelog,
             source_artifact_refs=source_artifact_refs,
         )
-        if interaction_ref:
-            atom.payload.artifacts.refs.append(interaction_ref)
+
+        # 挂载 refs/events
         atom.payload.artifacts.refs.append(version_ref)
-        atom.payload.artifacts.provenance.append(
-            MemoryProvenance(
-                action=update_action,
-                source_intent=provenance_intent,
-                source_artifacts=source_artifact_refs,
+
+        atom.payload.artifacts.events.append(
+            MemoryEventLog(
+                event_type=MemoryEventType.VERSIONED,
+                artifact_refs=[version_ref],
+                note=result.changelog,
             )
         )
+
+    @staticmethod
+    def _append_artifact_ref_once(atom: MemoryAtom, ref: ArtifactRef | None) -> None:
+        if ref is None:
+            return
+        refs = atom.payload.artifacts.refs
+        exists = any(
+            existing.artifact_id == ref.artifact_id
+            and existing.artifact_type == ref.artifact_type
+            for existing in refs
+        )
+        if not exists:
+            refs.append(ref)
 
 
 __all__ = ["MemoryGenerationFamiliar"]

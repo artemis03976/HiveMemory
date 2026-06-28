@@ -20,7 +20,7 @@ from hivememory.core.models import (
     MetaData,
     PayloadLayer,
 )
-from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryProvenance
+from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryEventType
 from hivememory.core.models.pending import WriteFocus
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -525,12 +525,12 @@ class TestMemoryGenerationFamiliarArtifacts:
             [gen_result],
             GenerationContext(),
             interaction_ref,
-            creation_intent="WRITE",
-            provenance_intent="WRITE",
+            creation_source="WRITE",
         )
 
         # 检查 artifact refs 是否被添加
         assert len(atom.payload.artifacts.refs) >= 2  # version + creation
+        assert atom.payload.artifacts.refs.count(interaction_ref) == 1
 
     @pytest.mark.asyncio
     async def test_attach_memory_artifacts_for_update_attaches_version_ref(self):
@@ -539,12 +539,11 @@ class TestMemoryGenerationFamiliarArtifacts:
         gen_result.memory_before_snapshot = Mock()
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
-        version_bundle = Mock()
-        version_bundle.artifact_ref = ArtifactRef(artifact_id="version_2", artifact_type=ArtifactType.MEMORY_VERSION)
+        version_ref = ArtifactRef(artifact_id="version_2", artifact_type=ArtifactType.MEMORY_VERSION)
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
-        artifact_engine.memory.build_for_update = AsyncMock(return_value=version_bundle)
+        artifact_engine.memory.build_for_update = AsyncMock(return_value=version_ref)
 
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
@@ -552,17 +551,17 @@ class TestMemoryGenerationFamiliarArtifacts:
             [gen_result],
             GenerationContext(),
             interaction_ref,
-            creation_intent="SYSTEM",
-            provenance_intent="UPDATE",
+            creation_source="SYSTEM",
         )
 
         artifact_engine.memory.build_for_update.assert_awaited_once()
+        assert atom.payload.artifacts.refs.count(interaction_ref) == 1
 
     @pytest.mark.asyncio
     async def test_attach_memory_artifacts_without_engine_appends_interaction_ref(self):
         atom = _make_memory_atom()
         atom.payload.artifacts.refs = []
-        atom.payload.artifacts.provenance = []
+        atom.payload.artifacts.events = []
         gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
@@ -572,8 +571,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             [gen_result],
             GenerationContext(),
             interaction_ref,
-            creation_intent="WRITE",
-            provenance_intent="WRITE",
+            creation_source="WRITE",
         )
 
         assert interaction_ref in atom.payload.artifacts.refs
@@ -592,8 +590,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             [gen_result],
             GenerationContext(),
             interaction_ref,
-            creation_intent="WRITE",
-            provenance_intent="WRITE",
+            creation_source="WRITE",
         )
 
         artifact_engine.memory.build_for_create.assert_not_called()
@@ -631,8 +628,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert call["source_artifact_refs"] == []
         assert memory_bundle.initial_version_ref in atom.payload.artifacts.refs
         assert memory_bundle.creation_ref in atom.payload.artifacts.refs
-        assert atom.payload.artifacts.provenance[-1].action == "created"
-        assert atom.payload.artifacts.provenance[-1].source_intent == "MANUAL"
+        assert atom.payload.artifacts.events[-1].event_type == MemoryEventType.CREATED
         mid_term.upsert.assert_awaited_once_with(atom)
 
     @pytest.mark.asyncio
@@ -682,8 +678,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert call["source_artifact_refs"] == []
         assert "Manual edit:" in call["changelog"]
         assert version_ref in atom.payload.artifacts.refs
-        assert atom.payload.artifacts.provenance[-1].action == "manual_edit"
-        assert atom.payload.artifacts.provenance[-1].source_intent == "MANUAL"
+        assert atom.payload.artifacts.events[-1].event_type == MemoryEventType.VERSIONED
         mid_term.upsert.assert_awaited_once_with(atom)
 
     @pytest.mark.asyncio

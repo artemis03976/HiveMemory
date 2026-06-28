@@ -9,11 +9,8 @@ from hivememory.patchouli.runtime.memory_tasks import (
 
 def test_memory_generation_source_derives_artifact_semantics():
     assert MemoryGenerationSource.ARCHIVE.creation_artifact_intent == "ARCHIVE"
-    assert MemoryGenerationSource.ARCHIVE.provenance_intent == "ARCHIVE"
     assert MemoryGenerationSource.WRITE.creation_artifact_intent == "WRITE"
-    assert MemoryGenerationSource.WRITE.provenance_intent == "WRITE"
     assert MemoryGenerationSource.UPDATE.creation_artifact_intent == "SYSTEM"
-    assert MemoryGenerationSource.UPDATE.provenance_intent == "UPDATE"
     assert MemoryGenerationSource.MERGE.version_update_source == "MERGE"
     assert MemoryGenerationSource.SPLIT.version_update_source == "SYSTEM_REWRITE"
 

@@ -16,6 +16,7 @@ from hivememory.core.models import (
     Identity,
     IndexLayer,
     MemoryAtom,
+    MemoryEventType,
     MemoryType,
     MetaData,
     PayloadLayer,
@@ -433,6 +434,7 @@ class TestMemoryLibraryArchiveRevive:
         self.mock_mid_term.get.assert_awaited_once_with(memory.id)
         self.mock_long_term.persist.assert_awaited_once_with(memory)
         self.mock_mid_term.delete.assert_awaited_once_with(memory.id)
+        assert memory.payload.artifacts.events[-1].event_type == MemoryEventType.ARCHIVED
 
     @pytest.mark.asyncio
     async def test_archive_raises_when_memory_not_found(self):
@@ -453,6 +455,7 @@ class TestMemoryLibraryArchiveRevive:
         self.mock_long_term.load.assert_awaited_once_with(memory.id)
         self.mock_mid_term.upsert.assert_awaited_once_with(memory)
         self.mock_long_term.remove.assert_awaited_once_with(memory.id)
+        assert memory.payload.artifacts.events[-1].event_type == MemoryEventType.REVIVED
 
 
 class TestMemoryLibraryStorageHealth:
