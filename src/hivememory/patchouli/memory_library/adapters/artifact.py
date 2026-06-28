@@ -25,8 +25,14 @@ logger = logging.getLogger(__name__)
 class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
     """文件系统 Artifact 仓库。布局：{root}/{type}/{YYYY}/{MM}/{DD}/{id}.json"""
 
-    def __init__(self, root_dir: str = ".hivememory/artifacts") -> None:
+    def __init__(
+        self,
+        root_dir: str = ".hivememory/artifacts",
+        *,
+        max_inline_summary_chars: int = 500,
+    ) -> None:
         self._root = Path(root_dir)
+        self._max_inline_summary_chars = max(0, max_inline_summary_chars)
 
     def _artifact_path(self, artifact: BaseArtifact) -> Path:
         ts = artifact.created_at
@@ -61,7 +67,11 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
                 uri=str(path),
                 sha256=sha,
                 created_at=artifact.created_at,
-                summary=artifact.summary[:500] if artifact.summary else "",
+                summary=(
+                    artifact.summary[:self._max_inline_summary_chars]
+                    if artifact.summary
+                    else ""
+                ),
             )
         return await asyncio.to_thread(_write)
 

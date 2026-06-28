@@ -14,6 +14,7 @@ from hivememory.core.models.artifact import (
     MemoryEventType,
     MemoryVersionSnapshot,
 )
+from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import DuplicateDecision, GenerationContext
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
@@ -311,56 +312,66 @@ class MemoryGenerationFamiliar:
             atom = result.atom
             if atom is None:
                 continue
-            try:
-                if result.duplicate_decision == DuplicateDecision.CREATE:
-                    await self._attach_creation_artifacts(
-                        atom=atom,
-                        gen_context=gen_context,
-                        source_artifact_refs=src_refs,
-                        creation_source=creation_source,
-                    )
-                    self._append_artifact_ref_once(atom, interaction_ref)
-
-                elif result.duplicate_decision == DuplicateDecision.UPDATE:
-                    await self._attach_update_artifact(
-                        result=result,
-                        source_artifact_refs=src_refs,
-                        update_source=update_source,
-                    )
-                    self._append_artifact_ref_once(atom, interaction_ref)
-
-            except Exception:
-                logger.warning(
-                    f"Failed to build memory artifacts for {getattr(atom, 'id', '?')}",
-                    exc_info=True,
+            if result.duplicate_decision == DuplicateDecision.CREATE:
+                bundle = await self._build_creation_artifacts(
+                    atom=atom,
+                    gen_context=gen_context,
+                    source_artifact_refs=src_refs,
+                    creation_source=creation_source,
                 )
 
-    async def _attach_creation_artifacts(
+                atom.payload.artifacts.events.append(
+                    MemoryEventLog(
+                        event_type=MemoryEventType.CREATED,
+                        artifact_refs=bundle.refs,
+                    )
+                )
+
+            elif result.duplicate_decision == DuplicateDecision.UPDATE:
+                version_ref = await self._build_update_artifact(
+                    result=result,
+                    source_artifact_refs=src_refs,
+                    update_source=update_source,
+                )
+
+                atom.payload.artifacts.events.append(
+                    MemoryEventLog(
+                        event_type=MemoryEventType.VERSIONED,
+                        artifact_refs=[version_ref] if version_ref else [],
+                        note=result.changelog,
+                    )
+                )
+
+            self._append_artifact_ref_once(atom, interaction_ref)
+
+    async def _build_creation_artifacts(
         self,
         *,
         atom: MemoryAtom,
         gen_context: GenerationContext,
         source_artifact_refs: list[ArtifactRef],
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
-    ) -> None:
-        bundle = await self._artifact_engine.memory.build_for_create(
-            memory=atom,
-            context=gen_context,
-            source_intent=creation_source,
-            source_artifact_refs=source_artifact_refs,
-        )
-
-        # 挂载 refs/events
-        atom.payload.artifacts.refs.extend(bundle.refs)
-
-        atom.payload.artifacts.events.append(
-            MemoryEventLog(
-                event_type=MemoryEventType.CREATED,
-                artifact_refs=bundle.refs,
+    ) -> MemoryCreationBundle:
+        try:
+            bundle = await self._artifact_engine.memory.build_for_create(
+                memory=atom,
+                context=gen_context,
+                source_intent=creation_source,
+                source_artifact_refs=source_artifact_refs,
             )
-        )
+        except Exception:
+            logger.warning(
+                f"Failed to build creation artifacts for {getattr(atom, 'id', '?')}",
+                exc_info=True,
+            )
+            return MemoryCreationBundle()
 
-    async def _attach_update_artifact(
+        for ref in bundle.refs:
+            self._append_artifact_ref_once(atom, ref)
+    
+        return bundle
+        
+    async def _build_update_artifact(
         self,
         *,
         result: MemoryGenerationResult,
@@ -368,26 +379,24 @@ class MemoryGenerationFamiliar:
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
     ) -> None:
         atom = result.atom
-        if atom is None:
-            return
-        version_ref = await self._artifact_engine.memory.build_for_update(
-            memory_after=atom,
-            snapshot_before=result.memory_before_snapshot,
-            update_source=update_source,
-            changelog=result.changelog,
-            source_artifact_refs=source_artifact_refs,
-        )
+        try:
+            version_ref = await self._artifact_engine.memory.build_for_update(
+                memory_after=atom,
+                snapshot_before=result.memory_before_snapshot,
+                update_source=update_source,
+                changelog=result.changelog,
+                source_artifact_refs=source_artifact_refs,
+            )
+        except Exception:
+            logger.warning(
+                f"Failed to build version artifact for {getattr(atom, 'id', '?')}",
+                exc_info=True,
+            )
+            return None
 
-        # 挂载 refs/events
         self._append_artifact_ref_once(atom, version_ref)
 
-        atom.payload.artifacts.events.append(
-            MemoryEventLog(
-                event_type=MemoryEventType.VERSIONED,
-                artifact_refs=[version_ref] if version_ref else [],
-                note=result.changelog,
-            )
-        )
+        return version_ref
 
     @staticmethod
     def _append_artifact_ref_once(atom: MemoryAtom, ref: ArtifactRef | None) -> None:

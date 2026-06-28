@@ -581,6 +581,58 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert atom.payload.artifacts.events[-1].artifact_refs == []
 
     @pytest.mark.asyncio
+    async def test_attach_memory_artifacts_create_keeps_event_when_build_fails(self):
+        atom = _make_memory_atom()
+        atom.payload.artifacts.refs = []
+        atom.payload.artifacts.events = []
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
+        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+
+        artifact_engine = Mock()
+        artifact_engine.memory = Mock()
+        artifact_engine.memory.build_for_create = AsyncMock(side_effect=RuntimeError("build failed"))
+
+        familiar = self._make_familiar(artifact_engine=artifact_engine)
+
+        await familiar._attach_memory_artifacts(
+            [gen_result],
+            GenerationContext(),
+            interaction_ref,
+            creation_source="WRITE",
+        )
+
+        assert atom.payload.artifacts.refs == [interaction_ref]
+        assert atom.payload.artifacts.events[-1].event_type == MemoryEventType.CREATED
+        assert atom.payload.artifacts.events[-1].artifact_refs == []
+
+    @pytest.mark.asyncio
+    async def test_attach_memory_artifacts_update_keeps_event_when_build_fails(self):
+        atom = _make_memory_atom()
+        atom.payload.artifacts.refs = []
+        atom.payload.artifacts.events = []
+        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.UPDATE, atom=atom)
+        gen_result.changelog = "changed"
+        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+
+        artifact_engine = Mock()
+        artifact_engine.memory = Mock()
+        artifact_engine.memory.build_for_update = AsyncMock(side_effect=RuntimeError("build failed"))
+
+        familiar = self._make_familiar(artifact_engine=artifact_engine)
+
+        await familiar._attach_memory_artifacts(
+            [gen_result],
+            GenerationContext(),
+            interaction_ref,
+            creation_source="SYSTEM",
+        )
+
+        assert atom.payload.artifacts.refs == [interaction_ref]
+        assert atom.payload.artifacts.events[-1].event_type == MemoryEventType.VERSIONED
+        assert atom.payload.artifacts.events[-1].artifact_refs == []
+        assert atom.payload.artifacts.events[-1].note == "changed"
+
+    @pytest.mark.asyncio
     async def test_attach_memory_artifacts_ignores_results_without_atoms(self):
         gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=None)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)

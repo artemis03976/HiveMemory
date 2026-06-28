@@ -455,7 +455,12 @@ class PatchouliRuntime:
         if artifact_config.enabled:
             from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
             from hivememory.patchouli.memory_library.stores import ArtifactStore
-            artifact_store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=artifact_config.root_dir))
+            artifact_store = ArtifactStore(
+                FilesystemArtifactStorageAdapter(
+                    root_dir=artifact_config.root_dir,
+                    max_inline_summary_chars=artifact_config.max_inline_summary_chars,
+                )
+            )
 
         return MemoryLibrary(
             short_term=short_term,

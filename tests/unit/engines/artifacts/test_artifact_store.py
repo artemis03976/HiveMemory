@@ -63,6 +63,22 @@ async def test_put_and_get_roundtrip(store):
 
 
 @pytest.mark.asyncio
+async def test_put_uses_configured_inline_summary_limit(tmp_path):
+    store = ArtifactStore(
+        FilesystemArtifactStorageAdapter(
+            root_dir=str(tmp_path),
+            max_inline_summary_chars=3,
+        )
+    )
+    artifact = _make_artifact()
+    artifact.summary = "abcdef"
+
+    ref = await store.put(artifact)
+
+    assert ref.summary == "abc"
+
+
+@pytest.mark.asyncio
 async def test_sha256_matches_content(store):
     artifact = _make_artifact()
     ref = await store.put(artifact)
