@@ -149,39 +149,10 @@ class TestMemoryDeduplicator:
         assert decision == DuplicateDecision.CREATE
         assert memory == self.existing_memory
 
-    def test_merge_memory(self):
-        """测试记忆合并"""
-        new_draft = ExtractedMemoryDraft(
-            title="New Title",  # 应该被忽略
-            summary="Better summary",
-            tags=["new_tag"],
-            memory_type="CODE_SNIPPET",
-            content="New content",
-            confidence_score=0.9,
-            has_value=True
-        )
-        
-        merged = self.deduplicator.merge_memory(self.existing_memory, new_draft)
-        
-        # 验证合并逻辑
-        assert merged.id == self.existing_memory.id
-        assert merged.index.title == self.existing_memory.index.title  # 保留旧标题
-        assert merged.index.summary == "Better summary"  # 新摘要更长
-        assert "new_tag" in merged.index.tags
-        assert "python" in merged.index.tags
-        
-        # 验证内容合并
-        assert "def quicksort(): pass" in merged.payload.content
-        assert "New content" in merged.payload.content
-        assert "## 更新" in merged.payload.content
-        
-        # 验证置信度加权平均 (0.8 * 0.6 + 0.9 * 0.4 = 0.48 + 0.36 = 0.84)
-        assert abs(merged.meta.confidence_score - 0.84) < 0.01
-
-    def test_merge_content_identical(self):
-        """测试合并相似内容（不重复追加）"""
-        content = self.deduplicator._merge_content("abc", "abc")
-        assert content == "abc"  # 直接返回新内容（相同）
+    def test_deduplicator_does_not_apply_memory_merge(self):
+        """Deduplicator 只负责决策，不再构造或修改 MemoryAtom。"""
+        assert not hasattr(self.deduplicator, "merge_memory")
+        assert not hasattr(self.deduplicator, "_merge_content")
 
 
 if __name__ == "__main__":

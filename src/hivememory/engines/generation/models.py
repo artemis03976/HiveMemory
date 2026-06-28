@@ -3,7 +3,7 @@ HiveMemory Generation 模块数据模型
 
 仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``MergeResult`` /
 ``GenerationRequest`` / ``GenerationContext`` / ``GenerationTurn`` /
-``MemoryGenerationResult``）。
+``GenerationOutcome``）。
 
 跨 alice/engines/compiler 共享的领域模型（``PendingAtom`` /
 ``PendingAtomSettlement`` / ``PendingAtomResolution`` / ``PendingAtomStatus`` /
@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from hivememory.core.models import (
     Identity,
-    PendingAtomSettlement,
     UpdateFocus,
     WriteFocus,
 )
@@ -127,8 +126,6 @@ class GenerationRequest(BaseModel):
     existing_memory: Optional[Any] = None
     # None = 未显式注入，由 validator 从 context 回退；Mode B/C 由 LibrarianCore 注入
     identity: Optional[Identity] = None
-    intent_id: Optional[str] = None
-    pending_alias: Optional[str] = None
 
     @model_validator(mode="after")
     def _resolve_identity(self) -> "GenerationRequest":
@@ -158,34 +155,14 @@ class GenerationRequest(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
-# ============ Phase 2: Settlement 数据模型 ============
-# PendingAtomSettlement 已上移到 core/models/pending.py；本模块仍引入它供
-# MemoryGenerationResult 字段类型使用，不再向外 re-export。
-
-
-class MemoryGenerationResult(BaseModel):
-    """
-    单次记忆生成操作的结构化结果。
-
-    替代原有 List[MemoryAtom] 返回值，携带 intent 追踪和 settlement 信息。
-    被动生成（Mode A）中 intent_id/pending_alias/settlement 均为 None。
-
-    Note:
-        终结分类不再独立携带；调用方应改读 ``settlement.resolution``。
-    """
-    intent_id: Optional[str] = None
-    pending_alias: Optional[str] = None
+class GenerationOutcome(BaseModel):
+    """Pure compute result produced by the generation engine."""
 
     atom: Optional[Any] = None
-    canonical_alias: Optional[str] = None
-    canonical_uuid: Optional[str] = None
-
-    duplicate_decision: Optional[DuplicateDecision] = None
-    memory_before_snapshot: Optional[Any] = None  # MemoryVersionSnapshot，UPDATE 时保存变更前快照
-
-    settlement: Optional[PendingAtomSettlement] = None
+    duplicate_decision: DuplicateDecision
+    memory_before_snapshot: Optional[Any] = None
+    changelog: Optional[str] = None
     message: Optional[str] = None
-    error: Optional[str] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -197,5 +174,5 @@ __all__ = [
     "GenerationRequest",
     "GenerationTurn",
     "GenerationContext",
-    "MemoryGenerationResult",
+    "GenerationOutcome",
 ]

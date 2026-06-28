@@ -94,6 +94,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
+    MergeResult,
 )
 
 # 配置
@@ -680,24 +681,25 @@ class TestDeduplicationLogic:
 
 class TestMemoryMerger:
     """
-    Group 3: 记忆合并测试
+    Group 3: dedup UPDATE 测试
 
-    验证 MemoryDeduplicator 的合并策略。
+    验证 GenerationEngine 在 dedup UPDATE 下覆盖当前 head，
+    历史版本由 MemoryVersionArtifact 链路负责。
     """
 
     @pytest.fixture(autouse=True)
     def setup(self):
         """每个测试前初始化"""
-        self.deduplicator = get_shared_deduplicator()
+        self.engine = get_shared_engine()
         self.identity = create_test_identity("merger")
 
-    def test_content_append_merge(self):
+    def test_dedup_update_replaces_content_head(self):
         """
-        GEN-MRG-001: 内容追加合并
+        GEN-MRG-001: dedup UPDATE 覆盖当前内容
 
         验证点：
-        - 合并后 Content 包含旧内容和新内容
-        - 带时间戳标记
+        - payload.content 等于新草稿内容
+        - 旧内容不会拼接污染当前 head
         """
         test_case = MERGE_TEST_CASES[0]  # GEN-MRG-001
         assert test_case["id"] == "GEN-MRG-001"
@@ -725,33 +727,29 @@ class TestMemoryMerger:
         # 创建新草稿
         new_draft = create_draft_from_data(test_case["new_draft"])
 
-        # 执行合并
-        merged = self.deduplicator.merge_memory(existing_memory, new_draft)
+        old_content = existing_memory.payload.content
+        result = self.engine._apply_update(
+            existing_memory,
+            MergeResult(
+                new_content=new_draft.content,
+                changelog=f"Dedup update: {new_draft.summary[:120]}",
+            ),
+            dedup_draft=new_draft,
+        )
+        merged = result[0].atom
 
-        # 验证结果
-        success = True
-        error_msg = None
+        success = merged.payload.content == new_draft.content and old_content not in merged.payload.content
+        print_test_result(console, "GEN-MRG-001: dedup UPDATE 覆盖当前内容", success)
+        console.print(f"    [dim]更新后内容长度: {len(merged.payload.content)} 字符[/dim]")
 
-        # 检查内容是否包含预期关键词
-        expected_keywords = test_case.get("expected_content_contains", [])
-        for keyword in expected_keywords:
-            if keyword not in merged.payload.content:
-                success = False
-                error_msg = f"合并内容缺少关键词: {keyword}"
-                break
+        assert success, "dedup UPDATE 不应把旧内容追加进当前 head"
 
-        print_test_result(console, "GEN-MRG-001: 内容追加合并", success, error_msg)
-        console.print(f"    [dim]合并后内容长度: {len(merged.payload.content)} 字符[/dim]")
-        console.print(f"    [dim]包含更新标记: {'更新' in merged.payload.content or '## ' in merged.payload.content}[/dim]")
-
-        assert success, error_msg
-
-    def test_tags_union_merge(self):
+    def test_dedup_update_refreshes_tags(self):
         """
-        GEN-MRG-002: 标签并集合并
+        GEN-MRG-002: 标签并集刷新
 
         验证点：
-        - 合并后 Tags 为两者并集（去重，最多5个）
+        - 更新后 Tags 为两者并集（去重，最多5个）
         """
         test_case = MERGE_TEST_CASES[1]  # GEN-MRG-002
         assert test_case["id"] == "GEN-MRG-002"
@@ -779,8 +777,15 @@ class TestMemoryMerger:
         # 创建新草稿
         new_draft = create_draft_from_data(test_case["new_draft"])
 
-        # 执行合并
-        merged = self.deduplicator.merge_memory(existing_memory, new_draft)
+        # 执行 dedup UPDATE
+        merged = self.engine._apply_update(
+            existing_memory,
+            MergeResult(
+                new_content=new_draft.content,
+                changelog=f"Dedup update: {new_draft.summary[:120]}",
+            ),
+            dedup_draft=new_draft,
+        )[0].atom
 
         # 验证结果
         merged_tags = set(merged.index.tags)
@@ -796,20 +801,20 @@ class TestMemoryMerger:
 
         success = tags_count_ok and tags_content_ok
 
-        print_test_result(console, "GEN-MRG-002: 标签并集合并", success)
+        print_test_result(console, "GEN-MRG-002: 标签并集刷新", success)
         console.print(f"    [dim]原标签: {existing_data['tags']}[/dim]")
         console.print(f"    [dim]新标签: {new_draft.tags}[/dim]")
-        console.print(f"    [dim]合并后: {merged.index.tags}[/dim]")
+        console.print(f"    [dim]更新后: {merged.index.tags}[/dim]")
         console.print(f"    [dim]标签数量: {len(merged.index.tags)} (最大: {max_tags})[/dim]")
 
         assert success, f"标签合并不符合预期"
 
-    def test_summary_update_strategy(self):
+    def test_dedup_update_replaces_summary(self):
         """
-        GEN-MRG-003: 摘要更新策略
+        GEN-MRG-003: 摘要覆盖策略
 
         验证点：
-        - 合并后选择较长的摘要
+        - 更新后 summary 直接采用草稿摘要，不按长度取舍
         """
         test_case = MERGE_TEST_CASES[2]  # GEN-MRG-003
         assert test_case["id"] == "GEN-MRG-003"
@@ -837,26 +842,24 @@ class TestMemoryMerger:
         # 创建新草稿（长摘要）
         new_draft = create_draft_from_data(test_case["new_draft"])
 
-        # 执行合并
-        merged = self.deduplicator.merge_memory(existing_memory, new_draft)
+        # 执行 dedup UPDATE
+        merged = self.engine._apply_update(
+            existing_memory,
+            MergeResult(
+                new_content=new_draft.content,
+                changelog=f"Dedup update: {new_draft.summary[:120]}",
+            ),
+            dedup_draft=new_draft,
+        )[0].atom
 
-        # 验证结果：合并后摘要应该是较长的那个
-        old_summary_len = len(existing_data["summary"])
-        new_summary_len = len(new_draft.summary)
-        merged_summary_len = len(merged.index.summary)
+        success = merged.index.summary == new_draft.summary
 
-        expected_longer = test_case.get("expected_summary_longer", True)
-        if expected_longer:
-            success = merged_summary_len >= max(old_summary_len, new_summary_len) * 0.8
-        else:
-            success = True
+        print_test_result(console, "GEN-MRG-003: 摘要覆盖策略", success)
+        console.print(f"    [dim]原摘要长度: {len(existing_data['summary'])}[/dim]")
+        console.print(f"    [dim]新摘要长度: {len(new_draft.summary)}[/dim]")
+        console.print(f"    [dim]更新后长度: {len(merged.index.summary)}[/dim]")
 
-        print_test_result(console, "GEN-MRG-003: 摘要更新策略", success)
-        console.print(f"    [dim]原摘要长度: {old_summary_len}[/dim]")
-        console.print(f"    [dim]新摘要长度: {new_summary_len}[/dim]")
-        console.print(f"    [dim]合并后长度: {merged_summary_len}[/dim]")
-
-        assert success, "摘要更新策略不符合预期"
+        assert success, "dedup UPDATE 应直接采用草稿摘要"
 
 
 # ========== Group 4: Schema 验证测试 ==========
@@ -933,20 +936,18 @@ class TestSchemaValidation:
 
         assert success, f"缺失必需字段: {missing_fields}"
 
-    def test_confidence_weighted_calculation(self):
+    def test_update_confidence_reset(self):
         """
-        GEN-SCH-002: 置信度加权计算
+        GEN-SCH-002: 更新置信度重置
 
         验证点：
-        - 合并后置信度按 0.6*old + 0.4*new 计算
+        - 统一 UPDATE primitive 应将更新后置信度置为 1.0
         """
         test_case = SCHEMA_VALIDATION_CASES[1]  # GEN-SCH-002
         assert test_case["id"] == "GEN-SCH-002"
 
         old_confidence = test_case["existing_confidence"]
         new_confidence = test_case["new_confidence"]
-        expected_confidence = test_case["expected_merged_confidence"]
-        tolerance = test_case.get("tolerance", 0.01)
 
         # 创建现有记忆
         existing_memory = MemoryAtom(
@@ -978,22 +979,27 @@ class TestSchemaValidation:
             has_value=True,
         )
 
-        # 执行合并
-        merged = self.deduplicator.merge_memory(existing_memory, new_draft)
+        # 执行统一 UPDATE primitive
+        merged = self.engine._apply_update(
+            existing_memory,
+            MergeResult(
+                new_content=new_draft.content,
+                changelog=f"Dedup update: {new_draft.summary[:120]}",
+            ),
+            dedup_draft=new_draft,
+        )[0].atom
 
         # 验证置信度计算
         actual_confidence = merged.meta.confidence_score
-        diff = abs(actual_confidence - expected_confidence)
-        success = diff <= tolerance
+        success = actual_confidence == 1.0
 
-        print_test_result(console, "GEN-SCH-002: 置信度加权计算", success)
+        print_test_result(console, "GEN-SCH-002: 更新置信度重置", success)
         console.print(f"    [dim]原置信度: {old_confidence}[/dim]")
         console.print(f"    [dim]新置信度: {new_confidence}[/dim]")
-        console.print(f"    [dim]预期结果: {expected_confidence} (0.6*{old_confidence} + 0.4*{new_confidence})[/dim]")
+        console.print(f"    [dim]预期结果: 1.0[/dim]")
         console.print(f"    [dim]实际结果: {actual_confidence:.4f}[/dim]")
-        console.print(f"    [dim]误差: {diff:.4f} (容差: {tolerance})[/dim]")
 
-        assert success, f"置信度计算不符合预期: 预期 {expected_confidence}，实际 {actual_confidence}"
+        assert success, f"更新置信度不符合预期: 预期 1.0，实际 {actual_confidence}"
 
     def _format_transcript(self, messages: List[Dict[str, str]]) -> str:
         """格式化对话为文本"""

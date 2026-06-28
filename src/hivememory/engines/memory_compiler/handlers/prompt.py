@@ -103,6 +103,8 @@ def _render_full_from_ir(
     history = ""
     history_summary = unit.metadata.get("history_summary", [])
     if history_summary:
+        # 当前只渲染 artifact 关闭时的轻量历史 fallback。
+        # TODO(history-compiler): 后续改为消费统一历史信息编译结果，而不是直接展示该字段。
         history_lines = [f"\n**{_text('memory_full_change_log_label', language)}:**"]
         history_lines.extend(f"- {item}" for item in history_summary)
         history = "\n".join(history_lines)

@@ -157,8 +157,6 @@ class MemoryGenerationCoordinator:
                 context=gen_context,
                 write_focus=focus,
                 identity=task.identity,
-                intent_id=task.intent_id,
-                pending_alias=task.pending_alias,
             )
             source_intent = "WRITE"
         elif source == MemoryGenerationSource.UPDATE:
@@ -182,8 +180,6 @@ class MemoryGenerationCoordinator:
                 update_focus=focus,
                 existing_memory=existing,
                 identity=task.identity,
-                intent_id=task.intent_id,
-                pending_alias=task.pending_alias,
             )
             source_intent = "UPDATE"
         else:
@@ -196,6 +192,7 @@ class MemoryGenerationCoordinator:
             request=request,
             source_intent=source_intent,
             interaction_input=interaction_input,
+            intent_id=task.intent_id,
             pending_alias=task.pending_alias,
         )
 

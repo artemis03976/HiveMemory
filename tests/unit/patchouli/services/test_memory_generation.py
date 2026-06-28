@@ -24,13 +24,14 @@ from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryPro
 from hivememory.core.models.pending import WriteFocus
 from hivememory.engines.generation.models import (
     DuplicateDecision,
+    GenerationOutcome,
     GenerationContext,
     GenerationRequest,
-    MemoryGenerationResult,
 )
 from hivememory.engines.perception.models import LogicalBlock, TurnRecord
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
+    MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
@@ -66,6 +67,18 @@ def _make_gen_result(
     )
 
 
+def _make_outcome(
+    decision=DuplicateDecision.CREATE,
+    atom=None,
+    changelog=None,
+):
+    return GenerationOutcome(
+        atom=atom,
+        duplicate_decision=decision,
+        changelog=changelog,
+    )
+
+
 def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_interaction_input=True):
     spec = MemoryGenerationTaskSpec(
         topic_id=topic_id,
@@ -75,8 +88,6 @@ def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_inter
             context=GenerationContext(),
             write_focus=WriteFocus(content="remember this"),
             identity=Identity(user_id="u1"),
-            intent_id="intent_1",
-            pending_alias="test",
         ),
         source_intent="WRITE",
         interaction_input=InteractionArtifactInput(
@@ -85,6 +96,8 @@ def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_inter
             topic_summary="Test Summary",
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         ) if include_interaction_input else None,
+        intent_id="intent_1",
+        pending_alias="test",
     )
     return spec
 
@@ -162,8 +175,9 @@ class TestMemoryGenerationFamiliarExecute:
         spec = _make_spec()
 
         gen_engine = Mock()
-        gen_result = _make_gen_result(alias="test", atom=_make_memory_atom())
-        gen_engine.process = AsyncMock(return_value=[gen_result])
+        gen_engine.process = AsyncMock(
+            return_value=[_make_outcome(atom=_make_memory_atom())]
+        )
 
         artifact_engine = Mock()
         artifact_engine.interaction = Mock()
@@ -205,9 +219,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
     @pytest.mark.asyncio
     async def test_run_generation_computes_and_returns_results(self):
-        gen_result = _make_gen_result(alias="test")
+        outcome = _make_outcome(decision=DuplicateDecision.CREATE)
         gen_engine = Mock()
-        gen_engine.process = AsyncMock(return_value=[gen_result])
+        gen_engine.process = AsyncMock(return_value=[outcome])
 
         familiar = self._make_familiar(gen_engine=gen_engine)
 
@@ -215,21 +229,31 @@ class TestMemoryGenerationFamiliarRunGeneration:
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
             identity=Identity(user_id="u1"),
-            intent_id="intent_1",
-            pending_alias="test",
+        )
+        spec = _make_spec()
+        spec = MemoryGenerationTaskSpec(
+            topic_id=spec.topic_id,
+            label=spec.label,
+            source=spec.source,
+            request=request,
+            source_intent=spec.source_intent,
+            interaction_input=None,
         )
 
-        results = await familiar._run_generation(request)
+        results = await familiar._run_generation(spec)
 
-        assert results == [gen_result]
+        assert len(results) == 1
+        assert results[0].duplicate_decision == DuplicateDecision.CREATE
+        assert results[0].settlement is None
         gen_engine.process.assert_awaited_once_with(request)
 
     @pytest.mark.asyncio
     async def test_run_generation_upserts_created_atoms(self):
         atom = _make_memory_atom()
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
         gen_engine = Mock()
-        gen_engine.process = AsyncMock(return_value=[gen_result])
+        gen_engine.process = AsyncMock(
+            return_value=[_make_outcome(decision=DuplicateDecision.CREATE, atom=atom)]
+        )
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
@@ -240,20 +264,28 @@ class TestMemoryGenerationFamiliarRunGeneration:
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
             identity=Identity(user_id="u1"),
-            intent_id="intent_1",
-            pending_alias="test",
+        )
+        spec = _make_spec()
+        spec = MemoryGenerationTaskSpec(
+            topic_id=spec.topic_id,
+            label=spec.label,
+            source=spec.source,
+            request=request,
+            source_intent=spec.source_intent,
+            interaction_input=None,
         )
 
-        await familiar._run_generation(request)
+        await familiar._run_generation(spec)
 
         mid_term.upsert.assert_awaited_once_with(atom)
 
     @pytest.mark.asyncio
     async def test_run_generation_upserts_updated_atoms(self):
         atom = _make_memory_atom()
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.UPDATE, atom=atom)
         gen_engine = Mock()
-        gen_engine.process = AsyncMock(return_value=[gen_result])
+        gen_engine.process = AsyncMock(
+            return_value=[_make_outcome(decision=DuplicateDecision.UPDATE, atom=atom)]
+        )
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
@@ -264,19 +296,27 @@ class TestMemoryGenerationFamiliarRunGeneration:
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
             identity=Identity(user_id="u1"),
-            intent_id="intent_1",
-            pending_alias="test",
+        )
+        spec = _make_spec()
+        spec = MemoryGenerationTaskSpec(
+            topic_id=spec.topic_id,
+            label=spec.label,
+            source=spec.source,
+            request=request,
+            source_intent=spec.source_intent,
+            interaction_input=None,
         )
 
-        await familiar._run_generation(request)
+        await familiar._run_generation(spec)
 
         mid_term.upsert.assert_awaited_once_with(atom)
 
     @pytest.mark.asyncio
     async def test_run_generation_skips_upsert_for_discard_decision(self):
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.DISCARD, atom=None)
         gen_engine = Mock()
-        gen_engine.process = AsyncMock(return_value=[gen_result])
+        gen_engine.process = AsyncMock(
+            return_value=[_make_outcome(decision=DuplicateDecision.DISCARD, atom=None)]
+        )
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
@@ -287,20 +327,28 @@ class TestMemoryGenerationFamiliarRunGeneration:
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
             identity=Identity(user_id="u1"),
-            intent_id="intent_1",
-            pending_alias="test",
+        )
+        spec = _make_spec()
+        spec = MemoryGenerationTaskSpec(
+            topic_id=spec.topic_id,
+            label=spec.label,
+            source=spec.source,
+            request=request,
+            source_intent=spec.source_intent,
+            interaction_input=None,
         )
 
-        await familiar._run_generation(request)
+        await familiar._run_generation(spec)
 
         mid_term.upsert.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_run_generation_raises_on_upsert_failure(self):
         atom = _make_memory_atom()
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
         gen_engine = Mock()
-        gen_engine.process = AsyncMock(return_value=[gen_result])
+        gen_engine.process = AsyncMock(
+            return_value=[_make_outcome(decision=DuplicateDecision.CREATE, atom=atom)]
+        )
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock(side_effect=RuntimeError("upsert failed"))
@@ -311,12 +359,71 @@ class TestMemoryGenerationFamiliarRunGeneration:
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
             identity=Identity(user_id="u1"),
-            intent_id="intent_1",
-            pending_alias="test",
+        )
+        spec = _make_spec()
+        spec = MemoryGenerationTaskSpec(
+            topic_id=spec.topic_id,
+            label=spec.label,
+            source=spec.source,
+            request=request,
+            source_intent=spec.source_intent,
+            interaction_input=None,
         )
 
         with pytest.raises(RuntimeError, match="upsert failed"):
-            await familiar._run_generation(request)
+            await familiar._run_generation(spec)
+
+    @pytest.mark.asyncio
+    async def test_run_generation_builds_created_settlement_for_active_write(self):
+        atom = _make_memory_atom()
+        spec = _make_spec(source=MemoryGenerationSource.WRITE)
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(
+            return_value=[_make_outcome(decision=DuplicateDecision.CREATE, atom=atom)]
+        )
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+        familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
+
+        results = await familiar._run_generation(spec)
+
+        assert results[0].settlement is not None
+        assert results[0].settlement.resolution.value == "created"
+        assert results[0].settlement.pending_alias == "test"
+
+    @pytest.mark.asyncio
+    async def test_run_generation_builds_updated_settlement_for_active_update(self):
+        atom = _make_memory_atom()
+        spec = _make_spec(source=MemoryGenerationSource.UPDATE)
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(
+            return_value=[_make_outcome(decision=DuplicateDecision.UPDATE, atom=atom)]
+        )
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+        familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
+
+        results = await familiar._run_generation(spec)
+
+        assert results[0].settlement is not None
+        assert results[0].settlement.resolution.value == "updated"
+
+    @pytest.mark.asyncio
+    async def test_run_generation_builds_merged_settlement_for_dedup_update(self):
+        atom = _make_memory_atom()
+        spec = _make_spec(source=MemoryGenerationSource.WRITE)
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(
+            return_value=[_make_outcome(decision=DuplicateDecision.UPDATE, atom=atom)]
+        )
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+        familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
+
+        results = await familiar._run_generation(spec)
+
+        assert results[0].settlement is not None
+        assert results[0].settlement.resolution.value == "merged"
 
 
 class TestMemoryGenerationFamiliarArtifacts:

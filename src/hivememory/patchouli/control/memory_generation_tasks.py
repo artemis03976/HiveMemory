@@ -8,10 +8,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from hivememory.engines.generation.models import MemoryGenerationResult
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationResult,
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskSpec,

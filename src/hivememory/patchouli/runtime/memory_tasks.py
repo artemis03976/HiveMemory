@@ -6,9 +6,12 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from hivememory.engines.generation.models import GenerationRequest
+from pydantic import BaseModel
+
+from hivememory.core.models import PendingAtomSettlement
+from hivememory.engines.generation.models import DuplicateDecision, GenerationRequest
 
 if TYPE_CHECKING:
     from hivememory.engines.perception.models import LogicalBlock
@@ -50,7 +53,29 @@ class MemoryGenerationTaskSpec:
     request: GenerationRequest
     source_intent: str
     interaction_input: InteractionArtifactInput | None = None
+    intent_id: Optional[str] = None
     pending_alias: Optional[str] = None
+
+
+class MemoryGenerationResult(BaseModel):
+    """Patchouli-owned result view for memory generation task execution."""
+
+    intent_id: Optional[str] = None
+    pending_alias: Optional[str] = None
+
+    atom: Optional[Any] = None
+    canonical_alias: Optional[str] = None
+    canonical_uuid: Optional[str] = None
+
+    duplicate_decision: Optional[DuplicateDecision] = None
+    memory_before_snapshot: Optional[Any] = None
+    changelog: Optional[str] = None
+
+    settlement: Optional[PendingAtomSettlement] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 @dataclass

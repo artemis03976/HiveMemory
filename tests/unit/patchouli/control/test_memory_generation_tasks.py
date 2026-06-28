@@ -7,7 +7,6 @@ from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
-    MemoryGenerationResult,
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -15,6 +14,7 @@ from hivememory.patchouli.control.memory_generation_tasks import (
     MemoryGenerationTaskController,
 )
 from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,

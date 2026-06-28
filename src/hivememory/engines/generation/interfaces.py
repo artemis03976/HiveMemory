@@ -125,36 +125,6 @@ class BaseDeduplicator(ABC):
         """
         pass
 
-    @abstractmethod
-    def merge_memory(
-        self,
-        existing: MemoryAtom,
-        new_draft: "ExtractedMemoryDraft"
-    ) -> MemoryAtom:
-        """
-        合并现有记忆与新草稿（知识演化）
-
-        策略:
-            - 保留高置信度内容
-            - 追加新信息到 payload
-            - 合并标签集合
-            - 记录版本历史
-
-        Args:
-            existing: 现有记忆原子
-            new_draft: 新的记忆草稿
-
-        Returns:
-            MemoryAtom: 合并后的记忆原子
-
-        Examples:
-            >>> merged = dedup.merge_memory(existing, draft)
-            >>> print(merged.payload.content)
-            "旧内容...\n\n## 更新 (2025-12-23)\n新内容..."
-        """
-        pass
-
-
 # ========== 导出列表 ==========
 
 __all__ = [

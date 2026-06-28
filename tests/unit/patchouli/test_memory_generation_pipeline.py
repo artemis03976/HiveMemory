@@ -15,7 +15,6 @@ from hivememory.core.models import (
     TurnRecord,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
-from hivememory.engines.generation.models import MemoryGenerationResult
 from hivememory.engines.perception.models import LogicalBlock, TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -27,6 +26,7 @@ from hivememory.patchouli.control.memory_generation_tasks import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTaskStatus,
 )
@@ -181,8 +181,8 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
     spec = execute_spec.await_args.args[0]
     assert spec.source == MemoryGenerationSource.WRITE
     assert spec.pending_alias == "draft_write"
+    assert spec.intent_id == "intent_draft_write"
     assert spec.request.is_write is True
-    assert spec.request.pending_alias == "draft_write"
     assert published[0]["settlement"].pending_alias == "draft_write"
 
 

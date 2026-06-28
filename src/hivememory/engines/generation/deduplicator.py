@@ -2,7 +2,7 @@
 HiveMemory - 查重与演化管理器 (Deduplicator)
 
 职责:
-    检测重复记忆，支持知识更新与合并。
+    检测重复记忆，输出 CREATE / UPDATE / TOUCH / DISCARD 决策。
 
 决策逻辑 (PROJECT.md 4.2 Step 3):
     - 相似度 > 0.95 + 内容一致 → TOUCH (仅更新访问时间)
@@ -16,14 +16,10 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
 import re
 import logging
 from typing import Optional, Tuple
-from datetime import datetime
 
 from hivememory.system.config import DeduplicatorConfig
 from hivememory.core.models import (
-    IndexLayer,
     MemoryAtom,
-    MetaData,
-    PayloadLayer,
 )
 from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
 from hivememory.engines.generation.interfaces import BaseDeduplicator
@@ -39,7 +35,7 @@ class MemoryDeduplicator(BaseDeduplicator):
         1. 向量检索 Top-1 最相似记忆
         2. 计算相似度分数
         3. 根据决策矩阵判断操作
-        4. 如需合并，执行知识演化策略
+        4. 将是否合并的决策交给 generation engine 执行
 
     决策矩阵:
         | 相似度范围      | 内容一致性  | 决策      | 操作           |
@@ -52,8 +48,6 @@ class MemoryDeduplicator(BaseDeduplicator):
     Examples:
         >>> dedup = MemoryDeduplicator(config)
         >>> decision, existing = dedup.check_duplicate(draft, candidates)
-        >>> if decision == DuplicateDecision.UPDATE:
-        ...     merged = dedup.merge_memory(existing, draft)
     """
 
     def __init__(
@@ -187,121 +181,6 @@ class MemoryDeduplicator(BaseDeduplicator):
         union = len(words1 | words2)
         return intersection / union if union > 0 else 0.0
 
-    def merge_memory(
-        self,
-        existing: MemoryAtom,
-        new_draft: ExtractedMemoryDraft
-    ) -> MemoryAtom:
-        """
-        合并现有记忆与新草稿（知识演化）
-
-        合并策略:
-            1. 标题: 保留现有标题（更简洁）
-            2. 摘要: 合并两者，取最全面的
-            3. 标签: 合并标签集合（去重）
-            4. 内容: 追加更新部分，记录版本
-            5. 置信度: 取两者平均值
-            6. 元信息: 更新时间戳，保留创建时间
-
-        Args:
-            existing: 现有记忆原子
-            new_draft: 新的记忆草稿
-
-        Returns:
-            MemoryAtom: 合并后的记忆原子
-
-        Examples:
-            >>> merged = dedup.merge_memory(existing, draft)
-            >>> print(merged.payload.content)
-            # 包含旧内容和新内容，带时间戳标记
-        """
-        logger.info(f"合并记忆: '{existing.index.title}'")
-
-        # 合并标签
-        merged_tags = list(set(existing.index.tags) | set(new_draft.tags))
-        if len(merged_tags) > 5:  # 限制标签数量
-            merged_tags = merged_tags[:5]
-
-        # 合并摘要 (选择更长的)
-        merged_summary = (
-            new_draft.summary
-            if len(new_draft.summary) > len(existing.index.summary)
-            else existing.index.summary
-        )
-
-        # 合并内容 (追加模式，带版本标记)
-        merged_content = self._merge_content(
-            old_content=existing.payload.content,
-            new_content=new_draft.content
-        )
-
-        # 计算新置信度 (加权平均)
-        merged_confidence = (
-            existing.meta.confidence_score * 0.6 + new_draft.confidence_score * 0.4
-        )
-
-        # 构建合并后的 MemoryAtom
-        merged_memory = MemoryAtom(
-            id=existing.id,  # 保留原 ID
-            meta=MetaData(
-                source_agent_id=existing.meta.source_agent_id,
-                user_id=existing.meta.user_id,
-                session_id=existing.meta.session_id,
-                created_at=existing.meta.created_at,  # 保留创建时间
-                updated_at=datetime.now(),  # 更新修改时间
-                confidence_score=merged_confidence,
-                access_count=existing.meta.access_count,  # 保留访问计数
-                vitality_score=existing.meta.vitality_score,  # 保留生命力
-            ),
-            index=IndexLayer(
-                title=existing.index.title,  # 保留原标题
-                summary=merged_summary,
-                tags=merged_tags,
-                memory_type=existing.index.memory_type,  # 保留类型
-                alias=existing.index.alias,  # 保留原别名 (Section 2.3)
-            ),
-            payload=PayloadLayer(
-                content=merged_content,
-            ),
-            relations=existing.relations,  # 保留关系图
-        )
-
-        return merged_memory
-
-    def _merge_content(self, old_content: str, new_content: str) -> str:
-        """
-        合并内容 (追加模式)
-
-        策略:
-            如果新内容与旧内容显著不同，则追加更新部分。
-
-        Args:
-            old_content: 旧内容
-            new_content: 新内容
-
-        Returns:
-            str: 合并后的内容
-
-        Examples:
-            >>> content = dedup._merge_content("旧代码", "新代码")
-            >>> print(content)
-            旧代码
-
-            ## 更新 (2025-12-23)
-            新代码
-        """
-        # 如果内容高度相似，仅返回新内容
-        similarity = self._calculate_text_similarity(old_content, new_content)
-        if similarity > 0.9:
-            return new_content
-
-        # 追加模式
-        timestamp = datetime.now().strftime("%Y-%m-%d")
-        merged = f"{old_content}\n\n## 更新 ({timestamp})\n{new_content}"
-
-        return merged
-
-
 class NoOpDeduplicator(BaseDeduplicator):
     """
     No-Op 查重器
@@ -316,23 +195,6 @@ class NoOpDeduplicator(BaseDeduplicator):
         candidates: list,
     ) -> Tuple[DuplicateDecision, Optional[MemoryAtom]]:
         return DuplicateDecision.CREATE, None
-
-    def merge_memory(
-        self,
-        existing: MemoryAtom,
-        new_draft: ExtractedMemoryDraft
-    ) -> MemoryAtom:
-        """
-        合并记忆 (No-Op)
-
-        Args:
-            existing: 现有记忆
-            new_draft: 新草稿
-
-        Returns:
-            existing (不做修改)
-        """
-        return existing
 
 
 # 便捷函数
