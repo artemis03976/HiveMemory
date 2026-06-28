@@ -237,6 +237,50 @@ class TestMemoryGenerationTaskController:
         )
 
     @pytest.mark.asyncio
+    async def test_cancel_many_uses_shutdown_timeout_reason(self):
+        recorder = RecordingRuntimeEventSink()
+        started = asyncio.Event()
+        released = asyncio.Event()
+
+        async def request(route, spec):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                released.set()
+
+        bus = Mock()
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(
+            bus=bus,
+            runtime_events=recorder,
+        )
+
+        memory_task = await controller.submit_generation(_spec())
+        await asyncio.wait_for(started.wait(), timeout=1)
+
+        assert await controller.cancel_many(
+            [memory_task.task_id],
+            reason="shutdown_timeout",
+        ) == 1
+        await asyncio.wait_for(released.wait(), timeout=1)
+        with pytest.raises(asyncio.CancelledError):
+            await memory_task._bg_task
+
+        task_events = [
+            event
+            for event in recorder.events
+            if event.task_id == memory_task.task_id
+        ]
+        assert task_events[-2].event_type == RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED
+        assert task_events[-2].reason == "shutdown_timeout"
+        assert task_events[-2].data["reason"] == "shutdown_timeout"
+        assert task_events[-1].event_type == RuntimeEventType.MEMORY_TASK_CANCELLED
+        assert task_events[-1].reason == "shutdown_timeout"
+        assert task_events[-1].data["reason"] == "shutdown_timeout"
+
+    @pytest.mark.asyncio
     async def test_finish_task_is_idempotent(self):
         bus = Mock()
         bus.publish = AsyncMock()

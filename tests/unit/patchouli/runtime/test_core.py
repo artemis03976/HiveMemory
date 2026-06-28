@@ -9,7 +9,11 @@ from hivememory.patchouli.memory_library.models import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
+from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationTaskStatus,
+    MemoryGenerationTaskWaitResult,
+    MemoryGenerationTaskWaitSummary,
+)
 from hivememory.patchouli.services.perception import ShutdownFlushResult
 
 
@@ -43,6 +47,7 @@ def _create_runtime():
         runtime._task_controller.wait_all = AsyncMock(
             return_value=MemoryGenerationTaskWaitSummary.from_results([])
         )
+        runtime._task_controller.cancel_many = AsyncMock(return_value=0)
         runtime.storage = Mock()
         runtime.memory_library = Mock()
         runtime.memory_library.mid_term.upsert = Mock()
@@ -68,9 +73,11 @@ class TestRuntimeShutdownDrain:
 
         runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
         runtime._task_controller.wait_all.assert_awaited_once_with(timeout=30.0)
+        runtime._task_controller.cancel_many.assert_not_awaited()
         assert result["reentrant"] is False
         assert result["perception"].trigger_reason == "shutdown"
         assert result["generation"].timed_out == 0
+        assert result["generation_cancelled_after_timeout"] == 0
 
     @pytest.mark.asyncio
     async def test_shutdown_drain_reports_generation_timeout(self):
@@ -95,14 +102,27 @@ class TestRuntimeShutdownDrain:
                 pending=0,
                 running=1,
                 timed_out=1,
-                results=(),
+                results=(
+                    MemoryGenerationTaskWaitResult(
+                        task_id="memory-task-timeout",
+                        found=True,
+                        timed_out=True,
+                        status=MemoryGenerationTaskStatus.RUNNING,
+                    ),
+                ),
             )
         )
+        runtime._task_controller.cancel_many = AsyncMock(return_value=1)
 
         result = await runtime.shutdown_drain()
 
+        runtime._task_controller.cancel_many.assert_awaited_once_with(
+            ["memory-task-timeout"],
+            reason="shutdown_timeout",
+        )
         assert result["success"] is False
         assert result["generation"].timed_out == 1
+        assert result["generation_cancelled_after_timeout"] == 1
 
     @pytest.mark.asyncio
     async def test_shutdown_drain_is_reentrant(self):

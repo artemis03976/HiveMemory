@@ -368,11 +368,23 @@ class PatchouliRuntime:
                 .generation_wait_timeout_seconds
             ),
         )
+        timed_out_task_ids = [
+            result.task_id
+            for result in generation_result.results
+            if result.timed_out and result.found
+        ]
+        cancelled_after_timeout = 0
+        if timed_out_task_ids:
+            cancelled_after_timeout = await self._task_controller.cancel_many(
+                timed_out_task_ids,
+                reason="shutdown_timeout",
+            )
         result = {
             "success": generation_result.timed_out == 0,
             "observer_payloads_submitted": 0,
             "perception": perception_result,
             "generation": generation_result,
+            "generation_cancelled_after_timeout": cancelled_after_timeout,
             "reentrant": False,
         }
         logger.info(

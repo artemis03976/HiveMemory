@@ -231,11 +231,14 @@ class MemoryGenerationTaskController:
     async def _publish_memory_task_status(
         self,
         memory_task: MemoryGenerationTask,
+        *,
+        reason: str | None = None,
     ) -> None:
         """发布 MemoryGenerationTask 实时状态快照。"""
         self._emit_memory_task_event(
             self._event_type_for_task_status(memory_task.status),
             memory_task,
+            reason=reason,
         )
         try:
             await self._bus.publish(
@@ -269,6 +272,7 @@ class MemoryGenerationTaskController:
         *,
         error: str | None = None,
         pending_alias: str | None = None,
+        reason: str | None = None,
     ) -> None:
         """
         完成 MemoryGenerationTask 的唯一终态入口。
@@ -305,7 +309,7 @@ class MemoryGenerationTaskController:
                     )
 
             await self._publish_best_effort(
-                self._publish_memory_task_status(memory_task),
+                self._publish_memory_task_status(memory_task, reason=reason),
                 f"memory task terminal publish failed: {memory_task.task_id}",
             )
         finally:
@@ -409,7 +413,12 @@ class MemoryGenerationTaskController:
         ]
         return await self.wait_many(task_ids, timeout=timeout)
 
-    async def cancel_task(self, task_id: str) -> bool:
+    async def cancel_task(
+        self,
+        task_id: str,
+        *,
+        reason: str = "user_requested",
+    ) -> bool:
         """请求取消指定记忆生成任务。"""
         memory_task = self._task_registry.get(task_id)
         ok = self._task_registry.cancel(task_id)
@@ -417,14 +426,27 @@ class MemoryGenerationTaskController:
             self._emit_memory_task_event(
                 RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
                 memory_task,
-                reason="user_requested",
+                reason=reason,
             )
             await self._finish_task(
                 memory_task,
                 MemoryGenerationTaskStatus.CANCELLED,
                 pending_alias=memory_task.pending_alias,
+                reason=reason,
             )
         return ok
+
+    async def cancel_many(
+        self,
+        task_ids: List[str],
+        *,
+        reason: str = "user_requested",
+    ) -> int:
+        cancelled = 0
+        for task_id in task_ids:
+            if await self.cancel_task(task_id, reason=reason):
+                cancelled += 1
+        return cancelled
 
     def _emit_memory_task_event(
         self,
