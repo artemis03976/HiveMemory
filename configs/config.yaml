@@ -75,6 +75,13 @@ shared:
       dimension: 1024
 
 # ========== Patchouli 子系统配置 ==========
+memory_compiler:
+  retrieval_context:
+    strategy:
+      type: "compact"
+      max_memory_tokens: 2000
+      index_max_summary_length: 100
+
 patchouli:
   storage:
     host: "127.0.0.1"
@@ -124,12 +131,6 @@ patchouli:
       enable_vitality_tracking: true
 
   retrieval:
-    renderer:
-      type: "compact"
-      max_tokens: 2000
-      max_content_length: 500
-      show_artifacts: false
-      stale_days: 90
     retriever:
       type: "hybrid"
       top_k: 5

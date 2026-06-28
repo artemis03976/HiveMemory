@@ -149,6 +149,8 @@ async def test_public_prepare_agent_run_composes_local_primitives_through_bridge
 
     assert prepared.topic_id == "topic_1"
     assert prepared.agent_run_context.retrieval_result is retrieval_result
+    assert "memory summary text" in prepared.agent_run_context.memory_context
+    assert "memory content" not in prepared.agent_run_context.memory_context
     assert prepared.agent_run_context.agent_profile is OMNI_DOLL_PROFILE
     assert prepared.agent_run_context.storage_available is True
     assert prepared.stream_prelude.memory_refs[0]["alias"] == "memory_alias"

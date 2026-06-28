@@ -30,6 +30,8 @@ def build_memory_atom_ir(atom: MemoryAtom) -> MemoryUnitIR:
             "confidence_score": atom.meta.confidence_score,
             "verification_status": atom.meta.verification_status,
             "updated_at": atom.meta.updated_at,
+            # artifact 关闭时的轻量历史 fallback。
+            # TODO(history-compiler): 接入统一历史信息编译后，再决定是否继续透传。
             "history_summary": atom.payload.history_summary,
         },
     )

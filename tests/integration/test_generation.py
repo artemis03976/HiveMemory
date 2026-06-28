@@ -187,29 +187,26 @@ class TestMemoryGenerationEngineLogic:
         assert result[0].duplicate_decision == DuplicateDecision.TOUCH
         assert result[0].atom == self.memory_atom
 
-        # 验证调用了 upsert
-        self.mock_storage.upsert.assert_called_once()
+        # engine 只产出计算结果，持久化由 Familiar 负责
+        self.mock_storage.upsert.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_update_memory(self):
         """测试 UPDATE 记忆演化"""
         self.mock_extractor.extract.return_value = self.draft
-        
-        merged_memory = self.memory_atom.model_copy()
-        merged_memory.index.title = "Merged Title"
-        
+
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, self.memory_atom)
-        self.mock_deduplicator.merge_memory.return_value = merged_memory
-        
+
         result = await self.engine.process(GenerationRequest(context=self._context_from_messages(self.messages)))
-        
+
         assert len(result) == 1
         assert result[0].duplicate_decision == DuplicateDecision.UPDATE
         assert result[0].atom is not None
-        assert result[0].atom.index.title == "Merged Title"
-
-        # 验证调用了合并
-        self.mock_deduplicator.merge_memory.assert_called_once()
+        assert result[0].atom.index.title == self.draft.title
+        assert result[0].atom.index.summary == self.draft.summary
+        assert result[0].atom.payload.content == self.draft.content
+        assert result[0].memory_before_snapshot.title == "Test"
+        assert result[0].changelog is not None
 
     @pytest.mark.asyncio
     async def test_process_discard_memory(self):

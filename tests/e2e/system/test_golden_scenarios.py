@@ -236,6 +236,7 @@ class SystemScenarioTestSystem:
         self._perception_layer = self._build_perception_layer(fold_token_threshold)
         self._generation_engine = self._build_generation_engine()
         self._gateway_engine = self._build_gateway_engine()
+        self.memory_library = self._build_memory_library()
         self._retrieval_engine = self._build_retrieval_engine()
 
         # 3. Mock Lifecycle 引擎
@@ -244,8 +245,8 @@ class SystemScenarioTestSystem:
         # 4. 构建分身
         self.eye = TheEye(engine=self._gateway_engine)
         self.retrieval_familiar = RetrievalFamiliar(
-            storage=self.storage,
             engine=self._retrieval_engine,
+            memory_library=self.memory_library,
         )
 
         # 5. 设置 Flush 记录器
@@ -353,17 +354,47 @@ class SystemScenarioTestSystem:
 
     def _build_retrieval_engine(self):
         """构建检索引擎"""
-        from hivememory.engines.retrieval import RetrievalEngine, create_retriever, create_renderer
+        from hivememory.engines.retrieval import RetrievalEngine, create_retriever
 
         config = self.config.retrieval
         retriever = create_retriever(
-            self.storage,
-            config.retriever,
+            mid_term=self.memory_library.mid_term,
+            config=config.retriever,
             reranker_service=self.reranker_service  # 传递 reranker 服务
         )
-        renderer = create_renderer(config.renderer)
 
-        return RetrievalEngine(retriever=retriever, renderer=renderer)
+        return RetrievalEngine(retriever=retriever)
+
+    def _build_memory_library(self):
+        """构建 MemoryLibrary（三层存储协调层）"""
+        from hivememory.patchouli.memory_library import (
+            FileBasedStorageAdapter,
+            LongTermMemoryStore,
+            MemoryLibrary,
+            MidTermMemoryStore,
+            QdrantStorageAdapter,
+            ShortTermMemoryStore,
+        )
+
+        perception_config = self.config.patchouli.perception.engine
+        max_resident = getattr(perception_config, "max_resident_topics", 5)
+
+        short_term = ShortTermMemoryStore(max_resident_topics=max_resident)
+        mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(self.storage))
+
+        archiver_config = self.config.patchouli.lifecycle.archiver
+        long_term = LongTermMemoryStore(
+            port=FileBasedStorageAdapter(
+                archive_dir=archiver_config.archive_dir,
+                compress=archiver_config.compression,
+            )
+        )
+
+        return MemoryLibrary(
+            short_term=short_term,
+            mid_term=mid_term,
+            long_term=long_term,
+        )
 
     def _create_mock_lifecycle_engine(self):
         """创建 Mock Lifecycle 引擎"""
@@ -546,7 +577,7 @@ class SystemScenarioTestSystem:
             )
             # 调试：打印过滤器信息
             logger.info(f"检索请求 user_id: {retrieval_request.user_id}")
-            retrieval_response = self.retrieval_familiar.retrieve(retrieval_request)
+            retrieval_response = asyncio.run(self.retrieval_familiar.retrieve(retrieval_request))
 
         return {
             "session_id": session["session_id"],
@@ -919,12 +950,25 @@ class TestGoldenScenarios:
         if result_b["retrieval_response"] and result_b["retrieval_response"].memories:
             console.print(f"[green]✓[/green] 检索到敏感信息记忆（带安全约束）")
 
-            # 检查渲染的上下文是否包含安全约束
-            rendered_context = result_b["retrieval_response"].rendered_context or ""
-            if "禁止" in rendered_context or "保密" in rendered_context or "不能输出" in rendered_context:
-                console.print(f"[green]✓[/green] 渲染上下文包含安全约束提示")
+            from hivememory.engines.memory_compiler import (
+                MemoryCompiler,
+                MemoryCompileOptions,
+                MemoryEnvelopeTarget,
+            )
+            from hivememory.system.config.memory_compiler import FullContextStrategyConfig
+
+            memory_context = MemoryCompiler().compile(
+                result_b["retrieval_response"].memories,
+                MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                MemoryCompileOptions(
+                    language="zh",
+                    retrieval_strategy_config=FullContextStrategyConfig(max_tokens=4000),
+                ),
+            ).text
+            if "禁止" in memory_context or "保密" in memory_context or "不能输出" in memory_context:
+                console.print(f"[green]✓[/green] 编译上下文包含安全约束提示")
             else:
-                console.print("[yellow]![/yellow] 渲染上下文可能未包含安全约束")
+                console.print("[yellow]![/yellow] 编译上下文可能未包含安全约束")
         else:
             console.print("[yellow]![/yellow] 未检索到记忆")
 

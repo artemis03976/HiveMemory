@@ -262,8 +262,8 @@ DEDUPLICATION_TEST_CASES = [
 MERGE_TEST_CASES = [
     {
         "id": "GEN-MRG-001",
-        "name": "内容追加合并",
-        "description": "验证合并后内容包含旧内容和新内容",
+        "name": "dedup UPDATE 覆盖当前内容",
+        "description": "验证更新后 content 采用新草稿内容，不追加旧内容",
         "priority": "P0",
         "existing_memory": {
             "title": "Python 虚拟环境",
@@ -312,8 +312,8 @@ MERGE_TEST_CASES = [
     },
     {
         "id": "GEN-MRG-003",
-        "name": "摘要更新策略",
-        "description": "验证合并后选择较长的摘要",
+        "name": "摘要覆盖策略",
+        "description": "验证更新后直接采用草稿摘要，不按长度取舍",
         "priority": "P2",
         "existing_memory": {
             "title": "Git 分支管理",
@@ -369,13 +369,12 @@ SCHEMA_VALIDATION_CASES = [
     },
     {
         "id": "GEN-SCH-002",
-        "name": "置信度加权计算",
-        "description": "验证合并后置信度按 0.6*old + 0.4*new 计算",
+        "name": "更新置信度重置",
+        "description": "验证统一 UPDATE primitive 会将更新后置信度置为 1.0",
         "priority": "P1",
         "existing_confidence": 0.80,
         "new_confidence": 0.90,
-        "expected_merged_confidence": 0.84,  # 0.6 * 0.80 + 0.4 * 0.90 = 0.84
-        "tolerance": 0.01,
+        "expected_updated_confidence": 1.0,
     },
 ]
 

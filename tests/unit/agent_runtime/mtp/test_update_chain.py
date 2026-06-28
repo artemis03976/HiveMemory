@@ -293,8 +293,8 @@ class TestModeCMergePrompt:
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "新内容"
-        assert result[0].canonical_alias == existing_memory.get_alias()
-        assert result[0].canonical_uuid == str(existing_memory.id)
+        assert result[0].atom.get_alias() == existing_memory.get_alias()
+        assert str(result[0].atom.id) == str(existing_memory.id)
         assert result[0].atom is not None
 
 
@@ -387,10 +387,10 @@ class TestModeCFallback:
         mock_extractor.merge.assert_not_called()
 
 
-# ========== Test 6: _apply_update Version History ==========
+# ========== Test 6: _apply_update Version Tracking ==========
 
 class TestApplyUpdate:
-    """验证版本历史追踪 (full_history, history_summary, version++)"""
+    """验证版本追踪 (history_summary, version++, changelog)"""
 
     def test_version_incremented(self, existing_memory, merge_result):
         mock_storage = _mock_mid_term()
@@ -412,20 +412,6 @@ class TestApplyUpdate:
 
         assert result[0].atom.payload.content == merge_result.new_content
 
-    def test_full_history_pushed(self, existing_memory, merge_result):
-        engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
-        )
-        old_content = existing_memory.payload.content
-
-        result = engine._apply_update(existing_memory, merge_result)
-
-        history = result[0].atom.payload.artifacts.full_history
-        assert len(history) == 1
-        assert history[0]["content"] == old_content
-        assert history[0]["reason"] == merge_result.changelog
-        assert "timestamp" in history[0]
-
     def test_history_summary_appended(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
@@ -435,6 +421,7 @@ class TestApplyUpdate:
         summary = result[0].atom.payload.history_summary
         assert len(summary) == 1
         assert merge_result.changelog in summary[0]
+        assert result[0].changelog == merge_result.changelog
 
     def test_confidence_reset_to_1(self, existing_memory, merge_result):
         existing_memory.meta.confidence_score = 0.5
@@ -454,21 +441,14 @@ class TestApplyUpdate:
 
         assert result[0].atom.meta.updated_at >= before
 
-    def test_pending_update_settlement_status_is_updated(self, existing_memory, merge_result):
+    def test_apply_update_does_not_build_settlement(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
         )
 
-        result = engine._apply_update(
-            existing_memory,
-            merge_result,
-            intent_id="intent_update_1",
-            pending_alias="rev_fact_api_port_1234",
-        )
+        result = engine._apply_update(existing_memory, merge_result)
 
-        assert result[0].settlement is not None
-        assert result[0].settlement.resolution == PendingAtomResolution.UPDATED
-        assert result[0].settlement.canonical_alias == existing_memory.get_alias()
+        assert not hasattr(result[0], "settlement")
 
     def test_multiple_updates_accumulate_history(self, existing_memory):
         engine = MemoryGenerationEngine(
@@ -484,7 +464,6 @@ class TestApplyUpdate:
         engine._apply_update(existing_memory, r2)
 
         assert existing_memory.meta.version == 3
-        assert len(existing_memory.payload.artifacts.full_history) == 2
         assert len(existing_memory.payload.history_summary) == 2
 
 

@@ -156,8 +156,7 @@ class TurnEvent(BaseModel):
     - 普通用户/助手消息
     - Thought 片段
     - Tool Call
-    - Tool Result
-    - 其他系统级注入消息
+    - Tool Result（包含工具调用后的系统级回填）
 
     设计目标：
     - 作为历史视图重放的统一事件真相源
@@ -173,7 +172,6 @@ class TurnEvent(BaseModel):
         "thought",
         "tool_call",
         "tool_result",
-        "system_message",
     ]
     sequence: int
     role: Literal["user", "assistant", "system"]

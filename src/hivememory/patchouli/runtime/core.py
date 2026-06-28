@@ -41,6 +41,7 @@ from hivememory.core.protocol.models import (
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
 from hivememory.system.config import PatchouliConfig, SharedConfig
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
@@ -160,6 +161,18 @@ class PatchouliRuntime:
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_TASK_CANCEL,
             self._task_controller.cancel_task,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_WAIT,
+            self._task_controller.wait_task,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_WAIT_MANY,
+            self._task_controller.wait_many,
+        )
+        self._local_bus.register(
+            PatchouliLocalRoutes.MEMORY_TASK_WAIT_ALL,
+            self._task_controller.wait_all,
         )
 
         self._local_bus.register(
@@ -326,7 +339,9 @@ class PatchouliRuntime:
         return storage_ready and reranker_ready
 
     async def shutdown_drain(self) -> dict[str, Any]:
-        """服务关闭前强制归档 perception 中的活跃话题。"""
+        """
+        服务关闭前强制归档活跃话题并等待后台记忆生成任务完成。
+        """
         if self._shutdown_drain_started:
             logger.info("shutdown drain 已执行，跳过重复调用")
             return {
@@ -339,6 +354,7 @@ class PatchouliRuntime:
                     "skipped_topics": [],
                     "archived_blocks": 0,
                 },
+                "generation": MemoryGenerationTaskWaitSummary.from_results([]),
                 "reentrant": True,
             }
 
@@ -346,15 +362,35 @@ class PatchouliRuntime:
         logger.info("开始执行 shutdown drain")
 
         perception_result = await self.perception_familiar.flush_all_for_shutdown()
+        generation_result = await self._task_controller.wait_all(
+            timeout=(
+                self._patchouli_config.shutdown
+                .generation_wait_timeout_seconds
+            ),
+        )
+        timed_out_task_ids = [
+            result.task_id
+            for result in generation_result.results
+            if result.timed_out and result.found
+        ]
+        cancelled_after_timeout = 0
+        if timed_out_task_ids:
+            cancelled_after_timeout = await self._task_controller.cancel_many(
+                timed_out_task_ids,
+                reason="shutdown_timeout",
+            )
         result = {
-            "success": True,
+            "success": generation_result.timed_out == 0,
             "observer_payloads_submitted": 0,
             "perception": perception_result,
+            "generation": generation_result,
+            "generation_cancelled_after_timeout": cancelled_after_timeout,
             "reentrant": False,
         }
         logger.info(
             f"shutdown drain 完成: observer_payloads=0, "
-            f"flushed_topics={len(perception_result.flushed_topics)}"
+            f"flushed_topics={len(perception_result.flushed_topics)}, "
+            f"generation_timed_out={generation_result.timed_out}"
         )
         return result
 

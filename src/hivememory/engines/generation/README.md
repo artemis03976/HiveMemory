@@ -2,7 +2,7 @@
 
 ## 📖 概述
 
-MemoryGeneration 模块是 HiveMemory 系统的核心组件之一，负责从对话流中自动提取、精炼和存储结构化的记忆原子。
+MemoryGeneration 模块是 HiveMemory 系统的核心组件之一，负责从对话流中自动提取、精炼和产出结构化的记忆原子。持久化、artifact 构建和外围业务 settlement 由 Patchouli Familiar 层负责。
 
 该模块实现了 **PROJECT.md 第 4 章** 定义的完整记忆生成流程。
 
@@ -13,8 +13,8 @@ MemoryGeneration 模块是 HiveMemory 系统的核心组件之一，负责从对
 1. **对话监听与缓冲** - 累积对话消息，智能判断处理时机
 2. **价值评估 (Gating)** - 过滤无长期价值的闲聊和噪音
 3. **LLM 驱动的提取** - 将自然对话转换为结构化记忆原子
-4. **查重与演化** - 检测重复记忆，支持知识更新与合并
-5. **持久化存储** - 生成向量并存储到 Qdrant
+4. **查重与演化** - 检测重复记忆，支持知识更新决策
+5. **纯计算产出** - 返回 `GenerationOutcome`，由 Familiar 负责后续持久化
 
 ---
 
@@ -38,8 +38,8 @@ MemoryGeneration 模块是 HiveMemory 系统的核心组件之一，负责从对
 │                                               │             │
 │                                               ▼             │
 │                                        ┌──────────────┐     │
-│                                        │VectorStore   │     │
-│                                        │(Qdrant 存储) │     │
+│                                        │ Outcome      │     │
+│                                        │ (纯计算结果) │     │
 │                                        └──────────────┘     │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -87,7 +87,7 @@ draft = extractor.extract(transcript, metadata)
 | 相似度 | 内容一致 | 决策 | 操作 |
 |--------|---------|------|------|
 | > 0.95 | 是 | **TOUCH** | 仅更新访问时间 |
-| 0.75-0.95 | - | **UPDATE** | 知识演化合并 |
+| 0.75-0.95 | - | **UPDATE** | 覆盖当前 head，历史交给版本 artifact |
 | < 0.75 | - | **CREATE** | 创建新记忆 |
 
 **用法**:
@@ -98,7 +98,9 @@ dedup = MemoryDeduplicator(storage)
 decision = dedup.check_duplicate(draft)
 
 if decision == DuplicateDecision.UPDATE:
-    merged = dedup.merge_memory(existing, draft)
+    # engine 将 draft 内容作为新的当前 head，并通过统一 UPDATE primitive 应用。
+    # 历史展示由 MemoryVersionArtifact 链路负责，不拼接到 payload.content。
+    ...
 ```
 
 ### 4. `triggers.py` - 触发策略管理
@@ -158,7 +160,7 @@ buffer.add_message("assistant", "使用 datetime.fromisoformat()...")
 Step 1: LLM 提取 → ExtractedMemoryDraft
 Step 2: 查重检测 → CREATE/UPDATE/TOUCH
 Step 3: 记忆原子构建 → MemoryAtom
-Step 4: 持久化 → Qdrant
+Step 4: 返回 GenerationOutcome
 ```
 
 **用法**:

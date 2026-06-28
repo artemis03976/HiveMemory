@@ -44,6 +44,7 @@ class AliceSystem(SubsystemProtocol):
         self._runtime = AliceRuntime(
             alice_config=config.alice,
             shared_config=config.shared,
+            memory_compiler_config=config.memory_compiler,
             global_bus=global_bus,
             runtime_events=self._runtime_events,
         )

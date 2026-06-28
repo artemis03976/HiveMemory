@@ -31,6 +31,7 @@ from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.patchouli.runtime.core import PatchouliRuntime
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
 from hivememory.core.protocol.models import (
     AnalyzeAndRetrieveResult,
     EyeGazeResult,
@@ -386,6 +387,12 @@ def sys_passive():
             "archived_blocks": 0,
         }
     )
+    runtime._task_controller = MagicMock()
+    runtime._task_controller.wait_all = AsyncMock(
+        return_value=MemoryGenerationTaskWaitSummary.from_results([])
+    )
+    runtime._patchouli_config = MagicMock()
+    runtime._patchouli_config.shutdown.generation_wait_timeout_seconds = 30.0
     retrieve = AsyncMock(
         return_value=MagicMock(
             is_empty=MagicMock(return_value=False),

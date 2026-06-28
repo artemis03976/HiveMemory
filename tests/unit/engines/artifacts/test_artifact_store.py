@@ -101,8 +101,8 @@ async def test_get_by_id_string(store):
 
 # ── 旧 MemoryAtom payload 兼容性 ─────────────────────────────────────────────
 
-def test_old_artifacts_payload_deserializes():
-    """v0.4 及以前只有 raw_source_url/file_path/context_ref/full_history/agent_config"""
+def test_old_artifacts_payload_ignores_removed_legacy_fields():
+    """v0.4 旧字段已被结构化 artifact 体系替代，反序列化时忽略。"""
     old = {
         "raw_source_url": "https://example.com",
         "file_path": "/tmp/doc.md",
@@ -110,7 +110,10 @@ def test_old_artifacts_payload_deserializes():
         "full_history": [{"timestamp": "2026-01-01", "content": "v1", "reason": "init"}],
     }
     artifacts = Artifacts.model_validate(old)
-    assert artifacts.raw_source_url == "https://example.com"
+    assert not hasattr(artifacts, "raw_source_url")
+    assert not hasattr(artifacts, "file_path")
+    assert not hasattr(artifacts, "context_ref")
+    assert not hasattr(artifacts, "full_history")
     assert artifacts.refs == []
     assert artifacts.provenance == []
     assert artifacts.cold_archive_uri is None

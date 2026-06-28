@@ -4,7 +4,11 @@ import logging
 from typing import Any, List
 from uuid import UUID
 
-from hivememory.engines.memory_compiler import MemoryCompiler, MemoryEnvelopeTarget
+from hivememory.engines.memory_compiler import (
+    MemoryCompileOptions,
+    MemoryCompiler,
+    MemoryEnvelopeTarget,
+)
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -20,6 +24,7 @@ from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.server.models.memory import MemoryResponse
+from hivememory.system.config import MemoryCompilerConfig
 
 from hivememory.patchouli.eye import TheEye
 
@@ -34,9 +39,12 @@ class PatchouliService:
         bus: PatchouliBus,
         *,
         eye: TheEye,
+        memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
         self._eye = eye
         self._local_bus = bus
+        self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
+        self._compiler = MemoryCompiler()
 
     async def analyze_and_retrieve(
         self,
@@ -46,7 +54,7 @@ class PatchouliService:
         enable_retrieval: bool = True,
     ) -> AnalyzeAndRetrieveResult:
         """执行 Patchouli 的标准分析与预检索入口。"""
-        gaze_result = await self._require_local_bus().request(
+        gaze_result = await self._local_bus.request(
             PatchouliLocalRoutes.GATEWAY_GAZE,
             query=query,
             topic_snapshots=topic_snapshots,
@@ -96,16 +104,16 @@ class PatchouliService:
                 agent_id=agent_id,
                 session_id=session_id,
             )
-            agent_profile = await self._require_local_bus().request(
+            agent_profile = await self._local_bus.request(
                 PatchouliLocalRoutes.GET_AGENT_PROFILE,
                 agent_id,
             )
-            topic_snapshots = await self._require_local_bus().request(
+            topic_snapshots = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
                 identity=identity,
             )
 
-            gaze_result = await self._require_local_bus().request(
+            gaze_result = await self._local_bus.request(
                 PatchouliLocalRoutes.GATEWAY_GAZE,
                 query=user_message,
                 topic_snapshots=topic_snapshots,
@@ -113,19 +121,19 @@ class PatchouliService:
             )
 
             is_new = gaze_result.target_topic == "NEW_TOPIC"
-            real_topic_id = await self._require_local_bus().request(
+            real_topic_id = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_PREPARE,
                 target_topic_id=gaze_result.target_topic,
                 new_topic_title=gaze_result.new_topic_title,
                 new_topic_summary=gaze_result.new_topic_summary,
                 identity=identity,
             )
-            pool_topics = await self._require_local_bus().request(
+            pool_topics = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
                 identity=identity,
                 include_empty=True,
             )
-            topic_context = await self._require_local_bus().request(
+            topic_context = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_GET,
                 real_topic_id,
             )
@@ -135,9 +143,14 @@ class PatchouliService:
                 enable_retrieval=enable_memory_retrieval,
             )
             memory_context = (
-                MemoryCompiler().compile(
+                self._compiler.compile(
                     retrieval_result.memories,
                     MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                    MemoryCompileOptions(
+                        retrieval_strategy_config=(
+                            self._memory_compiler_config.retrieval_context.strategy
+                        ),
+                    ),
                 ).text
                 if retrieval_result.memories
                 else ""
@@ -151,7 +164,7 @@ class PatchouliService:
                 retrieval_result=retrieval_result,
                 memory_context=memory_context,
                 agent_profile=agent_profile,
-                storage_available=await self._require_local_bus().request(
+                storage_available=await self._local_bus.request(
                     PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
                 ),
             )
@@ -199,7 +212,7 @@ class PatchouliService:
         )
 
         # 先推入短期 buffer，再直接驱动主动生成，确保本轮内容进入生成上下文。
-        await self._require_local_bus().request(
+        await self._local_bus.request(
             PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
             payload,
             target_topic_id=agent_context.topic_id,
@@ -207,7 +220,7 @@ class PatchouliService:
 
         memory_tasks: List[MemoryGenerationTask] = []
         if loop_result.materialize_tasks:
-            memory_tasks = await self._require_local_bus().request(
+            memory_tasks = await self._local_bus.request(
                 PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
                 loop_result.materialize_tasks,
                 topic_id=agent_context.topic_id,
@@ -223,7 +236,7 @@ class PatchouliService:
         target_topic_id: str | None = None,
         target_topic: str | None = None,
     ) -> Any:
-        return await self._require_local_bus().request(
+                return await self._local_bus.request(
             PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
             payload,
             target_topic_id=target_topic_id or target_topic or "NEW_TOPIC",
@@ -236,7 +249,7 @@ class PatchouliService:
     ) -> Any:
         """记录一次记忆引用事件。"""
         normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
-        return await self._require_local_bus().request(
+        return await self._local_bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_CITATION,
             normalized_id,
             source=source,
@@ -271,17 +284,12 @@ class PatchouliService:
                 keywords=gaze_result.search_keywords,
                 identity=gaze_result.identity,
             )
-            return await self._require_local_bus().request(
+            return await self._local_bus.request(
                 PatchouliLocalRoutes.MEMORY_RETRIEVE,
                 retrieval_request,
             )
 
         return RetrievalResponse()
-
-    def _require_local_bus(self) -> PatchouliBus:
-        if self._local_bus is None:
-            raise RuntimeError("PatchouliService 尚未接入 PatchouliBus")
-        return self._local_bus
 
     async def _record_retrieval_hits(self, prepared_run: PreparedAgentRun) -> None:
         retrieval_result = getattr(prepared_run.agent_run_context, "retrieval_result", None)
@@ -296,7 +304,7 @@ class PatchouliService:
                 continue
             seen.add(memory_key)
             try:
-                await self._require_local_bus().request(
+                await self._local_bus.request(
                     PatchouliLocalRoutes.MEMORY_RECORD_HIT,
                     memory_id,
                     source="retrieval.finalize",
@@ -310,7 +318,7 @@ class PatchouliService:
 
     async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:
         try:
-            cleaned = await self._require_local_bus().request(
+            cleaned = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
                 topic_id,
             )

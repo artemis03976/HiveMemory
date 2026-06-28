@@ -6,16 +6,18 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, List, Optional
+from typing import Any, List, Optional
 
-from hivememory.engines.generation.models import MemoryGenerationResult
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationResult,
     MemoryGenerationTask,
     MemoryGenerationTaskRegistry,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
+    MemoryGenerationTaskWaitResult,
+    MemoryGenerationTaskWaitSummary,
     memory_task_to_payload,
 )
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
@@ -51,10 +53,7 @@ class MemoryGenerationTaskController:
         spec: MemoryGenerationTaskSpec,
     ) -> MemoryGenerationTask:
         """提交单个规范化生成任务。"""
-        return await self._create_and_run_task(
-            spec=spec,
-            coro_factory=lambda mt: self._run_task(mt, spec),
-        )
+        return await self._create_and_run_task(spec=spec)
 
     async def submit_generation_many(
         self,
@@ -70,7 +69,6 @@ class MemoryGenerationTaskController:
         self,
         *,
         spec: MemoryGenerationTaskSpec,
-        coro_factory: Callable[[MemoryGenerationTask], Any],
     ) -> MemoryGenerationTask:
         """创建运行时任务句柄并调度后台协程。"""
         memory_task = MemoryGenerationTask(
@@ -88,7 +86,7 @@ class MemoryGenerationTaskController:
         )
 
         bg_task = asyncio.create_task(
-            coro_factory(memory_task),
+            self._run_task(memory_task, spec),
             name=f"memory_task_{memory_task.task_id[:8]}",
         )
         memory_task.attach_task(bg_task)
@@ -233,11 +231,14 @@ class MemoryGenerationTaskController:
     async def _publish_memory_task_status(
         self,
         memory_task: MemoryGenerationTask,
+        *,
+        reason: str | None = None,
     ) -> None:
         """发布 MemoryGenerationTask 实时状态快照。"""
         self._emit_memory_task_event(
             self._event_type_for_task_status(memory_task.status),
             memory_task,
+            reason=reason,
         )
         try:
             await self._bus.publish(
@@ -271,20 +272,22 @@ class MemoryGenerationTaskController:
         *,
         error: str | None = None,
         pending_alias: str | None = None,
+        reason: str | None = None,
     ) -> None:
         """
         完成 MemoryGenerationTask 的唯一终态入口。
 
         先落业务事实：status/error/finished_at；再 best-effort 发布
-        PendingAtom 和 memory.task 终态事件；最后无论发布是否失败都 close registry。
+        PendingAtom 和 memory.task 终态事件；最后无论发布是否失败都保留终态快照。
 
         第一次终态调用胜出，后续调用 no-op。防止取消、异常和重复 cleanup 互相覆盖终态。
         """
-        if memory_task._terminal_status_published:
+        if memory_task._terminal_finish_started:
             return
         if status not in _TERMINAL_STATUSES:
             raise ValueError(f"Memory task finish status must be terminal: {status}")
 
+        memory_task._terminal_finish_started = True
         memory_task.status = status
         if error is not None:
             memory_task.error = error
@@ -306,12 +309,11 @@ class MemoryGenerationTaskController:
                     )
 
             await self._publish_best_effort(
-                self._publish_memory_task_status(memory_task),
+                self._publish_memory_task_status(memory_task, reason=reason),
                 f"memory task terminal publish failed: {memory_task.task_id}",
             )
         finally:
-            memory_task._terminal_status_published = True
-            self._task_registry.close(memory_task.task_id, status)
+            self._task_registry.retain_terminal(memory_task.task_id)
 
     async def _publish_best_effort(self, awaitable, warning: str) -> None:
         """发布可观测副作用；失败只记日志，不改变任务终态。"""
@@ -330,7 +332,93 @@ class MemoryGenerationTaskController:
         """列出当前 registry 中仍保留的任务。"""
         return self._task_registry.list_all()
 
-    def cancel_task(self, task_id: str) -> bool:
+    async def wait_task(
+        self,
+        task_id: str,
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitResult:
+        """等待指定后台记忆生成任务完成，不取消或接管后台任务。"""
+        memory_task = self._task_registry.get(task_id)
+        if memory_task is None:
+            return MemoryGenerationTaskWaitResult.not_found(task_id)
+
+        bg_task = memory_task._bg_task
+        if bg_task is None or bg_task.done():
+            return MemoryGenerationTaskWaitResult.from_task(memory_task)
+
+        try:
+            await asyncio.wait_for(asyncio.shield(bg_task), timeout=timeout)
+        except TimeoutError:
+            return MemoryGenerationTaskWaitResult.from_task(
+                memory_task,
+                timed_out=True,
+            )
+        except asyncio.CancelledError:
+            if bg_task.done():
+                return MemoryGenerationTaskWaitResult.from_task(memory_task)
+            raise
+
+        return MemoryGenerationTaskWaitResult.from_task(memory_task)
+
+    async def wait_many(
+        self,
+        task_ids: List[str],
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitSummary:
+        """等待一批指定后台记忆生成任务完成。"""
+        if not task_ids:
+            return MemoryGenerationTaskWaitSummary.from_results([])
+
+        waiters = [
+            asyncio.create_task(
+                self.wait_task(task_id, timeout=None),
+                name=f"memory_task_wait_{task_id[:8]}",
+            )
+            for task_id in task_ids
+        ]
+        done, pending = await asyncio.wait(waiters, timeout=timeout)
+
+        results: List[MemoryGenerationTaskWaitResult] = []
+        for task_id, waiter in zip(task_ids, waiters):
+            if waiter in done:
+                results.append(waiter.result())
+            else:
+                waiter.cancel()
+                memory_task = self._task_registry.get(task_id)
+                if memory_task is None:
+                    results.append(
+                        MemoryGenerationTaskWaitResult.not_found(task_id)
+                    )
+                else:
+                    results.append(
+                        MemoryGenerationTaskWaitResult.from_task(
+                            memory_task,
+                            timed_out=True,
+                        )
+                    )
+
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        return MemoryGenerationTaskWaitSummary.from_results(results)
+
+    async def wait_all(
+        self,
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitSummary:
+        """等待调用瞬间所有仍在后台执行的记忆生成任务完成。"""
+        task_ids = [
+            memory_task.task_id
+            for memory_task in self._task_registry.list_all()
+            if memory_task._bg_task is not None and not memory_task._bg_task.done()
+        ]
+        return await self.wait_many(task_ids, timeout=timeout)
+
+    async def cancel_task(
+        self,
+        task_id: str,
+        *,
+        reason: str = "user_requested",
+    ) -> bool:
         """请求取消指定记忆生成任务。"""
         memory_task = self._task_registry.get(task_id)
         ok = self._task_registry.cancel(task_id)
@@ -338,9 +426,27 @@ class MemoryGenerationTaskController:
             self._emit_memory_task_event(
                 RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
                 memory_task,
-                reason="user_requested",
+                reason=reason,
+            )
+            await self._finish_task(
+                memory_task,
+                MemoryGenerationTaskStatus.CANCELLED,
+                pending_alias=memory_task.pending_alias,
+                reason=reason,
             )
         return ok
+
+    async def cancel_many(
+        self,
+        task_ids: List[str],
+        *,
+        reason: str = "user_requested",
+    ) -> int:
+        cancelled = 0
+        for task_id in task_ids:
+            if await self.cancel_task(task_id, reason=reason):
+                cancelled += 1
+        return cancelled
 
     def _emit_memory_task_event(
         self,

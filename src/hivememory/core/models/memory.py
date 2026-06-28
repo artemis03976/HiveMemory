@@ -137,17 +137,6 @@ class Artifacts(BaseModel):
     Artifacts - 原始数据与溯源信息
     通常不加载到 Context, 仅按需查询
     """
-    # ---- 向下兼容字段 (v0.4 及以前) ----
-    raw_source_url: Optional[str] = Field(default=None, description="原始URL")
-    file_path: Optional[str] = Field(default=None, description="文件路径")
-    context_ref: List[Dict[str, str]] = Field(
-        default_factory=list,
-        description="溯源链: [{session_id, msg_id}, ...]"
-    )
-    full_history: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="完整版本历史 (Git-like)"
-    )
     agent_config: Optional[Dict[str, Any]] = Field(
         default=None,
         description="人偶图纸配置: {model_name, temperature, permissions: {allowed_mtp_verbs, allowed_sys_tools}}"
@@ -185,9 +174,12 @@ class PayloadLayer(BaseModel):
     """
     content: str = Field(..., description="Markdown格式的核心内容")
 
+    # 兼容性字段：artifact 系统关闭时，它作为轻量历史 fallback 供检索/提示词参考。
+    # TODO(history-compiler): 后续 MTP RUN 历史信息编译实现后，统一决定
+    # history_summary 是继续作为 fallback 保留，还是完全迁移到 MemoryVersionArtifact。
     history_summary: List[str] = Field(
         default_factory=list,
-        description="简化的版本历史 (用于Context注入)"
+        description="简化的版本历史；artifact 禁用时作为 fallback，展示逻辑需进入历史信息编译"
     )
 
     artifacts: Artifacts = Field(

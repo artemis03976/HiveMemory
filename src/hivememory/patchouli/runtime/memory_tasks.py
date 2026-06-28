@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from hivememory.engines.generation.models import GenerationRequest
+from pydantic import BaseModel
+
+from hivememory.core.models import PendingAtomSettlement
+from hivememory.engines.generation.models import DuplicateDecision, GenerationRequest
 
 if TYPE_CHECKING:
     from hivememory.engines.perception.models import LogicalBlock
@@ -20,6 +24,15 @@ class MemoryGenerationTaskStatus(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+
+
+_TERMINAL_STATUSES = frozenset(
+    {
+        MemoryGenerationTaskStatus.COMPLETED,
+        MemoryGenerationTaskStatus.CANCELLED,
+        MemoryGenerationTaskStatus.FAILED,
+    }
+)
 
 
 class MemoryGenerationSource(str, Enum):
@@ -50,7 +63,29 @@ class MemoryGenerationTaskSpec:
     request: GenerationRequest
     source_intent: str
     interaction_input: InteractionArtifactInput | None = None
+    intent_id: Optional[str] = None
     pending_alias: Optional[str] = None
+
+
+class MemoryGenerationResult(BaseModel):
+    """Patchouli-owned result view for memory generation task execution."""
+
+    intent_id: Optional[str] = None
+    pending_alias: Optional[str] = None
+
+    atom: Optional[Any] = None
+    canonical_alias: Optional[str] = None
+    canonical_uuid: Optional[str] = None
+
+    duplicate_decision: Optional[DuplicateDecision] = None
+    memory_before_snapshot: Optional[Any] = None
+    changelog: Optional[str] = None
+
+    settlement: Optional[PendingAtomSettlement] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 @dataclass
@@ -70,18 +105,14 @@ class MemoryGenerationTask:
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     _bg_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
-    _terminal_status_published: bool = field(default=False, repr=False, compare=False)
+    _terminal_finish_started: bool = field(default=False, repr=False, compare=False)
 
     @property
     def cancelled(self) -> bool:
         return self.cancel_event.is_set()
 
     def request_cancel(self) -> None:
-        if self.status not in (
-            MemoryGenerationTaskStatus.COMPLETED,
-            MemoryGenerationTaskStatus.FAILED,
-            MemoryGenerationTaskStatus.CANCELLED,
-        ):
+        if self.status not in _TERMINAL_STATUSES:
             self.cancel_event.set()
 
     def attach_task(self, task: asyncio.Task) -> None:
@@ -90,6 +121,93 @@ class MemoryGenerationTask:
     def cancel_background_task(self) -> None:
         if self._bg_task is not None and not self._bg_task.done():
             self._bg_task.cancel()
+
+
+@dataclass(frozen=True)
+class MemoryGenerationTaskWaitResult:
+    """Result snapshot for waiting on one memory generation task."""
+
+    task_id: str
+    found: bool
+    timed_out: bool = False
+    status: Optional[MemoryGenerationTaskStatus] = None
+    canonical_alias: Optional[str] = None
+    error: Optional[str] = None
+
+    @classmethod
+    def from_task(
+        cls,
+        memory_task: MemoryGenerationTask,
+        *,
+        timed_out: bool = False,
+    ) -> "MemoryGenerationTaskWaitResult":
+        return cls(
+            task_id=memory_task.task_id,
+            found=True,
+            timed_out=timed_out,
+            status=memory_task.status,
+            canonical_alias=memory_task.canonical_alias,
+            error=memory_task.error,
+        )
+
+    @classmethod
+    def not_found(cls, task_id: str) -> "MemoryGenerationTaskWaitResult":
+        return cls(task_id=task_id, found=False)
+
+
+@dataclass(frozen=True)
+class MemoryGenerationTaskWaitSummary:
+    """Aggregate result for waiting on multiple memory generation tasks."""
+
+    requested: int
+    found: int
+    missing: int
+    completed: int
+    failed: int
+    cancelled: int
+    pending: int
+    running: int
+    timed_out: int
+    results: tuple[MemoryGenerationTaskWaitResult, ...]
+
+    @classmethod
+    def from_results(
+        cls,
+        results: list[MemoryGenerationTaskWaitResult],
+    ) -> "MemoryGenerationTaskWaitSummary":
+        found = [result for result in results if result.found]
+        return cls(
+            requested=len(results),
+            found=len(found),
+            missing=sum(1 for result in results if not result.found),
+            completed=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.COMPLETED
+            ),
+            failed=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.FAILED
+            ),
+            cancelled=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.CANCELLED
+            ),
+            pending=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.PENDING
+            ),
+            running=sum(
+                1
+                for result in found
+                if result.status == MemoryGenerationTaskStatus.RUNNING
+            ),
+            timed_out=sum(1 for result in results if result.timed_out),
+            results=tuple(results),
+        )
 
 
 def memory_task_to_payload(
@@ -132,51 +250,41 @@ class MemoryGenerationTaskRegistry:
     """In-process registry for Patchouli memory generation tasks."""
 
     def __init__(self, max_completed: int = 50) -> None:
-        self._tasks: Dict[str, MemoryGenerationTask] = {}
+        self._active_tasks: Dict[str, MemoryGenerationTask] = {}
+        self._terminal_tasks: OrderedDict[str, MemoryGenerationTask] = OrderedDict()
         self._max_completed = max_completed
 
     def register(self, memory_task: MemoryGenerationTask) -> None:
-        self._tasks[memory_task.task_id] = memory_task
+        self._terminal_tasks.pop(memory_task.task_id, None)
+        self._active_tasks[memory_task.task_id] = memory_task
 
     def get(self, task_id: str) -> Optional[MemoryGenerationTask]:
-        return self._tasks.get(task_id)
+        return self._active_tasks.get(task_id) or self._terminal_tasks.get(task_id)
 
     def list_all(self) -> List[MemoryGenerationTask]:
-        return list(self._tasks.values())
+        return list(self._active_tasks.values()) + list(self._terminal_tasks.values())
 
     def cancel(self, task_id: str) -> bool:
-        memory_task = self._tasks.get(task_id)
+        memory_task = self._active_tasks.get(task_id)
         if memory_task is None:
             return False
         memory_task.request_cancel()
         memory_task.cancel_background_task()
         return True
 
-    def close(self, task_id: str, status: MemoryGenerationTaskStatus) -> None:
-        memory_task = self._tasks.get(task_id)
+    def retain_terminal(self, task_id: str) -> None:
+        memory_task = self._active_tasks.get(task_id)
         if memory_task is None:
             return
-        memory_task.status = status
-        if memory_task.finished_at is None:
-            memory_task.finished_at = datetime.now(timezone.utc)
-        self._evict_old_completed()
-
-    def _evict_old_completed(self) -> None:
-        terminal = [
-            task
-            for task in self._tasks.values()
-            if task.status
-            in (
-                MemoryGenerationTaskStatus.COMPLETED,
-                MemoryGenerationTaskStatus.CANCELLED,
-                MemoryGenerationTaskStatus.FAILED,
+        if memory_task.status not in _TERMINAL_STATUSES:
+            raise ValueError(
+                f"Memory task retained status must be terminal: {memory_task.status}"
             )
-        ]
-        if len(terminal) <= self._max_completed:
-            return
-        terminal.sort(key=lambda task: task.finished_at or task.created_at)
-        for memory_task in terminal[: len(terminal) - self._max_completed]:
-            self._tasks.pop(memory_task.task_id, None)
+
+        self._active_tasks.pop(task_id, None)
+        self._terminal_tasks[task_id] = memory_task
+        while len(self._terminal_tasks) > self._max_completed:
+            self._terminal_tasks.popitem(last=False)
 
 
 __all__ = [
@@ -186,5 +294,7 @@ __all__ = [
     "MemoryGenerationTaskSpec",
     "MemoryGenerationTaskRegistry",
     "MemoryGenerationTaskStatus",
+    "MemoryGenerationTaskWaitResult",
+    "MemoryGenerationTaskWaitSummary",
     "memory_task_to_payload",
 ]

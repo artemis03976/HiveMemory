@@ -24,7 +24,7 @@ from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.system.config import AliceConfig, SharedConfig
+from hivememory.system.config import AliceConfig, MemoryCompilerConfig, SharedConfig
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -49,11 +49,13 @@ class AliceRuntime:
         self,
         alice_config: AliceConfig,
         shared_config: SharedConfig,
+        memory_compiler_config: MemoryCompilerConfig,
         global_bus: Optional[GlobalSystemBus] = None,
         runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._alice_config = alice_config
         self._shared_config = shared_config
+        self._memory_compiler_config = memory_compiler_config
         self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._local_bus = AliceBus()
@@ -72,6 +74,7 @@ class AliceRuntime:
             bus=self._local_bus,
             config=alice_config.koakuma,
             alias_resolver=self._alias_resolver,
+            memory_compiler_config=memory_compiler_config,
         )
         self._mtp_executor = KoakumaMTPExecutor(self._koakuma)
         self._agent_runtime = AgentRuntime(

@@ -18,6 +18,7 @@ HiveMemory Retrieval Module E2E Tests
 
 import sys
 import os
+import asyncio
 from pathlib import Path
 
 # UTF-8 编码配置 (Windows 兼容性)
@@ -68,13 +69,24 @@ from hivememory.core.models import (
 )
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.retriever import HybridRetriever, create_retriever
-from hivememory.engines.retrieval.renderer import FullContextRenderer, CascadeContextRenderer, create_renderer
 from hivememory.engines.retrieval.reranker import CrossEncoderReranker, create_reranker
 from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, create_fusion
-from hivememory.engines.retrieval.models import RetrievalQuery, RenderFormat
-from hivememory.system.config import load_app_config, FullRendererConfig, CascadeRendererConfig
+from hivememory.engines.retrieval.models import RetrievalQuery
+from hivememory.engines.memory_compiler import (
+    MemoryCompiler,
+    MemoryCompileOptions,
+    MemoryEnvelopeTarget,
+)
+from hivememory.system.config import load_app_config
+from hivememory.system.config.memory_compiler import (
+    CascadeContextStrategyConfig,
+    CompactContextStrategyConfig,
+    FullContextStrategyConfig,
+)
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
+from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 from tests.fixtures.retrieval_test_data import (
     GOLDEN_MEMORIES, HYBRID_SEARCH_TEST_CASES, RERANKING_TEST_CASES,
@@ -87,6 +99,7 @@ console = Console(force_terminal=True, legacy_windows=False)
 # ========== 全局测试状态 ==========
 
 _shared_storage: Optional[QdrantMemoryStore] = None
+_shared_mid_term: Optional[MidTermMemoryStore] = None
 _shared_retriever: Optional[HybridRetriever] = None
 _shared_reranker_service: Optional[FastEmbedRerankerService] = None
 _shared_engine: Optional[RetrievalEngine] = None
@@ -102,7 +115,7 @@ def setup_test_env() -> RetrievalEngine:
 
     创建真实的 RetrievalEngine 及其依赖组件。
     """
-    global _shared_storage, _shared_retriever, _shared_reranker_service, _shared_engine
+    global _shared_storage, _shared_mid_term, _shared_retriever, _shared_reranker_service, _shared_engine
 
     if _shared_engine is not None:
         return _shared_engine
@@ -121,7 +134,8 @@ def setup_test_env() -> RetrievalEngine:
     )
 
     # 确保测试集合存在
-    _shared_storage.create_collection(recreate=False)
+    asyncio.run(_shared_storage.create_collection(recreate=False))
+    _shared_mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(_shared_storage))
 
     # 2. 创建 Reranker 服务
     retriever_config = app_config.retrieval.retriever
@@ -131,19 +145,14 @@ def setup_test_env() -> RetrievalEngine:
 
     # 3. 创建 HybridRetriever
     _shared_retriever = create_retriever(
-        storage=_shared_storage,
+        mid_term=_shared_mid_term,
         config=retriever_config,
         reranker_service=_shared_reranker_service,
     )
 
-    # 4. 创建 Renderer
-    renderer_config = FullRendererConfig(render_format="xml", max_tokens=4000)
-    renderer = create_renderer(renderer_config)
-
-    # 5. 创建 RetrievalEngine
+    # 4. 创建 RetrievalEngine
     _shared_engine = RetrievalEngine(
         retriever=_shared_retriever,
-        renderer=renderer,
     )
 
     console.print("[green]Retrieval E2E 测试环境初始化完成[/green]")
@@ -189,7 +198,7 @@ def reset_test_env() -> None:
 
     if _shared_storage is not None:
         try:
-            _shared_storage.create_collection(recreate=True)
+            asyncio.run(_shared_storage.create_collection(recreate=True))
             _golden_memories_injected = False
             console.print("[dim]测试集合已重置[/dim]")
         except Exception as e:
@@ -210,7 +219,7 @@ def inject_golden_memories() -> None:
 
     for data in GOLDEN_MEMORIES:
         memory = create_memory_from_data(data, identity)
-        storage.upsert_memory(memory)
+        asyncio.run(storage.upsert_memory(memory))
 
     _golden_memories_injected = True
     console.print("[green]Golden Memories 注入完成[/green]")
@@ -507,13 +516,13 @@ class TestReranking:
             console.print(f"    [yellow]警告: 阈值过滤未完全生效，但这是 P1 测试[/yellow]")
 
 
-# ========== Group 3: 渲染测试 (Rendering) ==========
+# ========== Group 3: 上下文编译测试 (MemoryCompiler) ==========
 
 class TestRendering:
     """
-    Group 3: 渲染测试
+    Group 3: 上下文编译测试
 
-    验证 ContextRenderer 的渲染能力，包括 XML、Markdown、Cascade 格式。
+    验证 MemoryCompiler 的检索上下文编译能力，包括 full、compact、cascade 策略。
     """
 
     @pytest.fixture(autouse=True)
@@ -523,19 +532,16 @@ class TestRendering:
         # 确保 Golden Memories 已注入
         inject_golden_memories()
 
-    def test_xml_format_rendering(self):
+    def test_full_strategy_context_compilation(self):
         """
-        RET-RND-001: XML 格式渲染
+        RET-RND-001: Full 策略上下文编译
 
         验证点：
-        - 输出包含 <system_memory_context> 和 <memory> 标签
+        - 输出包含 memory_context 结构
+        - Full 策略包含完整 payload 内容
         """
         test_case = RENDERING_TEST_CASES[0]  # RET-RND-001
         assert test_case["id"] == "RET-RND-001"
-
-        # 创建 XML 渲染器
-        renderer_config = FullRendererConfig(render_format="xml", max_tokens=4000)
-        renderer = create_renderer(renderer_config)
 
         # 获取测试记忆
         memory_ids = test_case["memory_ids"]
@@ -549,44 +555,45 @@ class TestRendering:
             except ValueError:
                 console.print(f"    [yellow]警告: 未找到记忆 {mid}[/yellow]")
 
-        # 执行渲染
-        rendered = renderer.render(memories, render_format=RenderFormat.XML)
+        # 执行编译
+        rendered = MemoryCompiler().compile(
+            memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(
+                language="zh",
+                retrieval_strategy_config=FullContextStrategyConfig(max_tokens=4000),
+            ),
+        ).text
 
-        # 验证结果
-        expected_contains = test_case.get("expected_contains", [])
-        expected_not_contains = test_case.get("expected_not_contains", [])
+        contains_ok = "<memory_context>" in rendered and "</memory_context>" in rendered
+        has_memory_section = "相关记忆" in rendered
+        has_full_content = "维生素含量" in rendered or "钾元素含量高" in rendered
 
-        contains_ok = all(tag in rendered for tag in expected_contains)
-        not_contains_ok = all(tag not in rendered for tag in expected_not_contains)
+        success = contains_ok and has_memory_section and has_full_content
 
-        success = contains_ok and not_contains_ok and len(rendered) > 0
-
-        print_test_result(console, "RET-RND-001: XML 格式渲染", success)
-        console.print(f"    [dim]渲染长度: {len(rendered)} 字符[/dim]")
-        console.print(f"    [dim]包含预期标签: {contains_ok}[/dim]")
-        console.print(f"    [dim]不包含排除标签: {not_contains_ok}[/dim]")
+        print_test_result(console, "RET-RND-001: Full 策略上下文编译", success)
+        console.print(f"    [dim]上下文长度: {len(rendered)} 字符[/dim]")
+        console.print(f"    [dim]包含上下文结构: {contains_ok}[/dim]")
+        console.print(f"    [dim]包含完整内容: {has_full_content}[/dim]")
 
         # 显示渲染结果片段
         if rendered:
             preview = rendered[:200] + "..." if len(rendered) > 200 else rendered
             console.print(f"    [dim]预览: {preview}[/dim]")
 
-        assert success, "XML 渲染格式不符合预期"
+        assert success, "Full 策略上下文编译不符合预期"
 
-    def test_markdown_format_rendering(self):
+    def test_compact_strategy_context_compilation(self):
         """
-        RET-RND-002: Markdown 格式渲染
+        RET-RND-002: Compact 策略上下文编译
 
         验证点：
-        - 输出包含 ## 相关记忆上下文 标题
+        - 输出包含摘要
+        - 不包含完整 payload 内容
         """
         test_case = RENDERING_TEST_CASES[1]  # RET-RND-002
         assert test_case["id"] == "RET-RND-002"
 
-        # 创建 Markdown 渲染器
-        renderer_config = FullRendererConfig(render_format="markdown", max_tokens=4000)
-        renderer = create_renderer(renderer_config)
-
         # 获取测试记忆
         memory_ids = test_case["memory_ids"]
         memories = []
@@ -599,41 +606,41 @@ class TestRendering:
             except ValueError:
                 console.print(f"    [yellow]警告: 未找到记忆 {mid}[/yellow]")
 
-        # 执行渲染
-        rendered = renderer.render(memories, render_format=RenderFormat.MARKDOWN)
+        # 执行编译
+        rendered = MemoryCompiler().compile(
+            memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(
+                language="zh",
+                retrieval_strategy_config=CompactContextStrategyConfig(max_memory_tokens=4000),
+            ),
+        ).text
 
-        # 验证结果
-        expected_contains = test_case.get("expected_contains", [])
-        expected_not_contains = test_case.get("expected_not_contains", [])
+        has_summary = "摘要" in rendered and "快速排序算法" in rendered
+        omits_full_content = "def quicksort" not in rendered
+        success = has_summary and omits_full_content and len(rendered) > 0
 
-        contains_ok = all(tag in rendered for tag in expected_contains)
-        not_contains_ok = all(tag not in rendered for tag in expected_not_contains)
+        print_test_result(console, "RET-RND-002: Compact 策略上下文编译", success)
+        console.print(f"    [dim]上下文长度: {len(rendered)} 字符[/dim]")
+        console.print(f"    [dim]包含摘要: {has_summary}[/dim]")
 
-        success = contains_ok and not_contains_ok and len(rendered) > 0
-
-        print_test_result(console, "RET-RND-002: Markdown 格式渲染", success)
-        console.print(f"    [dim]渲染长度: {len(rendered)} 字符[/dim]")
-        console.print(f"    [dim]包含预期标签: {contains_ok}[/dim]")
-
-        assert success, "Markdown 渲染格式不符合预期"
+        assert success, "Compact 策略上下文编译不符合预期"
 
     def test_cascade_rendering(self):
         """
-        RET-RND-003: 瀑布式渲染 (Cascade)
+        RET-RND-003: Cascade 策略上下文编译
 
         验证点：
-        - Top-N 完整渲染，其余降级为 Index 视图
+        - Top-N 完整编译，其余降级为 Index 视图
         """
         test_case = RENDERING_TEST_CASES[2]  # RET-RND-003
         assert test_case["id"] == "RET-RND-003"
 
-        # 创建 Cascade 渲染器
-        renderer_config = CascadeRendererConfig(
-            render_format=test_case.get("format", "xml"),
+        # 创建 Cascade 策略
+        strategy_config = CascadeContextStrategyConfig(
             full_payload_count=test_case.get("full_payload_count", 1),
             max_memory_tokens=test_case.get("max_memory_tokens", 500),
         )
-        renderer = CascadeContextRenderer(renderer_config)
 
         # 获取测试记忆
         memory_ids = test_case["memory_ids"]
@@ -647,24 +654,28 @@ class TestRendering:
             except ValueError:
                 console.print(f"    [yellow]警告: 未找到记忆 {mid}[/yellow]")
 
-        # 执行渲染
-        fmt = RenderFormat.XML if test_case.get("format", "xml") == "xml" else RenderFormat.MARKDOWN
-        rendered = renderer.render(memories, render_format=fmt)
+        # 执行编译
+        rendered = MemoryCompiler().compile(
+            memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(language="zh", retrieval_strategy_config=strategy_config),
+        ).text
 
         # 验证结果
-        # Cascade 渲染应该产生输出
         success = len(rendered) > 0
 
-        # 检查是否包含 memory_ref（Index 视图标记）
-        has_index_view = "<memory_ref" in rendered or "(摘要)" in rendered
+        # 检查是否同时包含 full 和 index 视图特征
+        has_full_view = "维生素含量" in rendered
+        has_index_view = "摘要" in rendered
 
-        print_test_result(console, "RET-RND-003: 瀑布式渲染", success)
-        console.print(f"    [dim]渲染长度: {len(rendered)} 字符[/dim]")
+        print_test_result(console, "RET-RND-003: Cascade 策略上下文编译", success)
+        console.print(f"    [dim]上下文长度: {len(rendered)} 字符[/dim]")
         console.print(f"    [dim]记忆数量: {len(memories)}[/dim]")
         console.print(f"    [dim]full_payload_count: {test_case.get('full_payload_count', 1)}[/dim]")
+        console.print(f"    [dim]包含 Full 视图: {has_full_view}[/dim]")
         console.print(f"    [dim]包含 Index 视图: {has_index_view}[/dim]")
 
-        assert success, "Cascade 渲染失败"
+        assert success and has_full_view and has_index_view, "Cascade 策略上下文编译失败"
 
 
 # ========== Group 4: 端到端流程测试 ==========
@@ -689,23 +700,27 @@ class TestEndToEndFlow:
         E2E-001: 完整检索流程
 
         验证点：
-        - 从 Query 到渲染上下文的完整流程
-        - 返回结果包含记忆和渲染后的上下文
+        - 从 Query 到检索结果的完整流程
+        - 返回结果包含记忆，Agent 可读上下文由 MemoryCompiler 编译
         """
         # 构建查询
         query = RetrievalQuery(semantic_query="水果的营养价值")
 
         # 执行完整检索流程
-        result = self.engine.retrieve(
+        result = asyncio.run(self.engine.retrieve(
             query=query,
             top_k=5,
             score_threshold=0.0,
-            render_format=RenderFormat.XML,
-        )
+        ))
 
         # 验证结果
         has_memories = len(result.memories) > 0
-        has_context = len(result.rendered_context) > 0
+        memory_context = MemoryCompiler().compile(
+            result.memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(language="zh"),
+        ).text if result.memories else ""
+        has_context = len(memory_context) > 0
         has_latency = result.latency_ms > 0
 
         success = has_memories and has_context
@@ -713,13 +728,13 @@ class TestEndToEndFlow:
         print_test_result(console, "E2E-001: 完整检索流程", success)
         console.print(f"    [dim]查询: 水果的营养价值[/dim]")
         console.print(f"    [dim]召回记忆数: {len(result.memories)}[/dim]")
-        console.print(f"    [dim]渲染上下文长度: {len(result.rendered_context)} 字符[/dim]")
+        console.print(f"    [dim]编译上下文长度: {len(memory_context)} 字符[/dim]")
         console.print(f"    [dim]检索耗时: {result.latency_ms:.1f}ms[/dim]")
 
         if result.memories:
             console.print(f"    [dim]Top-1: {result.memories[0].index.title}[/dim]")
 
-        assert success, "完整检索流程应返回记忆和渲染上下文"
+        assert success, "完整检索流程应返回记忆并可编译为上下文"
 
     def test_empty_result_handling(self):
         """
@@ -733,55 +748,58 @@ class TestEndToEndFlow:
         query = RetrievalQuery(semantic_query="xyzzy12345_不存在的查询_abcde67890")
 
         # 执行检索
-        result = self.engine.retrieve(
+        result = asyncio.run(self.engine.retrieve(
             query=query,
             top_k=5,
             score_threshold=0.9,  # 高阈值
-            render_format=RenderFormat.XML,
-        )
+        ))
 
         # 验证结果：应该返回空但不抛异常
         success = True  # 只要不抛异常就算成功
 
         print_test_result(console, "E2E-002: 空结果处理", success)
         console.print(f"    [dim]召回记忆数: {len(result.memories)}[/dim]")
-        console.print(f"    [dim]渲染上下文长度: {len(result.rendered_context)} 字符[/dim]")
 
         assert success, "空结果处理应正常返回"
 
     def test_retrieval_with_markdown_format(self):
         """
-        E2E-003: Markdown 格式检索
+        E2E-003: Compact 上下文编译
 
         验证点：
-        - 使用 Markdown 格式渲染
-        - 输出包含正确的 Markdown 标记
+        - 检索后使用 MemoryCompiler 编译默认 compact 上下文
+        - 输出包含 memory_context 和相关记忆区块
         """
         # 构建查询
         query = RetrievalQuery(semantic_query="Python 代码实现")
 
-        # 执行检索（Markdown 格式）
-        result = self.engine.retrieve(
+        # 执行检索
+        result = asyncio.run(self.engine.retrieve(
             query=query,
             top_k=3,
             score_threshold=0.0,
-            render_format=RenderFormat.MARKDOWN,
-        )
+        ))
 
         # 验证结果
         has_memories = len(result.memories) > 0
-        has_md_header = "## 相关记忆上下文" in result.rendered_context if result.rendered_context else False
+        memory_context = MemoryCompiler().compile(
+            result.memories,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(language="zh"),
+        ).text if result.memories else ""
+        has_memory_context = "<memory_context>" in memory_context
+        has_memory_section = "相关记忆" in memory_context
 
-        success = has_memories
+        success = has_memories and has_memory_context and has_memory_section
 
-        print_test_result(console, "E2E-003: Markdown 格式检索", success)
+        print_test_result(console, "E2E-003: Compact 上下文编译", success)
         console.print(f"    [dim]召回记忆数: {len(result.memories)}[/dim]")
-        console.print(f"    [dim]包含 Markdown 标题: {has_md_header}[/dim]")
+        console.print(f"    [dim]包含 memory_context: {has_memory_context}[/dim]")
 
         if result.memories:
             console.print(f"    [dim]Top-1: {result.memories[0].index.title}[/dim]")
 
-        assert success, "Markdown 格式检索应返回记忆"
+        assert success, "检索结果应可编译为 compact 上下文"
 
     def test_retrieval_metrics(self):
         """
@@ -803,7 +821,7 @@ class TestEndToEndFlow:
 
         for query_text, expected_ids in test_queries:
             query = RetrievalQuery(semantic_query=query_text)
-            result = self.engine.retrieve(query=query, top_k=5, score_threshold=0.0)
+            result = asyncio.run(self.engine.retrieve(query=query, top_k=5, score_threshold=0.0))
 
             result_ids = [str(m.id) for m in result.memories]
 

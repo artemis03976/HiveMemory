@@ -203,34 +203,6 @@ class HybridRetrieverConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class FullRendererConfig(BaseModel):
-    type: Literal["full"] = "full"
-    max_tokens: int = Field(default=2000)
-    max_content_length: int = Field(default=500)
-    show_artifacts: bool = Field(default=False)
-    stale_days: int = Field(default=90)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class CascadeRendererConfig(BaseModel):
-    type: Literal["cascade"] = "cascade"
-    max_memory_tokens: int = Field(default=2000)
-    full_payload_count: int = Field(default=1)
-    max_content_length: int = Field(default=500)
-    index_max_summary_length: int = Field(default=100)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class CompactRendererConfig(BaseModel):
-    type: Literal["compact"] = "compact"
-    max_memory_tokens: int = Field(default=2000)
-    index_max_summary_length: int = Field(default=100)
-
-    model_config = ConfigDict(extra="ignore")
-
-
 class MemoryRetrievalConfig(BaseModel):
     retriever: Union[HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig] = Field(
         default_factory=HybridRetrieverConfig,
@@ -303,6 +275,14 @@ class ArtifactStoreConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+# ========== Shutdown ==========
+
+class PatchouliShutdownConfig(BaseModel):
+    generation_wait_timeout_seconds: float = Field(default=30.0, ge=0)
+
+    model_config = ConfigDict(extra="ignore")
+
+
 # ========== PatchouliConfig ==========
 
 class PatchouliConfig(BaseModel):
@@ -313,5 +293,6 @@ class PatchouliConfig(BaseModel):
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
     artifacts: ArtifactStoreConfig = Field(default_factory=ArtifactStoreConfig)
+    shutdown: PatchouliShutdownConfig = Field(default_factory=PatchouliShutdownConfig)
 
     model_config = ConfigDict(extra="ignore")

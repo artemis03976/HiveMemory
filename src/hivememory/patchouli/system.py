@@ -100,6 +100,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
             eye=self.eye,
+            memory_compiler_config=self.config.memory_compiler,
         )
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
@@ -184,7 +185,7 @@ class PatchouliSystem(SubsystemProtocol):
 
     def register_maintenance_tasks(self, scheduler) -> bool:
         """向全局维护器注册 Patchouli 子系统的维护任务。"""
-        if not self.config.scheduler.enabled:            
+        if not self.config.scheduler.enabled:
             return False
         tasks_config = self.config.scheduler.tasks
         scheduler.register(

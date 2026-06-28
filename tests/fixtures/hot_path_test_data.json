@@ -459,45 +459,44 @@
     },
     {
       "id": "HP-RET-006-A",
-      "name": "渲染格式验证 - XML",
+      "name": "检索上下文编译 - Compact",
       "priority": "P1",
-      "category": "render_format",
+      "category": "context_compilation",
       "input": {
-        "format": "xml",
+        "strategy": "compact",
         "memory_ids": [
           "550e8400-e29b-41d4-a716-446655440101",
           "550e8400-e29b-41d4-a716-446655440102"
         ]
       },
       "expected": {
-        "contains": ["<system_memory_context>", "</system_memory_context>", "<memory_block"],
-        "not_contains": ["## 相关记忆上下文"]
+        "contains": ["<memory_context>", "</memory_context>", "相关记忆", "摘要"],
+        "not_contains": []
       }
     },
     {
       "id": "HP-RET-006-B",
-      "name": "渲染格式验证 - Markdown",
+      "name": "检索上下文编译 - Full",
       "priority": "P1",
-      "category": "render_format",
+      "category": "context_compilation",
       "input": {
-        "format": "markdown",
+        "strategy": "full",
         "memory_ids": [
           "550e8400-e29b-41d4-a716-446655440501"
         ]
       },
       "expected": {
-        "contains": ["## 相关记忆上下文", "###"],
-        "not_contains": ["<system_memory_context>"]
+        "contains": ["<memory_context>", "</memory_context>", "相关记忆"],
+        "not_contains": []
       }
     },
     {
       "id": "HP-RET-006-C",
-      "name": "渲染格式验证 - Cascade XML",
+      "name": "检索上下文编译 - Cascade",
       "priority": "P1",
-      "category": "render_format",
+      "category": "context_compilation",
       "input": {
-        "format": "xml",
-        "renderer_type": "cascade",
+        "strategy": "cascade",
         "memory_ids": [
           "550e8400-e29b-41d4-a716-446655440101",
           "550e8400-e29b-41d4-a716-446655440102",
@@ -507,7 +506,7 @@
         "max_memory_tokens": 500
       },
       "expected": {
-        "contains": ["<memory_block"],
+        "contains": ["<memory_context>", "</memory_context>", "相关记忆"],
         "cascade_behavior": "first_full_rest_summary"
       }
     }

@@ -4,7 +4,6 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, MetaData, PayloadLayer
-from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
@@ -160,38 +159,4 @@ async def test_record_feedback_requests_lifecycle_route(bus):
         mid,
         positive=True,
         source="ui.memory_ref",
-    )
-
-
-@pytest.mark.asyncio
-async def test_retrieve_routes_to_memory_retrieve(bus):
-    service = MemoryManagementService(bus=bus)
-    request = RetrievalRequest(semantic_query="query")
-    response = RetrievalResponse()
-    bus.request.return_value = response
-
-    result = await service.retrieve(request, mode="passive")
-
-    assert result is response
-    bus.request.assert_awaited_once_with(
-        PatchouliLocalRoutes.MEMORY_RETRIEVE,
-        request,
-        "passive",
-    )
-
-
-@pytest.mark.asyncio
-async def test_retrieve_by_aliases_routes_to_memory_retrieve_by_aliases(bus):
-    service = MemoryManagementService(bus=bus)
-    response = RetrievalResponse()
-    bus.request.return_value = response
-
-    result = await service.retrieve_by_aliases(["a", "b"], identity="identity", mode="active")
-
-    assert result is response
-    bus.request.assert_awaited_once_with(
-        PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
-        ["a", "b"],
-        "identity",
-        "active",
     )

@@ -372,7 +372,6 @@ class TestEngineWithGenerationContext:
         )
         extractor.extract.return_value = draft
         deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
-        deduplicator.merge_memory.return_value = MagicMock()
 
         ctx = GenerationContext(turns=[
             GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())

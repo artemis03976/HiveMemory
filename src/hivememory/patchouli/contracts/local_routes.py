@@ -34,6 +34,9 @@ class PatchouliLocalRoutes:
     MEMORY_TASK_LIST = "memory_task.list"
     MEMORY_TASK_GET = "memory_task.get"
     MEMORY_TASK_CANCEL = "memory_task.cancel"
+    MEMORY_TASK_WAIT = "memory_task.wait"
+    MEMORY_TASK_WAIT_MANY = "memory_task.wait_many"
+    MEMORY_TASK_WAIT_ALL = "memory_task.wait_all"
 
     GET_AGENT_PROFILE = "memory.get_agent_profile"
 
@@ -73,6 +76,9 @@ class PatchouliLocalRoutes:
         MEMORY_TASK_LIST,
         MEMORY_TASK_GET,
         MEMORY_TASK_CANCEL,
+        MEMORY_TASK_WAIT,
+        MEMORY_TASK_WAIT_MANY,
+        MEMORY_TASK_WAIT_ALL,
         GET_AGENT_PROFILE,
         GATEWAY_GAZE,
         TOPIC_PREPARE,

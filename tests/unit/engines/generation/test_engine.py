@@ -102,7 +102,6 @@ class TestGenerationEngineRouting:
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
-        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
@@ -181,7 +180,6 @@ class TestGenerationEngineModeA:
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
-        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
@@ -245,7 +243,6 @@ class TestGenerationEngineModeB:
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
-        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
@@ -310,7 +307,6 @@ class TestGenerationEngineModeC:
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
-        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
@@ -397,9 +393,8 @@ class TestGenerationEngineModeC:
         assert mem.payload.content == "新版本"
         assert mem.meta.version >= 2
         assert mem.meta.confidence_score == 1.0
-        assert len(mem.payload.artifacts.full_history) == 1
-        assert mem.payload.artifacts.full_history[0]["content"] == "旧内容"
         assert len(mem.payload.history_summary) >= 1
+        assert result[0].changelog == "v2 更新"
 
 
 class TestGenerationEngineDedup:
@@ -412,7 +407,6 @@ class TestGenerationEngineDedup:
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
-        self.mock_deduplicator.merge_memory = Mock()
         self.engine = MemoryGenerationEngine(
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
@@ -426,28 +420,44 @@ class TestGenerationEngineDedup:
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.TOUCH, existing)
 
-        result = await self.engine._dedup_and_persist(draft, _make_identity())
+        result = await self.engine._dedup_and_resolve(draft, _make_identity())
 
-        self.mock_storage.upsert.assert_called_once_with(existing)
+        self.mock_storage.upsert.assert_not_called()
         assert result[0].atom is existing
         assert result[0].duplicate_decision == DuplicateDecision.TOUCH
 
     @pytest.mark.asyncio
     async def test_dedup_update(self):
-        """UPDATE 决策合并内容，不持久化（持久化由 TaskController 负责）"""
+        """UPDATE 决策覆盖当前 head，不持久化（持久化由 Familiar 负责）"""
         existing = _make_memory()
-        merged = _make_memory(title="合并后")
-        draft = _make_draft()
+        existing.payload.artifacts.refs.append("ref1")
+        existing.payload.history_summary.append("old summary")
+        old_version = existing.meta.version
+        old_title = existing.index.title
+        old_summary = existing.index.summary
+        draft = _make_draft(
+            title="新版记忆",
+            alias_suffix="new_alias",
+        )
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
-        self.mock_deduplicator.merge_memory.return_value = merged
 
-        result = await self.engine._dedup_and_persist(draft, _make_identity())
+        result = await self.engine._dedup_and_resolve(draft, _make_identity())
 
-        self.mock_deduplicator.merge_memory.assert_called_once_with(existing, draft)
         self.mock_storage.upsert.assert_not_called()
-        assert result[0].atom is merged
+        assert result[0].atom is existing
         assert result[0].duplicate_decision == DuplicateDecision.UPDATE
         assert result[0].memory_before_snapshot is not None
+        assert existing.payload.artifacts.refs == ["ref1"]
+        assert existing.payload.history_summary[0] == "old summary"
+        assert len(existing.payload.history_summary) == 2
+        assert existing.meta.version == old_version + 1
+        assert existing.payload.content == draft.content
+        assert existing.index.title == draft.title
+        assert existing.index.summary == draft.summary
+        assert existing.index.tags == ["t1", "t"] or existing.index.tags == ["t", "t1"]
+        assert result[0].memory_before_snapshot.title == old_title
+        assert result[0].memory_before_snapshot.summary == old_summary
+        assert result[0].changelog is not None
 
     @pytest.mark.asyncio
     async def test_dedup_create(self):
@@ -455,7 +465,7 @@ class TestGenerationEngineDedup:
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
-        result = await self.engine._dedup_and_persist(draft, _make_identity())
+        result = await self.engine._dedup_and_resolve(draft, _make_identity())
 
         self.mock_storage.upsert.assert_not_called()
         assert len(result) == 1
@@ -467,7 +477,7 @@ class TestGenerationEngineDedup:
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None)
 
-        result = await self.engine._dedup_and_persist(draft, _make_identity())
+        result = await self.engine._dedup_and_resolve(draft, _make_identity())
 
         assert len(result) == 1
         assert result[0].atom is None

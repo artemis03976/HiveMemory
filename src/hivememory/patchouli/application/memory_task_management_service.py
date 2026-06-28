@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
+from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationTask,
+    MemoryGenerationTaskWaitResult,
+    MemoryGenerationTaskWaitSummary,
+)
 
 if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -24,6 +28,37 @@ class MemoryTaskManagementService:
 
     async def cancel_memory_task(self, task_id: str) -> bool:
         return await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_CANCEL, task_id)
+
+    async def wait_memory_task(
+        self,
+        task_id: str,
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitResult:
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_TASK_WAIT,
+            task_id,
+            timeout,
+        )
+
+    async def wait_memory_tasks(
+        self,
+        task_ids: list[str],
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitSummary:
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_TASK_WAIT_MANY,
+            task_ids,
+            timeout,
+        )
+
+    async def wait_all_memory_tasks(
+        self,
+        timeout: float | None = None,
+    ) -> MemoryGenerationTaskWaitSummary:
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_TASK_WAIT_ALL,
+            timeout,
+        )
 
 
 __all__ = ["MemoryTaskManagementService"]

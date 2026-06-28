@@ -28,9 +28,9 @@ from hivememory.engines.generation.interfaces import (
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
+    GenerationOutcome,
     GenerationRequest,
     MergeResult,
-    MemoryGenerationResult,
 )
 
 from hivememory.engines.generation.extractor import (
@@ -55,9 +55,9 @@ __all__ = [
     # 生成流水线 DTO
     "DuplicateDecision",
     "ExtractedMemoryDraft",
+    "GenerationOutcome",
     "GenerationRequest",
     "MergeResult",
-    "MemoryGenerationResult",
     # 记忆提取
     "LLMMemoryExtractor",
     "NoOpMemoryExtractor",

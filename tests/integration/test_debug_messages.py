@@ -70,7 +70,6 @@ async def test_debug_messages_with_system(patch_assemble_messages):
         # Mock 检索返回空结果
         mock_retrieve.return_value = RetrievalResponse(
             memories=[],
-            rendered_context=""
         )
 
         # 实例化顶层系统，使用 Phase D 主入口

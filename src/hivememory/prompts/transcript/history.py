@@ -9,7 +9,7 @@ HistoryTranscriptBuilder — 基于 TurnEvent 事件流的历史消息视图构�
 
 渲染规则:
     - assistant_message / thought / tool_call → role 原样输出（可附身份前缀）
-    - tool_result / system_message            → 按 render_as 补系统前缀（不附身份前缀）
+    - tool_result                             → 按 render_as 补系统前缀（不附身份前缀）
 
 render_as 前缀策略:
     - "plain"               → 原样输出 content

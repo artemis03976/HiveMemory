@@ -5,15 +5,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, List
 
+from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
 from hivememory.core.models.artifact import ArtifactRef, MemoryProvenance
-from hivememory.engines.generation.models import (
-    DuplicateDecision,
-    GenerationContext,
-    GenerationRequest,
-    MemoryGenerationResult,
-)
+from hivememory.engines.generation.models import DuplicateDecision, GenerationContext
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
+    MemoryGenerationResult,
+    MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
 
@@ -48,21 +46,23 @@ class MemoryGenerationFamiliar:
         interaction_ref = await self._build_interaction_artifact(
             spec.interaction_input,
         )
-        return await self._run_generation(
-            spec.request,
-            source_intent=spec.source_intent,
-            interaction_ref=interaction_ref,
-        )
+        return await self._run_generation(spec, interaction_ref=interaction_ref)
 
     async def _run_generation(
         self,
-        request: GenerationRequest,
-        source_intent: str = "WRITE",
+        spec: MemoryGenerationTaskSpec,
         interaction_ref: ArtifactRef | None = None,
     ) -> List[MemoryGenerationResult]:
         """执行 compute -> artifacts -> persist 三步流水线。"""
+        request = spec.request
+        source_intent = spec.source_intent
+
         # Step 1：纯计算，GenerationEngine 不负责持久化。
-        results = await self._generation_engine.process(request)
+        outcomes = await self._generation_engine.process(request)
+        results = [
+            self._build_generation_result(spec, outcome)
+            for outcome in outcomes
+        ]
 
         memories = [result.atom for result in results if result.atom is not None]
         logger.info(
@@ -82,8 +82,7 @@ class MemoryGenerationFamiliar:
         # Step 3：写入 CREATE/UPDATE 结果；settlement 由控制面统一发布。
         for result in results:
             if (
-                result.duplicate_decision
-                in (DuplicateDecision.CREATE, DuplicateDecision.UPDATE)
+                result.duplicate_decision != DuplicateDecision.DISCARD
                 and result.atom is not None
             ):
                 try:
@@ -97,6 +96,70 @@ class MemoryGenerationFamiliar:
                     raise
 
         return results
+
+    def _build_generation_result(
+        self,
+        spec: MemoryGenerationTaskSpec,
+        outcome,
+    ) -> MemoryGenerationResult:
+        atom = outcome.atom
+        canonical_alias = atom.get_alias() if atom is not None else None
+        canonical_uuid = str(atom.id) if atom is not None else None
+        return MemoryGenerationResult(
+            intent_id=spec.intent_id,
+            pending_alias=spec.pending_alias,
+            atom=atom,
+            canonical_alias=canonical_alias,
+            canonical_uuid=canonical_uuid,
+            duplicate_decision=outcome.duplicate_decision,
+            memory_before_snapshot=outcome.memory_before_snapshot,
+            changelog=outcome.changelog,
+            settlement=self._build_settlement(
+                spec,
+                outcome.duplicate_decision,
+                canonical_alias=canonical_alias,
+                canonical_uuid=canonical_uuid,
+            ),
+            message=outcome.message,
+        )
+
+    def _build_settlement(
+        self,
+        spec: MemoryGenerationTaskSpec,
+        decision: DuplicateDecision,
+        *,
+        canonical_alias: str | None,
+        canonical_uuid: str | None,
+    ) -> PendingAtomSettlement | None:
+        if not spec.intent_id or not spec.pending_alias:
+            return None
+        resolution = self._resolution_for(spec, decision)
+        return PendingAtomSettlement(
+            pending_alias=spec.pending_alias,
+            intent_id=spec.intent_id,
+            resolution=resolution,
+            canonical_alias=canonical_alias,
+            canonical_uuid=canonical_uuid,
+            message=(
+                f"Pending atom '{spec.pending_alias}' settled as "
+                f"{resolution.value}."
+            ),
+        )
+
+    def _resolution_for(
+        self,
+        spec: MemoryGenerationTaskSpec,
+        decision: DuplicateDecision,
+    ) -> PendingAtomResolution:
+        if decision == DuplicateDecision.CREATE:
+            return PendingAtomResolution.CREATED
+        if decision == DuplicateDecision.TOUCH:
+            return PendingAtomResolution.TOUCHED
+        if decision == DuplicateDecision.UPDATE:
+            if spec.source == MemoryGenerationSource.UPDATE:
+                return PendingAtomResolution.UPDATED
+            return PendingAtomResolution.MERGED
+        return PendingAtomResolution.DISCARDED
 
     async def _build_interaction_artifact(
         self,
@@ -170,17 +233,9 @@ class MemoryGenerationFamiliar:
                         memory_after=atom,
                         snapshot_before=result.memory_before_snapshot,
                         update_source="UPDATE",
-                        changelog=(
-                            atom.payload.artifacts.full_history[-1].get("reason")
-                            if atom.payload.artifacts.full_history
-                            else None
-                        ),
+                        changelog=result.changelog,
                         source_artifact_refs=src_refs,
                     )
-                    if atom.payload.artifacts.full_history:
-                        atom.payload.artifacts.full_history[-1]["artifact_refs"] = [
-                            version_ref.model_dump(mode="json")
-                        ]
                     if interaction_ref:
                         atom.payload.artifacts.refs.append(interaction_ref)
                     atom.payload.artifacts.refs.append(version_ref)

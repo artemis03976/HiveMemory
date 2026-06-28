@@ -8,7 +8,7 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
     Step 1: LLM 提取 → ExtractedMemoryDraft
     Step 2: 查重检测 → CREATE/UPDATE/TOUCH
     Step 3: 记忆原子构建 → MemoryAtom
-    Step 4: 持久化 → Qdrant
+    Step 4: 返回 GenerationOutcome，外围 Familiar 负责持久化
 
 作者: HiveMemory Team
 版本: 0.2.0
@@ -26,17 +26,15 @@ from hivememory.core.models import (
     MemoryType,
     MetaData,
     PayloadLayer,
-    PendingAtomResolution,
-    PendingAtomSettlement,
     UpdateFocus,
     WriteFocus,
 )
 from hivememory.core.models.artifact import MemoryVersionSnapshot
 from hivememory.engines.generation.models import (
     DuplicateDecision,
-    ExtractedMemoryDraft, GenerationRequest, GenerationContext,
+    ExtractedMemoryDraft, GenerationRequest,
+    GenerationOutcome,
     MergeResult,
-    MemoryGenerationResult,
 )
 from hivememory.engines.generation.interfaces import (
     BaseMemoryExtractor,
@@ -88,7 +86,7 @@ class MemoryGenerationEngine:
         self.deduplicator = deduplicator
         logger.info("MemoryGenerationEngine 初始化完成")
 
-    async def process(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def process(self, request: GenerationRequest) -> List[GenerationOutcome]:
         """
         处理对话片段，提取记忆原子 (三模式)
 
@@ -100,7 +98,7 @@ class MemoryGenerationEngine:
             request: GenerationRequest 对象
 
         Returns:
-            List[MemoryGenerationResult]: 结构化生成结果列表
+            List[GenerationOutcome]: 结构化生成结果列表
         """
         if not request.has_context and not request.is_write and not request.is_update:
             logger.debug("空生成上下文且无 write_focus/update_focus，跳过处理")
@@ -114,7 +112,7 @@ class MemoryGenerationEngine:
         else:
             return await self._process_mode_a(request)
 
-    async def _process_mode_a(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def _process_mode_a(self, request: GenerationRequest) -> List[GenerationOutcome]:
         """
         Mode A: 被动观察模式 (默认)
 
@@ -138,10 +136,10 @@ class MemoryGenerationEngine:
             logger.info("[Mode A] LLM 判断对话无价值，跳过存储")
             return []
 
-        # Step 2-4: 查重 → 构建 → 持久化 (Mode A 无 intent)
-        return await self._dedup_and_persist(draft, identity)
+        # Step 2-4: 查重 → 构建/更新 → 返回 outcome
+        return await self._dedup_and_resolve(draft, identity)
 
-    async def _process_mode_b(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def _process_mode_b(self, request: GenerationRequest) -> List[GenerationOutcome]:
         """
         Mode B: 主动响应模式 (WRITE 指令触发)
 
@@ -171,12 +169,8 @@ class MemoryGenerationEngine:
             logger.warning("[Mode B] LLM 提取失败，启用 fallback 直接构建草稿")
             draft = self._build_fallback_draft(focus)
 
-        # Step 2-4: 查重 → 构建 → 持久化 (携带 intent 追踪)
-        return await self._dedup_and_persist(
-            draft, identity,
-            intent_id=request.intent_id,
-            pending_alias=request.pending_alias,
-        )
+        # Step 2-4: 查重 → 构建/更新 → 返回 outcome
+        return await self._dedup_and_resolve(draft, identity)
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
         """
@@ -199,7 +193,7 @@ class MemoryGenerationEngine:
             alias_suffix="",
         )
 
-    async def _process_mode_c(self, request: GenerationRequest) -> List[MemoryGenerationResult]:
+    async def _process_mode_c(self, request: GenerationRequest) -> List[GenerationOutcome]:
         """
         Mode C: 合并更新模式 (UPDATE 指令触发)
 
@@ -243,16 +237,10 @@ class MemoryGenerationEngine:
             logger.warning("[Mode C] LLM 合并失败，启用 fallback")
             merge_result = self._build_update_fallback(uf, existing)
 
-        # Step 2: 版本历史 + 更新 + 持久化 (携带 intent 追踪)
-        return self._apply_update(
-            existing, merge_result,
-            intent_id=request.intent_id,
-            pending_alias=request.pending_alias,
-        )
+        # Step 2: 版本历史 + 更新，持久化由 Familiar 负责
+        return self._apply_update(existing, merge_result)
 
-    def _build_update_fallback(
-        self, uf: UpdateFocus, existing: MemoryAtom
-    ) -> MergeResult:
+    def _build_update_fallback(self, uf: UpdateFocus, existing: MemoryAtom) -> MergeResult:
         """
         UPDATE fallback: LLM 合并失败时的保底策略
 
@@ -276,14 +264,13 @@ class MemoryGenerationEngine:
         self,
         memory: MemoryAtom,
         result: MergeResult,
-        intent_id: Optional[str] = None,
-        pending_alias: Optional[str] = None,
-    ) -> List[MemoryGenerationResult]:
+        dedup_draft: Optional[ExtractedMemoryDraft] = None,
+    ) -> List[GenerationOutcome]:
         """
         执行版本历史追踪 + 内容更新。持久化由调用方负责。
 
         1. 捕获变更前快照
-        2. Push old content → artifacts.full_history
+        2. 按需刷新 dedup index
         3. 更新 history_summary
         4. 覆盖 payload.content
         5. 更新 meta (updated_at, confidence, version)
@@ -292,15 +279,11 @@ class MemoryGenerationEngine:
 
         before_snapshot = _snapshot(memory)
 
-        # Push History: 旧内容压入 artifacts.full_history
-        history_item = {
-            "timestamp": now.isoformat(),
-            "content": memory.payload.content,
-            "reason": result.changelog,
-        }
-        memory.payload.artifacts.full_history.append(history_item)
+        if dedup_draft is not None:
+            self._merge_dedup_index(memory, dedup_draft)
 
-        # 更新 history_summary
+        # 更新轻量历史 fallback。正式历史展示应由 MemoryVersionArtifact 进入历史信息编译链路。
+        # TODO(history-compiler): 实现 MTP RUN 历史信息编译后，评估是否删除该写入路径。
         summary_line = f"{now.strftime('%Y-%m-%d')}: {result.changelog}"
         memory.payload.history_summary.append(summary_line)
 
@@ -317,30 +300,20 @@ class MemoryGenerationEngine:
             f"v{memory.meta.version}, changelog='{result.changelog}'"
         )
 
-        return [MemoryGenerationResult(
-            intent_id=intent_id,
-            pending_alias=pending_alias,
+        return [GenerationOutcome(
             atom=memory,
-            canonical_alias=memory.get_alias(),
-            canonical_uuid=str(memory.id),
             duplicate_decision=DuplicateDecision.UPDATE,
             memory_before_snapshot=before_snapshot,
-            settlement=self._build_settlement(
-                intent_id, pending_alias,
-                PendingAtomResolution.UPDATED,
-                memory,
-            ),
+            changelog=result.changelog,
         )]
 
-    async def _dedup_and_persist(
+    async def _dedup_and_resolve(
         self,
         draft: ExtractedMemoryDraft,
         identity: Identity,
-        intent_id: Optional[str] = None,
-        pending_alias: Optional[str] = None,
-    ) -> List[MemoryGenerationResult]:
+    ) -> List[GenerationOutcome]:
         """
-        查重 → 构建 → 持久化 (Mode A/B 共用)
+        查重 → 构建/演化决策 (Mode A/B 共用)
         """
         query_text = f"{draft.title} {draft.summary}"
         candidates = await self._mid_term.search(
@@ -358,103 +331,66 @@ class MemoryGenerationEngine:
 
             existing_memory.meta.access_count += 1
             existing_memory.meta.updated_at = datetime.now()
-            await self._mid_term.upsert(existing_memory)
 
-            return [MemoryGenerationResult(
-                intent_id=intent_id,
-                pending_alias=pending_alias,
+            return [GenerationOutcome(
                 atom=existing_memory,
-                canonical_alias=existing_memory.get_alias(),
-                canonical_uuid=str(existing_memory.id),
                 duplicate_decision=DuplicateDecision.TOUCH,
-                settlement=self._build_settlement(
-                    intent_id, pending_alias,
-                    PendingAtomResolution.TOUCHED,
-                    existing_memory,
-                ),
             )]
 
         elif decision == DuplicateDecision.UPDATE:
-            logger.info("记忆演化，合并内容")
+            logger.info("记忆演化，覆盖当前版本内容")
 
-            before_snapshot = _snapshot(existing_memory)
-            merged_memory = self.deduplicator.merge_memory(existing_memory, draft)
-
-            return [MemoryGenerationResult(
-                intent_id=intent_id,
-                pending_alias=pending_alias,
-                atom=merged_memory,
-                canonical_alias=merged_memory.get_alias(),
-                canonical_uuid=str(merged_memory.id),
-                duplicate_decision=DuplicateDecision.UPDATE,
-                memory_before_snapshot=before_snapshot,
-                settlement=self._build_settlement(
-                    intent_id, pending_alias,
-                    PendingAtomResolution.MERGED,
-                    merged_memory,
-                ),
-            )]
+            # TODO: 如轻量覆盖路径效果不足，可在这里引入强合并路径：
+            # 将 draft 与 existing_memory 交给 extractor.merge()，生成一个完整的新 head。
+            # 不要回退到字符串追加，历史展示应由 MemoryVersionArtifact 链路负责。
+            merge_result = MergeResult(
+                new_content=draft.content,
+                changelog=f"Dedup update: {draft.summary[:120]}",
+            )
+            return self._apply_update(
+                existing_memory,
+                merge_result,
+                dedup_draft=draft,
+            )
 
         elif decision == DuplicateDecision.CREATE:
             logger.info("创建新记忆")
 
             memory = self._draft_to_memory(draft, identity)
 
-            return [MemoryGenerationResult(
-                intent_id=intent_id,
-                pending_alias=pending_alias,
+            return [GenerationOutcome(
                 atom=memory,
-                canonical_alias=memory.get_alias(),
-                canonical_uuid=str(memory.id),
                 duplicate_decision=DuplicateDecision.CREATE,
-                settlement=self._build_settlement(
-                    intent_id, pending_alias,
-                    PendingAtomResolution.CREATED,
-                    memory,
-                ),
             )]
 
         else:  # DISCARD
             logger.info("低质量重复，丢弃")
-            return [MemoryGenerationResult(
-                intent_id=intent_id,
-                pending_alias=pending_alias,
+            return [GenerationOutcome(
                 atom=None,
                 duplicate_decision=DuplicateDecision.DISCARD,
-                settlement=self._build_settlement(
-                    intent_id, pending_alias,
-                    PendingAtomResolution.DISCARDED,
-                    None,
-                ),
                 message="Low-quality duplicate, discarded.",
             )]
 
-    def _build_settlement(
+    def _merge_dedup_index(
         self,
-        intent_id: Optional[str],
-        pending_alias: Optional[str],
-        resolution: PendingAtomResolution,
-        atom: Optional[MemoryAtom],
-    ) -> Optional[PendingAtomSettlement]:
-        """构建 settlement 视图；无 intent 时返回 None。"""
-        if not intent_id or not pending_alias:
-            return None
-        canonical_alias = None
-        canonical_uuid = None
-        if atom is not None:
-            canonical_alias = atom.get_alias()
-            canonical_uuid = str(atom.id)
-        return PendingAtomSettlement(
-            pending_alias=pending_alias,
-            intent_id=intent_id,
-            resolution=resolution,
-            canonical_alias=canonical_alias,
-            canonical_uuid=canonical_uuid,
-            message=(
-                f"Pending atom '{pending_alias}' settled as "
-                f"{resolution.value}."
-            ),
-        )
+        existing: MemoryAtom,
+        draft: ExtractedMemoryDraft,
+    ) -> None:
+        """
+        用 dedup 草稿刷新检索层；历史版本由 MemoryVersionArtifact 记录。
+        """
+        merged_tags = []
+        for tag in [*existing.index.tags, *draft.tags]:
+            normalized = tag.lower().strip()
+            if normalized and normalized not in merged_tags:
+                merged_tags.append(normalized)
+        existing.index.title = draft.title
+        existing.index.summary = draft.summary
+        existing.index.tags = merged_tags[:5]
+        try:
+            existing.index.memory_type = MemoryType(draft.memory_type)
+        except ValueError:
+            logger.warning(f"未知的记忆类型: {draft.memory_type}, 保留原类型")
 
     def _render_transcript(self, request: GenerationRequest) -> str:
         """
