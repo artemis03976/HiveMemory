@@ -70,7 +70,7 @@ class MemoryGenerationTask:
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     _bg_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
-    _terminal_status_published: bool = field(default=False, repr=False, compare=False)
+    _terminal_finish_started: bool = field(default=False, repr=False, compare=False)
 
     @property
     def cancelled(self) -> bool:

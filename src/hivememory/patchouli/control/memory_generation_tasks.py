@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, List, Optional
+from typing import Any, List, Optional
 
 from hivememory.engines.generation.models import MemoryGenerationResult
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
@@ -53,10 +53,7 @@ class MemoryGenerationTaskController:
         spec: MemoryGenerationTaskSpec,
     ) -> MemoryGenerationTask:
         """提交单个规范化生成任务。"""
-        return await self._create_and_run_task(
-            spec=spec,
-            coro_factory=lambda mt: self._run_task(mt, spec),
-        )
+        return await self._create_and_run_task(spec=spec)
 
     async def submit_generation_many(
         self,
@@ -72,7 +69,6 @@ class MemoryGenerationTaskController:
         self,
         *,
         spec: MemoryGenerationTaskSpec,
-        coro_factory: Callable[[MemoryGenerationTask], Any],
     ) -> MemoryGenerationTask:
         """创建运行时任务句柄并调度后台协程。"""
         memory_task = MemoryGenerationTask(
@@ -90,7 +86,7 @@ class MemoryGenerationTaskController:
         )
 
         bg_task = asyncio.create_task(
-            coro_factory(memory_task),
+            self._run_task(memory_task, spec),
             name=f"memory_task_{memory_task.task_id[:8]}",
         )
         memory_task.attach_task(bg_task)
@@ -282,11 +278,12 @@ class MemoryGenerationTaskController:
 
         第一次终态调用胜出，后续调用 no-op。防止取消、异常和重复 cleanup 互相覆盖终态。
         """
-        if memory_task._terminal_status_published:
+        if memory_task._terminal_finish_started:
             return
         if status not in _TERMINAL_STATUSES:
             raise ValueError(f"Memory task finish status must be terminal: {status}")
 
+        memory_task._terminal_finish_started = True
         memory_task.status = status
         if error is not None:
             memory_task.error = error
@@ -312,7 +309,6 @@ class MemoryGenerationTaskController:
                 f"memory task terminal publish failed: {memory_task.task_id}",
             )
         finally:
-            memory_task._terminal_status_published = True
             self._task_registry.close(memory_task.task_id, status)
 
     async def _publish_best_effort(self, awaitable, warning: str) -> None:
@@ -413,11 +409,16 @@ class MemoryGenerationTaskController:
         ]
         return await self.wait_many(task_ids, timeout=timeout)
 
-    def cancel_task(self, task_id: str) -> bool:
+    async def cancel_task(self, task_id: str) -> bool:
         """请求取消指定记忆生成任务。"""
         memory_task = self._task_registry.get(task_id)
         ok = self._task_registry.cancel(task_id)
         if ok and memory_task is not None:
+            await self._finish_task(
+                memory_task,
+                MemoryGenerationTaskStatus.CANCELLED,
+                pending_alias=memory_task.pending_alias,
+            )
             self._emit_memory_task_event(
                 RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
                 memory_task,

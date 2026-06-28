@@ -201,12 +201,40 @@ class TestMemoryGenerationTaskController:
         memory_task = await controller.submit_generation(_spec())
         await asyncio.wait_for(started.wait(), timeout=1)
 
-        assert controller.cancel_task(memory_task.task_id) is True
+        assert await controller.cancel_task(memory_task.task_id) is True
         await asyncio.wait_for(released.wait(), timeout=1)
         with pytest.raises(asyncio.CancelledError):
             await memory_task._bg_task
         assert memory_task.status == MemoryGenerationTaskStatus.CANCELLED
         assert _memory_task_statuses(bus) == ["running", "cancelled"]
+
+    @pytest.mark.asyncio
+    async def test_cancel_task_before_background_coroutine_starts_marks_cancelled(self):
+        bus = Mock()
+        bus.request = AsyncMock(return_value=[])
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(bus=bus)
+
+        memory_task = await controller.submit_generation(
+            _spec(
+                source=MemoryGenerationSource.WRITE,
+                pending_alias="draft_early_cancel",
+            )
+        )
+
+        assert await controller.cancel_task(memory_task.task_id) is True
+        with pytest.raises(asyncio.CancelledError):
+            await memory_task._bg_task
+        await asyncio.sleep(0)
+
+        assert memory_task.status == MemoryGenerationTaskStatus.CANCELLED
+        assert memory_task.finished_at is not None
+        assert bus.request.await_count == 0
+        assert _memory_task_statuses(bus) == ["cancelled"]
+        bus.publish.assert_any_await(
+            PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
+            pending_alias="draft_early_cancel",
+        )
 
     @pytest.mark.asyncio
     async def test_finish_task_is_idempotent(self):
