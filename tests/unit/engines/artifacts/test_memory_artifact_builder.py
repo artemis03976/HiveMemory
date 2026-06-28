@@ -91,6 +91,11 @@ async def test_build_for_create_returns_bundle(builder):
     assert isinstance(bundle, MemoryCreationBundle)
     assert bundle.creation_ref is not None
     assert bundle.initial_version_ref is not None
+    assert bundle.refs == [bundle.initial_version_ref, bundle.creation_ref]
+
+
+def test_empty_creation_bundle_has_no_refs():
+    assert MemoryCreationBundle().refs == []
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryEventType
+from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.core.models.pending import WriteFocus
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -511,9 +512,10 @@ class TestMemoryGenerationFamiliarArtifacts:
         gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
-        memory_bundle = Mock()
-        memory_bundle.initial_version_ref = ArtifactRef(artifact_id="version_1", artifact_type=ArtifactType.MEMORY_VERSION)
-        memory_bundle.creation_ref = ArtifactRef(artifact_id="creation_1", artifact_type=ArtifactType.MEMORY_CREATION)
+        memory_bundle = MemoryCreationBundle(
+            initial_version_ref=ArtifactRef(artifact_id="version_1", artifact_type=ArtifactType.MEMORY_VERSION),
+            creation_ref=ArtifactRef(artifact_id="creation_1", artifact_type=ArtifactType.MEMORY_CREATION),
+        )
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
@@ -558,7 +560,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert atom.payload.artifacts.refs.count(interaction_ref) == 1
 
     @pytest.mark.asyncio
-    async def test_attach_memory_artifacts_without_engine_appends_interaction_ref(self):
+    async def test_attach_memory_artifacts_without_engine_uses_noop_memory_artifacts(self):
         atom = _make_memory_atom()
         atom.payload.artifacts.refs = []
         atom.payload.artifacts.events = []
@@ -574,7 +576,9 @@ class TestMemoryGenerationFamiliarArtifacts:
             creation_source="WRITE",
         )
 
-        assert interaction_ref in atom.payload.artifacts.refs
+        assert atom.payload.artifacts.refs == [interaction_ref]
+        assert atom.payload.artifacts.events[-1].event_type == MemoryEventType.CREATED
+        assert atom.payload.artifacts.events[-1].artifact_refs == []
 
     @pytest.mark.asyncio
     async def test_attach_memory_artifacts_ignores_results_without_atoms(self):
@@ -598,14 +602,15 @@ class TestMemoryGenerationFamiliarArtifacts:
     @pytest.mark.asyncio
     async def test_create_external_memory_builds_manual_creation_artifacts(self):
         atom = _make_memory_atom()
-        memory_bundle = Mock()
-        memory_bundle.initial_version_ref = ArtifactRef(
-            artifact_id="version_1",
-            artifact_type=ArtifactType.MEMORY_VERSION,
-        )
-        memory_bundle.creation_ref = ArtifactRef(
-            artifact_id="creation_1",
-            artifact_type=ArtifactType.MEMORY_CREATION,
+        memory_bundle = MemoryCreationBundle(
+            initial_version_ref=ArtifactRef(
+                artifact_id="version_1",
+                artifact_type=ArtifactType.MEMORY_VERSION,
+            ),
+            creation_ref=ArtifactRef(
+                artifact_id="creation_1",
+                artifact_type=ArtifactType.MEMORY_CREATION,
+            ),
         )
 
         artifact_engine = Mock()

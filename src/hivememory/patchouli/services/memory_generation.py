@@ -40,9 +40,12 @@ class MemoryGenerationFamiliar:
         memory_library: "MemoryLibrary",
         artifact_engine: "ArtifactEngine | None" = None,
     ) -> None:
+        from hivememory.engines.artifacts.engine import ArtifactEngine
+
         self._generation_engine = generation_engine
         self._mid_term = memory_library.mid_term
-        self._artifact_engine = artifact_engine
+        self._artifact_engine = artifact_engine or ArtifactEngine.noop()
+
         logger.info("MemoryGenerationFamiliar 初始化完成")
 
     async def execute(
@@ -275,7 +278,7 @@ class MemoryGenerationFamiliar:
         """
         构建原始交互 artifact。
         """
-        if self._artifact_engine is None or interaction_input is None:
+        if interaction_input is None:
             return None
         if not interaction_input.blocks:
             return None
@@ -302,17 +305,6 @@ class MemoryGenerationFamiliar:
         """
         构建 artifact 并挂载 refs/events，不负责发布事件。
         """
-        if not self._artifact_engine:
-            if interaction_ref:
-                for result in results:
-                    if (
-                        result.atom is not None
-                        and result.duplicate_decision
-                        in (DuplicateDecision.CREATE, DuplicateDecision.UPDATE)
-                    ):
-                        self._append_artifact_ref_once(result.atom, interaction_ref)
-            return
-
         src_refs = [interaction_ref] if interaction_ref else []
 
         for result in results:
@@ -359,14 +351,12 @@ class MemoryGenerationFamiliar:
         )
 
         # 挂载 refs/events
-        atom.payload.artifacts.refs.extend(
-            [bundle.initial_version_ref, bundle.creation_ref]
-        )
+        atom.payload.artifacts.refs.extend(bundle.refs)
 
         atom.payload.artifacts.events.append(
             MemoryEventLog(
                 event_type=MemoryEventType.CREATED,
-                artifact_refs=[bundle.initial_version_ref, bundle.creation_ref],
+                artifact_refs=bundle.refs,
             )
         )
 
@@ -389,12 +379,12 @@ class MemoryGenerationFamiliar:
         )
 
         # 挂载 refs/events
-        atom.payload.artifacts.refs.append(version_ref)
+        self._append_artifact_ref_once(atom, version_ref)
 
         atom.payload.artifacts.events.append(
             MemoryEventLog(
                 event_type=MemoryEventType.VERSIONED,
-                artifact_refs=[version_ref],
+                artifact_refs=[version_ref] if version_ref else [],
                 note=result.changelog,
             )
         )

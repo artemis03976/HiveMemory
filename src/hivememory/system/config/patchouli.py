@@ -267,10 +267,20 @@ class MemoryLifecycleConfig(BaseModel):
 
 # ========== Artifacts ==========
 
-class ArtifactStoreConfig(BaseModel):
+class ArtifactComponentConfig(BaseModel):
+    enabled: bool = Field(default=True)
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class ArtifactConfig(BaseModel):
     enabled: bool = Field(default=True)
     root_dir: str = Field(default=".hivememory/artifacts")
     max_inline_summary_chars: int = Field(default=500)
+
+    interaction: ArtifactComponentConfig = Field(default_factory=ArtifactComponentConfig)
+    memory: ArtifactComponentConfig = Field(default_factory=ArtifactComponentConfig)
+    document: ArtifactComponentConfig = Field(default_factory=ArtifactComponentConfig)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -292,7 +302,7 @@ class PatchouliConfig(BaseModel):
     generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
-    artifacts: ArtifactStoreConfig = Field(default_factory=ArtifactStoreConfig)
+    artifacts: ArtifactConfig = Field(default_factory=ArtifactConfig)
     shutdown: PatchouliShutdownConfig = Field(default_factory=PatchouliShutdownConfig)
 
     model_config = ConfigDict(extra="ignore")

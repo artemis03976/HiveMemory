@@ -15,12 +15,21 @@ from hivememory.core.models.artifact import (
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.engines.generation.models import GenerationContext
 from hivememory.patchouli.memory_library import ArtifactStore
+from hivememory.system.config.patchouli import ArtifactComponentConfig
 
 
 class MemoryCreationBundle(BaseModel):
     """build_for_create 的原子返回值 - 两个强关联 artifact 作为整体返回。"""
-    creation_ref: ArtifactRef
-    initial_version_ref: ArtifactRef  # MemoryVersionArtifact v1
+    creation_ref: Optional[ArtifactRef] = None
+    initial_version_ref: Optional[ArtifactRef] = None  # MemoryVersionArtifact v1
+
+    @property
+    def refs(self) -> list[ArtifactRef]:
+        return [
+            ref
+            for ref in (self.initial_version_ref, self.creation_ref)
+            if ref is not None
+        ]
 
 
 class MemoryArtifactBuilder:
@@ -74,7 +83,7 @@ class MemoryArtifactBuilder:
         changelog: Optional[str] = None,
         source_artifact_refs: Optional[List[ArtifactRef]] = None,
         source_memory_refs: Optional[List[MemoryInputRef]] = None,
-    ) -> ArtifactRef:
+    ) -> ArtifactRef | None:
         """写入 MemoryVersionArtifact(v2+)，返回 version ref。"""
         version = MemoryVersionArtifact(
             memory_id=str(memory_after.id),
@@ -88,3 +97,37 @@ class MemoryArtifactBuilder:
             source_memory_refs=source_memory_refs or [],
         )
         return await self._store.put(version)
+
+
+class NoOpMemoryArtifactBuilder:
+    async def build_for_create(
+        self,
+        *,
+        memory: MemoryAtom,
+        context: GenerationContext,
+        source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
+        source_artifact_refs: List[ArtifactRef],
+        source_memory_refs: Optional[List[MemoryInputRef]] = None,
+    ) -> MemoryCreationBundle:
+        return MemoryCreationBundle()
+
+    async def build_for_update(
+        self,
+        *,
+        memory_after: MemoryAtom,
+        snapshot_before: Optional[MemoryVersionSnapshot] = None,
+        update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
+        changelog: Optional[str] = None,
+        source_artifact_refs: Optional[List[ArtifactRef]] = None,
+        source_memory_refs: Optional[List[MemoryInputRef]] = None,
+    ) -> ArtifactRef | None:
+        return None
+
+
+def create_memory_builder(
+    config: ArtifactComponentConfig,
+    store: ArtifactStore | None,
+) -> MemoryArtifactBuilder | NoOpMemoryArtifactBuilder:
+    if store is None or not config.enabled:
+        return NoOpMemoryArtifactBuilder()
+    return MemoryArtifactBuilder(store)

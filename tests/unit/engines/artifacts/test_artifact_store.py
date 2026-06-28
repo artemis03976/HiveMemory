@@ -23,8 +23,12 @@ from hivememory.core.models.artifact import (
 )
 from hivememory.core.models.memory import Artifacts
 from hivememory.engines.artifacts.engine import ArtifactEngine
+from hivememory.engines.artifacts.document import NoOpDocumentArtifactBuilder
+from hivememory.engines.artifacts.interaction import InteractionArtifactBuilder
+from hivememory.engines.artifacts.memory import MemoryArtifactBuilder
 from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.patchouli.memory_library.stores import ArtifactStore
+from hivememory.system.config.patchouli import ArtifactComponentConfig, ArtifactConfig
 
 
 @pytest.fixture
@@ -163,7 +167,43 @@ def test_artifacts_payload_deserializes_refs_and_events_as_models():
 
 def test_artifact_engine_holds_all_builders(tmp_path):
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
-    engine = ArtifactEngine(store)
+    engine = ArtifactEngine.from_store(store)
     assert engine.interaction is not None
     assert engine.document is not None
     assert engine.memory is not None
+
+
+def test_artifact_engine_from_store_honors_component_config(tmp_path):
+    store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
+    config = ArtifactConfig(document=ArtifactComponentConfig(enabled=False))
+
+    engine = ArtifactEngine.from_store(store, config=config)
+
+    assert engine.config is config
+    assert isinstance(engine.interaction, InteractionArtifactBuilder)
+    assert isinstance(engine.memory, MemoryArtifactBuilder)
+    assert isinstance(engine.document, NoOpDocumentArtifactBuilder)
+
+
+@pytest.mark.asyncio
+async def test_noop_artifact_engine_returns_empty_results():
+    engine = ArtifactEngine.noop()
+
+    interaction_ref = await engine.interaction.build_and_store(
+        topic_id="topic-1",
+        blocks=[],
+    )
+    memory_bundle = await engine.memory.build_for_create(
+        memory=object(),
+        context=object(),
+        source_intent="WRITE",
+        source_artifact_refs=[],
+    )
+    version_ref = await engine.memory.build_for_update(
+        memory_after=object(),
+        update_source="UPDATE",
+    )
+
+    assert interaction_ref is None
+    assert memory_bundle.refs == []
+    assert version_ref is None

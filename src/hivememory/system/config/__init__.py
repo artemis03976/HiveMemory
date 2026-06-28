@@ -23,7 +23,7 @@ from hivememory.system.config.patchouli import (
     MemoryRetrievalConfig,
     VitalityCalculatorConfig, ReinforcementEngineConfig, ArchiverConfig,
     GarbageCollectorConfig, MemoryLifecycleConfig,
-    ArtifactStoreConfig,
+    ArtifactComponentConfig, ArtifactConfig,
     PatchouliShutdownConfig,
     PatchouliConfig,
 )
@@ -294,7 +294,7 @@ __all__ = [
     "MemoryRetrievalConfig",
     "VitalityCalculatorConfig", "ReinforcementEngineConfig", "ArchiverConfig",
     "GarbageCollectorConfig", "MemoryLifecycleConfig",
-    "ArtifactStoreConfig",
+    "ArtifactComponentConfig", "ArtifactConfig",
     "PatchouliShutdownConfig",
     "PatchouliConfig",
     # memory compiler

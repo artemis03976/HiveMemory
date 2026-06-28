@@ -10,6 +10,7 @@ from hivememory.core.models.artifact import (
 )
 from hivememory.engines.perception.models import LogicalBlock
 from hivememory.patchouli.memory_library import ArtifactStore
+from hivememory.system.config.patchouli import ArtifactComponentConfig
 
 
 class InteractionArtifactBuilder:
@@ -28,7 +29,7 @@ class InteractionArtifactBuilder:
         topic_title: str = "",
         topic_summary: str = "",
         blocks: Sequence[LogicalBlock],
-    ) -> ArtifactRef:
+    ) -> ArtifactRef | None:
         artifact = InteractionArtifact(
             topic_id=topic_id,
             topic_title=topic_title,
@@ -37,6 +38,27 @@ class InteractionArtifactBuilder:
             captured_at=datetime.now(),
         )
         return await self._store.put(artifact)
+
+
+class NoOpInteractionArtifactBuilder:
+    async def build_and_store(
+        self,
+        *,
+        topic_id: str,
+        topic_title: str = "",
+        topic_summary: str = "",
+        blocks: Sequence[LogicalBlock],
+    ) -> ArtifactRef | None:
+        return None
+
+
+def create_interaction_builder(
+    config: ArtifactComponentConfig,
+    store: ArtifactStore | None,
+) -> InteractionArtifactBuilder | NoOpInteractionArtifactBuilder:
+    if store is None or not config.enabled:
+        return NoOpInteractionArtifactBuilder()
+    return InteractionArtifactBuilder(store)
 
 
 def _snapshot(block: LogicalBlock) -> InteractionTurnSnapshot:
