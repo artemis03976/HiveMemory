@@ -7,6 +7,14 @@ from hivememory.patchouli.runtime.memory_tasks import (
 )
 
 
+def test_memory_generation_source_derives_artifact_semantics():
+    assert MemoryGenerationSource.ARCHIVE.creation_artifact_intent == "ARCHIVE"
+    assert MemoryGenerationSource.WRITE.creation_artifact_intent == "WRITE"
+    assert MemoryGenerationSource.UPDATE.creation_artifact_intent == "SYSTEM"
+    assert MemoryGenerationSource.MERGE.version_update_source == "MERGE"
+    assert MemoryGenerationSource.SPLIT.version_update_source == "SYSTEM_REWRITE"
+
+
 def _task_handle(task_id="j1", topic_id="t1"):
     return MemoryGenerationTask(
         task_id=task_id,

@@ -15,12 +15,21 @@ from hivememory.core.models.artifact import (
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.engines.generation.models import GenerationContext
 from hivememory.patchouli.memory_library import ArtifactStore
+from hivememory.system.config.patchouli import ArtifactComponentConfig
 
 
 class MemoryCreationBundle(BaseModel):
     """build_for_create 的原子返回值 - 两个强关联 artifact 作为整体返回。"""
-    creation_ref: ArtifactRef
-    initial_version_ref: ArtifactRef  # MemoryVersionArtifact v1
+    creation_ref: Optional[ArtifactRef] = None
+    initial_version_ref: Optional[ArtifactRef] = None  # MemoryVersionArtifact v1
+
+    @property
+    def refs(self) -> list[ArtifactRef]:
+        return [
+            ref
+            for ref in (self.initial_version_ref, self.creation_ref)
+            if ref is not None
+        ]
 
 
 class MemoryArtifactBuilder:
@@ -45,7 +54,7 @@ class MemoryArtifactBuilder:
             version_number=1,
             update_source="CREATE",
             snapshot_before=None,
-            snapshot_after=_snapshot(memory),
+            snapshot_after=MemoryVersionSnapshot.from_memory_atom(memory),
             changed_at=datetime.now(),
             source_artifacts=source_artifact_refs,
             source_memory_refs=source_memory_refs or [],
@@ -74,14 +83,14 @@ class MemoryArtifactBuilder:
         changelog: Optional[str] = None,
         source_artifact_refs: Optional[List[ArtifactRef]] = None,
         source_memory_refs: Optional[List[MemoryInputRef]] = None,
-    ) -> ArtifactRef:
+    ) -> ArtifactRef | None:
         """写入 MemoryVersionArtifact(v2+)，返回 version ref。"""
         version = MemoryVersionArtifact(
             memory_id=str(memory_after.id),
             version_number=memory_after.meta.version,
             update_source=update_source,
             snapshot_before=snapshot_before,
-            snapshot_after=_snapshot(memory_after),
+            snapshot_after=MemoryVersionSnapshot.from_memory_atom(memory_after),
             changelog=changelog,
             changed_at=datetime.now(),
             source_artifacts=source_artifact_refs or [],
@@ -90,12 +99,35 @@ class MemoryArtifactBuilder:
         return await self._store.put(version)
 
 
-def _snapshot(memory: MemoryAtom) -> MemoryVersionSnapshot:
-    return MemoryVersionSnapshot(
-        content=memory.payload.content,
-        alias=memory.index.alias,
-        title=memory.index.title,
-        summary=memory.index.summary,
-        tags=list(memory.index.tags),
-        memory_type=memory.index.memory_type.value if memory.index.memory_type else None,
-    )
+class NoOpMemoryArtifactBuilder:
+    async def build_for_create(
+        self,
+        *,
+        memory: MemoryAtom,
+        context: GenerationContext,
+        source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
+        source_artifact_refs: List[ArtifactRef],
+        source_memory_refs: Optional[List[MemoryInputRef]] = None,
+    ) -> MemoryCreationBundle:
+        return MemoryCreationBundle()
+
+    async def build_for_update(
+        self,
+        *,
+        memory_after: MemoryAtom,
+        snapshot_before: Optional[MemoryVersionSnapshot] = None,
+        update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
+        changelog: Optional[str] = None,
+        source_artifact_refs: Optional[List[ArtifactRef]] = None,
+        source_memory_refs: Optional[List[MemoryInputRef]] = None,
+    ) -> ArtifactRef | None:
+        return None
+
+
+def create_memory_builder(
+    config: ArtifactComponentConfig,
+    store: ArtifactStore | None,
+) -> MemoryArtifactBuilder | NoOpMemoryArtifactBuilder:
+    if store is None or not config.enabled:
+        return NoOpMemoryArtifactBuilder()
+    return MemoryArtifactBuilder(store)

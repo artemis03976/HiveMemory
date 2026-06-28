@@ -153,9 +153,22 @@ class MemoryVersionSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    @classmethod
+    def from_memory_atom(cls, memory: Any) -> "MemoryVersionSnapshot":
+        """Build the canonical mutable-field snapshot for a MemoryAtom."""
+        memory_type = memory.index.memory_type
+        return cls(
+            content=memory.payload.content,
+            alias=memory.index.alias,
+            title=memory.index.title,
+            summary=memory.index.summary,
+            tags=list(memory.index.tags),
+            memory_type=memory_type.value if hasattr(memory_type, "value") else memory_type,
+        )
+
 
 class MemoryCreationArtifact(BaseArtifact):
-    """记忆创建 Artifact - genesis provenance，一旦写入不再更新。
+    """记忆创建 Artifact - genesis record，一旦写入不再更新。
 
     不保存 alias / title / tags 等可变字段，这些由 initial_version_ref 所指向的
     MemoryVersionArtifact(v1).snapshot_after 持有。
@@ -192,20 +205,21 @@ class MemoryVersionArtifact(BaseArtifact):
     changed_at: datetime = Field(default_factory=datetime.now)
 
 
-# ============ MemoryProvenance ============
+# ============ MemoryEventLog ============
 
-class MemoryProvenance(BaseModel):
-    """记忆生命周期事件记录"""
-    action: Literal[
-        "created", "updated", "merged", "touched", "archived",
-        "resurrected", "manual_edit", "future_split", "future_merge"
-    ]
+class MemoryEventType(str, Enum):
+    CREATED = "created"
+    VERSIONED = "versioned"
+    ARCHIVED = "archived"
+    REVIVED = "revived"
+
+
+class MemoryEventLog(BaseModel):
+    """Lifecycle event log entry attached to one MemoryAtom."""
+
+    event_type: MemoryEventType
     at: datetime = Field(default_factory=datetime.now)
-    source_intent: Optional[Literal[
-        "ARCHIVE", "WRITE", "UPDATE", "IMPORT", "MANUAL", "SYSTEM"
-    ]] = None
-    source_artifacts: List[ArtifactRef] = Field(default_factory=list)
-    vitality: Optional[float] = None  # 归档、触碰等生命周期事件时记录当前生命值
+    artifact_refs: List[ArtifactRef] = Field(default_factory=list)
     note: Optional[str] = None
 
     model_config = ConfigDict(extra="ignore")

@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from hivememory.core.models.artifact import ArtifactRef, MemoryProvenance
+from hivememory.core.models.artifact import ArtifactRef, MemoryEventLog
 
 
 class MemoryType(str, Enum):
@@ -147,9 +147,9 @@ class Artifacts(BaseModel):
         default_factory=list,
         description="ArtifactRef 列表 - 指向本记忆关联的所有 Artifact"
     )
-    provenance: List[MemoryProvenance] = Field(
+    events: List[MemoryEventLog] = Field(
         default_factory=list,
-        description="MemoryProvenance 列表 - 记忆生命周期事件流水"
+        description="MemoryEventLog 列表 - 记忆生命周期事件流水"
     )
     cold_archive_uri: Optional[str] = Field(
         default=None,

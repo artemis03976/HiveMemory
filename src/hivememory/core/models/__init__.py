@@ -16,7 +16,8 @@ from .artifact import (
     MemoryVersionSnapshot,
     MemoryCreationArtifact,
     MemoryVersionArtifact,
-    MemoryProvenance,
+    MemoryEventType,
+    MemoryEventLog,
 )
 from .memory import (
     MemoryType,
@@ -71,7 +72,8 @@ __all__ = [
     "MemoryVersionSnapshot",
     "MemoryCreationArtifact",
     "MemoryVersionArtifact",
-    "MemoryProvenance",
+    "MemoryEventType",
+    "MemoryEventLog",
     "MemoryType",
     "MemoryVisibility",
     "VerificationStatus",

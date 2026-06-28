@@ -7,7 +7,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -42,6 +42,26 @@ class MemoryGenerationSource(str, Enum):
     MERGE = "MERGE"
     SPLIT = "SPLIT"
 
+    @property
+    def creation_artifact_intent(
+        self,
+    ) -> Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"]:
+        if self == MemoryGenerationSource.ARCHIVE:
+            return "ARCHIVE"
+        if self == MemoryGenerationSource.WRITE:
+            return "WRITE"
+        return "SYSTEM"
+
+    @property
+    def version_update_source(
+        self,
+    ) -> Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"]:
+        if self == MemoryGenerationSource.MERGE:
+            return "MERGE"
+        if self == MemoryGenerationSource.SPLIT:
+            return "SYSTEM_REWRITE"
+        return "UPDATE"
+
 
 @dataclass(frozen=True)
 class InteractionArtifactInput:
@@ -61,7 +81,6 @@ class MemoryGenerationTaskSpec:
     label: str
     source: MemoryGenerationSource
     request: GenerationRequest
-    source_intent: str
     interaction_input: InteractionArtifactInput | None = None
     intent_id: Optional[str] = None
     pending_alias: Optional[str] = None

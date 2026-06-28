@@ -18,6 +18,7 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from hivememory.core.models import MemoryEventLog, MemoryEventType
 from hivememory.patchouli.memory_library.models import (
     StorageHealthComponent,
     StorageHealthReport,
@@ -66,6 +67,9 @@ class MemoryLibrary:
         memory = await self.mid_term.get(memory_id)
         if memory is None:
             raise ValueError(f"Memory {memory_id} not found in mid-term storage")
+        memory.payload.artifacts.events.append(
+            MemoryEventLog(event_type=MemoryEventType.ARCHIVED)
+        )
         await self.long_term.persist(memory)
         await self.mid_term.delete(memory_id)
         logger.info(f"记忆已归档至冷存储: {memory_id}")
@@ -79,6 +83,9 @@ class MemoryLibrary:
         流程: LongTermStore.load() → MidTermStore.upsert() → LongTermStore.remove()
         """
         memory = await self.long_term.load(memory_id)
+        memory.payload.artifacts.events.append(
+            MemoryEventLog(event_type=MemoryEventType.REVIVED)
+        )
         await self.mid_term.upsert(memory)
         await self.long_term.remove(memory_id)
         logger.info(f"记忆已从冷存储复活至向量库: {memory_id}")

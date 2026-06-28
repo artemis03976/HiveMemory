@@ -182,7 +182,7 @@ class PatchouliRuntime:
 
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_CREATE,
-            self.memory_library.mid_term.upsert,
+            self.memory_generation_familiar.create_external_memory,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_LIST,
@@ -202,7 +202,7 @@ class PatchouliRuntime:
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_UPDATE,
-            self.memory_library.mid_term.upsert,
+            self.memory_generation_familiar.update_external_memory,
         )
         self._local_bus.register(
             PatchouliLocalRoutes.MEMORY_DELETE,
@@ -252,7 +252,7 @@ class PatchouliRuntime:
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
             self.retrieval_familiar.get_agent_profile,
         )
-        
+
         self._local_bus.register(
             PatchouliLocalRoutes.TOPIC_PREPARE,
             self.perception_familiar.prepare_topic,
@@ -455,7 +455,12 @@ class PatchouliRuntime:
         if artifact_config.enabled:
             from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
             from hivememory.patchouli.memory_library.stores import ArtifactStore
-            artifact_store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=artifact_config.root_dir))
+            artifact_store = ArtifactStore(
+                FilesystemArtifactStorageAdapter(
+                    root_dir=artifact_config.root_dir,
+                    max_inline_summary_chars=artifact_config.max_inline_summary_chars,
+                )
+            )
 
         return MemoryLibrary(
             short_term=short_term,
@@ -532,12 +537,24 @@ class PatchouliRuntime:
 
     def _build_artifact_engine(self):
         """[私有构建器] 组装 ArtifactEngine — store 由 MemoryLibrary 统一持有"""
-        from hivememory.engines.artifacts.engine import ArtifactEngine
+        from hivememory.engines.artifacts import (
+            ArtifactEngine,
+            create_document_builder,
+            create_interaction_builder,
+            create_memory_builder,
+        )
 
+        config = self._patchouli_config.artifacts
         store = self.memory_library.artifact_store
-        if store is None:
-            return None
-        return ArtifactEngine(store=store)
+        if not config.enabled:
+            store = None
+
+        return ArtifactEngine(
+            config=config,
+            interaction=create_interaction_builder(config.interaction, store),
+            document=create_document_builder(config.document, store),
+            memory=create_memory_builder(config.memory, store),
+        )
 
     def _build_lifecycle_engine(self):
         """[私有构建器] 组装 Lifecycle 模块"""

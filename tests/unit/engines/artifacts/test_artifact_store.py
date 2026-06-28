@@ -14,11 +14,21 @@ import pytest
 from datetime import datetime
 from pathlib import Path
 
-from hivememory.core.models.artifact import ArtifactType, ArtifactRef, InteractionArtifact, MemoryProvenance
+from hivememory.core.models.artifact import (
+    ArtifactType,
+    ArtifactRef,
+    InteractionArtifact,
+    MemoryEventLog,
+    MemoryEventType,
+)
 from hivememory.core.models.memory import Artifacts
 from hivememory.engines.artifacts.engine import ArtifactEngine
+from hivememory.engines.artifacts.document import NoOpDocumentArtifactBuilder
+from hivememory.engines.artifacts.interaction import InteractionArtifactBuilder
+from hivememory.engines.artifacts.memory import MemoryArtifactBuilder
 from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.patchouli.memory_library.stores import ArtifactStore
+from hivememory.system.config.patchouli import ArtifactComponentConfig, ArtifactConfig
 
 
 @pytest.fixture
@@ -50,6 +60,22 @@ async def test_put_and_get_roundtrip(store):
     data = await store.get(ref)
     assert data["artifact_id"] == "test-id"
     assert data["topic_id"] == "topic-1"
+
+
+@pytest.mark.asyncio
+async def test_put_uses_configured_inline_summary_limit(tmp_path):
+    store = ArtifactStore(
+        FilesystemArtifactStorageAdapter(
+            root_dir=str(tmp_path),
+            max_inline_summary_chars=3,
+        )
+    )
+    artifact = _make_artifact()
+    artifact.summary = "abcdef"
+
+    ref = await store.put(artifact)
+
+    assert ref.summary == "abc"
 
 
 @pytest.mark.asyncio
@@ -115,13 +141,13 @@ def test_old_artifacts_payload_ignores_removed_legacy_fields():
     assert not hasattr(artifacts, "context_ref")
     assert not hasattr(artifacts, "full_history")
     assert artifacts.refs == []
-    assert artifacts.provenance == []
+    assert artifacts.events == []
     assert artifacts.cold_archive_uri is None
     assert artifacts.cold_archive_hash is None
     assert artifacts.revival_keys == []
 
 
-def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
+def test_artifacts_payload_deserializes_refs_and_events_as_models():
     payload = {
         "refs": [
             {
@@ -131,11 +157,10 @@ def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
                 "sha256": "abc",
             }
         ],
-        "provenance": [
+        "events": [
             {
-                "action": "updated",
-                "source_intent": "UPDATE",
-                "source_artifacts": [
+                "event_type": "versioned",
+                "artifact_refs": [
                     {
                         "artifact_id": "interaction-1",
                         "artifact_type": "interaction",
@@ -148,9 +173,9 @@ def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
     artifacts = Artifacts.model_validate(payload)
 
     assert isinstance(artifacts.refs[0], ArtifactRef)
-    assert isinstance(artifacts.provenance[0], MemoryProvenance)
-    assert artifacts.provenance[0].source_intent == "UPDATE"
-    assert isinstance(artifacts.provenance[0].source_artifacts[0], ArtifactRef)
+    assert isinstance(artifacts.events[0], MemoryEventLog)
+    assert artifacts.events[0].event_type == MemoryEventType.VERSIONED
+    assert isinstance(artifacts.events[0].artifact_refs[0], ArtifactRef)
 
 
 
@@ -158,7 +183,43 @@ def test_artifacts_payload_deserializes_refs_and_provenance_as_models():
 
 def test_artifact_engine_holds_all_builders(tmp_path):
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
-    engine = ArtifactEngine(store)
+    engine = ArtifactEngine.from_store(store)
     assert engine.interaction is not None
     assert engine.document is not None
     assert engine.memory is not None
+
+
+def test_artifact_engine_from_store_honors_component_config(tmp_path):
+    store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
+    config = ArtifactConfig(document=ArtifactComponentConfig(enabled=False))
+
+    engine = ArtifactEngine.from_store(store, config=config)
+
+    assert engine.config is config
+    assert isinstance(engine.interaction, InteractionArtifactBuilder)
+    assert isinstance(engine.memory, MemoryArtifactBuilder)
+    assert isinstance(engine.document, NoOpDocumentArtifactBuilder)
+
+
+@pytest.mark.asyncio
+async def test_noop_artifact_engine_returns_empty_results():
+    engine = ArtifactEngine.noop()
+
+    interaction_ref = await engine.interaction.build_and_store(
+        topic_id="topic-1",
+        blocks=[],
+    )
+    memory_bundle = await engine.memory.build_for_create(
+        memory=object(),
+        context=object(),
+        source_intent="WRITE",
+        source_artifact_refs=[],
+    )
+    version_ref = await engine.memory.build_for_update(
+        memory_after=object(),
+        update_source="UPDATE",
+    )
+
+    assert interaction_ref is None
+    assert memory_bundle.refs == []
+    assert version_ref is None

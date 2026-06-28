@@ -33,6 +33,7 @@ def bus():
 async def test_create_memory_requests_memory_create(bus):
     service = MemoryManagementService(bus=bus)
     atom = _make_memory_atom(title="Created memory")
+    bus.request.return_value = atom
 
     result = await service.create_memory(atom)
 
@@ -110,17 +111,9 @@ async def test_get_memory_requests_memory_get_and_skips_refresh_when_missing(bus
 
 
 @pytest.mark.asyncio
-async def test_update_memory_updates_editable_fields_and_requests_memory_update(bus):
+async def test_update_memory_requests_memory_update(bus):
     atom = _make_memory_atom()
-
-    async def request(route, *args, **kwargs):
-        if route == PatchouliLocalRoutes.MEMORY_GET:
-            return atom
-        if route == PatchouliLocalRoutes.MEMORY_UPDATE:
-            return None
-        raise AssertionError(route)
-
-    bus.request.side_effect = request
+    bus.request.return_value = atom
     service = MemoryManagementService(bus=bus)
 
     updated = await service.update_memory(
@@ -134,14 +127,16 @@ async def test_update_memory_updates_editable_fields_and_requests_memory_update(
     )
 
     assert updated is atom
-    assert atom.index.title == "Updated"
-    assert atom.index.summary == "Updated summary"
-    assert atom.payload.content == "Updated content"
-    assert atom.index.alias == "updated-alias"
-    assert atom.index.tags == ["updated"]
-    assert atom.payload.artifacts.agent_config == {"mode": "test"}
-    assert bus.request.await_args_list[0].args == (PatchouliLocalRoutes.MEMORY_GET, atom.id)
-    assert bus.request.await_args_list[1].args == (PatchouliLocalRoutes.MEMORY_UPDATE, atom)
+    bus.request.assert_awaited_once_with(
+        PatchouliLocalRoutes.MEMORY_UPDATE,
+        atom.id,
+        title="Updated",
+        summary="Updated summary",
+        content="Updated content",
+        alias="updated-alias",
+        tags=["updated"],
+        agent_config={"mode": "test"},
+    )
 
 
 @pytest.mark.asyncio
