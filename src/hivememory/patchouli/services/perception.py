@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel
@@ -168,7 +168,7 @@ class PerceptionFamiliar:
                 logger.info(
                     "检测到空闲话题: topic_id=%s, idle_time=%.1fs",
                     topic.topic_id,
-                    datetime.now().timestamp() - topic.last_update,
+                    datetime.now(timezone.utc).timestamp() - topic.last_update,
                 )
                 settle_payload = await self.perception_layer.settle_topic(
                     topic.topic_id, FlushReason.IDLE_TIMEOUT
@@ -182,11 +182,8 @@ class PerceptionFamiliar:
         return flushed
 
     async def flush_all_for_shutdown(self) -> ShutdownFlushResult:
-        """服务关闭前强制结算所有活跃话题。
-
-        TODO: 目前仅保证任务提交完成，不等待生成执行完毕。
-              未来需在 MemoryGenerationTaskController 提供 drain_all() 接口，
-              在此调用以确保 shutdown 前所有记忆生成任务执行完毕。
+        """
+        服务关闭前强制结算所有活跃话题。
         """
         flushed, skipped, archived_blocks = [], [], 0
         for topic in self._short_term.list_topic_data():

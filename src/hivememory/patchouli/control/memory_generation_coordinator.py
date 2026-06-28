@@ -152,7 +152,8 @@ class MemoryGenerationCoordinator:
         source = MemoryGenerationSource(task.source_verb)
         focus = task.focus
         if source == MemoryGenerationSource.WRITE:
-            assert isinstance(focus, WriteFocus)
+            if not isinstance(focus, WriteFocus):
+                raise SpecBuildError(f"WRITE focus must be WriteFocus, got {type(focus)}")
             request = GenerationRequest(
                 context=gen_context,
                 write_focus=focus,
@@ -160,7 +161,8 @@ class MemoryGenerationCoordinator:
             )
             source_intent = "WRITE"
         elif source == MemoryGenerationSource.UPDATE:
-            assert isinstance(focus, UpdateFocus)
+            if not isinstance(focus, UpdateFocus):
+                raise SpecBuildError(f"UPDATE focus must be UpdateFocus, got {type(focus)}")
             try:
                 base_uuid = UUID(focus.base_uuid)
             except ValueError as exc:

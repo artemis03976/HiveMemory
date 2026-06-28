@@ -47,7 +47,7 @@ async def test_retrieve_for_gaze_rag_intent(service_with_local_bus):
     gaze = _make_gaze_result(intent=GatewayIntent.RAG)
     retrieved = _make_retrieval_response(empty=False)
     retrieve = AsyncMock(return_value=retrieved)
-    service._require_local_bus().register("memory.retrieve", retrieve)
+    service._local_bus.register("memory.retrieve", retrieve)
 
     result = await service.retrieve_for_gaze(gaze)
 
@@ -65,7 +65,7 @@ async def test_retrieve_for_gaze_chat_intent_skips_retrieval(service_with_local_
     service = service_with_local_bus
     gaze = _make_gaze_result(intent=GatewayIntent.CHAT)
     retrieve = AsyncMock()
-    service._require_local_bus().register("memory.retrieve", retrieve)
+    service._local_bus.register("memory.retrieve", retrieve)
 
     result = await service.retrieve_for_gaze(gaze)
 
@@ -78,7 +78,7 @@ async def test_retrieve_for_gaze_retrieval_disabled(service_with_local_bus):
     service = service_with_local_bus
     gaze = _make_gaze_result(intent=GatewayIntent.RAG)
     retrieve = AsyncMock()
-    service._require_local_bus().register("memory.retrieve", retrieve)
+    service._local_bus.register("memory.retrieve", retrieve)
 
     result = await service.retrieve_for_gaze(gaze, enable_retrieval=False)
 
@@ -91,7 +91,7 @@ async def test_retrieve_for_gaze_empty_retrieval(service_with_local_bus):
     service = service_with_local_bus
     gaze = _make_gaze_result(intent=GatewayIntent.RAG)
     retrieve = AsyncMock(return_value=_make_retrieval_response(empty=True))
-    service._require_local_bus().register("memory.retrieve", retrieve)
+    service._local_bus.register("memory.retrieve", retrieve)
 
     result = await service.retrieve_for_gaze(gaze)
 

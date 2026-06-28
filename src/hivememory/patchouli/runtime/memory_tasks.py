@@ -264,16 +264,11 @@ class MemoryGenerationTaskRegistry:
         memory_task.cancel_background_task()
         return True
 
-    def close(self, task_id: str, status: MemoryGenerationTaskStatus) -> None:
+    def close(self, task_id: str) -> None:
         memory_task = self._tasks.get(task_id)
         if memory_task is None:
             return
-        memory_task.status = status
-        if memory_task.finished_at is None:
-            memory_task.finished_at = datetime.now(timezone.utc)
-        self._evict_old_completed()
-
-    def _evict_old_completed(self) -> None:
+            
         terminal = [
             task
             for task in self._tasks.values()

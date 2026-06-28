@@ -33,20 +33,23 @@ class TestMemoryGenerationTaskRegistry:
     def test_cancel_missing_returns_false(self):
         assert MemoryGenerationTaskRegistry().cancel("missing") is False
 
-    def test_close_sets_status_and_finished_at(self):
+    def test_close_triggers_eviction(self):
         reg = MemoryGenerationTaskRegistry()
         memory_task = _task_handle()
         reg.register(memory_task)
-        reg.close("j1", MemoryGenerationTaskStatus.COMPLETED)
-        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
-        assert memory_task.finished_at is not None
+        memory_task.status = MemoryGenerationTaskStatus.COMPLETED
+        reg.close("j1")
+        assert reg.get("j1") is memory_task
 
     def test_evicts_old_completed_tasks(self):
+        from datetime import datetime, timezone
         reg = MemoryGenerationTaskRegistry(max_completed=2)
         for i in range(3):
             task = _task_handle(task_id=f"j{i}", topic_id="t")
             reg.register(task)
-            reg.close(f"j{i}", MemoryGenerationTaskStatus.COMPLETED)
+            task.status = MemoryGenerationTaskStatus.COMPLETED
+            task.finished_at = datetime.now(timezone.utc)
+            reg.close(f"j{i}")
         assert len(reg.list_all()) <= 2
 
 

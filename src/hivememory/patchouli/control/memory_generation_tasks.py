@@ -309,7 +309,7 @@ class MemoryGenerationTaskController:
                 f"memory task terminal publish failed: {memory_task.task_id}",
             )
         finally:
-            self._task_registry.close(memory_task.task_id, status)
+            self._task_registry.close(memory_task.task_id)
 
     async def _publish_best_effort(self, awaitable, warning: str) -> None:
         """发布可观测副作用；失败只记日志，不改变任务终态。"""
@@ -414,15 +414,15 @@ class MemoryGenerationTaskController:
         memory_task = self._task_registry.get(task_id)
         ok = self._task_registry.cancel(task_id)
         if ok and memory_task is not None:
-            await self._finish_task(
-                memory_task,
-                MemoryGenerationTaskStatus.CANCELLED,
-                pending_alias=memory_task.pending_alias,
-            )
             self._emit_memory_task_event(
                 RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
                 memory_task,
                 reason="user_requested",
+            )
+            await self._finish_task(
+                memory_task,
+                MemoryGenerationTaskStatus.CANCELLED,
+                pending_alias=memory_task.pending_alias,
             )
         return ok
 
