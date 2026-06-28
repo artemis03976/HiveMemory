@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -23,6 +24,15 @@ class MemoryGenerationTaskStatus(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+
+
+_TERMINAL_STATUSES = frozenset(
+    {
+        MemoryGenerationTaskStatus.COMPLETED,
+        MemoryGenerationTaskStatus.CANCELLED,
+        MemoryGenerationTaskStatus.FAILED,
+    }
+)
 
 
 class MemoryGenerationSource(str, Enum):
@@ -102,11 +112,7 @@ class MemoryGenerationTask:
         return self.cancel_event.is_set()
 
     def request_cancel(self) -> None:
-        if self.status not in (
-            MemoryGenerationTaskStatus.COMPLETED,
-            MemoryGenerationTaskStatus.FAILED,
-            MemoryGenerationTaskStatus.CANCELLED,
-        ):
+        if self.status not in _TERMINAL_STATUSES:
             self.cancel_event.set()
 
     def attach_task(self, task: asyncio.Task) -> None:
@@ -244,46 +250,41 @@ class MemoryGenerationTaskRegistry:
     """In-process registry for Patchouli memory generation tasks."""
 
     def __init__(self, max_completed: int = 50) -> None:
-        self._tasks: Dict[str, MemoryGenerationTask] = {}
+        self._active_tasks: Dict[str, MemoryGenerationTask] = {}
+        self._terminal_tasks: OrderedDict[str, MemoryGenerationTask] = OrderedDict()
         self._max_completed = max_completed
 
     def register(self, memory_task: MemoryGenerationTask) -> None:
-        self._tasks[memory_task.task_id] = memory_task
+        self._terminal_tasks.pop(memory_task.task_id, None)
+        self._active_tasks[memory_task.task_id] = memory_task
 
     def get(self, task_id: str) -> Optional[MemoryGenerationTask]:
-        return self._tasks.get(task_id)
+        return self._active_tasks.get(task_id) or self._terminal_tasks.get(task_id)
 
     def list_all(self) -> List[MemoryGenerationTask]:
-        return list(self._tasks.values())
+        return list(self._active_tasks.values()) + list(self._terminal_tasks.values())
 
     def cancel(self, task_id: str) -> bool:
-        memory_task = self._tasks.get(task_id)
+        memory_task = self._active_tasks.get(task_id)
         if memory_task is None:
             return False
         memory_task.request_cancel()
         memory_task.cancel_background_task()
         return True
 
-    def close(self, task_id: str) -> None:
-        memory_task = self._tasks.get(task_id)
+    def retain_terminal(self, task_id: str) -> None:
+        memory_task = self._active_tasks.get(task_id)
         if memory_task is None:
             return
-            
-        terminal = [
-            task
-            for task in self._tasks.values()
-            if task.status
-            in (
-                MemoryGenerationTaskStatus.COMPLETED,
-                MemoryGenerationTaskStatus.CANCELLED,
-                MemoryGenerationTaskStatus.FAILED,
+        if memory_task.status not in _TERMINAL_STATUSES:
+            raise ValueError(
+                f"Memory task retained status must be terminal: {memory_task.status}"
             )
-        ]
-        if len(terminal) <= self._max_completed:
-            return
-        terminal.sort(key=lambda task: task.finished_at or task.created_at)
-        for memory_task in terminal[: len(terminal) - self._max_completed]:
-            self._tasks.pop(memory_task.task_id, None)
+
+        self._active_tasks.pop(task_id, None)
+        self._terminal_tasks[task_id] = memory_task
+        while len(self._terminal_tasks) > self._max_completed:
+            self._terminal_tasks.popitem(last=False)
 
 
 __all__ = [

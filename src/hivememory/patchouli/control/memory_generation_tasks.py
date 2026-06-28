@@ -274,7 +274,7 @@ class MemoryGenerationTaskController:
         完成 MemoryGenerationTask 的唯一终态入口。
 
         先落业务事实：status/error/finished_at；再 best-effort 发布
-        PendingAtom 和 memory.task 终态事件；最后无论发布是否失败都 close registry。
+        PendingAtom 和 memory.task 终态事件；最后无论发布是否失败都保留终态快照。
 
         第一次终态调用胜出，后续调用 no-op。防止取消、异常和重复 cleanup 互相覆盖终态。
         """
@@ -309,7 +309,7 @@ class MemoryGenerationTaskController:
                 f"memory task terminal publish failed: {memory_task.task_id}",
             )
         finally:
-            self._task_registry.close(memory_task.task_id)
+            self._task_registry.retain_terminal(memory_task.task_id)
 
     async def _publish_best_effort(self, awaitable, warning: str) -> None:
         """发布可观测副作用；失败只记日志，不改变任务终态。"""

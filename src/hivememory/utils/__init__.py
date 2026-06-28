@@ -21,6 +21,7 @@ from hivememory.utils.token_estimator import (
     EstimationStrategy,
     estimate_tokens,
 )
+from hivememory.utils.uuid import normalize_uuid
 
 __all__ = [
     "TimeFormatter",
@@ -34,4 +35,5 @@ __all__ = [
     "TokenEstimator",
     "EstimationStrategy",
     "estimate_tokens",
+    "normalize_uuid",
 ]

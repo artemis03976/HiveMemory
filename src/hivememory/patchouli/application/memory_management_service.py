@@ -6,6 +6,7 @@ from uuid import UUID
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.utils.uuid import normalize_uuid
 
 
 class MemoryManagementService:
@@ -54,7 +55,7 @@ class MemoryManagementService:
     ) -> MemoryAtom | None:
         atom = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_GET,
-            self._normalize_uuid(memory_id),
+            normalize_uuid(memory_id),
         )
         if atom is not None and refresh_vitality:
             await self._refresh_vitality_for_response([atom])
@@ -73,7 +74,7 @@ class MemoryManagementService:
     ) -> MemoryAtom | None:
         atom = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_GET,
-            self._normalize_uuid(memory_id),
+            normalize_uuid(memory_id),
         )
         if atom is None:
             return None
@@ -98,7 +99,7 @@ class MemoryManagementService:
     async def delete_memory(self, memory_id: UUID | str) -> bool:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_DELETE,
-            self._normalize_uuid(memory_id),
+            normalize_uuid(memory_id),
         )
 
     async def record_feedback(
@@ -110,7 +111,7 @@ class MemoryManagementService:
     ):
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
-            self._normalize_uuid(memory_id),
+            normalize_uuid(memory_id),
             positive=positive,
             source=source,
         )
@@ -118,7 +119,6 @@ class MemoryManagementService:
     async def retrieve(
         self,
         request: RetrievalRequest,
-        mode: str = "active",
     ) -> RetrievalResponse:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
@@ -129,17 +129,12 @@ class MemoryManagementService:
         self,
         aliases: list[str],
         identity=None,
-        mode: str = "active",
     ) -> RetrievalResponse:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
             aliases,
             identity,
         )
-
-    @staticmethod
-    def _normalize_uuid(memory_id: UUID | str) -> UUID:
-        return memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
 
     @staticmethod
     def _memory_type_value(memory_type: MemoryType | str) -> str:
