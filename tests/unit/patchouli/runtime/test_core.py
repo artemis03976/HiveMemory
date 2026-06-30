@@ -88,15 +88,19 @@ class TestRuntimeShutdownDrain:
         assert result["generation_cancelled_after_timeout"] == 0
         events = runtime._test_runtime_events.events
         assert [event.event_type for event in events] == [
-            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_STARTED,
-            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_COMPLETED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED,
         ]
         assert events[0].status == "started"
         assert events[0].source == "patchouli.shutdown_drain"
         assert events[0].subsystem == "patchouli"
         assert events[0].component == "patchouli_runtime"
+        assert events[0].data["operation_key"] == "patchouli.shutdown_drain"
+        assert events[0].data["operation_name"] == "shutdown_drain"
+        assert events[0].data["operation_kind"] == "shutdown"
         completed = events[-1]
         assert completed.status == "completed"
+        assert completed.data["operation_key"] == "patchouli.shutdown_drain"
         assert completed.data["success"] is True
         assert completed.data["perception"] == {
             "success": True,
@@ -153,7 +157,7 @@ class TestRuntimeShutdownDrain:
         assert result["generation"].timed_out == 1
         assert result["generation_cancelled_after_timeout"] == 1
         completed = runtime._test_runtime_events.events[-1]
-        assert completed.event_type == RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_COMPLETED
+        assert completed.event_type == RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED
         assert completed.status == "completed_with_timeout"
         assert completed.severity == "warning"
         assert completed.data["success"] is False
@@ -183,10 +187,10 @@ class TestRuntimeShutdownDrain:
         runtime._task_controller.wait_all.assert_awaited_once()
         events = runtime._test_runtime_events.events
         assert [event.event_type for event in events] == [
-            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_STARTED,
-            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_COMPLETED,
-            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_STARTED,
-            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_COMPLETED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED,
         ]
         assert events[-2].data["reentrant"] is True
         assert events[-1].data["reentrant"] is True
@@ -205,8 +209,8 @@ class TestRuntimeShutdownDrain:
 
         events = runtime._test_runtime_events.events
         assert [event.event_type for event in events] == [
-            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_STARTED,
-            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_FAILED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_FAILED,
         ]
         failed = events[-1]
         assert failed.status == "failed"
