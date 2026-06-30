@@ -13,6 +13,8 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock
 
+from hivememory.system.contracts.runtime_events import RuntimeEventType
+from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 
@@ -155,6 +157,133 @@ class TestSchedulerExecution:
         assert call_count <= 2
         status = scheduler.get_status()
         assert status[f"{TEST_OWNER}.slow"]["skip_count"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_success_task_emits_runtime_events(self):
+        recorder = RecordingRuntimeEventSink()
+
+        async def callback():
+            return {"flushed": 2}
+
+        scheduler = AsyncMaintenanceScheduler(
+            tick_seconds=0.05,
+            runtime_events=recorder,
+        )
+        scheduler.register(make_spec(name="success", interval_seconds=10.0), callback)
+        state = next(iter(scheduler._tasks.values()))
+
+        await scheduler._execute_task(state)
+
+        assert [event.event_type for event in recorder.events] == [
+            RuntimeEventType.MAINTENANCE_TASK_STARTED,
+            RuntimeEventType.MAINTENANCE_TASK_COMPLETED,
+        ]
+        started, completed = recorder.events
+        assert started.status == "started"
+        assert started.task_type == "background"
+        assert started.source == f"{TEST_OWNER}.success"
+        assert started.subsystem == "system"
+        assert completed.status == "completed"
+        assert completed.data["task_key"] == f"{TEST_OWNER}.success"
+        assert completed.data["owner"] == TEST_OWNER
+        assert completed.data["name"] == "success"
+        assert completed.data["result"] == {"flushed": 2}
+        assert completed.data["duration_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_failed_task_emits_runtime_event_and_keeps_scheduler_alive(self):
+        recorder = RecordingRuntimeEventSink()
+
+        async def callback():
+            raise RuntimeError("boom")
+
+        scheduler = AsyncMaintenanceScheduler(
+            tick_seconds=0.05,
+            runtime_events=recorder,
+        )
+        scheduler.register(make_spec(name="failing", interval_seconds=10.0), callback)
+        state = next(iter(scheduler._tasks.values()))
+
+        await scheduler._execute_task(state)
+
+        assert [event.event_type for event in recorder.events] == [
+            RuntimeEventType.MAINTENANCE_TASK_STARTED,
+            RuntimeEventType.MAINTENANCE_TASK_FAILED,
+        ]
+        failed = recorder.events[-1]
+        assert failed.status == "failed"
+        assert failed.severity == "error"
+        assert failed.reason == "boom"
+        assert failed.data["error"] == "boom"
+        assert failed.data["failure_count"] == 1
+        assert scheduler.get_status()[f"{TEST_OWNER}.failing"]["last_error"] == "boom"
+
+    @pytest.mark.asyncio
+    async def test_disabled_task_emits_no_runtime_events(self):
+        recorder = RecordingRuntimeEventSink()
+        callback = AsyncMock()
+        scheduler = AsyncMaintenanceScheduler(
+            tick_seconds=0.05,
+            runtime_events=recorder,
+        )
+        scheduler.register(
+            make_spec(name="disabled", interval_seconds=0.1, enabled=False),
+            callback,
+        )
+        for state in scheduler._tasks.values():
+            state.next_run_at = 0.0
+
+        scheduler.start()
+        await asyncio.sleep(0.2)
+        await scheduler.stop()
+
+        assert recorder.events == []
+
+    @pytest.mark.asyncio
+    async def test_non_reentrant_skip_emits_no_extra_runtime_events(self):
+        recorder = RecordingRuntimeEventSink()
+
+        async def slow_task():
+            await asyncio.sleep(0.3)
+
+        scheduler = AsyncMaintenanceScheduler(
+            tick_seconds=0.05,
+            runtime_events=recorder,
+        )
+        scheduler.register(
+            make_spec(
+                name="slow_events",
+                interval_seconds=0.05,
+                non_reentrant=True,
+                skip_if_running=True,
+            ),
+            slow_task,
+        )
+        for state in scheduler._tasks.values():
+            state.next_run_at = 0.0
+
+        scheduler.start()
+        await asyncio.sleep(0.18)
+        await scheduler.stop()
+
+        status = scheduler.get_status()
+        assert status[f"{TEST_OWNER}.slow_events"]["skip_count"] >= 1
+        assert [event.event_type for event in recorder.events] == [
+            RuntimeEventType.MAINTENANCE_TASK_STARTED,
+            RuntimeEventType.MAINTENANCE_TASK_COMPLETED,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_default_null_runtime_event_sink_does_not_affect_task(self):
+        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
+        callback = AsyncMock(return_value=1)
+        scheduler.register(make_spec(name="default_sink", interval_seconds=10.0), callback)
+        state = next(iter(scheduler._tasks.values()))
+
+        await scheduler._execute_task(state)
+
+        callback.assert_awaited_once()
+        assert scheduler.get_status()[f"{TEST_OWNER}.default_sink"]["run_count"] == 1
 
 
 class TestSchedulerLifecycle:

@@ -21,6 +21,8 @@ import random
 from time import monotonic
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec, TaskRuntimeState
 
 logger = logging.getLogger(__name__)
@@ -34,9 +36,15 @@ class AsyncMaintenanceScheduler:
     keyed by `spec.task_key` (i.e. `{owner}.{name}`).
     """
 
-    def __init__(self, tick_seconds: float = 1.0, shutdown_wait_seconds: float = 5.0):
+    def __init__(
+        self,
+        tick_seconds: float = 1.0,
+        shutdown_wait_seconds: float = 5.0,
+        runtime_events: RuntimeEventSink | None = None,
+    ):
         self._tick_seconds = tick_seconds
         self._shutdown_wait_seconds = shutdown_wait_seconds
+        self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._tasks: Dict[str, TaskRuntimeState] = {}
         self._shutdown: Optional[asyncio.Event] = None
         self._loop_task: Optional[asyncio.Task] = None
@@ -190,20 +198,101 @@ class AsyncMaintenanceScheduler:
         start = monotonic()
         state.last_started_at = start
         state.run_count += 1
+        self._emit_task_event(
+            RuntimeEventType.MAINTENANCE_TASK_STARTED,
+            state,
+            status="started",
+            duration_ms=0.0,
+        )
         try:
-            await state.callback()
+            result = await state.callback()
             state.last_finished_at = monotonic()
             state.last_error = None
+            self._emit_task_event(
+                RuntimeEventType.MAINTENANCE_TASK_COMPLETED,
+                state,
+                status="completed",
+                duration_ms=(state.last_finished_at - start) * 1000,
+                result=result,
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:
             state.failure_count += 1
             state.last_error = str(e)
             state.last_finished_at = monotonic()
+            self._emit_task_event(
+                RuntimeEventType.MAINTENANCE_TASK_FAILED,
+                state,
+                status="failed",
+                duration_ms=(state.last_finished_at - start) * 1000,
+                error=str(e),
+            )
             logger.error(
                 f"Maintenance task '{key}' failed: {e}",
                 exc_info=True,
             )
+
+    def _emit_task_event(
+        self,
+        event_type: RuntimeEventType,
+        state: TaskRuntimeState,
+        *,
+        status: str,
+        duration_ms: float | None = None,
+        result: Any = None,
+        error: str | None = None,
+    ) -> None:
+        # 维护任务事件是旁路观测事实，不驱动调度、重试或业务状态推进。
+        spec = state.spec
+        data = {
+            "task_key": spec.task_key,
+            "owner": spec.owner,
+            "name": spec.name,
+            "run_count": state.run_count,
+            "failure_count": state.failure_count,
+            "skip_count": state.skip_count,
+            "duration_ms": duration_ms,
+            "result": self._safe_event_value(result),
+            "error": error,
+        }
+        self._runtime_events.emit(
+            RuntimeEvent(
+                event_type=event_type,
+                task_type="background",
+                source=spec.task_key,
+                subsystem=self._subsystem_for_owner(spec.owner),
+                component="maintenance_scheduler",
+                severity="error" if event_type == RuntimeEventType.MAINTENANCE_TASK_FAILED else "info",
+                status=status,
+                reason=error,
+                data=data,
+            )
+        )
+
+    @staticmethod
+    def _subsystem_for_owner(owner: str) -> str:
+        if owner == "patchouli" or owner.startswith("patchouli."):
+            return "patchouli"
+        if owner == "alice" or owner.startswith("alice."):
+            return "alice"
+        return "system"
+
+    @staticmethod
+    def _safe_event_value(value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {
+                str(k): AsyncMaintenanceScheduler._safe_event_value(v)
+                for k, v in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [
+                AsyncMaintenanceScheduler._safe_event_value(item)
+                for item in value
+            ]
+        return repr(value)
 
     # ========== Introspection ==========
 

@@ -31,6 +31,10 @@ class RuntimeEventType(str, Enum):
     MEMORY_TASK_COMPLETED = "memory.task.completed"
     MEMORY_TASK_FAILED = "memory.task.failed"
 
+    MAINTENANCE_TASK_STARTED = "maintenance.task.started"
+    MAINTENANCE_TASK_COMPLETED = "maintenance.task.completed"
+    MAINTENANCE_TASK_FAILED = "maintenance.task.failed"
+
     EVENT_STREAM_GAP = "event.stream.gap"
 
 

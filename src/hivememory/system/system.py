@@ -76,10 +76,6 @@ class HiveMemorySystem:
         config = config or load_app_config()
 
         global_bus = GlobalSystemBus()
-        scheduler = GlobalMaintenanceScheduler(
-            tick_seconds=config.scheduler.tick_seconds,
-            shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
-        )
         runtime_events_config = getattr(config, "runtime_events", None)
         if not isinstance(runtime_events_config, RuntimeEventsConfig):
             runtime_events_config = RuntimeEventsConfig()
@@ -93,6 +89,14 @@ class HiveMemorySystem:
             else None
         )
         runtime_event_sink: RuntimeEventSink = runtime_events or NullRuntimeEventSink()
+        scheduler = GlobalMaintenanceScheduler(
+            tick_seconds=config.scheduler.tick_seconds,
+            shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
+            runtime_events=runtime_event_sink.scoped(
+                "system",
+                component="maintenance_scheduler",
+            ),
+        )
 
         # 1. Patchouli 先创建（提供 bus 和 storage，并通过 global bus 调用 Alice）
         patchouli = PatchouliSystem(

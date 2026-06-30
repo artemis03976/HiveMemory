@@ -5,7 +5,9 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.system import HiveMemorySystem
+from hivememory.system.config import RuntimeEventsConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import NullRuntimeEventSink, ScopedRuntimeEventSink
 
 
 class _FakePatchouliSystem:
@@ -69,6 +71,7 @@ def _make_config():
     scheduler.enabled = False
     scheduler.tasks = scheduler_tasks
     config.scheduler = scheduler
+    config.runtime_events = RuntimeEventsConfig(enabled=True)
     return config
 
 
@@ -80,6 +83,25 @@ def test_build_registers_patchouli_and_uses_global_bus_runtime():
 
     assert isinstance(system._global_bus, GlobalSystemBus)
     assert system._patchouli.name == "patchouli"
+
+
+def test_build_injects_runtime_event_sink_into_scheduler():
+    config = _make_config()
+
+    with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
+        system = HiveMemorySystem.build(config=config)
+
+    assert isinstance(system._scheduler._runtime_events, ScopedRuntimeEventSink)
+
+
+def test_build_uses_null_scheduler_runtime_event_sink_when_disabled():
+    config = _make_config()
+    config.runtime_events.enabled = False
+
+    with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
+        system = HiveMemorySystem.build(config=config)
+
+    assert isinstance(system._scheduler._runtime_events, NullRuntimeEventSink)
 
 
 @pytest.mark.asyncio
