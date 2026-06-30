@@ -42,6 +42,10 @@ class RuntimeEventType(str, Enum):
     SYSTEM_STOPPED = "system.stopped"
     SYSTEM_STOP_FAILED = "system.stop_failed"
 
+    PATCHOULI_SHUTDOWN_DRAIN_STARTED = "patchouli.shutdown_drain.started"
+    PATCHOULI_SHUTDOWN_DRAIN_COMPLETED = "patchouli.shutdown_drain.completed"
+    PATCHOULI_SHUTDOWN_DRAIN_FAILED = "patchouli.shutdown_drain.failed"
+
     EVENT_STREAM_GAP = "event.stream.gap"
 
 

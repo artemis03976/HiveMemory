@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from time import monotonic
+from typing import Literal
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from hivememory.core.models import Identity
@@ -43,7 +45,12 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
 from hivememory.system.config import PatchouliConfig, SharedConfig
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
+from hivememory.system.runtime.events import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+    safe_runtime_event_value,
+)
 
 if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
@@ -342,9 +349,16 @@ class PatchouliRuntime:
         """
         服务关闭前强制归档活跃话题并等待后台记忆生成任务完成。
         """
+        start_time = monotonic()
         if self._shutdown_drain_started:
             logger.info("shutdown drain 已执行，跳过重复调用")
-            return {
+            self._emit_shutdown_drain_event(
+                RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_STARTED,
+                status="started",
+                data={"reentrant": True},
+            )
+            generation_summary = MemoryGenerationTaskWaitSummary.from_results([])
+            result = {
                 "success": True,
                 "observer_payloads_submitted": 0,
                 "perception": {
@@ -354,31 +368,85 @@ class PatchouliRuntime:
                     "skipped_topics": [],
                     "archived_blocks": 0,
                 },
-                "generation": MemoryGenerationTaskWaitSummary.from_results([]),
+                "generation": generation_summary,
                 "reentrant": True,
             }
+            self._emit_shutdown_drain_event(
+                RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_COMPLETED,
+                status="completed",
+                duration_ms=(monotonic() - start_time) * 1000,
+                data={
+                    "reentrant": True,
+                    "success": True,
+                    "observer_payloads_submitted": 0,
+                    "perception": self._shutdown_drain_perception_summary(
+                        result["perception"]
+                    ),
+                    "generation": self._shutdown_drain_generation_summary(
+                        generation_summary
+                    ),
+                    "generation_cancelled_after_timeout": 0,
+                },
+            )
+            return result
 
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
 
-        perception_result = await self.perception_familiar.flush_all_for_shutdown()
-        generation_result = await self._task_controller.wait_all(
-            timeout=(
-                self._patchouli_config.shutdown
-                .generation_wait_timeout_seconds
-            ),
+        self._emit_shutdown_drain_event(
+            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_STARTED,
+            status="started",
+            data={"reentrant": False},
         )
-        timed_out_task_ids = [
-            result.task_id
-            for result in generation_result.results
-            if result.timed_out and result.found
-        ]
+        perception_result: Any = None
+        generation_result: MemoryGenerationTaskWaitSummary | None = None
         cancelled_after_timeout = 0
-        if timed_out_task_ids:
-            cancelled_after_timeout = await self._task_controller.cancel_many(
-                timed_out_task_ids,
-                reason="shutdown_timeout",
+        try:
+            perception_result = await self.perception_familiar.flush_all_for_shutdown()
+            generation_result = await self._task_controller.wait_all(
+                timeout=(
+                    self._patchouli_config.shutdown
+                    .generation_wait_timeout_seconds
+                ),
             )
+            timed_out_task_ids = [
+                result.task_id
+                for result in generation_result.results
+                if result.timed_out and result.found
+            ]
+            if timed_out_task_ids:
+                cancelled_after_timeout = await self._task_controller.cancel_many(
+                    timed_out_task_ids,
+                    reason="shutdown_timeout",
+                )
+        except Exception as exc:
+            self._emit_shutdown_drain_event(
+                RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_FAILED,
+                status="failed",
+                severity="error",
+                reason=str(exc),
+                duration_ms=(monotonic() - start_time) * 1000,
+                data={
+                    "reentrant": False,
+                    "success": False,
+                    "observer_payloads_submitted": 0,
+                    "perception": (
+                        self._shutdown_drain_perception_summary(perception_result)
+                        if perception_result is not None
+                        else None
+                    ),
+                    "generation": (
+                        self._shutdown_drain_generation_summary(generation_result)
+                        if generation_result is not None
+                        else None
+                    ),
+                    "generation_cancelled_after_timeout": cancelled_after_timeout,
+                    "error": str(exc),
+                },
+            )
+            raise
+
+        assert generation_result is not None
         result = {
             "success": generation_result.timed_out == 0,
             "observer_payloads_submitted": 0,
@@ -392,7 +460,98 @@ class PatchouliRuntime:
             f"flushed_topics={len(perception_result.flushed_topics)}, "
             f"generation_timed_out={generation_result.timed_out}"
         )
+        self._emit_shutdown_drain_event(
+            RuntimeEventType.PATCHOULI_SHUTDOWN_DRAIN_COMPLETED,
+            status=(
+                "completed_with_timeout"
+                if generation_result.timed_out > 0
+                else "completed"
+            ),
+            severity="warning" if generation_result.timed_out > 0 else "info",
+            duration_ms=(monotonic() - start_time) * 1000,
+            data={
+                "reentrant": False,
+                "success": result["success"],
+                "observer_payloads_submitted": 0,
+                "perception": self._shutdown_drain_perception_summary(
+                    perception_result
+                ),
+                "generation": self._shutdown_drain_generation_summary(
+                    generation_result
+                ),
+                "generation_cancelled_after_timeout": cancelled_after_timeout,
+            },
+        )
         return result
+
+    def _emit_shutdown_drain_event(
+        self,
+        event_type: RuntimeEventType,
+        *,
+        status: str,
+        severity: Literal["debug", "info", "warning", "error"] = "info",
+        reason: str | None = None,
+        duration_ms: float | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        # shutdown drain 事件只用于旁路观测，不驱动关闭流程或任务取消逻辑。
+        payload = {
+            "duration_ms": duration_ms,
+            **(data or {}),
+        }
+        self._runtime_events.emit(
+            RuntimeEvent(
+                event_type=event_type,
+                task_type="background",
+                source="patchouli.shutdown_drain",
+                subsystem="patchouli",
+                component="patchouli_runtime",
+                severity=severity,
+                status=status,
+                reason=reason,
+                data=safe_runtime_event_value(payload),
+            )
+        )
+
+    @staticmethod
+    def _shutdown_drain_perception_summary(perception_result: Any) -> dict[str, Any]:
+        if isinstance(perception_result, dict):
+            flushed_topics = perception_result.get("flushed_topics") or []
+            skipped_topics = perception_result.get("skipped_topics") or []
+            return {
+                "success": perception_result.get("success"),
+                "trigger_reason": perception_result.get("trigger_reason"),
+                "flushed_topic_count": len(flushed_topics),
+                "skipped_topic_count": len(skipped_topics),
+                "archived_blocks": perception_result.get("archived_blocks"),
+            }
+        return {
+            "success": getattr(perception_result, "success", None),
+            "trigger_reason": getattr(perception_result, "trigger_reason", None),
+            "flushed_topic_count": len(
+                getattr(perception_result, "flushed_topics", []) or []
+            ),
+            "skipped_topic_count": len(
+                getattr(perception_result, "skipped_topics", []) or []
+            ),
+            "archived_blocks": getattr(perception_result, "archived_blocks", None),
+        }
+
+    @staticmethod
+    def _shutdown_drain_generation_summary(
+        generation_result: MemoryGenerationTaskWaitSummary,
+    ) -> dict[str, int]:
+        return {
+            "requested": generation_result.requested,
+            "found": generation_result.found,
+            "missing": generation_result.missing,
+            "completed": generation_result.completed,
+            "failed": generation_result.failed,
+            "cancelled": generation_result.cancelled,
+            "pending": generation_result.pending,
+            "running": generation_result.running,
+            "timed_out": generation_result.timed_out,
+        }
 
     # ========== 基础设施初始化 ==========
 
