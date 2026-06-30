@@ -35,6 +35,13 @@ class RuntimeEventType(str, Enum):
     MAINTENANCE_TASK_COMPLETED = "maintenance.task.completed"
     MAINTENANCE_TASK_FAILED = "maintenance.task.failed"
 
+    SYSTEM_STARTING = "system.starting"
+    SYSTEM_READY = "system.ready"
+    SYSTEM_START_FAILED = "system.start_failed"
+    SYSTEM_SHUTTING_DOWN = "system.shutting_down"
+    SYSTEM_STOPPED = "system.stopped"
+    SYSTEM_STOP_FAILED = "system.stop_failed"
+
     EVENT_STREAM_GAP = "event.stream.gap"
 
 

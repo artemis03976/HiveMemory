@@ -22,7 +22,11 @@ from time import monotonic
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+from hivememory.system.runtime.events import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+    safe_runtime_event_value,
+)
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec, TaskRuntimeState
 
 logger = logging.getLogger(__name__)
@@ -253,7 +257,7 @@ class AsyncMaintenanceScheduler:
             "failure_count": state.failure_count,
             "skip_count": state.skip_count,
             "duration_ms": duration_ms,
-            "result": self._safe_event_value(result),
+            "result": safe_runtime_event_value(result),
             "error": error,
         }
         self._runtime_events.emit(
@@ -277,22 +281,6 @@ class AsyncMaintenanceScheduler:
         if owner == "alice" or owner.startswith("alice."):
             return "alice"
         return "system"
-
-    @staticmethod
-    def _safe_event_value(value: Any) -> Any:
-        if value is None or isinstance(value, (str, int, float, bool)):
-            return value
-        if isinstance(value, dict):
-            return {
-                str(k): AsyncMaintenanceScheduler._safe_event_value(v)
-                for k, v in value.items()
-            }
-        if isinstance(value, (list, tuple)):
-            return [
-                AsyncMaintenanceScheduler._safe_event_value(item)
-                for item in value
-            ]
-        return repr(value)
 
     # ========== Introspection ==========
 

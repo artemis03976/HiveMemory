@@ -7,7 +7,7 @@ import logging
 from collections import deque
 from contextlib import suppress
 from datetime import datetime, timezone
-from typing import AsyncIterator, Iterable, Protocol
+from typing import Any, AsyncIterator, Iterable, Protocol
 
 from hivememory.infrastructure.trace_context import (
     current_span_name,
@@ -17,6 +17,23 @@ from hivememory.infrastructure.trace_context import (
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 
 logger = logging.getLogger(__name__)
+
+
+def safe_runtime_event_value(value: Any) -> Any:
+    # RuntimeEvent payload 只保留 JSON 友好的摘要值，复杂对象降级为 repr。
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {
+            str(key): safe_runtime_event_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            safe_runtime_event_value(item)
+            for item in value
+        ]
+    return repr(value)
 
 
 class RuntimeEventSink(Protocol):
@@ -298,4 +315,5 @@ __all__ = [
     "RuntimeEventSink",
     "RuntimeEventSubscription",
     "ScopedRuntimeEventSink",
+    "safe_runtime_event_value",
 ]

@@ -7,6 +7,7 @@ from hivememory.system.runtime.events import (
     NullRuntimeEventSink,
     RecordingRuntimeEventSink,
     RuntimeEventBus,
+    safe_runtime_event_value,
 )
 
 
@@ -83,3 +84,21 @@ def test_runtime_event_sinks_do_not_throw_and_record():
 
     assert recorder.events[0].subsystem == "system"
     assert recorder.events[0].component == "test"
+
+
+def test_safe_runtime_event_value_normalizes_nested_payload():
+    class CustomValue:
+        def __repr__(self) -> str:
+            return "<custom>"
+
+    value = safe_runtime_event_value(
+        {
+            1: ("ok", CustomValue()),
+            "nested": [{"flag": True}],
+        }
+    )
+
+    assert value == {
+        "1": ["ok", "<custom>"],
+        "nested": [{"flag": True}],
+    }
