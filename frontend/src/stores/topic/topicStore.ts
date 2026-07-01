@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { fetchTopics, archiveTopic, deleteTopic } from '@/services/topicApi';
+import { fetchTopics, archiveTopic, deleteTopic, mapTopic } from '@/services/topicApi';
 import type { Topic } from '@/types';
 import type { TopicPoolInfo } from '@/types/chat';
 
@@ -61,16 +61,7 @@ export const useTopicStore = create<TopicStore>()(
       },
 
       setTopicsFromPool: (pool: TopicPoolInfo, activeTopicId: string) => {
-        const topics: Topic[] = pool.topics.map((t) => ({
-          id: t.topic_id,
-          title: t.title,
-          summary: t.state_summary || undefined,
-          activeNow: t.topic_id === activeTopicId,
-          model: 'GPT-4o',
-          lastActive: t.last_accessed_at * 1000,
-          messageCount: t.block_count,
-          totalTokens: t.total_tokens,
-        }));
+        const topics: Topic[] = pool.topics.map((t) => mapTopic(t, activeTopicId));
         set({ topics, isLoading: false, error: null });
       },
     }),

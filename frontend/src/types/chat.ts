@@ -42,11 +42,13 @@ export interface MTPResultEvent extends StreamNamespace {
 export interface TopicPoolInfo {
   topics: Array<{
     topic_id: string;
-    title: string;
-    state_summary: string;
-    block_count: number;
-    last_accessed_at: number;
-    total_tokens: number;
+    topic_title?: string;
+    title?: string;
+    topic_summary?: string;
+    state_summary?: string;
+    block_count?: number;
+    last_accessed_at?: number;
+    total_tokens?: number;
   }>;
   current_count: number;
 }
