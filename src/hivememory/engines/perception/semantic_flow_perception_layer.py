@@ -212,6 +212,10 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
         self._short_term_store.add_block(topic_id, block)
+
+        # 3.1 若 payload 携带了 model_used（来自 ModelRegistry 解析结果），更新到 buffer
+        if payload.model_used:
+            self._short_term_store.update_model_used(topic_id, payload.model_used)
         
         # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
         settle_payload = await self._maybe_fold_pages(topic_id)

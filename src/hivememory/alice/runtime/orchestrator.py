@@ -435,6 +435,9 @@ class AgentOrchestrator:
             total_iterations=p.iteration,
             turn_events=p.turn_events,
             materialize_tasks=tasks,
+            # frame.progress.model_used 由 AgentRuntime._resolve_model_for_frame 写入
+            # 空字符串表示注册表未启用（兼容无注册表的场景）
+            model_used=p.model_used,
         )
 
 

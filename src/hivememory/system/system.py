@@ -15,6 +15,7 @@ from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.config import RuntimeEventsConfig
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
+from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import (
     NullRuntimeEventSink,
@@ -113,11 +114,15 @@ class HiveMemorySystem:
             runtime_events=runtime_event_sink.scoped("patchouli"),
         )
 
+        # 模型注册表：在 Alice 构建前初始化，供 AgentRuntime 逐帧解析模型
+        model_registry = ModelRegistry()
+
         # 2. Alice 创建（使用自有 AliceBus，通过全局总线访问 Patchouli 记忆能力）
         alice = AliceSystem(
             config=config,
             global_bus=global_bus,
             runtime_events=runtime_event_sink.scoped("alice"),
+            model_registry=model_registry,
         )
 
         chat_service = ChatApplicationService(

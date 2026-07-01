@@ -31,6 +31,9 @@ class ExecutionProgress:
     turn_events: List[TurnEvent] = field(default_factory=list)
     iteration: int = 0
     sequence: int = 0
+    # 本帧实际使用的模型展示名（由 AgentRuntime 在 run_frame 开始时写入，
+    # 来自 ModelRegistry.resolve()；前端话题信息展示该值）
+    model_used: str = ""
 
 
 @dataclass
@@ -102,6 +105,9 @@ class GenerationResult:
     was_mtp_interrupted: bool = False
     prefix_text: str = ""
     mtp_fragment: str = ""
+    # 实际发给 litellm 的模型标识符（如 "deepseek/deepseek-chat"）
+    # 由 WorkerAgentService._extract_runtime_params 解析后写入
+    model_used: str = ""
 
 
 @dataclass

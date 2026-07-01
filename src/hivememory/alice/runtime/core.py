@@ -28,6 +28,7 @@ from hivememory.system.config import AliceConfig, MemoryCompilerConfig, SharedCo
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
@@ -52,6 +53,7 @@ class AliceRuntime:
         memory_compiler_config: MemoryCompilerConfig,
         global_bus: Optional[GlobalSystemBus] = None,
         runtime_events: RuntimeEventSink | None = None,
+        model_registry: Optional[ModelRegistry] = None,
     ) -> None:
         self._alice_config = alice_config
         self._shared_config = shared_config
@@ -82,6 +84,7 @@ class AliceRuntime:
             alice_config=alice_config,
             shared_config=shared_config,
             pending_runtime=self._pending_runtime,
+            model_registry=model_registry,  # 传入注册表，用于逐帧模型解析
         )
 
         # ---- 编排层 (alice)：多 Agent 编排，拿门面跑单 Agent ----

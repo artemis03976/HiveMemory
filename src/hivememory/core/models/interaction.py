@@ -73,6 +73,9 @@ class TopicSnapshot(BaseModel):
     total_tokens: int = Field(default=0, description="当前总 token 数")
     block_count: int = Field(default=0, description="当前话题包含的 block 数")
     last_accessed_at: float = Field(default=0.0, description="最后访问时间戳")
+    # 本话题最近一次 agent run 实际使用的模型展示名（来自 ModelRegistry）
+    # 空字符串表示注册表未启用或该话题尚未完成过一次 run
+    model_used: str = Field(default="", description="最近 run 使用的模型展示名")
 
     model_config = ConfigDict(use_enum_values=True)
 

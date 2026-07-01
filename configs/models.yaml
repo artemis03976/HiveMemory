@@ -16,7 +16,7 @@
 
 models:
   - id: "deepseek-chat"
-    display_name: "DeepSeek Chat"
+    display_name: "DeepSeek V4"
     litellm_model: "deepseek/deepseek-chat"
     api_key: null
     api_base: null

@@ -30,6 +30,8 @@ class TopicData(BaseModel):
     last_update: float
     last_accessed_at: float
     total_tokens: int = 0
+    # 最近一次 run 使用的模型展示名，从 SemanticBuffer.model_used 读取
+    model_used: str = ""
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, use_enum_values=True)
 
@@ -66,6 +68,7 @@ class TopicData(BaseModel):
             total_tokens=self.total_tokens,
             block_count=self.block_count,
             last_accessed_at=self.last_accessed_at,
+            model_used=self.model_used,
         )
 
 

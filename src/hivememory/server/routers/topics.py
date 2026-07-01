@@ -29,6 +29,7 @@ async def list_topics(
             state_summary=getattr(s, "state_summary", ""),
             last_turn=getattr(s, "last_turn", None),
             total_tokens=getattr(s, "total_tokens", 0),
+            model_used=getattr(s, "model_used", ""),
         )
         for s in snapshots
     ]

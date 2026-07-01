@@ -222,6 +222,7 @@ class PatchouliService:
             worth_saving=gaze_result.worth_saving,
             assistant_final_text=loop_result.final_text,
             turn_events=loop_result.turn_events,
+            model_used=loop_result.model_used,
         )
 
         # 先推入短期 buffer，再直接驱动主动生成，确保本轮内容进入生成上下文。
