@@ -121,7 +121,8 @@ class AgentRuntime:
         参数覆盖优先级（从高到低）：
             会话请求 (generation_options) > Agent Profile > 模型注册表定义
 
-        - model / api_key / api_base：来自注册表（Profile 仅通过 model_name 选择模型）
+        - model：会话传入的注册表 ID 覆盖 profile.model_name（供侧边栏实时切换模型调试）
+        - api_key / api_base：来自解析出的模型（Profile 仅通过 model_name 选择模型）
         - temperature / top_p：会话覆盖优先，其次 Profile，最后模型定义默认
         - max_tokens：会话覆盖优先，其次模型定义默认
 
@@ -136,6 +137,11 @@ class AgentRuntime:
         profile = frame.agent_profile
         session_opts = generation_options or {}
 
+        # 模型选择：会话传入的注册表 ID 优先，否则用 Agent Profile 的 model_name。
+        # 二者语义一致（都是注册表 ID / 'default'），resolve 统一解析。
+        session_model_id = session_opts.get("model")
+        effective_model_name = session_model_id or profile.model_name
+
         # 覆盖值：会话请求优先于 Agent Profile；两者皆无则由 resolve 回落到模型定义
         temperature_override = session_opts.get("temperature")
         if temperature_override is None:
@@ -149,7 +155,7 @@ class AgentRuntime:
 
         # 解析失败向上传播（model_name 不在注册表中属于配置错误，应立即暴露）
         llm_config, display_name = self._model_registry.resolve(
-            profile.model_name,
+            effective_model_name,
             temperature_override=temperature_override,
             max_tokens_override=max_tokens_override,
             top_p_override=top_p_override,
@@ -159,7 +165,8 @@ class AgentRuntime:
         frame.progress.model_used = display_name
 
         # 用解析结果覆盖 generation_options 中的对应键——
-        # resolve 已完成三级优先级合并，这里直接以其结果为准。
+        # resolve 已完成三级优先级合并，这里以其结果为准（包括把会话传入的
+        # 注册表 ID 替换为 litellm 模型标识符，供 WorkerAgentService 使用）。
         # api_key / api_base 为 None 是合法状态（litellm 从环境变量读取）。
         resolved: Dict[str, Any] = {
             **session_opts,
@@ -171,7 +178,8 @@ class AgentRuntime:
             "top_p": llm_config.top_p,
         }
         logger.debug(
-            f"模型解析: model_name={profile.model_name!r} → "
+            f"模型解析: effective={effective_model_name!r} "
+            f"(session={session_model_id!r}, profile={profile.model_name!r}) → "
             f"litellm_model={llm_config.model!r}, display={display_name!r}, "
             f"temperature={llm_config.temperature}, top_p={llm_config.top_p}"
         )

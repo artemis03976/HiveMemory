@@ -1,7 +1,13 @@
 import { SettingSection, SettingRow, Input, Select } from '../common/FormControls';
 import type { SettingsWithValidationProps } from '@/types/settings';
 
-export function ModelSettings({ config, updateConfig, getFieldError }: SettingsWithValidationProps) {
+/**
+ * 内部引擎配置 — gateway（全局网关）/ librarian（帕秋莉引擎）/ embedding。
+ *
+ * 这些是系统内部组件的 LLM/Embedding 配置，走 config.yaml，与面向用户的
+ * 模型注册表（ModelRegistrySettings）解耦。worker 段已迁移至注册表，不在此列。
+ */
+export function EngineSettings({ config, updateConfig, getFieldError }: SettingsWithValidationProps) {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <SettingSection title="LLM: 全局网关">
@@ -39,7 +45,7 @@ export function ModelSettings({ config, updateConfig, getFieldError }: SettingsW
           <Input value={config.embedding.default.model_name} onChange={(v: string) => updateConfig('embedding.default.model_name', v)} className="w-64" />
         </SettingRow>
         <SettingRow label="计算设备" description="计算设备 (cpu, cuda, mps)。">
-          <Select 
+          <Select
             value={config.embedding.default.device}
             onChange={(v: string) => updateConfig('embedding.default.device', v)}
             error={getFieldError('embedding.default.device')}
@@ -47,7 +53,7 @@ export function ModelSettings({ config, updateConfig, getFieldError }: SettingsW
               {label: 'CPU', value: 'cpu'},
               {label: 'CUDA', value: 'cuda'},
               {label: 'MPS', value: 'mps'}
-            ]} 
+            ]}
           />
         </SettingRow>
         <SettingRow label="维度" description="向量维度大小。">

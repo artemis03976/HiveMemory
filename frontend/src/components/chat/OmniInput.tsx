@@ -105,9 +105,12 @@ export default function OmniInput() {
 
   const handleSend = () => {
     if (message.trim() && !isStreaming) {
+      // 空 model 表示"跟随 Agent 默认"——剔除该键，避免后端 min_length=1 校验失败
+      const { model, ...restOptions } = generationOptions;
+      const options = model ? generationOptions : restOptions;
       sendMessage(message, {
         enable_memory_retrieval: enableMemory,
-        generation_options: generationOptions,
+        generation_options: options,
       });
       setMessage('');
     }
