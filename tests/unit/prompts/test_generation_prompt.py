@@ -2,12 +2,12 @@ from hivememory.i18n import get_generation_prompt_text
 
 
 def test_generation_prompt_getter_supports_three_modes_default_chinese():
-    passive_system = get_generation_prompt_text("passive", "system_prompt")
-    passive_user = get_generation_prompt_text("passive", "user_prompt")
-    write_system = get_generation_prompt_text("write", "system_prompt")
-    write_user = get_generation_prompt_text("write", "user_prompt")
-    update_system = get_generation_prompt_text("update", "system_prompt")
-    update_user = get_generation_prompt_text("update", "user_prompt")
+    passive_system = get_generation_prompt_text("passive", "system_prompt", "zh")
+    passive_user = get_generation_prompt_text("passive", "user_prompt", "zh")
+    write_system = get_generation_prompt_text("write", "system_prompt", "zh")
+    write_user = get_generation_prompt_text("write", "user_prompt", "zh")
+    update_system = get_generation_prompt_text("update", "system_prompt", "zh")
+    update_user = get_generation_prompt_text("update", "user_prompt", "zh")
 
     assert "记忆管理员" in passive_system
     assert "{format_instructions}" in passive_system

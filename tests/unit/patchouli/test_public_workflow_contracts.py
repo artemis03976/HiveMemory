@@ -35,6 +35,7 @@ from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
+from hivememory.system.config import MemoryCompilerConfig
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -95,7 +96,13 @@ def _prepared_run(
 
 
 def _wire_public_bridge(local_bus: PatchouliBus, global_bus: GlobalSystemBus):
-    service = PatchouliService(bus=local_bus, eye=MagicMock())
+    service = PatchouliService(
+        bus=local_bus,
+        eye=MagicMock(),
+        memory_compiler_config=MemoryCompilerConfig(
+            retrieval_context={"strategy": {"type": "compact"}}
+        ),
+    )
     public_api = PatchouliPublicApi(
         chat=service,
         memory=MemoryManagementService(bus=local_bus),

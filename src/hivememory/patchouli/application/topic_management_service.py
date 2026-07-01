@@ -23,10 +23,12 @@ class TopicManagementService:
         identity: Identity,
         include_empty: bool = False,
     ):
+        kwargs = {"identity": identity}
+        if include_empty:
+            kwargs["include_empty"] = True
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-            identity=identity,
-            include_empty=include_empty,
+            **kwargs,
         )
 
     async def settle_topic(self, *, topic_id: str | None = None) -> MemoryGenerationTask | None:
