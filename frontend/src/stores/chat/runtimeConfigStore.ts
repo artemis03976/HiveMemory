@@ -5,16 +5,21 @@ import type { ChatGenerationOptions } from '@/types/chat';
 
 interface ChatRuntimeConfigStore {
   generationOptions: Required<ChatGenerationOptions>;
+  /** 是否覆盖生成参数（temperature/top_p/max_tokens）。
+   *  false = 跟随 Agent Profile / 模型定义默认，不下发这些参数。 */
+  overrideParams: boolean;
   updateGenerationOptions: (patch: Partial<ChatGenerationOptions>) => void;
+  setOverrideParams: (value: boolean) => void;
 }
 
 // model 语义：注册表模型 ID 的会话级覆盖。空字符串 = 跟随 Agent Profile 默认。
 // 具体下发时由 OmniInput 过滤空 model（后端 model 字段要求 min_length=1）。
+// temperature/top_p/max_tokens 仅在 overrideParams=true 时下发。
 const DEFAULT_GENERATION_OPTIONS: Required<ChatGenerationOptions> = {
   model: '',
-  temperature: 0.7,
+  temperature: 1.0,
   top_p: 1,
-  max_tokens: 4096,
+  max_tokens: 32768,
 };
 
 export const useChatRuntimeConfigStore = create<ChatRuntimeConfigStore>()(
@@ -22,6 +27,7 @@ export const useChatRuntimeConfigStore = create<ChatRuntimeConfigStore>()(
     persist(
       (set) => ({
         generationOptions: DEFAULT_GENERATION_OPTIONS,
+        overrideParams: false,
         updateGenerationOptions: (patch) =>
           set((state) => ({
             generationOptions: {
@@ -29,6 +35,7 @@ export const useChatRuntimeConfigStore = create<ChatRuntimeConfigStore>()(
               ...patch,
             },
           })),
+        setOverrideParams: (value) => set({ overrideParams: value }),
       }),
       {
         name: 'chat-runtime-config-store',

@@ -74,6 +74,17 @@ shared:
       normalize_embeddings: true
       dimension: 1024
 
+  # ========== 模型提供商凭证 ==========
+  # 供模型注册表（configs/models.yaml）按 provider 补齐 api_key / api_base。
+  # api_key 一律留空于此文件（本文件被 git 跟踪），由环境变量注入：
+  #   HIVEMEMORY__PROVIDERS__<NAME>__API_KEY
+  #   HIVEMEMORY__PROVIDERS__<NAME>__API_BASE
+  # <NAME> 对应模型定义的 provider 字段（大小写不敏感），如 DEEPSEEK / OPENAI。
+  providers:
+    deepseek:
+      api_key: null
+      api_base: "https://api.deepseek.com"
+
 # ========== Patchouli 子系统配置 ==========
 memory_compiler:
   retrieval_context:

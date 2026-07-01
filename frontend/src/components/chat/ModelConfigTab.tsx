@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Cpu, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import RangeSlider from '../common/RangeSlider';
+import { Toggle } from '../common/FormControls';
 import { useChatRuntimeConfigStore } from '@/stores';
 import { fetchModels } from '@/services/modelRegistryApi';
 import type { RegisteredModel } from '@/types/model';
 
 export default function ModelConfigTab() {
-  const { generationOptions, updateGenerationOptions } = useChatRuntimeConfigStore();
+  const { generationOptions, updateGenerationOptions, overrideParams, setOverrideParams } =
+    useChatRuntimeConfigStore();
   const [models, setModels] = useState<RegisteredModel[]>([]);
 
   // 加载注册表模型列表，供会话级模型覆盖选择
@@ -44,11 +46,25 @@ export default function ModelConfigTab() {
 
       {/* 参数调节 */}
       <div className="space-y-3">
-        <div className="flex items-center gap-2 text-slate-300 font-bold text-[13px]">
-          <SlidersHorizontal className="w-4 h-4 text-primary" />生成参数
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-slate-300 font-bold text-[13px]">
+            <SlidersHorizontal className="w-4 h-4 text-primary" />生成参数
+          </div>
+          {/* 总开关：关闭时跟随 profile/模型定义默认，不下发这些参数 */}
+          <Toggle checked={overrideParams} onChange={setOverrideParams} />
         </div>
 
-        <div className="space-y-5 p-4 rounded-xl bg-black/20 border border-white/5 ghost-border">
+        {!overrideParams && (
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            当前跟随 Agent / 模型默认参数。打开开关可为本次会话自定义覆盖。
+          </p>
+        )}
+
+        <div
+          className={`space-y-5 p-4 rounded-xl bg-black/20 border border-white/5 ghost-border transition-opacity ${
+            overrideParams ? '' : 'opacity-40 pointer-events-none select-none'
+          }`}
+        >
           <RangeSlider
             label="温度 (Temperature)"
             min={0}

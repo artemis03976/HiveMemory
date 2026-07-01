@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 import yaml
 
 from hivememory.core.models.model_definition import ModelDefinition
-from hivememory.system.config.shared import LLMConfig
+from hivememory.system.config.shared import LLMConfig, ProviderCredentials
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +48,23 @@ class ModelRegistry:
     - 若注册表为空或没有默认模型，resolve("default") 返回列表中第一条记录
     """
 
-    def __init__(self, registry_path: Optional[Path] = None):
+    def __init__(
+        self,
+        registry_path: Optional[Path] = None,
+        provider_credentials: Optional[Dict[str, ProviderCredentials]] = None,
+    ):
         """
         Args:
             registry_path: models.yaml 的路径。None 时使用项目默认路径
                            (configs/models.yaml，相对项目根目录)
+            provider_credentials: provider 名 → 凭证 的映射（来自 SharedConfig.providers）。
+                           模型自身未显式设置 api_key/api_base 时，按 provider 补齐。
         """
         self._path = registry_path or self._default_path()
+        # provider 名统一小写，与 ModelDefinition.provider 匹配
+        self._provider_credentials: Dict[str, ProviderCredentials] = {
+            name.lower(): cred for name, cred in (provider_credentials or {}).items()
+        }
         # 按插入顺序保存，以 id 为键
         self._models: Dict[str, ModelDefinition] = {}
         self._load()
@@ -237,6 +247,19 @@ class ModelRegistry:
     # LLM 配置解析
     # ------------------------------------------------------------------
 
+    def _resolve_credentials(
+        self, model: ModelDefinition
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """解析模型的 (api_key, api_base)。
+
+        优先级：模型自身显式设置 > provider 凭证表 > None（litellm 环境变量兜底）。
+        models.yaml 被 git 跟踪，通常模型自身留空，凭证由 provider 表（来自 .env）补齐。
+        """
+        cred = self._provider_credentials.get(model.provider.lower()) if model.provider else None
+        api_key = model.api_key if model.api_key is not None else (cred.api_key if cred else None)
+        api_base = model.api_base if model.api_base is not None else (cred.api_base if cred else None)
+        return api_key, api_base
+
     def to_llm_config(self, model_id: str) -> LLMConfig:
         """
         将注册表中的模型定义转换为 LLMConfig。
@@ -254,10 +277,11 @@ class ModelRegistry:
         if model is None:
             raise ModelNotFoundError(f"模型 '{model_id}' 不存在")
 
+        api_key, api_base = self._resolve_credentials(model)
         return LLMConfig(
             model=model.litellm_model,
-            api_key=model.api_key,
-            api_base=model.api_base,
+            api_key=api_key,
+            api_base=api_base,
             temperature=model.temperature,
             max_tokens=model.max_tokens,
             top_p=model.top_p,
@@ -297,10 +321,11 @@ class ModelRegistry:
             if model is None:
                 raise ModelNotFoundError(f"模型 '{model_name}' 不存在于注册表中")
 
+        api_key, api_base = self._resolve_credentials(model)
         config = LLMConfig(
             model=model.litellm_model,
-            api_key=model.api_key,
-            api_base=model.api_base,
+            api_key=api_key,
+            api_base=api_base,
             temperature=temperature_override if temperature_override is not None else model.temperature,
             max_tokens=max_tokens_override if max_tokens_override is not None else model.max_tokens,
             top_p=top_p_override if top_p_override is not None else model.top_p,

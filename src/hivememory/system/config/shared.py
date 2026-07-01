@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 from hivememory.core.constants import (
@@ -16,6 +16,19 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default=DEFAULT_TEMPERATURE)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS)
     top_p: float = Field(default=DEFAULT_TOP_P)
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class ProviderCredentials(BaseModel):
+    """单个模型提供商（provider）的凭证。
+
+    api_key / api_base 通常留空于 config.yaml（该文件被 git 跟踪），
+    由环境变量 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE 注入。
+    ModelRegistry 在解析模型时，按模型的 provider 字段查此表补齐凭证。
+    """
+    api_key: Optional[str] = Field(default=None)
+    api_base: Optional[str] = Field(default=None)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -48,5 +61,8 @@ class EmbeddingGlobalConfig(BaseModel):
 class SharedConfig(BaseModel):
     llm: LLMGlobalConfig = Field(default_factory=LLMGlobalConfig)
     embedding: EmbeddingGlobalConfig = Field(default_factory=EmbeddingGlobalConfig)
+    # 提供商凭证表：key 为 provider 名（如 "deepseek"、"openai"），
+    # 供 ModelRegistry 按模型的 provider 字段解析 api_key / api_base。
+    providers: Dict[str, ProviderCredentials] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="ignore")

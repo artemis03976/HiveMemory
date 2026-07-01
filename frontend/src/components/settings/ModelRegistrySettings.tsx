@@ -20,6 +20,7 @@ interface ModelDraft {
   id: string;
   display_name: string;
   litellm_model: string;
+  provider: string;
   api_key: string;
   api_base: string;
   temperature: number;
@@ -32,6 +33,7 @@ const EMPTY_DRAFT: ModelDraft = {
   id: '',
   display_name: '',
   litellm_model: '',
+  provider: '',
   api_key: '',
   api_base: '',
   temperature: 1.0,
@@ -90,6 +92,15 @@ function ModelEditor({
           value={draft.litellm_model}
           onChange={(v: string) => onChange({ litellm_model: v })}
           placeholder="deepseek/deepseek-chat"
+          className="w-64"
+        />
+      </div>
+      <div className={rowCls}>
+        <span className={labelCls}>Provider</span>
+        <Input
+          value={draft.provider}
+          onChange={(v: string) => onChange({ provider: v })}
+          placeholder="留空自动推导，如 deepseek"
           className="w-64"
         />
       </div>
@@ -233,6 +244,7 @@ export function ModelRegistrySettings() {
       id: m.id,
       display_name: m.display_name,
       litellm_model: m.litellm_model,
+      provider: m.provider,
       api_key: '',
       api_base: m.api_base ?? '',
       temperature: m.temperature,
@@ -260,6 +272,7 @@ export function ModelRegistrySettings() {
           id: draft.id.trim(),
           display_name: draft.display_name.trim(),
           litellm_model: draft.litellm_model.trim(),
+          provider: draft.provider.trim() || undefined,
           api_key: draft.api_key.trim() || null,
           api_base: draft.api_base.trim() || null,
           temperature: draft.temperature,
@@ -274,6 +287,7 @@ export function ModelRegistrySettings() {
         const payload: ModelUpdatePayload = {
           display_name: draft.display_name.trim(),
           litellm_model: draft.litellm_model.trim(),
+          provider: draft.provider.trim() || undefined,
           api_base: draft.api_base.trim() || null,
           temperature: draft.temperature,
           max_tokens: draft.max_tokens,

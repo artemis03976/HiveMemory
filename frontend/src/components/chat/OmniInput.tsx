@@ -5,6 +5,7 @@ import { Paperclip, Hash, Send, Square, BrainCircuit, ChevronDown } from 'lucide
 import { useChatRuntimeConfigStore, useChatStore, useChatUiStore } from '@/stores';
 import { Toggle } from '../common/FormControls';
 import { useAgents } from '@/hooks/useAgents';
+import type { ChatGenerationOptions } from '@/types/chat';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function OmniInput() {
@@ -18,6 +19,7 @@ export default function OmniInput() {
   const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId } = useChatStore();
 
   const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
+  const overrideParams = useChatRuntimeConfigStore((state) => state.overrideParams);
   const { agents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -105,9 +107,18 @@ export default function OmniInput() {
 
   const handleSend = () => {
     if (message.trim() && !isStreaming) {
-      // 空 model 表示"跟随 Agent 默认"——剔除该键，避免后端 min_length=1 校验失败
-      const { model, ...restOptions } = generationOptions;
-      const options = model ? generationOptions : restOptions;
+      // 会话级覆盖按需下发：
+      // - model 为空 = 跟随 Agent 默认（不下发，避免后端 min_length=1 校验失败）
+      // - overrideParams 关闭时不下发 temperature/top_p/max_tokens，跟随 profile/模型定义
+      const options: ChatGenerationOptions = {};
+      if (generationOptions.model) {
+        options.model = generationOptions.model;
+      }
+      if (overrideParams) {
+        options.temperature = generationOptions.temperature;
+        options.top_p = generationOptions.top_p;
+        options.max_tokens = generationOptions.max_tokens;
+      }
       sendMessage(message, {
         enable_memory_retrieval: enableMemory,
         generation_options: options,

@@ -114,8 +114,10 @@ class HiveMemorySystem:
             runtime_events=runtime_event_sink.scoped("patchouli"),
         )
 
-        # 模型注册表：在 Alice 构建前初始化，供 AgentRuntime 逐帧解析模型
-        model_registry = ModelRegistry()
+        # 模型注册表：在 Alice 构建前初始化，供 AgentRuntime 逐帧解析模型。
+        # 注入 provider 凭证表（来自 .env 的 HIVEMEMORY__PROVIDERS__*），
+        # 使 models.yaml 中留空的 api_key/api_base 按 provider 补齐。
+        model_registry = ModelRegistry(provider_credentials=config.shared.providers)
 
         # 2. Alice 创建（使用自有 AliceBus，通过全局总线访问 Patchouli 记忆能力）
         alice = AliceSystem(
