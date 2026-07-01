@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.models import (
@@ -42,6 +42,13 @@ from hivememory.core.protocol.models import (
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
+from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
+from hivememory.patchouli.runtime.shutdown_drain import (
+    shutdown_drain_completed_severity,
+    shutdown_drain_completed_status,
+    summarize_shutdown_drain_failure,
+    summarize_shutdown_drain_result,
+)
 from hivememory.system.config import PatchouliConfig, SharedConfig
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.operations import RuntimeOperationObserver
@@ -125,159 +132,8 @@ class PatchouliRuntime:
         if self._local_routes_registered:
             return
 
-        self._local_bus.register(
-            PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
-            self.perception_familiar.submit_interaction,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-            self.memory_generation_coordinator.submit_settlement,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
-            self.memory_generation_coordinator.submit_active,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
-            self.memory_generation_familiar.execute,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
-            self._task_controller.submit_generation,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
-            self._task_controller.submit_generation_many,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_TASK_LIST,
-            self._task_controller.list_tasks,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_TASK_GET,
-            self._task_controller.get_task,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_TASK_CANCEL,
-            self._task_controller.cancel_task,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_TASK_WAIT,
-            self._task_controller.wait_task,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_TASK_WAIT_MANY,
-            self._task_controller.wait_many,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_TASK_WAIT_ALL,
-            self._task_controller.wait_all,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.GATEWAY_GAZE,
-            service.gaze,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_CREATE,
-            self.memory_generation_familiar.create_external_memory,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_LIST,
-            self.retrieval_familiar.list_memories,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_RETRIEVE,
-            self.retrieval_familiar.retrieve_async,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
-            self.retrieval_familiar.retrieve_by_aliases_async,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_GET,
-            self.retrieval_familiar.get_memory,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_UPDATE,
-            self.memory_generation_familiar.update_external_memory,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_DELETE,
-            self.memory_library.mid_term.delete,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
-            self.lifecycle_familiar.refresh_memory_vitality,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.LIFECYCLE_RUN_GARDENING_ONCE,
-            self.lifecycle_familiar.run_gardening_once,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.RUNTIME_MODELS_WARMUP,
-            self.warmup_models,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.RUNTIME_MODELS_READY,
-            self.is_models_ready,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
-            self.check_storage_health,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_RECORD_HIT,
-            self.lifecycle_familiar.record_hit,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_RECORD_CITATION,
-            self.lifecycle_familiar.record_citation,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
-            self.lifecycle_familiar.record_feedback,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.MEMORY_REVIVE,
-            self.lifecycle_familiar.revive_memory,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.GET_AGENT_PROFILE,
-            self.retrieval_familiar.get_agent_profile,
-        )
-
-        self._local_bus.register(
-            PatchouliLocalRoutes.TOPIC_PREPARE,
-            self.perception_familiar.prepare_topic,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.TOPIC_GET,
-            self.retrieval_familiar.get_topic,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-            self.retrieval_familiar.list_active_topics,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.TOPIC_EVICT,
-            self.perception_familiar.evict_topic,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
-            self.perception_familiar.discard_if_empty,
-        )
-        self._local_bus.register(
-            PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
-            self.perception_familiar.manual_settle_topic,
-        )
+        for route, handler in build_patchouli_route_bindings(self, service):
+            self._local_bus.register(route, handler)
         self._local_routes_registered = True
 
     def unmount_local_routes(self) -> None:
@@ -354,13 +210,10 @@ class PatchouliRuntime:
         return await observer.observe(
             lambda: PatchouliRuntime._run_shutdown_drain(self),
             started_data={"reentrant": self._shutdown_drain_started},
-            summarize=lambda result: PatchouliRuntime._summarize_shutdown_drain_result(
-                self,
-                result,
-            ),
-            completed_status=PatchouliRuntime._shutdown_drain_completed_status,
-            completed_severity=PatchouliRuntime._shutdown_drain_completed_severity,
-            failed_data=PatchouliRuntime._summarize_shutdown_drain_failure,
+            summarize=summarize_shutdown_drain_result,
+            completed_status=shutdown_drain_completed_status,
+            completed_severity=shutdown_drain_completed_severity,
+            failed_data=summarize_shutdown_drain_failure,
         )
 
     async def _run_shutdown_drain(self) -> dict[str, Any]:
@@ -416,91 +269,6 @@ class PatchouliRuntime:
             f"generation_timed_out={generation_result.timed_out}"
         )
         return result
-
-    def _summarize_shutdown_drain_result(
-        self,
-        result: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "reentrant": result["reentrant"],
-            "success": result["success"],
-            "observer_payloads_submitted": result["observer_payloads_submitted"],
-            "perception": self._shutdown_drain_perception_summary(
-                result["perception"]
-            ),
-            "generation": self._shutdown_drain_generation_summary(
-                result["generation"]
-            ),
-            "generation_cancelled_after_timeout": result.get(
-                "generation_cancelled_after_timeout",
-                0,
-            ),
-        }
-
-    @staticmethod
-    def _shutdown_drain_completed_status(result: dict[str, Any]) -> str:
-        generation_result = result["generation"]
-        if generation_result.timed_out > 0:
-            return "completed_with_timeout"
-        return "completed"
-
-    @staticmethod
-    def _shutdown_drain_completed_severity(
-        result: dict[str, Any],
-    ) -> Literal["debug", "info", "warning", "error"]:
-        generation_result = result["generation"]
-        if generation_result.timed_out > 0:
-            return "warning"
-        return "info"
-
-    @staticmethod
-    def _summarize_shutdown_drain_failure(exc: BaseException) -> dict[str, Any]:
-        return {
-            "reentrant": False,
-            "observer_payloads_submitted": 0,
-            "perception": None,
-            "generation": None,
-        }
-
-    @staticmethod
-    def _shutdown_drain_perception_summary(perception_result: Any) -> dict[str, Any]:
-        if isinstance(perception_result, dict):
-            flushed_topics = perception_result.get("flushed_topics") or []
-            skipped_topics = perception_result.get("skipped_topics") or []
-            return {
-                "success": perception_result.get("success"),
-                "trigger_reason": perception_result.get("trigger_reason"),
-                "flushed_topic_count": len(flushed_topics),
-                "skipped_topic_count": len(skipped_topics),
-                "archived_blocks": perception_result.get("archived_blocks"),
-            }
-        return {
-            "success": getattr(perception_result, "success", None),
-            "trigger_reason": getattr(perception_result, "trigger_reason", None),
-            "flushed_topic_count": len(
-                getattr(perception_result, "flushed_topics", []) or []
-            ),
-            "skipped_topic_count": len(
-                getattr(perception_result, "skipped_topics", []) or []
-            ),
-            "archived_blocks": getattr(perception_result, "archived_blocks", None),
-        }
-
-    @staticmethod
-    def _shutdown_drain_generation_summary(
-        generation_result: MemoryGenerationTaskWaitSummary,
-    ) -> dict[str, int]:
-        return {
-            "requested": generation_result.requested,
-            "found": generation_result.found,
-            "missing": generation_result.missing,
-            "completed": generation_result.completed,
-            "failed": generation_result.failed,
-            "cancelled": generation_result.cancelled,
-            "pending": generation_result.pending,
-            "running": generation_result.running,
-            "timed_out": generation_result.timed_out,
-        }
 
     # ========== 基础设施初始化 ==========
 
