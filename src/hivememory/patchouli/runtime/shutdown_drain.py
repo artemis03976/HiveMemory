@@ -11,7 +11,6 @@ def summarize_shutdown_drain_result(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "reentrant": result["reentrant"],
         "success": result["success"],
-        "observer_payloads_submitted": result["observer_payloads_submitted"],
         "perception": summarize_shutdown_drain_perception(result["perception"]),
         "generation": summarize_shutdown_drain_generation(result["generation"]),
         "generation_cancelled_after_timeout": result.get(
@@ -40,7 +39,6 @@ def shutdown_drain_completed_severity(
 def summarize_shutdown_drain_failure(exc: BaseException) -> dict[str, Any]:
     return {
         "reentrant": False,
-        "observer_payloads_submitted": 0,
         "perception": None,
         "generation": None,
     }

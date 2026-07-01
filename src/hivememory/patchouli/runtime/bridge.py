@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
@@ -12,17 +12,24 @@ from hivememory.patchouli.service import PatchouliService
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
+if TYPE_CHECKING:
+    from hivememory.patchouli.application.agent_profile_management_service import AgentProfileManagementService
+    from hivememory.patchouli.application.memory_management_service import MemoryManagementService
+    from hivememory.patchouli.application.memory_task_management_service import MemoryTaskManagementService
+    from hivememory.patchouli.application.model_readiness_service import ModelReadinessService
+    from hivememory.patchouli.application.topic_management_service import TopicManagementService
+
 
 @dataclass(frozen=True)
 class PatchouliPublicApi:
     """Public Patchouli API surface mounted by PatchouliBridge."""
 
     chat: PatchouliService
-    memory: Any
-    memory_tasks: Any
-    agent_profiles: Any
-    topics: Any
-    readiness: Any
+    memory: MemoryManagementService
+    memory_tasks: MemoryTaskManagementService
+    agent_profiles: AgentProfileManagementService
+    topics: TopicManagementService
+    readiness: ModelReadinessService
 
 
 class PatchouliBridge:

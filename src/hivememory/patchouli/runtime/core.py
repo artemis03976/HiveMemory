@@ -208,7 +208,7 @@ class PatchouliRuntime:
             operation_kind="shutdown",
         )
         return await observer.observe(
-            lambda: PatchouliRuntime._run_shutdown_drain(self),
+            self._run_shutdown_drain,
             started_data={"reentrant": self._shutdown_drain_started},
             summarize=summarize_shutdown_drain_result,
             completed_status=shutdown_drain_completed_status,
@@ -222,7 +222,6 @@ class PatchouliRuntime:
             generation_summary = MemoryGenerationTaskWaitSummary.from_results([])
             return {
                 "success": True,
-                "observer_payloads_submitted": 0,
                 "perception": {
                     "success": True,
                     "trigger_reason": "shutdown",
@@ -257,7 +256,6 @@ class PatchouliRuntime:
             )
         result = {
             "success": generation_result.timed_out == 0,
-            "observer_payloads_submitted": 0,
             "perception": perception_result,
             "generation": generation_result,
             "generation_cancelled_after_timeout": cancelled_after_timeout,
@@ -559,13 +557,8 @@ class PatchouliRuntime:
                 for component in report.components
                 if component.required and not component.healthy
             ]
-            logger.warning(
-                "Storage health check failed: %s",
-                {
-                    component.name: component.detail
-                    for component in unhealthy
-                },
-            )
+            detail = {component.name: component.detail for component in unhealthy}
+            logger.warning(f"Storage health check failed: {detail}")
         return report.healthy
 
     async def ensure_storage_ready(self) -> None:

@@ -93,7 +93,6 @@ def test_summarize_shutdown_drain_failure_is_minimal():
 
     assert summary == {
         "reentrant": False,
-        "observer_payloads_submitted": 0,
         "perception": None,
         "generation": None,
     }

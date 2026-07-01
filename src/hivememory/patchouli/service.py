@@ -18,6 +18,7 @@ from hivememory.core.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
 )
+from hivememory.core.protocol.models import EyeGazeResult
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
@@ -195,6 +196,18 @@ class PatchouliService:
         prepared_run: PreparedAgentRun,
         loop_result: AgentRunResult,
     ) -> List[MemoryGenerationTask]:
+        """
+        完成一次 Agent 运行，提交交互记录并触发记忆生成。
+
+        执行步骤:
+            1. 从 turn_events 归约 MTP 操作轨迹
+            2. 提交交互到短期 buffer (INGESTION_SUBMIT_INTERACTION)
+            3. 若有主动生成任务 (materialize_tasks)，提交 GENERATION_SUBMIT_ACTIVE
+            4. 记录本轮检索命中 (retrieval hit)
+
+        Returns:
+            触发的记忆生成任务列表（主动生成为空时为空列表）
+        """
         agent_context = prepared_run.agent_run_context
         gaze_result = prepared_run.gaze_result
         actions = ActionReducer.reduce(loop_result.turn_events)
@@ -236,7 +249,7 @@ class PatchouliService:
         target_topic_id: str | None = None,
         target_topic: str | None = None,
     ) -> Any:
-                return await self._local_bus.request(
+        return await self._local_bus.request(
             PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
             payload,
             target_topic_id=target_topic_id or target_topic or "NEW_TOPIC",
@@ -256,8 +269,6 @@ class PatchouliService:
         )
 
     async def gaze(self, *, query: str, topic_snapshots: Any, identity: Identity):
-        if self._eye is None:
-            raise RuntimeError("Patchouli gateway is unavailable")
         return await self._eye.gaze(
             query=query,
             topic_snapshots=topic_snapshots,
@@ -275,7 +286,7 @@ class PatchouliService:
 
     async def retrieve_for_gaze(
         self,
-        gaze_result,
+        gaze_result: EyeGazeResult,
         enable_retrieval: bool = True,
     ) -> RetrievalResponse:
         if enable_retrieval and gaze_result.intent == GatewayIntent.RAG:
@@ -311,8 +322,7 @@ class PatchouliService:
                 )
             except Exception:
                 logger.warning(
-                    "Failed to record retrieval HIT for memory_id=%s",
-                    memory_id,
+                    f"Failed to record retrieval HIT for memory_id={memory_id}",
                     exc_info=True,
                 )
 
@@ -323,7 +333,7 @@ class PatchouliService:
                 topic_id,
             )
             if cleaned:
-                logger.info("已清理预创建的空话题: %s", topic_id)
+                logger.info(f"已清理预创建的空话题: {topic_id}")
             return cleaned
         except Exception:
             logger.warning("清理预创建空话题失败", exc_info=True)

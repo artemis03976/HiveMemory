@@ -448,6 +448,9 @@ def sys_passive():
     harness.runtime.shutdown_drain = PatchouliRuntime.shutdown_drain.__get__(
         harness.runtime, PatchouliRuntime
     )
+    harness.runtime._run_shutdown_drain = PatchouliRuntime._run_shutdown_drain.__get__(
+        harness.runtime, PatchouliRuntime
+    )
     harness._shutdown_drain_started = False
     harness._MAINTENANCE_OWNER = "patchouli"
     harness.ingest_event = service.ingest_event
@@ -649,7 +652,6 @@ class TestShutdownDrain:
 
         sys_passive.submit_interaction.assert_not_called()
         sys_passive.runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
-        assert result["observer_payloads_submitted"] == 0
         assert result["perception"].trigger_reason == "shutdown"
 
     def test_shutdown_drain_is_reentrant(self, sys_passive):
