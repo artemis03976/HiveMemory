@@ -29,6 +29,24 @@ class TestTopicManagementService:
         )
 
     @pytest.mark.asyncio
+    async def test_list_active_topics_can_include_empty_topics(self, bus):
+        identity = Identity(user_id="u1")
+        bus.request.return_value = ["snapshot"]
+        service = TopicManagementService(bus=bus)
+
+        result = await service.list_active_topics(
+            identity=identity,
+            include_empty=True,
+        )
+
+        assert result == ["snapshot"]
+        bus.request.assert_awaited_once_with(
+            PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
+            identity=identity,
+            include_empty=True,
+        )
+
+    @pytest.mark.asyncio
     async def test_evict_topic_uses_local_route(self, bus):
         bus.request.return_value = {"success": True}
         service = TopicManagementService(bus=bus)

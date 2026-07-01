@@ -88,6 +88,7 @@ class TestSSEEventModels:
         )
         assert e.final_text == "result"
         assert e.mtp_iterations == 1
+        assert e.pool_topics == []
 
     def test_error_event(self):
         e = ChatErrorEvent(message="fail")

@@ -70,6 +70,9 @@ class TestTopicsRouter:
         data = response.json()
         assert len(data["topics"]) == 2
         assert data["topics"][0]["topic_id"] == "t1"
+        assert data["topics"][0]["topic_title"] == "Topic 1"
+        assert data["topics"][0]["state_summary"] == "summary"
+        assert data["topics"][0]["total_tokens"] == 100
 
     def test_list_topics_empty(self):
         librarian_core = MagicMock()

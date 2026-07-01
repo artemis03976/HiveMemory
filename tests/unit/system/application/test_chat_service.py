@@ -241,6 +241,14 @@ class TestChatApplicationService:
         svc = ChatApplicationService(global_bus=mock_global_bus)
         prepared = _make_prepared_run()
         chat_result = _make_chat_result()
+        final_topic = SimpleNamespace(
+            model_dump=lambda mode="json": {
+                "topic_id": "topic_1",
+                "topic_title": "Topic 1",
+                "block_count": 1,
+                "total_tokens": 42,
+            }
+        )
 
         async def route_dispatch(route, *args, **kwargs):
             if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
@@ -252,6 +260,10 @@ class TestChatApplicationService:
                 return _stream()
             if route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
                 return [SimpleNamespace(task_id="memtask_1")]
+            if route == GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE:
+                assert kwargs["identity"].user_id == "u1"
+                assert kwargs["include_empty"] is True
+                return [final_topic]
             return None
 
         mock_global_bus.request = AsyncMock(side_effect=route_dispatch)
@@ -268,6 +280,14 @@ class TestChatApplicationService:
         assert events[run_status_index]["data"]["generation_id"]
         assert events[done_index]["data"]["generation_id"] == events[run_status_index]["data"]["generation_id"]
         assert events[done_index]["data"]["memory_task_ids"] == ["memtask_1"]
+        assert events[done_index]["data"]["pool_topics"] == [
+            {
+                "topic_id": "topic_1",
+                "topic_title": "Topic 1",
+                "block_count": 1,
+                "total_tokens": 42,
+            }
+        ]
 
     def test_cancel_generation_returns_false_when_unknown(self, mock_global_bus):
         svc = ChatApplicationService(global_bus=mock_global_bus)

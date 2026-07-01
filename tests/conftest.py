@@ -23,6 +23,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import StreamMessage, MemoryAtom, Identity
 from hivememory.engines.perception.models import FlushReason, FlushEvent, LogicalBlock
+from hivememory.i18n import set_default_language
 from hivememory.system.config import HiveMemoryConfig
 from unittest.mock import patch
 
@@ -99,6 +100,14 @@ class FlushRecorder:
 
 
 # ========== Pytest Fixtures ==========
+
+@pytest.fixture(autouse=True)
+def reset_i18n_default_language_between_tests():
+    """Keep process-wide i18n state from leaking between tests."""
+    set_default_language("zh")
+    yield
+    set_default_language("zh")
+
 
 @pytest.fixture
 def mock_env():

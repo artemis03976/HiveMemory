@@ -17,10 +17,18 @@ class TopicManagementService:
         # Topic public API 只通过 local bus 组合 topic primitives，不直接持有 familiar。
         self._bus = bus
 
-    async def list_active_topics(self, *, identity: Identity):
+    async def list_active_topics(
+        self,
+        *,
+        identity: Identity,
+        include_empty: bool = False,
+    ):
+        kwargs = {"identity": identity}
+        if include_empty:
+            kwargs["include_empty"] = True
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-            identity=identity,
+            **kwargs,
         )
 
     async def settle_topic(self, *, topic_id: str | None = None) -> MemoryGenerationTask | None:

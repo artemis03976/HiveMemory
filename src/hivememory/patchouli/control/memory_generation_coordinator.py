@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
@@ -12,6 +12,7 @@ from hivememory.engines.generation.models import GenerationRequest
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
     MemoryGenerationSource,
@@ -36,7 +37,7 @@ class MemoryGenerationCoordinator:
     def __init__(
         self,
         *,
-        bus: Any,
+        bus: PatchouliBus,
     ) -> None:
         self._bus = bus
         self._transcript_builder = GenerationTranscriptBuilder()
@@ -133,9 +134,7 @@ class MemoryGenerationCoordinator:
             )
         except SpecBuildError as exc:
             logger.error(
-                "Active spec build failed, skipping task: pending_alias=%s, err=%s",
-                task.pending_alias,
-                exc,
+                f"Active spec build failed, skipping task: pending_alias={task.pending_alias}, err={exc}",
             )
             await self._publish_pending_atom_failed(task.pending_alias)
             return None

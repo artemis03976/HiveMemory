@@ -295,6 +295,7 @@ class ChatApplicationService:
                 memory_task.task_id
                 for memory_task in (memory_tasks or [])
             ]
+            final_pool_topics = await self._list_final_pool_topics(prepared)
 
             run.status = ChatGenerationRunStatus.COMPLETED
             self._emit_chat_event(
@@ -315,6 +316,7 @@ class ChatApplicationService:
                     "stopped": False,
                     "reason": None,
                     "memory_task_ids": memory_task_ids,
+                    "pool_topics": final_pool_topics,
                 },
             }
 
@@ -464,3 +466,15 @@ class ChatApplicationService:
                 data=data or {},
             )
         )
+
+    async def _list_final_pool_topics(self, prepared_run) -> list[dict[str, Any]]:
+        try:
+            topics = await self._bus.request(
+                GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
+                identity=prepared_run.identity,
+                include_empty=True,
+            )
+        except Exception:
+            logger.warning("Failed to load final topic pool after finalize.", exc_info=True)
+            return []
+        return [topic.model_dump(mode="json") for topic in (topics or [])]

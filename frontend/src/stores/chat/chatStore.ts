@@ -233,6 +233,19 @@ export const useChatStore = create<ChatStore>()(
                   void useMemoryTaskStore.getState().refreshTasksByIds(memoryTaskIds);
                 }
 
+                if (status === 'completed' && data.pool_topics) {
+                  const activeTopicId = get().currentTopicId;
+                  if (activeTopicId) {
+                    useTopicStore.getState().setTopicsFromPool(
+                      {
+                        topics: data.pool_topics,
+                        current_count: data.pool_topics.length,
+                      },
+                      activeTopicId
+                    );
+                  }
+                }
+
                 if (isCancelled || isFailed) {
                   client.disconnect();
                 }

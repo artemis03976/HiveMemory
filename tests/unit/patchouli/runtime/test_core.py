@@ -15,6 +15,8 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTaskWaitSummary,
 )
 from hivememory.patchouli.services.perception import ShutdownFlushResult
+from hivememory.system.contracts.runtime_events import RuntimeEventType
+from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
 def _create_runtime():
@@ -35,7 +37,13 @@ def _create_runtime():
     ):
         patchouli_config = Mock()
         patchouli_config.shutdown.generation_wait_timeout_seconds = 30.0
-        runtime = PatchouliRuntime(patchouli_config=patchouli_config, shared_config=Mock())
+        runtime_events = RecordingRuntimeEventSink()
+        runtime = PatchouliRuntime(
+            patchouli_config=patchouli_config,
+            shared_config=Mock(),
+            runtime_events=runtime_events,
+        )
+        runtime._test_runtime_events = runtime_events
         runtime._services = {
             "perception": Mock(),
             "retrieval": Mock(),
@@ -78,6 +86,31 @@ class TestRuntimeShutdownDrain:
         assert result["perception"].trigger_reason == "shutdown"
         assert result["generation"].timed_out == 0
         assert result["generation_cancelled_after_timeout"] == 0
+        events = runtime._test_runtime_events.events
+        assert [event.event_type for event in events] == [
+            RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED,
+        ]
+        assert events[0].status == "started"
+        assert events[0].source == "patchouli.shutdown_drain"
+        assert events[0].subsystem == "patchouli"
+        assert events[0].component == "patchouli_runtime"
+        assert events[0].data["operation_key"] == "patchouli.shutdown_drain"
+        assert events[0].data["operation_name"] == "shutdown_drain"
+        assert events[0].data["operation_kind"] == "shutdown"
+        completed = events[-1]
+        assert completed.status == "completed"
+        assert completed.data["operation_key"] == "patchouli.shutdown_drain"
+        assert completed.data["success"] is True
+        assert completed.data["perception"] == {
+            "success": True,
+            "trigger_reason": "shutdown",
+            "flushed_topic_count": 1,
+            "skipped_topic_count": 0,
+            "archived_blocks": 1,
+        }
+        assert completed.data["generation"]["timed_out"] == 0
+        assert isinstance(completed.data["duration_ms"], float)
 
     @pytest.mark.asyncio
     async def test_shutdown_drain_reports_generation_timeout(self):
@@ -123,6 +156,14 @@ class TestRuntimeShutdownDrain:
         assert result["success"] is False
         assert result["generation"].timed_out == 1
         assert result["generation_cancelled_after_timeout"] == 1
+        completed = runtime._test_runtime_events.events[-1]
+        assert completed.event_type == RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED
+        assert completed.status == "completed_with_timeout"
+        assert completed.severity == "warning"
+        assert completed.data["success"] is False
+        assert completed.data["generation"]["running"] == 1
+        assert completed.data["generation"]["timed_out"] == 1
+        assert completed.data["generation_cancelled_after_timeout"] == 1
 
     @pytest.mark.asyncio
     async def test_shutdown_drain_is_reentrant(self):
@@ -144,6 +185,41 @@ class TestRuntimeShutdownDrain:
         assert second["reentrant"] is True
         runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
         runtime._task_controller.wait_all.assert_awaited_once()
+        events = runtime._test_runtime_events.events
+        assert [event.event_type for event in events] == [
+            RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED,
+        ]
+        assert events[-2].data["reentrant"] is True
+        assert events[-1].data["reentrant"] is True
+        assert events[-1].data["perception"]["flushed_topic_count"] == 0
+        assert events[-1].data["generation"]["requested"] == 0
+
+    @pytest.mark.asyncio
+    async def test_shutdown_drain_failure_emits_failed_event(self):
+        runtime = _create_runtime()
+        runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
+            side_effect=RuntimeError("flush boom")
+        )
+
+        with pytest.raises(RuntimeError, match="flush boom"):
+            await runtime.shutdown_drain()
+
+        events = runtime._test_runtime_events.events
+        assert [event.event_type for event in events] == [
+            RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
+            RuntimeEventType.SUBSYSTEM_OPERATION_FAILED,
+        ]
+        failed = events[-1]
+        assert failed.status == "failed"
+        assert failed.severity == "error"
+        assert failed.reason == "flush boom"
+        assert failed.data["success"] is False
+        assert failed.data["perception"] is None
+        assert failed.data["generation"] is None
+        assert failed.data["error"] == "flush boom"
 
 
 class TestRuntimeLocalRoutes:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from time import monotonic
+from typing import Any, Literal
 
 from hivememory.alice.system import AliceSystem
 from hivememory.patchouli.system import PatchouliSystem
@@ -13,8 +14,14 @@ from hivememory.system.application.readiness_service import SystemReadinessServi
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.config import RuntimeEventsConfig
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventBus, RuntimeEventSink
+from hivememory.system.runtime.events import (
+    NullRuntimeEventSink,
+    RuntimeEventBus,
+    RuntimeEventSink,
+    safe_runtime_event_value,
+)
 from hivememory.system.runtime.scheduler.global_scheduler import (
     GlobalMaintenanceScheduler,
 )
@@ -22,7 +29,7 @@ from hivememory.system.runtime.scheduler.global_scheduler import (
 
 class HiveMemorySystem:
     """
-    HiveMemory 顶层系统门面 (Phase A)
+    HiveMemory 顶层系统门面
 
     薄门面 + 宿主容器。将所有业务逻辑委托给 Patchouli 子系统，
     同时建立多子系统架构的结构基础。
@@ -76,10 +83,6 @@ class HiveMemorySystem:
         config = config or load_app_config()
 
         global_bus = GlobalSystemBus()
-        scheduler = GlobalMaintenanceScheduler(
-            tick_seconds=config.scheduler.tick_seconds,
-            shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
-        )
         runtime_events_config = getattr(config, "runtime_events", None)
         if not isinstance(runtime_events_config, RuntimeEventsConfig):
             runtime_events_config = RuntimeEventsConfig()
@@ -93,6 +96,14 @@ class HiveMemorySystem:
             else None
         )
         runtime_event_sink: RuntimeEventSink = runtime_events or NullRuntimeEventSink()
+        scheduler = GlobalMaintenanceScheduler(
+            tick_seconds=config.scheduler.tick_seconds,
+            shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
+            runtime_events=runtime_event_sink.scoped(
+                "system",
+                component="maintenance_scheduler",
+            ),
+        )
 
         # 1. Patchouli 先创建（提供 bus 和 storage，并通过 global bus 调用 Alice）
         patchouli = PatchouliSystem(
@@ -160,30 +171,216 @@ class HiveMemorySystem:
     # ========== 生命周期 ==========
 
     async def start(self) -> None:
+        start_time = monotonic()
+        completed_steps: list[str] = []
         if self._started:
+            self._emit_lifecycle_event(
+                RuntimeEventType.SYSTEM_STARTING,
+                status="starting",
+                data={
+                    "already_started": True,
+                    "steps": [],
+                    "completed_steps": completed_steps,
+                },
+            )
+            self._emit_lifecycle_event(
+                RuntimeEventType.SYSTEM_READY,
+                status="ready",
+                duration_ms=(monotonic() - start_time) * 1000,
+                data={
+                    "already_started": True,
+                    "steps": [],
+                    "completed_steps": completed_steps,
+                },
+            )
             return
-        await self._patchouli.start()
-        await self._alice.start()
-        self._scheduler.start()
-        self._started = True
-        self._scheduler_stopped = False
-        await self._ingress_service.start()
+
+        steps = [
+            "patchouli.start",
+            "alice.start",
+            "scheduler.start",
+            "passive_ingress.start",
+        ]
+        self._emit_lifecycle_event(
+            RuntimeEventType.SYSTEM_STARTING,
+            status="starting",
+            data={
+                "already_started": False,
+                "steps": steps,
+                "completed_steps": completed_steps,
+            },
+        )
+        try:
+            await self._patchouli.start()
+            completed_steps.append("patchouli.start")
+            await self._alice.start()
+            completed_steps.append("alice.start")
+            self._scheduler.start()
+            completed_steps.append("scheduler.start")
+            await self._ingress_service.start()
+            completed_steps.append("passive_ingress.start")
+            self._started = True
+            self._scheduler_stopped = False
+        except Exception as exc:
+            self._emit_lifecycle_event(
+                RuntimeEventType.SYSTEM_START_FAILED,
+                status="failed",
+                severity="error",
+                reason=str(exc),
+                duration_ms=(monotonic() - start_time) * 1000,
+                data={
+                    "already_started": False,
+                    "steps": steps,
+                    "completed_steps": completed_steps,
+                    "failed_step": self._first_unfinished_step(
+                        steps,
+                        completed_steps,
+                    ),
+                    "error": str(exc),
+                },
+            )
+            raise
+
+        self._emit_lifecycle_event(
+            RuntimeEventType.SYSTEM_READY,
+            status="ready",
+            duration_ms=(monotonic() - start_time) * 1000,
+            data={
+                "already_started": False,
+                "steps": steps,
+                "completed_steps": completed_steps,
+            },
+        )
 
     async def stop(self) -> None:
-        await self._stop_scheduler()
-        await self._ingress_service.shutdown_drain()
-        if not self._started:
-            return
-        await self._alice.stop()
-        await self._patchouli.stop()
-        self._started = False
+        start_time = monotonic()
+        was_started = self._started
+        completed_steps: list[str] = []
+        steps = [
+            "scheduler.stop",
+            "passive_ingress.shutdown_drain",
+            "alice.stop",
+            "patchouli.stop",
+        ]
+        self._emit_lifecycle_event(
+            RuntimeEventType.SYSTEM_SHUTTING_DOWN,
+            status="shutting_down",
+            data={
+                "already_stopped": not was_started,
+                "steps": steps,
+                "completed_steps": completed_steps,
+            },
+        )
+
+        passive_shutdown_drain: Any = None
+        scheduler_stopped = self._scheduler_stopped
+        try:
+            await self._stop_scheduler()
+            scheduler_stopped = self._scheduler_stopped
+            completed_steps.append("scheduler.stop")
+            passive_shutdown_drain = await self._ingress_service.shutdown_drain()
+            completed_steps.append("passive_ingress.shutdown_drain")
+            if not was_started:
+                self._emit_lifecycle_event(
+                    RuntimeEventType.SYSTEM_STOPPED,
+                    status="stopped",
+                    duration_ms=(monotonic() - start_time) * 1000,
+                    data={
+                        "already_stopped": True,
+                        "steps": steps,
+                        "completed_steps": completed_steps,
+                        "scheduler_stopped": scheduler_stopped,
+                        "passive_shutdown_drain": passive_shutdown_drain,
+                    },
+                )
+                return
+
+            await self._alice.stop()
+            completed_steps.append("alice.stop")
+            await self._patchouli.stop()
+            completed_steps.append("patchouli.stop")
+            self._started = False
+        except Exception as exc:
+            self._emit_lifecycle_event(
+                RuntimeEventType.SYSTEM_STOP_FAILED,
+                status="failed",
+                severity="error",
+                reason=str(exc),
+                duration_ms=(monotonic() - start_time) * 1000,
+                data={
+                    "already_stopped": not was_started,
+                    "steps": steps,
+                    "completed_steps": completed_steps,
+                    "failed_step": self._first_unfinished_step(
+                        steps,
+                        completed_steps,
+                    ),
+                    "scheduler_stopped": scheduler_stopped,
+                    "passive_shutdown_drain": passive_shutdown_drain,
+                    "error": str(exc),
+                },
+            )
+            raise
+
         self._scheduler_stopped = False
+        self._emit_lifecycle_event(
+            RuntimeEventType.SYSTEM_STOPPED,
+            status="stopped",
+            duration_ms=(monotonic() - start_time) * 1000,
+            data={
+                "already_stopped": False,
+                "steps": steps,
+                "completed_steps": completed_steps,
+                "scheduler_stopped": scheduler_stopped,
+                "passive_shutdown_drain": passive_shutdown_drain,
+            },
+        )
 
     async def _stop_scheduler(self) -> None:
-        if not self._started or self._scheduler_stopped:
+        scheduler_running = getattr(self._scheduler, "is_running", False)
+        if self._scheduler_stopped or (not self._started and not scheduler_running):
             return
         await self._scheduler.stop()
         self._scheduler_stopped = True
+
+    def _emit_lifecycle_event(
+        self,
+        event_type: RuntimeEventType,
+        *,
+        status: str,
+        severity: Literal["debug", "info", "warning", "error"] = "info",
+        reason: str | None = None,
+        duration_ms: float | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        # 系统生命周期事件只用于外部观测，不改变 start/stop 的业务语义。
+        payload = {
+            "duration_ms": duration_ms,
+            **(data or {}),
+        }
+        self._runtime_event_sink.emit(
+            RuntimeEvent(
+                event_type=event_type,
+                source="system",
+                subsystem="system",
+                component="hivememory_system",
+                severity=severity,
+                status=status,
+                reason=reason,
+                data=safe_runtime_event_value(payload),
+            )
+        )
+
+    @staticmethod
+    def _first_unfinished_step(
+        steps: list[str],
+        completed_steps: list[str],
+    ) -> str | None:
+        completed = set(completed_steps)
+        for step in steps:
+            if step not in completed:
+                return step
+        return None
 
     async def health(self) -> dict[str, Any]:
         subsystem_health = {
