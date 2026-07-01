@@ -85,6 +85,7 @@ export interface ChatDoneEvent {
   stopped?: boolean;
   reason?: string | null;
   memory_task_ids?: string[];
+  pool_topics?: TopicPoolInfo['topics'];
 }
 
 export interface ChatErrorEvent {
