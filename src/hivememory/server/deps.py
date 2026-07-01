@@ -16,11 +16,14 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system import HiveMemorySystem
+from hivememory.system.model_registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
 
 _system: Optional[HiveMemorySystem] = None
 _ws_manager: Optional[WebSocketConnectionManager] = None
+# 模型注册表单例 — 在首次请求时懒加载，后续复用同一实例
+_model_registry: Optional[ModelRegistry] = None
 
 
 def init_system(config: Optional[HiveMemoryConfig] = None) -> HiveMemorySystem:
@@ -165,3 +168,17 @@ def get_ws_manager() -> WebSocketConnectionManager:
     if _ws_manager is None:
         raise RuntimeError("WebSocket manager not initialized")
     return _ws_manager
+
+
+def get_model_registry() -> ModelRegistry:
+    """
+    FastAPI Depends 注入 — 获取 ModelRegistry 单例。
+
+    注册表在首次调用时懒加载（从 configs/models.yaml 读取），
+    后续所有请求共享同一实例，避免重复 IO。
+    """
+    global _model_registry
+    if _model_registry is None:
+        _model_registry = ModelRegistry()
+        logger.info("ModelRegistry 已初始化")
+    return _model_registry

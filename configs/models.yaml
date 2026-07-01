@@ -1,0 +1,25 @@
+# HiveMemory 模型注册表
+# ============================================================
+# 此文件定义系统中所有可用的 LLM 模型。
+# 前端配置页面、AgentProfile 均通过模型的 id 字段引用对应模型。
+#
+# 字段说明：
+#   id            - 全局唯一标识符，供 AgentProfile.model_name 引用
+#   display_name  - 前端展示名称
+#   litellm_model - 传给 litellm 的完整模型标识符（格式：provider/model-name）
+#   api_key       - API 密钥，留空则由 litellm 从对应提供商的环境变量自动读取
+#   api_base      - 自定义 API 地址，留空则使用提供商默认地址
+#   temperature   - 默认推理温度（0.0 ~ 2.0）
+#   max_tokens    - 默认最大生成 token 数
+#   is_default    - 是否为系统默认模型（有且仅有一条记录应为 true）
+# ============================================================
+
+models:
+  - id: "deepseek-chat"
+    display_name: "DeepSeek Chat"
+    litellm_model: "deepseek/deepseek-chat"
+    api_key: null
+    api_base: null
+    temperature: 0.7
+    max_tokens: 4096
+    is_default: true
