@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from hivememory.core.constants import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
+)
 from hivememory.core.models.model_definition import ModelDefinition
 from hivememory.server.deps import get_model_registry
 from hivememory.system.model_registry import (
@@ -50,6 +55,7 @@ class ModelResponse(BaseModel):
     api_base: Optional[str] = None
     temperature: float
     max_tokens: int
+    top_p: float
     is_default: bool
 
     @classmethod
@@ -62,6 +68,7 @@ class ModelResponse(BaseModel):
             api_base=model.api_base,
             temperature=model.temperature,
             max_tokens=model.max_tokens,
+            top_p=model.top_p,
             is_default=model.is_default,
         )
 
@@ -74,8 +81,9 @@ class ModelCreateRequest(BaseModel):
     litellm_model: str = Field(description="litellm 模型标识符，如 'gpt-4o'")
     api_key: Optional[str] = Field(default=None, description="API 密钥，留空则从环境变量读取")
     api_base: Optional[str] = Field(default=None, description="自定义 API 地址，留空使用默认")
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=4096, gt=0)
+    temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0)
+    top_p: float = Field(default=DEFAULT_TOP_P, ge=0.0, le=1.0)
     is_default: bool = Field(default=False, description="设为系统默认模型")
 
 
@@ -92,6 +100,7 @@ class ModelUpdateRequest(BaseModel):
     api_base: Optional[str] = None
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, gt=0)
+    top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     is_default: Optional[bool] = None
 
     def to_updates_dict(self) -> Dict[str, Any]:
@@ -137,6 +146,7 @@ def create_model(
         api_base=body.api_base,
         temperature=body.temperature,
         max_tokens=body.max_tokens,
+        top_p=body.top_p,
         is_default=body.is_default,
     )
     try:

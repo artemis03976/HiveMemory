@@ -9,6 +9,12 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from hivememory.core.constants import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
+)
+
 
 class ModelDefinition(BaseModel):
     """
@@ -44,15 +50,21 @@ class ModelDefinition(BaseModel):
         description="自定义 API 基础 URL，用于私有化部署或代理。None 表示使用提供商默认地址"
     )
     temperature: float = Field(
-        default=0.7,
+        default=DEFAULT_TEMPERATURE,
         ge=0.0,
         le=2.0,
         description="默认推理温度，Agent Profile 或会话请求可以覆盖此值"
     )
     max_tokens: int = Field(
-        default=4096,
+        default=DEFAULT_MAX_TOKENS,
         gt=0,
         description="默认最大生成 token 数"
+    )
+    top_p: float = Field(
+        default=DEFAULT_TOP_P,
+        ge=0.0,
+        le=1.0,
+        description="默认核采样阈值，Agent Profile 或会话请求可以覆盖此值"
     )
     is_default: bool = Field(
         default=False,

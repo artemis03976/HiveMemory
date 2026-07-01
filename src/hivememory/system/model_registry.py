@@ -260,6 +260,7 @@ class ModelRegistry:
             api_base=model.api_base,
             temperature=model.temperature,
             max_tokens=model.max_tokens,
+            top_p=model.top_p,
         )
 
     def resolve(
@@ -267,17 +268,19 @@ class ModelRegistry:
         model_name: str,
         temperature_override: Optional[float] = None,
         max_tokens_override: Optional[int] = None,
+        top_p_override: Optional[float] = None,
     ) -> Tuple[LLMConfig, str]:
         """
         解析模型名称，返回运行时所需的 LLMConfig 和展示名称。
 
         这是 Agent 运行时使用的核心方法，实现了配置优先级链：
-            会话覆盖（temperature/max_tokens） > 模型注册表默认值
+            会话/Profile 覆盖（temperature/max_tokens/top_p） > 模型注册表默认值
 
         Args:
             model_name: 模型 ID，或 'default' 表示使用注册表默认模型
-            temperature_override: 会话级温度覆盖，None 表示使用模型默认值
-            max_tokens_override: 会话级 max_tokens 覆盖，None 表示使用模型默认值
+            temperature_override: 温度覆盖，None 表示使用模型默认值
+            max_tokens_override: max_tokens 覆盖，None 表示使用模型默认值
+            top_p_override: top_p 覆盖，None 表示使用模型默认值
 
         Returns:
             (LLMConfig, display_name) — 配置对象和前端可展示的模型名称
@@ -300,6 +303,7 @@ class ModelRegistry:
             api_base=model.api_base,
             temperature=temperature_override if temperature_override is not None else model.temperature,
             max_tokens=max_tokens_override if max_tokens_override is not None else model.max_tokens,
+            top_p=top_p_override if top_p_override is not None else model.top_p,
         )
         return config, model.display_name
 

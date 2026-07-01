@@ -115,45 +115,65 @@ class AgentRuntime:
         generation_options: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
-        根据 agent_profile.model_name 从注册表解析 LLM 参数，
-        并注入到 generation_options 中供 WorkerAgentService 使用。
+        根据 agent_profile 从注册表解析 LLM 参数，注入到 generation_options
+        供 WorkerAgentService 使用，并把展示名写入 frame.progress.model_used。
 
-        同时将解析出的模型展示名写入 frame.progress.model_used，
-        供 AgentOrchestrator 在组装 AgentRunResult 时读取。
+        参数覆盖优先级（从高到低）：
+            会话请求 (generation_options) > Agent Profile > 模型注册表定义
+
+        - model / api_key / api_base：来自注册表（Profile 仅通过 model_name 选择模型）
+        - temperature / top_p：会话覆盖优先，其次 Profile，最后模型定义默认
+        - max_tokens：会话覆盖优先，其次模型定义默认
 
         设计原则：
-        - 若注册表未注入（model_registry 为 None），由调用方通过 generation_options
-          直接传 model 参数；WorkerAgentService 缺少 model 时会抛出明确错误。
-        - 注册表解析失败时不捕获异常，让错误向上传播——静默降级到"某个"模型不是用户意图。
+        - 注册表未注入（model_registry 为 None）时，由调用方通过 generation_options
+          直接传 model；WorkerAgentService 缺 model 时会抛出明确错误。
+        - 注册表解析失败不捕获，让错误向上传播——静默降级到"某个"模型不是用户意图。
         """
         if self._model_registry is None:
             return generation_options or {}
 
-        model_name = frame.agent_profile.model_name
-        # 会话温度覆盖：generation_options 中若有 temperature 则透传
-        temperature_override = (generation_options or {}).get("temperature")
+        profile = frame.agent_profile
+        session_opts = generation_options or {}
 
-        # 注册表解析失败时向上传播，不捕获——
-        # 解析失败通常意味着 model_name 不存在于注册表，属于配置错误，应立即暴露。
+        # 覆盖值：会话请求优先于 Agent Profile；两者皆无则由 resolve 回落到模型定义
+        temperature_override = session_opts.get("temperature")
+        if temperature_override is None:
+            temperature_override = profile.temperature
+
+        top_p_override = session_opts.get("top_p")
+        if top_p_override is None:
+            top_p_override = profile.top_p
+
+        max_tokens_override = session_opts.get("max_tokens")
+
+        # 解析失败向上传播（model_name 不在注册表中属于配置错误，应立即暴露）
         llm_config, display_name = self._model_registry.resolve(
-            model_name,
+            profile.model_name,
             temperature_override=temperature_override,
+            max_tokens_override=max_tokens_override,
+            top_p_override=top_p_override,
         )
 
         # 记录展示名，供 Orchestrator 组装 AgentRunResult 时读取
         frame.progress.model_used = display_name
 
-        # 将注册表解析结果注入 generation_options
-        # api_key / api_base 为 None 是合法状态（litellm 从环境变量读取）
+        # 用解析结果覆盖 generation_options 中的对应键——
+        # resolve 已完成三级优先级合并，这里直接以其结果为准。
+        # api_key / api_base 为 None 是合法状态（litellm 从环境变量读取）。
         resolved: Dict[str, Any] = {
-            **(generation_options or {}),
+            **session_opts,
             "model": llm_config.model,
             "api_key": llm_config.api_key,
             "api_base": llm_config.api_base,
+            "temperature": llm_config.temperature,
+            "max_tokens": llm_config.max_tokens,
+            "top_p": llm_config.top_p,
         }
         logger.debug(
-            f"模型解析: model_name={model_name!r} → "
-            f"litellm_model={llm_config.model!r}, display={display_name!r}"
+            f"模型解析: model_name={profile.model_name!r} → "
+            f"litellm_model={llm_config.model!r}, display={display_name!r}, "
+            f"temperature={llm_config.temperature}, top_p={llm_config.top_p}"
         )
         return resolved
 

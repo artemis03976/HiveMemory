@@ -31,6 +31,11 @@ import asyncio
 import litellm
 
 from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+from hivememory.core.constants import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
+)
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
@@ -38,11 +43,6 @@ from hivememory.core.mtp.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-# 温度/token 上限的服务级默认值，不影响"使用哪个模型"的语义。
-# 实际值通常由 ModelRegistry 中的模型定义覆盖。
-_DEFAULT_TEMPERATURE: float = 1.0
-_DEFAULT_MAX_TOKENS: int = 32768
 
 
 class WorkerAgentService:
@@ -76,7 +76,7 @@ class WorkerAgentService:
           用错模型比报错更糟糕。
         - api_key / api_base 允许为 None：litellm 会从对应环境变量读取，
           这是合法的密钥管理方式。
-        - temperature / max_tokens 缺失时使用服务级默认值，不影响模型正确性。
+        - temperature / max_tokens / top_p 缺失时使用项目级默认常量，不影响模型正确性。
         """
         model = kwargs.pop("model", None)
         if not model:
@@ -93,15 +93,15 @@ class WorkerAgentService:
         api_key = kwargs.pop("api_key", None)
         api_base = kwargs.pop("api_base", None)
 
+        # temperature / max_tokens / top_p 回落到项目级默认常量
         params: Dict[str, Any] = {
             "model": model,
-            "temperature": _DEFAULT_TEMPERATURE if temperature is None else temperature,
-            "max_tokens": _DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
+            "temperature": DEFAULT_TEMPERATURE if temperature is None else temperature,
+            "max_tokens": DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
+            "top_p": DEFAULT_TOP_P if top_p is None else top_p,
             "api_key": api_key,
             "api_base": api_base,
         }
-        if top_p is not None:
-            params["top_p"] = top_p
         return params
 
     @staticmethod
@@ -132,7 +132,7 @@ class WorkerAgentService:
                     temperature=runtime_params["temperature"],
                     max_tokens=runtime_params["max_tokens"],
                     stop=[MTP_STOP_SEQUENCE],
-                    top_p=runtime_params.get("top_p"),
+                    top_p=runtime_params["top_p"],
                     **kwargs,
                 ),
             )
@@ -240,7 +240,7 @@ class WorkerAgentService:
                 api_base=runtime_params["api_base"],
                 temperature=runtime_params["temperature"],
                 max_tokens=runtime_params["max_tokens"],
-                top_p=runtime_params.get("top_p"),
+                top_p=runtime_params["top_p"],
                 stop=[MTP_STOP_SEQUENCE],
                 stream=True,
                 **kwargs,

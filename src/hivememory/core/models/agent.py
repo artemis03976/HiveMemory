@@ -26,7 +26,18 @@ class AgentProfile(BaseModel):
     """
     persona: str = Field(default="", description="Agent 人设提示词")
     model_name: str = Field(default="default", description="基底模型名称")
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="推理温度")
+    temperature: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description="推理温度覆盖。None 表示沿用注册表模型定义的温度"
+    )
+    top_p: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="核采样阈值覆盖。None 表示沿用注册表模型定义的 top_p"
+    )
 
     allowed_mtp_verbs: Optional[List[str]] = Field(
         default=None,
@@ -103,9 +114,11 @@ class AgentProfile(BaseModel):
 OMNI_DOLL_PROFILE = AgentProfile(
     persona="",
     model_name="default",
-    temperature=0.7,
+    temperature=None,
+    top_p=None,
     allowed_mtp_verbs=None,
     allowed_sys_tools=None,
     language="zh",
 )
-"""全能人偶 (Omni-Doll) 默认配置 - 拥有完整权限，无特定人设"""
+"""全能人偶 (Omni-Doll) 默认配置 - 拥有完整权限，无特定人设。
+temperature/top_p 为 None，运行时沿用注册表默认模型的参数。"""

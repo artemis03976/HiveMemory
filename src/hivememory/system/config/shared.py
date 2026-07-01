@@ -1,14 +1,21 @@
 from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
 
+from hivememory.core.constants import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
+)
+
 
 class LLMConfig(BaseModel):
     provider: str = "litellm"
     model: Optional[str] = Field(default=None)
     api_key: Optional[str] = Field(default=None)
     api_base: Optional[str] = Field(default=None)
-    temperature: float = Field(default=0.7)
-    max_tokens: int = Field(default=4096)
+    temperature: float = Field(default=DEFAULT_TEMPERATURE)
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS)
+    top_p: float = Field(default=DEFAULT_TOP_P)
 
     model_config = ConfigDict(extra="ignore")
 
