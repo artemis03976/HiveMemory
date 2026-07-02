@@ -26,7 +26,6 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
 
   validateTemperature(config.llm.gateway.temperature, 'llm.gateway.temperature');
   validateTemperature(config.llm.librarian.temperature, 'llm.librarian.temperature');
-  validateTemperature(config.llm.worker.temperature, 'llm.worker.temperature');
 
   // Validate embedding device
   const validDevices = ['cpu', 'cuda', 'mps'];
