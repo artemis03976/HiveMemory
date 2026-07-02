@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from hivememory.agent_runtime.models import ExecutionFrame, FrameExecutionResult
     from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
     from hivememory.core.models.pending import PendingAtomMaterializeTask
-    from hivememory.system.config import AliceConfig, SharedConfig
+    from hivememory.system.config import AliceConfig
     from hivememory.system.model_registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,6 @@ class AgentRuntime:
         *,
         mtp_executor: "MTPExecutor",
         alice_config: "AliceConfig",
-        shared_config: "SharedConfig",
         pending_runtime: Optional[PendingAtomRuntime] = None,
         loop_executor: Optional[AgentLoopExecutor] = None,
         model_registry: Optional["ModelRegistry"] = None,

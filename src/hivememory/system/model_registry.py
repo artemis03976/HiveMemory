@@ -287,6 +287,52 @@ class ModelRegistry:
             top_p=model.top_p,
         )
 
+    def resolve_for_llm_config(self, llm_config: "LLMConfig") -> "LLMConfig":
+        """
+        将带有 model_id 的 LLMConfig（如 gateway/librarian 配置）解析为可直接使用的 LLMConfig。
+
+        规则：
+        - llm_config.model_id 有值 → 通过注册表查 litellm_model + 补齐凭证
+        - llm_config.model_id 为空 → 直接使用 llm_config.model（向后兼容旧配置）
+        - temperature / max_tokens / top_p 始终以 llm_config 自身值为准（组件调参优先于注册表默认）
+
+        Args:
+            llm_config: 含有 model_id（或旧 model 字符串）的配置
+
+        Returns:
+            完全填充（model + api_key + api_base + 温度参数）的 LLMConfig
+
+        Raises:
+            ModelNotFoundError: model_id 不在注册表中，且注册表非空时
+        """
+        if not llm_config.model_id:
+            # 向后兼容路径：没有 model_id，直接使用 model 字段（旧式 litellm 字符串）
+            return llm_config
+
+        # 解析注册表模型
+        if llm_config.model_id == "default":
+            model = self.get_default_model()
+            if model is None:
+                raise ModelNotFoundError("注册表为空，无法解析默认模型")
+        else:
+            model = self._models.get(llm_config.model_id)
+            if model is None:
+                raise ModelNotFoundError(
+                    f"模型 '{llm_config.model_id}' 不存在于注册表中"
+                )
+
+        api_key, api_base = self._resolve_credentials(model)
+        return LLMConfig(
+            # 模型名和凭证来自注册表
+            model=model.litellm_model,
+            api_key=api_key,
+            api_base=api_base,
+            # temperature / max_tokens / top_p 以组件自身配置为准（覆盖注册表默认值）
+            temperature=llm_config.temperature,
+            max_tokens=llm_config.max_tokens,
+            top_p=llm_config.top_p,
+        )
+
     def resolve(
         self,
         model_name: str,

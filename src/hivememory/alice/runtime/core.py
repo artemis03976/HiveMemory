@@ -82,7 +82,6 @@ class AliceRuntime:
         self._agent_runtime = AgentRuntime(
             mtp_executor=self._mtp_executor,
             alice_config=alice_config,
-            shared_config=shared_config,
             pending_runtime=self._pending_runtime,
             model_registry=model_registry,  # 传入注册表，用于逐帧模型解析
         )

@@ -10,6 +10,10 @@ from hivememory.core.constants import (
 
 class LLMConfig(BaseModel):
     provider: str = "litellm"
+    # model_id：引用注册表 ID（如 "deepseek-chat"）。
+    # 设置时，由 ModelRegistry.resolve_for_llm_config() 填入 model/api_key/api_base；
+    # 未设置时回落到直接使用 model 字段（向后兼容旧配置）。
+    model_id: Optional[str] = Field(default=None)
     model: Optional[str] = Field(default=None)
     api_key: Optional[str] = Field(default=None)
     api_base: Optional[str] = Field(default=None)
@@ -34,9 +38,14 @@ class ProviderCredentials(BaseModel):
 
 
 class LLMGlobalConfig(BaseModel):
-    librarian: LLMConfig = Field(default_factory=lambda: LLMConfig(model="deepseek/deepseek-chat", temperature=0.3, max_tokens=8192))
-    gateway: LLMConfig = Field(default_factory=lambda: LLMConfig(model="gpt-4o", temperature=0.0, max_tokens=512))
-    worker: LLMConfig = Field(default_factory=lambda: LLMConfig(model="gpt-4o", temperature=0.7, max_tokens=4096))
+    # model_id 引用注册表；temperature/max_tokens 是组件级调参，覆盖注册表模型默认值。
+    # worker 已完全由 agent profile + ModelRegistry 在运行时决定，不再需要静态配置段。
+    librarian: LLMConfig = Field(
+        default_factory=lambda: LLMConfig(model_id="default", temperature=0.3, max_tokens=8192)
+    )
+    gateway: LLMConfig = Field(
+        default_factory=lambda: LLMConfig(model_id="default", temperature=0.0, max_tokens=512)
+    )
 
     model_config = ConfigDict(extra="allow")
 

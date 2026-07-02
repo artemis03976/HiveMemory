@@ -106,7 +106,22 @@ class HiveMemorySystem:
             ),
         )
 
-        # 1. Patchouli 先创建（提供 bus 和 storage，并通过 global bus 调用 Alice）
+        # 模型注册表：提前初始化（在 Patchouli/Alice 之前），以便预解析所有组件的 LLM 配置。
+        # 注入 provider 凭证表（来自 .env 的 HIVEMEMORY__PROVIDERS__*）。
+        model_registry = ModelRegistry(provider_credentials=config.shared.providers)
+
+        # 预解析 gateway / librarian 的 LLM 配置：
+        # model_id 引用注册表，凭证由 provider 表补齐，temperature/max_tokens 保留组件值。
+        # 预解析后 config.shared.llm.* 中的 model/api_key/api_base 已被填充，
+        # PatchouliSystem 构造时无需感知注册表。
+        config.shared.llm.gateway = model_registry.resolve_for_llm_config(
+            config.shared.llm.gateway
+        )
+        config.shared.llm.librarian = model_registry.resolve_for_llm_config(
+            config.shared.llm.librarian
+        )
+
+        # 1. Patchouli 创建（使用已解析的 gateway/librarian LLM 配置）
         patchouli = PatchouliSystem(
             config=config,
             global_bus=global_bus,
@@ -114,12 +129,7 @@ class HiveMemorySystem:
             runtime_events=runtime_event_sink.scoped("patchouli"),
         )
 
-        # 模型注册表：在 Alice 构建前初始化，供 AgentRuntime 逐帧解析模型。
-        # 注入 provider 凭证表（来自 .env 的 HIVEMEMORY__PROVIDERS__*），
-        # 使 models.yaml 中留空的 api_key/api_base 按 provider 补齐。
-        model_registry = ModelRegistry(provider_credentials=config.shared.providers)
-
-        # 2. Alice 创建（使用自有 AliceBus，通过全局总线访问 Patchouli 记忆能力）
+        # 2. Alice 创建（worker 模型在运行时逐帧由注册表解析）
         alice = AliceSystem(
             config=config,
             global_bus=global_bus,

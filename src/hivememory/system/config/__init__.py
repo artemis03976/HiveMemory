@@ -57,12 +57,6 @@ LEGACY_ENV_ALIASES: Dict[str, Tuple[str, ...]] = {
     "LLM__LIBRARIAN__API_BASE": ("shared", "llm", "librarian", "api_base"),
     "LLM__LIBRARIAN__TEMPERATURE": ("shared", "llm", "librarian", "temperature"),
     "LLM__LIBRARIAN__MAX_TOKENS": ("shared", "llm", "librarian", "max_tokens"),
-    "LLM__WORKER__PROVIDER": ("shared", "llm", "worker", "provider"),
-    "LLM__WORKER__MODEL": ("shared", "llm", "worker", "model"),
-    "LLM__WORKER__API_KEY": ("shared", "llm", "worker", "api_key"),
-    "LLM__WORKER__API_BASE": ("shared", "llm", "worker", "api_base"),
-    "LLM__WORKER__TEMPERATURE": ("shared", "llm", "worker", "temperature"),
-    "LLM__WORKER__MAX_TOKENS": ("shared", "llm", "worker", "max_tokens"),
     "QDRANT__HOST": ("patchouli", "storage", "host"),
     "QDRANT__PORT": ("patchouli", "storage", "port"),
     "QDRANT__GRPC_PORT": ("patchouli", "storage", "grpc_port"),
@@ -291,9 +285,6 @@ class HiveMemoryConfig(BaseSettings):
 
     def get_gateway_llm_config(self) -> LLMConfig:
         return self.shared.llm.gateway
-
-    def get_worker_llm_config(self) -> LLMConfig:
-        return self.shared.llm.worker
 
 
 def load_app_config(config_path: Optional[str] = None) -> HiveMemoryConfig:

@@ -15,6 +15,8 @@ export interface LoggingConfig {
 
 export interface LLMConfig {
   provider: string;
+  /** 引用注册表模型 ID（如 "deepseek-chat"）。设置时优先于 model 字段。 */
+  model_id?: string | null;
   model: string;
   api_key: string | null;
   api_base: string | null;
@@ -25,7 +27,6 @@ export interface LLMConfig {
 export interface LLMsConfig {
   gateway: LLMConfig;
   librarian: LLMConfig;
-  worker: LLMConfig;
 }
 
 export interface EmbeddingConfig {
