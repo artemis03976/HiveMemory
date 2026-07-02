@@ -51,6 +51,7 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
     s.state_summary = "summary"
     s.last_turn = {"user": "hi", "assistant": "hello"}
     s.total_tokens = 100
+    s.model_used = ""
     return s
 
 

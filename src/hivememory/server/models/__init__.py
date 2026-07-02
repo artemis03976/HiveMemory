@@ -29,6 +29,20 @@ from hivememory.server.models.topic import (
     TopicListResponse,
     TriggerResponse,
 )
+from hivememory.server.models.provider import (
+    ProviderResponse,
+    ProviderUpsertRequest,
+)
+from hivememory.server.models.config import ConfigResponse
+from hivememory.server.models.agent import (
+    AgentCreateRequest,
+    AgentProfileResponse,
+)
+from hivememory.server.models.model_registry import (
+    ModelResponse,
+    ModelCreateRequest,
+    ModelUpdateRequest,
+)
 
 __all__ = [
     "ErrorResponse",
@@ -52,4 +66,12 @@ __all__ = [
     "TopicSnapshotResponse",
     "TopicListResponse",
     "TriggerResponse",
+    "ProviderResponse",
+    "ProviderUpsertRequest",
+    "ConfigResponse",
+    "AgentCreateRequest",
+    "AgentProfileResponse",
+    "ModelResponse",
+    "ModelCreateRequest",
+    "ModelUpdateRequest",
 ]

@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSett
 from hivememory.system.config.shared import (
     LLMConfig, LLMGlobalConfig,
     EmbeddingConfig, EmbeddingGlobalConfig,
+    ProviderCredentials,
     SharedConfig,
 )
 from hivememory.system.config.patchouli import (
@@ -56,12 +57,6 @@ LEGACY_ENV_ALIASES: Dict[str, Tuple[str, ...]] = {
     "LLM__LIBRARIAN__API_BASE": ("shared", "llm", "librarian", "api_base"),
     "LLM__LIBRARIAN__TEMPERATURE": ("shared", "llm", "librarian", "temperature"),
     "LLM__LIBRARIAN__MAX_TOKENS": ("shared", "llm", "librarian", "max_tokens"),
-    "LLM__WORKER__PROVIDER": ("shared", "llm", "worker", "provider"),
-    "LLM__WORKER__MODEL": ("shared", "llm", "worker", "model"),
-    "LLM__WORKER__API_KEY": ("shared", "llm", "worker", "api_key"),
-    "LLM__WORKER__API_BASE": ("shared", "llm", "worker", "api_base"),
-    "LLM__WORKER__TEMPERATURE": ("shared", "llm", "worker", "temperature"),
-    "LLM__WORKER__MAX_TOKENS": ("shared", "llm", "worker", "max_tokens"),
     "QDRANT__HOST": ("patchouli", "storage", "host"),
     "QDRANT__PORT": ("patchouli", "storage", "port"),
     "QDRANT__GRPC_PORT": ("patchouli", "storage", "grpc_port"),
@@ -125,6 +120,36 @@ def legacy_env_alias_settings_source() -> Dict[str, Any]:
         if value is not None:
             _set_nested_value(aliased, target_path, value)
     return aliased
+
+
+def provider_credentials_settings_source() -> Dict[str, Any]:
+    """扫描 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE 环境变量。
+
+    provider 名是动态的（deepseek / openai / anthropic ...），无法用静态别名表
+    枚举，故单独扫描：把匹配的变量映射到 shared.providers.<name>.{api_key,api_base}。
+    provider 名统一小写，以便与 ModelDefinition.provider 匹配。
+    """
+    raw_values = _load_dotenv_sources()
+    raw_values.update(os.environ)
+
+    prefix = f"{HIVEMEMORY_ENV_PREFIX}PROVIDERS__"
+    result: Dict[str, Any] = {}
+    for key, value in raw_values.items():
+        if value is None:
+            continue
+        upper = key.upper()
+        if not upper.startswith(prefix):
+            continue
+        # 剩余部分形如 "DEEPSEEK__API_KEY"
+        remainder = upper[len(prefix):]
+        parts = remainder.split("__")
+        if len(parts) != 2:
+            continue
+        provider_name, field = parts[0].lower(), parts[1].lower()
+        if field not in ("api_key", "api_base"):
+            continue
+        _set_nested_value(result, ("shared", "providers", provider_name, field), value)
+    return result
 
 
 def yaml_config_settings_source() -> Dict[str, Any]:
@@ -250,6 +275,7 @@ class HiveMemoryConfig(BaseSettings):
             env_settings,
             dotenv_settings,
             legacy_env_alias_settings_source,
+            provider_credentials_settings_source,
             yaml_config_settings_source,
             file_secret_settings,
         )
@@ -259,9 +285,6 @@ class HiveMemoryConfig(BaseSettings):
 
     def get_gateway_llm_config(self) -> LLMConfig:
         return self.shared.llm.gateway
-
-    def get_worker_llm_config(self) -> LLMConfig:
-        return self.shared.llm.worker
 
 
 def load_app_config(config_path: Optional[str] = None) -> HiveMemoryConfig:
@@ -282,6 +305,7 @@ __all__ = [
     # shared
     "LLMConfig", "LLMGlobalConfig",
     "EmbeddingConfig", "EmbeddingGlobalConfig",
+    "ProviderCredentials",
     "SharedConfig",
     # patchouli
     "QdrantConfig",
@@ -318,4 +342,5 @@ __all__ = [
     "LEGACY_ENV_ALIASES",
     "get_config_file_path", "get_default_config_file_path",
     "yaml_config_settings_source", "legacy_env_alias_settings_source",
+    "provider_credentials_settings_source",
 ]

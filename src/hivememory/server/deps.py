@@ -16,6 +16,8 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system import HiveMemorySystem
+from hivememory.system.model_registry import ModelRegistry
+from hivememory.system.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +167,13 @@ def get_ws_manager() -> WebSocketConnectionManager:
     if _ws_manager is None:
         raise RuntimeError("WebSocket manager not initialized")
     return _ws_manager
+
+
+def get_model_registry() -> ModelRegistry:
+    """FastAPI Depends 注入 — 获取 ModelRegistry 单例（来自 HiveMemorySystem）。"""
+    return get_system().model_registry
+
+
+def get_provider_registry() -> ProviderRegistry:
+    """FastAPI Depends 注入 — 获取 ProviderRegistry 单例（来自 HiveMemorySystem）。"""
+    return get_system().provider_registry

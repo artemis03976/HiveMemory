@@ -39,6 +39,9 @@ config/.env
 .env.local
 *.local
 
+# Provider Secrets (API keys managed via UI — use providers.secrets.example.yaml as template)
+configs/providers.secrets.yaml
+
 # Database
 *.db
 *.sqlite

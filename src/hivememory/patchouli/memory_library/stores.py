@@ -200,6 +200,13 @@ class ShortTermMemoryStore:
             buf.state = state
         buf.last_update = datetime.now().timestamp()
 
+    def update_model_used(self, topic_id: str, model_used: str) -> None:
+        """写入最近一次 run 使用的模型展示名。"""
+        buf = self._port.get(topic_id)
+        if buf is None:
+            return
+        buf.model_used = model_used
+
     # ========== LRU ==========
 
     def get_lru_topic(self) -> Optional[str]:
@@ -243,6 +250,7 @@ class ShortTermMemoryStore:
             last_update=buf.last_update,
             last_accessed_at=buf.last_accessed_at,
             total_tokens=buf.total_tokens,
+            model_used=buf.model_used,
         )
 
     async def check_health(self) -> StorageHealthComponent:

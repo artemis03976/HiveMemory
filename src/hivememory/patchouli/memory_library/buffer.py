@@ -49,6 +49,8 @@ class SemanticBuffer(BaseModel):
     last_update: float = Field(default_factory=lambda: datetime.now().timestamp())
     last_accessed_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     total_tokens: int = 0
+    # 最近一次 run 实际使用的模型展示名（来自 ModelRegistry，经 InteractionPayload 写入）
+    model_used: str = Field(default="", description="最近 run 使用的模型展示名")
 
     model_config = ConfigDict(arbitrary_types_allowed=True, use_enum_values=True)
 

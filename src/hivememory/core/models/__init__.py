@@ -46,6 +46,7 @@ from .agent import (
     AgentProfile,
     OMNI_DOLL_PROFILE,
 )
+from .model_definition import ModelDefinition
 from .pending import (
     PendingAtomStatus,
     PendingAtomResolution,
@@ -95,6 +96,7 @@ __all__ = [
     "TopicSnapshot",
     "AgentProfile",
     "OMNI_DOLL_PROFILE",
+    "ModelDefinition",
     "PendingAtomStatus",
     "PendingAtomResolution",
     "PendingAtomSnapshot",

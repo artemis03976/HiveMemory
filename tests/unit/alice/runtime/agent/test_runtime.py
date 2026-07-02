@@ -13,7 +13,6 @@ def test_agent_runtime_builds_engine_facade():
     runtime = AgentRuntime(
         mtp_executor=mtp_executor,
         alice_config=config.alice,
-        shared_config=config.shared,
     )
 
     assert isinstance(runtime._loop_executor, AgentLoopExecutor)
@@ -28,7 +27,6 @@ def test_agent_runtime_accepts_injected_loop_executor():
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
         alice_config=MagicMock(),
-        shared_config=MagicMock(),
         loop_executor=injected,
     )
 

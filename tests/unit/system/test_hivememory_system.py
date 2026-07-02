@@ -68,6 +68,8 @@ def system(mock_patchouli):
         agent_service=agent_service,
         topic_service=topic_service,
         readiness_service=readiness_service,
+        model_registry=MagicMock(),
+        provider_registry=MagicMock(),
         runtime_event_sink=runtime_events,
     )
     system._test_runtime_events = runtime_events

@@ -41,29 +41,18 @@ runtime_events:
 # ========== 跨子系统共享配置 ==========
 shared:
   llm:
+    # gateway 和 librarian 通过 model_id 引用模型注册表（configs/models.yaml）。
+    # model/api_key/api_base 由 ModelRegistry.resolve_for_llm_config() 在启动时填充，无需手动配置。
+    # temperature/max_tokens 是组件专属调参，始终覆盖注册表模型的默认值。
     gateway:
-      provider: "litellm"
-      model: "deepseek/deepseek-chat"
-      api_key: null  # 通过环境变量 HIVEMEMORY__SHARED__LLM__GATEWAY__API_KEY 设置
-      api_base: null
-      temperature: 0.7
-      max_tokens: 4096
+      model_id: "deepseek-chat"  # 引用 models.yaml 中的模型 ID
+      temperature: 0.0           # 网关用极低温，确保路由稳定
+      max_tokens: 512
 
     librarian:
-      provider: "litellm"
-      model: "deepseek/deepseek-chat"
-      api_key: null  # 通过环境变量 HIVEMEMORY__SHARED__LLM__LIBRARIAN__API_KEY 设置
-      api_base: null
-      temperature: 0.3
-      max_tokens: 4096
-
-    worker:
-      provider: "litellm"
-      model: "deepseek/deepseek-chat"
-      api_key: null  # 通过环境变量 HIVEMEMORY__SHARED__LLM__WORKER__API_KEY 设置
-      api_base: null
-      temperature: 1.0
-      max_tokens: 4096
+      model_id: "deepseek-chat"
+      temperature: 0.3           # 记忆整理用低温，输出稳定
+      max_tokens: 8192           # 需要处理较长上下文
 
   embedding:
     default:
@@ -73,6 +62,17 @@ shared:
       batch_size: 32
       normalize_embeddings: true
       dimension: 1024
+
+  # ========== 模型提供商凭证 ==========
+  # 供模型注册表（configs/models.yaml）按 provider 补齐 api_key / api_base。
+  # api_key 一律留空于此文件（本文件被 git 跟踪），由环境变量注入：
+  #   HIVEMEMORY__PROVIDERS__<NAME>__API_KEY
+  #   HIVEMEMORY__PROVIDERS__<NAME>__API_BASE
+  # <NAME> 对应模型定义的 provider 字段（大小写不敏感），如 DEEPSEEK / OPENAI。
+  providers:
+    deepseek:
+      api_key: null
+      api_base: "https://api.deepseek.com"
 
 # ========== Patchouli 子系统配置 ==========
 memory_compiler:

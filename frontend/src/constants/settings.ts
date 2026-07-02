@@ -30,14 +30,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
       temperature: 0.3,
       max_tokens: 2048,
     },
-    worker: {
-      provider: 'litellm',
-      model: 'deepseek/deepseek-chat',
-      api_key: null,
-      api_base: null,
-      temperature: 0.7,
-      max_tokens: 4096,
-    },
   },
   embedding: {
     default: {

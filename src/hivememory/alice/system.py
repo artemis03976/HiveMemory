@@ -14,6 +14,7 @@ from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.service import AliceService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
+from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
@@ -36,6 +37,7 @@ class AliceSystem(SubsystemProtocol):
         config: HiveMemoryConfig,
         global_bus: Optional[GlobalSystemBus] = None,
         runtime_events: RuntimeEventSink | None = None,
+        model_registry: Optional[ModelRegistry] = None,
     ) -> None:
         self._config = config
         self._global_bus = global_bus
@@ -47,6 +49,7 @@ class AliceSystem(SubsystemProtocol):
             memory_compiler_config=config.memory_compiler,
             global_bus=global_bus,
             runtime_events=self._runtime_events,
+            model_registry=model_registry,
         )
         
         self._service = AliceService(runtime=self._runtime)

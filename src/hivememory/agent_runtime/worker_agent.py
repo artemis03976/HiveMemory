@@ -30,8 +30,12 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 import asyncio
 import litellm
 
-from hivememory.system.config import LLMConfig
 from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+from hivememory.core.constants import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
+)
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
@@ -48,39 +52,56 @@ class WorkerAgentService:
     封装 litellm.acompletion() 调用，自动注入 MTP Stop Sequence，
     并对返回结果进行 MTP 中断检测。
 
+    所有 LLM 参数（model、api_key、api_base 等）必须在每次调用时通过
+    generation_options 显式传入，不保存任何实例级配置。
+    model 缺失时立即抛出 ValueError，拒绝静默降级。
+
     使用示例:
-        >>> from hivememory.agent_runtime.worker_agent import WorkerAgentService
-        >>> from hivememory.system.config import LLMConfig
-        >>>
-        >>> service = WorkerAgentService(config=LLMConfig(model="gpt-4o"))
-        >>> result = await service.generate_async([{"role": "user", "content": "Hello"}])
-        >>> if result.was_mtp_interrupted:
-        ...     print(f"MTP detected: {result.mtp_fragment}")
+        >>> service = WorkerAgentService()
+        >>> result = await service.generate_async(
+        ...     messages,
+        ...     model="deepseek/deepseek-chat",
+        ...     api_key="sk-...",
+        ... )
     """
 
-    def __init__(self, config: LLMConfig):
-        """
-        Args:
-            config: LLM 配置 (model, api_key, api_base, temperature, max_tokens)
-        """
-        self._config = config
-        logger.info(
-            f"WorkerAgentService 初始化完成 (model={config.model})"
-        )
+    def __init__(self) -> None:
+        logger.info("WorkerAgentService 初始化完成（无状态）")
 
     def _extract_runtime_params(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """从 generation_options（kwargs）中提取本次 LLM 调用的运行时参数。
+
+        设计原则：
+        - model 是必填项，缺失即抛 ValueError。不允许隐式回落到"某个"模型——
+          用错模型比报错更糟糕。
+        - api_key / api_base 允许为 None：litellm 会从对应环境变量读取，
+          这是合法的密钥管理方式。
+        - temperature / max_tokens / top_p 缺失时使用项目级默认常量，不影响模型正确性。
+        """
         model = kwargs.pop("model", None)
+        if not model:
+            raise ValueError(
+                "WorkerAgentService: 缺少必填参数 'model'。"
+                "请通过 generation_options 显式指定，或在 ModelRegistry 中为 Agent "
+                "配置对应模型。不允许静默回落到其他模型。"
+            )
+
         temperature = kwargs.pop("temperature", None)
         top_p = kwargs.pop("top_p", None)
         max_tokens = kwargs.pop("max_tokens", None)
+        # api_key / api_base 为 None 是合法状态（litellm 从环境变量读取）
+        api_key = kwargs.pop("api_key", None)
+        api_base = kwargs.pop("api_base", None)
 
+        # temperature / max_tokens / top_p 回落到项目级默认常量
         params: Dict[str, Any] = {
-            "model": model or self._config.model,
-            "temperature": self._config.temperature if temperature is None else temperature,
-            "max_tokens": self._config.max_tokens if max_tokens is None else max_tokens,
+            "model": model,
+            "temperature": DEFAULT_TEMPERATURE if temperature is None else temperature,
+            "max_tokens": DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
+            "top_p": DEFAULT_TOP_P if top_p is None else top_p,
+            "api_key": api_key,
+            "api_base": api_base,
         }
-        if top_p is not None:
-            params["top_p"] = top_p
         return params
 
     @staticmethod
@@ -106,12 +127,12 @@ class WorkerAgentService:
                 completion_kwargs=dict(
                     model=runtime_params["model"],
                     messages=messages,
-                    api_key=self._config.api_key,
-                    api_base=self._config.api_base,
+                    api_key=runtime_params["api_key"],
+                    api_base=runtime_params["api_base"],
                     temperature=runtime_params["temperature"],
                     max_tokens=runtime_params["max_tokens"],
                     stop=[MTP_STOP_SEQUENCE],
-                    top_p=runtime_params.get("top_p"),
+                    top_p=runtime_params["top_p"],
                     **kwargs,
                 ),
             )
@@ -126,6 +147,7 @@ class WorkerAgentService:
                 was_mtp_interrupted=False,
                 prefix_text="",
                 mtp_fragment="",
+                model_used=runtime_params["model"],
             )
 
         text = response.choices[0].message.content or ""
@@ -137,7 +159,7 @@ class WorkerAgentService:
 
         if hasattr(response, "usage") and response.usage:
             logger.info(
-                f"LLM 异步生成完成 (model={self._config.model}, "
+                f"LLM 异步生成完成 (model={runtime_params['model']}, "
                 f"tokens={response.usage.total_tokens}, "
                 f"finish_reason={finish_reason})"
             )
@@ -158,6 +180,7 @@ class WorkerAgentService:
             was_mtp_interrupted=was_mtp,
             prefix_text=text[:last_open] if was_mtp else text,
             mtp_fragment=text[last_open:] if was_mtp else "",
+            model_used=runtime_params["model"],
         )
 
     async def _completion_with_cancel(
@@ -213,11 +236,11 @@ class WorkerAgentService:
             response = await litellm.acompletion(
                 model=runtime_params["model"],
                 messages=messages,
-                api_key=self._config.api_key,
-                api_base=self._config.api_base,
+                api_key=runtime_params["api_key"],
+                api_base=runtime_params["api_base"],
                 temperature=runtime_params["temperature"],
                 max_tokens=runtime_params["max_tokens"],
-                top_p=runtime_params.get("top_p"),
+                top_p=runtime_params["top_p"],
                 stop=[MTP_STOP_SEQUENCE],
                 stream=True,
                 **kwargs,
@@ -297,6 +320,7 @@ class WorkerAgentService:
             was_mtp_interrupted=was_mtp,
             prefix_text=full_text[:last_open] if was_mtp else full_text,
             mtp_fragment=full_text[last_open:] if was_mtp else "",
+            model_used=runtime_params["model"],
         )
 
         yield StreamChunk(

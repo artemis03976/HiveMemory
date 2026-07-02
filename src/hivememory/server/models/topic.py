@@ -11,6 +11,7 @@ class TopicSnapshotResponse(BaseModel):
     state_summary: str = ""
     last_turn: Optional[Dict[str, str]] = None
     total_tokens: int = 0
+    model_used: str = Field(default="", description="最近 run 使用的模型展示名，空字符串表示尚未运行")
 
 
 class TopicListResponse(BaseModel):

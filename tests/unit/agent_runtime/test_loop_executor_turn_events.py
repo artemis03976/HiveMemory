@@ -377,7 +377,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
     orchestrator = AgentOrchestrator(
         agent_runtime=AgentRuntime(
-            mtp_executor=MagicMock(), alice_config=MagicMock(), shared_config=MagicMock(), loop_executor=executor
+            mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
         ),
         frame_scheduler=frame_scheduler,
         agent_profile_resolver=profile_resolver,
@@ -419,7 +419,7 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
 
     orchestrator = AgentOrchestrator(
         agent_runtime=AgentRuntime(
-            mtp_executor=MagicMock(), alice_config=MagicMock(), shared_config=MagicMock(), loop_executor=executor
+            mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
         ),
         frame_scheduler=MagicMock(),
         agent_profile_resolver=MagicMock(),
@@ -459,7 +459,7 @@ async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
 
     orchestrator = AgentOrchestrator(
         agent_runtime=AgentRuntime(
-            mtp_executor=MagicMock(), alice_config=MagicMock(), shared_config=MagicMock(), loop_executor=executor
+            mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
         ),
         frame_scheduler=MagicMock(),
         agent_profile_resolver=MagicMock(),

@@ -192,6 +192,8 @@ class AgentRunResult(BaseModel):
         turn_events         → ActionReducer → TraceReducer → 感知层
         materialize_tasks   → finalize 启动 mode b/c + 组 Settlement
         status              → v0.4.0: agent.run 终态；仅 completed 进入 finalize
+        model_used          → 本次 run 实际使用的模型展示名（来自 ModelRegistry）；
+                              空字符串表示注册表未启用或解析失败
     """
     status: AgentRunStatus = Field(default=AgentRunStatus.COMPLETED)
     final_text: str = Field(default="")
@@ -199,6 +201,7 @@ class AgentRunResult(BaseModel):
     total_iterations: int = Field(default=1)
     turn_events: List[Any] = Field(default_factory=list)
     materialize_tasks: List[PendingAtomMaterializeTask] = Field(default_factory=list)
+    model_used: str = Field(default="", description="实际使用的模型展示名，空字符串表示未解析")
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -291,6 +294,12 @@ class InteractionPayload(BaseModel):
     worth_saving: Optional[bool] = Field(
         default=None,
         description="Gateway 价值判断"
+    )
+    # 本次 run 实际使用的模型展示名（来自 AgentRunResult.model_used）
+    # 写入 SemanticBuffer，供 TopicSnapshot 展示给前端
+    model_used: str = Field(
+        default="",
+        description="实际使用的模型展示名，空字符串表示注册表未启用"
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

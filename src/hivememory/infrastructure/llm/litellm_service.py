@@ -274,18 +274,18 @@ def get_gateway_llm_service(
     config: LLMConfig,
 ) -> LiteLLMService:
     """
-    获取 Worker LLM 服务实例
+    获取 Gateway LLM 服务实例
 
-    用于 ChatBot 等对话场景。
+    用于路由与指代消解等场景。
 
     Args:
-        config: LLM 配置对象 (必须提供)
+        config: LLM 配置对象（必须提供）
 
     Returns:
-        LiteLLMService: Worker LLM 服务实例
+        LiteLLMService: Gateway LLM 服务实例
     """
     if config is None:
-        raise ValueError("config is required for get_worker_llm_service")
+        raise ValueError("config is required for get_gateway_llm_service")
 
     return LiteLLMService(config=config)
 

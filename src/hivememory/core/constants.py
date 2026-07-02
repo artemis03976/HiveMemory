@@ -25,6 +25,21 @@ TEST_AGENT_ID = "test_agent"
 """测试 Agent ID - 仅用于单元测试"""
 
 
+# ============ LLM 生成参数默认值 ============
+# 次级生成参数的项目级默认。主要参数（模型名、provider、API 凭证）
+# 由 ModelRegistry + 前端配置决定，不在此列。
+# 覆盖优先级：会话请求 > Agent Profile > 模型定义 > 此处常量
+
+DEFAULT_TEMPERATURE = 1.0
+"""默认推理温度 - 模型定义与 Agent Profile 均未显式指定时使用"""
+
+DEFAULT_MAX_TOKENS = 32768
+"""默认最大生成 token 数"""
+
+DEFAULT_TOP_P = 1.0
+"""默认核采样 (nucleus sampling) 阈值 - 1.0 表示不裁剪概率分布"""
+
+
 # ============ 身份验证辅助函数 ============
 
 def normalize_user_id(user_id: str | None) -> str:

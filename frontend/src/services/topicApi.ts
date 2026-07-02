@@ -17,6 +17,7 @@ export interface ApiTopicSnapshot {
   block_count?: number;
   last_accessed_at?: number;
   total_tokens?: number;
+  model_used?: string;
 }
 
 interface TopicListResponse {
@@ -31,7 +32,8 @@ export function mapTopic(raw: ApiTopicSnapshot, activeTopicId?: string): Topic {
     title,
     summary: raw.state_summary || raw.topic_summary || undefined,
     activeNow: activeTopicId ? raw.topic_id === activeTopicId : true,
-    model: 'GPT-4o', // Default model for now
+    // 从后端 model_used 字段读取真实使用的模型名，未设置时回落到默认文本
+    model: raw.model_used || 'Unknown',
     lastActive: raw.last_accessed_at ? raw.last_accessed_at * 1000 : Date.now(),
     messageCount: raw.block_count ?? 0,
     totalTokens: raw.total_tokens ?? 0,
