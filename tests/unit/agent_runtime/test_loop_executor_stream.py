@@ -88,7 +88,6 @@ def _build_orchestrator(worker_stream_impl, main_frame, sub_frame):
     agent_runtime = AgentRuntime(
         mtp_executor=mtp_executor,
         alice_config=MagicMock(),
-        shared_config=MagicMock(),
         loop_executor=executor,
     )
 

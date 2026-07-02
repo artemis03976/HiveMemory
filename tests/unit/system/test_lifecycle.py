@@ -108,6 +108,8 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             agent_service=agent_service,
             topic_service=topic_service,
             readiness_service=readiness_service,
+            model_registry=MagicMock(),
+            provider_registry=MagicMock(),
             **kwargs,
         )
 

@@ -1,5 +1,7 @@
 """Agents 路由 — Agent Profile 列表"""
 
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from hivememory.server.deps import get_agent_service

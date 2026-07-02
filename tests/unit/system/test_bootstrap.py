@@ -78,7 +78,11 @@ def _make_config():
 def test_build_registers_patchouli_and_uses_global_bus_runtime():
     config = _make_config()
 
-    with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
+    with (
+        patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
+        patch("hivememory.system.system.ModelRegistry"),
+        patch("hivememory.system.system.ProviderRegistry"),
+    ):
         system = HiveMemorySystem.build(config=config)
 
     assert isinstance(system._global_bus, GlobalSystemBus)
@@ -88,7 +92,11 @@ def test_build_registers_patchouli_and_uses_global_bus_runtime():
 def test_build_injects_runtime_event_sink_into_scheduler():
     config = _make_config()
 
-    with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
+    with (
+        patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
+        patch("hivememory.system.system.ModelRegistry"),
+        patch("hivememory.system.system.ProviderRegistry"),
+    ):
         system = HiveMemorySystem.build(config=config)
 
     assert isinstance(system._scheduler._runtime_events, ScopedRuntimeEventSink)
@@ -98,7 +106,11 @@ def test_build_uses_null_scheduler_runtime_event_sink_when_disabled():
     config = _make_config()
     config.runtime_events.enabled = False
 
-    with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
+    with (
+        patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
+        patch("hivememory.system.system.ModelRegistry"),
+        patch("hivememory.system.system.ProviderRegistry"),
+    ):
         system = HiveMemorySystem.build(config=config)
 
     assert isinstance(system._scheduler._runtime_events, NullRuntimeEventSink)
@@ -108,7 +120,11 @@ def test_build_uses_null_scheduler_runtime_event_sink_when_disabled():
 async def test_start_mounts_patchouli_public_routes_on_global_bus():
     config = _make_config()
 
-    with patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem):
+    with (
+        patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
+        patch("hivememory.system.system.ModelRegistry"),
+        patch("hivememory.system.system.ProviderRegistry"),
+    ):
         system = HiveMemorySystem.build(config=config)
 
     assert PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE not in system._global_bus.list_routes()

@@ -192,6 +192,8 @@ class TestApiApplicationServices:
         with (
             patch("hivememory.system.system.PatchouliSystem"),
             patch("hivememory.system.system.AliceSystem"),
+            patch("hivememory.system.system.ModelRegistry"),
+            patch("hivememory.system.system.ProviderRegistry"),
         ):
             system = HiveMemorySystem.build(config=passive_config)
 
@@ -211,6 +213,8 @@ class TestApiApplicationServices:
             with (
                 patch("hivememory.system.system.PatchouliSystem"),
                 patch("hivememory.system.system.AliceSystem"),
+                patch("hivememory.system.system.ModelRegistry"),
+                patch("hivememory.system.system.ProviderRegistry"),
             ):
                 system = HiveMemorySystem.build(config=passive_config)
             deps._system = system
