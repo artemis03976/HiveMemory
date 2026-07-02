@@ -7,27 +7,16 @@ from pathlib import Path
 from typing import Dict, Any
 import yaml
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from hivememory.system.config import HiveMemoryConfig, get_config_file_path
 from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
+from hivememory.server.models.config import ConfigResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["config"])
-
-
-class ConfigResponse(BaseModel):
-    """配置响应模型"""
-    system: Dict[str, Any]
-    logging: Dict[str, Any]
-    scheduler: Dict[str, Any]
-    runtime_events: Dict[str, Any]
-    i18n: Dict[str, Any]
-    shared: Dict[str, Any]
-    patchouli: Dict[str, Any]
-    alice: Dict[str, Any]
 
 
 def _build_config_without_path_override(config_data: Dict[str, Any] | None = None) -> HiveMemoryConfig:
