@@ -15,12 +15,15 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import yaml
 
 from hivememory.core.models.model_definition import ModelDefinition
 from hivememory.system.config.shared import LLMConfig, ProviderCredentials
+
+if TYPE_CHECKING:
+    from hivememory.system.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -51,20 +54,26 @@ class ModelRegistry:
     def __init__(
         self,
         registry_path: Optional[Path] = None,
+        provider_registry: Optional["ProviderRegistry"] = None,
         provider_credentials: Optional[Dict[str, ProviderCredentials]] = None,
     ):
         """
         Args:
             registry_path: models.yaml 的路径。None 时使用项目默认路径
                            (configs/models.yaml，相对项目根目录)
-            provider_credentials: provider 名 → 凭证 的映射（来自 SharedConfig.providers）。
-                           模型自身未显式设置 api_key/api_base 时，按 provider 补齐。
+            provider_registry: ProviderRegistry 实例，优先使用（支持运行时 CRUD）。
+                           若提供，_resolve_credentials 将动态查询，修改立即生效。
+            provider_credentials: 静态 provider 凭证字典（兜底，主要供测试使用）。
+                           provider_registry 存在时此参数被忽略。
         """
         self._path = registry_path or self._default_path()
-        # provider 名统一小写，与 ModelDefinition.provider 匹配
-        self._provider_credentials: Dict[str, ProviderCredentials] = {
-            name.lower(): cred for name, cred in (provider_credentials or {}).items()
-        }
+        # 优先使用 ProviderRegistry（支持运行时更新）；
+        # 兜底使用静态字典（兼容旧调用路径和单元测试）
+        self._provider_registry: Optional["ProviderRegistry"] = provider_registry
+        self._provider_credentials: Dict[str, ProviderCredentials] = (
+            {} if provider_registry is not None
+            else {name.lower(): cred for name, cred in (provider_credentials or {}).items()}
+        )
         # 按插入顺序保存，以 id 为键
         self._models: Dict[str, ModelDefinition] = {}
         self._load()
@@ -252,10 +261,23 @@ class ModelRegistry:
     ) -> Tuple[Optional[str], Optional[str]]:
         """解析模型的 (api_key, api_base)。
 
-        优先级：模型自身显式设置 > provider 凭证表 > None（litellm 环境变量兜底）。
-        models.yaml 被 git 跟踪，通常模型自身留空，凭证由 provider 表（来自 .env）补齐。
+        优先级：模型自身显式设置（高级覆盖）> provider 凭证 > None（litellm 环境变量兜底）。
+
+        provider 凭证查询：
+        - 若注入了 ProviderRegistry，动态查询（支持运行时 CRUD，修改立即生效）
+        - 否则使用构造时传入的静态字典（兼容测试 / 旧调用路径）
+
+        models.yaml 被 git 跟踪，通常 api_key/api_base 均为 null，
+        凭证由 providers.secrets.yaml 或环境变量通过 provider 表补齐。
         """
-        cred = self._provider_credentials.get(model.provider.lower()) if model.provider else None
+        # 查询 provider 凭证（动态注册表优先，兜底静态字典）
+        cred = None
+        if model.provider:
+            if self._provider_registry is not None:
+                cred = self._provider_registry.get(model.provider)
+            else:
+                cred = self._provider_credentials.get(model.provider.lower())
+
         api_key = model.api_key if model.api_key is not None else (cred.api_key if cred else None)
         api_base = model.api_base if model.api_base is not None else (cred.api_base if cred else None)
         return api_key, api_base

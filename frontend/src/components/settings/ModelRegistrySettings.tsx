@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Star, RefreshCw } from 'lucide-react';
+import { Plus, Pencil, Trash2, Star, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { Input } from '../common/FormControls';
 import { useToastStore } from '@/stores';
@@ -9,11 +9,13 @@ import {
   updateModel,
   deleteModel,
 } from '@/services/modelRegistryApi';
+import { fetchProviders } from '@/services/providerRegistryApi';
 import type {
   RegisteredModel,
   ModelCreatePayload,
   ModelUpdatePayload,
 } from '@/types/model';
+import type { RegisteredProvider } from '@/types/provider';
 
 /** 编辑器草稿：新增与编辑共用的表单状态 */
 interface ModelDraft {
@@ -21,6 +23,7 @@ interface ModelDraft {
   display_name: string;
   litellm_model: string;
   provider: string;
+  // api_key / api_base 仅在"高级覆盖"展开时使用
   api_key: string;
   api_base: string;
   temperature: number;
@@ -47,6 +50,7 @@ function ModelEditor({
   draft,
   isNew,
   saving,
+  providers,
   onChange,
   onSubmit,
   onCancel,
@@ -54,10 +58,12 @@ function ModelEditor({
   draft: ModelDraft;
   isNew: boolean;
   saving: boolean;
+  providers: RegisteredProvider[];
   onChange: (patch: Partial<ModelDraft>) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
+  const [showOverride, setShowOverride] = useState(false);
   const rowCls = 'flex items-center justify-between gap-4 py-2';
   const labelCls = 'text-sm text-slate-300 shrink-0 w-28';
 
@@ -77,6 +83,7 @@ function ModelEditor({
           className="w-64"
         />
       </div>
+
       <div className={rowCls}>
         <span className={labelCls}>显示名称</span>
         <Input
@@ -86,52 +93,65 @@ function ModelEditor({
           className="w-64"
         />
       </div>
+
       <div className={rowCls}>
         <span className={labelCls}>模型标识</span>
         <Input
           value={draft.litellm_model}
-          onChange={(v: string) => onChange({ litellm_model: v })}
+          onChange={(v: string) => {
+            const patch: Partial<ModelDraft> = { litellm_model: v };
+            // 自动推导 provider（litellm_model 前缀，如 deepseek/deepseek-chat → deepseek）
+            if (v.includes('/') && !draft.provider) {
+              patch.provider = v.split('/')[0].toLowerCase();
+            }
+            onChange(patch);
+          }}
           placeholder="deepseek/deepseek-chat"
           className="w-64"
         />
       </div>
+
+      {/* Provider 选择器 */}
       <div className={rowCls}>
         <span className={labelCls}>Provider</span>
-        <Input
-          value={draft.provider}
-          onChange={(v: string) => onChange({ provider: v })}
-          placeholder="留空自动推导，如 deepseek"
-          className="w-64"
-        />
+        {providers.length > 0 ? (
+          <select
+            value={draft.provider}
+            onChange={(e) => onChange({ provider: e.target.value })}
+            className="w-64 h-9 px-3 bg-white/5 border border-white/10 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30"
+          >
+            <option value="">-- 选择提供商（或输入自定义）--</option>
+            {providers.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name}
+                {p.api_key_masked ? ` · ${p.api_key_masked}` : ' · 未配置 Key'}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="w-64 flex items-center gap-2">
+            <Input
+              value={draft.provider}
+              onChange={(v: string) => onChange({ provider: v })}
+              placeholder="如 deepseek（留空自动推导）"
+              className="flex-1"
+            />
+            <span className="text-xs text-amber-400 shrink-0">暂无提供商</span>
+          </div>
+        )}
       </div>
-      <div className={rowCls}>
-        <span className={labelCls}>API Key</span>
-        <Input
-          value={draft.api_key}
-          onChange={(v: string) => onChange({ api_key: v })}
-          placeholder={isNew ? '留空则用环境变量' : '留空保持不变'}
-          className="w-64"
-        />
-      </div>
-      <div className={rowCls}>
-        <span className={labelCls}>API Base</span>
-        <Input
-          value={draft.api_base}
-          onChange={(v: string) => onChange({ api_base: v })}
-          placeholder="可选，留空用默认"
-          className="w-64"
-        />
-      </div>
+
+      {/* 参数调整 */}
       <div className={rowCls}>
         <span className={labelCls}>默认温度</span>
         <Input type="number" value={draft.temperature} onChange={(v: number) => onChange({ temperature: v })} step="0.1" className="w-24" />
       </div>
       <div className={rowCls}>
-        <span className={labelCls}>默认 max_tokens</span>
+        <span className={labelCls}>max_tokens</span>
         <Input type="number" value={draft.max_tokens} onChange={(v: number) => onChange({ max_tokens: v })} className="w-32" />
       </div>
       <div className={rowCls}>
-        <span className={labelCls}>默认 top_p</span>
+        <span className={labelCls}>top_p</span>
         <Input type="number" value={draft.top_p} onChange={(v: number) => onChange({ top_p: v })} step="0.05" className="w-24" />
       </div>
       <div className={rowCls}>
@@ -142,6 +162,43 @@ function ModelEditor({
         >
           <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${draft.is_default ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
+      </div>
+
+      {/* 高级：覆盖 API 凭证（折叠，仅需特殊处理时展开） */}
+      <div className="pt-2">
+        <button
+          type="button"
+          onClick={() => setShowOverride((v) => !v)}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+        >
+          {showOverride ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          高级：为本模型单独覆盖 API 凭证
+        </button>
+        {showOverride && (
+          <div className="mt-2 pl-4 border-l border-white/10 space-y-1">
+            <p className="text-xs text-slate-500 mb-2">
+              通常无需填写，凭证由上方 Provider 提供。仅在此模型需要不同密钥时使用（如同 Provider 下的不同账单主体）。
+            </p>
+            <div className={rowCls}>
+              <span className={labelCls}>API Key</span>
+              <Input
+                value={draft.api_key}
+                onChange={(v: string) => onChange({ api_key: v })}
+                placeholder={isNew ? '留空则用 Provider 凭证' : '留空保持不变'}
+                className="w-64"
+              />
+            </div>
+            <div className={rowCls}>
+              <span className={labelCls}>API Base</span>
+              <Input
+                value={draft.api_base}
+                onChange={(v: string) => onChange({ api_base: v })}
+                placeholder="可选，留空用 Provider 默认地址"
+                className="w-64"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-2 pt-3">
@@ -188,10 +245,15 @@ function ModelRow({
             {model.is_default && (
               <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded uppercase tracking-wide">默认</span>
             )}
+            {model.provider && (
+              <span className="text-[10px] font-medium text-slate-500 bg-white/5 px-1.5 py-0.5 rounded font-mono">{model.provider}</span>
+            )}
           </div>
           <div className="text-xs text-slate-500 mt-0.5 font-mono truncate">
             {model.litellm_model}
-            {model.api_key_masked && <span className="ml-2 text-slate-600">· {model.api_key_masked}</span>}
+            {model.api_key_masked && (
+              <span className="ml-2 text-slate-600">· {model.api_key_masked} <span className="text-amber-500/70">(覆盖)</span></span>
+            )}
           </div>
         </div>
       </div>
@@ -211,6 +273,7 @@ function ModelRow({
 export function ModelRegistrySettings() {
   const { addToast } = useToastStore();
   const [models, setModels] = useState<RegisteredModel[]>([]);
+  const [providers, setProviders] = useState<RegisteredProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // draft 非空时展示编辑器；editingId 为 null 表示新增
@@ -220,17 +283,18 @@ export function ModelRegistrySettings() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setModels(await fetchModels());
+      // 并行加载模型列表和提供商列表
+      const [modelList, providerList] = await Promise.all([fetchModels(), fetchProviders()]);
+      setModels(modelList);
+      setProviders(providerList);
     } catch (err) {
-      addToast('加载模型列表失败: ' + (err instanceof Error ? err.message : '未知错误'), 'error');
+      addToast('加载数据失败: ' + (err instanceof Error ? err.message : '未知错误'), 'error');
     } finally {
       setLoading(false);
     }
   }, [addToast]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const startCreate = () => {
     setEditingId(null);
@@ -283,7 +347,7 @@ export function ModelRegistrySettings() {
         await createModel(payload);
         addToast('模型已添加', 'success');
       } else {
-        // 更新：api_key 留空表示保持不变，故不发送该字段
+        // 更新：api_key 留空表示保持不变
         const payload: ModelUpdatePayload = {
           display_name: draft.display_name.trim(),
           litellm_model: draft.litellm_model.trim(),
@@ -339,6 +403,7 @@ export function ModelRegistrySettings() {
               draft={draft}
               isNew={editingId === null}
               saving={saving}
+              providers={providers}
               onChange={(patch) => setDraft((d) => (d ? { ...d, ...patch } : d))}
               onSubmit={submit}
               onCancel={cancel}
@@ -353,7 +418,7 @@ export function ModelRegistrySettings() {
             </div>
           ) : models.length === 0 ? (
             <div className="py-12 text-center text-sm text-slate-500">
-              注册表为空。点击"添加模型"创建第一个模型。
+              注册表为空。请先在"提供商凭证"中配置 API Key，再添加模型。
             </div>
           ) : (
             models.map((m) => (
@@ -363,12 +428,11 @@ export function ModelRegistrySettings() {
         </div>
 
         <p className="text-xs text-slate-500 mt-3 leading-relaxed">
-          模型注册表是系统可用 LLM 的单一数据源。Agent 通过模型 ID 引用，聊天时可临时覆盖。
-          标记为默认的模型将被 <span className="font-mono">model_name="default"</span> 的 Agent 使用。
+          模型注册表是系统可用 LLM 的单一数据源。添加模型前请先在"
+          <span className="text-slate-400">提供商凭证</span>"中配置对应 Provider 的 API Key，
+          然后在此处选择 Provider 挂载即可，无需重复填写密钥。
         </p>
       </section>
     </div>
   );
 }
-
-

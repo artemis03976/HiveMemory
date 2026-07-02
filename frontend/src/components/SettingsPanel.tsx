@@ -1,8 +1,9 @@
-import { Settings as SettingsIcon, Cpu, Database, Network, Activity, Save, RefreshCw, Undo2, TerminalSquare, Search, Eye, Sparkles, Boxes } from 'lucide-react';
+import { Settings as SettingsIcon, Cpu, Database, Network, Activity, Save, RefreshCw, Undo2, TerminalSquare, Search, Eye, Sparkles, Boxes, KeyRound } from 'lucide-react';
 import { useSettings } from '../hooks/useSettings';
 import { useChatUiStore, useToastStore } from '@/stores';
 import { GeneralSettings } from './settings/GeneralSettings';
 import { ModelRegistrySettings } from './settings/ModelRegistrySettings';
+import { ProviderSettings } from './settings/ProviderSettings';
 import { EngineSettings } from './settings/EngineSettings';
 import { InfrastructureSettings } from './settings/InfrastructureSettings';
 import { GatewaySettings } from './settings/GatewaySettings';
@@ -14,6 +15,7 @@ import { KoakumaSettings } from './settings/KoakumaSettings';
 
 const CATEGORIES = [
   { id: 'general', label: '通用设置', icon: SettingsIcon },
+  { id: 'providers', label: '提供商凭证', icon: KeyRound },
   { id: 'models', label: '模型注册表', icon: Boxes },
   { id: 'engines', label: '内部引擎', icon: Cpu },
   { id: 'infrastructure', label: '基础设施', icon: Database },
@@ -148,6 +150,7 @@ export default function Settings() {
         <div className="flex-1 overflow-y-auto p-8 scrollbar-hide">
           <div className="max-w-4xl mx-auto pb-12">
             {activeCategory === 'general' && <GeneralSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
+            {activeCategory === 'providers' && <ProviderSettings />}
             {activeCategory === 'models' && <ModelRegistrySettings />}
             {activeCategory === 'engines' && <EngineSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'infrastructure' && <InfrastructureSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}

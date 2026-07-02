@@ -16,6 +16,7 @@ from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.config import RuntimeEventsConfig
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.model_registry import ModelRegistry
+from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import (
     NullRuntimeEventSink,
@@ -50,6 +51,8 @@ class HiveMemorySystem:
         agent_service: AgentApplicationService,
         topic_service: TopicApplicationService,
         readiness_service: SystemReadinessService,
+        model_registry: ModelRegistry,
+        provider_registry: ProviderRegistry,
         runtime_events: RuntimeEventBus | None = None,
         runtime_event_sink: RuntimeEventSink | None = None,
     ) -> None:
@@ -70,6 +73,10 @@ class HiveMemorySystem:
         self._agent_service = agent_service
         self._topic_service = topic_service
         self._readiness_service = readiness_service
+
+        # 注册表：全局单例，供 API 层（deps.py）注入到路由
+        self._model_registry = model_registry
+        self._provider_registry = provider_registry
 
         self._started = False
         self._scheduler_stopped = False
@@ -106,9 +113,12 @@ class HiveMemorySystem:
             ),
         )
 
-        # 模型注册表：提前初始化（在 Patchouli/Alice 之前），以便预解析所有组件的 LLM 配置。
-        # 注入 provider 凭证表（来自 .env 的 HIVEMEMORY__PROVIDERS__*）。
-        model_registry = ModelRegistry(provider_credentials=config.shared.providers)
+        # 模型注册表 & 提供商凭证注册表：提前初始化（在 Patchouli/Alice 之前）
+        # ProviderRegistry 合并 env 层（来自 .env）与 yaml 层（providers.secrets.yaml）
+        provider_registry = ProviderRegistry(env_providers=config.shared.providers)
+
+        # ModelRegistry 注入 ProviderRegistry 引用（动态查询，修改立即生效）
+        model_registry = ModelRegistry(provider_registry=provider_registry)
 
         # 预解析 gateway / librarian 的 LLM 配置：
         # model_id 引用注册表，凭证由 provider 表补齐，temperature/max_tokens 保留组件值。
@@ -181,6 +191,8 @@ class HiveMemorySystem:
             agent_service=agent_service,
             topic_service=topic_service,
             readiness_service=readiness_service,
+            model_registry=model_registry,
+            provider_registry=provider_registry,
             runtime_events=runtime_events,
             runtime_event_sink=runtime_event_sink,
         )
@@ -458,3 +470,11 @@ class HiveMemorySystem:
     def config(self, value: HiveMemoryConfig) -> None:
         self._config = value
         self._patchouli.config = value
+
+    @property
+    def model_registry(self) -> ModelRegistry:
+        return self._model_registry
+
+    @property
+    def provider_registry(self) -> ProviderRegistry:
+        return self._provider_registry

@@ -17,13 +17,12 @@ from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system import HiveMemorySystem
 from hivememory.system.model_registry import ModelRegistry
+from hivememory.system.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
 _system: Optional[HiveMemorySystem] = None
 _ws_manager: Optional[WebSocketConnectionManager] = None
-# 模型注册表单例 — 在首次请求时懒加载，后续复用同一实例
-_model_registry: Optional[ModelRegistry] = None
 
 
 def init_system(config: Optional[HiveMemoryConfig] = None) -> HiveMemorySystem:
@@ -171,14 +170,10 @@ def get_ws_manager() -> WebSocketConnectionManager:
 
 
 def get_model_registry() -> ModelRegistry:
-    """
-    FastAPI Depends 注入 — 获取 ModelRegistry 单例。
+    """FastAPI Depends 注入 — 获取 ModelRegistry 单例（来自 HiveMemorySystem）。"""
+    return get_system().model_registry
 
-    注册表在首次调用时懒加载（从 configs/models.yaml 读取），
-    后续所有请求共享同一实例，避免重复 IO。
-    """
-    global _model_registry
-    if _model_registry is None:
-        _model_registry = ModelRegistry()
-        logger.info("ModelRegistry 已初始化")
-    return _model_registry
+
+def get_provider_registry() -> ProviderRegistry:
+    """FastAPI Depends 注入 — 获取 ProviderRegistry 单例（来自 HiveMemorySystem）。"""
+    return get_system().provider_registry
