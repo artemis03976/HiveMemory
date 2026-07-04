@@ -1,9 +1,8 @@
 from hivememory.system.config import (
     HiveMemoryConfig,
-    MemoryGatewayConfig,
+    PatchouliConfig,
     RuleInterceptorConfig,
     SystemGatewayConfig,
-    _migrate_legacy_gateway_data,
 )
 
 
@@ -15,44 +14,21 @@ def test_system_gateway_config_defaults():
     assert config.analyzer.enabled is True
 
 
-def test_memory_gateway_config_is_compatible_alias():
-    config = MemoryGatewayConfig()
-
-    assert isinstance(config, SystemGatewayConfig)
-
-
-def test_legacy_patchouli_gateway_migrates_to_top_level_gateway():
-    migrated = _migrate_legacy_gateway_data(
+def test_hivememory_config_accepts_top_level_gateway():
+    config = HiveMemoryConfig.model_validate(
         {
-            "patchouli": {
-                "gateway": {
-                    "interceptor": {"enabled": False},
-                    "analyzer": {"enabled": False},
-                }
-            }
+            "gateway": {
+                "interceptor": {"enabled": False},
+                "analyzer": {"enabled": False},
+            },
         }
     )
-    config = HiveMemoryConfig.model_validate(migrated)
 
     assert config.gateway.interceptor.enabled is False
     assert config.gateway.analyzer.enabled is False
 
 
-def test_top_level_gateway_wins_over_legacy_patchouli_gateway():
-    config = HiveMemoryConfig.model_validate(
-        {
-            "gateway": {
-                "interceptor": {"enabled": True},
-                "analyzer": {"enabled": True},
-            },
-            "patchouli": {
-                "gateway": {
-                    "interceptor": {"enabled": False},
-                    "analyzer": {"enabled": False},
-                }
-            },
-        }
-    )
+def test_patchouli_config_no_longer_owns_gateway_config():
+    config = PatchouliConfig()
 
-    assert config.gateway.interceptor.enabled is True
-    assert config.gateway.analyzer.enabled is True
+    assert not hasattr(config, "gateway")

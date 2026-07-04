@@ -35,7 +35,6 @@ HiveMemory 的分布式智能架构 v3.0。
 from hivememory.system.config import (
     load_app_config,
     HiveMemoryConfig,
-    MemoryGatewayConfig,
     MemoryPerceptionConfig,
     MemoryGenerationConfig,
     MemoryRetrievalConfig,
@@ -45,8 +44,6 @@ from hivememory.system.config import (
     QdrantConfig,
 )
 
-# 兼容导出；真实实现位于 hivememory.system.gateway
-from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 
@@ -69,13 +66,11 @@ __all__ = [
     "PatchouliRuntime",
     "PatchouliService",
     "PatchouliSystem",
-    # 三位一体
-    "TheEye",
+    # 记忆域服务
     "RetrievalFamiliar",
     # 配置
     "load_app_config",
     "HiveMemoryConfig",
-    "MemoryGatewayConfig",
     "MemoryPerceptionConfig",
     "MemoryGenerationConfig",
     "MemoryRetrievalConfig",

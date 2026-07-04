@@ -1,13 +1,6 @@
 from typing import Literal, Optional, Union
 from pydantic import BaseModel, Field, ConfigDict
 
-from hivememory.system.config.gateway import (
-    LLMAnalyzerConfig,
-    MemoryGatewayConfig,
-    RuleInterceptorConfig,
-)
-
-
 # ========== Storage ==========
 
 class QdrantConfig(BaseModel):
@@ -280,7 +273,6 @@ class PatchouliShutdownConfig(BaseModel):
 
 class PatchouliConfig(BaseModel):
     storage: QdrantConfig = Field(default_factory=QdrantConfig)
-    gateway: MemoryGatewayConfig = Field(default_factory=MemoryGatewayConfig)
     perception: MemoryPerceptionConfig = Field(default_factory=MemoryPerceptionConfig)
     generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)

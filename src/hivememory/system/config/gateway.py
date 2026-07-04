@@ -22,13 +22,8 @@ class SystemGatewayConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# Backward-compatible name for configs that still refer to the memory-era gateway.
-MemoryGatewayConfig = SystemGatewayConfig
-
-
 __all__ = [
     "RuleInterceptorConfig",
     "LLMAnalyzerConfig",
     "SystemGatewayConfig",
-    "MemoryGatewayConfig",
 ]

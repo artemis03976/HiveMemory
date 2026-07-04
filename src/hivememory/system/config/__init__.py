@@ -15,7 +15,6 @@ from hivememory.system.config.shared import (
 )
 from hivememory.system.config.gateway import (
     RuleInterceptorConfig, LLMAnalyzerConfig, SystemGatewayConfig,
-    MemoryGatewayConfig,
 )
 from hivememory.system.config.patchouli import (
     QdrantConfig,
@@ -99,19 +98,6 @@ def _set_nested_value(data: Dict[str, Any], path: Tuple[str, ...], value: Any) -
     target[path[-1]] = value
 
 
-def _migrate_legacy_gateway_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    if "gateway" in data:
-        return data
-
-    patchouli = data.get("patchouli")
-    if isinstance(patchouli, dict) and "gateway" in patchouli:
-        migrated = dict(data)
-        migrated["gateway"] = patchouli["gateway"]
-        return migrated
-
-    return data
-
-
 def _load_dotenv_sources() -> Dict[str, str]:
     values: Dict[str, str] = {}
     for env_file in (".env", "configs/.env", "configs\\.env"):
@@ -181,7 +167,7 @@ def yaml_config_settings_source() -> Dict[str, Any]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             yaml_content = yaml.safe_load(f) or {}
-        return _migrate_legacy_gateway_data(yaml_content)
+        return yaml_content
     except Exception as e:
         logger.error(f"加载 YAML 配置文件失败: {e}")
         return {}
@@ -272,13 +258,6 @@ class HiveMemoryConfig(BaseSettings):
         env_prefix=HIVEMEMORY_ENV_PREFIX,
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def migrate_legacy_patchouli_gateway(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        return _migrate_legacy_gateway_data(data)
-
     @model_validator(mode="after")
     def sync_i18n_default_language(self) -> "HiveMemoryConfig":
         from hivememory.i18n.resolver import set_default_language
@@ -333,7 +312,6 @@ __all__ = [
     "SharedConfig",
     # gateway
     "RuleInterceptorConfig", "LLMAnalyzerConfig", "SystemGatewayConfig",
-    "MemoryGatewayConfig",
     # patchouli
     "QdrantConfig",
     "SimpleRelayConfig", "LLMRelayConfig", "RelayControllerConfig",
@@ -368,5 +346,5 @@ __all__ = [
     "LEGACY_ENV_ALIASES",
     "get_config_file_path", "get_default_config_file_path",
     "yaml_config_settings_source", "legacy_env_alias_settings_source",
-    "provider_credentials_settings_source", "_migrate_legacy_gateway_data",
+    "provider_credentials_settings_source",
 ]

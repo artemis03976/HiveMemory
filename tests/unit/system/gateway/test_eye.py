@@ -35,7 +35,7 @@ class TestTheEyeGaze:
     def setup_method(self):
         self.mock_engine = Mock()
         self.mock_engine.process = AsyncMock()
-        self.eye = TheEye(engine=self.mock_engine, bus=None)
+        self.eye = TheEye(engine=self.mock_engine)
 
     async def test_gaze_success(self):
         self.mock_engine.process.return_value = _make_gateway_result()
@@ -86,4 +86,3 @@ class TestTheEyeGaze:
         assert call_args.args[0] == "查询"
         assert "topic-1: 测试话题" in call_args.kwargs["active_topics_menu"]
         assert "状态: 正在调试" in call_args.kwargs["active_topics_menu"]
-

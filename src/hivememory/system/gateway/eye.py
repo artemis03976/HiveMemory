@@ -24,14 +24,12 @@ class TheEye:
     def __init__(
         self,
         engine: GatewayEngine,
-        bus=None,
     ):
         """
         Initialize the system Gateway entrypoint.
 
         Args:
             engine: Gateway engine instance.
-            bus: Deprecated compatibility parameter; ignored.
         """
         self._engine = engine
         logger.info("TheEye system gateway initialized")
