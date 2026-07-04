@@ -4,7 +4,6 @@ from hivememory.engines.gateway import GatewayEngine
 from hivememory.system.config import LLMConfig, SystemGatewayConfig
 from hivememory.system.gateway.eye import TheEye
 from hivememory.system.gateway.factory import (
-    SystemGateway,
     build_gateway_engine,
     build_system_gateway,
 )
@@ -44,8 +43,5 @@ def test_build_system_gateway_builds_eye_and_engine(monkeypatch):
         llm_config=LLMConfig(model="test-model"),
     )
 
-    assert isinstance(gateway, SystemGateway)
-    assert isinstance(gateway.engine, GatewayEngine)
-    assert isinstance(gateway.eye, TheEye)
-    assert gateway.eye._engine is gateway.engine
-
+    assert isinstance(gateway, TheEye)
+    assert isinstance(gateway._engine, GatewayEngine)
