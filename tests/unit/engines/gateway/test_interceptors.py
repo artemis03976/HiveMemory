@@ -76,16 +76,18 @@ class TestRuleInterceptor:
         assert result is not None
         assert result.intent == GatewayIntent.CHAT
 
-    def test_add_pattern_dynamically(self):
-        """兼容旧的动态系统指令正则入口。"""
+    def test_add_system_command_dynamically(self):
+        """动态注册系统指令入口替代旧 regex 扩展。"""
         interceptor = RuleInterceptor(config=RuleInterceptorConfig())
-        interceptor.add_system_pattern(r"^/restart$")
+        interceptor.add_system_command("/restart", command_id="system.restart")
 
         result = interceptor.intercept("/restart")
 
         assert result is not None
         assert result.intent == GatewayIntent.SYSTEM
-        assert result.command is None
+        assert result.command is not None
+        assert result.command.command_id == "system.restart"
+        assert result.command.parse_status == CommandParseStatus.MATCHED
 
     def test_unknown_slash_command_intercepts_with_unknown_command(self):
         """注入 registry 时，未知 slash 指令同样被过滤为 UNKNOWN。"""
@@ -126,11 +128,18 @@ class TestRuleInterceptor:
         assert result.command.command_id == "system.custom"
 
 
-def test_disabled_system_command_matching_allows_slash_to_l2():
-    """显式关闭 system 拦截后，slash 输入不再被 RuleInterceptor 处理。"""
+def test_disabled_system_command_matching_filters_slash_command_as_unknown():
+    """显式关闭 system 解析后，slash 输入仍走 L1 兜底过滤。"""
     interceptor = RuleInterceptor(
         config=RuleInterceptorConfig(enable_system=False),
         command_registry=create_builtin_command_registry(),
     )
 
-    assert interceptor.intercept("/help") is None
+    result = interceptor.intercept("/help")
+
+    assert result is not None
+    assert result.intent == GatewayIntent.SYSTEM
+    assert result.hit is True
+    assert result.command is not None
+    assert result.command.command_id is None
+    assert result.command.parse_status == CommandParseStatus.UNKNOWN

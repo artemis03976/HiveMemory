@@ -32,8 +32,8 @@ class RuleInterceptor(BaseInterceptor):
     基于 registry 与正则的 L1 快速拦截器。
 
     RuleInterceptor 只负责匹配、解析和意图分类，不执行任何系统指令副作用。
-    未注入 command_registry 时，不启用内置系统指令库，但仍过滤 slash 指令，
-    避免用户输入的系统指令落入 L2 语义分析层。
+    未启用系统指令解析或未注入 command_registry 时，不执行系统指令，
+    但仍过滤 slash 指令，避免用户输入的系统指令落入 L2 语义分析层。
     """
 
     CHAT_PATTERNS: List[str] = [
@@ -52,11 +52,9 @@ class RuleInterceptor(BaseInterceptor):
         command_registry: CommandRegistry | None = None,
     ):
         self.config = config
-        
         self.enable_system = config.enable_system
         self.enable_chat = config.enable_chat
         self.command_registry = command_registry
-        self._legacy_system_regex: list[re.Pattern[str]] = []
         self._chat_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.CHAT_PATTERNS]
 
         system_commands_count = (
@@ -91,30 +89,22 @@ class RuleInterceptor(BaseInterceptor):
             )
 
         # 检查系统指令
-        if self.enable_system:
-            if self.command_registry is not None:
-                command = self.command_registry.match(query_stripped)
-                if command is not None:
-                    logger.debug("L1 intercepted system command: %s", query_stripped)
-                    return InterceptorResult(
-                        intent=GatewayIntent.SYSTEM,
-                        reason=self._command_reason(query_stripped, command.parse_status),
-                        hit=True,
-                        command=command,
-                    )
+        if query_stripped.startswith("/") and (
+            not self.enable_system or self.command_registry is None
+        ):
+            logger.debug("L1 filtered slash command without active registry: %s", query_stripped)
+            command = self._disabled_command_result(query_stripped)
+            return InterceptorResult(
+                intent=GatewayIntent.SYSTEM,
+                reason=self._command_reason(query_stripped, command.parse_status),
+                hit=True,
+                command=command,
+            )
 
-            for pattern in self._legacy_system_regex:
-                if pattern.match(query_stripped):
-                    logger.debug("L1 intercepted legacy system pattern: %s", query_stripped)
-                    return InterceptorResult(
-                        intent=GatewayIntent.SYSTEM,
-                        reason=f"系统指令: {query_stripped}",
-                        hit=True,
-                    )
-
-            if self.command_registry is None and query_stripped.startswith("/"):
-                logger.debug("L1 filtered slash command without registry: %s", query_stripped)
-                command = self._disabled_command_result(query_stripped)
+        if self.enable_system and self.command_registry is not None:
+            command = self.command_registry.match(query_stripped)
+            if command is not None:
+                logger.debug("L1 intercepted system command: %s", query_stripped)
                 return InterceptorResult(
                     intent=GatewayIntent.SYSTEM,
                     reason=self._command_reason(query_stripped, command.parse_status),
@@ -138,12 +128,12 @@ class RuleInterceptor(BaseInterceptor):
         self._chat_regex.append(re.compile(pattern, re.IGNORECASE))
         logger.debug("Added chat pattern: %s", pattern)
 
-    def add_system_pattern(self, pattern: str) -> None:
-        self._legacy_system_regex.append(re.compile(pattern, re.IGNORECASE))
-        logger.debug("Added legacy system pattern: %s", pattern)
-
     def add_system_command(self, name: str, command_id: str | None = None) -> None:
-        command_id = command_id or f"legacy.{name.lstrip('/').replace(' ', '.')}"
+        """
+        动态注册系统指令；替代旧的 system regex 扩展入口。
+        """
+
+        command_id = command_id or f"runtime.dynamic.{name.lstrip('/').replace(' ', '.')}"
         if self.command_registry is None:
             self.command_registry = CommandRegistry()
         self.command_registry.register(
@@ -151,7 +141,7 @@ class RuleInterceptor(BaseInterceptor):
                 command_id=command_id,
                 category=CommandCategory.SYSTEM,
                 primary_name=name,
-                summary=f"兼容系统指令 {name}",
+                summary=f"动态系统指令 {name}",
                 route_target=CommandRouteTarget(
                     kind=CommandRouteTargetKind.FUTURE_JOB,
                     name=command_id,
