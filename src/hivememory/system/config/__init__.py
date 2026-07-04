@@ -13,9 +13,11 @@ from hivememory.system.config.shared import (
     ProviderCredentials,
     SharedConfig,
 )
+from hivememory.system.config.gateway import (
+    RuleInterceptorConfig, LLMAnalyzerConfig, SystemGatewayConfig,
+)
 from hivememory.system.config.patchouli import (
     QdrantConfig,
-    RuleInterceptorConfig, LLMAnalyzerConfig, MemoryGatewayConfig,
     SimpleRelayConfig, LLMRelayConfig, RelayControllerConfig,
     SemanticFlowPerceptionConfig, MemoryPerceptionConfig,
     ExtractorConfig, DeduplicatorConfig, MemoryGenerationConfig,
@@ -242,6 +244,7 @@ class HiveMemoryConfig(BaseSettings):
     i18n: I18nConfig = Field(default_factory=I18nConfig)
 
     shared: SharedConfig = Field(default_factory=SharedConfig)
+    gateway: SystemGatewayConfig = Field(default_factory=SystemGatewayConfig)
     memory_compiler: MemoryCompilerConfig = Field(default_factory=MemoryCompilerConfig)
     patchouli: PatchouliConfig = Field(default_factory=PatchouliConfig)
     alice: AliceConfig = Field(default_factory=AliceConfig)
@@ -307,9 +310,10 @@ __all__ = [
     "EmbeddingConfig", "EmbeddingGlobalConfig",
     "ProviderCredentials",
     "SharedConfig",
+    # gateway
+    "RuleInterceptorConfig", "LLMAnalyzerConfig", "SystemGatewayConfig",
     # patchouli
     "QdrantConfig",
-    "RuleInterceptorConfig", "LLMAnalyzerConfig", "MemoryGatewayConfig",
     "SimpleRelayConfig", "LLMRelayConfig", "RelayControllerConfig",
     "SemanticFlowPerceptionConfig", "MemoryPerceptionConfig",
     "ExtractorConfig", "DeduplicatorConfig", "MemoryGenerationConfig",

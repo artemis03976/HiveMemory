@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any, List
 from uuid import UUID
 
@@ -27,9 +28,9 @@ from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.server.models.memory import MemoryResponse
 from hivememory.system.config import MemoryCompilerConfig
 
-from hivememory.patchouli.eye import TheEye
-
 logger = logging.getLogger(__name__)
+
+GatewayGazeCallable = Callable[..., Awaitable[EyeGazeResult]]
 
 
 class PatchouliService:
@@ -39,10 +40,10 @@ class PatchouliService:
         self,
         bus: PatchouliBus,
         *,
-        eye: TheEye,
+        gateway_gaze: GatewayGazeCallable,
         memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
-        self._eye = eye
+        self._gateway_gaze = gateway_gaze
         self._local_bus = bus
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._compiler = MemoryCompiler()
@@ -88,7 +89,7 @@ class PatchouliService:
             1. 构造 Identity
             2. 加载 AgentProfile
             3. 获取活跃话题快照
-            4. TheEye.gaze — 意图识别 + 查询重写 + 话题路由
+            4. System Gateway gaze — 意图识别 + 查询重写 + 话题路由
             5. prepare_topic — 预创建/刷新话题
             6. retrieve_for_gaze — 预检索
             7. 返回 AgentRunContext 与流式前置信息
@@ -270,7 +271,7 @@ class PatchouliService:
         )
 
     async def gaze(self, *, query: str, topic_snapshots: Any, identity: Identity):
-        return await self._eye.gaze(
+        return await self._gateway_gaze(
             query=query,
             topic_snapshots=topic_snapshots,
             identity=identity,

@@ -3,8 +3,8 @@
 
 定位：记忆存储、检索与感知子系统 (v4 Phase B/C)
 职责：
-    - 持有 TheEye (Ingress Gateway): 意图识别、查询重写、话题路由
     - 持有 PatchouliRuntime: 记忆运行时，管理感知 (Perception)、检索 (Retrieval)、生成 (Generation) 与生命周期 (Lifecycle)
+    - 消费 System Gateway 注入的 gaze 能力
     - 提供记忆能力公开路由 (memory.retrieve, memory.retrieve_by_aliases)
     - 实现 SubsystemProtocol 契约
 
@@ -15,7 +15,7 @@
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
     │                                         │
-    │  TheEye (Gateway) ──→ PatchouliRuntime  │
+    │  System Gateway gaze ─→ PatchouliRuntime│
     │                         ├── Perception  │
     │                         ├── Retrieval   │
     │                         ├── Generation  │
@@ -28,10 +28,10 @@
 
 import logging
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Optional
 
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
-from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     MemoryManagementService,
@@ -41,6 +41,7 @@ from hivememory.patchouli.application import (
 )
 from hivememory.patchouli.runtime import PatchouliRuntime
 from hivememory.patchouli.service import PatchouliService
+from hivememory.core.protocol.models import EyeGazeResult
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -57,12 +58,11 @@ class PatchouliSystem(SubsystemProtocol):
     """
     帕秋莉体系 (The Facility) - HiveMemory 的完整封装 v4.0
 
-    外层容器，持有 TheEye (Ingress Gateway) 和 PatchouliRuntime (运行时宿主)。
-    TheEye 独立于 Runtime 之外，做第一道拦截与信息重整，
-    处理完后将标准化请求传入 Runtime / Service 进行后续处理。
+    外层容器，持有 PatchouliRuntime (运行时宿主)，并消费 System Gateway
+    注入的 gaze callable。入口分析完成后，标准化请求传入 Runtime / Service
+    进行后续记忆处理。
 
     架构:
-        - TheEye (真理之眼): Ingress Gateway，流量入口、意图判断、查询重写
         - PatchouliRuntime (帕秋莉运行时): 记忆域运行时宿主
             - PerceptionFamiliar (感知使魔): 话题缓冲与归档触发
             - RetrievalFamiliar (检索使魔): 上下文检索 (Hot)
@@ -73,6 +73,7 @@ class PatchouliSystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
+        gateway_gaze: Callable[..., Awaitable[EyeGazeResult]],
         global_bus: Optional[GlobalSystemBus] = None,
         scheduler: Optional["AsyncMaintenanceScheduler"] = None,
         runtime_events: RuntimeEventSink | None = None,
@@ -88,18 +89,10 @@ class PatchouliSystem(SubsystemProtocol):
             runtime_events=self._runtime_events,
         )
 
-        # 2. 初始化 Gateway
-        self._init_gateway()
-
-        # 3. 构建 TheEye (Phase 4.5 Agentic Dispatcher — 仅保留 gaze 职责)
-        self.eye = TheEye(
-            engine=self._gateway_engine,
-        )
-
-        # 4. Patchouli 对外能力门面
+        # 2. Patchouli 对外能力门面。Gateway 由 System 层构造并注入。
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
-            eye=self.eye,
+            gateway_gaze=gateway_gaze,
             memory_compiler_config=self.config.memory_compiler,
         )
         self._memory_management_service = MemoryManagementService(
@@ -135,40 +128,6 @@ class PatchouliSystem(SubsystemProtocol):
         self._maintenance_registered = False
 
         logger.info("PatchouliSystem 帕秋莉系统初始化完成")
-
-    def _init_gateway(self) -> None:
-        """
-        初始化 Gateway 相关基础设施
-
-        Gateway LLM 和 Gateway Engine 属于 TheEye 的依赖，
-        独立于 Runtime 管理。
-        """
-        from hivememory.infrastructure.llm import get_gateway_llm_service
-        self._gateway_llm_service = get_gateway_llm_service(
-            config=self.config.shared.llm.gateway
-        )
-
-        from hivememory.engines.gateway import (
-            BaseInterceptor,
-            BaseSemanticAnalyzer,
-            GatewayEngine,
-            create_interceptor,
-            create_semantic_analyzer,
-        )
-
-        config = self.config.patchouli.gateway
-
-        interceptor: BaseInterceptor = create_interceptor(config.interceptor)
-
-        semantic_analyzer: BaseSemanticAnalyzer = create_semantic_analyzer(
-            config.analyzer,
-            self._gateway_llm_service,
-        )
-
-        self._gateway_engine = GatewayEngine(
-            interceptor=interceptor,
-            semantic_analyzer=semantic_analyzer,
-        )
 
     @property
     def service(self) -> PatchouliService:

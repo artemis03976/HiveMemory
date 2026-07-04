@@ -55,6 +55,7 @@ class HiveMemorySystem:
         provider_registry: ProviderRegistry,
         runtime_events: RuntimeEventBus | None = None,
         runtime_event_sink: RuntimeEventSink | None = None,
+        gateway: Any | None = None,
     ) -> None:
         self._config = config
 
@@ -65,6 +66,7 @@ class HiveMemorySystem:
 
         self._patchouli = patchouli
         self._alice = alice
+        self._gateway = gateway
 
         self._chat_service = chat_service
         self._ingress_service = ingress_service
@@ -131,15 +133,23 @@ class HiveMemorySystem:
             config.shared.llm.librarian
         )
 
-        # 1. Patchouli 创建（使用已解析的 gateway/librarian LLM 配置）
+        # 1. System Gateway 创建（使用已解析的 gateway LLM 配置）
+        from hivememory.system.gateway import build_system_gateway
+        system_gateway = build_system_gateway(
+            config=config.gateway,
+            llm_config=config.shared.llm.gateway,
+        )
+
+        # 2. Patchouli 创建（使用已解析的 librarian LLM 配置；Gateway 由 System 注入）
         patchouli = PatchouliSystem(
             config=config,
+            gateway_gaze=system_gateway.gaze,
             global_bus=global_bus,
             scheduler=scheduler,
             runtime_events=runtime_event_sink.scoped("patchouli"),
         )
 
-        # 2. Alice 创建（worker 模型在运行时逐帧由注册表解析）
+        # 3. Alice 创建（worker 模型在运行时逐帧由注册表解析）
         alice = AliceSystem(
             config=config,
             global_bus=global_bus,
@@ -195,6 +205,7 @@ class HiveMemorySystem:
             provider_registry=provider_registry,
             runtime_events=runtime_events,
             runtime_event_sink=runtime_event_sink,
+            gateway=system_gateway,
         )
 
     # ========== 生命周期 ==========
@@ -451,6 +462,10 @@ class HiveMemorySystem:
     @property
     def readiness_service(self) -> SystemReadinessService:
         return self._readiness_service
+
+    @property
+    def gateway(self) -> Any | None:
+        return self._gateway
 
     @property
     def runtime_events(self) -> RuntimeEventBus | None:

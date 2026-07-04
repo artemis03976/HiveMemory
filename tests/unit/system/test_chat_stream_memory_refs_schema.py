@@ -40,12 +40,12 @@ def _build_memory_atom() -> MemoryAtom:
 def _register_prepare_routes(
     bus: PatchouliBus,
     *,
-    eye: MagicMock,
+    gateway_gaze,
     retrieval_result,
 ) -> None:
     bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, AsyncMock(return_value=OMNI_DOLL_PROFILE))
     bus.register(PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
-    bus.register(PatchouliLocalRoutes.GATEWAY_GAZE, eye.gaze)
+    bus.register(PatchouliLocalRoutes.GATEWAY_GAZE, gateway_gaze)
     bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, AsyncMock(return_value="topic-1"))
     bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=None))
     bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, AsyncMock(return_value=retrieval_result))
@@ -53,8 +53,7 @@ def _register_prepare_routes(
 
 
 def test_chat_stream_memory_refs_uses_flatten_schema():
-    eye = MagicMock()
-    eye.gaze = AsyncMock(
+    gateway_gaze = AsyncMock(
         return_value=EyeGazeResult(
             intent=GatewayIntent.RAG,
             rewritten_query="hello",
@@ -68,12 +67,12 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
     local_bus = PatchouliBus()
     _register_prepare_routes(
         local_bus,
-        eye=eye,
+        gateway_gaze=gateway_gaze,
         retrieval_result=RetrievalResponse(
             memories=[_build_memory_atom()],
         ),
     )
-    service = PatchouliService(bus=local_bus, eye=eye)
+    service = PatchouliService(bus=local_bus, gateway_gaze=gateway_gaze)
 
     prepared = asyncio.run(
         service.prepare_agent_run(
@@ -95,8 +94,7 @@ def test_chat_stream_memory_refs_uses_flatten_schema():
 
 
 def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
-    eye = MagicMock()
-    eye.gaze = AsyncMock(
+    gateway_gaze = AsyncMock(
         return_value=EyeGazeResult(
             intent=GatewayIntent.CHAT,
             rewritten_query="hello",
@@ -110,10 +108,10 @@ def test_chat_stream_memory_refs_emits_empty_list_when_no_retrieval_hit():
     local_bus = PatchouliBus()
     _register_prepare_routes(
         local_bus,
-        eye=eye,
+        gateway_gaze=gateway_gaze,
         retrieval_result=RetrievalResponse(memories=[]),
     )
-    service = PatchouliService(bus=local_bus, eye=eye)
+    service = PatchouliService(bus=local_bus, gateway_gaze=gateway_gaze)
 
     prepared = asyncio.run(
         service.prepare_agent_run(

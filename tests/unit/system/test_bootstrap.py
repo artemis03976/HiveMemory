@@ -13,8 +13,16 @@ from hivememory.system.runtime.events import NullRuntimeEventSink, ScopedRuntime
 class _FakePatchouliSystem:
     name = "patchouli"
 
-    def __init__(self, config, global_bus=None, scheduler=None, runtime_events=None):
+    def __init__(
+        self,
+        config,
+        gateway_gaze=None,
+        global_bus=None,
+        scheduler=None,
+        runtime_events=None,
+    ):
         self.config = config
+        self.gateway_gaze = gateway_gaze
         self._global_bus = global_bus
         self._runtime_events = runtime_events
         self._local_bus = MagicMock()
@@ -31,8 +39,6 @@ class _FakePatchouliSystem:
         self.service.manual_archive_topic = AsyncMock(return_value={"archived": 1})
         self.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
         self.storage = MagicMock()
-        self.eye = MagicMock()
-        self.eye.gaze = AsyncMock(return_value="gaze_result")
         self.register_maintenance_tasks = MagicMock(return_value=True)
         self.unregister_maintenance_tasks = MagicMock(return_value=1)
         self.shutdown_drain = AsyncMock(return_value={"success": True})
@@ -79,6 +85,7 @@ def test_build_registers_patchouli_and_uses_global_bus_runtime():
     config = _make_config()
 
     with (
+        patch("hivememory.system.gateway.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
         patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
         patch("hivememory.system.system.ModelRegistry"),
         patch("hivememory.system.system.ProviderRegistry"),
@@ -93,6 +100,7 @@ def test_build_injects_runtime_event_sink_into_scheduler():
     config = _make_config()
 
     with (
+        patch("hivememory.system.gateway.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
         patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
         patch("hivememory.system.system.ModelRegistry"),
         patch("hivememory.system.system.ProviderRegistry"),
@@ -107,6 +115,7 @@ def test_build_uses_null_scheduler_runtime_event_sink_when_disabled():
     config.runtime_events.enabled = False
 
     with (
+        patch("hivememory.system.gateway.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
         patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
         patch("hivememory.system.system.ModelRegistry"),
         patch("hivememory.system.system.ProviderRegistry"),
@@ -121,6 +130,7 @@ async def test_start_mounts_patchouli_public_routes_on_global_bus():
     config = _make_config()
 
     with (
+        patch("hivememory.system.gateway.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
         patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
         patch("hivememory.system.system.ModelRegistry"),
         patch("hivememory.system.system.ProviderRegistry"),

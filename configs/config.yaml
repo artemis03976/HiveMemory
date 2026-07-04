@@ -82,6 +82,15 @@ memory_compiler:
       max_memory_tokens: 2000
       index_max_summary_length: 100
 
+# ========== System Gateway 配置 ==========
+gateway:
+  interceptor:
+    enabled: true
+    enable_system: true
+    enable_chat: true
+  analyzer:
+    enabled: true
+
 patchouli:
   storage:
     host: "127.0.0.1"
@@ -98,14 +107,6 @@ patchouli:
     vector_dimension: 1024
     distance_metric: "Cosine"
     on_disk_payload: false
-
-  gateway:
-    interceptor:
-      enabled: true
-      enable_system: true
-      enable_chat: true
-    analyzer:
-      enabled: true
 
   perception:
     engine:

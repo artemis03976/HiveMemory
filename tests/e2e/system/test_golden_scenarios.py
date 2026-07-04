@@ -88,7 +88,7 @@ from hivememory.core.protocol.models import (
 from hivememory.system.config import load_app_config, HiveMemoryConfig
 
 # 分身
-from hivememory.patchouli.eye import TheEye
+from hivememory.system.gateway.eye import TheEye
 from hivememory.patchouli.services.librarian import LibrarianCore
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 

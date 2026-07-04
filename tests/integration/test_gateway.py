@@ -14,9 +14,9 @@ import pytest
 from unittest.mock import AsyncMock, Mock, MagicMock, patch
 
 from hivememory.system.config import (
-    MemoryGatewayConfig,
     RuleInterceptorConfig,
     LLMAnalyzerConfig,
+    SystemGatewayConfig,
 )
 from hivememory.core.models import MemoryType
 from hivememory.engines.gateway.models import (
@@ -221,12 +221,12 @@ class TestGatewayEngine:
         assert result.is_l1_intercepted is False
 
 
-class TestMemoryGatewayConfig:
+class TestSystemGatewayConfig:
     """测试 Gateway 配置"""
 
     def test_default_config(self):
         """测试默认配置"""
-        config = MemoryGatewayConfig()
+        config = SystemGatewayConfig()
         assert config.interceptor.enabled is True
         assert config.analyzer.enabled is True
 
@@ -239,7 +239,7 @@ class TestMemoryGatewayConfig:
 
     def test_custom_config(self):
         """测试自定义配置"""
-        config = MemoryGatewayConfig(
+        config = SystemGatewayConfig(
             interceptor=RuleInterceptorConfig(enabled=False),
             analyzer=LLMAnalyzerConfig(enabled=False)
         )

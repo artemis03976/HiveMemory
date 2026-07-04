@@ -3,9 +3,9 @@
 
 HiveMemory 的分布式智能架构 v3.0。
 
-架构 (Eye + Runtime):
-    - PatchouliSystem (The Facility): 外层容器，持有 Eye + Runtime
-    - TheEye (真理之眼): Ingress Gateway，意图识别、查询重写
+架构:
+    - PatchouliSystem (The Facility): 外层容器，持有 Patchouli Runtime
+    - System Gateway / TheEye: 系统级 Ingress Gateway，意图识别、查询重写
     - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
         - PerceptionFamiliar (感知使魔): 话题缓冲、归档触发
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
@@ -35,7 +35,6 @@ HiveMemory 的分布式智能架构 v3.0。
 from hivememory.system.config import (
     load_app_config,
     HiveMemoryConfig,
-    MemoryGatewayConfig,
     MemoryPerceptionConfig,
     MemoryGenerationConfig,
     MemoryRetrievalConfig,
@@ -45,8 +44,6 @@ from hivememory.system.config import (
     QdrantConfig,
 )
 
-# 三位一体分身
-from hivememory.patchouli.eye import TheEye
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 
@@ -69,13 +66,11 @@ __all__ = [
     "PatchouliRuntime",
     "PatchouliService",
     "PatchouliSystem",
-    # 三位一体
-    "TheEye",
+    # 记忆域服务
     "RetrievalFamiliar",
     # 配置
     "load_app_config",
     "HiveMemoryConfig",
-    "MemoryGatewayConfig",
     "MemoryPerceptionConfig",
     "MemoryGenerationConfig",
     "MemoryRetrievalConfig",

@@ -104,7 +104,7 @@ from hivememory.core.protocol.models import (
 from hivememory.system.config import load_app_config, HiveMemoryConfig
 
 # 分身
-from hivememory.patchouli.eye import TheEye
+from hivememory.system.gateway.eye import TheEye
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 # 导入 conftest 中的辅助类

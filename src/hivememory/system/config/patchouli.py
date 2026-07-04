@@ -1,6 +1,5 @@
-from typing import List, Literal, Optional, Union
+from typing import Literal, Optional, Union
 from pydantic import BaseModel, Field, ConfigDict
-
 
 # ========== Storage ==========
 
@@ -19,29 +18,6 @@ class QdrantConfig(BaseModel):
     vector_dimension: int = Field(default=1024)
     distance_metric: str = Field(default="Cosine")
     on_disk_payload: bool = Field(default=False)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-# ========== Gateway ==========
-
-class RuleInterceptorConfig(BaseModel):
-    enabled: bool = Field(default=True)
-    enable_system: bool = Field(default=True)
-    enable_chat: bool = Field(default=True)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class LLMAnalyzerConfig(BaseModel):
-    enabled: bool = Field(default=True)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class MemoryGatewayConfig(BaseModel):
-    interceptor: RuleInterceptorConfig = Field(default_factory=RuleInterceptorConfig)
-    analyzer: LLMAnalyzerConfig = Field(default_factory=LLMAnalyzerConfig)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -297,7 +273,6 @@ class PatchouliShutdownConfig(BaseModel):
 
 class PatchouliConfig(BaseModel):
     storage: QdrantConfig = Field(default_factory=QdrantConfig)
-    gateway: MemoryGatewayConfig = Field(default_factory=MemoryGatewayConfig)
     perception: MemoryPerceptionConfig = Field(default_factory=MemoryPerceptionConfig)
     generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
