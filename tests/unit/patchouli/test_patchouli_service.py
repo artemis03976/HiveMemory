@@ -36,9 +36,13 @@ def service_with_local_bus():
     local_bus = PatchouliBus()
     service = PatchouliService(
         bus=local_bus,
-        eye=MagicMock(),
+        gateway_gaze=AsyncMock(),
     )
     return service
+
+
+def test_service_does_not_hold_patchouli_eye(service_with_local_bus):
+    assert not hasattr(service_with_local_bus, "_eye")
 
 
 @pytest.mark.asyncio

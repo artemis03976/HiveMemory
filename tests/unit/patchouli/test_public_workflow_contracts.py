@@ -98,7 +98,7 @@ def _prepared_run(
 def _wire_public_bridge(local_bus: PatchouliBus, global_bus: GlobalSystemBus):
     service = PatchouliService(
         bus=local_bus,
-        eye=MagicMock(),
+        gateway_gaze=AsyncMock(),
         memory_compiler_config=MemoryCompilerConfig(
             retrieval_context={"strategy": {"type": "compact"}}
         ),
@@ -280,7 +280,7 @@ async def test_public_passive_analyze_and_retrieve_composes_gateway_and_retrieva
     local_bus.register(PatchouliLocalRoutes.GATEWAY_GAZE, gaze)
     local_bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, retrieve)
     service, bridge = _wire_public_bridge(local_bus, global_bus)
-    service._eye.gaze = AsyncMock(side_effect=AssertionError("direct eye call leaked"))
+    service._gateway_gaze = AsyncMock(side_effect=AssertionError("direct gateway call leaked"))
     bridge.mount()
 
     result = await global_bus.request(
@@ -300,7 +300,7 @@ async def test_public_passive_analyze_and_retrieve_composes_gateway_and_retrieva
         identity=identity,
     )
     retrieve.assert_awaited_once()
-    service._eye.gaze.assert_not_awaited()
+    service._gateway_gaze.assert_not_awaited()
 
 
 @pytest.mark.asyncio

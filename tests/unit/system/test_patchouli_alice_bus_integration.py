@@ -91,7 +91,7 @@ def _prepared_run(
 async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result():
     identity = Identity(user_id="u1", agent_id="omni_doll")
     bus = PatchouliBus()
-    eye = MagicMock()
+    gateway_gaze = AsyncMock()
     retrieval_result = RetrievalResponse(
         memories=[_build_memory_atom()],
     )
@@ -104,7 +104,7 @@ async def test_prepare_agent_run_returns_agent_run_context_with_retrieval_result
     bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, AsyncMock(return_value=retrieval_result))
     bus.register(PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH, AsyncMock(return_value=True))
 
-    service = PatchouliService(bus=bus, eye=eye)
+    service = PatchouliService(bus=bus, gateway_gaze=gateway_gaze)
 
     prepared = await service.prepare_agent_run(user_message="hi", user_id="u1")
 
@@ -123,7 +123,7 @@ async def test_finalize_agent_run_submits_interaction_payload_to_local_route():
     submit_interaction = AsyncMock(return_value=None)
     bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, submit_interaction)
     bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, AsyncMock())
-    service = PatchouliService(bus=bus, eye=MagicMock())
+    service = PatchouliService(bus=bus, gateway_gaze=AsyncMock())
 
     await service.finalize_agent_run(
         prepared_run=_prepared_run(),
@@ -169,7 +169,7 @@ async def test_finalize_agent_run_records_retrieval_hits_once_per_memory():
     memory = _build_memory_atom()
     bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, AsyncMock(return_value=None))
     bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, record_hit)
-    service = PatchouliService(bus=bus, eye=MagicMock())
+    service = PatchouliService(bus=bus, gateway_gaze=AsyncMock())
 
     await service.finalize_agent_run(
         _prepared_run(retrieval_result=RetrievalResponse(memories=[memory, memory])),
@@ -187,7 +187,7 @@ async def test_finalize_agent_run_returns_active_memory_generation_tasks():
     bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, AsyncMock(return_value=None))
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, submit_active)
     bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, AsyncMock())
-    service = PatchouliService(bus=bus, eye=MagicMock())
+    service = PatchouliService(bus=bus, gateway_gaze=AsyncMock())
 
     identity = Identity(user_id="u1", agent_id="omni_doll")
     materialize_task = PendingAtomMaterializeTask(
@@ -214,7 +214,7 @@ async def test_finalize_agent_run_hit_failure_does_not_fail_finalize():
     memory = _build_memory_atom()
     bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, AsyncMock(return_value=None))
     bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, record_hit)
-    service = PatchouliService(bus=bus, eye=MagicMock())
+    service = PatchouliService(bus=bus, gateway_gaze=AsyncMock())
 
     result = await service.finalize_agent_run(
         _prepared_run(retrieval_result=RetrievalResponse(memories=[memory])),
@@ -232,7 +232,7 @@ async def test_record_memory_citation_calls_local_lifecycle_route():
     expected = {"success": True}
     record_citation = AsyncMock(return_value=expected)
     bus.register(PatchouliLocalRoutes.MEMORY_RECORD_CITATION, record_citation)
-    service = PatchouliService(bus=bus, eye=MagicMock())
+    service = PatchouliService(bus=bus, gateway_gaze=AsyncMock())
 
     result = await service.record_memory_citation(str(memory.id), source="mtp.read")
 

@@ -1,5 +1,11 @@
-from typing import List, Literal, Optional, Union
+from typing import Literal, Optional, Union
 from pydantic import BaseModel, Field, ConfigDict
+
+from hivememory.system.config.gateway import (
+    LLMAnalyzerConfig,
+    MemoryGatewayConfig,
+    RuleInterceptorConfig,
+)
 
 
 # ========== Storage ==========
@@ -19,29 +25,6 @@ class QdrantConfig(BaseModel):
     vector_dimension: int = Field(default=1024)
     distance_metric: str = Field(default="Cosine")
     on_disk_payload: bool = Field(default=False)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-# ========== Gateway ==========
-
-class RuleInterceptorConfig(BaseModel):
-    enabled: bool = Field(default=True)
-    enable_system: bool = Field(default=True)
-    enable_chat: bool = Field(default=True)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class LLMAnalyzerConfig(BaseModel):
-    enabled: bool = Field(default=True)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class MemoryGatewayConfig(BaseModel):
-    interceptor: RuleInterceptorConfig = Field(default_factory=RuleInterceptorConfig)
-    analyzer: LLMAnalyzerConfig = Field(default_factory=LLMAnalyzerConfig)
 
     model_config = ConfigDict(extra="ignore")
 
