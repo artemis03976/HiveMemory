@@ -10,6 +10,7 @@ from hivememory.engines.gateway import (
 from hivememory.infrastructure.llm import get_gateway_llm_service
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.system.config import LLMConfig, SystemGatewayConfig
+from hivememory.system.gateway.commands import create_builtin_command_registry
 from hivememory.system.gateway.eye import TheEye
 
 
@@ -17,7 +18,11 @@ def build_gateway_engine(
     config: SystemGatewayConfig,
     llm_service: BaseLLMService,
 ) -> GatewayEngine:
-    interceptor: BaseInterceptor = create_interceptor(config.interceptor)
+    command_registry = create_builtin_command_registry()
+    interceptor: BaseInterceptor = create_interceptor(
+        config.interceptor,
+        command_registry=command_registry,
+    )
     semantic_analyzer: BaseSemanticAnalyzer = create_semantic_analyzer(
         config.analyzer,
         llm_service,

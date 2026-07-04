@@ -14,10 +14,16 @@ def test_build_gateway_engine_assembles_interceptor_and_analyzer(monkeypatch):
     llm_service = MagicMock()
     interceptor = MagicMock()
     analyzer = MagicMock()
+    registry = MagicMock()
+    create_interceptor = MagicMock(return_value=interceptor)
 
     monkeypatch.setattr(
         "hivememory.system.gateway.factory.create_interceptor",
-        MagicMock(return_value=interceptor),
+        create_interceptor,
+    )
+    monkeypatch.setattr(
+        "hivememory.system.gateway.factory.create_builtin_command_registry",
+        MagicMock(return_value=registry),
     )
     monkeypatch.setattr(
         "hivememory.system.gateway.factory.create_semantic_analyzer",
@@ -29,6 +35,10 @@ def test_build_gateway_engine_assembles_interceptor_and_analyzer(monkeypatch):
     assert isinstance(engine, GatewayEngine)
     assert engine.interceptor is interceptor
     assert engine.semantic_analyzer is analyzer
+    create_interceptor.assert_called_once_with(
+        config.interceptor,
+        command_registry=registry,
+    )
 
 
 def test_build_system_gateway_builds_eye_and_engine(monkeypatch):
