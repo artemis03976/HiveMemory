@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any, AsyncGenerator, Dict, Literal, Optional
 
-from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
+from hivememory.core.models import Identity
+from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus, EyeGazeResult
+from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.infrastructure.trace_context import (
     generate_trace_id,
     reset_trace_context,
@@ -30,8 +33,14 @@ from hivememory.system.runtime.control import (
     ChatGenerationRunStatus,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+from hivememory.system.gateway.commands import (
+    CommandExecutionResult,
+    SystemCommandDispatcher,
+)
 
 logger = logging.getLogger(__name__)
+
+CommandGaze = Callable[..., Awaitable[EyeGazeResult]]
 
 
 class ChatApplicationService:
@@ -41,10 +50,14 @@ class ChatApplicationService:
         self,
         global_bus: GlobalSystemBus,
         runtime_events: RuntimeEventSink | None = None,
+        command_gaze: CommandGaze | None = None,
+        command_dispatcher: SystemCommandDispatcher | None = None,
     ) -> None:
         self._bus = global_bus
         self._registry = ChatGenerationRunRegistry()
         self._events = runtime_events or NullRuntimeEventSink()
+        self._command_gaze = command_gaze
+        self._command_dispatcher = command_dispatcher
 
     # ========== 非流式主链路 ==========
 
@@ -57,7 +70,7 @@ class ChatApplicationService:
         enable_memory_retrieval: bool = True,
         generation_options: Optional[Dict[str, Any]] = None,
         generation_id: Optional[str] = None,
-    ) -> AgentRunResult:
+    ) -> AgentRunResult | CommandExecutionResult:
         """顶层非流式 chat 入口。编排骨架: prepare -> run_agent -> finalize"""
         trace_id = generate_trace_id("chat")
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
@@ -72,6 +85,23 @@ class ChatApplicationService:
         prepared = None
 
         try:
+            command_result = await self._try_execute_system_command(
+                user_message=user_message,
+                user_id=user_id,
+                agent_id=agent_id,
+                session_id=session_id,
+            )
+            if command_result is not None:
+                run.status = ChatGenerationRunStatus.COMPLETED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_COMPLETED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    data={"command_id": command_result.command_id},
+                )
+                return command_result
+
             run.status = ChatGenerationRunStatus.PREPARING
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             prepared = await self._bus.request(
@@ -191,6 +221,29 @@ class ChatApplicationService:
                 agent_id=agent_id,
             )
             yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
+
+            command_result = await self._try_execute_system_command(
+                user_message=user_message,
+                user_id=user_id,
+                agent_id=agent_id,
+                session_id=session_id,
+            )
+            if command_result is not None:
+                run.status = ChatGenerationRunStatus.COMPLETED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_COMPLETED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    data={"command_id": command_result.command_id},
+                )
+                terminal_state = "completed"
+                yield {
+                    "event": "command_result",
+                    "data": command_result.model_dump(mode="json"),
+                }
+                yield self._command_done(run, command_result)
+                return
 
             run.status = ChatGenerationRunStatus.PREPARING
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
@@ -478,3 +531,52 @@ class ChatApplicationService:
             logger.warning("Failed to load final topic pool after finalize.", exc_info=True)
             return []
         return [topic.model_dump(mode="json") for topic in (topics or [])]
+
+    async def _try_execute_system_command(
+        self,
+        *,
+        user_message: str,
+        user_id: str,
+        agent_id: str,
+        session_id: str | None,
+    ) -> CommandExecutionResult | None:
+        if self._command_gaze is None or self._command_dispatcher is None:
+            return None
+        if not user_message.strip().startswith("/"):
+            return None
+
+        identity = Identity(
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
+        # Phase 2.3 只做 slash command 预检，不传话题池，避免触发 Patchouli prepare。
+        gaze_result = await self._command_gaze(
+            user_message,
+            topic_snapshots=[],
+            identity=identity,
+        )
+        if gaze_result.intent != GatewayIntent.SYSTEM:
+            return None
+
+        return await self._command_dispatcher.execute(
+            gaze_result.command,
+            identity=identity,
+        )
+
+    @staticmethod
+    def _command_done(
+        run: ChatGenerationRun,
+        command_result: CommandExecutionResult,
+    ) -> Dict[str, Any]:
+        return {
+            "event": "done",
+            "data": {
+                "generation_id": run.generation_id,
+                "status": "completed",
+                "stopped": False,
+                "reason": None,
+                "memory_task_ids": [],
+                "command_id": command_result.command_id,
+            },
+        }

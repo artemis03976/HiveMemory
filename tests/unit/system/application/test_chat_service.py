@@ -40,6 +40,12 @@ from hivememory.system.application.readiness_service import SystemReadinessServi
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.contracts.runtime_events import RuntimeEventType
+from hivememory.system.gateway.commands import (
+    CommandExecutionResult,
+    CommandExecutionStatus,
+    SystemCommandDispatcher,
+    create_builtin_command_registry,
+)
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
@@ -87,6 +93,20 @@ def _make_chat_result() -> AgentRunResult:
         mtp_iterations=0,
         total_iterations=1,
         turn_events=[],
+    )
+
+
+def _make_command_gaze_result(raw_query: str, command) -> EyeGazeResult:
+    identity = Identity(user_id="u1", agent_id="omni_doll")
+    return EyeGazeResult(
+        intent=GatewayIntent.SYSTEM,
+        rewritten_query=raw_query,
+        search_keywords=[],
+        worth_saving=False,
+        raw_query=raw_query,
+        identity=identity,
+        target_topic="NEW_TOPIC",
+        command=command,
     )
 
 
@@ -175,6 +195,73 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
 
 
 class TestChatApplicationService:
+    @pytest.mark.asyncio
+    async def test_chat_system_command_short_circuits_prepare_run_finalize(self, mock_global_bus):
+        registry = create_builtin_command_registry()
+        command_gaze = AsyncMock(
+            return_value=_make_command_gaze_result("/help", registry.match("/help"))
+        )
+        svc = ChatApplicationService(
+            global_bus=mock_global_bus,
+            command_gaze=command_gaze,
+            command_dispatcher=SystemCommandDispatcher(registry),
+        )
+
+        result = await svc.chat(user_message="/help", user_id="u1")
+
+        assert isinstance(result, CommandExecutionResult)
+        assert result.status == CommandExecutionStatus.COMPLETED
+        assert result.command_id == "system.help"
+        mock_global_bus.request.assert_not_awaited()
+        command_gaze.assert_awaited_once()
+        assert command_gaze.await_args.kwargs["topic_snapshots"] == []
+        assert command_gaze.await_args.kwargs["identity"].user_id == "u1"
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_system_command_emits_command_result_then_done(self, mock_global_bus):
+        registry = create_builtin_command_registry()
+        command_gaze = AsyncMock(
+            return_value=_make_command_gaze_result("/clear", registry.match("/clear"))
+        )
+        svc = ChatApplicationService(
+            global_bus=mock_global_bus,
+            command_gaze=command_gaze,
+            command_dispatcher=SystemCommandDispatcher(registry),
+        )
+
+        events = []
+        async for e in svc.chat_stream(user_message="/clear", user_id="u1"):
+            events.append(e)
+
+        assert [e["event"] for e in events] == ["generation_id", "command_result", "done"]
+        assert events[1]["data"]["command_id"] == "system.clear"
+        assert events[1]["data"]["client_action"] == {"type": "clear_chat"}
+        assert events[2]["data"]["status"] == "completed"
+        assert events[2]["data"]["command_id"] == "system.clear"
+        mock_global_bus.request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_non_command_skips_pre_gaze_and_keeps_normal_sequence(self, mock_global_bus):
+        registry = create_builtin_command_registry()
+        command_gaze = AsyncMock()
+        svc = ChatApplicationService(
+            global_bus=mock_global_bus,
+            command_gaze=command_gaze,
+            command_dispatcher=SystemCommandDispatcher(registry),
+        )
+
+        events = []
+        async for e in svc.chat_stream(user_message="hi", user_id="u1"):
+            events.append(e)
+
+        event_types = [e["event"] for e in events]
+        assert event_types[:4] == ["generation_id", "topic_info", "memory_refs", "token"]
+        assert event_types[-1] == "done"
+        command_gaze.assert_not_awaited()
+        routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
+        assert GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN in routes_called
+        assert GlobalRoutes.ALICE_RUN_AGENT_STREAM in routes_called
+
     @pytest.mark.asyncio
     async def test_chat_calls_prepare_run_finalize(self, mock_global_bus):
         svc = ChatApplicationService(global_bus=mock_global_bus)

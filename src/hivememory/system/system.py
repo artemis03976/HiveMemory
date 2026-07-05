@@ -135,9 +135,19 @@ class HiveMemorySystem:
 
         # 1. System Gateway 创建（使用已解析的 gateway LLM 配置）
         from hivememory.system.gateway import build_system_gateway
+        from hivememory.system.gateway.commands import (
+            SystemCommandDispatcher,
+            create_builtin_command_registry,
+        )
+        command_registry = create_builtin_command_registry()
         system_gateway = build_system_gateway(
             config=config.gateway,
             llm_config=config.shared.llm.gateway,
+            command_registry=command_registry,
+        )
+        command_dispatcher = SystemCommandDispatcher(
+            command_registry,
+            global_bus=global_bus,
         )
 
         # 2. Patchouli 创建（使用已解析的 librarian LLM 配置；Gateway 由 System 注入）
@@ -163,6 +173,8 @@ class HiveMemorySystem:
                 "system",
                 component="chat_application_service",
             ),
+            command_gaze=system_gateway.gaze,
+            command_dispatcher=command_dispatcher,
         )
         ingress_service = PassiveIngressService(
             bus=global_bus,

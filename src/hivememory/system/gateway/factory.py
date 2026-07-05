@@ -10,15 +10,19 @@ from hivememory.engines.gateway import (
 from hivememory.infrastructure.llm import get_gateway_llm_service
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.system.config import LLMConfig, SystemGatewayConfig
-from hivememory.system.gateway.commands import create_builtin_command_registry
+from hivememory.system.gateway.commands import (
+    CommandRegistry,
+    create_builtin_command_registry,
+)
 from hivememory.system.gateway.eye import TheEye
 
 
 def build_gateway_engine(
     config: SystemGatewayConfig,
     llm_service: BaseLLMService,
+    command_registry: CommandRegistry | None = None,
 ) -> GatewayEngine:
-    command_registry = create_builtin_command_registry()
+    command_registry = command_registry or create_builtin_command_registry()
     interceptor: BaseInterceptor = create_interceptor(
         config.interceptor,
         command_registry=command_registry,
@@ -36,9 +40,14 @@ def build_gateway_engine(
 def build_system_gateway(
     config: SystemGatewayConfig,
     llm_config: LLMConfig,
+    command_registry: CommandRegistry | None = None,
 ) -> TheEye:
     llm_service = get_gateway_llm_service(config=llm_config)
-    engine = build_gateway_engine(config=config, llm_service=llm_service)
+    engine = build_gateway_engine(
+        config=config,
+        llm_service=llm_service,
+        command_registry=command_registry,
+    )
     return TheEye(engine=engine)
 
 
