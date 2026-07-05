@@ -39,11 +39,13 @@ class SystemCommandDispatcher:
         *,
         global_bus: Any | None = None,
         debug_enabled: bool = False,
+        expose_listing: bool = True,
         handlers: dict[str, CommandHandler] | None = None,
     ) -> None:
         self.registry = registry
         self.global_bus = global_bus
         self.debug_enabled = debug_enabled
+        self.expose_listing = expose_listing
         self._handlers: dict[str, CommandHandler] = {
             "system.help": handle_help,
             "system.commands": handle_commands,
@@ -156,6 +158,7 @@ class SystemCommandDispatcher:
             registry=self.registry,
             identity=identity,
             debug_enabled=self.debug_enabled,
+            expose_listing=self.expose_listing,
         )
         if inspect.isawaitable(result):
             result = await result

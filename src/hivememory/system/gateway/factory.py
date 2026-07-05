@@ -22,10 +22,14 @@ def build_gateway_engine(
     llm_service: BaseLLMService,
     command_registry: CommandRegistry | None = None,
 ) -> GatewayEngine:
-    command_registry = command_registry or create_builtin_command_registry()
+    active_command_registry = None
+    if config.commands.enabled:
+        active_command_registry = command_registry or create_builtin_command_registry(
+            config.commands.builtin
+        )
     interceptor: BaseInterceptor = create_interceptor(
         config.interceptor,
-        command_registry=command_registry,
+        command_registry=active_command_registry,
     )
     semantic_analyzer: BaseSemanticAnalyzer = create_semantic_analyzer(
         config.analyzer,

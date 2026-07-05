@@ -40,9 +40,12 @@ from hivememory.system.application.readiness_service import SystemReadinessServi
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.contracts.runtime_events import RuntimeEventType
+from hivememory.system.config import SystemCommandConfig
 from hivememory.system.gateway.commands import (
     CommandExecutionResult,
     CommandExecutionStatus,
+    CommandParseResult,
+    CommandParseStatus,
     SystemCommandDispatcher,
     create_builtin_command_registry,
 )
@@ -261,6 +264,89 @@ class TestChatApplicationService:
         routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
         assert GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN in routes_called
         assert GlobalRoutes.ALICE_RUN_AGENT_STREAM in routes_called
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_commands_disabled_does_not_short_circuit(self, mock_global_bus):
+        registry = create_builtin_command_registry()
+        command_gaze = AsyncMock(
+            return_value=_make_command_gaze_result("/help", registry.match("/help"))
+        )
+        svc = ChatApplicationService(
+            global_bus=mock_global_bus,
+            command_gaze=command_gaze,
+            command_dispatcher=SystemCommandDispatcher(registry),
+            command_config=SystemCommandConfig(enabled=False),
+        )
+
+        events = []
+        async for e in svc.chat_stream(user_message="/help", user_id="u1"):
+            events.append(e)
+
+        event_types = [e["event"] for e in events]
+        assert "command_result" not in event_types
+        assert "topic_info" in event_types
+        command_gaze.assert_not_awaited()
+        routes_called = [call.args[0] for call in mock_global_bus.request.await_args_list]
+        assert GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN in routes_called
+
+    @pytest.mark.asyncio
+    async def test_chat_unknown_command_policy_ignore_does_not_short_circuit(self, mock_global_bus):
+        registry = create_builtin_command_registry()
+        unknown_command = CommandParseResult(
+            raw_input="/missing",
+            name="/missing",
+            tokens=["/missing"],
+            parse_status=CommandParseStatus.UNKNOWN,
+            error="Unknown system command: /missing",
+        )
+        command_gaze = AsyncMock(
+            return_value=_make_command_gaze_result("/missing", unknown_command)
+        )
+        svc = ChatApplicationService(
+            global_bus=mock_global_bus,
+            command_gaze=command_gaze,
+            command_dispatcher=SystemCommandDispatcher(registry),
+            command_config=SystemCommandConfig(unknown_command_policy="ignore"),
+        )
+
+        events = []
+        async for e in svc.chat_stream(user_message="/missing", user_id="u1"):
+            events.append(e)
+
+        event_types = [e["event"] for e in events]
+        assert "command_result" not in event_types
+        assert "topic_info" in event_types
+        command_gaze.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_chat_command_execution_emits_runtime_event(self, mock_global_bus):
+        recorder = RecordingRuntimeEventSink()
+        registry = create_builtin_command_registry()
+        command_gaze = AsyncMock(
+            return_value=_make_command_gaze_result("/help", registry.match("/help"))
+        )
+        svc = ChatApplicationService(
+            global_bus=mock_global_bus,
+            runtime_events=recorder,
+            command_gaze=command_gaze,
+            command_dispatcher=SystemCommandDispatcher(registry),
+        )
+
+        result = await svc.chat(user_message="/help", user_id="u1", generation_id="gen-command")
+
+        assert result.command_id == "system.help"
+        command_events = [
+            event
+            for event in recorder.events
+            if event.event_type == RuntimeEventType.COMMAND_EXECUTED
+        ]
+        assert len(command_events) == 1
+        event = command_events[0]
+        assert event.trace_id
+        assert event.generation_id == "gen-command"
+        assert event.status == "completed"
+        assert event.data["command_id"] == "system.help"
+        assert event.data["user_id"] == "u1"
 
     @pytest.mark.asyncio
     async def test_chat_calls_prepare_run_finalize(self, mock_global_bus):

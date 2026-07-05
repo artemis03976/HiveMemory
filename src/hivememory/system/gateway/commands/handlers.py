@@ -18,10 +18,15 @@ def handle_help(
     registry: CommandRegistry,
     identity: Identity,
     debug_enabled: bool = False,
+    expose_listing: bool = True,
 ) -> CommandExecutionResult:
     """返回可见系统指令的简短帮助文本。"""
 
-    visible = _visible_definitions(registry, identity=identity, debug_enabled=debug_enabled)
+    visible = (
+        _visible_definitions(registry, identity=identity, debug_enabled=debug_enabled)
+        if expose_listing
+        else []
+    )
     lines = [f"{definition.primary_name} - {definition.summary}" for definition in visible]
     message = "可用系统指令：\n" + "\n".join(lines) if lines else "当前没有可用系统指令。"
     return CommandExecutionResult(
@@ -38,10 +43,15 @@ def handle_commands(
     registry: CommandRegistry,
     identity: Identity,
     debug_enabled: bool = False,
+    expose_listing: bool = True,
 ) -> CommandExecutionResult:
     """返回结构化系统指令列表。"""
 
-    visible = _visible_definitions(registry, identity=identity, debug_enabled=debug_enabled)
+    visible = (
+        _visible_definitions(registry, identity=identity, debug_enabled=debug_enabled)
+        if expose_listing
+        else []
+    )
     return CommandExecutionResult(
         command_id=command.command_id or "system.commands",
         status=CommandExecutionStatus.COMPLETED,
@@ -56,6 +66,7 @@ def handle_status(
     registry: CommandRegistry,
     identity: Identity,
     debug_enabled: bool = False,
+    expose_listing: bool = True,
 ) -> CommandExecutionResult:
     """返回 system gateway 的最小运行摘要。"""
 

@@ -25,6 +25,7 @@ from hivememory.infrastructure.trace_context import (
 )
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.config import SystemCommandConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.control import (
     CancelResult,
@@ -35,6 +36,7 @@ from hivememory.system.runtime.control import (
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.gateway.commands import (
     CommandExecutionResult,
+    CommandParseStatus,
     SystemCommandDispatcher,
 )
 
@@ -52,12 +54,14 @@ class ChatApplicationService:
         runtime_events: RuntimeEventSink | None = None,
         command_gaze: CommandGaze | None = None,
         command_dispatcher: SystemCommandDispatcher | None = None,
+        command_config: SystemCommandConfig | None = None,
     ) -> None:
         self._bus = global_bus
         self._registry = ChatGenerationRunRegistry()
         self._events = runtime_events or NullRuntimeEventSink()
         self._command_gaze = command_gaze
         self._command_dispatcher = command_dispatcher
+        self._command_config = command_config or SystemCommandConfig()
 
     # ========== 非流式主链路 ==========
 
@@ -90,6 +94,8 @@ class ChatApplicationService:
                 user_id=user_id,
                 agent_id=agent_id,
                 session_id=session_id,
+                trace_id=trace_id,
+                generation_id=run.generation_id,
             )
             if command_result is not None:
                 run.status = ChatGenerationRunStatus.COMPLETED
@@ -227,6 +233,8 @@ class ChatApplicationService:
                 user_id=user_id,
                 agent_id=agent_id,
                 session_id=session_id,
+                trace_id=trace_id,
+                generation_id=run.generation_id,
             )
             if command_result is not None:
                 run.status = ChatGenerationRunStatus.COMPLETED
@@ -539,7 +547,11 @@ class ChatApplicationService:
         user_id: str,
         agent_id: str,
         session_id: str | None,
+        trace_id: str,
+        generation_id: str,
     ) -> CommandExecutionResult | None:
+        if not self._command_config.enabled:
+            return None
         if self._command_gaze is None or self._command_dispatcher is None:
             return None
         if not user_message.strip().startswith("/"):
@@ -558,10 +570,52 @@ class ChatApplicationService:
         )
         if gaze_result.intent != GatewayIntent.SYSTEM:
             return None
+        if (
+            gaze_result.command is not None
+            and gaze_result.command.parse_status == CommandParseStatus.UNKNOWN
+            and self._command_config.unknown_command_policy == "ignore"
+        ):
+            return None
 
-        return await self._command_dispatcher.execute(
+        result = await self._command_dispatcher.execute(
             gaze_result.command,
             identity=identity,
+        )
+        self._emit_command_event(
+            result,
+            identity=identity,
+            trace_id=trace_id,
+            generation_id=generation_id,
+        )
+        return result
+
+    def _emit_command_event(
+        self,
+        command_result: CommandExecutionResult,
+        *,
+        identity: Identity,
+        trace_id: str,
+        generation_id: str,
+    ) -> None:
+        self._events.emit(
+            RuntimeEvent(
+                event_type=RuntimeEventType.COMMAND_EXECUTED,
+                trace_id=trace_id,
+                task_type="foreground",
+                generation_id=generation_id,
+                agent_id=identity.agent_id,
+                status=command_result.status,
+                severity="info",
+                message=command_result.message,
+                data={
+                    "command_id": command_result.command_id,
+                    "user_id": identity.user_id,
+                    "agent_id": identity.agent_id,
+                    "session_id": identity.session_id,
+                    "client_action": command_result.client_action,
+                    "error_code": command_result.error_code,
+                },
+            )
         )
 
     @staticmethod

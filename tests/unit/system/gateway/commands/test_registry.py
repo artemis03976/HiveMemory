@@ -95,3 +95,11 @@ def test_builtin_registry_matches_legacy_commands():
         result = registry.match(command)
         assert result.parse_status == CommandParseStatus.MATCHED
         assert result.command_id is not None
+
+
+def test_builtin_registry_supports_disable_override():
+    registry = create_builtin_command_registry({"system.clear": False})
+
+    result = registry.match("/clear")
+
+    assert result.parse_status == CommandParseStatus.UNKNOWN

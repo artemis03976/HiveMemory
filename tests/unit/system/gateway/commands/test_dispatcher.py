@@ -78,6 +78,17 @@ async def test_commands_returns_structured_listing():
 
 
 @pytest.mark.asyncio
+async def test_commands_listing_can_be_hidden():
+    registry = create_builtin_command_registry()
+    dispatcher = SystemCommandDispatcher(registry, expose_listing=False)
+
+    result = await dispatcher.execute(registry.match("/commands"))
+
+    assert result.status == CommandExecutionStatus.COMPLETED
+    assert result.data["commands"] == []
+
+
+@pytest.mark.asyncio
 async def test_clear_returns_client_action_without_backend_side_effect():
     registry = create_builtin_command_registry()
     dispatcher = SystemCommandDispatcher(registry)

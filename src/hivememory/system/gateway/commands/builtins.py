@@ -10,18 +10,28 @@ from hivememory.system.gateway.commands.models import (
 from hivememory.system.gateway.commands.registry import CommandRegistry
 
 
-def register_builtin_commands(registry: CommandRegistry) -> CommandRegistry:
+def register_builtin_commands(
+    registry: CommandRegistry,
+    builtin_overrides: dict[str, bool] | None = None,
+) -> CommandRegistry:
     """向指定 registry 注册内置系统指令。"""
 
     for definition in _builtin_definitions():
+        if builtin_overrides and builtin_overrides.get(definition.command_id) is False:
+            continue
         registry.register(definition)
     return registry
 
 
-def create_builtin_command_registry() -> CommandRegistry:
+def create_builtin_command_registry(
+    builtin_overrides: dict[str, bool] | None = None,
+) -> CommandRegistry:
     """创建包含内置系统指令的默认 registry。"""
 
-    return register_builtin_commands(CommandRegistry())
+    return register_builtin_commands(
+        CommandRegistry(),
+        builtin_overrides=builtin_overrides,
+    )
 
 
 def _builtin_definitions() -> list[CommandDefinition]:
