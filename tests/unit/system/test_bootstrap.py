@@ -85,10 +85,10 @@ def test_build_registers_patchouli_and_uses_global_bus_runtime():
     config = _make_config()
 
     with (
-        patch("hivememory.system.gateway.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
-        patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
-        patch("hivememory.system.system.ModelRegistry"),
-        patch("hivememory.system.system.ProviderRegistry"),
+        patch("hivememory.system.assembler.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
+        patch("hivememory.system.assembler.PatchouliSystem", _FakePatchouliSystem),
+        patch("hivememory.system.assembler.ModelRegistry"),
+        patch("hivememory.system.assembler.ProviderRegistry"),
     ):
         system = HiveMemorySystem.build(config=config)
 
@@ -100,10 +100,10 @@ def test_build_injects_runtime_event_sink_into_scheduler():
     config = _make_config()
 
     with (
-        patch("hivememory.system.gateway.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
-        patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
-        patch("hivememory.system.system.ModelRegistry"),
-        patch("hivememory.system.system.ProviderRegistry"),
+        patch("hivememory.system.assembler.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
+        patch("hivememory.system.assembler.PatchouliSystem", _FakePatchouliSystem),
+        patch("hivememory.system.assembler.ModelRegistry"),
+        patch("hivememory.system.assembler.ProviderRegistry"),
     ):
         system = HiveMemorySystem.build(config=config)
 
@@ -115,10 +115,10 @@ def test_build_uses_null_scheduler_runtime_event_sink_when_disabled():
     config.runtime_events.enabled = False
 
     with (
-        patch("hivememory.system.gateway.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
-        patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
-        patch("hivememory.system.system.ModelRegistry"),
-        patch("hivememory.system.system.ProviderRegistry"),
+        patch("hivememory.system.assembler.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
+        patch("hivememory.system.assembler.PatchouliSystem", _FakePatchouliSystem),
+        patch("hivememory.system.assembler.ModelRegistry"),
+        patch("hivememory.system.assembler.ProviderRegistry"),
     ):
         system = HiveMemorySystem.build(config=config)
 
@@ -130,10 +130,10 @@ async def test_start_mounts_patchouli_public_routes_on_global_bus():
     config = _make_config()
 
     with (
-        patch("hivememory.system.gateway.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
-        patch("hivememory.system.system.PatchouliSystem", _FakePatchouliSystem),
-        patch("hivememory.system.system.ModelRegistry"),
-        patch("hivememory.system.system.ProviderRegistry"),
+        patch("hivememory.system.assembler.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
+        patch("hivememory.system.assembler.PatchouliSystem", _FakePatchouliSystem),
+        patch("hivememory.system.assembler.ModelRegistry"),
+        patch("hivememory.system.assembler.ProviderRegistry"),
     ):
         system = HiveMemorySystem.build(config=config)
 

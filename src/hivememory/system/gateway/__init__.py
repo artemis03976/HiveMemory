@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
+    "GatewayBundle",
     "TheEye",
     "build_gateway_engine",
     "build_system_gateway",
@@ -13,6 +14,10 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name == "GatewayBundle":
+        from hivememory.system.gateway.bundle import GatewayBundle
+
+        return GatewayBundle
     if name == "TheEye":
         from hivememory.system.gateway.eye import TheEye
 

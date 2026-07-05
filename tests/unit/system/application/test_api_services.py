@@ -190,10 +190,11 @@ class TestApiApplicationServices:
 
     def test_hivememory_system_build_exposes_api_services(self, passive_config):
         with (
-            patch("hivememory.system.system.PatchouliSystem"),
-            patch("hivememory.system.system.AliceSystem"),
-            patch("hivememory.system.system.ModelRegistry"),
-            patch("hivememory.system.system.ProviderRegistry"),
+            patch("hivememory.system.assembler.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
+            patch("hivememory.system.assembler.PatchouliSystem"),
+            patch("hivememory.system.assembler.AliceSystem"),
+            patch("hivememory.system.assembler.ModelRegistry"),
+            patch("hivememory.system.assembler.ProviderRegistry"),
         ):
             system = HiveMemorySystem.build(config=passive_config)
 
@@ -211,10 +212,11 @@ class TestApiApplicationServices:
         previous_system = deps._system
         try:
             with (
-                patch("hivememory.system.system.PatchouliSystem"),
-                patch("hivememory.system.system.AliceSystem"),
-                patch("hivememory.system.system.ModelRegistry"),
-                patch("hivememory.system.system.ProviderRegistry"),
+                patch("hivememory.system.assembler.build_system_gateway", return_value=MagicMock(gaze=AsyncMock())),
+                patch("hivememory.system.assembler.PatchouliSystem"),
+                patch("hivememory.system.assembler.AliceSystem"),
+                patch("hivememory.system.assembler.ModelRegistry"),
+                patch("hivememory.system.assembler.ProviderRegistry"),
             ):
                 system = HiveMemorySystem.build(config=passive_config)
             deps._system = system
