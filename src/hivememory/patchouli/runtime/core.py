@@ -12,17 +12,18 @@
 架构定位：
     PatchouliRuntime 是记忆域的能力运行环境宿主，
     负责与存储层 (Qdrant) 的直接交互。
+    Gateway / TheEye 由顶层 System Gateway 托管，Patchouli 只消费其输出。
     计算与智能编排职责已在 Phase C 迁移至 Alice 子系统。
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
     │                                         │
-    │  TheEye ──→ PatchouliRuntime            │
-    │               ├── PerceptionFamiliar    │
-    │               ├── RetrievalFamiliar     │
-    │               ├── GenerationFamiliar    │
-    │               ├── GenerationCoordinator │
-    │               └── LifecycleFamiliar     │
+    │  PatchouliRuntime                       │
+    │      ├── PerceptionFamiliar             │
+    │      ├── RetrievalFamiliar              │
+    │      ├── GenerationFamiliar             │
+    │      ├── GenerationCoordinator          │
+    │      └── LifecycleFamiliar              │
     └─────────────────────────────────────────┘
 
 作者: HiveMemory Team

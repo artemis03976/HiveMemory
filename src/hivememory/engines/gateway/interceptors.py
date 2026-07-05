@@ -130,7 +130,7 @@ class RuleInterceptor(BaseInterceptor):
 
     def add_system_command(self, name: str, command_id: str | None = None) -> None:
         """
-        动态注册系统指令；替代旧的 system regex 扩展入口。
+        动态注册系统指令；用于运行期扩展 command registry。
         """
 
         command_id = command_id or f"runtime.dynamic.{name.lstrip('/').replace(' ', '.')}"

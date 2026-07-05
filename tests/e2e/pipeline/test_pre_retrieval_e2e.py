@@ -612,7 +612,7 @@ class TestL1SystemInterception:
     """
     HP-GW-001: L1 系统指令拦截
 
-    验证系统指令 (/clear, /reset, /help) 被 L1 正则拦截，不调用 LLM。
+    验证系统指令 (/clear, /reset, /help) 被 L1 command registry 拦截，不调用 LLM。
     """
 
     @pytest.fixture(autouse=True)

@@ -29,7 +29,7 @@ class GatewayIntent(str, Enum):
     #: 闲聊，无需检索
     CHAT = "CHAT"
 
-    #: 系统指令 (如 /clear, /reset)
+    #: 系统指令，由 System Gateway 的 command registry 识别。
     SYSTEM = "SYSTEM"
 
 

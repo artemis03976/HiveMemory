@@ -87,7 +87,7 @@ HiveMemory 的架构设计面临着一个核心矛盾：**记忆检索的实时�
 
 | 分身名称                          | 对应模块实现                                               | 所在层级                  | 核心职责             | 特性                      |
 | :---------------------------- | :--------------------------------------------------- | :-------------------- | :--------------- | :---------------------- |
-| **真理之眼 (The Eye)**            | `patchouli.eye` / `engines.gateway`                  | **交互层 (Interaction)** | 意图识别、查询重写、流量分发   | **原生异步**、极低延迟、小模型驱动     |
+| **真理之眼 (The Eye)**            | `system.gateway` / `engines.gateway`                 | **System Gateway** | 意图识别、查询重写、系统指令识别、流量分发 | **原生异步**、极低延迟、小模型驱动     |
 | **检索使魔 (Retrieval Familiar)** | `patchouli.retrieval_familiar` / `engines.retrieval` | **热处理层 (Hot Path)**   | 混合检索、重排序、上下文渲染   | **原生异步**、高并发、本地计算密集     |
 | **大图书馆本体 (Librarian Core)**   | `patchouli.librarian_core` / `engines.perception`等   | **冷处理层 (Cold Path)**  | 话题感知、记忆生成、生命周期管理 | **异步非阻塞**、高智商、SOTA 模型驱动 |
 
@@ -116,12 +116,12 @@ graph TD
 
 ## 2.3 核心组件详解 (Component Detail)
 
-### 2.3.1 帕秋莉·真理之眼 (The Eye / Global Gateway)
+### 2.3.1 真理之眼 (The Eye / System Gateway)
 
 真理之眼是系统的**守门人与感知者**，悬浮在交互层的最前端。所有进入图书馆的访客（用户消息）首先都要经过她的审视。真理之眼并不负责具体的搬运工作，而是专注于以极快的速度洞察意图：判断访客是来闲聊的，还是来查阅资料的？并将用户模糊的口语请求瞬间“翻译”为精准的检索咒语。
 
-- **工程实现**：对应 `engines.gateway`。
-- **关键能力**：L1 规则拦截（过滤无效信息）、L2 智能意图识别与指代消解。
+- **工程实现**：对应 `system.gateway` 与 `engines.gateway`。
+- **关键能力**：L1 command registry / 闲聊规则拦截、L2 智能意图识别与指代消解。
 
 ### 2.3.2 帕秋莉·检索使魔 (The Retrieval Familiar)
 
@@ -163,7 +163,7 @@ graph TD
 
 ### 2.5.2 记忆子系统 (PatchouliSystem / PatchouliRuntime / PatchouliService)
 
-`PatchouliSystem` 是**大图书馆设施 (The Facility)** 的子系统宿主。它持有 TheEye、PatchouliRuntime 与 PatchouliService，并将记忆域公开能力挂载到全局总线。
+`PatchouliSystem` 是**大图书馆设施 (The Facility)** 的子系统宿主。它持有 PatchouliRuntime 与 PatchouliService，并将记忆域公开能力挂载到全局总线。TheEye 由顶层 System Gateway 托管，Patchouli 只消费注入的 gaze callable 与 `EyeGazeResult`。
 
 `PatchouliRuntime` 是记忆域的能力运行时，负责：
 
@@ -215,7 +215,7 @@ HiveMemory 当前的进程内通信已统一收敛到纯异步运行时总线体
 
 ```
 1. [ChatApplicationService]  归一化请求参数并注册 generation cancel 事件
-2. [Patchouli.prepare]       TheEye 意图识别 + 查询重写 + 话题路由 → EyeGazeResult
+2. [Patchouli.prepare]       通过兼容 gaze callable 获取 EyeGazeResult（System Gateway 意图识别 + 查询重写 + 话题路由）
 3. [Patchouli.prepare]       准备话题上下文、预检索记忆、AgentRunContext 与流式 prelude
 4. [Alice.run]               AgentPromptAssembler 组装主 Agent messages
 5. [Alice.run]               WorkerAgent 生成 → MTP 拦截 → Koakuma 执行 → 结果回填 → 继续生成
@@ -529,7 +529,7 @@ Summary: {index.summary}
 
 Gateway 是系统的统一入口，实现 **”一次计算，多处复用”** 的设计理念。采用两级漏斗式处理：
 
-1. **L1: 规则拦截器 (The Fast Pass)**：基于正则匹配，零延迟拦截系统指令（`/clear`、`/reset`）及无效闲聊，可过滤约 20-30% 的无效 LLM 调用。
+1. **L1: 规则拦截器 (The Fast Pass)**：通过 command registry 识别系统指令（如 `/clear`、`/help`），并用本地正则过滤无效闲聊，可减少无效 LLM 调用。
 2. **L2: 语义分析核心 (Semantic Core)**：调用 LLM JSON mode，在单次调用中同时完成 **意图分类**、**指代消解**、**关键词提取** 与 **记忆价值判断**。
 
 ## 4.2 统一输出协议
@@ -814,11 +814,13 @@ $$V = (C \times I) \times D(t) \times 100 + A$$
 src/hivememory
 │  client.py                   # 统一入口 (HiveMemoryClient)
 │
-├─patchouli                    # [人格层] 帕秋莉的三位一体分身
-│  │  eye.py                   # 真理之眼 (Global Gateway)
+├─patchouli                    # [记忆域] Patchouli 记忆子系统
 │  │  retrieval_familiar.py    # 检索使魔 (Retrieval Engine)
 │  │  librarian_core.py        # 馆长本体 (Perception/Generation/Lifecycle)
 │  │  system.py                # 系统总线 (System Facade)
+│
+├─system                       # [系统层] 顶层编排与全局能力
+│  │  gateway/                 # TheEye、System Gateway 工厂、系统指令库
 │
 ├─engines                      # [能力层] 具体的业务逻辑引擎
 │  │  gateway/                 # 路由与重写
