@@ -2,6 +2,10 @@ from hivememory.system.gateway.commands.builtins import (
     create_builtin_command_registry,
     register_builtin_commands,
 )
+from hivememory.system.gateway.commands.dispatcher import (
+    CommandHandler,
+    SystemCommandDispatcher,
+)
 from hivememory.system.gateway.commands.models import (
     CommandCategory,
     CommandDefinition,
@@ -20,12 +24,14 @@ __all__ = [
     "CommandDefinition",
     "CommandExecutionResult",
     "CommandExecutionStatus",
+    "CommandHandler",
     "CommandParseResult",
     "CommandParseStatus",
     "CommandPermissionPolicy",
     "CommandRegistry",
     "CommandRouteTarget",
     "CommandRouteTargetKind",
+    "SystemCommandDispatcher",
     "create_builtin_command_registry",
     "register_builtin_commands",
 ]
