@@ -20,6 +20,7 @@ from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.models import AgentProfile, MemoryAtom, Identity, TraceItem, TurnEvent
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.system.gateway.commands.models import CommandParseResult
 from hivememory.core.mtp.models import MTPCallRequest
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
@@ -241,6 +242,9 @@ class EyeGazeResult(BaseModel):
 
     #: 新话题摘要（仅 NEW_TOPIC 时由 Gateway 生成）
     new_topic_summary: Optional[str] = Field(default=None, description="新话题摘要")
+
+    #: 结构化系统指令解析结果，仅由 Gateway L1 填充。
+    command: Optional[CommandParseResult] = Field(default=None, description="系统指令解析结果")
 
 
 class InteractionPayload(BaseModel):

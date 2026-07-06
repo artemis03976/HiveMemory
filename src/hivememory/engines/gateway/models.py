@@ -13,6 +13,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from hivememory.system.gateway.commands.models import CommandParseResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +29,7 @@ class GatewayIntent(str, Enum):
     #: 闲聊，无需检索
     CHAT = "CHAT"
 
-    #: 系统指令 (如 /clear, /reset)
+    #: 系统指令，由 System Gateway 的 command registry 识别。
     SYSTEM = "SYSTEM"
 
 
@@ -70,6 +72,9 @@ class GatewayResult(BaseModel):
 
     #: L1 拦截结果 (可选)
     l1_result: Optional["InterceptorResult"] = Field(default=None, description="L1 拦截结果")
+
+    #: 结构化系统指令解析结果，仅由 L1 registry 命中时填充。
+    command: Optional[CommandParseResult] = Field(default=None, description="系统指令解析结果")
 
     #: 路由目标话题 ID (MMU 话题路由, Phase 4.5)
     #: 值为 topic_id (buffer_id) 或 "NEW_TOPIC" 表示新建话题
@@ -130,6 +135,9 @@ class InterceptorResult(BaseModel):
 
     #: 是否命中拦截
     hit: bool = Field(default=True, description="是否命中")
+
+    #: 结构化系统指令解析结果，仅 SYSTEM 拦截会填充。
+    command: Optional[CommandParseResult] = Field(default=None, description="系统指令解析结果")
 
 
 class SemanticAnalysisResult(BaseModel):

@@ -18,6 +18,8 @@ class RuntimeEventType(str, Enum):
     CHAT_RUN_COMPLETED = "chat.run.completed"
     CHAT_RUN_FAILED = "chat.run.failed"
 
+    COMMAND_EXECUTED = "command.executed"
+
     AGENT_RUN_STARTED = "agent.run.started"
     AGENT_RUN_STATUS = "agent.run.status"
     AGENT_RUN_COMPLETED = "agent.run.completed"

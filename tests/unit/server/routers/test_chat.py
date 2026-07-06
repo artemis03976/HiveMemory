@@ -183,6 +183,45 @@ class TestChatRouter:
         assert len(error_events) == 1
         assert "LLM" in error_events[0]["data"]["message"]
 
+    def test_command_result_sse_event_is_forwarded_as_own_event(self):
+        mock_service = MagicMock()
+
+        async def fake_stream(**kwargs):
+            yield {
+                "event": "command_result",
+                "data": {
+                    "command_id": "system.clear",
+                    "status": "completed",
+                    "message": "cleared",
+                    "client_action": {"type": "clear_chat"},
+                },
+            }
+            yield {
+                "event": "done",
+                "data": {
+                    "status": "completed",
+                    "command_id": "system.clear",
+                },
+            }
+
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+
+        app = _create_test_app(mock_service)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "/clear", "user_id": "test"},
+        )
+        assert response.status_code == 200
+
+        events = _parse_sse_events(response.text)
+        event_types = [e["event"] for e in events]
+        assert event_types == ["command_result", "done"]
+        assert "token" not in event_types
+        assert events[0]["data"]["message"] == "cleared"
+        assert events[0]["data"]["client_action"] == {"type": "clear_chat"}
+
     def test_uuid_payload_is_serializable(self):
         mock_service = MagicMock()
 

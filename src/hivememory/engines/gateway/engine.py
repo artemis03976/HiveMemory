@@ -93,6 +93,7 @@ class GatewayEngine:
                 worth_saving=False,
                 reason=l1_result.reason,
                 l1_result=l1_result,
+                command=l1_result.command,
                 target_topic="NEW_TOPIC",  # L1 拦截不做路由
             )
 

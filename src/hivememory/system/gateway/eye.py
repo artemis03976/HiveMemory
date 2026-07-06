@@ -77,6 +77,7 @@ class TheEye:
                 target_topic=result.target_topic,
                 new_topic_title=result.new_topic_title,
                 new_topic_summary=result.new_topic_summary,
+                command=result.command,
             )
 
         except Exception as e:

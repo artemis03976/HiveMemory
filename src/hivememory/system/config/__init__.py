@@ -14,7 +14,7 @@ from hivememory.system.config.shared import (
     SharedConfig,
 )
 from hivememory.system.config.gateway import (
-    RuleInterceptorConfig, LLMAnalyzerConfig, SystemGatewayConfig,
+    RuleInterceptorConfig, LLMAnalyzerConfig, SystemCommandConfig, SystemGatewayConfig,
 )
 from hivememory.system.config.patchouli import (
     QdrantConfig,
@@ -311,7 +311,7 @@ __all__ = [
     "ProviderCredentials",
     "SharedConfig",
     # gateway
-    "RuleInterceptorConfig", "LLMAnalyzerConfig", "SystemGatewayConfig",
+    "RuleInterceptorConfig", "LLMAnalyzerConfig", "SystemCommandConfig", "SystemGatewayConfig",
     # patchouli
     "QdrantConfig",
     "SimpleRelayConfig", "LLMRelayConfig", "RelayControllerConfig",

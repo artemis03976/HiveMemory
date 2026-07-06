@@ -1,11 +1,11 @@
 """
-L1: 规则拦截器 - 快速路径
+Gateway L1 规则拦截器。
 
-零开销拦截系统指令和无效文本，可拦截约 20-30% 的无效 LLM 调用。
-
-作者: HiveMemory Team
-版本: 2.0
+在 L2 语义分析前执行低成本确定性路由。系统指令由 System Gateway 的
+CommandRegistry 识别，闲聊仍保留本地正则规则。
 """
+
+from __future__ import annotations
 
 import logging
 import re
@@ -14,81 +14,57 @@ from typing import List, Optional
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
 from hivememory.system.config import RuleInterceptorConfig
+from hivememory.system.gateway.commands import (
+    CommandCategory,
+    CommandDefinition,
+    CommandParseResult,
+    CommandParseStatus,
+    CommandRegistry,
+    CommandRouteTarget,
+    CommandRouteTargetKind,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class RuleInterceptor(BaseInterceptor):
     """
-    规则拦截器
+    基于 registry 与正则的 L1 快速拦截器。
 
-    基于正则和字符串匹配的零开销拦截器，用于快速处理：
-    1. 系统指令 (/clear, /reset, etc.)
-    2. 简单寒暄 (Hi, 你好, 谢谢, etc.)
-
-    拦截策略：
-    - 系统指令 -> Intent: SYSTEM
-    - 简单寒暄 -> Intent: CHAT (且 worth_saving=False)
-    - 其他 -> 不拦截，进入 L2 语义分析
-
-    示例:
-        >>> config = RuleInterceptorConfig()
-        >>> interceptor = RuleInterceptor(config)
-        >>> result = interceptor.intercept("/clear")
-        >>> assert result.intent == GatewayIntent.SYSTEM
-        >>> result = interceptor.intercept("你好")
-        >>> assert result.intent == GatewayIntent.CHAT
-        >>> result = interceptor.intercept("如何部署贪吃蛇游戏")
-        >>> assert result is None  # 不拦截
+    RuleInterceptor 只负责匹配、解析和意图分类，不执行任何系统指令副作用。
+    未启用系统指令解析或未注入 command_registry 时，不执行系统指令，
+    但仍过滤 slash 指令，避免用户输入的系统指令落入 L2 语义分析层。
     """
 
-    #: 系统指令模式 (正则列表)
-    # TODO: 系统指令应从全局获取
-    SYSTEM_PATTERNS: List[str] = [
-        r"^/clear$",
-        r"^/reset$",
-        r"^/start$",
-        r"^/help$",
-        r"^/restart$",
-    ]
-
-    #: 无效闲聊模式 (正则列表)
     CHAT_PATTERNS: List[str] = [
-        # 中英文问候
-        r"^(你好|hi|hello|hey|嗨|哈喽)[\s\!\?。\?\！]*$",
-        # 中英文感谢
-        r"^(谢谢|thanks|thank you|感谢)[\s\!\?。\?\！]*$",
-        # 中英文再见
-        r"^(再见|bye|goodbye|拜拜|88)[\s\!\?。\?\！]*$",
-        # 简单确认
-        r"^(好的|ok|okay|o?k)[\s\!\?。\?\！]*$",
-        r"^(是|是的|对|yes|yeah)[\s\!\?。\?\！]*$",
-        r"^(不|不是|no|nope)[\s\!\?。\?\！]*$",
-        # 极短文本（< 3 字符，可能是误输入或无关紧要）
+        r"^(你好|hi|hello|hey|嗨|哈喽)[\s\!\?。？]*$",
+        r"^(谢谢|thanks|thank you|感谢)[\s\!\?。？]*$",
+        r"^(再见|bye|goodbye|拜拜|88)[\s\!\?。？]*$",
+        r"^(好的|ok|okay|o?k)[\s\!\?。？]*$",
+        r"^(是|是的|对|yes|yeah)[\s\!\?。？]*$",
+        r"^(不|不是|no|nope)[\s\!\?。？]*$",
         r"^.{0,2}$",
     ]
 
     def __init__(
         self,
         config: RuleInterceptorConfig,
+        command_registry: CommandRegistry | None = None,
     ):
-        """
-        初始化规则拦截器
-
-        Args:
-            config: RuleInterceptorConfig 配置对象
-        """
         self.config = config
-        
         self.enable_system = config.enable_system
         self.enable_chat = config.enable_chat
+        self.command_registry = command_registry
+        self._chat_regex = [re.compile(pattern, re.IGNORECASE) for pattern in self.CHAT_PATTERNS]
 
-        self._system_regex = [re.compile(p, re.IGNORECASE) for p in self.SYSTEM_PATTERNS]
-        self._chat_regex = [re.compile(p, re.IGNORECASE) for p in self.CHAT_PATTERNS]
-
+        system_commands_count = (
+            len(self.command_registry.list(include_hidden=True))
+            if self.command_registry is not None
+            else 0
+        )
         logger.debug(
-            f"RuleInterceptor initialized: "
-            f"system={len(self._system_regex)} patterns, "
+            "RuleInterceptor initialized: "
+            f"system_commands={system_commands_count}, "
             f"chat={len(self._chat_regex)} patterns"
         )
 
@@ -113,49 +89,89 @@ class RuleInterceptor(BaseInterceptor):
             )
 
         # 检查系统指令
-        if self.enable_system:
-            for pattern in self._system_regex:
-                if pattern.match(query_stripped):
-                    logger.debug(f"L1 拦截: 系统指令 '{query_stripped}'")
-                    return InterceptorResult(
-                        intent=GatewayIntent.SYSTEM,
-                        reason=f"系统指令: {query_stripped}",
-                        hit=True,
-                    )
+        if query_stripped.startswith("/") and (
+            not self.enable_system or self.command_registry is None
+        ):
+            logger.debug("L1 filtered slash command without active registry: %s", query_stripped)
+            command = self._disabled_command_result(query_stripped)
+            return InterceptorResult(
+                intent=GatewayIntent.SYSTEM,
+                reason=self._command_reason(query_stripped, command.parse_status),
+                hit=True,
+                command=command,
+            )
 
-        # 检查无效闲聊
+        if self.enable_system and self.command_registry is not None:
+            command = self.command_registry.match(query_stripped)
+            if command is not None:
+                logger.debug("L1 intercepted system command: %s", query_stripped)
+                return InterceptorResult(
+                    intent=GatewayIntent.SYSTEM,
+                    reason=self._command_reason(query_stripped, command.parse_status),
+                    hit=True,
+                    command=command,
+                )
+
         if self.enable_chat:
             for pattern in self._chat_regex:
                 if pattern.match(query_stripped):
-                    logger.debug(f"L1 拦截: 简单寒暄 '{query_stripped}'")
+                    logger.debug("L1 intercepted simple chat: %s", query_stripped)
                     return InterceptorResult(
                         intent=GatewayIntent.CHAT,
                         reason="简单寒暄",
                         hit=True,
                     )
 
-        # 不拦截，进入 L2 语义分析
         return None
 
     def add_chat_pattern(self, pattern: str) -> None:
-        """
-        动态添加闲聊模式
-
-        Args:
-            pattern: 正则表达式字符串
-        """
         self._chat_regex.append(re.compile(pattern, re.IGNORECASE))
-        logger.debug(f"Added chat pattern: {pattern}")
+        logger.debug("Added chat pattern: %s", pattern)
 
-    def add_system_pattern(self, pattern: str) -> None:
+    def add_system_command(self, name: str, command_id: str | None = None) -> None:
         """
-        动态添加系统指令模式
+        动态注册系统指令；用于运行期扩展 command registry。
+        """
 
-        Args:
-            pattern: 正则表达式字符串
-        """
-        self._system_regex.append(re.compile(pattern, re.IGNORECASE))
-        logger.debug(f"Added system pattern: {pattern}")
+        command_id = command_id or f"runtime.dynamic.{name.lstrip('/').replace(' ', '.')}"
+        if self.command_registry is None:
+            self.command_registry = CommandRegistry()
+        self.command_registry.register(
+            CommandDefinition(
+                command_id=command_id,
+                category=CommandCategory.SYSTEM,
+                primary_name=name,
+                summary=f"动态系统指令 {name}",
+                route_target=CommandRouteTarget(
+                    kind=CommandRouteTargetKind.FUTURE_JOB,
+                    name=command_id,
+                ),
+                hidden=True,
+            )
+        )
+
+    @staticmethod
+    def _command_reason(query: str, status: CommandParseStatus | str) -> str:
+        if status == CommandParseStatus.UNKNOWN:
+            return f"未知系统指令: {query}"
+        if status == CommandParseStatus.INVALID_ARGS:
+            return f"系统指令参数无效: {query}"
+        if status == CommandParseStatus.AMBIGUOUS:
+            return f"系统指令存在歧义: {query}"
+        return f"系统指令: {query}"
+
+    @staticmethod
+    def _disabled_command_result(query: str) -> CommandParseResult:
+        """系统指令库未启用时的过滤结果，防止 slash 输入继续进入 L2。"""
+
+        name = query.split(maxsplit=1)[0]
+        return CommandParseResult(
+            raw_input=query,
+            name=name,
+            tokens=[name],
+            parse_status=CommandParseStatus.UNKNOWN,
+            error="系统指令库未启用",
+        )
 
 
 class NoOpInterceptor(BaseInterceptor):
@@ -179,7 +195,10 @@ class NoOpInterceptor(BaseInterceptor):
         return None
 
 
-def create_interceptor(config: RuleInterceptorConfig) -> BaseInterceptor:
+def create_interceptor(
+    config: RuleInterceptorConfig,
+    command_registry: CommandRegistry | None = None,
+) -> BaseInterceptor:
     """
     创建 L1 拦截器实例
 
@@ -191,10 +210,10 @@ def create_interceptor(config: RuleInterceptorConfig) -> BaseInterceptor:
     """
     if config.enabled:
         logger.info("Gateway L1 拦截器已启用")
-        return RuleInterceptor(config)
-    else:
-        logger.info("Gateway L1 拦截器已禁用 (No-Op)")
-        return NoOpInterceptor()
+        return RuleInterceptor(config, command_registry=command_registry)
+
+    logger.info("Gateway L1 拦截器已禁用 (No-Op)")
+    return NoOpInterceptor()
 
 
 __all__ = [

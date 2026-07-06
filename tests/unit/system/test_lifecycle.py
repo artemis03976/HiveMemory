@@ -7,8 +7,16 @@ from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.assembler import (
+    _RegistriesBundle,
+    _RuntimeBundle,
+    _ServicesBundle,
+    _SubsystemBundle,
+)
+from hivememory.system.gateway.bundle import GatewayBundle
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import NullRuntimeEventSink
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 
 
@@ -95,22 +103,34 @@ def system_factory(mock_patchouli, global_bus, scheduler):
         alice.stop = AsyncMock()
         alice.health = AsyncMock(return_value={"status": "ok"})
         mock_patchouli._scheduler = scheduler
-        return HiveMemorySystem(
-            config=MagicMock(),
-            patchouli=mock_patchouli,
-            alice=alice,
+
+        runtime = _RuntimeBundle(
             global_bus=global_bus,
             scheduler=scheduler,
-            chat_service=chat_service,
-            ingress_service=ingress_service,
-            memory_service=memory_service,
-            memory_task_service=memory_task_service,
-            agent_service=agent_service,
-            topic_service=topic_service,
-            readiness_service=readiness_service,
-            model_registry=MagicMock(),
+            event_bus=None,
+            event_sink=NullRuntimeEventSink(),
+        )
+        registries = _RegistriesBundle(
             provider_registry=MagicMock(),
-            **kwargs,
+            model_registry=MagicMock(),
+        )
+        subsystems = _SubsystemBundle(patchouli=mock_patchouli, alice=alice)
+        services = _ServicesBundle(
+            chat=chat_service,
+            ingress=ingress_service,
+            memory=memory_service,
+            memory_task=memory_task_service,
+            agent=agent_service,
+            topic=topic_service,
+            readiness=readiness_service,
+        )
+        return HiveMemorySystem(
+            config=MagicMock(),
+            runtime=runtime,
+            registries=registries,
+            gateway_bundle=None,
+            subsystems=subsystems,
+            services=services,
         )
 
     return _build

@@ -1,84 +1,84 @@
 from __future__ import annotations
 
 from time import monotonic
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from hivememory.alice.system import AliceSystem
-from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system.application.agent_service import AgentApplicationService
-from hivememory.system.application.chat_service import ChatApplicationService
-from hivememory.system.application.memory_service import MemoryApplicationService
-from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
-from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.system.assembler import (
+    SystemAssembler,
+    _RegistriesBundle,
+    _RuntimeBundle,
+    _ServicesBundle,
+    _SubsystemBundle,
+)
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.config import RuntimeEventsConfig
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
+from hivememory.system.gateway.bundle import GatewayBundle
+from hivememory.system.gateway.eye import TheEye
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import (
-    NullRuntimeEventSink,
     RuntimeEventBus,
     RuntimeEventSink,
     safe_runtime_event_value,
 )
-from hivememory.system.runtime.scheduler.global_scheduler import (
-    GlobalMaintenanceScheduler,
-)
+
+if TYPE_CHECKING:
+    from hivememory.system.application.agent_service import AgentApplicationService
+    from hivememory.system.application.chat_service import ChatApplicationService
+    from hivememory.system.application.memory_service import MemoryApplicationService
+    from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
+    from hivememory.system.application.passive_ingress_service import PassiveIngressService
+    from hivememory.system.application.readiness_service import SystemReadinessService
+    from hivememory.system.application.topic_service import TopicApplicationService
 
 
 class HiveMemorySystem:
     """
     HiveMemory 顶层系统门面
 
-    薄门面 + 宿主容器。将所有业务逻辑委托给 Patchouli 子系统，
-    同时建立多子系统架构的结构基础。
+    薄门面 + 宿主容器。装配逻辑委托给 SystemAssembler，
+    本类只负责生命周期管理与应用服务入口。
     """
 
     def __init__(
         self,
         config: HiveMemoryConfig,
-        patchouli: PatchouliSystem,
-        alice: AliceSystem,
-        global_bus: GlobalSystemBus,
-        scheduler: GlobalMaintenanceScheduler,
-        chat_service: ChatApplicationService,
-        ingress_service: PassiveIngressService,
-        memory_service: MemoryApplicationService,
-        memory_task_service: MemoryTaskApplicationService,
-        agent_service: AgentApplicationService,
-        topic_service: TopicApplicationService,
-        readiness_service: SystemReadinessService,
-        model_registry: ModelRegistry,
-        provider_registry: ProviderRegistry,
-        runtime_events: RuntimeEventBus | None = None,
-        runtime_event_sink: RuntimeEventSink | None = None,
-        gateway: Any | None = None,
+        runtime: _RuntimeBundle,
+        registries: _RegistriesBundle,
+        gateway_bundle: GatewayBundle | None,
+        subsystems: _SubsystemBundle,
+        services: _ServicesBundle,
     ) -> None:
         self._config = config
 
-        self._global_bus = global_bus
-        self._scheduler = scheduler
-        self._runtime_events = runtime_events
-        self._runtime_event_sink = runtime_event_sink or NullRuntimeEventSink()
+        # 运行时基础设施
+        self._global_bus = runtime.global_bus
+        self._scheduler = runtime.scheduler
+        self._runtime_events = runtime.event_bus
+        self._runtime_event_sink = runtime.event_sink
 
-        self._patchouli = patchouli
-        self._alice = alice
-        self._gateway = gateway
+        # 子系统
+        self._patchouli = subsystems.patchouli
+        self._alice = subsystems.alice
 
-        self._chat_service = chat_service
-        self._ingress_service = ingress_service
-        self._memory_service = memory_service
-        self._memory_task_service = memory_task_service
-        self._agent_service = agent_service
-        self._topic_service = topic_service
-        self._readiness_service = readiness_service
+        # Gateway
+        self._gateway: TheEye | None = gateway_bundle.eye if gateway_bundle else None
+        self._command_dispatcher = (
+            gateway_bundle.command_dispatcher if gateway_bundle else None
+        )
+
+        # 应用服务
+        self._chat_service = services.chat
+        self._ingress_service = services.ingress
+        self._memory_service = services.memory
+        self._memory_task_service = services.memory_task
+        self._agent_service = services.agent
+        self._topic_service = services.topic
+        self._readiness_service = services.readiness
 
         # 注册表：全局单例，供 API 层（deps.py）注入到路由
-        self._model_registry = model_registry
-        self._provider_registry = provider_registry
+        self._model_registry = registries.model_registry
+        self._provider_registry = registries.provider_registry
 
         self._started = False
         self._scheduler_stopped = False
@@ -91,122 +91,7 @@ class HiveMemorySystem:
         from hivememory.system.config import load_app_config
 
         config = config or load_app_config()
-
-        global_bus = GlobalSystemBus()
-        runtime_events_config = getattr(config, "runtime_events", None)
-        if not isinstance(runtime_events_config, RuntimeEventsConfig):
-            runtime_events_config = RuntimeEventsConfig()
-
-        runtime_events = (
-            RuntimeEventBus(
-                buffer_size=runtime_events_config.buffer_size,
-                subscriber_queue_size=runtime_events_config.subscriber_queue_size,
-            )
-            if runtime_events_config.enabled
-            else None
-        )
-        runtime_event_sink: RuntimeEventSink = runtime_events or NullRuntimeEventSink()
-        scheduler = GlobalMaintenanceScheduler(
-            tick_seconds=config.scheduler.tick_seconds,
-            shutdown_wait_seconds=config.scheduler.shutdown_wait_seconds,
-            runtime_events=runtime_event_sink.scoped(
-                "system",
-                component="maintenance_scheduler",
-            ),
-        )
-
-        # 模型注册表 & 提供商凭证注册表：提前初始化（在 Patchouli/Alice 之前）
-        # ProviderRegistry 合并 env 层（来自 .env）与 yaml 层（providers.secrets.yaml）
-        provider_registry = ProviderRegistry(env_providers=config.shared.providers)
-
-        # ModelRegistry 注入 ProviderRegistry 引用（动态查询，修改立即生效）
-        model_registry = ModelRegistry(provider_registry=provider_registry)
-
-        # 预解析 gateway / librarian 的 LLM 配置：
-        # model_id 引用注册表，凭证由 provider 表补齐，temperature/max_tokens 保留组件值。
-        # 预解析后 config.shared.llm.* 中的 model/api_key/api_base 已被填充，
-        # PatchouliSystem 构造时无需感知注册表。
-        config.shared.llm.gateway = model_registry.resolve_for_llm_config(
-            config.shared.llm.gateway
-        )
-        config.shared.llm.librarian = model_registry.resolve_for_llm_config(
-            config.shared.llm.librarian
-        )
-
-        # 1. System Gateway 创建（使用已解析的 gateway LLM 配置）
-        from hivememory.system.gateway import build_system_gateway
-        system_gateway = build_system_gateway(
-            config=config.gateway,
-            llm_config=config.shared.llm.gateway,
-        )
-
-        # 2. Patchouli 创建（使用已解析的 librarian LLM 配置；Gateway 由 System 注入）
-        patchouli = PatchouliSystem(
-            config=config,
-            gateway_gaze=system_gateway.gaze,
-            global_bus=global_bus,
-            scheduler=scheduler,
-            runtime_events=runtime_event_sink.scoped("patchouli"),
-        )
-
-        # 3. Alice 创建（worker 模型在运行时逐帧由注册表解析）
-        alice = AliceSystem(
-            config=config,
-            global_bus=global_bus,
-            runtime_events=runtime_event_sink.scoped("alice"),
-            model_registry=model_registry,
-        )
-
-        chat_service = ChatApplicationService(
-            global_bus=global_bus,
-            runtime_events=runtime_event_sink.scoped(
-                "system",
-                component="chat_application_service",
-            ),
-        )
-        ingress_service = PassiveIngressService(
-            bus=global_bus,
-            config=config,
-            scheduler=scheduler,
-        )
-        memory_service = MemoryApplicationService(
-            global_bus=global_bus,
-            config=config,
-        )
-        memory_task_service = MemoryTaskApplicationService(
-            global_bus=global_bus,
-        )
-        agent_service = AgentApplicationService(
-            global_bus=global_bus,
-            config=config,
-        )
-        topic_service = TopicApplicationService(
-            global_bus=global_bus,
-            config=config,
-        )
-        readiness_service = SystemReadinessService(
-            global_bus=global_bus,
-        )
-
-        return cls(
-            config=config,
-            patchouli=patchouli,
-            alice=alice,
-            global_bus=global_bus,
-            scheduler=scheduler,
-            chat_service=chat_service,
-            ingress_service=ingress_service,
-            memory_service=memory_service,
-            memory_task_service=memory_task_service,
-            agent_service=agent_service,
-            topic_service=topic_service,
-            readiness_service=readiness_service,
-            model_registry=model_registry,
-            provider_registry=provider_registry,
-            runtime_events=runtime_events,
-            runtime_event_sink=runtime_event_sink,
-            gateway=system_gateway,
-        )
+        return SystemAssembler(config).assemble()
 
     # ========== 生命周期 ==========
 
@@ -464,7 +349,7 @@ class HiveMemorySystem:
         return self._readiness_service
 
     @property
-    def gateway(self) -> Any | None:
+    def gateway(self) -> TheEye | None:
         return self._gateway
 
     @property

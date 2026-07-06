@@ -3,9 +3,16 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from hivememory.system.assembler import (
+    _RegistriesBundle,
+    _RuntimeBundle,
+    _ServicesBundle,
+    _SubsystemBundle,
+)
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.application.readiness_service import SystemReadinessService
+from hivememory.system.gateway.bundle import GatewayBundle
 from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
@@ -55,22 +62,35 @@ def system(mock_patchouli):
         config=config,
     )
     readiness_service = MagicMock(spec=SystemReadinessService)
-    system = HiveMemorySystem(
-        config=config,
-        patchouli=mock_patchouli,
-        alice=alice,
+
+    runtime = _RuntimeBundle(
         global_bus=global_bus,
         scheduler=scheduler,
-        chat_service=chat_service,
-        ingress_service=ingress_service,
-        memory_service=memory_service,
-        memory_task_service=memory_task_service,
-        agent_service=agent_service,
-        topic_service=topic_service,
-        readiness_service=readiness_service,
-        model_registry=MagicMock(),
+        event_bus=None,
+        event_sink=runtime_events,
+    )
+    registries = _RegistriesBundle(
         provider_registry=MagicMock(),
-        runtime_event_sink=runtime_events,
+        model_registry=MagicMock(),
+    )
+    subsystems = _SubsystemBundle(patchouli=mock_patchouli, alice=alice)
+    services = _ServicesBundle(
+        chat=chat_service,
+        ingress=ingress_service,
+        memory=memory_service,
+        memory_task=memory_task_service,
+        agent=agent_service,
+        topic=topic_service,
+        readiness=readiness_service,
+    )
+
+    system = HiveMemorySystem(
+        config=config,
+        runtime=runtime,
+        registries=registries,
+        gateway_bundle=None,
+        subsystems=subsystems,
+        services=services,
     )
     system._test_runtime_events = runtime_events
     return system

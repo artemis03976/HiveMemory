@@ -118,9 +118,12 @@ MTP 不再只是工具调用语法，而是：
 graph TD
     UserClient[用户 / Worker Agent] <--> API_Interface
 
-    subgraph "PatchouliSystem v3.0"
+    subgraph "System Gateway"
         API_Interface <--> TheEye[The Eye / 真理之眼]
-        TheEye <--> Kernel[Patchouli Kernel]
+    end
+
+    subgraph "PatchouliSystem v3.0"
+        TheEye --> Kernel[Patchouli Kernel]
 
         subgraph "Services"
             Kernel <--> Retrieval[Retrieval Familiar]

@@ -500,17 +500,19 @@ Agent 可能会犯错（如幻觉 ID、语法错误）。我们需要利用 LLM 
 
 #### 6.2 系统拓扑图 (System Topology)
 
-v3.0 架构采用了星形拓扑，以 Kernel 为中心，连接网关、微服务与数据层。
+v3.0 架构采用了星形拓扑，以 System Gateway 作为入口，Patchouli Kernel 聚合记忆域微服务与数据层。
 
 ```mermaid
 graph TD
     UserClient[用户 / Worker Agent] <--> API_Interface
     
-    subgraph "PatchouliSystem (The Facility)"
+    subgraph "System Gateway"
         API_Interface <--> TheEye[The Eye / 真理之眼 \n(Ingress Gateway)]
-        
-        TheEye <--> Kernel[Patchouli Kernel \n(State & Scheduler)]
-        
+    end
+
+    subgraph "PatchouliSystem (The Facility)"
+        TheEye --> Kernel[Patchouli Kernel \n(State & Scheduler)]
+
         subgraph "Microservices Layer (The Staff)"
             Kernel <--> Retrieval[Retrieval Familiar \n(Read-Only Service)]
             Kernel <--> Koakuma[Koakuma / 小恶魔 \n(MTP Runtime Service)]

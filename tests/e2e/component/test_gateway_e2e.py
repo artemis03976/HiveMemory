@@ -527,7 +527,7 @@ class TestInterceptorLogic:
     """
     Group 4: 拦截器测试
 
-    验证 L1 正则拦截器的优先处理机制。
+    验证 L1 registry / 规则拦截器的优先处理机制。
     """
 
     @pytest.fixture(autouse=True)

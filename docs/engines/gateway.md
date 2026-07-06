@@ -15,6 +15,12 @@ src/hivememory/engines/gateway/
 ├── prompts.py           # 系统提示词模板（标准/简化/调度器/英文变体）
 ├── models.py            # GatewayResult / GatewayIntent / SemanticAnalysisResult 等数据模型
 └── interfaces.py        # BaseInterceptor / BaseSemanticAnalyzer 抽象接口
+
+src/hivememory/system/gateway/
+├── eye.py               # TheEye — System 级 Gateway 服务入口
+├── factory.py           # System Gateway 装配工厂
+├── topic_context.py     # topic snapshot 菜单渲染
+└── commands/            # System command registry / parser / dispatcher / handlers
 ```
 
 Gateway 是整个系统的第一道关卡，所有用户输入必须经过它的处理才能流向下游。它的核心产出 `GatewayResult` 是一个结构化的指令包，同时驱动检索层、感知层和生成层三个下游模块。
@@ -54,8 +60,8 @@ Gateway 采用两级串行处理机制，形如漏斗：
 ```
 
 1. **L1: 规则拦截器 (The Fast Pass)**
-   - **机制**：基于正则和字符串匹配，预编译正则表达式。
-   - **职责**：零延迟拦截 `/clear` 等系统指令及极短的无效文本（如"你好"），防止无意义的 LLM 调用。
+   - **机制**：系统指令由 command registry 解析，简单闲聊仍使用本地预编译正则。
+   - **职责**：零延迟识别 `/clear` 等系统指令及极短的无效文本（如"你好"），防止无意义的 LLM 调用。
    - **预期效果**：可拦截约 20-30% 的无效 LLM 调用。
 
 2. **L2: 语义分析核心 (The Semantic Core)**
@@ -96,7 +102,7 @@ class GatewayResult(BaseModel):
 | :--- | :--- | :--- |
 | `RAG` | 需要检索历史记忆 | L2 分析结果（乐观策略下为默认） |
 | `CHAT` | 闲聊，无需检索 | L1 拦截简单寒暄 |
-| `SYSTEM` | 系统指令 | L1 拦截 `/clear`、`/reset` 等 |
+| `SYSTEM` | 系统指令 | L1 command registry 命中，或禁用 registry 时对 slash 指令进行兜底过滤 |
 
 ### 回退策略 (Fallback)
 
@@ -137,23 +143,24 @@ GatewayResult
 
 ***
 
-## 4.4 L1 规则拦截器
+## 4.4 L1 规则拦截器与系统指令 registry
 
-`RuleInterceptor` 是 L1 的具体实现，维护两组预编译正则规则：
+`RuleInterceptor` 是 L1 的具体实现。当前系统指令不再来自硬编码 regex 列表，而是由 `hivememory.system.gateway.commands.CommandRegistry` 提供定义、解析结果和路由目标；简单闲聊仍由本地预编译正则处理。
 
-### 系统指令模式
+### 系统指令解析
 
-```python
-SYSTEM_PATTERNS = [
-    r"^/clear$",
-    r"^/reset$",
-    r"^/start$",
-    r"^/help$",
-    r"^/restart$",
-]
-```
+内置 registry 默认注册 `/help`、`/commands`、`/clear`、`/status`，并保留 `/reset`、`/start`、`/restart` 作为兼容 definition。命中后返回 `intent=SYSTEM`、`worth_saving=False`，并在 `GatewayResult.command` 中携带结构化 `CommandParseResult`。
 
-命中后返回 `intent=SYSTEM`，`worth_saving=False`。
+当未启用系统指令解析或未注入 `command_registry` 时，L1 不执行任何系统指令，但仍会兜底过滤 slash 指令，避免它们进入 L2 语义分析层。
+
+Phase 2 已实现的 command route target：
+
+| Route target | 状态 | 说明 |
+| :--- | :--- | :--- |
+| `local_handler` | 已实现 | 后端本地 handler，可返回结构化 command result |
+| `client_action` | 已实现 | 返回前端动作描述，由 client 执行 UI 侧行为 |
+| `global_route` | 已实现 | 转发到 `GlobalSystemBus` route |
+| `future_job` | 预留 | 仅作为未来异步任务入口标记，当前返回 not implemented |
 
 ### 无效闲聊模式
 
@@ -171,7 +178,7 @@ CHAT_PATTERNS = [
 
 命中后返回 `intent=CHAT`，`worth_saving=False`。
 
-支持通过 `add_chat_pattern()` / `add_system_pattern()` 动态扩展规则。当配置 `enabled=False` 时，自动降级为 `NoOpInterceptor`（总是返回 `None`，放行所有请求）。
+支持通过 `add_chat_pattern()` 扩展闲聊正则，通过 `add_system_command()` 或自定义 `CommandRegistry` 扩展系统指令。当配置 `enabled=False` 时，自动降级为 `NoOpInterceptor`（总是返回 `None`，放行所有请求）。
 
 ***
 

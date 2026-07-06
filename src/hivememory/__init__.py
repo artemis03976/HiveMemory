@@ -48,6 +48,7 @@ from hivememory.core.models import (
 from hivememory.system.config import (
     load_app_config,
     HiveMemoryConfig,
+    SystemCommandConfig,
     SystemGatewayConfig,
     MemoryPerceptionConfig,
     MemoryGenerationConfig,
@@ -259,6 +260,7 @@ __all__ = [
     # ========== 配置 ==========
     "load_app_config",
     "HiveMemoryConfig",
+    "SystemCommandConfig",
     "SystemGatewayConfig",
     "MemoryPerceptionConfig",
     "MemoryGenerationConfig",

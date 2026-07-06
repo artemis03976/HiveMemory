@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock
 from hivememory.core.models import Identity, TopicSnapshot
 from hivememory.core.protocol.models import EyeGazeResult
 from hivememory.engines.gateway.models import GatewayIntent, GatewayResult
+from hivememory.system.gateway.commands import CommandParseResult, CommandParseStatus
 from hivememory.system.gateway.eye import TheEye
 
 
@@ -22,6 +23,7 @@ def _make_gateway_result(**kwargs) -> GatewayResult:
         new_topic_title=None,
         new_topic_summary=None,
         processing_time_ms=0.0,
+        command=None,
     )
     defaults.update(kwargs)
     result = Mock(spec=GatewayResult)
@@ -86,3 +88,21 @@ class TestTheEyeGaze:
         assert call_args.args[0] == "查询"
         assert "topic-1: 测试话题" in call_args.kwargs["active_topics_menu"]
         assert "状态: 正在调试" in call_args.kwargs["active_topics_menu"]
+
+    async def test_gaze_forwards_command_parse_result(self):
+        command = CommandParseResult(
+            command_id="system.help",
+            raw_input="/help",
+            name="/help",
+            tokens=["/help"],
+            matched_alias="/help",
+            parse_status=CommandParseStatus.MATCHED,
+        )
+        self.mock_engine.process.return_value = _make_gateway_result(
+            intent=GatewayIntent.SYSTEM,
+            command=command,
+        )
+
+        result = await self.eye.gaze("/help", identity=_make_identity())
+
+        assert result.command is command

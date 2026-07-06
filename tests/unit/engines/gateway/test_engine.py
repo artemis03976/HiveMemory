@@ -18,6 +18,9 @@ from hivememory.engines.gateway.models import (
     InterceptorResult,
     SemanticAnalysisResult,
 )
+from hivememory.system.gateway.commands import CommandParseResult, CommandParseStatus
+
+
 class TestGatewayEngine:
     """GatewayEngine 编排逻辑单元测试"""
 
@@ -76,6 +79,28 @@ class TestGatewayEngine:
         result = await self.engine.process("你好")
 
         assert result.l1_result is l1
+
+    @pytest.mark.asyncio
+    async def test_l1_hit_preserves_command_result(self):
+        command = CommandParseResult(
+            command_id="system.help",
+            raw_input="/help",
+            name="/help",
+            tokens=["/help"],
+            matched_alias="/help",
+            parse_status=CommandParseStatus.MATCHED,
+        )
+        self.mock_interceptor.intercept.return_value = InterceptorResult(
+            intent=GatewayIntent.SYSTEM,
+            reason="system command",
+            hit=True,
+            command=command,
+        )
+
+        result = await self.engine.process("/help")
+
+        assert result.command is command
+        self.mock_analyzer.analyze.assert_not_called()
 
     # ========== L1 未命中 → L2 ==========
 
@@ -155,6 +180,7 @@ class TestGatewayEngine:
         result = await self.engine.process("test")
 
         assert result.l1_result is l1
+        assert result.command is None
 
     # ========== 参数传递 ==========
 
