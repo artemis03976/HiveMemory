@@ -74,6 +74,23 @@ async def test_gateway_facade_gaze_delegates_to_eye():
 
 
 @pytest.mark.asyncio
+async def test_gateway_facade_process_runs_empty_pipeline():
+    eye = MagicMock()
+    facade = GatewayFacade(
+        eye=eye,
+        context_builder=GatewayContextBuilder(),
+        pipeline=gateway.GatewayPipeline(),
+    )
+
+    state = await facade.process("hello", identity=Identity(user_id="u1"))
+
+    assert state.sealed is True
+    assert state.raw_message == "hello"
+    assert state.session_context.identity.user_id == "u1"
+    assert state.stage_trace == ()
+
+
+@pytest.mark.asyncio
 async def test_gateway_context_builder_uses_optional_provider():
     """ContextBuilder 先固定 Hydration 边界。"""
 

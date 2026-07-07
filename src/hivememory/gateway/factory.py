@@ -5,6 +5,7 @@ from __future__ import annotations
 from hivememory.gateway.context import GatewayContextBuilder, TopicSnapshotProvider
 from hivememory.gateway.eye import TheEye
 from hivememory.gateway.facade import GatewayFacade
+from hivememory.gateway.pipeline import GatewayPipeline
 from hivememory.infrastructure.llm import get_gateway_llm_service
 from hivememory.system.config import LLMConfig, SystemGatewayConfig
 from hivememory.system.gateway.commands import CommandRegistry, SystemCommandDispatcher
@@ -43,6 +44,7 @@ def build_gateway_facade(
         eye=active_eye,
         command_dispatcher=command_dispatcher,
         context_builder=GatewayContextBuilder(topic_provider=topic_provider),
+        pipeline=GatewayPipeline(),
     )
 
 

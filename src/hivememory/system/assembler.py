@@ -17,6 +17,8 @@ from dataclasses import dataclass
 
 from hivememory.alice.system import AliceSystem
 from hivememory.gateway import GatewayFacade
+from hivememory.gateway.context import GatewayContextBuilder
+from hivememory.gateway.pipeline import GatewayPipeline
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
@@ -218,6 +220,8 @@ class SystemAssembler:
         facade = GatewayFacade(
             eye=eye,
             command_dispatcher=command_dispatcher,
+            context_builder=GatewayContextBuilder(),
+            pipeline=GatewayPipeline(),
         )
 
         return GatewayBundle(

@@ -10,12 +10,24 @@ from hivememory.gateway.context import (
 from hivememory.gateway.eye import TheEye
 from hivememory.gateway.facade import GatewayFacade
 from hivememory.gateway.factory import build_gateway_facade
+from hivememory.gateway.pipeline import (
+    GatewayPatch,
+    GatewayPipeline,
+    GatewayState,
+    ShortCircuit,
+    StageTrace,
+)
 from hivememory.gateway.topic_context import render_topic_snapshots
 
 __all__ = [
     "GatewayContextBuilder",
     "GatewayFacade",
+    "GatewayPatch",
+    "GatewayPipeline",
+    "GatewayState",
     "SessionContext",
+    "ShortCircuit",
+    "StageTrace",
     "TheEye",
     "TopicSnapshotProvider",
     "build_gateway_facade",

@@ -9,7 +9,7 @@ from hivememory.core.models import Identity, TopicSnapshot
 from hivememory.core.protocol.models import EyeGazeResult
 from hivememory.gateway.context import GatewayContextBuilder
 from hivememory.gateway.eye import TheEye
-from hivememory.gateway.pipeline import GatewayPipeline
+from hivememory.gateway.pipeline import GatewayPipeline, GatewayState
 from hivememory.system.gateway.commands import SystemCommandDispatcher
 
 
@@ -41,11 +41,13 @@ class GatewayFacade:
             identity=identity,
         )
 
-    async def process(self, message: str, *, identity: Identity) -> object:
-        """Phase 3B GatewayState Pipeline 的预留入口。"""
+    async def process(self, message: str, *, identity: Identity) -> GatewayState:
+        """执行 Phase 3 Pipeline，返回封印后的 GatewayState。"""
 
-        _ = (message, identity)
-        raise NotImplementedError("GatewayFacade.process 将在 Phase 3B 接入 GatewayState")
+        if self.context_builder is None or self.pipeline is None:
+            raise RuntimeError("GatewayFacade 缺少 context_builder 或 pipeline")
+        context = await self.context_builder.build(message=message, identity=identity)
+        return await self.pipeline.run(message, context)
 
 
 __all__ = ["GatewayFacade"]
