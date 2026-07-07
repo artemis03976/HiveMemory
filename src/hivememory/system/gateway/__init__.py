@@ -9,6 +9,7 @@ __all__ = [
     "GatewayBundle",
     "TheEye",
     "build_gateway_facade",
+    "build_gateway_pipeline",
     "build_gateway_engine",
     "build_system_gateway",
     "render_topic_snapshots",
@@ -32,6 +33,10 @@ def __getattr__(name: str) -> Any:
         from hivememory.gateway import build_gateway_facade
 
         return build_gateway_facade
+    if name == "build_gateway_pipeline":
+        from hivememory.gateway import build_gateway_pipeline
+
+        return build_gateway_pipeline
     if name in {"build_gateway_engine", "build_system_gateway"}:
         from hivememory.system.gateway.factory import (
             build_gateway_engine,

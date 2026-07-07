@@ -1,4 +1,4 @@
-"""
+﻿"""
 HiveMemory 系统装配器
 
 将 HiveMemorySystem.build() 的四个关注层次拆分为独立方法：
@@ -16,9 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hivememory.alice.system import AliceSystem
-from hivememory.gateway import GatewayFacade
-from hivememory.gateway.context import GatewayContextBuilder
-from hivememory.gateway.pipeline import GatewayPipeline
+from hivememory.gateway import build_gateway_facade
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
@@ -29,7 +27,7 @@ from hivememory.system.application.readiness_service import SystemReadinessServi
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig, RuntimeEventsConfig
 from hivememory.system.gateway.bundle import GatewayBundle
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     SystemCommandDispatcher,
     create_builtin_command_registry,
 )
@@ -216,12 +214,12 @@ class SystemAssembler:
             else None
         )
 
-        # Phase 3A：先装配 GatewayFacade，但 active chat 主路径仍走 eye.gaze。
-        facade = GatewayFacade(
+        # Phase 3C：Facade 可跑通新 Pipeline；active chat 主路径仍走 eye.gaze。
+        facade = build_gateway_facade(
+            config=self._config.gateway,
             eye=eye,
+            command_registry=command_registry,
             command_dispatcher=command_dispatcher,
-            context_builder=GatewayContextBuilder(),
-            pipeline=GatewayPipeline(),
         )
 
         return GatewayBundle(

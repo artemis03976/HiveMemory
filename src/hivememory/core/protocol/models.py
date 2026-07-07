@@ -1,4 +1,4 @@
-"""
+﻿"""
 模块间通信协议模型
 
 定义 Eye 与 Kernel 之间，以及 Kernel 内部微服务之间的通信协议。
@@ -20,7 +20,7 @@ from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.models import AgentProfile, MemoryAtom, Identity, TraceItem, TurnEvent
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.gateway.models import GatewayIntent
-from hivememory.system.gateway.commands.models import CommandParseResult
+from hivememory.gateway.commands.models import CommandParseResult
 from hivememory.core.mtp.models import MTPCallRequest
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容

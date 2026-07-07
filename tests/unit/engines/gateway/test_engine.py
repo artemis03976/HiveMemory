@@ -1,4 +1,4 @@
-"""
+﻿"""
 GatewayEngine 单元测试
 
 测试覆盖:
@@ -18,7 +18,7 @@ from hivememory.engines.gateway.models import (
     InterceptorResult,
     SemanticAnalysisResult,
 )
-from hivememory.system.gateway.commands import CommandParseResult, CommandParseStatus
+from hivememory.gateway.commands import CommandParseResult, CommandParseStatus
 
 
 class TestGatewayEngine:

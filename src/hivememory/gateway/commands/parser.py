@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import shlex
 from typing import Any
 
-from hivememory.system.gateway.commands.models import (
+from hivememory.gateway.commands.models import (
     CommandDefinition,
     CommandParseResult,
     CommandParseStatus,

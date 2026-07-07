@@ -1,4 +1,4 @@
-"""
+﻿"""
 Phase 3 GatewayState 与兼容投影。
 
 本模块集中保存迁移期转换逻辑，避免后续清理时在下游散落 adapter。
@@ -18,7 +18,7 @@ from hivememory.engines.gateway.models import (
     RetrievalStrategy,
 )
 from hivememory.gateway.context import SessionContext
-from hivememory.system.gateway.commands import CommandParseResult
+from hivememory.gateway.commands import CommandParseResult
 
 
 @dataclass(frozen=True)

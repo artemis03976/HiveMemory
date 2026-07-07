@@ -1,4 +1,4 @@
-"""
+﻿"""
 Global Gateway 数据模型
 
 定义 Gateway 的输入输出协议
@@ -12,7 +12,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.system.gateway.commands.models import CommandParseResult
+from hivememory.gateway.commands.models import CommandParseResult
 
 logger = logging.getLogger(__name__)
 

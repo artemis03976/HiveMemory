@@ -1,11 +1,11 @@
-"""Gateway装配产物 — 将 TheEye 与 CommandDispatcher 绑定为单一交付物。"""
+﻿"""Gateway装配产物 — 将 TheEye 与 CommandDispatcher 绑定为单一交付物。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hivememory.system.gateway.commands import SystemCommandDispatcher
+from hivememory.gateway.commands import SystemCommandDispatcher
 from hivememory.system.gateway.eye import TheEye
 
 if TYPE_CHECKING:

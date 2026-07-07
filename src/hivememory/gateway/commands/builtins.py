@@ -1,13 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from hivememory.system.gateway.commands.models import (
+from hivememory.gateway.commands.models import (
     CommandCategory,
     CommandDefinition,
     CommandPermissionPolicy,
     CommandRouteTarget,
     CommandRouteTargetKind,
 )
-from hivememory.system.gateway.commands.registry import CommandRegistry
+from hivememory.gateway.commands.registry import CommandRegistry
 
 
 def register_builtin_commands(

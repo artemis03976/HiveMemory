@@ -1,15 +1,15 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Iterable
 
 from hivememory.core.models import Identity
-from hivememory.system.gateway.commands.models import (
+from hivememory.gateway.commands.models import (
     CommandDefinition,
     CommandExecutionResult,
     CommandExecutionStatus,
     CommandParseResult,
 )
-from hivememory.system.gateway.commands.registry import CommandRegistry
+from hivememory.gateway.commands.registry import CommandRegistry
 
 
 def handle_help(

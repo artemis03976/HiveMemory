@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from hivememory.engines.gateway import (
     BaseInterceptor,
@@ -10,7 +10,7 @@ from hivememory.engines.gateway import (
 from hivememory.infrastructure.llm import get_gateway_llm_service
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.system.config import LLMConfig, SystemGatewayConfig
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     CommandRegistry,
     create_builtin_command_registry,
 )

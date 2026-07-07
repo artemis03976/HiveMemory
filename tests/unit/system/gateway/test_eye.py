@@ -1,10 +1,10 @@
-import pytest
+﻿import pytest
 from unittest.mock import AsyncMock, Mock
 
 from hivememory.core.models import Identity, TopicSnapshot
 from hivememory.core.protocol.models import EyeGazeResult
 from hivememory.engines.gateway.models import GatewayIntent, GatewayResult
-from hivememory.system.gateway.commands import CommandParseResult, CommandParseStatus
+from hivememory.gateway.commands import CommandParseResult, CommandParseStatus
 from hivememory.system.gateway.eye import TheEye
 
 

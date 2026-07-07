@@ -1,12 +1,12 @@
-import pytest
+﻿import pytest
 
-from hivememory.system.gateway.commands.models import (
+from hivememory.gateway.commands.models import (
     CommandCategory,
     CommandDefinition,
     CommandParseStatus,
     CommandRouteTarget,
 )
-from hivememory.system.gateway.commands.parser import (
+from hivememory.gateway.commands.parser import (
     CommandParseError,
     build_parse_result,
     parse_command_args,

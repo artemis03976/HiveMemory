@@ -1,6 +1,6 @@
-import pytest
+﻿import pytest
 
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     CommandCategory,
     CommandDefinition,
     CommandParseStatus,

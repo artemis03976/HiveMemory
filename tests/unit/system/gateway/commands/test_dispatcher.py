@@ -1,7 +1,7 @@
-import pytest
+﻿import pytest
 
 from hivememory.core.models import Identity
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     CommandCategory,
     CommandDefinition,
     CommandExecutionResult,

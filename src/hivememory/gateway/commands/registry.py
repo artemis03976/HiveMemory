@@ -1,13 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.system.gateway.commands.models import (
+from hivememory.gateway.commands.models import (
     CommandDefinition,
     CommandParseResult,
     CommandParseStatus,
 )
-from hivememory.system.gateway.commands.parser import (
+from hivememory.gateway.commands.parser import (
     CommandParseError,
     build_parse_result,
     tokenize_command,

@@ -1,4 +1,4 @@
-"""ChatApplicationService / PassiveIngressService 委托测试"""
+﻿"""ChatApplicationService / PassiveIngressService 委托测试"""
 
 import asyncio
 import pytest
@@ -41,7 +41,7 @@ from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.config import SystemCommandConfig
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     CommandExecutionResult,
     CommandExecutionStatus,
     CommandParseResult,

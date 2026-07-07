@@ -26,6 +26,11 @@ class GatewayPipeline:
         """执行 Pipeline，返回封印后的 GatewayState。"""
 
         state = GatewayState(raw_message=message, session_context=context)
+        return await self.run_state(state)
+
+    async def run_state(self, state: GatewayState) -> GatewayState:
+        """从已有 GatewayState 继续执行 Pipeline。"""
+
         for stage in self._stages:
             stage_name = self._stage_name(stage)
             trace_count = len(state.stage_trace)

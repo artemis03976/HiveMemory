@@ -1,4 +1,4 @@
-"""
+﻿"""
 ChatApplicationService — 顶层主动交互应用服务 (Phase D / v0.4.0)
 
 v0.4.0 Phase 1 变更：
@@ -34,7 +34,7 @@ from hivememory.system.runtime.control import (
     ChatGenerationRunStatus,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     CommandExecutionResult,
     CommandParseStatus,
     SystemCommandDispatcher,

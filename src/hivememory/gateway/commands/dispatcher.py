@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import inspect
 import logging
@@ -6,12 +6,12 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from hivememory.core.models import Identity
-from hivememory.system.gateway.commands.handlers import (
+from hivememory.gateway.commands.handlers import (
     handle_commands,
     handle_help,
     handle_status,
 )
-from hivememory.system.gateway.commands.models import (
+from hivememory.gateway.commands.models import (
     CommandDefinition,
     CommandExecutionResult,
     CommandExecutionStatus,
@@ -19,7 +19,7 @@ from hivememory.system.gateway.commands.models import (
     CommandParseStatus,
     CommandRouteTargetKind,
 )
-from hivememory.system.gateway.commands.registry import CommandRegistry
+from hivememory.gateway.commands.registry import CommandRegistry
 
 logger = logging.getLogger(__name__)
 

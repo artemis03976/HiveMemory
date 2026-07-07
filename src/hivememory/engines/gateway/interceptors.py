@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gateway L1 规则拦截器。
 
 在 L2 语义分析前执行低成本确定性路由。系统指令由 System Gateway 的
@@ -14,7 +14,7 @@ from typing import List, Optional
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
 from hivememory.system.config import RuleInterceptorConfig
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     CommandCategory,
     CommandDefinition,
     CommandParseResult,
