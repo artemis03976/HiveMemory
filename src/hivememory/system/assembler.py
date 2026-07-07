@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hivememory.alice.system import AliceSystem
+from hivememory.gateway import GatewayFacade
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
@@ -40,7 +41,6 @@ from hivememory.system.runtime.events import (
     RuntimeEventSink,
 )
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-
 
 # ---------------------------------------------------------------------------
 # 中间产物 Bundle（模块私有，仅供 SystemAssembler 内部流转）
@@ -98,7 +98,7 @@ class SystemAssembler:
     # 公开入口
     # ------------------------------------------------------------------
 
-    def assemble(self) -> "HiveMemorySystem":  # noqa: F821 — 避免循环导入
+    def assemble(self) -> HiveMemorySystem:  # noqa: F821 — 避免循环导入
         from hivememory.system.system import HiveMemorySystem
 
         runtime = self._build_runtime()
@@ -214,7 +214,17 @@ class SystemAssembler:
             else None
         )
 
-        return GatewayBundle(eye=eye, command_dispatcher=command_dispatcher)
+        # Phase 3A：先装配 GatewayFacade，但 active chat 主路径仍走 eye.gaze。
+        facade = GatewayFacade(
+            eye=eye,
+            command_dispatcher=command_dispatcher,
+        )
+
+        return GatewayBundle(
+            eye=eye,
+            command_dispatcher=command_dispatcher,
+            facade=facade,
+        )
 
     # ------------------------------------------------------------------
     # 层四：子系统（依赖已解析的 LLM 配置 + gateway callable）

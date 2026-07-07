@@ -9,9 +9,8 @@ Global Gateway 数据模型
 
 import logging
 from enum import Enum
-from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.system.gateway.commands.models import CommandParseResult
 
@@ -31,6 +30,91 @@ class GatewayIntent(str, Enum):
 
     #: 系统指令，由 System Gateway 的 command registry 识别。
     SYSTEM = "SYSTEM"
+
+
+class IntentType(str, Enum):
+    """
+    Phase 3 Gateway Workflow 主意图类型。
+
+    该枚举属于 engine 决策原语层，暂不改变 Phase 1/2 对外暴露的
+    GatewayIntent；后续 Stage 只消费 IntentType。
+    """
+
+    QUERY = "QUERY"
+    WRITE = "WRITE"
+    CHAT = "CHAT"
+    COMPOSITE = "COMPOSITE"
+    UNKNOWN = "UNKNOWN"
+
+
+class RetrievalMode(str, Enum):
+    """Phase 3 检索策略预选择模式。"""
+
+    DENSE = "DENSE"
+    SPARSE = "SPARSE"
+    HYBRID = "HYBRID"
+    SKIP = "SKIP"
+
+
+class MemoryWriteSignal(str, Enum):
+    """Phase 3 记忆写入价值预判信号。"""
+
+    WRITE = "WRITE"
+    SKIP = "SKIP"
+    UNKNOWN = "UNKNOWN"
+
+
+class IntentClassificationResult(BaseModel):
+    """IntentClassifierEngine 的结构化输出。"""
+
+    intent_type: IntentType = Field(default=IntentType.QUERY, description="Phase 3 主意图类型")
+    is_composite: bool = Field(default=False, description="是否疑似复合意图")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="分类置信度")
+    reason: str = Field(default="", description="分类理由，仅用于调试")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class ContextRoutingResult(BaseModel):
+    """ContextRouterEngine 的结构化输出。"""
+
+    intent: GatewayIntent = Field(default=GatewayIntent.RAG, description="兼容 GatewayIntent")
+    rewritten_query: str = Field(..., description="指代消解后的查询")
+    search_keywords: list[str] = Field(default_factory=list, description="检索关键词")
+    target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
+    new_topic_title: str | None = Field(default=None, description="新话题标题")
+    new_topic_summary: str | None = Field(default=None, description="新话题摘要")
+    worth_saving: bool = Field(default=False, description="兼容期写入价值判断")
+    reason: str = Field(default="", description="路由理由，仅用于调试")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    @classmethod
+    def from_gateway_result(cls, result: "GatewayResult") -> "ContextRoutingResult":
+        """从现有 GatewayResult 投影为 Phase 3 S3 输出。"""
+
+        return cls(
+            intent=result.intent,
+            rewritten_query=result.rewritten_query,
+            search_keywords=result.search_keywords,
+            target_topic=result.target_topic,
+            new_topic_title=result.new_topic_title,
+            new_topic_summary=result.new_topic_summary,
+            worth_saving=result.worth_saving,
+            reason=result.reason,
+        )
+
+
+class RetrievalStrategy(BaseModel):
+    """RetrievalStrategyEngine 的结构化输出。"""
+
+    mode: RetrievalMode = Field(default=RetrievalMode.HYBRID, description="检索模式")
+    top_k: int = Field(default=5, ge=0, description="检索候选数量")
+    dense_weight: float = Field(default=0.7, ge=0.0, le=1.0, description="稠密检索权重")
+    sparse_weight: float = Field(default=0.3, ge=0.0, le=1.0, description="稀疏检索权重")
+    reason: str = Field(default="", description="策略选择理由，仅用于调试")
+
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class GatewayResult(BaseModel):
@@ -54,7 +138,7 @@ class GatewayResult(BaseModel):
     rewritten_query: str = Field(..., description="指代消解后的查询")
 
     #: 用于稀疏检索/BM25 的关键词数组
-    search_keywords: List[str] = Field(default_factory=list, description="检索关键词")
+    search_keywords: list[str] = Field(default_factory=list, description="检索关键词")
 
     #: 是否值得保存为长期记忆
     worth_saving: bool = Field(..., description="是否值得保存")
@@ -71,20 +155,20 @@ class GatewayResult(BaseModel):
     gateway_parse_failed: bool = Field(default=False, description="解析失败标记")
 
     #: L1 拦截结果 (可选)
-    l1_result: Optional["InterceptorResult"] = Field(default=None, description="L1 拦截结果")
+    l1_result: "InterceptorResult | None" = Field(default=None, description="L1 拦截结果")
 
     #: 结构化系统指令解析结果，仅由 L1 registry 命中时填充。
-    command: Optional[CommandParseResult] = Field(default=None, description="系统指令解析结果")
+    command: CommandParseResult | None = Field(default=None, description="系统指令解析结果")
 
     #: 路由目标话题 ID (MMU 话题路由, Phase 4.5)
     #: 值为 topic_id (buffer_id) 或 "NEW_TOPIC" 表示新建话题
     target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
 
     #: 新话题标题（仅 NEW_TOPIC 时由 Gateway 生成）
-    new_topic_title: Optional[str] = Field(default=None, description="新话题标题")
+    new_topic_title: str | None = Field(default=None, description="新话题标题")
 
     #: 新话题摘要（仅 NEW_TOPIC 时由 Gateway 生成）
-    new_topic_summary: Optional[str] = Field(default=None, description="新话题摘要")
+    new_topic_summary: str | None = Field(default=None, description="新话题摘要")
 
     @property
     def is_l1_intercepted(self) -> bool:
@@ -137,7 +221,7 @@ class InterceptorResult(BaseModel):
     hit: bool = Field(default=True, description="是否命中")
 
     #: 结构化系统指令解析结果，仅 SYSTEM 拦截会填充。
-    command: Optional[CommandParseResult] = Field(default=None, description="系统指令解析结果")
+    command: CommandParseResult | None = Field(default=None, description="系统指令解析结果")
 
 
 class SemanticAnalysisResult(BaseModel):
@@ -157,7 +241,7 @@ class SemanticAnalysisResult(BaseModel):
     rewritten_query: str = Field(..., description="指代消解后的查询")
 
     #: 用于稀疏检索/BM25 的关键词数组
-    search_keywords: List[str] = Field(default_factory=list, description="检索关键词")
+    search_keywords: list[str] = Field(default_factory=list, description="检索关键词")
 
     #: 是否值得保存为长期记忆
     worth_saving: bool = Field(..., description="是否值得保存")
@@ -166,21 +250,27 @@ class SemanticAnalysisResult(BaseModel):
     reason: str = Field(..., description="判断理由")
 
     #: 使用的模型（可选）
-    model: Optional[str] = Field(default=None, description="使用的模型")
+    model: str | None = Field(default=None, description="使用的模型")
 
     #: 路由目标话题 ID (MMU 话题路由, Phase 4.5)
     target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
 
     #: 新话题标题（仅 NEW_TOPIC 时由 Gateway 生成）
-    new_topic_title: Optional[str] = Field(default=None, description="新话题标题")
+    new_topic_title: str | None = Field(default=None, description="新话题标题")
 
     #: 新话题摘要（仅 NEW_TOPIC 时由 Gateway 生成）
-    new_topic_summary: Optional[str] = Field(default=None, description="新话题摘要")
+    new_topic_summary: str | None = Field(default=None, description="新话题摘要")
 
 
 __all__ = [
+    "ContextRoutingResult",
     "GatewayIntent",
     "GatewayResult",
+    "IntentClassificationResult",
+    "IntentType",
     "InterceptorResult",
+    "MemoryWriteSignal",
+    "RetrievalMode",
+    "RetrievalStrategy",
     "SemanticAnalysisResult",
 ]

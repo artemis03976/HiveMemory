@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from hivememory.system.gateway.commands import SystemCommandDispatcher
 from hivememory.system.gateway.eye import TheEye
+
+if TYPE_CHECKING:
+    from hivememory.gateway import GatewayFacade
 
 
 @dataclass(frozen=True)
@@ -19,6 +23,7 @@ class GatewayBundle:
 
     eye: TheEye
     command_dispatcher: SystemCommandDispatcher | None
+    facade: GatewayFacade | None = None
 
 
 __all__ = ["GatewayBundle"]

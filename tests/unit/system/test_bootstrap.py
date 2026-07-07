@@ -1,7 +1,8 @@
 """HiveMemorySystem.build 组装闭环测试"""
 
-import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
+
+import pytest
 
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.system import HiveMemorySystem
@@ -94,6 +95,8 @@ def test_build_registers_patchouli_and_uses_global_bus_runtime():
 
     assert isinstance(system._global_bus, GlobalSystemBus)
     assert system._patchouli.name == "patchouli"
+    assert system._gateway_facade is not None
+    assert system._gateway_facade.eye is system._gateway
 
 
 def test_build_injects_runtime_event_sink_into_scheduler():

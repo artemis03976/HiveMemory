@@ -11,27 +11,37 @@ Global Gateway - 全局智能网关
 版本: 2.1
 """
 
+import logging
+
+from hivememory.engines.gateway.context_router import ContextRouterEngine
 from hivememory.engines.gateway.engine import GatewayEngine
-from hivememory.engines.gateway.interfaces import (
-    BaseInterceptor,
-    BaseSemanticAnalyzer,
-)
-from hivememory.engines.gateway.models import (
-    InterceptorResult,
-    GatewayIntent,
-    GatewayResult,
-    SemanticAnalysisResult,
-)
+from hivememory.engines.gateway.intent_classifier import IntentClassifierEngine
 from hivememory.engines.gateway.interceptors import (
     RuleInterceptor,
     create_interceptor,
 )
+from hivememory.engines.gateway.interfaces import (
+    BaseInterceptor,
+    BaseSemanticAnalyzer,
+)
+from hivememory.engines.gateway.memory_value_judge import MemoryValueJudgeEngine
+from hivememory.engines.gateway.models import (
+    ContextRoutingResult,
+    GatewayIntent,
+    GatewayResult,
+    IntentClassificationResult,
+    IntentType,
+    InterceptorResult,
+    MemoryWriteSignal,
+    RetrievalMode,
+    RetrievalStrategy,
+    SemanticAnalysisResult,
+)
+from hivememory.engines.gateway.retrieval_strategy import RetrievalStrategyEngine
 from hivememory.engines.gateway.semantic_analyzer import (
     LLMAnalyzer,
     create_semantic_analyzer,
 )
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +49,20 @@ logger = logging.getLogger(__name__)
 __all__ = [
     # 主类
     "GatewayEngine",
+    "ContextRouterEngine",
+    "IntentClassifierEngine",
+    "MemoryValueJudgeEngine",
+    "RetrievalStrategyEngine",
     # 数据模型
+    "ContextRoutingResult",
     "GatewayIntent",
     "GatewayResult",
+    "IntentClassificationResult",
+    "IntentType",
     "InterceptorResult",
+    "MemoryWriteSignal",
+    "RetrievalMode",
+    "RetrievalStrategy",
     "SemanticAnalysisResult",
     # 接口
     "BaseInterceptor",

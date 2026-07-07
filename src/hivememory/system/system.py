@@ -23,6 +23,7 @@ from hivememory.system.runtime.events import (
 )
 
 if TYPE_CHECKING:
+    from hivememory.gateway import GatewayFacade
     from hivememory.system.application.agent_service import AgentApplicationService
     from hivememory.system.application.chat_service import ChatApplicationService
     from hivememory.system.application.memory_service import MemoryApplicationService
@@ -63,6 +64,9 @@ class HiveMemorySystem:
 
         # Gateway
         self._gateway: TheEye | None = gateway_bundle.eye if gateway_bundle else None
+        self._gateway_facade: GatewayFacade | None = (
+            gateway_bundle.facade if gateway_bundle else None
+        )
         self._command_dispatcher = (
             gateway_bundle.command_dispatcher if gateway_bundle else None
         )
