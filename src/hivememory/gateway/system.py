@@ -24,7 +24,7 @@ class GatewaySystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
-        global_bus: GlobalSystemBus | None = None,
+        global_bus: GlobalSystemBus,
         runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._config = config
@@ -61,7 +61,7 @@ class GatewaySystem(SubsystemProtocol):
 
     async def start(self) -> None:
         self._runtime.mount_local_routes(self._service)
-        if self._global_bus is not None and not self._public_routes_registered:
+        if not self._public_routes_registered:
             self._global_bus.register(
                 GatewayPublicRoutes.PROCESS,
                 self._service.process,
@@ -69,7 +69,7 @@ class GatewaySystem(SubsystemProtocol):
             self._public_routes_registered = True
 
     async def stop(self) -> None:
-        if self._global_bus is not None and self._public_routes_registered:
+        if self._public_routes_registered:
             self._global_bus.unregister(GatewayPublicRoutes.PROCESS)
             self._public_routes_registered = False
         self._runtime.unmount_local_routes()

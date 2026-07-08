@@ -37,7 +37,7 @@ class GatewayRuntime:
         self,
         *,
         config: SystemGatewayConfig,
-        global_bus: GlobalSystemBus | None = None,
+        global_bus: GlobalSystemBus,
         runtime_events: RuntimeEventSink | None = None,
         context_hydrator: GatewayContextHydrator | None = None,
         pipeline: GatewayPipeline | None = None,
@@ -86,7 +86,7 @@ class GatewayRuntime:
         self,
         config: SystemGatewayConfig,
         *,
-        global_bus: GlobalSystemBus | None,
+        global_bus: GlobalSystemBus,
     ) -> SystemCommandDispatcher | None:
         """根据 Gateway 配置构造 S0 指令执行器。"""
 
@@ -135,7 +135,7 @@ class GatewayRuntime:
         return {
             "local_routes_registered": self._local_routes_registered,
             "pipeline_stage_count": len(self.pipeline.stages),
-            "context_hydration_enabled": self.config.context_hydration.enabled,
+            "context_hydrator_ready": self.context_hydrator is not None,
             "command_registry_enabled": self.command_registry is not None,
             "command_dispatcher_enabled": self.command_dispatcher is not None,
             "entry_interceptor_enabled": self.entry_interceptor is not None,

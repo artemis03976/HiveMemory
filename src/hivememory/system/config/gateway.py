@@ -37,7 +37,6 @@ class SystemCommandConfig(BaseModel):
 class GatewayContextHydrationConfig(BaseModel):
     """Gateway Context Hydration 配置。"""
 
-    enabled: bool = Field(default=True)
     timeout_seconds: float = Field(default=1.0, ge=0)
     include_empty_topics: bool = Field(default=False)
 

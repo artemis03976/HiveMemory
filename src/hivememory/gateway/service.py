@@ -44,18 +44,18 @@ class GatewayService:
         if state.sealed:
             return state
 
+        start = monotonic()
         context = await self._runtime.context_hydrator.hydrate(
             message=message,
             identity=identity,
         )
+        duration_ms = (monotonic() - start) * 1000
         state.apply_stage_result(
             stage_name="ContextHydration",
             result=StageResult.from_updates(
                 {"session_context": context},
-                is_fallback=context.hydration_failed,
-                fallback_reason=context.hydration_error,
             ),
-            duration_ms=context.hydration_duration_ms,
+            duration_ms=duration_ms,
             writable_fields=frozenset({"session_context"}),
         )
         return await self._runtime.pipeline.run_state(state)
