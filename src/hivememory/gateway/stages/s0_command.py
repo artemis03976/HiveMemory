@@ -10,7 +10,7 @@ from hivememory.engines.gateway.models import (
     RetrievalMode,
     RetrievalStrategy,
 )
-from hivememory.gateway.pipeline import GatewayState, ShortCircuit
+from hivememory.gateway.pipeline import GatewayFlowEnded, GatewayState
 
 
 class EntryInterceptorStage:
@@ -40,8 +40,8 @@ class EntryInterceptorStage:
         if result.intent == GatewayIntent.SYSTEM:
             state.intent_type = IntentType.UNKNOWN
             state.command_parse_result = result.command
-            state.short_circuit_reason = "system_command"
-            raise ShortCircuit(state)
+            state.flow_end_reason = "system_command"
+            raise GatewayFlowEnded(state)
 
         if result.intent == GatewayIntent.CHAT:
             state.intent_type = IntentType.CHAT
@@ -49,8 +49,8 @@ class EntryInterceptorStage:
             state.search_keywords = []
             state.memory_write_signal = MemoryWriteSignal.SKIP
             state.retrieval_strategy = RetrievalStrategy(mode=RetrievalMode.SKIP)
-            state.short_circuit_reason = "simple_chat"
-            raise ShortCircuit(state)
+            state.flow_end_reason = "simple_chat"
+            raise GatewayFlowEnded(state)
 
         return state
 

@@ -26,7 +26,7 @@ class StageTrace:
     duration_ms: float
     is_fallback: bool = False
     fallback_reason: str | None = None
-    short_circuited: bool = False
+    flow_ended: bool = False
 
 
 @dataclass
@@ -72,11 +72,11 @@ class PatchouliPrepareDecision:
     intent_type: IntentType | None
 
 
-class ShortCircuit(Exception):  # noqa: N818 - 文档约定的 Pipeline 控制信号名称
-    """Stage 请求终止 Pipeline 时携带的最终状态。"""
+class GatewayFlowEnded(Exception):
+    """Stage 产出停止信号时携带的最终 GatewayState。"""
 
     def __init__(self, state: GatewayState) -> None:
-        super().__init__("Gateway pipeline short-circuited")
+        super().__init__("Gateway workflow ended")
         self.state = state
 
 
@@ -92,7 +92,7 @@ class GatewayState:
     l1_result: InterceptorResult | None = None
     command_parse_result: CommandParseResult | None = None
     command_execution_result: CommandExecutionResult | None = None
-    short_circuit_reason: str | None = None
+    flow_end_reason: str | None = None
 
     # ── Stage 1 写入 ───────────────────────────────────────────────
     intent_type: IntentType | None = None
@@ -210,9 +210,9 @@ class GatewayState:
 
 
 __all__ = [
+    "GatewayFlowEnded",
     "GatewayPatch",
     "GatewayState",
     "PatchouliPrepareDecision",
-    "ShortCircuit",
     "StageTrace",
 ]

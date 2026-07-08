@@ -6,6 +6,7 @@ from typing import Any
 
 __all__ = [
     "GatewayContextBuilder",
+    "GatewayFlowEnded",
     "GatewayLocalRoutes",
     "GatewayPatch",
     "GatewayPipeline",
@@ -16,7 +17,6 @@ __all__ = [
     "GatewaySystem",
     "PatchouliPrepareDecision",
     "SessionContext",
-    "ShortCircuit",
     "StageTrace",
     "TopicSnapshotProvider",
     "render_topic_snapshots",
@@ -49,25 +49,25 @@ def __getattr__(name: str) -> Any:
         "GatewayPatch",
         "GatewayPipeline",
         "GatewayState",
+        "GatewayFlowEnded",
         "PatchouliPrepareDecision",
-        "ShortCircuit",
         "StageTrace",
     }:
         from hivememory.gateway.pipeline import (
+            GatewayFlowEnded,
             GatewayPatch,
             GatewayPipeline,
             GatewayState,
             PatchouliPrepareDecision,
-            ShortCircuit,
             StageTrace,
         )
 
         return {
+            "GatewayFlowEnded": GatewayFlowEnded,
             "GatewayPatch": GatewayPatch,
             "GatewayPipeline": GatewayPipeline,
             "GatewayState": GatewayState,
             "PatchouliPrepareDecision": PatchouliPrepareDecision,
-            "ShortCircuit": ShortCircuit,
             "StageTrace": StageTrace,
         }[name]
     if name == "GatewayRuntime":

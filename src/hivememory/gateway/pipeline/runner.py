@@ -7,7 +7,7 @@ from time import monotonic
 
 from hivememory.gateway.context import SessionContext
 from hivememory.gateway.pipeline.stage import GatewayStage
-from hivememory.gateway.pipeline.state import GatewayState, ShortCircuit, StageTrace
+from hivememory.gateway.pipeline.state import GatewayFlowEnded, GatewayState, StageTrace
 
 
 class GatewayPipeline:
@@ -37,15 +37,15 @@ class GatewayPipeline:
             start = monotonic()
             try:
                 state = await stage.process(state)
-            except ShortCircuit as short_circuit:
-                state = short_circuit.state
+            except GatewayFlowEnded as flow_ended:
+                state = flow_ended.state
                 duration_ms = (monotonic() - start) * 1000
                 if len(state.stage_trace) == trace_count:
                     state.stage_trace.append(
                         StageTrace(
                             stage_name=stage_name,
                             duration_ms=duration_ms,
-                            short_circuited=True,
+                            flow_ended=True,
                         )
                     )
                 return state.seal()

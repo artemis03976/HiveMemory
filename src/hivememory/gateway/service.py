@@ -9,7 +9,7 @@ from time import monotonic
 from hivememory.core.models import Identity
 from hivememory.gateway.commands import CommandExecutionResult, CommandExecutionStatus
 from hivememory.gateway.context import SessionContext
-from hivememory.gateway.pipeline import GatewayState, ShortCircuit, StageTrace
+from hivememory.gateway.pipeline import GatewayFlowEnded, GatewayState, StageTrace
 from hivememory.gateway.runtime import GatewayRuntime
 
 
@@ -67,15 +67,15 @@ class GatewayService:
         start = monotonic()
         try:
             state = await stage.process(state)
-        except ShortCircuit as short_circuit:
-            state = short_circuit.state
+        except GatewayFlowEnded as flow_ended:
+            state = flow_ended.state
             duration_ms = (monotonic() - start) * 1000
             if len(state.stage_trace) == trace_count:
                 state.stage_trace.append(
                     StageTrace(
                         stage_name=stage_name,
                         duration_ms=duration_ms,
-                        short_circuited=True,
+                        flow_ended=True,
                     )
                 )
             await self._dispatch_system_command_if_needed(state, identity=identity)
@@ -98,7 +98,7 @@ class GatewayService:
         S0 命中系统指令后，由 Service 编排 dispatcher 执行副作用。
         """
 
-        if state.short_circuit_reason != "system_command":
+        if state.flow_end_reason != "system_command":
             return
 
         dispatcher = self._runtime.command_dispatcher
