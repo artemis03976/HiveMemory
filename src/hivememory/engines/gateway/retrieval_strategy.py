@@ -1,7 +1,7 @@
 """
 Phase 3 Gateway 检索策略预选择决策原语。
 
-Phase 3A 使用固定默认策略，后续阶段再接入细粒度配置与判断。
+Phase 3B 使用固定默认策略，后续阶段再接入细粒度配置与判断。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ class RetrievalStrategyEngine:
         self,
         *,
         intent_type: IntentType | None = None,
-        target_topic: str | None = None,
+        topic_id: str | None = None,
     ) -> RetrievalStrategy:
         """返回保守默认检索策略。"""
 
@@ -32,7 +32,7 @@ class RetrievalStrategyEngine:
         return RetrievalStrategy(
             mode=RetrievalMode.HYBRID,
             top_k=5,
-            reason=f"Phase 3A 默认混合检索策略，target_topic={target_topic or 'UNKNOWN'}",
+            reason=f"Phase 3B 默认混合检索策略，topic_id={topic_id or 'UNKNOWN'}",
         )
 
 

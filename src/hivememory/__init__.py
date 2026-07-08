@@ -209,6 +209,24 @@ from hivememory.server.models import (
 
 def __getattr__(name: str):
     """懒加载以避免循环导入"""
+    if name == "GatewaySystem":
+        from hivememory.gateway import GatewaySystem
+        return GatewaySystem
+    if name == "GatewayRuntime":
+        from hivememory.gateway import GatewayRuntime
+        return GatewayRuntime
+    if name == "GatewayService":
+        from hivememory.gateway import GatewayService
+        return GatewayService
+    if name == "GatewayState":
+        from hivememory.gateway import GatewayState
+        return GatewayState
+    if name == "PatchouliPrepareDecision":
+        from hivememory.gateway import PatchouliPrepareDecision
+        return PatchouliPrepareDecision
+    if name == "build_gateway_system":
+        from hivememory.gateway import build_gateway_system
+        return build_gateway_system
     if name == "PatchouliRuntime":
         from hivememory.patchouli.runtime import PatchouliRuntime
         return PatchouliRuntime
@@ -309,6 +327,13 @@ __all__ = [
     "LLMAnalyzer",
     "create_semantic_analyzer",
     "MessageBufferState",
+    # ========== Gateway 子系统 ==========
+    "GatewaySystem",
+    "GatewayRuntime",
+    "GatewayService",
+    "GatewayState",
+    "PatchouliPrepareDecision",
+    "build_gateway_system",
     # ========== Generation Engine ==========
     "MemoryGenerationEngine",
     "BaseMemoryExtractor",

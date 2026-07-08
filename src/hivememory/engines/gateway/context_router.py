@@ -1,20 +1,17 @@
 """
 Phase 3 Gateway 上下文路由决策原语。
 
-当前实现包裹既有 GatewayEngine，作为 S3 Stage 的初期兼容底座。
+本模块只提供可被 Stage 包裹的纯 engine 骨架，不依赖 GatewayEngine、
+SystemBus、Patchouli 或 Alice。真实路由 Prompt 会在后续阶段接入。
 """
 
 from __future__ import annotations
 
-from hivememory.engines.gateway.engine import GatewayEngine
 from hivememory.engines.gateway.models import ContextRoutingResult
 
 
 class ContextRouterEngine:
     """Phase 3 S3 上下文路由 engine 骨架。"""
-
-    def __init__(self, gateway_engine: GatewayEngine) -> None:
-        self._gateway_engine = gateway_engine
 
     async def route(
         self,
@@ -22,13 +19,22 @@ class ContextRouterEngine:
         *,
         active_topics_menu: str | None = None,
     ) -> ContextRoutingResult:
-        """复用现有 GatewayEngine 输出，投影为 ContextRoutingResult。"""
+        """
+        生成最小可用的上下文路由结果。
 
-        result = await self._gateway_engine.process(
-            message,
-            active_topics_menu=active_topics_menu,
+        Phase 3B 不包裹旧 GatewayEngine；在真实 S3 Prompt 接入前，默认保守
+        路由到新话题，并将原始消息作为 rewritten_query。
+        """
+
+        _ = active_topics_menu
+        return ContextRoutingResult(
+            rewritten_query=message,
+            search_keywords=[],
+            topic_id="NEW_TOPIC",
+            new_topic_title=None,
+            new_topic_summary=None,
+            reason="Phase 3B 默认上下文路由",
         )
-        return ContextRoutingResult.from_gateway_result(result)
 
 
 __all__ = ["ContextRouterEngine"]

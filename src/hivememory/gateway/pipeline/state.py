@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, dataclass, field
 from typing import Any
 
+from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.gateway.models import (
+    ExecutionPlan,
     IntentType,
     MemoryWriteSignal,
+    RetrievalMode,
     RetrievalStrategy,
 )
 from hivememory.gateway.commands import CommandParseResult
@@ -30,7 +33,7 @@ class GatewayPatch:
     """
     并发 Stage 的轻量补丁模型。
 
-    Phase 3A 只保留字段合并边界；S4 并发执行留到后续阶段。
+    Phase 3B 只保留字段合并边界；S4 并发执行留到后续阶段。
     """
 
     updates: dict[str, Any] = field(default_factory=dict)
@@ -46,6 +49,26 @@ class GatewayPatch:
             setattr(state, key, value)
         state.stage_trace.extend(self.stage_trace)
         return state
+
+
+@dataclass(frozen=True)
+class PatchouliPrepareDecision:
+    """
+    GatewayState 派生出的 Patchouli prepare 决策视图。
+
+    该视图属于 Phase 3 新契约，不是 EyeGazeResult 兼容投影。
+    """
+
+    target_topic_id: str
+    new_topic_title: str | None
+    new_topic_summary: str | None
+    rewritten_query: str
+    search_keywords: tuple[str, ...]
+    retrieval_request: RetrievalRequest | None
+    worth_saving: bool | None
+    memory_write_signal: MemoryWriteSignal | None
+    retrieval_strategy: RetrievalStrategy | None
+    intent_type: IntentType | None
 
 
 class ShortCircuit(Exception):  # noqa: N818 - 文档约定的 Pipeline 控制信号名称
@@ -89,7 +112,7 @@ class GatewayState:
     retrieval_strategy: RetrievalStrategy | None = None
 
     # ── Stage 5 写入（预留）────────────────────────────────────────
-    execution_plan: Any | None = None
+    execution_plan: ExecutionPlan | None = None
 
     # ── 可观测性 ──────────────────────────────────────────────────
     stage_trace: list[StageTrace] = field(default_factory=list)
@@ -125,10 +148,67 @@ class GatewayState:
             object.__setattr__(self, "_sealed", True)
         return self
 
+    def to_prepare_decision(
+        self,
+        *,
+        enable_retrieval: bool = True,
+    ) -> PatchouliPrepareDecision:
+        """派生 Patchouli prepare 所需的最小决策视图。"""
+
+        return PatchouliPrepareDecision(
+            target_topic_id=self.topic_id or "NEW_TOPIC",
+            new_topic_title=self.new_topic_title,
+            new_topic_summary=self.new_topic_summary,
+            rewritten_query=self.rewritten_query or self.raw_message,
+            search_keywords=tuple(self.search_keywords),
+            retrieval_request=self.to_retrieval_request(
+                enable_retrieval=enable_retrieval,
+            ),
+            worth_saving=self.to_interaction_worth_saving(),
+            memory_write_signal=self.memory_write_signal,
+            retrieval_strategy=self.retrieval_strategy,
+            intent_type=self.intent_type,
+        )
+
+    def to_retrieval_request(
+        self,
+        *,
+        enable_retrieval: bool = True,
+    ) -> RetrievalRequest | None:
+        """
+        将 retrieval_strategy 映射为当前 RetrievalRequest 协议。
+
+        当前 RetrievalRequest 尚不承载 top_k / dense_weight / sparse_weight；
+        这些策略参数保留在 GatewayState.retrieval_strategy，待下游协议升级后消费。
+        """
+
+        if not enable_retrieval:
+            return None
+        if (
+            self.retrieval_strategy is not None
+            and self.retrieval_strategy.mode == RetrievalMode.SKIP
+        ):
+            return None
+        return RetrievalRequest(
+            semantic_query=self.rewritten_query or self.raw_message,
+            keywords=list(self.search_keywords),
+            identity=self.session_context.identity,
+        )
+
+    def to_interaction_worth_saving(self) -> bool | None:
+        """将 memory_write_signal 映射为 InteractionPayload.worth_saving。"""
+
+        if self.memory_write_signal == MemoryWriteSignal.WRITE:
+            return True
+        if self.memory_write_signal == MemoryWriteSignal.SKIP:
+            return False
+        return None
+
 
 __all__ = [
     "GatewayPatch",
     "GatewayState",
+    "PatchouliPrepareDecision",
     "ShortCircuit",
     "StageTrace",
 ]

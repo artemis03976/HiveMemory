@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from hivememory.engines.gateway import (
-    IntentClassifierEngine,
-    MemoryValueJudgeEngine,
-    RetrievalStrategyEngine,
-)
+from hivememory.engines.gateway.context_router import ContextRouterEngine
+from hivememory.engines.gateway.intent_classifier import IntentClassifierEngine
+from hivememory.engines.gateway.memory_value_judge import MemoryValueJudgeEngine
+from hivememory.engines.gateway.retrieval_strategy import RetrievalStrategyEngine
 from hivememory.gateway.commands import CommandRegistry, SystemCommandDispatcher
 from hivememory.gateway.context import GatewayContextBuilder
 from hivememory.gateway.contracts.local_routes import GatewayLocalRoutes
@@ -22,7 +21,7 @@ class GatewayRuntime:
     """
     Gateway 子系统运行时。
 
-    Phase 3A 只固定装配边界：本地总线、Context Hydration、空 Pipeline、
+    Phase 3B 固定装配边界：本地总线、Context Hydration、空 Pipeline、
     command interceptor 与轻量 engine 原语。完整 S1-S5 装配留给后续阶段。
     """
 
@@ -43,8 +42,9 @@ class GatewayRuntime:
         self.command_dispatcher = command_dispatcher
         self.command_interceptor = CommandInterceptorStage(command_registry)
 
-        # Phase 3A 只持有原语实例，不把它们接入空 Pipeline。
+        # Phase 3B 只持有原语实例，不把它们接入空 Pipeline。
         self.intent_classifier = IntentClassifierEngine()
+        self.context_router = ContextRouterEngine()
         self.memory_value_judge = MemoryValueJudgeEngine()
         self.retrieval_strategy = RetrievalStrategyEngine()
 
@@ -86,6 +86,7 @@ class GatewayRuntime:
             "command_dispatcher_enabled": self.command_dispatcher is not None,
             "engines": {
                 "intent_classifier": self.intent_classifier is not None,
+                "context_router": self.context_router is not None,
                 "memory_value_judge": self.memory_value_judge is not None,
                 "retrieval_strategy": self.retrieval_strategy is not None,
             },

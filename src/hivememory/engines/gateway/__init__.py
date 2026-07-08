@@ -27,6 +27,7 @@ from hivememory.engines.gateway.interfaces import (
 from hivememory.engines.gateway.memory_value_judge import MemoryValueJudgeEngine
 from hivememory.engines.gateway.models import (
     ContextRoutingResult,
+    ExecutionPlan,
     GatewayIntent,
     GatewayResult,
     IntentClassificationResult,
@@ -55,6 +56,7 @@ __all__ = [
     "RetrievalStrategyEngine",
     # 数据模型
     "ContextRoutingResult",
+    "ExecutionPlan",
     "GatewayIntent",
     "GatewayResult",
     "IntentClassificationResult",

@@ -14,6 +14,7 @@ __all__ = [
     "GatewayService",
     "GatewayState",
     "GatewaySystem",
+    "PatchouliPrepareDecision",
     "SessionContext",
     "ShortCircuit",
     "StageTrace",
@@ -49,6 +50,7 @@ def __getattr__(name: str) -> Any:
         "GatewayPatch",
         "GatewayPipeline",
         "GatewayState",
+        "PatchouliPrepareDecision",
         "ShortCircuit",
         "StageTrace",
     }:
@@ -56,6 +58,7 @@ def __getattr__(name: str) -> Any:
             GatewayPatch,
             GatewayPipeline,
             GatewayState,
+            PatchouliPrepareDecision,
             ShortCircuit,
             StageTrace,
         )
@@ -64,6 +67,7 @@ def __getattr__(name: str) -> Any:
             "GatewayPatch": GatewayPatch,
             "GatewayPipeline": GatewayPipeline,
             "GatewayState": GatewayState,
+            "PatchouliPrepareDecision": PatchouliPrepareDecision,
             "ShortCircuit": ShortCircuit,
             "StageTrace": StageTrace,
         }[name]

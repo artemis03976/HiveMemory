@@ -72,37 +72,20 @@ class IntentClassificationResult(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="分类置信度")
     reason: str = Field(default="", description="分类理由，仅用于调试")
 
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=False)
 
 
 class ContextRoutingResult(BaseModel):
     """ContextRouterEngine 的结构化输出。"""
 
-    intent: GatewayIntent = Field(default=GatewayIntent.RAG, description="兼容 GatewayIntent")
     rewritten_query: str = Field(..., description="指代消解后的查询")
     search_keywords: list[str] = Field(default_factory=list, description="检索关键词")
-    target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
+    topic_id: str = Field(default="NEW_TOPIC", description="路由目标话题 ID")
     new_topic_title: str | None = Field(default=None, description="新话题标题")
     new_topic_summary: str | None = Field(default=None, description="新话题摘要")
-    worth_saving: bool = Field(default=False, description="兼容期写入价值判断")
     reason: str = Field(default="", description="路由理由，仅用于调试")
 
-    model_config = ConfigDict(use_enum_values=True)
-
-    @classmethod
-    def from_gateway_result(cls, result: "GatewayResult") -> "ContextRoutingResult":
-        """从现有 GatewayResult 投影为 Phase 3 S3 输出。"""
-
-        return cls(
-            intent=result.intent,
-            rewritten_query=result.rewritten_query,
-            search_keywords=result.search_keywords,
-            target_topic=result.target_topic,
-            new_topic_title=result.new_topic_title,
-            new_topic_summary=result.new_topic_summary,
-            worth_saving=result.worth_saving,
-            reason=result.reason,
-        )
+    model_config = ConfigDict(use_enum_values=False)
 
 
 class RetrievalStrategy(BaseModel):
@@ -114,7 +97,14 @@ class RetrievalStrategy(BaseModel):
     sparse_weight: float = Field(default=0.3, ge=0.0, le=1.0, description="稀疏检索权重")
     reason: str = Field(default="", description="策略选择理由，仅用于调试")
 
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=False)
+
+
+class ExecutionPlan(BaseModel):
+    """Phase 3 S5 预留执行计划模型。"""
+
+    enabled: bool = Field(default=False, description="Phase 3 默认不启用规划")
+    reason: str = Field(default="", description="规划说明，仅用于调试")
 
 
 class GatewayResult(BaseModel):
@@ -264,6 +254,7 @@ class SemanticAnalysisResult(BaseModel):
 
 __all__ = [
     "ContextRoutingResult",
+    "ExecutionPlan",
     "GatewayIntent",
     "GatewayResult",
     "IntentClassificationResult",

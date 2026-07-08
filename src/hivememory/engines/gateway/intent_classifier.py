@@ -8,7 +8,6 @@ Patchouli 或 Alice。真实窄 Prompt 分类会在后续阶段接入。
 from __future__ import annotations
 
 from hivememory.engines.gateway.models import (
-    GatewayIntent,
     IntentClassificationResult,
     IntentType,
 )
@@ -20,34 +19,25 @@ class IntentClassifierEngine:
     async def classify(
         self,
         message: str,
-        *,
-        gateway_intent: GatewayIntent | None = None,
     ) -> IntentClassificationResult:
         """
         生成最小可用的主意图分类结果。
 
-        Phase 3A 不引入新 Prompt；若调用方提供现有 GatewayIntent，则按兼容映射
-        输出 IntentType，否则采用保守 QUERY 默认值。
+        Phase 3B 不引入新 Prompt；S0 已经负责 command 短路，S1 只根据
+        当前消息给出保守的单主意图默认值。
         """
 
-        if gateway_intent == GatewayIntent.CHAT:
-            return IntentClassificationResult(
-                intent_type=IntentType.CHAT,
-                confidence=1.0,
-                reason="由兼容 GatewayIntent.CHAT 映射",
-            )
-
-        if gateway_intent == GatewayIntent.SYSTEM:
+        if not message.strip():
             return IntentClassificationResult(
                 intent_type=IntentType.UNKNOWN,
-                confidence=1.0,
-                reason="系统指令应由 S0 短路，S1 仅保留 UNKNOWN 兼容映射",
+                confidence=0.0,
+                reason="空消息无法分类",
             )
 
         return IntentClassificationResult(
             intent_type=IntentType.QUERY,
-            confidence=0.5 if message.strip() else 0.0,
-            reason="Phase 3A 默认查询意图",
+            confidence=0.5,
+            reason="Phase 3B 默认查询意图",
         )
 
 
