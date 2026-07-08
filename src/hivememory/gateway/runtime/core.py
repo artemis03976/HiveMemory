@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.context_router import ContextRouterEngine
 from hivememory.engines.gateway.intent_classifier import IntentClassifierEngine
 from hivememory.engines.gateway.memory_value_judge import MemoryValueJudgeEngine
@@ -18,7 +19,7 @@ from hivememory.gateway.contracts.local_routes import GatewayLocalRoutes
 from hivememory.gateway.pipeline import GatewayPipeline
 from hivememory.gateway.runtime.bus import GatewayBus
 from hivememory.gateway.runtime.route_bindings import build_gateway_route_bindings
-from hivememory.gateway.stages.s0_command import CommandInterceptorStage
+from hivememory.gateway.stages.s0_command import EntryInterceptorStage
 from hivememory.system.config import SystemGatewayConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
@@ -55,7 +56,11 @@ class GatewayRuntime:
             config,
             global_bus=global_bus,
         )
-        self.command_interceptor = CommandInterceptorStage(self.command_registry)
+        self.entry_interceptor_engine = create_interceptor(
+            config.interceptor,
+            command_registry=self.command_registry,
+        )
+        self.entry_interceptor = EntryInterceptorStage(self.entry_interceptor_engine)
 
         # Phase 3B 只持有原语实例，不把它们接入空 Pipeline。
         self.intent_classifier = IntentClassifierEngine()
@@ -129,6 +134,7 @@ class GatewayRuntime:
             "pipeline_stage_count": len(self.pipeline.stages),
             "command_registry_enabled": self.command_registry is not None,
             "command_dispatcher_enabled": self.command_dispatcher is not None,
+            "entry_interceptor_enabled": self.entry_interceptor is not None,
             "engines": {
                 "intent_classifier": self.intent_classifier is not None,
                 "context_router": self.context_router is not None,

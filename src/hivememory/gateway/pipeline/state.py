@@ -8,12 +8,13 @@ from typing import Any
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.gateway.models import (
     ExecutionPlan,
+    InterceptorResult,
     IntentType,
     MemoryWriteSignal,
     RetrievalMode,
     RetrievalStrategy,
 )
-from hivememory.gateway.commands import CommandParseResult
+from hivememory.gateway.commands import CommandExecutionResult, CommandParseResult
 from hivememory.gateway.context import SessionContext
 
 
@@ -88,7 +89,10 @@ class GatewayState:
     session_context: SessionContext
 
     # ── Stage 0 写入 ───────────────────────────────────────────────
-    command_result: CommandParseResult | None = None
+    l1_result: InterceptorResult | None = None
+    command_parse_result: CommandParseResult | None = None
+    command_execution_result: CommandExecutionResult | None = None
+    short_circuit_reason: str | None = None
 
     # ── Stage 1 写入 ───────────────────────────────────────────────
     intent_type: IntentType | None = None
