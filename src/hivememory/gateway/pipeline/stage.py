@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from hivememory.gateway.pipeline.state import GatewayState
+from hivememory.gateway.pipeline.state import GatewayState, StageResult
 
 
 class GatewayStage(Protocol):
     """Phase 3 Pipeline Stage 的最小协议。"""
 
-    async def process(self, state: GatewayState) -> GatewayState:
+    stage_name: str
+    writable_fields: frozenset[str]
+
+    async def process(self, state: GatewayState) -> StageResult:
         ...
 
 

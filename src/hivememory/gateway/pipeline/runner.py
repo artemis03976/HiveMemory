@@ -7,7 +7,7 @@ from time import monotonic
 
 from hivememory.gateway.context import SessionContext
 from hivememory.gateway.pipeline.stage import GatewayStage
-from hivememory.gateway.pipeline.state import GatewayFlowEnded, GatewayState, StageTrace
+from hivememory.gateway.pipeline.state import GatewayState
 
 
 class GatewayPipeline:
@@ -33,37 +33,27 @@ class GatewayPipeline:
 
         for stage in self._stages:
             stage_name = self._stage_name(stage)
-            trace_count = len(state.stage_trace)
             start = monotonic()
-            try:
-                state = await stage.process(state)
-            except GatewayFlowEnded as flow_ended:
-                state = flow_ended.state
-                duration_ms = (monotonic() - start) * 1000
-                if len(state.stage_trace) == trace_count:
-                    state.stage_trace.append(
-                        StageTrace(
-                            stage_name=stage_name,
-                            duration_ms=duration_ms,
-                            flow_ended=True,
-                        )
-                    )
-                return state.seal()
-
+            result = await stage.process(state)
             duration_ms = (monotonic() - start) * 1000
-            if len(state.stage_trace) == trace_count:
-                state.stage_trace.append(
-                    StageTrace(
-                        stage_name=stage_name,
-                        duration_ms=duration_ms,
-                    )
-                )
+            state.apply_stage_result(
+                stage_name=stage_name,
+                result=result,
+                duration_ms=duration_ms,
+                writable_fields=self._writable_fields(stage),
+            )
+            if result.flow_ended:
+                return state.seal()
 
         return state.seal()
 
     @staticmethod
     def _stage_name(stage: GatewayStage) -> str:
         return getattr(stage, "stage_name", stage.__class__.__name__)
+
+    @staticmethod
+    def _writable_fields(stage: GatewayStage) -> frozenset[str]:
+        return getattr(stage, "writable_fields", frozenset())
 
 
 __all__ = ["GatewayPipeline"]

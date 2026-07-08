@@ -9,7 +9,7 @@ from time import monotonic
 from hivememory.core.models import Identity
 from hivememory.gateway.commands import CommandExecutionResult, CommandExecutionStatus
 from hivememory.gateway.context import SessionContext
-from hivememory.gateway.pipeline import GatewayFlowEnded, GatewayState, StageTrace
+from hivememory.gateway.pipeline import GatewayState, StageResult
 from hivememory.gateway.runtime import GatewayRuntime
 
 
@@ -48,14 +48,15 @@ class GatewayService:
             message=message,
             identity=identity,
         )
-        state.session_context = context
-        state.stage_trace.append(
-            StageTrace(
-                stage_name="ContextHydration",
-                duration_ms=context.hydration_duration_ms,
+        state.apply_stage_result(
+            stage_name="ContextHydration",
+            result=StageResult.from_updates(
+                {"session_context": context},
                 is_fallback=context.hydration_failed,
                 fallback_reason=context.hydration_error,
-            )
+            ),
+            duration_ms=context.hydration_duration_ms,
+            writable_fields=frozenset({"session_context"}),
         )
         return await self._runtime.pipeline.run_state(state)
 
@@ -71,29 +72,19 @@ class GatewayService:
 
         stage = self._runtime.entry_interceptor
         stage_name = getattr(stage, "stage_name", stage.__class__.__name__)
-        trace_count = len(state.stage_trace)
         start = monotonic()
-        try:
-            state = await stage.process(state)
-        except GatewayFlowEnded as flow_ended:
-            state = flow_ended.state
-            duration_ms = (monotonic() - start) * 1000
-            if len(state.stage_trace) == trace_count:
-                state.stage_trace.append(
-                    StageTrace(
-                        stage_name=stage_name,
-                        duration_ms=duration_ms,
-                        flow_ended=True,
-                    )
-                )
+        result = await stage.process(state)
+        duration_ms = (monotonic() - start) * 1000
+        state.apply_stage_result(
+            stage_name=stage_name,
+            result=result,
+            duration_ms=duration_ms,
+            writable_fields=getattr(stage, "writable_fields", frozenset()),
+        )
+        if result.flow_ended:
             await self._dispatch_system_command_if_needed(state, identity=identity)
             return state.seal()
 
-        duration_ms = (monotonic() - start) * 1000
-        if len(state.stage_trace) == trace_count:
-            state.stage_trace.append(
-                StageTrace(stage_name=stage_name, duration_ms=duration_ms)
-            )
         return state
 
     async def _dispatch_system_command_if_needed(
@@ -109,6 +100,7 @@ class GatewayService:
         if state.flow_end_reason != "system_command":
             return
 
+        start = monotonic()
         dispatcher = self._runtime.command_dispatcher
         if dispatcher is None:
             command_id = (
@@ -121,17 +113,25 @@ class GatewayService:
                 if state.command_parse_result is not None
                 else None
             )
-            state.command_execution_result = CommandExecutionResult(
+            execution_result = CommandExecutionResult(
                 command_id=command_id or command_name or "unknown",
                 status=CommandExecutionStatus.REJECTED,
                 message="系统指令执行器未启用。",
                 error_code="command.dispatcher.disabled",
             )
-            return
+        else:
+            execution_result = await dispatcher.execute(
+                state.command_parse_result,
+                identity=identity,
+            )
 
-        state.command_execution_result = await dispatcher.execute(
-            state.command_parse_result,
-            identity=identity,
+        state.apply_stage_result(
+            stage_name="S0.CommandDispatch",
+            result=StageResult.from_updates(
+                {"command_execution_result": execution_result}
+            ),
+            duration_ms=(monotonic() - start) * 1000,
+            writable_fields=frozenset({"command_execution_result"}),
         )
 
 
