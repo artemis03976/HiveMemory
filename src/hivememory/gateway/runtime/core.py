@@ -14,7 +14,7 @@ from hivememory.gateway.commands import (
     SystemCommandDispatcher,
     create_builtin_command_registry,
 )
-from hivememory.gateway.context import GatewayContextBuilder
+from hivememory.gateway.context import GatewayContextHydrator
 from hivememory.gateway.contracts.local_routes import GatewayLocalRoutes
 from hivememory.gateway.pipeline import GatewayPipeline
 from hivememory.gateway.runtime.bus import GatewayBus
@@ -39,7 +39,7 @@ class GatewayRuntime:
         config: SystemGatewayConfig,
         global_bus: GlobalSystemBus | None = None,
         runtime_events: RuntimeEventSink | None = None,
-        context_builder: GatewayContextBuilder | None = None,
+        context_hydrator: GatewayContextHydrator | None = None,
         pipeline: GatewayPipeline | None = None,
     ) -> None:
         self.config = config
@@ -48,7 +48,10 @@ class GatewayRuntime:
         self._local_bus = GatewayBus()
         self._local_routes_registered = False
 
-        self.context_builder = context_builder or GatewayContextBuilder()
+        self.context_hydrator = context_hydrator or GatewayContextHydrator(
+            config=config.context_hydration,
+            global_bus=global_bus,
+        )
         self.pipeline = pipeline or GatewayPipeline()
 
         self.command_registry = self._build_command_registry(config)
@@ -132,6 +135,7 @@ class GatewayRuntime:
         return {
             "local_routes_registered": self._local_routes_registered,
             "pipeline_stage_count": len(self.pipeline.stages),
+            "context_hydration_enabled": self.config.context_hydration.enabled,
             "command_registry_enabled": self.command_registry is not None,
             "command_dispatcher_enabled": self.command_dispatcher is not None,
             "entry_interceptor_enabled": self.entry_interceptor is not None,

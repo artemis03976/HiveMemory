@@ -55,7 +55,4 @@ class EntryInterceptorStage:
         return state
 
 
-CommandInterceptorStage = EntryInterceptorStage
-
-
-__all__ = ["CommandInterceptorStage", "EntryInterceptorStage"]
+__all__ = ["EntryInterceptorStage"]

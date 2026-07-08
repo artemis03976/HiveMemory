@@ -44,11 +44,19 @@ class GatewayService:
         if state.sealed:
             return state
 
-        context = await self._runtime.context_builder.build(
+        context = await self._runtime.context_hydrator.hydrate(
             message=message,
             identity=identity,
         )
         state.session_context = context
+        state.stage_trace.append(
+            StageTrace(
+                stage_name="ContextHydration",
+                duration_ms=context.hydration_duration_ms,
+                is_fallback=context.hydration_failed,
+                fallback_reason=context.hydration_error,
+            )
+        )
         return await self._runtime.pipeline.run_state(state)
 
     async def _run_entry_interceptor(

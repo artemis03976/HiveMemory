@@ -34,10 +34,23 @@ class SystemCommandConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class GatewayContextHydrationConfig(BaseModel):
+    """Gateway Context Hydration 配置。"""
+
+    enabled: bool = Field(default=True)
+    timeout_seconds: float = Field(default=1.0, ge=0)
+    include_empty_topics: bool = Field(default=False)
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class SystemGatewayConfig(BaseModel):
     interceptor: RuleInterceptorConfig = Field(default_factory=RuleInterceptorConfig)
     analyzer: LLMAnalyzerConfig = Field(default_factory=LLMAnalyzerConfig)
     commands: SystemCommandConfig = Field(default_factory=SystemCommandConfig)
+    context_hydration: GatewayContextHydrationConfig = Field(
+        default_factory=GatewayContextHydrationConfig
+    )
 
     model_config = ConfigDict(extra="ignore")
 
@@ -46,5 +59,6 @@ __all__ = [
     "RuleInterceptorConfig",
     "LLMAnalyzerConfig",
     "SystemCommandConfig",
+    "GatewayContextHydrationConfig",
     "SystemGatewayConfig",
 ]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
-    "GatewayContextBuilder",
+    "GatewayContextHydrator",
     "GatewayFlowEnded",
     "GatewayLocalRoutes",
     "GatewayPatch",
@@ -18,7 +18,6 @@ __all__ = [
     "PatchouliPrepareDecision",
     "SessionContext",
     "StageTrace",
-    "TopicSnapshotProvider",
     "render_topic_snapshots",
 ]
 
@@ -26,17 +25,15 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     """惰性导出，避免 commands 子模块导入时触发不必要的装配依赖。"""
 
-    if name in {"GatewayContextBuilder", "SessionContext", "TopicSnapshotProvider"}:
+    if name in {"GatewayContextHydrator", "SessionContext"}:
         from hivememory.gateway.context import (
-            GatewayContextBuilder,
+            GatewayContextHydrator,
             SessionContext,
-            TopicSnapshotProvider,
         )
 
         return {
-            "GatewayContextBuilder": GatewayContextBuilder,
+            "GatewayContextHydrator": GatewayContextHydrator,
             "SessionContext": SessionContext,
-            "TopicSnapshotProvider": TopicSnapshotProvider,
         }[name]
     if name in {"GatewayLocalRoutes", "GatewayPublicRoutes"}:
         from hivememory.gateway.contracts import GatewayLocalRoutes, GatewayPublicRoutes
