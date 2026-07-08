@@ -5,7 +5,6 @@ HiveMemory 的分布式智能架构 v3.0。
 
 架构:
     - PatchouliSystem (The Facility): 外层容器，持有 Patchouli Runtime
-    - System Gateway / TheEye: 系统级 Ingress Gateway，意图识别、查询重写
     - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
         - PerceptionFamiliar (感知使魔): 话题缓冲、归档触发
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染

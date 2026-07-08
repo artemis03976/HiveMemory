@@ -76,11 +76,11 @@ class GatewayEngine:
             active_topics_menu: 活跃话题菜单字符串（用于 Agentic Routing）
 
         Returns:
-            GatewayResult: GatewayEngine 对 TheEye 的最终输出
+            GatewayResult: GatewayEngine 的结构化输出
 
         Note:
             此方法不处理 fallback、不记录日志、不添加处理时间。
-            这些业务逻辑由上层 TheEye 处理。
+            这些业务逻辑由上层 Gateway 子系统处理。
         """
         # L1: 拦截器
         l1_result = self.interceptor.intercept(query)

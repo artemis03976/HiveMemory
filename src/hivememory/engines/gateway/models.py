@@ -121,7 +121,7 @@ class GatewayResult(BaseModel):
     """
     Gateway 服务层统一输出数据模型
 
-    这是 GatewayEngine 对 TheEye 的输出，将被用于构建协议消息：
+    这是旧 GatewayEngine 的输出模型，将被用于构建协议消息：
     - RetrievalRequest: 使用 rewritten_query + search_keywords
     - Observation: 使用 rewritten_query + worth_saving + reason
 
@@ -148,7 +148,7 @@ class GatewayResult(BaseModel):
 
     # ========== 元信息（用于可观测） ==========
 
-    #: 处理耗时（毫秒），由 TheEye 填充
+    #: 处理耗时（毫秒），由上层调用方填充
     processing_time_ms: float = Field(default=0.0, description="处理耗时")
 
     #: 网关解析失败标记

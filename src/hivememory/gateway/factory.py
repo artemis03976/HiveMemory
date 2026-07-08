@@ -1,94 +1,59 @@
-"""Phase 3 GatewayFacade 装配工厂。"""
+"""GatewaySystem 装配工厂。"""
 
 from __future__ import annotations
 
-from hivememory.engines.gateway import (
-    ContextRouterEngine,
-    GatewayEngine,
-    IntentClassifierEngine,
-    MemoryValueJudgeEngine,
-    RetrievalStrategyEngine,
+from hivememory.gateway.commands import (
+    CommandRegistry,
+    SystemCommandDispatcher,
+    create_builtin_command_registry,
 )
-from hivememory.gateway.context import GatewayContextBuilder, TopicSnapshotProvider
-from hivememory.gateway.eye import TheEye
-from hivememory.gateway.facade import GatewayFacade
-from hivememory.gateway.pipeline import GatewayPipeline
-from hivememory.gateway.stages import (
-    CommandInterceptorStage,
-    CompositePlaceholderStage,
-    ContextRouterStage,
-    IntentClassifierStage,
-    MemoryValueJudgeStage,
-    PlannerRouterStage,
-    RetrievalStrategyStage,
-)
-from hivememory.infrastructure.llm import get_gateway_llm_service
+from hivememory.gateway.runtime import GatewayRuntime
+from hivememory.gateway.system import GatewaySystem
 from hivememory.system.config import LLMConfig, SystemGatewayConfig
-from hivememory.gateway.commands import CommandRegistry, SystemCommandDispatcher
-from hivememory.system.gateway.factory import build_gateway_engine
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
-def build_gateway_facade(
+def build_gateway_system(
     config: SystemGatewayConfig,
     llm_config: LLMConfig | None = None,
     *,
+    global_bus: GlobalSystemBus | None = None,
     command_registry: CommandRegistry | None = None,
-    command_dispatcher: SystemCommandDispatcher | None = None,
-    topic_provider: TopicSnapshotProvider | None = None,
-    eye: TheEye | None = None,
-) -> GatewayFacade:
+) -> GatewaySystem:
     """
-    构造 GatewayFacade。
+    构造 Phase 3 Gateway 子系统。
 
-    若调用方已持有旧 TheEye，可直接注入以避免重复构造；否则使用现有
-    GatewayEngine 工厂构造兼容 TheEye。
+    llm_config 保留为后续 engine 原语装配入口；Phase 3A 不再构造旧
+    GatewayEngine 主路径。
     """
 
-    active_eye = eye
-    if active_eye is None:
-        if llm_config is None:
-            raise ValueError("llm_config is required when eye is not provided")
-        llm_service = get_gateway_llm_service(config=llm_config)
-        engine = build_gateway_engine(
-            config=config,
-            llm_service=llm_service,
-            command_registry=command_registry,
-        )
-        active_eye = TheEye(engine=engine)
-
-    gateway_engine = _get_gateway_engine(active_eye)
-    return GatewayFacade(
-        eye=active_eye,
-        command_dispatcher=command_dispatcher,
-        context_builder=GatewayContextBuilder(topic_provider=topic_provider),
-        pipeline=build_gateway_pipeline(gateway_engine),
-        command_interceptor=CommandInterceptorStage(command_registry)
+    _ = llm_config
+    command_config = config.commands
+    active_command_registry = (
+        command_registry
         if command_registry is not None
-        else None,
+        else (
+            create_builtin_command_registry(command_config.builtin)
+            if command_config.enabled
+            else None
+        )
+    )
+    command_dispatcher = (
+        SystemCommandDispatcher(
+            active_command_registry,
+            global_bus=global_bus,
+            debug_enabled=command_config.enable_debug_commands,
+            expose_listing=command_config.expose_listing,
+        )
+        if active_command_registry is not None
+        else None
     )
 
-
-def build_gateway_pipeline(gateway_engine: GatewayEngine | None) -> GatewayPipeline:
-    """构造 Phase 3C S1-S5 主 Pipeline。"""
-
-    if gateway_engine is None:
-        return GatewayPipeline()
-
-    return GatewayPipeline(
-        [
-            IntentClassifierStage(IntentClassifierEngine()),
-            CompositePlaceholderStage(),
-            ContextRouterStage(ContextRouterEngine(gateway_engine)),
-            MemoryValueJudgeStage(MemoryValueJudgeEngine()),
-            RetrievalStrategyStage(RetrievalStrategyEngine()),
-            PlannerRouterStage(),
-        ]
+    runtime = GatewayRuntime(
+        command_registry=active_command_registry,
+        command_dispatcher=command_dispatcher,
     )
+    return GatewaySystem(runtime=runtime, global_bus=global_bus)
 
 
-def _get_gateway_engine(eye: TheEye) -> GatewayEngine | None:
-    engine = getattr(eye, "_engine", None)
-    return engine if isinstance(engine, GatewayEngine) else None
-
-
-__all__ = ["build_gateway_facade", "build_gateway_pipeline"]
+__all__ = ["build_gateway_system"]

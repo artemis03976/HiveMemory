@@ -57,7 +57,7 @@ class Identity(BaseModel):
 
 class TopicSnapshot(BaseModel):
     """
-    话题快照，用于 TheEye 路由决策与前端话题池展示。
+    话题快照，用于 Gateway 路由决策与前端话题池展示。
 
     该模型属于系统级只读契约，不再归属于感知层内部模型。
     """

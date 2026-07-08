@@ -209,9 +209,10 @@ class AgentRunResult(BaseModel):
 
 class EyeGazeResult(BaseModel):
     """
-    TheEye 的统一输出模型
+    旧 gaze 流程的统一输出模型
 
-    TheEye 作为 Agentic Dispatcher，负责信息重整与话题路由。
+    保留该模型是为了尚未迁移完成的下游协议字段；Phase 3 主路径使用
+    GatewayState。
     数据格式转换由 PatchouliRuntime 负责。
 
     Attributes:

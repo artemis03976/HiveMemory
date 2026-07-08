@@ -6,6 +6,8 @@ from hivememory.system.contracts.route_names import RouteNames
 class GlobalRoutes:
     """Routes that are accessible through GlobalSystemBus."""
 
+    GATEWAY_PROCESS = RouteNames.GATEWAY_PROCESS
+
     PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE = RouteNames.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE
     PATCHOULI_SUBMIT_INTERACTION = RouteNames.PATCHOULI_SUBMIT_INTERACTION
     PATCHOULI_MEMORY_CREATE = RouteNames.PATCHOULI_MEMORY_CREATE

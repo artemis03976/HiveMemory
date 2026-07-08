@@ -3,7 +3,7 @@ HiveMemory - 分布式记忆管理系统
 
 帕秋莉体系 v3.0+:
     - PatchouliSystem (The Facility): 记忆域容器，持有 Patchouli Runtime
-    - TheEye (真理之眼): System Gateway，意图识别、查询重写
+    - GatewaySystem: Gateway 子系统，承载决策工作流入口
     - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
         - PerceptionFamiliar (感知使魔): 话题缓冲、归档触发
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
@@ -218,9 +218,6 @@ def __getattr__(name: str):
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
-    if name == "TheEye":
-        from hivememory.system.gateway.eye import TheEye
-        return TheEye
     if name == "RetrievalFamiliar":
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         return RetrievalFamiliar
@@ -399,7 +396,6 @@ __all__ = [
     "PatchouliRuntime",
     "PatchouliService",
     "PatchouliSystem",
-    "TheEye",
     "PerceptionFamiliar",
     "RetrievalFamiliar",
     "LifecycleFamiliar",

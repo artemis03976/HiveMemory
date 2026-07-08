@@ -102,7 +102,7 @@ class RetrievalFamiliar:
         """
         列出指定用户的话题快照（短期检索入口）。
 
-        默认排除空话题，供 TheEye 路由决策使用；include_empty=True
+        默认排除空话题，供 Gateway 路由决策使用；include_empty=True
         时可承接前端话题池展示。
         """
         topics = self._memory_library.short_term.list_topic_data(

@@ -56,7 +56,6 @@ def build_patchouli_route_bindings(
             runtime._task_controller.wait_many,
         ),
         (PatchouliLocalRoutes.MEMORY_TASK_WAIT_ALL, runtime._task_controller.wait_all),
-        (PatchouliLocalRoutes.GATEWAY_GAZE, service.gaze),
         (
             PatchouliLocalRoutes.MEMORY_CREATE,
             runtime.memory_generation_familiar.create_external_memory,

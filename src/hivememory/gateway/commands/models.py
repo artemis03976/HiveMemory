@@ -83,7 +83,7 @@ class CommandDefinition(BaseModel):
 
 
 class CommandParseResult(BaseModel):
-    """系统指令解析产物，由 RuleInterceptor 透传给 TheEye 和后续应用层。"""
+    """系统指令解析产物，由 Gateway S0 透传给后续应用层。"""
 
     command_id: str | None = None
     raw_input: str

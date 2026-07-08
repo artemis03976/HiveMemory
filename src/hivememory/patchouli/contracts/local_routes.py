@@ -40,8 +40,6 @@ class PatchouliLocalRoutes:
 
     GET_AGENT_PROFILE = "memory.get_agent_profile"
 
-    GATEWAY_GAZE = "gateway.gaze"
-
     TOPIC_PREPARE = "topic.prepare"
     TOPIC_GET = "topic.get"
     TOPIC_LIST_ACTIVE = "topic.list_active"
@@ -80,7 +78,6 @@ class PatchouliLocalRoutes:
         MEMORY_TASK_WAIT_MANY,
         MEMORY_TASK_WAIT_ALL,
         GET_AGENT_PROFILE,
-        GATEWAY_GAZE,
         TOPIC_PREPARE,
         TOPIC_GET,
         TOPIC_LIST_ACTIVE,

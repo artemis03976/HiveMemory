@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any, List
 from uuid import UUID
 
@@ -12,7 +11,6 @@ from hivememory.engines.memory_compiler import (
 )
 from hivememory.core.models import ActionReducer, Identity, TraceReducer
 from hivememory.core.protocol.models import (
-    AgentRunContext,
     AgentRunResult,
     AnalyzeAndRetrieveResult,
     InteractionPayload,
@@ -25,12 +23,9 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
-from hivememory.server.models.memory import MemoryResponse
 from hivememory.system.config import MemoryCompilerConfig
 
 logger = logging.getLogger(__name__)
-
-GatewayGazeCallable = Callable[..., Awaitable[EyeGazeResult]]
 
 
 class PatchouliService:
@@ -40,10 +35,8 @@ class PatchouliService:
         self,
         bus: PatchouliBus,
         *,
-        gateway_gaze: GatewayGazeCallable,
         memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
-        self._gateway_gaze = gateway_gaze
         self._local_bus = bus
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._compiler = MemoryCompiler()
@@ -55,21 +48,10 @@ class PatchouliService:
         topic_snapshots: Any = None,
         enable_retrieval: bool = True,
     ) -> AnalyzeAndRetrieveResult:
-        """执行 Patchouli 的标准分析与预检索入口。"""
-        gaze_result = await self._local_bus.request(
-            PatchouliLocalRoutes.GATEWAY_GAZE,
-            query=query,
-            topic_snapshots=topic_snapshots,
-            identity=identity,
-        )
-        retrieval_result = await self.retrieve_for_gaze(
-            gaze_result,
-            enable_retrieval=enable_retrieval,
-        )
-        return AnalyzeAndRetrieveResult(
-            gaze_result=gaze_result,
-            retrieval_result=retrieval_result,
-        )
+        """Phase 3A 已切断旧 Gateway gaze；该入口待 Phase 3E 接入 GatewayState。"""
+
+        _ = (query, identity, topic_snapshots, enable_retrieval)
+        raise RuntimeError("Patchouli analyze_and_retrieve 尚未接入 GatewayState")
 
     # ========== prepare / finalize 公开能力 ==========
 
@@ -82,6 +64,18 @@ class PatchouliService:
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
     ) -> PreparedAgentRun:
+        """Phase 3A 已切断旧 Gateway gaze；该入口待 Phase 3E 改为消费 GatewayState。"""
+
+        _ = (
+            user_message,
+            user_id,
+            agent_id,
+            session_id,
+            enable_memory_retrieval,
+            generation_options,
+        )
+        raise RuntimeError("Patchouli prepare_agent_run 尚未接入 GatewayState")
+
         """
         准备一次 Agent 运行所需的完整记忆上下文。
 
@@ -268,13 +262,6 @@ class PatchouliService:
             PatchouliLocalRoutes.MEMORY_RECORD_CITATION,
             normalized_id,
             source=source,
-        )
-
-    async def gaze(self, *, query: str, topic_snapshots: Any, identity: Identity):
-        return await self._gateway_gaze(
-            query=query,
-            topic_snapshots=topic_snapshots,
-            identity=identity,
         )
 
     async def cleanup_prepared_agent_run(

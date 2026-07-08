@@ -1,24 +1,17 @@
-﻿"""
-Phase 3 GatewayState 与兼容投影。
-
-本模块集中保存迁移期转换逻辑，避免后续清理时在下游散落 adapter。
-"""
+"""Phase 3 GatewayState 契约。"""
 
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, dataclass, field
 from typing import Any
 
-from hivememory.core.protocol.models import EyeGazeResult, RetrievalRequest
 from hivememory.engines.gateway.models import (
-    GatewayIntent,
     IntentType,
     MemoryWriteSignal,
-    RetrievalMode,
     RetrievalStrategy,
 )
-from hivememory.gateway.context import SessionContext
 from hivememory.gateway.commands import CommandParseResult
+from hivememory.gateway.context import SessionContext
 
 
 @dataclass(frozen=True)
@@ -37,7 +30,7 @@ class GatewayPatch:
     """
     并发 Stage 的轻量补丁模型。
 
-    Phase 3B 只定义字段合并边界；S4 并发执行留到后续阶段。
+    Phase 3A 只保留字段合并边界；S4 并发执行留到后续阶段。
     """
 
     updates: dict[str, Any] = field(default_factory=dict)
@@ -131,57 +124,6 @@ class GatewayState:
             object.__setattr__(self, "stage_trace", tuple(self.stage_trace))
             object.__setattr__(self, "_sealed", True)
         return self
-
-    def to_eye_gaze_result(self) -> EyeGazeResult:
-        """投影为 Phase 1/2 兼容的 EyeGazeResult。"""
-
-        worth_saving = self.to_interaction_payload_worth_saving()
-        return EyeGazeResult(
-            intent=self._to_gateway_intent(),
-            rewritten_query=self.rewritten_query or self.raw_message,
-            search_keywords=list(self.search_keywords),
-            worth_saving=bool(worth_saving),
-            raw_query=self.raw_message,
-            identity=self.session_context.identity,
-            processing_time_ms=sum(trace.duration_ms for trace in self.stage_trace),
-            is_fallback=any(trace.is_fallback for trace in self.stage_trace),
-            target_topic=self.topic_id or "NEW_TOPIC",
-            new_topic_title=self.new_topic_title,
-            new_topic_summary=self.new_topic_summary,
-            command=self.command_result,
-        )
-
-    def to_retrieval_request(self) -> RetrievalRequest | None:
-        """
-        投影为当前 RetrievalRequest。
-
-        当前协议尚不承载 top_k / dense_weight / sparse_weight；这些字段继续保留在
-        GatewayState.retrieval_strategy，待下游协议升级后再直连消费。
-        """
-
-        if self.retrieval_strategy and self.retrieval_strategy.mode == RetrievalMode.SKIP:
-            return None
-        return RetrievalRequest(
-            semantic_query=self.rewritten_query or self.raw_message,
-            keywords=list(self.search_keywords),
-            identity=self.session_context.identity,
-        )
-
-    def to_interaction_payload_worth_saving(self) -> bool | None:
-        """投影为 InteractionPayload.worth_saving 的兼容值。"""
-
-        if self.memory_write_signal == MemoryWriteSignal.WRITE:
-            return True
-        if self.memory_write_signal == MemoryWriteSignal.SKIP:
-            return False
-        return None
-
-    def _to_gateway_intent(self) -> GatewayIntent:
-        if self.command_result is not None:
-            return GatewayIntent.SYSTEM
-        if self.intent_type == IntentType.CHAT:
-            return GatewayIntent.CHAT
-        return GatewayIntent.RAG
 
 
 __all__ = [

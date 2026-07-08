@@ -29,8 +29,8 @@ CommandHandler = Callable[..., CommandExecutionResult | Awaitable[CommandExecuti
 class SystemCommandDispatcher:
     """系统指令统一执行入口。
 
-    Dispatcher 是 Phase 2 中唯一允许产生指令副作用的组件。RuleInterceptor
-    和 TheEye 只负责识别与透传，不调用 handler。
+    Dispatcher 是唯一允许产生指令副作用的组件。Gateway S0 只负责识别与
+    透传，不调用 handler。
     """
 
     def __init__(
