@@ -19,7 +19,6 @@ __all__ = [
     "ShortCircuit",
     "StageTrace",
     "TopicSnapshotProvider",
-    "build_gateway_system",
     "render_topic_snapshots",
 ]
 
@@ -83,10 +82,6 @@ def __getattr__(name: str) -> Any:
         from hivememory.gateway.system import GatewaySystem
 
         return GatewaySystem
-    if name == "build_gateway_system":
-        from hivememory.gateway.factory import build_gateway_system
-
-        return build_gateway_system
     if name == "render_topic_snapshots":
         from hivememory.gateway.topic_context import render_topic_snapshots
 

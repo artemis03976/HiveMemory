@@ -8,8 +8,10 @@ from typing import Any
 from hivememory.gateway.contracts.public_routes import GatewayPublicRoutes
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
+from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +23,22 @@ class GatewaySystem(SubsystemProtocol):
 
     def __init__(
         self,
-        *,
-        runtime: GatewayRuntime,
+        config: HiveMemoryConfig,
         global_bus: GlobalSystemBus | None = None,
+        runtime_events: RuntimeEventSink | None = None,
     ) -> None:
-        self._runtime = runtime
-        self._service = GatewayService(runtime=runtime)
+        self._config = config
         self._global_bus = global_bus
+        self._runtime_events = runtime_events or NullRuntimeEventSink()
+
+        self._runtime = GatewayRuntime(
+            config=self._config.gateway,
+            global_bus=global_bus,
+            runtime_events=self._runtime_events,
+        )
+
+        self._service = GatewayService(runtime=self._runtime)
+        
         self._public_routes_registered = False
 
         logger.info("GatewaySystem 初始化完成")

@@ -224,9 +224,6 @@ def __getattr__(name: str):
     if name == "PatchouliPrepareDecision":
         from hivememory.gateway import PatchouliPrepareDecision
         return PatchouliPrepareDecision
-    if name == "build_gateway_system":
-        from hivememory.gateway import build_gateway_system
-        return build_gateway_system
     if name == "PatchouliRuntime":
         from hivememory.patchouli.runtime import PatchouliRuntime
         return PatchouliRuntime
@@ -333,7 +330,6 @@ __all__ = [
     "GatewayService",
     "GatewayState",
     "PatchouliPrepareDecision",
-    "build_gateway_system",
     # ========== Generation Engine ==========
     "MemoryGenerationEngine",
     "BaseMemoryExtractor",
