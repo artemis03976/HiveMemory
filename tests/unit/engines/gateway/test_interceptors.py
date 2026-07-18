@@ -1,7 +1,7 @@
-from hivememory.engines.gateway.interceptors import RuleInterceptor
+﻿from hivememory.engines.gateway.interceptors import RuleInterceptor
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.system.config import RuleInterceptorConfig
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     CommandCategory,
     CommandDefinition,
     CommandParseStatus,

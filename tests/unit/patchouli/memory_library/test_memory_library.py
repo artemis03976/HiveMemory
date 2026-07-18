@@ -8,31 +8,31 @@ MemoryLibrary 三层存储单元测试
 - MemoryLibrary: archive/revive 跨层状态转移
 """
 
-import pytest
-from unittest.mock import AsyncMock, Mock, MagicMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
+import pytest
+
 from hivememory.core.models import (
-    Identity,
     IndexLayer,
+    LogicalBlock,
     MemoryAtom,
     MemoryEventType,
     MemoryType,
     MetaData,
     PayloadLayer,
+    TopicData,
     TurnRecord,
 )
 from hivememory.engines.lifecycle.models import ArchiveRecord
-from hivememory.engines.perception.models import LogicalBlock
 from hivememory.patchouli.memory_library import (
-    MemoryLibrary,
-    ShortTermMemoryStore,
-    MidTermMemoryStore,
-    LongTermMemoryStore,
     ArtifactStore,
+    LongTermMemoryStore,
+    MemoryLibrary,
+    MidTermMemoryStore,
+    ShortTermMemoryStore,
 )
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
-from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
 
@@ -108,7 +108,7 @@ class TestShortTermMemoryStore:
         result = self.store.get_topic_data("missing")
         assert result is None
 
-    def test_get_topic_data_returns_topic_data_with_deep_copy(self):
+    def test_get_topic_data_returns_immutable_topic_data(self):
         buf = self.store.create_buffer("u1")
         self.store.add_block(
             buf.topic_id,
@@ -119,7 +119,7 @@ class TestShortTermMemoryStore:
 
         assert isinstance(data, TopicData)
         assert data.block_count == 1
-        # 修改返回的 data.blocks 不影响原始 buffer
+        assert data.blocks[0] is buf.blocks[0]
         assert len(data.blocks) == 1
 
     def test_get_topic_data_touch_updates_last_accessed_at(self):
@@ -130,12 +130,12 @@ class TestShortTermMemoryStore:
 
         assert buf.last_accessed_at >= initial
 
-    def test_get_topic_data_deep_copy_false_returns_same_block_objects(self):
+    def test_get_topic_data_reuses_immutable_block_objects(self):
         buf = self.store.create_buffer("u1")
         block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
         self.store.add_block(buf.topic_id, block)
 
-        data = self.store.get_topic_data(buf.topic_id, deep_copy=False)
+        data = self.store.get_topic_data(buf.topic_id)
 
         assert data.blocks[0] is block
 
@@ -152,7 +152,7 @@ class TestShortTermMemoryStore:
 
         self.store.add_block(buf.topic_id, block)
 
-        data = self.store.get_topic_data(buf.topic_id, deep_copy=False)
+        data = self.store.get_topic_data(buf.topic_id)
         assert len(data.blocks) == 1
         assert data.total_tokens >= 0
 
@@ -162,7 +162,7 @@ class TestShortTermMemoryStore:
 
         self.store.clear_blocks(buf.topic_id)
 
-        data = self.store.get_topic_data(buf.topic_id, deep_copy=False)
+        data = self.store.get_topic_data(buf.topic_id)
         assert len(data.blocks) == 0
         assert data.total_tokens == 0
 
@@ -171,7 +171,7 @@ class TestShortTermMemoryStore:
 
         self.store.update_summary(buf.topic_id, "new summary")
 
-        data = self.store.get_topic_data(buf.topic_id, deep_copy=False)
+        data = self.store.get_topic_data(buf.topic_id)
         assert data.state_summary == "new summary"
 
     def test_update_title_writes_topic_title(self):
@@ -179,7 +179,7 @@ class TestShortTermMemoryStore:
 
         self.store.update_title(buf.topic_id, "new title")
 
-        data = self.store.get_topic_data(buf.topic_id, deep_copy=False)
+        data = self.store.get_topic_data(buf.topic_id)
         assert data.topic_title == "new title"
 
     def test_list_topic_data_returns_all_topics(self):
@@ -234,7 +234,7 @@ class TestShortTermMemoryStore:
         cleared = self.store.clear_buffer(buf.topic_id)
 
         assert len(cleared) == 1
-        data = self.store.get_topic_data(buf.topic_id, deep_copy=False)
+        data = self.store.get_topic_data(buf.topic_id)
         assert len(data.blocks) == 0
 
     def test_get_last_active_topic_records_last_accessed(self):
@@ -262,7 +262,7 @@ class TestShortTermMemoryStore:
 
         assert store.get_active_topic_buffer_count() == 1
         assert store.get_lru_topic() == buf.topic_id
-        data = store.get_topic_data(buf.topic_id, deep_copy=False)
+        data = store.get_topic_data(buf.topic_id)
         assert data.topic_title == "portable"
         assert data.blocks == (block,)
 

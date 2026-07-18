@@ -3,38 +3,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from hivememory.core.models import AgentProfile, Identity, TopicSnapshot
-from hivememory.core.protocol.models import AgentRunContext, EyeGazeResult
+from hivememory.core.protocol.gateway import GatewayDecision
+from hivememory.core.protocol.models import AgentRunContext
 
 
-@dataclass
+@dataclass(frozen=True)
 class StreamPrelude:
     """Data emitted before streaming Agent tokens."""
 
     topic_id: str
     is_new_topic: bool
-    pool_topics: List[TopicSnapshot]
-    memory_refs: List[Any]
-
-    @property
-    def pool_snapshot(self) -> Dict[str, Any]:
-        """兼容旧前端包格式；新代码应直接使用 pool_topics。"""
-        return {
-            "topics": [topic.model_dump(mode="json") for topic in self.pool_topics],
-            "current_count": len(self.pool_topics),
-        }
+    pool_topics: list[TopicSnapshot]
+    memory_refs: list[Any]
 
 
-@dataclass
+@dataclass(frozen=True)
 class PreparedAgentRun:
     """Complete context prepared by Patchouli for one Agent run."""
 
     agent_run_context: AgentRunContext
-    gaze_result: EyeGazeResult
+    gateway_decision: GatewayDecision
     stream_prelude: StreamPrelude
-    generation_options: Optional[Dict[str, Any]] = field(default=None)
+    generation_options: dict[str, Any] | None = field(default=None)
 
     @property
     def identity(self) -> Identity:

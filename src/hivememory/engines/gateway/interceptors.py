@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gateway L1 规则拦截器。
 
 在 L2 语义分析前执行低成本确定性路由。系统指令由 System Gateway 的
@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Optional
 
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
-from hivememory.system.config import RuleInterceptorConfig
-from hivememory.system.gateway.commands import (
+from hivememory.gateway.commands import (
     CommandCategory,
     CommandDefinition,
     CommandParseResult,
@@ -23,6 +21,7 @@ from hivememory.system.gateway.commands import (
     CommandRouteTarget,
     CommandRouteTargetKind,
 )
+from hivememory.system.config import RuleInterceptorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ class RuleInterceptor(BaseInterceptor):
     但仍过滤 slash 指令，避免用户输入的系统指令落入 L2 语义分析层。
     """
 
-    CHAT_PATTERNS: List[str] = [
+    CHAT_PATTERNS: list[str] = [
         r"^(你好|hi|hello|hey|嗨|哈喽)[\s\!\?。？]*$",
         r"^(谢谢|thanks|thank you|感谢)[\s\!\?。？]*$",
         r"^(再见|bye|goodbye|拜拜|88)[\s\!\?。？]*$",
@@ -68,7 +67,12 @@ class RuleInterceptor(BaseInterceptor):
             f"chat={len(self._chat_regex)} patterns"
         )
 
-    def intercept(self, query: str) -> Optional[InterceptorResult]:
+    def intercept(
+        self,
+        query: str,
+        *,
+        allow_system: bool = True,
+    ) -> InterceptorResult | None:
         """
         执行拦截
 
@@ -89,7 +93,7 @@ class RuleInterceptor(BaseInterceptor):
             )
 
         # 检查系统指令
-        if query_stripped.startswith("/") and (
+        if allow_system and query_stripped.startswith("/") and (
             not self.enable_system or self.command_registry is None
         ):
             logger.debug("L1 filtered slash command without active registry: %s", query_stripped)
@@ -101,7 +105,7 @@ class RuleInterceptor(BaseInterceptor):
                 command=command,
             )
 
-        if self.enable_system and self.command_registry is not None:
+        if allow_system and self.enable_system and self.command_registry is not None:
             command = self.command_registry.match(query_stripped)
             if command is not None:
                 logger.debug("L1 intercepted system command: %s", query_stripped)
@@ -182,7 +186,12 @@ class NoOpInterceptor(BaseInterceptor):
     用于在配置未启用拦截器时作为默认实现。
     """
 
-    def intercept(self, query: str) -> Optional[InterceptorResult]:
+    def intercept(
+        self,
+        query: str,
+        *,
+        allow_system: bool = True,
+    ) -> InterceptorResult | None:
         """
         执行拦截 (No-Op)
 
@@ -192,6 +201,7 @@ class NoOpInterceptor(BaseInterceptor):
         Returns:
             None
         """
+        _ = allow_system
         return None
 
 

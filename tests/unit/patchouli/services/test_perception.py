@@ -10,19 +10,19 @@ PerceptionFamiliar 单元测试
 """
 
 import time
-import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-from hivememory.core.models import Identity, TurnEvent, TurnRecord
+import pytest
+
+from hivememory.core.models import Identity, LogicalBlock, TopicData, TurnEvent, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import FlushReason, LogicalBlock, TopicMaterializeTask
+from hivememory.engines.perception.models import FlushReason, TopicMaterializeTask
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
-from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.system.config import SemanticFlowPerceptionConfig

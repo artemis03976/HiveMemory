@@ -12,7 +12,8 @@
 架构定位：
     PatchouliRuntime 是记忆域的能力运行环境宿主，
     负责与存储层 (Qdrant) 的直接交互。
-    Gateway / TheEye 由顶层 System Gateway 托管，Patchouli 只消费其输出。
+
+    GatewaySystem 已独立成决策子系统，由顶层系统装配，Patchouli 只消费其决策输出。
     计算与智能编排职责已在 Phase C 迁移至 Alice 子系统。
 
     ┌─────────────────────────────────────────┐
@@ -37,9 +38,6 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from hivememory.core.models import Identity
-from hivememory.core.protocol.models import (
-    EyeGazeResult,
-)
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
@@ -70,14 +68,12 @@ class PatchouliRuntime:
     帕秋莉运行时 (Patchouli Runtime) - v4.0
 
     记忆域运行时装配根，管理感知、检索、生成、生命周期等内部服务。
-    不持有 TheEye (Gateway)，TheEye 独立于 Runtime 之外运行。
 
     职责:
         - 基础设施初始化 (storage, LLM, embedding, reranker)
         - 引擎构建 (perception, generation, lifecycle, retrieval)
         - 服务注册与持有
         - 持有 Patchouli local bus 与内部能力路由
-        - 处理 Eye 传入的热路径请求
         - 承担 shutdown drain 运行时行为
 
     使用示例:
@@ -351,7 +347,6 @@ class PatchouliRuntime:
         构建所有引擎，返回字典统一管理
 
         包含：perception, generation, lifecycle, retrieval, artifact
-        不包含：gateway（属于 TheEye 的依赖）
         """
         return {
             "perception": self._build_perception_layer(),

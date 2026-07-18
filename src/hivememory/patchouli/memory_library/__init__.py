@@ -8,7 +8,6 @@ from hivememory.patchouli.memory_library.models import (
     ArtifactIntegrityResult,
     StorageHealthComponent,
     StorageHealthReport,
-    TopicData,
 )
 from hivememory.patchouli.memory_library.stores import (
     ShortTermMemoryStore,
@@ -32,7 +31,6 @@ __all__ = [
     "ArtifactIntegrityResult",
     "StorageHealthComponent",
     "StorageHealthReport",
-    "TopicData",
     "ShortTermMemoryStore",
     "MidTermMemoryStore",
     "LongTermMemoryStore",

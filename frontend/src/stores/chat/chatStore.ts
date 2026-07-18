@@ -183,6 +183,27 @@ export const useChatStore = create<ChatStore>()(
               setRetrievedMemories: (memories) => {
                 set({ retrievedMemories: memories });
               },
+              handleCommandResult: (data) => {
+                const clearChat = data.client_action?.type === 'clear_chat';
+                set((s) => {
+                  const updatedMessages = applyDone(
+                    s.messages,
+                    assistantMessageId,
+                    data.message
+                  );
+                  return {
+                    messages: clearChat
+                      ? updatedMessages.filter((message) => message.id === assistantMessageId)
+                      : updatedMessages,
+                    currentTopicId: clearChat ? null : s.currentTopicId,
+                    retrievedMemories: clearChat ? [] : s.retrievedMemories,
+                    currentMemoryTaskIds: clearChat ? [] : s.currentMemoryTaskIds,
+                  };
+                });
+                if (clearChat) {
+                  useTopicStore.getState().fetchTopics();
+                }
+              },
               setGenerationId: (data) => {
                 const current = get();
                 set({ _currentGenerationId: data.generation_id });

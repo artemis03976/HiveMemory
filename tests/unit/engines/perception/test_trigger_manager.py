@@ -1,6 +1,8 @@
+from unittest.mock import Mock
+
 import pytest
 
-from hivememory.core.models import Identity, TurnRecord
+from hivememory.core.models import Identity, TopicData, TurnRecord
 from hivememory.engines.perception.models import (
     FlushEvent,
     FlushReason,
@@ -8,8 +10,6 @@ from hivememory.engines.perception.models import (
     TopicMaterializeTask,
 )
 from hivememory.engines.perception.trigger_manager import DECISION_MATRIX, TriggerManager
-from hivememory.patchouli.memory_library.models import TopicData
-from unittest.mock import Mock
 
 
 class TestDecisionMatrix:

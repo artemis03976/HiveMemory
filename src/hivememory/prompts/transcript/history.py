@@ -28,7 +28,7 @@ render_as 前缀策略:
 from typing import Dict, List
 
 from hivememory.core.models import TurnEvent
-from hivememory.engines.perception.models import LogicalBlock
+from hivememory.core.models import LogicalBlock
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 
 

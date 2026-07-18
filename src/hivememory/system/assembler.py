@@ -1,11 +1,10 @@
-"""
+﻿"""
 HiveMemory 系统装配器
 
 将 HiveMemorySystem.build() 的四个关注层次拆分为独立方法：
   - _build_runtime     : 总线 / 事件 / 调度器
   - _build_registries  : Provider & Model 注册表 + LLM 配置预解析
-  - _build_gateway     : System Gateway + Command Dispatcher
-  - _build_subsystems  : Patchouli + Alice
+  - _build_subsystems  : Gateway + Patchouli + Alice
   - _build_services    : 全部应用服务
 
 每个方法的入参明确声明它所依赖的上游产物，依赖关系无需读实现即可理解。
@@ -16,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hivememory.alice.system import AliceSystem
+from hivememory.gateway import GatewaySystem
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
@@ -25,12 +25,6 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config import HiveMemoryConfig, RuntimeEventsConfig
-from hivememory.system.gateway.bundle import GatewayBundle
-from hivememory.system.gateway.commands import (
-    SystemCommandDispatcher,
-    create_builtin_command_registry,
-)
-from hivememory.system.gateway.factory import build_system_gateway
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -40,7 +34,6 @@ from hivememory.system.runtime.events import (
     RuntimeEventSink,
 )
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-
 
 # ---------------------------------------------------------------------------
 # 中间产物 Bundle（模块私有，仅供 SystemAssembler 内部流转）
@@ -63,6 +56,7 @@ class _RegistriesBundle:
 
 @dataclass
 class _SubsystemBundle:
+    gateway: GatewaySystem
     patchouli: PatchouliSystem
     alice: AliceSystem
 
@@ -98,20 +92,18 @@ class SystemAssembler:
     # 公开入口
     # ------------------------------------------------------------------
 
-    def assemble(self) -> "HiveMemorySystem":  # noqa: F821 — 避免循环导入
+    def assemble(self) -> HiveMemorySystem:  # noqa: F821 — 避免循环导入
         from hivememory.system.system import HiveMemorySystem
 
         runtime = self._build_runtime()
         registries = self._build_registries()
-        gateway_bundle = self._build_gateway(runtime, registries)
-        subsystems = self._build_subsystems(runtime, registries, gateway_bundle)
-        services = self._build_services(runtime, gateway_bundle)
+        subsystems = self._build_subsystems(runtime, registries)
+        services = self._build_services(runtime)
 
         return HiveMemorySystem(
             config=self._config,
             runtime=runtime,
             registries=registries,
-            gateway_bundle=gateway_bundle,
             subsystems=subsystems,
             services=services,
         )
@@ -181,54 +173,22 @@ class SystemAssembler:
         )
 
     # ------------------------------------------------------------------
-    # 层三：System Gateway（依赖已解析的 LLM 配置）
-    # ------------------------------------------------------------------
-
-    def _build_gateway(
-        self,
-        runtime: _RuntimeBundle,
-        registries: _RegistriesBundle,  # noqa: ARG002 — 预留给 Phase 3 扩展
-    ) -> GatewayBundle:
-        command_config = self._config.gateway.commands
-
-        command_registry = (
-            create_builtin_command_registry(command_config.builtin)
-            if command_config.enabled
-            else None
-        )
-
-        eye = build_system_gateway(
-            config=self._config.gateway,
-            llm_config=self._config.shared.llm.gateway,
-            command_registry=command_registry,
-        )
-
-        command_dispatcher = (
-            SystemCommandDispatcher(
-                command_registry,
-                global_bus=runtime.global_bus,
-                debug_enabled=command_config.enable_debug_commands,
-                expose_listing=command_config.expose_listing,
-            )
-            if command_registry is not None
-            else None
-        )
-
-        return GatewayBundle(eye=eye, command_dispatcher=command_dispatcher)
-
-    # ------------------------------------------------------------------
-    # 层四：子系统（依赖已解析的 LLM 配置 + gateway callable）
+    # 层三：子系统（Gateway / Patchouli / Alice 平级装配）
     # ------------------------------------------------------------------
 
     def _build_subsystems(
         self,
         runtime: _RuntimeBundle,
         registries: _RegistriesBundle,
-        gateway_bundle: GatewayBundle,
     ) -> _SubsystemBundle:
+        gateway = GatewaySystem(
+            config=self._config,
+            global_bus=runtime.global_bus,
+            runtime_events=runtime.event_sink.scoped("gateway"),
+        )
+
         patchouli = PatchouliSystem(
             config=self._config,
-            gateway_gaze=gateway_bundle.eye.gaze,
             global_bus=runtime.global_bus,
             scheduler=runtime.scheduler,
             runtime_events=runtime.event_sink.scoped("patchouli"),
@@ -241,28 +201,25 @@ class SystemAssembler:
             model_registry=registries.model_registry,
         )
 
-        return _SubsystemBundle(patchouli=patchouli, alice=alice)
+        return _SubsystemBundle(gateway=gateway, patchouli=patchouli, alice=alice)
 
     # ------------------------------------------------------------------
-    # 层五：应用服务（依赖总线 + gateway）
+    # 层四：应用服务（只依赖全局总线）
     # ------------------------------------------------------------------
 
     def _build_services(
         self,
         runtime: _RuntimeBundle,
-        gateway_bundle: GatewayBundle,
     ) -> _ServicesBundle:
-        command_config = self._config.gateway.commands
-
         chat = ChatApplicationService(
             global_bus=runtime.global_bus,
+            gateway_request_timeout_ms=(
+                self._config.gateway.workflow.default_request_timeout_ms
+            ),
             runtime_events=runtime.event_sink.scoped(
                 "system",
                 component="chat_application_service",
             ),
-            command_gaze=gateway_bundle.eye.gaze if command_config.enabled else None,
-            command_dispatcher=gateway_bundle.command_dispatcher,
-            command_config=command_config,
         )
         ingress = PassiveIngressService(
             bus=runtime.global_bus,

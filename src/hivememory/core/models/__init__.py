@@ -40,8 +40,9 @@ from .interaction import (
     AgentAction,
     TraceItem,
     TurnRecord,
-    TopicSnapshot,
 )
+from .immutable import FrozenDict, freeze_mapping, freeze_value
+from .topic import BufferState, LogicalBlock, TopicData, TopicLastTurn, TopicSnapshot
 from .agent import (
     AgentProfile,
     OMNI_DOLL_PROFILE,
@@ -94,6 +95,13 @@ __all__ = [
     "TraceItem",
     "TurnRecord",
     "TopicSnapshot",
+    "TopicLastTurn",
+    "TopicData",
+    "LogicalBlock",
+    "BufferState",
+    "FrozenDict",
+    "freeze_mapping",
+    "freeze_value",
     "AgentProfile",
     "OMNI_DOLL_PROFILE",
     "ModelDefinition",

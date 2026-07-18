@@ -113,15 +113,34 @@ export interface GenerationIdEvent {
   generation_id: string;
 }
 
+export interface CommandResultEvent {
+  command_id: string;
+  status: 'completed' | 'rejected' | 'failed' | 'requires_confirmation' | 'not_implemented';
+  message: string;
+  data: Record<string, unknown>;
+  client_action?: ({ type: string } & Record<string, unknown>) | null;
+  error_code?: string | null;
+}
+
 // ========== SSE Event Union Type ==========
 
 export type SSEEventType =
-  | 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'memory_refs' | 'done' | 'error'
+  | 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'memory_refs' | 'command_result' | 'done' | 'error'
   | 'sub_agent_start' | 'sub_agent_end' | 'generation_id' | 'run_status';
 
 export interface SSEEvent {
   event: SSEEventType;
-  data: ChatTokenEvent | MTPStartEvent | MTPResultEvent | TopicInfoEvent | ChatDoneEvent | ChatErrorEvent | ChatRunStatusEvent;
+  data:
+    | ChatTokenEvent
+    | MTPStartEvent
+    | MTPResultEvent
+    | TopicInfoEvent
+    | MemoryRefsEvent
+    | CommandResultEvent
+    | ChatDoneEvent
+    | ChatErrorEvent
+    | ChatRunStatusEvent
+    | GenerationIdEvent;
 }
 
 // ========== Connection State ==========
@@ -159,6 +178,7 @@ export interface SSECallbacks {
   onMTPResult: (data: MTPResultEvent) => void;
   onTopicInfo: (data: TopicInfoEvent) => void;
   onMemoryRefs: (data: MemoryRefsEvent) => void;
+  onCommandResult: (data: CommandResultEvent) => void;
   onDone: (data: ChatDoneEvent) => void;
   onError: (data: ChatErrorEvent) => void;
   onConnectionError: (error: Error) => void;

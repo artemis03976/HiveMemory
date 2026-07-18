@@ -12,8 +12,6 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.system.gateway.bundle import GatewayBundle
-from hivememory.system.gateway.eye import TheEye
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.system.runtime.events import (
@@ -23,6 +21,7 @@ from hivememory.system.runtime.events import (
 )
 
 if TYPE_CHECKING:
+    from hivememory.gateway import GatewaySystem
     from hivememory.system.application.agent_service import AgentApplicationService
     from hivememory.system.application.chat_service import ChatApplicationService
     from hivememory.system.application.memory_service import MemoryApplicationService
@@ -45,7 +44,6 @@ class HiveMemorySystem:
         config: HiveMemoryConfig,
         runtime: _RuntimeBundle,
         registries: _RegistriesBundle,
-        gateway_bundle: GatewayBundle | None,
         subsystems: _SubsystemBundle,
         services: _ServicesBundle,
     ) -> None:
@@ -58,14 +56,9 @@ class HiveMemorySystem:
         self._runtime_event_sink = runtime.event_sink
 
         # 子系统
+        self._gateway = subsystems.gateway
         self._patchouli = subsystems.patchouli
         self._alice = subsystems.alice
-
-        # Gateway
-        self._gateway: TheEye | None = gateway_bundle.eye if gateway_bundle else None
-        self._command_dispatcher = (
-            gateway_bundle.command_dispatcher if gateway_bundle else None
-        )
 
         # 应用服务
         self._chat_service = services.chat
@@ -121,6 +114,7 @@ class HiveMemorySystem:
             return
 
         steps = [
+            "gateway.start",
             "patchouli.start",
             "alice.start",
             "scheduler.start",
@@ -136,6 +130,8 @@ class HiveMemorySystem:
             },
         )
         try:
+            await self._gateway.start()
+            completed_steps.append("gateway.start")
             await self._patchouli.start()
             completed_steps.append("patchouli.start")
             await self._alice.start()
@@ -186,6 +182,7 @@ class HiveMemorySystem:
             "passive_ingress.shutdown_drain",
             "alice.stop",
             "patchouli.stop",
+            "gateway.stop",
         ]
         self._emit_lifecycle_event(
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
@@ -224,6 +221,8 @@ class HiveMemorySystem:
             completed_steps.append("alice.stop")
             await self._patchouli.stop()
             completed_steps.append("patchouli.stop")
+            await self._gateway.stop()
+            completed_steps.append("gateway.stop")
             self._started = False
         except Exception as exc:
             self._emit_lifecycle_event(
@@ -309,6 +308,7 @@ class HiveMemorySystem:
 
     async def health(self) -> dict[str, Any]:
         subsystem_health = {
+            self._gateway.name: await self._gateway.health(),
             self._patchouli.name: await self._patchouli.health(),
             self._alice.name: await self._alice.health(),
         }
@@ -349,7 +349,7 @@ class HiveMemorySystem:
         return self._readiness_service
 
     @property
-    def gateway(self) -> TheEye | None:
+    def gateway(self) -> GatewaySystem:
         return self._gateway
 
     @property

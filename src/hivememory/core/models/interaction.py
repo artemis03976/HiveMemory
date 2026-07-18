@@ -4,14 +4,16 @@ HiveMemory 核心数据模型 - 交互与流转领域
 定义用户身份标识和在系统中流转的消息模型。
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Dict, Any, Literal
+from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from hivememory.core.constants import DEFAULT_USER_ID, DEFAULT_AGENT_ID, DEFAULT_TEAM_ID
+from hivememory.core.constants import DEFAULT_AGENT_ID, DEFAULT_TEAM_ID, DEFAULT_USER_ID
+from hivememory.core.models.immutable import FrozenDict, freeze_mapping
 from hivememory.utils.token_estimator import estimate_tokens
 
 
@@ -31,8 +33,8 @@ class Identity(BaseModel):
     """
     user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
     agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
-    team_id: Optional[str] = Field(default=DEFAULT_TEAM_ID, description="团队 ID（用于 Workspace 作用域过滤）")
-    session_id: Optional[str] = Field(default=None, description="会话 ID（兼容字段）")
+    team_id: str | None = Field(default=DEFAULT_TEAM_ID, description="团队 ID（用于 Workspace 作用域过滤）")
+    session_id: str | None = Field(default=None, description="会话 ID（兼容字段）")
 
     @property
     def buffer_key(self) -> str:
@@ -45,39 +47,15 @@ class Identity(BaseModel):
         return bool(self.user_id and self.agent_id)
 
     model_config = ConfigDict(
+        frozen=True,
         json_schema_extra={
             "example": {
                 "user_id": "user123",
                 "agent_id": "chatbot",
-                "session_id": "sess_456"
+                "session_id": "sess_456",
             }
         }
     )
-
-
-class TopicSnapshot(BaseModel):
-    """
-    话题快照，用于 TheEye 路由决策与前端话题池展示。
-
-    该模型属于系统级只读契约，不再归属于感知层内部模型。
-    """
-
-    topic_id: str = Field(..., description="话题唯一标识")
-    topic_title: str = Field(..., description="话题标题")
-    topic_summary: str = Field(default="", description="话题展示摘要（创建时由 Gateway 生成，不随折叠更新）")
-    state_summary: str = Field(default="", description="页折叠状态摘要（随上下文压缩更新）")
-    last_turn: Optional[Dict[str, str]] = Field(
-        default=None,
-        description="最后一轮对话 {'user': '...', 'assistant': '...'}"
-    )
-    total_tokens: int = Field(default=0, description="当前总 token 数")
-    block_count: int = Field(default=0, description="当前话题包含的 block 数")
-    last_accessed_at: float = Field(default=0.0, description="最后访问时间戳")
-    # 本话题最近一次 agent run 实际使用的模型展示名（来自 ModelRegistry）
-    # 空字符串表示注册表未启用或该话题尚未完成过一次 run
-    model_used: str = Field(default="", description="最近 run 使用的模型展示名")
-
-    model_config = ConfigDict(use_enum_values=True)
 
 
 class StreamMessageType(str, Enum):
@@ -104,9 +82,9 @@ class StreamMessage(BaseModel):
     identity: Identity = Field(default_factory=Identity, description="身份标识")
 
     # 工具调用相关字段（可选）
-    tool_name: Optional[str] = None
-    tool_args: Optional[Dict[str, Any]] = None
-    tool_result: Optional[str] = None
+    tool_name: str | None = None
+    tool_args: dict[str, Any] | None = None
+    tool_result: str | None = None
 
     @property
     def user_id(self) -> str:
@@ -119,7 +97,7 @@ class StreamMessage(BaseModel):
         return self.identity.agent_id
 
     @property
-    def session_id(self) -> Optional[str]:
+    def session_id(self) -> str | None:
         """获取会话 ID (兼容属性)"""
         return self.identity.session_id
 
@@ -141,7 +119,7 @@ class StreamMessage(BaseModel):
         """估算消息的 Token 数量"""
         return estimate_tokens(self.content)
 
-    def to_langchain_message(self) -> Dict[str, str]:
+    def to_langchain_message(self) -> dict[str, str]:
         """转换为 LangChain 消息格式"""
         return {
             "role": self.role,
@@ -181,19 +159,28 @@ class TurnEvent(BaseModel):
     content: str
 
     # 聚合信息：将多个原子事件归并为同一次完整 action
-    action_id: Optional[str] = None
+    action_id: str | None = None
 
     # 通用工具调用元数据
-    tool_name: Optional[str] = None
-    tool_kind: Optional[str] = None
-    tool_args: Optional[Dict[str, Any]] = None
-    target: Optional[str] = None
-    status: Optional[str] = None
+    tool_name: str | None = None
+    tool_kind: str | None = None
+    tool_args: FrozenDict[str, Any] | None = None
+    target: str | None = None
+    status: str | None = None
 
     # 历史视图渲染提示
     render_as: Literal["plain", "system_tool_result", "system_call_response"] = "plain"
 
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(
+        frozen=True,
+        use_enum_values=True,
+        arbitrary_types_allowed=True,
+    )
+
+    @field_validator("tool_args", mode="before")
+    @classmethod
+    def _freeze_tool_args(cls, value: Any) -> FrozenDict[str, Any] | None:
+        return None if value is None else freeze_mapping(value)
 
 
 class AgentAction(BaseModel):
@@ -215,9 +202,9 @@ class AgentAction(BaseModel):
     thought: str = ""
     tool_name: str = ""
     tool_kind: str = ""
-    tool_args: Optional[Dict[str, Any]] = None
-    results: list[TurnEvent] = Field(default_factory=list)
-    status: Optional[str] = None
+    tool_args: FrozenDict[str, Any] | None = None
+    results: tuple[TurnEvent, ...] = Field(default_factory=tuple)
+    status: str | None = None
 
     @property
     def is_started(self) -> bool:
@@ -250,6 +237,13 @@ class AgentAction(BaseModel):
             tokens += estimate_tokens(result.content)
         return tokens
 
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    @field_validator("tool_args", mode="before")
+    @classmethod
+    def _freeze_tool_args(cls, value: Any) -> FrozenDict[str, Any] | None:
+        return None if value is None else freeze_mapping(value)
+
 
 class TraceItem(BaseModel):
     """
@@ -266,13 +260,13 @@ class TraceItem(BaseModel):
     """
 
     action: str = Field(..., description="操作类型: READ / SEARCH / RUN")
-    action_id: Optional[str] = Field(default=None, description="来源 AgentAction 的 action_id")
-    target: Optional[str] = Field(default=None, description="READ 目标别名")
-    query: Optional[str] = Field(default=None, description="SEARCH 查询文本")
-    tool: Optional[str] = Field(default=None, description="RUN 工具名称")
-    status: Optional[str] = Field(default=None, description="RUN 执行状态")
+    action_id: str | None = Field(default=None, description="来源 AgentAction 的 action_id")
+    target: str | None = Field(default=None, description="READ 目标别名")
+    query: str | None = Field(default=None, description="SEARCH 查询文本")
+    tool: str | None = Field(default=None, description="RUN 工具名称")
+    status: str | None = Field(default=None, description="RUN 执行状态")
 
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(frozen=True, use_enum_values=True)
 
 
 class TurnRecord(BaseModel):
@@ -295,7 +289,7 @@ class TurnRecord(BaseModel):
     identity: Identity = Field(default_factory=Identity)
 
     user_query: str = Field(default="", description="原始用户问题")
-    rewritten_query: Optional[str] = Field(
+    rewritten_query: str | None = Field(
         default=None,
         description="重写后的查询（指代消解与上下文补全）",
     )
@@ -304,16 +298,16 @@ class TurnRecord(BaseModel):
         description="本轮最终自然语言回复",
     )
 
-    turn_events: list[TurnEvent] = Field(
-        default_factory=list,
+    turn_events: tuple[TurnEvent, ...] = Field(
+        default_factory=tuple,
         description="本轮原子事件流",
     )
-    actions: list[AgentAction] = Field(
-        default_factory=list,
+    actions: tuple[AgentAction, ...] = Field(
+        default_factory=tuple,
         description="由 turn_events 聚合出的完整动作单元",
     )
-    semantic_traces: list[TraceItem] = Field(
-        default_factory=list,
+    semantic_traces: tuple[TraceItem, ...] = Field(
+        default_factory=tuple,
         description="由 actions 派生出的动作摘要缓存",
     )
 
@@ -339,6 +333,8 @@ class TurnRecord(BaseModel):
             or self.semantic_traces
         )
 
+    model_config = ConfigDict(frozen=True)
+
 
 class ActionReducer:
     """
@@ -352,11 +348,11 @@ class ActionReducer:
     """
 
     @classmethod
-    def reduce(cls, turn_events: list[TurnEvent | Dict[str, Any] | Any]) -> list[AgentAction]:
+    def reduce(cls, turn_events: Sequence[TurnEvent | dict[str, Any] | Any]) -> list[AgentAction]:
         """将事件流聚合为动作列表，保持首次出现顺序。"""
-        actions_by_id: dict[str, AgentAction] = {}
+        actions_by_id: dict[str, dict[str, Any]] = {}
         action_order: list[str] = []
-        last_action_id: Optional[str] = None
+        last_action_id: str | None = None
 
         normalized_events = [
             cls._normalize_event(event)
@@ -376,32 +372,41 @@ class ActionReducer:
 
             action = actions_by_id.get(action_id)
             if action is None:
-                action = AgentAction(action_id=action_id)
+                action = {
+                    "action_id": action_id,
+                    "thought": "",
+                    "tool_name": "",
+                    "tool_kind": "",
+                    "tool_args": None,
+                    "results": [],
+                    "status": None,
+                }
                 actions_by_id[action_id] = action
                 action_order.append(action_id)
 
             if event.kind == "thought":
-                action.thought = cls._merge_thought(action.thought, event.content)
+                action["thought"] = cls._merge_thought(action["thought"], event.content)
             elif event.kind == "tool_call":
-                action.tool_name = event.tool_name or event.target or action.tool_name
-                action.tool_kind = event.tool_kind or action.tool_kind
+                action["tool_name"] = event.tool_name or event.target or action["tool_name"]
+                action["tool_kind"] = event.tool_kind or action["tool_kind"]
                 if event.tool_args is not None:
-                    action.tool_args = event.tool_args
-                action.status = event.status or action.status
+                    action["tool_args"] = event.tool_args
+                action["status"] = event.status or action["status"]
             elif event.kind == "tool_result":
-                action.results.append(event)
-                action.status = event.status or action.status
-                if not action.tool_name:
-                    action.tool_name = event.tool_name or event.target or action.tool_name
-                if not action.tool_kind:
-                    action.tool_kind = event.tool_kind or action.tool_kind
+                action["results"].append(event)
+                action["status"] = event.status or action["status"]
+                if not action["tool_name"]:
+                    action["tool_name"] = event.tool_name or event.target or ""
+                if not action["tool_kind"]:
+                    action["tool_kind"] = event.tool_kind or ""
 
             last_action_id = action_id
 
-        return [actions_by_id[action_id] for action_id in action_order if actions_by_id[action_id].is_started]
+        actions = [AgentAction(**actions_by_id[action_id]) for action_id in action_order]
+        return [action for action in actions if action.is_started]
 
     @classmethod
-    def _normalize_event(cls, event: TurnEvent | Dict[str, Any] | Any) -> TurnEvent:
+    def _normalize_event(cls, event: TurnEvent | dict[str, Any] | Any) -> TurnEvent:
         """统一兼容对象与 dict 输入。"""
         if isinstance(event, TurnEvent):
             return event
@@ -410,7 +415,7 @@ class ActionReducer:
         return TurnEvent.model_validate(event.model_dump())
 
     @classmethod
-    def _resolve_action_id(cls, event: TurnEvent, last_action_id: Optional[str]) -> Optional[str]:
+    def _resolve_action_id(cls, event: TurnEvent, last_action_id: str | None) -> str | None:
         """解析事件应归属的 action_id。"""
         if event.action_id:
             return event.action_id
@@ -438,7 +443,7 @@ class TraceReducer:
     """
 
     @classmethod
-    def reduce(cls, actions: list[AgentAction | Dict[str, Any] | Any]) -> list[TraceItem]:
+    def reduce(cls, actions: Sequence[AgentAction | dict[str, Any] | Any]) -> list[TraceItem]:
         """将动作列表转换为摘要轨迹列表。"""
         traces: list[TraceItem] = []
         for action in actions:
@@ -449,7 +454,7 @@ class TraceReducer:
         return traces
 
     @classmethod
-    def _normalize_action(cls, action: AgentAction | Dict[str, Any] | Any) -> AgentAction:
+    def _normalize_action(cls, action: AgentAction | dict[str, Any] | Any) -> AgentAction:
         """统一兼容对象与 dict 输入。"""
         if isinstance(action, AgentAction):
             return action
@@ -458,7 +463,7 @@ class TraceReducer:
         return AgentAction.model_validate(action.model_dump())
 
     @classmethod
-    def _action_to_trace(cls, action: AgentAction) -> Optional[TraceItem]:
+    def _action_to_trace(cls, action: AgentAction) -> TraceItem | None:
         """将单个动作转换为摘要项。"""
         verb = (action.tool_kind or "").upper()
 
@@ -512,7 +517,7 @@ class TraceReducer:
         return None
 
     @staticmethod
-    def _extract_search_query(action: AgentAction) -> Optional[str]:
+    def _extract_search_query(action: AgentAction) -> str | None:
         """优先从 tool_args 提取 SEARCH query，必要时回退解析 thought。"""
         if action.tool_args:
             query = action.tool_args.get("query")

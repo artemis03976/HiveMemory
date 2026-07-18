@@ -7,6 +7,7 @@ import logging
 from typing import TYPE_CHECKING, List
 from uuid import UUID
 
+from hivememory.core.models import LogicalBlock
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.engines.perception.models import TopicMaterializeTask
@@ -20,9 +21,6 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTaskSpec,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
-
-if TYPE_CHECKING:
-    from hivememory.engines.perception.models import LogicalBlock
 
 logger = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 ChatApplicationService — 顶层主动交互应用服务 (Phase D / v0.4.0)
 
 v0.4.0 Phase 1 变更：
@@ -12,20 +12,24 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
-from typing import Any, AsyncGenerator, Dict, Literal, Optional
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from hivememory.core.models import Identity
-from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus, EyeGazeResult
-from hivememory.engines.gateway.models import GatewayIntent
+from hivememory.core.protocol.gateway import (
+    CommandExecutionResult,
+    GatewayCancelledError,
+    GatewayIngressMode,
+)
+from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.infrastructure.trace_context import (
     generate_trace_id,
     reset_trace_context,
     set_trace_context,
 )
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.config import SystemCommandConfig
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.control import (
     CancelResult,
@@ -34,15 +38,29 @@ from hivememory.system.runtime.control import (
     ChatGenerationRunStatus,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
-from hivememory.system.gateway.commands import (
-    CommandExecutionResult,
-    CommandParseStatus,
-    SystemCommandDispatcher,
-)
 
 logger = logging.getLogger(__name__)
 
-CommandGaze = Callable[..., Awaitable[EyeGazeResult]]
+
+@dataclass(frozen=True, kw_only=True)
+class NonStreamingChatCommandOutcome:
+    """非流式聊天的系统指令终态。"""
+
+    kind: Literal["command"] = "command"
+    command_execution_result: CommandExecutionResult
+
+
+@dataclass(frozen=True, kw_only=True)
+class NonStreamingChatAgentOutcome:
+    """非流式聊天的 Agent 运行终态。"""
+
+    kind: Literal["agent"] = "agent"
+    agent_run_result: AgentRunResult
+
+
+type NonStreamingChatResult = (
+    NonStreamingChatCommandOutcome | NonStreamingChatAgentOutcome
+)
 
 
 class ChatApplicationService:
@@ -52,16 +70,12 @@ class ChatApplicationService:
         self,
         global_bus: GlobalSystemBus,
         runtime_events: RuntimeEventSink | None = None,
-        command_gaze: CommandGaze | None = None,
-        command_dispatcher: SystemCommandDispatcher | None = None,
-        command_config: SystemCommandConfig | None = None,
+        gateway_request_timeout_ms: int = 8000,
     ) -> None:
         self._bus = global_bus
         self._registry = ChatGenerationRunRegistry()
         self._events = runtime_events or NullRuntimeEventSink()
-        self._command_gaze = command_gaze
-        self._command_dispatcher = command_dispatcher
-        self._command_config = command_config or SystemCommandConfig()
+        self._gateway_request_timeout_ms = gateway_request_timeout_ms
 
     # ========== 非流式主链路 ==========
 
@@ -70,12 +84,12 @@ class ChatApplicationService:
         user_message: str,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         enable_memory_retrieval: bool = True,
-        generation_options: Optional[Dict[str, Any]] = None,
-        generation_id: Optional[str] = None,
-    ) -> AgentRunResult | CommandExecutionResult:
-        """顶层非流式 chat 入口。编排骨架: prepare -> run_agent -> finalize"""
+        generation_options: dict[str, Any] | None = None,
+        generation_id: str | None = None,
+    ) -> NonStreamingChatResult:
+        """顶层非流式入口，统一执行 Gateway 后再进入 Agent 主链路。"""
         trace_id = generate_trace_id("chat")
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
         run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
@@ -87,33 +101,44 @@ class ChatApplicationService:
             agent_id=agent_id,
         )
         prepared = None
+        prepared_finalized = False
+        identity = Identity(
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
 
         try:
-            command_result = await self._try_execute_system_command(
-                user_message=user_message,
-                user_id=user_id,
-                agent_id=agent_id,
-                session_id=session_id,
-                trace_id=trace_id,
-                generation_id=run.generation_id,
+            run.status = ChatGenerationRunStatus.PREPARING
+            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
+            gateway_result = await self._bus.request(
+                GlobalRoutes.GATEWAY_PROCESS,
+                message=user_message,
+                identity=identity,
+                ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+                cancel_event=run.cancel_event,
+                request_timeout_ms=self._gateway_request_timeout_ms,
             )
-            if command_result is not None:
+
+            if gateway_result.kind == "command":
                 run.status = ChatGenerationRunStatus.COMPLETED
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_COMPLETED,
                     run,
                     trace_id=trace_id,
                     agent_id=agent_id,
-                    data={"command_id": command_result.command_id},
                 )
-                return command_result
+                return NonStreamingChatCommandOutcome(
+                    command_execution_result=(
+                        gateway_result.command_execution_result
+                    )
+                )
 
-            run.status = ChatGenerationRunStatus.PREPARING
-            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
                 user_id=user_id,
+                gateway_decision=gateway_result.decision,
                 agent_id=agent_id,
                 session_id=session_id,
                 enable_memory_retrieval=enable_memory_retrieval,
@@ -128,7 +153,9 @@ class ChatApplicationService:
                     trace_id=trace_id,
                     agent_id=agent_id,
                 )
-                return self._cancelled_agent_result()
+                return NonStreamingChatAgentOutcome(
+                    agent_run_result=self._cancelled_agent_result()
+                )
 
             run.status = ChatGenerationRunStatus.STREAMING
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
@@ -148,7 +175,9 @@ class ChatApplicationService:
                     agent_id=agent_id,
                     topic_id=prepared.topic_id,
                 )
-                return self._cancelled_agent_result(loop_result)
+                return NonStreamingChatAgentOutcome(
+                    agent_run_result=self._cancelled_agent_result(loop_result)
+                )
 
             run.status = ChatGenerationRunStatus.FINALIZING
             self._emit_chat_status(
@@ -162,6 +191,7 @@ class ChatApplicationService:
                 prepared_run=prepared,
                 loop_result=loop_result,
             )
+            prepared_finalized = True
 
             run.status = ChatGenerationRunStatus.COMPLETED
             self._emit_chat_event(
@@ -171,7 +201,18 @@ class ChatApplicationService:
                 agent_id=agent_id,
                 topic_id=prepared.topic_id,
             )
-            return loop_result
+            return NonStreamingChatAgentOutcome(agent_run_result=loop_result)
+        except GatewayCancelledError:
+            run.status = ChatGenerationRunStatus.CANCELLED
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_CANCELLED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+            )
+            return NonStreamingChatAgentOutcome(
+                agent_run_result=self._cancelled_agent_result()
+            )
         except Exception:
             run.status = ChatGenerationRunStatus.FAILED
             self._emit_chat_event(
@@ -185,6 +226,14 @@ class ChatApplicationService:
             logger.exception("ChatApplicationService.chat 异常")
             raise
         finally:
+            if prepared is not None and not prepared_finalized:
+                try:
+                    await self._bus.request(
+                        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+                        prepared_run=prepared,
+                    )
+                except Exception:
+                    logger.warning("清理 prepared run 失败", exc_info=True)
             self._registry.close(run.generation_id, run.status)
             reset_trace_context(tokens)
 
@@ -195,11 +244,11 @@ class ChatApplicationService:
         user_message: str,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         enable_memory_retrieval: bool = True,
-        generation_options: Optional[Dict[str, Any]] = None,
-        generation_id: Optional[str] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        generation_options: dict[str, Any] | None = None,
+        generation_id: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """
         顶层流式 chat 入口。
 
@@ -216,6 +265,11 @@ class ChatApplicationService:
         terminal_state: Literal["completed", "cancelled", "failed"] | None = None
         # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
         prepared_finalized = False
+        identity = Identity(
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
 
         try:
             tokens = set_trace_context(trace_id, "ChatApp.Stream", "foreground")
@@ -228,15 +282,19 @@ class ChatApplicationService:
             )
             yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
 
-            command_result = await self._try_execute_system_command(
-                user_message=user_message,
-                user_id=user_id,
-                agent_id=agent_id,
-                session_id=session_id,
-                trace_id=trace_id,
-                generation_id=run.generation_id,
+            run.status = ChatGenerationRunStatus.PREPARING
+            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
+            gateway_result = await self._bus.request(
+                GlobalRoutes.GATEWAY_PROCESS,
+                message=user_message,
+                identity=identity,
+                ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+                cancel_event=run.cancel_event,
+                request_timeout_ms=self._gateway_request_timeout_ms,
             )
-            if command_result is not None:
+
+            if gateway_result.kind == "command":
+                command_result = gateway_result.command_execution_result
                 run.status = ChatGenerationRunStatus.COMPLETED
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_COMPLETED,
@@ -253,12 +311,11 @@ class ChatApplicationService:
                 yield self._command_done(run, command_result)
                 return
 
-            run.status = ChatGenerationRunStatus.PREPARING
-            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
                 user_id=user_id,
+                gateway_decision=gateway_result.decision,
                 agent_id=agent_id,
                 session_id=session_id,
                 enable_memory_retrieval=enable_memory_retrieval,
@@ -381,6 +438,17 @@ class ChatApplicationService:
                 },
             }
 
+        except GatewayCancelledError:
+            run.status = ChatGenerationRunStatus.CANCELLED
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_CANCELLED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+            )
+            terminal_state = "cancelled"
+            yield self._cancelled_done(run)
+            return
         except Exception as e:
             # 分支：prepare / Alice / finalize 任一阶段抛出非取消异常，统一发布 failed。
             logger.error(f"ChatApplicationService.chat_stream 异常: {e}", exc_info=True)
@@ -461,8 +529,8 @@ class ChatApplicationService:
     @staticmethod
     def _cancelled_done(
         run: ChatGenerationRun,
-        loop_result: Optional[AgentRunResult] = None,
-    ) -> Dict[str, Any]:
+        loop_result: AgentRunResult | None = None,
+    ) -> dict[str, Any]:
         base = loop_result.model_dump() if loop_result is not None else {}
         return {
             "event": "done",
@@ -478,11 +546,31 @@ class ChatApplicationService:
 
     @staticmethod
     def _cancelled_agent_result(
-        loop_result: Optional[AgentRunResult] = None,
+        loop_result: AgentRunResult | None = None,
     ) -> AgentRunResult:
         if loop_result is None:
             return AgentRunResult(status=AgentRunStatus.CANCELLED)
         return loop_result.model_copy(update={"status": AgentRunStatus.CANCELLED})
+
+    @staticmethod
+    def _command_done(
+        run: ChatGenerationRun,
+        command_result: CommandExecutionResult,
+    ) -> dict[str, Any]:
+        return {
+            "event": "done",
+            "data": {
+                "generation_id": run.generation_id,
+                "final_text": command_result.message,
+                "mtp_iterations": 0,
+                "total_iterations": 0,
+                "status": "completed",
+                "stopped": False,
+                "reason": None,
+                "memory_task_ids": [],
+                "pool_topics": [],
+            },
+        }
 
     def _emit_chat_status(
         self,
@@ -540,97 +628,11 @@ class ChatApplicationService:
             return []
         return [topic.model_dump(mode="json") for topic in (topics or [])]
 
-    async def _try_execute_system_command(
-        self,
-        *,
-        user_message: str,
-        user_id: str,
-        agent_id: str,
-        session_id: str | None,
-        trace_id: str,
-        generation_id: str,
-    ) -> CommandExecutionResult | None:
-        if not self._command_config.enabled:
-            return None
-        if self._command_gaze is None or self._command_dispatcher is None:
-            return None
-        if not user_message.strip().startswith("/"):
-            return None
 
-        identity = Identity(
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
-        # Phase 2.3 只做 slash command 预检，不传话题池，避免触发 Patchouli prepare。
-        gaze_result = await self._command_gaze(
-            user_message,
-            topic_snapshots=[],
-            identity=identity,
-        )
-        if gaze_result.intent != GatewayIntent.SYSTEM:
-            return None
-        if (
-            gaze_result.command is not None
-            and gaze_result.command.parse_status == CommandParseStatus.UNKNOWN
-            and self._command_config.unknown_command_policy == "ignore"
-        ):
-            return None
+__all__ = [
+    "ChatApplicationService",
+    "NonStreamingChatAgentOutcome",
+    "NonStreamingChatCommandOutcome",
+    "NonStreamingChatResult",
+]
 
-        result = await self._command_dispatcher.execute(
-            gaze_result.command,
-            identity=identity,
-        )
-        self._emit_command_event(
-            result,
-            identity=identity,
-            trace_id=trace_id,
-            generation_id=generation_id,
-        )
-        return result
-
-    def _emit_command_event(
-        self,
-        command_result: CommandExecutionResult,
-        *,
-        identity: Identity,
-        trace_id: str,
-        generation_id: str,
-    ) -> None:
-        self._events.emit(
-            RuntimeEvent(
-                event_type=RuntimeEventType.COMMAND_EXECUTED,
-                trace_id=trace_id,
-                task_type="foreground",
-                generation_id=generation_id,
-                agent_id=identity.agent_id,
-                status=command_result.status,
-                severity="info",
-                message=command_result.message,
-                data={
-                    "command_id": command_result.command_id,
-                    "user_id": identity.user_id,
-                    "agent_id": identity.agent_id,
-                    "session_id": identity.session_id,
-                    "client_action": command_result.client_action,
-                    "error_code": command_result.error_code,
-                },
-            )
-        )
-
-    @staticmethod
-    def _command_done(
-        run: ChatGenerationRun,
-        command_result: CommandExecutionResult,
-    ) -> Dict[str, Any]:
-        return {
-            "event": "done",
-            "data": {
-                "generation_id": run.generation_id,
-                "status": "completed",
-                "stopped": False,
-                "reason": None,
-                "memory_task_ids": [],
-                "command_id": command_result.command_id,
-            },
-        }

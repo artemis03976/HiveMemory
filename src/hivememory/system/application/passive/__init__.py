@@ -10,16 +10,16 @@
 from hivememory.system.application.passive.message_ingressor import (
     PassiveMessageIngressor,
 )
-from hivememory.system.application.passive.models import (
-    PassiveIngressEvent,
-    PassiveIngressOutcome,
-    PassiveSessionKey,
-)
 from hivememory.system.application.passive.message_turn_buffer import (
     FlushResult,
     MessageBufferState,
     MessageTurnBuffer,
     MessageTurnBufferManager,
+)
+from hivememory.system.application.passive.models import (
+    PassiveIngressEvent,
+    PassiveIngressOutcome,
+    PassiveSessionKey,
 )
 
 __all__ = [

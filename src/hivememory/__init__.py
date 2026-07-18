@@ -3,7 +3,7 @@ HiveMemory - 分布式记忆管理系统
 
 帕秋莉体系 v3.0+:
     - PatchouliSystem (The Facility): 记忆域容器，持有 Patchouli Runtime
-    - TheEye (真理之眼): System Gateway，意图识别、查询重写
+    - GatewaySystem: Gateway 子系统，承载决策工作流入口
     - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
         - PerceptionFamiliar (感知使魔): 话题缓冲、归档触发
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
@@ -25,6 +25,8 @@ HiveMemory - 分布式记忆管理系统
 作者: HiveMemory Team
 版本: 3.0
 """
+
+# ruff: noqa: I001
 
 from hivememory.core.models import (
     ActionReducer,
@@ -92,20 +94,6 @@ from hivememory.utils import (
     TokenEstimator,
     EstimationStrategy,
     estimate_tokens,
-)
-
-from hivememory.engines.gateway import (
-    GatewayEngine,
-    GatewayIntent,
-    GatewayResult,
-    InterceptorResult,
-    SemanticAnalysisResult,
-    BaseInterceptor,
-    BaseSemanticAnalyzer,
-    RuleInterceptor,
-    create_interceptor,
-    LLMAnalyzer,
-    create_semantic_analyzer,
 )
 
 from hivememory.system.application.passive import MessageBufferState
@@ -209,6 +197,15 @@ from hivememory.server.models import (
 
 def __getattr__(name: str):
     """懒加载以避免循环导入"""
+    if name == "GatewaySystem":
+        from hivememory.gateway import GatewaySystem
+        return GatewaySystem
+    if name == "GatewayRuntime":
+        from hivememory.gateway import GatewayRuntime
+        return GatewayRuntime
+    if name == "GatewayService":
+        from hivememory.gateway import GatewayService
+        return GatewayService
     if name == "PatchouliRuntime":
         from hivememory.patchouli.runtime import PatchouliRuntime
         return PatchouliRuntime
@@ -218,9 +215,6 @@ def __getattr__(name: str):
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
         return PatchouliSystem
-    if name == "TheEye":
-        from hivememory.system.gateway.eye import TheEye
-        return TheEye
     if name == "RetrievalFamiliar":
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
         return RetrievalFamiliar
@@ -299,19 +293,12 @@ __all__ = [
     "TokenEstimator",
     "EstimationStrategy",
     "estimate_tokens",
-    # ========== Gateway Engine ==========
-    "GatewayEngine",
-    "GatewayIntent",
-    "GatewayResult",
-    "InterceptorResult",
-    "SemanticAnalysisResult",
-    "BaseInterceptor",
-    "BaseSemanticAnalyzer",
-    "RuleInterceptor",
-    "create_interceptor",
-    "LLMAnalyzer",
-    "create_semantic_analyzer",
+    # ========== 被动入口 ==========
     "MessageBufferState",
+    # ========== Gateway 子系统 ==========
+    "GatewaySystem",
+    "GatewayRuntime",
+    "GatewayService",
     # ========== Generation Engine ==========
     "MemoryGenerationEngine",
     "BaseMemoryExtractor",
@@ -399,7 +386,6 @@ __all__ = [
     "PatchouliRuntime",
     "PatchouliService",
     "PatchouliSystem",
-    "TheEye",
     "PerceptionFamiliar",
     "RetrievalFamiliar",
     "LifecycleFamiliar",
@@ -408,4 +394,4 @@ __all__ = [
 ]
 
 
-__version__ = "0.1.0"
+__version__ = "0.6.0"

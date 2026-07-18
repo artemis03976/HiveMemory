@@ -9,8 +9,7 @@ InMemoryShortTermStorage 单元测试
 
 import threading
 
-from hivememory.core.models import TurnRecord
-from hivememory.engines.perception.models import LogicalBlock
+from hivememory.core.models import LogicalBlock, TurnRecord
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 

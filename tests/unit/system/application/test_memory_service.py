@@ -1,57 +1,52 @@
 """ChatApplicationService / PassiveIngressService 委托测试"""
 
-import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.core.models import Artifacts
-from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
-from hivememory.patchouli.application import MemoryManagementService
-from hivememory.patchouli.application import AgentProfileManagementService
-from hivememory.patchouli.application import TopicManagementService
-from hivememory.engines.gateway.models import GatewayIntent
+import pytest
+
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    Identity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+)
+from hivememory.core.protocol.gateway import (
+    GatewayDecision,
+    IntentType,
+    MemoryWriteSignal,
+    RetrievalPlan,
+)
 from hivememory.core.protocol.models import (
     AgentRunContext,
-    AnalyzeAndRetrieveResult,
     AgentRunResult,
-    EyeGazeResult,
     RetrievalResponse,
 )
 from hivememory.patchouli.models import (
     PreparedAgentRun,
     StreamPrelude,
 )
-from hivememory.system.application.agent_service import AgentApplicationService
-from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.memory_service import (
     MemoryApplicationService,
     MemoryLifecycleUnavailableError,
     MemoryNotFoundError,
 )
-from hivememory.system.application.passive import PassiveIngressEvent
-from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="omni_doll")
-    gaze_result = EyeGazeResult(
-        intent=GatewayIntent.RAG,
+    gateway_decision = GatewayDecision(
+        target_topic_id="topic_1",
         rewritten_query="resolved",
-        search_keywords=["k"],
-        worth_saving=True,
-        raw_query="hi",
-        identity=identity,
-        target_topic="topic_1",
+        search_keywords=("k",),
+        memory_write_signal=MemoryWriteSignal.WRITE,
+        retrieval_plan=RetrievalPlan(),
+        intent_type=IntentType.RAG,
     )
     defaults = dict(
         agent_run_context=AgentRunContext(
@@ -69,7 +64,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             pool_topics=[],
             memory_refs=[],
         ),
-        gaze_result=gaze_result,
+        gateway_decision=gateway_decision,
         generation_options=None,
     )
     defaults.update(overrides)
@@ -136,23 +131,24 @@ def _make_analysis_result(
     target_topic: str = "NEW_TOPIC",
     memory: str | None = "<mem>ctx</mem>",
     worth_saving: bool = True,
-) -> AnalyzeAndRetrieveResult:
-    gaze_result = EyeGazeResult(
-        intent=GatewayIntent.RAG,
+) -> tuple[GatewayDecision, RetrievalResponse]:
+    gateway_decision = GatewayDecision(
+        target_topic_id=target_topic,
         rewritten_query="resolved query",
-        search_keywords=["resolved"],
-        worth_saving=worth_saving,
-        raw_query="raw query",
-        identity=Identity(user_id="u1"),
-        target_topic=target_topic,
+        search_keywords=("resolved",),
+        memory_write_signal=(
+            MemoryWriteSignal.WRITE
+            if worth_saving
+            else MemoryWriteSignal.SKIP
+        ),
+        retrieval_plan=RetrievalPlan(),
+        intent_type=IntentType.RAG,
     )
     retrieval_result = RetrievalResponse(
         memories=[],
     )
-    return AnalyzeAndRetrieveResult(
-        gaze_result=gaze_result,
-        retrieval_result=retrieval_result,
-    )
+    _ = memory
+    return gateway_decision, retrieval_result
 
 
 def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:

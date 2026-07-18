@@ -7,26 +7,27 @@ HiveMemory 测试共享 Fixtures
 版本: 2.0.0
 """
 
-from typing import List, Dict, Any, Optional, Callable
-from datetime import datetime
 import os
+
+# 添加项目根目录到路径
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 import pytest
 from rich.console import Console
 from rich.table import Table
 
-# 添加项目根目录到路径
-import sys
-from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from hivememory.core.models import StreamMessage, MemoryAtom, Identity
-from hivememory.engines.perception.models import FlushReason, FlushEvent, LogicalBlock
-from hivememory.i18n import set_default_language
-from hivememory.system.config import HiveMemoryConfig
 from unittest.mock import patch
 
+from hivememory.core.models import MemoryAtom, StreamMessage
+from hivememory.engines.perception.models import FlushEvent, FlushReason
+from hivememory.i18n import set_default_language
+from hivememory.system.config import HiveMemoryConfig
 
 # ========== FlushRecorder 类 ==========
 
@@ -38,11 +39,11 @@ class FlushRecorder:
     """
 
     def __init__(self):
-        self.records: List[Dict[str, Any]] = []
+        self.records: list[dict[str, Any]] = []
 
     def __call__(
         self,
-        messages: List[StreamMessage],
+        messages: list[StreamMessage],
         reason: FlushReason
     ) -> None:
         """
@@ -60,7 +61,7 @@ class FlushRecorder:
             "timestamp": datetime.now().timestamp(),
         })
 
-    def get_flushes_by_reason(self, reason: FlushReason) -> List[Dict[str, Any]]:
+    def get_flushes_by_reason(self, reason: FlushReason) -> list[dict[str, Any]]:
         """
         获取指定原因的 flush 记录
 
@@ -72,7 +73,7 @@ class FlushRecorder:
         """
         return [r for r in self.records if r['reason'] == reason]
 
-    def get_last_flush(self) -> Optional[Dict[str, Any]]:
+    def get_last_flush(self) -> dict[str, Any] | None:
         """获取最后一次 flush 记录"""
         return self.records[-1] if self.records else None
 
@@ -165,7 +166,7 @@ def console() -> Console:
 
 def print_flush_summary(
     console: Console,
-    flush_records: List[Dict[str, Any]],
+    flush_records: list[dict[str, Any]],
     title: str = "Flush Events Summary"
 ) -> None:
     """
@@ -177,7 +178,7 @@ def print_flush_summary(
         title: 表格标题
     """
     if not flush_records:
-        console.print(f"[dim]No flush records to display[/dim]")
+        console.print("[dim]No flush records to display[/dim]")
         return
 
     table = Table(title=title, show_header=True, header_style="bold magenta")
@@ -199,8 +200,8 @@ def print_flush_summary(
 
 def print_buffer_comparison(
     console: Console,
-    before: Dict[str, Any],
-    after: Dict[str, Any],
+    before: dict[str, Any],
+    after: dict[str, Any],
     title: str = "Buffer State Change"
 ) -> None:
     """
@@ -250,7 +251,7 @@ def print_test_header(console: Console, test_name: str) -> None:
     console.print(f"{'='*60}")
 
 
-def print_test_result(console: Console, test_name: str, success: bool, error: Optional[str] = None) -> None:
+def print_test_result(console: Console, test_name: str, success: bool, error: str | None = None) -> None:
     """
     打印测试结果
 
@@ -284,9 +285,9 @@ class MockGenerationEngine:
     """
 
     def __init__(self):
-        self.process_calls: List[Dict[str, Any]] = []
+        self.process_calls: list[dict[str, Any]] = []
 
-    def process(self, messages: List[StreamMessage]) -> List[MemoryAtom]:
+    def process(self, messages: list[StreamMessage]) -> list[MemoryAtom]:
         """
         记录 process 调用
 
@@ -310,7 +311,7 @@ class MockGenerationEngine:
         return len(self.process_calls)
 
     @property
-    def last_call(self) -> Optional[Dict[str, Any]]:
+    def last_call(self) -> dict[str, Any] | None:
         """获取最后一次调用"""
         return self.process_calls[-1] if self.process_calls else None
 
@@ -351,9 +352,9 @@ class MockRetrievalFamiliar:
     """
 
     def __init__(self):
-        self.search_calls: List[Dict[str, Any]] = []
+        self.search_calls: list[dict[str, Any]] = []
 
-    def search(self, query: str, **kwargs) -> List:
+    def search(self, query: str, **kwargs) -> list:
         """记录搜索调用并返回空结果"""
         self.search_calls.append({
             "query": query,
@@ -386,13 +387,13 @@ class FlushEventRecorder:
     """
 
     def __init__(self):
-        self.events: List[FlushEvent] = []
+        self.events: list[FlushEvent] = []
 
     def __call__(self, event: FlushEvent) -> None:
         """接收 FlushEvent"""
         self.events.append(event)
 
-    def get_events_by_reason(self, reason: FlushReason) -> List[FlushEvent]:
+    def get_events_by_reason(self, reason: FlushReason) -> list[FlushEvent]:
         """获取指定原因的事件"""
         return [e for e in self.events if e.flush_reason == reason]
 
@@ -402,7 +403,7 @@ class FlushEventRecorder:
         return len(self.events)
 
     @property
-    def last_event(self) -> Optional[FlushEvent]:
+    def last_event(self) -> FlushEvent | None:
         """获取最后一个事件"""
         return self.events[-1] if self.events else None
 

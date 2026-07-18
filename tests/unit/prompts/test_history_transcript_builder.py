@@ -15,11 +15,8 @@ HistoryTranscriptBuilder 单测
 6. 无结构化事件的 fallback block 仍能正确回放
 """
 
-import pytest
-from hivememory.core.models import Identity, TurnEvent, TurnRecord
-from hivememory.engines.perception.models import LogicalBlock
+from hivememory.core.models import Identity, LogicalBlock, TurnEvent, TurnRecord
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
-
 
 # ============ 辅助工厂 ============
 

@@ -9,20 +9,16 @@ Note:
     Phase 4.5 重构：PerceptionLayer 方法改为使用 topic_id
 """
 
-import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock
-from datetime import datetime
+from unittest.mock import Mock
 
-from hivememory.core.models import Identity, TurnEvent, TurnRecord
-from hivememory.engines.perception.models import (
-    BufferState,
-    LogicalBlock,
-)
+import pytest
+
+from hivememory.core.models import Identity, LogicalBlock, TurnEvent, TurnRecord
+from hivememory.core.protocol import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.core.protocol import InteractionPayload
 
 
 def _make_payload(user_msg: str, assistant_msg: str, identity: Identity) -> InteractionPayload:
@@ -251,18 +247,19 @@ class TestTokenManagement:
 
     def test_block_token_count(self):
         """测试 Block Token 计数"""
+        from hivememory.utils.token_estimator import estimate_tokens
+
+        user_query = "Test query"
+        assistant_final_text = "Test response"
         block = LogicalBlock(
             turn=TurnRecord(
-                user_query="Test query",
-                assistant_final_text="Test response",
+                user_query=user_query,
+                assistant_final_text=assistant_final_text,
             ),
-            total_tokens=0,
-        )
-
-        from hivememory.utils.token_estimator import estimate_tokens
-        block.total_tokens = (
-            estimate_tokens(block.user_query) +
-            estimate_tokens(block.assistant_final_text)
+            total_tokens=(
+                estimate_tokens(user_query)
+                + estimate_tokens(assistant_final_text)
+            ),
         )
 
         assert block.total_tokens > 0

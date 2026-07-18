@@ -7,18 +7,26 @@ RetrievalFamiliar 单元测试 (Phase C — renderer 解耦后)
 - update_access_stats, archive queries, topics
 """
 
-import pytest
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
-from hivememory.core.models import Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+import pytest
+
+from hivememory.core.models import (
+    Identity,
+    IndexLayer,
+    LogicalBlock,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+    TopicData,
+)
+from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
-from hivememory.engines.perception.models import LogicalBlock
-from hivememory.patchouli.memory_library.models import TopicData
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 
 
 def _make_memory(title="测试记忆") -> MemoryAtom:
@@ -330,24 +338,32 @@ class TestRetrievalFamiliarShortTermTopics:
 
         snapshots = self.familiar.list_active_topics(Identity(user_id="u1"))
 
-        self.mock_library.short_term.list_topic_data.assert_called_once_with(user_id="u1", include_empty=False, deep_copy=False)
+        self.mock_library.short_term.list_topic_data.assert_called_once_with(
+            user_id="u1", include_empty=False
+        )
         assert [s.topic_id for s in snapshots] == ["new", "old"]
 
     def test_list_active_topics_include_empty_passthrough(self):
         self.mock_library.short_term.list_topic_data.return_value = []
         self.familiar.list_active_topics(Identity(user_id="u1"), include_empty=True)
-        self.mock_library.short_term.list_topic_data.assert_called_once_with(user_id="u1", include_empty=True, deep_copy=False)
+        self.mock_library.short_term.list_topic_data.assert_called_once_with(
+            user_id="u1", include_empty=True
+        )
 
-    def test_get_topic_defaults_to_deep_copy(self):
+    def test_get_topic_returns_immutable_topic_data(self):
         topic_data = _make_topic_data()
         self.mock_library.short_term.get_topic_data.return_value = topic_data
         result = self.familiar.get_topic("topic_1")
-        self.mock_library.short_term.get_topic_data.assert_called_once_with("topic_1", touch=True, deep_copy=True)
+        self.mock_library.short_term.get_topic_data.assert_called_once_with(
+            "topic_1", touch=True
+        )
         assert result is topic_data
 
-    def test_get_topic_can_skip_deep_copy(self):
-        self.familiar.get_topic("topic_1", touch=False, deep_copy=False)
-        self.mock_library.short_term.get_topic_data.assert_called_once_with("topic_1", touch=False, deep_copy=False)
+    def test_get_topic_can_disable_touch(self):
+        self.familiar.get_topic("topic_1", touch=False)
+        self.mock_library.short_term.get_topic_data.assert_called_once_with(
+            "topic_1", touch=False
+        )
 
 
 class TestRetrievalFamiliarArchiveQueries:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -19,6 +19,13 @@ class RuntimeEventType(str, Enum):
     CHAT_RUN_FAILED = "chat.run.failed"
 
     COMMAND_EXECUTED = "command.executed"
+
+    GATEWAY_WORKFLOW_STARTED = "gateway.workflow.started"
+    GATEWAY_STEP_COMPLETED = "gateway.step.completed"
+    GATEWAY_WORKFLOW_COMPLETED = "gateway.workflow.completed"
+    GATEWAY_WORKFLOW_CANCELLED = "gateway.workflow.cancelled"
+    GATEWAY_WORKFLOW_FAILED = "gateway.workflow.failed"
+    GATEWAY_ANALYSIS_CAPABILITY_COMPLETED = "gateway.analysis.capability.completed"
 
     AGENT_RUN_STARTED = "agent.run.started"
     AGENT_RUN_STATUS = "agent.run.status"
@@ -61,7 +68,7 @@ class RuntimeEvent(BaseModel):
     event_id: str = Field(default_factory=generate_event_id)
     sequence: int = 0
     event_type: RuntimeEventType
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     trace_id: str | None = None
     span_name: str | None = None
     task_type: Literal["foreground", "background"] | None = None

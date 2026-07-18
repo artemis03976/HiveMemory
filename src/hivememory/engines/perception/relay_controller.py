@@ -14,7 +14,7 @@ HiveMemory Token 溢出接力控制器 / Page Folding 摘要生成器
 
 import logging
 from typing import List, Optional, Any, TYPE_CHECKING
-from hivememory.engines.perception.models import LogicalBlock
+from hivememory.core.models import LogicalBlock
 from hivememory.engines.perception.interfaces import BaseRelayController
 from hivememory.i18n import get_relay_prompt_text
 

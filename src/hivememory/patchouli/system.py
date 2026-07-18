@@ -28,7 +28,6 @@
 
 import logging
 
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Optional
 
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
@@ -41,7 +40,6 @@ from hivememory.patchouli.application import (
 )
 from hivememory.patchouli.runtime import PatchouliRuntime
 from hivememory.patchouli.service import PatchouliService
-from hivememory.core.protocol.models import EyeGazeResult
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -73,7 +71,6 @@ class PatchouliSystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
-        gateway_gaze: Callable[..., Awaitable[EyeGazeResult]],
         global_bus: Optional[GlobalSystemBus] = None,
         scheduler: Optional["AsyncMaintenanceScheduler"] = None,
         runtime_events: RuntimeEventSink | None = None,
@@ -89,10 +86,9 @@ class PatchouliSystem(SubsystemProtocol):
             runtime_events=self._runtime_events,
         )
 
-        # 2. Patchouli 对外能力门面。Gateway 由 System 层构造并注入。
+        # 2. Patchouli 对外能力门面。Phase 3A 起不再持有旧 Gateway gaze。
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
-            gateway_gaze=gateway_gaze,
             memory_compiler_config=self.config.memory_compiler,
         )
         self._memory_management_service = MemoryManagementService(

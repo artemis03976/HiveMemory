@@ -3,11 +3,11 @@ HiveMemory 感知层上下文转换门面
 
 当前文件只保留轻量门面职责：
     - `blocks_to_messages()` 委托 `HistoryTranscriptBuilder`
-    - `snapshots_to_context_text()` 将 topic snapshots 渲染为 TheEye 菜单文本
+    - `snapshots_to_context_text()` 将 topic snapshots 渲染为 Gateway 菜单文本
 """
 
 from typing import List, Dict
-from hivememory.engines.perception.models import LogicalBlock, TopicSnapshot
+from hivememory.core.models import LogicalBlock, TopicSnapshot
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
 _history_builder = HistoryTranscriptBuilder()
@@ -43,7 +43,7 @@ class PerceptionContextConverter:
         snapshots: List[TopicSnapshot],
     ) -> str:
         """
-        将话题快照列表转换为文本格式，供 TheEye 使用
+        将话题快照列表转换为文本格式，供 Gateway 使用
 
         格式示例:
         【活跃话题列表】

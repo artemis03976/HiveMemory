@@ -1,11 +1,20 @@
-"""
-模块间通信协议
+"""模块间通信协议。"""
 
-定义 Eye 与下游模块之间的通信协议消息。
-
-作者: HiveMemory Team
-版本: 3.0
-"""
+from hivememory.core.protocol.gateway import (
+    CommandExecutionResult,
+    CommandExecutionStatus,
+    GatewayCancelledError,
+    GatewayCommandOutcome,
+    GatewayDecision,
+    GatewayDecisionOutcome,
+    GatewayIngressMode,
+    GatewayProcessResult,
+    GatewayTimeoutError,
+    IntentType,
+    MemoryWriteSignal,
+    RetrievalMode,
+    RetrievalPlan,
+)
 
 from hivememory.core.protocol.models import (
     InteractionPayload,
@@ -19,4 +28,17 @@ __all__ = [
     "MessageType",
     "ProtocolMessage",
     "RetrievalRequest",
+    "CommandExecutionResult",
+    "CommandExecutionStatus",
+    "GatewayCancelledError",
+    "GatewayCommandOutcome",
+    "GatewayDecision",
+    "GatewayDecisionOutcome",
+    "GatewayIngressMode",
+    "GatewayProcessResult",
+    "GatewayTimeoutError",
+    "IntentType",
+    "MemoryWriteSignal",
+    "RetrievalMode",
+    "RetrievalPlan",
 ]

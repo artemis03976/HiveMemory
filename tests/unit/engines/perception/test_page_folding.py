@@ -2,9 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from hivememory.core.models import Identity, TraceItem, TurnEvent, TurnRecord
+from hivememory.core.models import Identity, LogicalBlock, TraceItem, TurnEvent, TurnRecord
 from hivememory.core.protocol import InteractionPayload
-from hivememory.engines.perception.models import LogicalBlock
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )

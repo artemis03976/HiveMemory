@@ -1,11 +1,11 @@
 from types import SimpleNamespace
 
-from hivememory.core.models import AgentProfile, Identity
-from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
-from hivememory.patchouli.memory_library.models import TopicData
-from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.i18n import set_default_language
 import pytest
+
+from hivememory.core.models import AgentProfile, Identity, TopicData
+from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
+from hivememory.i18n import set_default_language
+from hivememory.prompts.assembler import AgentPromptAssembler
 
 
 @pytest.fixture(autouse=True)

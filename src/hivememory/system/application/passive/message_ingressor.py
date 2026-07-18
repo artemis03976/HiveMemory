@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Coroutine, Optional
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from hivememory.core.models import Identity
-from hivememory.core.protocol.models import AnalyzeAndRetrieveResult, InteractionPayload
-from hivememory.system.application.passive.models import (
-    PassiveIngressEvent,
-    PassiveIngressOutcome,
+from hivememory.core.protocol.gateway import (
+    GatewayDecision,
+    GatewayIngressMode,
+    RetrievalMode,
+)
+from hivememory.core.protocol.models import (
+    InteractionPayload,
+    RetrievalRequest,
+    RetrievalResponse,
 )
 from hivememory.system.application.passive.message_turn_buffer import (
     FlushResult,
     MessageTurnBufferManager,
+)
+from hivememory.system.application.passive.models import (
+    PassiveIngressEvent,
+    PassiveIngressOutcome,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -20,15 +30,19 @@ logger = logging.getLogger(__name__)
 
 
 class PassiveMessageIngressor:
-    """顶层被动消息编排器，通过全局总线请求 Patchouli 分析能力。"""
+    """顶层被动消息编排器，显式请求 Gateway 决策与 Patchouli 检索。"""
 
-    def __init__(self, bus: GlobalSystemBus) -> None:
+    def __init__(
+        self,
+        bus: GlobalSystemBus,
+        *,
+        gateway_request_timeout_ms: int = 8000,
+    ) -> None:
         self._bus = bus
+        self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._buffers = MessageTurnBufferManager()
         self._idle_timeout: float = 30.0
-        self._on_flush_callback: Optional[
-            Callable[[InteractionPayload, Optional[str]], Coroutine[Any, Any, None]]
-        ] = None
+        self._on_flush_callback: Callable[[InteractionPayload, str | None], Coroutine[Any, Any, None]] | None = None
 
     @property
     def buffers(self) -> MessageTurnBufferManager:
@@ -37,9 +51,7 @@ class PassiveMessageIngressor:
     def configure_idle_flush(
         self,
         timeout_seconds: float = 30.0,
-        on_flush_callback: Optional[
-            Callable[[InteractionPayload, Optional[str]], Coroutine[Any, Any, None]]
-        ] = None,
+        on_flush_callback: Callable[[InteractionPayload, str | None], Coroutine[Any, Any, None]] | None = None,
     ) -> None:
         self._idle_timeout = timeout_seconds
         self._on_flush_callback = on_flush_callback
@@ -48,18 +60,46 @@ class PassiveMessageIngressor:
         self,
         content: str,
         identity: Identity,
-    ) -> tuple[AnalyzeAndRetrieveResult, Optional[FlushResult]]:
-        analysis_result = await self._bus.request(
-            GlobalRoutes.PATCHOULI_PASSIVE_ANALYZE_AND_RETRIEVE,
-            query=content,
+    ) -> tuple[GatewayDecision, RetrievalResponse, FlushResult | None]:
+        gateway_result = await self._bus.request(
+            GlobalRoutes.GATEWAY_PROCESS,
+            message=content,
             identity=identity,
+            ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
+            request_timeout_ms=self._gateway_request_timeout_ms,
         )
+        if gateway_result.kind != "decision":
+            raise RuntimeError("PASSIVE_MEMORY 不得返回 command outcome")
+
+        decision = gateway_result.decision
+        retrieval_result = await self._retrieve_for_decision(decision, identity)
         buffer = self._buffers.get_buffer(identity)
         flushed = buffer.accept_user(
             content=content,
-            gaze_result=analysis_result.gaze_result,
+            gateway_decision=decision,
         )
-        return analysis_result, flushed
+        return decision, retrieval_result, flushed
+
+    async def _retrieve_for_decision(
+        self,
+        decision: GatewayDecision,
+        identity: Identity,
+    ) -> RetrievalResponse:
+        if (
+            decision.retrieval_plan.mode == RetrievalMode.SKIP
+            or decision.retrieval_plan.top_k == 0
+        ):
+            return RetrievalResponse()
+
+        return await self._bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+            request=RetrievalRequest(
+                semantic_query=decision.rewritten_query,
+                keywords=list(decision.search_keywords),
+                identity=identity,
+                top_k=decision.retrieval_plan.top_k,
+            ),
+        )
 
     def ingest_assistant(self, content: str, identity: Identity) -> None:
         buffer = self._buffers.get_buffer(identity)
@@ -70,11 +110,11 @@ class PassiveMessageIngressor:
         content: str,
         identity: Identity,
         *,
-        action_id: Optional[str] = None,
-        tool_name: Optional[str] = None,
-        tool_kind: Optional[str] = None,
-        tool_args: Optional[dict[str, Any]] = None,
-        target: Optional[str] = None,
+        action_id: str | None = None,
+        tool_name: str | None = None,
+        tool_kind: str | None = None,
+        tool_args: dict[str, Any] | None = None,
+        target: str | None = None,
     ) -> None:
         buffer = self._buffers.get_buffer(identity)
         buffer.accept_tool_call(
@@ -91,8 +131,8 @@ class PassiveMessageIngressor:
         content: str,
         identity: Identity,
         *,
-        action_id: Optional[str] = None,
-        status: Optional[str] = None,
+        action_id: str | None = None,
+        status: str | None = None,
         render_as: str = "plain",
     ) -> None:
         buffer = self._buffers.get_buffer(identity)
@@ -109,14 +149,14 @@ class PassiveMessageIngressor:
         identity: Identity,
     ) -> PassiveIngressOutcome:
         if event.role == "user":
-            analysis_result, flushed = await self.ingest_user_async(
+            decision, retrieval_result, flushed = await self.ingest_user_async(
                 content=event.content,
                 identity=identity,
             )
             return PassiveIngressOutcome(
                 kind="user",
-                analysis_result=analysis_result,
-                gaze_result=analysis_result.gaze_result,
+                gateway_decision=decision,
+                retrieval_result=retrieval_result,
                 flushed=flushed,
             )
 
@@ -148,7 +188,7 @@ class PassiveMessageIngressor:
 
         return PassiveIngressOutcome(kind="ignored")
 
-    def flush_session(self, identity: Identity) -> Optional[FlushResult]:
+    def flush_session(self, identity: Identity) -> FlushResult | None:
         buffer = self._buffers.get_buffer(identity)
         return buffer.flush()
 

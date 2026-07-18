@@ -7,17 +7,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
 from hivememory.core.models import Identity
-from hivememory.core.protocol.models import (
-    AnalyzeAndRetrieveResult,
-    EyeGazeResult,
-    InteractionPayload,
-    RetrievalResponse,
-)
+from hivememory.core.protocol.gateway import GatewayDecision
+from hivememory.core.protocol.models import InteractionPayload, RetrievalResponse
 
 
 @dataclass(frozen=True)
@@ -26,10 +22,10 @@ class PassiveSessionKey:
 
     user_id: str
     agent_id: str
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
     @classmethod
-    def from_identity(cls, identity: Identity) -> "PassiveSessionKey":
+    def from_identity(cls, identity: Identity) -> PassiveSessionKey:
         return cls(
             user_id=identity.user_id,
             agent_id=identity.agent_id,
@@ -47,12 +43,12 @@ class PassiveIngressEvent(BaseModel):
 
     role: Literal["user", "assistant", "tool_call", "tool_result"]
     content: str
-    action_id: Optional[str] = None
-    tool_name: Optional[str] = None
-    tool_kind: Optional[str] = None
-    tool_args: Optional[Dict[str, Any]] = None
-    target: Optional[str] = None
-    status: Optional[str] = None
+    action_id: str | None = None
+    tool_name: str | None = None
+    tool_kind: str | None = None
+    tool_args: dict[str, Any] | None = None
+    target: str | None = None
+    status: str | None = None
     render_as: str = "plain"
 
 
@@ -61,15 +57,9 @@ class PassiveIngressOutcome:
     """被动事件路由结果。"""
 
     kind: Literal["user", "buffered", "ignored"]
-    analysis_result: Optional[AnalyzeAndRetrieveResult] = None
-    gaze_result: Optional[EyeGazeResult] = None
-    flushed: Optional[tuple[InteractionPayload, Optional[str]]] = None
-
-    @property
-    def retrieval_result(self) -> Optional[RetrievalResponse]:
-        if self.analysis_result is None:
-            return None
-        return self.analysis_result.retrieval_result
+    gateway_decision: GatewayDecision | None = None
+    retrieval_result: RetrievalResponse | None = None
+    flushed: tuple[InteractionPayload, str | None] | None = None
 
 
 __all__ = [
