@@ -8,7 +8,12 @@ from enum import Enum
 from hivememory.core.models import Identity, TopicData
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
+    GatewayCommandOutcome,
+    GatewayDecision,
+    GatewayDecisionOutcome,
     GatewayIngressMode,
+    GatewayProcessResult,
+    RetrievalPlan,
 )
 from hivememory.engines.gateway.models import InterceptorResult
 from hivememory.gateway.analysis import UserQueryAnalysisResult
@@ -122,6 +127,55 @@ class GatewayExecutionState:
         if self.status == ExecutionStateStatus.COMPLETED:
             raise RuntimeError("Gateway execution state 已完成")
         self.status = ExecutionStateStatus.COMPLETED
+
+    def finalize(self) -> GatewayProcessResult:
+        """校验终态并显式投影为依赖中立公共结果。"""
+
+        if self.status == ExecutionStateStatus.COMPLETED:
+            raise RuntimeError("Gateway execution state 已完成")
+
+        if self.flow_end_reason == "system_command":
+            if self.ingress_mode != GatewayIngressMode.ACTIVE_CHAT:
+                raise RuntimeError("PASSIVE_MEMORY 不得产生 command outcome")
+            if self.command_execution_result is None:
+                raise RuntimeError("Command flow 缺少 command execution result")
+            if self.user_query_analysis is not None:
+                raise RuntimeError("Command flow 不得包含 decision analysis")
+            outcome: GatewayProcessResult = GatewayCommandOutcome(
+                command_execution_result=self.command_execution_result,
+            )
+            self._mark_completed()
+            return outcome
+
+        if self.flow_end_reason is not None:
+            raise RuntimeError(f"未知 Gateway flow end reason: {self.flow_end_reason}")
+        if self.command_execution_result is not None:
+            raise RuntimeError("Decision flow 不得包含 command execution result")
+        if self.topic_id is None:
+            raise RuntimeError("Decision flow 缺少 topic route")
+        if self.user_query_analysis is None:
+            raise RuntimeError("Decision flow 缺少 user query analysis")
+
+        analysis = self.user_query_analysis
+        outcome = GatewayDecisionOutcome(
+            decision=GatewayDecision(
+                target_topic_id=self.topic_id,
+                new_topic_title=self.new_topic_title,
+                new_topic_summary=self.new_topic_summary,
+                rewritten_query=analysis.rewritten_query,
+                search_keywords=tuple(analysis.search_keywords),
+                memory_write_signal=analysis.memory_write_signal,
+                retrieval_plan=RetrievalPlan(
+                    mode=analysis.retrieval_plan.mode,
+                    top_k=analysis.retrieval_plan.top_k,
+                    dense_weight=analysis.retrieval_plan.dense_weight,
+                    sparse_weight=analysis.retrieval_plan.sparse_weight,
+                ),
+                intent_type=analysis.intent_type,
+            )
+        )
+        self._mark_completed()
+        return outcome
 
 
 __all__ = [

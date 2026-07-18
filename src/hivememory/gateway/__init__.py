@@ -10,7 +10,6 @@ __all__ = [
     "GatewayRuntime",
     "GatewayService",
     "GatewaySystem",
-    "GatewayWorkflow",
     "render_topic_snapshots",
 ]
 
@@ -37,10 +36,6 @@ def __getattr__(name: str) -> Any:
         from hivememory.gateway.system import GatewaySystem
 
         return GatewaySystem
-    if name == "GatewayWorkflow":
-        from hivememory.gateway.workflow import GatewayWorkflow
-
-        return GatewayWorkflow
     if name == "render_topic_snapshots":
         from hivememory.gateway.topic_context import render_topic_snapshots
 

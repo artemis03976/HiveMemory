@@ -4,10 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from hivememory.engines.gateway.interceptors import create_interceptor
+from hivememory.engines.gateway.topic_router import TopicRouterEngine
+from hivememory.gateway.analysis import UserQueryAnalysisResolver
+from hivememory.gateway.commands import (
+    SystemCommandDispatcher,
+    create_builtin_command_registry,
+)
+from hivememory.gateway.context import GatewayContextProvider
 from hivememory.gateway.contracts.local_routes import GatewayLocalRoutes
 from hivememory.gateway.runtime.bus import GatewayBus
 from hivememory.gateway.runtime.route_bindings import build_gateway_route_bindings
 from hivememory.gateway.workflow import GatewayWorkflow
+from hivememory.gateway.workflow.topology import build_gateway_workflow
 from hivememory.system.config import SystemGatewayConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
@@ -28,6 +37,9 @@ class GatewayRuntime:
         global_bus: GlobalSystemBus,
         runtime_events: RuntimeEventSink | None = None,
         workflow: GatewayWorkflow | None = None,
+        context_provider: GatewayContextProvider | None = None,
+        topic_router: TopicRouterEngine | None = None,
+        analysis_resolver: UserQueryAnalysisResolver | None = None,
     ) -> None:
         self.config = config
         self.global_bus = global_bus
@@ -36,7 +48,23 @@ class GatewayRuntime:
         self._local_bus = GatewayBus()
         self._local_routes_registered = False
 
-        self.workflow = workflow or GatewayWorkflow(
+        registry = create_builtin_command_registry(config.commands.builtin)
+        interceptor = create_interceptor(config.interceptor, registry)
+        command_dispatcher = SystemCommandDispatcher(
+            registry,
+            global_bus=global_bus,
+            debug_enabled=config.commands.enable_debug_commands,
+            expose_listing=config.commands.expose_listing,
+        )
+        self.workflow = workflow or build_gateway_workflow(
+            interceptor=interceptor,
+            command_dispatcher=command_dispatcher,
+            context_provider=context_provider,
+            topic_router=topic_router,
+            analysis_resolver=analysis_resolver,
+            context_config=config.context_preparation,
+            topic_router_config=config.topic_router,
+            analysis_config=config.user_query_analysis,
             runtime_events=self._runtime_events,
         )
 

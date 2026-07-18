@@ -5,7 +5,11 @@ from hivememory.gateway.workflow.state import (
     GatewayExecutionState,
     GatewayStateSnapshot,
 )
-from hivememory.gateway.workflow.steps import GatewayStepResult
+from hivememory.gateway.workflow.steps import (
+    GatewayStepResult,
+    GatewayWorkflowStep,
+    RecoverableGatewayError,
+)
 from hivememory.gateway.workflow.workflow import GatewayWorkflow
 
 __all__ = [
@@ -13,5 +17,7 @@ __all__ = [
     "GatewayExecutionState",
     "GatewayStateSnapshot",
     "GatewayStepResult",
+    "GatewayWorkflowStep",
     "GatewayWorkflow",
+    "RecoverableGatewayError",
 ]

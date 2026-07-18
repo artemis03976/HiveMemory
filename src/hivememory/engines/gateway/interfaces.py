@@ -8,14 +8,11 @@ Global Gateway 接口定义
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+
 from hivememory.engines.gateway.models import (
-    GatewayIntent,
-    GatewayResult,
     InterceptorResult,
     SemanticAnalysisResult,
 )
-
 
 # ============================================================
 # L1: 拦截器接口
@@ -34,7 +31,12 @@ class BaseInterceptor(ABC):
 
     示例:
         >>> class CustomInterceptor(Interceptor):
-        ...     def intercept(self, query: str) -> Optional[InterceptorResult]:
+        ...     def intercept(
+        ...         self,
+        ...         query: str,
+        ...         *,
+        ...         allow_system: bool = True,
+        ...     ) -> InterceptorResult | None:
         ...         if query.startswith("!"):
         ...             return InterceptorResult(
         ...                 intent=GatewayIntent.SYSTEM,
@@ -45,7 +47,12 @@ class BaseInterceptor(ABC):
     """
 
     @abstractmethod
-    def intercept(self, query: str) -> Optional[InterceptorResult]:
+    def intercept(
+        self,
+        query: str,
+        *,
+        allow_system: bool = True,
+    ) -> InterceptorResult | None:
         """
         执行拦截
 
@@ -57,7 +64,7 @@ class BaseInterceptor(ABC):
                 - hit=True: 已拦截，返回结果
                 - hit=False 或 None: 未拦截，进入下一阶段
         """
-        pass
+        raise NotImplementedError
 
 
 # ============================================================
@@ -85,7 +92,7 @@ class BaseSemanticAnalyzer(ABC):
     async def analyze(
         self,
         query: str,
-        active_topics_menu: Optional[str] = None,
+        active_topics_menu: str | None = None,
     ) -> SemanticAnalysisResult:
         """
         执行语义分析
@@ -97,7 +104,7 @@ class BaseSemanticAnalyzer(ABC):
         Returns:
             SemanticAnalysisResult: L2 分析器的原始输出，包含意图、重写查询、关键词、路由目标等
         """
-        pass
+        raise NotImplementedError
 
 
 __all__ = [

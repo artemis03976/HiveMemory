@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.core.models import Identity
+from hivememory.core.protocol.gateway import GatewayIngressMode, IntentType
 from hivememory.gateway import GatewayService, GatewaySystem
 from hivememory.gateway.contracts import GatewayLocalRoutes, GatewayPublicRoutes
 from hivememory.gateway.runtime import GatewayRuntime
@@ -25,10 +26,18 @@ async def test_gateway_service_delegates_to_workflow() -> None:
     service = GatewayService(runtime)
     identity = Identity(user_id="u1", agent_id="a1")
 
-    result = await service.process("hello", identity=identity)
+    result = await service.process(
+        "hello",
+        identity=identity,
+        ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+    )
 
     assert result == "ok"
-    workflow.run.assert_awaited_once_with("hello", identity=identity)
+    workflow.run.assert_awaited_once_with(
+        "hello",
+        identity=identity,
+        ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+    )
 
 
 @pytest.mark.asyncio
@@ -54,7 +63,7 @@ async def test_gateway_system_mount_and_unmount_are_idempotent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gateway_service_runs_minimal_empty_workflow() -> None:
+async def test_gateway_service_runs_fallback_workflow() -> None:
     global_bus = GlobalSystemBus()
     system = GatewaySystem(HiveMemoryConfig(), global_bus)
     await system.start()
@@ -63,7 +72,9 @@ async def test_gateway_service_runs_minimal_empty_workflow() -> None:
         GatewayPublicRoutes.PROCESS,
         message="hello",
         identity=Identity(user_id="u1", agent_id="a1"),
+        ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
-    assert result is None
+    assert result.kind == "decision"
+    assert result.decision.intent_type == IntentType.CHAT
     await system.stop()
