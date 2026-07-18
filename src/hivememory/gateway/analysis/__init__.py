@@ -5,8 +5,10 @@ from hivememory.gateway.analysis.models import (
     UserQueryAnalysisResolver,
     UserQueryAnalysisResult,
 )
+from hivememory.gateway.analysis.resolver import FallbackUserQueryAnalysisResolver
 
 __all__ = [
+    "FallbackUserQueryAnalysisResolver",
     "UserQueryAnalysisContext",
     "UserQueryAnalysisResolver",
     "UserQueryAnalysisResult",

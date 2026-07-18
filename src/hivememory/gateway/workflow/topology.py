@@ -313,13 +313,15 @@ def _conservative_analysis_result(
     raw_message: str,
     config: UserQueryAnalysisConfig,
 ) -> UserQueryAnalysisResult:
-    mode = RetrievalMode(config.default_mode.upper())
     return UserQueryAnalysisResult(
         intent_type=IntentType.RAG,
         rewritten_query=raw_message,
         search_keywords=(),
         memory_write_signal=MemoryWriteSignal.WRITE,
-        retrieval_plan=RetrievalPlan(mode=mode, top_k=config.default_top_k),
+        retrieval_plan=RetrievalPlan(
+            mode=RetrievalMode.HYBRID,
+            top_k=config.default_top_k,
+        ),
     )
 
 

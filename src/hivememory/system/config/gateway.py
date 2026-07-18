@@ -11,12 +11,6 @@ class RuleInterceptorConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class LLMAnalyzerConfig(BaseModel):
-    enabled: bool = Field(default=True)
-
-    model_config = ConfigDict(extra="ignore")
-
-
 class SystemCommandConfig(BaseModel):
     """
     System Gateway 系统指令配置。
@@ -30,15 +24,6 @@ class SystemCommandConfig(BaseModel):
     expose_listing: bool = Field(default=True)
     enable_debug_commands: bool = Field(default=False)
     builtin: dict[str, bool] = Field(default_factory=dict)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class GatewayContextHydrationConfig(BaseModel):
-    """Gateway Context Hydration 配置。"""
-
-    timeout_seconds: float = Field(default=1.0, ge=0)
-    include_empty_topics: bool = Field(default=False)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -75,7 +60,6 @@ class UserQueryAnalysisConfig(BaseModel):
     """User Query Analysis 整体 deadline 与保守默认值。"""
 
     overall_timeout_ms: int = Field(default=5000, ge=1)
-    default_mode: Literal["dense", "sparse", "hybrid", "skip"] = "hybrid"
     default_top_k: int = Field(default=5, ge=0)
 
     model_config = ConfigDict(extra="forbid")
@@ -83,11 +67,7 @@ class UserQueryAnalysisConfig(BaseModel):
 
 class SystemGatewayConfig(BaseModel):
     interceptor: RuleInterceptorConfig = Field(default_factory=RuleInterceptorConfig)
-    analyzer: LLMAnalyzerConfig = Field(default_factory=LLMAnalyzerConfig)
     commands: SystemCommandConfig = Field(default_factory=SystemCommandConfig)
-    context_hydration: GatewayContextHydrationConfig = Field(
-        default_factory=GatewayContextHydrationConfig
-    )
     workflow: GatewayWorkflowConfig = Field(default_factory=GatewayWorkflowConfig)
     context_preparation: GatewayContextPreparationConfig = Field(
         default_factory=GatewayContextPreparationConfig
@@ -102,9 +82,7 @@ class SystemGatewayConfig(BaseModel):
 
 __all__ = [
     "RuleInterceptorConfig",
-    "LLMAnalyzerConfig",
     "SystemCommandConfig",
-    "GatewayContextHydrationConfig",
     "GatewayContextPreparationConfig",
     "GatewayWorkflowConfig",
     "TopicRouterConfig",

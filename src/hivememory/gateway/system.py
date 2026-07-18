@@ -8,6 +8,7 @@ from typing import Any
 from hivememory.gateway.contracts.public_routes import GatewayPublicRoutes
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
+from hivememory.infrastructure.llm import get_gateway_llm_service
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -31,10 +32,18 @@ class GatewaySystem(SubsystemProtocol):
         self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
 
+        gateway_llm_config = self._config.get_gateway_llm_config()
+        llm_service = (
+            get_gateway_llm_service(gateway_llm_config)
+            if gateway_llm_config.model is not None
+            else None
+        )
+
         self._runtime = GatewayRuntime(
             config=self._config.gateway,
             global_bus=global_bus,
             runtime_events=self._runtime_events,
+            llm_service=llm_service,
         )
 
         self._service = GatewayService(runtime=self._runtime)

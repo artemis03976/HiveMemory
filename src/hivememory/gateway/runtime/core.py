@@ -6,7 +6,10 @@ from typing import Any
 
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.topic_router import TopicRouterEngine
-from hivememory.gateway.analysis import UserQueryAnalysisResolver
+from hivememory.gateway.analysis import (
+    FallbackUserQueryAnalysisResolver,
+    UserQueryAnalysisResolver,
+)
 from hivememory.gateway.commands import (
     SystemCommandDispatcher,
     create_builtin_command_registry,
@@ -20,6 +23,7 @@ from hivememory.gateway.runtime.bus import GatewayBus
 from hivememory.gateway.runtime.route_bindings import build_gateway_route_bindings
 from hivememory.gateway.workflow import GatewayWorkflow
 from hivememory.gateway.workflow.topology import build_gateway_workflow
+from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.system.config import SystemGatewayConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
@@ -41,6 +45,7 @@ class GatewayRuntime:
         runtime_events: RuntimeEventSink | None = None,
         workflow: GatewayWorkflow | None = None,
         context_provider: GatewayContextProvider | None = None,
+        llm_service: BaseLLMService | None = None,
         topic_router: TopicRouterEngine | None = None,
         analysis_resolver: UserQueryAnalysisResolver | None = None,
     ) -> None:
@@ -55,6 +60,15 @@ class GatewayRuntime:
             context_provider = GlobalBusGatewayContextProvider(
                 global_bus=global_bus,
                 include_empty_topics=config.context_preparation.include_empty_topics,
+            )
+        if topic_router is None:
+            topic_router = TopicRouterEngine(
+                config=config.topic_router,
+                llm_service=llm_service,
+            )
+        if analysis_resolver is None:
+            analysis_resolver = FallbackUserQueryAnalysisResolver(
+                config.user_query_analysis
             )
 
         registry = create_builtin_command_registry(config.commands.builtin)

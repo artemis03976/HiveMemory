@@ -94,20 +94,6 @@ from hivememory.utils import (
     estimate_tokens,
 )
 
-from hivememory.engines.gateway import (
-    GatewayEngine,
-    GatewayIntent,
-    GatewayResult,
-    InterceptorResult,
-    SemanticAnalysisResult,
-    BaseInterceptor,
-    BaseSemanticAnalyzer,
-    RuleInterceptor,
-    create_interceptor,
-    LLMAnalyzer,
-    create_semantic_analyzer,
-)
-
 from hivememory.system.application.passive import MessageBufferState
 
 from hivememory.engines.generation import (
@@ -312,17 +298,6 @@ __all__ = [
     "EstimationStrategy",
     "estimate_tokens",
     # ========== Gateway Engine ==========
-    "GatewayEngine",
-    "GatewayIntent",
-    "GatewayResult",
-    "InterceptorResult",
-    "SemanticAnalysisResult",
-    "BaseInterceptor",
-    "BaseSemanticAnalyzer",
-    "RuleInterceptor",
-    "create_interceptor",
-    "LLMAnalyzer",
-    "create_semantic_analyzer",
     "MessageBufferState",
     # ========== Gateway 子系统 ==========
     "GatewaySystem",
