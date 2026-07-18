@@ -22,8 +22,8 @@ def render_topic_snapshots(snapshots: Sequence[TopicSnapshot]) -> str:
 
         if snapshot.last_turn:
             lines.append("   最后对话:")
-            user_msg = snapshot.last_turn.get("user", "")
-            assistant_msg = snapshot.last_turn.get("assistant", "")
+            user_msg = snapshot.last_turn.user
+            assistant_msg = snapshot.last_turn.assistant
 
             max_len = 200
             if len(user_msg) > max_len:

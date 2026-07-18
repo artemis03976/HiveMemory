@@ -1,9 +1,10 @@
 """公开路由注册/卸载测试 — 验证 System 门面在生命周期中正确管理全局总线路由。"""
 
-import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
+
+import pytest
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
@@ -18,14 +19,11 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
-from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
-from hivememory.patchouli.system import PatchouliSystem
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
-
 
 # ========== Alice ==========
 
@@ -256,6 +254,7 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
         assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"
         assert PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN == "patchouli.public.cleanup_prepared_agent_run"
+        assert PatchouliRoutes.TOPIC_GET_DATA == "patchouli.public.topic.get_data"
         assert PatchouliRoutes.EVICT_TOPIC == "patchouli.public.evict_topic"
         assert PatchouliRoutes.RECORD_MEMORY_CITATION == "patchouli.public.record_memory_citation"
         assert PatchouliRoutes.WARMUP_MODELS == "patchouli.public.models.warmup"
@@ -271,6 +270,7 @@ class TestPatchouliPublicRoutes:
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
+        assert PatchouliRoutes.TOPIC_GET_DATA in routes
         assert PatchouliRoutes.EVICT_TOPIC in routes
         assert PatchouliRoutes.MEMORY_TASK_LIST in routes
         assert PatchouliRoutes.MEMORY_TASK_GET in routes
@@ -288,6 +288,7 @@ class TestPatchouliPublicRoutes:
 
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.FINALIZE_AGENT_RUN not in routes
+        assert PatchouliRoutes.TOPIC_GET_DATA not in routes
         assert PatchouliRoutes.EVICT_TOPIC not in routes
         assert PatchouliRoutes.MEMORY_TASK_LIST not in routes
         assert PatchouliRoutes.MEMORY_TASK_GET not in routes
@@ -387,6 +388,7 @@ class TestPatchouliPublicRoutes:
 
         topic_management_service = MagicMock()
         topic_management_service.list_active_topics = AsyncMock()
+        topic_management_service.get_topic_data = AsyncMock()
         topic_management_service.settle_topic = AsyncMock()
         topic_management_service.evict_topic = AsyncMock()
 

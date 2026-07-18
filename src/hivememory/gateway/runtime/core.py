@@ -11,7 +11,10 @@ from hivememory.gateway.commands import (
     SystemCommandDispatcher,
     create_builtin_command_registry,
 )
-from hivememory.gateway.context import GatewayContextProvider
+from hivememory.gateway.context import (
+    GatewayContextProvider,
+    GlobalBusGatewayContextProvider,
+)
 from hivememory.gateway.contracts.local_routes import GatewayLocalRoutes
 from hivememory.gateway.runtime.bus import GatewayBus
 from hivememory.gateway.runtime.route_bindings import build_gateway_route_bindings
@@ -47,6 +50,12 @@ class GatewayRuntime:
 
         self._local_bus = GatewayBus()
         self._local_routes_registered = False
+
+        if context_provider is None:
+            context_provider = GlobalBusGatewayContextProvider(
+                global_bus=global_bus,
+                include_empty_topics=config.context_preparation.include_empty_topics,
+            )
 
         registry = create_builtin_command_registry(config.commands.builtin)
         interceptor = create_interceptor(config.interceptor, registry)

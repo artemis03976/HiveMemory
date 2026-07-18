@@ -13,9 +13,13 @@ from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.application.agent_profile_management_service import AgentProfileManagementService
+    from hivememory.patchouli.application.agent_profile_management_service import (
+        AgentProfileManagementService,
+    )
     from hivememory.patchouli.application.memory_management_service import MemoryManagementService
-    from hivememory.patchouli.application.memory_task_management_service import MemoryTaskManagementService
+    from hivememory.patchouli.application.memory_task_management_service import (
+        MemoryTaskManagementService,
+    )
     from hivememory.patchouli.application.model_readiness_service import ModelReadinessService
     from hivememory.patchouli.application.topic_management_service import TopicManagementService
 
@@ -134,6 +138,10 @@ class PatchouliBridge:
             (
                 PatchouliRoutes.TOPIC_LIST_ACTIVE,
                 self._public_api.topics.list_active_topics,
+            ),
+            (
+                PatchouliRoutes.TOPIC_GET_DATA,
+                self._public_api.topics.get_topic_data,
             ),
             (
                 PatchouliRoutes.MEMORY_RETRIEVE,

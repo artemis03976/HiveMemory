@@ -7,12 +7,10 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
+from hivememory.gateway.errors import RecoverableGatewayError
+
 if TYPE_CHECKING:
     from hivememory.gateway.workflow.state import GatewayStateSnapshot
-
-class RecoverableGatewayError(Exception):
-    """Provider、Engine 或 Resolver adapter 的预期能力失败。"""
-
 
 @dataclass(frozen=True)
 class GatewayStepResult:

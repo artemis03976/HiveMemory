@@ -20,6 +20,7 @@ class RouteNames:
     PATCHOULI_AGENT_PROFILE_CREATE = "patchouli.public.agent_profile.create"
     PATCHOULI_AGENT_PROFILE_LIST = "patchouli.public.agent_profile.list"
     PATCHOULI_TOPIC_LIST_ACTIVE = "patchouli.public.topic.list_active"
+    PATCHOULI_TOPIC_GET_DATA = "patchouli.public.topic.get_data"
     PATCHOULI_MEMORY_RETRIEVE = "patchouli.public.memory.retrieve"
     PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES = "patchouli.public.memory.retrieve_by_aliases"
     PATCHOULI_GET_AGENT_PROFILE = "patchouli.public.get_agent_profile"

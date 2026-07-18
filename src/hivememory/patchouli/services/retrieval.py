@@ -10,24 +10,24 @@
 版本: 3.0 (Phase C — 编译解耦)
 """
 
-from typing import Any, List, Optional
-from uuid import UUID
-import time
 import logging
+import time
+from typing import Any
+from uuid import UUID
 
 from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
     AgentProfile,
     Identity,
     MemoryAtom,
     MemoryType,
-    OMNI_DOLL_PROFILE,
-    TopicSnapshot,
     TopicData,
+    TopicSnapshot,
 )
-from hivememory.engines.retrieval.engine import RetrievalEngine
-from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
+from hivememory.engines.retrieval.engine import RetrievalEngine
+from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 
@@ -58,7 +58,7 @@ class RetrievalFamiliar:
         self,
         engine: RetrievalEngine,
         memory_library: MemoryLibrary,
-        local_bus: Optional[Any] = None,
+        local_bus: Any | None = None,
     ):
         """
         初始化检索使魔
@@ -74,14 +74,14 @@ class RetrievalFamiliar:
 
         logger.info("RetrievalFamiliar (检索使魔) 初始化完成")
 
-    # ========== 短期记忆查询 ========== 
+    # ========== 短期记忆查询 ==========
 
     def get_topic(
         self,
         topic_id: str,
         *,
         touch: bool = True,
-    ) -> Optional[TopicData]:
+    ) -> TopicData | None:
         """
         读取短期话题上下文。
         """
@@ -96,7 +96,7 @@ class RetrievalFamiliar:
         *,
         include_empty: bool = False,
         sort_by_access: bool = True,
-    ) -> List[TopicSnapshot]:
+    ) -> tuple[TopicSnapshot, ...]:
         """
         列出指定用户的话题快照（短期检索入口）。
 
@@ -111,11 +111,11 @@ class RetrievalFamiliar:
             topics = [topic for topic in topics if not topic.is_empty]
         if sort_by_access:
             topics = sorted(topics, key=lambda t: t.last_accessed_at, reverse=True)
-        return [topic.to_topic_snapshot() for topic in topics]
+        return tuple(topic.to_topic_snapshot() for topic in topics)
 
-    # ========== 中期记忆查询 ========== 
+    # ========== 中期记忆查询 ==========
 
-    async def get_memory(self, memory_id: UUID | str) -> Optional[MemoryAtom]:
+    async def get_memory(self, memory_id: UUID | str) -> MemoryAtom | None:
         """
         根据记忆 ID 读取中期记忆原子。
         """
@@ -125,10 +125,10 @@ class RetrievalFamiliar:
     async def list_memories(
         self,
         *,
-        query: Optional[str] = None,
-        filters: Optional[dict[str, Any]] = None,
+        query: str | None = None,
+        filters: dict[str, Any] | None = None,
         limit: int = 20,
-    ) -> List[MemoryAtom]:
+    ) -> list[MemoryAtom]:
         """
         根据查询和过滤条件列出中期记忆原子。
         """
@@ -227,8 +227,8 @@ class RetrievalFamiliar:
 
     async def retrieve_by_aliases(
         self,
-        aliases: List[str],
-        identity: Optional[Identity] = None,
+        aliases: list[str],
+        identity: Identity | None = None,
     ) -> RetrievalResponse:
         """
         精确按 alias 取回记忆。
@@ -237,7 +237,7 @@ class RetrievalFamiliar:
         response = RetrievalResponse()
 
         try:
-            memories: List[MemoryAtom] = []
+            memories: list[MemoryAtom] = []
             seen_aliases: set[str] = set()
             user_id = identity.user_id if identity is not None else None
 
@@ -267,8 +267,8 @@ class RetrievalFamiliar:
 
     async def retrieve_by_aliases_async(
         self,
-        aliases: List[str],
-        identity: Optional[Identity] = None,
+        aliases: list[str],
+        identity: Identity | None = None,
     ) -> RetrievalResponse:
         """
         精确别名检索的异步总线入口。
@@ -277,7 +277,7 @@ class RetrievalFamiliar:
         await self._refresh_vitality_for_memories(response.memories)
         return response
 
-    async def update_access_stats(self, memories: List[MemoryAtom]) -> None:
+    async def update_access_stats(self, memories: list[MemoryAtom]) -> None:
         """
         更新被引用记忆的访问统计
 
@@ -289,13 +289,13 @@ class RetrievalFamiliar:
             except Exception as e:
                 logger.warning(f"更新访问统计失败: {memory.id} - {e}")
 
-    # ========== 长期记忆查询 ========== 
+    # ========== 长期记忆查询 ==========
 
     async def query_archive(
         self,
         *,
         limit: int = 100,
-        vitality_threshold: Optional[float] = None,
+        vitality_threshold: float | None = None,
     ):
         """
         查询长期冷存储归档记录。
@@ -311,9 +311,9 @@ class RetrievalFamiliar:
         """
         return await self._memory_library.long_term.is_archived(memory_id)
 
-    # ========== 内部辅助方法 ========== 
+    # ========== 内部辅助方法 ==========
 
-    async def _refresh_vitality_for_memories(self, memories: List[MemoryAtom]) -> None:
+    async def _refresh_vitality_for_memories(self, memories: list[MemoryAtom]) -> None:
         if not memories or self._local_bus is None:
             return
         try:
