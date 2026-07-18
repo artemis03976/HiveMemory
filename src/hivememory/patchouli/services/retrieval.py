@@ -196,7 +196,10 @@ class RetrievalFamiliar:
                 filters=query_filters,
             )
 
-            engine_result = await self.engine.retrieve(query=query)
+            engine_result = await self.engine.retrieve(
+                query=query,
+                top_k=request.top_k,
+            )
 
             response.memories = engine_result.memories
             response.memories_count = engine_result.memories_count

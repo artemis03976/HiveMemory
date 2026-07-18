@@ -244,7 +244,6 @@ class TestPatchouliPublicRoutes:
 
     @pytest.mark.asyncio
     async def test_public_route_constants_are_consistent(self):
-        assert PatchouliRoutes.PASSIVE_ANALYZE_AND_RETRIEVE == "patchouli.public.passive.analyze_and_retrieve"
         assert PatchouliRoutes.SUBMIT_INTERACTION == "patchouli.public.submit_interaction"
         assert PatchouliRoutes.MEMORY_RETRIEVE == "patchouli.public.memory.retrieve"
         assert PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES == "patchouli.public.memory.retrieve_by_aliases"
@@ -358,7 +357,6 @@ class TestPatchouliPublicRoutes:
 
     def _make_bridge(self):
         service = MagicMock()
-        service.analyze_and_retrieve = AsyncMock()
         service.prepare_agent_run = AsyncMock()
         service.finalize_agent_run = AsyncMock()
         service.cleanup_prepared_agent_run = AsyncMock()

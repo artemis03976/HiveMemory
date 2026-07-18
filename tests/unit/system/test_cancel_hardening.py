@@ -4,17 +4,23 @@
 AgentRunResult.status 终态传播。
 """
 
-import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.system.runtime.control import (
-    ChatGenerationRunRegistry,
-    ChatGenerationRun,
-    ChatGenerationRunStatus,
+import pytest
+
+from hivememory.core.protocol.gateway import (
+    GatewayDecision,
+    GatewayDecisionOutcome,
+    IntentType,
+    MemoryWriteSignal,
+    RetrievalPlan,
 )
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
-
+from hivememory.system.runtime.control import (
+    ChatGenerationRun,
+    ChatGenerationRunRegistry,
+    ChatGenerationRunStatus,
+)
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
 
@@ -90,7 +96,7 @@ class TestChatServiceCancelPath:
         prepare_result = MagicMock()
         prepare_result.stream_prelude.topic_id = "t1"
         prepare_result.stream_prelude.is_new_topic = False
-        prepare_result.stream_prelude.pool_snapshot = {}
+        prepare_result.stream_prelude.pool_topics = []
         prepare_result.stream_prelude.memory_refs = []
         prepare_result.agent_run_context = MagicMock()
         prepare_result.generation_options = {}
@@ -105,10 +111,23 @@ class TestChatServiceCancelPath:
 
         async def bus_request(route, **kwargs):
             from hivememory.system.contracts.routes import GlobalRoutes
+            if route == GlobalRoutes.GATEWAY_PROCESS:
+                return GatewayDecisionOutcome(
+                    decision=GatewayDecision(
+                        target_topic_id="t1",
+                        rewritten_query="hello",
+                        search_keywords=(),
+                        memory_write_signal=MemoryWriteSignal.WRITE,
+                        retrieval_plan=RetrievalPlan(),
+                        intent_type=IntentType.RAG,
+                    )
+                )
             if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
                 return prepare_result
             if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
                 return mock_stream()
+            if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
+                return True
             raise AssertionError(f"Unexpected bus route called: {route}")
 
         bus.request = AsyncMock(side_effect=bus_request)

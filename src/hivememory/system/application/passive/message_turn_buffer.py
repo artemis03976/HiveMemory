@@ -8,19 +8,17 @@ import logging
 import threading
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from hivememory.core.models import Identity
 from hivememory.core.models.interaction import TurnEvent
+from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.system.application.passive.models import PassiveSessionKey
 
-if TYPE_CHECKING:
-    from hivememory.core.protocol.models import EyeGazeResult
-
 logger = logging.getLogger(__name__)
 
-FlushResult = Tuple[InteractionPayload, Optional[str]]
+FlushResult = tuple[InteractionPayload, str | None]
 
 
 class MessageBufferState(str, Enum):
@@ -35,7 +33,7 @@ class MessageTurnBuffer:
     def __init__(
         self,
         identity: Identity,
-        session_key: Optional[PassiveSessionKey] = None,
+        session_key: PassiveSessionKey | None = None,
     ) -> None:
         self._identity = identity
         self._session_key = session_key or PassiveSessionKey.from_identity(identity)
@@ -43,12 +41,12 @@ class MessageTurnBuffer:
 
     def _reset(self) -> None:
         self._state = MessageBufferState.IDLE
-        self._user_content: Optional[str] = None
-        self._assistant_parts: List[str] = []
-        self._turn_events: List[TurnEvent] = []
+        self._user_content: str | None = None
+        self._assistant_parts: list[str] = []
+        self._turn_events: list[TurnEvent] = []
         self._sequence_counter: int = 0
-        self._gaze_result: Optional[EyeGazeResult] = None
-        self._target_topic: Optional[str] = None
+        self._gateway_decision: GatewayDecision | None = None
+        self._target_topic: str | None = None
         self._last_activity: float = datetime.now().timestamp()
 
     def _next_sequence(self) -> int:
@@ -83,17 +81,19 @@ class MessageTurnBuffer:
     def accept_user(
         self,
         content: str,
-        gaze_result: Optional[EyeGazeResult] = None,
-    ) -> Optional[FlushResult]:
-        flushed: Optional[FlushResult] = None
+        gateway_decision: GatewayDecision | None = None,
+    ) -> FlushResult | None:
+        flushed: FlushResult | None = None
 
         if self.has_pending_round:
             flushed = (self._build_payload(), self._target_topic)
             self._reset()
 
         self._user_content = content
-        self._gaze_result = gaze_result
-        self._target_topic = gaze_result.target_topic if gaze_result else None
+        self._gateway_decision = gateway_decision
+        self._target_topic = (
+            gateway_decision.target_topic_id if gateway_decision else None
+        )
         self._turn_events.append(
             TurnEvent(
                 kind="user_message",
@@ -139,11 +139,11 @@ class MessageTurnBuffer:
         self,
         content: str,
         *,
-        action_id: Optional[str] = None,
-        tool_name: Optional[str] = None,
-        tool_kind: Optional[str] = None,
-        tool_args: Optional[Dict[str, Any]] = None,
-        target: Optional[str] = None,
+        action_id: str | None = None,
+        tool_name: str | None = None,
+        tool_kind: str | None = None,
+        tool_args: dict[str, Any] | None = None,
+        target: str | None = None,
     ) -> None:
         if self._state == MessageBufferState.IDLE:
             logger.warning(
@@ -172,8 +172,8 @@ class MessageTurnBuffer:
         self,
         content: str,
         *,
-        action_id: Optional[str] = None,
-        status: Optional[str] = None,
+        action_id: str | None = None,
+        status: str | None = None,
         render_as: str = "plain",
     ) -> None:
         if self._state == MessageBufferState.IDLE:
@@ -197,7 +197,7 @@ class MessageTurnBuffer:
         self._state = MessageBufferState.SEALED
         self._last_activity = datetime.now().timestamp()
 
-    def flush(self) -> Optional[FlushResult]:
+    def flush(self) -> FlushResult | None:
         if self._state == MessageBufferState.IDLE:
             return None
 
@@ -218,9 +218,15 @@ class MessageTurnBuffer:
             mtp_traces=[],
             identity=self._identity,
             rewritten_query=(
-                self._gaze_result.rewritten_query if self._gaze_result else None
+                self._gateway_decision.rewritten_query
+                if self._gateway_decision
+                else None
             ),
-            worth_saving=(self._gaze_result.worth_saving if self._gaze_result else None),
+            worth_saving=(
+                self._gateway_decision.worth_saving
+                if self._gateway_decision
+                else None
+            ),
         )
 
 
@@ -228,7 +234,7 @@ class MessageTurnBufferManager:
     """MessageTurnBuffer 池管理器。"""
 
     def __init__(self) -> None:
-        self._buffers: Dict[PassiveSessionKey, MessageTurnBuffer] = {}
+        self._buffers: dict[PassiveSessionKey, MessageTurnBuffer] = {}
         self._lock = threading.RLock()
         logger.info("MessageTurnBufferManager 初始化完成")
 
@@ -249,13 +255,13 @@ class MessageTurnBufferManager:
         with self._lock:
             self._buffers.pop(key, None)
 
-    def list_active_buffers(self) -> Dict[PassiveSessionKey, MessageTurnBuffer]:
+    def list_active_buffers(self) -> dict[PassiveSessionKey, MessageTurnBuffer]:
         with self._lock:
             return dict(self._buffers)
 
-    def flush_idle_buffers(self, timeout_seconds: float) -> List[FlushResult]:
+    def flush_idle_buffers(self, timeout_seconds: float) -> list[FlushResult]:
         now = datetime.now().timestamp()
-        results: List[FlushResult] = []
+        results: list[FlushResult] = []
 
         with self._lock:
             for key, buf in list(self._buffers.items()):

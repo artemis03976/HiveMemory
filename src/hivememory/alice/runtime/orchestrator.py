@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Dict, List, Optional
+from collections.abc import AsyncGenerator, Callable
+from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -28,16 +29,16 @@ from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
 from hivememory.core.mtp.exceptions import SubAgentExecutionError
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.engines.memory_compiler import (
-    MemoryCompiler,
     MemoryCompileOptions,
+    MemoryCompiler,
     MemoryEnvelopeTarget,
 )
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
-    from hivememory.alice.runtime.agent.runtime import AgentRuntime
-    from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
     from hivememory.agent_runtime.resolver import RuntimeAliasResolver
+    from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
+    from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+    from hivememory.alice.runtime.agent.runtime import AgentRuntime
     from hivememory.core.models import AgentProfile, Identity
 
 logger = logging.getLogger(__name__)
@@ -59,10 +60,10 @@ class AgentOrchestrator:
 
     def __init__(
         self,
-        agent_runtime: "AgentRuntime",
-        frame_scheduler: "FrameScheduler",
-        agent_profile_resolver: "AgentProfileResolver",
-        alias_resolver: "RuntimeAliasResolver",
+        agent_runtime: AgentRuntime,
+        frame_scheduler: FrameScheduler,
+        agent_profile_resolver: AgentProfileResolver,
+        alias_resolver: RuntimeAliasResolver,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._frame_scheduler = frame_scheduler
@@ -76,11 +77,11 @@ class AgentOrchestrator:
 
     async def run_agent(
         self,
-        messages: List[Dict[str, str]],
-        identity: "Identity",
+        messages: list[dict[str, str]],
+        identity: Identity,
         topic_id: str,
-        generation_options: Optional[Dict[str, Any]] = None,
-        agent_profile: Optional["AgentProfile"] = None,
+        generation_options: dict[str, Any] | None = None,
+        agent_profile: AgentProfile | None = None,
         cancel_event=None,
     ) -> AgentRunResult:
         main_frame = self._frame_scheduler.create_main_frame(
@@ -109,13 +110,13 @@ class AgentOrchestrator:
 
     async def run_agent_stream(
         self,
-        messages: List[Dict[str, str]],
-        identity: "Identity",
+        messages: list[dict[str, str]],
+        identity: Identity,
         topic_id: str,
-        generation_options: Optional[Dict[str, Any]] = None,
-        agent_profile: Optional["AgentProfile"] = None,
+        generation_options: dict[str, Any] | None = None,
+        agent_profile: AgentProfile | None = None,
         cancel_event=None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         main_frame = self._frame_scheduler.create_main_frame(
             agent_profile=agent_profile,
             messages=messages,
@@ -126,7 +127,7 @@ class AgentOrchestrator:
 
         queue: asyncio.Queue = asyncio.Queue()
 
-        async def _emit(event: Dict[str, Any]) -> None:
+        async def _emit(event: dict[str, Any]) -> None:
             await queue.put(event)
 
         async def on_suspend(engine_result: FrameExecutionResult) -> None:
@@ -173,7 +174,7 @@ class AgentOrchestrator:
     def _record_initial_user_event(
         self,
         frame: ExecutionFrame,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
     ) -> None:
         """
         记录初始用户消息（如果存在）作为首个 TurnEvent。
@@ -184,8 +185,10 @@ class AgentOrchestrator:
         if any(event.kind == "user_message" for event in frame.progress.turn_events):
             return
 
-        for event in frame.progress.turn_events:
-            event.sequence += 1
+        frame.progress.turn_events = [
+            event.model_copy(update={"sequence": event.sequence + 1})
+            for event in frame.progress.turn_events
+        ]
 
         frame.progress.turn_events.insert(
             0,
@@ -201,7 +204,7 @@ class AgentOrchestrator:
             max((event.sequence for event in frame.progress.turn_events), default=-1) + 1,
         )
 
-    def _current_user_message(self, messages: List[Dict[str, str]]) -> str:
+    def _current_user_message(self, messages: list[dict[str, str]]) -> str:
         for message in reversed(messages):
             if message.get("role") == "user":
                 return str(message.get("content") or "")
@@ -215,8 +218,8 @@ class AgentOrchestrator:
         self,
         main_frame: ExecutionFrame,
         engine_result: FrameExecutionResult,
-        generation_options: Optional[Dict[str, Any]],
-        emit: Optional[Callable] = None,
+        generation_options: dict[str, Any] | None,
+        emit: Callable | None = None,
         cancel_event=None,
     ) -> None:
         cr = engine_result.call_request
@@ -263,7 +266,7 @@ class AgentOrchestrator:
                     cancel_event=cancel_event,
                 )
             else:
-                async def _sub_emit(sub_event: Dict[str, Any]) -> None:
+                async def _sub_emit(sub_event: dict[str, Any]) -> None:
                     await emit(sub_event)
 
                 await self._agent_runtime.run_frame_emitting(
@@ -334,9 +337,11 @@ class AgentOrchestrator:
         })
 
         # 找到对应的 tool_call 事件并标记 success
-        for ev in main_frame.progress.turn_events:
+        for index, ev in enumerate(main_frame.progress.turn_events):
             if ev.kind == "tool_call" and ev.action_id == action_id:
-                ev.status = "success"
+                main_frame.progress.turn_events[index] = ev.model_copy(
+                    update={"status": "success"}
+                )
                 break
 
         main_frame.progress.turn_events.append(TurnEvent(
@@ -358,9 +363,9 @@ class AgentOrchestrator:
 
     async def _fetch_context_refs_content(
         self,
-        aliases: List[str],
-        identity: "Identity",
-        language: Optional[str] = None,
+        aliases: list[str],
+        identity: Identity,
+        language: str | None = None,
     ) -> str:
         if not aliases:
             return ""

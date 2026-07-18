@@ -1,11 +1,12 @@
 """系统生命周期与 PatchouliSystem 子系统能力测试"""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.patchouli.runtime.core import PatchouliRuntime
-from hivememory.patchouli.runtime.bus import PatchouliBus
+import pytest
+
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.assembler import (
     _RegistriesBundle,
@@ -13,11 +14,10 @@ from hivememory.system.assembler import (
     _ServicesBundle,
     _SubsystemBundle,
 )
-from hivememory.system.gateway.bundle import GatewayBundle
-from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.system.system import HiveMemorySystem
 
 
 def _build_runtime_with_local_bus():
@@ -70,7 +70,6 @@ def mock_patchouli():
     p._maintenance_registered = False
     p._bridge = MagicMock()
     p.service = MagicMock()
-    p.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
     p.start = PatchouliSystem.start.__get__(p, PatchouliSystem)
     p.stop = PatchouliSystem.stop.__get__(p, PatchouliSystem)
     p.health = PatchouliSystem.health.__get__(p, PatchouliSystem)
@@ -98,6 +97,11 @@ def system_factory(mock_patchouli, global_bus, scheduler):
         topic_service = kwargs.pop("topic_service", MagicMock())
         readiness_service = kwargs.pop("readiness_service", MagicMock())
         alice = kwargs.pop("alice", MagicMock())
+        gateway = kwargs.pop("gateway", MagicMock())
+        gateway.name = "gateway"
+        gateway.start = AsyncMock()
+        gateway.stop = AsyncMock()
+        gateway.health = AsyncMock(return_value={"status": "ok"})
         alice.name = "alice"
         alice.start = AsyncMock()
         alice.stop = AsyncMock()
@@ -114,7 +118,11 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             provider_registry=MagicMock(),
             model_registry=MagicMock(),
         )
-        subsystems = _SubsystemBundle(patchouli=mock_patchouli, alice=alice)
+        subsystems = _SubsystemBundle(
+            gateway=gateway,
+            patchouli=mock_patchouli,
+            alice=alice,
+        )
         services = _ServicesBundle(
             chat=chat_service,
             ingress=ingress_service,
@@ -128,7 +136,6 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             config=MagicMock(),
             runtime=runtime,
             registries=registries,
-            gateway_bundle=None,
             subsystems=subsystems,
             services=services,
         )
@@ -216,7 +223,6 @@ class TestPatchouliSystemLocalRoutes:
         patchouli._maintenance_registered = False
         patchouli._bridge = MagicMock()
         patchouli.service = MagicMock()
-        patchouli.service.analyze_and_retrieve = AsyncMock(return_value={"intent": "rag"})
         patchouli.service.prepare_agent_run = AsyncMock()
         patchouli.service.finalize_agent_run = AsyncMock()
         patchouli.service.cleanup_prepared_agent_run = AsyncMock()
@@ -224,7 +230,6 @@ class TestPatchouliSystemLocalRoutes:
         patchouli.stop = PatchouliSystem.stop.__get__(patchouli, PatchouliSystem)
 
         public_only_routes = {
-            "passive.analyze_and_retrieve",
             "service.prepare_agent_run",
             "service.finalize_agent_run",
             "service.cleanup_prepared_agent_run",

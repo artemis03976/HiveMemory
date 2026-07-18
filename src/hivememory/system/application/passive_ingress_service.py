@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import Identity
 from hivememory.system.application.passive import (
@@ -32,7 +32,12 @@ class PassiveIngressService:
         self._bus = bus
         self._config = config
         self._scheduler = scheduler
-        self._ingressor = PassiveMessageIngressor(bus=bus)
+        self._ingressor = PassiveMessageIngressor(
+            bus=bus,
+            gateway_request_timeout_ms=(
+                config.gateway.workflow.default_request_timeout_ms
+            ),
+        )
         self._maintenance_registered = False
         self._configure_idle_flush()
 
@@ -64,7 +69,7 @@ class PassiveIngressService:
     async def _submit_interaction(
         self,
         payload,
-        target_topic: Optional[str] = None,
+        target_topic: str | None = None,
     ) -> None:
         await self._bus.request(
             GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION,
@@ -83,7 +88,7 @@ class PassiveIngressService:
         self._unregister_maintenance_tasks()
         self._maintenance_registered = False
 
-    async def shutdown_drain(self) -> Dict[str, Any]:
+    async def shutdown_drain(self) -> dict[str, Any]:
         await self.stop()
         flushed_rounds = self._ingressor.flush_all_pending_sessions()
         for payload, target_topic in flushed_rounds:
@@ -98,8 +103,8 @@ class PassiveIngressService:
         event: PassiveIngressEvent,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
         identity = Identity(
             user_id=user_id,
             agent_id=agent_id,
@@ -119,10 +124,10 @@ class PassiveIngressService:
 
         if (
             outcome.kind == "user"
-            and outcome.gaze_result is not None
+            and outcome.gateway_decision is not None
             and outcome.retrieval_result is not None
         ):
-            gaze_result = outcome.gaze_result
+            gateway_decision = outcome.gateway_decision
             retrieval_result = outcome.retrieval_result
             from hivememory.engines.memory_compiler import (
                 MemoryCompileOptions,
@@ -141,10 +146,10 @@ class PassiveIngressService:
                 else None
             )
             return {
-                "intent": gaze_result.intent.value,
-                "rewritten": gaze_result.rewritten_query,
-                "keywords": gaze_result.search_keywords,
-                "worth_saving": gaze_result.worth_saving,
+                "intent": gateway_decision.intent_type.value,
+                "rewritten": gateway_decision.rewritten_query,
+                "keywords": list(gateway_decision.search_keywords),
+                "worth_saving": gateway_decision.worth_saving,
                 "memory": memory_text,
             }
 
@@ -169,7 +174,7 @@ class PassiveIngressService:
         self,
         user_id: str,
         agent_id: str = "omni_doll",
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ) -> bool:
         identity = Identity(
             user_id=user_id,

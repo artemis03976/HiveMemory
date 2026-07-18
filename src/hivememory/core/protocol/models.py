@@ -19,9 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivememory.core.models import AgentProfile, Identity, MemoryAtom, TraceItem, TurnEvent
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.mtp.models import MTPCallRequest
-from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.engines.retrieval.models import QueryFilters
-from hivememory.gateway.commands.models import CommandParseResult
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
 
@@ -119,6 +117,8 @@ class RetrievalRequest(ProtocolMessage):
     # MTP SEARCH 指令传入的过滤条件 (可选)
     filters: QueryFilters | None = Field(default=None, description="MTP filter 过滤条件")
 
+    top_k: int = Field(default=5, ge=0, description="本次检索候选数量")
+
     @property
     def user_id(self) -> str:
         """兼容属性: 从 identity 中提取 user_id"""
@@ -128,7 +128,7 @@ class RetrievalRequest(ProtocolMessage):
 class RetrievalResponse(ProtocolMessage):
     """
     检索结果协议消息
-    
+
     从 RetrievalFamiliar 返回的检索结果，供外部 Worker Agent 使用
     """
     msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
@@ -206,47 +206,6 @@ class AgentRunResult(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
 
-class EyeGazeResult(BaseModel):
-    """
-    旧 gaze 流程的统一输出模型
-
-    保留该模型是为了尚未迁移完成的下游协议字段；Phase 3 主路径使用
-    GatewayState。
-    数据格式转换由 PatchouliRuntime 负责。
-
-    Attributes:
-        intent: Gateway 意图分类
-        rewritten_query: 指代消解后的完整查询
-        search_keywords: 稀疏检索关键词列表
-        worth_saving: 是否值得保存
-        raw_query: 原始用户查询
-        identity: 身份标识
-        processing_time_ms: Eye 处理耗时（毫秒）
-        is_fallback: 是否为 fallback 结果
-        target_topic: 路由目标话题 ID 或 "NEW_TOPIC"
-    """
-    intent: GatewayIntent = Field(..., description="意图分类")
-    rewritten_query: str = Field(..., description="指代消解后的查询")
-    search_keywords: list[str] = Field(default_factory=list, description="检索关键词")
-    worth_saving: bool = Field(..., description="是否值得保存")
-    raw_query: str = Field(..., description="原始用户查询")
-    identity: Identity = Field(default_factory=Identity, description="身份标识")
-    processing_time_ms: float = Field(default=0.0, description="处理耗时")
-    is_fallback: bool = Field(default=False, description="是否为 fallback 结果")
-
-    #: 路由目标话题 (MMU Agentic Routing, Phase 4.5)
-    target_topic: str = Field(default="NEW_TOPIC", description="路由目标话题 ID 或 NEW_TOPIC")
-
-    #: 新话题标题（仅 NEW_TOPIC 时由 Gateway 生成）
-    new_topic_title: str | None = Field(default=None, description="新话题标题")
-
-    #: 新话题摘要（仅 NEW_TOPIC 时由 Gateway 生成）
-    new_topic_summary: str | None = Field(default=None, description="新话题摘要")
-
-    #: 结构化系统指令解析结果，仅由 Gateway L1 填充。
-    command: CommandParseResult | None = Field(default=None, description="系统指令解析结果")
-
-
 class InteractionPayload(BaseModel):
     """
     PatchouliSystem / Kernel -> Perception 的原子交互传输包
@@ -309,13 +268,6 @@ class InteractionPayload(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class AnalyzeAndRetrieveResult(BaseModel):
-    """Patchouli 标准分析与预检索组合结果。"""
-
-    gaze_result: EyeGazeResult = Field(..., description="入口分析结果")
-    retrieval_result: RetrievalResponse = Field(..., description="热路径预检索结果")
-
-
 __all__ = [
     "MessageType",
     "ProtocolMessage",
@@ -323,9 +275,7 @@ __all__ = [
     "RetrievalRequest",
     "RetrievalResponse",
     "AgentRunContext",
-    "EyeGazeResult",
     "InteractionPayload",
-    "AnalyzeAndRetrieveResult",
     "MTPExecutionResult",
     "AgentRunStatus",
     "AgentRunResult",

@@ -48,9 +48,9 @@ Passive Mode E2E Pipeline Tests - 被动模式 Pipeline 端到端测试
 版本: 2.0
 """
 
-import time
 import logging
-from typing import List, Dict, Any, Optional
+import time
+from typing import Any
 
 import pytest
 
@@ -70,8 +70,8 @@ FLUSH_SETTLE_SECONDS = 5.0
 def build_messages(
     user_message: str,
     system_prompt: str = "You are a helpful assistant.",
-    history: list[Dict[str, str]] | None = None,
-) -> List[Dict[str, str]]:
+    history: list[dict[str, str]] | None = None,
+) -> list[dict[str, str]]:
     """构建 OpenAI 格式的消息列表"""
     msgs = [{"role": "system", "content": system_prompt}]
     if history:
@@ -87,9 +87,9 @@ async def _ingest_event(
     content: str,
     user_id: str,
     agent_id: str = "omni_doll",
-    session_id: Optional[str] = None,
+    session_id: str | None = None,
     **event_kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     event = PassiveIngressEvent(role=role, content=content, **event_kwargs)
     return await system.ingress_service.ingest_event(
         event=event,
@@ -107,9 +107,9 @@ def _collect_user_blocks(
     system: PatchouliSystem,
     user_id: str,
     agent_id: str = "default",
-) -> List[Any]:
+) -> list[Any]:
     perception = _get_perception_layer(system)
-    blocks: List[Any] = []
+    blocks: list[Any] = []
     for topic_data in perception.short_term_store.list_topic_data(user_id=user_id):
         if topic_data.current_agent_id != agent_id:
             continue
@@ -139,9 +139,9 @@ def _wait_for_perception_blocks(
     min_blocks: int = 1,
     timeout: float = MEMORY_WAIT_TIMEOUT,
     agent_id: str = "default",
-) -> List[Any]:
+) -> list[Any]:
     deadline = time.time() + timeout
-    blocks: List[Any] = []
+    blocks: list[Any] = []
     while time.time() < deadline:
         blocks = _collect_user_blocks(system, user_id, agent_id=agent_id)
         if len(blocks) >= min_blocks:
@@ -152,7 +152,7 @@ def _wait_for_perception_blocks(
     )
 
 
-def _collect_text_from_blocks(blocks: List[Any]) -> str:
+def _collect_text_from_blocks(blocks: list[Any]) -> str:
     return " ".join([_block_text(block) for block in blocks if _block_text(block)])
 
 
@@ -431,7 +431,7 @@ class TestPassiveWorthSavingFilter:
         4. wait → 查询感知层 Buffer → 闲聊轮次应携带 worth_saving=False 标记
 
         验证链路:
-            Eye.gaze() → GatewayEngine → worth_saving=False
+            Gateway PASSIVE_MEMORY 决策 → worth_saving=False
             → Payload.worth_saving=False → 感知层 block 保留该标记
         """
         user_id = clean_user()

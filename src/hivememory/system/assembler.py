@@ -213,6 +213,9 @@ class SystemAssembler:
     ) -> _ServicesBundle:
         chat = ChatApplicationService(
             global_bus=runtime.global_bus,
+            gateway_request_timeout_ms=(
+                self._config.gateway.workflow.default_request_timeout_ms
+            ),
             runtime_events=runtime.event_sink.scoped(
                 "system",
                 component="chat_application_service",

@@ -12,6 +12,7 @@ import type {
   ChatDoneEvent,
   GenerationIdEvent,
   ChatRunStatusEvent,
+  CommandResultEvent,
   MemoryAtom,
   MemoryRefsEvent,
   Message,
@@ -28,6 +29,7 @@ interface CreateChatSSECallbacksDeps {
   updateMessages: (updater: (messages: Message[]) => Message[]) => void;
   setTopicInfo: (data: TopicInfoEvent) => void;
   setRetrievedMemories: (memories: MemoryAtom[]) => void;
+  handleCommandResult: (data: CommandResultEvent) => void;
   setGenerationId: (data: GenerationIdEvent) => void;
   setRunStatus: (data: ChatRunStatusEvent) => void;
   markStreaming: () => void;
@@ -85,6 +87,10 @@ export function createChatSSECallbacks(deps: CreateChatSSECallbacksDeps): SSECal
     onMemoryRefs: (data: MemoryRefsEvent) => {
       const memories = Array.isArray(data.memories) ? data.memories : [];
       deps.setRetrievedMemories(memories);
+    },
+
+    onCommandResult: (data: CommandResultEvent) => {
+      deps.handleCommandResult(data);
     },
 
     onDone: (data: ChatDoneEvent) => {

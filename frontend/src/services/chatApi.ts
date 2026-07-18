@@ -22,6 +22,7 @@ import type {
   SubAgentEndEvent,
   GenerationIdEvent,
   ChatRunStatusEvent,
+  CommandResultEvent,
 } from '@/types';
 
 export class ChatSSEClient {
@@ -116,6 +117,10 @@ export class ChatSSEClient {
 
       case 'memory_refs':
         callbacks.onMemoryRefs(data as MemoryRefsEvent);
+        break;
+
+      case 'command_result':
+        callbacks.onCommandResult(data as CommandResultEvent);
         break;
 
       case 'done':

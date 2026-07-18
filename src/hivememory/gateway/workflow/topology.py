@@ -197,6 +197,9 @@ def build_gateway_workflow(
             select_input=_select_simple_chat_input,
             invoke=invoke_simple_chat,
             project=lambda output: {"user_query_analysis": output},
+            fallback=lambda selected, _error: {
+                "user_query_analysis": _simple_chat_result(selected.raw_message)
+            },
         ),
         user_query_analysis_step=GatewayWorkflowStep(
             step_id="user_query_analysis",

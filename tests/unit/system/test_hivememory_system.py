@@ -1,8 +1,11 @@
 """HiveMemorySystem 门面委托测试"""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from hivememory.system.application.readiness_service import SystemReadinessService
+from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.assembler import (
     _RegistriesBundle,
     _RuntimeBundle,
@@ -10,13 +13,10 @@ from hivememory.system.assembler import (
     _SubsystemBundle,
 )
 from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.application.topic_service import TopicApplicationService
-from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.gateway.bundle import GatewayBundle
-from hivememory.system.system import HiveMemorySystem
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.system.system import HiveMemorySystem
 
 
 @pytest.fixture
@@ -44,6 +44,11 @@ def system(mock_patchouli):
     alice.start = AsyncMock()
     alice.stop = AsyncMock()
     alice.health = AsyncMock(return_value={"status": "ok"})
+    gateway = MagicMock()
+    gateway.name = "gateway"
+    gateway.start = AsyncMock()
+    gateway.stop = AsyncMock()
+    gateway.health = AsyncMock(return_value={"status": "ok"})
     chat_service = MagicMock()
     chat_service.chat = AsyncMock(return_value="result")
     chat_service.chat_stream = MagicMock()
@@ -73,7 +78,11 @@ def system(mock_patchouli):
         provider_registry=MagicMock(),
         model_registry=MagicMock(),
     )
-    subsystems = _SubsystemBundle(patchouli=mock_patchouli, alice=alice)
+    subsystems = _SubsystemBundle(
+        gateway=gateway,
+        patchouli=mock_patchouli,
+        alice=alice,
+    )
     services = _ServicesBundle(
         chat=chat_service,
         ingress=ingress_service,
@@ -88,7 +97,6 @@ def system(mock_patchouli):
         config=config,
         runtime=runtime,
         registries=registries,
-        gateway_bundle=None,
         subsystems=subsystems,
         services=services,
     )
@@ -124,6 +132,7 @@ class TestHiveMemorySystem:
         assert events[0].component == "hivememory_system"
         assert events[1].status == "ready"
         assert events[1].data["completed_steps"] == [
+            "gateway.start",
             "patchouli.start",
             "alice.start",
             "scheduler.start",
@@ -148,7 +157,10 @@ class TestHiveMemorySystem:
         assert failed.status == "failed"
         assert failed.severity == "error"
         assert failed.reason == "boom"
-        assert failed.data["completed_steps"] == ["patchouli.start"]
+        assert failed.data["completed_steps"] == [
+            "gateway.start",
+            "patchouli.start",
+        ]
         assert failed.data["failed_step"] == "alice.start"
         assert failed.data["error"] == "boom"
         assert system._started is False
@@ -205,6 +217,7 @@ class TestHiveMemorySystem:
             "passive_ingress.shutdown_drain",
             "alice.stop",
             "patchouli.stop",
+            "gateway.stop",
         ]
         assert stopped.data["scheduler_stopped"] is True
         assert stopped.data["passive_shutdown_drain"] == {"success": True}

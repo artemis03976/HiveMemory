@@ -26,6 +26,8 @@ HiveMemory - 分布式记忆管理系统
 版本: 3.0
 """
 
+# ruff: noqa: I001
+
 from hivememory.core.models import (
     ActionReducer,
     AgentAction,
@@ -204,12 +206,6 @@ def __getattr__(name: str):
     if name == "GatewayService":
         from hivememory.gateway import GatewayService
         return GatewayService
-    if name == "GatewayState":
-        from hivememory.gateway import GatewayState
-        return GatewayState
-    if name == "PatchouliPrepareDecision":
-        from hivememory.gateway import PatchouliPrepareDecision
-        return PatchouliPrepareDecision
     if name == "PatchouliRuntime":
         from hivememory.patchouli.runtime import PatchouliRuntime
         return PatchouliRuntime
@@ -297,14 +293,12 @@ __all__ = [
     "TokenEstimator",
     "EstimationStrategy",
     "estimate_tokens",
-    # ========== Gateway Engine ==========
+    # ========== 被动入口 ==========
     "MessageBufferState",
     # ========== Gateway 子系统 ==========
     "GatewaySystem",
     "GatewayRuntime",
     "GatewayService",
-    "GatewayState",
-    "PatchouliPrepareDecision",
     # ========== Generation Engine ==========
     "MemoryGenerationEngine",
     "BaseMemoryExtractor",

@@ -16,9 +16,10 @@ Phase A→B→C→D 循环：
 见 docs/mod/AgentLoopDecouplingDesign.md §3 / §4 Phase 1+2。
 """
 
-import logging
 import asyncio
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Callable, Awaitable
+import logging
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -58,7 +59,7 @@ class AgentLoopExecutor:
         self._mtp_executor = mtp_executor
         self.config = config
 
-    def _namespace_for_frame(self, frame: ExecutionFrame) -> Dict[str, Any]:
+    def _namespace_for_frame(self, frame: ExecutionFrame) -> dict[str, Any]:
         """构造事件命名空间元数据。"""
         agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
         return {
@@ -72,10 +73,10 @@ class AgentLoopExecutor:
         self,
         frame: ExecutionFrame,
         max_iterations: int,
-        generation_options: Optional[Dict[str, Any]] = None,
-        stream_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+        generation_options: dict[str, Any] | None = None,
+        stream_emitter: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         use_stream_generation: bool = False,
-        cancel_event: Optional[asyncio.Event] = None,
+        cancel_event: asyncio.Event | None = None,
     ) -> FrameExecutionResult:
         """
         执行单个帧的循环，直到自然收敛或命中 CALL。
@@ -149,7 +150,7 @@ class AgentLoopExecutor:
 
             verb_hint = "UNKNOWN"
             target_hint = ""
-            args_hint: Dict[str, Any] = {}
+            args_hint: dict[str, Any] = {}
             raw_hint = result.mtp_fragment
 
             action_id = f"action_{p.iteration}_{p.sequence}"
@@ -209,7 +210,9 @@ class AgentLoopExecutor:
 
             if mtp_result is None:
                 p.text_segments.append(result.mtp_fragment)
-                command_event.status = "failed"
+                p.turn_events[-1] = command_event.model_copy(
+                    update={"status": "failed"}
+                )
                 p.turn_events.append(TurnEvent(
                     kind="tool_result",
                     sequence=p.sequence,
@@ -259,7 +262,9 @@ class AgentLoopExecutor:
                     suspend_action_id=action_id,
                 )
 
-            command_event.status = mtp_result.response_status
+            p.turn_events[-1] = command_event.model_copy(
+                update={"status": mtp_result.response_status}
+            )
             if stream_emitter is not None:
                 mtp_result_data = {
                     "verb": verb_hint,
@@ -301,11 +306,11 @@ class AgentLoopExecutor:
         self,
         frame: ExecutionFrame,
         max_iterations: int,
-        generation_options: Optional[Dict[str, Any]] = None,
-        cancel_event: Optional[asyncio.Event] = None,
+        generation_options: dict[str, Any] | None = None,
+        cancel_event: asyncio.Event | None = None,
         # 编排注入的回调：当引擎遇到 SUSPEND 时，编排处理子帧并回填 CALL response，
         # 然后引擎继续本段流。签名: (FrameExecutionResult) -> None（异步）。
-        on_suspend: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
+        on_suspend: Callable[["FrameExecutionResult"], Awaitable[None]] | None = None,
     ):
         """
         执行单个帧的流式循环。
@@ -320,7 +325,7 @@ class AgentLoopExecutor:
         """
         queue: asyncio.Queue = asyncio.Queue()
 
-        async def _emit(event: Dict[str, Any]) -> None:
+        async def _emit(event: dict[str, Any]) -> None:
             await queue.put(event)
 
         async def _runner() -> None:
