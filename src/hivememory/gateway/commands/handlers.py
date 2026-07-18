@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from hivememory.core.models import Identity
 from hivememory.gateway.commands.models import (

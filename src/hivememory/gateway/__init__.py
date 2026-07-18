@@ -1,23 +1,16 @@
-"""Phase 3 Gateway 顶层子系统。"""
+"""Gateway 顶层子系统。"""
 
 from __future__ import annotations
 
 from typing import Any
 
 __all__ = [
-    "GatewayContextHydrator",
     "GatewayLocalRoutes",
-    "GatewayPatch",
-    "GatewayPipeline",
     "GatewayPublicRoutes",
     "GatewayRuntime",
     "GatewayService",
-    "GatewayState",
     "GatewaySystem",
-    "PatchouliPrepareDecision",
-    "SessionContext",
-    "StageResult",
-    "StageTrace",
+    "GatewayWorkflow",
     "render_topic_snapshots",
 ]
 
@@ -25,47 +18,12 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     """惰性导出，避免 commands 子模块导入时触发不必要的装配依赖。"""
 
-    if name in {"GatewayContextHydrator", "SessionContext"}:
-        from hivememory.gateway.context import (
-            GatewayContextHydrator,
-            SessionContext,
-        )
-
-        return {
-            "GatewayContextHydrator": GatewayContextHydrator,
-            "SessionContext": SessionContext,
-        }[name]
     if name in {"GatewayLocalRoutes", "GatewayPublicRoutes"}:
         from hivememory.gateway.contracts import GatewayLocalRoutes, GatewayPublicRoutes
 
         return {
             "GatewayLocalRoutes": GatewayLocalRoutes,
             "GatewayPublicRoutes": GatewayPublicRoutes,
-        }[name]
-    if name in {
-        "GatewayPatch",
-        "GatewayPipeline",
-        "GatewayState",
-        "PatchouliPrepareDecision",
-        "StageResult",
-        "StageTrace",
-    }:
-        from hivememory.gateway.pipeline import (
-            GatewayPatch,
-            GatewayPipeline,
-            GatewayState,
-            PatchouliPrepareDecision,
-            StageResult,
-            StageTrace,
-        )
-
-        return {
-            "GatewayPatch": GatewayPatch,
-            "GatewayPipeline": GatewayPipeline,
-            "GatewayState": GatewayState,
-            "PatchouliPrepareDecision": PatchouliPrepareDecision,
-            "StageResult": StageResult,
-            "StageTrace": StageTrace,
         }[name]
     if name == "GatewayRuntime":
         from hivememory.gateway.runtime import GatewayRuntime
@@ -79,6 +37,10 @@ def __getattr__(name: str) -> Any:
         from hivememory.gateway.system import GatewaySystem
 
         return GatewaySystem
+    if name == "GatewayWorkflow":
+        from hivememory.gateway.workflow import GatewayWorkflow
+
+        return GatewayWorkflow
     if name == "render_topic_snapshots":
         from hivememory.gateway.topic_context import render_topic_snapshots
 

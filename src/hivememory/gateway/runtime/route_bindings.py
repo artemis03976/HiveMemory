@@ -14,7 +14,7 @@ RouteBinding = tuple[str, Callable[..., Any]]
 
 
 def build_gateway_route_bindings(
-    service: "GatewayService",
+    service: GatewayService,
 ) -> tuple[RouteBinding, ...]:
     """从 GatewayService 构造本地路由表。"""
 

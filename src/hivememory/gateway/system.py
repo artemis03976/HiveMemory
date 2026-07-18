@@ -38,7 +38,7 @@ class GatewaySystem(SubsystemProtocol):
         )
 
         self._service = GatewayService(runtime=self._runtime)
-        
+
         self._public_routes_registered = False
 
         logger.info("GatewaySystem 初始化完成")
