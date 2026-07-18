@@ -12,24 +12,21 @@ HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory M
 """
 
 import logging
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
-from hivememory.core.models import ActionReducer, Identity, TurnRecord
-from hivememory.engines.perception.relay_controller import BaseRelayController
-from hivememory.engines.perception.trigger_manager import TriggerManager
+from typing import TYPE_CHECKING, Optional
+
+from hivememory.core.models import ActionReducer, BufferState, Identity, LogicalBlock, TurnRecord
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
     FlushEvent,
     FlushReason,
-    LogicalBlock,
     TopicMaterializeTask,
 )
-from hivememory.patchouli.memory_library.buffer import BufferState
+from hivememory.engines.perception.relay_controller import BaseRelayController
+from hivememory.engines.perception.trigger_manager import TriggerManager
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.utils.token_estimator import estimate_tokens
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 
@@ -83,8 +80,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     async def prepare_topic(
         self,
         target_topic_id: str,
-        new_topic_title: Optional[str],
-        new_topic_summary: Optional[str],
+        new_topic_title: str | None,
+        new_topic_summary: str | None,
         identity: Identity,
     ) -> str:
         """
@@ -127,8 +124,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     async def create_new_topic(
         self,
         identity: Identity,
-        title: Optional[str] = None,
-        summary: Optional[str] = None,
+        title: str | None = None,
+        summary: str | None = None,
     ) -> str:
         """
         创建新话题。调用方负责在必要时提前执行 LRU 驱逐。
@@ -146,7 +143,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         topic_id: str,
         payload: InteractionPayload,
-    ) -> Tuple[str, Optional[TopicMaterializeTask]]:
+    ) -> tuple[str, TopicMaterializeTask | None]:
         """
         MMU 核心方法：路由到指定话题并摄入载荷。
 
@@ -169,7 +166,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         payload: InteractionPayload,
         topic_id: str,
-    ) -> Optional[TopicMaterializeTask]:
+    ) -> TopicMaterializeTask | None:
         """
         摄入完整交互载荷。
 
@@ -186,28 +183,29 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         actions = ActionReducer.reduce(payload.turn_events)
         traces = payload.mtp_traces
 
-        # 2. 构建 LogicalBlock
-        block = LogicalBlock(
-            turn=TurnRecord(
-                identity=payload.identity,
-                user_query=payload.user_message,
-                rewritten_query=payload.rewritten_query,
-                assistant_final_text=payload.assistant_final_text or clean_text,
-                turn_events=payload.turn_events,
-                actions=actions,
-                semantic_traces=traces,
-            ),
-            worth_saving=payload.worth_saving,
+        # 2. 先构建只读 TurnRecord，再一次性构建 LogicalBlock
+        turn = TurnRecord(
+            identity=payload.identity,
+            user_query=payload.user_message,
+            rewritten_query=payload.rewritten_query,
+            assistant_final_text=payload.assistant_final_text or clean_text,
+            turn_events=payload.turn_events,
+            actions=actions,
+            semantic_traces=traces,
         )
-
-        # 2.5 计算 block 的 total_tokens
-        block.total_tokens = (
-            estimate_tokens(block.user_query)
-            + estimate_tokens(block.assistant_final_text)
+        total_tokens = (
+            estimate_tokens(turn.user_query)
+            + estimate_tokens(turn.assistant_final_text)
             + sum(
-                estimate_tokens(t.query or "") + estimate_tokens(t.target or "")
-                for t in block.semantic_traces
+                estimate_tokens(trace.query or "")
+                + estimate_tokens(trace.target or "")
+                for trace in turn.semantic_traces
             )
+        )
+        block = LogicalBlock(
+            turn=turn,
+            total_tokens=total_tokens,
+            worth_saving=payload.worth_saving,
         )
 
         # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
@@ -216,10 +214,10 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         # 3.1 若 payload 携带了 model_used（来自 ModelRegistry 解析结果），更新到 buffer
         if payload.model_used:
             self._short_term_store.update_model_used(topic_id, payload.model_used)
-        
+
         # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
         settle_payload = await self._maybe_fold_pages(topic_id)
-        
+
         # 重置状态
         self._short_term_store.update_metadata(topic_id, state=BufferState.IDLE)
 
@@ -227,7 +225,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     # ========== 上下文溢出检查 ==========
 
-    async def _maybe_fold_pages(self, topic_id: str) -> Optional[TopicMaterializeTask]:
+    async def _maybe_fold_pages(self, topic_id: str) -> TopicMaterializeTask | None:
         """
         Page Folding: token 溢出时触发 Compact 操作
         """
@@ -260,10 +258,10 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
-    ) -> Optional[TopicMaterializeTask]:
+    ) -> TopicMaterializeTask | None:
         """
         原子话题结算，不含策略判断。由 PerceptionFamiliar 调用。
-        
+
         Returns:
             TopicMaterializeTask | None
         """
@@ -297,21 +295,21 @@ class NullPerceptionLayer(BasePerceptionLayer):
         self,
         topic_id: str,
         payload: InteractionPayload,
-    ) -> Tuple[str, None]:
+    ) -> tuple[str, None]:
         return topic_id, None
 
     async def settle_topic(
         self,
         topic_id: str,
         reason: FlushReason = FlushReason.MANUAL,
-    ) -> Optional[TopicMaterializeTask]:
+    ) -> TopicMaterializeTask | None:
         return None
 
     async def prepare_topic(
         self,
         target_topic_id: str,
-        new_topic_title: Optional[str],
-        new_topic_summary: Optional[str],
+        new_topic_title: str | None,
+        new_topic_summary: str | None,
         identity: Identity,
     ) -> str:
         return target_topic_id

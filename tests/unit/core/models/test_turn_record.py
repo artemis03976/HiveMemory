@@ -10,8 +10,14 @@ TurnRecord 与 LogicalBlock 收敛测试
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import AgentAction, Identity, TraceItem, TurnEvent, TurnRecord
-from hivememory.engines.perception.models import LogicalBlock
+from hivememory.core.models import (
+    AgentAction,
+    Identity,
+    LogicalBlock,
+    TraceItem,
+    TurnEvent,
+    TurnRecord,
+)
 
 
 def _identity() -> Identity:

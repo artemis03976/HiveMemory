@@ -22,6 +22,7 @@ from hivememory.core.models import (
     MemoryType,
     OMNI_DOLL_PROFILE,
     TopicSnapshot,
+    TopicData,
 )
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters
@@ -29,7 +30,6 @@ from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
-from hivememory.patchouli.memory_library.models import TopicData
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,6 @@ class RetrievalFamiliar:
         topic_id: str,
         *,
         touch: bool = True,
-        deep_copy: bool = True,
     ) -> Optional[TopicData]:
         """
         读取短期话题上下文。
@@ -89,7 +88,6 @@ class RetrievalFamiliar:
         return self._memory_library.short_term.get_topic_data(
             topic_id,
             touch=touch,
-            deep_copy=deep_copy,
         )
 
     def list_active_topics(
@@ -108,7 +106,6 @@ class RetrievalFamiliar:
         topics = self._memory_library.short_term.list_topic_data(
             user_id=identity.user_id,
             include_empty=include_empty,
-            deep_copy=False,
         )
         if not include_empty:
             topics = [topic for topic in topics if not topic.is_empty]

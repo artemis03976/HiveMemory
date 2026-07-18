@@ -3,10 +3,12 @@
 from collections.abc import Iterable
 
 from hivememory.core.models import Identity
-from hivememory.gateway.commands.models import (
-    CommandDefinition,
+from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
+)
+from hivememory.gateway.commands.models import (
+    CommandDefinition,
     CommandParseResult,
 )
 from hivememory.gateway.commands.registry import CommandRegistry

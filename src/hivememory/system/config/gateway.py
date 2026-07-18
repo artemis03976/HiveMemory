@@ -43,12 +43,58 @@ class GatewayContextHydrationConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class GatewayWorkflowConfig(BaseModel):
+    """Gateway workflow 的请求级控制配置。"""
+
+    default_request_timeout_ms: int = Field(default=8000, ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GatewayContextPreparationConfig(BaseModel):
+    """Gateway 两阶段上下文准备配置。"""
+
+    candidate_topics_timeout_ms: int = Field(default=1000, ge=1)
+    routed_topic_timeout_ms: int = Field(default=1000, ge=1)
+    include_empty_topics: bool = False
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class TopicRouterConfig(BaseModel):
+    """独立话题路由 Engine 配置。"""
+
+    enabled: bool = True
+    timeout_ms: int = Field(default=3000, ge=1)
+    model_override: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UserQueryAnalysisConfig(BaseModel):
+    """User Query Analysis 整体 deadline 与保守默认值。"""
+
+    overall_timeout_ms: int = Field(default=5000, ge=1)
+    default_mode: Literal["dense", "sparse", "hybrid", "skip"] = "hybrid"
+    default_top_k: int = Field(default=5, ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class SystemGatewayConfig(BaseModel):
     interceptor: RuleInterceptorConfig = Field(default_factory=RuleInterceptorConfig)
     analyzer: LLMAnalyzerConfig = Field(default_factory=LLMAnalyzerConfig)
     commands: SystemCommandConfig = Field(default_factory=SystemCommandConfig)
     context_hydration: GatewayContextHydrationConfig = Field(
         default_factory=GatewayContextHydrationConfig
+    )
+    workflow: GatewayWorkflowConfig = Field(default_factory=GatewayWorkflowConfig)
+    context_preparation: GatewayContextPreparationConfig = Field(
+        default_factory=GatewayContextPreparationConfig
+    )
+    topic_router: TopicRouterConfig = Field(default_factory=TopicRouterConfig)
+    user_query_analysis: UserQueryAnalysisConfig = Field(
+        default_factory=UserQueryAnalysisConfig
     )
 
     model_config = ConfigDict(extra="ignore")
@@ -59,5 +105,9 @@ __all__ = [
     "LLMAnalyzerConfig",
     "SystemCommandConfig",
     "GatewayContextHydrationConfig",
+    "GatewayContextPreparationConfig",
+    "GatewayWorkflowConfig",
+    "TopicRouterConfig",
+    "UserQueryAnalysisConfig",
     "SystemGatewayConfig",
 ]

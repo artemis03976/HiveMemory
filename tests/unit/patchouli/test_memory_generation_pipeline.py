@@ -6,6 +6,7 @@ import pytest
 from hivememory.core.models import (
     Identity,
     IndexLayer,
+    LogicalBlock,
     MemoryAtom,
     MemoryType,
     MetaData,
@@ -15,7 +16,7 @@ from hivememory.core.models import (
     TurnRecord,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
-from hivememory.engines.perception.models import LogicalBlock, TopicMaterializeTask
+from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation_coordinator import (

@@ -8,28 +8,30 @@ MemoryGenerationFamiliar 单元测试
 - _attach_memory_artifacts: CREATE/UPDATE artifact 挂载
 """
 
-import pytest
-from unittest.mock import AsyncMock, Mock, MagicMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
+
+import pytest
 
 from hivememory.core.models import (
     Identity,
     IndexLayer,
+    LogicalBlock,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
+    TurnRecord,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryEventType
-from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.core.models.pending import WriteFocus
+from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
     DuplicateDecision,
-    GenerationOutcome,
     GenerationContext,
+    GenerationOutcome,
     GenerationRequest,
 )
-from hivememory.engines.perception.models import LogicalBlock, TurnRecord
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
     MemoryGenerationResult,

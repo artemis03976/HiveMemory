@@ -11,12 +11,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
-from hivememory.core.models import PendingAtomSettlement
+from hivememory.core.models import LogicalBlock, PendingAtomSettlement
 from hivememory.engines.generation.models import DuplicateDecision, GenerationRequest
-
-if TYPE_CHECKING:
-    from hivememory.engines.perception.models import LogicalBlock
-
 
 class MemoryGenerationTaskStatus(str, Enum):
     PENDING = "pending"

@@ -9,8 +9,6 @@ from hivememory.gateway.commands.dispatcher import (
 from hivememory.gateway.commands.models import (
     CommandCategory,
     CommandDefinition,
-    CommandExecutionResult,
-    CommandExecutionStatus,
     CommandParseResult,
     CommandParseStatus,
     CommandPermissionPolicy,
@@ -22,8 +20,6 @@ from hivememory.gateway.commands.registry import CommandRegistry
 __all__ = [
     "CommandCategory",
     "CommandDefinition",
-    "CommandExecutionResult",
-    "CommandExecutionStatus",
     "CommandHandler",
     "CommandParseResult",
     "CommandParseStatus",

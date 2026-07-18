@@ -6,6 +6,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from hivememory.core.models import Identity
+from hivememory.core.protocol.gateway import (
+    CommandExecutionResult,
+    CommandExecutionStatus,
+)
 from hivememory.gateway.commands.handlers import (
     handle_commands,
     handle_help,
@@ -13,8 +17,6 @@ from hivememory.gateway.commands.handlers import (
 )
 from hivememory.gateway.commands.models import (
     CommandDefinition,
-    CommandExecutionResult,
-    CommandExecutionStatus,
     CommandParseResult,
     CommandParseStatus,
     CommandRouteTargetKind,
@@ -249,7 +251,7 @@ class SystemCommandDispatcher:
         )
 
 
-def _is_allowed(value: str, allowed: list[str] | None) -> bool:
+def _is_allowed(value: str, allowed: tuple[str, ...] | None) -> bool:
     return allowed is not None and value in allowed
 
 

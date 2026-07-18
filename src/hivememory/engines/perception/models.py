@@ -15,12 +15,12 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
-from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
 
 from hivememory.core.models import (
     AgentAction,
+    LogicalBlock,
     Identity,
     TraceItem,
     TopicSnapshot,
@@ -40,13 +40,6 @@ class FlushReason(str, Enum):
     SHUTDOWN = "shutdown"  # 进程关闭时的全局强制归档
 
 
-class BufferState(str, Enum):
-    """Buffer 状态枚举"""
-    IDLE = "idle"
-    PROCESSING = "processing"
-    FLUSHING = "flushing"
-
-
 # ============ Flush 事件 ============
 
 class FlushEvent(BaseModel):
@@ -59,84 +52,6 @@ class FlushEvent(BaseModel):
     """
     topic_id: str
     reason: FlushReason
-
-
-# ============ 逻辑原子块 ============
-
-class LogicalBlock(BaseModel):
-    """
-    逻辑原子块 - 感知层的最小处理单元
-
-    Attributes:
-        turn: 单轮内容真相记录
-        created_at: 创建时间
-        total_tokens: 总 Token 数
-        block_id: 块唯一标识
-    """
-    block_id: str = Field(default_factory=lambda: str(uuid4()))
-    turn: TurnRecord = Field(
-        default_factory=TurnRecord,
-        description="本块承载的单轮内容真相"
-    )
-
-    # 辅助信息
-    created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
-    total_tokens: int = 0
-
-    #: Gateway 意图分类结果
-    gateway_intent: Optional[str] = Field(
-        default=None,
-        description="Gateway 意图分类 (RAG/CHAT/SYSTEM)"
-    )
-
-    #: Gateway 记忆价值信号
-    worth_saving: Optional[bool] = Field(
-        default=None,
-        description="Gateway 记忆价值判断"
-    )
-
-    @property
-    def is_complete(self) -> bool:
-        """Block 是否闭合"""
-        return bool(self.turn.user_query) and bool(
-            self.turn.assistant_final_text
-            or self.turn.turn_events
-            or self.turn.actions
-        )
-
-    @property
-    def anchor_text(self) -> str:
-        return self.turn.anchor_text
-
-    @property
-    def identity(self) -> Identity:
-        return self.turn.identity
-
-    @property
-    def rewritten_query(self) -> Optional[str]:
-        return self.turn.rewritten_query
-
-    @property
-    def user_query(self) -> str:
-        return self.turn.user_query
-
-    @property
-    def assistant_final_text(self) -> str:
-        return self.turn.assistant_final_text
-
-    @property
-    def turn_events(self) -> List[TurnEvent]:
-        return self.turn.turn_events
-
-    @property
-    def actions(self) -> List[AgentAction]:
-        return self.turn.actions
-
-    @property
-    def semantic_traces(self) -> List[TraceItem]:
-        return self.turn.semantic_traces
-
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
 
 # ============ 话题结算载荷 (Perception -> Generation) ============
@@ -167,7 +82,5 @@ __all__ = [
     "FlushEvent",
     "TurnEvent",
     "TraceItem",
-    "LogicalBlock",
-    "TopicSnapshot",
     "TopicMaterializeTask",
 ]

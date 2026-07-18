@@ -8,13 +8,11 @@ SemanticBuffer 单元测试
 - 字段默认值: topic_id 生成, user_id, state
 """
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-from hivememory.core.models import TurnRecord
-from hivememory.engines.perception.models import LogicalBlock
-from hivememory.patchouli.memory_library.buffer import BufferState, SemanticBuffer
+from hivememory.core.models import BufferState, LogicalBlock, TurnRecord
+from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 
 
 class TestSemanticBufferCreation:

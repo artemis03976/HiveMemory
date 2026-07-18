@@ -7,7 +7,7 @@ HiveMemory 感知层上下文转换门面
 """
 
 from typing import List, Dict
-from hivememory.engines.perception.models import LogicalBlock, TopicSnapshot
+from hivememory.core.models import LogicalBlock, TopicSnapshot
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
 _history_builder = HistoryTranscriptBuilder()

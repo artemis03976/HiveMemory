@@ -32,7 +32,7 @@ from typing import List, Optional
 
 from hivememory.core.constants import DEFAULT_AGENT_ID, DEFAULT_USER_ID
 from hivememory.core.models import Identity, TraceItem
-from hivememory.engines.perception.models import LogicalBlock
+from hivememory.core.models import LogicalBlock
 from hivememory.engines.generation.models import GenerationContext, GenerationTurn
 
 

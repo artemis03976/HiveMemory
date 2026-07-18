@@ -3,12 +3,12 @@
 from datetime import datetime
 from typing import Sequence
 
+from hivememory.core.models import LogicalBlock
 from hivememory.core.models.artifact import (
     ArtifactRef,
     InteractionArtifact,
     InteractionTurnSnapshot,
 )
-from hivememory.engines.perception.models import LogicalBlock
 from hivememory.patchouli.memory_library import ArtifactStore
 from hivememory.system.config.patchouli import ArtifactComponentConfig
 

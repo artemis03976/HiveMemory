@@ -11,18 +11,17 @@ GenerationTranscriptBuilder / GenerationContext 单测
 7. Mode B / Mode C 与 GenerationContext 兼容
 """
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
-from hivememory.core.models import Identity, TraceItem, TurnRecord, WriteFocus
+import pytest
+
+from hivememory.core.models import Identity, LogicalBlock, TraceItem, TurnRecord, WriteFocus
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
-from hivememory.engines.perception.models import LogicalBlock
-
 
 # ============ 辅助工厂 ============
 

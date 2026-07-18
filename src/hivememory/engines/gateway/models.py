@@ -12,6 +12,11 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hivememory.core.protocol.gateway import (
+    IntentType,
+    MemoryWriteSignal,
+    RetrievalMode,
+)
 from hivememory.gateway.commands.models import CommandParseResult
 
 logger = logging.getLogger(__name__)
@@ -32,42 +37,10 @@ class GatewayIntent(str, Enum):
     SYSTEM = "SYSTEM"
 
 
-class IntentType(str, Enum):
-    """
-    Phase 3 Gateway Workflow 主意图类型。
-
-    该枚举属于 engine 决策原语层，暂不改变 Phase 1/2 对外暴露的
-    GatewayIntent；后续 Stage 只消费 IntentType。
-    """
-
-    QUERY = "QUERY"
-    WRITE = "WRITE"
-    CHAT = "CHAT"
-    COMPOSITE = "COMPOSITE"
-    UNKNOWN = "UNKNOWN"
-
-
-class RetrievalMode(str, Enum):
-    """Phase 3 检索策略预选择模式。"""
-
-    DENSE = "DENSE"
-    SPARSE = "SPARSE"
-    HYBRID = "HYBRID"
-    SKIP = "SKIP"
-
-
-class MemoryWriteSignal(str, Enum):
-    """Phase 3 记忆写入价值预判信号。"""
-
-    WRITE = "WRITE"
-    SKIP = "SKIP"
-    UNKNOWN = "UNKNOWN"
-
-
 class IntentClassificationResult(BaseModel):
     """IntentClassifierEngine 的结构化输出。"""
 
-    intent_type: IntentType = Field(default=IntentType.QUERY, description="Phase 3 主意图类型")
+    intent_type: IntentType = Field(default=IntentType.RAG, description="Phase 3 主意图类型")
     is_composite: bool = Field(default=False, description="是否疑似复合意图")
     confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="分类置信度")
     reason: str = Field(default="", description="分类理由，仅用于调试")
@@ -86,6 +59,28 @@ class ContextRoutingResult(BaseModel):
     reason: str = Field(default="", description="路由理由，仅用于调试")
 
     model_config = ConfigDict(use_enum_values=False)
+
+
+class TopicRoutingResult(BaseModel):
+    """TopicRouterEngine 的唯一输出。"""
+
+    topic_id: str = "NEW_TOPIC"
+    new_topic_title: str | None = None
+    new_topic_summary: str | None = None
+    reason: str = ""
+
+    model_config = ConfigDict(frozen=True, use_enum_values=False)
+
+
+class RetrievalPlan(BaseModel):
+    """Gateway 内部的只读检索计划。"""
+
+    mode: RetrievalMode = RetrievalMode.HYBRID
+    top_k: int = Field(default=5, ge=0)
+    dense_weight: float = Field(default=0.7, ge=0.0, le=1.0)
+    sparse_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(frozen=True, use_enum_values=False)
 
 
 class RetrievalStrategy(BaseModel):
@@ -213,6 +208,8 @@ class InterceptorResult(BaseModel):
     #: 结构化系统指令解析结果，仅 SYSTEM 拦截会填充。
     command: CommandParseResult | None = Field(default=None, description="系统指令解析结果")
 
+    model_config = ConfigDict(frozen=True, use_enum_values=False)
+
 
 class SemanticAnalysisResult(BaseModel):
     """
@@ -262,6 +259,8 @@ __all__ = [
     "InterceptorResult",
     "MemoryWriteSignal",
     "RetrievalMode",
+    "RetrievalPlan",
     "RetrievalStrategy",
     "SemanticAnalysisResult",
+    "TopicRoutingResult",
 ]

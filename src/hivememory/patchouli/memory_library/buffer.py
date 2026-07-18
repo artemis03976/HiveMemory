@@ -7,20 +7,12 @@ SemanticBuffer 是短期记忆的核心存储单元（TopicSegment），
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 from typing import List
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from hivememory.engines.perception.models import LogicalBlock
-
-
-class BufferState(str, Enum):
-    """Buffer 状态枚举"""
-    IDLE = "idle"
-    PROCESSING = "processing"
-    FLUSHING = "flushing"
+from hivememory.core.models import BufferState, LogicalBlock
 
 
 class SemanticBuffer(BaseModel):
@@ -75,4 +67,4 @@ class SemanticBuffer(BaseModel):
         return (datetime.now().timestamp() - self.last_update) > timeout_seconds
 
 
-__all__ = ["BufferState", "SemanticBuffer"]
+__all__ = ["SemanticBuffer"]

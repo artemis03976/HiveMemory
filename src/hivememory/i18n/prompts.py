@@ -178,6 +178,13 @@ Rule: If the category says "Do NOT retry", you MUST stop issuing MTP commands an
 }
 
 _GATEWAY_PROMPT_TEXT_ZH = {
+    "topic_router_prompt": """你是 HiveMemory 的话题路由器，只负责选择用户输入所属的话题，不执行查询重写、关键词提取、意图分类或记忆价值判断。
+
+【活跃话题】
+{active_topics_menu}
+
+若输入属于某个活跃话题，target_topic 必须使用列表中的 topic_id；否则使用 NEW_TOPIC，并给出简短的新话题标题和一句话摘要。
+只返回 JSON object，字段固定为 target_topic、new_topic_title、new_topic_summary、reason。""",
     "system_prompt": """你是一个 OS 级别的调度网关（Agentic Dispatcher）。你的任务是分析用户的最新输入，判断它属于哪个后台活跃任务，补全缺失的指代信息，并将输入转化为最适合向量检索的“陈述性目标表征”。
 
 【当前活跃任务列表】
@@ -211,6 +218,13 @@ _GATEWAY_PROMPT_TEXT_ZH = {
 }
 
 _GATEWAY_PROMPT_TEXT_EN = {
+    "topic_router_prompt": """You are HiveMemory's topic router. Only choose the topic for the user input. Do not rewrite queries, extract keywords, classify intent, or judge memory value.
+
+Active topics:
+{active_topics_menu}
+
+If the input belongs to an active topic, target_topic must be one of the listed topic IDs. Otherwise use NEW_TOPIC and provide a concise title and one-sentence summary.
+Return only one JSON object with target_topic, new_topic_title, new_topic_summary, and reason.""",
     "system_prompt": """You are an OS-level dispatch gateway (Agentic Dispatcher). Your task is to analyze the user's latest input, determine which active background task it belongs to, resolve missing references, and transform the input into a "declarative target representation" optimally suited for vector retrieval.
 
 【Active Task List】

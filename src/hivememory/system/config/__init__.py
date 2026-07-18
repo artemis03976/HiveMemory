@@ -14,8 +14,12 @@ from hivememory.system.config.shared import (
     SharedConfig,
 )
 from hivememory.system.config.gateway import (
+    GatewayContextPreparationConfig,
     GatewayContextHydrationConfig,
+    GatewayWorkflowConfig,
     RuleInterceptorConfig, LLMAnalyzerConfig, SystemCommandConfig, SystemGatewayConfig,
+    TopicRouterConfig,
+    UserQueryAnalysisConfig,
 )
 from hivememory.system.config.patchouli import (
     QdrantConfig,
@@ -312,7 +316,9 @@ __all__ = [
     "ProviderCredentials",
     "SharedConfig",
     # gateway
-    "GatewayContextHydrationConfig", "RuleInterceptorConfig", "LLMAnalyzerConfig", "SystemCommandConfig", "SystemGatewayConfig",
+    "GatewayContextHydrationConfig", "GatewayContextPreparationConfig", "GatewayWorkflowConfig",
+    "RuleInterceptorConfig", "LLMAnalyzerConfig", "SystemCommandConfig", "SystemGatewayConfig",
+    "TopicRouterConfig", "UserQueryAnalysisConfig",
     # patchouli
     "QdrantConfig",
     "SimpleRelayConfig", "LLMRelayConfig", "RelayControllerConfig",

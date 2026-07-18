@@ -175,7 +175,7 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
     topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
-    assert block.semantic_traces == []
+    assert block.semantic_traces == ()
 
 
 @pytest.mark.asyncio

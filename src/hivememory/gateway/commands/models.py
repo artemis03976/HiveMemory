@@ -3,7 +3,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from hivememory.core.models import FrozenDict, freeze_mapping
 
 
 class CommandCategory(str, Enum):
@@ -33,34 +35,35 @@ class CommandRouteTargetKind(str, Enum):
     FUTURE_JOB = "future_job"
 
 
-class CommandExecutionStatus(str, Enum):
-    """统一指令执行结果状态；Phase 2.0/2.1 只定义协议，不执行指令。"""
-
-    COMPLETED = "completed"
-    REJECTED = "rejected"
-    FAILED = "failed"
-    REQUIRES_CONFIRMATION = "requires_confirmation"
-    NOT_IMPLEMENTED = "not_implemented"
-
-
 class CommandRouteTarget(BaseModel):
     """指令路由目标描述。"""
 
     kind: CommandRouteTargetKind = Field(default=CommandRouteTargetKind.LOCAL_HANDLER)
     name: str
-    payload_template: dict[str, Any] = Field(default_factory=dict)
+    payload_template: FrozenDict[str, Any] = Field(default_factory=FrozenDict)
 
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(
+        frozen=True,
+        use_enum_values=True,
+        arbitrary_types_allowed=True,
+    )
+
+    @field_validator("payload_template", mode="before")
+    @classmethod
+    def _freeze_payload(cls, value: Any) -> FrozenDict[str, Any]:
+        return freeze_mapping(value)
 
 
 class CommandPermissionPolicy(BaseModel):
     """指令可见性与执行权限策略。"""
 
     visibility: Literal["public", "debug", "admin"] = "public"
-    allowed_agent_ids: list[str] | None = None
-    allowed_user_ids: list[str] | None = None
+    allowed_agent_ids: tuple[str, ...] | None = None
+    allowed_user_ids: tuple[str, ...] | None = None
     requires_confirmation: bool = False
     destructive: bool = False
+
+    model_config = ConfigDict(frozen=True)
 
 
 class CommandDefinition(BaseModel):
@@ -69,17 +72,26 @@ class CommandDefinition(BaseModel):
     command_id: str
     category: CommandCategory
     primary_name: str
-    aliases: list[str] = Field(default_factory=list)
+    aliases: tuple[str, ...] = Field(default_factory=tuple)
     summary: str
     description: str | None = None
-    argument_schema: dict[str, Any] = Field(default_factory=dict)
+    argument_schema: FrozenDict[str, Any] = Field(default_factory=FrozenDict)
     route_target: CommandRouteTarget
     permission: CommandPermissionPolicy = Field(default_factory=CommandPermissionPolicy)
     enabled: bool = True
     hidden: bool = False
     priority: int = 100
 
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(
+        frozen=True,
+        use_enum_values=True,
+        arbitrary_types_allowed=True,
+    )
+
+    @field_validator("argument_schema", mode="before")
+    @classmethod
+    def _freeze_argument_schema(cls, value: Any) -> FrozenDict[str, Any]:
+        return freeze_mapping(value)
 
 
 class CommandParseResult(BaseModel):
@@ -88,33 +100,27 @@ class CommandParseResult(BaseModel):
     command_id: str | None = None
     raw_input: str
     name: str = ""
-    args: dict[str, Any] = Field(default_factory=dict)
-    tokens: list[str] = Field(default_factory=list)
+    args: FrozenDict[str, Any] = Field(default_factory=FrozenDict)
+    tokens: tuple[str, ...] = Field(default_factory=tuple)
     matched_alias: str | None = None
     parse_status: CommandParseStatus
     error: str | None = None
 
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(
+        frozen=True,
+        use_enum_values=True,
+        arbitrary_types_allowed=True,
+    )
 
-
-class CommandExecutionResult(BaseModel):
-    """系统指令执行产物。当前阶段只定义协议，执行入口后续补齐。"""
-
-    command_id: str
-    status: CommandExecutionStatus
-    message: str
-    data: dict[str, Any] = Field(default_factory=dict)
-    client_action: dict[str, Any] | None = None
-    error_code: str | None = None
-
-    model_config = ConfigDict(use_enum_values=True)
+    @field_validator("args", mode="before")
+    @classmethod
+    def _freeze_args(cls, value: Any) -> FrozenDict[str, Any]:
+        return freeze_mapping(value)
 
 
 __all__ = [
     "CommandCategory",
     "CommandDefinition",
-    "CommandExecutionResult",
-    "CommandExecutionStatus",
     "CommandParseResult",
     "CommandParseStatus",
     "CommandPermissionPolicy",
