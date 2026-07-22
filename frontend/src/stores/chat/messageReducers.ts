@@ -143,6 +143,9 @@ export function normalizeMtpStatus(status?: string): MtpAction['status'] {
   if (lower === 'pending' || lower === 'executing' || lower === 'success' || lower === 'error') {
     return lower;
   }
+  // 后端 MTPResponseStatus 映射：ack/warning 表示已确认完成，failed 表示失败
+  if (lower === 'ack' || lower === 'warning') return 'success';
+  if (lower === 'failed') return 'error';
   return 'executing';
 }
 
