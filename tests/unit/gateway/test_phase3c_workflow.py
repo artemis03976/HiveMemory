@@ -219,7 +219,7 @@ async def test_declared_fallbacks_form_a_complete_conservative_decision() -> Non
     assert result.decision.intent_type == IntentType.RAG
     assert result.decision.rewritten_query == "需要检索的问题"
     assert result.decision.search_keywords == ()
-    assert result.decision.memory_write_signal == MemoryWriteSignal.WRITE
+    assert result.decision.memory_write_signal == MemoryWriteSignal.UNKNOWN
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
     assert events.events[0].event_type == (
         RuntimeEventType.GATEWAY_WORKFLOW_STARTED.value

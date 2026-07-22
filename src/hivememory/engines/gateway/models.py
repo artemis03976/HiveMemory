@@ -6,6 +6,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
 from hivememory.gateway.commands.models import CommandParseResult
 
 
@@ -42,4 +43,22 @@ class InterceptorResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-__all__ = ["GatewayIntent", "InterceptorResult", "TopicRoutingResult"]
+class QueryUnderstandingResult(BaseModel):
+    """共享查询分析调用的原始输出，属于 Resolver 私有中间结果。"""
+
+    intent_type: IntentType = IntentType.RAG
+    rewritten_query: str
+    search_keywords: tuple[str, ...] = ()
+    memory_write_signal: MemoryWriteSignal = MemoryWriteSignal.UNKNOWN
+    sub_intents: tuple[str, ...] = ()
+    reason: str = ""
+
+    model_config = ConfigDict(frozen=True)
+
+
+__all__ = [
+    "GatewayIntent",
+    "InterceptorResult",
+    "QueryUnderstandingResult",
+    "TopicRoutingResult",
+]

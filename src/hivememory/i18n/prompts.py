@@ -185,7 +185,39 @@ _GATEWAY_PROMPT_TEXT_ZH = {
 
 若输入属于某个活跃话题，target_topic 必须使用列表中的 topic_id；否则使用 NEW_TOPIC，并给出简短的新话题标题和一句话摘要。
 只返回 JSON object，字段固定为 target_topic、new_topic_title、new_topic_summary、reason。""",
+    "query_understanding_prompt": """你是 HiveMemory 的查询分析器。用户输入已完成话题路由，你的任务是结合所属话题的上下文，完成意图识别、查询重写、检索关键词提取和记忆价值初判。你不负责选择话题。
+
+【所属话题上下文】
+{topic_context}
+
+【处理规则】
+1. 意图识别 intent_type：
+   - RAG：需要检索历史记忆或上下文才能回答的提问或请求。
+   - WRITE：用户主动陈述偏好、禁忌、事实、经验等需要长期记住的信息，通常不需要检索。
+   - COMPOSITE：同一输入同时包含提问与需要记忆的陈述等多个意图。
+
+2. 检索优化重写 rewritten_query [关键]:
+   - 结合话题上下文消除指代（它/这个/那个/之前说的）。
+   - 禁止照抄用户的口语化提问（去掉"如何"、"帮我"、"怎么"等疑问/祈使词）。
+   - 必须重写为"陈述句形态的知识点描述"或"假设性文档标题"，提取核心意图，补充潜在的上下文语境与相关领域术语。
+   - 示例：
+     * 用户："如何做一份好吃的红烧羊肉？" -> "红烧羊肉的完整食谱、做法步骤及烹饪注意事项"
+     * 用户："那个报错怎么修？" (话题上下文: Docker 内存溢出) -> "Docker Out of Memory (OOM) 内存溢出报错的排查原因与修复方案"
+     * 用户："把它部署上去" (话题上下文：基于 Vue 实现前端网站) -> "前端 Vue 网站项目的服务器部署指令与执行流程"
+
+3. 稀疏检索 search_keywords：提取 3-5 个专有名词、动词或核心实体，用于精确匹配。
+
+4. 记忆价值初判 memory_write_signal：
+   - WRITE：用户明确表达的偏好、硬性禁忌、重要事实、可复用的技术方案。
+   - SKIP：纯确认或附和、与上文重复的提问、无信息量的情绪表达。
+   - UNKNOWN：无法确定时使用（保守，交给下游决定）。
+
+5. 复合意图分解 sub_intents：仅当 intent_type 为 COMPOSITE 时，列出 2-4 个子意图的一句话简述；否则返回空数组。
+
+请严格返回一个 JSON object，不要输出 Markdown、代码块或解释文字。JSON 字段必须包含：
+intent_type、rewritten_query、search_keywords、memory_write_signal、sub_intents、reason。""",
     "active_topics_empty": "无",
+    "topic_context_empty": "无（新话题，暂无历史上下文）",
 }
 
 _GATEWAY_PROMPT_TEXT_EN = {
@@ -196,7 +228,39 @@ Active topics:
 
 If the input belongs to an active topic, target_topic must be one of the listed topic IDs. Otherwise use NEW_TOPIC and provide a concise title and one-sentence summary.
 Return only one JSON object with target_topic, new_topic_title, new_topic_summary, and reason.""",
+    "query_understanding_prompt": """You are HiveMemory's query analyzer. The user input has already been routed to a topic. Using the routed topic's context, perform intent classification, query rewriting, retrieval keyword extraction, and an initial memory-value judgment. You do not choose the topic.
+
+[Routed Topic Context]
+{topic_context}
+
+[Rules]
+1. Intent classification intent_type:
+   - RAG: a question or request that needs historical memory or context retrieval to answer.
+   - WRITE: the user proactively states preferences, hard constraints, facts, or experience worth remembering long-term; retrieval is usually unnecessary.
+   - COMPOSITE: the input combines multiple intents, e.g. both a question and a statement worth remembering.
+
+2. Retrieval-optimized rewrite rewritten_query [CRITICAL]:
+   - Resolve coreferences (it/this/that/the previous one) using the topic context.
+   - FORBIDDEN to verbatim copy the user's colloquial question (remove interrogative/imperative words like "how to", "help me", "how do I").
+   - MUST rewrite into a "declarative knowledge description" or a "hypothetical document title", extracting the core intent and supplementing potential context and related domain terminology.
+   - Examples:
+     * User: "How to make delicious braised mutton?" -> "Complete recipe, preparation steps, and cooking precautions for braised mutton"
+     * User: "How to fix that error?" (Context: Docker Out of Memory) -> "Troubleshooting causes and fixing solutions for Docker Out of Memory (OOM) error"
+     * User: "Deploy it" (Context: Frontend website based on Vue) -> "Server deployment instructions and execution workflow for frontend Vue website project"
+
+3. Sparse retrieval search_keywords: extract 3-5 proper nouns, verbs, or core entities for exact matching.
+
+4. Initial memory-value judgment memory_write_signal:
+   - WRITE: explicitly stated preferences, hard constraints, important facts, reusable technical solutions.
+   - SKIP: pure confirmations or acknowledgments, questions repeated from above, emotion-only expressions with no information.
+   - UNKNOWN: use when uncertain (conservative; leave the decision downstream).
+
+5. Composite decomposition sub_intents: only when intent_type is COMPOSITE, list 2-4 one-sentence sub-intent summaries; otherwise return an empty array.
+
+Return exactly one JSON object. Do not output markdown, code fences, or prose. The JSON fields must include:
+intent_type, rewritten_query, search_keywords, memory_write_signal, sub_intents, reason.""",
     "active_topics_empty": "None",
+    "topic_context_empty": "None (new topic, no history yet)",
 }
 
 _RELAY_PROMPT_TEXT_ZH = {

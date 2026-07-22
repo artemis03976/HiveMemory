@@ -9,7 +9,12 @@ from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import (
     GatewayIntent,
     InterceptorResult,
+    QueryUnderstandingResult,
     TopicRoutingResult,
+)
+from hivememory.engines.gateway.query_understanding import (
+    QueryUnderstandingEngine,
+    QueryUnderstandingError,
 )
 from hivememory.engines.gateway.topic_router import (
     TopicRouterEngine,
@@ -21,6 +26,9 @@ __all__ = [
     "GatewayIntent",
     "InterceptorResult",
     "NoOpInterceptor",
+    "QueryUnderstandingEngine",
+    "QueryUnderstandingError",
+    "QueryUnderstandingResult",
     "RuleInterceptor",
     "TopicRouterEngine",
     "TopicRouterError",
