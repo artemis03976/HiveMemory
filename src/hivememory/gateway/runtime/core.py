@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from hivememory.engines.gateway.interceptors import create_interceptor
+from hivememory.engines.gateway.query_understanding import QueryUnderstandingEngine
 from hivememory.engines.gateway.topic_router import TopicRouterEngine
 from hivememory.gateway.analysis import (
     FallbackUserQueryAnalysisResolver,
+    LLMUserQueryAnalysisResolver,
     UserQueryAnalysisResolver,
 )
 from hivememory.gateway.commands import (
@@ -67,9 +69,19 @@ class GatewayRuntime:
                 llm_service=llm_service,
             )
         if analysis_resolver is None:
-            analysis_resolver = FallbackUserQueryAnalysisResolver(
-                config.user_query_analysis
-            )
+            if llm_service is not None and config.user_query_analysis.enabled:
+                analysis_resolver = LLMUserQueryAnalysisResolver(
+                    config=config.user_query_analysis,
+                    engine=QueryUnderstandingEngine(
+                        config=config.user_query_analysis,
+                        llm_service=llm_service,
+                    ),
+                    runtime_events=self._runtime_events,
+                )
+            else:
+                analysis_resolver = FallbackUserQueryAnalysisResolver(
+                    config.user_query_analysis
+                )
 
         registry = create_builtin_command_registry(config.commands.builtin)
         interceptor = create_interceptor(config.interceptor, registry)

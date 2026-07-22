@@ -57,10 +57,14 @@ class TopicRouterConfig(BaseModel):
 
 
 class UserQueryAnalysisConfig(BaseModel):
-    """User Query Analysis 整体 deadline 与保守默认值。"""
+    """User Query Analysis 整体 deadline、保守默认值与第一代 Resolver 私有配置。"""
 
+    enabled: bool = True
     overall_timeout_ms: int = Field(default=5000, ge=1)
     default_top_k: int = Field(default=5, ge=0)
+    model_override: str | None = None
+    context_block_limit: int = Field(default=3, ge=0)
+    context_text_limit: int = Field(default=200, ge=1)
 
     model_config = ConfigDict(extra="forbid")
 
