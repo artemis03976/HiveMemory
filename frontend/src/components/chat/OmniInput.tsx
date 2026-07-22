@@ -60,6 +60,15 @@ export default function OmniInput() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isAgentMenuOpen]);
 
+  // 输入框高度随内容自适应，超过上限后内部滚动
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    }
+  }, [message]);
+
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setMessage(val);
@@ -249,7 +258,7 @@ export default function OmniInput() {
                 <span>呼叫智能体...</span>
                 {mentionQuery && <span className="text-primary truncate">@{mentionQuery}</span>}
               </div>
-              <div className="p-1 max-h-[240px] overflow-y-auto scrollbar-hide">
+              <div className="p-1 max-h-60 overflow-y-auto scrollbar-hide">
                 {agents.length === 0 ? (
                   <div className="px-3 py-4 text-center text-sm text-slate-400">
                     当前还没有自定义Agent
@@ -285,7 +294,7 @@ export default function OmniInput() {
         {/* 输入区 */}
         <textarea
           ref={textareaRef}
-          className="w-full bg-transparent border-none focus:ring-0 text-sm py-3 px-4 resize-none placeholder-slate-500 outline-none"
+          className="w-full bg-transparent border-none focus:ring-0 text-sm py-3 px-4 resize-none placeholder-slate-500 outline-none scrollbar-hide"
           placeholder={inputPlaceholder}
           rows={1}
           value={message}
