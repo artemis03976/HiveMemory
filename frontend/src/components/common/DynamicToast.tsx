@@ -34,7 +34,7 @@ export default function DynamicToast() {
                 damping: 30, 
                 mass: 2 
               }}
-              className="pointer-events-auto flex items-center gap-3 px-4 py-3 min-w-[300px] max-w-md rounded-full shadow-2xl backdrop-blur-xl bg-surface/90 border border-white/10 group cursor-default"
+              className="pointer-events-auto flex items-center gap-3 px-4 py-3 min-w-75 max-w-md rounded-full shadow-2xl backdrop-blur-xl bg-surface/90 border border-white/10 group cursor-default"
             >
               <div className={`shrink-0 ${iconColor} bg-white/5 p-1.5 rounded-full`}>
                 <Icon className="w-4 h-4" />

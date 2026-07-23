@@ -22,17 +22,19 @@ async def list_topics(
     """获取活跃话题列表"""
     snapshots = await service.list_active_topics(user_id=user_id)
 
-    topics = [
-        TopicSnapshotResponse(
-            topic_id=s.topic_id,
-            topic_title=s.topic_title,
-            state_summary=getattr(s, "state_summary", ""),
-            last_turn=getattr(s, "last_turn", None),
-            total_tokens=getattr(s, "total_tokens", 0),
-            model_used=getattr(s, "model_used", ""),
+    topics = []
+    for snapshot in snapshots:
+        last_turn = getattr(snapshot, "last_turn", None)
+        topics.append(
+            TopicSnapshotResponse(
+                topic_id=snapshot.topic_id,
+                topic_title=snapshot.topic_title,
+                state_summary=getattr(snapshot, "state_summary", ""),
+                last_turn=last_turn.model_dump() if last_turn is not None else None,
+                total_tokens=getattr(snapshot, "total_tokens", 0),
+                model_used=getattr(snapshot, "model_used", ""),
+            )
         )
-        for s in snapshots
-    ]
 
     return TopicListResponse(topics=topics)
 

@@ -178,6 +178,7 @@ export function useMemories(): UseMemoriesReturn {
     } catch (err) {
       console.warn('Delete API failed, keeping optimistic update for mock data:', err);
       // For mock data, we keep the optimistic update (don't rollback)
+      throw err;
     }
   }, []);
 

@@ -56,9 +56,14 @@ export default function MemoryLibrary() {
   const confirmDelete = (id: string) => {
     setDeleteId(id);
   };
-  const executeDelete = () => {
+  const executeDelete = async () => {
     if (deleteId) {
-      deleteMemory(deleteId);
+      try {
+        await deleteMemory(deleteId);
+        addToast('记忆已删除', 'success');
+      } catch {
+        addToast('删除失败，请重试', 'error');
+      }
       if (selectedAtom?.id === deleteId) {
         setSelectedAtom(null);
       }
