@@ -2,16 +2,16 @@
 Topics 路由单元测试
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hivememory.system.application.topic_service import TopicApplicationService
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.core.models import TopicLastTurn, TopicSnapshot
 from hivememory.server.routers.topics import router
+from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=None):
@@ -45,14 +45,13 @@ class _TopicManagementStub:
 
 
 def _make_snapshot(topic_id="t1", title="Test Topic"):
-    s = MagicMock()
-    s.topic_id = topic_id
-    s.topic_title = title
-    s.state_summary = "summary"
-    s.last_turn = {"user": "hi", "assistant": "hello"}
-    s.total_tokens = 100
-    s.model_used = ""
-    return s
+    return TopicSnapshot(
+        topic_id=topic_id,
+        topic_title=title,
+        state_summary="summary",
+        last_turn=TopicLastTurn(user="hi", assistant="hello"),
+        total_tokens=100,
+    )
 
 
 class TestTopicsRouter:
@@ -73,6 +72,7 @@ class TestTopicsRouter:
         assert data["topics"][0]["topic_id"] == "t1"
         assert data["topics"][0]["topic_title"] == "Topic 1"
         assert data["topics"][0]["state_summary"] == "summary"
+        assert data["topics"][0]["last_turn"] == {"user": "hi", "assistant": "hello"}
         assert data["topics"][0]["total_tokens"] == 100
 
     def test_list_topics_empty(self):
