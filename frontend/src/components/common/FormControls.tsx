@@ -32,7 +32,7 @@ export function Toggle({ checked, onChange, disabled }: { checked: boolean, onCh
       onClick={() => onChange?.(!checked)}
       className={`relative w-11 h-6 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-white/10'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
-      <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+      <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-[#ffffff] transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
     </button>
   );
 }
@@ -77,7 +77,7 @@ export function Input({ type = 'text', value, onChange, placeholder, className =
         disabled={disabled}
         className={`bg-black/20 border ${error ? 'border-red-500/50 focus:ring-red-500/50 focus:border-red-500/50' : 'border-white/10 focus:ring-primary/50 focus:border-primary/50'} rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 transition-all font-mono ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
       />
-      {error && <span className="text-xs text-red-400 max-w-[200px] text-right">{error}</span>}
+      {error && <span className="text-xs text-red-400 max-w-50 text-right">{error}</span>}
     </div>
   );
 }
@@ -92,7 +92,7 @@ export function Select({ options, value, onChange, error }: { options: {label: s
       >
         {options.map(o => <option key={o.value} value={o.value} className="bg-surface-container">{o.label}</option>)}
       </select>
-      {error && <span className="text-xs text-red-400 max-w-[200px] text-right">{error}</span>}
+      {error && <span className="text-xs text-red-400 max-w-50 text-right">{error}</span>}
     </div>
   );
 }

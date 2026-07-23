@@ -19,11 +19,15 @@
   --color-surface-dim: #0e0e12;
   --color-surface-container: #19191e;
   --color-surface-container-low: #131317;
+  --color-surface-container-lowest: #0a0a0e;
   --color-surface-container-high: #1f1f25;
   --color-surface-container-highest: #25252b;
   --color-on-surface: #fcf8fe;
   --color-primary: #c59aff;
   --color-primary-dim: #9547f7;
+  --color-primary-light: #dabcff;
+  --color-primary-container: #4f378b;
+  --color-on-primary-container: #eaddff;
   --color-secondary-container: #454652;
   --color-on-secondary-container: #d0cfde;
   --color-outline: #76757a;
@@ -35,6 +39,82 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
   }
+}
+
+/* 浅色主题变体：在 data-theme="light" 作用域内生效 */
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
+:root {
+  color-scheme: dark;
+}
+
+/* ===== 浅色主题令牌 ===== */
+/* 原理：Tailwind v4 的工具类（含 white/*、slate-*）均引用 CSS 变量，
+   在此统一覆盖即可全局切换，无需逐组件修改 */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* 表面色系（带轻微冷紫色调，呼应品牌色） */
+  --color-background: #f7f7fb;
+  --color-surface: #f7f7fb;
+  --color-surface-dim: #e8e8f0;
+  --color-surface-container: #e6e6ee;
+  --color-surface-container-low: #efeff5;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-high: #dedde7;
+  --color-surface-container-highest: #d5d4df;
+  --color-on-surface: #1b1b21;
+
+  /* 品牌色（加深以保证浅色背景上的对比度） */
+  --color-primary: #7c3aed;
+  --color-primary-dim: #6d28d9;
+  --color-primary-light: #8b5cf6;
+  --color-primary-container: #ece5ff;
+  --color-on-primary-container: #ffffff;
+  --color-secondary-container: #dcdce6;
+  --color-on-secondary-container: #3e3e4a;
+  --color-outline: #79757f;
+  --color-tertiary: #0891b2;
+
+  /* 中性色反转：white/* 工具类（边框、悬停底色、文字）自动适配浅色 */
+  --color-white: #23222b;
+
+  /* slate 刻度整体反转：slate-300/400 等暗色主题的弱文本色在浅色下自动变深 */
+  --color-slate-50: #020617;
+  --color-slate-100: #0f172a;
+  --color-slate-200: #1e293b;
+  --color-slate-300: #334155;
+  --color-slate-400: #475569;
+  --color-slate-500: #64748b;
+  --color-slate-600: #94a3b8;
+  --color-slate-700: #cbd5e1;
+  --color-slate-800: #e2e8f0;
+  --color-slate-900: #f1f5f9;
+  --color-slate-950: #f8fafc;
+}
+
+/* ===== 浅色主题下的自定义工具类适配 ===== */
+[data-theme="light"] .glass-panel {
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 1px 0 1px rgba(255, 255, 255, 0.5),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.05),
+    0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .ghost-border {
+  border: 0.5px solid rgba(124, 58, 237, 0.25);
+}
+
+[data-theme="light"] .scrollbar-thin {
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+[data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+[data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
 }
 
 @layer utilities {
