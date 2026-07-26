@@ -68,6 +68,9 @@ class MetaData(BaseModel):
     # 生命周期管理
     access_count: int = Field(default=0, description="被引用次数")
     vitality_score: float = Field(default=100.0, ge=0.0, le=100.0, description="生命力分数 (0-100)")
+    # 事件累积加成 (B 项)：HIT/CITATION/FEEDBACK 等事件的累计影响。
+    # 与 vitality_score 解耦存储，由 VitalityCalculator 在重算时合并进最终分数。
+    event_vitality_boost: float = Field(default=0.0, ge=-100.0, le=100.0, description="事件累积加成 (B 项)")
 
     # 置信度与验证
     confidence_score: float = Field(

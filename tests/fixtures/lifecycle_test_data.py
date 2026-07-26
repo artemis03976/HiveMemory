@@ -128,6 +128,22 @@ REINFORCEMENT_TEST_CASES = [
         "expected_access_count_change": 1,
         "assertion": "Vitality += 50, Access Count += 1",
     },
+    # LIF-RNF-005: 新记忆首次 HIT 不应导致 vitality 假性下降 (P0 回归)
+    {
+        "id": "LIF-RNF-005",
+        "name": "新记忆首次 HIT 不应 vitality 假性下降",
+        "priority": "P0",
+        "description": (
+            "回归: 修复前因公式 V=(C×I)·D(t)·100+A 把 confidence 压低 V_0，"
+            "新记忆(MetaData 默认 confidence=0.6)首次 HIT 出现 100→67 假性下降。"
+            "三段式 V=V_0·D(t)+A+B 已将 V_0 与 confidence 解耦，事件加成进 B 项。"
+        ),
+        "event_type": EventType.HIT,
+        "expected_vitality_change": 0.0,    # 新记忆 decay=1, A=log(2)*coef≈6.93, B=5 → clamp 100
+        "expected_event_vitality_boost": 5.0,
+        "expected_updated_at_unchanged_on_hit": True,  # HIT 不重置 updated_at
+        "assertion": "新记忆 HIT 后 vitality 保持 100, B 项=5, updated_at 未重置",
+    },
 ]
 
 
