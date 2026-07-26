@@ -59,9 +59,9 @@ class TestDynamicReinforcementEngine:
 
     @pytest.mark.asyncio
     async def test_hit_event(self):
-        """测试 HIT 事件增加生命力"""
+        """测试 HIT 事件累加进 event_vitality_boost (B 项)"""
         self.mock_mid_term.get.return_value = self.test_memory
-        self.mock_vitality_calc.calculate.return_value = 50.0
+        self.mock_vitality_calc.calculate.return_value = 50.0  # 重算结果 (含 B 项)
 
         event = MemoryEvent(
             event_type=EventType.HIT,
@@ -73,7 +73,11 @@ class TestDynamicReinforcementEngine:
 
         assert result.event_type == EventType.HIT
         assert result.previous_vitality == 50.0
-        assert result.new_vitality == 55.0
+        # 新契约: 最终分数由 calculator 重算得到，不再 +adjustment
+        assert result.new_vitality == 50.0
+        # 事件加成累加进 B 项 (event_vitality_boost)
+        updated_memory = self.mock_mid_term.upsert.call_args[0][0]
+        assert updated_memory.meta.event_vitality_boost == self.config.hit_boost
         assert self.mock_mid_term.upsert.called
 
     @pytest.mark.asyncio
@@ -139,8 +143,9 @@ class TestDynamicReinforcementEngine:
 
     @pytest.mark.asyncio
     async def test_negative_feedback_applies_vitality_penalty_after_recalculate(self):
+        """负面反馈: -50 累加进 B 项，confidence ×0.5"""
         self.mock_mid_term.get.return_value = self.test_memory
-        self.mock_vitality_calc.calculate.return_value = 80.0
+        self.mock_vitality_calc.calculate.return_value = 80.0  # 重算结果 (含 B 项)
 
         event = MemoryEvent(
             event_type=EventType.FEEDBACK_NEGATIVE,
@@ -150,13 +155,18 @@ class TestDynamicReinforcementEngine:
 
         result = await self.engine.reinforce(self.test_memory.id, event)
 
-        assert result.new_vitality == 30.0
+        # 新契约: 最终分数即 calculator 重算结果，不再 +adjustment
+        assert result.new_vitality == 80.0
         assert result.new_confidence == pytest.approx(0.4)
+        # 事件惩罚累加进 B 项 (event_vitality_boost)
+        updated_memory = self.mock_mid_term.upsert.call_args[0][0]
+        assert updated_memory.meta.event_vitality_boost == self.config.negative_feedback_penalty
 
     @pytest.mark.asyncio
     async def test_reinforcement_clamps_vitality_to_valid_range(self):
+        """测试 reinforce 内的 _clamp_vitality 将 >100 的重算结果限制到 100"""
         self.mock_mid_term.get.return_value = self.test_memory
-        self.mock_vitality_calc.calculate.return_value = 90.0
+        self.mock_vitality_calc.calculate.return_value = 150.0  # 重算超出范围
 
         event = MemoryEvent(
             event_type=EventType.FEEDBACK_POSITIVE,
@@ -166,6 +176,7 @@ class TestDynamicReinforcementEngine:
 
         result = await self.engine.reinforce(self.test_memory.id, event)
 
+        # _clamp_vitality 应将 150 限制到 100
         assert result.new_vitality == 100.0
 
     @pytest.mark.asyncio

@@ -3,14 +3,20 @@ HiveMemory - 动态强化引擎
 
 处理记忆生命周期事件，动态调整生命力分数和置信度。
 
-事件效果:
-- HIT: +5 生命力, access_count +1
-- CITATION: +20 生命力, 重置时间衰减, access_count +1
-- FEEDBACK_POSITIVE: +50 生命力, access_count +1
-- FEEDBACK_NEGATIVE: -50 生命力, -50% 置信度
+事件效果 (改造成三段式语义后的新契约):
+- HIT:              event_vitality_boost += 5,  access_count += 1,  不重置衰减
+- CITATION:         event_vitality_boost += 20, access_count += 1,  重置时间衰减 (updated_at = now)
+- FEEDBACK_POSITIVE: event_vitality_boost += 50, access_count += 1, 不重置衰减
+- FEEDBACK_NEGATIVE: event_vitality_boost += -50, confidence ×0.5,  不重置衰减
+
+事件加成不再直接加减最终 vitality_score，而是累加进 event_vitality_boost (B 项)。
+最终 vitality_score 由 VitalityCalculator 重算时统一合并: V = V_0·D(t) + A + B。
+
+HIT 不重置 updated_at —— 让时间衰减在遗忘曲线上持续作用，符合艾宾浩斯语义；
+只有 CITATION (主动复习) 才重置 updated_at，对应"主动回忆重置遗忘曲线"。
 
 作者: HiveMemory Team
-版本: 0.1.0
+版本: 0.2.0
 """
 
 import logging
@@ -95,20 +101,28 @@ class DynamicReinforcementEngine:
         previous_vitality = memory.meta.vitality_score
         previous_confidence = memory.meta.confidence_score
 
-        # 应用事件特定的调整
+        # 应用事件特定的调整 (CITATION 重置 updated_at，FEEDBACK_NEGATIVE 调整 confidence)
         if event.event_type == EventType.CITATION:
             self._handle_citation(memory)
         elif event.event_type == EventType.FEEDBACK_NEGATIVE:
             self._handle_negative_feedback(memory)
 
-        # 更新访问元信息（在计算生命力之前，以便反映本次访问的影响）
+        # 事件加成累加进 B 项 (event_vitality_boost)，不直接改 vitality_score
+        # 最终 vitality_score 由 VitalityCalculator 在重算时统一合并: V = V_0·D(t) + A + B
+        adjustment = self.vitality_adjustments.get(event.event_type, 0.0)
+        memory.meta.event_vitality_boost = max(
+            -100.0,
+            min(100.0, memory.meta.event_vitality_boost + adjustment),
+        )
+
+        # 更新访问元信息
+        # 注意: 只更新 last_accessed_at；updated_at 仅在 CITATION 主动复习时重置
+        # (上面 _handle_citation 已处理)。HIT 不重置 updated_at，让遗忘曲线持续作用。
         memory.meta.access_count += 1
         memory.meta.last_accessed_at = datetime.now()
-        memory.meta.updated_at = datetime.now()
 
-        base_vitality = self.vitality_calculator.calculate(memory)
-        adjustment = self.vitality_adjustments.get(event.event_type, 0.0)
-        new_vitality = self._clamp_vitality(base_vitality + adjustment)
+        # 由 VitalityCalculator 统一重算 (包含 V_0/D(t)/A/B 三段)
+        new_vitality = self._clamp_vitality(self.vitality_calculator.calculate(memory))
         memory.meta.vitality_score = new_vitality
 
         # 持久化到存储

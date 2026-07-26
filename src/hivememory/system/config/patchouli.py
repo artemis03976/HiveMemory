@@ -191,6 +191,8 @@ class MemoryRetrievalConfig(BaseModel):
 # ========== Lifecycle ==========
 
 class VitalityCalculatorConfig(BaseModel):
+    # 固有价值权重 (I)：作为抗衰减调制因子，λ_eff = λ * (2 - I)
+    # 高价值记忆 (I=1.0) 衰减最慢，低价值记忆 (I=0.5) 衰减最快
     code_snippet_weight: float = Field(default=1.0)
     fact_weight: float = Field(default=0.9)
     url_resource_weight: float = Field(default=0.8)
@@ -198,9 +200,20 @@ class VitalityCalculatorConfig(BaseModel):
     user_profile_weight: float = Field(default=0.6)
     work_in_progress_weight: float = Field(default=0.5)
     default_weight: float = Field(default=0.5)
+
+    # 衰减基础系数 λ：D(t) = exp(-λ_eff * t), λ_eff = λ * (2 - I)
+    decay_lambda: float = Field(default=0.01)
+
+    # 访问加成对数曲线系数 (A 项)：A = access_boost_coef * log(1 + access_count)
+    # 对数曲线自然饱和，无需硬上限；推荐 8.0~12.0
+    access_boost_coef: float = Field(default=10.0)
+
+    # 初始强度 V_0：固定高值，与 confidence 解耦
+    base_vitality: float = Field(default=100.0)
+
+    # 兼容旧配置：保留但不再使用 (已弃用)
     max_access_boost: float = Field(default=20.0)
     points_per_access: float = Field(default=2.0)
-    decay_lambda: float = Field(default=0.01)
 
     model_config = ConfigDict(extra="ignore")
 

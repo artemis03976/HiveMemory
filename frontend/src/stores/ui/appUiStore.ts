@@ -4,11 +4,16 @@ import type { NavTab } from '@/types';
 
 type ContextSidebarTab = 'topics' | 'config';
 type KernelVisionTab = 'context' | 'memory-runtime' | 'terminal';
+type ThemeMode = 'dark' | 'light';
 
 interface ChatUiStore {
   // Global navigation
   activeNavTab: NavTab;
   setActiveNavTab: (tab: NavTab) => void;
+
+  // Theme
+  theme: ThemeMode;
+  toggleTheme: () => void;
 
   // Chat layout panels
   isContextSidebarCollapsed: boolean;
@@ -42,6 +47,9 @@ export const useChatUiStore = create<ChatUiStore>()(
         activeNavTab: 'chat',
         setActiveNavTab: (tab) => set({ activeNavTab: tab }),
 
+        theme: 'dark',
+        toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
+
         isContextSidebarCollapsed: false,
         setContextSidebarCollapsed: (collapsed) => set({ isContextSidebarCollapsed: collapsed }),
         toggleContextSidebar: () => set((s) => ({ isContextSidebarCollapsed: !s.isContextSidebarCollapsed })),
@@ -64,7 +72,15 @@ export const useChatUiStore = create<ChatUiStore>()(
       }),
       {
         name: 'chat-ui-store',
-        version: 1,
+        version: 2,
+        migrate: (persisted, version) => {
+          // v2: 'theme' 标签已改为主题切换开关，迁移历史状态中失效的标签值
+          const state = persisted as { activeNavTab?: string };
+          if (version < 2 && state.activeNavTab === 'theme') {
+            state.activeNavTab = 'chat';
+          }
+          return persisted as ChatUiStore;
+        },
       },
     ),
     { name: 'ChatUiStore' },

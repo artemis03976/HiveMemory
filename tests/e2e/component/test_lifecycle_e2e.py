@@ -278,7 +278,7 @@ def reinforcement_engine(
 ) -> DynamicReinforcementEngine:
     """提供强化引擎实例"""
     return DynamicReinforcementEngine(
-        storage=mock_storage,
+        mid_term=MidTermMemoryStore(primary=_MockMidTermAdapter(mock_storage)),
         config=reinforcement_config,
         vitality_calculator=vitality_calculator,
     )
@@ -321,41 +321,43 @@ class TestVitalityScoring:
 
     def test_lif_scr_001_base_score_by_type(self, vitality_calculator):
         """
-        LIF-SCR-001: 基础分计算
+        LIF-SCR-001: 基础分计算 (三段式语义)
 
-        验证不同记忆类型的固有价值权重差异。
-        CODE_SNIPPET (权重 1.0) 应该比 WORK_IN_PROGRESS (权重 0.5) 分数更高。
+        新公式 V = V_0·D(t) + A + B 中，V_0 固定，类型差异通过 λ_eff 调制衰减。
+        本测试改为验证: 30 天后，CODE_SNIPPET (I=1.0, λ_eff=λ) 衰减比
+        WORK_IN_PROGRESS (I=0.5, λ_eff=1.5λ) 更慢，故分数更高。
         """
         case = get_scoring_test_by_id("LIF-SCR-001")
         print_test_header(case["id"], case["name"])
 
-        # 创建两种类型的记忆，相同置信度
-        code_memory = create_test_memory(
+        # 创建两种 30 天前的记忆 (相同 confidence, access_count=0)
+        # 验证类型通过 λ_eff 调制衰减率造成的差异
+        code_memory = create_memory_with_age(
+            days_old=30,
             template_name="code_snippet",
             confidence_score=0.9,
             access_count=0,
         )
-        wip_memory = create_test_memory(
+        wip_memory = create_memory_with_age(
+            days_old=30,
             template_name="work_in_progress",
             confidence_score=0.9,
             access_count=0,
         )
 
-        # 计算分数
         code_score = vitality_calculator.calculate(code_memory)
         wip_score = vitality_calculator.calculate(wip_memory)
 
-        # 验证
         assert code_score > wip_score, (
-            f"CODE_SNIPPET ({code_score:.2f}) should be higher than "
-            f"WORK_IN_PROGRESS ({wip_score:.2f})"
+            f"After 30 days, CODE_SNIPPET ({code_score:.2f}) should decay slower than "
+            f"WORK_IN_PROGRESS ({wip_score:.2f}) due to lower λ_eff"
         )
 
         print_test_result(
             case["id"],
             case["name"],
             True,
-            f"CODE={code_score:.2f}, WIP={wip_score:.2f}"
+            f"30d后 CODE={code_score:.2f}, WIP={wip_score:.2f}"
         )
 
     def test_lif_scr_002_time_decay(self, vitality_calculator):
@@ -387,8 +389,11 @@ class TestVitalityScoring:
         fresh_score = vitality_calculator.calculate(fresh_memory)
         old_score = vitality_calculator.calculate(old_memory)
 
-        # 预期衰减因子: exp(-0.01 * 30) ≈ 0.7408
-        expected_decay = math.exp(-0.01 * 30)
+        # 预期衰减因子 (三段式: λ_eff = λ * (2 - I), FACT 的 I=0.9)
+        # 新公式 V_0·D(t) + A + B；fresh 与 old 都无 A/B，故 ratio = D(30)/D(0) = D(30)
+        fact_intrinsic = 0.9  # FACT 默认权重
+        lambda_eff = 0.01 * (2.0 - fact_intrinsic)  # = 0.011
+        expected_decay = math.exp(-lambda_eff * 30)  # ≈ 0.7189
         tolerance = case["tolerance"]
 
         # 验证衰减
@@ -397,11 +402,11 @@ class TestVitalityScoring:
             f"fresh memory ({fresh_score:.2f})"
         )
 
-        # 验证衰减比例接近预期
+        # 验证衰减比例接近预期 (按三段式 λ_eff 计算)
         actual_ratio = old_score / fresh_score if fresh_score > 0 else 0
         assert abs(actual_ratio - expected_decay) < tolerance, (
             f"Decay ratio ({actual_ratio:.4f}) should be close to "
-            f"expected ({expected_decay:.4f})"
+            f"expected ({expected_decay:.4f}) under λ_eff={lambda_eff}"
         )
 
         print_test_result(
@@ -457,7 +462,7 @@ class TestVitalityScoring:
         )
 
 
-# ========== 测试类: 强化事件 ==========
+# 测试类: 强化事件 ==========
 
 class TestReinforcement:
     """
@@ -465,6 +470,89 @@ class TestReinforcement:
 
     验证 DynamicReinforcementEngine 对各种事件的处理。
     """
+
+    @pytest.mark.asyncio
+    async def test_lif_rnf_005_fresh_memory_hit_no_regression(
+        self, mock_storage, reinforcement_engine, vitality_calculator
+    ):
+        """
+        LIF-RNF-005: 新记忆首次 HIT 不应导致 vitality 假性下降 (回归用例)
+
+        场景: 刚刚写入的记忆(MetaData 默认 confidence=0.6, vitality_score=100)，
+              下一轮对话检索命中触发 HIT 事件。
+        修复前: 100 -> 67 (公式 (C×I)×D(t)×100+A 把 confidence 压低 V_0)
+        修复后: 100 -> 100 (V_0 与 confidence 解耦，事件加成进 B 项)
+
+        三段式新契约:
+        - V_0 固定 100 (与 confidence 解耦)
+        - HIT 不重置 updated_at (衰减钟持续作用)
+        - 事件加成 += hit_boost 累加进 event_vitality_boost (B 项)
+        """
+        case = get_reinforcement_test_by_id("LIF-RNF-005")
+        print_test_header(case["id"], case["name"])
+
+        # 构造刚刚写入的新记忆 (CODE_SNIPPET, intrinsic=1.0, 衰减最慢)
+        # 关键: 不显式赋 confidence/vitality_score/access_count/event_vitality_boost，
+        #       仿真 MemoryGenerationEngine._draft_to_memory 仅设 confidence 之外的默认路径。
+        memory = create_test_memory(
+            template_name="code_snippet",
+            vitality_score=100.0,     # MetaData 字段默认 100，与 V_0 自洽
+            confidence_score=0.6,     # MetaData 字段默认 0.6，旧公式下会被压低
+            access_count=0,
+        )
+        # event_vitality_boost 重置为 0 (仿真刚写入、未被强化的初态)
+        memory.meta.event_vitality_boost = 0.0
+        # 强制更新时间戳贴近"刚刚写入"，避免 days_since(update) 含小数 >0 导致 D<1
+        memory.meta.created_at = datetime.now()
+        memory.meta.updated_at = datetime.now()
+        pre_updated_at = memory.meta.updated_at
+
+        await mock_storage.upsert_memory(memory)
+
+        # 触发 HIT 事件
+        event = MemoryEvent(
+            event_type=EventType.HIT,
+            memory_id=memory.id,
+            source="test_retrieval_hit",
+        )
+        result = await reinforcement_engine.reinforce(memory.id, event)
+
+        updated_memory = await mock_storage.get_memory(memory.id)
+
+        # 验证 1: vitality 保持 100 (修复前会是 67)
+        assert result.previous_vitality == 100.0, (
+            f"新记忆 previous_vitality 应为 100，实际 {result.previous_vitality}"
+        )
+        assert result.new_vitality == 100.0, (
+            f"新记忆 HIT 后 new_vitality 应保持 100 (修复后)，实际 {result.new_vitality} "
+            f"(修复前 bug 表现为 67)"
+        )
+
+        # 验证 2: 事件加成累加进 B 项 (event_vitality_boost)
+        assert updated_memory.meta.event_vitality_boost == case["expected_event_vitality_boost"], (
+            f"event_vitality_boost 应累加 hit_boost=5，实际 "
+            f"{updated_memory.meta.event_vitality_boost}"
+        )
+
+        # 验证 3: HIT 不重置 updated_at (衰减钟持续作用，艾宾浩斯语义)
+        if case["expected_updated_at_unchanged_on_hit"]:
+            assert updated_memory.meta.updated_at == pre_updated_at, (
+                "HIT 不应重置 updated_at (仅 CITATION 重置) — 让遗忘曲线持续作用"
+            )
+
+        # 验证 4: access_count += 1
+        assert updated_memory.meta.access_count == 1, (
+            f"access_count 应递增为 1，实际 {updated_memory.meta.access_count}"
+        )
+
+        print_test_result(
+            case["id"],
+            case["name"],
+            True,
+            f"Vitality: {result.previous_vitality:.1f} -> {result.new_vitality:.1f}, "
+            f"B={updated_memory.meta.event_vitality_boost}, "
+            f"updated_at unchanged={updated_memory.meta.updated_at == pre_updated_at}"
+        )
 
     @pytest.mark.asyncio
     async def test_lif_rnf_001_hit_event(self, mock_storage, reinforcement_engine):
@@ -765,7 +853,8 @@ class TestArchiving:
         assert resurrected_memory.id == memory_id, "ID should match"
         assert resurrected_memory.index.title == original_title, "Title should match"
         assert resurrected_memory.payload.content == original_content, "Content should match"
-        assert resurrected_memory.index.tags == original_tags, "Tags should match"
+        # tags 经 IndexLayer.validate_tags 使用 set 去重，顺序非确定，改用集合比较
+        assert set(resurrected_memory.index.tags) == set(original_tags), "Tags should match"
 
         print_test_result(
             case["id"],

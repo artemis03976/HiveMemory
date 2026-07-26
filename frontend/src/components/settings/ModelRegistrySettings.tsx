@@ -160,7 +160,7 @@ function ModelEditor({
           onClick={() => onChange({ is_default: !draft.is_default })}
           className={`relative w-11 h-6 rounded-full transition-colors ${draft.is_default ? 'bg-primary' : 'bg-white/10'}`}
         >
-          <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${draft.is_default ? 'translate-x-5' : 'translate-x-0'}`} />
+          <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-[#ffffff] transition-transform ${draft.is_default ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
       </div>
 
