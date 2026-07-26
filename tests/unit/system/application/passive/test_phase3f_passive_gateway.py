@@ -21,11 +21,15 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.system.application.passive import (
+    PassiveConversationKey,
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+
+SOURCE = "unit_test"
+CONVERSATION = "conv-1"
 
 
 def _decision_outcome(
@@ -46,6 +50,24 @@ def _decision_outcome(
     )
 
 
+def _event(role: str, content: str, **kwargs) -> PassiveIngressEvent:
+    return PassiveIngressEvent(
+        source=SOURCE,
+        external_conversation_id=CONVERSATION,
+        role=role,
+        content=content,
+        **kwargs,
+    )
+
+
+def _key(identity: Identity) -> PassiveConversationKey:
+    return PassiveConversationKey.build(
+        source=SOURCE,
+        external_conversation_id=CONVERSATION,
+        identity=identity,
+    )
+
+
 @pytest.mark.asyncio
 async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     bus = GlobalSystemBus()
@@ -53,16 +75,15 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     retrieve = AsyncMock(return_value=RetrievalResponse())
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, retrieve)
+    submitted = []
     ingressor = PassiveMessageIngressor(
         bus,
+        submit_sealed_turn=AsyncMock(side_effect=submitted.append),
         gateway_request_timeout_ms=123,
     )
     identity = Identity(user_id="u1", session_id="s1")
 
-    outcome = await ingressor.route_event(
-        PassiveIngressEvent(role="user", content="被动原问题"),
-        identity,
-    )
+    outcome = await ingressor.route_event(_event("user", "被动原问题"), identity)
 
     assert outcome.gateway_decision == _decision_outcome().decision
     assert gateway.await_args.kwargs["ingress_mode"] == (
@@ -73,12 +94,13 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     assert request.semantic_query == "被动原问题"
     assert request.top_k == 5
 
-    flushed = ingressor.flush_session(identity)
-    assert flushed is not None
-    payload, target_topic = flushed
-    assert target_topic == "topic-passive"
-    assert payload.rewritten_query == "被动原问题"
-    assert payload.worth_saving is True
+    assert await ingressor.flush_conversation(_key(identity), identity) == 1
+    assert len(submitted) == 1
+    sealed = submitted[0]
+    assert sealed.target_topic == "topic-passive"
+    assert sealed.seal_reason == "manual_flush"
+    assert sealed.payload.rewritten_query == "被动原问题"
+    assert sealed.payload.worth_saving is True
 
 
 @pytest.mark.asyncio
@@ -88,10 +110,10 @@ async def test_passive_simple_chat_skips_retrieval() -> None:
         GlobalRoutes.GATEWAY_PROCESS,
         AsyncMock(return_value=_decision_outcome(RetrievalMode.SKIP)),
     )
-    ingressor = PassiveMessageIngressor(bus)
+    ingressor = PassiveMessageIngressor(bus, submit_sealed_turn=AsyncMock())
 
     outcome = await ingressor.route_event(
-        PassiveIngressEvent(role="user", content="你好"),
+        _event("user", "你好"),
         Identity(user_id="u1"),
     )
 
@@ -116,8 +138,6 @@ async def test_passive_rejects_impossible_command_outcome() -> None:
         ),
     )
 
+    ingressor = PassiveMessageIngressor(bus, submit_sealed_turn=AsyncMock())
     with pytest.raises(RuntimeError, match="不得返回 command"):
-        await PassiveMessageIngressor(bus).route_event(
-            PassiveIngressEvent(role="user", content="/clear"),
-            Identity(user_id="u1"),
-        )
+        await ingressor.route_event(_event("user", "/clear"), Identity(user_id="u1"))

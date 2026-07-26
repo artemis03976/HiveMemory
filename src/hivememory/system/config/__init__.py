@@ -46,6 +46,7 @@ from hivememory.system.config.alice import (
     MTPPromptConfig, KoakumaConfig, AgentRuntimeConfig,
     AliceConfig,
 )
+from hivememory.system.config.passive import PassiveIngressConfig
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +250,9 @@ class HiveMemoryConfig(BaseSettings):
 
     shared: SharedConfig = Field(default_factory=SharedConfig)
     gateway: SystemGatewayConfig = Field(default_factory=SystemGatewayConfig)
+    passive_ingress: PassiveIngressConfig = Field(
+        default_factory=PassiveIngressConfig
+    )
     memory_compiler: MemoryCompilerConfig = Field(default_factory=MemoryCompilerConfig)
     patchouli: PatchouliConfig = Field(default_factory=PatchouliConfig)
     alice: AliceConfig = Field(default_factory=AliceConfig)
@@ -341,6 +345,8 @@ __all__ = [
     # alice
     "MTPPromptConfig", "KoakumaConfig", "AgentRuntimeConfig",
     "AliceConfig",
+    # passive ingress
+    "PassiveIngressConfig",
     # top-level
     "SystemConfig", "LoggingConfig",
     "MaintenanceTasksConfig", "SchedulerConfig",
