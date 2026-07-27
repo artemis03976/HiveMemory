@@ -99,19 +99,26 @@ class TestSSEEventModels:
 
 class TestIngestModels:
     def test_request(self):
-        req = PassiveIngressRequest(role="user", content="hi", user_id="u1")
+        req = PassiveIngressRequest(
+            source="claude_code",
+            external_conversation_id="sess-1",
+            role="user",
+            content="hi",
+            user_id="u1",
+        )
         assert req.agent_id == "omni_doll"
+        assert req.external_event_id is None
+        assert req.is_final is False
 
     def test_response(self):
         resp = PassiveIngressResponse(
-            intent="Chat",
-            rewritten="hi rewritten",
-            keywords=["hi"],
-            worth_saving=True,
+            status="accepted",
+            external_event_id="evt-1",
             memory=None,
         )
         d = resp.model_dump()
-        assert d["intent"] == "Chat"
+        assert d["status"] == "accepted"
+        assert d["external_event_id"] == "evt-1"
 
 
 # ========== Memory Models ==========

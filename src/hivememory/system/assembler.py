@@ -225,6 +225,10 @@ class SystemAssembler:
             bus=runtime.global_bus,
             config=self._config,
             scheduler=runtime.scheduler,
+            runtime_events=runtime.event_sink.scoped(
+                "system",
+                component="passive_ingress_service",
+            ),
         )
         memory = MemoryApplicationService(
             global_bus=runtime.global_bus,

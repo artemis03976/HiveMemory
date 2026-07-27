@@ -39,7 +39,7 @@ from typing import List, Dict, Any
 import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system.application.passive import PassiveIngressEvent
+from hivememory.system.services.passive import PassiveIngressEvent
 from hivememory.core.protocol.models import AgentRunResult
 
 from tests.e2e.conftest import wait_for_memory_persistence_async
@@ -136,15 +136,31 @@ async def passive_ingest_memory(
     3. flush_ingressor() → 提交 Payload 到感知层
     4. manual_trigger() → 强制感知层归档+压缩并持久化到 Qdrant
     """
+    source = "e2e_active_seed"
+    conversation_id = "seed"
     await system.ingress_service.ingest_event(
-        event=PassiveIngressEvent(role="user", content=user_msg),
+        event=PassiveIngressEvent(
+            source=source,
+            external_conversation_id=conversation_id,
+            role="user",
+            content=user_msg,
+        ),
         user_id=user_id,
     )
     await system.ingress_service.ingest_event(
-        event=PassiveIngressEvent(role="assistant", content=assistant_msg),
+        event=PassiveIngressEvent(
+            source=source,
+            external_conversation_id=conversation_id,
+            role="assistant",
+            content=assistant_msg,
+        ),
         user_id=user_id,
     )
-    await system.ingress_service.flush_ingressor(user_id=user_id)
+    await system.ingress_service.flush_conversation(
+        source=source,
+        external_conversation_id=conversation_id,
+        user_id=user_id,
+    )
 
     # 手动触发话题结算（Archive + Compact），确保持久化到 Qdrant
     await system.manual_trigger()

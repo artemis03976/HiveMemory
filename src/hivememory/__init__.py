@@ -96,7 +96,7 @@ from hivememory.utils import (
     estimate_tokens,
 )
 
-from hivememory.system.application.passive import MessageBufferState
+from hivememory.system.services.passive import MessageBufferState
 
 from hivememory.engines.generation import (
     DuplicateDecision,
