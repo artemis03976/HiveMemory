@@ -21,6 +21,7 @@ from hivememory.system.application.passive.models import (
 from hivememory.system.application.passive.outbox import SealedTurn
 from hivememory.system.config.memory_compiler import FullContextStrategyConfig
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.events import RuntimeEventSink
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ class PassiveIngressService:
         bus: GlobalSystemBus,
         config: HiveMemoryConfig,
         scheduler: AsyncMaintenanceScheduler,
+        runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._bus = bus
         self._config = config
@@ -52,6 +54,7 @@ class PassiveIngressService:
                 config.gateway.workflow.default_request_timeout_ms
             ),
             config=config.passive_ingress,
+            runtime_events=runtime_events,
         )
         self._maintenance_registered = False
         self._configure_idle_flush()
@@ -84,12 +87,15 @@ class PassiveIngressService:
     def _unregister_maintenance_tasks(self) -> int:
         return self._scheduler.unregister_owner(self._MAINTENANCE_OWNER)
 
-    async def _submit_sealed_turn(self, sealed: SealedTurn) -> None:
+    async def _submit_sealed_turn(self, sealed: SealedTurn) -> str | None:
         """把 sealed turn 提交给 Patchouli。
 
         抛出异常即代表提交失败，由 Ingressor 保留 outbox item 供重试。
+
+        Returns:
+            Patchouli 落定的真实 topic_id，供观测事件关联。
         """
-        await self._bus.request(
+        return await self._bus.request(
             GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION,
             payload=sealed.payload,
             target_topic=sealed.target_topic or "NEW_TOPIC",

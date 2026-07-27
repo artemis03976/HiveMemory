@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -14,6 +15,7 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.system.application.passive.dedup import ExternalEventDedupRegistry
+from hivememory.system.application.passive.events import PassiveIngressEventEmitter
 from hivememory.system.application.passive.message_turn_buffer import (
     FlushResult,
     MessageTurnBufferManager,
@@ -31,10 +33,12 @@ from hivememory.system.application.passive.outbox import (
 from hivememory.system.config.passive import PassiveIngressConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.events import RuntimeEventSink
 
 logger = logging.getLogger(__name__)
 
-SubmitSealedTurn = Callable[[SealedTurn], Awaitable[None]]
+# 返回值是 Patchouli 落定的真实 topic_id（None 表示提交方未回传）。
+SubmitSealedTurn = Callable[[SealedTurn], Awaitable[str | None]]
 
 
 class PassiveMessageIngressor:
@@ -55,6 +59,9 @@ class PassiveMessageIngressor:
 
     sealed turn 一律先进入 pending outbox，只有 Patchouli submit 成功后才移除；
     失败时保留 item 供重试，且不阻塞下一 turn accumulator。
+
+    观测（设计 §9）一律经 `RuntimeEventSink` 发布，不在 outcome 或公共响应中
+    累积 trace/fallback 细节。
     """
 
     def __init__(
@@ -64,8 +71,10 @@ class PassiveMessageIngressor:
         submit_sealed_turn: SubmitSealedTurn | None = None,
         gateway_request_timeout_ms: int = 8000,
         config: PassiveIngressConfig | None = None,
+        runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._bus = bus
+        self._events = PassiveIngressEventEmitter(runtime_events)
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._config = config or PassiveIngressConfig()
         self._buffers = MessageTurnBufferManager(
@@ -190,7 +199,7 @@ class PassiveMessageIngressor:
             for index, item in enumerate(pending):
                 attempted = item.with_attempt()
                 try:
-                    await self._submit_sealed_turn(attempted)
+                    settled_topic_id = await self._submit_sealed_turn(attempted)
                 except Exception as exc:
                     logger.warning(
                         "Passive sealed turn 提交失败，保留 outbox 供重试: "
@@ -202,8 +211,26 @@ class PassiveMessageIngressor:
                     )
                     remaining = [attempted, *pending[index + 1:]]
                     self._outbox.requeue_front(key, remaining)
+                    self._events.turn_submit_failed(
+                        key=key,
+                        turn_id=attempted.turn_id,
+                        error_class=type(exc).__name__,
+                        seal_reason=attempted.seal_reason,
+                        attempts=attempted.attempts,
+                        will_retry=True,
+                        outbox_pending=self._outbox.pending_count(key),
+                    )
                     return submitted
+
                 submitted += 1
+                self._events.turn_submitted(
+                    key=key,
+                    turn_id=attempted.turn_id,
+                    topic_id=settled_topic_id or attempted.target_topic,
+                    event_count=len(attempted.payload.turn_events),
+                    seal_reason=attempted.seal_reason,
+                    attempts=attempted.attempts,
+                )
 
             return submitted
 
@@ -230,10 +257,24 @@ class PassiveMessageIngressor:
                 event.source,
                 event.external_event_id,
             )
+            self._events.duplicate_ignored(
+                key=key,
+                external_event_id=event.external_event_id,
+                role=event.role,
+            )
             return PassiveIngressOutcome(
                 kind="duplicate",
                 outbox_pending=self._outbox.pending_count(key),
             )
+
+        self._events.event_accepted(
+            key=key,
+            external_event_id=event.external_event_id,
+            role=event.role,
+            turn_id=event.turn_id,
+            sequence=event.sequence,
+            is_final=event.is_final,
+        )
 
         if event.role == "user":
             return await self._handle_user(event, identity, key)
@@ -257,11 +298,24 @@ class PassiveMessageIngressor:
         self._seal_current_turn(key, identity, seal_reason="next_user")
         submitted = await self.drain_outbox(key)
 
+        started_at = time.perf_counter()
+
         # 2. Gateway 决策
         decision = await self._request_gateway_decision(event.content, identity)
 
         # 3. Patchouli retrieval
         retrieval_result = await self._retrieve_for_decision(decision, identity)
+
+        self._events.memory_context_prepared(
+            key=key,
+            external_event_id=event.external_event_id,
+            turn_id=event.turn_id,
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+            memory_ref_count=len(retrieval_result.memories),
+            # P4.1 落地后由降级分支传入 True。
+            degraded=False,
+            topic_id=decision.target_topic_id,
+        )
 
         # 4. 用本轮 decision 初始化当前 turn accumulator
         buffer = self._buffers.get_buffer(key, identity)

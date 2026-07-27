@@ -6,11 +6,15 @@
     - MessageTurnBuffer / MessageTurnBufferManager
     - SealedTurn / SealedTurnOutbox
     - ExternalEventDedupRegistry
+    - PassiveIngressEventEmitter
     - PassiveMessageIngressor
 """
 
 from hivememory.system.application.passive.dedup import (
     ExternalEventDedupRegistry,
+)
+from hivememory.system.application.passive.events import (
+    PassiveIngressEventEmitter,
 )
 from hivememory.system.application.passive.message_ingressor import (
     PassiveMessageIngressor,
@@ -39,6 +43,7 @@ __all__ = [
     "MessageBufferState",
     "MessageTurnBuffer",
     "MessageTurnBufferManager",
+    "PassiveIngressEventEmitter",
     "PassiveMessageIngressor",
     "PassiveConversationKey",
     "PassiveIngressEvent",
