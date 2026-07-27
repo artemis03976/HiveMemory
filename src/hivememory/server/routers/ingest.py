@@ -9,7 +9,7 @@ from hivememory.server.models.ingest import (
     PassiveIngressRequest,
     PassiveIngressResponse,
 )
-from hivememory.system.application.passive import PassiveIngressEvent
+from hivememory.system.services.passive import PassiveIngressEvent
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 
 router = APIRouter(tags=["ingest"])

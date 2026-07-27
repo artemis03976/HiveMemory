@@ -28,7 +28,7 @@ import pytest
 
 from hivememory.core.models import Identity
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system.application.passive import PassiveIngressEvent
+from hivememory.system.services.passive import PassiveIngressEvent
 
 from tests.e2e.conftest import wait_for_memory_persistence
 

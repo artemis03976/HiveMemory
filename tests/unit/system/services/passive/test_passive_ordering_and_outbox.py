@@ -26,14 +26,14 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.system.application.passive import (
+from hivememory.system.config.passive import PassiveIngressConfig
+from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
-from hivememory.system.config.passive import PassiveIngressConfig
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 SOURCE = "unit_test"
 CONVERSATION = "conv-1"
@@ -149,8 +149,10 @@ async def test_gateway_failure_does_not_block_previous_turn_submit() -> None:
         AsyncMock(side_effect=RuntimeError("gateway down")),
     )
 
-    with pytest.raises(RuntimeError, match="gateway down"):
-        await ingressor.route_event(_event("user", "u2"), IDENTITY)
+    # Gateway 可恢复失败走降级路径（详见 test_passive_degradation.py），
+    # 这里只断言它不影响上一 turn 的提交。
+    outcome = await ingressor.route_event(_event("user", "u2"), IDENTITY)
+    assert outcome.gateway_decision is None
 
     # 上一 turn 已在 Gateway 调用前提交成功，不受新请求失败影响
     assert len(recorder.submitted) == 1
@@ -195,7 +197,6 @@ async def test_submit_failure_retains_outbox_and_allows_next_turn() -> None:
 
     # 提交失败：sealed item 保留，但新 turn 已正常开始
     assert outcome.kind == "user"
-    assert outcome.submitted_turns == 0
     assert ingressor.outbox.pending_count(_key()) == 1
     assert recorder.submitted == []
 
@@ -315,13 +316,14 @@ async def test_explicit_final_seals_turn() -> None:
     ingressor = _build(recorder)
 
     await ingressor.route_event(_event("user", "u1"), IDENTITY)
-    outcome = await ingressor.route_event(
+    await ingressor.route_event(
         _event("assistant", "a1", is_final=True),
         IDENTITY,
     )
 
-    assert outcome.submitted_turns == 1
+    assert len(recorder.submitted) == 1
     assert recorder.submitted[0].seal_reason == "explicit_final"
+    assert ingressor.outbox.pending_count(_key()) == 0
     assert not ingressor.buffers.peek_buffer(_key()).has_pending_round
 
 
@@ -334,7 +336,7 @@ async def test_idle_timeout_seals_turn() -> None:
     await ingressor.route_event(_event("user", "u1"), IDENTITY)
     await ingressor.route_event(_event("assistant", "a1"), IDENTITY)
 
-    assert await ingressor.scan_idle_sessions_once() == 1
+    assert await ingressor.scan_idle_conversations_once() == 1
     assert recorder.submitted[0].seal_reason == "idle_timeout"
 
 
@@ -385,7 +387,7 @@ async def test_all_seal_triggers_produce_isomorphic_payload() -> None:
             elif trigger == "manual_flush":
                 await ingressor.flush_conversation(_key(), IDENTITY)
             else:
-                await ingressor.scan_idle_sessions_once()
+                await ingressor.scan_idle_conversations_once()
 
         assert recorder.submitted, f"{trigger} 未产出 sealed turn"
         payload = recorder.submitted[0].payload

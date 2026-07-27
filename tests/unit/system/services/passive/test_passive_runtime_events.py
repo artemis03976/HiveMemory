@@ -27,15 +27,15 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.system.application.passive import (
-    PassiveConversationKey,
-    PassiveIngressEvent,
-    PassiveMessageIngressor,
-)
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
+from hivememory.system.services.passive import (
+    PassiveConversationKey,
+    PassiveIngressEvent,
+    PassiveMessageIngressor,
+)
 
 SOURCE = "unit_events"
 CONVERSATION = "conv-events"

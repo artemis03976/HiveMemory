@@ -14,7 +14,7 @@ from hivememory.core.models import Identity
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.system.application.passive.models import PassiveConversationKey
+from hivememory.system.services.passive.models import PassiveConversationKey
 
 logger = logging.getLogger(__name__)
 

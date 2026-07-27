@@ -55,7 +55,7 @@ from typing import Any
 import pytest
 
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system.application.passive import PassiveIngressEvent
+from hivememory.system.services.passive import PassiveIngressEvent
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
@@ -599,7 +599,7 @@ class TestPassiveMultiSessionIsolation:
 
         验证链路:
             MessageTurnBufferManager.get_buffer(identity)
-            → PassiveSessionKey 分桶隔离
+            → PassiveConversationKey 分桶隔离
             → flush 只影响目标 session
         """
         user_id = clean_user()

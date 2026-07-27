@@ -20,13 +20,14 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.system.application.passive import (
+from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.services.passive import (
     PassiveConversationKey,
+    PassiveIngressContractError,
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 SOURCE = "unit_test"
 CONVERSATION = "conv-1"
@@ -139,5 +140,6 @@ async def test_passive_rejects_impossible_command_outcome() -> None:
     )
 
     ingressor = PassiveMessageIngressor(bus, submit_sealed_turn=AsyncMock())
-    with pytest.raises(RuntimeError, match="不得返回 command"):
+    # 契约违约不走 §6 降级路径，必须向上抛出
+    with pytest.raises(PassiveIngressContractError, match="不得返回 command"):
         await ingressor.route_event(_event("user", "/clear"), Identity(user_id="u1"))

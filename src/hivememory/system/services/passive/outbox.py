@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Literal
 
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.system.application.passive.models import PassiveConversationKey
+from hivememory.system.services.passive.models import PassiveConversationKey
 
 logger = logging.getLogger(__name__)
 

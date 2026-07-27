@@ -134,26 +134,19 @@ class PassiveIngressEvent(BaseModel):
 class PassiveIngressOutcome:
     """被动事件路由结果。
 
-    `submitted_turns` 与 `outbox_pending` 是内部观测量，
-    由 service 决定是否投影到公共响应之外的 event sink。
+    只承载 service 构造公共响应所需的字段。提交计数与 outbox 深度属于观测量，
+    经 `RuntimeEventSink`（设计 §9）发布，不在 outcome 中重复携带。
     """
 
     kind: Literal["user", "buffered", "duplicate", "ignored"]
     gateway_decision: GatewayDecision | None = None
     retrieval_result: RetrievalResponse | None = None
-    submitted_turns: int = 0
-    outbox_pending: int = 0
-
-
-# 向后兼容别名：旧代码中的 PassiveSessionKey 语义已被 PassiveConversationKey 取代
-PassiveSessionKey = PassiveConversationKey
 
 
 __all__ = [
     "DEFAULT_EXTERNAL_CONVERSATION_ID",
     "DEFAULT_PASSIVE_SOURCE",
     "PassiveConversationKey",
-    "PassiveSessionKey",
     "PassiveIngressEvent",
     "PassiveIngressOutcome",
 ]

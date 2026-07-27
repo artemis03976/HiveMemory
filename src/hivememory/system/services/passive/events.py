@@ -12,9 +12,9 @@
 
 from __future__ import annotations
 
-from hivememory.system.application.passive.models import PassiveConversationKey
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+from hivememory.system.services.passive.models import PassiveConversationKey
 
 
 class PassiveIngressEventEmitter:
@@ -117,23 +117,30 @@ class PassiveIngressEventEmitter:
         duration_ms: float,
         memory_ref_count: int,
         degraded: bool,
+        failed_stage: str | None = None,
+        error_class: str | None = None,
         topic_id: str | None = None,
     ) -> None:
-        """memory context 就绪。
+        """memory context 就绪或降级。
 
-        只记录 memory ref 数量与总耗时，不记录编译后的 context 文本。
+        只记录 memory ref 数量、总耗时与降级分类，不记录编译后的 context 文本，
+        也不记录异常消息（只留异常类型名）。
         """
         self._emit(
             RuntimeEventType.PASSIVE_MEMORY_CONTEXT_PREPARED,
             key=key,
             topic_id=topic_id,
+            severity="warning" if degraded else "info",
             status="degraded" if degraded else "prepared",
+            reason=error_class,
             data={
                 "external_event_id": external_event_id,
                 "turn_id": turn_id,
                 "duration_ms": round(duration_ms, 3),
                 "memory_ref_count": memory_ref_count,
                 "degraded": degraded,
+                "failed_stage": failed_stage,
+                "error_class": error_class,
             },
         )
 

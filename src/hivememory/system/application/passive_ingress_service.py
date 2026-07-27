@@ -9,16 +9,16 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
-from hivememory.system.application.passive import (
+from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
-from hivememory.system.application.passive.models import (
+from hivememory.system.services.passive.models import (
     DEFAULT_EXTERNAL_CONVERSATION_ID,
     DEFAULT_PASSIVE_SOURCE,
 )
-from hivememory.system.application.passive.outbox import SealedTurn
+from hivememory.system.services.passive.outbox import SealedTurn
 from hivememory.system.config.memory_compiler import FullContextStrategyConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.events import RuntimeEventSink
@@ -80,7 +80,7 @@ class PassiveIngressService:
                 interval_seconds=tasks_config.observer_idle_flush_interval_seconds,
                 enabled=tasks_config.enable_observer_idle_flush,
             ),
-            self._ingressor.scan_idle_sessions_once,
+            self._ingressor.scan_idle_conversations_once,
         )
         return True
 
