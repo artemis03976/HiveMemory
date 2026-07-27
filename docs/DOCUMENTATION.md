@@ -186,6 +186,7 @@ docs/
 │   ├── README.md
 │   ├── composition.md
 │   ├── application-services.md
+│   ├── passive-ingress.md
 │   ├── runtime-and-bus.md
 │   ├── configuration.md
 │   ├── observability.md
