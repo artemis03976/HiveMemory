@@ -1,22 +1,23 @@
 # HiveMemory
 
-[中文说明](README.md) | [Project Design Doc](docs/PROJECT.md) | [Setup Guide](docs/SETUP.md) | [Roadmap](docs/ROADMAP.md)
+[中文说明](README.md) | [Project Documentation](docs/PROJECT.md) | [Current Architecture](docs/architecture/overview.md) | [Setup Guide](docs/SETUP.md) | [Roadmap](docs/ROADMAP.md)
 
 > Persistent memory and knowledge-sharing system for LLM agents
 > *The Hippocampus for Artificial Intelligence*
 
 HiveMemory is a persistent memory system for LLM agent workflows. It is designed to address long-context forgetting, lack of cross-session knowledge reuse, and information silos in multi-agent collaboration. The system turns high-value conversational information into searchable, updatable, reusable memories and injects them back into future tasks through a unified protocol.
 
-The repository already includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and a v4 runtime layout built around a top-level HiveMemory system, the Patchouli memory subsystem, and the Alice agent runtime subsystem.
+The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and a v0.6 development baseline where the top-level HiveMemory System orchestrates the peer Gateway, Patchouli, and Alice subsystems.
 
 ## Release Status
 
-- Current version: `0.1.0-beta`
-- Release stage: Test build
+- Latest released tag: `v0.5.0`
+- Current development baseline: `v0.6.0` (unreleased)
+- Package metadata: `0.1.0-beta` (historical value pending release alignment)
 - Python requirement: `>=3.12`
 - License: Apache-2.0
 
-This README focuses on the **current implementation** in v0.1.0, with an emphasis on a real local startup path and a practical system overview. For deeper design background and architectural rationale, see [docs/PROJECT.md](docs/PROJECT.md).
+Release tags and the active development baseline are distinct. See [docs/architecture/overview.md](docs/architecture/overview.md) for the current system design and [docs/PROJECT.md](docs/PROJECT.md) for the global documentation index.
 
 ## What HiveMemory Provides Today
 
@@ -24,7 +25,7 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 
 - **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, orchestrated by `ChatApplicationService` through Patchouli prepare/finalize and Alice agent execution
 - `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
-- **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks, and `PatchouliSystem.ingest_event()` handles buffering, analysis, retrieval, and later memory consolidation
+- **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks; the System-layer `PassiveIngressService` orchestrates Gateway decisions, buffering, retrieval, and Patchouli submission
 
 ### Memory and Topic Management
 
@@ -46,24 +47,24 @@ This README focuses on the **current implementation** in v0.1.0, with an emphasi
 
 ### Core Capabilities
 
-- v4 subsystem architecture: top-level `HiveMemorySystem`, Patchouli memory runtime, and Alice agent/tool runtime
-- Patchouli trinity architecture: The Eye / Retrieval Familiar / Librarian Core
+- v0.6 subsystem architecture: top-level `HiveMemorySystem` with peer Gateway, Patchouli, and Alice subsystems
+- System Gateway for commands, topic routing, query analysis, cancellation/timeouts, and conservative fallback
 - In-process runtime buses: AsyncSystemBus / GlobalSystemBus / subsystem-local buses
-- MTP (Memory Tool Protocol) with `SEARCH / READ / RUN / WRITE / UPDATE`
+- MTP (Memory Tool Protocol) with `SEARCH / READ / RUN / WRITE / UPDATE / CALL`
 - Persistent memory storage backed by Qdrant
 - Hybrid Dense + Sparse retrieval path
 - Frontend development UI built with Vite + React
 
 ## Architecture Overview
 
-The current implementation of HiveMemory is built around a v4 **System / Service / Runtime** layout. The top-level system owns application orchestration and global routes, Patchouli owns memory-domain capabilities, and Alice owns agent execution plus MTP/tool execution.
+The current implementation uses a **System / Service / Runtime** layout. The top-level System owns application orchestration and global routes, Gateway owns entry decisions, Patchouli owns memory-domain capabilities, and Alice owns agent execution plus MTP/tool execution.
 
 ### Main Runtime Components
 
-- **HiveMemorySystem**: the top-level host that assembles global routes, application services, Patchouli, and Alice
+- **HiveMemorySystem**: the top-level host that assembles global routes, application services, Gateway, Patchouli, and Alice
 - **ChatApplicationService**: the active chat orchestrator that runs `prepare -> Alice run -> finalize`
-- **PatchouliSystem / PatchouliRuntime**: the memory subsystem host and runtime for gateway, retrieval, perception, generation, lifecycle, and storage capabilities
-- **The Eye**: the interaction gateway responsible for intent recognition, query rewriting, and traffic routing
+- **GatewaySystem / GatewayRuntime**: the entry-decision subsystem for commands, topic routing, query analysis, and stable decision projection
+- **PatchouliSystem / PatchouliRuntime**: the memory subsystem host and runtime for retrieval, perception, generation, lifecycle, and storage capabilities
 - **Retrieval Familiar**: the Hot Path retrieval service for hybrid retrieval, reranking, and context rendering
 - **Librarian Core**: the Cold Path memory service for topic perception, memory extraction, and lifecycle management
 - **AliceSystem / AliceRuntime**: the agent runtime subsystem that owns the Agent runtime and Koakuma tool runtime
@@ -88,6 +89,7 @@ HiveMemory provides an in-process protocol that allows the Worker Agent to activ
 - `RUN`: execute kernel tools or code snippets stored in memory
 - `WRITE`: actively submit a new memory write intent
 - `UPDATE`: actively submit an update intent for an existing memory
+- `CALL`: suspend the current frame and delegate work to a sub-agent
 
 Protocol format:
 
@@ -95,7 +97,7 @@ Protocol format:
 ⟪ VERB | TARGET | key="value" ⟫
 ```
 
-For full design background, motivation, and terminology, see [docs/PROJECT.md](docs/PROJECT.md).
+See [docs/contracts/mtp.md](docs/contracts/mtp.md) for the current protocol and [docs/PROJECT.md](docs/PROJECT.md) for the overall documentation index.
 
 ## API Overview
 
@@ -302,13 +304,16 @@ HiveMemory/
 ## Documentation
 
 - [README.md](README.md) — Chinese README
-- [docs/PROJECT.md](docs/PROJECT.md) — project background, architecture, Patchouli system, and MTP details
+- [docs/PROJECT.md](docs/PROJECT.md) — current project overview and global documentation index
+- [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) — documentation categories, status, and maintenance rules
+- [docs/architecture/overview.md](docs/architecture/overview.md) — current backend architecture
+- [docs/contracts/README.md](docs/contracts/README.md) — cross-subsystem contract index
 - [docs/SETUP.md](docs/SETUP.md) — setup guide
 - [docs/ROADMAP.md](docs/ROADMAP.md) — roadmap and future direction
 
 ## Contributing
 
-Issues and pull requests are welcome. The repository is currently converging on the v0.1.0 test release, so please double-check that code and documentation stay aligned before submitting changes, especially for startup commands, ports, and configuration instructions.
+Issues and pull requests are welcome. The repository is currently on the unreleased v0.6.0 development baseline. Behavioral changes should update the corresponding current design or contract document in the same change.
 
 ## License
 

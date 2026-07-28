@@ -1,3 +1,14 @@
+---
+title: System Architecture v4.0
+status: archived
+owner: project
+scope: legacy-architecture
+archived_at: 2026-07-28
+superseded_by: docs/architecture/overview.md
+---
+
+> 本文记录第四次架构演进的阶段性收敛结果，已经被当前代码核验后的[系统架构概览](../../architecture/overview.md)和[系统边界](../../architecture/boundaries.md)替代。
+
 # HiveMemory 第四次架构演进最终总纲
 
 **文档状态**: Final (已收敛)\

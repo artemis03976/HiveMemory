@@ -1,3 +1,16 @@
+---
+title: Router to Application Service Refactor
+status: archived
+owner: system
+scope: legacy-architecture-refactor
+archived_at: 2026-07-28
+superseded_by:
+  - docs/architecture/overview.md
+  - docs/architecture/boundaries.md
+---
+
+> 本文是已实施重构的历史记录。当前分层和调用边界见[系统架构概览](../../architecture/overview.md)与[系统边界](../../architecture/boundaries.md)。
+
 # Router 到 Application Service 收口重构计划
 
 **文档状态**: Archived (已实施，主要结论已并入 `SystemArchitecture_v4.0.md`)\

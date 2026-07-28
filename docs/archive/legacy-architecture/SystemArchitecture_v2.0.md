@@ -1,3 +1,14 @@
+---
+title: System Architecture v2.0
+status: archived
+owner: project
+scope: legacy-architecture
+archived_at: 2026-07-28
+superseded_by: docs/architecture/overview.md
+---
+
+> 本文是历史架构材料，不描述当前系统。当前设计见[系统架构概览](../../architecture/overview.md)和[系统边界](../../architecture/boundaries.md)。
+
 --------------------
 此模块已实现，文档已合并至项目开发规划文档PROJECT.md，仅做原内容参考
 --------------------

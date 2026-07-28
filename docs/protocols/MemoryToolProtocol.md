@@ -1,3 +1,14 @@
+---
+title: Legacy Memory Tool Protocol Specification
+status: superseded
+owner: alice
+scope: legacy-mtp-design
+archived_at: 2026-07-28
+superseded_by: docs/contracts/mtp.md
+---
+
+> 本文已停止维护，只保留迁移期间的历史参考。当前 MTP 语法、动词、权限、响应和限制以 [`docs/contracts/mtp.md`](../contracts/mtp.md) 为准，错误语义以 [`docs/contracts/error-model.md`](../contracts/error-model.md) 为准。
+
 # HiveMemory 子系统设计文档
 ## Memory Tool Protocol (MTP) Specification v1.0
 
@@ -5,7 +16,7 @@
 **适用阶段**: Phase 4 (Kernel Re-architecture)
 **核心负责人**: Patchouli System Architect
 
-> 说明：本文档继续作为 MTP 协议规范总文档保留。与第三次架构演进直接相关的“系统重构与运行时架构”内容已单独整理为 [SystemArchitecture_v3.0](../architecture/evolution/SystemArchitecture_v3.0.md)，便于与第二次、第四次架构演进文档统一归档对照。
+> 历史说明：本文曾作为 MTP 协议总文档；相关第三次架构演进材料现存档于 [SystemArchitecture_v3.0](../archive/legacy-architecture/SystemArchitecture_v3.0.md)。当前协议不得再从本文推断。
 
 ---
 

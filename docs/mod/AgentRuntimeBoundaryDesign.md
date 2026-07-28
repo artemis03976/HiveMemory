@@ -28,7 +28,7 @@
 
 ### 2.1 v4 演进中真正明确的与含糊的
 
-v4 架构演进（见 [SystemArchitecture_v4.0](../architecture/evolution/SystemArchitecture_v4.0.md)）中，有两项工作的边界是完全清晰的：
+当前架构边界（见[系统边界](../architecture/boundaries.md)）中，有两项工作的边界是完全清晰的：
 
 1. **patchouli 收敛为纯记忆域**：Agent 生成循环、多智能体调用等非记忆职责被全部逐出，patchouli 现在专注记忆域操作并通过总线暴露能力。状态理想。
 2. **顶层 HiveMemorySystem 成立**：消除了 patchouli 作为 god system 的历史包袱，作为 facade 管理对外 API、子系统装配与全局组件。状态理想。

@@ -1,3 +1,14 @@
+---
+title: System Architecture v3.0
+status: archived
+owner: project
+scope: legacy-architecture
+archived_at: 2026-07-28
+superseded_by: docs/architecture/overview.md
+---
+
+> 本文是历史架构草案，不描述当前系统。当前设计见[系统架构概览](../../architecture/overview.md)，当前 MTP 见[MTP 契约](../../contracts/mtp.md)。
+
 # HiveMemory 第三次架构演进：Patchouli OS 与内核运行时
 
 **文档状态**: Draft (整理版)  

@@ -7,8 +7,8 @@
 
 **相关文档**：
 
-- [v4 当前架构总纲](./architecture/evolution/SystemArchitecture_v4.0.md)
-- [Memory Tool Protocol](./protocols/MemoryToolProtocol.md)
+- [当前系统架构](./architecture/overview.md)
+- [Memory Tool Protocol](./contracts/mtp.md)
 - [Passive Conversation Memory Ingress 设计](./mod/V0.6.0PassiveIngressDesign.md)
 - [三餐推荐助手产品规格](./applications/MealAssistantProductSpec.md)
 

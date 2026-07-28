@@ -12,7 +12,7 @@ updates:
   - docs/alice/
   - docs/gateway/
   - docs/contracts/
-last_reviewed: 2026-07-27
+last_reviewed: 2026-07-28
 ---
 
 # 文档体系迁移清单
@@ -95,7 +95,7 @@ last_reviewed: 2026-07-27
 | 现有文档 | 分类 | 动作 | 目标或处理说明 |
 |:---|:---:|:---|:---|
 | `docs/protocols/README.md` | merge | 退役 | 由 `docs/contracts/README.md` 取代；迁移完成后移除旧索引 |
-| `docs/protocols/MemoryToolProtocol.md` | merge | 重写 | 根据 parser、models、runtime、formatter 和测试重建 `docs/contracts/MemoryToolProtocol.md` |
+| `docs/protocols/MemoryToolProtocol.md` | merge | 重写 | 根据 parser、models、runtime、formatter 和测试重建 `docs/contracts/mtp.md` |
 | `docs/protocols/MTPErrorStructureDesign.md` | merge | 合并后归档 | 已实现错误与 warning 语义进入 `contracts/error-model.md` 和 `contracts/mtp.md` |
 | `docs/protocols/PatchouliUnifiedMaintenanceSchedulerDesign.md` | merge | 合并后归档 | 当前调度器进入 `system/runtime-and-bus.md`；Patchouli 注册职责进入其 runtime/lifecycle 文档 |
 | `docs/protocols/i18n/README.md` | merge | 退役 | 由 `system/i18n.md` 和相关当前文档取代 |
@@ -194,8 +194,8 @@ last_reviewed: 2026-07-27
 
 为避免先移动文件、后验证内容，后续按以下批次执行：
 
-1. **P0：全局入口校正**：版本口径、`PROJECT.md`、`ROADMAP.md`、`architecture/overview.md` 与 `boundaries.md`；
-2. **P0：跨子系统契约**：MTP、错误模型、routes/events 和子系统边界；
+1. [x] **P0：全局入口校正**：版本口径、`PROJECT.md`、`ROADMAP.md`、`architecture/overview.md` 与 `boundaries.md`；
+2. [x] **P0：跨子系统契约**：MTP、错误模型、routes/events 和子系统边界；
 3. **P1：System 与 Gateway**：优先消除 v0.6.0 已实现但仍被描述为未来的偏差；
 4. **P1：Patchouli**：MemoryLibrary、artifacts、perception、generation、retrieval、lifecycle、MemoryCompiler；
 5. **P1：Alice**：Agent Runtime、orchestration、PendingAtom 与 MTP runtime；
@@ -210,7 +210,21 @@ last_reviewed: 2026-07-27
 - [x] Applications 与 Frontend 已有局部索引；
 - [x] 已记录版本状态、v0.6.0 状态和编码损坏等阻塞性偏差；
 - [ ] 每篇 `merge` 文档的事实尚未逐条通过代码验证；
-- [ ] 旧文件尚未移动或归档；
-- [ ] 当前设计主干尚未重写。
+- [ ] P1/P2 旧文件尚未移动或归档；
+- [x] P0 当前设计主干和契约已经重写。
 
-后三项属于后续迁移批次，不在本步骤内提前处理。
+剩余事实核验与旧文件处理属于 P1/P2 迁移批次。
+
+## 16. P0 迁移结果
+
+P0 已于 2026-07-28 完成：
+
+- `PROJECT.md` 已收敛为当前项目总览与全局文档索引；
+- `ROADMAP.md` 已区分最新发布标签 `v0.5.0` 与未发布开发基线 `v0.6.0`；
+- 当前架构由 `architecture/overview.md` 与 `architecture/boundaries.md` 统一维护；
+- 跨子系统契约由 `contracts/subsystem-contracts.md`、`routes-and-events.md`、`mtp.md` 和 `error-model.md` 统一维护；
+- v2/v3/v4 与 Router 收口材料已移入 `archive/legacy-architecture/`；
+- 旧 MTP 与错误设计已标记 `superseded`，当前链接改指 Contracts；
+- 根中英文 README 的版本与高层架构入口已经校正。
+
+下一批从 **P1：System 与 Gateway** 开始。

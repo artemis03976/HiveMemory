@@ -2,7 +2,7 @@
 
 **文档状态**: Implemented  
 **适用范围**: `agent_runtime/mtp/runtime.py`、`core/mtp/`、`agent_runtime/mtp/syscalls/`、`agent_runtime/loop_executor.py`、`alice/runtime/orchestrator.py`、`engines/memory_compiler/handlers/mtp.py`  
-**相关文档**: [MTPErrorStructureDesign.md](../MTPErrorStructureDesign.md)、[I18nFoundationDesign.md](./I18nFoundationDesign.md)、[MemoryCompilerI18nMigrationPlan.md](./MemoryCompilerI18nMigrationPlan.md)
+**相关文档**: [当前错误模型](../../contracts/error-model.md)、[当前 MTP 契约](../../contracts/mtp.md)、[I18nFoundationDesign.md](./I18nFoundationDesign.md)、[MemoryCompilerI18nMigrationPlan.md](./MemoryCompilerI18nMigrationPlan.md)
 
 本文记录 KoakumaRuntime 及其外围链路中会回填给 Agent 的 MTP 文本，并说明这些文本当前如何被 i18n 模板、结构化错误、结构化 warning 与 formatter 统一管理。
 
