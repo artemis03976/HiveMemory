@@ -1,3 +1,17 @@
+---
+title: Legacy PendingAtom Materialize Task Design
+status: superseded
+owner: alice
+scope: completed-materialize-task-and-run-result-design
+archived_at: 2026-07-28
+superseded_by:
+  - docs/alice/pending-atom.md
+  - docs/patchouli/generation.md
+  - docs/contracts/subsystem-contracts.md
+---
+
+> 本文保留 materialize task 从可变 PendingAtom 中抽离的设计理由，已停止维护。Alice 的请求投影、Patchouli 的物化消费与跨子系统边界分别以 [PendingAtom](../../alice/pending-atom.md)、[生成与物化](../../patchouli/generation.md)和[子系统公共契约](../../contracts/subsystem-contracts.md)为准。
+
 # PendingAtomMaterializeTask 与 AgentRunResult 重组设计
 
 **文档状态**: Draft (草案)

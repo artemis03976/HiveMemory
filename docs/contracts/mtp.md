@@ -197,6 +197,8 @@ Warning 放在 `<warnings><warning>...</warning></warnings>` 中。`pending_alia
 - 记忆访问使用调用方 `Identity`，不能绕过可见性边界；
 - cancellation 不能被转换成普通 success。
 
+> **当前实现偏差**：L2 冷查询会携带调用方 `Identity`，但 AliceRuntime 进程级共享的 L0 PendingAtomRuntime 与 L1 KoakumaAtomCache 在命中时尚未重新校验身份。因此当前代码还没有完全满足上述可见性不变量；这是需要修复的隔离缺口，而不是放宽契约的理由。详见 [MTP Runtime](../alice/mtp-runtime.md)与 [PendingAtom](../alice/pending-atom.md)。
+
 ## 7. 设计矛盾检查
 
 修改 MTP 时，应检查以下问题：

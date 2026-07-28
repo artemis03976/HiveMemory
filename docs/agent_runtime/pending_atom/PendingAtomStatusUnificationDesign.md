@@ -1,3 +1,15 @@
+---
+title: Legacy PendingAtom Status Unification Design
+status: superseded
+owner: alice
+scope: completed-pending-status-unification
+archived_at: 2026-07-28
+superseded_by:
+  - docs/alice/pending-atom.md
+---
+
+> 本文保留 PendingAtom 状态、resolution 与 snapshot 统一的设计过程，已停止维护。当前合法迁移、不变量、terminal 语义和 resolver 行为以 [Alice PendingAtom](../../alice/pending-atom.md)为准。
+
 # PendingAtom 状态体系统一设计
 
 **文档状态**: Draft (草案)

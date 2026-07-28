@@ -124,16 +124,16 @@ last_reviewed: 2026-07-28
 
 | 现有文档 | 分类 | 动作 | 目标或处理说明 |
 |:---|:---:|:---|:---|
-| `docs/alice/README.md` | current | 重写 | 建立 Alice 当前职责、runtime 组成、模块索引和契约入口 |
-| `docs/alice/phases/README.md` | archive | 直接归档 | Phase 索引完成历史职责后退役 |
-| `docs/alice/phases/Phase1.md` | merge | 合并后归档 | 已实现 Agent Profile/Runtime 事实进入 Alice 当前文档 |
-| `docs/alice/phases/Phase2.md` | merge | 合并后归档 | 已实现 CALL/PendingAtom/Orchestrator 事实进入 Alice 与 Contracts 当前文档 |
-| `docs/agent_runtime/README.md` | merge | 退役 | Agent Runtime 归入 `alice/agent-runtime.md`，不再作为平级子系统目录 |
-| `docs/agent_runtime/pending_atom/README.md` | merge | 退役 | 由 `alice/pending-atom.md` 取代 |
-| `docs/agent_runtime/pending_atom/PendingAtomCacheDesign.md` | merge | 拆分 | 核验当前 shadow/cache 行为后并入 `alice/pending-atom.md`；未落地设想转 Plan/Idea |
-| `docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md` | merge | 合并后归档 | 当前 materialize 与 AgentRunResult 边界进入 Alice/Patchouli 契约说明 |
-| `docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md` | merge | 合并后归档 | 当前状态应用、settlement 和 alias 行为进入 `alice/pending-atom.md` |
-| `docs/agent_runtime/pending_atom/PendingAtomStatusUnificationDesign.md` | merge | 合并后归档 | 当前状态机和不变量进入 `alice/pending-atom.md` 与数据模型文档 |
+| `docs/alice/README.md` | current | 重写 | P1 已建立 Alice 职责、非职责、执行/编排分层、Profile、主流程、模块入口与真实限制 |
+| `docs/alice/phases/README.md` | archive | 直接归档 | P1 已由 Alice 当前索引取代并标记 `superseded`；P2 再统一移动 |
+| `docs/alice/phases/Phase1.md` | merge | 合并后归档 | P1 已将 Agent Profile、权限与单 Agent Runtime 事实并入 Alice 当前文档并标记原文 `superseded` |
+| `docs/alice/phases/Phase2.md` | merge | 合并后归档 | P1 已将 CALL、PendingAtom 与 Orchestrator 事实并入 Alice/Contracts 并标记原文 `superseded` |
+| `docs/agent_runtime/README.md` | merge | 退役 | P1 已由 `alice/agent-runtime.md`、`pending-atom.md` 与 `mtp-runtime.md` 取代并标记旧索引 `superseded` |
+| `docs/agent_runtime/pending_atom/README.md` | merge | 退役 | P1 已由 `alice/pending-atom.md` 取代并标记旧索引 `superseded` |
+| `docs/agent_runtime/pending_atom/PendingAtomCacheDesign.md` | merge | 拆分 | P1 已将当前 shadow/cache、三级解析与隔离缺口并入 Alice 当前文档并标记原文 `superseded` |
+| `docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md` | merge | 合并后归档 | P1 已将 materialize/settlement 对偶与 AgentRunResult 边界并入 Alice/Patchouli 当前文档并标记原文 `superseded` |
+| `docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md` | merge | 合并后归档 | P1 已将状态命令、store 所有权、settlement 与回收行为并入 `alice/pending-atom.md` 并标记原文 `superseded` |
+| `docs/agent_runtime/pending_atom/PendingAtomStatusUnificationDesign.md` | merge | 合并后归档 | P1 已将状态机、resolution 与 snapshot 不变量并入 `alice/pending-atom.md` 并标记原文 `superseded` |
 
 ## 9. Gateway
 
@@ -171,17 +171,17 @@ last_reviewed: 2026-07-28
 
 | 现有文档 | 分类 | 动作 | 目标或处理说明 |
 |:---|:---:|:---|:---|
-| `docs/mod/AgentLoopDecouplingDesign.md` | merge | 合并后归档 | 当前 loop/executor 边界进入 `alice/agent-runtime.md` |
-| `docs/mod/AgentRuntimeBoundaryDesign.md` | merge | 合并后归档 | 当前 Alice/Agent/MTP 边界进入 Alice 与 Contracts；关键裁定评估为 ADR |
+| `docs/mod/AgentLoopDecouplingDesign.md` | merge | 合并后归档 | P1 已将 loop/executor 与 CALL trap 边界并入 Alice 当前文档并标记原文 `superseded` |
+| `docs/mod/AgentRuntimeBoundaryDesign.md` | merge | 合并后归档 | P1 已将 Alice 控制面、Agent Runtime 执行层与 MTP 边界并入 Alice 当前文档并标记原文 `superseded` |
 | `docs/mod/MemoryCompilerIRDesign.md` | merge | 合并后归档 | P1 已并入 `patchouli/memory-compiler.md` 并标记原文 `superseded` |
 | `docs/mod/MemoryCompilerRetrievalRefactorPlan.md` | merge | 合并后归档 | P1 已将 Retrieval/Compiler 分工并入两个当前文档并标记原文 `superseded` |
 | `docs/mod/MemoryGenerationManagementEnhancementPlan.md` | merge | 合并后归档 | P1 已将任务控制、失败隔离、等待/取消和 shutdown 时序并入 `patchouli/generation.md` 并标记原文 `superseded` |
 | `docs/mod/PatchouliSubsystemRefactorPlan.md` | merge | 合并后归档 | P1 已将 MemoryLibrary、service/runtime、Familiar/Coordinator 和引擎所有权并入 Patchouli 当前文档并标记原文 `superseded` |
-| `docs/mod/PendingAtomLifecycleDesign.md` | merge | 合并后归档 | 当前生命周期和句柄回收进入 `alice/pending-atom.md` |
+| `docs/mod/PendingAtomLifecycleDesign.md` | merge | 合并后归档 | P1 已将生命周期、结算窗口和句柄回收并入 `alice/pending-atom.md` 并标记原文 `superseded` |
 | `docs/mod/RuntimeEventPublishingRefactorDesign.md` | merge | 合并后归档 | 当前发布抽象进入 `system/observability.md` 与 `contracts/routes-and-events.md`；重要取舍评估为 ADR |
 | `docs/mod/V0.4.0RuntimeControlAndObservabilityPlan.md` | merge | 合并后归档 | v0.4 已完成；当前控制和事件事实进入 System 文档 |
 | `docs/mod/V0.5.0DataDurabilityAndAsyncColdPathPlan.md` | merge | 合并后归档 | P1 已将 artifact/provenance/cold path 事实与耐久性缺口并入 Patchouli 当前文档并标记原文 `superseded` |
-| `docs/mod/V0.5.1InfraCleanupPlan.md` | merge | 合并后归档 | 提取当前配置所有权和 NoOp/cancel 不变量后归档 |
+| `docs/mod/V0.5.1InfraCleanupPlan.md` | merge | 合并后归档 | P1 已将配置所有权、NoOp 与取消接线事实并入 System/Patchouli/Alice 当前文档并标记原文 `superseded` |
 | `docs/mod/V0.5.2AsyncNativeAdaptationPlan.md` | archive | 直接归档 | P1 已将有效 async 边界并入 MemoryLibrary/Generation/Retrieval 并标记实施记录 `superseded`；P2 再物理移动 |
 | `docs/mod/V0.6.0CompositeIntentDecompositionDesign.md` | plan | 迁移 | 移入 `plans/v0.6.0-composite-intent-decomposition.md`；与当前私有 `sub_intents` 行为明确区分 |
 | `docs/mod/V0.6.0GatewaySystemDesign.md` | merge | 拆分 | P1 已将已实现事实并入 Gateway/System 当前文档并标记原文 `superseded`；未落地内容不再作为当前能力 |
@@ -198,7 +198,7 @@ last_reviewed: 2026-07-28
 2. [x] **P0：跨子系统契约**：MTP、错误模型、routes/events 和子系统边界；
 3. [x] **P1：System 与 Gateway**：已消除 v0.6.0 已实现但仍被描述为未来的偏差；
 4. [x] **P1：Patchouli**：MemoryLibrary、artifacts、perception、generation、retrieval、lifecycle、MemoryCompiler；
-5. **P1：Alice**：Agent Runtime、orchestration、PendingAtom 与 MTP runtime；
+5. [x] **P1：Alice**：Agent Runtime、orchestration、PendingAtom 与 MTP runtime；
 6. **P2：Frontend、Applications 与 Help**；
 7. **P2：Archive 重组、源码 README 收敛和全库链接检查**。
 
@@ -214,8 +214,9 @@ last_reviewed: 2026-07-28
 - [x] P0 当前设计主干和契约已经重写。
 - [x] P1 System 与 Gateway 当前设计已经核验、重写并关闭旧入口。
 - [x] P1 Patchouli 当前设计已经核验、重写并关闭旧入口。
+- [x] P1 Alice 当前设计已经核验、重写并关闭旧入口。
 
-剩余 Alice 事实核验与旧文件物理处理属于 P1/P2 迁移批次。
+剩余 Frontend、Applications、Help、源码 README 与旧文件物理处理属于 P2 迁移批次。
 
 ## 16. P0 迁移结果
 
@@ -253,4 +254,17 @@ P0 已于 2026-07-28 完成：
 - `EnableLifecycleMaintenanceDesign.md` 已补齐 Archive 元数据与替代入口；
 - 旧文件仍保留原路径，统一物理移动、源码 README 收敛和全库链接检查继续留给 P2。
 
-下一批进入 **P1：Alice**；本批不提前重建 Alice 文档。
+随后已进入并完成 **P1：Alice**，结果见下一节。
+
+## 19. P1 Alice 迁移结果
+
+本批已于 2026-07-28 完成：
+
+- `alice/` 已建立子系统总览，以及 Agent Runtime、多 Agent 编排、PendingAtom 与 MTP Runtime 四篇当前模块文档；
+- 文档保留“人偶使”、人偶图纸、CPU/调度器分层、store buffer 与文本协议等设计隐喻和边界理由，同时逐项核对 frame、loop、Profile、Koakuma、resolver、PendingAtom、syscall、配置和测试表达的当前事实；
+- 当前文档明确记录 Profile fail-open、进程级共享 cache、Identity 隔离缺口、共享 scheduler/cancel 状态、子帧结果收割偏差、非持久化运行状态、配置未接线和 RUN 非强安全沙箱等设计张力；
+- Alice Phase 1/2、平行 Agent Runtime 索引、PendingAtom 系列设计稿、执行层边界/解耦稿与 v0.5.1 基础设施清理稿均已标记 `superseded` 并链接当前入口；
+- MTP 契约保留调用方 Identity 不变量，并明确 L0/L1 命中尚未重新校验身份是当前实现偏差，而不是新的契约口径；
+- 旧文件仍保留原路径，统一物理移动、源码 README 收敛和全库链接检查继续留给 P2。
+
+下一批进入 **P2：Frontend、Applications 与 Help**；本批不提前推进 P2 或 Archive 物理重组。

@@ -1,3 +1,17 @@
+---
+title: Legacy Alice Phase 2 Design
+status: superseded
+owner: alice
+scope: completed-sub-agent-call-and-pending-atom-phase
+archived_at: 2026-07-28
+superseded_by:
+  - docs/alice/orchestration.md
+  - docs/alice/pending-atom.md
+  - docs/contracts/mtp.md
+---
+
+> 本文保留 CALL、子帧 IPC 与 PendingAtom 的阶段性设计过程，已停止维护。当前行为以[多 Agent 编排](../orchestration.md)、[PendingAtom](../pending-atom.md)和 [MTP 契约](../../contracts/mtp.md)为准。
+
 # HiveMemory 多智能体子系统设计文档
 ## Phase 2: 子代理调用与 IPC (Sub-Agent Call & IPC)
 

@@ -1,3 +1,16 @@
+---
+title: Legacy Agent Loop Decoupling Plan
+status: superseded
+owner: alice
+scope: completed-agent-loop-and-orchestrator-decoupling
+archived_at: 2026-07-28
+superseded_by:
+  - docs/alice/agent-runtime.md
+  - docs/alice/orchestration.md
+---
+
+> 本文保留 AgentLoopExecutor 与 Orchestrator 解耦的实施理由和迁移轨迹，已停止维护。当前 frame 执行、CALL trap 与恢复流程以 [Agent Runtime](../alice/agent-runtime.md)和[多 Agent 编排](../alice/orchestration.md)为准。
+
 # Agent 执行循环解耦落地规划
 
 **文档状态**: Draft (草案)

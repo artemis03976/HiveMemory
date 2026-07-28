@@ -39,8 +39,8 @@ last_reviewed: 2026-07-28
 | 版本 | 状态 | 核心结果 | 当前依据 |
 |:---|:---:|:---|:---|
 | `v0.1.0-beta` / `v0.1.1` | Released | 记忆 MVP、API、基础前端与早期冷热路径 | Git tag；后续设计已演进 |
-| `v0.2.0` | Released | 多 Agent 隔离、Agent Profile 记忆化 | Git tag；[Patchouli 当前设计](./patchouli/README.md)；Alice 文档待 P1 收敛 |
-| `v0.3.0` | Released | CALL、PendingAtom、Alice Orchestrator、MemoryCompiler | Git tag；[MTP](./contracts/mtp.md) |
+| `v0.2.0` | Released | 多 Agent 隔离、Agent Profile 记忆化 | Git tag；[Patchouli 当前设计](./patchouli/README.md)；[Alice 当前设计](./alice/README.md) |
+| `v0.3.0` | Released | CALL、PendingAtom、Alice Orchestrator、MemoryCompiler | Git tag；[Alice 当前设计](./alice/README.md)；[MTP](./contracts/mtp.md) |
 | `v0.4.0` | Released | chat run / memory task 取消控制与 RuntimeEvent | Git tag；[路由与事件](./contracts/routes-and-events.md) |
 | `v0.5.0` | Released | artifact/provenance、MemoryLibrary、async-native、模型注册 | Git tag；[System 当前设计](./system/README.md)；[Patchouli 当前设计](./patchouli/README.md) |
 
@@ -71,10 +71,11 @@ last_reviewed: 2026-07-28
 - [System 当前设计](./system/README.md)
 - [Gateway 当前设计](./gateway/README.md)
 - [Patchouli 当前设计](./patchouli/README.md)
+- [Alice 当前设计](./alice/README.md)
 
 ### 3.2 发布前剩余工作
 
-- 完成 Alice 的 P1 当前设计文档迁移；System、Gateway 与 Patchouli 旧入口已停止维护；
+- 完成 Frontend、Applications、Help 与 Archive 的 P2 文档收敛；System、Gateway、Patchouli 与 Alice 旧入口已停止维护；
 - 将复合意图从分析结果扩展为下游可消费的稳定任务/决策契约；
 - 补齐自定义入口拦截规则的配置与运行时注入；
 - 继续稳定 Gateway 降级、命令和 Passive Ingress 的端到端行为；

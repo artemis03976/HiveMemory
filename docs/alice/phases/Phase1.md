@@ -1,3 +1,17 @@
+---
+title: Legacy Alice Phase 1 Design
+status: superseded
+owner: alice
+scope: completed-agent-profile-and-runtime-phase
+archived_at: 2026-07-28
+superseded_by:
+  - docs/alice/README.md
+  - docs/alice/agent-runtime.md
+  - docs/alice/mtp-runtime.md
+---
+
+> 本文保留 Agent Profile、权限与单 Agent Runtime 的早期设计动机，已停止维护。当前图纸解析、执行循环、权限接线与实现限制以 [Alice 总览](../README.md)、[Agent Runtime](../agent-runtime.md)和 [MTP Runtime](../mtp-runtime.md)为准。
+
 # HiveMemory 多智能体子系统设计文档
 ## Phase 1: 人偶图纸与运行时 (Agent Profile & Runtime)
 

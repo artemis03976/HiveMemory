@@ -1,3 +1,17 @@
+---
+title: Legacy Agent Runtime Boundary Design
+status: superseded
+owner: alice
+scope: completed-agent-runtime-boundary-decision
+archived_at: 2026-07-28
+superseded_by:
+  - docs/alice/README.md
+  - docs/alice/agent-runtime.md
+  - docs/alice/orchestration.md
+---
+
+> 本文保留 Alice 控制面与单 Agent 执行层分离的边界裁定，已停止维护。当前所有权、依赖方向与物理代码现状以 [Alice 总览](../alice/README.md)、[Agent Runtime](../alice/agent-runtime.md)和[多 Agent 编排](../alice/orchestration.md)为准。
+
 # Agent 执行引擎边界裁定与目录结构设计
 
 **文档状态**: Draft (草案)
