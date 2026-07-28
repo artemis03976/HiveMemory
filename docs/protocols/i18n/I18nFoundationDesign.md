@@ -1,3 +1,14 @@
+---
+title: Legacy HiveMemory i18n Foundation Design
+status: superseded
+owner: system
+scope: legacy-i18n-foundation-design
+archived_at: 2026-07-28
+superseded_by: docs/system/i18n.md
+---
+
+> 本文已停止维护。已经落地的 i18n 基础设施、语言解析和当前限制已合并到 [`docs/system/i18n.md`](../../system/i18n.md)；本文中的规划性内容不代表当前能力。
+
 # HiveMemory i18n 基建设计规划
 
 **状态**: Draft  

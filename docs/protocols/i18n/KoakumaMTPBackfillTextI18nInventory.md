@@ -1,3 +1,17 @@
+---
+title: Legacy Koakuma MTP Backfill i18n Inventory
+status: superseded
+owner: alice
+scope: legacy-mtp-backfill-i18n-inventory
+archived_at: 2026-07-28
+superseded_by:
+  - docs/system/i18n.md
+  - docs/contracts/mtp.md
+  - docs/contracts/error-model.md
+---
+
+> 本文已停止维护。当前语言选择与文本入口见 [`docs/system/i18n.md`](../../system/i18n.md)，MTP 回填结构和机器错误语义见 [`docs/contracts/mtp.md`](../../contracts/mtp.md) 与 [`docs/contracts/error-model.md`](../../contracts/error-model.md)。
+
 # KoakumaRuntime MTP 回填文本 i18n 清单
 
 **文档状态**: Implemented  

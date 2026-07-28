@@ -76,7 +76,7 @@ last_reviewed: 2026-07-28
 | `docs/ROADMAP.md` | merge | 重写 | 根据代码重新校正阶段状态；详细设计链接到 Plans，完成记录链接到 Archive |
 | `docs/SETUP.md` | help | 迁移 | 核验命令、端口和配置后迁入 `docs/help/setup.md` |
 | `docs/TODO.md` | todo | 拆分 | 未完成小项迁入 `docs/todo/` 或 Issue；已完成记录归档；实现示例不继续保留在待办索引 |
-| `docs/ObservabilityDesign.md` | merge | 合并后归档 | 当前事实进入 `docs/system/observability.md`，并与 RuntimeEvent 相关设计统一 |
+| `docs/ObservabilityDesign.md` | merge | 合并后归档 | P1 已合并到 `docs/system/observability.md` 并标记原文 `superseded`；P2 再统一移动 |
 
 ## 5. Architecture
 
@@ -98,10 +98,10 @@ last_reviewed: 2026-07-28
 | `docs/protocols/MemoryToolProtocol.md` | merge | 重写 | 根据 parser、models、runtime、formatter 和测试重建 `docs/contracts/mtp.md` |
 | `docs/protocols/MTPErrorStructureDesign.md` | merge | 合并后归档 | 已实现错误与 warning 语义进入 `contracts/error-model.md` 和 `contracts/mtp.md` |
 | `docs/protocols/PatchouliUnifiedMaintenanceSchedulerDesign.md` | merge | 合并后归档 | 当前调度器进入 `system/runtime-and-bus.md`；Patchouli 注册职责进入其 runtime/lifecycle 文档 |
-| `docs/protocols/i18n/README.md` | merge | 退役 | 由 `system/i18n.md` 和相关当前文档取代 |
-| `docs/protocols/i18n/I18nFoundationDesign.md` | merge | 合并后归档 | 已落地基础设施进入 `system/i18n.md`；未完成范围不得继续保留为当前事实 |
-| `docs/protocols/i18n/I18nStatusAndRoadmap.md` | merge | 拆分 | 当前状态进入 `system/i18n.md`；剩余工作进入 Plan 或 Todo |
-| `docs/protocols/i18n/KoakumaMTPBackfillTextI18nInventory.md` | merge | 合并后归档 | 结构化回填与语言边界进入 MTP 契约和 `system/i18n.md` |
+| `docs/protocols/i18n/README.md` | merge | 退役 | P1 已由 `system/i18n.md` 取代并标记旧索引 `superseded` |
+| `docs/protocols/i18n/I18nFoundationDesign.md` | merge | 合并后归档 | P1 已将落地基础设施与限制并入 `system/i18n.md`，原文已标记 `superseded` |
+| `docs/protocols/i18n/I18nStatusAndRoadmap.md` | merge | 拆分 | P1 已将当前状态与已知缺口并入 `system/i18n.md`，原文已标记 `superseded` |
+| `docs/protocols/i18n/KoakumaMTPBackfillTextI18nInventory.md` | merge | 合并后归档 | P1 已由 MTP/Error Contracts 与 `system/i18n.md` 取代，原文已标记 `superseded` |
 | `docs/protocols/i18n/MemoryCompilerI18nMigrationPlan.md` | archive | 直接归档 | 主要阶段已完成且正文存在编码损坏；剩余工作以 Status 文档核对后另建 Todo/Plan |
 
 ## 7. Patchouli 与 Engines
@@ -139,7 +139,7 @@ last_reviewed: 2026-07-28
 
 | 现有文档 | 分类 | 动作 | 目标或处理说明 |
 |:---|:---:|:---|:---|
-| `docs/engines/gateway.md` | merge | 合并后归档 | 按当前独立 Gateway 子系统重建 `gateway/analysis.md`、`commands.md` 与 `workflow.md`；旧 Patchouli/TheEye 边界不再保留为当前事实 |
+| `docs/engines/gateway.md` | merge | 合并后归档 | P1 已重建 `gateway/analysis.md`、`commands.md` 与 `workflow.md` 并标记原文 `superseded`；P2 再统一移动 |
 
 ## 10. Applications 与 Frontend
 
@@ -184,10 +184,10 @@ last_reviewed: 2026-07-28
 | `docs/mod/V0.5.1InfraCleanupPlan.md` | merge | 合并后归档 | 提取当前配置所有权和 NoOp/cancel 不变量后归档 |
 | `docs/mod/V0.5.2AsyncNativeAdaptationPlan.md` | archive | 直接归档 | 实施记录保留历史；仍有效的 async 不变量并入当前模块文档 |
 | `docs/mod/V0.6.0CompositeIntentDecompositionDesign.md` | plan | 迁移 | 移入 `plans/v0.6.0-composite-intent-decomposition.md`；与当前私有 `sub_intents` 行为明确区分 |
-| `docs/mod/V0.6.0GatewaySystemDesign.md` | merge | 拆分 | Phase 3A-3F 等已实现事实进入 Gateway/System 当前文档；未完成阶段进入 Plan；原设计归档 |
-| `docs/mod/V0.6.0GlobalCommandSystemDesign.md` | merge | 拆分 | 已实现命令注册、分发和短路进入 `gateway/commands.md`；剩余内容进入 Plan/Todo |
-| `docs/mod/V0.6.0PassiveIngressDesign.md` | merge | 合并后归档 | 当前实现进入 `system/passive-ingress.md`，并链接 Gateway ingress 契约 |
-| `docs/mod/V0.6.0UserQueryAnalysisGen1TechDebt.md` | todo | 拆分 | 第一代当前行为进入 `gateway/analysis.md`；具体技术债迁入 `todo/` 或 Issue |
+| `docs/mod/V0.6.0GatewaySystemDesign.md` | merge | 拆分 | P1 已将已实现事实并入 Gateway/System 当前文档并标记原文 `superseded`；未落地内容不再作为当前能力 |
+| `docs/mod/V0.6.0GlobalCommandSystemDesign.md` | merge | 拆分 | P1 已将注册、分发、安全和短路语义并入 `gateway/commands.md`，原文已标记 `superseded` |
+| `docs/mod/V0.6.0PassiveIngressDesign.md` | merge | 合并后归档 | P1 已并入 `system/passive-ingress.md` 与 Gateway workflow，原文已标记 `superseded` |
+| `docs/mod/V0.6.0UserQueryAnalysisGen1TechDebt.md` | todo | 拆分 | P1 已将当前行为、矛盾和技术债并入 `gateway/analysis.md`；原稿停止作为当前设计入口 |
 | `docs/mod/V0.6.1LocalWorkQueueRuntimePlan.md` | plan | 迁移 | 移入 `plans/v0.6.1-local-work-queue-runtime.md`，继续保持 Future/Planned 状态 |
 
 ## 14. 迁移批次
@@ -196,7 +196,7 @@ last_reviewed: 2026-07-28
 
 1. [x] **P0：全局入口校正**：版本口径、`PROJECT.md`、`ROADMAP.md`、`architecture/overview.md` 与 `boundaries.md`；
 2. [x] **P0：跨子系统契约**：MTP、错误模型、routes/events 和子系统边界；
-3. **P1：System 与 Gateway**：优先消除 v0.6.0 已实现但仍被描述为未来的偏差；
+3. [x] **P1：System 与 Gateway**：已消除 v0.6.0 已实现但仍被描述为未来的偏差；
 4. **P1：Patchouli**：MemoryLibrary、artifacts、perception、generation、retrieval、lifecycle、MemoryCompiler；
 5. **P1：Alice**：Agent Runtime、orchestration、PendingAtom 与 MTP runtime；
 6. **P2：Frontend、Applications 与 Help**；
@@ -212,6 +212,7 @@ last_reviewed: 2026-07-28
 - [ ] 每篇 `merge` 文档的事实尚未逐条通过代码验证；
 - [ ] P1/P2 旧文件尚未移动或归档；
 - [x] P0 当前设计主干和契约已经重写。
+- [x] P1 System 与 Gateway 当前设计已经核验、重写并关闭旧入口。
 
 剩余事实核验与旧文件处理属于 P1/P2 迁移批次。
 
@@ -227,4 +228,15 @@ P0 已于 2026-07-28 完成：
 - 旧 MTP 与错误设计已标记 `superseded`，当前链接改指 Contracts；
 - 根中英文 README 的版本与高层架构入口已经校正。
 
-下一批从 **P1：System 与 Gateway** 开始。
+## 17. P1 System 与 Gateway 迁移结果
+
+本批已于 2026-07-28 完成：
+
+- `system/` 已建立组合根、应用服务、Passive Ingress、runtime/bus、配置、可观测性与 i18n 当前文档；
+- `gateway/` 已建立子系统总览、固定 workflow、话题/查询分析和全局命令当前文档；
+- 文档同时保留设计问题、所有权理由、失败边界、技术债与矛盾检查，没有把未落地计划写成当前事实；
+- Gateway Engine、v0.6.0 Gateway/Command/Passive、Observability 与主要 i18n 旧文档已标记 `superseded` 并链接替代入口；
+- 旧文件的物理移动继续留给 P2 Archive 重组，避免在事实核验批次中同时大规模改路径；
+- `MemoryCompilerI18nMigrationPlan.md` 因原文件存在已知编码损坏仍只保留迁移清单记录，待 P2 以原始字节安全归档，不从其正文复制当前事实。
+
+下一批进入 **P1：Patchouli**；本批不提前重建 Patchouli 或 Alice 文档。

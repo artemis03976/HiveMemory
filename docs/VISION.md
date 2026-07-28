@@ -3,13 +3,13 @@
 **文档状态**：Living Vision  
 **文档性质**：项目上位理念与长期方向，不代表所有能力均已实现  
 **适用范围**：未来的项目介绍、架构设计、路线规划、产品决策与评估体系  
-**最后更新**：2026-07-26
+**最后更新**：2026-07-28
 
 **相关文档**：
 
 - [当前系统架构](./architecture/overview.md)
 - [Memory Tool Protocol](./contracts/mtp.md)
-- [Passive Conversation Memory Ingress 设计](./mod/V0.6.0PassiveIngressDesign.md)
+- [Passive Conversation Memory Ingress 当前设计](./system/passive-ingress.md)
 - [三餐推荐助手产品规格](./applications/MealAssistantProductSpec.md)
 
 ---

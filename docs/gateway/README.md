@@ -1,20 +1,85 @@
 ---
 title: Gateway
-status: draft
+status: current
 owner: gateway
-scope: gateway-subsystem
-last_reviewed: 2026-07-27
+scope: ingress-decision-subsystem
+code_paths:
+  - src/hivememory/gateway/
+  - src/hivememory/engines/gateway/
+related_contracts:
+  - docs/contracts/subsystem-contracts.md
+  - docs/contracts/routes-and-events.md
+  - docs/architecture/boundaries.md
+last_reviewed: 2026-07-28
 ---
 
 # Gateway
 
-本目录是 Gateway 子系统当前设计的目标入口。Gateway 负责入口级决策、系统指令、话题与查询分析，以及向下游投影稳定的决策结果。
+Gateway 是 HiveMemory 的入口决策子系统。它面对一条尚未被系统解释的消息，判断这条消息是否是系统指令、应归入哪个话题、应如何重写和检索，以及是否表现出值得写入记忆的信号；随后，它把这些判断一次性投影为命令终态或依赖中立的 `GatewayDecision`。
 
-计划收录的当前设计包括：
+项目早期把这类能力称为“真理之眼（The Eye）”。这个比喻表达的是 Gateway 应当在系统入口形成统一视角，而不是赋予它全知全能的控制权。Gateway 可以“看见并判断”，但不执行检索、不生成回复、不持久化记忆，也不拥有 Agent 运行状态。执行仍分别属于 Patchouli、Alice 和 System 应用层。
 
-- `analysis.md`：用户查询分析、降级与决策投影；
-- `commands.md`：系统指令注册、解析、分发与短路语义；
-- `workflow.md`：Gateway workflow、step、不变量和失败边界；
-- 子系统 README 中的职责、非职责、依赖和代码入口。
+## 1. 为什么 Gateway 成为独立子系统
 
-当前目录仍处于文档迁移阶段。现有 `docs/engines/gateway.md` 与 `docs/mod/V0.6.0*` 同时包含旧设计、已实现事实和未来计划，必须按[迁移清单](../plans/documentation-migration-inventory.md)拆分后才能成为当前真相源。
+旧实现把入口分析放在 Patchouli 的装配和 prepare 链路中，并让一步 LLM router 同时承担话题路由、指代消解、关键词提取、意图判断和记忆价值预判。这带来两个相互强化的问题：
+
+1. 入口决策被记忆子系统反向托管，主动 chat 必须先进入 Patchouli 才能知道下一步做什么；
+2. 多种语义判断共用一个不透明输出，任何局部退化都会污染整条决策，而下游很难区分哪一项能力失败。
+
+当前设计把 Gateway 提升为与 Patchouli、Alice 平级的 `GatewaySystem`，并用固定 workflow 明确每一步的输入、输出、超时和 fallback。这样做不是为了增加一层抽象，而是为了让入口决策拥有清晰所有者，同时让记忆与 Agent 执行不再依赖 Gateway 的私有状态。
+
+## 2. 当前职责与非职责
+
+Gateway 当前负责：
+
+- 区分 `ACTIVE_CHAT` 与 `PASSIVE_MEMORY` 两种入口策略；
+- 在主动入口中识别、解析、授权和分发系统指令；
+- 读取候选话题快照并选择已有话题或 `NEW_TOPIC`；
+- 对路由后的用户输入生成意图、query rewrite、关键词、记忆写入信号和检索计划；
+- 对可恢复的上下文或模型能力失败应用局部保守降级；
+- 处理整次请求的 deadline、调用方取消和 RuntimeEvent 观测；
+- 只通过 `gateway.public.process` 暴露稳定公共结果。
+
+Gateway 不负责：
+
+- 执行向量/关键词检索或解释检索结果；
+- 创建、更新、归档话题或长期记忆；
+- 运行 Alice、MTP、工具或子 Agent；
+- 生成自然语言回复；
+- 保存可恢复的 workflow/job 状态；
+- 替 transport 验证身份真实性，或替下游决定最终记忆是否应当持久化。
+
+尤其需要区分 `memory_write_signal` 与“写入命令”：前者只是入口阶段根据用户输入形成的预判，Patchouli 仍拥有长期记忆生成、验证和持久化的最终决定权。
+
+## 3. 运行结构
+
+```text
+GatewaySystem
+  -> GatewayRuntime
+       -> GatewayBus（子系统本地路由）
+       -> GatewayContextProvider
+       -> RuleInterceptor / CommandRegistry / Dispatcher
+       -> TopicRouterEngine
+       -> UserQueryAnalysisResolver
+       -> GatewayWorkflow
+  -> GatewayService.process
+  -> gateway.public.process
+```
+
+`GatewaySystem` 挂载生命周期和公开 route；`GatewayRuntime` 拥有本地依赖与 workflow；`GatewayService` 只处理请求级 timeout 收敛并把执行委托给 workflow。Gateway 读取 Patchouli 话题上下文时只通过 `GlobalSystemBus` 公共 route，不持有 Patchouli Runtime 或 Service。
+
+## 4. 两种入口模式
+
+`ACTIVE_CHAT` 允许命令短路，也允许普通决策。命令一旦命中，无论执行成功、被拒绝还是尚未实现，都会形成 `GatewayCommandOutcome`，不再进入话题、检索或 Alice 链路。
+
+`PASSIVE_MEMORY` 禁止系统命令，只能形成 `GatewayDecisionOutcome`。它复用同一套话题与查询分析能力，但被动摄入的 buffer、去重、outbox、Patchouli submit 和降级响应属于 [System Passive Ingress](../system/passive-ingress.md)，不属于 Gateway。
+
+完整跨子系统语义见[子系统公共契约](../contracts/subsystem-contracts.md)和[公开路由与事件](../contracts/routes-and-events.md)。
+
+## 5. 当前设计文档
+
+- [固定工作流](./workflow.md)：拓扑、状态提交、终态投影、deadline、取消与 fallback；
+- [话题与查询分析](./analysis.md)：两阶段上下文、Topic Router、第一代 Resolver 与技术债；
+- [全局命令](./commands.md)：Registry、Parser、Dispatcher、权限和命令短路。
+
+旧 `docs/engines/gateway.md`、`docs/mod/V0.6.0GatewaySystemDesign.md` 与 `docs/mod/V0.6.0GlobalCommandSystemDesign.md` 已停止作为实现入口。它们保留了演化过程和未落地设想；当前事实以代码、测试、本目录文档和 Contracts 为准。

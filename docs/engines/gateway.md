@@ -1,3 +1,17 @@
+---
+title: Legacy Global Intelligent Gateway
+status: superseded
+owner: gateway
+scope: legacy-engine-centric-gateway-design
+archived_at: 2026-07-28
+superseded_by:
+  - docs/gateway/README.md
+  - docs/gateway/workflow.md
+  - docs/gateway/analysis.md
+---
+
+> 本文描述的是 Gateway 仍作为 Engine/The Eye 的历史设计，已停止维护。当前独立 Gateway 子系统、固定 workflow 与分析边界以 [`docs/gateway/README.md`](../gateway/README.md)、[`workflow.md`](../gateway/workflow.md) 和 [`analysis.md`](../gateway/analysis.md) 为准。
+
 # 4 核心功能 I：全局智能网关 (Global Intelligent Gateway)
 
 > **[归属分身：真理之眼 (The Eye)]**

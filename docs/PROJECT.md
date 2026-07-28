@@ -189,7 +189,7 @@ HiveMemorySystem
   └─ AliceSystem     Agent 执行与控制平面
 ```
 
-详细组件图、主动/被动数据流和启停顺序见[系统架构概览](./architecture/overview.md)。职责和状态所有权见[系统边界](./architecture/boundaries.md)。
+详细组件图、主动/被动数据流和启停顺序见[系统架构概览](./architecture/overview.md)。职责和状态所有权见[系统边界](./architecture/boundaries.md)。顶层装配、应用服务、运行时、配置、可观测性与 i18n 的内部设计从 [System 当前文档](./system/README.md)进入。
 
 ## 7. 三个子系统
 
@@ -198,6 +198,8 @@ HiveMemorySystem
 Gateway 把原始入口消息投影为命令终态或稳定 `GatewayDecision`。它负责入口拦截、命令、候选话题、话题路由、查询分析和保守降级，不执行检索或回复生成。
 
 代码入口：`src/hivememory/gateway/system.py`、`runtime/`、`workflow/`、`commands/`、`analysis/`。
+
+当前设计入口：[Gateway 总览](./gateway/README.md)、[固定工作流](./gateway/workflow.md)、[话题与查询分析](./gateway/analysis.md)、[全局命令](./gateway/commands.md)。
 
 ### 7.2 Patchouli
 
@@ -271,10 +273,10 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 
 ### 9.4 子系统与系统模块
 
-以下目录是 P1 当前设计的固定归属位置。迁移完成前，其中部分 README 仍只是目标索引，使用时应同时核对代码和 P0 契约：
+System 与 Gateway 已完成本轮事实核验和当前文档重建；Patchouli 与 Alice 仍处于 P1 迁移阶段，使用其 README 时应同时核对代码和 P0 契约：
 
-- [System](./system/README.md)
-- [Gateway](./gateway/README.md)
+- [System](./system/README.md)：组合根、应用服务、Passive Ingress、runtime/bus、配置、可观测性与 i18n；
+- [Gateway](./gateway/README.md)：固定 workflow、话题/查询分析与全局命令；
 - [Patchouli](./patchouli/README.md)
 - [Alice](./alice/README.md)
 
@@ -295,7 +297,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 - RuntimeEvent 与当前 memory task 状态主要是进程内能力，通用持久化 Job Queue 尚未实现；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；
 - 附件、Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
-- P1/P2 文档迁移尚未完成，`docs/mod/`、`docs/engines/` 和部分旧 README 仍只可作为待核验材料。
+- Patchouli、Alice 与 P2 文档迁移尚未完成，`docs/mod/`、`docs/engines/` 和部分旧 README 仍只可作为待核验或历史材料；本批已迁移的 System/Gateway 旧设计已标记为 `superseded`。
 
 ## 11. 修改入口
 
