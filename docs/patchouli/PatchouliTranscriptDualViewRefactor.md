@@ -1,3 +1,17 @@
+---
+title: Legacy Patchouli Transcript Dual-View Refactor
+status: superseded
+owner: patchouli
+scope: completed-structured-transcript-refactor
+archived_at: 2026-07-28
+superseded_by:
+  - docs/patchouli/perception.md
+  - docs/patchouli/generation.md
+  - docs/patchouli/artifacts.md
+---
+
+> 本文保留 transcript 从字符串回填转向结构化事实的重构记录，已停止维护。当前 TurnRecord/LogicalBlock、GenerationContext 与 InteractionArtifact 的分工分别以[感知与短期话题](./perception.md)、[记忆生成](./generation.md)和[Artifacts](./artifacts.md)为准。
+
 # Patchouli Transcript 重构设计与落地总结
 
 **状态**: 当前权威文档  

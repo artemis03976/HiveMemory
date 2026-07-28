@@ -1,3 +1,16 @@
+---
+title: Legacy Perception Engine Design
+status: superseded
+owner: patchouli
+scope: legacy-perception-engine-description
+archived_at: 2026-07-28
+superseded_by:
+  - docs/patchouli/perception.md
+  - docs/patchouli/memory-library.md
+---
+
+> 本文含有编码损坏与已退出主路径的旧模型/接口，禁止继续作为当前设计引用。当前结构化摄入、话题缓冲、结算与 Page Folding 以[感知与短期话题](../patchouli/perception.md)为准，存储所有权以 [MemoryLibrary](../patchouli/memory-library.md) 为准。
+
 # 5 核心功能 II：记忆感�?(The Perception Layer)
 
 > **[归属分身：大图书馆本�?(Librarian Core)]**
@@ -364,4 +377,3 @@ Kernel 使用此数据组�?Prompt：`[System + state_summary + MTP_Menu + rece
 | `idle_timeout_seconds` | `int` | `900` | 话题空闲超时阈值（秒） |
 | `scan_interval_seconds` | `int` | `60` | 空闲扫描间隔（秒�?|
 | `fold_token_threshold` | `int` | `32768` | 页折叠触发阈值（tokens�?|
-

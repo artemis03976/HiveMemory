@@ -1,3 +1,20 @@
+---
+title: Legacy Patchouli Subsystem Refactor Plan
+status: superseded
+owner: patchouli
+scope: completed-patchouli-subsystem-refactor
+archived_at: 2026-07-28
+superseded_by:
+  - docs/patchouli/README.md
+  - docs/patchouli/memory-library.md
+  - docs/patchouli/perception.md
+  - docs/patchouli/generation.md
+  - docs/patchouli/retrieval.md
+  - docs/patchouli/lifecycle.md
+---
+
+> 本文保留从 LibrarianCore 迁移到 System/Runtime/Familiar/Coordinator/MemoryLibrary 分层的实施背景，已停止维护。当前 Patchouli 设计从[总览](../patchouli/README.md)进入，具体事实以其模块文档和代码为准。
+
 # Patchouli 子系统重构规划
 
 **文档状态**: 规划中  

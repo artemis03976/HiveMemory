@@ -1,3 +1,16 @@
+---
+title: Legacy Engines Documentation Index
+status: superseded
+owner: project
+scope: legacy-engine-centric-documentation-index
+archived_at: 2026-07-28
+superseded_by:
+  - docs/patchouli/README.md
+  - docs/gateway/README.md
+---
+
+> `engines/` 仍是代码中的算法目录，但不再作为与子系统并行的当前文档树。记忆引擎从 [Patchouli 当前文档](../patchouli/README.md)进入，入口决策从 [Gateway 当前文档](../gateway/README.md)进入；本索引只保留迁移前的目录背景。
+
 # Engines
 
 本目录用于存放 HiveMemory 现有记忆引擎的实现说明与能力边界文档。

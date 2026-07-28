@@ -1,3 +1,14 @@
+---
+title: Legacy MemoryCompiler IR Design
+status: superseded
+owner: patchouli
+scope: completed-memory-compiler-ir-design
+archived_at: 2026-07-28
+superseded_by: docs/patchouli/memory-compiler.md
+---
+
+> 本文保留 Memory IR 的形成背景，已停止维护。当前 builder、MemoryUnitIR、section/bundle IR 与 target dispatch 以 [MemoryCompiler 当前设计](../patchouli/memory-compiler.md)为准；未落地的 RUN 阶段仍不属于当前能力。
+
 # MemoryCompiler Phase 2 记忆中间表示设计
 
 **文档状态**: Draft  

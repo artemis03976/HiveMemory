@@ -1,3 +1,16 @@
+---
+title: Legacy MemoryCompiler and Retrieval Refactor Plan
+status: superseded
+owner: patchouli
+scope: completed-retrieval-compiler-separation
+archived_at: 2026-07-28
+superseded_by:
+  - docs/patchouli/retrieval.md
+  - docs/patchouli/memory-compiler.md
+---
+
+> 本计划的 Retrieval/Compiler 分离已经进入当前实现，本文停止维护。当前召回与排序以[记忆检索](../patchouli/retrieval.md)为准，IR、target 与上下文策略以 [MemoryCompiler](../patchouli/memory-compiler.md) 为准。
+
 # MemoryCompiler 与 Retrieval 链路改造计划
 
 > 版本：v0.5.x → v0.6.0 前置基础  

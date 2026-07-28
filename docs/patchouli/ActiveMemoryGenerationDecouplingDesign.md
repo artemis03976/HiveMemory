@@ -1,3 +1,14 @@
+---
+title: Legacy Active Memory Generation Decoupling Design
+status: superseded
+owner: patchouli
+scope: completed-active-generation-decoupling
+archived_at: 2026-07-28
+superseded_by: docs/patchouli/generation.md
+---
+
+> 本文保留主动 WRITE/UPDATE 从感知层解耦的设计背景，已停止维护。当前 finalize 时序、三模式生成、任务控制和 PendingAtom settlement 以[记忆生成](./generation.md)为准。
+
 # 主动记忆生成脱离感知层设计
 
 **文档状态**: Draft (草案)

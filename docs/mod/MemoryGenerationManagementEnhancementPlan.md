@@ -1,3 +1,14 @@
+---
+title: Legacy Memory Generation Management Enhancement Plan
+status: superseded
+owner: patchouli
+scope: completed-generation-task-management-enhancement
+archived_at: 2026-07-28
+superseded_by: docs/patchouli/generation.md
+---
+
+> 本计划中的 spec 隔离、后台任务等待与 shutdown drain 已进入当前实现，本文停止维护。当前任务控制面、失败隔离、等待/取消和关闭时序以[记忆生成](../patchouli/generation.md)为准。
+
 # 记忆生成管理增强计划
 
 > 版本：v0.5.x 补丁  

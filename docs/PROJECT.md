@@ -205,7 +205,9 @@ Gateway 把原始入口消息投影为命令终态或稳定 `GatewayDecision`。
 
 Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成、生命周期和记忆任务。主动链路中它负责 prepare/finalize，MTP 所需的长期记忆能力也由它通过公开路由提供。
 
-代码入口：`src/hivememory/patchouli/system.py`、`src/hivememory/patchouli/runtime/`、`application/`、`memory/`，以及共享的 `src/hivememory/engines/`。
+代码入口：`src/hivememory/patchouli/system.py`、`runtime/`、`application/`、`services/`、`control/`、`memory_library/`，以及由它拥有的 `src/hivememory/engines/{perception,generation,retrieval,lifecycle,artifacts,memory_compiler}/`。
+
+当前设计入口：[Patchouli 总览](./patchouli/README.md)、[MemoryLibrary](./patchouli/memory-library.md)、[Artifacts](./patchouli/artifacts.md)、[感知](./patchouli/perception.md)、[生成](./patchouli/generation.md)、[检索](./patchouli/retrieval.md)、[生命周期](./patchouli/lifecycle.md)与 [MemoryCompiler](./patchouli/memory-compiler.md)。
 
 ### 7.3 Alice
 
@@ -273,11 +275,11 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 
 ### 9.4 子系统与系统模块
 
-System 与 Gateway 已完成本轮事实核验和当前文档重建；Patchouli 与 Alice 仍处于 P1 迁移阶段，使用其 README 时应同时核对代码和 P0 契约：
+System、Gateway 与 Patchouli 已完成本轮事实核验和当前文档重建；Alice 仍处于 P1 迁移阶段，其旧 README 使用时应同时核对代码和 P0 契约：
 
 - [System](./system/README.md)：组合根、应用服务、Passive Ingress、runtime/bus、配置、可观测性与 i18n；
 - [Gateway](./gateway/README.md)：固定 workflow、话题/查询分析与全局命令；
-- [Patchouli](./patchouli/README.md)
+- [Patchouli](./patchouli/README.md)：MemoryLibrary、Artifacts、Perception、Generation、Retrieval、Lifecycle 与 MemoryCompiler；
 - [Alice](./alice/README.md)
 
 ### 9.5 其他文档类型
@@ -297,7 +299,7 @@ System 与 Gateway 已完成本轮事实核验和当前文档重建；Patchouli 
 - RuntimeEvent 与当前 memory task 状态主要是进程内能力，通用持久化 Job Queue 尚未实现；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；
 - 附件、Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
-- Patchouli、Alice 与 P2 文档迁移尚未完成，`docs/mod/`、`docs/engines/` 和部分旧 README 仍只可作为待核验或历史材料；本批已迁移的 System/Gateway 旧设计已标记为 `superseded`。
+- Alice 与 P2 文档迁移尚未完成；`docs/mod/`、`docs/engines/` 和部分旧 README 仍只可作为待核验或历史材料。已迁移的 System、Gateway 与 Patchouli 旧设计均已标记为 `superseded`，物理移动留给 P2 Archive 重组。
 
 ## 11. 修改入口
 
