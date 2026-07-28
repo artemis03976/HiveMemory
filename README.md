@@ -1,6 +1,6 @@
 # HiveMemory
 
-[English README](README_EN.md) | [项目文档索引](docs/PROJECT.md) | [当前架构](docs/architecture/overview.md) | [环境搭建指南](docs/SETUP.md) | [开发路线图](docs/ROADMAP.md)
+[English README](README_EN.md) | [项目文档索引](docs/PROJECT.md) | [当前架构](docs/architecture/overview.md) | [安装与启动](docs/help/setup.md) | [开发路线图](docs/ROADMAP.md)
 
 > 为 LLM Agent 设计的持久化记忆与知识共享系统
 > *The Hippocampus for Artificial Intelligence*
@@ -141,10 +141,10 @@ git clone https://github.com/artemis03976/HiveMemory.git
 cd HiveMemory
 
 # 2. 复制并修改环境变量文件 (填入你的 LLM API Key)
-cp configs/.env.example configs/.env
+cp configs/.env.example .env
 
 # 3. 一键启动 (包含 Qdrant 和 HiveMemory 后端应用)
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 启动成功后，直接在浏览器中打开 **<http://localhost:8000>** 即可开始使用完整的 Web 界面！
@@ -164,12 +164,8 @@ cp configs/.env.example .env
 
 至少需要检查：
 
-- `HIVEMEMORY__LLM__WORKER__API_KEY`
-- `HIVEMEMORY__LLM__WORKER__MODEL`
-- `HIVEMEMORY__LLM__GATEWAY__API_KEY`
-- `HIVEMEMORY__LLM__GATEWAY__MODEL`
-- `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
-- `HIVEMEMORY__LLM__LIBRARIAN__MODEL`
+- `HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY`（或默认模型对应的 Provider）
+- `configs/models.yaml` 中默认模型的 `id`、`litellm_model` 与 `provider`
 - `HIVEMEMORY__PATCHOULI__STORAGE__HOST` / `PORT`
 
 ### 4. 安装后端
@@ -216,7 +212,7 @@ curl http://localhost:8769/health/ready
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -236,8 +232,8 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 
 `configs/.env.example` 展示了推荐格式，环境变量统一使用 `HIVEMEMORY__` 前缀，例如：
 
-- `HIVEMEMORY__LLM__WORKER__MODEL`
-- `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
+- `HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY`
+- `HIVEMEMORY__GATEWAY__WORKFLOW__DEFAULT_REQUEST_TIMEOUT_MS`
 - `HIVEMEMORY__PATCHOULI__STORAGE__HOST`
 - `HIVEMEMORY__LOGGING__LEVEL`
 
@@ -245,15 +241,13 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 
 [configs/config.yaml](configs/config.yaml) 定义默认运行参数，包括：
 
-- `llm`：gateway / librarian / worker
-- `embedding`
-- `qdrant`
-- `gateway`
-- `perception`
-- `generation`
-- `retrieval`
-- `lifecycle`
-- `logging`
+- `system`、`logging`、`scheduler`、`runtime_events` 与 `i18n`
+- `shared`：Gateway/Librarian LLM 引用、Embedding 与 Provider 默认值
+- `gateway`、`passive_ingress` 与 `memory_compiler`
+- `patchouli`：storage、perception、generation、retrieval、lifecycle 与 artifacts
+- `alice`：Agent Runtime 与 Koakuma
+
+可用模型由 [configs/models.yaml](configs/models.yaml) 单独维护，Provider 密钥通过环境变量或 `configs/providers.secrets.yaml` 提供。
 
 推荐做法是：
 
@@ -308,7 +302,7 @@ HiveMemory/
 - [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) — 文档分类、状态与维护规范
 - [docs/architecture/overview.md](docs/architecture/overview.md) — 当前后端总体架构
 - [docs/contracts/README.md](docs/contracts/README.md) — 跨子系统契约入口
-- [docs/SETUP.md](docs/SETUP.md) — 环境搭建说明
+- [docs/help/README.md](docs/help/README.md) — 安装、配置与排障入口
 - [docs/ROADMAP.md](docs/ROADMAP.md) — 版本规划与后续方向
 
 ## 贡献

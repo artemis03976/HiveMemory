@@ -1,3 +1,17 @@
+---
+title: Legacy HiveMemory UI and UX Design v1.2
+status: superseded
+owner: frontend
+scope: legacy-frontend-visual-and-interaction-design
+archived_at: 2026-07-28
+superseded_by:
+  - docs/frontend/README.md
+  - docs/frontend/application-shell.md
+  - docs/frontend/chat-workspace.md
+---
+
+> 本文保留前端视觉隐喻、交互探索和早期工作台设计过程，已停止维护。当前应用壳、主题、Chat 与实现偏差以 [Frontend 总览](./README.md)、[应用壳与视觉系统](./application-shell.md)和 [Chat 工作区](./chat-workspace.md)为准。本文提到的 Shadcn、可拖拽四栏和部分交互不代表当前实现。
+
 # HiveMemory UI/UX 设计文档 (v1.2)
 
 ## 主题：打造原生AIOS可视化仪表盘与一体式工作站

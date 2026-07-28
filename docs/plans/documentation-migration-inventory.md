@@ -74,7 +74,7 @@ last_reviewed: 2026-07-28
 | `docs/PROJECT.md` | merge | 重写 | 收敛为当前项目总览和全局索引；详细架构、模块与历史内容分别下沉 |
 | `docs/VISION.md` | current | 保留并核验 | 保留长期愿景；继续维持事实、假设与远期愿景的明确分层 |
 | `docs/ROADMAP.md` | merge | 重写 | 根据代码重新校正阶段状态；详细设计链接到 Plans，完成记录链接到 Archive |
-| `docs/SETUP.md` | help | 迁移 | 核验命令、端口和配置后迁入 `docs/help/setup.md` |
+| `docs/SETUP.md` | help | 迁移 | P2 已重建 `help/setup.md`、`configuration.md` 与 `troubleshooting.md`，并将旧入口标记 `superseded`；物理移动留给 Archive 批次 |
 | `docs/TODO.md` | todo | 拆分 | 未完成小项迁入 `docs/todo/` 或 Issue；已完成记录归档；实现示例不继续保留在待办索引 |
 | `docs/ObservabilityDesign.md` | merge | 合并后归档 | P1 已合并到 `docs/system/observability.md` 并标记原文 `superseded`；P2 再统一移动 |
 
@@ -145,10 +145,10 @@ last_reviewed: 2026-07-28
 
 | 现有文档 | 分类 | 动作 | 目标或处理说明 |
 |:---|:---:|:---|:---|
-| `docs/applications/MealAssistantProductSpec.md` | product | 保留并核验 | 补充元数据；核对其对 v0.6 和现有能力的引用，不作为后端当前设计入口 |
-| `docs/frontend/FrontendDesign.md` | merge | 拆分 | 已实现 UI 结构进入当前前端文档，尚未实现内容进入 Plan/Idea |
-| `docs/frontend/frontend-state-persistence-research.md` | merge | 合并后归档 | 提炼已接受的状态所有权与持久化决策到当前前端文档或 ADR，保留调研为历史证据 |
-| `docs/frontend/MemoryGardenUI.md` | merge | 拆分 | 根据当前页面核对；已实现交互并入当前文档，未实现设计进入 Plan/Idea，原稿归档 |
+| `docs/applications/MealAssistantProductSpec.md` | product | 保留并核验 | P2 已补元数据并标记 `planned`，校正 Gateway/CALL/MTP 状态，保留未完成验收与产品试验边界 |
+| `docs/frontend/FrontendDesign.md` | merge | 拆分 | P2 已将当前应用壳、视觉与 Chat 行为并入 Frontend 当前文档，原稿标记 `superseded` |
+| `docs/frontend/frontend-state-persistence-research.md` | merge | 合并后归档 | P2 已将实际 store、状态所有权、持久化与传输决策并入 `frontend/state-and-transports.md`，原稿标记 `superseded` |
+| `docs/frontend/MemoryGardenUI.md` | merge | 拆分 | P2 已将实际 Memory Library 能力与未实现项并入 `frontend/management-views.md`，原稿标记 `superseded` |
 
 ## 11. Ideas
 
@@ -199,7 +199,7 @@ last_reviewed: 2026-07-28
 3. [x] **P1：System 与 Gateway**：已消除 v0.6.0 已实现但仍被描述为未来的偏差；
 4. [x] **P1：Patchouli**：MemoryLibrary、artifacts、perception、generation、retrieval、lifecycle、MemoryCompiler；
 5. [x] **P1：Alice**：Agent Runtime、orchestration、PendingAtom 与 MTP runtime；
-6. **P2：Frontend、Applications 与 Help**；
+6. [x] **P2：Frontend、Applications 与 Help**；
 7. **P2：Archive 重组、源码 README 收敛和全库链接检查**。
 
 ## 15. 本步骤完成条件
@@ -209,14 +209,15 @@ last_reviewed: 2026-07-28
 - [x] Archive 已建立 Plans、Legacy Architecture 和 Legacy Docs 目标分区；
 - [x] Applications 与 Frontend 已有局部索引；
 - [x] 已记录版本状态、v0.6.0 状态和编码损坏等阻塞性偏差；
-- [ ] 每篇 `merge` 文档的事实尚未逐条通过代码验证；
+- [ ] 仍有 Archive/源码 README 批次涉及的 `merge` 文档需要最终链接与状态复核；
 - [ ] P1/P2 旧文件尚未全部物理移动至 Archive；
 - [x] P0 当前设计主干和契约已经重写。
 - [x] P1 System 与 Gateway 当前设计已经核验、重写并关闭旧入口。
 - [x] P1 Patchouli 当前设计已经核验、重写并关闭旧入口。
 - [x] P1 Alice 当前设计已经核验、重写并关闭旧入口。
+- [x] P2 Frontend、Applications 与 Help 已经核验、重写并关闭旧入口。
 
-剩余 Frontend、Applications、Help、源码 README 与旧文件物理处理属于 P2 迁移批次。
+剩余源码 README、Archive 物理处理与全库链接检查属于最后一个 P2 迁移批次。
 
 ## 16. P0 迁移结果
 
@@ -267,4 +268,15 @@ P0 已于 2026-07-28 完成：
 - MTP 契约保留调用方 Identity 不变量，并明确 L0/L1 命中尚未重新校验身份是当前实现偏差，而不是新的契约口径；
 - 旧文件仍保留原路径，统一物理移动、源码 README 收敛和全库链接检查继续留给 P2。
 
-下一批进入 **P2：Frontend、Applications 与 Help**；本批不提前推进 P2 或 Archive 物理重组。
+随后已完成 **P2：Frontend、Applications 与 Help**，结果见下一节；Archive 物理重组仍未在本批提前执行。
+
+## 20. P2 Frontend、Applications 与 Help 迁移结果
+
+本批已于 2026-07-28 完成：
+
+- `frontend/` 已建立应用壳与视觉、Chat 工作区、管理页面、状态/持久化/传输四篇当前文档，保留透明、沉浸、可观测、机器态/人类态分离、日月与五行水晶等设计语义；
+- 当前前端事实已对照 React/Vite 源码、stores、services、FastAPI routers 与部署配置核验，明确记录 Terminal 空入口、Topic 非会话切换、chat 不恢复、Memory 伪 semantic search、mock fallback、Agent CALL 权限遗漏和 Settings 配置结构偏差；
+- 三份旧前端设计/调研稿已标记 `superseded`，其中未实现的 Pin、真正语义检索、可拖拽布局和统计大屏没有被写成当前事实；
+- `applications/MealAssistantProductSpec.md` 已标记 `planned`，保留产品动机、Agent Profile、system prompt 与验收流程，同时明确当前没有独立应用实现或真实用户证据；
+- `help/` 已形成安装、配置和排障指南，区分开发 `5173/8769` 与 Docker `8000`，校正 Provider/Model 配置、health/readiness 和 mock/Settings 风险；旧 `SETUP.md` 已停止维护；
+- 本批没有物理移动旧文件。Archive 重组、源码 README 收敛和最终全库链接检查继续作为下一批 P2 工作。

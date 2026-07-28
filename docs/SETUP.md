@@ -1,3 +1,18 @@
+---
+title: Legacy HiveMemory Setup Guide
+status: superseded
+owner: project
+scope: legacy-setup-guide
+archived_at: 2026-07-28
+superseded_by:
+  - docs/help/README.md
+  - docs/help/setup.md
+  - docs/help/configuration.md
+  - docs/help/troubleshooting.md
+---
+
+> 本文是旧的单篇环境搭建入口，已停止维护。当前 Docker/本地启动、端口、配置来源和排障方式以 [Help 索引](./help/README.md)、[安装与启动](./help/setup.md)、[配置指南](./help/configuration.md)和[故障排查](./help/troubleshooting.md)为准。本文中的 v0.1、旧 LLM 环境变量和 Patchouli 目录说明不再代表当前系统。
+
 # HiveMemory 环境搭建指南
 
 本文档面向当前 `v0.1.0` 测试版，说明如何从零开始搭建 HiveMemory 的本地开发 / 运行环境。

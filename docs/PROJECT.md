@@ -289,9 +289,9 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 - [Plans](./plans/README.md)：明确但尚未完全实现的功能与迁移；
 - [Ideas](./ideas/README.md)：未形成承诺的开放探索；
 - [Todo](./todo/README.md)：小范围缺陷和技术债；
-- [Help](./help/README.md)：安装、配置、使用和排障；
-- [Applications](./applications/README.md)：产品规格；
-- [Frontend](./frontend/README.md)：前端当前设计与迁移入口；
+- [Help](./help/README.md)：Docker/本地安装、配置来源、Provider/Model 管理与排障；
+- [Applications](./applications/README.md)：产品规格、试验假设与验证证据；
+- [Frontend](./frontend/README.md)：应用壳、Chat、管理页面、状态所有权与传输；
 - [Archive](./archive/README.md)：已被替代或完成的历史材料。
 
 ## 10. 当前已知限制
@@ -301,7 +301,8 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 - RuntimeEvent 与当前 memory task 状态主要是进程内能力，通用持久化 Job Queue 尚未实现；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；
 - 附件、Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
-- P2 文档迁移尚未完成；Frontend、Applications、Help、源码 README 与 Archive 仍需收敛。已迁移的 System、Gateway、Patchouli 与 Alice 旧设计均已标记为 `superseded`，物理移动留给 P2 Archive 重组。
+- Frontend、Applications 与 Help 的 P2 当前文档已经核验并重建；旧入口已标记 `superseded`。剩余 P2 工作是 Archive 物理重组、源码 README 收敛和全库链接检查；
+- 前端仍是面向个人开发的实验工作台：没有聊天历史恢复、账户边界和完整 Settings 配置结构对齐，mock fallback 也尚未统一标识。
 
 ## 11. 修改入口
 
@@ -312,6 +313,9 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 | 子系统职责、状态所有权或依赖方向 | Architecture overview / boundaries |
 | route、event、模型、错误或 MTP | Contracts 对应文档 |
 | System / Gateway / Patchouli / Alice 内部设计 | 对应子系统当前文档 |
+| Frontend 状态、页面、传输或控制面 | Frontend 对应当前文档；用户操作变化同时检查 Help |
+| 安装、配置、端口或排障方式 | Help 对应指南与根 README |
+| 应用目标、假设或验收证据 | Applications 对应规格；不得反写为系统当前事实 |
 | 尚未实现的新功能 | Plans，不写入当前能力 |
 | 版本阶段或排期 | ROADMAP |
 | 已完成计划或被替代设计 | 合并当前事实后进入 Archive |

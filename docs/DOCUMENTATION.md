@@ -232,8 +232,19 @@ docs/
 │   └── error-model.md
 │
 ├── applications/
+│   ├── README.md
+│   └── MealAssistantProductSpec.md
 ├── frontend/
+│   ├── README.md
+│   ├── application-shell.md
+│   ├── chat-workspace.md
+│   ├── management-views.md
+│   └── state-and-transports.md
 ├── help/
+│   ├── README.md
+│   ├── setup.md
+│   ├── configuration.md
+│   └── troubleshooting.md
 ├── plans/
 ├── ideas/
 ├── todo/

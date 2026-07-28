@@ -1,4 +1,21 @@
+---
+title: Meal Assistant Product Specification
+status: planned
+owner: product
+scope: meal-assistant-mvp-and-validation
+target: first-real-application-validation
+updates:
+  - docs/applications/README.md
+  - docs/PROJECT.md
+related_contracts:
+  - docs/contracts/mtp.md
+  - docs/contracts/routes-and-events.md
+last_reviewed: 2026-07-28
+---
+
 # 三餐推荐助手 产品规格文档 (Meal Assistant Product Spec)
+
+> **当前状态（2026-07-28）**：本文是一份可执行的产品验证规格，不是已交付应用说明。仓库中尚无独立 Meal Assistant package、专用 UI、应用级自动化测试或“一周真实用户使用”证据；第 6 节验收项均未完成。规格复用当前 Chat 与 Agent Management，并以现有 Patchouli、Alice、Gateway 和六个 MTP verb 为基础；其中 CALL 已由系统实现，但本应用主动禁用，多 Agent 不是 MVP 依赖。
 
 # 1 定位与目标 (Positioning & Goals)
 
@@ -22,7 +39,7 @@
 
 - **朋友（真实用户）能连续使用一周**，并主观感受到"它记得我"
 - **至少 3 个跨会话记忆场景**被验证有效：偏好记忆、饮食历史、新菜谱学习
-- **HiveMemory 现有子系统（Patchouli + Alice + MTP）跑通完整链路**，不依赖未完成的重构（如 Gateway v0.6.0）
+- **HiveMemory 当前子系统（Gateway + Patchouli + Alice + MTP）跑通完整链路**，不为该应用额外引入新的后端重构依赖
 
 ## 1.4 非目标 (Non-Goals)
 
@@ -33,7 +50,7 @@
 - **不做营养分析/健康建议**：仅做推荐，不做营养学推理
 - **不做图片识别**：用户手动描述菜品，不接入多模态
 - **不做个性化推荐算法优化**：第一版依赖 LLM 的推理能力 + 记忆检索，不引入协同过滤等 ML 推荐
-- **不等待 Gateway 重构完成**：使用现有的检索与路由逻辑
+- **不扩展 Gateway 范围**：直接使用当前 v0.6 开发基线已经存在的入口决策、检索准备与 Agent 执行链路
 
 ---
 
@@ -144,7 +161,7 @@ MTP 响应执行
 | `READ` | 读取单条记忆 | 读取特定菜谱详情 |
 | `RUN` | 获取可信的当前日期 | 仅允许调用 `sys_clock`，不开放其他系统工具 |
 
-**不使用**的指令（第一版）：面向记忆工具的 `RUN`（MaaT 暂不启用）、`DELETE`（由生命周期管理自动处理）、`CALL`（单 Agent 无子帧派生）。`RUN` 仅作为调用 `sys_clock` 的必要入口开放，并由 `allowed_sys_tools` 白名单阻止其调用其他系统工具。当前权限模型尚不能在开放 `RUN` 的同时硬性禁止执行 `CODE_SNIPPET` 记忆，因此“不执行 MaaT”在 MVP 中仍是 system prompt 软约束；首版不创建或投放 `CODE_SNIPPET`。
+当前 MTP 契约共有 SEARCH、READ、RUN、WRITE、UPDATE、CALL 六个 verb。本应用第一版**不使用**面向记忆工具的 `RUN`（MaaT 暂不启用）和 `CALL`（尽管 CALL 已实现，MVP 仍保持单 Agent）；协议没有 `DELETE` verb，正式记忆删除由管理 API 或生命周期能力处理。`RUN` 仅作为调用 `sys_clock` 的必要入口开放，并由 `allowed_sys_tools` 白名单阻止其调用其他系统工具。当前权限模型尚不能在开放 `RUN` 的同时硬性禁止执行 `CODE_SNIPPET` 记忆，因此“不执行 MaaT”在 MVP 中仍是 system prompt 软约束；首版不创建或投放 `CODE_SNIPPET`。
 
 ---
 
@@ -199,7 +216,7 @@ MTP 响应执行
 ## 7.1 必须遵守
 
 - **基于现有 v4 架构**：不引入新的架构重构
-- **使用现有 Patchouli 检索逻辑**：不等待 Gateway v0.6.0
+- **复用当前主动链路**：Gateway 决策 -> Patchouli prepare -> Alice run -> Patchouli finalize，不为应用另建入口或检索旁路
 - **单 Agent**：不启用 Alice 的子帧派生
 - **MTP 指令子集**：SEARCH / WRITE / UPDATE / READ，以及仅用于 `sys_clock` 的 RUN
 - **第一版不超过 3 天开发时间**：超时则砍功能而非延期

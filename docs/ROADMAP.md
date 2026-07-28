@@ -72,10 +72,13 @@ last_reviewed: 2026-07-28
 - [Gateway 当前设计](./gateway/README.md)
 - [Patchouli 当前设计](./patchouli/README.md)
 - [Alice 当前设计](./alice/README.md)
+- [Frontend 当前设计](./frontend/README.md)
+- [Help](./help/README.md)
+- [Applications](./applications/README.md)
 
 ### 3.2 发布前剩余工作
 
-- 完成 Frontend、Applications、Help 与 Archive 的 P2 文档收敛；System、Gateway、Patchouli 与 Alice 旧入口已停止维护；
+- 完成 Archive 物理重组、源码 README 收敛和全库链接检查；Frontend、Applications、Help 与四个后端域的旧入口均已停止维护；
 - 将复合意图从分析结果扩展为下游可消费的稳定任务/决策契约；
 - 补齐自定义入口拦截规则的配置与运行时注入；
 - 继续稳定 Gateway 降级、命令和 Passive Ingress 的端到端行为；
@@ -123,7 +126,7 @@ Artifact 先于 Document Ingestion，是为了先保存“用户实际提供了�
 
 ### 4.3 v0.6.3 Frontend Experience
 
-浅色主题已经合并，因此该阶段不能再整体标为“未开始”。剩余目标是补齐主要页面覆盖、自定义背景和基于可观察状态的等待反馈，不展示或暗示不可观测的模型内部推理。
+浅色主题、Chat 的结构化 MTP/子 Agent 卡片、Kernel Vision 与部分状态持久化已经合并，因此该阶段不能再整体标为“未开始”。当前实现和缺口以 [Frontend 当前设计](./frontend/README.md)为准。剩余目标包括补齐主要页面覆盖、自定义背景、基于可观察状态的等待反馈，以及修复 Terminal 空入口、Settings 配置结构偏差和无法辨认的 mock fallback；界面不得展示或暗示不可观测的模型内部推理。
 
 ### 4.4 v0.7.x 能力链
 

@@ -1,6 +1,6 @@
 # HiveMemory
 
-[中文说明](README.md) | [Project Documentation](docs/PROJECT.md) | [Current Architecture](docs/architecture/overview.md) | [Setup Guide](docs/SETUP.md) | [Roadmap](docs/ROADMAP.md)
+[中文说明](README.md) | [Project Documentation](docs/PROJECT.md) | [Current Architecture](docs/architecture/overview.md) | [Setup Guide](docs/help/setup.md) | [Roadmap](docs/ROADMAP.md)
 
 > Persistent memory and knowledge-sharing system for LLM agents
 > *The Hippocampus for Artificial Intelligence*
@@ -141,10 +141,10 @@ git clone https://github.com/artemis03976/HiveMemory.git
 cd HiveMemory
 
 # 2. Copy and edit environment file (fill in your LLM API key)
-cp configs/.env.example configs/.env
+cp configs/.env.example .env
 
 # 3. Start everything (Qdrant + HiveMemory backend app)
-docker-compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 After startup, open **http://localhost:8000** in your browser to use the full web UI.
@@ -164,12 +164,8 @@ Then edit `.env` as needed. In general:
 
 At minimum, check:
 
-- `HIVEMEMORY__LLM__WORKER__API_KEY`
-- `HIVEMEMORY__LLM__WORKER__MODEL`
-- `HIVEMEMORY__LLM__GATEWAY__API_KEY`
-- `HIVEMEMORY__LLM__GATEWAY__MODEL`
-- `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
-- `HIVEMEMORY__LLM__LIBRARIAN__MODEL`
+- `HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY` (or the provider used by the default model)
+- the default model's `id`, `litellm_model`, and `provider` in `configs/models.yaml`
 - `HIVEMEMORY__PATCHOULI__STORAGE__HOST` / `PORT`
 
 ### 4. Install the backend
@@ -216,7 +212,7 @@ Where:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -236,8 +232,8 @@ HiveMemory currently uses a layered **environment variables + YAML** configurati
 
 `configs/.env.example` shows the recommended format. Environment variables use the `HIVEMEMORY__` prefix, for example:
 
-- `HIVEMEMORY__LLM__WORKER__MODEL`
-- `HIVEMEMORY__LLM__LIBRARIAN__API_KEY`
+- `HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY`
+- `HIVEMEMORY__GATEWAY__WORKFLOW__DEFAULT_REQUEST_TIMEOUT_MS`
 - `HIVEMEMORY__PATCHOULI__STORAGE__HOST`
 - `HIVEMEMORY__LOGGING__LEVEL`
 
@@ -245,15 +241,13 @@ HiveMemory currently uses a layered **environment variables + YAML** configurati
 
 [configs/config.yaml](configs/config.yaml) defines default runtime settings for:
 
-- `llm`: gateway / librarian / worker
-- `embedding`
-- `qdrant`
-- `gateway`
-- `perception`
-- `generation`
-- `retrieval`
-- `lifecycle`
-- `logging`
+- `system`, `logging`, `scheduler`, `runtime_events`, and `i18n`
+- `shared`: Gateway/Librarian LLM references, embedding, and provider defaults
+- `gateway`, `passive_ingress`, and `memory_compiler`
+- `patchouli`: storage, perception, generation, retrieval, lifecycle, and artifacts
+- `alice`: Agent Runtime and Koakuma
+
+Available models are maintained separately in [configs/models.yaml](configs/models.yaml). Provider secrets come from environment variables or `configs/providers.secrets.yaml`.
 
 Recommended practice:
 
@@ -308,7 +302,7 @@ HiveMemory/
 - [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) — documentation categories, status, and maintenance rules
 - [docs/architecture/overview.md](docs/architecture/overview.md) — current backend architecture
 - [docs/contracts/README.md](docs/contracts/README.md) — cross-subsystem contract index
-- [docs/SETUP.md](docs/SETUP.md) — setup guide
+- [docs/help/README.md](docs/help/README.md) — setup, configuration, and troubleshooting
 - [docs/ROADMAP.md](docs/ROADMAP.md) — roadmap and future direction
 
 ## Contributing
