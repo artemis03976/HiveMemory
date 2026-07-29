@@ -187,6 +187,8 @@ class TestCommonModels:
         assert e.error == "bad request"
 
     def test_health_response(self):
+        from hivememory import __version__
+
         h = HealthResponse()
         assert h.status == "ok"
-        assert h.version == "0.1.0"
+        assert h.version == __version__

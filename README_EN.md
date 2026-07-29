@@ -13,11 +13,11 @@ The repository includes a runnable Python backend, a frontend development UI, ve
 
 - Latest released tag: `v0.5.0`
 - Current development baseline: `v0.6.0` (unreleased)
-- Package metadata: `0.1.0-beta` (historical value pending release alignment)
+- Code and package version: `0.6.0`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
 
-Release tags and the active development baseline are distinct. See [docs/architecture/overview.md](docs/architecture/overview.md) for the current system design and [docs/PROJECT.md](docs/PROJECT.md) for the global documentation index.
+See [docs/architecture/overview.md](docs/architecture/overview.md) for the current system design and [docs/PROJECT.md](docs/PROJECT.md) for the global documentation index.
 
 ## What HiveMemory Provides Today
 

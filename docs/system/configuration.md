@@ -78,7 +78,7 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 - Gateway timeout 由 `gateway.workflow.default_request_timeout_ms` 控制；Chat 应用只能传入更小的 request timeout，不能扩大系统默认 deadline；
 - Passive idle interval/timeout 由 `scheduler.tasks` 单一持有，`passive_ingress` 不重复定义同一事实；
 - RuntimeEvent 的 buffer/queue 配置只影响观测容量，不改变业务状态；
-- `system.version` 是配置字段，不能替代发布 tag、`pyproject.toml` 或 PROJECT/ROADMAP 的版本口径；
+- 项目版本属于构建事实，不是运行配置；`system.version` 已从配置模型和示例 YAML 中移除，版本唯一来源是 `src/hivememory/_version.py`；
 - `i18n.default_language` 在配置校验后同步到进程级 resolver，但请求级显式语言仍由调用方或 Profile 传递。
 
 配置扩展必须先判断它属于哪一个所有者；不能为了方便在 `HiveMemoryConfig` 添加一个字段，然后让多个子系统各自解释不同含义。
@@ -87,7 +87,6 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 
 - 部分历史环境变量仍保留兼容映射，清理前不能假设只有嵌套新格式；
 - `ConfigDict(extra="ignore")` 在多个顶层子模型上保持兼容，未知字段不一定立即暴露为配置错误；
-- 代码默认 `SystemConfig.version` 仍是历史默认值，不是当前发布版本；
 - registry 只在进程装配时形成解析结果，运行中 provider/model 配置变更不会自动热重载；
 - `I18nConfig.fallback_language` 当前没有被统一传入 `resolve_language()`，相关限制见[i18n 文档](./i18n.md)。
 

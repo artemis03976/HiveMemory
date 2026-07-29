@@ -6,7 +6,6 @@
 # ========== 系统配置 ==========
 system:
   name: "HiveMemory"
-  version: "0.1.0"
   debug: true
 
 # ========== 国际化配置 ==========

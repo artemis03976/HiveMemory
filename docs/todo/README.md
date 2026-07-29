@@ -19,7 +19,6 @@ last_reviewed: 2026-07-29
 - [收紧 Alice 子帧终态与 CALL 结果判断](./alice-child-frame-terminal-status.md)；
 - [Alice FrameScheduler 与取消状态的运行隔离](./alice-frame-scheduler-concurrency.md)；
 - [区分 Agent Profile 缺失与显式加载失败](./agent-profile-explicit-failure.md)；
-- [统一包版本元数据与发布口径](./package-version-metadata.md)；
 - [补齐 Agent-facing 错误 payload 的 XML escaping](./error-formatter-xml-escaping.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)。

@@ -17,7 +17,7 @@ LongTermMemoryStore:
     - 持有 LongTermStoragePort
     - 不负责跨层状态转移，由 MemoryLibrary 编排
 
-版本: 0.1.0 (Phase 1)
+实现阶段: Phase 1
 """
 
 from __future__ import annotations

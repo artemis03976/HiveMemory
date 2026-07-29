@@ -20,6 +20,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Check version metadata
+        run: python scripts/check_version_consistency.py
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

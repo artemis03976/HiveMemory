@@ -11,7 +11,6 @@ HiveMemory - JSON 解析工具 (JSON Parser Utility)
     - 类型推断: 自动返回 dict 或 list
 
 作者: HiveMemory Team
-版本: 0.1.0
 """
 
 import json

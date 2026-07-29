@@ -124,6 +124,12 @@ python -m pip install -e '.[dev]'
 
 如果只运行服务、不需要测试工具，可以安装 `-e .`。
 
+安装后可以核对当前代码版本：
+
+```text
+python -c "import hivememory; print(hivememory.__version__)"
+```
+
 ### 4.3 启动后端
 
 ```text
@@ -164,7 +170,7 @@ npm run dev
 
 ## 6. 健康检查的含义
 
-- `GET /health`：进程能够响应 HTTP；当前返回的版本字段仍是历史值，不能作为发布版本判断依据；
+- `GET /health`：进程能够响应 HTTP，并返回与 Python 包和 OpenAPI 一致的代码版本；该字段不替代 Git tag 的发布状态；
 - `GET /health/ready`：Patchouli 的 Embedding 与可选 Reranker 已完成加载；未完成时返回 503；
 - Docker `hivememory-app` healthcheck 只调用 `/health`；部署脚本若要求“可以接收完整模型请求”，应另外检查 `/health/ready`。
 

@@ -136,10 +136,11 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 |:---|:---|:---|
 | 最新已发布标签 | `v0.5.0` | 最近一次可由 Git tag 指认的发布基线 |
 | 当前开发基线 | `v0.6.0` | 已合并 Gateway、Commands、Workflow、Passive Ingress，尚未发布 |
-| Python 包元数据 | `0.1.0-beta` | `pyproject.toml` 中尚待统一的历史值，不代表当前发布状态 |
-| 运行时代码版本 | `0.6.0` | `src/hivememory/__init__.py` 的开发版本声明 |
+| 规范代码版本 | `0.6.0` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
-版本状态不得只引用其中一个字段。发布信息以 Git tag 为准，开发中的设计状态以本文、[当前架构](./architecture/overview.md)和[路线图](./ROADMAP.md)为准。
+版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。开发分支可以先进入下一个目标版本而不创建 tag，此时仍是未发布快照；正式发布只接受完全匹配 `v<代码版本>` 的稳定标签。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
+
+发布信息以 Git tag 为准，开发中的设计状态以本文、[当前架构](./architecture/overview.md)和[路线图](./ROADMAP.md)为准。
 
 ## 5. 当前已具备的能力
 
@@ -300,7 +301,6 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 ## 10. 当前已知限制
 
 - `v0.6.0` 的复合意图下游消费和自定义入口规则尚未完整落地；
-- 包元数据、README 历史版本文字和发布流程仍需继续统一，见[版本元数据 Todo](./todo/package-version-metadata.md)；
 - RuntimeEvent、memory task、PendingAtom、Agent frame 和若干恢复状态主要是进程内能力，统一持久化与故障恢复见[运行时状态持久化与故障恢复计划](./plans/runtime-state-durability-and-recovery.md)；
 - 重试、重复投递和跨存储副作用尚未形成统一业务边界，见[跨子系统幂等性与重试语义计划](./plans/cross-subsystem-idempotency-and-retry.md)；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；身份传播、缓存隔离和执行安全见[身份隔离与执行安全计划](./plans/identity-isolation-and-execution-safety.md)；

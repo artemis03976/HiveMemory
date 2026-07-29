@@ -9,7 +9,6 @@ HiveMemory - Generation 模块接口抽象层
 - Deduplicator: 查重与演化器接口
 
 作者: HiveMemory Team
-版本: 0.1.0
 """
 
 from abc import ABC, abstractmethod

@@ -9,7 +9,6 @@ HiveMemory - Lifecycle 模块数据模型定义
 - ArchiveRecord: 归档记录模型
 
 作者: HiveMemory Team
-版本: 0.1.0
 """
 
 from datetime import datetime

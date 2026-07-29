@@ -43,8 +43,9 @@ System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Al
 
 - 最新已发布 Git 标签：`v0.5.0`；
 - 当前未发布开发基线：`v0.6.0`；
+- 当前代码、构建与运行时版本：`0.6.0`，唯一声明位于 `src/hivememory/_version.py`；
 - 当前基线已经包含独立 Gateway、全局命令、Gateway workflow 和 Passive Ingress；
-- `pyproject.toml` 中的 `0.1.0-beta` 仍是待统一的包元数据，不能据此判断当前架构阶段。
+- Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。
 
 版本规划与完成度以[路线图](../ROADMAP.md)为准，系统当前由什么组件组成则以本文和代码为准。
 

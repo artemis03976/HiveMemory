@@ -9,7 +9,7 @@ MemoryLibrary — 三级存储协调层（书库）
     中期 → 长期：MemoryLibrary.archive()  （纯数据搬运）
     长期 → 中期：MemoryLibrary.revive()   （纯数据搬运）
 
-版本: 0.1.0 (Phase 1 骨架)
+实现阶段: Phase 1 骨架
 """
 
 from __future__ import annotations

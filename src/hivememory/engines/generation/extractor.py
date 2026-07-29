@@ -11,7 +11,6 @@ HiveMemory - 记忆提取器 (Memory Extractor)
     - 支持自定义 Prompt
 
 作者: HiveMemory Team
-版本: 0.1.0
 """
 
 import logging

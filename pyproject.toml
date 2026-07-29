@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hivememory"
-version = "0.1.0-beta"
+dynamic = ["version"]
 description = "蜂巢记忆系统 - 专为 LLM Agent 设计的持久化记忆与知识共享基础设施"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -68,6 +68,9 @@ Issues = "https://github.com/artemis03976/HiveMemory/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = {attr = "hivememory._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -124,4 +124,4 @@ Provider 与 Model Registry 使用独立、已对齐的 API。其余主配置表
 - 不因为 API 响应会脱敏，就在 `models.yaml` 的高级覆盖中保存密钥；
 - 生产环境优先使用进程/编排环境注入，并限制配置 API 的网络可达性；当前服务没有登录与权限系统；
 - 修改 Provider/Model/Config 后检查实际进程使用的模型，而不只看页面保存 toast；
-- `system.version`、FastAPI version 和 `pyproject.toml` 历史字段都不等于发布 tag，版本口径见 [Project](../PROJECT.md)。
+- 项目版本不是可覆盖配置；代码、Python 包、FastAPI 与 health 使用同一规范版本，是否已经发布仍以匹配的 Git tag 为准，完整口径见 [Project](../PROJECT.md)。

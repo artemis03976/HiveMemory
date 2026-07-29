@@ -61,7 +61,7 @@ last_reviewed: 2026-07-29
 
 | 启动时偏差 | 最终状态 |
 |:---|:---|
-| `pyproject.toml`、包内版本和根 README 口径不同 | 根中英文 README 已校正为“最新发布 v0.5.0 / 开发基线 v0.6.0”；`pyproject.toml=0.1.0-beta` 与 `__version__=0.6.0` 的包元数据偏差仍是项目已知限制，不由文档迁移伪造统一 |
+| `pyproject.toml`、包内版本和根 README 口径不同 | 文档迁移阶段先校正为“最新发布 v0.5.0 / 开发基线 v0.6.0”；后续版本统一工作已建立 `src/hivememory/_version.py` 唯一来源，并让构建、运行时、HTTP API 与前端清单统一为 `0.6.0` |
 | ROADMAP 把已经存在主体实现的 v0.6.0 全部写成未来 | 已拆分 released、current development、planned 与 candidate，未落地的复合意图等工作进入 Plans |
 | `docs/engines/`、源码 README、PROJECT 和重构稿并行描述同一模块 | 当前事实已收敛到子系统文档，源码 README 和旧 Engines 文档进入 Archive，重构稿按 Plan/历史实施记录分流 |
 | Data Model、i18n 等文档混合当前状态与未来治理 | 当前事实、Plan、Todo、ADR 与 Archive 已拆分，并由各自索引维护 |

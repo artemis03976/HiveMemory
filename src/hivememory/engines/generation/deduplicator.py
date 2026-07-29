@@ -10,7 +10,6 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
     - 相似度 < 0.75 → CREATE (创建新记忆)
 
 作者: HiveMemory Team
-版本: 0.1.0
 """
 
 import re

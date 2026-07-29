@@ -4,7 +4,7 @@ MemoryLibrary 三层存储 Port 接口定义
 定义短期 / 中期 / 长期三层存储的抽象契约，供各层 Store 通过 Port 多态实现。
 实现类不应感知其他层的存储，跨层操作由 MemoryLibrary 编排。
 
-版本: 0.1.0 (Phase 1 骨架)
+实现阶段: Phase 1 骨架
 """
 
 from __future__ import annotations
