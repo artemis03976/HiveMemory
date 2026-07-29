@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 记忆生成
@@ -22,6 +22,8 @@ last_reviewed: 2026-07-28
 记忆生成是把短期材料或显式保存意图转化为正式 `MemoryAtom` 的冷路径。它必须同时避免两种对称错误：把每段对话都机械保存，会让书库迅速被噪音淹没；把保存完全交给不透明的 LLM 判断，又可能让用户明确要求保留的内容悄悄消失。
 
 当前设计因此保留三种生成模式，并把“构造任务”“执行生成”“写 artifacts 和持久化”“发布任务/settlement 终态”拆成不同层。生成不再是 Perception 的一个回调，也不再由一个 LibrarianCore 同时管理计算与后台任务。
+
+提取阶段选择 LLM 而不是固定规则，是因为“是否值得长期保存”以及如何把自然语言重组为 title、summary、content 与 tags，本质上依赖跨表达方式的语义判断；只靠关键词或消息计数会把调用方措辞固化成记忆结构。代价是延迟、成本与非确定性，因此它被放在后台冷路径，并为显式 WRITE 保留确定性的 fallback；LLM 可以提出记忆草稿，但不能独自决定任务终态、持久化成功或用户承诺。
 
 ## 1. 控制面与数据面
 
@@ -144,6 +146,10 @@ AgentRunResult
 ```
 
 主动生成因此可以从 topic 最近 blocks 中看到当前轮，而不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。当前交互仍留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档是不同意图，不能通过清空 buffer 相互替代。
+
+这条解耦边界是对旧链路实际问题的回应。旧实现曾把 MTP WRITE/UPDATE 当作话题结算理由，执行 `archive + compact + clear`：连续两次 WRITE 时，第二次只能看到已经被压扁的 summary；每次主动写还会额外触发一次 summary，使原始细节在明确保存意图下反复丢失。当前实现直接使用 topic 最近 context，并以 `WriteFocus`/`UpdateFocus` 驱动 Mode B/C；主动生成与被动归档保持两条正交流，主动写入后的 blocks 仍可在之后进入 Mode A。
+
+这并不保证主动写出的正文与被动归档结果完全不重复。重复是当前可接受的成本，由 deduplicator 的 `CREATE`、`UPDATE`、`TOUCH`、`DISCARD` 决定最终落库动作；为了消除重复，不能重新让 Perception 感知 focus 或 pending 状态，否则会把控制意图污染为对话事实。当前每个主动 task 也会独立捕获 `InteractionArtifact`，因此 provenance 可能重复，这是已知的可追踪性成本，而不是重新合并任务输入的理由。
 
 ## 8. 当前限制
 

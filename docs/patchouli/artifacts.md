@@ -11,7 +11,7 @@ code_paths:
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Artifacts 与来源追踪

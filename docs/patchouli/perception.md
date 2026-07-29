@@ -11,7 +11,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/system/passive-ingress.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 感知与短期话题
@@ -64,6 +64,10 @@ InteractionPayload
 ```
 
 主动流程由 Patchouli finalize 构建 payload；被动流程由 System 的 turn buffer 构建 payload。两者进入同一 `PerceptionFamiliar.submit_interaction()` 与 `SemanticFlowPerceptionLayer.route_and_ingest()`，不存在被动专用的扁平文本主链。
+
+结构化摄入的边界来自被动入口的真实事件形态：`MessageTurnBuffer` 接收 `user`、`assistant`、`tool_call`、`tool_result` 四类消息。只有自然语言 assistant 段落进入 `assistant_final_text`；工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。`ActionReducer`/`TraceReducer` 只能由 Perception 从这些事件派生，入口层不应另行构造第二套摘要，否则历史重放、主动生成与被动归档会拥有互相漂移的事实来源。
+
+`target_topic` 则属于 user 到达时的 Gateway route 决策，而不是 flush 时重新计算的感知结果。Buffer 在接收 user 时保存目标话题；下一轮 user 到来时，先 flush 旧轮并完成旧轮的 payload，再初始化新轮。这样 `user2` 的 gaze 不会污染 `user1` 的归档归属。System Passive Ingress 拥有 session、idle 计时与事件提交；TheEye/Gateway 只负责入口判断，不重新拥有话题 buffer 或被动分析状态。
 
 Perception 只把 `worth_saving` 写入 block，不在普通 ingest 时删除它。真正形成 settlement payload 时，`worth_saving is False` 的 blocks 被过滤，`None` 与 `True` 保留。这种保守语义确保 Gateway 缺失判断时不会默认丢弃材料。
 

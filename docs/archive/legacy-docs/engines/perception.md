@@ -9,7 +9,7 @@ superseded_by:
   - docs/patchouli/memory-library.md
 ---
 
-> 本文含有编码损坏与已退出主路径的旧模型/接口，禁止继续作为当前设计引用。当前结构化摄入、话题缓冲、结算与 Page Folding 以[感知与短期话题](../patchouli/perception.md)为准，存储所有权以 [MemoryLibrary](../patchouli/memory-library.md) 为准。
+> 本文含有编码损坏与已退出主路径的旧模型/接口，禁止继续作为当前设计引用。当前结构化摄入、话题缓冲、结算与 Page Folding 以[感知与短期话题](../../../patchouli/perception.md)为准，存储所有权以 [MemoryLibrary](../../../patchouli/memory-library.md) 为准。
 
 # 5 核心功能 II：记忆感�?(The Perception Layer)
 

@@ -1,3 +1,15 @@
+---
+title: Legacy Source README — Retrieval Engine
+status: superseded
+owner: patchouli
+scope: legacy-source-readme
+source_path: src/hivememory/engines/retrieval/README.md
+archived_at: 2026-07-29
+superseded_by: docs/patchouli/retrieval.md
+---
+
+> 本文是迁移前位于源码目录的阶段性模块说明。其 QueryProcessor、Router、Searcher 文件清单与“Stage 2 完成”口径已不对应当前代码；Retrieval 只返回 atoms、由 MemoryCompiler 编译上下文的边界仍然有效，当前事实以[记忆检索](../../../../../patchouli/retrieval.md)为准。
+
 # MemoryRetrieval - 记忆检索模块
 
 ## 📖 概述
@@ -75,11 +87,11 @@ if not result.is_empty():
 
 ## 📚 相关文档
 
-- [PROJECT.md 第 5 章](../../docs/PROJECT.md) - 完整设计文档
-- [ROADMAP.md Stage 2](../../docs/ROADMAP.md) - 开发路线图
+- [当前记忆检索文档](../../../../../patchouli/retrieval.md)
+- [当前 ROADMAP](../../../../../ROADMAP.md)
 
 ---
 
-**维护者**: HiveMemory Team  
-**最后更新**: 2025-12-25  
+**维护者**: HiveMemory Team
+**最后更新**: 2025-12-25
 **版本**: 0.2.0

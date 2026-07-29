@@ -1,3 +1,15 @@
+---
+title: Legacy Source README — Perception Engine
+status: superseded
+owner: patchouli
+scope: legacy-source-readme
+source_path: src/hivememory/engines/perception/README.md
+archived_at: 2026-07-29
+superseded_by: docs/patchouli/perception.md
+---
+
+> 本文是迁移前位于源码目录的模块说明，保留 LogicalBlock、Relay 与异步结算等早期设计背景。其语义吸附、私有 idle monitor、URGENT flush、旧导入路径和示例 API 已经过时；当前事实以[感知与短期话题](../../../../../patchouli/perception.md)为准。
+
 # MemoryPerception - 记忆感知模块
 
 ## 概述
@@ -218,7 +230,7 @@ perception.stop_idle_monitor()
 
 ## 相关文档
 
-- [PROJECT.md 2.3.1 感知层](../../docs/PROJECT.md)
+- [当前 Perception 文档](../../../../../patchouli/perception.md)
 - [MemoryGeneration README](../generation/README.md)
 
 ---

@@ -1,3 +1,15 @@
+---
+title: Legacy Source README — Generation Engine
+status: superseded
+owner: patchouli
+scope: legacy-source-readme
+source_path: src/hivememory/engines/generation/README.md
+archived_at: 2026-07-29
+superseded_by: docs/patchouli/generation.md
+---
+
+> 本文是迁移前位于源码目录的模块说明，保留 LLM 提取、去重和纯计算输出的设计背景。其 ConversationBuffer、triggers、旧导入路径、固定阈值与性能目标已退出当前实现；当前事实以[记忆生成](../../../../../patchouli/generation.md)为准。
+
 # MemoryGeneration - 记忆生成模块
 
 ## 📖 概述
@@ -302,9 +314,9 @@ LIBRARIAN_LLM_API_KEY=sk-xxxxx
 
 ## 📚 相关文档
 
-- [PROJECT.md 第 4 章](../../docs/PROJECT.md) - 完整设计文档
-- [ROADMAP.md Stage 1](../../docs/ROADMAP.md) - 开发路线图
-- [API 文档](../../docs/API.md) - 接口说明 (TBD)
+- [当前记忆生成文档](../../../../../patchouli/generation.md)
+- [当前 ROADMAP](../../../../../ROADMAP.md)
+- API 文档：旧计划中的 TBD，当前没有对应文件。
 
 ---
 

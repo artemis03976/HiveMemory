@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/system/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 记忆生命周期
@@ -87,6 +87,8 @@ HIT 表示一次被动检索命中，不应不断把更新时间刷新到“现�
 
 默认 low watermark 为 20，batch size 为 10。`force` 参数当前会沿调用链传递，但 collector 没有额外调度限制可绕过，因此不会改变实际筛选逻辑。
 
+生命力刷新由调用用例决定是否持久化：普通读取可用 `persist=False` 得到临时新分数，gardening 则由 LifecycleEngine 先以 `persist=True` 刷新全部候选，再把已经更新的 atoms 交给 GarbageCollector。Collector 不持有 VitalityCalculator，也不自行读取存储；这一安排避免计算器、收集器与存储形成循环依赖，并保持 Engine 是生命周期算法的唯一编排者。
+
 ## 5. Archive 与 Revive
 
 Archive 顺序为长期 persist 后中期 delete，并在 atom 中追加 ARCHIVED event；Revive 顺序为长期 load、中期 upsert、长期 remove，并追加 REVIVED event。状态转移由 MemoryLibrary 统一执行，Archiver 与 GC 不直接同时持有两个后端。
@@ -116,6 +118,7 @@ Gardening 作为全局 maintenance task 运行，调度器提供 interval、非�
 - `confidence` 尚未进入衰减调制，配置注释仍保留未来方向；
 - `high_watermark` 当前没有进入 Engine/GC 主路径；
 - reinforcement event history 与 GC stats 只在进程内；
+- feedback 当前只折叠进 MemoryAtom 的 confidence/event boost 与进程内事件历史，没有可供 UI 跨会话恢复的逐用户反馈状态；
 - gardening 每次最多 scroll 10000 条，没有分页游标或分片 job；
 - archive/revive 不是跨存储事务，失败可能形成重复副本或中间态；
 - 冷存储没有自动检索与复活策略；

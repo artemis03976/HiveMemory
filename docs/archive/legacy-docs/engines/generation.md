@@ -9,7 +9,7 @@ superseded_by:
   - docs/patchouli/artifacts.md
 ---
 
-> 本文保留三模式生成与早期认知链背景，已停止维护。当前控制面/数据面、去重、持久化、artifact 与任务终态分别以[记忆生成](../patchouli/generation.md)和[Artifacts](../patchouli/artifacts.md)为准。
+> 本文保留三模式生成与早期认知链背景，已停止维护。当前控制面/数据面、去重、持久化、artifact 与任务终态分别以[记忆生成](../../../patchouli/generation.md)和[Artifacts](../../../patchouli/artifacts.md)为准。
 
 # 6 核心功能 III：记忆生成 (The Generation Layer)
 

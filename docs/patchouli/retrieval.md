@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 记忆检索

@@ -7,7 +7,7 @@ archived_at: 2026-07-28
 superseded_by: docs/patchouli/memory-compiler.md
 ---
 
-> 本索引已由 [MemoryCompiler 当前设计](../../patchouli/memory-compiler.md)取代。原阶段文档只保留表达收敛的演化背景，不再作为 target、IR 或调用边界的当前入口。
+> 本索引已由 [MemoryCompiler 当前设计](../../../../patchouli/memory-compiler.md)取代。原阶段文档只保留表达收敛的演化背景，不再作为 target、IR 或调用边界的当前入口。
 
 # Memory Compiler
 

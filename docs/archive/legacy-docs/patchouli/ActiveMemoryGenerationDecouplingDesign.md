@@ -7,7 +7,7 @@ archived_at: 2026-07-28
 superseded_by: docs/patchouli/generation.md
 ---
 
-> 本文保留主动 WRITE/UPDATE 从感知层解耦的设计背景，已停止维护。当前 finalize 时序、三模式生成、任务控制和 PendingAtom settlement 以[记忆生成](./generation.md)为准。
+> 本文保留主动 WRITE/UPDATE 从感知层解耦的设计背景，已停止维护。当前 finalize 时序、三模式生成、任务控制和 PendingAtom settlement 以[记忆生成](../../../patchouli/generation.md)为准。
 
 # 主动记忆生成脱离感知层设计
 
@@ -19,7 +19,7 @@ superseded_by: docs/patchouli/generation.md
 
 ## 1. 文档目标
 
-本文是执行引擎边界裁定（[AgentRuntimeBoundaryDesign](../mod/AgentRuntimeBoundaryDesign.md)）与逻辑解耦（[AgentLoopDecouplingDesign](../mod/AgentLoopDecouplingDesign.md)）的后续工作，承接 [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 中 `materialize_tasks` 进入 patchouli 后的路径定义。
+本文是执行引擎边界裁定（[AgentRuntimeBoundaryDesign](../../../mod/AgentRuntimeBoundaryDesign.md)）与逻辑解耦（[AgentLoopDecouplingDesign](../../../mod/AgentLoopDecouplingDesign.md)）的后续工作，承接 [PendingAtomMaterializeTaskDesign](../../../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 中 `materialize_tasks` 进入 patchouli 后的路径定义。
 
 它处理一个感知层早期设计遗留的耦合：为统一记忆生成流的来源，当初刻意让 WRITE/UPDATE 数据流入感知层、再触发归档生成。该设计造成两个实际问题（§2 详证）：复数主动请求互相丢失历史上下文；每次主动请求都触发 summary 导致细节飞速流失。
 
@@ -48,7 +48,7 @@ finalize → submit_interaction → route_and_ingest → ingest_payload
   → generation_engine.process(mode b/c)
 ```
 
-决策矩阵（[trigger_manager.py:64-73](../../src/hivememory/engines/perception/trigger_manager.py#L64)）对两个主动 reason 的定义：
+决策矩阵（[trigger_manager.py:64-73](../../../../src/hivememory/engines/perception/trigger_manager.py#L64)）对两个主动 reason 的定义：
 
 | FlushReason | archive | compact | evict |
 | :--- | :---: | :---: | :---: |
@@ -56,7 +56,7 @@ finalize → submit_interaction → route_and_ingest → ingest_payload
 | `MTP_UPDATE` | ✅ | ✅ | ❌ |
 | `TOKEN_OVERFLOW` | ❌ | ✅ | ❌ |
 
-且 `resolve_topic` 在 archive/compact 之后**无条件清空 blocks**（[trigger_manager.py:209-211](../../src/hivememory/engines/perception/trigger_manager.py#L209)）：
+且 `resolve_topic` 在 archive/compact 之后**无条件清空 blocks**（[trigger_manager.py:209-211](../../../../src/hivememory/engines/perception/trigger_manager.py#L209)）：
 
 ```python
 buffer.blocks.clear()
@@ -67,13 +67,13 @@ buffer.total_tokens = 0
 
 ### 2.2 由此导出的两个问题
 
-**问题 1：复数主动请求互相丢上下文。** 第一个 WRITE 触发后 `blocks.clear()`，buffer 只剩压缩后的 state_summary。第二个 WRITE 进来时，`_build_generation_context`（[librarian.py:179](../../src/hivememory/patchouli/services/librarian.py#L179)）只能基于"被压扁的 summary + 它自己那一个 block"生成——前面对话的原始细节已被 summary 吞掉。
+**问题 1：复数主动请求互相丢上下文。** 第一个 WRITE 触发后 `blocks.clear()`，buffer 只剩压缩后的 state_summary。第二个 WRITE 进来时，旧 `_build_generation_context`（现由 [memory_generation.py](../../../../src/hivememory/patchouli/services/memory_generation.py) 等服务承接）只能基于"被压扁的 summary + 它自己那一个 block"生成——前面对话的原始细节已被 summary 吞掉。
 
-**问题 2：summary 把细节碾碎。** `compact: True` 使每次 WRITE 都跑一遍 `relay_controller.generate_summary`（[trigger_manager.py:290](../../src/hivememory/engines/perception/trigger_manager.py#L290)）。一个每轮都 write 的 Agent，buffer 被反复 summary，原始 turn 细节飞速流失。而 `TOKEN_OVERFLOW` 才是"token 溢出才 compact"的正确语义——主动写蹭用这套机制纯属副作用。
+**问题 2：summary 把细节碾碎。** `compact: True` 使每次 WRITE 都跑一遍 `relay_controller.generate_summary`（[trigger_manager.py:290](../../../../src/hivememory/engines/perception/trigger_manager.py#L290)）。一个每轮都 write 的 Agent，buffer 被反复 summary，原始 turn 细节飞速流失。而 `TOKEN_OVERFLOW` 才是"token 溢出才 compact"的正确语义——主动写蹭用这套机制纯属副作用。
 
 ### 2.3 根因
 
-这与 [AgentRuntimeBoundaryDesign](../mod/AgentRuntimeBoundaryDesign.md) 揭示的模式同源：**主动写错误地复用了被动感知的管道。** archive+compact+clear 是为"话题结算"（一段对话告一段落、需要落库并留摘要接力）设计的动作组合，主动 WRITE 只是想生成一条记忆，却被迫触发了整套话题结算。
+这与 [AgentRuntimeBoundaryDesign](../../../mod/AgentRuntimeBoundaryDesign.md) 揭示的模式同源：**主动写错误地复用了被动感知的管道。** archive+compact+clear 是为"话题结算"（一段对话告一段落、需要落库并留摘要接力）设计的动作组合，主动 WRITE 只是想生成一条记忆，却被迫触发了整套话题结算。
 
 ---
 
@@ -149,13 +149,13 @@ mode b/c 把 `topic_context` 的对话 block 当**只读背景**，不把它们�
 | :--- | :--- |
 | `engines/perception/trigger_manager.py` | DECISION_MATRIX 删除 `MTP_WRITE` / `MTP_UPDATE` 两项；`resolve_topic` 的 `mtp_focus` 参数移除 |
 | `engines/perception/models.py` | `FlushReason` 删除 `MTP_WRITE` / `MTP_UPDATE`；`LogicalBlock` 删除 `write_focus` / `update_focus`；`ArchivePayload` 删除 `focus`（及 reason 中的主动分支） |
-| `engines/perception/semantic_flow_perception_layer.py::ingest_payload` | 删除 URGENT 分支（[L216-236](../../src/hivememory/engines/perception/semantic_flow_perception_layer.py#L216)）、`write_focus`/`update_focus` 读取（[L201-202](../../src/hivememory/engines/perception/semantic_flow_perception_layer.py#L201)）；只保留普通 block 添加 + `_maybe_fold_pages`（TOKEN_OVERFLOW） |
+| `engines/perception/semantic_flow_perception_layer.py::ingest_payload` | 删除 URGENT 分支（[L216-236](../../../../src/hivememory/engines/perception/semantic_flow_perception_layer.py#L216)）、`write_focus`/`update_focus` 读取（[L201-202](../../../../src/hivememory/engines/perception/semantic_flow_perception_layer.py#L201)）；只保留普通 block 添加 + `_maybe_fold_pages`（TOKEN_OVERFLOW） |
 
 ### 5.2 librarian / 生成回调
 
 | 文件 | 改动 |
 | :--- | :--- |
-| `patchouli/services/librarian.py::_on_generate_memory` | 移除 focus/reason 的 mode b/c 分支（[L167-219](../../src/hivememory/patchouli/services/librarian.py#L167)），回调只处理被动 Mode A 提取；Settlement 发布逻辑迁到主动生成路径（§5.3） |
+| `patchouli/services/librarian.py::_on_generate_memory` | 移除 focus/reason 的 mode b/c 分支（现由 [memory_generation.py](../../../../src/hivememory/patchouli/services/memory_generation.py) 等服务承接），回调只处理被动 Mode A 提取；Settlement 发布逻辑迁到主动生成路径（§5.3） |
 | `patchouli/services/librarian.py::submit_interaction` | 日志去掉 write_focus/update_focus 字段；payload 不再带 focus |
 | `patchouli/services/librarian.py` | 新增主动生成入口（如 `materialize_tasks(tasks, topic_id)`）：读 topic_context → 逐 task 调 mode b/c → 发布 Settlement |
 
@@ -164,7 +164,7 @@ mode b/c 把 `topic_context` 的对话 block 当**只读背景**，不把它们�
 | 文件 | 改动 |
 | :--- | :--- |
 | `patchouli/service.py::finalize_agent_run` | 按 §3.3 时序：先 `submit_interaction` → 读 `topic_context` → 调新增主动生成入口处理 `materialize_tasks`；Settlement 回流不变 |
-| `core/protocol/models.py::InteractionPayload` | 移除 `write_focus` / `update_focus`（已由 [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 改为 `materialize_tasks`，本文确保它不再流入 perception，而是流入主动生成入口） |
+| `core/protocol/models.py::InteractionPayload` | 移除 `write_focus` / `update_focus`（已由 [PendingAtomMaterializeTaskDesign](../../../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 改为 `materialize_tasks`，本文确保它不再流入 perception，而是流入主动生成入口） |
 
 ### 5.4 验证
 
@@ -179,12 +179,12 @@ mode b/c 把 `topic_context` 的对话 block 当**只读背景**，不把它们�
 
 ## 6. 落地时间与依赖
 
-本文**依赖 [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md)**：主动生成入口消费的是 `materialize_tasks`（Task 携带 focus + 关联键），而非旧的 `write_focus`/`update_focus` 字段。因此排在 MaterializeTask 重组之后。
+本文**依赖 [PendingAtomMaterializeTaskDesign](../../../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md)**：主动生成入口消费的是 `materialize_tasks`（Task 携带 focus + 关联键），而非旧的 `write_focus`/`update_focus` 字段。因此排在 MaterializeTask 重组之后。
 
 完整演进链顺序：
 
-1. [AgentLoopDecouplingDesign](../mod/AgentLoopDecouplingDesign.md) — loop_executor 解耦，结果组装落到 AgentOrchestrator。
-2. [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) — Focus 瘦身、Task 投影、`AgentRunResult` 重组。
+1. [AgentLoopDecouplingDesign](../../../mod/AgentLoopDecouplingDesign.md) — loop_executor 解耦，结果组装落到 AgentOrchestrator。
+2. [PendingAtomMaterializeTaskDesign](../../../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) — Focus 瘦身、Task 投影、`AgentRunResult` 重组。
 3. **本文** — 主动生成脱离 perception，由 finalize 直驱 mode b/c。
 
 本文不依赖 `agent_runtime/` 目录迁移，可在现结构内完成。改动集中在 patchouli + engines/perception，alice 侧不受影响（Task 组装在前序已完成）。

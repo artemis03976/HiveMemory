@@ -7,7 +7,7 @@ archived_at: 2026-07-28
 superseded_by: docs/patchouli/memory-compiler.md
 ---
 
-> 本文保留 MemoryCompiler 表达收敛的分阶段设计记录，已停止维护。当前 source、IR、unit/envelope target、预算策略与已知缺口以 [MemoryCompiler 当前设计](../../patchouli/memory-compiler.md)为准；文中的未来 Phase 不代表当前能力。
+> 本文保留 MemoryCompiler 表达收敛的分阶段设计记录，已停止维护。当前 source、IR、unit/envelope target、预算策略与已知缺口以 [MemoryCompiler 当前设计](../../../../patchouli/memory-compiler.md)为准；文中的未来 Phase 不代表当前能力。
 
 # MemoryCompiler Phase 1：渲染收敛设计
 

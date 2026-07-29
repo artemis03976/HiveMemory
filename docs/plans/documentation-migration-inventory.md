@@ -293,3 +293,15 @@ P0 已于 2026-07-28 完成：
 - i18n：补齐 Relay/Generation 文本域、自然语言与机器契约分界、分域 catalog 取舍及文案行为风险；旧 i18n 树已移入 Archive；
 - 编码损坏的 `MemoryCompilerI18nMigrationPlan.md` 采用原字节移动，没有从损坏正文复制当前事实；
 - 第 7 节及以后文件未在本批移动，仍需按后续批次逐篇审计。
+
+## 22. 第 7 节 Patchouli 与 Engines 逐篇复核与物理迁移结果
+
+本批于 2026-07-29 完成，范围严格限定为清单第 7 节的十一篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](../archive/plans/documentation-migration-audit-section-7.md)。
+
+- `patchouli/README.md` 及七篇当前模块文档已再次对照代码、配置、测试与契约复核；补齐主动 WRITE/UPDATE 不触发 settlement 的原因、被动 `MessageTurnBuffer` 的结构化事件边界、`target_topic` 在 user 到达时绑定，以及 MemoryCompiler unit/envelope 的责任分界；
+- `ActiveMemoryGenerationDecouplingDesign.md`、`PatchouliPassiveIngestRefactorPlan.md`、`PatchouliTranscriptDualViewRefactor.md` 已确认其设计理念和真实限制分别进入 Generation、System Passive Ingress、Perception 与 Artifacts 当前入口；
+- `docs/engines/` 的 README、Perception、Generation、Retrieval、Lifecycle 和 MemoryCompiler 两篇旧文档已确认不再拥有独立真相源，当前事实分别并入 Patchouli 模块文档；
+- 明确拒绝固定容量/置信度公式、检索 miss 自动 revive、完整多格式 renderer、`read_memory` 稳定懒加载与 MTP RUN 已可执行等历史承诺；`engines/perception.md` 的 U+FFFD 损坏正文按原样保留，仅修正迁移后的替代入口链接，未从损坏段落复制事实；
+- 审计通过后，十篇 Patchouli/Engines 旧文档已物理移动至 `archive/legacy-docs/patchouli/` 与 `archive/legacy-docs/engines/`，并修复归档后的当前文档相对链接；
+- 用户追加范围中的四篇 `src/hivememory/engines/{perception,generation,retrieval,lifecycle}/README.md` 已逐篇复核并移入 `archive/legacy-docs/source-readmes/engines/`；Generation 补回 LLM 提取的取舍，Lifecycle 补回 caller-scoped refresh/GC 编排理由和逐用户反馈状态缺口；
+- 本批仍不处理第 8 节及以后文档、`docs/mod/` 或其他源码 README；剩余源码 README 收敛与最终全库链接检查属于后续 Archive 批次。

@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # MemoryCompiler
@@ -18,6 +18,8 @@ last_reviewed: 2026-07-28
 MemoryCompiler 把持久化记忆编译成一次任务能够使用的工作视图。它存在的根本原因是：同一条 MemoryAtom 在向量化、检索注入、MTP READ、Agent Profile 菜单和子 Agent 共享上下文中，不应复制成五套逐渐漂移的字符串模板；但它也不能变成决定检索、权限、运行时策略和工具执行的另一个 God Object。
 
 因此，Compiler 只做两件事：把不同记忆类源归一为中间表示，再按明确 target 生成文本与元数据。谁选择源、谁拥有权限、何时运行 Agent，仍由调用方负责。
+
+单条 `MemoryAtom` 的表达，与一组记忆在运行时语境中的包装，并不是同一责任。`PROMPT_FULL`、`PROMPT_INDEX`、`MTP_READ` 等 unit target 只负责单项语义；retrieval context、READ response 与 shared context 的 envelope 则负责 section、header/footer、空结果提示和行为说明。把两者重新塞回单一 renderer 或 God Object，会同时污染检索预算、权限策略和 Agent-facing 文案，也会让同一记忆无法按不同调用场景稳定复用。
 
 ## 1. 编译管线
 

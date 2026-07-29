@@ -1,3 +1,15 @@
+---
+title: Legacy Source README — Lifecycle Engine
+status: superseded
+owner: patchouli
+scope: legacy-source-readme
+source_path: src/hivememory/engines/lifecycle/README.md
+archived_at: 2026-07-29
+superseded_by: docs/patchouli/lifecycle.md
+---
+
+> 本文是迁移前位于源码目录的模块说明，保留 caller-scoped vitality refresh、GC 编排与 best-effort 强化等设计背景。其 `LibrarianCore`、`PatchouliService`、用户记忆 RUN 和 `resurrect_memory()` 等调用描述已经过时；当前事实以[记忆生命周期](../../../../../patchouli/lifecycle.md)为准。
+
 # 记忆生命周期 (Memory Lifecycle)
 
 该包负责处理记忆活跃度（vitality）的计算、强化（reinforcement）、归档（archival）和垃圾回收（garbage collection）。

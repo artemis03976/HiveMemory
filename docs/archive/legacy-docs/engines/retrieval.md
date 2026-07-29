@@ -9,7 +9,7 @@ superseded_by:
   - docs/patchouli/memory-compiler.md
 ---
 
-> 本文混合了检索与旧 renderer 设计，已停止维护。当前召回、过滤、融合与重排以[记忆检索](../patchouli/retrieval.md)为准，任务视图与上下文渲染以 [MemoryCompiler](../patchouli/memory-compiler.md) 为准。
+> 本文混合了检索与旧 renderer 设计，已停止维护。当前召回、过滤、融合与重排以[记忆检索](../../../patchouli/retrieval.md)为准，任务视图与上下文渲染以 [MemoryCompiler](../../../patchouli/memory-compiler.md) 为准。
 
 # 7 核心功能 IV：记忆检索与共享 (The Retrieval Engine)
 

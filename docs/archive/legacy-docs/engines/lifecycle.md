@@ -9,7 +9,7 @@ superseded_by:
   - docs/patchouli/memory-library.md
 ---
 
-> 本文保留早期生命力、强化与归档设计背景，已停止维护。当前公式、事件语义、gardening 与 archive/revive 边界以[记忆生命周期](../patchouli/lifecycle.md)和 [MemoryLibrary](../patchouli/memory-library.md) 为准。
+> 本文保留早期生命力、强化与归档设计背景，已停止维护。当前公式、事件语义、gardening 与 archive/revive 边界以[记忆生命周期](../../../patchouli/lifecycle.md)和 [MemoryLibrary](../../../patchouli/memory-library.md) 为准。
 
 # 8 核心功能 V：记忆生命周期管理 (Lifecycle Management)
 
