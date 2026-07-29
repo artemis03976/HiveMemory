@@ -8,7 +8,7 @@ AgentOrchestrator - 多智能体编排驱动器
     - 流式模式下负责 sub_agent_start/end 事件与子帧事件透传
 
 不变量：本模块不得反向 import alice/ 以外的子系统。
-见 docs/mod/AgentLoopDecouplingDesign.md §3.2 / §4 Phase 1+2。
+见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.2 / §4 Phase 1+2。
 """
 
 from __future__ import annotations

@@ -85,7 +85,15 @@ System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopp
 4. 事件是否被误当成命令、重试信号、提交确认或持久化审计？
 5. sequence、trace 和 correlation ID 是否能解释一次用例而不建立第二套状态机？
 
-## 7. 验证入口
+## 7. 当前生产端边界与演进计划
+
+RuntimeEvent 的消费语义已经稳定，但生产端尚未完成同等程度的收敛。Chat、Gateway workflow、Alice、memory task、Scheduler 和 System lifecycle 仍分别构造 `RuntimeEvent`，并保留多组 `_emit_*` 私有方法；`PassiveIngressEventEmitter` 与 `RuntimeOperationObserver` 已经证明“领域投影与业务主流程分离”可行，却还没有形成全项目统一的 Publisher/Emitter 模式。
+
+这项重复不会改变当前 wire format 或业务正确性，但会让默认 severity、关联上下文、payload 白名单和异常隔离在多个生产域中漂移。后续重构应保持三个约束：事件发生时机仍由业务控制流显式决定；领域 emitter 只投影事实、不修改业务状态；底层 publisher 统一 scope、上下文、payload 安全转换和 best-effort 边界。详细范围与验收条件见 [RuntimeEvent 生产端发布抽象重构](../plans/runtime-event-publishing-refactor.md)。
+
+在该计划落地前，不能把 `RuntimeEventPublisher`、完整 payload 类型化或全域 emitter 写成当前能力；直接生产点仍以代码和本文件描述的外部契约为准。
+
+## 8. 验证入口
 
 - `tests/unit/system/runtime/test_runtime_events.py`
 - `tests/unit/system/runtime/test_operations.py`

@@ -1,10 +1,27 @@
-# RuntimeEvent 生产端发布抽象重构设计
+---
+title: RuntimeEvent 生产端发布抽象重构
+status: planned
+owner: system
+scope: runtime-event-producer-abstractions
+code_paths:
+  - src/hivememory/system/runtime/
+  - src/hivememory/system/application/chat_service.py
+  - src/hivememory/gateway/
+  - src/hivememory/alice/runtime/
+  - src/hivememory/patchouli/control/
+related_contracts:
+  - docs/system/observability.md
+  - docs/contracts/routes-and-events.md
+last_reviewed: 2026-07-29
+---
+
+# RuntimeEvent 生产端发布抽象重构
 
 ## 1. 文档定位
 
 本文档描述 HiveMemory `RuntimeEvent` 生产端的发布抽象重构方案，重点解决事件构造与发布逻辑侵入业务主流程、不同生产域重复实现 `_emit_*`、payload 缺少类型约束等问题。
 
-本文档是 [V0.4.0 Runtime Control And Observability Plan](./V0.4.0RuntimeControlAndObservabilityPlan.md) 中 RuntimeEvent 体系的补充设计，沿用以下既有决策：
+本文档是 [System 可观测性](../system/observability.md)当前设计之上的生产端重构计划。它沿用 v0.4.0 已经落地的 RuntimeEvent 体系，但不把下列“已生效的不变量”与本计划尚未实现的 Publisher/Emitter 代码混为一谈：
 
 - `RuntimeEvent` 是稳定的可观测性事实，不驱动业务状态推进。
 - `RuntimeEventBus` 是独立的 best-effort 观测总线，不复用功能总线。

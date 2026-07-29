@@ -85,7 +85,7 @@ last_reviewed: 2026-07-29
 - 统一包版本元数据、README 和发布检查；
 - 明确未完成项是否移出 v0.6.0，避免发布范围继续膨胀。
 
-复合意图的详细方案仍位于迁移中的计划文档：[V0.6.0CompositeIntentDecompositionDesign.md](./mod/V0.6.0CompositeIntentDecompositionDesign.md)。其中未实现内容不得作为当前能力引用。
+复合意图的详细方案见 [v0.6.0 复合意图分解计划](./plans/v0.6.0-composite-intent-decomposition.md)。其中未实现内容不得作为当前能力引用。
 
 ### 3.3 v0.6.0 完成条件
 
@@ -102,7 +102,7 @@ last_reviewed: 2026-07-29
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.1` Runtime Job Queue | Planned | 统一后台 Job 状态、取消、重试、超时、触发和 outcome artifact | [迁移中的 Plan](./mod/V0.6.1LocalWorkQueueRuntimePlan.md) |
+| `v0.6.1` Runtime Job Queue | Planned | 统一后台 Job 状态、取消、重试、超时、触发和 outcome artifact | [Local Work Queue Runtime Plan](./plans/v0.6.1-local-work-queue-runtime.md) |
 | `v0.6.2` Chat Attachments | Candidate | 文件先 artifact 化，再作为当前 chat 上下文；大文件走 Job | 依赖 v0.6.1；正式 Plan 待建立 |
 | `v0.6.3` Frontend Experience | Partially Landed | 完成主题系统覆盖、自定义背景与明确运行状态反馈 | 浅色主题已落地，其余待形成 Plan |
 | `v0.7.0` Document Ingestion | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆 | 依赖 v0.6.1/0.6.2 与 Patchouli provenance |
@@ -111,6 +111,8 @@ last_reviewed: 2026-07-29
 | `v0.7.3` Conversation Branching | Candidate / Optional | 编辑消息后创建安全分支，不承诺自动回滚旧记忆 | 正式 Plan 待建立 |
 
 另有一项[数据模型可变性治理计划](./plans/data-model-mutability-governance.md)已经形成，但当前为 **Unscheduled**：它用于统一模型角色、写入所有权和边界投影，不属于上述任一版本承诺。只有完成模型/边界清单、风险评估并确认不会挤占 v0.6.x 主路径后，才应进入具体排期。
+
+[RuntimeEvent 生产端发布抽象重构](./plans/runtime-event-publishing-refactor.md)同样属于 **Unscheduled** 的基础设施清理：当前 RuntimeEvent wire format、总线与消费语义已经生效，未完成的是 Publisher/领域 emitter/payload 类型化的生产端收敛。它不能被解释为 v0.4.0 尚未发布，也不应在未排期时阻塞 v0.6.x 功能主线。
 
 ### 4.1 v0.6.1 Runtime Job Queue
 

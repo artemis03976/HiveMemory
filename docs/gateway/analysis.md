@@ -143,6 +143,12 @@ WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限�
 
 私有 `sub_intents` 目前在 Resolver 投影时丢弃，`COMPOSITE` 也没有稳定的下游任务/决策契约。相关设想仍属于计划，不得从 Engine 私有字段反推当前已支持复合任务执行。
 
+### 7.5 未消费字段与配置边界仍需收敛
+
+`RetrievalPlan` 已经携带 mode、top-k 与 dense/sparse weight，但 Patchouli prepare 当前主要消费是否跳过和 top-k，具体融合权重仍由 Retrieval 自身配置决定。`UserQueryAnalysisConfig` 也同时承载 Resolver 开关、模型覆盖和 context 截断等实现细节，尚未形成“稳定公共策略”与“Resolver 私有参数”的清晰分层。
+
+这些问题不能通过继续增加 DTO 字段解决。第二代调整前应先观察 rewrite 重复率、keywords 质量、memory signal 分布/实际物化结果和 `COMPOSITE` 样本，再决定删除无消费者字段、下沉私有配置、扩展 Patchouli 消费，或拆分独立能力。观测只保存计数、耗时和脱敏摘要，不应把原始用户输入塞进 RuntimeEvent。复合意图的协议与样本门禁见 [v0.6.0 复合意图分解计划](../plans/v0.6.0-composite-intent-decomposition.md)。
+
 ## 8. 设计矛盾检查
 
 修改分析能力时检查：
@@ -155,6 +161,8 @@ WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限�
 6. 是否未经数据验证就把共享调用拆成更慢的串行调用？
 7. 是否把配置级 fallback 与运行时失败 fallback 描述成相同语义？
 8. 是否把 RetrievalPlan 的存在误写为具体检索实现已经完全消费？
+9. 新字段是否有明确消费者和所有者，还是只扩大了第一代共享调用的私有输出？
+10. 第二代方案是否有可复现样本和质量指标支撑，而不是只按类名拆分 Engine？
 
 ## 9. 验证入口
 

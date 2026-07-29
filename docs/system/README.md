@@ -34,4 +34,4 @@ System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实
 
 System 与 Gateway 的跨边界交接仍以[子系统公共契约](../contracts/subsystem-contracts.md)、[公开路由与事件](../contracts/routes-and-events.md)和[系统边界](../architecture/boundaries.md)为准。本目录中的应用服务文档描述“谁编排”，不会重新定义 route 字符串或子系统内部状态。
 
-清单第 4～6 节中的旧 Protocols、i18n 与 Observability 材料已经逐篇复核并移入 Archive；包括编码损坏的 MemoryCompiler i18n 计划在内，均不再保留原路径入口。审计结论见[第 4～6 节迁移记录](../archive/plans/documentation-migration-audit-sections-4-6.md)。`docs/mod/` 及其他后续批次旧材料仍需各自审计；任何旧材料与当前文档冲突时，均以当前代码、测试和本目录文档为准。
+清单第 4～6 节和原 `docs/mod/` 中的 System 材料已经逐篇复核并移入 Archive 或 Plans；包括编码损坏的 MemoryCompiler i18n 计划在内，均不再保留原路径入口。审计结论见[第 4～6 节迁移记录](../archive/plans/documentation-migration-audit-sections-4-6.md)与[`docs/mod` 迁移记录](../archive/plans/documentation-migration-audit-docs-mod.md)。任何历史稿与当前文档冲突时，均以当前代码、测试和本目录文档为准。

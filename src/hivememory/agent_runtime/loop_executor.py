@@ -13,7 +13,7 @@ Phase A→B→C→D 循环：
     D. 回填 & 继续
 
 不变量：本模块不得出现 sub-agent / topology / 下一个该调谁 词汇。
-见 docs/mod/AgentLoopDecouplingDesign.md §3 / §4 Phase 1+2。
+见 docs/archive/plans/implementation/agent-loop-decoupling.md §3 / §4 Phase 1+2。
 """
 
 import asyncio

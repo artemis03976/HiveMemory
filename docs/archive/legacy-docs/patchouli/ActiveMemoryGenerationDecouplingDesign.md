@@ -19,7 +19,7 @@ superseded_by: docs/patchouli/generation.md
 
 ## 1. 文档目标
 
-本文是执行引擎边界裁定（[AgentRuntimeBoundaryDesign](../../../mod/AgentRuntimeBoundaryDesign.md)）与逻辑解耦（[AgentLoopDecouplingDesign](../../../mod/AgentLoopDecouplingDesign.md)）的后续工作，承接 [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 中 `materialize_tasks` 进入 patchouli 后的路径定义。
+本文是执行引擎边界裁定（[AgentRuntimeBoundaryDesign](../../plans/implementation/agent-runtime-boundary.md)）与逻辑解耦（[AgentLoopDecouplingDesign](../../plans/implementation/agent-loop-decoupling.md)）的后续工作，承接 [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 中 `materialize_tasks` 进入 patchouli 后的路径定义。
 
 它处理一个感知层早期设计遗留的耦合：为统一记忆生成流的来源，当初刻意让 WRITE/UPDATE 数据流入感知层、再触发归档生成。该设计造成两个实际问题（§2 详证）：复数主动请求互相丢失历史上下文；每次主动请求都触发 summary 导致细节飞速流失。
 
@@ -73,7 +73,7 @@ buffer.total_tokens = 0
 
 ### 2.3 根因
 
-这与 [AgentRuntimeBoundaryDesign](../../../mod/AgentRuntimeBoundaryDesign.md) 揭示的模式同源：**主动写错误地复用了被动感知的管道。** archive+compact+clear 是为"话题结算"（一段对话告一段落、需要落库并留摘要接力）设计的动作组合，主动 WRITE 只是想生成一条记忆，却被迫触发了整套话题结算。
+这与 [AgentRuntimeBoundaryDesign](../../plans/implementation/agent-runtime-boundary.md) 揭示的模式同源：**主动写错误地复用了被动感知的管道。** archive+compact+clear 是为"话题结算"（一段对话告一段落、需要落库并留摘要接力）设计的动作组合，主动 WRITE 只是想生成一条记忆，却被迫触发了整套话题结算。
 
 ---
 
@@ -183,7 +183,7 @@ mode b/c 把 `topic_context` 的对话 block 当**只读背景**，不把它们�
 
 完整演进链顺序：
 
-1. [AgentLoopDecouplingDesign](../../../mod/AgentLoopDecouplingDesign.md) — loop_executor 解耦，结果组装落到 AgentOrchestrator。
+1. [AgentLoopDecouplingDesign](../../plans/implementation/agent-loop-decoupling.md) — loop_executor 解耦，结果组装落到 AgentOrchestrator。
 2. [PendingAtomMaterializeTaskDesign](../agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) — Focus 瘦身、Task 投影、`AgentRunResult` 重组。
 3. **本文** — 主动生成脱离 perception，由 finalize 直驱 mode b/c。
 

@@ -88,4 +88,4 @@ GatewaySystem
 - [话题与查询分析](./analysis.md)：两阶段上下文、Topic Router、第一代 Resolver 与技术债；
 - [全局命令](./commands.md)：Registry、Parser、Dispatcher、权限和命令短路。
 
-原 `docs/engines/gateway.md` 已移入 Archive；`docs/mod/V0.6.0GatewaySystemDesign.md` 与 `docs/mod/V0.6.0GlobalCommandSystemDesign.md` 也已停止作为实现入口。它们保留了演化过程和未落地设想；当前事实以代码、测试、本目录文档和 Contracts 为准。
+原 `docs/engines/gateway.md` 与 `docs/mod/` 中的 Gateway 实施稿已经完成审计并移入 Archive；复合意图计划则进入 Plans。它们保留了演化过程和未落地设想，但不再占用当前入口；逐篇结论见 [`docs/mod` 迁移记录](../archive/plans/documentation-migration-audit-docs-mod.md)，当前事实以代码、测试、本目录文档和 Contracts 为准。

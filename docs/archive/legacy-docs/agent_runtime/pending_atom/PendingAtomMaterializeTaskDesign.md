@@ -22,7 +22,7 @@ superseded_by:
 
 ## 1. 文档目标
 
-本文承接 [PendingAtomRuntimeDesign](PendingAtomRuntimeDesign.md) 与 [AgentLoopDecouplingDesign](../../../../mod/AgentLoopDecouplingDesign.md)，处理一个历史遗留设计债：`WriteFocus` / `UpdateFocus` 最初只用于把 MTP WRITE/UPDATE 的请求内容从 Koakuma 传给 patchouli 生成域，但随 Phase 2 与 PendingAtom 演进，它逐渐同时承担了过多角色——既装"Agent 提交的参数"（content/title/reason/instruction），又装"生成关联键"（pending_alias/intent_id/identity），还被一路穿透到 `ChatResult` 三字段，由 loop_executor / harvest 反复维护。
+本文承接 [PendingAtomRuntimeDesign](PendingAtomRuntimeDesign.md) 与 [AgentLoopDecouplingDesign](../../../plans/implementation/agent-loop-decoupling.md)，处理一个历史遗留设计债：`WriteFocus` / `UpdateFocus` 最初只用于把 MTP WRITE/UPDATE 的请求内容从 Koakuma 传给 patchouli 生成域，但随 Phase 2 与 PendingAtom 演进，它逐渐同时承担了过多角色——既装"Agent 提交的参数"（content/title/reason/instruction），又装"生成关联键"（pending_alias/intent_id/identity），还被一路穿透到 `ChatResult` 三字段，由 loop_executor / harvest 反复维护。
 
 设计目标：
 
@@ -156,7 +156,7 @@ class PendingAtomMaterializeTask(BaseModel):
 
 因此引擎不必把 alias 一路 harvest 穿过帧栈来组装 run 级结果。
 
-> 边界澄清：这里的 scope 过滤组装与 [AgentLoopDecouplingDesign](../../../../mod/AgentLoopDecouplingDesign.md) 中**子帧 IPC 回复用的 harvest 是两件正交的事**。后者（`frame.harvested_aliases` → `_assemble_ipc_return` 的 `[Artifacts]`）只为给主 Agent 看的回复文本服务，保留显式收割不变。本文的"明确下游流向"不变量只约束 `AgentRunResult` 的数据条目，与 IPC harvest 无关。
+> 边界澄清：这里的 scope 过滤组装与 [AgentLoopDecouplingDesign](../../../plans/implementation/agent-loop-decoupling.md) 中**子帧 IPC 回复用的 harvest 是两件正交的事**。后者（`frame.harvested_aliases` → `_assemble_ipc_return` 的 `[Artifacts]`）只为给主 Agent 看的回复文本服务，保留显式收割不变。本文的"明确下游流向"不变量只约束 `AgentRunResult` 的数据条目，与 IPC harvest 无关。
 
 ### 3.5 ChatResult 重组为 AgentRunResult
 
@@ -246,7 +246,7 @@ Focus 瘦身后已无 `identity` 字段（§3.1），identity 改由 `Task.ident
 
 ## 5. 落地时间与依赖
 
-本期**必须在 [AgentLoopDecouplingDesign](../../../../mod/AgentLoopDecouplingDesign.md) 之后**，原因：`write_foci`/`update_foci`/`pending_aliases` 的维护与 harvest 正是解耦要从引擎搬到 `AgentOrchestrator` 的逻辑。若先做本期，会在引擎里改一遍、解耦时再搬一遍。
+本期**必须在 [AgentLoopDecouplingDesign](../../../plans/implementation/agent-loop-decoupling.md) 之后**，原因：`write_foci`/`update_foci`/`pending_aliases` 的维护与 harvest 正是解耦要从引擎搬到 `AgentOrchestrator` 的逻辑。若先做本期，会在引擎里改一遍、解耦时再搬一遍。
 
 推荐顺序：
 

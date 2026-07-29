@@ -14,5 +14,8 @@ last_reviewed: 2026-07-29
 
 - [文档体系迁移清单](./documentation-migration-inventory.md)
 - [数据模型可变性治理](./data-model-mutability-governance.md)：未排期的项目级模型角色、所有权与边界投影治理。
+- [RuntimeEvent 生产端发布抽象重构](./runtime-event-publishing-refactor.md)：统一 Publisher、领域 emitter、payload 安全与生产端 best-effort 边界，当前未实现。
+- [v0.6.0 复合意图分解](./v0.6.0-composite-intent-decomposition.md)：先建立样本门禁与 composite envelope，再讨论多分支执行。
+- [v0.6.1 Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md)：以多 lane 的本地工作队列收敛 interaction submission、memory generation 与未来 runtime job 的机械生命周期。
 
-迁移期间，`docs/mod/` 仍包含大量历史计划和混合文档。新计划不得继续加入 `docs/mod/`，现有内容按迁移清单分别进入当前设计、Plans、Todo 或 Archive。
+原 `docs/mod/` 混合目录已经完成逐篇审计与物理迁移。新计划只进入本目录；已完成或被替代的实施稿从 [Archived Plans](../archive/plans/README.md) 查阅。

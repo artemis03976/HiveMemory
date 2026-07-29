@@ -3,12 +3,12 @@ title: Legacy PendingAtom Lifecycle Design
 status: superseded
 owner: alice
 scope: completed-pending-lifecycle-and-handle-reclamation
-archived_at: 2026-07-28
+archived_at: 2026-07-29
 superseded_by:
   - docs/alice/pending-atom.md
 ---
 
-> 本文保留 PendingAtom 结算窗口、EXPIRED 语义和句柄回收的设计取舍，已停止维护。当前状态机、全局 run 回收节拍与已知限制以 [Alice PendingAtom](../alice/pending-atom.md)为准。
+> 本文保留 PendingAtom 结算窗口、EXPIRED 语义和句柄回收的设计取舍，已停止维护。当前状态机、全局 run 回收节拍与已知限制以 [Alice PendingAtom](../../../alice/pending-atom.md)为准。
 
 # PendingAtom 生命周期与句柄回收设计
 

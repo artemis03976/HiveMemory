@@ -3,14 +3,14 @@ title: Legacy Agent Runtime Boundary Design
 status: superseded
 owner: alice
 scope: completed-agent-runtime-boundary-decision
-archived_at: 2026-07-28
+archived_at: 2026-07-29
 superseded_by:
   - docs/alice/README.md
   - docs/alice/agent-runtime.md
   - docs/alice/orchestration.md
 ---
 
-> 本文保留 Alice 控制面与单 Agent 执行层分离的边界裁定，已停止维护。当前所有权、依赖方向与物理代码现状以 [Alice 总览](../alice/README.md)、[Agent Runtime](../alice/agent-runtime.md)和[多 Agent 编排](../alice/orchestration.md)为准。
+> 本文保留 Alice 控制面与单 Agent 执行层分离的边界裁定，已停止维护。当前所有权、依赖方向与物理代码现状以 [Alice 总览](../../../alice/README.md)、[Agent Runtime](../../../alice/agent-runtime.md)和[多 Agent 编排](../../../alice/orchestration.md)为准。
 
 # Agent 执行引擎边界裁定与目录结构设计
 
@@ -26,7 +26,7 @@ superseded_by:
 
 > alice 子系统到底是否应该承担 AgentRuntime、KoakumaRuntime、PendingAtomRuntime 三者？如果承担，三者在 alice 中的定位是什么？如果不承担，三者应划归何处？
 
-[PendingAtomRuntimeDesign](../archive/legacy-docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md) 在收尾处已经预判到这一点，并明确把"alice 子系统的物理目录拆分"留给了后续讨论。本文就是那次讨论的结论。
+[PendingAtomRuntimeDesign](../../legacy-docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md) 在收尾处已经预判到这一点，并明确把"alice 子系统的物理目录拆分"留给了后续讨论。本文就是那次讨论的结论。
 
 设计目标：
 
@@ -42,7 +42,7 @@ superseded_by:
 
 ### 2.1 v4 演进中真正明确的与含糊的
 
-当前架构边界（见[系统边界](../architecture/boundaries.md)）中，有两项工作的边界是完全清晰的：
+当前架构边界（见[系统边界](../../../architecture/boundaries.md)）中，有两项工作的边界是完全清晰的：
 
 1. **patchouli 收敛为纯记忆域**：Agent 生成循环、多智能体调用等非记忆职责被全部逐出，patchouli 现在专注记忆域操作并通过总线暴露能力。状态理想。
 2. **顶层 HiveMemorySystem 成立**：消除了 patchouli 作为 god system 的历史包袱，作为 facade 管理对外 API、子系统装配与全局组件。状态理想。
@@ -98,7 +98,7 @@ superseded_by:
 ### 3.2 三个 Runtime 的裁定结果
 
 **AgentRuntime / AgentLoopExecutor → 执行引擎（①）**
-取指-执行循环本身是引擎职责。但当前 [loop_executor.py](../../src/hivememory/alice/runtime/agent/loop_executor.py) 中的 `_execute_call` / `_assemble_ipc_return` / `_try_harvest_alias` / `_fetch_context_refs_content`、以及 SUSPEND 分支里 `suspend_frame` / `fork_sub_frame` / 递归跑子帧 / `resume_frame` 这一整套，**是编排职责长在了引擎循环里**。这是病灶所在，留待 §5 处理。
+取指-执行循环本身是引擎职责。但当前 [loop_executor.py](../../../../src/hivememory/agent_runtime/loop_executor.py) 中的 `_execute_call` / `_assemble_ipc_return` / `_try_harvest_alias` / `_fetch_context_refs_content`、以及 SUSPEND 分支里 `suspend_frame` / `fork_sub_frame` / 递归跑子帧 / `resume_frame` 这一整套，**是编排职责长在了引擎循环里**。这是病灶所在，留待 §5 处理。
 
 **KoakumaRuntime → 执行引擎（①）**
 MTP 解析、权限校验、syscall/tool 执行、响应格式化，是单 agent 一步动作的指令集解释器，agent-数量无关。后期 RUN 能力扩大（更多 syscall、更重的工具沙箱）只会让这一层更厚，进一步佐证它需要独立的物理空间。
@@ -113,7 +113,7 @@ MTP 解析、权限校验、syscall/tool 执行、响应格式化，是单 agent
 | run 作用域、主帧+子帧共享同一实例、写入互相可见 | 正是"一个进程多线程共享同一 store buffer" |
 | settlement 从 patchouli 生成流水线回填 reconcile | 正是"写缓冲最终与主存对账"；落库前 agent 能 READ 自己的 `draft_` 别名，主存看不到 |
 
-因此 **`PendingAtom` / `Settlement` / `Focus` 等数据模型上移到 [core/models/pending.py](../../src/hivememory/core/models/pending.py) 是对的**（它们是 alice↔patchouli 缝隙上的共享词汇），但 **`PendingAtomRuntime` 这个运行时不该继续上移到 core，也不该下沉到 patchouli**——它就是执行引擎的写缓冲单元，归 `agent_runtime/`。
+因此 **`PendingAtom` / `Settlement` / `Focus` 等数据模型上移到 [core/models/pending.py](../../../../src/hivememory/core/models/pending.py) 是对的**（它们是 alice↔patchouli 缝隙上的共享词汇），但 **`PendingAtomRuntime` 这个运行时不该继续上移到 core，也不该下沉到 patchouli**——它就是执行引擎的写缓冲单元，归 `agent_runtime/`。
 
 ### 3.3 名义上不拆为顶层子系统
 
@@ -205,7 +205,7 @@ alice/                         # 子系统：多智能体编排（OS 调度器�
 1. "alice 回归编排与调度能力域"；
 2. "alice 只需调用 `run_agent` 就能发配一个 Agent 去干活，单智能体执行对 alice 透明"。
 
-如果 `run_agent` 把**整棵递归树**（含 CALL 派生子 agent、帧栈、收割、IPC）全包在引擎里跑完，alice 调一次就结束——**alice 就没有编排可做了**，第 1 句话变假。这正是现在 [loop_executor.py](../../src/hivememory/alice/runtime/agent/loop_executor.py) 的状态：编排逻辑长在引擎循环里。
+如果 `run_agent` 把**整棵递归树**（含 CALL 派生子 agent、帧栈、收割、IPC）全包在引擎里跑完，alice 调一次就结束——**alice 就没有编排可做了**，第 1 句话变假。这正是现在 [loop_executor.py](../../../../src/hivememory/agent_runtime/loop_executor.py) 的状态：编排逻辑长在引擎循环里。
 
 解法是承认**两层各有一个 run，粒度不同**：
 
@@ -243,7 +243,7 @@ alice/                         # 子系统：多智能体编排（OS 调度器�
 推荐顺序：
 
 1. **CALL 反转**：引擎循环命中 SUSPEND 时返回结构化信号给调用方，`_execute_call` / 收割 / IPC 上移到 alice 编排组件（见 §4.5、§5）。
-2. **结晶引擎聚合根**：让引擎聚合根持有 Koakuma+Pending+Cache+Resolver+WorkerAgent 并暴露 `run_frame`；把现散在 [AliceRuntime.__init__](../../src/hivememory/alice/runtime/core.py) 里的引擎装配收进去，AliceRuntime 只持有这一个引擎对象 + 编排组件。顺带把 `_on_pending_atom_settled` / `_refresh_l1_cache_for_settlement`（写缓冲 reconcile，属引擎）从 AliceRuntime 挪进引擎。
+2. **结晶引擎聚合根**：让引擎聚合根持有 Koakuma+Pending+Cache+Resolver+WorkerAgent 并暴露 `run_frame`；把现散在 [AliceRuntime.__init__](../../../../src/hivememory/alice/runtime/core.py) 里的引擎装配收进去，AliceRuntime 只持有这一个引擎对象 + 编排组件。顺带把 `_on_pending_atom_settled` / `_refresh_l1_cache_for_settlement`（写缓冲 reconcile，属引擎）从 AliceRuntime 挪进引擎。
 3. **整体迁移**：引擎自洽后一次性移到 `agent_runtime/`。
 
 可选折中：第 0 步先把"可干净下沉"那批叶子移过去（依赖已朝下，零反转、零债），纠缠三件套留到第 1–2 步做完再移。代价是引擎短暂被劈成两处，略别扭但无债。

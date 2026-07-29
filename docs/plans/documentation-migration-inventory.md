@@ -171,24 +171,24 @@ last_reviewed: 2026-07-29
 
 | 现有文档 | 分类 | 动作 | 目标或处理说明 |
 |:---|:---:|:---|:---|
-| `docs/mod/AgentLoopDecouplingDesign.md` | merge | 合并后归档 | P1 已将 loop/executor 与 CALL trap 边界并入 Alice 当前文档并标记原文 `superseded` |
-| `docs/mod/AgentRuntimeBoundaryDesign.md` | merge | 合并后归档 | P1 已将 Alice 控制面、Agent Runtime 执行层与 MTP 边界并入 Alice 当前文档并标记原文 `superseded` |
-| `docs/mod/MemoryCompilerIRDesign.md` | merge | 合并后归档 | P1 已并入 `patchouli/memory-compiler.md` 并标记原文 `superseded` |
-| `docs/mod/MemoryCompilerRetrievalRefactorPlan.md` | merge | 合并后归档 | P1 已将 Retrieval/Compiler 分工并入两个当前文档并标记原文 `superseded` |
-| `docs/mod/MemoryGenerationManagementEnhancementPlan.md` | merge | 合并后归档 | P1 已将任务控制、失败隔离、等待/取消和 shutdown 时序并入 `patchouli/generation.md` 并标记原文 `superseded` |
-| `docs/mod/PatchouliSubsystemRefactorPlan.md` | merge | 合并后归档 | P1 已将 MemoryLibrary、service/runtime、Familiar/Coordinator 和引擎所有权并入 Patchouli 当前文档并标记原文 `superseded` |
-| `docs/mod/PendingAtomLifecycleDesign.md` | merge | 合并后归档 | P1 已将生命周期、结算窗口和句柄回收并入 `alice/pending-atom.md` 并标记原文 `superseded` |
-| `docs/mod/RuntimeEventPublishingRefactorDesign.md` | merge | 合并后归档 | 当前发布抽象进入 `system/observability.md` 与 `contracts/routes-and-events.md`；重要取舍评估为 ADR |
-| `docs/mod/V0.4.0RuntimeControlAndObservabilityPlan.md` | merge | 合并后归档 | v0.4 已完成；当前控制和事件事实进入 System 文档 |
-| `docs/mod/V0.5.0DataDurabilityAndAsyncColdPathPlan.md` | merge | 合并后归档 | P1 已将 artifact/provenance/cold path 事实与耐久性缺口并入 Patchouli 当前文档并标记原文 `superseded` |
-| `docs/mod/V0.5.1InfraCleanupPlan.md` | merge | 合并后归档 | P1 已将配置所有权、NoOp 与取消接线事实并入 System/Patchouli/Alice 当前文档并标记原文 `superseded` |
-| `docs/mod/V0.5.2AsyncNativeAdaptationPlan.md` | archive | 直接归档 | P1 已将有效 async 边界并入 MemoryLibrary/Generation/Retrieval 并标记实施记录 `superseded`；P2 再物理移动 |
-| `docs/mod/V0.6.0CompositeIntentDecompositionDesign.md` | plan | 迁移 | 移入 `plans/v0.6.0-composite-intent-decomposition.md`；与当前私有 `sub_intents` 行为明确区分 |
-| `docs/mod/V0.6.0GatewaySystemDesign.md` | merge | 拆分 | P1 已将已实现事实并入 Gateway/System 当前文档并标记原文 `superseded`；未落地内容不再作为当前能力 |
-| `docs/mod/V0.6.0GlobalCommandSystemDesign.md` | merge | 拆分 | P1 已将注册、分发、安全和短路语义并入 `gateway/commands.md`，原文已标记 `superseded` |
-| `docs/mod/V0.6.0PassiveIngressDesign.md` | merge | 合并后归档 | P1 已并入 `system/passive-ingress.md` 与 Gateway workflow，原文已标记 `superseded` |
-| `docs/mod/V0.6.0UserQueryAnalysisGen1TechDebt.md` | todo | 拆分 | P1 已将当前行为、矛盾和技术债并入 `gateway/analysis.md`；原稿停止作为当前设计入口 |
-| `docs/mod/V0.6.1LocalWorkQueueRuntimePlan.md` | plan | 迁移 | 移入 `plans/v0.6.1-local-work-queue-runtime.md`，继续保持 Future/Planned 状态 |
+| `docs/mod/AgentLoopDecouplingDesign.md` | archive | 已迁移 | 理念与事实由 Alice 当前文档承接；历史稿进入 `archive/plans/implementation/agent-loop-decoupling.md` |
+| `docs/mod/AgentRuntimeBoundaryDesign.md` | archive | 已迁移 | 边界裁定由 Alice 当前文档承接；历史稿进入 `archive/plans/implementation/agent-runtime-boundary.md` |
+| `docs/mod/MemoryCompilerIRDesign.md` | archive | 已迁移 | IR 与 target 事实由 `patchouli/memory-compiler.md` 承接；历史稿进入 implementation archive |
+| `docs/mod/MemoryCompilerRetrievalRefactorPlan.md` | archive | 已迁移 | Retrieval/Compiler 分工由两个当前文档承接；历史稿进入 implementation archive |
+| `docs/mod/MemoryGenerationManagementEnhancementPlan.md` | archive | 已迁移 | spec 隔离、等待、取消和 shutdown drain 已实现；durable queue 缺口进入 Local Work Queue Plan |
+| `docs/mod/PatchouliSubsystemRefactorPlan.md` | archive | 已迁移 | Patchouli 所有权与分层由当前模块文档承接；历史稿进入 implementation archive |
+| `docs/mod/PendingAtomLifecycleDesign.md` | archive | 已迁移 | 状态机、settlement 与回收语义由 `alice/pending-atom.md` 承接；历史稿进入 implementation archive |
+| `docs/mod/RuntimeEventPublishingRefactorDesign.md` | plan | 已迁移 | 原分类纠正：Publisher/Emitter/payload 类型化尚未落地，迁入 `plans/runtime-event-publishing-refactor.md` |
+| `docs/mod/V0.4.0RuntimeControlAndObservabilityPlan.md` | archive | 已迁移 | v0.4 当前事实进入 System/Generation，历史稿进入 implementation archive |
+| `docs/mod/V0.5.0DataDurabilityAndAsyncColdPathPlan.md` | archive | 已迁移 | artifact/provenance 与耐久性边界进入 Patchouli 当前文档，历史稿进入 implementation archive |
+| `docs/mod/V0.5.1InfraCleanupPlan.md` | archive | 已迁移 | 配置、NoOp 与取消接线进入 System/Patchouli/Alice 当前文档，历史稿进入 implementation archive |
+| `docs/mod/V0.5.2AsyncNativeAdaptationPlan.md` | archive | 已迁移 | async-native 主链已实现，历史实施记录进入 implementation archive |
+| `docs/mod/V0.6.0CompositeIntentDecompositionDesign.md` | plan | 已迁移 | 迁入 `plans/v0.6.0-composite-intent-decomposition.md`，并按当前私有 `sub_intents` 事实修正 |
+| `docs/mod/V0.6.0GatewaySystemDesign.md` | archive | 已迁移 | Gateway 主体事实由当前四篇文档承接；复合 intent 独立进入 Plan |
+| `docs/mod/V0.6.0GlobalCommandSystemDesign.md` | archive | 已迁移 | 已实现命令语义进入 `gateway/commands.md`，未实现设想只留在历史稿 |
+| `docs/mod/V0.6.0PassiveIngressDesign.md` | archive | 已迁移 | 当前事实进入 `system/passive-ingress.md` 与 Gateway workflow |
+| `docs/mod/V0.6.0UserQueryAnalysisGen1TechDebt.md` | archive | 已迁移 | 当前技术债与指标先行原则进入 `gateway/analysis.md`；第二代尚不足以建立小型 Todo 或排期 Plan |
+| `docs/mod/V0.6.1LocalWorkQueueRuntimePlan.md` | plan | 已迁移 | 迁入 `plans/v0.6.1-local-work-queue-runtime.md`，继续保持 Planned 状态 |
 
 ## 14. 迁移批次
 
@@ -200,7 +200,7 @@ last_reviewed: 2026-07-29
 4. [x] **P1：Patchouli**：MemoryLibrary、artifacts、perception、generation、retrieval、lifecycle、MemoryCompiler；
 5. [x] **P1：Alice**：Agent Runtime、orchestration、PendingAtom 与 MTP runtime；
 6. [x] **P2：Frontend、Applications 与 Help**；
-7. **P2：Archive 重组、源码 README 收敛和全库链接检查**。
+7. **P2：Archive 重组、源码 README 收敛和全库链接检查**：清单第 4～10 节与 `docs/mod/` 已完成分批审计和物理迁移；Ideas、其他源码 README 与额外批次不在本轮范围，仍需后续独立复核。
 
 ## 15. 本步骤完成条件
 
@@ -209,8 +209,8 @@ last_reviewed: 2026-07-29
 - [x] Archive 已建立 Plans、Legacy Architecture 和 Legacy Docs 目标分区；
 - [x] Applications 与 Frontend 已有局部索引；
 - [x] 已记录版本状态、v0.6.0 状态和编码损坏等阻塞性偏差；
-- [ ] 仍有 Archive/源码 README 批次涉及的 `merge` 文档需要最终链接与状态复核；
-- [ ] P1/P2 旧文件尚未全部物理移动至 Archive；
+- [ ] Archive/源码 README 批次仍有本轮范围外的 Ideas、其他源码 README 与额外材料需要最终链接和状态复核；
+- [ ] 已纳入第 4～10 节和 `docs/mod/` 的旧文件均已物理迁移，但迁移清单的其他后续批次尚未全部关闭；
 - [x] P0 当前设计主干和契约已经重写。
 - [x] P1 System 与 Gateway 当前设计已经核验、重写并关闭旧入口。
 - [x] P1 Patchouli 当前设计已经核验、重写并关闭旧入口。
@@ -329,3 +329,16 @@ P0 已于 2026-07-28 完成：
 - 审计通过后，Gateway 一篇与 Frontend 三篇旧稿已物理移动至 `archive/legacy-docs/engines/` 和 `archive/legacy-docs/frontend/`，并修复当前入口与源码相对链接；
 - 本批 20 篇相关 Markdown 的严格 UTF-8 与相对链接检查通过，Gateway/System/Patchouli 定向测试 48 项通过，前端 lint 与生产构建通过；
 - 本批没有处理 `docs/mod/`、Ideas、其他源码 README 或最后的全库迁移门禁，后续仍需按清单继续推进。
+
+## 25. `docs/mod` 逐篇复核与物理迁移结果
+
+本批于 2026-07-29 完成。完整逐篇承接、理念、拒绝项、分类纠正与最终路径见 [`docs/mod` 迁移审计](../archive/plans/documentation-migration-audit-docs-mod.md)。
+
+- Alice 三篇边界/生命周期稿已确认由 Agent Runtime、Orchestration 与 PendingAtom 当前文档充分承接，并进入 `archive/plans/implementation/`；
+- Patchouli/MemoryCompiler/v0.5.x 七篇稿已核对 IR、renderer 分离、spec 并发与失败隔离、wait/shutdown drain、NoOp、AsyncQdrantClient 和 async-native；尚存的 durable queue、backpressure、原子 provenance 等缺口没有被误写成已完成；
+- v0.4、Gateway、Commands、Passive Ingress 与 Query Analysis 五篇稿已由 System/Gateway 当前文档承接后归档；Query Analysis 第二代因范围跨模块且尚无排期，没有机械创建成小型 Todo；
+- `RuntimeEventPublishingRefactorDesign.md` 的原分类经代码复核后由 archive 纠正为 Plan：统一 Publisher、领域 emitter 与 payload 类型化尚未实现；
+- Composite Intent Plan 已按当前代码重写基线：只有 `COMPOSITE` 与 Engine 私有 `sub_intents`，没有公共 branch/envelope/merge 能力；
+- Local Work Queue 继续保持 Planned，明确一套 runtime、多 lane、Scheduler 非 Queue 和单机优先的边界；
+- 最终十五篇完成/被替代稿进入 `archive/plans/implementation/`，三篇当前计划进入 `docs/plans/`，原 `docs/mod/` 清空；
+- Roadmap、Project、Plans/Archive/System/Gateway 索引、源码注释、历史文档互链和迁移清单均已改指最终路径。

@@ -3,13 +3,13 @@ title: Legacy Agent Loop Decoupling Plan
 status: superseded
 owner: alice
 scope: completed-agent-loop-and-orchestrator-decoupling
-archived_at: 2026-07-28
+archived_at: 2026-07-29
 superseded_by:
   - docs/alice/agent-runtime.md
   - docs/alice/orchestration.md
 ---
 
-> 本文保留 AgentLoopExecutor 与 Orchestrator 解耦的实施理由和迁移轨迹，已停止维护。当前 frame 执行、CALL trap 与恢复流程以 [Agent Runtime](../alice/agent-runtime.md)和[多 Agent 编排](../alice/orchestration.md)为准。
+> 本文保留 AgentLoopExecutor 与 Orchestrator 解耦的实施理由和迁移轨迹，已停止维护。当前 frame 执行、CALL trap 与恢复流程以 [Agent Runtime](../../../alice/agent-runtime.md)和[多 Agent 编排](../../../alice/orchestration.md)为准。
 
 # Agent 执行循环解耦落地规划
 
@@ -21,7 +21,7 @@ superseded_by:
 
 ## 1. 文档目标
 
-本文是 [AgentRuntimeBoundaryDesign](AgentRuntimeBoundaryDesign.md) 的下一步落地。边界文档已裁定：执行引擎与编排是两个层，三个 Runtime 属引擎，FrameScheduler / CALL 派发 / IPC 组装 / 别名收割属编排；并明确"逻辑先、目录后"——先在现目录解开缝，再谈迁移。
+本文是 [AgentRuntimeBoundaryDesign](agent-runtime-boundary.md) 的下一步落地。边界文档已裁定：执行引擎与编排是两个层，三个 Runtime 属引擎，FrameScheduler / CALL 派发 / IPC 组装 / 别名收割属编排；并明确"逻辑先、目录后"——先在现目录解开缝，再谈迁移。
 
 本期就是那个"逻辑先"：
 
@@ -47,24 +47,24 @@ superseded_by:
 | :--- | :---: | :--- | :--- |
 | `worker_agent` | ✅ | LLM 取指（generate / generate_stream） | 引擎 |
 | `mtp_executor` | ✅ | MTP 执行（陷入记忆域） | 引擎 |
-| `alias_resolver` | ◐ | 仅 `_fetch_context_refs_content` 用（[L681](../../src/hivememory/alice/runtime/agent/loop_executor.py#L681)） | 引擎对象，被编排方法借用 |
+| `alias_resolver` | ◐ | 仅 `_fetch_context_refs_content` 用（[L681](../../../../src/hivememory/agent_runtime/loop_executor.py#L681)） | 引擎对象，被编排方法借用 |
 | `frame_scheduler` | ❌ | create_main_frame / suspend / fork_sub / resume | **编排** |
-| `agent_profile_resolver` | ❌ | 仅 `_execute_call` 里 resolve 子 agent（[L586](../../src/hivememory/alice/runtime/agent/loop_executor.py#L586)） | **编排** |
+| `agent_profile_resolver` | ❌ | 仅 `_execute_call` 里 resolve 子 agent（[L586](../../../../src/hivememory/agent_runtime/loop_executor.py#L586)） | **编排** |
 
 五个依赖里两个纯编排、一个被编排方法借用——这量化了当前的缠绕程度。解耦后引擎应只剩 `worker_agent` + `mtp_executor`。
 
 ### 2.2 缠在 `execute_frame` 里的编排逻辑（病灶清单）
 
-`execute_frame` 主循环（generate → MTP → 回填 → TurnEvent，[L212-453](../../src/hivememory/alice/runtime/agent/loop_executor.py#L212)）是干净的引擎职责。污染集中在 **SUSPEND 分支**（[L357-414](../../src/hivememory/alice/runtime/agent/loop_executor.py#L357)）及其调用的私有方法：
+`execute_frame` 主循环（generate → MTP → 回填 → TurnEvent，[L212-453](../../../../src/hivememory/agent_runtime/loop_executor.py#L212)）是干净的引擎职责。污染集中在 **SUSPEND 分支**（[L357-414](../../../../src/hivememory/agent_runtime/loop_executor.py#L357)）及其调用的私有方法：
 
 | # | 位置 | 内容 | 归属 |
 | :-- | :--- | :--- | :--- |
-| 1 | `_execute_call`（[L537-665](../../src/hivememory/alice/runtime/agent/loop_executor.py#L537)） | suspend → resolve profile → fetch context_refs → fork_sub_frame → **递归 `execute_frame(sub)`** → resume → 组 IPC | 编排（核心违规） |
-| 2 | `_assemble_ipc_return`（[L710](../../src/hivememory/alice/runtime/agent/loop_executor.py#L710)） | 拼 `[Sub-Agent Reply]` + `[Artifacts]` XML | 编排 |
-| 3 | `_fetch_context_refs_content`（[L667](../../src/hivememory/alice/runtime/agent/loop_executor.py#L667)） | context_refs 跨帧上下文继承 | 编排 |
-| 4 | `_try_harvest_alias`（[L743](../../src/hivememory/alice/runtime/agent/loop_executor.py#L743)）+ 主循环调用（[L455](../../src/hivememory/alice/runtime/agent/loop_executor.py#L455)） | 子帧别名收割 | 编排 |
-| 5 | `create_main_frame` 调用（[L116](../../src/hivememory/alice/runtime/agent/loop_executor.py#L116)、[L158](../../src/hivememory/alice/runtime/agent/loop_executor.py#L158)） | 造帧 | 编排 |
-| 6 | `_sub_emit` 子帧流式合并（[L606](../../src/hivememory/alice/runtime/agent/loop_executor.py#L606)） | 把子帧事件并进父流 + `sub_agent_start/end` | 编排 |
+| 1 | `_execute_call`（[L537-665](../../../../src/hivememory/agent_runtime/loop_executor.py#L537)） | suspend → resolve profile → fetch context_refs → fork_sub_frame → **递归 `execute_frame(sub)`** → resume → 组 IPC | 编排（核心违规） |
+| 2 | `_assemble_ipc_return`（[L710](../../../../src/hivememory/agent_runtime/loop_executor.py#L710)） | 拼 `[Sub-Agent Reply]` + `[Artifacts]` XML | 编排 |
+| 3 | `_fetch_context_refs_content`（[L667](../../../../src/hivememory/agent_runtime/loop_executor.py#L667)） | context_refs 跨帧上下文继承 | 编排 |
+| 4 | `_try_harvest_alias`（[L743](../../../../src/hivememory/agent_runtime/loop_executor.py#L743)）+ 主循环调用（[L455](../../../../src/hivememory/agent_runtime/loop_executor.py#L455)） | 子帧别名收割 | 编排 |
+| 5 | `create_main_frame` 调用（[L116](../../../../src/hivememory/agent_runtime/loop_executor.py#L116)、[L158](../../../../src/hivememory/agent_runtime/loop_executor.py#L158)） | 造帧 | 编排 |
+| 6 | `_sub_emit` 子帧流式合并（[L606](../../../../src/hivememory/agent_runtime/loop_executor.py#L606)） | 把子帧事件并进父流 + `sub_agent_start/end` | 编排 |
 
 ### 2.3 关键约束：引擎与编排的递归是交错的
 
@@ -74,15 +74,15 @@ superseded_by:
 
 ### 2.4 跨缝契约
 
-- **输入货币** `ExecutionFrame`：编排造帧、引擎消费。已定义在 [models.py](../../src/hivememory/alice/runtime/models.py)，无需改动。
-- **输出货币** `ChatResult`：当前混装引擎产物（`final_text` / `turn_events` / `mtp_iterations` / `total_iterations`）与编排产物（`write_focus` / `update_focus` / `pending_aliases`，在 [L388](../../src/hivememory/alice/runtime/agent/loop_executor.py#L388) 被 `sub_result` 累加合并）。本期引入引擎级返回类型 `FrameExecutionResult` 表达"收敛 or 挂起"，`ChatResult` 保留为**编排级**对外返回，由编排从 `FrameExecutionResult` 聚合产出。
+- **输入货币** `ExecutionFrame`：编排造帧、引擎消费。已定义在 [models.py](../../../../src/hivememory/agent_runtime/models.py)，无需改动。
+- **输出货币** `ChatResult`：当前混装引擎产物（`final_text` / `turn_events` / `mtp_iterations` / `total_iterations`）与编排产物（`write_focus` / `update_focus` / `pending_aliases`，在 [L388](../../../../src/hivememory/agent_runtime/loop_executor.py#L388) 被 `sub_result` 累加合并）。本期引入引擎级返回类型 `FrameExecutionResult` 表达"收敛 or 挂起"，`ChatResult` 保留为**编排级**对外返回，由编排从 `FrameExecutionResult` 聚合产出。
 
 ### 2.5 调用方与测试现状
 
-- 调用方仅 [runtime.py:65/83](../../src/hivememory/alice/runtime/agent/runtime.py#L65)（`AgentRuntime.run_agent` / `run_agent_stream`），收口干净。
-- [test_loop_executor_turn_events.py](../../tests/unit/patchouli/kernel/test_loop_executor_turn_events.py)：8 个用例直接调 `execute_frame` 验证 TurnEvent 序列——纯引擎测试，解耦后基本可留（仅适配新返回类型的取值方式）。
-- [test_loop_executor_stream.py](../../tests/unit/patchouli/kernel/test_loop_executor_stream.py)：2 个用例走 CALL/子帧流式路径并 mock `frame_scheduler`（[L158-162](../../tests/unit/patchouli/kernel/test_loop_executor_stream.py#L158)）——编排测试，解耦后迁移到编排驱动器测试。
-- e2e：[test_sub_agent_call_e2e.py](../../tests/e2e/pipeline/test_sub_agent_call_e2e.py)、[test_kernel_loop_e2e.py](../../tests/e2e/pipeline/test_kernel_loop_e2e.py) 是行为不变的回归基线。
+- 调用方仅 [runtime.py:65/83](../../../../src/hivememory/alice/runtime/agent/runtime.py#L65)（`AgentRuntime.run_agent` / `run_agent_stream`），收口干净。
+- [test_loop_executor_turn_events.py](../../../../tests/unit/agent_runtime/test_loop_executor_turn_events.py)：8 个用例直接调 `execute_frame` 验证 TurnEvent 序列——纯引擎测试，解耦后基本可留（仅适配新返回类型的取值方式）。
+- [test_loop_executor_stream.py](../../../../tests/unit/agent_runtime/test_loop_executor_stream.py)：2 个用例走 CALL/子帧流式路径并 mock `frame_scheduler`（[L158-162](../../../../tests/unit/agent_runtime/test_loop_executor_stream.py#L158)）——编排测试，解耦后迁移到编排驱动器测试。
+- e2e：[test_sub_agent_call_e2e.py](../../../../tests/e2e/pipeline/test_sub_agent_call_e2e.py)、[test_kernel_loop_e2e.py](../../../../tests/e2e/pipeline/test_kernel_loop_e2e.py) 是行为不变的回归基线。
 
 ---
 
@@ -125,7 +125,7 @@ class FrameExecutionResult(BaseModel):
 | 输出残缺 | 重入是全新一次执行，累积器从空开始，最终 `ChatResult` 只剩 CALL 之后那段 | completeness |
 | 编号/预算断裂 | `iteration` 重置使主帧迭代预算翻倍；`_seq` / `action_id` 重置使 TurnEvent 序号冲突 | 破坏"逐字节不变" |
 
-**解法：把 `ExecutionFrame` 定位为进程控制块（PCB）。** CALL = 陷入，引擎把 PCB 交还调度器（编排），编排处理完把**同一个 PCB** 交回引擎续跑；PCB 持有完整可恢复执行状态——这正是 OS 上下文切换的本质，与 [AgentRuntimeBoundaryDesign](AgentRuntimeBoundaryDesign.md) 的 OS 映射一致。
+**解法：把 `ExecutionFrame` 定位为进程控制块（PCB）。** CALL = 陷入，引擎把 PCB 交还调度器（编排），编排处理完把**同一个 PCB** 交回引擎续跑；PCB 持有完整可恢复执行状态——这正是 OS 上下文切换的本质，与 [AgentRuntimeBoundaryDesign](agent-runtime-boundary.md) 的 OS 映射一致。
 
 frame 上的状态分两类：
 
@@ -157,11 +157,11 @@ PCB 方案把续跑、完整性、编号连续三个问题收敛到单一载体�
    - 收到 `SUSPENDED` → 按下列**重入序列**处理后 `continue`，重入**同一** `main_frame`：
      1. `main_frame.working_history.append(assistant: suspend_assistant_text + "⟫")`
      2. fork 子帧（独立 PCB）→ 递归驱动引擎跑子帧 → resume
-     3. 从子帧 `progress` harvest 别名，选择性合并进 `main_frame.progress`（对应单体版 [L388](../../src/hivememory/alice/runtime/agent/loop_executor.py#L388)）
+     3. 从子帧 `progress` harvest 别名，选择性合并进 `main_frame.progress`（对应单体版 [L388](../../../../src/hivememory/agent_runtime/loop_executor.py#L388)）
      4. 组 IPC → `main_frame.working_history.append(user: IPC)` + 追加对应 `tool_result` TurnEvent 到 `main_frame.progress`
 3. 流式模式下负责把子帧事件并入父流、发 `sub_agent_start/end`。
 
-> 关键：第 2.i / 2.iv 步的两条 `working_history.append` 正是单体版 [L394-400](../../src/hivememory/alice/runtime/agent/loop_executor.py#L394) 的逻辑，只是 append 主体从引擎搬到编排（因为 IPC 由编排产出）。这两条 append 是"续跑不断裂"的根本保证。
+> 关键：第 2.i / 2.iv 步的两条 `working_history.append` 正是单体版 [L394-400](../../../../src/hivememory/agent_runtime/loop_executor.py#L394) 的逻辑，只是 append 主体从引擎搬到编排（因为 IPC 由编排产出）。这两条 append 是"续跑不断裂"的根本保证。
 
 ### 3.3 解耦后依赖对比
 
@@ -196,12 +196,12 @@ PCB 方案把续跑、完整性、编号连续三个问题收敛到单一载体�
 
 | 改动 | 说明 |
 | :--- | :--- |
-| 累积器下沉（[L204-209](../../src/hivememory/alice/runtime/agent/loop_executor.py#L204)） | 删除 `text_segments` / `turn_events` / `write_foci` / `update_foci` / `pending_aliases` / `iteration` / `_seq` 局部变量，全部改读写 `frame.progress.*`（PCB，见 §3.1bis），使重入续接、编号连续 |
-| `execute_frame` SUSPEND 分支（[L357-414](../../src/hivememory/alice/runtime/agent/loop_executor.py#L357)） | 删除对 `_execute_call` 的调用与其后两条 `working_history.append` 及 IPC 回填；改为：把本段产物写入 `frame.progress` 后 `return FrameExecutionResult(status=SUSPENDED, call_request=..., suspend_assistant_text=result.text, suspend_action_id=action_id)`。**注意：suspend 时引擎不再 append 任何 working_history**（避免悬空 assistant 轮），append 由编排负责 |
-| `execute_frame` 收敛出口（[L458-469](../../src/hivememory/alice/runtime/agent/loop_executor.py#L458)） | 返回 `FrameExecutionResult(status=COMPLETED)`；累积产物已在 `frame.progress`，不再构造 `ChatResult` |
+| 累积器下沉（[L204-209](../../../../src/hivememory/agent_runtime/loop_executor.py#L204)） | 删除 `text_segments` / `turn_events` / `write_foci` / `update_foci` / `pending_aliases` / `iteration` / `_seq` 局部变量，全部改读写 `frame.progress.*`（PCB，见 §3.1bis），使重入续接、编号连续 |
+| `execute_frame` SUSPEND 分支（[L357-414](../../../../src/hivememory/agent_runtime/loop_executor.py#L357)） | 删除对 `_execute_call` 的调用与其后两条 `working_history.append` 及 IPC 回填；改为：把本段产物写入 `frame.progress` 后 `return FrameExecutionResult(status=SUSPENDED, call_request=..., suspend_assistant_text=result.text, suspend_action_id=action_id)`。**注意：suspend 时引擎不再 append 任何 working_history**（避免悬空 assistant 轮），append 由编排负责 |
+| `execute_frame` 收敛出口（[L458-469](../../../../src/hivememory/agent_runtime/loop_executor.py#L458)） | 返回 `FrameExecutionResult(status=COMPLETED)`；累积产物已在 `frame.progress`，不再构造 `ChatResult` |
 | 删除 `_execute_call` / `_assemble_ipc_return` / `_fetch_context_refs_content` / `_try_harvest_alias` | 迁入编排驱动器 |
 | `__init__` | 移除 `frame_scheduler`、`agent_profile_resolver` 参数（`alias_resolver` 暂留，Phase 3 处理） |
-| 移除 `create_main_frame` 调用（[L116](../../src/hivememory/alice/runtime/agent/loop_executor.py#L116)、[L158](../../src/hivememory/alice/runtime/agent/loop_executor.py#L158)） | `execute_main_frame` / `execute_main_frame_stream` 整体迁入编排（造帧是编排职责）；引擎只保留 `execute_frame` / `execute_frame_stream` 接受现成 frame |
+| 移除 `create_main_frame` 调用（[L116](../../../../src/hivememory/agent_runtime/loop_executor.py#L116)、[L158](../../../../src/hivememory/agent_runtime/loop_executor.py#L158)） | `execute_main_frame` / `execute_main_frame_stream` 整体迁入编排（造帧是编排职责）；引擎只保留 `execute_frame` / `execute_frame_stream` 接受现成 frame |
 
 **编排侧（新建 `alice/runtime/orchestrator.py`）**
 
@@ -222,13 +222,13 @@ PCB 方案把续跑、完整性、编号连续三个问题收敛到单一载体�
 
 ### Phase 2 — 流式反转（与 Phase 1 同构，单独提交降风险）
 
-当前 `execute_frame_stream` 通过 `_runner` 在内部跑 `execute_frame`，并在 SUSPEND 分支用 `_sub_emit` 把子帧事件并进父队列（[L606](../../src/hivememory/alice/runtime/agent/loop_executor.py#L606)）。反转后职责切分：
+当前 `execute_frame_stream` 通过 `_runner` 在内部跑 `execute_frame`，并在 SUSPEND 分支用 `_sub_emit` 把子帧事件并进父队列（[L606](../../../../src/hivememory/agent_runtime/loop_executor.py#L606)）。反转后职责切分：
 
 | 侧 | 改动 |
 | :--- | :--- |
 | 引擎 `execute_frame_stream` | 只发**本帧**的 `token` / `mtp_start` / `mtp_result` 事件；遇 SUSPEND 时发出 `mtp_result(status=suspend)` 后**结束本段流**并通过返回值/哨兵交还 `FrameExecutionResult(SUSPENDED)`，不再内联跑子帧 |
 | 编排 `run_agent_stream` | 消费引擎流；收到挂起后发 `sub_agent_start` → 驱动引擎跑子帧流（子帧事件透传，靠 `data.scope=sub` 区分）→ `sub_agent_end` → 回填 IPC → 重入引擎流续跑 |
-| 引擎 `_namespace_for_frame`（[L78](../../src/hivememory/alice/runtime/agent/loop_executor.py#L78)） | 保留在引擎（每帧自带 scope/depth/frame_id 元数据），编排不需要改写事件名 |
+| 引擎 `_namespace_for_frame`（[L78](../../../../src/hivememory/agent_runtime/loop_executor.py#L78)） | 保留在引擎（每帧自带 scope/depth/frame_id 元数据），编排不需要改写事件名 |
 
 - 难点：保持 SSE 事件序列、`scope` 区分、`sub_agent_start/end` 时机与现状完全一致。
 - 验证：`test_loop_executor_stream.py` 两个用例迁移到编排测试后全绿，断言 `event_types` / `scope` / suspend 事件不变。
@@ -240,10 +240,10 @@ PCB 方案把续跑、完整性、编号连续三个问题收敛到单一载体�
 | `loop_executor.py` | `_fetch_context_refs_content` 已随 Phase 1 迁出，其 `alias_resolver` 依赖一并移除 → 引擎依赖降至 `worker_agent` + `mtp_executor` 两个纯引擎依赖 |
 | `loop_executor.py` 文件头 docstring / 类名语义 | 更新为"单 Agent 执行循环总控"，移除多智能体相关描述（Phase A→B→C→D 注释保留循环语义，删去 CALL/子帧派生措辞） |
 | 测试归位 | 引擎测试（TurnEvent / 收敛 / MTP 回填）留 `test_loop_executor_*`；编排测试（CALL / 子帧 / 流式合并 / harvest / IPC）新建 `test_agent_orchestrator_*` |
-| `core/protocol/models.py::ChatResult` | 字段不变（仍是编排级对外契约），仅确认产出方从 loop_executor 改为 orchestrator。**重命名 `ChatResult`→`AgentRunResult` 与字段重组（`materialize_tasks`）留给后续 [PendingAtomMaterializeTaskDesign](../archive/legacy-docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md)，本期不改名以收敛风险** |
+| `core/protocol/models.py::ChatResult` | 字段不变（仍是编排级对外契约），仅确认产出方从 loop_executor 改为 orchestrator。**重命名 `ChatResult`→`AgentRunResult` 与字段重组（`materialize_tasks`）留给后续 [PendingAtomMaterializeTaskDesign](../../legacy-docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md)，本期不改名以收敛风险** |
 
 - 验证：全量 `tests/unit/patchouli/kernel/` + `tests/unit/system/` + 相关 e2e 全绿。
-- 与后续衔接：本期编排聚合结果仍按现字段（`write_focus` / `update_focus` / `pending_aliases`）进行；这些累积器一旦落到 `AgentOrchestrator`，即为 [PendingAtomMaterializeTaskDesign](../archive/legacy-docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 的 A2 组装（run_id 投影 Task）就位铺路。
+- 与后续衔接：本期编排聚合结果仍按现字段（`write_focus` / `update_focus` / `pending_aliases`）进行；这些累积器一旦落到 `AgentOrchestrator`，即为 [PendingAtomMaterializeTaskDesign](../../legacy-docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md) 的 A2 组装（run_id 投影 Task）就位铺路。
 
 ---
 
@@ -269,11 +269,11 @@ pytest tests/e2e/pipeline/test_sub_agent_call_e2e.py tests/e2e/pipeline/test_ker
 
 本期严格限定为"逻辑解耦"，以下明确**不在范围内**，留待后续：
 
-- 不新建 `agent_runtime/` 目录、不迁移任何文件（见 [AgentRuntimeBoundaryDesign](AgentRuntimeBoundaryDesign.md) §6 的"逻辑先、目录后"）。编排驱动器暂放 `alice/runtime/`。
+- 不新建 `agent_runtime/` 目录、不迁移任何文件（见 [AgentRuntimeBoundaryDesign](agent-runtime-boundary.md) §6 的"逻辑先、目录后"）。编排驱动器暂放 `alice/runtime/`。
 - 不动 `frame_scheduler` / `profile_resolver` 的内部实现（仅改变持有者）。
 - 不动 PendingAtom 链路、`_on_pending_atom_settled` 等 reconcile 逻辑（属边界文档 §6.1 第 2 步引擎聚合根工作）。
 - 不引入引擎聚合根 `engine.py`（边界文档 §4.4 目标结构的一部分，属目录迁移阶段）。
-- 不做 Focus 瘦身、`ChatResult`→`AgentRunResult` 重命名、`materialize_tasks` 重组（属后续 [PendingAtomMaterializeTaskDesign](../archive/legacy-docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md)，须在本期之后；本期仅把结果组装职责落到 `AgentOrchestrator` 为其铺路）。
+- 不做 Focus 瘦身、`ChatResult`→`AgentRunResult` 重命名、`materialize_tasks` 重组（属后续 [PendingAtomMaterializeTaskDesign](../../legacy-docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md)，须在本期之后；本期仅把结果组装职责落到 `AgentOrchestrator` 为其铺路）。
 
 完成本期后，`loop_executor` 即成为纯单 Agent 执行循环总控，编排逻辑全部归位 `AgentOrchestrator`，为后续目录迁移扫清依赖障碍。
 

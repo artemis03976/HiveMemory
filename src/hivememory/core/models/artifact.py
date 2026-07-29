@@ -1,7 +1,8 @@
 """
 Artifact 数据模型 - v0.5.0 数据持久化与溯源层
 
-对应设计文档: V0.5.0DataDurabilityAndAsyncColdPathPlan.md Phase 1 & Phase 2
+当前设计见 docs/patchouli/artifacts.md；历史实施稿见
+docs/archive/plans/implementation/v0.5.0-data-durability-and-async-cold-path.md。
 """
 
 from datetime import datetime
