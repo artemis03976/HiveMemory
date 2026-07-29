@@ -1,3 +1,16 @@
+---
+title: Legacy Project Todo
+status: archived
+owner: project
+scope: legacy-top-level-todo
+archived_at: 2026-07-29
+superseded_by:
+  - docs/todo/frontend-memory-semantic-search.md
+  - docs/todo/frontend-identity-ownership.md
+---
+
+> 本文是已拆分的旧顶层待办，只保留历史方案。当前问题、证据和完成条件见 [Memory Garden 语义检索](../../todo/frontend-memory-semantic-search.md)与[前端身份所有权](../../todo/frontend-identity-ownership.md)。
+
 - [ ] 令记忆花园搜索框支持基于全局记忆库的搜索，而非当前的本地形式
 
 ## 身份管理优化

@@ -12,8 +12,8 @@ superseded_by: docs/architecture/overview.md
 # HiveMemory 第三次架构演进：Patchouli OS 与内核运行时
 
 **文档状态**: Draft (整理版)  
-**来源说明**: 本文档从 [`MemoryToolProtocol.md`](../../protocols/MemoryToolProtocol.md) 中与“系统重构与运行时架构”直接相关的内容独立整理而来，用于单独承载第三次架构演进的顶层系统视图。  
-**配套文档**: MTP 协议语法、工具设计、Prompt 规范与示例，仍以 [`MemoryToolProtocol.md`](../../protocols/MemoryToolProtocol.md) 为准。
+**来源说明**: 本文档从 [`MemoryToolProtocol.md`](../legacy-docs/protocols/MemoryToolProtocol.md) 中与“系统重构与运行时架构”直接相关的内容独立整理而来，用于单独承载第三次架构演进的顶层系统视图。
+**配套文档**: 历史 MTP 协议语法、工具设计、Prompt 规范与示例保存在 [`MemoryToolProtocol.md`](../legacy-docs/protocols/MemoryToolProtocol.md)；当前契约以 [`docs/contracts/mtp.md`](../../contracts/mtp.md) 为准。
 
 ---
 
@@ -301,7 +301,7 @@ Agent 不再需要脱离自然语言生成去填写结构化 JSON，而是可以
   - 重点是记忆域的三位一体与冷热路径分层
 
 - 第三次架构演进协议文档：
-  - [MemoryToolProtocol.md](../../protocols/MemoryToolProtocol.md)
+  - [MemoryToolProtocol.md](../legacy-docs/protocols/MemoryToolProtocol.md)
   - 重点是 MTP 的协议语法、工具、Prompt 与示例
 
 - 第四次架构演进最终总纲：

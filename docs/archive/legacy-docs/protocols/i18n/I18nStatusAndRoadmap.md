@@ -1,13 +1,13 @@
 ---
 title: Legacy HiveMemory i18n Status and Roadmap
-status: superseded
+status: archived
 owner: system
 scope: legacy-i18n-status-and-roadmap
 archived_at: 2026-07-28
 superseded_by: docs/system/i18n.md
 ---
 
-> 本文混合了历史状态与未来路线，已停止维护。当前已生效的语言解析、文本入口和已知限制统一见 [`docs/system/i18n.md`](../../system/i18n.md)；尚未实现的设想不能从本文推断为现状。
+> 本文混合了历史状态与未来路线，已停止维护。当前已生效的语言解析、文本入口和已知限制统一见 [`docs/system/i18n.md`](../../../../system/i18n.md)；尚未实现的设想不能从本文推断为现状。
 
 # HiveMemory i18n 现状与路线图
 

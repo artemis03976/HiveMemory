@@ -1,3 +1,17 @@
+---
+title: Legacy Data Model Immutability Status and Roadmap
+status: archived
+owner: project
+scope: legacy-data-model-status-and-governance-roadmap
+archived_at: 2026-07-29
+superseded_by:
+  - docs/architecture/data-model.md
+  - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
+  - docs/plans/data-model-mutability-governance.md
+---
+
+> 本文混合了阶段性代码现状、架构裁定和未来治理步骤，现已拆分归档。当前模型边界见[数据模型与可变性边界](../../../architecture/data-model.md)，长期裁定见 [ADR-0001](../../../architecture/decisions/0001-data-model-mutability-and-boundary-projection.md)，未排期工作见[治理计划](../../../plans/data-model-mutability-governance.md)。
+
 # 项目级不可变数据模型现状与规范化规划
 
 **文档状态**: Current State / Technical Debt Proposal

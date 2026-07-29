@@ -11,7 +11,7 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Memory Tool Protocol (MTP)
@@ -37,6 +37,8 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 - ARGS 支持 `key="value"`、可多行的 ``key=`raw content` `` 和 `key=["a", "b"]`；
 - LLM stop sequence 是右定界符；`complete_and_parse` 可以补齐被 stop 截断的右定界符；
 - parser 只解析文本中出现的第一条完整 MTP 指令。
+
+`⟪` / `⟫` 的选择是为了降低与普通代码、Markdown、XML 以及自然语言括号冲突的概率；`VERB | TARGET | ARGS` 则把 action、object 与 details 显式分开，使 parser 可以保持小而确定。只取第一条完整指令也是有意的控制流串行化：每次执行的结果会改变 alias、权限可见性、PendingAtom 或 frame 状态，Agent 应看到结果后再决定下一步，而不是在一段文本中提交任意多条异构命令批处理。
 
 示例：
 
@@ -88,6 +90,8 @@ SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”�
 - 正式 atom 和 redirect 命中会记录 `mtp.read` citation。
 
 alias 是运行期稳定称呼，不等于永久 UUID。它让模型使用可读、短小的引用，又允许 Runtime 把同一名称解析为正式 atom、尚未结算的 PendingAtom 或修订后的 redirect。redirect 保留旧称呼的可追踪性，但通过 warning 提醒 Agent 目标已经演化；terminal 状态则防止一个失败或过期意图继续伪装成有效记忆。
+
+READ 列表是协议中显式支持的批量读取，而不是多命令特例。Agent 在 SEARCH 后往往需要检查数条候选证据；一次 READ 多个 alias 可以减少额外的生成/执行轮次，同时仍让 Runtime 对每个 alias 独立解析并把部分失败表达为 warning。
 
 ### 3.3 RUN
 
@@ -160,6 +164,8 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 
 权限在执行前检查。权限拒绝属于 `agent_fault`，Agent 可以调整方案，但不能通过换写法绕过 Profile。
 
+MTP 是否应该出现，取决于当前行动门槛，而不是“能调用工具就调用”：信息存在缺口时先 SEARCH/READ；动作产生副作用或需要执行资产时才 RUN；内容确有跨会话长期价值时才 WRITE/UPDATE；委派能形成明确子任务时才 CALL。Agent 不得臆造 alias，也不得把错误响应理解为持续试探权限的邀请。错误应该驱动修正查询、参数或计划；权限拒绝则意味着停止该能力路径。
+
 ## 5. 响应
 
 `MTPResponseStatus` 当前枚举：
@@ -184,6 +190,8 @@ Localized message
 ```
 
 Warning 放在 `<warnings><warning>...</warning></warnings>` 中。`pending_alias`、`call_request` 和内部 cause 不序列化到普通 Agent 响应正文，由运行时结构化消费。
+
+当前 formatter 会把业务 `content`、reply 和 warning 文本直接嵌入 XML 容器，尚未对所有内容执行统一 XML escaping。若文本自身包含 `<`、`>` 或 `&`，Agent 可见结果可能不是严格可解析 XML；调用方当前应把它视为结构化文本信封，而不是承诺任意 payload 都能通过 XML parser。补齐 escaping 时必须同时验证代码片段与既有 prompt 行为。
 
 错误结构详见[error-model.md](./error-model.md)。
 
@@ -211,6 +219,7 @@ Warning 放在 `<warnings><warning>...</warning></warnings>` 中。`pending_alia
 6. CALL 的 `suspend` 是否仍交给 Alice 调度器恢复，还是被 formatter 当成普通 response 吞掉？
 7. RUN 的权限检查是否被误写成强安全沙箱，redirect 或代码记忆来源是否失去可见提示？
 8. error/warning 是否仍给 Agent 提供可执行的修正信息，同时不泄漏内部 cause？
+9. formatter 是否安全处理 payload 中的 XML 特殊字符，还是新增内容扩大了当前 escaping 缺口？
 
 ## 8. 验证入口
 

@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # System 运行时与总线
@@ -44,6 +44,10 @@ RPC 用于需要确定交接结果的 prepare、retrieve、run、finalize 和管
 ## 2. GlobalMaintenanceScheduler
 
 `GlobalMaintenanceScheduler` 继承纯 `asyncio` 的 `AsyncMaintenanceScheduler`。它由 System 装配，运行在当前主 event loop，不创建线程或隐藏 event loop。
+
+统一调度来自一次具体的运行时教训：旧链路曾由线程式 `BackgroundScheduler` 触发，再经 SystemBus 调用 `asyncio.run()` / `create_task()`。任务可能被挂到临时 event loop，而 `asyncio.run()` 返回时该 loop 随即关闭，后台协程的完成、异常和 shutdown 都失去可靠所有者。当前方案统一的是运行时钟、event loop 与启停生命周期，不是把 observer idle flush、Patchouli perception、gardening 或 GC 合并成同一种业务语义。
+
+因此 scheduler 由 System 持有并提供基础设施，Patchouli 等业务所有者只注册 callback。旧设计中“由 Patchouli 持有系统调度器”的阶段性安排已经被纠正：Patchouli 拥有维护行为，System 拥有全局调度生命周期。
 
 每个任务由 `MaintenanceTaskSpec` 描述：
 

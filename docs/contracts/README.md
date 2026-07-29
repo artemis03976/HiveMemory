@@ -3,7 +3,7 @@ title: Contracts
 status: current
 owner: system
 scope: cross-subsystem-contracts
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Contracts
@@ -22,6 +22,6 @@ last_reviewed: 2026-07-28
 - route 字符串以 `src/hivememory/system/contracts/route_names.py` 为代码级唯一来源；
 - 协议模型以 `src/hivememory/core/protocol/` 和 `src/hivememory/core/mtp/` 为执行证据；
 - local bus、workflow state 和具体引擎对象不是公共契约；
-- `docs/protocols/` 中未迁移的维护与 i18n 材料仍待 P1 处理，但旧 MTP 文档已经被本目录替代。
+- 旧 `docs/protocols/` 已在逐篇审计后移入 `archive/legacy-docs/protocols/`，不得从 Archive 反向推断当前契约。
 
 修改公共契约时，应在同一 PR 更新实现、调用方、契约测试和本目录对应文档。

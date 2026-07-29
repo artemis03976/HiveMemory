@@ -3,7 +3,7 @@ title: Legacy Architecture
 status: current
 owner: project
 scope: superseded-architecture
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Legacy Architecture
@@ -16,5 +16,6 @@ last_reviewed: 2026-07-28
 - [System Architecture v3.0](./SystemArchitecture_v3.0.md)：Patchouli OS、MTP 与内核运行时草案；
 - [System Architecture v4.0](./SystemArchitecture_v4.0.md)：System / Patchouli / Alice 分层的阶段性总纲；
 - [Router to Application Service Refactor](./SystemArchitecture_v4_RouterToApplicationService_Refactor.md)：已实施的 router 收口记录。
+- [Architecture Evolution Redirect](./evolution-index.md)：迁移前旧 evolution 目录的退役入口。
 
 当前依据：[系统架构概览](../../architecture/overview.md)、[系统边界](../../architecture/boundaries.md)和[子系统公共契约](../../contracts/subsystem-contracts.md)。

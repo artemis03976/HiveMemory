@@ -1,13 +1,13 @@
 ---
 title: Legacy i18n Documentation Index
-status: superseded
+status: archived
 owner: system
 scope: legacy-i18n-documentation
 archived_at: 2026-07-28
 superseded_by: docs/system/i18n.md
 ---
 
-> 本目录索引已停止维护。当前语言解析优先级、文本领域、配置边界和限制统一见 [`docs/system/i18n.md`](../../system/i18n.md)；目录内文件只保留迁移历史。
+> 本目录索引已停止维护。当前语言解析优先级、文本领域、配置边界和限制统一见 [`docs/system/i18n.md`](../../../../system/i18n.md)；目录内文件只保留迁移历史。
 
 # I18n
 

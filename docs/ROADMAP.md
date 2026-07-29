@@ -7,7 +7,7 @@ updates:
   - docs/PROJECT.md
   - docs/plans/
   - docs/archive/plans/
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # HiveMemory 开发路线图
@@ -109,6 +109,8 @@ last_reviewed: 2026-07-28
 | `v0.7.1` MTP READ Provenance | Candidate | READ 可访问版本、来源 artifact 和检索证据 | [MTP 当前契约](./contracts/mtp.md)；正式 Plan 待建立 |
 | `v0.7.2` Deep Research MVP | Candidate | 可取消、可观测、可追溯的研究 Job 与报告 artifact | 依赖 Job、Document、READ provenance |
 | `v0.7.3` Conversation Branching | Candidate / Optional | 编辑消息后创建安全分支，不承诺自动回滚旧记忆 | 正式 Plan 待建立 |
+
+另有一项[数据模型可变性治理计划](./plans/data-model-mutability-governance.md)已经形成，但当前为 **Unscheduled**：它用于统一模型角色、写入所有权和边界投影，不属于上述任一版本承诺。只有完成模型/边界清单、风险评估并确认不会挤占 v0.6.x 主路径后，才应进入具体排期。
 
 ### 4.1 v0.6.1 Runtime Job Queue
 

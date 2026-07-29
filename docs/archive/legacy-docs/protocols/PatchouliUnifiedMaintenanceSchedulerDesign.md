@@ -1,6 +1,6 @@
 ---
 title: Legacy Patchouli Unified Maintenance Scheduler Design
-status: superseded
+status: archived
 owner: system
 scope: completed-unified-maintenance-scheduler-design
 archived_at: 2026-07-28
@@ -10,7 +10,7 @@ superseded_by:
   - docs/patchouli/lifecycle.md
 ---
 
-> 本文保留统一维护时钟的设计背景，已停止维护。当前 scheduler 所有权、非重入与启停语义以 [System Runtime 与总线](../system/runtime-and-bus.md)为准；Patchouli 的 idle flush 与 gardening 业务语义分别以[感知](../patchouli/perception.md)和[生命周期](../patchouli/lifecycle.md)为准。
+> 本文保留统一维护时钟的设计背景，已停止维护。当前 scheduler 所有权、非重入与启停语义以 [System Runtime 与总线](../../../system/runtime-and-bus.md)为准；Patchouli 的 idle flush 与 gardening 业务语义分别以[感知](../../../patchouli/perception.md)和[生命周期](../../../patchouli/lifecycle.md)为准。
 
 # Patchouli 统一定时维护调度设计草案
 

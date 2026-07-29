@@ -1,6 +1,6 @@
 ---
 title: Legacy Koakuma MTP Backfill i18n Inventory
-status: superseded
+status: archived
 owner: alice
 scope: legacy-mtp-backfill-i18n-inventory
 archived_at: 2026-07-28
@@ -10,13 +10,13 @@ superseded_by:
   - docs/contracts/error-model.md
 ---
 
-> 本文已停止维护。当前语言选择与文本入口见 [`docs/system/i18n.md`](../../system/i18n.md)，MTP 回填结构和机器错误语义见 [`docs/contracts/mtp.md`](../../contracts/mtp.md) 与 [`docs/contracts/error-model.md`](../../contracts/error-model.md)。
+> 本文已停止维护。当前语言选择与文本入口见 [`docs/system/i18n.md`](../../../../system/i18n.md)，MTP 回填结构和机器错误语义见 [`docs/contracts/mtp.md`](../../../../contracts/mtp.md) 与 [`docs/contracts/error-model.md`](../../../../contracts/error-model.md)。
 
 # KoakumaRuntime MTP 回填文本 i18n 清单
 
 **文档状态**: Implemented  
 **适用范围**: `agent_runtime/mtp/runtime.py`、`core/mtp/`、`agent_runtime/mtp/syscalls/`、`agent_runtime/loop_executor.py`、`alice/runtime/orchestrator.py`、`engines/memory_compiler/handlers/mtp.py`  
-**相关文档**: [当前错误模型](../../contracts/error-model.md)、[当前 MTP 契约](../../contracts/mtp.md)、[I18nFoundationDesign.md](./I18nFoundationDesign.md)、[MemoryCompilerI18nMigrationPlan.md](./MemoryCompilerI18nMigrationPlan.md)
+**相关文档**: [当前错误模型](../../../../contracts/error-model.md)、[当前 MTP 契约](../../../../contracts/mtp.md)、[I18nFoundationDesign.md](./I18nFoundationDesign.md)、[MemoryCompilerI18nMigrationPlan.md](./MemoryCompilerI18nMigrationPlan.md)
 
 本文记录 KoakumaRuntime 及其外围链路中会回填给 Agent 的 MTP 文本，并说明这些文本当前如何被 i18n 模板、结构化错误、结构化 warning 与 formatter 统一管理。
 

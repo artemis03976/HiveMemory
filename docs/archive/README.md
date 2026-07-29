@@ -3,7 +3,7 @@ title: Archive
 status: current
 owner: project
 scope: historical-document-index
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Archive
@@ -17,4 +17,4 @@ last_reviewed: 2026-07-28
 - [Legacy Documents](./legacy-docs/README.md)：其他被替代但仍有追溯价值的文档；
 - [Legacy mod](./mod/README.md)：迁移前已经位于 Archive 的短期重构记录。
 
-当前设计统一从[项目总览](../PROJECT.md)进入。迁移期间，部分标记为 `superseded` 的旧文档仍暂留原路径以维持引用，后续批次再移入 `legacy-docs/`。
+当前设计统一从[项目总览](../PROJECT.md)进入。迁移清单第 4～6 节已经完成逐篇审计与物理迁移；其他标记为 `superseded` 的旧文档仍可能暂留原路径，必须在各自批次复核后再进入 Archive。

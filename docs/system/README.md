@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # System
@@ -34,4 +34,4 @@ System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实
 
 System 与 Gateway 的跨边界交接仍以[子系统公共契约](../contracts/subsystem-contracts.md)、[公开路由与事件](../contracts/routes-and-events.md)和[系统边界](../architecture/boundaries.md)为准。本目录中的应用服务文档描述“谁编排”，不会重新定义 route 字符串或子系统内部状态。
 
-本批涉及的旧 `docs/mod/` 设计、`docs/protocols/i18n/` 索引与可安全更新的材料，以及 `docs/ObservabilityDesign.md` 已标记为 `superseded`，仅作为迁移证据保留。已知编码损坏的 MemoryCompiler i18n 计划等待 P2 安全归档；任何旧材料与当前文档冲突时，均以当前代码、测试和本目录文档为准。
+清单第 4～6 节中的旧 Protocols、i18n 与 Observability 材料已经逐篇复核并移入 Archive；包括编码损坏的 MemoryCompiler i18n 计划在内，均不再保留原路径入口。审计结论见[第 4～6 节迁移记录](../archive/plans/documentation-migration-audit-sections-4-6.md)。`docs/mod/` 及其他后续批次旧材料仍需各自审计；任何旧材料与当前文档冲突时，均以当前代码、测试和本目录文档为准。

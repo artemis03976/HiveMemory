@@ -12,7 +12,7 @@ updates:
   - docs/alice/
   - docs/gateway/
   - docs/contracts/
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 文档体系迁移清单
@@ -280,3 +280,16 @@ P0 已于 2026-07-28 完成：
 - `applications/MealAssistantProductSpec.md` 已标记 `planned`，保留产品动机、Agent Profile、system prompt 与验收流程，同时明确当前没有独立应用实现或真实用户证据；
 - `help/` 已形成安装、配置和排障指南，区分开发 `5173/8769` 与 Docker `8000`，校正 Provider/Model 配置、health/readiness 和 mock/Settings 风险；旧 `SETUP.md` 已停止维护；
 - 本批没有物理移动旧文件。Archive 重组、源码 README 收敛和最终全库链接检查继续作为下一批 P2 工作。
+
+## 21. 第 4～6 节逐篇复核与物理迁移结果
+
+本批于 2026-07-29 完成，范围严格限定为清单第 4～6 节。完整逐文档结论、承接位置、拒绝项和最终路径见[迁移审计记录](../archive/plans/documentation-migration-audit-sections-4-6.md)。
+
+- 顶层治理：`DOCUMENTATION.md` 增加逐篇迁移门禁；PROJECT/VISION/ROADMAP 完成背景、当前边界和文档入口复核；
+- 数据模型：旧混合文档拆为 `architecture/data-model.md`、ADR-0001 与未排期治理 Plan，并保留 MemoryAtom 语义事务与冰山结构理念；
+- 顶层旧入口：SETUP、TODO、Observability 已分别在 Help、两个 Todo、System/Contracts 中充分承接后移入 `archive/legacy-docs/`；
+- Architecture：evolution redirect 已移入 `archive/legacy-architecture/evolution-index.md`，已归档 v2/v3/v4 与 Router 材料再次复核并修正替代链接；
+- Contracts/System：MTP 的语法取舍、串行控制、READ 批量语义和 Agent 行动门槛，错误 formatter 边界，scheduler 历史原因，以及 observability 分组来由已补回当前文档；
+- i18n：补齐 Relay/Generation 文本域、自然语言与机器契约分界、分域 catalog 取舍及文案行为风险；旧 i18n 树已移入 Archive；
+- 编码损坏的 `MemoryCompilerI18nMigrationPlan.md` 采用原字节移动，没有从损坏正文复制当前事实；
+- 第 7 节及以后文件未在本批移动，仍需按后续批次逐篇审计。

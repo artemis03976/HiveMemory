@@ -12,7 +12,7 @@ code_paths:
   - src/hivememory/server/
 related_contracts:
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # HiveMemory Help
@@ -35,4 +35,4 @@ last_reviewed: 2026-07-28
 
 开发端口与 Docker 端口属于两种启动形态，不是冲突配置。任何排障都应先确认自己运行的是哪一种。
 
-旧入口 `docs/SETUP.md` 已停止维护并指向本目录；在 Archive 物理重组完成前，它仍保留于原路径作为迁移提示。
+旧入口已经移入 [`archive/legacy-docs/SETUP.md`](../archive/legacy-docs/SETUP.md)，只用于追溯历史启动方式；所有当前操作以本目录为准。

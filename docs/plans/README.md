@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-07-27
+last_reviewed: 2026-07-29
 ---
 
 # Plans
@@ -13,5 +13,6 @@ last_reviewed: 2026-07-27
 当前计划：
 
 - [文档体系迁移清单](./documentation-migration-inventory.md)
+- [数据模型可变性治理](./data-model-mutability-governance.md)：未排期的项目级模型角色、所有权与边界投影治理。
 
 迁移期间，`docs/mod/` 仍包含大量历史计划和混合文档。新计划不得继续加入 `docs/mod/`，现有内容按迁移清单分别进入当前设计、Plans、Todo 或 Archive。

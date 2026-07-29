@@ -7,9 +7,10 @@ archived_at: 2026-07-28
 superseded_by:
   - docs/architecture/overview.md
   - docs/architecture/boundaries.md
+  - docs/system/application-services.md
 ---
 
-> 本文是已实施重构的历史记录。当前分层和调用边界见[系统架构概览](../../architecture/overview.md)与[系统边界](../../architecture/boundaries.md)。
+> 本文是已实施重构的历史记录。当前分层和调用边界见[系统架构概览](../../architecture/overview.md)、[系统边界](../../architecture/boundaries.md)与[System 应用服务](../../system/application-services.md)。
 
 # Router 到 Application Service 收口重构计划
 

@@ -13,7 +13,7 @@ code_paths:
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 跨边界错误模型
@@ -120,6 +120,14 @@ cause        内部原因，只供调试，序列化时排除
 
 warning 的核心语义是“主要成果仍然成立”。例如 READ 多个 alias 时，部分缺失不应抹去已经找到的证据；SEARCH 的非关键过滤条件无法解析时，也可以返回未过滤但明确标注的结果。相反，如果调用的目标完全无法完成，空 payload 加 warning 会制造一种虚假的成功，Agent 也无法判断是否应改用其他方案。
 
+### 3.5 构造与格式化边界
+
+`MTPResponse.content` 只承载成功业务内容；error 和 warning 分别使用结构化字段，不能先拼进 content 再要求调用方解析。KoakumaRuntime 的 `_route_and_execute()` 是普通 verb handler 异常转换为 `MTPErrorInfo` 的集中边界，取消和 CALL suspend 等控制流继续按专用语义处理。
+
+`MTPFormatter` 是普通 Agent-facing MTP 回填文本的唯一构造点：它根据 language 渲染 code/severity/message/warnings，并排除内部 cause。`response_content` 只是业务 payload，不等于完整回填；需要写回模型历史时应使用运行结果的 `formatted_response`。CALL 不经过旧的通用 IPC 文本拼接，而由 Orchestrator 消费 `MTPCallRequest`，完成后用结构化 `MTPCallResponse` 恢复父 frame。
+
+当前 formatter 尚未为所有业务 content/reply/warning 提供统一 XML escaping，因此错误结构稳定不等于任意 payload 都是严格合法 XML。这个限制应在 formatter 层修复，不能由各 verb handler 各自发明转义规则。
+
 ## 4. 控制异常
 
 ### 4.1 GlobalSystemBus
@@ -167,6 +175,7 @@ RuntimeEventSink 是 best-effort：
 - RuntimeEvent 不是持久化审计记录；
 - Command `error_code` 尚未形成与 MTP code 等价的全局注册表；
 - 部分历史实现仍可能抛通用异常，调用方应在顶层边界记录并终止，不能猜测为可恢复错误。
+- Agent-facing XML 对业务 payload 的统一 escaping 尚未完成。
 
 这些限制应进入后续 System/API 计划，不通过扩大 MTP error 模型来掩盖。
 

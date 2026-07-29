@@ -1,6 +1,6 @@
 ---
 title: Legacy Observability and Log Stream Design
-status: superseded
+status: archived
 owner: system
 scope: legacy-observability-design
 archived_at: 2026-07-28
@@ -9,7 +9,7 @@ superseded_by:
   - docs/contracts/routes-and-events.md
 ---
 
-> 本文已停止维护，只保留可观测性方案的历史背景。当前 RuntimeEvent、operation observer、健康状态与旁路原则以 [`docs/system/observability.md`](./system/observability.md) 为准，公开事件边界以 [`docs/contracts/routes-and-events.md`](./contracts/routes-and-events.md) 为准。
+> 本文已停止维护，只保留可观测性方案的历史背景。当前 RuntimeEvent、operation observer、健康状态与旁路原则以 [`docs/system/observability.md`](../../system/observability.md) 为准，公开事件边界以 [`docs/contracts/routes-and-events.md`](../../contracts/routes-and-events.md) 为准。
 
 # HiveMemory 可观测性与日志流设计文档
 

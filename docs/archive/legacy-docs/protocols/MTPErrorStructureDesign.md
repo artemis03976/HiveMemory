@@ -1,6 +1,6 @@
 ---
 title: Legacy MTP Error Structure Design
-status: superseded
+status: archived
 owner: alice
 scope: legacy-mtp-error-design
 archived_at: 2026-07-28
@@ -9,7 +9,7 @@ superseded_by:
   - docs/contracts/mtp.md
 ---
 
-> 本文已停止维护，只保留迁移期间的历史参考。当前错误、warning、CALL response 与回填语义见 [`docs/contracts/error-model.md`](../contracts/error-model.md) 和 [`docs/contracts/mtp.md`](../contracts/mtp.md)。
+> 本文已停止维护，只保留迁移期间的历史参考。当前错误、warning、CALL response 与回填语义见 [`docs/contracts/error-model.md`](../../../contracts/error-model.md) 和 [`docs/contracts/mtp.md`](../../../contracts/mtp.md)。
 
 # MTP 错误与回填消息结构化设计
 

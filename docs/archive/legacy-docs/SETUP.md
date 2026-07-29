@@ -1,6 +1,6 @@
 ---
 title: Legacy HiveMemory Setup Guide
-status: superseded
+status: archived
 owner: project
 scope: legacy-setup-guide
 archived_at: 2026-07-28
@@ -11,13 +11,13 @@ superseded_by:
   - docs/help/troubleshooting.md
 ---
 
-> 本文是旧的单篇环境搭建入口，已停止维护。当前 Docker/本地启动、端口、配置来源和排障方式以 [Help 索引](./help/README.md)、[安装与启动](./help/setup.md)、[配置指南](./help/configuration.md)和[故障排查](./help/troubleshooting.md)为准。本文中的 v0.1、旧 LLM 环境变量和 Patchouli 目录说明不再代表当前系统。
+> 本文是旧的单篇环境搭建入口，已停止维护。当前 Docker/本地启动、端口、配置来源和排障方式以 [Help 索引](../../help/README.md)、[安装与启动](../../help/setup.md)、[配置指南](../../help/configuration.md)和[故障排查](../../help/troubleshooting.md)为准。本文中的 v0.1、旧 LLM 环境变量和 Patchouli 目录说明不再代表当前系统。
 
 # HiveMemory 环境搭建指南
 
 本文档面向当前 `v0.1.0` 测试版，说明如何从零开始搭建 HiveMemory 的本地开发 / 运行环境。
 
-如需快速了解项目整体功能与架构，请先阅读 [README.md](../README.md)。
+如需快速了解项目整体功能与架构，请先阅读 [README.md](../../../README.md)。
 
 ---
 
@@ -235,7 +235,7 @@ npm run dev
 
 ## 9. 运行测试
 
-当前项目测试由 `pytest` 驱动，默认配置见 [pyproject.toml](../pyproject.toml)。
+当前项目测试由 `pytest` 驱动，默认配置见 [pyproject.toml](../../../pyproject.toml)。
 
 ### 运行默认测试集
 
@@ -377,8 +377,8 @@ HiveMemory/
 
 环境搭建完成后，你可以继续：
 
-1. 阅读 [README.md](../README.md) 了解项目整体能力
-2. 阅读 [PROJECT.md](PROJECT.md) 了解 Patchouli 架构与设计背景
+1. 阅读 [README.md](../../../README.md) 了解项目整体能力
+2. 阅读 [PROJECT.md](../../PROJECT.md) 了解 Patchouli 架构与设计背景
 3. 通过 `/api/v1/chat` 或 `/api/v1/ingest`（被动事件入口）接入你的 Agent 工作流
 4. 修改 `configs/config.yaml` 调整检索、感知和生命周期参数
 

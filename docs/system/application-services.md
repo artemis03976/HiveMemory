@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # System 应用服务
@@ -30,6 +30,14 @@ System 应用服务是 transport 与子系统之间的用例层。它们回答�
 5. 对取消、失败和 cleanup 保持与 Contracts 一致的终态。
 
 应用服务可以保存一次用例的短期控制状态，例如 chat generation registry，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
+
+### 1.1 Transport / Router 边界
+
+FastAPI router 是 transport adapter，而不是另一层业务编排者。它的职责应收敛为：解析和校验 request、取得窄化的应用服务依赖、调用一个用例、把结果转换成 HTTP/SSE response，并在 transport 边界映射状态码或公开错误。
+
+Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime、Store、scheduler 或内部 bus，也不得重新拼装 prepare/run/finalize。`server/deps.py` 应暴露面向用例的 service dependency，而不是把整个 System 当作万能 facade 注入每个入口。
+
+这一边界同样约束应用服务自身：System 是 composition root，不是 God Facade；应用服务可以跨公开 route 编排一个用例，却不能逐步吸收子系统算法、存储访问和所有运行时状态，成为新的万能 runtime。Transport、用例编排和领域所有权保持分离，才允许 HTTP、SSE、CLI 与未来 adapter 共享同一业务语义。
 
 ## 2. 服务分工
 
@@ -130,6 +138,8 @@ generation_id
 4. 是否在取消后仍调用 finalize，或 finalize 失败后忘记 cleanup？
 5. 是否把 memory task、topic 或 run registry 的临时状态写成另一个权威来源？
 6. 是否把内部 RuntimeEvent、fallback 原因或 trace 当成公开 API 字段？
+7. Router 是否只处理 transport，还是直接访问了 System/子系统内部对象或复制了用例顺序？
+8. 新应用服务是否开始拥有本应属于子系统的算法、实体或长期状态？
 
 ## 8. 验证入口
 
