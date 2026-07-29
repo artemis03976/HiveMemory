@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # HiveMemory Frontend
@@ -82,7 +82,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - [管理页面](./management-views.md)：Memory Library、Agent Management、Settings 与人工干预边界；
 - [状态、持久化与传输](./state-and-transports.md)：状态所有权、本地持久化矩阵、HTTP/SSE/WebSocket 和 mock 降级。
 
-旧的 `FrontendDesign.md`、`MemoryGardenUI.md` 与 `frontend-state-persistence-research.md` 已停止作为当前依据；它们保留设计演进和调研过程，当前事实均以本组文档为准。
+旧的 `FrontendDesign.md`、`MemoryGardenUI.md` 与 `frontend-state-persistence-research.md` 已移入 Archive，不再作为当前依据；它们保留设计演进和调研过程，当前事实均以本组文档为准。
 
 ## 5. 技术与验证入口
 

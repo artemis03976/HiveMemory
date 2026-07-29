@@ -17,4 +17,4 @@ last_reviewed: 2026-07-29
 - [Legacy Documents](./legacy-docs/README.md)：其他被替代但仍有追溯价值的文档；
 - [Legacy mod](./mod/README.md)：迁移前已经位于 Archive 的短期重构记录。
 
-当前设计统一从[项目总览](../PROJECT.md)进入。迁移清单第 4～8 节已经完成逐篇审计；其中已审计的旧文档已按批次进入 Archive。其他标记为 `superseded` 的旧文档仍可能暂留原路径，必须在各自批次复核后再进入 Archive。
+当前设计统一从[项目总览](../PROJECT.md)进入。迁移清单第 4～10 节已经完成逐篇审计；其中已审计的旧文档已按批次进入 Archive。其他标记为 `superseded` 的旧文档仍可能暂留原路径，必须在各自批次复核后再进入 Archive。

@@ -139,16 +139,16 @@ last_reviewed: 2026-07-29
 
 | 现有文档 | 分类 | 动作 | 目标或处理说明 |
 |:---|:---:|:---|:---|
-| `docs/engines/gateway.md` | merge | 合并后归档 | P1 已重建 `gateway/analysis.md`、`commands.md` 与 `workflow.md` 并标记原文 `superseded`；P2 再统一移动 |
+| `docs/engines/gateway.md` | merge | 合并后归档 | 2026-07-29 逐篇审计通过后已移入 `archive/legacy-docs/engines/gateway.md`；当前入口为 `gateway/` |
 
 ## 10. Applications 与 Frontend
 
 | 现有文档 | 分类 | 动作 | 目标或处理说明 |
 |:---|:---:|:---|:---|
-| `docs/applications/MealAssistantProductSpec.md` | product | 保留并核验 | P2 已补元数据并标记 `planned`，校正 Gateway/CALL/MTP 状态，保留未完成验收与产品试验边界 |
-| `docs/frontend/FrontendDesign.md` | merge | 拆分 | P2 已将当前应用壳、视觉与 Chat 行为并入 Frontend 当前文档，原稿标记 `superseded` |
-| `docs/frontend/frontend-state-persistence-research.md` | merge | 合并后归档 | P2 已将实际 store、状态所有权、持久化与传输决策并入 `frontend/state-and-transports.md`，原稿标记 `superseded` |
-| `docs/frontend/MemoryGardenUI.md` | merge | 拆分 | P2 已将实际 Memory Library 能力与未实现项并入 `frontend/management-views.md`，原稿标记 `superseded` |
+| `docs/applications/MealAssistantProductSpec.md` | product | 保留并核验 | 保持 `planned`；2026-07-29 复核当前链路、七种通用 MemoryType、未接线 `time_range` 与无 session/history 恢复边界，继续留在 Applications |
+| `docs/frontend/FrontendDesign.md` | merge | 拆分 | 2026-07-29 逐篇审计通过后已移入 `archive/legacy-docs/frontend/FrontendDesign.md`；当前入口为 `frontend/` |
+| `docs/frontend/frontend-state-persistence-research.md` | merge | 合并后归档 | 2026-07-29 逐篇审计通过后已移入 `archive/legacy-docs/frontend/frontend-state-persistence-research.md` |
+| `docs/frontend/MemoryGardenUI.md` | merge | 拆分 | 2026-07-29 逐篇审计通过后已移入 `archive/legacy-docs/frontend/MemoryGardenUI.md` |
 
 ## 11. Ideas
 
@@ -317,3 +317,15 @@ P0 已于 2026-07-28 完成：
 - 明确拒绝 durable ledger/TTL/事件重放已经存在、平行 `_resolution/_redirects` 映射作为真相、`ChatResult` 旧三字段、Patchouli 反向读取可变 PendingAtom，以及递归 CALL/强沙箱/无限自组织网络等历史或未来口径；
 - 审计通过后，Alice Phase 三篇与 Agent Runtime/PendingAtom 六篇旧文档已物理移动至 `archive/legacy-docs/alice/phases/` 与 `archive/legacy-docs/agent_runtime/`，并修复当前入口、源码、`docs/mod/` 和其他历史文档的相对链接；
 - 本批不处理第 9 节 Gateway、`docs/mod/` 的物理归档、其他源码 README 或最终全库迁移门禁，仍由后续 Archive 批次继续完成。
+
+## 24. 第 9～10 节 Gateway、Applications 与 Frontend 逐篇复核与物理迁移结果
+
+本批于 2026-07-29 完成，范围严格限定为清单第 9～10 节的五篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](../archive/plans/documentation-migration-audit-sections-9-10.md)。
+
+- Gateway 当前四篇文档已对照固定 workflow、公共 `GatewayDecision`、Patchouli 消费边界和测试复核；补回“Compute Once, Use Everywhere”的有效动机，并把它收敛为同一入口消息的一份冻结、受限分析投影，而不是下游共同真相；
+- 明确拒绝 Gateway 作为中枢神经、单一 `GatewayResult` 拥有检索/感知/生成、`worth_saving` 是最终写入决定、所有 CHAT 默认 RAG、被动 buffer 与 renderer 由 Gateway 所有，以及动态/持久化 workflow 已存在等旧口径；
+- Frontend 当前五篇文档已复核视觉隐喻、Chat 结构化事件、管理页面、store 与 transport；应用壳补回“动效必须由真实状态事件驱动”，状态文档补回 localStorage 作为 `name/version/migrate/partialize` 本地契约的治理原则；
+- `MealAssistantProductSpec.md` 继续保持 `planned` 和原路径；最小闭环改为 Gateway -> Patchouli prepare/retrieval -> Alice run/MTP -> Patchouli finalize，并澄清七种类型是产品映射、`time_range` 尚未端到端接线、“新会话”只是新的独立 chat run 验收语义；
+- 审计通过后，Gateway 一篇与 Frontend 三篇旧稿已物理移动至 `archive/legacy-docs/engines/` 和 `archive/legacy-docs/frontend/`，并修复当前入口与源码相对链接；
+- 本批 20 篇相关 Markdown 的严格 UTF-8 与相对链接检查通过，Gateway/System/Patchouli 定向测试 48 项通过，前端 lint 与生产构建通过；
+- 本批没有处理 `docs/mod/`、Ideas、其他源码 README 或最后的全库迁移门禁，后续仍需按清单继续推进。

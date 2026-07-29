@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 前端状态、持久化与传输
@@ -36,6 +36,8 @@ Chat tokens / logs / RuntimeEvents
 ```
 
 当前 `chat-store` 虽然使用 Zustand persist，但 `partialize` 主动把 `messages` 固定为空、`currentTopicId` 固定为 null，只保存 `currentAgentId`。这不是遗漏，而是对“浏览器没有消息历史真相”的保护：没有服务端 history/reconnect 契约时，恢复半条流消息比清空更危险。
+
+浏览器的 localStorage 也应被视为一个需要版本治理的本地契约，而不是“随手缓存”。当前持久化 store 已采用 `name`、`version`、`migrate` 或 `partialize` 的组合来清理旧结构、缩小写入面并恢复可解释的小状态；新增 store 或改变字段时也必须遵循同一规则。优先保存主题、tab、折叠、筛选和短小的运行偏好，谨慎保存可重新解释的草稿，避免把过期的 Agent ID、Topic 指针、消息块或后端实体整棵复活。
 
 ## 2. 本地持久化矩阵
 

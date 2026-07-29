@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Chat 工作区

@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 前端管理页面

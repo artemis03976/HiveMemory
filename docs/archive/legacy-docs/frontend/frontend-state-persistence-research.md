@@ -3,12 +3,12 @@ title: Legacy Frontend State Persistence Research
 status: superseded
 owner: frontend
 scope: completed-state-persistence-research
-archived_at: 2026-07-28
+archived_at: 2026-07-29
 superseded_by:
   - docs/frontend/state-and-transports.md
 ---
 
-> 本文保留前端状态所有权调研过程，已停止维护。已经接受并落地的持久化边界、各 store 的当前 `partialize` 行为、传输和 mock 降级以[状态、持久化与传输](./state-and-transports.md)为准。
+> 本文保留前端状态所有权调研过程，已停止维护。已经接受并落地的持久化边界、各 store 的当前 `partialize` 行为、传输和 mock 降级以[状态、持久化与传输](../../../frontend/state-and-transports.md)为准。
 
 # 前端状态持久化调研报告
 
@@ -27,25 +27,25 @@ superseded_by:
 
 ### 前端核心文件
 
-- [frontend/src/App.tsx](../../frontend/src/App.tsx)
-- [frontend/src/components/ChatLayout.tsx](../../frontend/src/components/ChatLayout.tsx)
-- [frontend/src/components/chat/ContextSidebar.tsx](../../frontend/src/components/chat/ContextSidebar.tsx)
-- [frontend/src/components/chat/KernelVision.tsx](../../frontend/src/components/chat/KernelVision.tsx)
-- [frontend/src/components/chat/OmniInput.tsx](../../frontend/src/components/chat/OmniInput.tsx)
-- [frontend/src/components/SettingsPanel.tsx](../../frontend/src/components/SettingsPanel.tsx)
-- [frontend/src/hooks/useMemories.ts](../../frontend/src/hooks/useMemories.ts)
-- [frontend/src/hooks/useSettings.ts](../../frontend/src/hooks/useSettings.ts)
-- [frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
-- [frontend/src/stores/topicStore.ts](../../frontend/src/stores/topic/topicStore.ts)
-- [frontend/src/stores/kernelStore.ts](../../frontend/src/stores/kernel/kernelStore.ts)
-- [frontend/src/stores/chatRuntimeConfigStore.ts](../../frontend/src/stores/chat/runtimeConfigStore.ts)
+- [frontend/src/App.tsx](../../../../frontend/src/App.tsx)
+- [frontend/src/components/ChatLayout.tsx](../../../../frontend/src/components/ChatLayout.tsx)
+- [frontend/src/components/chat/ContextSidebar.tsx](../../../../frontend/src/components/chat/ContextSidebar.tsx)
+- [frontend/src/components/chat/KernelVision.tsx](../../../../frontend/src/components/chat/KernelVision.tsx)
+- [frontend/src/components/chat/OmniInput.tsx](../../../../frontend/src/components/chat/OmniInput.tsx)
+- [frontend/src/components/SettingsPanel.tsx](../../../../frontend/src/components/SettingsPanel.tsx)
+- [frontend/src/hooks/useMemories.ts](../../../../frontend/src/hooks/useMemories.ts)
+- [frontend/src/hooks/useSettings.ts](../../../../frontend/src/hooks/useSettings.ts)
+- [frontend/src/stores/chatStore.ts](../../../../frontend/src/stores/chat/chatStore.ts)
+- [frontend/src/stores/topicStore.ts](../../../../frontend/src/stores/topic/topicStore.ts)
+- [frontend/src/stores/kernelStore.ts](../../../../frontend/src/stores/kernel/kernelStore.ts)
+- [frontend/src/stores/chatRuntimeConfigStore.ts](../../../../frontend/src/stores/chat/runtimeConfigStore.ts)
 
 ### 关联后端文件
 
-- [src/hivememory/server/routers/chat.py](../../src/hivememory/server/routers/chat.py)
-- [src/hivememory/server/routers/topics.py](../../src/hivememory/server/routers/topics.py)
-- [src/hivememory/server/routers/memories.py](../../src/hivememory/server/routers/memories.py)
-- [src/hivememory/server/routers/config.py](../../src/hivememory/server/routers/config.py)
+- [src/hivememory/server/routers/chat.py](../../../../src/hivememory/server/routers/chat.py)
+- [src/hivememory/server/routers/topics.py](../../../../src/hivememory/server/routers/topics.py)
+- [src/hivememory/server/routers/memories.py](../../../../src/hivememory/server/routers/memories.py)
+- [src/hivememory/server/routers/config.py](../../../../src/hivememory/server/routers/config.py)
 
 ---
 
@@ -74,7 +74,7 @@ superseded_by:
 
 #### Chat Store
 文件：[
-frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
+frontend/src/stores/chatStore.ts](../../../../frontend/src/stores/chat/chatStore.ts)
 
 主要状态：
 
@@ -90,7 +90,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 - `connection`、`isStreaming` 属于业务过程状态。
 
 #### Topic Store
-文件：[frontend/src/stores/topicStore.ts](../../frontend/src/stores/topic/topicStore.ts)
+文件：[frontend/src/stores/topicStore.ts](../../../../frontend/src/stores/topic/topicStore.ts)
 
 主要状态：
 
@@ -101,7 +101,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 其中 `topics` 明确是后端话题池数据的前端映射。
 
 #### Kernel Store
-文件：[frontend/src/stores/kernelStore.ts](../../frontend/src/stores/kernel/kernelStore.ts)
+文件：[frontend/src/stores/kernelStore.ts](../../../../frontend/src/stores/kernel/kernelStore.ts)
 
 主要状态：
 
@@ -118,7 +118,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 - `filters`、`ui` 属于典型 UI 状态。
 
 #### Chat Runtime Config Store
-文件：[frontend/src/stores/chatRuntimeConfigStore.ts](../../frontend/src/stores/chat/runtimeConfigStore.ts)
+文件：[frontend/src/stores/chatRuntimeConfigStore.ts](../../../../frontend/src/stores/chat/runtimeConfigStore.ts)
 
 主要状态：
 
@@ -131,7 +131,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 ### 2. Hook 内的局部状态
 
 #### useMemories
-文件：[frontend/src/hooks/useMemories.ts](../../frontend/src/hooks/useMemories.ts)
+文件：[frontend/src/hooks/useMemories.ts](../../../../frontend/src/hooks/useMemories.ts)
 
 主要状态：
 
@@ -140,7 +140,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 - UI 状态：`searchQuery`、`searchMode`、`selectedType`、`selectedTags`、`statusFilter`、`sortBy`、`viewMode`
 
 #### useSettings
-文件：[frontend/src/hooks/useSettings.ts](../../frontend/src/hooks/useSettings.ts)
+文件：[frontend/src/hooks/useSettings.ts](../../../../frontend/src/hooks/useSettings.ts)
 
 主要状态：
 
@@ -153,35 +153,35 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 ### 3. 页面和组件局部状态
 
 #### App
-文件：[frontend/src/App.tsx](../../frontend/src/App.tsx)
+文件：[frontend/src/App.tsx](../../../../frontend/src/App.tsx)
 
 - `activeNavTab`
 
 #### ChatLayout
-文件：[frontend/src/components/ChatLayout.tsx](../../frontend/src/components/ChatLayout.tsx)
+文件：[frontend/src/components/ChatLayout.tsx](../../../../frontend/src/components/ChatLayout.tsx)
 
 - `activeTopicId`
 - `isContextSidebarCollapsed`
 - `isKernelVisionCollapsed`
 
 #### ContextSidebar
-文件：[frontend/src/components/chat/ContextSidebar.tsx](../../frontend/src/components/chat/ContextSidebar.tsx)
+文件：[frontend/src/components/chat/ContextSidebar.tsx](../../../../frontend/src/components/chat/ContextSidebar.tsx)
 
 - `activeTab`
 
 #### KernelVision
-文件：[frontend/src/components/chat/KernelVision.tsx](../../frontend/src/components/chat/KernelVision.tsx)
+文件：[frontend/src/components/chat/KernelVision.tsx](../../../../frontend/src/components/chat/KernelVision.tsx)
 
 - `activeTab`
 
 #### OmniInput
-文件：[frontend/src/components/chat/OmniInput.tsx](../../frontend/src/components/chat/OmniInput.tsx)
+文件：[frontend/src/components/chat/OmniInput.tsx](../../../../frontend/src/components/chat/OmniInput.tsx)
 
 - `message`
 - `enableMemory`
 
 #### SettingsPanel
-文件：[frontend/src/components/SettingsPanel.tsx](../../frontend/src/components/SettingsPanel.tsx)
+文件：[frontend/src/components/SettingsPanel.tsx](../../../../frontend/src/components/SettingsPanel.tsx)
 
 - `activeCategory`
 
@@ -192,7 +192,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 ### 1. 已使用 Zustand persist
 
 #### Chat Store
-文件：[frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
+文件：[frontend/src/stores/chatStore.ts](../../../../frontend/src/stores/chat/chatStore.ts)
 
 使用了 `persist`，但通过 `partialize` 实际持久化为：
 
@@ -202,7 +202,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 这意味着当前实现**有持久化壳子，但刻意不保留聊天核心数据**。
 
 #### Kernel Store
-文件：[frontend/src/stores/kernelStore.ts](../../frontend/src/stores/kernel/kernelStore.ts)
+文件：[frontend/src/stores/kernelStore.ts](../../../../frontend/src/stores/kernel/kernelStore.ts)
 
 实际持久化：
 
@@ -212,7 +212,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 这是典型且合理的 UI 状态持久化。
 
 #### Chat Runtime Config Store
-文件：[frontend/src/stores/chatRuntimeConfigStore.ts](../../frontend/src/stores/chat/runtimeConfigStore.ts)
+文件：[frontend/src/stores/chatRuntimeConfigStore.ts](../../../../frontend/src/stores/chat/runtimeConfigStore.ts)
 
 实际持久化：
 
@@ -225,7 +225,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 ### 2. 已直接使用 localStorage
 
 #### Kernel 主窗口选举
-文件：[frontend/src/stores/kernelStore.ts](../../frontend/src/stores/kernel/kernelStore.ts)
+文件：[frontend/src/stores/kernelStore.ts](../../../../frontend/src/stores/kernel/kernelStore.ts)
 
 通过 `localStorage` 维护：
 
@@ -259,15 +259,15 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 #### 建议本地持久化
 
 - 主导航当前页签 `activeNavTab`
-  文件：[frontend/src/App.tsx](../../frontend/src/App.tsx)
+  文件：[frontend/src/App.tsx](../../../../frontend/src/App.tsx)
 - 左侧边栏展开/收起 `isContextSidebarCollapsed`
-  文件：[frontend/src/components/ChatLayout.tsx](../../frontend/src/components/ChatLayout.tsx)
+  文件：[frontend/src/components/ChatLayout.tsx](../../../../frontend/src/components/ChatLayout.tsx)
 - 右侧边栏展开/收起 `isKernelVisionCollapsed`
-  文件：[frontend/src/components/ChatLayout.tsx](../../frontend/src/components/ChatLayout.tsx)
+  文件：[frontend/src/components/ChatLayout.tsx](../../../../frontend/src/components/ChatLayout.tsx)
 - 左侧边栏当前 tab `topics | config`
-  文件：[frontend/src/components/chat/ContextSidebar.tsx](../../frontend/src/components/chat/ContextSidebar.tsx)
+  文件：[frontend/src/components/chat/ContextSidebar.tsx](../../../../frontend/src/components/chat/ContextSidebar.tsx)
 - 右侧边栏当前 tab `context | terminal`
-  文件：[frontend/src/components/chat/KernelVision.tsx](../../frontend/src/components/chat/KernelVision.tsx)
+  文件：[frontend/src/components/chat/KernelVision.tsx](../../../../frontend/src/components/chat/KernelVision.tsx)
 
 #### 结论
 这些都属于纯界面状态，不会破坏业务一致性，建议优先本地持久化。
@@ -286,7 +286,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 - `sortBy`
 - `viewMode`
 
-文件：[frontend/src/hooks/useMemories.ts](../../frontend/src/hooks/useMemories.ts)
+文件：[frontend/src/hooks/useMemories.ts](../../../../frontend/src/hooks/useMemories.ts)
 
 #### 结论
 这些状态仅影响“用户如何看数据”，不影响“数据本身是什么”，非常适合本地持久化。
@@ -299,7 +299,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 
 - `activeCategory`
 
-文件：[frontend/src/components/SettingsPanel.tsx](../../frontend/src/components/SettingsPanel.tsx)
+文件：[frontend/src/components/SettingsPanel.tsx](../../../../frontend/src/components/SettingsPanel.tsx)
 
 #### 结论
 这属于设置页面的界面上下文恢复，适合本地持久化。
@@ -311,9 +311,9 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 #### 建议本地持久化
 
 - `enableMemory`
-  文件：[frontend/src/components/chat/OmniInput.tsx](../../frontend/src/components/chat/OmniInput.tsx)
+  文件：[frontend/src/components/chat/OmniInput.tsx](../../../../frontend/src/components/chat/OmniInput.tsx)
 - `generationOptions`
-  文件：[frontend/src/stores/chatRuntimeConfigStore.ts](../../frontend/src/stores/chat/runtimeConfigStore.ts)
+  文件：[frontend/src/stores/chatRuntimeConfigStore.ts](../../../../frontend/src/stores/chat/runtimeConfigStore.ts)
 
 #### 可选本地持久化
 
@@ -331,7 +331,7 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 - `filters`
 - `ui`
 
-文件：[frontend/src/stores/kernelStore.ts](../../frontend/src/stores/kernel/kernelStore.ts)
+文件：[frontend/src/stores/kernelStore.ts](../../../../frontend/src/stores/kernel/kernelStore.ts)
 
 #### 结论
 这是当前项目中最典型、最合理的 UI 状态持久化案例，应作为后续设计参考。
@@ -363,12 +363,12 @@ frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
 
 前端文件：
 
-- [frontend/src/stores/topicStore.ts](../../frontend/src/stores/topic/topicStore.ts)
-- [frontend/src/components/ChatLayout.tsx](../../frontend/src/components/ChatLayout.tsx)
+- [frontend/src/stores/topicStore.ts](../../../../frontend/src/stores/topic/topicStore.ts)
+- [frontend/src/components/ChatLayout.tsx](../../../../frontend/src/components/ChatLayout.tsx)
 
 后端文件：
 
-- [src/hivememory/server/routers/topics.py](../../src/hivememory/server/routers/topics.py)
+- [src/hivememory/server/routers/topics.py](../../../../src/hivememory/server/routers/topics.py)
 
 #### 必须以后端为准
 
@@ -388,11 +388,11 @@ Topic 列表属于后端活跃池快照，必须服务端同步。前端最多�
 
 前端文件：
 
-- [frontend/src/stores/chatStore.ts](../../frontend/src/stores/chat/chatStore.ts)
+- [frontend/src/stores/chatStore.ts](../../../../frontend/src/stores/chat/chatStore.ts)
 
 后端文件：
 
-- [src/hivememory/server/routers/chat.py](../../src/hivememory/server/routers/chat.py)
+- [src/hivememory/server/routers/chat.py](../../../../src/hivememory/server/routers/chat.py)
 
 #### 必须以后端为准
 
@@ -410,11 +410,11 @@ Topic 列表属于后端活跃池快照，必须服务端同步。前端最多�
 
 前端文件：
 
-- [frontend/src/hooks/useMemories.ts](../../frontend/src/hooks/useMemories.ts)
+- [frontend/src/hooks/useMemories.ts](../../../../frontend/src/hooks/useMemories.ts)
 
 后端文件：
 
-- [src/hivememory/server/routers/memories.py](../../src/hivememory/server/routers/memories.py)
+- [src/hivememory/server/routers/memories.py](../../../../src/hivememory/server/routers/memories.py)
 
 #### 必须以后端为准
 
@@ -436,12 +436,12 @@ Memory 是后端 CRUD 实体，前端不应把列表或详情缓存当作长期�
 
 前端文件：
 
-- [frontend/src/hooks/useSettings.ts](../../frontend/src/hooks/useSettings.ts)
-- [frontend/src/components/SettingsPanel.tsx](../../frontend/src/components/SettingsPanel.tsx)
+- [frontend/src/hooks/useSettings.ts](../../../../frontend/src/hooks/useSettings.ts)
+- [frontend/src/components/SettingsPanel.tsx](../../../../frontend/src/components/SettingsPanel.tsx)
 
 后端文件：
 
-- [src/hivememory/server/routers/config.py](../../src/hivememory/server/routers/config.py)
+- [src/hivememory/server/routers/config.py](../../../../src/hivememory/server/routers/config.py)
 
 #### 必须以后端为准
 
@@ -465,7 +465,7 @@ Memory 是后端 CRUD 实体，前端不应把列表或详情缓存当作长期�
 
 前端文件：
 
-- [frontend/src/stores/kernelStore.ts](../../frontend/src/stores/kernel/kernelStore.ts)
+- [frontend/src/stores/kernelStore.ts](../../../../frontend/src/stores/kernel/kernelStore.ts)
 
 #### 必须以后端为准
 

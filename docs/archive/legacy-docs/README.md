@@ -37,10 +37,20 @@ last_reviewed: 2026-07-29
 - [旧 MemoryCompiler 索引与 Phase 1 设计](./engines/memory_compiler/README.md)：已由 [MemoryCompiler 当前设计](../../patchouli/memory-compiler.md)取代。
 - [Engines 源码 README](./source-readmes/README.md)：原先散落于 `src/hivememory/engines/` 的 Perception、Generation、Retrieval 与 Lifecycle 说明；有效理念已经并入当前 Patchouli 文档，旧 API 和目录清单仅供追溯。
 
+### Gateway
+
+- [旧 Gateway Engine 设计](./engines/gateway.md)：保留 The Eye、漏斗式入口与“Compute Once, Use Everywhere”的历史背景；当前独立子系统、固定 workflow 与受限复用边界以 [Gateway](../../gateway/README.md) 为准。
+
 ### Alice 与 Agent Runtime
 
 - [Alice Phase 1/2](./alice/phases/README.md)：保留 Agent Profile、权限、CALL 与子帧 IPC 的阶段性设计背景；当前职责与行为以 [Alice](../../alice/README.md)及其模块文档为准；
 - [旧 Agent Runtime 索引](./agent_runtime/README.md)：共享执行层仍存在于代码中，但文档入口已经并入 Alice；
 - [PendingAtom 分阶段设计](./agent_runtime/pending_atom/README.md)：Cache、状态统一、Runtime 与 MaterializeTask 的演进记录；当前状态机、物化交接和 alias 解析以 [Alice PendingAtom](../../alice/pending-atom.md)为准。
 
-逐篇去向、未继承设计和验证口径见[第 4～6 节迁移审计](../plans/documentation-migration-audit-sections-4-6.md)、[第 7 节迁移审计](../plans/documentation-migration-audit-section-7.md)与[第 8 节迁移审计](../plans/documentation-migration-audit-section-8.md)。
+### Frontend
+
+- [旧 Frontend UI/UX 设计](./frontend/FrontendDesign.md)：保留透明、沉浸、可观测、日月五行水晶与同屏工作台的早期探索；当前事实以 [Frontend](../../frontend/README.md) 为准；
+- [前端状态持久化调研](./frontend/frontend-state-persistence-research.md)：保留 UI 偏好与业务真相分层的调研过程；当前 store、传输和本地契约治理以[状态与传输](../../frontend/state-and-transports.md)为准；
+- [Memory Garden 概念](./frontend/MemoryGardenUI.md)：保留记忆资产与人工干预隐喻；真正语义检索、Pin/Lock、归档和统计大屏仍不是当前能力。
+
+逐篇去向、未继承设计和验证口径见[第 4～6 节迁移审计](../plans/documentation-migration-audit-sections-4-6.md)、[第 7 节迁移审计](../plans/documentation-migration-audit-section-7.md)、[第 8 节迁移审计](../plans/documentation-migration-audit-section-8.md)与[第 9～10 节迁移审计](../plans/documentation-migration-audit-sections-9-10.md)。

@@ -11,7 +11,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Gateway 话题与查询分析

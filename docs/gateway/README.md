@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Gateway
@@ -51,6 +51,12 @@ Gateway 不负责：
 
 尤其需要区分 `memory_write_signal` 与“写入命令”：前者只是入口阶段根据用户输入形成的预判，Patchouli 仍拥有长期记忆生成、验证和持久化的最终决定权。
 
+### 2.1 一次分析、受限复用
+
+旧 Gateway 文档中“Compute Once, Use Everywhere”的动机仍然成立：如果检索、话题感知和记忆生成各自重新解释同一条入口消息，就会产生额外的模型调用、延迟和彼此矛盾的判断。当前实现因此在一次请求内形成一份冻结的 `GatewayDecision`，让下游共享同一份入口投影：`rewritten_query`、`search_keywords` 和 `retrieval_plan` 可供 Patchouli 派生检索请求，`target_topic_id` 供话题准备使用，`memory_write_signal` 供后续记忆流程作为预判参考。
+
+这里的“复用”有明确边界。复用的是 Gateway 对入口消息的提示、路由和分析结果，不是把 Gateway 的结果升级成检索结果、记忆价值裁决或持久化真相。Patchouli 仍要根据自己的身份、过滤器、存储状态和生成规则决定检索与写回；Alice 仍只消费准备好的运行上下文；任何 fallback 或 `UNKNOWN` 信号都必须在下游按本域语义处理。这样既避免重复解释，也避免一个入口 DTO 重新吞并各子系统的所有权。
+
 ## 3. 运行结构
 
 ```text
@@ -82,4 +88,4 @@ GatewaySystem
 - [话题与查询分析](./analysis.md)：两阶段上下文、Topic Router、第一代 Resolver 与技术债；
 - [全局命令](./commands.md)：Registry、Parser、Dispatcher、权限和命令短路。
 
-旧 `docs/engines/gateway.md`、`docs/mod/V0.6.0GatewaySystemDesign.md` 与 `docs/mod/V0.6.0GlobalCommandSystemDesign.md` 已停止作为实现入口。它们保留了演化过程和未落地设想；当前事实以代码、测试、本目录文档和 Contracts 为准。
+原 `docs/engines/gateway.md` 已移入 Archive；`docs/mod/V0.6.0GatewaySystemDesign.md` 与 `docs/mod/V0.6.0GlobalCommandSystemDesign.md` 也已停止作为实现入口。它们保留了演化过程和未落地设想；当前事实以代码、测试、本目录文档和 Contracts 为准。

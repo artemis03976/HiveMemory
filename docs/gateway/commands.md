@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Gateway 全局命令

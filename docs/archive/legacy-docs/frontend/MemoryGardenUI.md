@@ -3,12 +3,12 @@ title: Legacy Memory Garden UI Concept
 status: superseded
 owner: frontend
 scope: legacy-memory-garden-concept
-archived_at: 2026-07-28
+archived_at: 2026-07-29
 superseded_by:
   - docs/frontend/management-views.md
 ---
 
-> 本文保留 Memory Garden 的产品隐喻和早期功能设想，已停止维护。当前 Memory Library 的真实读写能力、客户端搜索、mock fallback 和未实现项以[管理页面](./management-views.md)为准；本文的真正语义搜索、Pin/Lock、归档筛选与统计大屏均不能作为当前能力引用。
+> 本文保留 Memory Garden 的产品隐喻和早期功能设想，已停止维护。当前 Memory Library 的真实读写能力、客户端搜索、mock fallback 和未实现项以[管理页面](../../../frontend/management-views.md)为准；本文的真正语义搜索、Pin/Lock、归档筛选与统计大屏均不能作为当前能力引用。
 
 “记忆花园（Memory Garden）”是 HiveMemory 系统中最重要的管理后台，它是你（作为人类上帝视角）与帕秋莉（系统 Librarian）直接交互的界面。由于“记忆原子”包含了丰富的元数据（类型、标签、置信度、时间戳），这个页面的功能设计需要兼顾**“高密度的信息检索”**与**“便捷的人工干预”**。
 

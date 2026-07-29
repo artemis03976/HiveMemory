@@ -12,7 +12,7 @@ code_paths:
   - src/hivememory/server/app.py
 related_contracts:
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 前端应用壳与视觉系统
@@ -74,6 +74,12 @@ HiveMemory 的价值不仅在最终回答，还在回答依赖了哪些记忆、
 `glass-panel` 和 `ghost-border` 把背景、主面板与局部卡片分层。毛玻璃只用于表达空间层次，不应在每一层重复叠加模糊；信息密度较高的日志、表格和表单仍以可读性优先。
 
 当前暗色与浅色主题通过 `chat-ui-store.theme` 持久化，再由 `App` 同步到 `<html data-theme>`。浅色主题已经具备 CSS 变量和主要组件覆盖，但 Roadmap 仍将完整页面覆盖、自定义背景与等待反馈归入后续 Frontend Experience 工作。
+
+### 3.4 动效是状态迁移的视觉投影
+
+前端的 glow、pulse、展开收束和完成提示并不是为了给等待过程添加“生命感”。它们应当投影后端已经发生的状态迁移：例如 `topic_info` 确认本轮话题后才能改变路由高光，收到 `mtp_start` 后才能开始 MTP 动作提示，`mtp_result`、`done` 或对应 RuntimeEvent 到达后才能收束为完成。若事件尚未到达，界面应保持准备中、等待或不确定，而不能用恒速 token 队列和循环动画掩盖超时、断流或未完成终态。
+
+这条原则也约束未来的视觉增强：任何“记忆已完成”“任务已落地”或“系统已切换话题”的提示，都必须能追溯到结构化事件或业务响应；动画本身永远不能成为业务成功的证据。
 
 ## 4. 组件体系
 

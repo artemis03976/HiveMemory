@@ -6,7 +6,7 @@ scope: product-specifications-and-validation-evidence
 updates:
   - docs/PROJECT.md
   - docs/ROADMAP.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # HiveMemory Applications
