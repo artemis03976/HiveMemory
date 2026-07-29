@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/alice/pending-atom.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # MTP Runtime：从文本指令到受控执行

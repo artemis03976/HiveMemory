@@ -8,7 +8,7 @@ superseded_by:
   - docs/alice/pending-atom.md
 ---
 
-> 本文保留 PendingAtom 状态与行为收敛到统一 Runtime 的落地过程，已停止维护。当前命令入口、store 所有权、settlement 与回收行为以 [Alice PendingAtom](../../alice/pending-atom.md)为准。
+> 本文保留 PendingAtom 状态与行为收敛到统一 Runtime 的落地过程，已停止维护。当前命令入口、store 所有权、settlement 与回收行为以 [Alice PendingAtom](../../../../alice/pending-atom.md)为准。
 
 ​# PendingAtomRuntime 落地规划
 

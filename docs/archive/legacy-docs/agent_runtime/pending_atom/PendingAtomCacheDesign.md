@@ -9,7 +9,7 @@ superseded_by:
   - docs/alice/mtp-runtime.md
 ---
 
-> 本文保留 runtime shadow memory、三级 alias 解析与缓存演进的设计背景，已停止维护。当前实现与身份隔离缺口以 [PendingAtom](../../alice/pending-atom.md)和 [MTP Runtime](../../alice/mtp-runtime.md)为准。
+> 本文保留 runtime shadow memory、三级 alias 解析与缓存演进的设计背景，已停止维护。当前实现与身份隔离缺口以 [PendingAtom](../../../../alice/pending-atom.md)和 [MTP Runtime](../../../../alice/mtp-runtime.md)为准。
 
 # PendingAtomCache 与运行时 Shadow Memory 设计草案
 

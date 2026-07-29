@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # Alice

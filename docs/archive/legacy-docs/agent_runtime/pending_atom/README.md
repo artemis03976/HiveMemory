@@ -8,7 +8,7 @@ superseded_by:
   - docs/alice/pending-atom.md
 ---
 
-> 本索引保留 PendingAtom 分阶段设计稿的导航价值，已停止维护。当前数据模型、状态机、物化交接、alias 解析与回收语义统一以 [Alice PendingAtom](../../alice/pending-atom.md)为准。
+> 本索引保留 PendingAtom 分阶段设计稿的导航价值，已停止维护。当前数据模型、状态机、物化交接、alias 解析与回收语义统一以 [Alice PendingAtom](../../../../alice/pending-atom.md)为准。
 
 # PendingAtom
 

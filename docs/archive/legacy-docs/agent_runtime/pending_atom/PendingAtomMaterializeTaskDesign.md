@@ -10,7 +10,7 @@ superseded_by:
   - docs/contracts/subsystem-contracts.md
 ---
 
-> 本文保留 materialize task 从可变 PendingAtom 中抽离的设计理由，已停止维护。Alice 的请求投影、Patchouli 的物化消费与跨子系统边界分别以 [PendingAtom](../../alice/pending-atom.md)、[生成与物化](../../patchouli/generation.md)和[子系统公共契约](../../contracts/subsystem-contracts.md)为准。
+> 本文保留 materialize task 从可变 PendingAtom 中抽离的设计理由，已停止维护。Alice 的请求投影、Patchouli 的物化消费与跨子系统边界分别以 [PendingAtom](../../../../alice/pending-atom.md)、[生成与物化](../../../../patchouli/generation.md)和[子系统公共契约](../../../../contracts/subsystem-contracts.md)为准。
 
 # PendingAtomMaterializeTask 与 AgentRunResult 重组设计
 
@@ -22,7 +22,7 @@ superseded_by:
 
 ## 1. 文档目标
 
-本文承接 [PendingAtomRuntimeDesign](PendingAtomRuntimeDesign.md) 与 [AgentLoopDecouplingDesign](../../mod/AgentLoopDecouplingDesign.md)，处理一个历史遗留设计债：`WriteFocus` / `UpdateFocus` 最初只用于把 MTP WRITE/UPDATE 的请求内容从 Koakuma 传给 patchouli 生成域，但随 Phase 2 与 PendingAtom 演进，它逐渐同时承担了过多角色——既装"Agent 提交的参数"（content/title/reason/instruction），又装"生成关联键"（pending_alias/intent_id/identity），还被一路穿透到 `ChatResult` 三字段，由 loop_executor / harvest 反复维护。
+本文承接 [PendingAtomRuntimeDesign](PendingAtomRuntimeDesign.md) 与 [AgentLoopDecouplingDesign](../../../../mod/AgentLoopDecouplingDesign.md)，处理一个历史遗留设计债：`WriteFocus` / `UpdateFocus` 最初只用于把 MTP WRITE/UPDATE 的请求内容从 Koakuma 传给 patchouli 生成域，但随 Phase 2 与 PendingAtom 演进，它逐渐同时承担了过多角色——既装"Agent 提交的参数"（content/title/reason/instruction），又装"生成关联键"（pending_alias/intent_id/identity），还被一路穿透到 `ChatResult` 三字段，由 loop_executor / harvest 反复维护。
 
 设计目标：
 
@@ -57,22 +57,22 @@ Koakuma._handle_write/update          ← Focus 诞生（打包 Agent 参数 + �
 
 | 字段 | 终点用途 | 性质 |
 | :--- | :--- | :--- |
-| `content` / `reason` / `title`（WRITE） | mode b 提取 + fallback 草稿（[engine.py:170-184](../../src/hivememory/engines/generation/engine.py#L170)） | **Agent 提交参数** |
-| `instruction` / `content` / `base_alias` / `base_uuid`（UPDATE） | mode c 合并（[engine.py:235-256](../../src/hivememory/engines/generation/engine.py#L235)） | **Agent 提交参数** |
-| `intent_id` / `pending_alias` | `_dedup_and_persist` / `_apply_update` 回填 Settlement（[engine.py:181-184](../../src/hivememory/engines/generation/engine.py#L181)） | **生成关联键** |
-| `identity` | `GenerationRequest.identity` 派生（[models.py:156](../../src/hivememory/engines/generation/models.py#L156)） | **关联元数据** |
+| `content` / `reason` / `title`（WRITE） | mode b 提取 + fallback 草稿（[engine.py:170-184](../../../../../src/hivememory/engines/generation/engine.py#L170)） | **Agent 提交参数** |
+| `instruction` / `content` / `base_alias` / `base_uuid`（UPDATE） | mode c 合并（[engine.py:235-256](../../../../../src/hivememory/engines/generation/engine.py#L235)） | **Agent 提交参数** |
+| `intent_id` / `pending_alias` | `_dedup_and_persist` / `_apply_update` 回填 Settlement（[engine.py:181-184](../../../../../src/hivememory/engines/generation/engine.py#L181)） | **生成关联键** |
+| `identity` | `GenerationRequest.identity` 派生（[models.py:156](../../../../../src/hivememory/engines/generation/models.py#L156)） | **关联元数据** |
 
 参数一侧只进提取/合并，关联键一侧只进 Settlement 组装，两者下游完全不相交——却被打包在同一个 Focus 对象里穿过 6 层。
 
 ### 2.2 关联键是 PendingAtom 已持有数据的副本
 
-`register_write` / `register_update`（[runtime.py:84-96](../../src/hivememory/alice/runtime/pending_atom/runtime.py#L84)）已经把 `pending_alias` / `intent_id` / `identity` / `focus` / `runtime_scope` 全部存进了 `PendingAtom`。Focus 穿透链是在**并行搬运写缓冲已经持有的同一份真相**——这与 PCB 洞同根：本轮写状态存在两套真相源。
+`register_write` / `register_update`（[runtime.py:84-96](../../../../../src/hivememory/agent_runtime/pending_atom/runtime.py#L84)）已经把 `pending_alias` / `intent_id` / `identity` / `focus` / `runtime_scope` 全部存进了 `PendingAtom`。Focus 穿透链是在**并行搬运写缓冲已经持有的同一份真相**——这与 PCB 洞同根：本轮写状态存在两套真相源。
 
 ### 2.3 ChatResult 三字段冗余 + 死字段
 
 - `ChatResult.pending_aliases`：仓库级搜索**零真实读者**，是死字段。loop_executor 维护它、harvest 往里塞，但下游无人消费。
 - `ChatResult.write_focus` / `update_focus`：finalize 真正要的，但传的是去规范化的 Focus 副本。
-- loop_executor 为此维护 `write_foci` / `update_foci` / `pending_aliases` 三个累积器（[loop_executor.py:206-208](../../src/hivememory/alice/runtime/agent/loop_executor.py#L206)），并在 CALL 路径合并子帧结果（[L388](../../src/hivememory/alice/runtime/agent/loop_executor.py#L388)）。一个"驱动生成的引擎"却在维护它同事（PendingAtomRuntime）的结果。
+- loop_executor 为此维护 `write_foci` / `update_foci` / `pending_aliases` 三个累积器（[loop_executor.py:206-208](../../../../../src/hivememory/agent_runtime/loop_executor.py#L206)），并在 CALL 路径合并子帧结果（[L388](../../../../../src/hivememory/agent_runtime/loop_executor.py#L388)）。一个"驱动生成的引擎"却在维护它同事（PendingAtomRuntime）的结果。
 
 ---
 
@@ -156,7 +156,7 @@ class PendingAtomMaterializeTask(BaseModel):
 
 因此引擎不必把 alias 一路 harvest 穿过帧栈来组装 run 级结果。
 
-> 边界澄清：这里的 scope 过滤组装与 [AgentLoopDecouplingDesign](../../mod/AgentLoopDecouplingDesign.md) 中**子帧 IPC 回复用的 harvest 是两件正交的事**。后者（`frame.harvested_aliases` → `_assemble_ipc_return` 的 `[Artifacts]`）只为给主 Agent 看的回复文本服务，保留显式收割不变。本文的"明确下游流向"不变量只约束 `AgentRunResult` 的数据条目，与 IPC harvest 无关。
+> 边界澄清：这里的 scope 过滤组装与 [AgentLoopDecouplingDesign](../../../../mod/AgentLoopDecouplingDesign.md) 中**子帧 IPC 回复用的 harvest 是两件正交的事**。后者（`frame.harvested_aliases` → `_assemble_ipc_return` 的 `[Artifacts]`）只为给主 Agent 看的回复文本服务，保留显式收割不变。本文的"明确下游流向"不变量只约束 `AgentRunResult` 的数据条目，与 IPC harvest 无关。
 
 ### 3.5 ChatResult 重组为 AgentRunResult
 
@@ -198,14 +198,14 @@ Focus 瘦身后已无 `identity` 字段（§3.1），identity 改由 `Task.ident
 
 落点：
 
-- `engines/generation/models.py::GenerationRequest.get_identity()`（[models.py:150-160](../../src/hivememory/engines/generation/models.py#L150)）当前优先读 `write_focus.identity` / `update_focus.identity` → 改为读 `request.identity`（由 task 注入），Mode A 被动路径仍可回退 `context.turns[0].identity`。
+- `engines/generation/models.py::GenerationRequest.get_identity()`（[models.py:150-160](../../../../../src/hivememory/engines/generation/models.py#L150)）当前优先读 `write_focus.identity` / `update_focus.identity` → 改为读 `request.identity`（由 task 注入），Mode A 被动路径仍可回退 `context.turns[0].identity`。
 - 删除 `write_focus.identity` / `update_focus.identity` 的派生分支。
 
 **不变量 2：Task 链路内 `intent_id` 必填（非 Optional）**
 
-`PendingAtomMaterializeTask.intent_id` 与 `PendingAtom.intent_id` 收紧为 `str`（非 `Optional`）。依据：`register_write/update` 总是生成 `intent_id`（[runtime.py:81-123](../../src/hivememory/alice/runtime/pending_atom/runtime.py#L81)），从不为 None——这是把既成事实写进类型，避免 Task → Settlement 组装时空键导致回填错配。`PendingAtomSettlement.intent_id` 已是 `str`，三者一致。
+`PendingAtomMaterializeTask.intent_id` 与 `PendingAtom.intent_id` 收紧为 `str`（非 `Optional`）。依据：`register_write/update` 总是生成 `intent_id`（[runtime.py:81-123](../../../../../src/hivememory/agent_runtime/pending_atom/runtime.py#L81)），从不为 None——这是把既成事实写进类型，避免 Task → Settlement 组装时空键导致回填错配。`PendingAtomSettlement.intent_id` 已是 `str`，三者一致。
 
-**边界限定**：本不变量**仅约束 Task 链路**（PendingAtom / Task / Settlement）。`engines/generation` 内部 helper（`_dedup_and_persist` / `_apply_update`，[engine.py:285/345/431](../../src/hivememory/engines/generation/engine.py#L285)）的 `intent_id: Optional` **保持不变**——因为被动观察（Mode A）无 WRITE/UPDATE、无 intent，正当地传 `intent_id=None`。收紧不得波及 Mode A。
+**边界限定**：本不变量**仅约束 Task 链路**（PendingAtom / Task / Settlement）。`engines/generation` 内部 helper（`_dedup_and_persist` / `_apply_update`，[engine.py:285/345/431](../../../../../src/hivememory/engines/generation/engine.py#L285)）的 `intent_id: Optional` **保持不变**——因为被动观察（Mode A）无 WRITE/UPDATE、无 intent，正当地传 `intent_id=None`。收紧不得波及 Mode A。
 
 ---
 
@@ -246,7 +246,7 @@ Focus 瘦身后已无 `identity` 字段（§3.1），identity 改由 `Task.ident
 
 ## 5. 落地时间与依赖
 
-本期**必须在 [AgentLoopDecouplingDesign](../../mod/AgentLoopDecouplingDesign.md) 之后**，原因：`write_foci`/`update_foci`/`pending_aliases` 的维护与 harvest 正是解耦要从引擎搬到 `AgentOrchestrator` 的逻辑。若先做本期，会在引擎里改一遍、解耦时再搬一遍。
+本期**必须在 [AgentLoopDecouplingDesign](../../../../mod/AgentLoopDecouplingDesign.md) 之后**，原因：`write_foci`/`update_foci`/`pending_aliases` 的维护与 harvest 正是解耦要从引擎搬到 `AgentOrchestrator` 的逻辑。若先做本期，会在引擎里改一遍、解耦时再搬一遍。
 
 推荐顺序：
 

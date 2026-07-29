@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # PendingAtom：运行时写缓冲与物化交接
@@ -111,6 +111,8 @@ rev_{base_alias}_{4hex}
 Koakuma 同时使旧 alias 的 L1 缓存失效，避免后续迭代继续把待修订内容当作未变化的热缓存事实。UPDATE 仍然不原地修改 MemoryAtom；真正的修订、合并和 provenance 处理属于 Patchouli。
 
 两类 PendingAtom 还会获得独立的 `intent_{12hex}`。当前 store 同时维护 alias、intent_id 和 canonical UUID 反查索引，以便 settlement 在 alias 之外仍能按 intent 找回原意图。
+
+这些映射只是寻址索引，不是第二份业务状态。一个 PendingAtom 的生命周期真相始终在对象自身的 `status`，结算真相始终在对象自身的 `settlement`；snapshot 与 RuntimeAliasResolver 必须从同一个 PendingAtom 及其 settlement 派生。store 不应再维护平行的 `_resolution`、`_redirects` 或其他状态副本，否则 READ、snapshot、事件回填和回收会在更新顺序不同的时候给出互相矛盾的答案。换言之，索引回答“怎样找到它”，PendingAtom 回答“它现在是什么”。
 
 ## 5. 三级 alias 解析
 

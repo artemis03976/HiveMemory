@@ -37,4 +37,10 @@ last_reviewed: 2026-07-29
 - [旧 MemoryCompiler 索引与 Phase 1 设计](./engines/memory_compiler/README.md)：已由 [MemoryCompiler 当前设计](../../patchouli/memory-compiler.md)取代。
 - [Engines 源码 README](./source-readmes/README.md)：原先散落于 `src/hivememory/engines/` 的 Perception、Generation、Retrieval 与 Lifecycle 说明；有效理念已经并入当前 Patchouli 文档，旧 API 和目录清单仅供追溯。
 
-逐篇去向、未继承设计和验证口径见[第 4～6 节迁移审计](../plans/documentation-migration-audit-sections-4-6.md)与[第 7 节迁移审计](../plans/documentation-migration-audit-section-7.md)。
+### Alice 与 Agent Runtime
+
+- [Alice Phase 1/2](./alice/phases/README.md)：保留 Agent Profile、权限、CALL 与子帧 IPC 的阶段性设计背景；当前职责与行为以 [Alice](../../alice/README.md)及其模块文档为准；
+- [旧 Agent Runtime 索引](./agent_runtime/README.md)：共享执行层仍存在于代码中，但文档入口已经并入 Alice；
+- [PendingAtom 分阶段设计](./agent_runtime/pending_atom/README.md)：Cache、状态统一、Runtime 与 MaterializeTask 的演进记录；当前状态机、物化交接和 alias 解析以 [Alice PendingAtom](../../alice/pending-atom.md)为准。
+
+逐篇去向、未继承设计和验证口径见[第 4～6 节迁移审计](../plans/documentation-migration-audit-sections-4-6.md)、[第 7 节迁移审计](../plans/documentation-migration-audit-section-7.md)与[第 8 节迁移审计](../plans/documentation-migration-audit-section-8.md)。

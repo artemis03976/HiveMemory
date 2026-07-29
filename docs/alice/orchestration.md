@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-29
 ---
 
 # 多 Agent 编排
@@ -140,6 +140,8 @@ main(depth=0)
 2. 对 UPDATE tool event 进行兼容 fallback，补入尚未登记为 pending 的 target alias。
 
 自然语言 reply 与 alias 列表组成 `MTPCallResponse`。成功响应加入主 frame working history，并形成与原 CALL action_id 对应的 `tool_result`；主 Agent 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
+
+CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：Orchestrator 仍应检查子帧究竟是完成、取消、预算耗尽还是意外再次挂起；当前实现尚未完整执行这项检查，见第 10 节。
 
 父子帧共享 run_id，因此最终物化任务不依赖这份 IPC harvest：run 结束时 PendingAtomRuntime 会按 run_id 收集父子帧全部 PENDING 原子。IPC aliases 服务于主 Agent 当前认知，materialize task 服务于 Alice -> Patchouli 的数据交接，两者不能混为一份真相。
 

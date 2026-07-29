@@ -10,7 +10,7 @@ superseded_by:
   - docs/alice/mtp-runtime.md
 ---
 
-> 本目录仍保留执行层历史设计稿，但不再作为平级子系统文档入口。Agent Runtime 是 Alice 消费的共享执行层；当前设计以 [Agent Runtime](../alice/agent-runtime.md)、[PendingAtom](../alice/pending-atom.md)和 [MTP Runtime](../alice/mtp-runtime.md)为准。
+> 本目录仍保留执行层历史设计稿，但不再作为平级子系统文档入口。Agent Runtime 是 Alice 消费的共享执行层；当前设计以 [Agent Runtime](../../../alice/agent-runtime.md)、[PendingAtom](../../../alice/pending-atom.md)和 [MTP Runtime](../../../alice/mtp-runtime.md)为准。
 
 # Agent Runtime
 

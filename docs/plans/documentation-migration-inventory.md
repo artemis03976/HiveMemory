@@ -305,3 +305,15 @@ P0 已于 2026-07-28 完成：
 - 审计通过后，十篇 Patchouli/Engines 旧文档已物理移动至 `archive/legacy-docs/patchouli/` 与 `archive/legacy-docs/engines/`，并修复归档后的当前文档相对链接；
 - 用户追加范围中的四篇 `src/hivememory/engines/{perception,generation,retrieval,lifecycle}/README.md` 已逐篇复核并移入 `archive/legacy-docs/source-readmes/engines/`；Generation 补回 LLM 提取的取舍，Lifecycle 补回 caller-scoped refresh/GC 编排理由和逐用户反馈状态缺口；
 - 本批仍不处理第 8 节及以后文档、`docs/mod/` 或其他源码 README；剩余源码 README 收敛与最终全库链接检查属于后续 Archive 批次。
+
+## 23. 第 8 节 Alice 与 Agent Runtime 逐篇复核与物理迁移结果
+
+本批于 2026-07-29 完成，范围严格限定为清单第 8 节的十篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](../archive/plans/documentation-migration-audit-section-8.md)。
+
+- `alice/README.md` 与 Agent Runtime、多 Agent 编排、PendingAtom、MTP Runtime 四篇当前文档已再次对照代码、测试与契约复核，并统一更新审计日期；
+- Phase 1 中“万物皆记忆”、persona/permissions 分离、Prompt/Runtime 双层权限、多角色历史与 Omni-Doll fallback 的有效理念已经确认进入 Alice 当前入口；Patchouli Kernel 全职责、话题原地切换 Agent 和默认 GLOBAL 写入等旧口径明确退出；
+- Phase 2 的 CALL trap、Profile 发现、显式 `context_refs`、瞬态子帧、黑盒隔离、单层星型拓扑与两类 alias/task 收割已被充分承接；当前编排文档补回隐式 RETURN 的设计理由，同时保留对子帧退出状态检查不足这一实现缺口；
+- PendingAtom 系列旧稿中的 store buffer、handle/intent、三级解析、Task/Settlement 对偶、状态与 resolution 正交等理念已被承接；当前文档进一步明确 `PendingAtom.status/settlement` 是业务真相，alias/intent/canonical 映射只做反查索引；
+- 明确拒绝 durable ledger/TTL/事件重放已经存在、平行 `_resolution/_redirects` 映射作为真相、`ChatResult` 旧三字段、Patchouli 反向读取可变 PendingAtom，以及递归 CALL/强沙箱/无限自组织网络等历史或未来口径；
+- 审计通过后，Alice Phase 三篇与 Agent Runtime/PendingAtom 六篇旧文档已物理移动至 `archive/legacy-docs/alice/phases/` 与 `archive/legacy-docs/agent_runtime/`，并修复当前入口、源码、`docs/mod/` 和其他历史文档的相对链接；
+- 本批不处理第 9 节 Gateway、`docs/mod/` 的物理归档、其他源码 README 或最终全库迁移门禁，仍由后续 Archive 批次继续完成。

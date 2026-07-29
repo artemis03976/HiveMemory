@@ -26,7 +26,7 @@ superseded_by:
 
 > alice 子系统到底是否应该承担 AgentRuntime、KoakumaRuntime、PendingAtomRuntime 三者？如果承担，三者在 alice 中的定位是什么？如果不承担，三者应划归何处？
 
-[PendingAtomRuntimeDesign](../agent_runtime/pending_atom/PendingAtomRuntimeDesign.md) 在收尾处已经预判到这一点，并明确把"alice 子系统的物理目录拆分"留给了后续讨论。本文就是那次讨论的结论。
+[PendingAtomRuntimeDesign](../archive/legacy-docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md) 在收尾处已经预判到这一点，并明确把"alice 子系统的物理目录拆分"留给了后续讨论。本文就是那次讨论的结论。
 
 设计目标：
 
