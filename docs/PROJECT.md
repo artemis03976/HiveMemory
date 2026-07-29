@@ -295,6 +295,8 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 - [Frontend](./frontend/README.md)：应用壳、Chat、管理页面、状态所有权与传输；
 - [Archive](./archive/README.md)：已被替代或完成的历史材料。
 
+本轮旧文档迁移已经关闭：主干、Ideas、历史实施稿与源码 README 均已逐篇确定责任和最终位置，旧混合目录不再承担入口职责。分类依据和全库门禁可从[文档迁移最终收口审计](./archive/plans/documentation-migration-finalization-audit.md)追溯。
+
 ## 10. 当前已知限制
 
 - `v0.6.0` 的复合意图下游消费和自定义入口规则尚未完整落地；
@@ -302,7 +304,6 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 - RuntimeEvent 与当前 memory task 状态主要是进程内能力，通用持久化 Job Queue 尚未实现；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；
 - 附件、Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
-- 文档迁移清单第 4～10 节与原 `docs/mod/` 已完成逐篇审计和物理迁移，不再从旧混合目录维护平行设计；Ideas、其他源码 README 与额外材料仍须按后续清单独立复核；
 - 前端仍是面向个人开发的实验工作台：没有聊天历史恢复、账户边界和完整 Settings 配置结构对齐，mock fallback 也尚未统一标识。
 
 ## 11. 修改入口

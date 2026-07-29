@@ -4,12 +4,13 @@ status: archived
 owner: patchouli
 scope: completed-lifecycle-maintenance-enablement
 archived_at: 2026-07-28
+source_path: docs/archive/mod/EnableLifecycleMaintenanceDesign.md
 superseded_by:
   - docs/patchouli/lifecycle.md
   - docs/system/runtime-and-bus.md
 ---
 
-> 本文是已经完成的生命周期维护接入记录。当前生命力、强化、gardening 与 archive/revive 以[记忆生命周期](../../patchouli/lifecycle.md)为准，统一调度器边界以 [System Runtime 与总线](../../system/runtime-and-bus.md)为准。
+> 本文是已经完成的生命周期维护接入记录。当前生命力、强化、gardening 与 archive/revive 以[记忆生命周期](../../../patchouli/lifecycle.md)为准，统一调度器边界以 [System Runtime 与总线](../../../system/runtime-and-bus.md)为准。
 
 # 启用生命周期维护设计
 

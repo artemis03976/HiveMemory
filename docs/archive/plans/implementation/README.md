@@ -18,6 +18,7 @@ last_reviewed: 2026-07-29
 
 ## Patchouli 与 MemoryCompiler
 
+- [启用生命周期维护](./enable-lifecycle-maintenance.md)：当前入口为记忆生命周期与 System Runtime；原稿在迁移前已经位于 `archive/mod/`，本轮并入统一历史实施计划分类；
 - [MemoryCompiler IR](./memory-compiler-ir.md)：当前入口为 MemoryCompiler；
 - [MemoryCompiler 与 Retrieval 分离](./memory-compiler-retrieval-refactor.md)：当前入口为 MemoryCompiler 与记忆检索；
 - [记忆生成任务管理增强](./memory-generation-management-enhancement.md)：当前入口为记忆生成；

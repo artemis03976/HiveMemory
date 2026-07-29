@@ -78,7 +78,6 @@ last_reviewed: 2026-07-29
 
 ### 3.2 发布前剩余工作
 
-- 完成 Archive 物理重组、源码 README 收敛和全库链接检查；Frontend、Applications、Help 与四个后端域的旧入口均已停止维护；
 - 将复合意图从分析结果扩展为下游可消费的稳定任务/决策契约；
 - 补齐自定义入口拦截规则的配置与运行时注入；
 - 继续稳定 Gateway 降级、命令和 Passive Ingress 的端到端行为；

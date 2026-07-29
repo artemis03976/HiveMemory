@@ -1,8 +1,32 @@
-# 生命力分数计算 - 长期演进方向 Ideas
+---
+title: Vitality Scoring Long-Term Evolution
+status: idea
+owner: patchouli
+scope: vitality-and-lifecycle-evolution-exploration
+related_current:
+  - docs/patchouli/lifecycle.md
+  - docs/patchouli/memory-library.md
+  - docs/patchouli/retrieval.md
+last_reviewed: 2026-07-29
+---
 
-> 状态: 设计设想阶段，未排期
-> 创建: 2026-07-26
-> 关联: 本次「生命力分数 100→67 bug」修复后整理的未来演进方向
+# 生命力分数计算：长期演进方向
+
+本文创建于 2026-07-26，源于“生命力分数 100→67”缺陷修复后的进一步思考。它保存候选方向，不承诺实施顺序；当前公式、强化事件、gardening 与 archive/revive 语义以[记忆生命周期](../patchouli/lifecycle.md)为准，存储状态以 [MemoryLibrary](../patchouli/memory-library.md)为准。
+
+## 0. 复核结论与设计矛盾
+
+当前三段式公式、四种强化事件、定期 gardening 和显式 archive/revive 已经落地，因此本文对它们的描述仍可作为问题背景。其余五个方向均未实现：`MetaData` 没有 per-memory `decay_rate`、review/salience 字段，Lifecycle 没有 Promoter 或 INTERFERENCE 事件，也没有持久化复习历史。
+
+其中“短→中→长逐层晋升”的原始设想与当前存储语义存在关键冲突。ShortTermMemoryStore 保存的是对话 topic buffers，并不是 MemoryAtom 的初级层；Generation 从结算材料生成 MemoryAtom 后直接写入 MidTerm；LongTerm 当前是退出普通检索热集合的 archive store，而不是高价值记忆的成熟层。未来若研究 consolidation，必须先定义“语义巩固”究竟意味着生成摘要、合并版本、冻结策略还是新的存储状态，不能直接复用现有 `archive/revive` 名称制造相反语义。
+
+这个 Idea 升级为 Plan 前至少需要：
+
+1. 收集真实命中、引用、反馈、归档与复活数据，建立当前公式的校准基线；
+2. 每次只引入一个可解释的新状态，证明收益超过参数和迁移复杂度；
+3. 明确事件历史、用户隔离、schema migration、回滚和旧 atom 默认值；
+4. 若涉及 retrieval，先证明新信号不会把“需要复习”误当成“与当前问题相关”；
+5. 若涉及 consolidation，先形成与当前 MemoryLibrary 状态机一致的独立语义，再建立可验收 Plan。
 
 ## 背景
 
@@ -21,17 +45,19 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ## 优先级总览
 
-| 方向 | ROI | 与现有架构契合度 | 新概念引入 | 推荐顺序 |
+下表是待验证的优先级假设，不是实施排期；真实顺序必须由使用数据、schema 成本和产品语义共同决定。
+
+| 方向 | 假设 ROI | 与现有架构契合度 | 新概念引入 | 验证顺序建议 |
 |---|---|---|---|---|
 | 1. 自阻尼 λ (per-memory) | 高 | 高 | 极少 | 1st |
-| 2. 巩固化循环 (短中长流动) | 高 | 极高 (已有物理分层) | 中等 | 2nd |
+| 2. 巩固化循环（语义待定义） | 潜在高 | 待澄清（当前分层不是成熟度阶梯） | 高 | 证据后再排 |
 | 3. FSRS / SM-2 复习时机 | 中高 | 中 | 算法引进 | 3rd |
 | 4. 来源 salience 进公式 | 中 | 高 | 少 | 4th |
 | 5. 干扰建模 | 中 | 中 | 少 | 5th |
 
 ---
 
-## 方向 1: 自阻尼 λ (per-memory decay rate) — *最高 ROI*
+## 方向 1: 自阻尼 λ (per-memory decay rate) — *优先评估候选*
 
 ### 核心想法
 
@@ -59,32 +85,32 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ---
 
-## 方向 2: 巩固化循环 (Consolidation Loop) — *与架构契合度最高*
+## 方向 2: 巩固化循环 (Consolidation Loop) — *需要先重定义存储语义*
 
 ### 核心想法
 
-现有代码已有 `ShortTerm / MidTerm / LongTerm` 三层存储 + `archive/resurrect` 的物理分层（见 `patchouli/memory_library/library.py`、`adapters/long_term.py`），但 vitality 当前只在归档时被动利用一次（跌破 `low_watermark` 触发归档）。
+当前代码有 ShortTerm topic buffer、MidTerm MemoryAtom 检索热集合和 LongTerm archive store，并通过 `archive/revive` 进行冷热搬运。它们是不同对象和访问状态，不是 MemoryAtom 从幼年到成熟的三级阶梯；把高生命力记忆直接“晋升”到现有 LongTerm 反而会使它退出普通检索。
 
-把**生物学巩固（consolidation）**显式建模为正向流动：周期性任务把"vitality 持续高位 + 命中次数 ≥ N"的记忆从短→中→长逐层晋升；长期层则触发永久冻结。让 vitality 不仅是"打分"，而是**驱动记忆在三层之间流动的喷淋水位**。
+仍值得保留的核心问题是：能否把**生物学巩固（consolidation）**显式建模为一次可解释的语义演化，例如把稳定、反复验证的一组记忆合并为更高层摘要，冻结特定版本，或形成新的可检索稳定态。具体落点必须经过数据验证后再定，不能预设为短→中→长搬运。
 
 ### 落点
 
-- 扩展 `engines/lifecycle/engine.py`，引入对称的 **`Promoter`**（与 `GarbageCollector` 对偶）：
-  - `promote(memory_id)`：把 vitality 长期保持高位的记忆晋升一层
-  - 配置 `high_watermark_sustain_days`：要求"持续高位 N 天"才晋升，避免短期波动误晋升
-- 与现有的 `GarbageCollector`（低水位归档）形成双臂调度器
-- 可在 `patchouli/services/lifecycle.py` 中绑定周期调度
+- 先定义 consolidation 的产物：新 MemoryAtom、现有 atom 的新版本、Artifact，或独立的存储状态；
+- 再决定 Lifecycle 是只提供“持续高位”信号，还是拥有触发权；内容合并仍应由 Generation/专用 consolidator 完成；
+- 若需要 `high_watermark_sustain_days`，必须有可持久化的持续时间证据，不能只读取一次即时分数；
+- 调度继续复用 System 全局 scheduler，但不能让 scheduler 拥有合并或存储迁移规则。
 
 ### 期望效果
 
-- 这是普通 RAG 系统做不到、而本项目架构已具备土壤的能力
-- 让长尾核心记忆"沉淀"到长期层（成本更低、检索更稳）
-- 让消失中的记忆先在 mid 层"徘徊"，避免误归档丢失
+- 让高价值记忆从“分数高”演进为可解释、可追溯的稳定知识；
+- 让 consolidation 结果通过 provenance 指回组成它的证据和旧版本；
+- 在不破坏现有 archive/revive 冷热语义的前提下，为后续检索提供更少、更稳的候选。
 
 ### 风险
 
-- 三层之间的位移动作需要保证一致性（建议涉及写时同步、读时降级回退）
-- 晋升阈值需要观测后调参，避免长期层积压太多低活跃记忆
+- 自动合并可能放大错误记忆，必须保留来源、版本和人工纠正入口；
+- “稳定”与“正确”不能由 vitality 单独推出；
+- 如果需要新的成熟度状态，应先扩展正式状态机和迁移语义，而不是改写现有 LongTerm archive 的含义。
 
 ---
 
@@ -102,7 +128,7 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 - `MetaData` 新增 `next_review_at: datetime`、`stability: float`、`retrievability: float`（FSRS 三参数可选）
 - 新增 `engines/lifecycle/review_scheduler.py`：根据 HIT/CITATION 事件更新 `next_review_at`
-- `engines/retrieval/fusion.py` 的 `RetrievalModeConfig.time_weight` 已有吸收时间信号的字段，可改为读 `now - next_review_at`
+- `RetrievalModeConfig.time_weight` 目前只有配置字段，fusion 主路径尚未消费；若未来接入 `next_review_at`，需要先定义它与相关性、recency 和 vitality 的组合语义
 
 ### 期望效果
 
@@ -179,11 +205,11 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ## 推荐演进路径
 
-1. **先做方向 1**（自阻尼 λ）：风险最低，立刻有体感，是其他方向的基础设施
-2. **再做方向 2**（巩固固化循环）：把 vitality 变成"驱动记忆在三层间流动"的力，最大化现有架构价值
-3. **方向 3**（FSRS）：在 1、2 落地、有复习历史数据后引入，提升到主动召回调度
-4. **方向 4**（salience）：在产品语义上分层，更适合产品演进期落地
-5. **方向 5**（干扰）：作为长尾清理机制，最后锦上添花
+1. **方向 1 先做离线校准**（自阻尼 λ）：用真实事件历史比较固定 λ 与 per-memory λ，不以“公式更像人脑”替代收益证据
+2. **方向 4 先验证产品语义**（salience）：尤其是用户明确保存/置顶是否能提供比隐式命中更可靠的信号；不要一次引入全部倍率
+3. **方向 3 先补数据再谈算法**（FSRS）：只有存在持久化复习历史和清晰产品动作后，主动复习时机才可评估
+4. **方向 2 独立重做语义设计**（巩固化循环）：不得把现有 ShortTerm/MidTerm/LongTerm 直接解释为成熟度迁移
+5. **方向 5 最后验证**（干扰）：只有去重误差和冲突样本表明它有净收益时，才考虑让相似新记忆影响旧记忆
 
 ---
 
@@ -213,6 +239,6 @@ V_0(salience)   = base_vitality * salience_multiplier          # 方向 4
 A               = access_boost_coef * log(1 + access_count)    # 本次已落地
 B               = memory.event_vitality_boost                 # 本次已落地
 next_review_at  = FSRS_next_review(stability, retrievability)  # 方向 3
-层间流动          = Promoter / GarbageCollector 周期调度         # 方向 2
+语义巩固          = candidate consolidator + provenance          # 方向 2，具体状态待定义
 干扰             = EventType.INTERFERENCE on dedup_create       # 方向 5
 ```
