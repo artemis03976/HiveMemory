@@ -153,7 +153,7 @@ AgentRunResult
 
 ## 8. 当前限制
 
-- memory task 与终态 registry 只存在于当前进程，重启后不可恢复；
+- memory task 与终态 registry 只存在于当前进程，重启后不可恢复；持久化与恢复边界见[运行时状态持久化与故障恢复计划](../plans/runtime-state-durability-and-recovery.md)；
 - registry 默认只保留最近 50 个终态任务；
 - `submit_generation_many()` 逐个创建后台 task；active spec 的 I/O 构建并行，但没有持久化队列、并发额度或 backpressure；
 - 运行中的 extractor/merge 调用不能保证在任意阻塞点立即响应 cancel；

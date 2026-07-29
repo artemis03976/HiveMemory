@@ -300,9 +300,10 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 ## 10. 当前已知限制
 
 - `v0.6.0` 的复合意图下游消费和自定义入口规则尚未完整落地；
-- 包元数据、README 历史版本文字和发布流程仍需继续统一；
-- RuntimeEvent 与当前 memory task 状态主要是进程内能力，通用持久化 Job Queue 尚未实现；
-- MTP RUN 不能作为执行不受信任代码的安全沙箱；
+- 包元数据、README 历史版本文字和发布流程仍需继续统一，见[版本元数据 Todo](./todo/package-version-metadata.md)；
+- RuntimeEvent、memory task、PendingAtom、Agent frame 和若干恢复状态主要是进程内能力，统一持久化与故障恢复见[运行时状态持久化与故障恢复计划](./plans/runtime-state-durability-and-recovery.md)；
+- 重试、重复投递和跨存储副作用尚未形成统一业务边界，见[跨子系统幂等性与重试语义计划](./plans/cross-subsystem-idempotency-and-retry.md)；
+- MTP RUN 不能作为执行不受信任代码的安全沙箱；身份传播、缓存隔离和执行安全见[身份隔离与执行安全计划](./plans/identity-isolation-and-execution-safety.md)；
 - 附件、Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
 - 前端仍是面向个人开发的实验工作台：没有聊天历史恢复、账户边界和完整 Settings 配置结构对齐，mock fallback 也尚未统一标识。
 

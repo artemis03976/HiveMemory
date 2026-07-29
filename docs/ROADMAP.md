@@ -102,6 +102,9 @@ last_reviewed: 2026-07-29
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
 | `v0.6.1` Runtime Job Queue | Planned | 统一后台 Job 状态、取消、重试、超时、触发和 outcome artifact | [Local Work Queue Runtime Plan](./plans/v0.6.1-local-work-queue-runtime.md) |
+| Runtime State Durability | Unscheduled | 为已承诺的 work、PendingAtom、Artifact、MemoryAtom、Agent frame 和恢复流程建立耐久性等级与故障恢复 | [Runtime State Durability and Recovery](./plans/runtime-state-durability-and-recovery.md) |
+| Cross-Subsystem Idempotency | Unscheduled | 统一稳定 operation identity、重复结果、版本冲突、重试与模糊失败语义 | [Cross-Subsystem Idempotency and Retry](./plans/cross-subsystem-idempotency-and-retry.md) |
+| Identity and Execution Safety | Unscheduled | 收紧身份传播、缓存/运行隔离、Profile fallback 与 MTP RUN 的硬安全边界 | [Identity Isolation and Execution Safety](./plans/identity-isolation-and-execution-safety.md) |
 | `v0.6.2` Chat Attachments | Candidate | 文件先 artifact 化，再作为当前 chat 上下文；大文件走 Job | 依赖 v0.6.1；正式 Plan 待建立 |
 | `v0.6.3` Frontend Experience | Partially Landed | 完成主题系统覆盖、自定义背景与明确运行状态反馈 | 浅色主题已落地，其余待形成 Plan |
 | `v0.7.0` Document Ingestion | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆 | 依赖 v0.6.1/0.6.2 与 Patchouli provenance |
@@ -112,6 +115,8 @@ last_reviewed: 2026-07-29
 另有一项[数据模型可变性治理计划](./plans/data-model-mutability-governance.md)已经形成，但当前为 **Unscheduled**：它用于统一模型角色、写入所有权和边界投影，不属于上述任一版本承诺。只有完成模型/边界清单、风险评估并确认不会挤占 v0.6.x 主路径后，才应进入具体排期。
 
 [RuntimeEvent 生产端发布抽象重构](./plans/runtime-event-publishing-refactor.md)同样属于 **Unscheduled** 的基础设施清理：当前 RuntimeEvent wire format、总线与消费语义已经生效，未完成的是 Publisher/领域 emitter/payload 类型化的生产端收敛。它不能被解释为 v0.4.0 尚未发布，也不应在未排期时阻塞 v0.6.x 功能主线。
+
+[运行时状态持久化与故障恢复](./plans/runtime-state-durability-and-recovery.md)、[跨子系统幂等性与重试语义](./plans/cross-subsystem-idempotency-and-retry.md)和[身份隔离与执行安全](./plans/identity-isolation-and-execution-safety.md)是相互依赖的 **Unscheduled** 可靠性底座：前者定义哪些状态必须在进程故障后可恢复，中者定义恢复和重复投递如何避免副作用，后者定义这些状态在不同用户、Agent、workspace 和执行资产之间如何隔离。它们不是 v0.6.x 已发布能力，也不应被当前文档写成已完成。
 
 ### 4.1 v0.6.1 Runtime Job Queue
 
