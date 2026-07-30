@@ -1,8 +1,13 @@
 ---
 title: Documentation Migration Inventory
-status: completed
+status: archived
 owner: project
 scope: docs-migration
+archived_at: 2026-07-30
+superseded_by:
+  - docs/DOCUMENTATION.md
+  - docs/PROJECT.md
+  - docs/ROADMAP.md
 updates:
   - docs/PROJECT.md
   - docs/ROADMAP.md
@@ -12,7 +17,7 @@ updates:
   - docs/alice/
   - docs/gateway/
   - docs/contracts/
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # 文档体系迁移清单
@@ -185,7 +190,7 @@ last_reviewed: 2026-07-29
 | `docs/mod/V0.5.0DataDurabilityAndAsyncColdPathPlan.md` | archive | 已迁移 | artifact/provenance 与耐久性边界进入 Patchouli 当前文档，历史稿进入 implementation archive |
 | `docs/mod/V0.5.1InfraCleanupPlan.md` | archive | 已迁移 | 配置、NoOp 与取消接线进入 System/Patchouli/Alice 当前文档，历史稿进入 implementation archive |
 | `docs/mod/V0.5.2AsyncNativeAdaptationPlan.md` | archive | 已迁移 | async-native 主链已实现，历史实施记录进入 implementation archive |
-| `docs/mod/V0.6.0CompositeIntentDecompositionDesign.md` | plan | 已迁移 | 迁入 `plans/v0.6.0-composite-intent-decomposition.md`，并按当前私有 `sub_intents` 事实修正 |
+| `docs/mod/V0.6.0CompositeIntentDecompositionDesign.md` | plan | 已迁移 | 迁入 `plans/composite-intent-decomposition.md`，并按当前私有 `sub_intents` 事实修正；后续已移出 v0.6.0 范围并标记为未排期 |
 | `docs/mod/V0.6.0GatewaySystemDesign.md` | archive | 已迁移 | Gateway 主体事实由当前四篇文档承接；复合 intent 独立进入 Plan |
 | `docs/mod/V0.6.0GlobalCommandSystemDesign.md` | archive | 已迁移 | 已实现命令语义进入 `gateway/commands.md`，未实现设想只留在历史稿 |
 | `docs/mod/V0.6.0PassiveIngressDesign.md` | archive | 已迁移 | 当前事实进入 `system/passive-ingress.md` 与 Gateway workflow |
@@ -219,7 +224,7 @@ last_reviewed: 2026-07-29
 - [x] P1 Alice 当前设计已经核验、重写并关闭旧入口。
 - [x] P2 Frontend、Applications 与 Help 已经核验、重写并关闭旧入口。
 
-最后一个 P2 迁移批次已于 2026-07-29 完成，最终结论见[文档迁移最终收口审计](../archive/plans/documentation-migration-finalization-audit.md)。
+最后一个 P2 迁移批次已于 2026-07-29 完成，最终结论见[文档迁移最终收口审计](./documentation-migration-finalization-audit.md)。
 
 ## 16. P0 迁移结果
 
@@ -285,7 +290,7 @@ P0 已于 2026-07-28 完成：
 
 ## 21. 第 4～6 节逐篇复核与物理迁移结果
 
-本批于 2026-07-29 完成，范围严格限定为清单第 4～6 节。完整逐文档结论、承接位置、拒绝项和最终路径见[迁移审计记录](../archive/plans/documentation-migration-audit-sections-4-6.md)。
+本批于 2026-07-29 完成，范围严格限定为清单第 4～6 节。完整逐文档结论、承接位置、拒绝项和最终路径见[迁移审计记录](./documentation-migration-audit-sections-4-6.md)。
 
 - 顶层治理：`DOCUMENTATION.md` 增加逐篇迁移门禁；PROJECT/VISION/ROADMAP 完成背景、当前边界和文档入口复核；
 - 数据模型：旧混合文档拆为 `architecture/data-model.md`、ADR-0001 与未排期治理 Plan，并保留 MemoryAtom 语义事务与冰山结构理念；
@@ -298,7 +303,7 @@ P0 已于 2026-07-28 完成：
 
 ## 22. 第 7 节 Patchouli 与 Engines 逐篇复核与物理迁移结果
 
-本批于 2026-07-29 完成，范围严格限定为清单第 7 节的十一篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](../archive/plans/documentation-migration-audit-section-7.md)。
+本批于 2026-07-29 完成，范围严格限定为清单第 7 节的十一篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](./documentation-migration-audit-section-7.md)。
 
 - `patchouli/README.md` 及七篇当前模块文档已再次对照代码、配置、测试与契约复核；补齐主动 WRITE/UPDATE 不触发 settlement 的原因、被动 `MessageTurnBuffer` 的结构化事件边界、`target_topic` 在 user 到达时绑定，以及 MemoryCompiler unit/envelope 的责任分界；
 - `ActiveMemoryGenerationDecouplingDesign.md`、`PatchouliPassiveIngestRefactorPlan.md`、`PatchouliTranscriptDualViewRefactor.md` 已确认其设计理念和真实限制分别进入 Generation、System Passive Ingress、Perception 与 Artifacts 当前入口；
@@ -310,7 +315,7 @@ P0 已于 2026-07-28 完成：
 
 ## 23. 第 8 节 Alice 与 Agent Runtime 逐篇复核与物理迁移结果
 
-本批于 2026-07-29 完成，范围严格限定为清单第 8 节的十篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](../archive/plans/documentation-migration-audit-section-8.md)。
+本批于 2026-07-29 完成，范围严格限定为清单第 8 节的十篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](./documentation-migration-audit-section-8.md)。
 
 - `alice/README.md` 与 Agent Runtime、多 Agent 编排、PendingAtom、MTP Runtime 四篇当前文档已再次对照代码、测试与契约复核，并统一更新审计日期；
 - Phase 1 中“万物皆记忆”、persona/permissions 分离、Prompt/Runtime 双层权限、多角色历史与 Omni-Doll fallback 的有效理念已经确认进入 Alice 当前入口；Patchouli Kernel 全职责、话题原地切换 Agent 和默认 GLOBAL 写入等旧口径明确退出；
@@ -322,7 +327,7 @@ P0 已于 2026-07-28 完成：
 
 ## 24. 第 9～10 节 Gateway、Applications 与 Frontend 逐篇复核与物理迁移结果
 
-本批于 2026-07-29 完成，范围严格限定为清单第 9～10 节的五篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](../archive/plans/documentation-migration-audit-sections-9-10.md)。
+本批于 2026-07-29 完成，范围严格限定为清单第 9～10 节的五篇文档。完整逐篇结论、承接位置、拒绝继承项和最终路径见[迁移审计记录](./documentation-migration-audit-sections-9-10.md)。
 
 - Gateway 当前四篇文档已对照固定 workflow、公共 `GatewayDecision`、Patchouli 消费边界和测试复核；补回“Compute Once, Use Everywhere”的有效动机，并把它收敛为同一入口消息的一份冻结、受限分析投影，而不是下游共同真相；
 - 明确拒绝 Gateway 作为中枢神经、单一 `GatewayResult` 拥有检索/感知/生成、`worth_saving` 是最终写入决定、所有 CHAT 默认 RAG、被动 buffer 与 renderer 由 Gateway 所有，以及动态/持久化 workflow 已存在等旧口径；
@@ -334,7 +339,7 @@ P0 已于 2026-07-28 完成：
 
 ## 25. `docs/mod` 逐篇复核与物理迁移结果
 
-本批于 2026-07-29 完成。完整逐篇承接、理念、拒绝项、分类纠正与最终路径见 [`docs/mod` 迁移审计](../archive/plans/documentation-migration-audit-docs-mod.md)。
+本批于 2026-07-29 完成。完整逐篇承接、理念、拒绝项、分类纠正与最终路径见 [`docs/mod` 迁移审计](./documentation-migration-audit-docs-mod.md)。
 
 - Alice 三篇边界/生命周期稿已确认由 Agent Runtime、Orchestration 与 PendingAtom 当前文档充分承接，并进入 `archive/plans/implementation/`；
 - Patchouli/MemoryCompiler/v0.5.x 七篇稿已核对 IR、renderer 分离、spec 并发与失败隔离、wait/shutdown drain、NoOp、AsyncQdrantClient 和 async-native；尚存的 durable queue、backpressure、原子 provenance 等缺口没有被误写成已完成；
@@ -347,7 +352,7 @@ P0 已于 2026-07-28 完成：
 
 ## 26. 最终收口结果
 
-本轮文档体系迁移于 2026-07-29 完成最终收口。逐篇结论和验证证据见[文档迁移最终收口审计](../archive/plans/documentation-migration-finalization-audit.md)。
+本轮文档体系迁移于 2026-07-29 完成最终收口。逐篇结论和验证证据见[文档迁移最终收口审计](./documentation-migration-finalization-audit.md)。
 
 - 四篇 Ideas 均已对照当前代码与规范文档复核，继续保持开放研究性质；每篇均明确了已吸收基础、当前不具备的能力、设计矛盾与升级为 Plan 的证据门槛；
 - `src/` 以及 frontend/applications/scripts/tests 等源码与工具目录没有残余局部 README；此前四篇 Engines 源码 README 已进入 `archive/legacy-docs/source-readmes/engines/`；仓库根中英文 README 继续承担项目入口，不属于待迁移源码说明；

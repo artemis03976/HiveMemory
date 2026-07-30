@@ -7,7 +7,7 @@ archived_at: 2026-07-29
 superseded_by:
   - docs/DOCUMENTATION.md
   - docs/PROJECT.md
-source_inventory: docs/plans/documentation-migration-inventory.md
+source_inventory: docs/archive/plans/documentation-migration-inventory.md
 ---
 
 # 文档迁移最终收口审计

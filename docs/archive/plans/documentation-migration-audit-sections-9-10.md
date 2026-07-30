@@ -5,9 +5,9 @@ owner: project
 scope: documentation-migration-audit-sections-9-10
 archived_at: 2026-07-29
 superseded_by:
-  - docs/plans/documentation-migration-inventory.md
+  - docs/archive/plans/documentation-migration-inventory.md
   - docs/DOCUMENTATION.md
-source_inventory: docs/plans/documentation-migration-inventory.md
+source_inventory: docs/archive/plans/documentation-migration-inventory.md
 ---
 
 # 第 9～10 节逐篇审计：Gateway、Applications 与 Frontend

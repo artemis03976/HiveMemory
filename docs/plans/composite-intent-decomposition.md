@@ -1,7 +1,8 @@
 ---
-title: v0.6.0 复合意图分解计划
+title: 复合意图分解计划
 status: planned
 owner: gateway
+target: unscheduled
 scope: composite-intent-contract-and-execution
 code_paths:
   - src/hivememory/gateway/
@@ -10,12 +11,13 @@ related_contracts:
   - docs/gateway/analysis.md
   - docs/gateway/workflow.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
-# v0.6.0 复合意图分解计划
+# 复合意图分解计划
 
 **文档状态**: Planned  
+**目标阶段**: Unscheduled  
 **适用范围**: `gateway/`、`engines/gateway/intent_decomposer.py`、`patchouli/`、`alice/`、未来 Runtime Job Queue  
 **前置条件**: 当前固定单主意图 workflow 与公共 `GatewayDecision` 保持稳定  
 **核心目标**: 为复合意图分解、多分支消费和合并语义建立清晰边界。具体算法、Prompt、执行策略仍需在实现前以真实样本收敛。
@@ -27,6 +29,8 @@ last_reviewed: 2026-07-29
 当前第一代 Query Understanding 可以把主意图分类为 `COMPOSITE`，也会在 Engine 私有结果中解析 `sub_intents`；但 Resolver 不把 `sub_intents` 投影进公共 `UserQueryAnalysisResult`，固定 workflow 仍然只提交一个 `GatewayDecision`。代码中没有旧稿曾设想的 `CompositePlaceholder`、`is_composite` 或 `composite_deferred` 公共状态，也没有多分支执行、合并和持久化样本集。
 
 这不是“分解已经实现但暂时关闭”，而是只有一个仍未被消费的分类信号。计划的作用是先固定复合 envelope、下游所有权和 fallback，再决定是否保留当前私有 `sub_intents`、建立独立 decomposer 或收集更多样本；不能为了临时支持复合输入而输出不稳定的 `list[GatewayState]`，也不能让 Patchouli、Alice 或未来 Job Runtime 被迫适配半成品分支结构。
+
+本计划已经移出 v0.6.0 发布范围，当前不绑定具体版本。Phase C0 可以作为非阻塞研究推进；只有真实样本证明单主意图路径存在稳定缺口，且 envelope、消费所有权与 fallback 能够形成可验收契约后，才重新进入路线图排期。
 
 ---
 

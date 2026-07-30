@@ -7,7 +7,7 @@ updates:
   - docs/PROJECT.md
   - docs/plans/
   - docs/archive/plans/
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # HiveMemory 开发路线图
@@ -24,6 +24,7 @@ last_reviewed: 2026-07-29
 | Current Development | 当前开发基线，主体可能已合并但尚未发布 |
 | Planned | 已形成目标和大致边界，尚未成为当前事实 |
 | Candidate | 候选排期，范围和顺序仍可调整 |
+| Unscheduled | 已确认问题或方向，但尚未进入具体版本承诺 |
 | Partially Landed | 阶段中的一部分已进入当前实现，其余仍未完成 |
 | Deferred | 已明确后置，不属于近期承诺 |
 
@@ -78,19 +79,19 @@ last_reviewed: 2026-07-29
 
 ### 3.2 发布前剩余工作
 
-- 将复合意图从分析结果扩展为下游可消费的稳定任务/决策契约；
-- 补齐自定义入口拦截规则的配置与运行时注入；
 - 继续稳定 Gateway 降级、命令和 Passive Ingress 的端到端行为；
-- 统一包版本元数据、README 和发布检查；
-- 明确未完成项是否移出 v0.6.0，避免发布范围继续膨胀。
+- 修复 Alice 子帧终态、FrameScheduler 运行隔离和显式 Profile 加载失败等会造成错误成功、跨运行污染或 fail-open 的缺陷；
+- 补齐 Agent-facing 错误 payload 的 XML escaping，保证失败路径仍形成合法协议文本；
+- 完成当前设计、README、包版本、发布 tag 和发布检查的最终核对。
 
-复合意图的详细方案见 [v0.6.0 复合意图分解计划](./plans/v0.6.0-composite-intent-decomposition.md)。其中未实现内容不得作为当前能力引用。
+完整复合意图分解已经移出 v0.6.0 发布范围，暂列为 **Unscheduled**。其 C0 样本与指标工作可以作为非阻塞研究继续推进，但在证据门槛、公共 envelope 和下游消费协议成立前，不得把它写成当前能力。自定义入口拦截规则同样不阻塞 v0.6.0，只有出现明确接入需求并形成 Plan 后再排期。
 
 ### 3.3 v0.6.0 完成条件
 
 - Gateway 的公开决策能够覆盖发布范围内的所有入口模式；
-- 命令、普通 chat、Passive Memory 和复合意图的契约边界明确；
+- 命令、普通 chat 和 Passive Memory 的契约边界明确；
 - 局部分析失败不会破坏可安全降级的主流程；
+- 子 Agent 终态、并发 frame/cancel 状态和显式 Profile 失败不会被错误包装为成功或静默放大权限；
 - 取消、超时和不可恢复不变量失败均有测试与观测；
 - 当前设计文档、README、包版本和 tag 口径一致；
 - 未完成方案已经移入后续 Plan，不在当前文档中使用现在时。
@@ -101,24 +102,30 @@ last_reviewed: 2026-07-29
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.1` Runtime Job Queue | Planned | 统一后台 Job 状态、取消、重试、超时、触发和 outcome artifact | [Local Work Queue Runtime Plan](./plans/v0.6.1-local-work-queue-runtime.md) |
-| Runtime State Durability | Unscheduled | 为已承诺的 work、PendingAtom、Artifact、MemoryAtom、Agent frame 和恢复流程建立耐久性等级与故障恢复 | [Runtime State Durability and Recovery](./plans/runtime-state-durability-and-recovery.md) |
-| Cross-Subsystem Idempotency | Unscheduled | 统一稳定 operation identity、重复结果、版本冲突、重试与模糊失败语义 | [Cross-Subsystem Idempotency and Retry](./plans/cross-subsystem-idempotency-and-retry.md) |
-| Identity and Execution Safety | Unscheduled | 收紧身份传播、缓存/运行隔离、Profile fallback 与 MTP RUN 的硬安全边界 | [Identity Isolation and Execution Safety](./plans/identity-isolation-and-execution-safety.md) |
-| `v0.6.2` Chat Attachments | Candidate | 文件先 artifact 化，再作为当前 chat 上下文；大文件走 Job | 依赖 v0.6.1；正式 Plan 待建立 |
-| `v0.6.3` Frontend Experience | Partially Landed | 完成主题系统覆盖、自定义背景与明确运行状态反馈 | 浅色主题已落地，其余待形成 Plan |
-| `v0.7.0` Document Ingestion | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆 | 依赖 v0.6.1/0.6.2 与 Patchouli provenance |
-| `v0.7.1` MTP READ Provenance | Candidate | READ 可访问版本、来源 artifact 和检索证据 | [MTP 当前契约](./contracts/mtp.md)；正式 Plan 待建立 |
+| `v0.6.1` Reliable Local Work Runtime | Planned | 统一后台 work/job 生命周期，并建立最小耐久性、幂等、身份 scope 与 SQLite 恢复门槛 | [Local Work Queue Runtime](./plans/v0.6.1-local-work-queue-runtime.md)及三项可靠性 Plan 的前置切片 |
+| `v0.6.2` Chat Attachments | Candidate | 文件先成为受身份约束、可幂等写入的原始 artifact，再编译为当前 chat 上下文；大文件走 Job | 依赖 v0.6.1、Artifact provenance、Identity scope；正式 Plan 待建立 |
+| Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
+| `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
+| `v0.7.1` MTP READ Provenance | Candidate | 将已经稳定的版本、来源 artifact 和检索证据暴露给 READ | [MTP 当前契约](./contracts/mtp.md)；正式 Plan 待建立 |
 | `v0.7.2` Deep Research MVP | Candidate | 可取消、可观测、可追溯的研究 Job 与报告 artifact | 依赖 Job、Document、READ provenance |
-| `v0.7.3` Conversation Branching | Candidate / Optional | 编辑消息后创建安全分支，不承诺自动回滚旧记忆 | 正式 Plan 待建立 |
 
-另有一项[数据模型可变性治理计划](./plans/data-model-mutability-governance.md)已经形成，但当前为 **Unscheduled**：它用于统一模型角色、写入所有权和边界投影，不属于上述任一版本承诺。只有完成模型/边界清单、风险评估并确认不会挤占 v0.6.x 主路径后，才应进入具体排期。
+### 4.1 未排期事项
 
-[RuntimeEvent 生产端发布抽象重构](./plans/runtime-event-publishing-refactor.md)同样属于 **Unscheduled** 的基础设施清理：当前 RuntimeEvent wire format、总线与消费语义已经生效，未完成的是 Publisher/领域 emitter/payload 类型化的生产端收敛。它不能被解释为 v0.4.0 尚未发布，也不应在未排期时阻塞 v0.6.x 功能主线。
+下表集中维护所有已经确认、但尚未进入具体版本承诺的事项。可靠性与模型治理 Plan 中被 v0.6.1 采用的最小前置切片不再视为未排期；表中记录的是其余完整领域阶段。
 
-[运行时状态持久化与故障恢复](./plans/runtime-state-durability-and-recovery.md)、[跨子系统幂等性与重试语义](./plans/cross-subsystem-idempotency-and-retry.md)和[身份隔离与执行安全](./plans/identity-isolation-and-execution-safety.md)是相互依赖的 **Unscheduled** 可靠性底座：前者定义哪些状态必须在进程故障后可恢复，中者定义恢复和重复投递如何避免副作用，后者定义这些状态在不同用户、Agent、workspace 和执行资产之间如何隔离。它们不是 v0.6.x 已发布能力，也不应被当前文档写成已完成。
+| 事项 | 范围 | 暂不排期原因或进入条件 | 计划入口 |
+|:---|:---|:---|:---|
+| 复合意图分解 | Gateway / Contracts / Patchouli / Alice | 先完成 C0 指标和脱敏样本门禁，证明单主意图路径的真实缺口，再冻结 composite envelope 与消费协议 | [Composite Intent Decomposition](./plans/composite-intent-decomposition.md) |
+| 自定义入口拦截规则 | Gateway | 当前固定入口链已可运行；只有出现明确外部接入需求、配置所有者和验收样本后才建立 Plan | 待建立 |
+| 领域状态持久化与恢复 | System / Patchouli / Alice | v0.6.1 只承担 work、lease 和已承诺操作的最小恢复；Artifact/Memory saga、Agent checkpoint、反馈与维护恢复另行排期 | [Runtime State Durability and Recovery](./plans/runtime-state-durability-and-recovery.md) |
+| 领域幂等与 reconciliation | Patchouli / MemoryLibrary / Lifecycle | v0.6.1 先建立 operation identity 与 WorkStore 记录；Memory update、archive/revive、HIT/CITATION 等领域副作用后续推进 | [Cross-Subsystem Idempotency and Retry](./plans/cross-subsystem-idempotency-and-retry.md) |
+| 执行资产安全与外部身份对齐 | Alice / MTP / Frontend | run/cache 隔离与最小 identity scope 前置；强沙箱、可信资产、资源限制和完整外部认证需要独立证据与方案 | [Identity Isolation and Execution Safety](./plans/identity-isolation-and-execution-safety.md) |
+| 数据模型可变性治理后续阶段 | Cross-system | v0.6.1 只前置模型/边界清单；深不可变原语、Memory/PendingAtom 聚合重构和公共 DTO 迁移需按风险分批 | [Data Model Mutability Governance](./plans/data-model-mutability-governance.md) |
+| RuntimeEvent 生产端抽象重构 | System / Cross-system | 当前 wire format、总线与消费语义已生效；除新 Work Runtime 所需最小事件契约外，不阻塞近期功能 | [RuntimeEvent Publishing Refactor](./plans/runtime-event-publishing-refactor.md) |
+| Frontend 视觉个性化 | Frontend | 主题覆盖和自定义背景可并行探索，但必须后于真实状态、identity 和错误披露，不阻塞后端版本 | 待建立 |
+| Conversation Branching | Chat / Memory / Lifecycle | 等 provenance、生命周期和真实编辑需求稳定后，再设计分支所有权与已沉淀记忆的失效语义 | 待建立 |
 
-### 4.1 v0.6.1 Runtime Job Queue
+### 4.2 v0.6.1 Reliable Local Work Runtime
 
 近期最优先的新增底座。目标是把当前分散的后台 memory task、未来 ingestion/research 和定时/hook 任务收敛到可持久化、可查询的统一生命周期。
 
@@ -126,32 +133,46 @@ last_reviewed: 2026-07-29
 
 这里的核心矛盾是“统一生命周期”与“过早抽象成万能任务框架”。验收重点不是支持尽可能多的调度形式，而是让任务身份、状态、取消、重试、超时和 outcome artifact 对调用方有一致含义，并能覆盖下一阶段真实负载。若 Document 或 Research 仍需自建第二套任务状态，Job Queue 就没有完成其底座职责。
 
-### 4.2 v0.6.2 Attachments
+进入 Queue 实现前，必须先完成四项轻量门槛：Durability D0 的状态分级、Idempotency I0 的业务操作身份清单、Identity S0 的身份/威胁模型，以及数据模型治理 Phase I 的 payload/所有权边界清单。它们用于冻结“什么可以被接受、序列化、恢复和重放”，不要求提前完成四份 Plan 的全部后续阶段。
+
+v0.6.1 的发布顺序应为：
+
+1. 冻结 Queue 契约并完成 in-memory runtime 的机械状态机验证；
+2. 建立 SQLite WorkStore、lease recovery、唯一 idempotency key 和最小 identity scope；
+3. 通过 feature flag 迁移 Interaction Submission 与 Memory Generation，验证重复消费、模糊失败和状态投影；
+4. 最后开放用户可见 Runtime Job API 和 outcome artifact。
+
+In-memory runtime 是内部实现里程碑，不构成“可靠 Job 已交付”。任何对外返回 durable accepted 的入口都必须在 SQLite 恢复和业务幂等门槛完成后开放。
+
+### 4.3 v0.6.2 Attachments
 
 上传文件先成为原始 artifact 和解析 artifact，再按当前对话需要编译为上下文。附件上传不应默认直接污染长期记忆；大文件解析交给 Job Queue。
 
 Artifact 先于 Document Ingestion，是为了先保存“用户实际提供了什么”，再讨论系统从中理解出什么。原始文件、解析结果和候选记忆具有不同真实性和生命周期；如果上传后直接生成正式记忆，后续无法可靠区分证据、解析错误与系统结论。该阶段的验收重点是身份、来源和失败边界，而不是提前完成完整文档知识化。
 
-### 4.3 v0.6.3 Frontend Experience
+附件还必须复用 v0.6.1 的 operation identity、重试结果和 identity scope：同一上传重试不能产生多份原始 Artifact，也不能因为拿到 artifact id 就跨身份读取。大文件只有在 Job 已经 durable accepted 后，才可向页面报告后台解析已接受。
 
-浅色主题、Chat 的结构化 MTP/子 Agent 卡片、Kernel Vision 与部分状态持久化已经合并，因此该阶段不能再整体标为“未开始”。当前实现和缺口以 [Frontend 当前设计](./frontend/README.md)为准。剩余目标包括补齐主要页面覆盖、自定义背景、基于可观察状态的等待反馈，以及修复 Terminal 空入口、Settings 配置结构偏差和无法辨认的 mock fallback；界面不得展示或暗示不可观测的模型内部推理。
+### 4.4 Frontend Reliability（并行工作流）
 
-### 4.4 v0.7.x 能力链
+浅色主题、Chat 的结构化 MTP/子 Agent 卡片、Kernel Vision 与部分状态持久化已经合并，因此前端工作不能整体标为“未开始”。当前实现和缺口以 [Frontend 当前设计](./frontend/README.md)为准。
+
+近期优先级是可靠性而不是视觉个性化：建立单一 identity context、区分真实后端/缓存/mock、修复 Settings 配置结构偏差，并让 loading/error/waiting 状态来自可观察事实。Terminal 空入口也应删除、接通或明确标记。主题覆盖和自定义背景进入未排期表，可并行探索但不阻塞后端能力链；界面不得展示或暗示不可观测的模型内部推理。
+
+### 4.5 v0.7.x 能力链
 
 ```text
 Runtime Job Queue
   -> Attachment / Document Artifacts
-  -> Document Ingestion
+  -> Document Ingestion + Provenance Contract
   -> MTP READ Provenance
   -> Deep Research
-  -> Conversation Branching
 ```
 
 这条顺序优先复用现有 artifact、provenance、MemoryCompiler 和 RuntimeEvent，避免每个长任务建立独立状态系统。
 
-Document Ingestion 必须建立在 Job 与 Artifact 之上，因为解析可能耗时、失败、取消，也必须保留原始证据；MTP READ Provenance 必须建立在文档证据链之上，否则“查看来源”只能返回没有稳定身份的临时文本；Deep Research 又依赖可取消 Job、可追溯输入和可引用输出，否则报告只是另一段无法审计的生成内容。Conversation Branching 被放在更后，是因为编辑历史与已沉淀记忆之间不存在天然可逆关系，不能在 provenance 和生命周期边界尚不稳定时承诺自动回滚。
+Document Ingestion 必须建立在 Job 与 Artifact 之上，因为解析可能耗时、失败、取消，也必须保留原始证据；provenance 数据契约必须在摄入阶段同步冻结，`v0.7.1` 只负责把已有证据链稳定暴露给 MTP READ。Deep Research 又依赖可取消 Job、可追溯输入和可引用输出，否则报告只是另一段无法审计的生成内容。Conversation Branching 不再占用固定版本号，进入未排期表等待 provenance、生命周期边界和真实编辑需求稳定。
 
-### 4.5 排序与验收检查
+### 4.6 排序与验收检查
 
 路线项目进入实现前，应确认：
 
@@ -171,13 +192,19 @@ Document Ingestion 必须建立在 Job 与 Artifact 之上，因为解析可能�
 
 候选范围包括 plan-and-execute、多角色协作、parallel specialists、review loop 和可观测任务图。它依赖稳定的 Gateway task spec、Job Queue 与真实长任务负载，在这些前置能力完成前不扩大 Alice 框架。
 
-### v0.9.0+：高级生命周期与安全执行
+### v0.9.0+：高级记忆生命周期
 
 状态：Deferred。
 
-候选范围包括 Memory split/merge、完整 rollback、branch invalidation、provenance reverse index、L3 复活，以及 MTP RUN executable asset、强隔离沙箱、资源限制和真取消。
+候选范围包括 Memory split/merge、完整 rollback、branch invalidation、provenance reverse index和 L3 复活。
 
-这些能力涉及不可逆数据修改与不受信任代码执行，不能以当前本地执行器或简单历史字段替代正式设计。
+这些能力涉及不可逆数据修改，不能以当前简单历史字段替代正式设计。
+
+### Executable Asset Sandbox
+
+状态：Deferred，且与高级记忆生命周期分离。
+
+候选范围包括 MTP RUN executable asset 的来源与信任等级、强隔离沙箱、文件/网络/进程限制、资源配额和真取消。在这些能力落地前，MTP RUN 只面向受信资产；不受信任代码必须拒绝执行或降级为展示/提议，不能用 prompt 约束代替安全边界。
 
 ## 6. 长期方向
 

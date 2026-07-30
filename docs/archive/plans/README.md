@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # Archived Plans
@@ -12,6 +12,7 @@ last_reviewed: 2026-07-29
 
 当前记录：
 
+- [文档体系迁移清单](./documentation-migration-inventory.md)：文档重构各批次的原始范围、分类、迁移动作与最终完成记录。
 - [文档迁移逐篇审计：清单第 4～6 节](./documentation-migration-audit-sections-4-6.md)：顶层治理、Architecture、System/Contracts/i18n 的承接与物理迁移记录。
 - [文档迁移逐篇审计：清单第 7 节](./documentation-migration-audit-section-7.md)：Patchouli 与 Engines 的逐篇承接、设计理念复核、拒绝继承项和物理迁移记录。
 - [文档迁移逐篇审计：清单第 8 节](./documentation-migration-audit-section-8.md)：Alice 与 Agent Runtime 的逐篇承接、设计理念复核、拒绝继承项和物理迁移记录。
