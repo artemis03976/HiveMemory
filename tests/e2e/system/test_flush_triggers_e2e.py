@@ -224,9 +224,12 @@ class TestPageFolding:
             topic_data = layer.short_term_store.get_topic_data(topic_id, touch=False)
             assert topic_data is not None
 
-            # 折叠后应只保留最近 1 个 block
-            assert len(topic_data.blocks) <= 1, (
-                f"折叠后应最多保留 1 个 block, 实际 {len(topic_data.blocks)}"
+            # 折叠后应精确保留最近 1 个 block，而不是清空全部 blocks
+            assert len(topic_data.blocks) == 1, (
+                f"折叠后应保留 1 个 block, 实际 {len(topic_data.blocks)}"
+            )
+            assert topic_data.blocks[0].user_query.startswith("Round 2:"), (
+                "折叠后应保留最后一轮原始交互"
             )
 
             # state_summary 应被写入

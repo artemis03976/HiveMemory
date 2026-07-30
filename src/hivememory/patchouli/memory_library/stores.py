@@ -156,13 +156,23 @@ class ShortTermMemoryStore:
         *,
         retain_count: Optional[int] = None,
     ) -> int:
-        """写入 state_summary，并可选保留最近 N 个 blocks。"""
+        """写入 state_summary，并可选保留最近 N 个 blocks；0 表示全部裁剪。"""
+        if retain_count is not None and retain_count < 0:
+            raise ValueError("retain_count must be greater than or equal to 0")
+
         buf = self._port.get(topic_id)
         if buf is None:
             return 0
         buf.state_summary = summary
         buf.last_update = datetime.now().timestamp()
-        if retain_count is None or len(buf.blocks) <= retain_count:
+        if retain_count is None:
+            return 0
+        if retain_count == 0:
+            folded = len(buf.blocks)
+            buf.blocks.clear()
+            buf.total_tokens = 0
+            return folded
+        if len(buf.blocks) <= retain_count:
             return 0
         folded = len(buf.blocks) - retain_count
         buf.blocks = buf.blocks[-retain_count:]

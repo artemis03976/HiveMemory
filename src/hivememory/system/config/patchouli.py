@@ -48,8 +48,8 @@ class RelayControllerConfig(BaseModel):
 
 class SemanticFlowPerceptionConfig(BaseModel):
     enable: bool = Field(default=True)
-    fold_token_threshold: int = Field(default=32768)
-    fold_retain_recent_blocks: int = Field(default=2)
+    fold_token_threshold: int = Field(default=32768, ge=1)
+    fold_retain_recent_blocks: int = Field(default=2, ge=1)
     max_resident_topics: int = Field(default=5)
     relay: RelayControllerConfig = Field(default_factory=RelayControllerConfig)
 

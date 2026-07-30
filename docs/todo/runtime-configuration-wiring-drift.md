@@ -8,7 +8,7 @@ related_docs:
   - docs/patchouli/retrieval.md
   - docs/patchouli/lifecycle.md
   - docs/patchouli/perception.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # 清理已声明但未接线的运行时配置
@@ -19,7 +19,8 @@ last_reviewed: 2026-07-29
 
 - `RetrievalModeConfig.time_weight` 已声明，但 Retrieval fusion 主路径尚未消费它；
 - Lifecycle 的 `high_watermark` 已声明，但当前 Engine/GC 只按 low watermark 归档；
-- Page Folding 的 `fold_retain_recent_blocks` 没有参与 TriggerManager，具体行为另见[独立 Todo](./page-folding-retain-recent-blocks.md)。
+
+已移出清单：Page Folding 的 `fold_retain_recent_blocks` 已完成接线，不再属于未生效配置。
 
 ## 影响
 

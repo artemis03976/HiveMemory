@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-30
 ---
 
 # 被动对话摄入
@@ -119,6 +119,8 @@ callback = PassiveMessageIngressor.scan_idle_conversations_once
 - 观测 sink 失败不能改变 accepted/buffered/duplicate 等业务响应。
 
 评审新 connector 或新 flush 入口时，重点检查它是否创建了第二个会话键、绕过 outbox 直接提交、把 `is_final` 错当成 assistant role，或为了“简化”而把 Passive Ingress 改造成 active chat。
+
+Passive turn 提交后与主动交互共享 Patchouli 的短期 topic working set 和 Page Folding。外部 Agent harness 即使拥有自己的对话 compact，也不会缩减 Patchouli 已经摄入的 blocks，因此 Passive Ingress 不按入口模式跳过内部 folding。当前公共响应只返回 retrieval memory，不返回 `state_summary + recent_blocks`；所以 folding 能约束内部话题路由与后续记忆生成输入，但不能替外部 bot 管理 prompt history。若未来需要 HiveMemory 承担外部上下文压缩，必须建立显式的上下文所有权和覆盖范围契约，不能根据 connector 名称推断。相关开放项见 [Page Folding 跨入口后续技术债](../todo/page-folding-cross-ingress-follow-ups.md)。
 
 ## 7. 配置与验证入口
 
