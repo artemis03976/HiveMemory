@@ -7,18 +7,20 @@ related_current:
   - docs/patchouli/perception.md
   - docs/patchouli/artifacts.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-07-29
+related_ideas:
+  - docs/ideas/long-running-agent-intra-turn-context-folding.md
+last_reviewed: 2026-07-30
 ---
 
 # Patchouli Page Folding Raw Evidence 设计备忘
 
-本文是一项未排期的开放设计，不是 Patchouli 当前能力说明。当前 Page Folding、Artifact 与 Generation 的真实边界分别以[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。
+本文是一项未排期的开放设计，不是 Patchouli 当前能力说明。当前 Page Folding、Artifact 与 Generation 的真实边界分别以[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。一个未结束 turn 内多次 compact 的工作集管理另见[长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)；两项 Idea 可以共享 evidence refs，但不能互相充当已经落地的能力。
 
 ## 0. 复核结论与成立条件
 
 这个 Idea 所保护的核心理念仍然成立：Agent 的工作上下文与系统保存的原始证据是两种不同资产。旧页退出 active buffer，不等于它们在证据层也应当消失；反过来，保存证据也不意味着每轮都应把全部历史重新注入 Agent。
 
-当前代码已经具备三块可复用基础：`TOKEN_OVERFLOW` 会生成 `state_summary`，Generation 接受结算后的 `TopicMaterializeTask`，Artifact 层也能保存 append-oriented 的 InteractionArtifact。但三者尚未形成本文设想的旁路：overflow 当前不 Settle、会清空全部 blocks，`fold_retain_recent_blocks` 尚未接线；没有 `FoldResult`、folded evidence artifact 类型或 raw turn store；`TopicMaterializeTask` 也不携带 folded artifact refs。现有 Artifact 基础因此不能被解释为“折叠原文已经保全”。
+当前代码已经具备三块可复用基础：`TOKEN_OVERFLOW` 会生成 `state_summary` 并保留配置数量的最近 blocks，Generation 接受结算后的 `TopicMaterializeTask`，Artifact 层也能保存 append-oriented 的 InteractionArtifact。但三者尚未形成本文设想的旁路：overflow 当前不 Settle，被裁剪的旧前缀只进入有损摘要；没有 `FoldResult`、folded evidence artifact 类型或 raw turn store；`TopicMaterializeTask` 也不携带 folded artifact refs。现有 Artifact 基础因此不能被解释为“折叠原文已经保全”。
 
 本方向只有在以下条件同时满足后才应升级为 Plan：
 

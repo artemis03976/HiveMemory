@@ -191,7 +191,6 @@ patchouli:
     garbage_collector:
       low_watermark: 20.0
       batch_size: 10
-    high_watermark: 80.0
 
   artifacts:
     enabled: true

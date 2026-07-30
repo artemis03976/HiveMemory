@@ -49,12 +49,28 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None):
     )
 
 
-def _make_real_familiar(*, idle_timeout_seconds=1, max_resident_topics=5):
+def _make_real_familiar(
+    *,
+    idle_timeout_seconds=1,
+    max_resident_topics=5,
+    fold_token_threshold=999999,
+    fold_retain_recent_blocks=2,
+):
     store = ShortTermMemoryStore(max_resident_topics=max_resident_topics)
     relay = Mock()
     relay.should_relay.return_value = None
+    relay.generate_summary.side_effect = (
+        lambda blocks_to_fold, previous_summary: (
+            f"{previous_summary}|folded:{len(blocks_to_fold)}"
+            if previous_summary
+            else f"folded:{len(blocks_to_fold)}"
+        )
+    )
     layer = SemanticFlowPerceptionLayer(
-        config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+        config=SemanticFlowPerceptionConfig(
+            fold_token_threshold=fold_token_threshold,
+            fold_retain_recent_blocks=fold_retain_recent_blocks,
+        ),
         relay_controller=relay,
         short_term_store=store,
     )
@@ -396,3 +412,45 @@ class TestPerceptionFamiliar:
         for call in bus.request.await_args_list:
             assert call.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
             assert call.args[1].reason == FlushReason.SHUTDOWN
+
+    @pytest.mark.asyncio
+    async def test_shutdown_after_folding_settles_summary_and_retained_block(self):
+        familiar, _, store, bus = _make_real_familiar(
+            max_resident_topics=2,
+            fold_token_threshold=10,
+            fold_retain_recent_blocks=1,
+        )
+        identity = _make_identity("u-fold", "a-fold")
+        topic_id = "NEW_TOPIC"
+
+        for i in range(3):
+            topic_id = await familiar.submit_interaction(
+                _make_payload(
+                    f"question-{i}-" * 80,
+                    f"answer-{i}",
+                    identity,
+                ),
+                topic_id,
+            )
+
+        before_shutdown = store.get_topic_data(topic_id, touch=False)
+        assert before_shutdown is not None
+        assert before_shutdown.state_summary == "folded:1|folded:1"
+        assert [block.user_query for block in before_shutdown.blocks] == [
+            "question-2-" * 80
+        ]
+        assert bus.request.await_count == 0
+
+        result = await familiar.flush_all_for_shutdown()
+
+        assert result.flushed_topics == [topic_id]
+        assert result.archived_blocks == 1
+        assert store.get_topic_data(topic_id, touch=False) is None
+        bus.request.assert_awaited_once()
+        route, settlement = bus.request.await_args.args
+        assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
+        assert settlement.reason == FlushReason.SHUTDOWN
+        assert settlement.state_summary == "folded:1|folded:1"
+        assert [block.user_query for block in settlement.blocks] == [
+            "question-2-" * 80
+        ]

@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # HiveMemory 项目总览
@@ -260,7 +260,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 - [文档治理与维护规范](./DOCUMENTATION.md)：分类、状态、目录和 PR 闭环；
 - [项目愿景](./VISION.md)：长期定位、假设和取舍原则；
 - [开发路线图](./ROADMAP.md)：发布历史、当前阶段和未来计划；
-- [文档迁移清单](./plans/documentation-migration-inventory.md)：旧文档迁移动作与批次。
+- [文档迁移清单](./archive/plans/documentation-migration-inventory.md)：已经完成的旧文档迁移动作与批次记录。
 
 ### 9.2 当前架构
 
@@ -300,7 +300,7 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 
 ## 10. 当前已知限制
 
-- `v0.6.0` 的复合意图下游消费和自定义入口规则尚未完整落地；
+- 复合意图目前只有分类信号与不对外提交的私有 `sub_intents`，公共 envelope、多分支消费和合并语义尚未实现；相关[复合意图分解计划](./plans/composite-intent-decomposition.md)当前未排期。自定义入口拦截规则同样尚未形成明确接入需求与独立 Plan；
 - RuntimeEvent、memory task、PendingAtom、Agent frame 和若干恢复状态主要是进程内能力，统一持久化与故障恢复见[运行时状态持久化与故障恢复计划](./plans/runtime-state-durability-and-recovery.md)；
 - 重试、重复投递和跨存储副作用尚未形成统一业务边界，见[跨子系统幂等性与重试语义计划](./plans/cross-subsystem-idempotency-and-retry.md)；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；身份传播、缓存隔离和执行安全见[身份隔离与执行安全计划](./plans/identity-isolation-and-execution-safety.md)；

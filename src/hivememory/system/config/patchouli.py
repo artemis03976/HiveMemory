@@ -48,8 +48,8 @@ class RelayControllerConfig(BaseModel):
 
 class SemanticFlowPerceptionConfig(BaseModel):
     enable: bool = Field(default=True)
-    fold_token_threshold: int = Field(default=32768)
-    fold_retain_recent_blocks: int = Field(default=2)
+    fold_token_threshold: int = Field(default=32768, ge=1)
+    fold_retain_recent_blocks: int = Field(default=2, ge=1)
     max_resident_topics: int = Field(default=5)
     relay: RelayControllerConfig = Field(default_factory=RelayControllerConfig)
 
@@ -104,7 +104,6 @@ class ReciprocalRankFusionConfig(BaseModel):
 class RetrievalModeConfig(BaseModel):
     dense_weight: float = Field(default=0.6)
     sparse_weight: float = Field(default=0.4)
-    time_weight: float = Field(default=0.0)
     confidence_penalty_enabled: bool = Field(default=True)
     confidence_penalty_threshold: float = Field(default=0.6)
     confidence_penalty_factor: float = Field(default=0.5)
@@ -121,10 +120,10 @@ class AdaptiveWeightedFusionConfig(BaseModel):
     type: Literal["adaptive"] = "adaptive"
     final_top_k: int = Field(default=5)
     default_mode: str = Field(default="concept")
-    debug_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.3, sparse_weight=0.9, time_weight=0.1))
-    concept_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.8, sparse_weight=0.2, time_weight=0.1, confidence_penalty_threshold=0.5, confidence_penalty_factor=0.7))
-    timeline_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.4, sparse_weight=0.3, time_weight=0.8, confidence_penalty_factor=0.6))
-    brainstorm_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.6, sparse_weight=0.1, time_weight=0.0, confidence_penalty_enabled=False, vitality_boost_enabled=False))
+    debug_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.3, sparse_weight=0.9))
+    concept_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.8, sparse_weight=0.2, confidence_penalty_threshold=0.5, confidence_penalty_factor=0.7))
+    timeline_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.4, sparse_weight=0.3, confidence_penalty_factor=0.6))
+    brainstorm_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.6, sparse_weight=0.1, confidence_penalty_enabled=False, vitality_boost_enabled=False))
 
     model_config = ConfigDict(extra="ignore")
 
@@ -249,7 +248,6 @@ class MemoryLifecycleConfig(BaseModel):
     reinforcement: ReinforcementEngineConfig = Field(default_factory=ReinforcementEngineConfig)
     archiver: ArchiverConfig = Field(default_factory=ArchiverConfig)
     garbage_collector: GarbageCollectorConfig = Field(default_factory=GarbageCollectorConfig)
-    high_watermark: float = Field(default=80.0)
 
     model_config = ConfigDict(extra="ignore")
 

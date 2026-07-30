@@ -11,7 +11,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/system/passive-ingress.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # 感知与短期话题
@@ -95,23 +95,25 @@ TriggerManager 把触发原因映射为三种原子动作：
 
 | 原因 | Settle | Compact | Evict | 当前结果 |
 |:---|:---:|:---:|:---:|:---|
-| `TOKEN_OVERFLOW` | 否 | 是 | 否 | 摘要后清空 blocks，话题继续存活 |
+| `TOKEN_OVERFLOW` | 否 | 是 | 否 | 折叠旧前缀并保留最近工作集，话题继续存活 |
 | `IDLE_TIMEOUT` | 是 | 否 | 是 | 提交候选材料并移出活跃池 |
 | `LRU_EVICTION` | 是 | 否 | 是 | 为新话题腾出位置 |
 | `SHUTDOWN` | 是 | 否 | 是 | 停机前结算非空话题 |
 | `MANUAL` | 是 | 是 | 否 | 生成记忆候选并用摘要保持话题连续性 |
 
-只要 TriggerManager 处理了一个非空话题，当前实现都会在 Compact 后清空旧 blocks；需要 evict 的原因随后再删除 buffer。Settle 只是返回 payload，TriggerManager 不知道 local bus，也不直接触发 Generation。PerceptionFamiliar 才负责把 payload 提交给 Coordinator。
+`TOKEN_OVERFLOW` 是纯 Compact：TriggerManager 只把保留后缀之前的旧 blocks 交给 RelayController，再由 ShortTermMemoryStore 原子写入摘要、裁剪旧前缀并重算 token。其余触发原因维持原有 Settle/Evict 语义；发生 Settle 时旧 blocks 才会清空，需要 evict 的原因随后再删除 buffer。Settle 只是返回 payload，TriggerManager 不知道 local bus，也不直接触发 Generation。PerceptionFamiliar 才负责把 payload 提交给 Coordinator。
 
 这层返回值边界很重要：底层感知算法可以决定“应交出哪些材料”，但后台任务、事件和取消属于上层控制面。
 
 ## 5. Page Folding
 
-当话题总 token 超过 `fold_token_threshold`（默认 32768）时，Perception 触发 `TOKEN_OVERFLOW`。RelayController 将当前 blocks 与 previous summary 合成为新的 `state_summary`，为后续轮次保留压缩后的上下文。
+当话题总 token 超过 `fold_token_threshold`（默认 32768）时，Perception 触发 `TOKEN_OVERFLOW`。`fold_retain_recent_blocks`（默认 2，必须大于 0）定义 active buffer 中保留的最近 blocks 数；旧前缀与 previous summary 由 RelayController 合成为新的 `state_summary`，保留后缀继续参与下一轮上下文。Relay 不总结保留后缀，避免 `state_summary + recent_blocks` 重复承载同一轮事实。
 
 Page Folding 的设计目标是把 context window 视为工作集，而不是无限日志：旧页可以折叠为接力摘要，新的交互继续发生在同一话题。摘要是工作视图，不应被误认为原始证据；需要长期保留的原始 turn 应由 settlement/artifact 链另行保存。
 
-当前实现与这个目标仍有明显缺口：`TOKEN_OVERFLOW` 不执行 Settle，却会清空全部 blocks；`fold_retain_recent_blocks` 配置也没有参与 TriggerManager。因此 overflow 之前的原始 turns 只剩 `state_summary`，不会自动进入 InteractionArtifact 或长期记忆。开放的 raw-evidence folding 方案仍位于 Ideas，尚不能当作当前能力。
+Page Folding 是 Patchouli 的内部 topic working-set compaction，主动与被动入口共享同一语义。主动 Agent 会消费 `state_summary + recent_blocks`；Passive Ingress 的公共响应当前只返回检索记忆，不把折叠上下文返回给外部 Agent，但 Gateway 话题分析与后续 settlement generation 仍会消费这份内部工作集。外部 harness 自行 compact 对话不会缩减 Patchouli 已摄入的 blocks，因此不能作为跳过内部 folding 的依据。
+
+当前 overflow 仍不执行 Settle。被移除的旧前缀不会自动进入 InteractionArtifact 或长期记忆；开放的 raw-evidence folding 方案仍位于 Ideas，尚不能当作当前能力。当 blocks 数量不大于保留数时没有可折叠前缀，本轮 compact 会延后，因此阈值是工作集软水位线，而不是严格的模型 context 上限。
 
 ## 6. RelayController
 
@@ -133,10 +135,13 @@ Perception engine 由 Runtime 按配置创建并注入 ShortTermMemoryStore。�
 
 - 短期话题是进程内状态，异常退出可能丢失未结算 blocks；
 - token 统计只覆盖 user/final text 与部分 trace 字段，不是模型级精确 tokenizer 预算；
-- `fold_retain_recent_blocks` 尚未生效，overflow 会清空全部 blocks；
-- overflow 不产生 settlement/artifact，摘要目前可能成为唯一残留；
+- `fold_retain_recent_blocks` 只限制 block 数量，不保证保留后缀的 token 总量低于阈值；单个超大 block 也可能超过软水位线；
+- `fold_retain_recent_blocks=0` 当前在公开配置层被拒绝；系统尚未定义 summary-only topic 的 settlement、身份和 artifact 语义；
+- overflow 不产生 settlement/artifact，被折叠旧前缀目前只进入有损 `state_summary`；
 - Relay 的摘要调用位于结算路径内，LLM relay 可能增加该操作的同步等待；
 - `worth_saving=False` 在 settlement 时过滤，但原始 block 在此之前仍存在短期 buffer；
 - 旧文档中的 `assistant_message` fallback、扁平 `context_messages` 和 Perception 私有 `InteractionPayload` 均已退出主路径。
 
 调整这些语义时必须同时检查 Generation、Artifacts、Passive Ingress 与 shutdown drain，因为“何时清空 blocks”本质上是数据耐久性边界，而不只是一个摘要算法参数。
+
+后续跨入口上下文所有权、token-aware 保留、summary-only 与折叠证据 checkpoint 统一记录在 [Page Folding 跨入口后续技术债](../todo/page-folding-cross-ingress-follow-ups.md)。

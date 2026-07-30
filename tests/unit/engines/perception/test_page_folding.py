@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 import pytest
+from pydantic import ValidationError
 
 from hivememory.core.models import Identity, LogicalBlock, TraceItem, TurnEvent, TurnRecord
 from hivememory.core.protocol import InteractionPayload
@@ -111,24 +112,67 @@ class TestPageFoldingThreshold:
         assert topic_data.state_summary == ""
 
     @pytest.mark.asyncio
-    async def test_token_overflow_compacts_clears_blocks_and_returns_no_settlement(self):
+    async def test_token_overflow_compacts_old_prefix_and_retains_recent_blocks(self):
         relay = Mock()
         relay.should_relay.return_value = None
         relay.generate_summary.return_value = "Test summary"
-        layer = _make_layer(fold_token_threshold=10, relay=relay)
-
-        topic_id, settle_payload = await layer.route_and_ingest(
-            "NEW_TOPIC",
-            _make_payload("x" * 400, "short reply"),
+        layer = _make_layer(
+            fold_token_threshold=10,
+            fold_retain_recent_blocks=2,
+            relay=relay,
         )
+
+        topic_id = await layer.create_new_topic(_make_identity())
+        settle_payload = None
+        for i in range(3):
+            _, settle_payload = await layer.route_and_ingest(
+                topic_id,
+                _make_payload(f"question-{i}-" * 80, f"answer-{i}"),
+            )
 
         assert settle_payload is None
         relay.generate_summary.assert_called_once()
+        folded_blocks = relay.generate_summary.call_args.kwargs["blocks_to_fold"]
+        assert [block.user_query for block in folded_blocks] == [
+            "question-0-" * 80
+        ]
         topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
         assert topic_data is not None
         assert topic_data.state_summary == "Test summary"
-        assert topic_data.blocks == ()
-        assert topic_data.total_tokens == 0
+        assert [block.user_query for block in topic_data.blocks] == [
+            "question-1-" * 80,
+            "question-2-" * 80,
+        ]
+        assert topic_data.total_tokens == sum(
+            block.total_tokens for block in topic_data.blocks
+        )
+
+    @pytest.mark.asyncio
+    async def test_retain_count_larger_than_blocks_defers_folding(self):
+        relay = Mock()
+        relay.should_relay.return_value = None
+        layer = _make_layer(
+            fold_token_threshold=10,
+            fold_retain_recent_blocks=5,
+            relay=relay,
+        )
+
+        topic_id = await layer.create_new_topic(_make_identity())
+        for i in range(3):
+            await layer.route_and_ingest(
+                topic_id,
+                _make_payload(f"question-{i}-" * 80, f"answer-{i}"),
+            )
+
+        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        assert topic_data is not None
+        assert [block.user_query for block in topic_data.blocks] == [
+            "question-0-" * 80,
+            "question-1-" * 80,
+            "question-2-" * 80,
+        ]
+        assert topic_data.state_summary == ""
+        relay.generate_summary.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_store_update_summary_can_retain_recent_blocks_independently(self):
@@ -156,6 +200,48 @@ class TestPageFoldingThreshold:
         assert len(topic_data.blocks) == 2
         assert topic_data.state_summary == "Test summary"
         assert topic_data.total_tokens == 40
+
+    @pytest.mark.asyncio
+    async def test_store_update_summary_zero_clears_all_blocks(self):
+        store = ShortTermMemoryStore()
+        buffer = store.create_buffer(_make_identity().user_id)
+        for i in range(3):
+            store.add_block(
+                buffer.topic_id,
+                LogicalBlock(
+                    turn=TurnRecord(user_query=f"q{i}", assistant_final_text=f"a{i}"),
+                    total_tokens=20,
+                ),
+            )
+
+        folded = store.update_summary(
+            buffer.topic_id,
+            "summary",
+            retain_count=0,
+        )
+
+        topic_data = store.get_topic_data(buffer.topic_id, touch=False)
+        assert topic_data is not None
+        assert folded == 3
+        assert topic_data.blocks == ()
+        assert topic_data.total_tokens == 0
+        assert topic_data.state_summary == "summary"
+
+    def test_store_update_summary_rejects_negative_retain_count(self):
+        store = ShortTermMemoryStore()
+        buffer = store.create_buffer(_make_identity().user_id)
+
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            store.update_summary(buffer.topic_id, "summary", retain_count=-1)
+
+
+class TestPageFoldingConfig:
+    @pytest.mark.parametrize("retain_count", [0, -1])
+    def test_public_config_rejects_non_positive_retain_count(self, retain_count):
+        with pytest.raises(ValidationError):
+            SemanticFlowPerceptionConfig(
+                fold_retain_recent_blocks=retain_count,
+            )
 
 
 class TestPageFoldingCumulative:

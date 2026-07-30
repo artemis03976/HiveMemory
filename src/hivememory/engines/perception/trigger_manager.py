@@ -120,12 +120,16 @@ class TriggerManager:
     async def resolve_topic(
         self,
         trigger: FlushEvent,
+        *,
+        retain_recent_blocks: Optional[int] = None,
     ) -> Optional[TopicMaterializeTask]:
         """
         统一的话题结算调度器。
 
         Args:
-            trigger: 结算触发指令（包含 topic_id、reason、wait_for_completion）
+            trigger: 结算触发指令（包含 topic_id 与 reason）
+            retain_recent_blocks: TOKEN_OVERFLOW 时必须提供的最近工作集大小；
+                其他触发原因忽略该值
 
         Returns:
             TopicMaterializeTask 供上层提交给生成链路；如无需结算则返回 None
@@ -169,10 +173,27 @@ class TriggerManager:
 
         # Action 2: Compact（同步阻塞）
         if need_compact:
-            await self._compact_topic(trigger.topic_id, blocks_snapshot, topic_data.state_summary)
+            if (
+                trigger.reason == FlushReason.TOKEN_OVERFLOW
+                and retain_recent_blocks is None
+            ):
+                raise ValueError(
+                    "TOKEN_OVERFLOW requires retain_recent_blocks"
+                )
+            await self._compact_topic(
+                trigger.topic_id,
+                blocks_snapshot,
+                topic_data.state_summary,
+                retain_recent_blocks=(
+                    retain_recent_blocks
+                    if trigger.reason == FlushReason.TOKEN_OVERFLOW
+                    else None
+                ),
+            )
 
-        # 无论是否 Compact，只要发生结算，旧 Blocks 都必须清空
-        self._store.clear_blocks(trigger.topic_id)
+        # Settle 之后旧 Blocks 必须清空；纯 Compact 则由 fold 操作保留最近工作集。
+        if need_settle:
+            self._store.clear_blocks(trigger.topic_id)
 
         # Action 3: Evict（内存清理）
         if need_evict:
@@ -228,10 +249,33 @@ class TriggerManager:
         topic_id: str,
         blocks_to_fold: List[LogicalBlock],
         previous_summary: str,
-    ) -> None:
+        *,
+        retain_recent_blocks: Optional[int] = None,
+    ) -> int:
         """
-        Compact 原子操作：生成 state_summary 并更新 buffer（同步阻塞）
+        Compact 原子操作：总结待折叠前缀并更新 buffer（同步阻塞）。
+
+        ``retain_recent_blocks=None`` 用于 MANUAL 等“总结后结算清空”的路径；
+        TOKEN_OVERFLOW 必须传入非负值，只总结保留后缀之前的旧 blocks，避免
+        state_summary 与 recent blocks 重复。
         """
+        if retain_recent_blocks is not None:
+            if retain_recent_blocks < 0:
+                raise ValueError(
+                    "retain_recent_blocks must be greater than or equal to 0"
+                )
+            fold_count = max(0, len(blocks_to_fold) - retain_recent_blocks)
+            if fold_count == 0:
+                logger.warning(
+                    "Compact skipped: no blocks older than retained working set, "
+                    "topic_id=%s, blocks=%d, retain_recent_blocks=%d",
+                    topic_id,
+                    len(blocks_to_fold),
+                    retain_recent_blocks,
+                )
+                return 0
+            blocks_to_fold = blocks_to_fold[:fold_count]
+
         # 调用 RelayController 生成摘要（已包含 previous_summary 合并逻辑）
         new_summary = self._relay_controller.generate_summary(
             blocks_to_fold=blocks_to_fold,
@@ -239,9 +283,22 @@ class TriggerManager:
         )
 
         # 计算与写入分离：通过 Store 命名方法写入，不直接操作 buffer 字段
-        self._store.update_summary(topic_id, new_summary)
+        if retain_recent_blocks is None:
+            folded = self._store.update_summary(topic_id, new_summary)
+        else:
+            folded = self._store.update_summary(
+                topic_id,
+                new_summary,
+                retain_count=retain_recent_blocks,
+            )
 
-        logger.debug(f"Compact: 生成新摘要，topic_id={topic_id}")
+        logger.debug(
+            "Compact: 生成新摘要，topic_id=%s, folded=%d, retained=%s",
+            topic_id,
+            folded,
+            retain_recent_blocks,
+        )
+        return folded
 
 
 __all__ = [

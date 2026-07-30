@@ -5,9 +5,9 @@ owner: project
 scope: documentation-migration-audit-section-8
 archived_at: 2026-07-29
 superseded_by:
-  - docs/plans/documentation-migration-inventory.md
+  - docs/archive/plans/documentation-migration-inventory.md
   - docs/DOCUMENTATION.md
-source_inventory: docs/plans/documentation-migration-inventory.md
+source_inventory: docs/archive/plans/documentation-migration-inventory.md
 ---
 
 # 第 8 节逐篇审计：Alice 与 Agent Runtime

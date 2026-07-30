@@ -141,7 +141,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     },
   },
   lifecycle: {
-    high_watermark: 100000,
     vitality_calculator: {
       code_snippet_weight: 1.0,
       fact_weight: 0.9,

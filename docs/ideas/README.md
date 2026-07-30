@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # Ideas
@@ -14,12 +14,13 @@ last_reviewed: 2026-07-29
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
+| [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、LogicalBlock、Agent runtime、topic Page Folding 与 passive event ingress | 如何在一个 turn 内多次 compact，同时保持执行连续性、记忆生成语义、原始证据和跨入口契约 |
 | [Page Folding Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md) | `state_summary` 折叠、InteractionArtifact 与异步 Generation | 保存原始折叠页是否值得引入新的耐久性、隐私与去重成本 |
 | [Agent 轨迹与多 Agent TDA](./TDA_Agent_Research_Ideas.md) | TurnEvent、AgentAction、RuntimeEvent 与单层 CALL | 拓扑特征能否比普通计数/规则更稳定地解释成功、成本和失败类型 |
 | [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md) | MemoryAtom 关系预留、检索信号与来源/版本 Artifact | 多视图记忆图能否形成可重复、可行动且优于平面检索的信号 |
 | [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md) | 当前 vitality 公式、强化事件、gardening 与显式 archive/revive | 哪些新状态能由真实使用数据校准，而不是继续叠加启发式参数 |
 
-这些材料已于 2026-07-29 逐篇对照当前代码与规范文档复核，均继续保留为 `idea`：没有一篇已经形成近期排期、依赖闭包和可验收实施范围，也没有一篇可以作为当前能力引用。逐篇分类依据见[文档迁移最终收口审计](../archive/plans/documentation-migration-finalization-audit.md)。
+本索引已于 2026-07-30 对照当前代码与规范文档复核。这里的材料均继续保留为 `idea`：没有一篇已经形成近期排期、依赖闭包和可验收实施范围，也没有一篇可以作为当前能力引用。既有 Ideas 的逐篇分类依据见[文档迁移最终收口审计](../archive/plans/documentation-migration-finalization-audit.md)。
 
 ## 升级规则
 

@@ -5,7 +5,7 @@ owner: project
 scope: documentation-migration-audit-sections-4-through-6
 archived_at: 2026-07-29
 superseded_by:
-  - docs/plans/documentation-migration-inventory.md
+  - docs/archive/plans/documentation-migration-inventory.md
   - docs/DOCUMENTATION.md
 ---
 

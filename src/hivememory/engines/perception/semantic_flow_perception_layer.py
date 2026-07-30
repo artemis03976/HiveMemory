@@ -249,7 +249,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             f"total_tokens={topic_data.total_tokens} > threshold={threshold}"
         )
         return await self._trigger_manager.resolve_topic(
-            FlushEvent(topic_id=topic_id, reason=FlushReason.TOKEN_OVERFLOW)
+            FlushEvent(topic_id=topic_id, reason=FlushReason.TOKEN_OVERFLOW),
+            retain_recent_blocks=self.config.fold_retain_recent_blocks,
         )
 
     # ========== 话题结算原语 ==========

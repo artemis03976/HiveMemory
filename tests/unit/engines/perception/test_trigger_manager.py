@@ -126,15 +126,53 @@ class TestTriggerManagerResolveTopic:
     async def test_token_overflow_compacts_and_returns_no_settlement(self):
         self.store.get_topic_data.return_value = self._topic_data()
         self.relay.generate_summary.return_value = "new summary"
+        self.store.update_summary.return_value = 1
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.TOKEN_OVERFLOW)
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.TOKEN_OVERFLOW),
+            retain_recent_blocks=2,
         )
 
         assert result is None
-        self.relay.generate_summary.assert_called_once()
-        self.store.update_summary.assert_called_once_with(self.topic_id, "new summary")
-        self.store.clear_blocks.assert_called_once_with(self.topic_id)
+        folded_blocks = self.relay.generate_summary.call_args.kwargs["blocks_to_fold"]
+        assert [block.user_query for block in folded_blocks] == ["Query 0"]
+        self.store.update_summary.assert_called_once_with(
+            self.topic_id,
+            "new summary",
+            retain_count=2,
+        )
+        self.store.clear_blocks.assert_not_called()
+        self.store.pop_buffer.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_token_overflow_requires_explicit_retention_policy(self):
+        self.store.get_topic_data.return_value = self._topic_data()
+
+        with pytest.raises(ValueError, match="requires retain_recent_blocks"):
+            await self.manager.resolve_topic(
+                FlushEvent(
+                    topic_id=self.topic_id,
+                    reason=FlushReason.TOKEN_OVERFLOW,
+                )
+            )
+
+        self.relay.generate_summary.assert_not_called()
+        self.store.update_summary.assert_not_called()
+        self.store.clear_blocks.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_token_overflow_defers_when_all_blocks_are_retained(self):
+        self.store.get_topic_data.return_value = self._topic_data(block_count=2)
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_id=self.topic_id, reason=FlushReason.TOKEN_OVERFLOW),
+            retain_recent_blocks=3,
+        )
+
+        assert result is None
+        self.relay.generate_summary.assert_not_called()
+        self.store.update_summary.assert_not_called()
+        self.store.clear_blocks.assert_not_called()
         self.store.pop_buffer.assert_not_called()
 
     @pytest.mark.asyncio
@@ -264,3 +302,33 @@ class TestTriggerManagerCompactTopic:
             previous_summary="previous summary",
         )
         store.update_summary.assert_called_once_with("topic_1", "new summary")
+
+    @pytest.mark.asyncio
+    async def test_compact_summarizes_only_prefix_before_retained_blocks(self):
+        store = Mock()
+        store.update_summary.return_value = 2
+        relay = Mock()
+        relay.generate_summary.return_value = "new summary"
+        manager = TriggerManager(store=store, relay_controller=relay)
+        blocks = [
+            LogicalBlock(
+                turn=TurnRecord(user_query=f"q{i}", assistant_final_text=f"a{i}")
+            )
+            for i in range(4)
+        ]
+
+        folded = await manager._compact_topic(
+            "topic_1",
+            blocks,
+            "previous summary",
+            retain_recent_blocks=2,
+        )
+
+        assert folded == 2
+        summarized = relay.generate_summary.call_args.kwargs["blocks_to_fold"]
+        assert [block.user_query for block in summarized] == ["q0", "q1"]
+        store.update_summary.assert_called_once_with(
+            "topic_1",
+            "new summary",
+            retain_count=2,
+        )

@@ -5,9 +5,9 @@ owner: project
 scope: documentation-migration-audit-docs-mod
 archived_at: 2026-07-29
 superseded_by:
-  - docs/plans/documentation-migration-inventory.md
+  - docs/archive/plans/documentation-migration-inventory.md
   - docs/DOCUMENTATION.md
-source_inventory: docs/plans/documentation-migration-inventory.md
+source_inventory: docs/archive/plans/documentation-migration-inventory.md
 ---
 
 # `docs/mod` 逐篇迁移审计
@@ -196,7 +196,7 @@ source_inventory: docs/plans/documentation-migration-inventory.md
 
 ### 5.1 `V0.6.0CompositeIntentDecompositionDesign.md`
 
-**分类与动作：** 迁移为 [v0.6.0 复合意图分解 Plan](../../plans/v0.6.0-composite-intent-decomposition.md)。
+**分类与动作：** 迁移为[复合意图分解 Plan](../../plans/composite-intent-decomposition.md)；该计划后续已移出 v0.6.0 范围并标记为未排期。
 
 **当前差距：** 代码只有公共 `IntentType.COMPOSITE` 和 Engine 私有 `sub_intents`；Resolver 不提交 sub-intents，workflow 没有 `CompositeGatewayDecision`、branch execution、merge/fallback policy 或旧稿设想的 `CompositePlaceholder`。迁移时已删除这些占位字段“已经实现”的错误口径，并新增样本/指标门禁 Phase C0。
 
@@ -226,7 +226,7 @@ docs/mod/RuntimeEventPublishingRefactorDesign.md
   -> docs/plans/runtime-event-publishing-refactor.md
 
 docs/mod/V0.6.0CompositeIntentDecompositionDesign.md
-  -> docs/plans/v0.6.0-composite-intent-decomposition.md
+  -> docs/plans/composite-intent-decomposition.md
 
 docs/mod/V0.6.1LocalWorkQueueRuntimePlan.md
   -> docs/plans/v0.6.1-local-work-queue-runtime.md

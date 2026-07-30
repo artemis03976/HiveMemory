@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/system/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # 记忆生命周期
@@ -116,7 +116,6 @@ Gardening 作为全局 maintenance task 运行，调度器提供 interval、非�
 
 - 公式与权重是启发式配置，尚无基于真实任务的系统校准；
 - `confidence` 尚未进入衰减调制，配置注释仍保留未来方向；
-- `high_watermark` 当前没有进入 Engine/GC 主路径；
 - reinforcement event history 与 GC stats 只在进程内；
 - feedback 当前只折叠进 MemoryAtom 的 confidence/event boost 与进程内事件历史，没有可供 UI 跨会话恢复的逐用户反馈状态；
 - gardening 每次最多 scroll 10000 条，没有分页游标或分片 job；
