@@ -4,21 +4,34 @@ Agent 权限端到端测试
 测试覆盖:
 - 端到端权限链路: profile → prompt 过滤 → Koakuma 拦截
 - 限制性 profile 阻止越权操作
-- 无 profile 时的全权限兜底
+- 未指定 profile 时使用显式能力边界的 Omni-Doll
 - Prompt 不显示禁止的动词和工具
 """
 
-import pytest
 from types import MethodType
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
-from hivememory.core.models import AgentProfile, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, OMNI_DOLL_PROFILE
-from hivememory.patchouli.runtime.core import PatchouliRuntime
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+import pytest
+
 from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.core.mtp.exceptions import PermissionDeniedError
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    AgentProfile,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+)
 from hivememory.core.mtp import MTPCommand, MTPVerb
+from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
+    InvalidArgumentError,
+    PermissionDeniedError,
+)
+from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 
@@ -69,11 +82,21 @@ def _create_runtime_with_koakuma():
         runtime.storage = Mock()
 
         def _get_agent_profile(agent_alias: str):
+            if not agent_alias or agent_alias in ("default", "omni_doll"):
+                return OMNI_DOLL_PROFILE
             atom = runtime.storage.get_memory_by_alias(agent_alias)
             if atom is None:
-                return OMNI_DOLL_PROFILE
+                raise AliasNotFoundError(
+                    message_key="mtp.call.profile_not_found",
+                    params={"agent_alias": agent_alias},
+                )
             profile = AgentProfile.from_atom(atom)
-            return profile or OMNI_DOLL_PROFILE
+            if profile is None:
+                raise InvalidArgumentError(
+                    message_key="mtp.call.profile_invalid",
+                    params={"agent_alias": agent_alias},
+                )
+            return profile
 
         def _get_mtp_prompt(self, profile=None):
             builder = MTPPromptBuilder(
@@ -387,26 +410,19 @@ class TestSecurityScenarios:
 class TestProfileLoadingErrors:
     """Profile 加载错误处理测试"""
 
-    async def test_profile_not_found_uses_default(self):
-        """Profile 不存在时使用 OMNI_DOLL_PROFILE（兜底）"""
-        kernel, koakuma = _create_runtime_with_koakuma()
+    async def test_profile_not_found_fails_explicitly(self):
+        """显式 Profile 不存在时不能使用 Omni-Doll 兜底。"""
+        kernel, _ = _create_runtime_with_koakuma()
 
         # 模拟 profile 不存在
         kernel.storage.get_memory_by_alias = Mock(return_value=None)
 
-        profile = kernel.storage.get_agent_profile("nonexistent")
-        # 应该返回 OMNI_DOLL_PROFILE，不是 None
-        from hivememory.core.models import OMNI_DOLL_PROFILE
-        assert profile is OMNI_DOLL_PROFILE
+        with pytest.raises(AliasNotFoundError):
+            kernel.storage.get_agent_profile("nonexistent")
 
-        # OMNI_DOLL 允许全部操作
-        context = MTPExecutionContext(agent_profile=profile)
-        koakuma._check_verb_permission("WRITE", context=context)
-        koakuma._check_tool_permission("sys_bash_exec", context=context)
-
-    async def test_malformed_profile_returns_none(self):
-        """格式错误的 profile 返回 OMNI_DOLL_PROFILE（兜底）"""
-        kernel, koakuma = _create_runtime_with_koakuma()
+    async def test_malformed_profile_fails_explicitly(self):
+        """格式错误的 Profile 不能使用 Omni-Doll 兜底。"""
+        kernel, _ = _create_runtime_with_koakuma()
 
         # 模拟格式错误的 profile（缺少 artifacts）
         broken_atom = MemoryAtom(
@@ -423,6 +439,5 @@ class TestProfileLoadingErrors:
         )
         kernel.storage.get_memory_by_alias = Mock(return_value=broken_atom)
 
-        profile = kernel.storage.get_agent_profile("broken")
-        from hivememory.core.models import OMNI_DOLL_PROFILE
-        assert profile is OMNI_DOLL_PROFILE
+        with pytest.raises(InvalidArgumentError):
+            kernel.storage.get_agent_profile("broken")

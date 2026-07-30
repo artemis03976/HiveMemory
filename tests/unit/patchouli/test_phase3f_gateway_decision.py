@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
+from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     IntentType,
@@ -59,6 +60,34 @@ def _prepare_bus() -> tuple[PatchouliBus, AsyncMock, AsyncMock]:
     )
     bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, submit)
     return bus, retrieve, submit
+
+
+@pytest.mark.asyncio
+async def test_prepare_explicit_missing_profile_fails_before_topic_creation() -> None:
+    bus = PatchouliBus()
+    failure = AliasNotFoundError(
+        message_key="mtp.call.profile_not_found",
+        params={"agent_alias": "missing_doll"},
+    )
+    get_profile = AsyncMock(side_effect=failure)
+    prepare_topic = AsyncMock(return_value="should-not-run")
+    bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, get_profile)
+    bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, prepare_topic)
+
+    with pytest.raises(AliasNotFoundError) as exc_info:
+        await PatchouliService(bus).prepare_agent_run(
+            "hello",
+            "u1",
+            gateway_decision=_decision(),
+            agent_id="missing_doll",
+        )
+
+    assert exc_info.value is failure
+    get_profile.assert_awaited_once_with(
+        "missing_doll",
+        identity=Identity(user_id="u1", agent_id="missing_doll"),
+    )
+    prepare_topic.assert_not_awaited()
 
 
 @pytest.mark.asyncio

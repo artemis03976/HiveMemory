@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hivememory.core.models import AgentProfile, MemoryAtom, MemoryType
+from hivememory.core.models import AgentProfile, Identity, MemoryAtom, MemoryType
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 
@@ -24,8 +24,15 @@ class AgentProfileManagementService:
             limit=limit,
         )
 
-    async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
+    async def get_agent_profile(
+        self,
+        agent_alias: str | None,
+        *,
+        identity: Identity | None = None,
+    ) -> AgentProfile:
+        kwargs = {"identity": identity} if identity is not None else {}
         return await self._bus.request(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
             agent_alias,
+            **kwargs,
         )

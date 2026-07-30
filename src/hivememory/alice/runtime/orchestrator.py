@@ -26,7 +26,11 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
-from hivememory.core.mtp.exceptions import SubAgentExecutionError
+from hivememory.core.mtp.exceptions import (
+    AgentModelUnavailableError,
+    MTPError,
+    SubAgentExecutionError,
+)
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
@@ -245,8 +249,12 @@ class AgentOrchestrator:
         self._frame_scheduler.suspend_frame(main_frame)
         sub_result_text = ""
         sub_frame = None
+        sub_profile = None
         try:
-            sub_profile = await self._agent_profile_resolver.resolve(cr.target_alias)
+            sub_profile = await self._agent_profile_resolver.resolve(
+                cr.target_alias,
+                identity=main_frame.identity,
+            )
             shared_context = await self._fetch_context_refs_content(
                 aliases=cr.context_refs,
                 identity=main_frame.identity,
@@ -303,13 +311,45 @@ class AgentOrchestrator:
                     "agent_id": cr.target_alias,
                 }})
 
+        except MTPError as e:
+            logger.warning("CALL rejected for %r: %s", cr.target_alias, e.code)
+            self._frame_scheduler.resume_frame()
+            call_response = MTPCallResponse(
+                status=MTPResponseStatus.ERROR,
+                agent_alias=cr.target_alias,
+                error=e.to_error_info(),
+            )
+            if emit is not None:
+                await emit({"event": "sub_agent_end", "data": {
+                    "status": "error",
+                    "iteration": main_frame.progress.iteration,
+                    "scope": "sub",
+                    "depth": main_frame.runtime_scope.depth + 1,
+                    "frame_id": None,
+                    "agent_id": cr.target_alias,
+                    "error_code": e.code,
+                }})
         except Exception as e:
             logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
             self._frame_scheduler.resume_frame()
-            error = SubAgentExecutionError(
-                params={"agent_alias": cr.target_alias},
-                cause=e,
-            ).to_error_info()
+            from hivememory.system.model_registry import ModelNotFoundError
+
+            if isinstance(e, ModelNotFoundError):
+                error = AgentModelUnavailableError(
+                    params={
+                        "agent_alias": cr.target_alias,
+                        "model_name": (
+                            (generation_options or {}).get("model")
+                            or getattr(sub_profile, "model_name", "unknown")
+                        ),
+                    },
+                    cause=e,
+                ).to_error_info()
+            else:
+                error = SubAgentExecutionError(
+                    params={"agent_alias": cr.target_alias},
+                    cause=e,
+                ).to_error_info()
             call_response = MTPCallResponse(
                 status=MTPResponseStatus.ERROR,
                 agent_alias=cr.target_alias,
@@ -323,6 +363,7 @@ class AgentOrchestrator:
                     "depth": main_frame.runtime_scope.depth + 1,
                     "frame_id": None,
                     "agent_id": cr.target_alias,
+                    "error_code": error.code,
                 }})
 
         formatted_call_response = self._mtp_formatter.format_call_response(
@@ -336,11 +377,11 @@ class AgentOrchestrator:
             "content": formatted_call_response,
         })
 
-        # 找到对应的 tool_call 事件并标记 success
+        # 找到对应的 tool_call 事件并同步最终 CALL 状态。
         for index, ev in enumerate(main_frame.progress.turn_events):
             if ev.kind == "tool_call" and ev.action_id == action_id:
                 main_frame.progress.turn_events[index] = ev.model_copy(
-                    update={"status": "success"}
+                    update={"status": call_response.status.value}
                 )
                 break
 

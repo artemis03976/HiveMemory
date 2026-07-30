@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # Alice
@@ -89,7 +89,9 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 权限与 persona 分离不是排版选择。若把工具权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它；当前实现既按 Profile 裁剪 MTP 教学与工具菜单，也在 Koakuma 执行前再次执行 verb/tool 白名单检查。提示词层降低误用概率，Runtime 层才是当前真正的执行闸门。
 
-未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`：无特定 persona，模型名为 `default`，verb/tool 白名单均为 `None`，即当前实现中的全部允许。这个默认值提供开箱即用能力，但也要求“显式指定却加载失败”和“确实没有指定”不能长期混为同一种降级；当前实现尚未完全满足这一点，见 §9。
+未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
+
+自定义 Profile 必须携带调用 `Identity` 交由 Patchouli 解析。Patchouli 先按 user 边界读取 atom，再检查 PUBLIC / WORKSPACE / PRIVATE 可见性、MemoryType 与 `agent_config`；Alice 只缓存已经授权的结果，cache key 包含 user、agent、team 与 alias。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 
@@ -172,8 +174,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 
 ## 9. 当前限制与设计张力
 
-- 显式 Profile alias 不存在、读取异常或解析失败时，当前会回退到拥有完整权限的 `OMNI_DOLL_PROFILE`，而不是拒绝 CALL；这把可用性 fallback 与安全边界混在一起；
-- AgentProfile cache 是进程内、按 alias 的 32 项 LRU，没有更新事件或显式失效入口，Profile 修改可能在进程内长期不可见；
+- AgentProfile cache 是进程内、按 Identity + alias 隔离的 32 项 LRU，但仍没有 TTL、更新事件或显式失效入口；Profile 修改可能在进程内长期不可见；
 - `ExecutionFrame.identity` 在子帧中继承父帧，`AgentProfile` 又不携带解析 alias；因此部分子帧流事件和 PendingAtom provenance 会记录父 Agent，而不是实际 CALL 目标；
 - KoakumaAtomCache 与 PendingAtomRuntime 都由 AliceRuntime 进程级共享。L0/L1 alias 命中当前不会再次校验调用 Identity，尚未满足跨用户并发运行所需的隔离；
 - FrameScheduler 的栈与 Koakuma 的 cancel token 也是共享可变状态，尚未形成 task-local / run-local 隔离；

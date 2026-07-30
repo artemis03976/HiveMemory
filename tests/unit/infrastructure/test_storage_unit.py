@@ -1,20 +1,25 @@
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import pytest
 from qdrant_client.models import Document
 
 from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     MetaData,
-    OMNI_DOLL_PROFILE,
     PayloadLayer,
 )
+from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
+    InvalidArgumentError,
+    MemoryTypeMismatchError,
+    StorageReadError,
+)
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.system.config import QdrantConfig, EmbeddingConfig
-from hivememory.core.mtp.exceptions import StorageReadError
+from hivememory.system.config import EmbeddingConfig, QdrantConfig
 
 
 class TestQdrantMemoryStore:
@@ -305,16 +310,17 @@ class TestQdrantMemoryStore:
         storage.get_memory_by_alias.assert_called_once_with("coder_doll")
 
     @pytest.mark.asyncio
-    async def test_get_agent_profile_not_found_returns_omni(self, storage):
+    async def test_get_agent_profile_not_found_fails_explicitly(self, storage):
         storage.get_memory_by_alias = AsyncMock(return_value=None)
 
-        result = await storage.get_agent_profile("nonexistent_agent")
+        with pytest.raises(AliasNotFoundError) as exc_info:
+            await storage.get_agent_profile("nonexistent_agent")
 
-        assert result is OMNI_DOLL_PROFILE
+        assert exc_info.value.message_key == "mtp.call.profile_not_found"
         storage.get_memory_by_alias.assert_called_once_with("nonexistent_agent")
 
     @pytest.mark.asyncio
-    async def test_get_agent_profile_wrong_type_returns_omni(self, storage):
+    async def test_get_agent_profile_wrong_type_fails_explicitly(self, storage):
         wrong_atom = MemoryAtom(
             id=uuid4(),
             meta=MetaData(user_id="test", source_agent_id="test"),
@@ -329,12 +335,13 @@ class TestQdrantMemoryStore:
         )
         storage.get_memory_by_alias = AsyncMock(return_value=wrong_atom)
 
-        result = await storage.get_agent_profile("not_a_profile")
+        with pytest.raises(MemoryTypeMismatchError) as exc_info:
+            await storage.get_agent_profile("not_a_profile")
 
-        assert result is OMNI_DOLL_PROFILE
+        assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
 
     @pytest.mark.asyncio
-    async def test_get_agent_profile_broken_atom_returns_omni(self, storage):
+    async def test_get_agent_profile_broken_atom_fails_explicitly(self, storage):
         broken_atom = MemoryAtom(
             id=uuid4(),
             meta=MetaData(user_id="system", source_agent_id="system"),
@@ -352,9 +359,10 @@ class TestQdrantMemoryStore:
         )
         storage.get_memory_by_alias = AsyncMock(return_value=broken_atom)
 
-        result = await storage.get_agent_profile("broken_agent")
+        with pytest.raises(InvalidArgumentError) as exc_info:
+            await storage.get_agent_profile("broken_agent")
 
-        assert result is OMNI_DOLL_PROFILE
+        assert exc_info.value.message_key == "mtp.call.profile_invalid"
 
     @pytest.mark.parametrize("alias", ["", "default", "omni_doll"])
     @pytest.mark.asyncio

@@ -13,14 +13,24 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    Artifacts,
     Identity,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,
     MemoryType,
+    MemoryVisibility,
     MetaData,
     PayloadLayer,
     TopicData,
+)
+from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
+    InvalidArgumentError,
+    MemoryTypeMismatchError,
+    PermissionDeniedError,
+    StorageReadError,
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
@@ -34,6 +44,36 @@ def _make_memory(title="测试记忆") -> MemoryAtom:
         meta=MetaData(source_agent_id="a1", user_id="u1", session_id="s1"),
         index=IndexLayer(title=title, summary="这是一段足够长的测试摘要用于通过验证", tags=["t1"], memory_type=MemoryType.FACT),
         payload=PayloadLayer(content="内容"),
+    )
+
+
+def _make_profile_memory(
+    *,
+    alias: str = "coder_doll",
+    user_id: str = "u1",
+    source_agent_id: str = "omni_doll",
+    team_id: str | None = None,
+    visibility: MemoryVisibility = MemoryVisibility.PUBLIC,
+    agent_config: dict | None = None,
+) -> MemoryAtom:
+    return MemoryAtom(
+        meta=MetaData(
+            source_agent_id=source_agent_id,
+            user_id=user_id,
+            team_id=team_id,
+            visibility=visibility,
+        ),
+        index=IndexLayer(
+            title="Coder Doll",
+            summary="A specialized coding agent profile",
+            tags=["agent"],
+            memory_type=MemoryType.AGENT_PROFILE,
+            alias=alias,
+        ),
+        payload=PayloadLayer(
+            content="You are a coding specialist.",
+            artifacts=Artifacts(agent_config=agent_config or {"model_name": "default"}),
+        ),
     )
 
 
@@ -74,6 +114,135 @@ def _make_topic_data(topic_id="topic_1", user_id="u1", blocks=None, last_accesse
         blocks=tuple(blocks or []),
         last_update=last_accessed_at, last_accessed_at=last_accessed_at, total_tokens=10,
     )
+
+
+class TestRetrievalFamiliarAgentProfiles:
+
+    def setup_method(self):
+        self.mock_library = _make_memory_library()
+        self.familiar = RetrievalFamiliar(
+            engine=Mock(),
+            memory_library=self.mock_library,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("alias", [None, "", "   ", "default", "omni_doll"])
+    async def test_unspecified_or_builtin_profile_uses_explicit_fallback(self, alias):
+        result = await self.familiar.get_agent_profile(alias)
+
+        assert result is OMNI_DOLL_PROFILE
+        self.mock_library.mid_term.get_by_alias.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_visible_profile_loads_for_identity(self):
+        atom = _make_profile_memory()
+        self.mock_library.mid_term.get_by_alias.return_value = atom
+        identity = Identity(user_id="u1", agent_id="omni_doll")
+
+        result = await self.familiar.get_agent_profile(
+            "coder_doll",
+            identity=identity,
+        )
+
+        assert result.persona == "You are a coding specialist."
+        self.mock_library.mid_term.get_by_alias.assert_awaited_once_with(
+            "coder_doll",
+            "u1",
+        )
+
+    @pytest.mark.asyncio
+    async def test_explicit_missing_profile_does_not_fallback(self):
+        self.mock_library.mid_term.get_by_alias.return_value = None
+
+        with pytest.raises(AliasNotFoundError) as exc_info:
+            await self.familiar.get_agent_profile(
+                "missing_doll",
+                identity=Identity(user_id="u1"),
+            )
+
+        assert exc_info.value.message_key == "mtp.call.profile_not_found"
+
+    @pytest.mark.asyncio
+    async def test_custom_profile_without_identity_is_denied_before_storage(self):
+        with pytest.raises(PermissionDeniedError) as exc_info:
+            await self.familiar.get_agent_profile("private_doll")
+
+        assert exc_info.value.message_key == "mtp.call.profile_permission_denied"
+        self.mock_library.mid_term.get_by_alias.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("atom", "identity"),
+        [
+            (
+                _make_profile_memory(user_id="u2"),
+                Identity(user_id="u1", agent_id="omni_doll"),
+            ),
+            (
+                _make_profile_memory(
+                    visibility=MemoryVisibility.WORKSPACE,
+                    team_id="team-a",
+                ),
+                Identity(user_id="u1", agent_id="omni_doll", team_id="team-b"),
+            ),
+            (
+                _make_profile_memory(
+                    visibility=MemoryVisibility.PRIVATE,
+                    source_agent_id="owner_doll",
+                ),
+                Identity(user_id="u1", agent_id="other_doll"),
+            ),
+        ],
+    )
+    async def test_invisible_profile_is_permission_denied(self, atom, identity):
+        self.mock_library.mid_term.get_by_alias.return_value = atom
+
+        with pytest.raises(PermissionDeniedError) as exc_info:
+            await self.familiar.get_agent_profile(
+                "private_doll",
+                identity=identity,
+            )
+
+        assert exc_info.value.message_key == "mtp.call.profile_permission_denied"
+
+    @pytest.mark.asyncio
+    async def test_non_profile_alias_is_type_mismatch(self):
+        self.mock_library.mid_term.get_by_alias.return_value = _make_memory()
+
+        with pytest.raises(MemoryTypeMismatchError) as exc_info:
+            await self.familiar.get_agent_profile(
+                "fact_alias",
+                identity=Identity(user_id="u1"),
+            )
+
+        assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_invalid_profile_config_is_rejected(self):
+        self.mock_library.mid_term.get_by_alias.return_value = _make_profile_memory(
+            agent_config={"top_p": 2.0},
+        )
+
+        with pytest.raises(InvalidArgumentError) as exc_info:
+            await self.familiar.get_agent_profile(
+                "broken_doll",
+                identity=Identity(user_id="u1"),
+            )
+
+        assert exc_info.value.message_key == "mtp.call.profile_invalid"
+
+    @pytest.mark.asyncio
+    async def test_storage_failure_is_not_converted_to_fallback(self):
+        failure = StorageReadError(cause=RuntimeError("storage failure"))
+        self.mock_library.mid_term.get_by_alias.side_effect = failure
+
+        with pytest.raises(StorageReadError) as exc_info:
+            await self.familiar.get_agent_profile(
+                "coder_doll",
+                identity=Identity(user_id="u1"),
+            )
+
+        assert exc_info.value is failure
 
 
 class TestRetrievalFamiliarRetrieve:

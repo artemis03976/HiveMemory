@@ -10,9 +10,17 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
-from hivememory.core.models import Identity, OMNI_DOLL_PROFILE, RuntimeScope, TurnEvent
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    AgentProfile,
+    Identity,
+    RuntimeScope,
+    TurnEvent,
+)
+from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.core.mtp.models import MTPCallRequest
 from hivememory.core.protocol.models import AgentRunStatus
+from hivememory.system.model_registry import ModelNotFoundError
 
 
 def _frame(*, depth: int = 0, frame_id: str = "frame-main") -> ExecutionFrame:
@@ -229,6 +237,10 @@ async def test_handle_suspend_runs_sub_agent_and_appends_call_response():
     assert main_frame.progress.turn_events[-1].kind == "tool_result"
     assert main_frame.progress.turn_events[-1].status == "success"
     assert "sub reply" in main_frame.working_history[-1]["content"]
+    orchestrator._test_profile_resolver.resolve.assert_awaited_once_with(
+        "helper",
+        identity=main_frame.identity,
+    )
 
 
 @pytest.mark.asyncio
@@ -298,4 +310,92 @@ async def test_handle_suspend_emits_error_response_when_sub_agent_fails():
     assert events[0]["event"] == "sub_agent_start"
     assert events[-1]["event"] == "sub_agent_end"
     assert events[-1]["data"]["status"] == "error"
+    assert main_frame.progress.turn_events[0].status == "error"
+    assert main_frame.progress.turn_events[-1].status == "error"
+
+
+@pytest.mark.asyncio
+async def test_handle_suspend_preserves_explicit_profile_not_found_error():
+    main_frame = _frame()
+    main_frame.progress.turn_events.append(
+        TurnEvent(
+            kind="tool_call",
+            sequence=0,
+            role="assistant",
+            content="call",
+            action_id="act-1",
+            tool_kind="CALL",
+            tool_name="missing_doll",
+            status="pending",
+        )
+    )
+    orchestrator = _orchestrator(main_frame)
+    orchestrator._test_profile_resolver.resolve.side_effect = AliasNotFoundError(
+        message_key="mtp.call.profile_not_found",
+        params={"agent_alias": "missing_doll"},
+    )
+    engine_result = FrameExecutionResult(
+        status=FrameExecutionStatus.SUSPENDED,
+        call_request=MTPCallRequest(target_alias="missing_doll", task="summarize"),
+        suspend_action_id="act-1",
+    )
+
+    await orchestrator._handle_suspend(main_frame, engine_result, None)
+
+    content = main_frame.working_history[-1]["content"]
+    assert 'code="mtp.alias.not_found"' in content
+    assert "missing_doll" in content
+    assert main_frame.progress.turn_events[0].status == "error"
+    assert main_frame.progress.turn_events[-1].status == "error"
+    orchestrator._test_scheduler.fork_sub_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_suspend_returns_stable_model_unavailable_error():
+    main_frame = _frame()
+    main_frame.progress.turn_events.append(
+        TurnEvent(
+            kind="tool_call",
+            sequence=0,
+            role="assistant",
+            content="call",
+            action_id="act-model",
+            tool_kind="CALL",
+            tool_name="model_doll",
+            status="pending",
+        )
+    )
+    runtime = SimpleNamespace(
+        run_frame=AsyncMock(),
+        run_frame_emitting=AsyncMock(
+            side_effect=ModelNotFoundError("missing-model is not registered")
+        ),
+        collect_tasks_by_run=MagicMock(return_value=[]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(main_frame, runtime=runtime)
+    profile = AgentProfile(model_name="missing-model")
+    orchestrator._test_profile_resolver.resolve.return_value = profile
+    orchestrator._test_scheduler.fork_sub_frame.return_value = _frame(
+        depth=1,
+        frame_id="frame-sub-model",
+    )
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    engine_result = FrameExecutionResult(
+        status=FrameExecutionStatus.SUSPENDED,
+        call_request=MTPCallRequest(target_alias="model_doll", task="summarize"),
+        suspend_action_id="act-model",
+    )
+
+    await orchestrator._handle_suspend(main_frame, engine_result, None, emit=emit)
+
+    content = main_frame.working_history[-1]["content"]
+    assert 'code="mtp.system.service_unavailable"' in content
+    assert "missing-model" in content
+    assert events[-1]["data"]["error_code"] == "mtp.system.service_unavailable"
+    assert main_frame.progress.turn_events[0].status == "error"
     assert main_frame.progress.turn_events[-1].status == "error"

@@ -17,7 +17,6 @@ from typing import Any
 from hivememory.i18n.resolver import resolve_language
 from hivememory.i18n.types import Language
 
-
 # ---------------------------------------------------------------------------
 # Phase A 文本表
 # ---------------------------------------------------------------------------
@@ -131,6 +130,26 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Invalid Argument] CALL 指令缺少 \"task\" 参数。\n"
         "Suggestion: 示例：⟪ CALL | coder_doll | task=\"编写单元测试\" ⟫"
     ),
+    "mtp.call.profile_not_found": (
+        "[Agent Profile Not Found] 未找到子代理 Profile '{agent_alias}'。\n"
+        "Suggestion: 请从可用子代理列表中选择有效的 alias。"
+    ),
+    "mtp.call.profile_permission_denied": (
+        "[Permission Denied] 当前身份无权访问子代理 Profile '{agent_alias}'。\n"
+        "Suggestion: 请改用当前身份可见的子代理。"
+    ),
+    "mtp.call.profile_type_mismatch": (
+        "[Type Mismatch] alias '{agent_alias}' 不是 Agent Profile。\n"
+        "Suggestion: 请从可用子代理列表中选择 Agent Profile alias。"
+    ),
+    "mtp.call.profile_invalid": (
+        "[Invalid Agent Profile] 子代理 Profile '{agent_alias}' 的配置无效。\n"
+        "Suggestion: 请修复 Profile 配置或选择其他子代理。"
+    ),
+    "mtp.call.profile_load_failed": (
+        "[Agent Profile Error] 子代理 Profile '{agent_alias}' 当前无法加载。\n"
+        "Suggestion: 请勿使用相同参数重试，并继续正常对话。"
+    ),
 
     # ---- 系统故障 ----
     "mtp.system.unexpected_error": (
@@ -155,6 +174,10 @@ _ERROR_TEXT_ZH: dict[str, str] = {
     "mtp.call_response.sub_agent_error": (
         "[Sub-Agent Error]: 子代理 {agent_alias} 遇到错误，无法完成任务。\n"
         "Suggestion: 请尝试其他方式，或分解任务后重试。"
+    ),
+    "mtp.call_response.model_unavailable": (
+        "[Model Unavailable] 子代理 {agent_alias} 配置的模型 '{model_name}' 当前不可用。\n"
+        "Suggestion: 请改用其他子代理，并通知管理员检查模型配置。"
     ),
 
 }
@@ -271,6 +294,27 @@ _ERROR_TEXT_EN: dict[str, str] = {
         '[Invalid Argument] CALL requires a "task" argument.\n'
         'Suggestion: Example: ⟪ CALL | coder_doll | task="Write unit tests" ⟫'
     ),
+    "mtp.call.profile_not_found": (
+        "[Agent Profile Not Found] Sub-agent profile '{agent_alias}' was not found.\n"
+        "Suggestion: Choose a valid alias from the available sub-agent list."
+    ),
+    "mtp.call.profile_permission_denied": (
+        "[Permission Denied] The current identity cannot access sub-agent profile "
+        "'{agent_alias}'.\n"
+        "Suggestion: Use a sub-agent visible to the current identity."
+    ),
+    "mtp.call.profile_type_mismatch": (
+        "[Type Mismatch] Alias '{agent_alias}' is not an Agent Profile.\n"
+        "Suggestion: Choose an Agent Profile alias from the available sub-agent list."
+    ),
+    "mtp.call.profile_invalid": (
+        "[Invalid Agent Profile] Sub-agent profile '{agent_alias}' has invalid configuration.\n"
+        "Suggestion: Fix the profile configuration or choose another sub-agent."
+    ),
+    "mtp.call.profile_load_failed": (
+        "[Agent Profile Error] Sub-agent profile '{agent_alias}' could not be loaded.\n"
+        "Suggestion: Do NOT retry with the same parameters. Continue the conversation normally."
+    ),
 
     # ---- 系统故障 ----
     "mtp.system.unexpected_error": (
@@ -297,6 +341,11 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Sub-Agent Error]: The sub-agent {agent_alias} encountered an error "
         "and could not complete the task.\n"
         "Suggestion: Try a different approach or decompose the task and retry."
+    ),
+    "mtp.call_response.model_unavailable": (
+        "[Model Unavailable] The model '{model_name}' configured for sub-agent "
+        "{agent_alias} is unavailable.\n"
+        "Suggestion: Use another sub-agent and ask an administrator to check the model configuration."
     ),
 
 }

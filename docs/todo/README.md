@@ -17,7 +17,6 @@ last_reviewed: 2026-07-30
 - [Page Folding 跨入口上下文与证据后续技术债](./page-folding-cross-ingress-follow-ups.md)；
 - [收紧 Alice 子帧终态与 CALL 结果判断](./alice-child-frame-terminal-status.md)；
 - [Alice FrameScheduler 与取消状态的运行隔离](./alice-frame-scheduler-concurrency.md)；
-- [区分 Agent Profile 缺失与显式加载失败](./agent-profile-explicit-failure.md)；
 - [补齐 Agent-facing 错误 payload 的 XML escaping](./error-formatter-xml-escaping.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)。

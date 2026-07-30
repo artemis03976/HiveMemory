@@ -164,6 +164,13 @@ class SubAgentExecutionError(SystemFault):
     default_message_key = "mtp.call_response.sub_agent_error"
 
 
+class AgentModelUnavailableError(SystemFault):
+    """CALL 目标 Profile 引用的模型当前不可用。"""
+
+    code = "mtp.system.service_unavailable"
+    default_message_key = "mtp.call_response.model_unavailable"
+
+
 __all__ = [
     "MTPError",
     "AgentFault",
@@ -184,4 +191,5 @@ __all__ = [
     "SyscallTimeoutError",
     "SyscallUnavailableError",
     "SubAgentExecutionError",
+    "AgentModelUnavailableError",
 ]
