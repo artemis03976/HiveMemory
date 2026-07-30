@@ -178,7 +178,7 @@ class AdaptiveWeightedFusion(BaseFusion):
     支持的检索模式:
         - debug: 高 sparse 权重，强置信度惩罚 (精确匹配场景)
         - concept: 高 dense 权重，弱惩罚 (概念理解场景)
-        - timeline: 高 time 权重，中等惩罚 (时间相关场景)
+        - timeline: 较均衡的 dense/sparse 权重，中等惩罚 (时间相关场景)
         - brainstorm: 高 dense 权重，无惩罚 (发散思维场景)
     """
 

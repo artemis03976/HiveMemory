@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # 记忆检索
@@ -83,6 +83,8 @@ DenseRetriever 使用语义向量相似度，并可应用：
 - 基于 `updated_at` 与 half-life 配置的时间衰减惩罚；
 - 基于 confidence 的轻量加成。
 
+时间影响当前只由 DenseRetriever 的 `enable_time_decay` 与 `time_decay_days` 解释。Fusion 不再暴露没有消费者的独立 `time_weight`，以免把未来的复习调度或时间线排序误写成当前能力。
+
 SparseRetriever 使用 Qdrant 稀疏向量，目标是保留函数名、错误码和专有实体等词汇级信号，不应用时间衰减。
 
 默认 HybridRetriever 并行执行两路召回；任一路普通异常会退化为空结果，但 `StorageOfflineError` / `StorageReadError` 会重新抛出，使上层能够区分存储不可用与“确实没有相关记忆”。
@@ -96,7 +98,7 @@ Hybrid 先融合 Dense/Sparse `SearchResults`，再可选重排，最后截取 t
 当前 Fusion 有两种：
 
 - Reciprocal Rank Fusion：按两路名次合并，适合不直接比较异构原始分数；
-- Adaptive Weighted Fusion：按 debug/concept/timeline/brainstorm 模式组合 dense、sparse、time、confidence 和 vitality 因素。
+- Adaptive Weighted Fusion：按 debug/concept/timeline/brainstorm 模式组合 dense、sparse、confidence 和 vitality 因素。
 
 默认配置使用 RRF。Reranker 可注入 cross-encoder service；未提供 service 时即使配置开启也会记录 warning 并关闭重排。CrossEncoderReranker 通过 MemoryCompiler 的 `DENSE_EMBEDDING` target 构造候选文本，避免维护另一套排序文本拼接。
 

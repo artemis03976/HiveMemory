@@ -11,7 +11,7 @@ code_paths:
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-30
 ---
 
 # System 配置与注册表
@@ -79,6 +79,8 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 - Passive idle interval/timeout 由 `scheduler.tasks` 单一持有，`passive_ingress` 不重复定义同一事实；
 - RuntimeEvent 的 buffer/queue 配置只影响观测容量，不改变业务状态；
 - 项目版本属于构建事实，不是运行配置；`system.version` 已从配置模型和示例 YAML 中移除，版本唯一来源是 `src/hivememory/_version.py`；
+- 配置模型只声明已有消费者的运行时控制；
+- 上述子模型仍使用 `extra="ignore"` 保持旧配置兼容，因此历史输入中的冗余键会在校验和下一次配置持久化时被裁掉，但不会重新获得运行时语义；
 - `i18n.default_language` 在配置校验后同步到进程级 resolver，但请求级显式语言仍由调用方或 Profile 传递。
 
 配置扩展必须先判断它属于哪一个所有者；不能为了方便在 `HiveMemoryConfig` 添加一个字段，然后让多个子系统各自解释不同含义。

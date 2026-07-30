@@ -208,7 +208,6 @@ export interface GarbageCollectorConfig {
 }
 
 export interface LifecycleConfig {
-  high_watermark: number;
   vitality_calculator: VitalityCalculatorConfig;
   reinforcement: ReinforcementConfig;
   archiver: ArchiverConfig;

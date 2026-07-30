@@ -3,7 +3,7 @@ title: Legacy Documents
 status: current
 owner: project
 scope: superseded-documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # Legacy Documents
@@ -17,6 +17,10 @@ last_reviewed: 2026-07-29
 - [环境搭建指南](./SETUP.md)：由 [Help](../../help/README.md)取代；
 - [顶层 TODO](./TODO.md)：已拆分到 [Todo](../../todo/README.md)；
 - [可观测性与日志流设计](./ObservabilityDesign.md)：由 [System 可观测性](../../system/observability.md)与[事件契约](../../contracts/routes-and-events.md)取代。
+
+### 已完成 Todo
+
+- [运行时配置接线漂移](./runtime-configuration-wiring-drift.md)：两个无消费者的占位字段已经从后端、默认 YAML 与前端配置面统一移除；当前配置事实由 [System 配置](../../system/configuration.md)、[Retrieval](../../patchouli/retrieval.md)和[Lifecycle](../../patchouli/lifecycle.md)承接。
 
 ### Architecture 混合文档
 

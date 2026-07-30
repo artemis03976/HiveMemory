@@ -7,7 +7,7 @@ related_current:
   - docs/patchouli/lifecycle.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/retrieval.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # 生命力分数计算：长期演进方向
@@ -128,7 +128,7 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 - `MetaData` 新增 `next_review_at: datetime`、`stability: float`、`retrievability: float`（FSRS 三参数可选）
 - 新增 `engines/lifecycle/review_scheduler.py`：根据 HIT/CITATION 事件更新 `next_review_at`
-- `RetrievalModeConfig.time_weight` 目前只有配置字段，fusion 主路径尚未消费；若未来接入 `next_review_at`，需要先定义它与相关性、recency 和 vitality 的组合语义
+- 原先没有消费者的 `RetrievalModeConfig.time_weight` 已从公共配置面删除；若未来接入 `next_review_at`，必须先定义它与相关性、recency 和 vitality 的组合语义，再随真实实现引入新的配置，而不是复用历史占位字段
 
 ### 期望效果
 
