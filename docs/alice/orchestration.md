@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-07-30
 ---
 
 # 多 Agent 编排
@@ -84,7 +84,21 @@ main Agent emits CALL
 
 ### 3.1 Profile 解析
 
-`default` 与 `omni_doll` 直接映射为内置 `OMNI_DOLL_PROFILE`。其他 alias 先查 32 项 LRU cache，再通过 Alice local bus 请求 Patchouli 的 `GET_AGENT_PROFILE` 能力。Patchouli 从 `AGENT_PROFILE` MemoryAtom 中解析 persona、模型和权限。
+未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 对当前 verb/tool 使用显式白名单，因此后续新增能力不会自动穿透 fallback 边界。
+
+其他 alias 必须随父 frame 的 `Identity` 解析。Alice 先查 Identity + alias 维度的 32 项 LRU cache，再通过 local bus 请求 Patchouli 的 `GET_AGENT_PROFILE` 能力；并发 cache miss 会串行复查，避免一个身份的授权结果污染另一个请求。Patchouli 作为 Profile atom 所有者执行 user 与 PUBLIC / WORKSPACE / PRIVATE 可见性校验，再解析 persona、模型和权限。
+
+显式失败通过 `MTPCallResponse.error` 回填，不再启动子 frame：
+
+| 场景 | 稳定 code | message key |
+|:---|:---|:---|
+| alias 不存在 | `mtp.alias.not_found` | `mtp.call.profile_not_found` |
+| 当前 Identity 无权访问 | `mtp.permission.denied` | `mtp.call.profile_permission_denied` |
+| alias 类型不符 / Profile 配置无效 | `mtp.memory.type_mismatch` / `mtp.argument.invalid` | `mtp.call.profile_type_mismatch` / `mtp.call.profile_invalid` |
+| Profile route 或读取失败 | 对应 `mtp.system.*` | `mtp.call.profile_load_failed` 或底层稳定 key |
+| Profile 引用的模型不可用 | `mtp.system.service_unavailable` | `mtp.call_response.model_unavailable` |
+
+CALL 的 `tool_call` 与 `tool_result` 使用同一个最终 success/error 状态；内部 cause 只进入日志，不回填给 Agent。
 
 Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARCH：相关图纸可以在 memory context 中以 Agent Profile 菜单出现，主 Agent 随后用 alias 发起 CALL。Alice 当前不维护硬编码 team，也不会根据模糊需求动态创建 Profile。
 
@@ -179,12 +193,10 @@ CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生
 
 ## 10. 当前限制
 
-- 显式 alias 不存在、Patchouli route 异常或 Profile 解析失败时会回退到全权限 Omni-Doll，并仍以原 alias 名义运行；错误配置因此可能扩大权限，而不是 fail closed；
-- AgentProfile cache 只按 alias 缓存、上限固定为 32，没有 TTL、版本检查、identity 维度或管理事件失效；Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
+- AgentProfile cache 已按 Identity + alias 隔离、上限固定为 32，但没有 TTL、版本检查或管理事件失效；Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
 - `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 Identity。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 Identity 证明真实 CALL 目标；
 - FrameScheduler 的 `_frame_stack` 是 AliceRuntime 级共享列表，不是 task-local。并发 run 的 CALL 可以交错 push/pop，当前代码又不核对 resume 返回的 frame；
 - 子 frame 的 `FrameExecutionResult` 当前没有被检查：若子帧取消、耗尽循环或意外返回 SUSPENDED，Orchestrator 仍可能组装 success CALL response；
-- 子 Agent 抛异常时 `tool_result` 会标为 error，但对应主 frame `tool_call` 当前仍被统一更新为 success，结构化 trace 可能出现状态矛盾；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；
 - 当前只能串行单层 CALL，没有 parallel fan-out、动态 DAG、review loop 或 Alice 自主规划。

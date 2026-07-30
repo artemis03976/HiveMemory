@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-07-30
 ---
 
 # 公开路由与事件
@@ -95,7 +95,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id | `bool` |
 | `patchouli.public.agent_profile.create` | `create_agent_profile` | `MemoryAtom` | `MemoryAtom` |
 | `patchouli.public.agent_profile.list` | `list_agent_profiles` | limit | profile atom 列表 |
-| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias | `AgentProfile` |
+| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、Identity（自定义 alias 必需） | `AgentProfile`；显式缺失/越权/无效时抛结构化 MTP error |
 | `patchouli.public.topic.list_active` | `list_active_topics` | Identity、include_empty | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | Identity、topic id | 可见 `TopicData | None` |
 | `patchouli.public.manual_settle_topic` | `settle_topic` | 可选 topic id | memory task 或 `None` |

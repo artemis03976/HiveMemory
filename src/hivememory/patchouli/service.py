@@ -68,6 +68,7 @@ class PatchouliService:
             agent_profile = await self._local_bus.request(
                 PatchouliLocalRoutes.GET_AGENT_PROFILE,
                 agent_id,
+                identity=identity,
             )
             real_topic_id = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_PREPARE,

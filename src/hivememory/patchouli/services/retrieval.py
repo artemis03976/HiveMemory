@@ -21,10 +21,18 @@ from hivememory.core.models import (
     Identity,
     MemoryAtom,
     MemoryType,
+    MemoryVisibility,
     TopicData,
     TopicSnapshot,
 )
-from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
+from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
+    InvalidArgumentError,
+    MemoryTypeMismatchError,
+    PermissionDeniedError,
+    StorageOfflineError,
+    StorageReadError,
+)
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery
@@ -144,28 +152,68 @@ class RetrievalFamiliar:
             limit=limit,
         )
 
-    async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
+    async def get_agent_profile(
+        self,
+        agent_alias: str | None,
+        *,
+        identity: Identity | None = None,
+    ) -> AgentProfile:
         """
-        根据Agent别名读取Agent配置文件。
+        根据 Agent 别名读取配置，并由 Profile 所有者 Patchouli 执行可见性校验。
+
+        只有未指定 alias 或明确选择内置 ``default`` / ``omni_doll`` 时才返回
+        Omni-Doll。任何自定义 alias 的缺失、越权、类型错误或配置损坏都会显式失败。
         """
-        if not agent_alias or agent_alias in ("default", "omni_doll"):
+        normalized_alias = agent_alias.strip() if agent_alias else ""
+        if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
-        try:
-            atom = await self._memory_library.mid_term.get_by_alias(agent_alias)
-            if atom is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
-                profile = AgentProfile.from_atom(atom)
-                if profile is not None:
-                    return profile
-        except Exception as e:
-            logger.warning(
-                f"Failed to load agent profile '{agent_alias}' from memory library: {e}"
+        if identity is None:
+            raise PermissionDeniedError(
+                message_key="mtp.call.profile_permission_denied",
+                params={"agent_alias": normalized_alias},
             )
 
-        logger.info(
-            f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE."
+        atom = await self._memory_library.mid_term.get_by_alias(
+            normalized_alias,
+            identity.user_id,
         )
-        return OMNI_DOLL_PROFILE
+        if atom is None:
+            raise AliasNotFoundError(
+                message_key="mtp.call.profile_not_found",
+                params={"agent_alias": normalized_alias},
+            )
+        if not self._is_memory_visible_to(atom, identity):
+            raise PermissionDeniedError(
+                message_key="mtp.call.profile_permission_denied",
+                params={"agent_alias": normalized_alias},
+            )
+        if atom.index.memory_type != MemoryType.AGENT_PROFILE:
+            raise MemoryTypeMismatchError(
+                message_key="mtp.call.profile_type_mismatch",
+                params={"agent_alias": normalized_alias},
+            )
+
+        profile = AgentProfile.from_atom(atom)
+        if profile is None:
+            raise InvalidArgumentError(
+                message_key="mtp.call.profile_invalid",
+                params={"agent_alias": normalized_alias},
+            )
+        return profile
+
+    @staticmethod
+    def _is_memory_visible_to(atom: MemoryAtom, identity: Identity) -> bool:
+        """Apply the same user + visibility baseline as regular retrieval."""
+        if atom.meta.user_id != identity.user_id:
+            return False
+        if atom.meta.visibility == MemoryVisibility.PUBLIC:
+            return True
+        if atom.meta.visibility == MemoryVisibility.WORKSPACE:
+            return bool(identity.team_id and atom.meta.team_id == identity.team_id)
+        if atom.meta.visibility == MemoryVisibility.PRIVATE:
+            return atom.meta.source_agent_id == identity.agent_id
+        return False
 
     async def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
         """

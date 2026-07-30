@@ -8,37 +8,43 @@ Qdrant 向量存储层封装
 - 批量操作
 """
 
-from typing import List, Optional, Dict, Any, Union
-from uuid import UUID
 import logging
+from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
 
 from qdrant_client.models import (
     Distance,
-    VectorParams,
-    PointStruct,
-    Filter,
-    FieldCondition,
-    MatchValue,
-    Range,
-    SparseVectorParams,
-    SparseVector,
     Document,
+    FieldCondition,
+    Filter,
+    MatchValue,
     Modifier,
+    PointStruct,
+    Range,
+    SparseVector,
+    SparseVectorParams,
+    VectorParams,
 )
 
 from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
     AgentProfile,
     IndexLayer,
     MemoryAtom,
-    OMNI_DOLL_PROFILE,
+    MemoryType,
 )
-from hivememory.system.config import QdrantConfig, EmbeddingConfig
+from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
+    InvalidArgumentError,
+    MemoryTypeMismatchError,
+)
+from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
+from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.infrastructure.storage.qdrant_client import (
     create_async_qdrant_client,
     wait_for_qdrant_ready,
 )
-from hivememory.infrastructure.embedding import get_bge_m3_service
-from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
+from hivememory.system.config import EmbeddingConfig, QdrantConfig
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +201,8 @@ class QdrantMemoryStore:
             raise
 
     async def get_memory(self, memory_id: UUID) -> Optional[MemoryAtom]:
-        from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
+        from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
+
         from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 
         try:
@@ -240,7 +247,8 @@ class QdrantMemoryStore:
         Returns:
             MemoryAtom 对象，未找到返回 None
         """
-        from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
+        from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
+
         from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 
         try:
@@ -274,25 +282,34 @@ class QdrantMemoryStore:
             logger.error(f"Unexpected storage error in get_memory_by_alias (alias={alias}): {e}", exc_info=True)
             raise StorageReadError(cause=e) from e
 
-    async def get_agent_profile(self, agent_alias: str) -> AgentProfile:
-        if not agent_alias or agent_alias in ("default", "omni_doll"):
+    async def get_agent_profile(self, agent_alias: str | None) -> AgentProfile:
+        """Legacy storage lookup with explicit failure for custom aliases.
+
+        Authorization belongs to Patchouli's retrieval service; this low-level helper must
+        never turn an explicit custom alias failure into the Omni-Doll fallback.
+        """
+        normalized_alias = agent_alias.strip() if agent_alias else ""
+        if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
-        try:
-            atom = await self.get_memory_by_alias(agent_alias)
-            if atom:
-                profile = AgentProfile.from_atom(atom)
-                if profile:
-                    return profile
-        except Exception as e:
-            logger.warning(
-                f"Failed to load agent profile '{agent_alias}' from storage: {e}"
+        atom = await self.get_memory_by_alias(normalized_alias)
+        if atom is None:
+            raise AliasNotFoundError(
+                message_key="mtp.call.profile_not_found",
+                params={"agent_alias": normalized_alias},
             )
-
-        logger.info(
-            f"Agent profile '{agent_alias}' not found, falling back to OMNI_DOLL_PROFILE."
-        )
-        return OMNI_DOLL_PROFILE
+        if atom.index.memory_type != MemoryType.AGENT_PROFILE:
+            raise MemoryTypeMismatchError(
+                message_key="mtp.call.profile_type_mismatch",
+                params={"agent_alias": normalized_alias},
+            )
+        profile = AgentProfile.from_atom(atom)
+        if profile is None:
+            raise InvalidArgumentError(
+                message_key="mtp.call.profile_invalid",
+                params={"agent_alias": normalized_alias},
+            )
+        return profile
 
     async def search_memories(
         self,

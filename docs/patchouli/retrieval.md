@@ -49,7 +49,7 @@ RetrievalFamiliar 通过 MemoryLibrary.short_term 返回不可变 `TopicData` �
 
 ### 2.2 中期记忆读取
 
-中期读取包括 UUID、alias、scroll/list 和相关性搜索。Agent Profile 也以 `MemoryType.AGENT_PROFILE` 的 MemoryAtom 保存；别名缺失、类型不符或读取异常时，当前回退到内置 `OMNI_DOLL_PROFILE`。
+中期读取包括 UUID、alias、scroll/list 和相关性搜索。Agent Profile 也以 `MemoryType.AGENT_PROFILE` 的 MemoryAtom 保存。只有未指定 Profile 时才允许使用内置 `OMNI_DOLL_PROFILE` fallback；`default` / `omni_doll` 是对该内置 Profile 的直接选择。显式自定义 alias 必须携带 Identity，并经过 user 与 PUBLIC / WORKSPACE / PRIVATE 可见性检查；缺失、越权、类型不符、配置无效或存储失败都显式返回对应结构化错误。
 
 ### 2.3 长期归档读取
 
@@ -129,7 +129,7 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 
 ## 8. 失败与降级
 
-Familiar 对 storage offline/read error 保持结构化异常；其他未知异常记录日志并返回空 response。这个边界让系统可以对“书库离线”禁用记忆能力，而对局部模型、过滤或排序异常保守地继续主用例。
+普通检索对 storage offline/read error 保持结构化异常；其他未知异常记录日志并返回空 response。Profile 精确解析更严格：显式 alias 的任何加载异常都不得转为空结果或 Omni-Doll fallback。这个边界让系统可以对“书库离线”禁用记忆能力，而不会把配置或授权失败伪装成一次成功的 Agent 选择。
 
 空 response 因而有两种可能：确实无结果，或某个被 Familiar 吸收的普通异常。RuntimeEvent/日志仍是定位后者的必要证据，业务层不能把空列表当作完整健康证明。
 

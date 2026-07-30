@@ -4,7 +4,7 @@ HiveMemory 核心数据模型 - 智能体领域
 定义与多智能体系统（Agentic System）相关的数据模型。
 """
 
-from typing import List, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional, Set
 
 from pydantic import BaseModel, Field
 
@@ -20,9 +20,11 @@ class AgentProfile(BaseModel):
     骨架 (Skeleton): 模型参数 + 权限控制表，来自 MemoryAtom.payload.artifacts.agent_config
 
     权限语义：
-    - None = 全部允许（omni_doll 默认行为）
+    - None = 全部允许（供显式 Profile 使用的三态语义）
     - [] 空列表 = 禁止所有
     - 非空列表 = 白名单模式，仅允许列表中的项目
+
+    内置 Omni-Doll 不使用 None，而是固定为当前已审查能力的显式白名单。
     """
     persona: str = Field(default="", description="Agent 人设提示词")
     model_name: str = Field(default="default", description="基底模型名称")
@@ -111,14 +113,43 @@ class AgentProfile(BaseModel):
         return tool_alias in self.get_tool_set()
 
 
+OMNI_DOLL_ALLOWED_MTP_VERBS = [
+    "SEARCH",
+    "READ",
+    "RUN",
+    "WRITE",
+    "UPDATE",
+    "CALL",
+]
+"""Omni-Doll 明确允许的 MTP 能力。
+
+使用显式白名单而不是 ``None``，避免未来新增 verb 时默认扩大 fallback 权限。
+"""
+
+OMNI_DOLL_ALLOWED_SYS_TOOLS = [
+    "sys_clock",
+    "sys_python_repl",
+    "sys_web_search",
+    "sys_read_file",
+    "sys_write_file",
+]
+"""Omni-Doll 明确允许的内置 syscall。
+
+新注册的 syscall 必须在这里经过显式授权后，才能进入 fallback Profile。
+"""
+
+
 OMNI_DOLL_PROFILE = AgentProfile(
     persona="",
     model_name="default",
     temperature=None,
     top_p=None,
-    allowed_mtp_verbs=None,
-    allowed_sys_tools=None,
+    allowed_mtp_verbs=OMNI_DOLL_ALLOWED_MTP_VERBS,
+    allowed_sys_tools=OMNI_DOLL_ALLOWED_SYS_TOOLS,
     language="zh",
 )
-"""全能人偶 (Omni-Doll) 默认配置 - 拥有完整权限，无特定人设。
-temperature/top_p 为 None，运行时沿用注册表默认模型的参数。"""
+"""全能人偶 (Omni-Doll) 默认配置 - 显式授权当前内置能力，无特定人设。
+
+temperature/top_p 为 None，运行时沿用注册表默认模型的参数。权限列表刻意不使用
+``None``，以免新增 verb/tool 在未经审查时自动进入 fallback 边界。
+"""
