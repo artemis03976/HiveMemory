@@ -1,4 +1,32 @@
+---
+title: Patchouli Page Folding Raw Evidence
+status: idea
+owner: patchouli
+scope: page-folding-raw-evidence-exploration
+related_current:
+  - docs/patchouli/perception.md
+  - docs/patchouli/artifacts.md
+  - docs/patchouli/generation.md
+last_reviewed: 2026-07-29
+---
+
 # Patchouli Page Folding Raw Evidence 设计备忘
+
+本文是一项未排期的开放设计，不是 Patchouli 当前能力说明。当前 Page Folding、Artifact 与 Generation 的真实边界分别以[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。
+
+## 0. 复核结论与成立条件
+
+这个 Idea 所保护的核心理念仍然成立：Agent 的工作上下文与系统保存的原始证据是两种不同资产。旧页退出 active buffer，不等于它们在证据层也应当消失；反过来，保存证据也不意味着每轮都应把全部历史重新注入 Agent。
+
+当前代码已经具备三块可复用基础：`TOKEN_OVERFLOW` 会生成 `state_summary`，Generation 接受结算后的 `TopicMaterializeTask`，Artifact 层也能保存 append-oriented 的 InteractionArtifact。但三者尚未形成本文设想的旁路：overflow 当前不 Settle、会清空全部 blocks，`fold_retain_recent_blocks` 尚未接线；没有 `FoldResult`、folded evidence artifact 类型或 raw turn store；`TopicMaterializeTask` 也不携带 folded artifact refs。现有 Artifact 基础因此不能被解释为“折叠原文已经保全”。
+
+本方向只有在以下条件同时满足后才应升级为 Plan：
+
+1. 通过可复现案例证明 overflow 原文丢失确实影响记忆质量、审计或调试，而不是只存在理论风险；
+2. 明确证据保留期限、用户隔离、敏感内容处理、容量上限和删除语义；
+3. 决定写入所有权与失败语义，并证明 artifact 旁路不会阻塞 Agent 热路径；
+4. 定义默认 settlement 与 high-fidelity refinement 的质量/延迟基线、去重策略和验收测试；
+5. 形成独立 Plan，明确修改 Perception、Artifacts、Generation 和配置时必须同步更新的当前文档。
 
 ## 1. 背景
 
@@ -57,7 +85,7 @@ TOKEN_OVERFLOW = compact + discard raw pages from active buffer
 
 更好的方向是拆流。
 
-## 3. 目标设计
+## 3. 候选设计
 
 未来优化应拆成三条语义独立的流：
 
@@ -140,7 +168,7 @@ HIGH_FIDELITY_SETTLEMENT:
   dedup / merge generated atoms
 ```
 
-## 4. 推荐演进方案
+## 4. 候选演进顺序
 
 ### Phase 1: 提取 fold 原语
 
@@ -342,7 +370,7 @@ raw evidence 是增强能力，不应阻塞 Agent 热路径。
 - active buffer folding 仍继续。
 - 后续可通过 observability 发现证据缺失。
 
-## 8. 推荐最终形态
+## 8. 理想候选形态
 
 理想状态下，Page Folding 的语义是：
 

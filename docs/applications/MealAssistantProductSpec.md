@@ -1,4 +1,21 @@
+---
+title: Meal Assistant Product Specification
+status: planned
+owner: product
+scope: meal-assistant-mvp-and-validation
+target: first-real-application-validation
+updates:
+  - docs/applications/README.md
+  - docs/PROJECT.md
+related_contracts:
+  - docs/contracts/mtp.md
+  - docs/contracts/routes-and-events.md
+last_reviewed: 2026-07-29
+---
+
 # 三餐推荐助手 产品规格文档 (Meal Assistant Product Spec)
+
+> **当前状态（2026-07-29）**：本文是一份可执行的产品验证规格，不是已交付应用说明。仓库中尚无独立 Meal Assistant package、专用 UI、应用级自动化测试或“一周真实用户使用”证据；第 6 节验收项均未完成。规格复用当前 Chat 与 Agent Management，并以现有 Gateway 决策 -> Patchouli prepare/retrieval -> Alice run/MTP -> Patchouli finalize 链路和六个 MTP verb 为基础；其中 CALL 已由系统实现，但本应用主动禁用，多 Agent 不是 MVP 依赖。当前前端没有正式的 session/message history 恢复能力，本文中的“新会话”在验收时指清空工作区后发起一次新的独立 chat run，而不是恢复一个后端会话。
 
 # 1 定位与目标 (Positioning & Goals)
 
@@ -22,7 +39,7 @@
 
 - **朋友（真实用户）能连续使用一周**，并主观感受到"它记得我"
 - **至少 3 个跨会话记忆场景**被验证有效：偏好记忆、饮食历史、新菜谱学习
-- **HiveMemory 现有子系统（Patchouli + Alice + MTP）跑通完整链路**，不依赖未完成的重构（如 Gateway v0.6.0）
+- **HiveMemory 当前子系统（Gateway + Patchouli + Alice + MTP）跑通完整链路**，不为该应用额外引入新的后端重构依赖
 
 ## 1.4 非目标 (Non-Goals)
 
@@ -33,7 +50,7 @@
 - **不做营养分析/健康建议**：仅做推荐，不做营养学推理
 - **不做图片识别**：用户手动描述菜品，不接入多模态
 - **不做个性化推荐算法优化**：第一版依赖 LLM 的推理能力 + 记忆检索，不引入协同过滤等 ML 推荐
-- **不等待 Gateway 重构完成**：使用现有的检索与路由逻辑
+- **不扩展 Gateway 范围**：直接使用当前 v0.6 开发基线已经存在的入口决策、检索准备与 Agent 执行链路
 
 ---
 
@@ -90,6 +107,8 @@
 
 本场景下 HiveMemory 的七种记忆类型使用情况：
 
+`MemoryType` 是当前系统提供的七种通用类型，并没有专门的“餐食历史”“库存”或“菜谱”枚举。下表是产品层的语义映射，不会新增后端类型。`QueryFilters` 模型虽然声明了 `time_range`，当前 MTP filter parser 和 Retrieval 实现却尚未把它接成端到端能力；因此“近期”首先依赖记忆正文中的明确日期、`sys_clock` 和语义检索，不能假定存在名为 `recent_meals` 的专用索引或可靠的硬时间过滤。
+
 | 记忆类型 | 本场景用途 | 使用频率 | MTP 指令 |
 |:---|:---|:---|:---|
 | `USER_PROFILE` | 用户口味偏好、过敏信息、饮食限制 | 高 | `WRITE` / `UPDATE` / `SEARCH` |
@@ -111,26 +130,30 @@
 第一版必须跑通的完整流程：
 
 ```
-用户输入
+系统应用提交一次 chat run
   ↓
-Alice Runtime 接收消息
+Gateway 决策（入口、话题、重写查询与检索计划）
   ↓
-Patchouli 检索（基于现有检索逻辑）
-  ├─ SEARCH user_profile  → 用户偏好
-  ├─ SEARCH recent_meals  → 近期饮食（时间过滤）
-  └─ SEARCH recipes       → 会做的菜/库存
+Patchouli prepare（准备话题、检索上下文与 MemoryCompiler 投影）
+  └─ 根据 GatewayDecision 形成检索请求并编译 memory context
+       ├─ 用户偏好
+       ├─ 近期饮食（正文日期 + 语义召回）
+       └─ 会做的菜/库存
   ↓
-Agent Loop 推理（LLM）
+Alice Agent Runtime 推理（LLM/MTP）
+  ├─ 信息不足时按权限发起 SEARCH / READ
   ├─ 生成推荐 / 回答
   └─ 判断是否值得记忆
        ├─ WRITE 新信息（新偏好/新菜谱/新饮食记录）
        ├─ UPDATE 已有信息（偏好修正）
        └─ 无操作（闲聊不值得记）
   ↓
-MTP 响应执行
+Patchouli finalize（提交交互、记录命中并安排记忆生成）
   ↓
 回复用户
 ```
+
+上图中的偏好、近期饮食和菜谱是产品语义上的检索目标，不是当前代码中已经固定存在的专用索引；MTP SEARCH 是否以及如何发出，仍由 Agent Runtime 的权限、Prompt 和当前检索契约决定。
 
 ## 4.2 MTP 指令使用清单
 
@@ -144,7 +167,7 @@ MTP 响应执行
 | `READ` | 读取单条记忆 | 读取特定菜谱详情 |
 | `RUN` | 获取可信的当前日期 | 仅允许调用 `sys_clock`，不开放其他系统工具 |
 
-**不使用**的指令（第一版）：面向记忆工具的 `RUN`（MaaT 暂不启用）、`DELETE`（由生命周期管理自动处理）、`CALL`（单 Agent 无子帧派生）。`RUN` 仅作为调用 `sys_clock` 的必要入口开放，并由 `allowed_sys_tools` 白名单阻止其调用其他系统工具。当前权限模型尚不能在开放 `RUN` 的同时硬性禁止执行 `CODE_SNIPPET` 记忆，因此“不执行 MaaT”在 MVP 中仍是 system prompt 软约束；首版不创建或投放 `CODE_SNIPPET`。
+当前 MTP 契约共有 SEARCH、READ、RUN、WRITE、UPDATE、CALL 六个 verb。本应用第一版**不使用**面向记忆工具的 `RUN`（MaaT 暂不启用）和 `CALL`（尽管 CALL 已实现，MVP 仍保持单 Agent）；协议没有 `DELETE` verb，正式记忆删除由管理 API 或生命周期能力处理。`RUN` 仅作为调用 `sys_clock` 的必要入口开放，并由 `allowed_sys_tools` 白名单阻止其调用其他系统工具。当前权限模型尚不能在开放 `RUN` 的同时硬性禁止执行 `CODE_SNIPPET` 记忆，因此“不执行 MaaT”在 MVP 中仍是 system prompt 软约束；首版不创建或投放 `CODE_SNIPPET`。
 
 ---
 
@@ -180,8 +203,8 @@ MTP 响应执行
 
 以下场景必须全部跑通，且**由朋友实际验证**：
 
-- [ ] **AC1**：首次对话声明偏好 → 新建会话 → Agent 推荐时遵循该偏好
-- [ ] **AC2**：报告"今天吃了番茄炒蛋" → 次日问推荐 → Agent 不重复推荐番茄炒蛋
+- [ ] **AC1**：首次对话声明偏好 → 清空工作区后发起新的独立 chat run → Agent 推荐时遵循该偏好
+- [ ] **AC2**：报告"今天吃了番茄炒蛋" → 次日发起新的独立 chat run 并询问推荐 → Agent 不重复推荐番茄炒蛋
 - [ ] **AC3**：报告"我会做酸汤肥牛，做法是……" → 若干天后推荐时纳入该菜
 - [ ] **AC4**：修正偏好（"我现在能接受一点甜食"）→ 后续推荐体现修正
 - [ ] **AC5**：问"我最近吃了什么" → Agent 能列出近期饮食记录
@@ -199,7 +222,7 @@ MTP 响应执行
 ## 7.1 必须遵守
 
 - **基于现有 v4 架构**：不引入新的架构重构
-- **使用现有 Patchouli 检索逻辑**：不等待 Gateway v0.6.0
+- **复用当前主动链路**：Gateway 决策 -> Patchouli prepare -> Alice run -> Patchouli finalize，不为应用另建入口或检索旁路
 - **单 Agent**：不启用 Alice 的子帧派生
 - **MTP 指令子集**：SEARCH / WRITE / UPDATE / READ，以及仅用于 `sys_clock` 的 RUN
 - **第一版不超过 3 天开发时间**：超时则砍功能而非延期
@@ -273,6 +296,8 @@ MTP 响应执行
 - **Finding 8（适度结构）**：检索不堆叠过多 Reflect 步骤
 - **Finding 9（保守整合）**：偏好修正用 UPDATE 而非追加冲突记忆
 - **Finding 4（时间敏感）**：饮食历史保留时间戳，检索时支持时间过滤
+
+其中 Finding 4 是本应用要验证并补齐的目标，不是现状声明。当前尚无从 MTP filter 到 Retrieval 的端到端时间范围过滤，MVP 必须先用明确日期内容、`sys_clock` 与实际召回测试证明可用；若不可靠，应把时间过滤作为应用落地缺口处理，而不是在验收中默认通过。
 
 ---
 
@@ -375,13 +400,13 @@ MTP 响应执行
 
 ## 11.5 交付前最小闭环自测
 
-每一步都观察 Agent 的最终回复和 MTP 执行结果；涉及记忆的步骤应在新会话中复查，不能只凭同一会话的上下文判断成功。
+每一步都观察 Agent 的最终回复和 MTP 执行结果；涉及记忆的步骤应在清空工作区后发起新的独立 chat run 中复查，不能只凭同一运行的上下文判断成功。这里的“新会话”是测试隔离语义，不代表当前后端已经提供 session/message history 恢复。
 
 1. **建立硬约束与偏好**
    - 输入：`我对虾过敏，喜欢吃辣，不太喜欢甜食。`
    - 预期：创建偏好记忆；回复不夸大为医疗建议，也不推荐含虾菜品。
 2. **跨会话召回**
-   - 新建会话，输入：`今晚吃什么？`
+   - 清空当前工作区后发起新的独立 chat run，输入：`今晚吃什么？`
    - 预期：主动检索既有偏好；推荐避开虾和明显甜口，并给出简短依据。
 3. **学习完整菜谱**
    - 输入一份包含菜名、配料和步骤的自定义菜谱，并说明 `这是我会做的菜，请记住。`
@@ -393,7 +418,7 @@ MTP 响应执行
    - 输入：`我明天可能做宫保鸡丁。`
    - 预期：不得把宫保鸡丁写成已经吃过；如无长期价值，可不写入任何记忆。
 6. **近期去重**
-   - 新建会话，输入：`我最近吃了什么？今晚再推荐一道。`
+   - 清空当前工作区后发起新的独立 chat run，输入：`我最近吃了什么？今晚再推荐一道。`
    - 预期：能说出带正确日期的番茄炒蛋，并避免再次把它作为主推荐。
 7. **修正而非追加冲突**
    - 输入：`我现在可以接受少量甜味，但仍然不喜欢很甜的菜。`

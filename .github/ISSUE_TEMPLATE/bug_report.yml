@@ -51,7 +51,7 @@ body:
     id: version
     attributes:
       label: 版本
-      description: 受影响的版本（如 v0.1.0、commit hash 等）
+      description: 受影响的版本（如 v0.6.0、commit hash 等）
       placeholder: 请输入版本号或 commit hash...
     validations:
       required: true

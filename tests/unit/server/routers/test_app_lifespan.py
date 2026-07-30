@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 
+from hivememory import __version__
 from hivememory.server import app as app_module
 
 
@@ -34,3 +35,11 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
         mock_system.readiness_service.warmup_models.assert_called_once()
         shutdown_system.assert_awaited_once()
         shutdown_ws.assert_awaited_once_with(ws_manager)
+
+
+@pytest.mark.asyncio
+async def test_app_and_health_report_package_version():
+    response = await app_module.health()
+
+    assert app_module.app.version == __version__
+    assert response.version == __version__

@@ -1,15 +1,21 @@
+---
+title: HiveMemory Vision
+status: current
+owner: project
+scope: project-vision-positioning-and-decision-principles
+last_reviewed: 2026-07-29
+---
+
 # HiveMemory 项目愿景与新定位总纲
 
-**文档状态**：Living Vision  
 **文档性质**：项目上位理念与长期方向，不代表所有能力均已实现  
-**适用范围**：未来的项目介绍、架构设计、路线规划、产品决策与评估体系  
-**最后更新**：2026-07-26
+**适用范围**：未来的项目介绍、架构设计、路线规划、产品决策与评估体系
 
 **相关文档**：
 
-- [v4 当前架构总纲](./architecture/evolution/SystemArchitecture_v4.0.md)
-- [Memory Tool Protocol](./protocols/MemoryToolProtocol.md)
-- [Passive Conversation Memory Ingress 设计](./mod/V0.6.0PassiveIngressDesign.md)
+- [当前系统架构](./architecture/overview.md)
+- [Memory Tool Protocol](./contracts/mtp.md)
+- [Passive Conversation Memory Ingress 当前设计](./system/passive-ingress.md)
 - [三餐推荐助手产品规格](./applications/MealAssistantProductSpec.md)
 
 ---
@@ -750,7 +756,7 @@ HiveMemory 更关心数天、数周甚至更长时间内的状态一致性、修
 
 ### 18.1 当前已经成立的工程事实
 
-- HiveMemory 已形成顶层 System、Patchouli 和 Alice 的 v4 子系统边界。
+- HiveMemory 已形成 System 组合根，以及 Gateway、Patchouli、Alice 三个同级后端子系统的当前边界。
 - Patchouli 承担记忆准备、检索、生成和生命周期相关职责。
 - Alice 承担 Agent loop 与 MTP/工具执行相关职责。
 - MTP 已提供 Agent 主动访问记忆的协议基础。
@@ -787,9 +793,9 @@ HiveMemory 更关心数天、数周甚至更长时间内的状态一致性、修
 | Product | 为谁解决什么问题、怎样算成功 | 应用规格、用户场景文档 |
 | Project Overview | 当前提供什么、如何理解整体系统 | `README.md`、`docs/PROJECT.md` |
 | Architecture | 当前系统如何划分、边界是什么 | `docs/architecture/` |
-| Protocol & Contract | 子系统如何稳定交互 | `docs/protocols/`、contracts 文档 |
+| Protocol & Contract | 子系统如何稳定交互 | `docs/contracts/` |
 | Roadmap | 接下来验证什么、按什么顺序 | `docs/ROADMAP.md` |
-| Implementation Design | 某次实现或重构如何落地 | `docs/mod/`、各子系统目录 |
+| Implementation Design | 某次实现或重构如何落地 | `docs/plans/`；完成后进入 `docs/archive/` |
 | Evidence | 实验、指标、用户反馈证明了什么 | 应用验收与评估报告 |
 
 后续重构时应遵循：

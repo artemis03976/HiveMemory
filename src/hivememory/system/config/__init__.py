@@ -182,7 +182,6 @@ def yaml_config_settings_source() -> Dict[str, Any]:
 
 class SystemConfig(BaseModel):
     name: str = Field(default="HiveMemory")
-    version: str = Field(default="0.1.0")
     debug: bool = Field(default=False)
 
     model_config = ConfigDict(extra="ignore")

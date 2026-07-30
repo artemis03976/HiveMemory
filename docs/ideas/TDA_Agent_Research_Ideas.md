@@ -1,4 +1,32 @@
+---
+title: TDA for Agent Trajectories and Multi-Agent Orchestration
+status: idea
+owner: research
+scope: agent-trajectory-topology-exploration
+related_current:
+  - docs/alice/agent-runtime.md
+  - docs/alice/orchestration.md
+  - docs/system/observability.md
+last_reviewed: 2026-07-29
+---
+
 # TDA 在 Agent 轨迹与多智能体编排中的潜在应用想法
+
+本文保存研究假设，不描述 Alice 或 System 已经交付的能力，也不构成 Roadmap 承诺。当前单帧执行、CALL 编排和运行观测分别以 [Agent Runtime](../alice/agent-runtime.md)、[多 Agent 编排](../alice/orchestration.md)和 [System 可观测性](../system/observability.md)为准。
+
+## 0. 复核结论与当前基础
+
+HiveMemory 已经拥有比自由文本 CoT 更可靠的一部分观测原语：`TurnEvent` 以 sequence 和 action id 保存消息、thought、tool call/result；`AgentAction` 聚合动作；`RuntimeEvent` 提供 trace、frame、run、task 和 topic 等关联字段；Alice 也能产生单层、串行 CALL 的子 Agent 事件。这些结构可以成为未来离线构图的数据来源。
+
+但当前没有持久化 Agent trajectory graph、依赖边抽取、filtration、persistent homology、topology monitor 或拓扑驱动的运行时控制。RuntimeEventBus 还是进程内 best-effort 观测流，TurnEvent 也没有完整的 parent dependency、成本、延迟与跨 run 回放语义；Alice 当前只支持单层星型 CALL，不具备并行团队、动态 DAG 或自治 review loop。因此下文的图模型、H0/H1 解释和控制策略都只是待证伪假设，不能反写为当前编排设计。
+
+本方向升级为 Plan 前，至少需要：
+
+1. 先冻结一个可导出、可脱敏、可重放的最小事件数据集，并说明它与业务真相、RuntimeEvent 和日志的关系；
+2. 建立普通计数/规则基线，例如 retry 次数、失败率、分支数和成本，证明 TDA 提供额外而稳定的解释力；
+3. 使用成功/失败、成本和人工质量标签完成离线评估，避免仅凭个别轨迹解释 H0/H1；
+4. 明确初期只做离线诊断，不让实验性拓扑信号直接取得取消、重试或调度权；
+5. 若证据成立，再建立独立 Plan，列明数据治理、计算成本、误报边界和受影响的 Alice/System 文档。
 
 ## 1. 背景与动机
 
@@ -341,7 +369,7 @@ Agent run log
 
 ### 6.1 数据层
 
-首先需要在 Agent 框架中加入结构化 tracing。
+首先需要把当前 TurnEvent、AgentAction、Alice 流事件与 RuntimeEvent 投影为一个可导出的最小记录，并补齐构图真正需要、而当前尚未稳定提供的依赖、成本和结果字段。这个导出层必须显式区分内容事实、业务状态与 best-effort 观测，不能把多种事件流简单拼成一份伪权威日志。
 
 每次运行记录：
 
@@ -514,11 +542,11 @@ replan loop:
 8. topology signal 如何接入 MCTS / RL / process reward？
 ```
 
-一个可行的短期目标：
+一个可行的首个验证实验（不代表近期排期）：
 
 ```text
-在自己的 Agent 框架中加入 structured tracing，
-自动导出 event graph，
+在当前结构化事件基础上补齐可重放 tracing export，
+自动导出离线 event graph，
 并实现一个离线的 Trajectory Topology Monitor 原型。
 ```
 

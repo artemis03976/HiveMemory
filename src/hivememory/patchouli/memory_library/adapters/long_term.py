@@ -5,7 +5,7 @@ FileBasedStorageAdapter — LongTermStoragePort 的文件系统实现
 跨层操作（从 Qdrant 获取 / 写回 Qdrant）已上移至 MemoryLibrary，此适配器
 仅负责文件系统的读写和索引维护。
 
-版本: 0.1.0 (Phase 1)
+实现阶段: Phase 1
 """
 
 from __future__ import annotations

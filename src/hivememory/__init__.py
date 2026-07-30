@@ -28,6 +28,7 @@ HiveMemory - 分布式记忆管理系统
 
 # ruff: noqa: I001
 
+from hivememory._version import __version__
 from hivememory.core.models import (
     ActionReducer,
     AgentAction,
@@ -234,6 +235,7 @@ def __getattr__(name: str):
 
 
 __all__ = [
+    "__version__",
     # ========== 核心模型 ==========
     "MemoryAtom",
     "MemoryType",
@@ -392,6 +394,3 @@ __all__ = [
     "MemoryGenerationFamiliar",
     "MemoryGenerationCoordinator",
 ]
-
-
-__version__ = "0.6.0"

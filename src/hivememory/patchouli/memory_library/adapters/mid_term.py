@@ -3,7 +3,7 @@ QdrantStorageAdapter — MidTermStoragePort 的 Qdrant 实现
 
 包装现有 QdrantMemoryStore，使中期存储操作通过 Port 接口发起。
 
-版本: 0.1.0 (Phase 1)
+实现阶段: Phase 1
 """
 
 from __future__ import annotations
