@@ -8,6 +8,7 @@ import pytest
 from hivememory.agent_runtime.events import QueueFrameEventSink
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.alice.runtime.agent.run_driver import RunDriver
+from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 
 
 @pytest.mark.asyncio
@@ -77,3 +78,70 @@ async def test_run_driver_cancels_runner_when_stream_consumer_closes():
     await asyncio.wait_for(runner_cancelled.wait(), timeout=1)
 
     assert first_event["event"] == "token"
+
+
+@pytest.mark.asyncio
+async def test_run_driver_applies_each_call_record_once():
+    calls = 0
+    applied = []
+
+    async def run_frame(_frame, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return FrameExecutionResult(
+                status=FrameExecutionStatus.SUSPENDED,
+                call_request=MTPCallRequest(target_alias="helper", task="task"),
+                suspend_action_id="act-1",
+            )
+        return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+
+    async def resolve_call(_frame, _suspension, **_kwargs):
+        return MTPCallResponse(status=MTPResponseStatus.SUCCESS, agent_alias="helper")
+
+    runtime = SimpleNamespace(
+        run_frame=run_frame,
+        apply_call_response=lambda frame, suspension, response: applied.append(
+            (frame, suspension, response)
+        ),
+    )
+    driver = RunDriver(runtime, SimpleNamespace(resolve_call=resolve_call))
+
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(frame_id=""))
+    result = await driver.run(frame)
+
+    assert result.status == FrameExecutionStatus.COMPLETED
+    assert len(applied) == 1
+    assert driver.call_records[("", "act-1")].status.value == "applied"
+
+
+@pytest.mark.asyncio
+async def test_run_driver_drops_late_call_response_after_cancel():
+    cancel_event = asyncio.Event()
+    applied = []
+
+    async def run_frame(_frame, **_kwargs):
+        if cancel_event.is_set():
+            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
+        return FrameExecutionResult(
+            status=FrameExecutionStatus.SUSPENDED,
+            call_request=MTPCallRequest(target_alias="helper", task="task"),
+            suspend_action_id="act-1",
+        )
+
+    async def resolve_call(_frame, _suspension, **_kwargs):
+        cancel_event.set()
+        return MTPCallResponse(status=MTPResponseStatus.SUCCESS, agent_alias="helper")
+
+    runtime = SimpleNamespace(
+        run_frame=run_frame,
+        apply_call_response=lambda *args: applied.append(args),
+    )
+    driver = RunDriver(runtime, SimpleNamespace(resolve_call=resolve_call))
+
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(frame_id=""))
+    result = await driver.run(frame, cancel_event=cancel_event)
+
+    assert result.status == FrameExecutionStatus.CANCELLED
+    assert applied == []
+    assert driver.call_records[("", "act-1")].status.value == "cancelled"

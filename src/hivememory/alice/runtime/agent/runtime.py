@@ -10,7 +10,9 @@ from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
+from hivememory.core.models import TurnEvent
 from hivememory.core.models.pending import PendingAtomStatus
+from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.models import ExecutionFrame
@@ -156,6 +158,68 @@ class AgentRuntime:
             event_sink=event_sink,
             cancel_event=cancel_event,
         )
+
+    def apply_call_response(
+        self,
+        frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        response: MTPCallResponse,
+    ) -> None:
+        """Apply one resolved CALL response to the suspended frame exactly once."""
+        if suspension.status != FrameExecutionStatus.SUSPENDED:
+            raise ValueError("CALL response requires a suspended frame result.")
+        call_request = suspension.call_request
+        action_id = suspension.suspend_action_id
+        if call_request is None or not action_id:
+            raise ValueError("CALL suspension is missing request or action id.")
+        if response.agent_alias != call_request.target_alias:
+            raise ValueError(
+                "CALL response target does not match the suspended request: "
+                f"expected={call_request.target_alias!r}, got={response.agent_alias!r}"
+            )
+
+        matching_calls = [
+            event
+            for event in frame.progress.turn_events
+            if event.kind == "tool_call" and event.action_id == action_id
+        ]
+        if len(matching_calls) != 1:
+            raise ValueError(
+                f"CALL suspension has {len(matching_calls)} matching tool_call events: "
+                f"action_id={action_id}"
+            )
+        if any(
+            event.kind == "tool_result" and event.action_id == action_id
+            for event in frame.progress.turn_events
+        ):
+            raise ValueError(f"CALL response was already applied: action_id={action_id}")
+
+        formatted_response = MTPFormatter.format_call_response(
+            response,
+            getattr(frame.agent_profile, "language", None),
+        )
+        assistant_text = suspension.suspend_assistant_text or ""
+        frame.working_history.append({"role": "assistant", "content": assistant_text})
+        frame.working_history.append({"role": "user", "content": formatted_response})
+        frame.progress.turn_events[frame.progress.turn_events.index(matching_calls[0])] = (
+            matching_calls[0].model_copy(update={"status": response.status.value})
+        )
+        frame.progress.turn_events.append(
+            TurnEvent(
+                kind="tool_result",
+                sequence=frame.progress.sequence,
+                role="user",
+                content=formatted_response,
+                action_id=action_id,
+                tool_kind="CALL",
+                tool_name=call_request.target_alias,
+                status=response.status.value,
+                render_as="system_call_response",
+            )
+        )
+        frame.progress.sequence += 1
+        for alias in response.artifact_aliases:
+            frame.add_harvested_alias(alias)
 
     def _resolve_model_for_frame(
         self,

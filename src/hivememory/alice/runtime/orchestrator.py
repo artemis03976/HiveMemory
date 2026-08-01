@@ -23,6 +23,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
     MTPExecutionContext,
 )
+from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.agent.run_driver import RunDriver
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
@@ -76,6 +77,12 @@ class AgentOrchestrator:
         self._agent_profile_resolver = agent_profile_resolver
         self._alias_resolver = alias_resolver
         self._mtp_formatter = MTPFormatter()
+        self._call_coordinator = CallCoordinator(
+            agent_runtime,
+            frame_scheduler,
+            agent_profile_resolver,
+            alias_resolver,
+        )
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -97,21 +104,12 @@ class AgentOrchestrator:
             identity=identity,
         )
         self._record_initial_user_event(main_frame, messages)
-        driver = RunDriver(self._agent_runtime)
-
-        async def _on_suspend(engine_result: FrameExecutionResult) -> None:
-            await self._handle_suspend(
-                main_frame=main_frame,
-                engine_result=engine_result,
-                generation_options=generation_options,
-                cancel_event=cancel_event,
-            )
+        driver = RunDriver(self._agent_runtime, self._call_coordinator)
 
         engine_result = await driver.run(
             main_frame,
             generation_options=generation_options,
             cancel_event=cancel_event,
-            on_suspend=_on_suspend,
         )
         return self._assemble_agent_run_result(
             main_frame,
@@ -136,24 +134,14 @@ class AgentOrchestrator:
         )
         self._record_initial_user_event(main_frame, messages)
 
-        driver = RunDriver(self._agent_runtime)
+        driver = RunDriver(self._agent_runtime, self._call_coordinator)
         event_metadata = self._event_metadata_for_frame(main_frame)
-
-        async def _on_suspend(engine_result: FrameExecutionResult, emit) -> None:
-            await self._handle_suspend(
-                main_frame=main_frame,
-                engine_result=engine_result,
-                generation_options=generation_options,
-                emit=emit,
-                cancel_event=cancel_event,
-            )
 
         async for event in driver.run_stream(
             main_frame,
             generation_options=generation_options,
             cancel_event=cancel_event,
             event_metadata=event_metadata,
-            on_suspend=_on_suspend,
         ):
             yield event
 
@@ -217,6 +205,35 @@ class AgentOrchestrator:
     # ------------------------------------------------------------------
 
     async def _handle_suspend(
+        self,
+        main_frame: ExecutionFrame,
+        engine_result: FrameExecutionResult,
+        generation_options: dict[str, Any] | None,
+        emit: Callable | None = None,
+        cancel_event=None,
+    ) -> None:
+        """Compatibility entrypoint; new runs use RunDriver + CallCoordinator."""
+        apply_response = getattr(self._agent_runtime, "apply_call_response", None)
+        if callable(apply_response):
+            response = await self._call_coordinator.resolve_call(
+                main_frame,
+                engine_result,
+                generation_options=generation_options,
+                cancel_event=cancel_event,
+                emit=emit,
+            )
+            if cancel_event is None or not cancel_event.is_set():
+                apply_response(main_frame, engine_result, response)
+            return
+        await self._legacy_handle_suspend(
+            main_frame=main_frame,
+            engine_result=engine_result,
+            generation_options=generation_options,
+            emit=emit,
+            cancel_event=cancel_event,
+        )
+
+    async def _legacy_handle_suspend(
         self,
         main_frame: ExecutionFrame,
         engine_result: FrameExecutionResult,
