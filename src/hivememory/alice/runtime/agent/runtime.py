@@ -9,15 +9,14 @@ from hivememory.agent_runtime.events import CallbackFrameEventSink, FrameEventSi
 from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
 from hivememory.core.models import TurnEvent
-from hivememory.core.models.pending import PendingAtomStatus
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.models import ExecutionFrame
     from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
-    from hivememory.core.models.pending import PendingAtomMaterializeTask
     from hivememory.system.config import AliceConfig
     from hivememory.system.model_registry import ModelRegistry
 
@@ -310,34 +309,46 @@ class AgentRuntime:
         """将 in-flight atom 迁移到 CANCELLED（由 patchouli CANCELLED 事件触发）。"""
         self._pending_runtime.cancel(pending_alias)
 
-    def cancel_tasks_by_run(self, run_id: str) -> list[str]:
-        """取消本 run 仍在飞行中的 pending atom。"""
-        return self._pending_runtime.cancel_run(run_id)
+    def finalize_frame(
+        self,
+        frame: ExecutionFrame,
+        result: FrameExecutionResult,
+    ) -> FrameProducts:
+        """Project successful frame artifacts or clean up an unsuccessful frame."""
+        frame_id = frame.runtime_scope.frame_id
+        if result.status != FrameExecutionStatus.COMPLETED:
+            self._pending_runtime.cancel_frame(frame_id)
+            return FrameProducts()
 
-    def cancel_tasks_by_frame(self, frame_id: str) -> list[str]:
-        """取消单个失败/取消 frame 仍在飞行中的 pending atom。"""
-        return self._pending_runtime.cancel_frame(frame_id)
+        aliases = list(frame.harvested_aliases)
+        for alias in self._pending_runtime.aliases_by_frame(frame_id):
+            if alias and alias not in aliases:
+                aliases.append(alias)
 
-    def aliases_by_frame(self, frame_id: str) -> list[str]:
-        """返回属于指定 frame 的全部 pending alias（不做状态过滤，供 harvest 使用）。"""
-        return [
-            atom.pending_alias
-            for atom in self._pending_runtime.all_atoms()
-            if atom.runtime_scope.frame_id == frame_id
-        ]
+        from hivememory.core.mtp.models import MTPVerb
 
-    def collect_tasks_by_run(self, run_id: str) -> list[PendingAtomMaterializeTask]:
-        """收集本 run 的待物化 Task，并将状态从 PENDING 迁移到 MATERIALIZING（幂等）。
-        同时回收上轮已结算的 atom（SETTLED/FAILED/CANCELLED → EXPIRED → 删除）。
-        """
-        aliases = [
-            atom.pending_alias
-            for atom in self._pending_runtime.all_atoms()
-            if atom.runtime_scope.run_id == run_id and atom.status == PendingAtomStatus.PENDING
-        ]
+        for event in frame.progress.turn_events:
+            if event.kind == "tool_call" and event.tool_kind == MTPVerb.UPDATE.value:
+                if event.target and event.target not in aliases:
+                    aliases.append(event.target)
+        for alias in aliases:
+            frame.add_harvested_alias(alias)
+        return FrameProducts(artifact_aliases=tuple(aliases))
+
+    def finalize_run(
+        self,
+        run_id: str,
+        result: FrameExecutionResult,
+    ) -> RuntimeProducts:
+        """Finalize one root run without interpreting frame topology."""
+        if result.status != FrameExecutionStatus.COMPLETED:
+            self._pending_runtime.cancel_run(run_id)
+            return RuntimeProducts()
+
+        aliases = self._pending_runtime.pending_aliases_by_run(run_id)
         tasks = self._pending_runtime.claim_for_materialization(aliases)
         self._pending_runtime.evict_by_run(run_id)
-        return tasks
+        return RuntimeProducts(materialize_tasks=tuple(tasks))
 
     def health(self) -> dict[str, Any]:
         return {"loop_executor": "ok", "worker_agent": "ok"}

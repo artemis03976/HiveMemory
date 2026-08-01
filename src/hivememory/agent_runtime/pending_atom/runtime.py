@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Optional
 from uuid import uuid4
 
+from hivememory.agent_runtime.pending_atom.store import _PendingAtomStore
 from hivememory.core.models import Identity
 from hivememory.core.models.pending import (
     InvalidStateTransition,
@@ -30,8 +30,6 @@ from hivememory.core.models.pending import (
     WriteFocus,
     is_legal_transition,
 )
-
-from hivememory.agent_runtime.pending_atom.store import _PendingAtomStore
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +69,10 @@ class PendingAtomRuntime:
     def register_write(
         self,
         content: str,
-        title: Optional[str],
-        reason: Optional[str],
+        title: str | None,
+        reason: str | None,
         identity: Identity,
-        runtime_scope: Optional[RuntimeScope] = None,
+        runtime_scope: RuntimeScope | None = None,
     ) -> PendingAtom:
         """注册 WRITE pending atom，返回带有生成 alias 的 PendingAtom。status=PENDING。"""
         slug_source = title if title else content[:20]
@@ -109,9 +107,9 @@ class PendingAtomRuntime:
         base_alias: str,
         base_uuid: str,
         instruction: str,
-        content: Optional[str],
+        content: str | None,
         identity: Identity,
-        runtime_scope: Optional[RuntimeScope] = None,
+        runtime_scope: RuntimeScope | None = None,
     ) -> PendingAtom:
         """注册 UPDATE pending revision，返回带有生成 alias 的 PendingAtom。status=PENDING。"""
         short_id = uuid4().hex[:4]
@@ -149,7 +147,7 @@ class PendingAtomRuntime:
             return
         self._set_status(atom, PendingAtomStatus.FAILED)
 
-    def cancel(self, pending_alias: str, reason: Optional[str] = None) -> None:
+    def cancel(self, pending_alias: str, reason: str | None = None) -> None:
         """Move an in-flight atom to CANCELLED."""
         atom = self._store.get(pending_alias)
         if atom is None:
@@ -163,9 +161,9 @@ class PendingAtomRuntime:
             return
         self._set_status(atom, PendingAtomStatus.CANCELLED)
 
-    def cancel_run(self, run_id: str, reason: Optional[str] = None) -> List[str]:
+    def cancel_run(self, run_id: str, reason: str | None = None) -> list[str]:
         """Cancel all in-flight pending atoms produced by one runtime run."""
-        cancelled: List[str] = []
+        cancelled: list[str] = []
         for atom in self._store.all_atoms():
             if atom.runtime_scope.run_id != run_id:
                 continue
@@ -211,7 +209,7 @@ class PendingAtomRuntime:
             return
         self._set_status(atom, PendingAtomStatus.MATERIALIZING)
 
-    def claim_for_materialization(self, aliases: list[str]) -> List[PendingAtomMaterializeTask]:
+    def claim_for_materialization(self, aliases: list[str]) -> list[PendingAtomMaterializeTask]:
         """将 PENDING 的 atom 迁移到 MATERIALIZING 并返回 Task 投影。非 PENDING 的静默跳过（幂等）。"""
         tasks = []
         for alias in aliases:
@@ -267,15 +265,15 @@ class PendingAtomRuntime:
 
     # ---- 查询（读取路径） ----
 
-    def get(self, pending_alias: str) -> Optional[PendingAtom]:
+    def get(self, pending_alias: str) -> PendingAtom | None:
         """返回 PendingAtom 原始引用（仅用于持有 focus / runtime_scope 等数据）。"""
         return self._store.get(pending_alias)
 
-    def get_by_intent_id(self, intent_id: str) -> Optional[PendingAtom]:
+    def get_by_intent_id(self, intent_id: str) -> PendingAtom | None:
         """通过 intent_id 查询 pending atom。"""
         return self._store.get_by_intent(intent_id)
 
-    def get_redirect(self, pending_alias: str) -> Optional[PendingAtomSettlement]:
+    def get_redirect(self, pending_alias: str) -> PendingAtomSettlement | None:
         """返回 pending alias 对应的结算视图。
 
         兼容旧调用名；redirect 信息现在直接从 ``PendingAtom.settlement`` 派生。
@@ -285,7 +283,7 @@ class PendingAtomRuntime:
             return None
         return atom.settlement
 
-    def get_pending_aliases_for_canonical_uuid(self, canonical_uuid: str) -> List[str]:
+    def get_pending_aliases_for_canonical_uuid(self, canonical_uuid: str) -> list[str]:
         """返回指向同一 canonical UUID 的 pending alias 列表。"""
         return self._store.aliases_by_canonical(canonical_uuid)
 
@@ -293,15 +291,31 @@ class PendingAtomRuntime:
         """检查 alias 是否为已注册的 pending atom。"""
         return self._store.has(alias)
 
-    def all_aliases(self) -> List[str]:
+    def all_aliases(self) -> list[str]:
         """返回所有已注册的 pending alias。"""
         return self._store.all_aliases()
 
-    def all_atoms(self) -> List[PendingAtom]:
+    def all_atoms(self) -> list[PendingAtom]:
         """返回所有已注册的 PendingAtom。"""
         return self._store.all_atoms()
 
-    def snapshot(self, pending_alias: str) -> Optional[PendingAtomSnapshot]:
+    def aliases_by_frame(self, frame_id: str) -> list[str]:
+        """Return aliases produced by one execution frame."""
+        return [
+            atom.pending_alias
+            for atom in self._store.all_atoms()
+            if atom.runtime_scope.frame_id == frame_id
+        ]
+
+    def pending_aliases_by_run(self, run_id: str) -> list[str]:
+        """Return materializable aliases produced by one run."""
+        return [
+            atom.pending_alias
+            for atom in self._store.all_atoms()
+            if atom.runtime_scope.run_id == run_id and atom.status == PendingAtomStatus.PENDING
+        ]
+
+    def snapshot(self, pending_alias: str) -> PendingAtomSnapshot | None:
         """
         返回 pending alias 对应的统一状态视图。
 
@@ -337,7 +351,7 @@ class PendingAtomRuntime:
             canonical_uuid=None,
         )
 
-    def tasks_by_run(self, run_id: str) -> List[PendingAtomMaterializeTask]:
+    def tasks_by_run(self, run_id: str) -> list[PendingAtomMaterializeTask]:
         """返回本 run 产生的全部 PendingAtom 的不可变物化请求投影。
 
         父帧与子帧共用同一 run_id（RuntimeScope.run_id），因此无需额外合并。

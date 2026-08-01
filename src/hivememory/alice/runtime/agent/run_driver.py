@@ -10,6 +10,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionResult,
     FrameExecutionStatus,
 )
+from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.alice.runtime.agent.call_record import CallRecord
 from hivememory.alice.runtime.agent.run_session import RunSession
 
@@ -38,6 +39,7 @@ class RunDriver:
         self._call_coordinator = call_coordinator
         self._session = session
         self.terminal_result: FrameExecutionResult | None = None
+        self.runtime_products: RuntimeProducts | None = None
 
     @property
     def call_records(self) -> dict[tuple[str, str], CallRecord]:
@@ -65,8 +67,8 @@ class RunDriver:
                 cancel_event=cancel_event,
             )
             if result.status != FrameExecutionStatus.SUSPENDED:
-                self.terminal_result = result
-                return result
+                result = self._normalize_terminal_result(result, session.cancel_event)
+                return self._finish(result)
             if self._call_coordinator is not None:
                 record = self._register_call(frame, result)
                 record.begin_resolution()
@@ -89,8 +91,7 @@ class RunDriver:
                     status=FrameExecutionStatus.FAILED,
                     error=RuntimeError("Frame suspended without an orchestration callback."),
                 )
-                self.terminal_result = result
-                return result
+                return self._finish(result)
             await on_suspend(result)
 
     def run_stream(
@@ -114,6 +115,7 @@ class RunDriver:
             )
 
             async def _runner() -> None:
+                cancelled = False
                 try:
                     while True:
                         result = await self._agent_runtime.run_frame(
@@ -123,7 +125,11 @@ class RunDriver:
                             cancel_event=active_cancel_event,
                         )
                         if result.status != FrameExecutionStatus.SUSPENDED:
-                            self.terminal_result = result
+                            result = self._normalize_terminal_result(
+                                result,
+                                session.cancel_event,
+                            )
+                            self._finish(result)
                             break
                         if self._call_coordinator is not None:
                             record = self._register_call(frame, result)
@@ -144,17 +150,25 @@ class RunDriver:
                             record.mark_applied()
                             continue
                         if on_suspend is None:
-                            self.terminal_result = FrameExecutionResult(
+                            result = FrameExecutionResult(
                                 status=FrameExecutionStatus.FAILED,
                                 error=RuntimeError(
                                     "Frame suspended without an orchestration callback."
                                 ),
                             )
+                            self._finish(result)
                             break
                         await on_suspend(result, sink.emit)
+                except asyncio.CancelledError:
+                    cancelled = True
+                    session.cancel_event.set()
+                    if self.terminal_result is None:
+                        self._finish(FrameExecutionResult(status=FrameExecutionStatus.CANCELLED))
+                    raise
                 finally:
                     session.stream_sequence = sink.next_sequence
-                    await queue.put(None)
+                    if not cancelled:
+                        await queue.put(None)
 
             task = asyncio.create_task(_runner())
             try:
@@ -172,6 +186,29 @@ class RunDriver:
                     pass
 
         return _stream()
+
+    def _finish(self, result: FrameExecutionResult) -> FrameExecutionResult:
+        if self.terminal_result is not None:
+            raise RuntimeError("RunDriver attempted to finalize a run more than once.")
+        self.terminal_result = result
+        finalize_run = getattr(self._agent_runtime, "finalize_run", None)
+        if callable(finalize_run):
+            self.runtime_products = finalize_run(
+                self._ensure_session(None).agent_run_id,
+                result,
+            )
+        else:
+            self.runtime_products = RuntimeProducts()
+        return result
+
+    @staticmethod
+    def _normalize_terminal_result(
+        result: FrameExecutionResult,
+        cancel_event: asyncio.Event,
+    ) -> FrameExecutionResult:
+        if cancel_event.is_set() and result.status != FrameExecutionStatus.CANCELLED:
+            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
+        return result
 
     def _register_call(
         self,

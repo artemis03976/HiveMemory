@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -145,3 +146,20 @@ async def test_run_driver_drops_late_call_response_after_cancel():
     assert result.status == FrameExecutionStatus.CANCELLED
     assert applied == []
     assert driver.call_records[("", "act-1")].status.value == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_run_driver_finalizes_root_run_exactly_once():
+    finalize_run = MagicMock()
+
+    async def run_frame(_frame, **_kwargs):
+        return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+
+    runtime = SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run)
+    driver = RunDriver(runtime)
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+
+    result = await driver.run(frame)
+
+    assert result.status == FrameExecutionStatus.COMPLETED
+    finalize_run.assert_called_once_with("run-1", result)

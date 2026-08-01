@@ -13,6 +13,7 @@ from hivememory.agent_runtime.models import (
     MTPExecutionContext,
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.agent_runtime.products import FrameProducts
 from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
@@ -212,23 +213,19 @@ class CallCoordinator:
                 ).to_error_info(),
             )
 
-        if (
-            sub_frame is not None
-            and sub_result is not None
-            and sub_result.status == FrameExecutionStatus.COMPLETED
-            and call_response.status == MTPResponseStatus.SUCCESS
-        ):
+        frame_products = FrameProducts()
+        if sub_frame is not None:
+            finalization_result = self._frame_result_for_finalization(
+                sub_result,
+                call_response,
+            )
             try:
-                sub_text = "".join(sub_frame.progress.text_segments)
-                self._harvest_sub_frame_aliases(sub_frame)
-                call_response = call_response.model_copy(
-                    update={
-                        "reply": sub_text,
-                        "artifact_aliases": list(sub_frame.harvested_aliases),
-                    }
+                frame_products = self._agent_runtime.finalize_frame(
+                    sub_frame,
+                    finalization_result,
                 )
             except Exception as error:
-                logger.error("Failed to harvest sub-agent result: %s", error, exc_info=True)
+                logger.error("Failed to finalize sub-agent frame: %s", error, exc_info=True)
                 call_response = MTPCallResponse(
                     status=MTPResponseStatus.ERROR,
                     agent_alias=call_request.target_alias,
@@ -241,9 +238,24 @@ class CallCoordinator:
                     status=FrameExecutionStatus.FAILED,
                     error=error,
                 )
-                self._cancel_frame(sub_frame)
-        elif sub_frame is not None:
-            self._cancel_frame(sub_frame)
+                if finalization_result.status == FrameExecutionStatus.COMPLETED:
+                    try:
+                        self._agent_runtime.finalize_frame(sub_frame, sub_result)
+                    except Exception:
+                        logger.exception("Failed to clean up sub-agent frame after harvest error")
+
+        if (
+            sub_frame is not None
+            and sub_result is not None
+            and sub_result.status == FrameExecutionStatus.COMPLETED
+            and call_response.status == MTPResponseStatus.SUCCESS
+        ):
+            call_response = call_response.model_copy(
+                update={
+                    "reply": "".join(sub_frame.progress.text_segments),
+                    "artifact_aliases": list(frame_products.artifact_aliases),
+                }
+            )
 
         if emit is not None:
             end_data: dict[str, Any] = {
@@ -322,10 +334,18 @@ class CallCoordinator:
             ).to_error_info(),
         )
 
-    def _cancel_frame(self, frame: ExecutionFrame) -> None:
-        cancel_by_frame = getattr(self._agent_runtime, "cancel_tasks_by_frame", None)
-        if callable(cancel_by_frame):
-            cancel_by_frame(frame.runtime_scope.frame_id)
+    @staticmethod
+    def _frame_result_for_finalization(
+        result: FrameExecutionResult | None,
+        response: MTPCallResponse,
+    ) -> FrameExecutionResult:
+        if response.status == MTPResponseStatus.SUCCESS and result is not None:
+            return result
+        if response.status == MTPResponseStatus.CANCELLED:
+            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
+        if result is not None and result.status != FrameExecutionStatus.COMPLETED:
+            return result
+        return FrameExecutionResult(status=FrameExecutionStatus.FAILED)
 
     async def _fetch_context_refs_content(
         self,
@@ -358,24 +378,6 @@ class CallCoordinator:
             MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
             MemoryCompileOptions(language=language),
         ).text
-
-    def _harvest_sub_frame_aliases(self, frame: ExecutionFrame) -> None:
-        from hivememory.core.mtp.models import MTPVerb
-
-        harvested = set(frame.harvested_aliases)
-        aliases_by_frame = getattr(self._agent_runtime, "aliases_by_frame", None)
-        if callable(aliases_by_frame):
-            for alias in aliases_by_frame(frame.runtime_scope.frame_id):
-                if alias and alias not in harvested:
-                    frame.harvested_aliases.append(alias)
-                    harvested.add(alias)
-
-        for event in frame.progress.turn_events:
-            if event.kind == "tool_call" and event.tool_kind == MTPVerb.UPDATE.value:
-                alias = event.target
-                if alias and alias not in harvested:
-                    frame.harvested_aliases.append(alias)
-                    harvested.add(alias)
 
     @staticmethod
     def _event_metadata_for_frame(frame: ExecutionFrame) -> dict[str, Any]:

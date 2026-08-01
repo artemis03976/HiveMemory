@@ -26,6 +26,7 @@ from hivememory.agent_runtime.models import (
     MTPExecutionContext,
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
 from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.runtime.agent.run_driver import RunDriver
@@ -130,7 +131,7 @@ class AgentOrchestrator:
         return self._assemble_agent_run_result(
             main_frame,
             engine_result=engine_result,
-            cancel_event=cancel_event,
+            runtime_products=driver.runtime_products or RuntimeProducts(),
         )
 
     async def run_agent_stream(
@@ -175,7 +176,7 @@ class AgentOrchestrator:
                 **self._assemble_agent_run_result(
                     main_frame,
                     engine_result=terminal_result,
-                    cancel_event=cancel_event,
+                    runtime_products=driver.runtime_products or RuntimeProducts(),
                 ).model_dump(),
                 **event_metadata,
                 "stream_sequence": driver.next_stream_sequence,
@@ -424,26 +425,19 @@ class AgentOrchestrator:
                 ).to_error_info(),
             )
 
-        if (
-            sub_frame is not None
-            and sub_execution_result is not None
-            and sub_execution_result.status == FrameExecutionStatus.COMPLETED
-            and call_response.status == MTPResponseStatus.SUCCESS
-        ):
+        frame_products = FrameProducts()
+        if sub_frame is not None:
+            finalization_result = CallCoordinator._frame_result_for_finalization(
+                sub_execution_result,
+                call_response,
+            )
             try:
-                sub_result_text = "".join(sub_frame.progress.text_segments)
-                self._harvest_sub_frame_aliases(sub_frame)
-                for alias in sub_frame.harvested_aliases:
-                    if alias not in main_frame.harvested_aliases:
-                        main_frame.harvested_aliases.append(alias)
-                call_response = call_response.model_copy(
-                    update={
-                        "reply": sub_result_text,
-                        "artifact_aliases": sub_frame.harvested_aliases,
-                    }
+                frame_products = self._agent_runtime.finalize_frame(
+                    sub_frame,
+                    finalization_result,
                 )
             except Exception as e:
-                logger.error("Failed to harvest sub-agent result: %s", e, exc_info=True)
+                logger.error("Failed to finalize sub-agent frame: %s", e, exc_info=True)
                 call_response = MTPCallResponse(
                     status=MTPResponseStatus.ERROR,
                     agent_alias=cr.target_alias,
@@ -456,17 +450,27 @@ class AgentOrchestrator:
                     status=FrameExecutionStatus.FAILED,
                     error=e,
                 )
-                cancel_by_frame = getattr(
-                    self._agent_runtime,
-                    "cancel_tasks_by_frame",
-                    None,
-                )
-                if callable(cancel_by_frame):
-                    cancel_by_frame(sub_frame.runtime_scope.frame_id)
-        elif sub_frame is not None:
-            cancel_by_frame = getattr(self._agent_runtime, "cancel_tasks_by_frame", None)
-            if callable(cancel_by_frame):
-                cancel_by_frame(sub_frame.runtime_scope.frame_id)
+                if finalization_result.status == FrameExecutionStatus.COMPLETED:
+                    try:
+                        self._agent_runtime.finalize_frame(sub_frame, sub_execution_result)
+                    except Exception:
+                        logger.exception("Failed to clean up sub-agent frame after harvest error")
+
+        if (
+            sub_frame is not None
+            and sub_execution_result is not None
+            and sub_execution_result.status == FrameExecutionStatus.COMPLETED
+            and call_response.status == MTPResponseStatus.SUCCESS
+        ):
+            sub_result_text = "".join(sub_frame.progress.text_segments)
+            for alias in frame_products.artifact_aliases:
+                main_frame.add_harvested_alias(alias)
+            call_response = call_response.model_copy(
+                update={
+                    "reply": sub_result_text,
+                    "artifact_aliases": list(frame_products.artifact_aliases),
+                }
+            )
 
         if emit is not None:
             end_data = {
@@ -608,47 +612,15 @@ class AgentOrchestrator:
             MemoryCompileOptions(language=language),
         ).text
 
-    def _harvest_sub_frame_aliases(self, sub_frame: ExecutionFrame) -> None:
-        """从子帧 PendingAtomRuntime 重建 harvested_aliases。
-
-        通过 frame_id 过滤子帧的 PendingAtom，收集 pending_alias 用于 CALL response artifacts。
-        UPDATE fallback：从 tool_call TurnEvent.target 补充尚未注册为 pending 的 alias。
-        """
-        from hivememory.core.mtp.models import MTPVerb
-
-        harvested = set(sub_frame.harvested_aliases)
-
-        # WRITE/UPDATE aliases from PendingAtomRuntime（主要路径）
-        frame_id = sub_frame.runtime_scope.frame_id
-        for alias in self._agent_runtime.aliases_by_frame(frame_id):
-            if alias and alias not in harvested:
-                sub_frame.harvested_aliases.append(alias)
-                harvested.add(alias)
-
-        # UPDATE fallback: target alias when no pending_alias was generated
-        for ev in sub_frame.progress.turn_events:
-            if ev.kind == "tool_call" and ev.tool_kind == MTPVerb.UPDATE.value:
-                alias = ev.target
-                if alias and alias not in harvested:
-                    sub_frame.harvested_aliases.append(alias)
-                    harvested.add(alias)
-
     def _assemble_agent_run_result(
         self,
         frame: ExecutionFrame,
         engine_result: FrameExecutionResult,
-        cancel_event=None,
+        runtime_products: RuntimeProducts,
     ) -> AgentRunResult:
         p = frame.progress
-        cancelled = engine_result.status == FrameExecutionStatus.CANCELLED or (
-            cancel_event is not None and cancel_event.is_set()
-        )
-        completed = engine_result.status == FrameExecutionStatus.COMPLETED and not cancelled
-        if not completed:
-            self._agent_runtime.cancel_tasks_by_run(frame.runtime_scope.run_id)
-            tasks = []
-        else:
-            tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
+        cancelled = engine_result.status == FrameExecutionStatus.CANCELLED
+        completed = engine_result.status == FrameExecutionStatus.COMPLETED
         if cancelled:
             run_status = AgentRunStatus.CANCELLED
         elif completed:
@@ -661,7 +633,7 @@ class AgentOrchestrator:
             mtp_iterations=max(0, p.iteration - 1),
             total_iterations=p.iteration,
             turn_events=p.turn_events,
-            materialize_tasks=tasks,
+            materialize_tasks=list(runtime_products.materialize_tasks),
             # frame.progress.model_used 由 AgentRuntime._resolve_model_for_frame 写入
             # 空字符串表示注册表未启用（兼容无注册表的场景）
             model_used=p.model_used,

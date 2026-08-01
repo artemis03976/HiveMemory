@@ -1,4 +1,6 @@
-from unittest.mock import MagicMock
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -7,6 +9,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionResult,
     FrameExecutionStatus,
 )
+from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.agent.call_record import CallRecord, CallRecordStatus
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
@@ -117,3 +120,66 @@ def test_call_coordinator_preserves_terminal_mapping(status, expected):
     )
 
     assert response.status == expected
+
+
+@pytest.mark.asyncio
+async def test_call_coordinator_finalizes_completed_child_without_finalizing_run():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    child.progress.text_segments.append("done")
+    child_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        run_frame=AsyncMock(return_value=child_result),
+        finalize_frame=MagicMock(return_value=FrameProducts(artifact_aliases=("draft-child",))),
+        finalize_run=MagicMock(),
+    )
+    coordinator = CallCoordinator(
+        runtime,
+        SimpleNamespace(fork_sub_frame=AsyncMock(return_value=child)),
+        SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
+        SimpleNamespace(resolve=AsyncMock()),
+    )
+
+    response = await coordinator.resolve_call(caller, _suspension())
+
+    assert response.status == MTPResponseStatus.SUCCESS
+    assert response.reply == "done"
+    assert response.artifact_aliases == ["draft-child"]
+    runtime.finalize_frame.assert_called_once_with(child, child_result)
+    runtime.finalize_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_call_coordinator_cleans_late_success_when_cancel_wins():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    child_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+    cancel_event = asyncio.Event()
+    cancel_event.set()
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        run_frame=AsyncMock(return_value=child_result),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+        finalize_run=MagicMock(),
+    )
+    coordinator = CallCoordinator(
+        runtime,
+        SimpleNamespace(fork_sub_frame=AsyncMock(return_value=child)),
+        SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
+        SimpleNamespace(resolve=AsyncMock()),
+    )
+
+    response = await coordinator.resolve_call(
+        caller,
+        _suspension(),
+        cancel_event=cancel_event,
+    )
+
+    assert response.status == MTPResponseStatus.CANCELLED
+    runtime.finalize_frame.assert_called_once()
+    assert runtime.finalize_frame.call_args.args[0] is child
+    assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.CANCELLED
+    runtime.finalize_run.assert_not_called()

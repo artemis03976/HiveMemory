@@ -9,6 +9,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionResult,
     FrameExecutionStatus,
 )
+from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -38,8 +39,8 @@ def _orchestrator(frame: ExecutionFrame, runtime=None) -> AgentOrchestrator:
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     scheduler = SimpleNamespace(
         create_main_frame=MagicMock(return_value=frame),
@@ -79,9 +80,8 @@ async def test_run_agent_assembles_result_from_completed_frame():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        cancel_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
 
@@ -101,8 +101,9 @@ async def test_run_agent_assembles_result_from_completed_frame():
     assert result.turn_events[1].sequence == 1
     assert result.turn_events == frame.progress.turn_events
     assert result.materialize_tasks == []
-    runtime.collect_tasks_by_run.assert_called_once_with("run-1")
-    runtime.cancel_tasks_by_run.assert_not_called()
+    runtime.finalize_run.assert_called_once()
+    assert runtime.finalize_run.call_args.args[0] == "run-1"
+    assert runtime.finalize_run.call_args.args[1].status == FrameExecutionStatus.COMPLETED
 
 
 @pytest.mark.asyncio
@@ -114,9 +115,8 @@ async def test_run_agent_cancelled_cancels_pending_atoms_without_materialize_tas
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=["should-not-use"]),
-        cancel_tasks_by_run=MagicMock(return_value=["draft_cancelled"]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
 
@@ -129,8 +129,9 @@ async def test_run_agent_cancelled_cancels_pending_atoms_without_materialize_tas
 
     assert result.status == AgentRunStatus.CANCELLED.value
     assert result.materialize_tasks == []
-    runtime.cancel_tasks_by_run.assert_called_once_with("run-1")
-    runtime.collect_tasks_by_run.assert_not_called()
+    runtime.finalize_run.assert_called_once()
+    assert runtime.finalize_run.call_args.args[0] == "run-1"
+    assert runtime.finalize_run.call_args.args[1].status == FrameExecutionStatus.CANCELLED
 
 
 @pytest.mark.asyncio
@@ -140,9 +141,8 @@ async def test_run_agent_budget_exhaustion_is_failed_and_cleans_pending_atoms():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=["must-not-materialize"]),
-        cancel_tasks_by_run=MagicMock(return_value=["draft_cancelled"]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
 
@@ -154,8 +154,9 @@ async def test_run_agent_budget_exhaustion_is_failed_and_cleans_pending_atoms():
 
     assert result.status == AgentRunStatus.FAILED.value
     assert result.materialize_tasks == []
-    runtime.cancel_tasks_by_run.assert_called_once_with("run-1")
-    runtime.collect_tasks_by_run.assert_not_called()
+    runtime.finalize_run.assert_called_once()
+    assert runtime.finalize_run.call_args.args[0] == "run-1"
+    assert runtime.finalize_run.call_args.args[1].status == FrameExecutionStatus.BUDGET_EXHAUSTED
 
 
 @pytest.mark.asyncio
@@ -166,9 +167,8 @@ async def test_run_agent_stream_done_preserves_failed_terminal_status():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        cancel_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
 
@@ -192,9 +192,8 @@ async def test_run_agent_records_current_user_message_before_execution():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        cancel_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
 
@@ -223,9 +222,8 @@ async def test_run_agent_stream_records_current_user_message():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        cancel_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
 
@@ -267,8 +265,10 @@ async def test_handle_suspend_runs_sub_agent_and_appends_call_response():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=["draft_runtime"]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(
+            return_value=FrameProducts(artifact_aliases=("draft_sub", "draft_runtime"))
+        ),
     )
     orchestrator = _orchestrator(main_frame, runtime=runtime)
     orchestrator._test_scheduler.fork_sub_frame.return_value = sub_frame
@@ -290,7 +290,10 @@ async def test_handle_suspend_runs_sub_agent_and_appends_call_response():
         cancel_event=None,
     )
     assert "draft_sub" in main_frame.harvested_aliases
-    assert "draft_runtime" in sub_frame.harvested_aliases
+    assert "draft_runtime" in main_frame.harvested_aliases
+    runtime.finalize_frame.assert_called_once()
+    assert runtime.finalize_frame.call_args.args[0] is sub_frame
+    assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.COMPLETED
     assert main_frame.progress.turn_events[0].status == "success"
     assert main_frame.progress.turn_events[-1].kind == "tool_result"
     assert main_frame.progress.turn_events[-1].status == "success"
@@ -361,9 +364,8 @@ async def test_handle_suspend_maps_non_completed_child_terminal_status(
                 ),
             )
         ),
-        cancel_tasks_by_frame=MagicMock(return_value=["draft_should_not_harvest"]),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=["draft_runtime"]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(main_frame, runtime=runtime)
     orchestrator._test_scheduler.fork_sub_frame.return_value = sub_frame
@@ -390,7 +392,9 @@ async def test_handle_suspend_maps_non_completed_child_terminal_status(
     assert events[-1]["data"]["status"] == expected_call_status
     if error_code is not None:
         assert error_code in main_frame.working_history[-1]["content"]
-    runtime.cancel_tasks_by_frame.assert_called_once_with("frame-sub-terminal")
+    runtime.finalize_frame.assert_called_once()
+    assert runtime.finalize_frame.call_args.args[0] is sub_frame
+    assert runtime.finalize_frame.call_args.args[1].status == terminal_status
 
 
 @pytest.mark.asyncio
@@ -413,9 +417,8 @@ async def test_handle_suspend_streaming_child_uses_terminal_result():
         run_frame_emitting=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
         ),
-        cancel_tasks_by_frame=MagicMock(return_value=[]),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(main_frame, runtime=runtime)
     orchestrator._test_scheduler.fork_sub_frame.return_value = sub_frame
@@ -451,9 +454,8 @@ async def test_handle_suspend_passes_cancel_event_to_sub_agent():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        cancel_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(main_frame, runtime=runtime)
     orchestrator._test_scheduler.fork_sub_frame.return_value = sub_frame
@@ -570,8 +572,8 @@ async def test_handle_suspend_returns_stable_model_unavailable_error():
         run_frame_emitting=AsyncMock(
             side_effect=ModelNotFoundError("missing-model is not registered")
         ),
-        collect_tasks_by_run=MagicMock(return_value=[]),
-        aliases_by_frame=MagicMock(return_value=[]),
+        finalize_run=MagicMock(return_value=RuntimeProducts()),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(main_frame, runtime=runtime)
     profile = AgentProfile(model_name="missing-model")
