@@ -64,6 +64,10 @@ class AgentRuntime:
     def _max_iterations(self) -> int:
         return self._loop_executor.config.max_loop_iterations
 
+    @property
+    def max_iterations(self) -> int:
+        return self._max_iterations
+
     async def run_frame(
         self,
         frame: ExecutionFrame,
@@ -74,9 +78,10 @@ class AgentRuntime:
     ) -> FrameExecutionResult:
         """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
         generation_options = self._resolve_model_for_frame(frame, generation_options)
+        max_iterations = frame.execution_policy.max_iterations or self._max_iterations
         return await self._loop_executor.execute_frame(
             frame=frame,
-            max_iterations=self._max_iterations,
+            max_iterations=max_iterations,
             generation_options=generation_options,
             event_sink=event_sink,
             cancel_event=cancel_event,

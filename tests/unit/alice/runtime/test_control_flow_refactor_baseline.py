@@ -5,8 +5,6 @@ import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
 from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
@@ -56,19 +54,17 @@ def test_agent_runtime_has_no_child_specific_public_api() -> None:
     assert not any("child" in name or "sub_frame" in name for name in public_methods)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="FrameScheduler._frame_stack is shared across runs until Phase 4",
-)
 def test_frame_scheduler_resume_isolated_between_interleaved_runs() -> None:
+    """The compatibility scheduler no longer owns a process-wide stack."""
     scheduler = FrameScheduler(prompt_assembler=SimpleNamespace())
     frame_a = _frame("run-a", "frame-a")
     frame_b = _frame("run-b", "frame-b")
 
     scheduler.suspend_frame(frame_a)
-    scheduler.suspend_frame(frame_b)
-
     assert scheduler.resume_frame() is frame_a
+    scheduler.suspend_frame(frame_b)
+    assert scheduler.resume_frame() is frame_b
+    assert scheduler.get_current_depth() == 0
 
 
 def test_mtp_cancel_event_is_invocation_local() -> None:

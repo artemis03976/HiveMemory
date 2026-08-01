@@ -2,32 +2,33 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import AsyncGenerator
 from enum import Enum
-from typing import Any, AsyncGenerator, Optional
+from typing import Any
 
+from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.resolver import RuntimeAliasResolver
+from hivememory.alice.contracts.local_routes import AliceLocalRoutes
+from hivememory.alice.runtime.agent.frame_factory import FrameFactory
+from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
+from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.agent.runtime import AgentRuntime
+from hivememory.alice.runtime.bus import AliceBus
+from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.models import MemoryAtom
 from hivememory.core.protocol.models import (
     AgentRunContext,
     AgentRunResult,
     AgentRunStatus,
 )
-
-from hivememory.alice.contracts.local_routes import AliceLocalRoutes
-from hivememory.alice.runtime.agent.runtime import AgentRuntime
-from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
-from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
-from hivememory.alice.runtime.orchestrator import AgentOrchestrator
-from hivememory.alice.runtime.bus import AliceBus
-from hivememory.agent_runtime.cache import KoakumaAtomCache
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-from hivememory.agent_runtime.resolver import RuntimeAliasResolver
-from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig, SharedConfig
 from hivememory.system.contracts.events import GlobalEvents
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
@@ -51,9 +52,9 @@ class AliceRuntime:
         alice_config: AliceConfig,
         shared_config: SharedConfig,
         memory_compiler_config: MemoryCompilerConfig,
-        global_bus: Optional[GlobalSystemBus] = None,
+        global_bus: GlobalSystemBus | None = None,
         runtime_events: RuntimeEventSink | None = None,
-        model_registry: Optional[ModelRegistry] = None,
+        model_registry: ModelRegistry | None = None,
     ) -> None:
         self._alice_config = alice_config
         self._shared_config = shared_config
@@ -95,6 +96,8 @@ class AliceRuntime:
             frame_scheduler=FrameScheduler(prompt_assembler=self._prompt_assembler),
             agent_profile_resolver=AgentProfileResolver(local_bus=self._local_bus),
             alias_resolver=self._alias_resolver,
+            frame_factory=FrameFactory(),
+            prompt_assembler=self._prompt_assembler,
         )
 
         logger.info("AliceRuntime 初始化完成")
@@ -298,8 +301,9 @@ class AliceRuntime:
     async def run_agent(
         self,
         agent_run_context: AgentRunContext,
-        generation_options: Optional[dict[str, Any]] = None,
+        generation_options: dict[str, Any] | None = None,
         cancel_event=None,
+        generation_id: str | None = None,
     ) -> AgentRunResult:
         agent_run_id = f"agent_run_{uuid.uuid4().hex}"
         self._emit_agent_event(
@@ -318,6 +322,8 @@ class AliceRuntime:
                 generation_options=generation_options,
                 agent_profile=agent_run_context.agent_profile,
                 cancel_event=cancel_event,
+                agent_run_id=agent_run_id,
+                generation_id=generation_id,
             )
             self._emit_agent_terminal(agent_run_context, agent_run_id, result)
             return result
@@ -335,8 +341,9 @@ class AliceRuntime:
     async def run_agent_stream(
         self,
         agent_run_context: AgentRunContext,
-        generation_options: Optional[dict[str, Any]] = None,
+        generation_options: dict[str, Any] | None = None,
         cancel_event=None,
+        generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         agent_run_id = f"agent_run_{uuid.uuid4().hex}"
         self._emit_agent_event(
@@ -356,6 +363,8 @@ class AliceRuntime:
                 generation_options=generation_options,
                 agent_profile=agent_run_context.agent_profile,
                 cancel_event=cancel_event,
+                agent_run_id=agent_run_id,
+                generation_id=generation_id,
             ):
                 if event.get("event") == "done":
                     self._emit_agent_terminal(

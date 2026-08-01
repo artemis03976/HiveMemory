@@ -11,6 +11,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.alice.runtime.agent.call_record import CallRecord
+from hivememory.alice.runtime.agent.run_session import RunSession
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
@@ -31,12 +32,20 @@ class RunDriver:
         self,
         agent_runtime: AgentRuntime,
         call_coordinator: CallCoordinator | None = None,
+        session: RunSession | None = None,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._call_coordinator = call_coordinator
-        self.call_records: dict[tuple[str, str], CallRecord] = {}
+        self._session = session
         self.terminal_result: FrameExecutionResult | None = None
-        self.next_stream_sequence = 0
+
+    @property
+    def call_records(self) -> dict[tuple[str, str], CallRecord]:
+        return self._ensure_session(None).call_records
+
+    @property
+    def next_stream_sequence(self) -> int:
+        return self._ensure_session(None).stream_sequence
 
     async def run(
         self,
@@ -46,6 +55,9 @@ class RunDriver:
         cancel_event: asyncio.Event | None = None,
         on_suspend: SuspendHandler | None = None,
     ) -> FrameExecutionResult:
+        session = self._ensure_session(frame, cancel_event=cancel_event)
+        self._register_frame_if_supported(session, frame)
+        cancel_event = session.cancel_event
         while True:
             result = await self._agent_runtime.run_frame(
                 frame,
@@ -63,6 +75,7 @@ class RunDriver:
                     result,
                     generation_options=generation_options,
                     cancel_event=cancel_event,
+                    session=session,
                 )
                 record.mark_resolved()
                 if cancel_event is not None and cancel_event.is_set():
@@ -90,8 +103,15 @@ class RunDriver:
         on_suspend: StreamSuspendHandler | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         async def _stream() -> AsyncGenerator[dict[str, Any], None]:
+            session = self._ensure_session(frame, cancel_event=cancel_event)
+            self._register_frame_if_supported(session, frame)
+            active_cancel_event = session.cancel_event
             queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=256)
-            sink = QueueFrameEventSink(queue, metadata=event_metadata)
+            sink = QueueFrameEventSink(
+                queue,
+                metadata=event_metadata,
+                sequence_start=session.stream_sequence,
+            )
 
             async def _runner() -> None:
                 try:
@@ -100,7 +120,7 @@ class RunDriver:
                             frame,
                             generation_options=generation_options,
                             event_sink=sink,
-                            cancel_event=cancel_event,
+                            cancel_event=active_cancel_event,
                         )
                         if result.status != FrameExecutionStatus.SUSPENDED:
                             self.terminal_result = result
@@ -112,11 +132,12 @@ class RunDriver:
                                 frame,
                                 result,
                                 generation_options=generation_options,
-                                cancel_event=cancel_event,
+                                cancel_event=active_cancel_event,
                                 emit=sink.emit,
+                                session=session,
                             )
                             record.mark_resolved()
-                            if cancel_event is not None and cancel_event.is_set():
+                            if active_cancel_event.is_set():
                                 record.cancel()
                                 continue
                             self._agent_runtime.apply_call_response(frame, result, response)
@@ -132,7 +153,7 @@ class RunDriver:
                             break
                         await on_suspend(result, sink.emit)
                 finally:
-                    self.next_stream_sequence = sink.next_sequence
+                    session.stream_sequence = sink.next_sequence
                     await queue.put(None)
 
             task = asyncio.create_task(_runner())
@@ -160,12 +181,29 @@ class RunDriver:
         action_id = suspension.suspend_action_id
         if not action_id:
             raise ValueError("Suspended frame is missing a CALL action id.")
-        key = (frame.runtime_scope.frame_id, action_id)
-        if key in self.call_records:
-            raise RuntimeError(f"CALL record already exists: {key!r}")
-        record = CallRecord(caller_frame_id=key[0], action_id=key[1])
-        self.call_records[key] = record
-        return record
+        return self._ensure_session(frame).register_call(frame, action_id)
+
+    def _ensure_session(
+        self,
+        frame: ExecutionFrame | None,
+        *,
+        cancel_event: asyncio.Event | None = None,
+    ) -> RunSession:
+        if self._session is None:
+            scope = getattr(frame, "runtime_scope", None)
+            run_id = getattr(scope, "run_id", "")
+            self._session = RunSession(
+                agent_run_id=run_id, cancel_event=cancel_event or asyncio.Event()
+            )
+        elif cancel_event is not None and self._session.cancel_event is not cancel_event:
+            raise ValueError("RunDriver received a cancel event different from its RunSession.")
+        return self._session
+
+    @staticmethod
+    def _register_frame_if_supported(session: RunSession, frame: object) -> None:
+        scope = getattr(frame, "runtime_scope", None)
+        if getattr(scope, "run_id", None) is not None:
+            session.register_frame(frame)
 
 
 __all__ = ["RunDriver"]

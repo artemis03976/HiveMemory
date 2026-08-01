@@ -172,6 +172,7 @@ class AgentLoopExecutor:
                 identity=frame.identity,
                 agent_profile=frame.agent_profile,
                 runtime_scope=frame.runtime_scope.with_action(action_id),
+                execution_policy=frame.execution_policy,
             )
             if cancel_event is not None and cancel_event.is_set():
                 logger.info("Generation cancelled before MTP execution")

@@ -13,7 +13,9 @@ AgentOrchestrator - 多智能体编排驱动器
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import uuid
 from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -23,9 +25,12 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
     MTPExecutionContext,
 )
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
+from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.runtime.agent.run_driver import RunDriver
-from hivememory.core.models import TurnEvent
+from hivememory.alice.runtime.agent.run_session import RunSession
+from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
@@ -71,17 +76,23 @@ class AgentOrchestrator:
         frame_scheduler: FrameScheduler,
         agent_profile_resolver: AgentProfileResolver,
         alias_resolver: RuntimeAliasResolver,
+        frame_factory: FrameFactory | None = None,
+        prompt_assembler: Any | None = None,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._frame_scheduler = frame_scheduler
         self._agent_profile_resolver = agent_profile_resolver
         self._alias_resolver = alias_resolver
         self._mtp_formatter = MTPFormatter()
+        self._frame_factory = frame_factory or FrameFactory()
+        self._prompt_assembler = prompt_assembler
         self._call_coordinator = CallCoordinator(
             agent_runtime,
             frame_scheduler,
             agent_profile_resolver,
             alias_resolver,
+            frame_factory=self._frame_factory,
+            prompt_assembler=prompt_assembler,
         )
 
     # ------------------------------------------------------------------
@@ -96,20 +107,25 @@ class AgentOrchestrator:
         generation_options: dict[str, Any] | None = None,
         agent_profile: AgentProfile | None = None,
         cancel_event=None,
+        agent_run_id: str | None = None,
+        generation_id: str | None = None,
     ) -> AgentRunResult:
-        main_frame = self._frame_scheduler.create_main_frame(
-            agent_profile=agent_profile,
+        session, main_frame = self._create_root_session(
             messages=messages,
-            topic_id=topic_id or "",
             identity=identity,
+            topic_id=topic_id,
+            agent_profile=agent_profile,
+            cancel_event=cancel_event,
+            agent_run_id=agent_run_id,
+            generation_id=generation_id,
         )
         self._record_initial_user_event(main_frame, messages)
-        driver = RunDriver(self._agent_runtime, self._call_coordinator)
+        driver = RunDriver(self._agent_runtime, self._call_coordinator, session)
 
         engine_result = await driver.run(
             main_frame,
             generation_options=generation_options,
-            cancel_event=cancel_event,
+            cancel_event=session.cancel_event,
         )
         return self._assemble_agent_run_result(
             main_frame,
@@ -125,22 +141,27 @@ class AgentOrchestrator:
         generation_options: dict[str, Any] | None = None,
         agent_profile: AgentProfile | None = None,
         cancel_event=None,
+        agent_run_id: str | None = None,
+        generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        main_frame = self._frame_scheduler.create_main_frame(
-            agent_profile=agent_profile,
+        session, main_frame = self._create_root_session(
             messages=messages,
-            topic_id=topic_id or "",
             identity=identity,
+            topic_id=topic_id,
+            agent_profile=agent_profile,
+            cancel_event=cancel_event,
+            agent_run_id=agent_run_id,
+            generation_id=generation_id,
         )
         self._record_initial_user_event(main_frame, messages)
 
-        driver = RunDriver(self._agent_runtime, self._call_coordinator)
+        driver = RunDriver(self._agent_runtime, self._call_coordinator, session)
         event_metadata = self._event_metadata_for_frame(main_frame)
 
         async for event in driver.run_stream(
             main_frame,
             generation_options=generation_options,
-            cancel_event=cancel_event,
+            cancel_event=session.cancel_event,
             event_metadata=event_metadata,
         ):
             yield event
@@ -160,6 +181,54 @@ class AgentOrchestrator:
                 "stream_sequence": driver.next_stream_sequence,
             },
         }
+
+    def _create_root_session(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        identity: Identity,
+        topic_id: str,
+        agent_profile: AgentProfile | None,
+        cancel_event,
+        agent_run_id: str | None,
+        generation_id: str | None,
+    ) -> tuple[RunSession, ExecutionFrame]:
+        profile = agent_profile or OMNI_DOLL_PROFILE
+        policy = FrameExecutionPolicy.from_profile(
+            profile,
+            max_iterations=getattr(self._agent_runtime, "max_iterations", None),
+        )
+        if self._prompt_assembler is None:
+            frame = self._frame_scheduler.create_main_frame(
+                agent_profile=profile,
+                messages=messages,
+                topic_id=topic_id or "",
+                identity=identity,
+                run_id=agent_run_id,
+                execution_policy=policy,
+            )
+            run_id = agent_run_id or frame.runtime_scope.run_id
+        else:
+            run_id = agent_run_id or f"agent_run_{uuid.uuid4().hex}"
+            frame = self._frame_factory.create(
+                FrameSpec(
+                    runtime_scope=self._frame_factory.scope(run_id=run_id),
+                    profile=profile,
+                    messages=messages,
+                    topic_id=topic_id or "",
+                    identity=identity,
+                    execution_policy=policy,
+                )
+            )
+        session = RunSession(
+            agent_run_id=run_id,
+            generation_id=generation_id,
+            cancel_event=cancel_event or asyncio.Event(),
+        )
+        if frame.runtime_scope.run_id != run_id:
+            frame.runtime_scope = frame.runtime_scope.model_copy(update={"run_id": run_id})
+        session.register_frame(frame)
+        return session, frame
 
     def _record_initial_user_event(
         self,

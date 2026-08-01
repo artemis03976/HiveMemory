@@ -61,10 +61,11 @@ class QueueFrameEventSink:
         queue: asyncio.Queue[dict[str, Any] | None],
         *,
         metadata: Mapping[str, Any] | None = None,
+        sequence_start: int = 0,
     ) -> None:
         self._queue = queue
         self._metadata = dict(metadata or {})
-        self._sequence = 0
+        self._sequence = sequence_start
 
     @property
     def wants_token_stream(self) -> bool:

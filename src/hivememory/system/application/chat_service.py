@@ -158,6 +158,7 @@ class ChatApplicationService:
                 agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
                 cancel_event=run.cancel_event,
+                generation_id=run.generation_id,
             )
 
             if run.cancelled or loop_result.status == AgentRunStatus.CANCELLED.value:
@@ -363,6 +364,7 @@ class ChatApplicationService:
                 agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
                 cancel_event=run.cancel_event,
+                generation_id=run.generation_id,
             )
             async for event in stream:
                 if event["event"] == "done":

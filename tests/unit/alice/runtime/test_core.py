@@ -5,12 +5,12 @@ import pytest
 
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
     Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     MetaData,
-    OMNI_DOLL_PROFILE,
     PayloadLayer,
 )
 from hivememory.core.protocol.models import (
@@ -19,8 +19,8 @@ from hivememory.core.protocol.models import (
     AgentRunStatus,
     RetrievalResponse,
 )
-from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
@@ -79,6 +79,22 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
     cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
     assert cached is memory
     runtime._orchestrator.run_agent.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_agent_correlates_runtime_scope_and_generation_id():
+    recorder = RecordingRuntimeEventSink()
+    runtime = _build_runtime(runtime_events=recorder)
+    context = _build_agent_run_context(_build_memory_atom())
+    runtime._orchestrator.run_agent = AsyncMock(
+        return_value=AgentRunResult(final_text="done"),
+    )
+
+    await runtime.run_agent(context, generation_id="generation-1")
+
+    kwargs = runtime._orchestrator.run_agent.await_args.kwargs
+    assert kwargs["generation_id"] == "generation-1"
+    assert kwargs["agent_run_id"] == recorder.events[0].agent_run_id
 
 
 @pytest.mark.asyncio

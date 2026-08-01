@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.alice.service import AliceService
-from hivememory.core.models import Identity, OMNI_DOLL_PROFILE
+from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
 from hivememory.core.protocol.models import AgentRunContext, AgentRunResult
 
 
@@ -51,3 +51,14 @@ async def test_run_agent_stream_yields_runtime_events():
     events = [event async for event in service.run_agent_stream(_context())]
 
     assert events == [{"event": "token", "data": "a"}, {"event": "done"}]
+
+
+@pytest.mark.asyncio
+async def test_generation_id_is_forwarded_when_provided():
+    runtime = AsyncMock()
+    runtime.run_agent.return_value = AgentRunResult(final_text="done")
+    service = AliceService(runtime=runtime)
+
+    await service.run_agent(_context(), generation_id="generation-1")
+
+    assert runtime.run_agent.await_args.kwargs["generation_id"] == "generation-1"

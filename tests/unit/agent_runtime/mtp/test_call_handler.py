@@ -14,34 +14,21 @@ Phase 2 多智能体子代理调用集成测试
 版本: 1.0
 """
 
-import json
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from hivememory.core.models import (
-    Identity,
-    AgentProfile,
-    MemoryAtom,
-    MemoryType,
     OMNI_DOLL_PROFILE,
+    Identity,
     RuntimeScope,
 )
-from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import (
-    MTPCallResponse,
-    MTPVerb,
-    MTPResponseStatus,
-    MTPParser,
-    MTPCommand,
     MTPCallRequest,
-    MTPErrorInfo,
-    MTPErrorSeverity,
-    MTPFormatter,
-    MTPResponse,
+    MTPCommand,
+    MTPParser,
+    MTPResponseStatus,
 )
-
 
 # ========== ExecutionFrame Tests ==========
 
@@ -50,23 +37,31 @@ class TestKoakumaHandleCall:
     """Koakuma _handle_call() 测试"""
 
     def _make_koakuma(self, depth=0):
-        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
         from hivememory.agent_runtime.models import MTPExecutionContext
+        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+        from hivememory.agent_runtime.policy import FrameExecutionPolicy
 
         koakuma = MagicMock(spec=KoakumaRuntime)
         koakuma.context = MTPExecutionContext(
             identity=Identity(user_id="u1", agent_id="omni_doll"),
             agent_profile=OMNI_DOLL_PROFILE,
             runtime_scope=RuntimeScope(depth=depth),
+            execution_policy=(
+                FrameExecutionPolicy.from_profile(
+                    OMNI_DOLL_PROFILE,
+                    denied_verbs={"CALL"},
+                )
+                if depth >= 1
+                else FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE)
+            ),
         )
 
         koakuma.cancel_event = None  # instance var not in MagicMock spec
 
         # 绑定真实方法
         import types
-        koakuma._handle_call = types.MethodType(
-            KoakumaRuntime._handle_call, koakuma
-        )
+
+        koakuma._handle_call = types.MethodType(KoakumaRuntime._handle_call, koakuma)
         return koakuma
 
     @pytest.mark.asyncio
@@ -98,20 +93,21 @@ class TestKoakumaHandleCall:
         cmd.args = {"task": "Forbidden task"}
 
         from hivememory.core.mtp.exceptions import PermissionDeniedError
+
         with pytest.raises(PermissionDeniedError):
             await koakuma._handle_call(cmd, context=koakuma.context)
 
     @pytest.mark.asyncio
     async def test_call_missing_task(self):
         """CALL 缺少 task 参数返回 ERROR"""
-        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
         from hivememory.agent_runtime.models import MTPExecutionContext
+        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 
         koakuma = self._make_koakuma(depth=0)
         koakuma._check_verb_permission = MagicMock()
         koakuma._route_and_execute = KoakumaRuntime._route_and_execute.__get__(koakuma)
         response = await koakuma._route_and_execute(
-            MTPParser().parse('⟪ CALL | coder_doll | ⟫'),
+            MTPParser().parse("⟪ CALL | coder_doll | ⟫"),
             MTPExecutionContext(
                 identity=Identity(user_id="u1", agent_id="omni_doll"),
                 agent_profile=OMNI_DOLL_PROFILE,
@@ -125,8 +121,8 @@ class TestKoakumaHandleCall:
     @pytest.mark.asyncio
     async def test_call_missing_target(self):
         """CALL 缺少 target 返回 ERROR"""
-        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
         from hivememory.agent_runtime.models import MTPExecutionContext
+        from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 
         koakuma = self._make_koakuma(depth=0)
         koakuma._check_verb_permission = MagicMock()
@@ -145,5 +141,3 @@ class TestKoakumaHandleCall:
 
 
 # ========== FrameScheduler Tests ==========
-
-

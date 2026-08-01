@@ -1,76 +1,59 @@
-"""
-帧调度器 (Frame Scheduler)
+"""Backward-compatible frame construction facade.
 
-管理主/子 Agent 的运行时帧栈，负责帧的创建、挂起、恢复和销毁。
-Phase 2 多智能体子代理调用的核心调度组件。
+Frame ownership and suspension state now live in ``RunSession``.  This class
+remains temporarily so older integrations can migrate without keeping a
+process-wide frame stack.
 """
 
-import logging
-from typing import TYPE_CHECKING, List, Optional
+from __future__ import annotations
+
+from contextvars import ContextVar
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from hivememory.core.models import AgentProfile, Identity, RuntimeScope
 from hivememory.agent_runtime.models import ExecutionFrame
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
+from hivememory.core.models import AgentProfile, Identity, RuntimeScope
 
 if TYPE_CHECKING:
     from hivememory.prompts.assembler import AgentPromptAssembler
 
-logger = logging.getLogger(__name__)
-
 
 class FrameScheduler:
-    """
-    执行帧调度器 - 管理主/子 Agent 的运行时帧栈。
+    """Compatibility shell delegating construction to a stateless factory."""
 
-    职责:
-        - 帧栈管理 (suspend/resume)
-        - 子代理帧构建 (context_refs 注入)
-        - 深度跟踪与强制
-        - System Prompt 动态裁剪 (剥离 CALL 权限)
-    """
-
-    def __init__(
-        self,
-        prompt_assembler: "AgentPromptAssembler",
-    ):
-        """
-        初始化帧调度器。
-
-        Args:
-            prompt_assembler: Agent prompt 组装器
-        """
+    def __init__(self, prompt_assembler: AgentPromptAssembler) -> None:
         self._prompt_assembler = prompt_assembler
-        self._frame_stack: List[ExecutionFrame] = []
-        self._frame_counter = 0
+        self._factory = FrameFactory()
+        self._compat_suspended: ContextVar[ExecutionFrame | None] = ContextVar(
+            "alice_compat_suspended_frame", default=None
+        )
 
     def create_main_frame(
         self,
         agent_profile: AgentProfile,
-        messages: List[dict],
+        messages: list[dict],
         topic_id: str,
         identity: Identity,
+        *,
+        run_id: str | None = None,
+        execution_policy: FrameExecutionPolicy | None = None,
     ) -> ExecutionFrame:
-        """
-        创建主 Agent 帧 (depth=0)。
-
-        主帧从感知层 TopicBuffer 装载，执行后卸载回 MMU。
-        """
-        self._frame_counter += 1
-        run_id = f"run_{uuid4().hex}"
-        frame_id = f"frame_main_{self._frame_counter}"
-        frame = ExecutionFrame(
-            runtime_scope=RuntimeScope(
-                run_id=run_id,
-                frame_id=frame_id,
-                depth=0,
-            ),
-            agent_profile=agent_profile,
-            working_history=messages,
-            topic_id=topic_id,
-            identity=identity,
+        run_id = run_id or f"run_{uuid4().hex}"
+        return self._factory.create(
+            FrameSpec(
+                runtime_scope=self._factory.scope(
+                    run_id=run_id,
+                    frame_id=f"frame_main_{uuid4().hex}",
+                ),
+                profile=agent_profile,
+                identity=identity,
+                messages=messages,
+                topic_id=topic_id,
+                execution_policy=execution_policy or FrameExecutionPolicy(),
+            )
         )
-        logger.debug(f"Created main frame: {frame}")
-        return frame
 
     async def fork_sub_frame(
         self,
@@ -78,63 +61,49 @@ class FrameScheduler:
         agent_profile: AgentProfile,
         task: str,
         shared_context: str = "",
+        *,
+        execution_policy: FrameExecutionPolicy | None = None,
     ) -> ExecutionFrame:
-        """
-        派生子 Agent 帧 (depth=1)。
-
-        流程:
-        1. 构建 System Prompt (剥离 CALL 指令教学)
-        2. 注入调用方准备好的 shared_context (零开销上下文继承)
-        3. 创建瞬态帧 (topic_id=None)
-        """
-        logger.info(
-            f"Forking sub-frame: agent={getattr(agent_profile, 'alias', None) or 'unknown'}, "
-            f"task='{task[:50]}...', has_shared_context={bool(shared_context)}"
-        )
-
-        working_history = self._prompt_assembler.build_sub_agent_messages(
+        messages = self._prompt_assembler.build_sub_agent_messages(
             profile=agent_profile,
             task=task,
             shared_context=shared_context,
             depth=1,
         )
-
-        self._frame_counter += 1
-        frame_id = f"frame_sub_{self._frame_counter}"
-        sub_frame = ExecutionFrame(
-            runtime_scope=parent_frame.runtime_scope.for_child(frame_id),
-            agent_profile=agent_profile,
-            working_history=working_history,
-            topic_id=None,
-            identity=parent_frame.identity,
+        # parent/depth are retained only as compatibility metadata until
+        # Phase 6 removes the legacy RuntimeScope fields.
+        scope = RuntimeScope(
+            run_id=parent_frame.runtime_scope.run_id,
+            frame_id=f"frame_sub_{uuid4().hex}",
+            parent_frame_id=parent_frame.runtime_scope.frame_id,
+            depth=parent_frame.runtime_scope.depth + 1,
         )
-
-        logger.debug(f"Created sub-frame: {sub_frame}")
-        return sub_frame
+        return self._factory.create(
+            FrameSpec(
+                runtime_scope=scope,
+                profile=agent_profile,
+                identity=parent_frame.identity,
+                messages=messages,
+                topic_id=None,
+                execution_policy=execution_policy or FrameExecutionPolicy(),
+            )
+        )
 
     def suspend_frame(self, frame: ExecutionFrame) -> None:
-        """挂起当前帧（压栈）。"""
-        self._frame_stack.append(frame)
-        logger.debug(
-            f"Suspended frame: {frame.runtime_scope.frame_id}, stack_depth={len(self._frame_stack)}"
-        )
+        """Compatibility hook; suspension is no longer scheduler-owned."""
+        self._compat_suspended.set(frame)
 
-    def resume_frame(self) -> Optional[ExecutionFrame]:
-        """恢复父帧（出栈）。"""
-        if self._frame_stack:
-            frame = self._frame_stack.pop()
-            logger.debug(
-                f"Resumed frame: {frame.runtime_scope.frame_id}, stack_depth={len(self._frame_stack)}"
-            )
-            return frame
-        logger.warning("Attempted to resume frame but stack is empty")
-        return None
+    def resume_frame(self) -> ExecutionFrame | None:
+        """Return the compatibility frame without consulting a shared stack."""
+        frame = self._compat_suspended.get()
+        self._compat_suspended.set(None)
+        return frame
 
     def get_current_depth(self) -> int:
-        """获取当前调用栈深度。"""
-        return len(self._frame_stack)
+        return 1 if self._compat_suspended.get() is not None else 0
 
     def clear_stack(self) -> None:
-        """清空帧栈（用于错误恢复）。"""
-        self._frame_stack.clear()
-        logger.debug("Cleared frame stack")
+        self._compat_suspended.set(None)
+
+
+__all__ = ["FrameScheduler"]

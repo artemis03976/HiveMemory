@@ -1,6 +1,6 @@
 ---
 title: Alice Frame Scheduler Task Locality
-status: todo
+status: completed
 owner: alice
 scope: frame-scheduler-and-cancel-state-isolation
 related_docs:
@@ -9,6 +9,16 @@ related_docs:
   - docs/plans/identity-isolation-and-execution-safety.md
 last_reviewed: 2026-07-29
 ---
+
+## Implementation fact (Phase 4)
+
+The shared ``FrameScheduler._frame_stack`` has been removed from the active
+execution path. Each Alice run now owns a ``RunSession`` containing its frame
+registry, CALL records, cancellation event, and stream sequence. Frame
+construction is delegated to the stateless ``FrameFactory``. The scheduler
+class remains only as a compatibility facade and does not coordinate active
+runs. Frame policies carry MTP verb permissions and iteration limits, so CALL
+permission no longer depends on shared frame depth.
 
 # Alice FrameScheduler 与取消状态的运行隔离
 

@@ -181,6 +181,12 @@ class KoakumaRuntime:
             PermissionDeniedError: 当前人偶无权执行此动词
         """
         profile = context.agent_profile if context is not None else None
+        policy = context.execution_policy if context is not None else None
+        if policy is not None and not policy.allows(verb):
+            raise PermissionDeniedError(
+                message_key="mtp.permission.verb_denied",
+                params={"verb": verb},
+            )
         if profile is None:
             return
         if not profile.is_verb_allowed(verb):
@@ -819,12 +825,14 @@ class KoakumaRuntime:
         """
         import json
 
-        from hivememory.core.mtp.exceptions import PermissionDeniedError
+        if context is not None and context.execution_policy is not None:
+            if not context.execution_policy.allows("CALL"):
+                raise PermissionDeniedError(
+                    message_key="mtp.permission.verb_denied",
+                    params={"verb": "CALL"},
+                )
 
         # 1. 深度检查 (硬限制)
-        if context is not None and context.runtime_scope.depth >= 1:
-            raise PermissionDeniedError(message_key="mtp.permission.call_depth_exceeded")
-
         target_alias = command.target.single_alias
         if not target_alias:
             raise InvalidArgumentError(message_key="mtp.call.missing_single_target")
