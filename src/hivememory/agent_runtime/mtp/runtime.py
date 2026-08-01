@@ -811,8 +811,8 @@ class KoakumaRuntime:
         """
         处理 CALL 指令 - 触发子代理调用 (Phase 2)
 
-        此方法仅负责验证参数和权限，实际调用由 Kernel 的 FrameScheduler 处理。
-        返回特殊的 SUSPEND 状态，通知 Kernel 挂起当前帧。
+        此方法仅负责验证参数和权限，实际调用由 Alice 的 CallCoordinator 处理。
+        返回特殊的 SUSPEND 状态，通知运行时交还 frame 控制权。
 
         Args:
             command: CALL 指令 (target=agent_alias, args: task="...", context_refs=["..."])
@@ -821,7 +821,7 @@ class KoakumaRuntime:
             MTPResponse: SUSPEND 状态，携带 CALL 参数
 
         Raises:
-            PermissionDeniedError: 如果子 Agent 尝试调用 CALL (depth >= 1)
+            PermissionDeniedError: 如果当前 frame policy 禁止 CALL
         """
         import json
 
@@ -832,7 +832,7 @@ class KoakumaRuntime:
                     params={"verb": "CALL"},
                 )
 
-        # 1. 深度检查 (硬限制)
+        # 1. Validate target and task after the frame policy check above.
         target_alias = command.target.single_alias
         if not target_alias:
             raise InvalidArgumentError(message_key="mtp.call.missing_single_target")

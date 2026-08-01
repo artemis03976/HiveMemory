@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.events import QueueFrameEventSink
+from hivememory.agent_runtime.events import (
+    FrameEventSink,
+    NullFrameEventSink,
+    QueueFrameEventSink,
+)
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -17,13 +21,6 @@ from hivememory.alice.runtime.agent.run_session import RunSession
 if TYPE_CHECKING:
     from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
     from hivememory.alice.runtime.agent.runtime import AgentRuntime
-
-
-SuspendHandler = Callable[[FrameExecutionResult], Awaitable[None]]
-StreamSuspendHandler = Callable[
-    [FrameExecutionResult, Callable[[dict[str, Any]], Awaitable[None]]],
-    Awaitable[None],
-]
 
 
 class RunDriver:
@@ -55,44 +52,60 @@ class RunDriver:
         *,
         generation_options: dict[str, Any] | None = None,
         cancel_event: asyncio.Event | None = None,
-        on_suspend: SuspendHandler | None = None,
     ) -> FrameExecutionResult:
         session = self._ensure_session(frame, cancel_event=cancel_event)
         self._register_frame_if_supported(session, frame)
         cancel_event = session.cancel_event
+        return await self._run_until_terminal(
+            frame,
+            generation_options=generation_options,
+            cancel_event=cancel_event,
+            event_sink=NullFrameEventSink(),
+            session=session,
+        )
+
+    async def _run_until_terminal(
+        self,
+        frame: ExecutionFrame,
+        *,
+        generation_options: dict[str, Any] | None,
+        cancel_event: asyncio.Event,
+        event_sink: FrameEventSink,
+        session: RunSession,
+    ) -> FrameExecutionResult:
+        """Drive one root frame until it reaches a terminal outcome."""
         while True:
             result = await self._agent_runtime.run_frame(
                 frame,
                 generation_options=generation_options,
+                event_sink=event_sink,
                 cancel_event=cancel_event,
             )
             if result.status != FrameExecutionStatus.SUSPENDED:
                 result = self._normalize_terminal_result(result, session.cancel_event)
                 return self._finish(result)
-            if self._call_coordinator is not None:
-                record = self._register_call(frame, result)
-                record.begin_resolution()
-                response = await self._call_coordinator.resolve_call(
-                    frame,
-                    result,
-                    generation_options=generation_options,
-                    cancel_event=cancel_event,
-                    session=session,
-                )
-                record.mark_resolved()
-                if cancel_event is not None and cancel_event.is_set():
-                    record.cancel()
-                    continue
-                self._agent_runtime.apply_call_response(frame, result, response)
-                record.mark_applied()
-                continue
-            if on_suspend is None:
+            if self._call_coordinator is None:
                 result = FrameExecutionResult(
                     status=FrameExecutionStatus.FAILED,
                     error=RuntimeError("Frame suspended without an orchestration callback."),
                 )
                 return self._finish(result)
-            await on_suspend(result)
+            record = self._register_call(frame, result)
+            record.begin_resolution()
+            response = await self._call_coordinator.resolve_call(
+                frame,
+                result,
+                generation_options=generation_options,
+                cancel_event=cancel_event,
+                event_sink=event_sink,
+                session=session,
+            )
+            record.mark_resolved()
+            if cancel_event.is_set():
+                record.cancel()
+                continue
+            self._agent_runtime.apply_call_response(frame, result, response)
+            record.mark_applied()
 
     def run_stream(
         self,
@@ -101,7 +114,6 @@ class RunDriver:
         generation_options: dict[str, Any] | None = None,
         cancel_event: asyncio.Event | None = None,
         event_metadata: dict[str, Any] | None = None,
-        on_suspend: StreamSuspendHandler | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         async def _stream() -> AsyncGenerator[dict[str, Any], None]:
             session = self._ensure_session(frame, cancel_event=cancel_event)
@@ -117,48 +129,13 @@ class RunDriver:
             async def _runner() -> None:
                 cancelled = False
                 try:
-                    while True:
-                        result = await self._agent_runtime.run_frame(
-                            frame,
-                            generation_options=generation_options,
-                            event_sink=sink,
-                            cancel_event=active_cancel_event,
-                        )
-                        if result.status != FrameExecutionStatus.SUSPENDED:
-                            result = self._normalize_terminal_result(
-                                result,
-                                session.cancel_event,
-                            )
-                            self._finish(result)
-                            break
-                        if self._call_coordinator is not None:
-                            record = self._register_call(frame, result)
-                            record.begin_resolution()
-                            response = await self._call_coordinator.resolve_call(
-                                frame,
-                                result,
-                                generation_options=generation_options,
-                                cancel_event=active_cancel_event,
-                                emit=sink.emit,
-                                session=session,
-                            )
-                            record.mark_resolved()
-                            if active_cancel_event.is_set():
-                                record.cancel()
-                                continue
-                            self._agent_runtime.apply_call_response(frame, result, response)
-                            record.mark_applied()
-                            continue
-                        if on_suspend is None:
-                            result = FrameExecutionResult(
-                                status=FrameExecutionStatus.FAILED,
-                                error=RuntimeError(
-                                    "Frame suspended without an orchestration callback."
-                                ),
-                            )
-                            self._finish(result)
-                            break
-                        await on_suspend(result, sink.emit)
+                    await self._run_until_terminal(
+                        frame,
+                        generation_options=generation_options,
+                        cancel_event=active_cancel_event,
+                        event_sink=sink,
+                        session=session,
+                    )
                 except asyncio.CancelledError:
                     cancelled = True
                     session.cancel_event.set()

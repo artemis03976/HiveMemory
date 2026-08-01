@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.events import CallbackFrameEventSink, FrameEventSink
+from hivememory.agent_runtime.events import FrameEventSink
 from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
@@ -70,9 +68,9 @@ class AgentRuntime:
     async def run_frame(
         self,
         frame: ExecutionFrame,
-        generation_options: dict[str, Any] | None = None,
         *,
-        event_sink: FrameEventSink | None = None,
+        generation_options: dict[str, Any] | None = None,
+        event_sink: FrameEventSink,
         cancel_event=None,
     ) -> FrameExecutionResult:
         """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
@@ -81,83 +79,6 @@ class AgentRuntime:
         return await self._loop_executor.execute_frame(
             frame=frame,
             max_iterations=max_iterations,
-            generation_options=generation_options,
-            event_sink=event_sink,
-            cancel_event=cancel_event,
-        )
-
-    def run_frame_stream(
-        self,
-        frame: ExecutionFrame,
-        generation_options: dict[str, Any] | None = None,
-        cancel_event=None,
-        on_suspend: Callable[[FrameExecutionResult], Awaitable[None]] | None = None,
-        on_terminal: Callable[[FrameExecutionResult], Awaitable[None]] | None = None,
-        event_metadata: dict[str, Any] | None = None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        """跑一个 frame 并逐 token 流式输出；命中 CALL 时回调 on_suspend。"""
-
-        async def _stream() -> AsyncGenerator[dict[str, Any], None]:
-            queue: asyncio.Queue = asyncio.Queue()
-
-            async def _emit(event: dict[str, Any]) -> None:
-                await queue.put(event)
-
-            sink = CallbackFrameEventSink(_emit, metadata=event_metadata)
-
-            async def _runner() -> None:
-                try:
-                    while True:
-                        result = await self.run_frame(
-                            frame,
-                            generation_options=generation_options,
-                            event_sink=sink,
-                            cancel_event=cancel_event,
-                        )
-                        if result.status == FrameExecutionStatus.SUSPENDED:
-                            if on_suspend is not None:
-                                await on_suspend(result)
-                                continue
-                            result = FrameExecutionResult(
-                                status=FrameExecutionStatus.FAILED,
-                                error=RuntimeError(
-                                    "Frame suspended without an orchestration callback."
-                                ),
-                            )
-                        if on_terminal is not None:
-                            await on_terminal(result)
-                        break
-                finally:
-                    await queue.put(None)
-
-            task = asyncio.create_task(_runner())
-            try:
-                while True:
-                    event = await queue.get()
-                    if event is None:
-                        break
-                    yield event
-            finally:
-                await task
-
-        return _stream()
-
-    async def run_frame_emitting(
-        self,
-        frame: ExecutionFrame,
-        generation_options: dict[str, Any] | None = None,
-        stream_emitter: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-        event_metadata: dict[str, Any] | None = None,
-        cancel_event=None,
-    ) -> FrameExecutionResult:
-        """跑一个 frame，逐 token 推给 stream_emitter（供编排跑流式子帧）。"""
-        event_sink = (
-            CallbackFrameEventSink(stream_emitter, metadata=event_metadata)
-            if stream_emitter is not None
-            else None
-        )
-        return await self.run_frame(
-            frame=frame,
             generation_options=generation_options,
             event_sink=event_sink,
             cancel_event=cancel_event,

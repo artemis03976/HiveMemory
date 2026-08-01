@@ -55,10 +55,10 @@ class PendingAtomStatus(str, Enum):
 class PendingAtomResolution(str, Enum):
     """SETTLED 状态下的终结分类（其他状态此字段为 None）。"""
 
-    CREATED = "created"      # dedup decision = CREATE
-    MERGED = "merged"        # dedup decision = UPDATE
-    TOUCHED = "touched"      # dedup decision = TOUCH
-    UPDATED = "updated"      # Mode C UPDATE 应用完成
+    CREATED = "created"  # dedup decision = CREATE
+    MERGED = "merged"  # dedup decision = UPDATE
+    TOUCHED = "touched"  # dedup decision = TOUCH
+    UPDATED = "updated"  # Mode C UPDATE 应用完成
     DISCARDED = "discarded"  # dedup decision = DISCARD
 
     @property
@@ -68,16 +68,20 @@ class PendingAtomResolution(str, Enum):
 
 
 _TRANSITIONS: dict[PendingAtomStatus, frozenset[PendingAtomStatus]] = {
-    PendingAtomStatus.PENDING: frozenset({
-        PendingAtomStatus.MATERIALIZING,
-        PendingAtomStatus.EXPIRED,
-        PendingAtomStatus.CANCELLED,
-    }),
-    PendingAtomStatus.MATERIALIZING: frozenset({
-        PendingAtomStatus.SETTLED,
-        PendingAtomStatus.FAILED,
-        PendingAtomStatus.CANCELLED,
-    }),
+    PendingAtomStatus.PENDING: frozenset(
+        {
+            PendingAtomStatus.MATERIALIZING,
+            PendingAtomStatus.EXPIRED,
+            PendingAtomStatus.CANCELLED,
+        }
+    ),
+    PendingAtomStatus.MATERIALIZING: frozenset(
+        {
+            PendingAtomStatus.SETTLED,
+            PendingAtomStatus.FAILED,
+            PendingAtomStatus.CANCELLED,
+        }
+    ),
     PendingAtomStatus.SETTLED: frozenset({PendingAtomStatus.EXPIRED}),
     PendingAtomStatus.FAILED: frozenset({PendingAtomStatus.EXPIRED}),
     PendingAtomStatus.EXPIRED: frozenset(),
@@ -113,6 +117,7 @@ class WriteFocus(BaseModel):
     关联键（pending_alias / intent_id / identity）由 PendingAtom 持有，
     通过 PendingAtomMaterializeTask 出境，不再穿透 Focus。
     """
+
     content: str
     reason: Optional[str] = None
     title: Optional[str] = None
@@ -125,6 +130,7 @@ class UpdateFocus(BaseModel):
     关联键（pending_alias / intent_id / identity）由 PendingAtom 持有，
     通过 PendingAtomMaterializeTask 出境，不再穿透 Focus。
     """
+
     instruction: str
     content: Optional[str] = None
     base_uuid: str
@@ -142,22 +148,11 @@ class RuntimeScope(BaseModel):
 
     run_id: str = ""
     frame_id: str = ""
-    parent_frame_id: Optional[str] = None
     action_id: Optional[str] = None
-    depth: int = 0
 
     def with_action(self, action_id: str) -> "RuntimeScope":
         """Return a copy scoped to one agent action."""
         return self.model_copy(update={"action_id": action_id})
-
-    def for_child(self, frame_id: str) -> "RuntimeScope":
-        """Return a child frame scope under the same run."""
-        return RuntimeScope(
-            run_id=self.run_id,
-            frame_id=frame_id,
-            parent_frame_id=self.frame_id,
-            depth=self.depth + 1,
-        )
 
     model_config = ConfigDict(frozen=True)
 
@@ -179,6 +174,7 @@ class PendingAtomSettlement(BaseModel):
         ``FAILED`` 不属于 resolution（生命周期阶段而非结算分类），通过 ``error`` 字段
         与上游 ``PendingAtomStatus.FAILED`` 协同表达。
     """
+
     pending_alias: str
     intent_id: str
     resolution: PendingAtomResolution
@@ -279,21 +275,15 @@ class PendingAtomSnapshot(BaseModel):
                 raise ValueError("SETTLED status requires a resolution")
         else:
             if self.resolution is not None:
-                raise ValueError(
-                    f"status={self.status.value} must not carry a resolution"
-                )
+                raise ValueError(f"status={self.status.value} must not carry a resolution")
 
         if self.resolution is not None:
             if self.resolution.has_canonical:
                 if self.canonical_uuid is None:
-                    raise ValueError(
-                        f"resolution={self.resolution.value} requires canonical_uuid"
-                    )
+                    raise ValueError(f"resolution={self.resolution.value} requires canonical_uuid")
             else:
                 if self.canonical_uuid is not None or self.canonical_alias is not None:
-                    raise ValueError(
-                        "DISCARDED resolution must not carry canonical refs"
-                    )
+                    raise ValueError("DISCARDED resolution must not carry canonical refs")
         return self
 
     model_config = ConfigDict(frozen=True)

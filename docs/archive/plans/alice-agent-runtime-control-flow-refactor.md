@@ -1,12 +1,15 @@
 ---
 title: Alice Agent Runtime Control Flow Refactor
-status: planned
+status: completed
 owner: alice
 scope: agent-runtime-frame-execution-and-call-orchestration
 code_paths:
   - src/hivememory/agent_runtime/
   - src/hivememory/alice/runtime/agent/runtime.py
-  - src/hivememory/alice/runtime/agent/frame_scheduler.py
+  - src/hivememory/alice/runtime/agent/run_driver.py
+  - src/hivememory/alice/runtime/agent/run_session.py
+  - src/hivememory/alice/runtime/agent/call_coordinator.py
+  - src/hivememory/alice/runtime/agent/frame_factory.py
   - src/hivememory/alice/runtime/orchestrator.py
 related_docs:
   - docs/alice/agent-runtime.md
@@ -18,11 +21,21 @@ related_docs:
 last_reviewed: 2026-08-01
 ---
 
-# Alice Agent Runtime 控制流重构计划
+# Alice Agent Runtime 控制流重构计划（已完成）
 
 本文整理当前 Agent loop、主/子 frame 与 CALL 指令控制流程的后续重构方向。核心判断是：现有统一 `AgentRuntime` 门面应当保留，但它必须继续是一台与 Agent 拓扑无关的单 frame 执行引擎；多 Agent 调用关系、目标选择、frame 派生和恢复顺序应由 Alice 编排层拥有。
 
 这不是为了立即实现更复杂的多 Agent 系统，而是先让当前单层串行 CALL 拥有一条容易阅读、能够测试且可以安全演进的控制路径。未来扩展性通过稳定边界、显式状态与 run-local 所有权获得，不通过提前实现 DAG、并行 fan-out 或通用工作流引擎获得。
+
+## 实施完成记录
+
+本计划已按 Phase 0--6 完成。Phase 0--5 的提交依次为 `949c74e`、`1cd3824`、`6188bbc`、`05bf446`、`e1fd643` 与 `5784d14`；Phase 6 清理兼容 API、迁移测试和更新当前文档后完成归档。
+
+最终实现保持 `AgentRuntime.run_frame()` 为唯一单 frame 执行入口，保留 `FrameExecutionResult` 与 `MTPCallResponse`。Alice 侧由 `RunSession`、`RunDriver`、`CallCoordinator` 和 `FrameFactory` 分别承担 run 状态、根 frame 推进、CALL 解析和 frame 构造；`RuntimeScope` 只保留 `run_id/frame_id/action_id`。`FrameScheduler`、共享 cancel event、旧流式入口和 Runtime 回调 Orchestrator 的控制路径均已删除。
+
+PendingAtom 仍采用成功根 run 驱动的两阶段进程内 retention epoch：根 run 成功时 claim materialize tasks 并推进 epoch，取消或失败时清理本 run in-flight atom 且不推进 epoch。本计划没有实现 XML escaping、DAG、fan-out、递归 CALL、timer/reaper/TTL 或 durable checkpoint。
+
+以下正文保留为实施期间的设计与验收记录；当前实现事实以 `docs/alice/` 和 `docs/contracts/error-model.md` 为准。
 
 ## 1. 设计结论
 

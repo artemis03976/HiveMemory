@@ -13,7 +13,6 @@ from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory
-from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
 from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
@@ -93,7 +92,6 @@ class AliceRuntime:
         )
         self._orchestrator = AgentOrchestrator(
             agent_runtime=self._agent_runtime,
-            frame_scheduler=FrameScheduler(prompt_assembler=self._prompt_assembler),
             agent_profile_resolver=AgentProfileResolver(local_bus=self._local_bus),
             alias_resolver=self._alias_resolver,
             frame_factory=FrameFactory(),

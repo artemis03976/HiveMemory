@@ -23,7 +23,7 @@ async def test_koakuma_mtp_executor_delegates_to_runtime():
     context = MTPExecutionContext(
         identity=Identity(user_id="u1", agent_id="agent_a"),
         agent_profile=OMNI_DOLL_PROFILE,
-        runtime_scope=RuntimeScope(depth=0),
+        runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-1"),
     )
 
     executor = KoakumaMTPExecutor(koakuma)

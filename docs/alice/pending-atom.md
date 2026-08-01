@@ -50,14 +50,14 @@ Alice 不自行决定一个 WRITE 应被创建、合并、触碰还是丢弃，�
 - `intent_id`：Alice 与 Patchouli 之间的系统关联键；
 - `source_verb`：区分 `WRITE` 与 `UPDATE`；
 - `identity`：物化时继续使用的调用方身份；
-- `runtime_scope`：`run_id`、`frame_id`、父帧、动作与深度坐标；
+- `runtime_scope`：`run_id`、`frame_id` 与动作坐标；不保存父帧和深度拓扑；
 - `status` 与可选 `settlement`：当前生命周期及其结算视图。
 
 pending alias 服务于运行时可读性，`intent_id` 服务于异步关联。两者不能互相替代：alias 可能被 Agent 写进后续命令，intent_id 则不应成为 prompt 中的领域名词。
 
 ### 2.2 RuntimeScope：把写入意图放回执行现场
 
-主帧与子帧共享同一个 `run_id`，但拥有不同 `frame_id`；子帧通过 `parent_frame_id` 和递增的 `depth` 保留派生关系。这样，子 Agent 创建的 PendingAtom 无需在 CALL 返回后复制或合并，run 收尾时可以按共同 `run_id` 一次性认领；同时 Orchestrator 仍可按 `frame_id` 收集子帧产生的 alias，作为 CALL artifacts 返回主 Agent。
+caller 与 callee frame 共享同一个 `run_id`，但拥有不同 `frame_id`；调用关系由 Alice 的 `CallRecord(caller_frame_id, action_id)` 保存，不再写入 `RuntimeScope` 的 `parent_frame_id` 或 `depth`。这样，被调用 Agent 创建的 PendingAtom 无需在 CALL 返回后复制或合并，根 run 收尾时可以按共同 `run_id` 一次性认领；`finalize_frame()` 则为当前 CALL 投影 `FrameProducts.artifact_aliases`。
 
 这是一种运行时关联，不是持久化 provenance。正式记忆的来源仍由 Patchouli 在生成与落库阶段整理。
 
@@ -143,7 +143,8 @@ settlement 若给出 canonical alias 或 UUID，旧 pending alias 会继续作�
 WRITE / UPDATE
   -> register PendingAtom(PENDING)
   -> Agent continues and may READ pending_alias
-  -> AgentRunResult assembly
+  -> RunDriver receives terminal FrameExecutionResult
+  -> AgentRuntime.finalize_run(run_id, result) once
   -> claim current run's PENDING atoms
   -> PendingAtom(MATERIALIZING)
   -> PendingAtomMaterializeTask[]
@@ -166,17 +167,17 @@ WRITE / UPDATE
 
 除 `DISCARDED` 外，resolution 必须携带 canonical UUID；`DISCARDED` 不允许携带 canonical 引用。这个约束由 `PendingAtomSnapshot` 校验。
 
-取消的 Agent run 不交出物化任务，而是把该 `run_id` 下仍在飞行的 PendingAtom 迁到 `CANCELLED`。这保证“生成过 WRITE 文本”不足以让一次已取消的执行污染长期记忆。
+取消、失败或预算耗尽的 Agent run 不交出物化任务，而是把该 `run_id` 下仍在飞行的 PendingAtom 迁到 `CANCELLED`/清理状态。只有 `COMPLETED` 的根 run 由 `finalize_run()` claim materialize tasks；被调用 frame 只调用 `finalize_frame()`，不触发 run finalization。
 
 ## 7. 回收语义
 
-PendingAtom 当前没有墙钟 TTL。回收发生在 `collect_tasks_by_run(current_run_id)` 之后，并以 AliceRuntime 共享 store 中的 **全局 run 周期** 为节拍：
+PendingAtom 当前没有墙钟 TTL。回收发生在成功根 run 的 `finalize_run()` 中，并以 AliceRuntime 共享 store 中的 **成功根 run 周期** 为节拍：
 
 1. 删除此前已经是 `EXPIRED` 的对象及其索引；
 2. 把不属于当前 run 的 `SETTLED`、`FAILED`、`CANCELLED` 迁到 `EXPIRED`；
 3. 新迁入 `EXPIRED` 的对象再保留一个回收周期，让 resolver 有机会解释“句柄已过期”。
 
-这不是按用户、session 或 elapsed time 独立计算的保留期。旧 run 中仍处于 `PENDING` / `MATERIALIZING` 的对象也不会被该步骤自动回收；它们依赖正常取消或 Patchouli 事件结束生命周期。
+这不是按用户、session 或 elapsed time 独立计算的保留期。取消或失败根 run 不推进 retention epoch；旧 run 中仍处于 `PENDING` / `MATERIALIZING` 的对象也不会被回收步骤强行删除，它们依赖正常取消或 Patchouli 事件结束生命周期。
 
 ## 8. 所有权与不变量
 
@@ -186,7 +187,7 @@ PendingAtom 当前没有墙钟 TTL。回收发生在 `collect_tasks_by_run(curre
 2. 只有完成的 run 默认向 Patchouli 交出物化任务；失败与取消不应静默落库；
 3. Alice 拥有可变 PendingAtom 与状态机，Patchouli 拥有正式 MemoryAtom 与物化决策；
 4. 跨边界只传 `PendingAtomMaterializeTask` / `PendingAtomSettlement`，不传内部 store 引用；
-5. 主/子帧以共同 `run_id` 汇总，以 `frame_id` 保留执行来源；
+5. caller/callee frame 以共同 `run_id` 汇总，以 `frame_id` 保留执行来源，调用关系由 Alice ledger 保存；
 6. resolver 统一解释 pending、redirect 与 canonical atom，MTP handler 不各建一套 alias 语义；
 7. settlement 的 intent 必须与原 PendingAtom 匹配；
 8. `EXPIRED` 不得复活为 in-flight 状态。
@@ -201,7 +202,7 @@ PendingAtom 当前没有墙钟 TTL。回收发生在 `collect_tasks_by_run(curre
 | 生命周期命令与查询 | `src/hivememory/agent_runtime/pending_atom/runtime.py` |
 | alias / intent / canonical 索引 | `src/hivememory/agent_runtime/pending_atom/store.py` |
 | L0/L1/L2 统一解析 | `src/hivememory/agent_runtime/resolver.py` |
-| run 收尾认领与取消 | `src/hivememory/alice/runtime/agent/runtime.py`、`orchestrator.py` |
+| frame/run 收尾认领与取消 | `src/hivememory/alice/runtime/agent/runtime.py`、`run_driver.py`、`call_coordinator.py` |
 | settlement 事件回填 | `src/hivememory/alice/runtime/core.py` |
 | 状态机与回收测试 | `tests/unit/agent_runtime/pending_atom/` |
 | WRITE/UPDATE/READ/RUN 链路 | `tests/unit/agent_runtime/mtp/test_*_chain.py` |
@@ -210,7 +211,7 @@ PendingAtom 当前没有墙钟 TTL。回收发生在 `collect_tasks_by_run(curre
 
 - PendingAtomRuntime、三个索引与 settlement 视图全部在进程内；没有 durable ledger、重启恢复、事件重放或未结任务扫描。进程在 ACK 后、物化前退出时，Alice 无法恢复该意图；
 - PendingAtomRuntime 和 KoakumaAtomCache 由 AliceRuntime 全局共享。L0/L1 命中目前不会重新检查调用方 `Identity`，只有 L2 冷查询会携带身份，因而尚未满足跨用户并发运行所需的强隔离；
-- 回收以任意新 run 的收尾为节拍，而非用户/session TTL。一个用户的 run 可以推进另一个 run 的已结束句柄进入 EXPIRED 或删除；
+- 回收以成功根 run 的收尾为节拍，而非用户/session TTL。当前个人本地服务允许一个成功 run 推进另一个已结束句柄进入 EXPIRED 或删除；取消/失败 run 不推进 epoch；
 - alias 只使用 4 位十六进制随机后缀，store 写入前不检查碰撞。同名碰撞会覆盖 alias 对应对象，并可能留下不一致反查索引；
 - 中文标题通常生成 `draft_untitled_*`，可读性有限；alias 也没有进程外唯一性承诺；
 - `CANCELLED` 在当前 resolver 中映射为 `not_found`，因此 MemoryCompiler 已有的 cancelled 文案不会通过正常 READ 路径出现；取消与真正不存在尚未对 Agent 明确区分；

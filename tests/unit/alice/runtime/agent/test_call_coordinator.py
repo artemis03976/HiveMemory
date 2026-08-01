@@ -50,6 +50,23 @@ def _suspension(action_id: str = "act-1") -> FrameExecutionResult:
     )
 
 
+def _coordinator(runtime, child: ExecutionFrame) -> CallCoordinator:
+    frame_factory = SimpleNamespace(
+        scope=MagicMock(return_value=child.runtime_scope),
+        create=MagicMock(return_value=child),
+    )
+    prompt_assembler = SimpleNamespace(
+        build_sub_agent_messages=MagicMock(return_value=child.working_history)
+    )
+    return CallCoordinator(
+        runtime,
+        SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
+        SimpleNamespace(resolve=AsyncMock()),
+        frame_factory=frame_factory,
+        prompt_assembler=prompt_assembler,
+    )
+
+
 def test_apply_call_response_is_exactly_once_and_updates_call_pair():
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
@@ -135,12 +152,7 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
         finalize_frame=MagicMock(return_value=FrameProducts(artifact_aliases=("draft-child",))),
         finalize_run=MagicMock(),
     )
-    coordinator = CallCoordinator(
-        runtime,
-        SimpleNamespace(fork_sub_frame=AsyncMock(return_value=child)),
-        SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
-        SimpleNamespace(resolve=AsyncMock()),
-    )
+    coordinator = _coordinator(runtime, child)
 
     response = await coordinator.resolve_call(caller, _suspension())
 
@@ -165,12 +177,7 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
         finalize_frame=MagicMock(return_value=FrameProducts()),
         finalize_run=MagicMock(),
     )
-    coordinator = CallCoordinator(
-        runtime,
-        SimpleNamespace(fork_sub_frame=AsyncMock(return_value=child)),
-        SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
-        SimpleNamespace(resolve=AsyncMock()),
-    )
+    coordinator = _coordinator(runtime, child)
 
     response = await coordinator.resolve_call(
         caller,

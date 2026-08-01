@@ -5,7 +5,10 @@ owner: alice
 scope: call-frame-scheduling-and-sub-agent-return
 code_paths:
   - src/hivememory/alice/runtime/orchestrator.py
-  - src/hivememory/alice/runtime/agent/frame_scheduler.py
+  - src/hivememory/alice/runtime/agent/run_driver.py
+  - src/hivememory/alice/runtime/agent/run_session.py
+  - src/hivememory/alice/runtime/agent/call_coordinator.py
+  - src/hivememory/alice/runtime/agent/frame_factory.py
   - src/hivememory/alice/runtime/agent/profile_resolver.py
   - src/hivememory/prompts/assembler.py
 related_contracts:
@@ -25,10 +28,16 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 
 ```text
 AgentOrchestrator
-  ├─ FrameScheduler
-  │    ├─ create main frame
-  │    ├─ suspend / resume stack
-  │    └─ fork transient sub frame
+  ├─ RunSession
+  │    ├─ frame registry / CallRecord ledger
+  │    ├─ cancel event
+  │    └─ stream sequence
+  ├─ RunDriver
+  │    └─ root frame outcome loop and run finalization
+  ├─ CallCoordinator
+  │    └─ resolve profile/context, create and run callee, map MTPCallResponse
+  ├─ FrameFactory
+  │    └─ create ordinary ExecutionFrame from FrameSpec
   ├─ AgentProfileResolver
   │    └─ alias -> Patchouli AgentProfile -> LRU cache
   ├─ RuntimeAliasResolver
@@ -37,50 +46,50 @@ AgentOrchestrator
        └─ run one frame to completed / suspended / cancelled / failed / budget_exhausted
 ```
 
-- Orchestrator 拥有 CALL 重入序列和最终 `AgentRunResult` 组装；
-- FrameScheduler 拥有帧坐标、挂起栈与子帧消息构造；
+- Orchestrator 是 public facade，负责创建 root `RunSession`、调用 `RunDriver` 并组装最终 `AgentRunResult`；
+- RunSession 拥有一次 run 的 frame registry、CALL record、取消信号和流序号，不存在进程级挂起栈；
+- RunDriver 是唯一的根 frame 推进状态机，也是唯一调用 `finalize_run()` 的位置；
+- CallCoordinator 只负责解析和运行被调用 frame，再返回既有 `MTPCallResponse`，不修改 caller history；
+- FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
 - ProfileResolver 负责把可读 agent alias 解析为运行图纸；
 - RuntimeAliasResolver 让 context refs 复用与 READ 相同的运行时寻址；
 - AgentRuntime 只运行给定 frame，不接触多 Agent 拓扑。
 
-如果 AgentRuntime 开始创建子帧，或 FrameScheduler 开始执行 MTP，说明这组责任重新混合。
+如果 AgentRuntime 开始创建被调用 frame，或 CallCoordinator 开始修改 caller history，说明这组责任重新混合。
 
 ## 2. 主帧与运行作用域
 
 每次 `run_agent()` 创建一个新的主 frame：
 
-- `run_id=run_<uuid>`，贯穿主帧和所有子帧；
-- `frame_id=frame_main_<counter>`；
-- `depth=0`；
+- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；Gateway 的 `generation_id` 作为外层关联值显式传入；
+- 唯一且无拓扑含义的 `frame_id`；
 - `topic_id` 指向 Patchouli 已准备的话题；
 - `identity` 来自 `AgentRunContext`；
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 已由 PromptAssembler 组装。
 
-Orchestrator 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后它重复调用 `AgentRuntime.run_frame(main_frame)`：`SUSPENDED` 进入 CALL 重入，`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 映射为主 run 的最终终态。
+Orchestrator 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunDriver` 重复调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务，`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 映射为主 run 的最终终态。
 
-frame 是实际可恢复状态，FrameScheduler 的栈只表示当前编排挂起关系。恢复主 Agent 时必须继续使用原 frame，不能从消息重新构造一个“看似等价”的新 frame，否则迭代预算、事件序号、已经产生的正文和 PendingAtom action scope 都会分叉。
+frame 是实际可恢复状态。恢复 caller 时必须继续使用原 frame，不能从消息重新构造一个“看似等价”的新 frame，否则迭代预算、事件序号、已经产生的正文和 PendingAtom action scope 都会分叉。父子、caller action 等调用关系只记录在 Alice 的 `CallRecord` 与事件元数据中，不进入 `RuntimeScope`。
 
 ## 3. CALL trap 与重入
 
 CALL 的稳定语法和参数见 [MTP 契约](../contracts/mtp.md)。在编排层，它是一种控制流陷入：
 
 ```text
-main Agent emits CALL
-  -> Koakuma validates root depth and returns SUSPEND
+current frame emits CALL
+  -> Koakuma validates profile + FrameExecutionPolicy and returns SUSPEND
   -> AgentLoopExecutor records tool_call and returns FrameExecutionResult
-  -> Orchestrator appends normalized CALL assistant message
-  -> suspend main frame
-  -> resolve target profile
-  -> resolve and compile context_refs
-  -> fork + run sub frame
-  -> harvest result and aliases
-  -> format MTPCallResponse
-  -> append response + tool_result to main frame
-  -> re-enter main frame
+  -> RunDriver creates CallRecord(caller_frame_id, action_id)
+  -> CallCoordinator resolves target profile/context_refs
+  -> FrameFactory creates and AgentRuntime runs a normal callee frame
+  -> finalize_frame projects callee artifacts
+  -> CallCoordinator maps the result to MTPCallResponse
+  -> AgentRuntime.apply_call_response() updates caller once
+  -> re-enter the same caller frame
 ```
 
-`suspend` 不能被当作一条正文为空的成功响应。如果执行循环直接继续，主 Agent 会在子任务尚未执行时向下生成，CALL 的任务身份、结果和取消边界都会丢失。Orchestrator 必须先补齐子任务，再以同一 action_id 回填 tool result。
+`suspend` 不能被当作一条正文为空的成功响应。如果执行循环直接继续，Agent 会在被调用任务尚未执行时向下生成，CALL 的任务身份、结果和取消边界都会丢失。RunDriver 必须先补齐被调用任务，再以同一 action_id 通过 `AgentRuntime.apply_call_response()` 回填 tool result。
 
 ### 3.1 Profile 解析
 
@@ -119,9 +128,8 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 
 子 frame 当前具有：
 
-- 与父帧相同的 `run_id`；
-- 新的 `frame_sub_<counter>` 与 `parent_frame_id`；
-- `depth=1`；
+- 与 caller 相同的 `run_id`；
+- 由 `FrameFactory` 生成的唯一 `frame_id`，不携带 `parent_frame_id` 或 `depth`；
 - `topic_id=None`，不直接挂载 Patchouli 话题；
 - 目标 Agent Profile；
 - 由 persona、裁剪后的 MTP 教学、shared context 和 task 组成的全新消息历史；
@@ -133,31 +141,31 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 
 ## 5. 单层星型拓扑
 
-当前拓扑是根 Agent 可以串行调用多个子 Agent，子 Agent 不能再次 CALL：
+当前拓扑是根 run 可以串行调用多个子 Agent，子 Agent 不能再次 CALL：
 
 ```text
-main(depth=0)
-  ├─ CALL -> sub A(depth=1)
-  ├─ CALL -> sub B(depth=1)
-  └─ continue main
+root frame
+  ├─ CALL -> callee A
+  ├─ CALL -> callee B
+  └─ continue root frame
 ```
 
-软限制由 PromptAssembler 实现：为 depth >= 1 的子帧移除 CALL 动词教学。硬限制由 Koakuma 实现：即使模型仍输出 CALL，也返回 `PermissionDeniedError(call_depth_exceeded)`，执行循环把错误回填给该子 Agent，让它改用自然语言或其他获准能力继续。
+软限制由 PromptAssembler 实现：被调用 frame 的 prompt 始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 在 Profile 权限基础上显式移除 CALL；Koakuma 同时校验 Profile 与 frame policy。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该子 Agent，让它改用自然语言或其他获准能力继续。
 
 限制深度不是把复杂拓扑永久排除，而是确保当前 frame、取消、预算和错误语义尚未持久化时，不会出现无法收束的递归调用。并行 specialist、DAG 和 review loop 仍属于后置方向。
 
 ## 6. 结果收割与回填
 
-子帧成功结束后，Orchestrator 从两个来源建立 artifact alias 列表：
+子帧成功结束后，CallCoordinator 通过 `AgentRuntime.finalize_frame()` 建立 artifact alias 列表：
 
-1. 按 `frame_id` 查询共享 PendingAtomRuntime，取得子帧 WRITE/UPDATE 产生的 pending alias；
-2. 对 UPDATE tool event 进行兼容 fallback，补入尚未登记为 pending 的 target alias。
+1. `FrameProducts` 投影该 frame 已登记的 PendingAtom alias；
+2. Runtime 对 UPDATE tool event 执行兼容补全，加入尚未登记为 pending 的 target alias。
 
-自然语言 reply 与 alias 列表组成 `MTPCallResponse`。成功响应加入主 frame working history，并形成与原 CALL action_id 对应的 `tool_result`；主 Agent 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
+自然语言 reply 与 alias 列表组成 `MTPCallResponse`。CallCoordinator 不写 caller history；成功响应由 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并形成与原 CALL action_id 对应的 `tool_result`。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
 
 CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：Orchestrator 检查 `FrameExecutionResult`，仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 和意外 `SUSPENDED` 映射为带稳定 error code 的 error。
 
-父子帧共享 run_id，因此最终物化任务不依赖这份 IPC harvest：run 结束时 PendingAtomRuntime 会按 run_id 收集父子帧全部 PENDING 原子。IPC aliases 服务于主 Agent 当前认知，materialize task 服务于 Alice -> Patchouli 的数据交接，两者不能混为一份真相。
+caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC harvest：根 frame 终态后，RunDriver 只调用一次 `AgentRuntime.finalize_run(run_id, result)`。IPC aliases 服务于 caller 当前认知，`RuntimeProducts.materialize_tasks` 服务于 Alice -> Patchouli 的数据交接，两者不能混为一份真相。
 
 ## 7. 流式事件
 
@@ -167,7 +175,7 @@ CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生
 - 子帧自身的 token/MTP 事件：`scope=sub`，并带 depth/frame_id；
 - `sub_agent_end`：最终 success/error/cancelled、子帧 `terminal_status`、目标 alias 与 frame id；success 携带 reply，error 携带稳定 `error_code`。
 
-这些事件服务实时 UI 与调试，不是业务结果来源。最终 `done.AgentRunResult.turn_events` 才是交给 Patchouli 的结构化一轮事实；RuntimeEvent 则只记录主 `agent.run.*` 生命周期。
+这些事件服务实时 UI 与调试，不是业务结果来源。每次流式 run 使用容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；sink 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最终 `done.AgentRunResult.turn_events` 才是交给 Patchouli 的结构化一轮事实；RuntimeEvent 则只记录主 `agent.run.*` 生命周期。
 
 ## 8. 失败、取消与降级
 
@@ -189,14 +197,14 @@ CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生
 - Profile 的 persona 不能提升结构化权限，调用方 task 也不能替被调用者改写白名单；
 - Pending alias 的 IPC 收割与 run 级 materialize task 收集是两条不同用途的数据流；
 - `context_refs` 必须经过 RuntimeAliasResolver 与 MemoryCompiler，不能通过裸 UUID 或字符串拼接绕过 alias/状态语义；
-- 调用深度、预算与取消必须随 RuntimeScope/frame 传播，不能只依赖 prompt 告诫模型；
+- CALL 权限、预算与取消必须随 frame policy/session 传播，不能只依赖 prompt 告诫模型；
 - Alice 可以持有 Profile 运行时 cache，却不能把它当成 Patchouli 中 Profile 记忆的第二份权威事实。
 
 ## 10. 当前限制
 
 - AgentProfile cache 已按 Identity + alias 隔离、上限固定为 32，但没有 TTL、版本检查或管理事件失效；Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
 - `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 Identity。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 Identity 证明真实 CALL 目标；
-- FrameScheduler 的 `_frame_stack` 是 AliceRuntime 级共享列表，不是 task-local。并发 run 的 CALL 可以交错 push/pop，当前代码又不核对 resume 返回的 frame；
+- frame registry、CallRecord、cancel event 与 stream sequence 已由每次 run 新建的 `RunSession` 持有；当前没有共享 frame stack；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；
 - 当前只能串行单层 CALL，没有 parallel fan-out、动态 DAG、review loop 或 Alice 自主规划。

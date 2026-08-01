@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-01
 ---
 
 # Alice
@@ -63,8 +63,8 @@ AliceSystem
   -> AliceService                     public run / run_stream
   -> AliceRuntime                     composition + events + local routes
        -> AgentOrchestrator           multi-agent control plane
-            -> FrameScheduler
-            -> AgentProfileResolver
+            -> RunDriver + RunSession
+            -> CallCoordinator + FrameFactory
             -> AgentRuntime facade
                  -> AgentLoopExecutor single-frame loop
                  -> WorkerAgentService
@@ -101,8 +101,8 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 Patchouli AgentRunContext
   -> warm pre-retrieval MemoryAtoms into alias cache
   -> assemble MTP + persona + memory + topic messages
-  -> create main ExecutionFrame(depth=0, topic_id=...)
-  -> AgentRuntime.run_frame()
+  -> create root ExecutionFrame(topic_id=...)
+  -> RunDriver -> AgentRuntime.run_frame()
        -> LLM generate
        -> natural stop | MTP execute | CALL suspend | cancel
   -> AgentOrchestrator assembles AgentRunResult
@@ -111,27 +111,26 @@ Patchouli AgentRunContext
 
 Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的 `AgentRunResult` 包含自然语言正文、结构化 `TurnEvent[]`、迭代统计、实际模型展示名和 `PendingAtomMaterializeTask[]`。
 
-失败会向上抛出，由 System 结束 chat 用例；取消返回 `cancelled`，不交出物化任务。只有完成的 run 才会在 System 管理的主动流程中进入 Patchouli finalize。
+`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为 `AgentRunStatus.FAILED`，基础设施异常才向上抛出并由 System 结束 chat 用例；取消返回 `cancelled`，不交出物化任务。只有完成的 run 才会在 System 管理的主动流程中进入 Patchouli finalize。
 
 ### 4.2 CALL 与瞬态子帧
 
 ```text
-main frame emits CALL
+root frame emits CALL
   -> Koakuma returns SUSPEND + MTPCallRequest
-  -> Orchestrator appends normalized CALL text
-  -> suspend main frame
+  -> RunDriver 建立 CallRecord 并交给 CallCoordinator
   -> resolve target Agent Profile
   -> resolve context_refs + compile shared context
-  -> fork transient sub frame(depth=1, topic_id=None)
-  -> AgentRuntime runs sub frame
-  -> harvest pending aliases + natural-language reply
-  -> MTPCallResponse -> main working history
-  -> resume the same main frame and continue generation
+  -> FrameFactory 创建普通 callee frame
+  -> AgentRuntime.run_frame(callee frame)
+  -> finalize_frame 投影 pending aliases + natural-language reply
+  -> MTPCallResponse -> AgentRuntime.apply_call_response()
+  -> RunDriver 恢复同一个 caller frame 并继续生成
 ```
 
 子 Agent 的完整试错轨迹留在自己的 frame 中，主话题只接收 CALL、结构化返回与最终主 Agent 输出。这种黑盒隔离不是为了隐藏事实，而是为了避免一次专项执行的迭代细节污染主上下文；需要共享的记忆由 `context_refs` 显式解析并通过 MemoryCompiler 注入。
 
-当前只允许根帧发起 CALL。子帧 prompt 会移除 CALL 教学，Koakuma 也以 `depth >= 1` 硬拒绝递归调用，形成单层星型拓扑。
+当前只允许根 frame 发起 CALL。callee frame 的 `FrameExecutionPolicy` 会移除 CALL，Koakuma 同时以 policy 硬拒绝递归调用，形成单层串行星型拓扑。
 
 ## 5. MTP 与临时写状态
 
@@ -152,7 +151,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 ## 7. 当前设计文档
 
 - [Agent Runtime](./agent-runtime.md)：单 Agent 执行层、ExecutionFrame、prompt、模型解析、循环与流式输出；
-- [多 Agent 编排](./orchestration.md)：CALL trap、FrameScheduler、Profile 解析、共享上下文、结果回流与星型拓扑；
+- [多 Agent 编排](./orchestration.md)：RunDriver、CallCoordinator、CALL trap、Profile 解析、共享上下文、结果回流与星型拓扑；
 - [PendingAtom](./pending-atom.md)：运行时写缓冲、状态机、物化任务、settlement、redirect 与回收；
 - [MTP Runtime](./mtp-runtime.md)：Koakuma、权限、verb 分发、syscall、错误、取消和真实安全边界。
 
@@ -177,8 +176,8 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 - AgentProfile cache 是进程内、按 Identity + alias 隔离的 32 项 LRU，但仍没有 TTL、更新事件或显式失效入口；Profile 修改可能在进程内长期不可见；
 - `ExecutionFrame.identity` 在子帧中继承父帧，`AgentProfile` 又不携带解析 alias；因此部分子帧流事件和 PendingAtom provenance 会记录父 Agent，而不是实际 CALL 目标；
 - KoakumaAtomCache 与 PendingAtomRuntime 都由 AliceRuntime 进程级共享。L0/L1 alias 命中当前不会再次校验调用 Identity，尚未满足跨用户并发运行所需的隔离；
-- FrameScheduler 的栈与 Koakuma 的 cancel token 也是共享可变状态，尚未形成 task-local / run-local 隔离；
-- 子 Agent 异常会被包装为 CALL error 交给主 Agent继续处理，但若子帧只是取消或耗尽迭代预算，当前编排仍可能先把它视作成功返回；
+- 每次 run 的 frame registry、CallRecord、cancel event 和 stream sequence 均由独立 `RunSession` 持有，不共享 frame stack 或 cancel event；
+- 子 Agent 异常会被包装为 CALL error 交给主 Agent 继续处理；取消、预算耗尽和意外挂起分别保持 cancelled 或稳定 error，不会被视作成功返回；
 - Agent frame、PendingAtom、alias cache 与 Profile cache 均不持久化，进程重启后不能恢复；统一恢复边界见[运行时状态持久化与故障恢复计划](../plans/runtime-state-durability-and-recovery.md)；
 - Alice 当前只有单层 CALL，不具备持久化 DAG、并行 specialist、review loop、配额或 backpressure；
 - Koakuma 的若干配置字段和同步 syscall 仍有实现缺口，RUN 也不是不受信任代码的安全边界，详见 [MTP Runtime](./mtp-runtime.md)；

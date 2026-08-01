@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.events import CallbackFrameEventSink
+from hivememory.agent_runtime.events import FrameEventSink, NullFrameEventSink
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -14,6 +13,8 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts
+from hivememory.alice.runtime.agent.event_sink import ScopedFrameEventSink
+from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
 from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
@@ -30,8 +31,6 @@ from hivememory.engines.memory_compiler import (
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.resolver import RuntimeAliasResolver
-    from hivememory.alice.runtime.agent.frame_factory import FrameFactory
-    from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
     from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
     from hivememory.alice.runtime.agent.run_session import RunSession
     from hivememory.alice.runtime.agent.runtime import AgentRuntime
@@ -40,8 +39,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-EventEmitter = Callable[[dict[str, Any]], Awaitable[None]]
-
 
 class CallCoordinator:
     """Resolve one CALL and return the existing caller-facing response model."""
@@ -49,15 +46,13 @@ class CallCoordinator:
     def __init__(
         self,
         agent_runtime: AgentRuntime,
-        frame_scheduler: FrameScheduler,
         agent_profile_resolver: AgentProfileResolver,
         alias_resolver: RuntimeAliasResolver,
         *,
-        frame_factory: FrameFactory | None = None,
-        prompt_assembler: AgentPromptAssembler | None = None,
+        frame_factory: FrameFactory,
+        prompt_assembler: AgentPromptAssembler,
     ) -> None:
         self._agent_runtime = agent_runtime
-        self._frame_scheduler = frame_scheduler
         self._agent_profile_resolver = agent_profile_resolver
         self._alias_resolver = alias_resolver
         self._frame_factory = frame_factory
@@ -70,7 +65,7 @@ class CallCoordinator:
         *,
         generation_options: dict[str, Any] | None = None,
         cancel_event: asyncio.Event | None = None,
-        emit: EventEmitter | None = None,
+        event_sink: FrameEventSink | None = None,
         session: RunSession | None = None,
     ) -> MTPCallResponse:
         call_request = suspension.call_request
@@ -103,35 +98,26 @@ class CallCoordinator:
                 max_iterations=getattr(self._agent_runtime, "max_iterations", None),
                 denied_verbs={"CALL"},
             )
-            if self._frame_factory is None or self._prompt_assembler is None:
-                sub_frame = await self._frame_scheduler.fork_sub_frame(
-                    parent_frame=caller_frame,
-                    agent_profile=sub_profile,
-                    task=call_request.task,
-                    shared_context=shared_context,
+            messages = self._prompt_assembler.build_sub_agent_messages(
+                profile=sub_profile,
+                task=call_request.task,
+                shared_context=shared_context,
+            )
+            scope = self._frame_factory.scope(run_id=caller_frame.runtime_scope.run_id)
+            sub_frame = self._frame_factory.create(
+                FrameSpec(
+                    runtime_scope=scope,
+                    profile=sub_profile,
+                    identity=caller_frame.identity,
+                    messages=messages,
+                    topic_id=None,
                     execution_policy=policy,
                 )
-            else:
-                messages = self._prompt_assembler.build_sub_agent_messages(
-                    profile=sub_profile,
-                    task=call_request.task,
-                    shared_context=shared_context,
-                    depth=1,
-                )
-                scope = self._frame_factory.scope(run_id=caller_frame.runtime_scope.run_id)
-                sub_frame = self._frame_factory.create(
-                    self._frame_factory_spec(
-                        scope=scope,
-                        profile=sub_profile,
-                        identity=caller_frame.identity,
-                        messages=messages,
-                        policy=policy,
-                    )
-                )
+            )
             if session is not None and getattr(sub_frame.runtime_scope, "run_id", None) is not None:
                 session.register_frame(sub_frame)
-            if emit is not None:
-                await emit(
+            if event_sink is not None:
+                await event_sink.emit(
                     {
                         "event": "sub_agent_start",
                         "data": {
@@ -140,32 +126,24 @@ class CallCoordinator:
                             "iteration": caller_frame.progress.iteration,
                             "action_id": action_id,
                             "scope": "sub",
-                            "depth": caller_frame.runtime_scope.depth + 1,
+                            "depth": 1,
                             "frame_id": sub_frame.runtime_scope.frame_id,
                         },
                     }
                 )
 
-            if emit is None:
-                sub_result = await self._agent_runtime.run_frame(
-                    frame=sub_frame,
-                    generation_options=generation_options,
-                    cancel_event=cancel_event,
+            sub_sink: FrameEventSink = NullFrameEventSink()
+            if event_sink is not None:
+                sub_sink = ScopedFrameEventSink(
+                    event_sink,
+                    metadata=self._event_metadata_for_frame(sub_frame, action_id),
                 )
-            else:
-
-                async def _sub_emit(event: dict[str, Any]) -> None:
-                    await emit(event)
-
-                sub_result = await self._agent_runtime.run_frame(
-                    frame=sub_frame,
-                    generation_options=generation_options,
-                    event_sink=CallbackFrameEventSink(
-                        _sub_emit,
-                        metadata=self._event_metadata_for_frame(sub_frame),
-                    ),
-                    cancel_event=cancel_event,
-                )
+            sub_result = await self._agent_runtime.run_frame(
+                frame=sub_frame,
+                generation_options=generation_options,
+                event_sink=sub_sink,
+                cancel_event=cancel_event,
+            )
 
             call_response = self._call_response_for_frame(
                 call_request,
@@ -257,7 +235,7 @@ class CallCoordinator:
                 }
             )
 
-        if emit is not None:
+        if event_sink is not None:
             end_data: dict[str, Any] = {
                 "status": call_response.status.value,
                 "final_text": (
@@ -266,7 +244,7 @@ class CallCoordinator:
                 "iteration": caller_frame.progress.iteration,
                 "action_id": action_id,
                 "scope": "sub",
-                "depth": caller_frame.runtime_scope.depth + 1,
+                "depth": 1,
                 "frame_id": sub_frame.runtime_scope.frame_id if sub_frame is not None else None,
                 "agent_id": call_request.target_alias,
             }
@@ -274,22 +252,9 @@ class CallCoordinator:
                 end_data["terminal_status"] = sub_result.status.value
             if call_response.error is not None:
                 end_data["error_code"] = call_response.error.code
-            await emit({"event": "sub_agent_end", "data": end_data})
+            await event_sink.emit({"event": "sub_agent_end", "data": end_data})
 
         return call_response
-
-    @staticmethod
-    def _frame_factory_spec(*, scope, profile, identity, messages, policy):
-        from hivememory.alice.runtime.agent.frame_factory import FrameSpec
-
-        return FrameSpec(
-            runtime_scope=scope,
-            profile=profile,
-            identity=identity,
-            messages=messages,
-            topic_id=None,
-            execution_policy=policy,
-        )
 
     @staticmethod
     def _call_response_for_frame(
@@ -380,11 +345,14 @@ class CallCoordinator:
         ).text
 
     @staticmethod
-    def _event_metadata_for_frame(frame: ExecutionFrame) -> dict[str, Any]:
+    def _event_metadata_for_frame(
+        frame: ExecutionFrame,
+        action_id: str | None,
+    ) -> dict[str, Any]:
         agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
         return {
             "agent_run_id": frame.runtime_scope.run_id,
-            "action_id": None,
+            "action_id": action_id,
             "scope": "sub",
             "depth": 1,
             "agent_id": agent_id,

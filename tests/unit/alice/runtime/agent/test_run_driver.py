@@ -37,19 +37,27 @@ async def test_run_driver_reenters_suspended_frame_with_continuous_stream_sequen
         calls += 1
         await event_sink.emit({"event": "token", "data": {"content": str(calls)}})
         if calls == 1:
-            return FrameExecutionResult(status=FrameExecutionStatus.SUSPENDED)
+            return FrameExecutionResult(
+                status=FrameExecutionStatus.SUSPENDED,
+                call_request=MTPCallRequest(target_alias="helper", task="task"),
+                suspend_action_id="act-1",
+            )
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
-    async def on_suspend(_result, emit):
-        await emit({"event": "sub_agent_end", "data": {"status": "success"}})
+    async def resolve_call(_frame, _result, *, event_sink, **_kwargs):
+        await event_sink.emit({"event": "sub_agent_end", "data": {"status": "success"}})
+        return MTPCallResponse(status=MTPResponseStatus.SUCCESS, agent_alias="helper")
 
-    driver = RunDriver(SimpleNamespace(run_frame=run_frame))
+    driver = RunDriver(
+        SimpleNamespace(run_frame=run_frame, apply_call_response=MagicMock()),
+        SimpleNamespace(resolve_call=resolve_call),
+    )
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     events = [
         event
         async for event in driver.run_stream(
-            object(),
+            frame,
             event_metadata={"agent_run_id": "run-1", "frame_id": "frame-1"},
-            on_suspend=on_suspend,
         )
     ]
 

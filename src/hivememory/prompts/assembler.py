@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from hivememory.core.models import AgentProfile
-from hivememory.core.protocol.models import AgentRunContext
 from hivememory.core.mtp.models import MTPVerb
+from hivememory.core.protocol.models import AgentRunContext
 from hivememory.engines.perception.context_converter import PerceptionContextConverter
 from hivememory.i18n import resolve_language
 from hivememory.prompts.mtp import MTPPromptBuilder
@@ -61,14 +62,13 @@ class AgentPromptAssembler:
         profile: AgentProfile,
         task: str,
         shared_context: str = "",
-        depth: int = 1,
     ) -> list[dict[str, str]]:
         language = self._prompt_language(profile)
         builder = SystemPromptBuilder(language=language)
 
         mtp_prompt = self._build_mtp_prompt(
             profile=profile,
-            denied_verbs={MTPVerb.CALL.value} if depth >= 1 else None,
+            denied_verbs={MTPVerb.CALL.value},
         )
         builder.with_mtp_prompt(mtp_prompt)
 
@@ -99,9 +99,7 @@ class AgentPromptAssembler:
 
         allowed_verbs = self._allowed_verbs(profile, denied_verbs)
         allowed_runtime_tools = (
-            getattr(profile, "allowed_sys_tools", None)
-            if profile is not None
-            else None
+            getattr(profile, "allowed_sys_tools", None) if profile is not None else None
         )
         language = self._prompt_language(profile)
 
@@ -118,11 +116,7 @@ class AgentPromptAssembler:
         profile: AgentProfile | None,
         denied_verbs: Iterable[str] | None,
     ) -> list[str] | None:
-        allowed = (
-            getattr(profile, "allowed_mtp_verbs", None)
-            if profile is not None
-            else None
-        )
+        allowed = getattr(profile, "allowed_mtp_verbs", None) if profile is not None else None
 
         denied = {verb.upper() for verb in denied_verbs or []}
         if not denied:

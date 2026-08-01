@@ -53,7 +53,7 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 `KoakumaRuntime` 负责 parse、权限检查、verb 分发、结果计时和格式化。它属于 Alice，使用 Alice local bus 映射的 Patchouli 公开路由访问记忆能力。
 
-Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice Orchestrator 和 FrameScheduler 消费，不直接回填为空结果。
+Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunDriver`/`CallCoordinator` 消费，不直接回填为空结果；完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
 ## 3. 动词契约
 

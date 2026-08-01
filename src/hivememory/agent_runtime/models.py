@@ -42,9 +42,8 @@ class ExecutionFrame:
     """
     Runtime frame for one agent generation loop.
 
-    An ExecutionFrame carries the isolated state needed to run a main agent or
-    sub-agent frame without storing per-frame identity and permissions on the
-    shared runtime.
+    An ExecutionFrame carries the isolated state needed to run one agent
+    without storing per-frame identity and permissions on the shared runtime.
     """
 
     runtime_scope: RuntimeScope
@@ -61,14 +60,6 @@ class ExecutionFrame:
     # 见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1bis。
     progress: ExecutionProgress = field(default_factory=ExecutionProgress)
 
-    def is_main_frame(self) -> bool:
-        """Return True when this frame belongs to the main agent."""
-        return self.runtime_scope.depth == 0
-
-    def is_sub_frame(self) -> bool:
-        """Return True when this frame belongs to a sub-agent."""
-        return self.runtime_scope.depth >= 1
-
     def is_transient(self) -> bool:
         """Return True when this frame is not mounted to a topic."""
         return self.topic_id is None
@@ -82,7 +73,6 @@ class ExecutionFrame:
         return (
             f"ExecutionFrame(frame={self.runtime_scope.frame_id}, "
             f"agent={self.agent_profile.model_name}, "
-            f"depth={self.runtime_scope.depth}, "
             f"topic={self.topic_id}, "
             f"harvested={len(self.harvested_aliases)})"
         )

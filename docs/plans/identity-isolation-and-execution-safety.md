@@ -33,7 +33,7 @@ HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profil
 | Memory visibility | MemoryAtom 有 user/team/session/visibility，Patchouli 是可见性所有者 | 某些别名 L0/L1 cache 命中不会再次按调用 Identity 校验 |
 | PendingAtom | atom 保存 identity，Alice 通过 alias/intent 解析 | 进程级 cache/store 与并发 run 共享，跨用户隔离尚未完全成立 |
 | Agent Profile | Profile 作为 MemoryAtom，通过 retrieval/alias 发现 | alias cache 进程级、失效不完整；显式 Profile 加载失败与未指定 Profile 的 Omni-Doll fallback 语义混淆 |
-| Agent run/frame | `ExecutionFrame`、run context 与 CALL depth | FrameScheduler stack、cancel token 等可变状态存在共享作用域，任务并发可能交叉影响 |
+| Agent run/frame | `ExecutionFrame`、`RunSession` 与 frame policy | frame registry、CALL record、取消信号和流序号已按 run 隔离；跨用户身份与缓存隔离仍待验证 |
 | MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证，部分身份/权限重新校验仍需收紧 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
 | Frontend identity | 前端已有默认 user id 和待办的 identity store 方向 | UI 字段不是认证/授权边界，多个请求可能使用不同默认身份；切换时 cache/stream 清理不完整 |
@@ -112,11 +112,11 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
 5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。
 
-### Phase S2：Run-local 执行隔离
+### Phase S2：Run-local 执行隔离（基础已完成）
 
-1. 将 FrameScheduler stack、cancel token、iteration budget 和运行期状态改为 task-local/run-local；
-2. 验证并发 Agent run 的 CALL、READ、WRITE、citation、PendingAtom 和 cancel 不会交叉；
-3. 让子帧只能继承父 scope，CALL depth 和 Profile capability 由硬运行时检查；
+1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 cancel token、frame registry、CALL record、流序号和运行预算收敛为 run-local 状态；
+2. 继续验证并发 Agent run 的 CALL、READ、WRITE、citation、PendingAtom 和 cancel 不会跨用户或 workspace 交叉；
+3. 已完成：被调用 frame 继承 caller Identity，CALL 权限由 `FrameExecutionPolicy` 和 Profile capability 硬检查，不再以 depth 作为控制依据；
 4. 明确恢复/重试时不能复用已经失效的授权快照。
 
 ### Phase S3：执行资产安全
@@ -139,7 +139,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 - 任意 Memory/Artifact/Profile/PendingAtom alias 命中都经过实际 Identity scope 校验；
 - 两个并发用户使用相同 alias、topic 或 Profile 名称不会读取对方状态；
 - 子 Agent、后台 retry 和恢复任务不会扩大或错误继承身份权限；
-- FrameScheduler、cancel、budget 和 PendingAtom 运行状态按 run 隔离，并发测试稳定通过；
+- FrameScheduler 已删除，cancel、budget、frame registry 与 CALL record 按 run 隔离，并发 CALL/cancel/恢复测试稳定通过；PendingAtom 与 cache 的跨用户隔离仍需按本计划验证；
 - 指定 Profile 失败不会静默加载全权限 Omni-Doll；未指定 Profile 的 fallback 仍有明确且可观察语义；
 - MTP RUN 在未满足可信资产和硬限制时拒绝执行或明确降级，不能把 prompt 当安全边界；
 - 前端身份切换不会留下旧用户的请求、缓存、stream 或页面状态；

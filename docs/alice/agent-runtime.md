@@ -36,11 +36,13 @@ Alice AgentOrchestrator
 
 - 不实现 `SubsystemProtocol`，不注册 `GlobalSystemBus` route；
 - 不拥有 start/stop/health 生命周期；
-- 不直接 import Alice 的 Orchestrator、FrameScheduler 或 ProfileResolver；
+- 不直接 import Alice 的 Orchestrator、RunDriver、CallCoordinator 或 ProfileResolver；
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
 - 持久化记忆、Profile 读取与 citation 均通过 Alice 装配的 local bus 间接访问 Patchouli。
 
 当前 `AgentRuntime` 聚合门面仍位于 `alice/runtime/agent/runtime.py`，而 loop、WorkerAgent、MTP adapter、cache、resolver 与 PendingAtom 已迁至顶层执行层。逻辑边界已经成立，物理聚合根仍保留一部分演进痕迹。
+
+当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, event_sink, cancel_event)`。非流式与流式调用分别注入 null sink 和 queue-backed sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。
 
 ## 2. ExecutionFrame：可恢复的运行 PCB
 
@@ -48,7 +50,7 @@ Alice AgentOrchestrator
 
 ```text
 ExecutionFrame
-  ├─ RuntimeScope(run_id, frame_id, parent_frame_id, action_id, depth)
+  ├─ RuntimeScope(run_id, frame_id, action_id)
   ├─ AgentProfile
   ├─ Identity
   ├─ working_history[]
@@ -62,9 +64,9 @@ ExecutionFrame
        └─ model_used
 ```
 
-把执行进度放在 frame 而不是 `execute_frame()` 的局部变量中，是 CALL 能安全重入的前提。主帧运行到 CALL 时会返回 `SUSPENDED`；Alice 处理完子帧后把同一个主 frame 再交给执行层。此前产生的正文、事件序号和迭代预算都留在 `ExecutionProgress` 中，因此不会因为 Python 函数返回而丢失，也不会在恢复时从第 0 次迭代重新开始。
+把执行进度放在 frame 而不是 `execute_frame()` 的局部变量中，是 CALL 能安全重入的前提。frame 运行到 CALL 时会返回 `SUSPENDED`；Alice 处理完被调用 frame 后把同一个 caller frame 再交给执行层。此前产生的正文、事件序号和迭代预算都留在 `ExecutionProgress` 中，因此不会因为 Python 函数返回而丢失，也不会在恢复时从第 0 次迭代重新开始。
 
-主帧 `depth=0` 且挂载 `topic_id`；子帧沿用同一 `run_id`，生成新的 `frame_id`，`depth` 增加并令 `topic_id=None`。是否创建子帧不是 Agent Runtime 的职责，它只根据传入 scope 命名流事件并执行该帧。
+`RuntimeScope` 不再表达主/子拓扑、`parent_frame_id` 或 `depth`。Alice 通过无状态 `FrameFactory` 创建普通 frame，并在 `RunSession` 的 frame registry 与 `CallRecord` 中保存调用关系；Agent Runtime 只根据传入 scope 执行该 frame。
 
 ## 3. 输入上下文与 Prompt 组装
 
@@ -136,10 +138,10 @@ CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame
 - `token`：尚未检测到 MTP 左定界符的自然语言增量；
 - `mtp_start`：Runtime 已识别并准备执行一条指令；
 - `mtp_result`：指令的 success/error/ack/suspend 等状态；
-- 子帧事件仍使用相同类型，通过 `scope/depth/frame_id/agent_id` 命名空间区分；
+- 被调用 frame 事件仍使用相同类型，通过 `scope/frame_id/action_id/agent_id` 命名空间区分；为兼容既有 SSE 客户端，Alice 仍可提供 `depth` 展示字段，但它不再参与 Runtime 控制流；
 - `done` 由 Alice Orchestrator 在主帧退出后组装，而不是由 WorkerAgent 直接发出。
 
-检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化事件。CALL 时，`on_suspend` 回调让 Alice 在同一个主帧流中插入子帧事件与 CALL response，再重入主帧继续输出。
+检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化事件。CALL 时，`RunDriver` 直接取得 `SUSPENDED` 结果，调用 `CallCoordinator`，再通过 `AgentRuntime.apply_call_response()` 重入同一个 frame；不再通过 Runtime 到 Orchestrator 的 `on_suspend` 回调反转控制权。
 
 非流式 LiteLLM 请求会与 `cancel_event.wait()` 竞争，取消时主动 cancel completion task。流式请求在每个 chunk 边界检查 cancel_event；MTP handler 又在执行前后检查，但同步 syscall 运行期间不能被这些 checkpoint 强制打断。
 
@@ -155,6 +157,8 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 - `model_used` 来自主 frame 模型解析。
 
 执行层不应为了组装最终响应重新维护 write focus、pending alias 或子 Agent 结果副本。PendingAtomRuntime 已拥有写缓冲真相，Orchestrator 只在 run 边界投影任务。
+
+当前收尾由两个显式产品模型分开：`finalize_frame()` 产生只供当前 CALL 使用的 `FrameProducts.artifact_aliases`，`finalize_run()` 产生交给 Patchouli 的 `RuntimeProducts.materialize_tasks`。前者可由 `CallCoordinator` 调用，后者只由根 `RunDriver` 调用一次；编排层不再遍历 PendingAtom store 的内部集合。
 
 ## 8. 关键不变量与矛盾检查
 
@@ -185,7 +189,7 @@ AliceRuntime 为主 run 产生 `agent.run.started/completed/cancelled/failed` �
 
 - frame、执行进度和消息历史只在内存中，进程重启、worker 崩溃或请求迁移后不能恢复；
 - `BUDGET_EXHAUSTED` 能区分循环预算耗尽，但当前没有动态扩容、自动任务分解或 checkpoint 恢复策略；
-- 主 run 的失败以异常向上抛出，`AgentRunStatus.FAILED` 主要作为公共枚举保留，并不是 AliceService 的常规返回终态；
+- 主 run 的失败和预算耗尽都由 Alice 组装为 `AgentRunStatus.FAILED`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
 - `AgentRunResult.turn_events` 在公共模型中仍声明为 `list[Any]`，类型边界没有完全收紧到 `TurnEvent`；
 - 未使用 ModelRegistry 时 `model_used` 可能为空，即使 WorkerAgent 实际已经使用了调用方提供的模型；
 - `AgentRuntime` 聚合门面仍位于 Alice 物理目录，AliceRuntime 也直接持有 PendingAtom settlement/cache 刷新逻辑；执行层聚合根尚未完全独立结晶；

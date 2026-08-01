@@ -8,10 +8,10 @@ LoopExecutor TurnEvent 采集单测
 4. 无 MTP 时 frame.progress 正常，final_text 正确
 """
 
+import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
-import asyncio
 import pytest
 
 from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
@@ -23,18 +23,22 @@ from hivememory.agent_runtime.models import (
     RuntimeScope,
 )
 from hivememory.agent_runtime.resolver import ResolveResult
+from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
+from hivememory.alice.runtime.agent.frame_factory import FrameFactory
+from hivememory.alice.runtime.agent.runtime import AgentRuntime
+from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
     Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     MetaData,
-    OMNI_DOLL_PROFILE,
     PayloadLayer,
     TurnEvent,
 )
+from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
 from hivememory.core.protocol.models import MTPExecutionResult
-from hivememory.core.mtp import MTPCallRequest, MTP_RIGHT_DELIMITER
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -103,12 +107,11 @@ def _call_mtp_exec_result() -> MTPExecutionResult:
     )
 
 
-def _make_frame(depth: int = 0) -> ExecutionFrame:
+def _make_frame() -> ExecutionFrame:
     return ExecutionFrame(
         runtime_scope=RuntimeScope(
             run_id="run_test_1",
             frame_id="test_frame",
-            depth=depth,
         ),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "hello"}],
@@ -253,7 +256,7 @@ async def test_single_mtp_produces_four_events():
 
 @pytest.mark.asyncio
 async def test_mtp_execution_receives_frame_context():
-    frame = _make_frame(depth=1)
+    frame = _make_frame()
     gen_results = [_mtp_result("", "READ alias_x"), _natural_result("done")]
     executor, _kernel = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
@@ -267,7 +270,7 @@ async def test_mtp_execution_receives_frame_context():
     assert context.agent_profile is frame.agent_profile
     assert context.runtime_scope.run_id == frame.runtime_scope.run_id
     assert context.runtime_scope.frame_id == frame.runtime_scope.frame_id
-    assert context.runtime_scope.depth == frame.runtime_scope.depth
+    assert context.runtime_scope.action_id is not None
     assert context.runtime_scope.action_id == "action_1_0"
 
 
@@ -359,17 +362,7 @@ async def test_empty_prefix_text_not_recorded():
 @pytest.mark.asyncio
 async def test_call_path_produces_mtp_result_event_with_call_verb():
     """CALL 路径: 编排侧产出 kind=tool_result, tool_kind=CALL, role=user"""
-    from hivememory.alice.runtime.orchestrator import AgentOrchestrator
     from hivememory.alice.runtime.agent.runtime import AgentRuntime
-
-    main_frame = _make_frame(depth=0)
-    sub_frame = ExecutionFrame(
-        runtime_scope=main_frame.runtime_scope.for_child("sub_frame"),
-        agent_profile=OMNI_DOLL_PROFILE,
-        working_history=[{"role": "user", "content": "sub task"}],
-        topic_id=None,
-        identity=Identity(user_id="u1", agent_id="sub_agent"),
-    )
 
     call_counter = {"n": 0}
 
@@ -385,12 +378,6 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     executor.worker_agent = worker_agent
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_call_mtp_exec_result())
 
-    frame_scheduler = MagicMock()
-    frame_scheduler.suspend_frame = MagicMock()
-    frame_scheduler.resume_frame = MagicMock()
-    frame_scheduler.fork_sub_frame = AsyncMock(return_value=sub_frame)
-    frame_scheduler.create_main_frame = MagicMock(return_value=main_frame)
-
     profile_resolver = MagicMock()
     profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
     alias_resolver = MagicMock()
@@ -399,10 +386,14 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         agent_runtime=AgentRuntime(
             mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
         ),
-        frame_scheduler=frame_scheduler,
         agent_profile_resolver=profile_resolver,
         alias_resolver=alias_resolver,
+        frame_factory=FrameFactory(),
+        prompt_assembler=MagicMock(),
     )
+    orchestrator._prompt_assembler.build_sub_agent_messages.return_value = [
+        {"role": "user", "content": "sub task"}
+    ]
 
     result = await orchestrator.run_agent(
         messages=[{"role": "user", "content": "hello"}],
@@ -423,9 +414,6 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
 @pytest.mark.asyncio
 async def test_context_refs_fetch_uses_runtime_alias_resolver():
-    from hivememory.alice.runtime.orchestrator import AgentOrchestrator
-    from hivememory.alice.runtime.agent.runtime import AgentRuntime
-
     executor, _kernel = _build_executor([])
     atom = _make_context_atom("Fact A", "ctx")
     resolved = ResolveResult(
@@ -436,17 +424,16 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
     alias_resolver = MagicMock()
     alias_resolver.resolve = AsyncMock(return_value=resolved)
 
-    orchestrator = AgentOrchestrator(
-        agent_runtime=AgentRuntime(
-            mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
-        ),
-        frame_scheduler=MagicMock(),
-        agent_profile_resolver=MagicMock(),
-        alias_resolver=alias_resolver,
+    coordinator = CallCoordinator(
+        AgentRuntime(mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor),
+        MagicMock(),
+        alias_resolver,
+        frame_factory=FrameFactory(),
+        prompt_assembler=MagicMock(),
     )
     identity = Identity(user_id="u1", agent_id="agent_a")
 
-    result = await orchestrator._fetch_context_refs_content(
+    result = await coordinator._fetch_context_refs_content(
         ["fact_a"],
         identity,
         language="en",
@@ -462,9 +449,6 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
 
 @pytest.mark.asyncio
 async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
-    from hivememory.alice.runtime.orchestrator import AgentOrchestrator
-    from hivememory.alice.runtime.agent.runtime import AgentRuntime
-
     executor, _kernel = _build_executor([])
     atom = _make_context_atom("Canonical Fact", "canonical ctx")
     resolved = ResolveResult(
@@ -476,17 +460,16 @@ async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
     alias_resolver = MagicMock()
     alias_resolver.resolve = AsyncMock(return_value=resolved)
 
-    orchestrator = AgentOrchestrator(
-        agent_runtime=AgentRuntime(
-            mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
-        ),
-        frame_scheduler=MagicMock(),
-        agent_profile_resolver=MagicMock(),
-        alias_resolver=alias_resolver,
+    coordinator = CallCoordinator(
+        AgentRuntime(mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor),
+        MagicMock(),
+        alias_resolver,
+        frame_factory=FrameFactory(),
+        prompt_assembler=MagicMock(),
     )
     identity = Identity(user_id="u1", agent_id="agent_a")
 
-    result = await orchestrator._fetch_context_refs_content(["draft_ctx_1234"], identity)
+    result = await coordinator._fetch_context_refs_content(["draft_ctx_1234"], identity)
 
     assert result.startswith("[Shared Context from Parent Agent]")
     assert "Canonical Fact" in result

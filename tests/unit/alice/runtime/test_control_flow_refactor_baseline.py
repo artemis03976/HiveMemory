@@ -5,20 +5,25 @@ import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
-from hivememory.agent_runtime.models import ExecutionFrame
+from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
-from hivememory.alice.runtime.agent.frame_scheduler import FrameScheduler
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
+from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
 
 
 def _frame(run_id: str, frame_id: str) -> ExecutionFrame:
-    return ExecutionFrame(
-        runtime_scope=RuntimeScope(run_id=run_id, frame_id=frame_id),
-        agent_profile=OMNI_DOLL_PROFILE,
-        working_history=[],
-        topic_id="topic",
-        identity=Identity(user_id="user"),
+    return FrameFactory().create(
+        FrameSpec(
+            runtime_scope=FrameFactory.scope(run_id=run_id, frame_id=frame_id),
+            profile=OMNI_DOLL_PROFILE,
+            identity=Identity(user_id="user"),
+            messages=[],
+            topic_id="topic",
+            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+        )
     )
 
 
@@ -54,17 +59,28 @@ def test_agent_runtime_has_no_child_specific_public_api() -> None:
     assert not any("child" in name or "sub_frame" in name for name in public_methods)
 
 
-def test_frame_scheduler_resume_isolated_between_interleaved_runs() -> None:
-    """The compatibility scheduler no longer owns a process-wide stack."""
-    scheduler = FrameScheduler(prompt_assembler=SimpleNamespace())
-    frame_a = _frame("run-a", "frame-a")
-    frame_b = _frame("run-b", "frame-b")
+def test_frame_factory_creates_ordinary_frames_without_topology_metadata() -> None:
+    frame = _frame("run-a", "frame-a")
 
-    scheduler.suspend_frame(frame_a)
-    assert scheduler.resume_frame() is frame_a
-    scheduler.suspend_frame(frame_b)
-    assert scheduler.resume_frame() is frame_b
-    assert scheduler.get_current_depth() == 0
+    assert frame.runtime_scope.run_id == "run-a"
+    assert frame.runtime_scope.frame_id == "frame-a"
+    assert not hasattr(frame.runtime_scope, "depth")
+    assert not hasattr(frame.runtime_scope, "parent_frame_id")
+    assert not hasattr(frame, "is_main_frame")
+    assert not hasattr(frame, "is_sub_frame")
+
+
+def test_run_session_keeps_frames_and_calls_run_local() -> None:
+    session = RunSession(agent_run_id="run-a")
+    frame_a = _frame("run-a", "frame-a")
+    frame_b = _frame("run-a", "frame-b")
+
+    session.register_frame(frame_a)
+    session.register_frame(frame_b)
+    record = session.register_call(frame_a, "action-1")
+
+    assert set(session.frames) == {"frame-a", "frame-b"}
+    assert session.call_records[("frame-a", "action-1")] is record
 
 
 def test_mtp_cancel_event_is_invocation_local() -> None:
@@ -73,3 +89,11 @@ def test_mtp_cancel_event_is_invocation_local() -> None:
 
     assert not hasattr(executor, "set_cancel_event")
     assert not hasattr(koakuma, "cancel_event")
+
+
+def test_mtp_context_contains_only_frame_coordinates() -> None:
+    context = MTPExecutionContext()
+
+    assert context.runtime_scope.run_id == ""
+    assert context.runtime_scope.frame_id == ""
+    assert not hasattr(context.runtime_scope, "depth")
