@@ -18,11 +18,9 @@ Phase A→B→C→D 循环：
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.events import (
-    CallbackFrameEventSink,
     FrameEventSink,
     NullFrameEventSink,
 )
@@ -219,6 +217,7 @@ class AgentLoopExecutor:
                     "args": args_hint,
                     "raw_text": raw_hint,
                     "iteration": p.iteration,
+                    "action_id": action_id,
                 }
                 await sink.emit({"event": "mtp_start", "data": mtp_start_data})
 
@@ -246,6 +245,7 @@ class AgentLoopExecutor:
                         "raw_text": raw_hint,
                         "status": "failed",
                         "iteration": p.iteration,
+                        "action_id": action_id,
                     }
                     await sink.emit({"event": "mtp_result", "data": mtp_failed_data})
                 return FrameExecutionResult(
@@ -265,6 +265,7 @@ class AgentLoopExecutor:
                         "raw_text": raw_hint,
                         "status": mtp_result.response_status,
                         "iteration": p.iteration,
+                        "action_id": action_id,
                     }
                     await sink.emit({"event": "mtp_result", "data": mtp_suspend_data})
 
@@ -288,6 +289,7 @@ class AgentLoopExecutor:
                     "raw_text": raw_hint,
                     "status": mtp_result.response_status,
                     "iteration": p.iteration,
+                    "action_id": action_id,
                 }
                 await sink.emit({"event": "mtp_result", "data": mtp_result_data})
 
@@ -317,76 +319,6 @@ class AgentLoopExecutor:
         if cancel_event is not None and cancel_event.is_set():
             return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
         return FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
-
-    async def execute_frame_stream(
-        self,
-        frame: ExecutionFrame,
-        max_iterations: int,
-        generation_options: dict[str, Any] | None = None,
-        cancel_event: asyncio.Event | None = None,
-        # 编排注入的回调：当引擎遇到 SUSPEND 时，编排处理子帧并回填 CALL response，
-        # 然后引擎继续本段流。签名: (FrameExecutionResult) -> None（异步）。
-        on_suspend: Callable[["FrameExecutionResult"], Awaitable[None]] | None = None,
-        on_terminal: Callable[["FrameExecutionResult"], Awaitable[None]] | None = None,
-        event_metadata: dict[str, Any] | None = None,
-    ):
-        """
-        执行单个帧的流式循环。
-
-        遇到 CALL SUSPEND 时：
-        1. 发出 mtp_result(status=suspend) 事件（已在 execute_frame 内完成）
-        2. 调用 on_suspend(result) 让编排处理子帧（sub_agent_start/end、CALL response 回填）
-        3. 编排回填 working_history 后，引擎重入同一 frame 继续流式输出
-
-        Yields:
-            Dict[str, Any]: SSE 事件
-        """
-        queue: asyncio.Queue = asyncio.Queue()
-
-        async def _emit(event: dict[str, Any]) -> None:
-            await queue.put(event)
-
-        async def _runner() -> None:
-            try:
-                while True:
-                    engine_result = await self.execute_frame(
-                        frame=frame,
-                        max_iterations=max_iterations,
-                        generation_options=generation_options,
-                        event_sink=CallbackFrameEventSink(
-                            _emit,
-                            metadata=event_metadata,
-                        ),
-                        cancel_event=cancel_event,
-                    )
-                    if engine_result.status == FrameExecutionStatus.SUSPENDED:
-                        if on_suspend is not None:
-                            await on_suspend(engine_result)
-                            # 重入同一 frame（PCB 续接），继续流式输出
-                            continue
-                        engine_result = FrameExecutionResult(
-                            status=FrameExecutionStatus.FAILED,
-                            error=RuntimeError(
-                                "Frame suspended without an orchestration callback."
-                            ),
-                        )
-                    if on_terminal is not None:
-                        await on_terminal(engine_result)
-                    break
-            finally:
-                await queue.put(None)
-
-        task = asyncio.create_task(_runner())
-        try:
-            while True:
-                event = await queue.get()
-                if event is None:
-                    break
-                yield event
-        finally:
-            # 不在此处 set cancel_event：正常完成路径不应污染外部共享 token。
-            # cancel_event 由 ChatApplicationService 独占管理。
-            await task
 
     def _extract_command_info(self, command, raw_hint):
         """从 MTP 命令中提取信息"""

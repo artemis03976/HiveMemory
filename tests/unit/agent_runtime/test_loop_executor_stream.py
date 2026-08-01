@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.events import CallbackFrameEventSink
 from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -192,6 +193,14 @@ async def test_execute_frame_stream_emits_scoped_events_for_call():
     sub_end = next(e for e in events if e["event"] == "sub_agent_end")
     assert sub_end["data"]["status"] == "success"
 
+    sub_start = next(e for e in events if e["event"] == "sub_agent_start")
+    assert sub_start["data"]["frame_id"] == "frame_sub_test"
+    assert all(
+        {"agent_run_id", "frame_id", "action_id", "stream_sequence"} <= event["data"].keys()
+        for event in events
+    )
+    assert [event["data"]["stream_sequence"] for event in events] == list(range(len(events)))
+
     done_event = next(e for e in events if e["event"] == "done")
     assert any(
         event["kind"] == "tool_result" and event.get("tool_kind") == "CALL"
@@ -274,25 +283,24 @@ async def test_execute_frame_stream_reports_terminal_status():
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )
-    terminal_results = []
+    events = []
 
-    async def on_terminal(result):
-        terminal_results.append(result)
+    async def emit(event):
+        events.append(event)
 
-    events = [
-        event
-        async for event in executor.execute_frame_stream(
-            frame,
-            max_iterations=2,
-            on_terminal=on_terminal,
-            event_metadata={
+    terminal_result = await executor.execute_frame(
+        frame,
+        max_iterations=2,
+        event_sink=CallbackFrameEventSink(
+            emit,
+            metadata={
                 "scope": "main",
                 "depth": 0,
                 "agent_id": "omni_doll",
                 "frame_id": "frame_stream_terminal",
             },
-        )
-    ]
+        ),
+    )
 
     assert events == [
         {
@@ -306,5 +314,4 @@ async def test_execute_frame_stream_reports_terminal_status():
             },
         }
     ]
-    assert len(terminal_results) == 1
-    assert terminal_results[0].status == FrameExecutionStatus.FAILED
+    assert terminal_result.status == FrameExecutionStatus.FAILED

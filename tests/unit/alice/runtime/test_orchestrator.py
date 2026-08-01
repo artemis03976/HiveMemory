@@ -162,15 +162,10 @@ async def test_run_agent_budget_exhaustion_is_failed_and_cleans_pending_atoms():
 async def test_run_agent_stream_done_preserves_failed_terminal_status():
     frame = _frame()
 
-    async def run_frame_stream(**kwargs):
-        await kwargs["on_terminal"](
-            FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
-        )
-        if False:
-            yield None
-
     runtime = SimpleNamespace(
-        run_frame_stream=run_frame_stream,
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
+        ),
         collect_tasks_by_run=MagicMock(return_value=[]),
         cancel_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=[]),
@@ -224,12 +219,10 @@ async def test_run_agent_records_current_user_message_before_execution():
 async def test_run_agent_stream_records_current_user_message():
     frame = _frame()
 
-    async def run_frame_stream(**_kwargs):
-        if False:
-            yield None
-
     runtime = SimpleNamespace(
-        run_frame_stream=run_frame_stream,
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+        ),
         collect_tasks_by_run=MagicMock(return_value=[]),
         cancel_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=[]),
@@ -514,9 +507,9 @@ async def test_handle_suspend_emits_error_response_when_sub_agent_fails():
 
     await orchestrator._handle_suspend(main_frame, engine_result, None, emit=emit)
 
-    assert events[0]["event"] == "sub_agent_start"
-    assert events[-1]["event"] == "sub_agent_end"
-    assert events[-1]["data"]["status"] == "error"
+    assert [event["event"] for event in events] == ["sub_agent_end"]
+    assert events[0]["data"]["status"] == "error"
+    assert events[0]["data"]["frame_id"] is None
     assert main_frame.progress.turn_events[0].status == "error"
     assert main_frame.progress.turn_events[-1].status == "error"
 

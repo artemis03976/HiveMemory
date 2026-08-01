@@ -13,7 +13,6 @@ AgentOrchestrator - 多智能体编排驱动器
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any
@@ -24,6 +23,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
     MTPExecutionContext,
 )
+from hivememory.alice.runtime.agent.run_driver import RunDriver
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
@@ -97,22 +97,22 @@ class AgentOrchestrator:
             identity=identity,
         )
         self._record_initial_user_event(main_frame, messages)
-        engine_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
-        while True:
-            engine_result = await self._agent_runtime.run_frame(
-                frame=main_frame,
+        driver = RunDriver(self._agent_runtime)
+
+        async def _on_suspend(engine_result: FrameExecutionResult) -> None:
+            await self._handle_suspend(
+                main_frame=main_frame,
+                engine_result=engine_result,
                 generation_options=generation_options,
                 cancel_event=cancel_event,
             )
-            if engine_result.status == FrameExecutionStatus.SUSPENDED:
-                await self._handle_suspend(
-                    main_frame=main_frame,
-                    engine_result=engine_result,
-                    generation_options=generation_options,
-                    cancel_event=cancel_event,
-                )
-                continue
-            break
+
+        engine_result = await driver.run(
+            main_frame,
+            generation_options=generation_options,
+            cancel_event=cancel_event,
+            on_suspend=_on_suspend,
+        )
         return self._assemble_agent_run_result(
             main_frame,
             engine_result=engine_result,
@@ -136,68 +136,42 @@ class AgentOrchestrator:
         )
         self._record_initial_user_event(main_frame, messages)
 
-        queue: asyncio.Queue = asyncio.Queue()
+        driver = RunDriver(self._agent_runtime)
+        event_metadata = self._event_metadata_for_frame(main_frame)
 
-        async def _emit(event: dict[str, Any]) -> None:
-            await queue.put(event)
-
-        async def on_suspend(engine_result: FrameExecutionResult) -> None:
+        async def _on_suspend(engine_result: FrameExecutionResult, emit) -> None:
             await self._handle_suspend(
                 main_frame=main_frame,
                 engine_result=engine_result,
                 generation_options=generation_options,
-                emit=_emit,
+                emit=emit,
                 cancel_event=cancel_event,
             )
 
-        terminal_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+        async for event in driver.run_stream(
+            main_frame,
+            generation_options=generation_options,
+            cancel_event=cancel_event,
+            event_metadata=event_metadata,
+            on_suspend=_on_suspend,
+        ):
+            yield event
 
-        async def on_terminal(engine_result: FrameExecutionResult) -> None:
-            nonlocal terminal_result
-            terminal_result = engine_result
-
-        async def _runner() -> None:
-            try:
-                async for event in self._agent_runtime.run_frame_stream(
-                    frame=main_frame,
-                    generation_options=generation_options,
+        terminal_result = driver.terminal_result
+        if terminal_result is None:
+            raise RuntimeError("Run driver ended without a terminal result.")
+        yield {
+            "event": "done",
+            "data": {
+                **self._assemble_agent_run_result(
+                    main_frame,
+                    engine_result=terminal_result,
                     cancel_event=cancel_event,
-                    on_suspend=on_suspend,
-                    on_terminal=on_terminal,
-                    event_metadata=self._event_metadata_for_frame(main_frame),
-                ):
-                    await queue.put(event)
-                await queue.put(
-                    {
-                        "event": "done",
-                        "data": self._assemble_agent_run_result(
-                            main_frame,
-                            engine_result=terminal_result,
-                            cancel_event=cancel_event,
-                        ).model_dump(),
-                    }
-                )
-            finally:
-                await queue.put(None)
-
-        task = asyncio.create_task(_runner())
-        try:
-            while True:
-                event = await queue.get()
-                if event is None:
-                    break
-                yield event
-        finally:
-            # 不在正常完成路径下 set 外部传入的 cancel_event（否则会污染调用方共享 token）。
-            # cancel_event 由调用方（ChatApplicationService）独占管理。
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-            else:
-                await task
+                ).model_dump(),
+                **event_metadata,
+                "stream_sequence": driver.next_stream_sequence,
+            },
+        }
 
     def _record_initial_user_event(
         self,
@@ -258,21 +232,6 @@ class AgentOrchestrator:
 
         main_frame.working_history.append({"role": "assistant", "content": suspend_text})
 
-        if emit is not None:
-            await emit(
-                {
-                    "event": "sub_agent_start",
-                    "data": {
-                        "agent_id": cr.target_alias,
-                        "task": cr.task,
-                        "iteration": main_frame.progress.iteration,
-                        "scope": "sub",
-                        "depth": main_frame.runtime_scope.depth + 1,
-                        "frame_id": None,
-                    },
-                }
-            )
-
         self._frame_scheduler.suspend_frame(main_frame)
         sub_result_text = ""
         sub_frame = None
@@ -295,6 +254,21 @@ class AgentOrchestrator:
                 task=cr.task,
                 shared_context=shared_context,
             )
+            if emit is not None:
+                await emit(
+                    {
+                        "event": "sub_agent_start",
+                        "data": {
+                            "agent_id": cr.target_alias,
+                            "task": cr.task,
+                            "iteration": main_frame.progress.iteration,
+                            "action_id": action_id,
+                            "scope": "sub",
+                            "depth": main_frame.runtime_scope.depth + 1,
+                            "frame_id": sub_frame.runtime_scope.frame_id,
+                        },
+                    }
+                )
 
             if emit is None:
                 sub_execution_result = await self._agent_runtime.run_frame(
@@ -415,6 +389,7 @@ class AgentOrchestrator:
                     sub_result_text if call_response.status == MTPResponseStatus.SUCCESS else ""
                 ),
                 "iteration": main_frame.progress.iteration,
+                "action_id": action_id,
                 "scope": "sub",
                 "depth": main_frame.runtime_scope.depth + 1,
                 "frame_id": sub_frame.runtime_scope.frame_id if sub_frame is not None else None,
@@ -610,6 +585,8 @@ class AgentOrchestrator:
     def _event_metadata_for_frame(frame: ExecutionFrame) -> dict[str, Any]:
         agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
         return {
+            "agent_run_id": frame.runtime_scope.run_id,
+            "action_id": None,
             "scope": "sub" if frame.is_sub_frame() else "main",
             "depth": frame.runtime_scope.depth,
             "agent_id": agent_id,
