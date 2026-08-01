@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import asyncio
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -72,17 +71,9 @@ def test_frame_scheduler_resume_isolated_between_interleaved_runs() -> None:
     assert scheduler.resume_frame() is frame_a
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KoakumaMTPExecutor stores the latest run cancel event until Phase 1",
-)
 def test_mtp_cancel_event_is_invocation_local() -> None:
-    koakuma = SimpleNamespace(cancel_event=None)
+    koakuma = SimpleNamespace()
     executor = KoakumaMTPExecutor(koakuma)
-    run_a_cancel = asyncio.Event()
-    run_b_cancel = asyncio.Event()
 
-    executor.set_cancel_event(run_a_cancel)
-    executor.set_cancel_event(run_b_cancel)
-
-    assert koakuma.cancel_event is run_a_cancel
+    assert not hasattr(executor, "set_cancel_event")
+    assert not hasattr(koakuma, "cancel_event")

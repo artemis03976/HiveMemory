@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Dict, List, Optional
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
+from hivememory.agent_runtime.events import CallbackFrameEventSink, FrameEventSink
 from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
+from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
 from hivememory.core.models.pending import PendingAtomStatus
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.models import ExecutionFrame, FrameExecutionResult
+    from hivememory.agent_runtime.models import ExecutionFrame
     from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
     from hivememory.core.models.pending import PendingAtomMaterializeTask
     from hivememory.system.config import AliceConfig
@@ -32,11 +36,11 @@ class AgentRuntime:
     def __init__(
         self,
         *,
-        mtp_executor: "MTPExecutor",
-        alice_config: "AliceConfig",
-        pending_runtime: Optional[PendingAtomRuntime] = None,
-        loop_executor: Optional[AgentLoopExecutor] = None,
-        model_registry: Optional["ModelRegistry"] = None,
+        mtp_executor: MTPExecutor,
+        alice_config: AliceConfig,
+        pending_runtime: PendingAtomRuntime | None = None,
+        loop_executor: AgentLoopExecutor | None = None,
+        model_registry: ModelRegistry | None = None,
     ) -> None:
         self._pending_runtime = pending_runtime or PendingAtomRuntime()
         # 模型注册表：在每个 frame 开始时根据 agent_profile.model_name 解析实际模型。
@@ -60,61 +64,104 @@ class AgentRuntime:
 
     async def run_frame(
         self,
-        frame: "ExecutionFrame",
-        generation_options: Optional[Dict[str, Any]] = None,
+        frame: ExecutionFrame,
+        generation_options: dict[str, Any] | None = None,
+        *,
+        event_sink: FrameEventSink | None = None,
         cancel_event=None,
-    ) -> "FrameExecutionResult":
+    ) -> FrameExecutionResult:
         """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
         generation_options = self._resolve_model_for_frame(frame, generation_options)
         return await self._loop_executor.execute_frame(
             frame=frame,
             max_iterations=self._max_iterations,
             generation_options=generation_options,
+            event_sink=event_sink,
             cancel_event=cancel_event,
         )
 
     def run_frame_stream(
         self,
-        frame: "ExecutionFrame",
-        generation_options: Optional[Dict[str, Any]] = None,
+        frame: ExecutionFrame,
+        generation_options: dict[str, Any] | None = None,
         cancel_event=None,
-        on_suspend: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
-        on_terminal: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        on_suspend: Callable[[FrameExecutionResult], Awaitable[None]] | None = None,
+        on_terminal: Callable[[FrameExecutionResult], Awaitable[None]] | None = None,
+        event_metadata: dict[str, Any] | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """跑一个 frame 并逐 token 流式输出；命中 CALL 时回调 on_suspend。"""
-        generation_options = self._resolve_model_for_frame(frame, generation_options)
-        return self._loop_executor.execute_frame_stream(
-            frame=frame,
-            max_iterations=self._max_iterations,
-            generation_options=generation_options,
-            cancel_event=cancel_event,
-            on_suspend=on_suspend,
-            on_terminal=on_terminal,
-        )
+
+        async def _stream() -> AsyncGenerator[dict[str, Any], None]:
+            queue: asyncio.Queue = asyncio.Queue()
+
+            async def _emit(event: dict[str, Any]) -> None:
+                await queue.put(event)
+
+            sink = CallbackFrameEventSink(_emit, metadata=event_metadata)
+
+            async def _runner() -> None:
+                try:
+                    while True:
+                        result = await self.run_frame(
+                            frame,
+                            generation_options=generation_options,
+                            event_sink=sink,
+                            cancel_event=cancel_event,
+                        )
+                        if result.status == FrameExecutionStatus.SUSPENDED:
+                            if on_suspend is not None:
+                                await on_suspend(result)
+                                continue
+                            result = FrameExecutionResult(
+                                status=FrameExecutionStatus.FAILED,
+                                error=RuntimeError(
+                                    "Frame suspended without an orchestration callback."
+                                ),
+                            )
+                        if on_terminal is not None:
+                            await on_terminal(result)
+                        break
+                finally:
+                    await queue.put(None)
+
+            task = asyncio.create_task(_runner())
+            try:
+                while True:
+                    event = await queue.get()
+                    if event is None:
+                        break
+                    yield event
+            finally:
+                await task
+
+        return _stream()
 
     async def run_frame_emitting(
         self,
-        frame: "ExecutionFrame",
-        generation_options: Optional[Dict[str, Any]] = None,
-        stream_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+        frame: ExecutionFrame,
+        generation_options: dict[str, Any] | None = None,
+        stream_emitter: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        event_metadata: dict[str, Any] | None = None,
         cancel_event=None,
-    ) -> "FrameExecutionResult":
+    ) -> FrameExecutionResult:
         """跑一个 frame，逐 token 推给 stream_emitter（供编排跑流式子帧）。"""
-        generation_options = self._resolve_model_for_frame(frame, generation_options)
-        return await self._loop_executor.execute_frame(
+        event_sink = (
+            CallbackFrameEventSink(stream_emitter, metadata=event_metadata)
+            if stream_emitter is not None
+            else None
+        )
+        return await self.run_frame(
             frame=frame,
-            max_iterations=self._max_iterations,
             generation_options=generation_options,
-            stream_emitter=stream_emitter,
-            use_stream_generation=stream_emitter is not None,
+            event_sink=event_sink,
             cancel_event=cancel_event,
         )
 
     def _resolve_model_for_frame(
         self,
-        frame: "ExecutionFrame",
-        generation_options: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        frame: ExecutionFrame,
+        generation_options: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         """
         根据 agent_profile 从注册表解析 LLM 参数，注入到 generation_options
         供 WorkerAgentService 使用，并把展示名写入 frame.progress.model_used。
@@ -169,7 +216,7 @@ class AgentRuntime:
         # resolve 已完成三级优先级合并，这里以其结果为准（包括把会话传入的
         # 注册表 ID 替换为 litellm 模型标识符，供 WorkerAgentService 使用）。
         # api_key / api_base 为 None 是合法状态（litellm 从环境变量读取）。
-        resolved: Dict[str, Any] = {
+        resolved: dict[str, Any] = {
             **session_opts,
             "model": llm_config.model,
             "api_key": llm_config.api_key,
@@ -194,7 +241,7 @@ class AgentRuntime:
         """将 in-flight atom 迁移到 CANCELLED（由 patchouli CANCELLED 事件触发）。"""
         self._pending_runtime.cancel(pending_alias)
 
-    def cancel_tasks_by_run(self, run_id: str) -> List[str]:
+    def cancel_tasks_by_run(self, run_id: str) -> list[str]:
         """取消本 run 仍在飞行中的 pending atom。"""
         return self._pending_runtime.cancel_run(run_id)
 
@@ -202,7 +249,7 @@ class AgentRuntime:
         """取消单个失败/取消 frame 仍在飞行中的 pending atom。"""
         return self._pending_runtime.cancel_frame(frame_id)
 
-    def aliases_by_frame(self, frame_id: str) -> List[str]:
+    def aliases_by_frame(self, frame_id: str) -> list[str]:
         """返回属于指定 frame 的全部 pending alias（不做状态过滤，供 harvest 使用）。"""
         return [
             atom.pending_alias
@@ -210,7 +257,7 @@ class AgentRuntime:
             if atom.runtime_scope.frame_id == frame_id
         ]
 
-    def collect_tasks_by_run(self, run_id: str) -> "List[PendingAtomMaterializeTask]":
+    def collect_tasks_by_run(self, run_id: str) -> list[PendingAtomMaterializeTask]:
         """收集本 run 的待物化 Task，并将状态从 PENDING 迁移到 MATERIALIZING（幂等）。
         同时回收上轮已结算的 atom（SETTLED/FAILED/CANCELLED → EXPIRED → 删除）。
         """

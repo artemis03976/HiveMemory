@@ -24,66 +24,63 @@
 版本: 1.0
 """
 
-import asyncio
-import time
-import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from __future__ import annotations
 
-from hivememory.core.mtp import (
-    MTP_LEFT_DELIMITER,
-    MTPVerb,
-    MTPResponseStatus,
-    MTPCommand,
-    MTPCallRequest,
-    MTPResponse,
-    MTPWarningInfo,
-    MTPParser,
-    MTPFilterParser,
-    MTPParseError,
-    MTPFormatter,
-)
+import asyncio
+import logging
+import time
+from typing import TYPE_CHECKING, Any
+
 from hivememory.agent_runtime.cache import KoakumaAtomCache
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
-from hivememory.engines.memory_compiler import (
-    MemoryCompiler,
-    MemoryCompileTarget,
-    MemoryCompileOptions,
-    MemoryEnvelopeTarget,
+from hivememory.core.models import MemoryType
+from hivememory.core.mtp import (
+    MTP_LEFT_DELIMITER,
+    MTPCallRequest,
+    MTPCommand,
+    MTPFilterParser,
+    MTPFormatter,
+    MTPParseError,
+    MTPParser,
+    MTPResponse,
+    MTPResponseStatus,
+    MTPVerb,
+    MTPWarningInfo,
+)
+from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
+    InvalidArgumentError,
+    MemoryTypeMismatchError,
+    MTPError,
+    PermissionDeniedError,
+    SystemFault,
 )
 from hivememory.core.protocol.models import (
     MTPExecutionResult,
     RetrievalRequest,
 )
+from hivememory.engines.memory_compiler import (
+    MemoryCompileOptions,
+    MemoryCompiler,
+    MemoryCompileTarget,
+    MemoryEnvelopeTarget,
+)
+from hivememory.i18n.mtp_runtime import get_mtp_info_text
+from hivememory.i18n.resolver import resolve_language
 from hivememory.system.contracts.routes import GlobalRoutes
 
-from hivememory.core.models import MemoryType
-from hivememory.core.mtp.exceptions import (
-    MTPError,
-    AgentFault,
-    SystemFault,
-    StorageOfflineError,
-    StorageReadError,
-    PermissionDeniedError,
-    InvalidArgumentError,
-    AliasNotFoundError,
-    MemoryTypeMismatchError,
-    SyscallInternalError,
-)
-from hivememory.i18n.resolver import resolve_language
-from hivememory.i18n.mtp_runtime import get_mtp_info_text
-
 if TYPE_CHECKING:
-    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
-    from hivememory.agent_runtime.resolver import ResolveResult
+    from hivememory.core.models import MemoryAtom
     from hivememory.system.config import KoakumaConfig, MemoryCompilerConfig
+    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 logger = logging.getLogger(__name__)
 
 
 def _resolve_context_language(
-    context: Optional[MTPExecutionContext],
+    context: MTPExecutionContext | None,
 ) -> str:
     """从 MTPExecutionContext 派生运行时语言。
 
@@ -126,11 +123,11 @@ class KoakumaRuntime:
 
     def __init__(
         self,
-        bus: Optional["AsyncSystemBus"] = None,
-        config: Optional["KoakumaConfig"] = None,
+        bus: AsyncSystemBus | None = None,
+        config: KoakumaConfig | None = None,
         *,
         alias_resolver: RuntimeAliasResolver,
-        memory_compiler_config: Optional["MemoryCompilerConfig"] = None,
+        memory_compiler_config: MemoryCompilerConfig | None = None,
     ):
         """
         初始化 Koakuma MTP 运行时
@@ -154,6 +151,7 @@ class KoakumaRuntime:
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
         from hivememory.agent_runtime.mtp.syscalls import build_kernel_registry
+
         self._kernel_registry = build_kernel_registry(
             python_repl_timeout=self._config.python_repl_timeout_seconds,
             workspace_path=self._config.workspace_path,
@@ -164,8 +162,6 @@ class KoakumaRuntime:
 
         self._compiler = MemoryCompiler()
 
-        self.cancel_event: Optional[asyncio.Event] = None
-
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
 
     # ========== 多智能体权限沙箱 (Phase 1) ==========
@@ -173,7 +169,7 @@ class KoakumaRuntime:
     def _check_verb_permission(
         self,
         verb: str,
-        context: Optional[MTPExecutionContext] = None,
+        context: MTPExecutionContext | None = None,
     ) -> None:
         """
         校验 MTP 动词权限 (O(1) set lookup)
@@ -196,7 +192,7 @@ class KoakumaRuntime:
     def _check_tool_permission(
         self,
         tool_alias: str,
-        context: Optional[MTPExecutionContext] = None,
+        context: MTPExecutionContext | None = None,
     ) -> None:
         """
         校验系统工具权限 (O(1) set lookup)
@@ -221,7 +217,9 @@ class KoakumaRuntime:
     async def execute_mtp(
         self,
         text: str,
-        context: Optional[MTPExecutionContext] = None,
+        context: MTPExecutionContext | None = None,
+        *,
+        cancel_event: asyncio.Event | None = None,
     ) -> MTPExecutionResult:
         """
         执行 MTP 指令 (主入口)
@@ -249,6 +247,7 @@ class KoakumaRuntime:
             response = await self._route_and_execute(
                 command,
                 context or MTPExecutionContext(),
+                cancel_event=cancel_event,
             )
             response.execution_time_ms = (time.time() - start_time) * 1000
 
@@ -289,8 +288,10 @@ class KoakumaRuntime:
     async def intercept_and_execute(
         self,
         assistant_text: str,
-        context: Optional[MTPExecutionContext] = None,
-    ) -> Optional[MTPExecutionResult]:
+        context: MTPExecutionContext | None = None,
+        *,
+        cancel_event: asyncio.Event | None = None,
+    ) -> MTPExecutionResult | None:
         """
         拦截检测 + 执行 (Section 3.1.2 Stop Sequence 场景)
 
@@ -312,7 +313,7 @@ class KoakumaRuntime:
         if last_open == -1:
             return None
 
-        if self.cancel_event is not None and self.cancel_event.is_set():
+        if cancel_event is not None and cancel_event.is_set():
             return MTPExecutionResult(
                 command=None,
                 response_status=MTPResponseStatus.CANCELLED.value,
@@ -325,7 +326,11 @@ class KoakumaRuntime:
         # 提取从 ⟪ 开始的文本片段
         mtp_fragment = assistant_text[last_open:]
 
-        return await self.execute_mtp(mtp_fragment, context=context)
+        return await self.execute_mtp(
+            mtp_fragment,
+            context=context,
+            cancel_event=cancel_event,
+        )
 
     # ========== 别名管理 ==========
 
@@ -345,6 +350,8 @@ class KoakumaRuntime:
         self,
         command: MTPCommand,
         context: MTPExecutionContext,
+        *,
+        cancel_event: asyncio.Event | None = None,
     ) -> MTPResponse:
         """
         路由并执行 MTP 指令 (Section 3)
@@ -375,7 +382,7 @@ class KoakumaRuntime:
             )
 
         try:
-            if self.cancel_event is not None and self.cancel_event.is_set():
+            if cancel_event is not None and cancel_event.is_set():
                 return MTPResponse(status=MTPResponseStatus.CANCELLED, content="")
             # 权限沙箱：校验 MTP 动词权限 (Phase 1 多智能体)
             self._check_verb_permission(command.verb.value, context=context)
@@ -430,9 +437,7 @@ class KoakumaRuntime:
         # 宽容解析: 非法 filter 降级为 None，但返回警告
         filter_str = command.args.get("filter", "")
         parsed_filters, filter_warnings = (
-            self._filter_parser.parse(filter_str)
-            if filter_str
-            else (None, [])
+            self._filter_parser.parse(filter_str) if filter_str else (None, [])
         )
 
         # Let StorageOfflineError / StorageReadError propagate to _route_and_execute
@@ -502,11 +507,11 @@ class KoakumaRuntime:
         if not aliases:
             raise InvalidArgumentError(message_key="mtp.read.missing_alias")
 
-        resolved: List[Tuple[str, "MemoryAtom"]] = []  # (alias, atom)
-        resolved_pending: List[Tuple[str, Any]] = []  # (alias, PendingAtom)
-        resolved_redirects: List[Tuple[str, Any]] = []  # (alias, ResolveResult)
-        resolved_terminal: List[Tuple[str, Any]] = []  # (alias, ResolveResult)
-        unresolved: List[str] = []
+        resolved: list[tuple[str, MemoryAtom]] = []  # (alias, atom)
+        resolved_pending: list[tuple[str, Any]] = []  # (alias, PendingAtom)
+        resolved_redirects: list[tuple[str, Any]] = []  # (alias, ResolveResult)
+        resolved_terminal: list[tuple[str, Any]] = []  # (alias, ResolveResult)
+        unresolved: list[str] = []
         for alias in aliases:
             result = await self._alias_resolver.resolve(alias, context=context)
             if result.kind == "pending" and result.pending is not None:
@@ -521,35 +526,44 @@ class KoakumaRuntime:
                 unresolved.append(alias)
 
         # 全部无效：直接返回错误
-        if not resolved and not resolved_pending and not resolved_redirects and not resolved_terminal:
+        if (
+            not resolved
+            and not resolved_pending
+            and not resolved_redirects
+            and not resolved_terminal
+        ):
             raise AliasNotFoundError(
                 message_key="mtp.read.alias_not_found",
                 params={"aliases": "\n".join(f"  {a}" for a in unresolved)},
             )
 
         # 组装输出 — 通过 MemoryCompiler 统一编译，局部未解析 alias 交给 warnings 渲染
-        output_lines: List[str] = []
-        warnings: List[MTPWarningInfo] = []
+        output_lines: list[str] = []
+        warnings: list[MTPWarningInfo] = []
         for alias, pending in resolved_pending:
             artifact = self._compiler.compile(
-                pending, MemoryCompileTarget.MTP_READ,
+                pending,
+                MemoryCompileTarget.MTP_READ,
             )
             output_lines.append(artifact.text)
         for alias, result in resolved_redirects:
             artifact = self._compiler.compile(
-                result, MemoryCompileTarget.MTP_READ,
+                result,
+                MemoryCompileTarget.MTP_READ,
                 MemoryCompileOptions(requested_alias=alias),
             )
             output_lines.append(artifact.text)
         for alias, result in resolved_terminal:
             artifact = self._compiler.compile(
-                result, MemoryCompileTarget.MTP_READ,
+                result,
+                MemoryCompileTarget.MTP_READ,
                 MemoryCompileOptions(requested_alias=alias),
             )
             output_lines.append(artifact.text)
         for alias, atom in resolved:
             artifact = self._compiler.compile(
-                atom, MemoryCompileTarget.MTP_READ,
+                atom,
+                MemoryCompileTarget.MTP_READ,
                 MemoryCompileOptions(requested_alias=alias),
             )
             output_lines.append(artifact.text)
@@ -611,7 +625,7 @@ class KoakumaRuntime:
         # Level 1: 用户态工具路径 (统一原子缓存)
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved = await self._alias_resolver.resolve(alias, context=context)
-        warnings: List[MTPWarningInfo] = []
+        warnings: list[MTPWarningInfo] = []
         if resolved.kind == "pending":
             raise InvalidArgumentError(
                 message_key="mtp.run.pending_not_runnable",
@@ -770,8 +784,7 @@ class KoakumaRuntime:
         self.atom_cache.invalidate_alias(alias)
 
         logger.info(
-            f"MTP UPDATE 延迟捕获: alias='{alias}', "
-            f"pending_alias='{pending.pending_alias}'"
+            f"MTP UPDATE 延迟捕获: alias='{alias}', " f"pending_alias='{pending.pending_alias}'"
         )
 
         return MTPResponse(
@@ -787,7 +800,7 @@ class KoakumaRuntime:
     async def _handle_call(
         self,
         command: MTPCommand,
-        context: Optional[MTPExecutionContext] = None,
+        context: MTPExecutionContext | None = None,
     ) -> MTPResponse:
         """
         处理 CALL 指令 - 触发子代理调用 (Phase 2)
@@ -804,8 +817,9 @@ class KoakumaRuntime:
         Raises:
             PermissionDeniedError: 如果子 Agent 尝试调用 CALL (depth >= 1)
         """
-        from hivememory.core.mtp.exceptions import PermissionDeniedError
         import json
+
+        from hivememory.core.mtp.exceptions import PermissionDeniedError
 
         # 1. 深度检查 (硬限制)
         if context is not None and context.runtime_scope.depth >= 1:
@@ -838,7 +852,7 @@ class KoakumaRuntime:
             f"context_refs={context_refs}"
         )
 
-        # 5. 返回 SUSPEND 信号 
+        # 5. 返回 SUSPEND 信号
         return MTPResponse(
             status=MTPResponseStatus.SUSPEND,
             content="",
@@ -851,7 +865,7 @@ class KoakumaRuntime:
 
     # ========== 辅助方法 ==========
 
-    async def _record_memory_citation(self, atom: "MemoryAtom", source: str) -> None:
+    async def _record_memory_citation(self, atom: MemoryAtom, source: str) -> None:
         if self._bus is None:
             return
         try:
@@ -868,9 +882,7 @@ class KoakumaRuntime:
                 exc_info=True,
             )
 
-    def _execute_user_tool(
-        self, alias: str, code: str, args: Dict[str, str]
-    ) -> MTPResponse:
+    def _execute_user_tool(self, alias: str, code: str, args: dict[str, str]) -> MTPResponse:
         """
         在受限沙箱中执行用户态工具 (Section 4.2.2)
 

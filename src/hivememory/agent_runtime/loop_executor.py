@@ -21,10 +21,16 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
+from hivememory.agent_runtime.events import (
+    CallbackFrameEventSink,
+    FrameEventSink,
+    NullFrameEventSink,
+)
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
+    GenerationResult,
     MTPExecutionContext,
 )
 from hivememory.core.models import TurnEvent
@@ -59,23 +65,46 @@ class AgentLoopExecutor:
         self._mtp_executor = mtp_executor
         self.config = config
 
-    def _namespace_for_frame(self, frame: ExecutionFrame) -> dict[str, Any]:
-        """构造事件命名空间元数据。"""
-        agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
-        return {
-            "scope": "sub" if frame.is_sub_frame() else "main",
-            "depth": frame.runtime_scope.depth,
-            "agent_id": agent_id,
-            "frame_id": frame.runtime_scope.frame_id,
-        }
+    async def _generate_turn(
+        self,
+        frame: ExecutionFrame,
+        generation_options: dict[str, Any] | None,
+        sink: FrameEventSink,
+        cancel_event: asyncio.Event | None,
+    ) -> GenerationResult | FrameExecutionResult:
+        if not sink.wants_token_stream:
+            return await self.worker_agent.generate_async(
+                frame.working_history,
+                cancel_event=cancel_event,
+                **(generation_options or {}),
+            )
+
+        result: GenerationResult | None = None
+        async for chunk in self.worker_agent.generate_stream(
+            frame.working_history,
+            cancel_event=cancel_event,
+            **(generation_options or {}),
+        ):
+            if chunk.is_final:
+                result = chunk.result
+                break
+            if not chunk.mtp_detected and chunk.delta:
+                await sink.emit({"event": "token", "data": {"content": chunk.delta}})
+        if result is not None:
+            return result
+        if cancel_event is not None and cancel_event.is_set():
+            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
+        return FrameExecutionResult(
+            status=FrameExecutionStatus.FAILED,
+            error=RuntimeError("Streaming generation ended without a final result."),
+        )
 
     async def execute_frame(
         self,
         frame: ExecutionFrame,
         max_iterations: int,
         generation_options: dict[str, Any] | None = None,
-        stream_emitter: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-        use_stream_generation: bool = False,
+        event_sink: FrameEventSink | None = None,
         cancel_event: asyncio.Event | None = None,
     ) -> FrameExecutionResult:
         """
@@ -88,6 +117,7 @@ class AgentLoopExecutor:
             FrameExecutionResult: 帧停止原因；只有自然收敛返回 COMPLETED。
         """
         p = frame.progress  # PCB 累积器，重入时续接
+        sink = event_sink or NullFrameEventSink()
 
         while p.iteration < max_iterations:
             if cancel_event is not None and cancel_event.is_set():
@@ -96,33 +126,14 @@ class AgentLoopExecutor:
 
             p.iteration += 1
 
-            result = None
-            if use_stream_generation:
-                async for chunk in self.worker_agent.generate_stream(
-                    frame.working_history,
-                    cancel_event=cancel_event,
-                    **(generation_options or {}),
-                ):
-                    if chunk.is_final:
-                        result = chunk.result
-                        break
-                    if stream_emitter is not None and not chunk.mtp_detected and chunk.delta:
-                        token_data = {"content": chunk.delta}
-                        token_data.update(self._namespace_for_frame(frame))
-                        await stream_emitter({"event": "token", "data": token_data})
-                if result is None:
-                    if cancel_event is not None and cancel_event.is_set():
-                        return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-                    return FrameExecutionResult(
-                        status=FrameExecutionStatus.FAILED,
-                        error=RuntimeError("Streaming generation ended without a final result."),
-                    )
-            else:
-                result = await self.worker_agent.generate_async(
-                    frame.working_history,
-                    cancel_event=cancel_event,
-                    **(generation_options or {}),
-                )
+            result = await self._generate_turn(
+                frame,
+                generation_options,
+                sink,
+                cancel_event,
+            )
+            if isinstance(result, FrameExecutionResult):
+                return result
 
             if result.finish_reason == "cancelled":
                 logger.info("Generation cancelled by user")
@@ -168,11 +179,10 @@ class AgentLoopExecutor:
                 logger.info("Generation cancelled before MTP execution")
                 return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
 
-            if cancel_event is not None and hasattr(self._mtp_executor, "set_cancel_event"):
-                self._mtp_executor.set_cancel_event(cancel_event)
             mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,
                 context=mtp_context,
+                cancel_event=cancel_event,
             )
             if cancel_event is not None and cancel_event.is_set():
                 logger.info("Generation cancelled after MTP execution")
@@ -202,7 +212,7 @@ class AgentLoopExecutor:
             p.turn_events.append(command_event)
             p.sequence += 1
 
-            if stream_emitter is not None:
+            if event_sink is not None:
                 mtp_start_data = {
                     "verb": verb_hint,
                     "target": target_hint,
@@ -210,8 +220,7 @@ class AgentLoopExecutor:
                     "raw_text": raw_hint,
                     "iteration": p.iteration,
                 }
-                mtp_start_data.update(self._namespace_for_frame(frame))
-                await stream_emitter({"event": "mtp_start", "data": mtp_start_data})
+                await sink.emit({"event": "mtp_start", "data": mtp_start_data})
 
             if mtp_result is None:
                 p.text_segments.append(result.mtp_fragment)
@@ -229,7 +238,7 @@ class AgentLoopExecutor:
                     )
                 )
                 p.sequence += 1
-                if stream_emitter is not None:
+                if event_sink is not None:
                     mtp_failed_data = {
                         "verb": verb_hint,
                         "target": target_hint,
@@ -238,8 +247,7 @@ class AgentLoopExecutor:
                         "status": "failed",
                         "iteration": p.iteration,
                     }
-                    mtp_failed_data.update(self._namespace_for_frame(frame))
-                    await stream_emitter({"event": "mtp_result", "data": mtp_failed_data})
+                    await sink.emit({"event": "mtp_result", "data": mtp_failed_data})
                 return FrameExecutionResult(
                     status=FrameExecutionStatus.FAILED,
                     error=RuntimeError("MTP execution returned no result."),
@@ -249,7 +257,7 @@ class AgentLoopExecutor:
                 # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 CALL response。
                 # 编排负责：append 已归一化的 CALL 文本 → fork子帧 → 跑子帧
                 # → resume → harvest → 组 CALL response → append 回填 → 重入本帧。
-                if stream_emitter is not None:
+                if event_sink is not None:
                     mtp_suspend_data = {
                         "verb": verb_hint,
                         "target": target_hint,
@@ -258,8 +266,7 @@ class AgentLoopExecutor:
                         "status": mtp_result.response_status,
                         "iteration": p.iteration,
                     }
-                    mtp_suspend_data.update(self._namespace_for_frame(frame))
-                    await stream_emitter({"event": "mtp_result", "data": mtp_suspend_data})
+                    await sink.emit({"event": "mtp_result", "data": mtp_suspend_data})
 
                 if mtp_result.call_request is None:
                     raise RuntimeError("CALL suspend response missing call_request.")
@@ -273,7 +280,7 @@ class AgentLoopExecutor:
             p.turn_events[-1] = command_event.model_copy(
                 update={"status": mtp_result.response_status}
             )
-            if stream_emitter is not None:
+            if event_sink is not None:
                 mtp_result_data = {
                     "verb": verb_hint,
                     "target": target_hint,
@@ -282,8 +289,7 @@ class AgentLoopExecutor:
                     "status": mtp_result.response_status,
                     "iteration": p.iteration,
                 }
-                mtp_result_data.update(self._namespace_for_frame(frame))
-                await stream_emitter({"event": "mtp_result", "data": mtp_result_data})
+                await sink.emit({"event": "mtp_result", "data": mtp_result_data})
 
             frame.working_history.append({"role": "assistant", "content": result.text})
             frame.working_history.append(
@@ -322,6 +328,7 @@ class AgentLoopExecutor:
         # 然后引擎继续本段流。签名: (FrameExecutionResult) -> None（异步）。
         on_suspend: Callable[["FrameExecutionResult"], Awaitable[None]] | None = None,
         on_terminal: Callable[["FrameExecutionResult"], Awaitable[None]] | None = None,
+        event_metadata: dict[str, Any] | None = None,
     ):
         """
         执行单个帧的流式循环。
@@ -346,8 +353,10 @@ class AgentLoopExecutor:
                         frame=frame,
                         max_iterations=max_iterations,
                         generation_options=generation_options,
-                        stream_emitter=_emit,
-                        use_stream_generation=True,
+                        event_sink=CallbackFrameEventSink(
+                            _emit,
+                            metadata=event_metadata,
+                        ),
                         cancel_event=cancel_event,
                     )
                     if engine_result.status == FrameExecutionStatus.SUSPENDED:

@@ -164,6 +164,7 @@ class AgentOrchestrator:
                     cancel_event=cancel_event,
                     on_suspend=on_suspend,
                     on_terminal=on_terminal,
+                    event_metadata=self._event_metadata_for_frame(main_frame),
                 ):
                     await queue.put(event)
                 await queue.put(
@@ -310,6 +311,7 @@ class AgentOrchestrator:
                     frame=sub_frame,
                     generation_options=generation_options,
                     stream_emitter=_sub_emit,
+                    event_metadata=self._event_metadata_for_frame(sub_frame),
                     cancel_event=cancel_event,
                 )
 
@@ -603,6 +605,16 @@ class AgentOrchestrator:
             # 空字符串表示注册表未启用（兼容无注册表的场景）
             model_used=p.model_used,
         )
+
+    @staticmethod
+    def _event_metadata_for_frame(frame: ExecutionFrame) -> dict[str, Any]:
+        agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
+        return {
+            "scope": "sub" if frame.is_sub_frame() else "main",
+            "depth": frame.runtime_scope.depth,
+            "agent_id": agent_id,
+            "frame_id": frame.runtime_scope.frame_id,
+        }
 
 
 __all__ = ["AgentOrchestrator"]
