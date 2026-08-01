@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-01
 ---
 
 # Plans
@@ -12,6 +12,7 @@ last_reviewed: 2026-07-30
 
 当前计划：
 
+- [Alice Agent Runtime 控制流重构](./alice-agent-runtime-control-flow-refactor.md)：保持 AgentRuntime 的单 frame 纯执行边界，以统一 RunDriver、CallCoordinator、RunSession 和 effect resolution 收敛主/子 frame 与流式 CALL 控制流程。
 - [数据模型可变性治理](./data-model-mutability-governance.md)：未排期的项目级模型角色、所有权与边界投影治理。
 - [RuntimeEvent 生产端发布抽象重构](./runtime-event-publishing-refactor.md)：统一 Publisher、领域 emitter、payload 安全与生产端 best-effort 边界，当前未实现。
 - [运行时状态持久化与故障恢复](./runtime-state-durability-and-recovery.md)：统一 Memory、Artifact、PendingAtom、Agent frame、工作项和恢复语义的耐久性分级；不替代 Local Work Queue 的机械设计。
