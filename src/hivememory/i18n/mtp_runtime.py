@@ -22,7 +22,6 @@ from hivememory.i18n.types import Language
 # ---------------------------------------------------------------------------
 
 _ERROR_TEXT_ZH: dict[str, str] = {
-
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
         "[Permission Denied] 你没有权限使用 '{verb}' 指令。\n"
@@ -36,7 +35,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Permission Denied] 子代理不允许调用 CALL 指令，只有主代理可以调用子代理。\n"
         "Suggestion: 请使用你当前角色允许的指令和工具。"
     ),
-
     # ---- MTP 解析错误 ----
     "mtp.parse.unknown_verb": (
         "[Syntax Error] 未知指令动词：{verb}。合法动词：{valid_verbs}。\n"
@@ -50,13 +48,11 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Syntax Error] MTP 指令缺少分隔符 '{separator}'。\n"
         "Suggestion: 请使用格式：⟪ VERB | TARGET | ARGS ⟫。"
     ),
-
     # ---- SEARCH ----
     "mtp.search.missing_query": (
-        "[Invalid Argument] SEARCH 指令缺少 \"query\" 参数。\n"
+        '[Invalid Argument] SEARCH 指令缺少 "query" 参数。\n'
         "Suggestion: 请提供 query 参数后重试。"
     ),
-
     # ---- READ ----
     "mtp.read.wildcard_not_supported": (
         "[Invalid Argument] READ 不支持通配目标 `*`。\n"
@@ -70,15 +66,13 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Alias Not Found] 以下 alias 未找到：\n{aliases}\n"
         "Suggestion: 请先用 SEARCH 找到正确的 alias。"
     ),
-
     # ---- RUN ----
     "mtp.run.missing_single_target": (
         "[Invalid Argument] RUN 需要单个工具 alias 作为目标。\n"
         "Suggestion: 请提供一个工具 alias 作为目标。"
     ),
     "mtp.run.kernel_tool_not_found": (
-        "[Alias Not Found] 内核工具 '{alias}' 不存在。\n"
-        "Suggestion: 请用 SEARCH 查找可用工具。"
+        "[Alias Not Found] 内核工具 '{alias}' 不存在。\n" "Suggestion: 请用 SEARCH 查找可用工具。"
     ),
     "mtp.run.pending_not_runnable": (
         "[Invalid Argument] alias '{alias}' 是运行时 pending atom，尚未固化为可执行记忆。\n"
@@ -96,21 +90,17 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Alias Not Found] 工具 alias '{alias}' 当前不可执行（状态：{status}）。\n"
         "Suggestion: 如果该 handle 已 expired/reclaimed，请使用 SEARCH 查找正式记忆 alias。"
     ),
-
     # ---- WRITE ----
     "mtp.write.missing_content": (
-        "[Invalid Argument] WRITE 指令缺少 \"content\" 参数。\n"
-        "Suggestion: 请提供要写入的内容。"
+        '[Invalid Argument] WRITE 指令缺少 "content" 参数。\n' "Suggestion: 请提供要写入的内容。"
     ),
-
     # ---- UPDATE ----
     "mtp.update.missing_single_target": (
         "[Invalid Argument] UPDATE 需要单个 alias 作为目标。\n"
         "Suggestion: 请提供一个 alias 作为目标。"
     ),
     "mtp.update.missing_instruction": (
-        "[Invalid Argument] UPDATE 指令缺少 \"instruction\" 参数。\n"
-        "Suggestion: 请提供更新指令。"
+        '[Invalid Argument] UPDATE 指令缺少 "instruction" 参数。\n' "Suggestion: 请提供更新指令。"
     ),
     "mtp.update.pending_not_updatable": (
         "[Invalid Argument] alias '{alias}' 是运行时 pending atom，UPDATE 需要正式记忆 alias。\n"
@@ -120,15 +110,14 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Alias Not Found] alias '{alias}' 未找到。\n"
         "Suggestion: 请先用 SEARCH 找到正确的 alias。"
     ),
-
     # ---- CALL ----
     "mtp.call.missing_single_target": (
         "[Invalid Argument] CALL 需要单个代理 alias 作为目标。\n"
-        "Suggestion: 示例：⟪ CALL | coder_doll | task=\"...\" ⟫"
+        'Suggestion: 示例：⟪ CALL | coder_doll | task="..." ⟫'
     ),
     "mtp.call.missing_task": (
-        "[Invalid Argument] CALL 指令缺少 \"task\" 参数。\n"
-        "Suggestion: 示例：⟪ CALL | coder_doll | task=\"编写单元测试\" ⟫"
+        '[Invalid Argument] CALL 指令缺少 "task" 参数。\n'
+        'Suggestion: 示例：⟪ CALL | coder_doll | task="编写单元测试" ⟫'
     ),
     "mtp.call.profile_not_found": (
         "[Agent Profile Not Found] 未找到子代理 Profile '{agent_alias}'。\n"
@@ -150,7 +139,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Agent Profile Error] 子代理 Profile '{agent_alias}' 当前无法加载。\n"
         "Suggestion: 请勿使用相同参数重试，并继续正常对话。"
     ),
-
     # ---- 系统故障 ----
     "mtp.system.unexpected_error": (
         "[Internal Error] 发生意外错误，请勿使用相同参数重试，并继续正常对话。"
@@ -175,15 +163,21 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Sub-Agent Error]: 子代理 {agent_alias} 遇到错误，无法完成任务。\n"
         "Suggestion: 请尝试其他方式，或分解任务后重试。"
     ),
+    "mtp.call_response.budget_exhausted": (
+        "[Sub-Agent Budget Exhausted] 子代理 {agent_alias} 已耗尽循环预算，未能自然完成任务。\n"
+        "Suggestion: 请缩小任务范围、分解任务，或改用其他方式继续。"
+    ),
+    "mtp.call_response.unexpected_suspend": (
+        "[Sub-Agent Protocol Error] 子代理 {agent_alias} 意外挂起，无法形成有效结果。\n"
+        "Suggestion: 请改用其他方式继续，不要把该子任务视为已完成。"
+    ),
     "mtp.call_response.model_unavailable": (
         "[Model Unavailable] 子代理 {agent_alias} 配置的模型 '{model_name}' 当前不可用。\n"
         "Suggestion: 请改用其他子代理，并通知管理员检查模型配置。"
     ),
-
 }
 
 _ERROR_TEXT_EN: dict[str, str] = {
-
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
         "[Permission Denied] You do not have permission to use the '{verb}' command.\n"
@@ -198,7 +192,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "Only the main agent can call sub-agents.\n"
         "Suggestion: Try a different approach using only your authorized tools and commands."
     ),
-
     # ---- MTP 解析错误 ----
     "mtp.parse.unknown_verb": (
         "[Syntax Error] Unknown verb: {verb}. Valid verbs: {valid_verbs}.\n"
@@ -212,13 +205,11 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Syntax Error] Missing separator '{separator}' in MTP command.\n"
         "Suggestion: Use the format: ⟪ VERB | TARGET | ARGS ⟫."
     ),
-
     # ---- SEARCH ----
     "mtp.search.missing_query": (
         '[Invalid Argument] SEARCH requires a "query" argument.\n'
         "Suggestion: Provide a query argument and retry."
     ),
-
     # ---- READ ----
     "mtp.read.wildcard_not_supported": (
         "[Invalid Argument] READ does not support wildcard target `*`.\n"
@@ -232,7 +223,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Alias Not Found] The following aliases were not found:\n{aliases}\n"
         "Suggestion: Use SEARCH to discover the correct aliases first."
     ),
-
     # ---- RUN ----
     "mtp.run.missing_single_target": (
         "[Invalid Argument] RUN requires a single tool alias as target.\n"
@@ -259,13 +249,11 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Alias Not Found] Tool alias '{alias}' is not runnable (status: {status}).\n"
         "Suggestion: If this handle expired/reclaimed, use SEARCH to locate the finalized memory alias."
     ),
-
     # ---- WRITE ----
     "mtp.write.missing_content": (
         '[Invalid Argument] WRITE requires a "content" argument.\n'
         "Suggestion: Provide the content to be written."
     ),
-
     # ---- UPDATE ----
     "mtp.update.missing_single_target": (
         "[Invalid Argument] UPDATE requires a single alias as target.\n"
@@ -284,7 +272,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Alias Not Found] Alias '{alias}' not found.\n"
         "Suggestion: Use SEARCH to discover the correct alias first."
     ),
-
     # ---- CALL ----
     "mtp.call.missing_single_target": (
         "[Invalid Argument] CALL requires a single agent alias as target.\n"
@@ -315,7 +302,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Agent Profile Error] Sub-agent profile '{agent_alias}' could not be loaded.\n"
         "Suggestion: Do NOT retry with the same parameters. Continue the conversation normally."
     ),
-
     # ---- 系统故障 ----
     "mtp.system.unexpected_error": (
         "[Internal Error] An unexpected error occurred. "
@@ -342,12 +328,21 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "and could not complete the task.\n"
         "Suggestion: Try a different approach or decompose the task and retry."
     ),
+    "mtp.call_response.budget_exhausted": (
+        "[Sub-Agent Budget Exhausted] The sub-agent {agent_alias} exhausted its "
+        "iteration budget without completing the task.\n"
+        "Suggestion: Narrow or decompose the task, or continue with another approach."
+    ),
+    "mtp.call_response.unexpected_suspend": (
+        "[Sub-Agent Protocol Error] The sub-agent {agent_alias} suspended unexpectedly "
+        "and did not produce a valid result.\n"
+        "Suggestion: Continue with another approach and do not treat the task as complete."
+    ),
     "mtp.call_response.model_unavailable": (
         "[Model Unavailable] The model '{model_name}' configured for sub-agent "
         "{agent_alias} is unavailable.\n"
         "Suggestion: Use another sub-agent and ask an administrator to check the model configuration."
     ),
-
 }
 
 
@@ -361,13 +356,13 @@ _INFO_TEXT_ZH: dict[str, str] = {
         "记忆 '{base_alias}' 的更新已作为 pending revision '{pending_alias}' 接受。\n"
         "本次运行期间可通过 READ 读取。最终记忆更新将异步完成。"
     ),
-
     # ---- loop / CALL response 包装标题（Phase C）----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
     "mtp.call_response.title": "[System MTP Call Response]",
     "mtp.call_response.reply_label": "[Sub-Agent Reply]:",
     "mtp.call_response.artifacts_label": "[Artifacts Generated / Updated]:",
     "mtp.call_response.artifact_state": "(pending, 本次运行可读)",
+    "mtp.call_response.cancelled": "[Sub-Agent Cancelled] 子代理任务已取消，未产生可用结果。",
 }
 
 _INFO_TEXT_EN: dict[str, str] = {
@@ -382,22 +377,19 @@ _INFO_TEXT_EN: dict[str, str] = {
         "It is readable during this run via READ. "
         "Final memory update will complete asynchronously."
     ),
-
     # ---- loop / CALL response wrapper labels (Phase C) ----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
     "mtp.call_response.title": "[System MTP Call Response]",
     "mtp.call_response.reply_label": "[Sub-Agent Reply]:",
     "mtp.call_response.artifacts_label": "[Artifacts Generated / Updated]:",
     "mtp.call_response.artifact_state": "(pending, readable now)",
+    "mtp.call_response.cancelled": "[Sub-Agent Cancelled] The sub-agent task was cancelled and produced no usable result.",
 }
-
-
 
 
 _WARNING_TEXT_ZH: dict[str, str] = {
     "mtp.read.partial_alias_not_found": (
-        "[{alias}]: [Alias Not Found] alias '{alias}' 未找到。"
-        "请先用 SEARCH 找到正确的 alias。"
+        "[{alias}]: [Alias Not Found] alias '{alias}' 未找到。" "请先用 SEARCH 找到正确的 alias。"
     ),
     "mtp.filter.token_missing_separator": (
         "Note: Filter token '{token}' 已被忽略（缺少 ':' 分隔符）。"
@@ -416,9 +408,7 @@ _WARNING_TEXT_ZH: dict[str, str] = {
         "Note: Filter confidence 值 '{value}' 不是有效数字，已被忽略。"
     ),
     "mtp.filter.unknown_key": "Note: 未知 filter key '{key}' 已被忽略。",
-    "mtp.filter.parse_failed": (
-        "Note: Filter 解析失败。结果范围可能比预期更宽。"
-    ),
+    "mtp.filter.parse_failed": ("Note: Filter 解析失败。结果范围可能比预期更宽。"),
     "mtp.search.no_memories_found": "未找到相关记忆。请尝试不同的 query。",
     "mtp.run.alias_redirected": (
         "[Alias Redirected]"

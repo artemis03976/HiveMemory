@@ -178,21 +178,14 @@ async def test_execute_frame_stream_emits_scoped_events_for_call():
     assert "sub_mtp_start" not in event_types
     assert "sub_mtp_result" not in event_types
 
-    main_tokens = [
-        e for e in events
-        if e["event"] == "token" and e["data"].get("scope") == "main"
-    ]
-    sub_tokens = [
-        e for e in events
-        if e["event"] == "token" and e["data"].get("scope") == "sub"
-    ]
+    main_tokens = [e for e in events if e["event"] == "token" and e["data"].get("scope") == "main"]
+    sub_tokens = [e for e in events if e["event"] == "token" and e["data"].get("scope") == "sub"]
     assert any("主帧前缀" in e["data"]["content"] for e in main_tokens)
     assert any("主帧收尾" in e["data"]["content"] for e in main_tokens)
     assert any("子帧输出" in e["data"]["content"] for e in sub_tokens)
 
     suspend_event = next(
-        e for e in events
-        if e["event"] == "mtp_result" and e["data"].get("status") == "suspend"
+        e for e in events if e["event"] == "mtp_result" and e["data"].get("status") == "suspend"
     )
     assert suspend_event["data"]["scope"] == "main"
     assert suspend_event["data"]["verb"] == "CALL"
@@ -260,3 +253,53 @@ async def test_execute_frame_stream_subframe_error_still_emits_sub_agent_end():
 
     done_event = next(e for e in events if e["event"] == "done")
     assert done_event["data"]["final_text"].endswith("主帧恢复并结束")
+
+
+@pytest.mark.asyncio
+async def test_execute_frame_stream_reports_terminal_status():
+    frame = ExecutionFrame(
+        runtime_scope=RuntimeScope(frame_id="frame_stream_terminal", depth=0),
+        agent_profile=OMNI_DOLL_PROFILE,
+        working_history=[{"role": "user", "content": "主任务"}],
+        topic_id="topic_1",
+        identity=Identity(user_id="u1", agent_id="omni_doll"),
+    )
+    worker_agent = MagicMock()
+
+    async def no_final_chunk(_messages, **_kwargs):
+        yield StreamChunk(delta="partial", full_text="partial")
+
+    worker_agent.generate_stream = no_final_chunk
+    executor = AgentLoopExecutor(
+        worker_agent=worker_agent,
+        mtp_executor=MagicMock(),
+        config=MagicMock(max_loop_iterations=2),
+    )
+    terminal_results = []
+
+    async def on_terminal(result):
+        terminal_results.append(result)
+
+    events = [
+        event
+        async for event in executor.execute_frame_stream(
+            frame,
+            max_iterations=2,
+            on_terminal=on_terminal,
+        )
+    ]
+
+    assert events == [
+        {
+            "event": "token",
+            "data": {
+                "content": "partial",
+                "scope": "main",
+                "depth": 0,
+                "agent_id": "omni_doll",
+                "frame_id": "frame_stream_terminal",
+            },
+        }
+    ]
+    assert len(terminal_results) == 1
+    assert terminal_results[0].status == FrameExecutionStatus.FAILED

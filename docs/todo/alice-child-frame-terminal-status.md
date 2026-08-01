@@ -1,13 +1,13 @@
 ---
 title: Alice Child Frame Terminal Status Guard
-status: todo
+status: completed
 owner: alice
 scope: child-frame-result-and-call-status
 related_docs:
   - docs/alice/orchestration.md
   - docs/alice/agent-runtime.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-01
 ---
 
 # 收紧 Alice 子帧终态与 CALL 结果判断
@@ -29,3 +29,9 @@ Alice 编排文档已经记录：子帧的 `FrameExecutionResult` 当前没有�
 - 主 frame 的 action 状态与对应 tool result 状态保持一致；
 - 增加子帧取消、预算耗尽、再次挂起、异常和正常完成的回归测试；
 - 更新 Alice Orchestration、Agent Runtime、error model 和流式事件说明。
+
+## 完成记录
+
+2026-08-01 已完成终态语义收紧：执行层区分 `COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED`，编排层对子帧 `SUSPENDED` 作意外终态处理，CALL 的 `tool_call/tool_result` 共用最终状态，非成功子帧不再收割 reply 或 PendingAtom artifact。主 run 的失败与取消也已分开投影，并补充了非流式、流式、PendingAtom 清理和 System 终态的回归测试。
+
+XML payload escaping 未在本项中修改，仍按独立 formatter 问题跟踪。

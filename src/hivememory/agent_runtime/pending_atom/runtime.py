@@ -159,9 +159,7 @@ class PendingAtomRuntime:
             PendingAtomStatus.PENDING,
             PendingAtomStatus.MATERIALIZING,
         }:
-            logger.warning(
-                f"cancel() skipped: alias={pending_alias}, status={atom.status.value}"
-            )
+            logger.warning(f"cancel() skipped: alias={pending_alias}, status={atom.status.value}")
             return
         self._set_status(atom, PendingAtomStatus.CANCELLED)
 
@@ -170,6 +168,21 @@ class PendingAtomRuntime:
         cancelled: List[str] = []
         for atom in self._store.all_atoms():
             if atom.runtime_scope.run_id != run_id:
+                continue
+            if atom.status not in {
+                PendingAtomStatus.PENDING,
+                PendingAtomStatus.MATERIALIZING,
+            }:
+                continue
+            self.cancel(atom.pending_alias, reason=reason)
+            cancelled.append(atom.pending_alias)
+        return cancelled
+
+    def cancel_frame(self, frame_id: str, reason: str | None = None) -> list[str]:
+        """Cancel all in-flight pending atoms produced by one execution frame."""
+        cancelled: list[str] = []
+        for atom in self._store.all_atoms():
+            if atom.runtime_scope.frame_id != frame_id:
                 continue
             if atom.status not in {
                 PendingAtomStatus.PENDING,
@@ -343,7 +356,8 @@ class PendingAtomRuntime:
         """
         # 步骤一：删除上一个回收周期已标记的 EXPIRED。
         for alias in [
-            a for a in self._store.all_aliases()
+            a
+            for a in self._store.all_aliases()
             if self._store.get(a).status == PendingAtomStatus.EXPIRED
         ]:
             self._store.delete(alias)

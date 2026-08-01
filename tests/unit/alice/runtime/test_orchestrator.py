@@ -76,7 +76,9 @@ async def test_run_agent_assembles_result_from_completed_frame():
         )
     )
     runtime = SimpleNamespace(
-        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+        ),
         collect_tasks_by_run=MagicMock(return_value=[]),
         cancel_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=[]),
@@ -109,7 +111,9 @@ async def test_run_agent_cancelled_cancels_pending_atoms_without_materialize_tas
     cancel_event = asyncio.Event()
     cancel_event.set()
     runtime = SimpleNamespace(
-        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+        ),
         collect_tasks_by_run=MagicMock(return_value=["should-not-use"]),
         cancel_tasks_by_run=MagicMock(return_value=["draft_cancelled"]),
         aliases_by_frame=MagicMock(return_value=[]),
@@ -130,10 +134,69 @@ async def test_run_agent_cancelled_cancels_pending_atoms_without_materialize_tas
 
 
 @pytest.mark.asyncio
+async def test_run_agent_budget_exhaustion_is_failed_and_cleans_pending_atoms():
+    frame = _frame()
+    runtime = SimpleNamespace(
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
+        ),
+        collect_tasks_by_run=MagicMock(return_value=["must-not-materialize"]),
+        cancel_tasks_by_run=MagicMock(return_value=["draft_cancelled"]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(frame, runtime=runtime)
+
+    result = await orchestrator.run_agent(
+        messages=[{"role": "user", "content": "hello"}],
+        identity=frame.identity,
+        topic_id="topic-1",
+    )
+
+    assert result.status == AgentRunStatus.FAILED.value
+    assert result.materialize_tasks == []
+    runtime.cancel_tasks_by_run.assert_called_once_with("run-1")
+    runtime.collect_tasks_by_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_done_preserves_failed_terminal_status():
+    frame = _frame()
+
+    async def run_frame_stream(**kwargs):
+        await kwargs["on_terminal"](
+            FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
+        )
+        if False:
+            yield None
+
+    runtime = SimpleNamespace(
+        run_frame_stream=run_frame_stream,
+        collect_tasks_by_run=MagicMock(return_value=[]),
+        cancel_tasks_by_run=MagicMock(return_value=[]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(frame, runtime=runtime)
+
+    events = [
+        event
+        async for event in orchestrator.run_agent_stream(
+            messages=[{"role": "user", "content": "stream"}],
+            identity=frame.identity,
+            topic_id="topic-1",
+        )
+    ]
+
+    done = next(event for event in events if event["event"] == "done")
+    assert done["data"]["status"] == AgentRunStatus.FAILED.value
+
+
+@pytest.mark.asyncio
 async def test_run_agent_records_current_user_message_before_execution():
     frame = _frame()
     runtime = SimpleNamespace(
-        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+        ),
         collect_tasks_by_run=MagicMock(return_value=[]),
         cancel_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=[]),
@@ -208,7 +271,9 @@ async def test_handle_suspend_runs_sub_agent_and_appends_call_response():
     sub_frame.harvested_aliases.append("draft_sub")
 
     runtime = SimpleNamespace(
-        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+        ),
         collect_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=["draft_runtime"]),
     )
@@ -244,13 +309,155 @@ async def test_handle_suspend_runs_sub_agent_and_appends_call_response():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("terminal_status", "expected_call_status", "error_code"),
+    [
+        (FrameExecutionStatus.CANCELLED, "cancelled", None),
+        (
+            FrameExecutionStatus.BUDGET_EXHAUSTED,
+            "error",
+            "mtp.call_response.budget_exhausted",
+        ),
+        (
+            FrameExecutionStatus.SUSPENDED,
+            "error",
+            "mtp.call_response.unexpected_suspend",
+        ),
+        (FrameExecutionStatus.FAILED, "error", "mtp.call_response.sub_agent_error"),
+    ],
+)
+async def test_handle_suspend_maps_non_completed_child_terminal_status(
+    terminal_status,
+    expected_call_status,
+    error_code,
+):
+    main_frame = _frame()
+    main_frame.progress.turn_events.append(
+        TurnEvent(
+            kind="tool_call",
+            sequence=0,
+            role="assistant",
+            content="call",
+            action_id="act-terminal",
+            tool_kind="CALL",
+            tool_name="helper",
+            status="pending",
+        )
+    )
+    sub_frame = _frame(depth=1, frame_id="frame-sub-terminal")
+    sub_frame.progress.text_segments.append("partial reply")
+    sub_frame.harvested_aliases.append("draft_should_not_harvest")
+    runtime = SimpleNamespace(
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(
+                status=terminal_status,
+                error=(
+                    RuntimeError("child failed")
+                    if terminal_status == FrameExecutionStatus.FAILED
+                    else None
+                ),
+            )
+        ),
+        run_frame_emitting=AsyncMock(
+            return_value=FrameExecutionResult(
+                status=terminal_status,
+                error=(
+                    RuntimeError("child failed")
+                    if terminal_status == FrameExecutionStatus.FAILED
+                    else None
+                ),
+            )
+        ),
+        cancel_tasks_by_frame=MagicMock(return_value=["draft_should_not_harvest"]),
+        collect_tasks_by_run=MagicMock(return_value=[]),
+        aliases_by_frame=MagicMock(return_value=["draft_runtime"]),
+    )
+    orchestrator = _orchestrator(main_frame, runtime=runtime)
+    orchestrator._test_scheduler.fork_sub_frame.return_value = sub_frame
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    await orchestrator._handle_suspend(
+        main_frame,
+        FrameExecutionResult(
+            status=FrameExecutionStatus.SUSPENDED,
+            call_request=MTPCallRequest(target_alias="helper", task="summarize"),
+            suspend_action_id="act-terminal",
+        ),
+        generation_options=None,
+        emit=emit,
+    )
+
+    assert main_frame.progress.turn_events[0].status == expected_call_status
+    assert main_frame.progress.turn_events[-1].status == expected_call_status
+    assert "draft_should_not_harvest" not in main_frame.harvested_aliases
+    assert events[-1]["data"]["terminal_status"] == terminal_status.value
+    assert events[-1]["data"]["status"] == expected_call_status
+    if error_code is not None:
+        assert error_code in main_frame.working_history[-1]["content"]
+    runtime.cancel_tasks_by_frame.assert_called_once_with("frame-sub-terminal")
+
+
+@pytest.mark.asyncio
+async def test_handle_suspend_streaming_child_uses_terminal_result():
+    main_frame = _frame()
+    main_frame.progress.turn_events.append(
+        TurnEvent(
+            kind="tool_call",
+            sequence=0,
+            role="assistant",
+            content="call",
+            action_id="act-stream-terminal",
+            tool_kind="CALL",
+            tool_name="helper",
+            status="pending",
+        )
+    )
+    sub_frame = _frame(depth=1, frame_id="frame-sub-stream-terminal")
+    runtime = SimpleNamespace(
+        run_frame_emitting=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
+        ),
+        cancel_tasks_by_frame=MagicMock(return_value=[]),
+        collect_tasks_by_run=MagicMock(return_value=[]),
+        aliases_by_frame=MagicMock(return_value=[]),
+    )
+    orchestrator = _orchestrator(main_frame, runtime=runtime)
+    orchestrator._test_scheduler.fork_sub_frame.return_value = sub_frame
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    await orchestrator._handle_suspend(
+        main_frame,
+        FrameExecutionResult(
+            status=FrameExecutionStatus.SUSPENDED,
+            call_request=MTPCallRequest(target_alias="helper", task="summarize"),
+            suspend_action_id="act-stream-terminal",
+        ),
+        generation_options=None,
+        emit=emit,
+    )
+
+    runtime.run_frame_emitting.assert_awaited_once()
+    assert main_frame.progress.turn_events[0].status == "cancelled"
+    assert main_frame.progress.turn_events[-1].status == "cancelled"
+    assert events[-1]["data"]["terminal_status"] == "cancelled"
+
+
+@pytest.mark.asyncio
 async def test_handle_suspend_passes_cancel_event_to_sub_agent():
     main_frame = _frame()
     sub_frame = _frame(depth=1, frame_id="frame-sub")
     cancel_event = asyncio.Event()
 
     runtime = SimpleNamespace(
-        run_frame=AsyncMock(return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)),
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+        ),
         collect_tasks_by_run=MagicMock(return_value=[]),
         cancel_tasks_by_run=MagicMock(return_value=[]),
         aliases_by_frame=MagicMock(return_value=[]),

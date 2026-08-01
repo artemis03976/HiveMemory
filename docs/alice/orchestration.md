@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-01
 ---
 
 # 多 Agent 编排
@@ -34,7 +34,7 @@ AgentOrchestrator
   ├─ RuntimeAliasResolver
   │    └─ context_refs -> pending / redirect / atom
   └─ AgentRuntime facade
-       └─ run one frame to completed / suspended / cancelled
+       └─ run one frame to completed / suspended / cancelled / failed / budget_exhausted
 ```
 
 - Orchestrator 拥有 CALL 重入序列和最终 `AgentRunResult` 组装；
@@ -57,7 +57,7 @@ AgentOrchestrator
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 已由 PromptAssembler 组装。
 
-Orchestrator 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后它重复调用 `AgentRuntime.run_frame(main_frame)`：`COMPLETED/CANCELLED` 结束，`SUSPENDED` 进入 CALL 重入。
+Orchestrator 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后它重复调用 `AgentRuntime.run_frame(main_frame)`：`SUSPENDED` 进入 CALL 重入，`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 映射为主 run 的最终终态。
 
 frame 是实际可恢复状态，FrameScheduler 的栈只表示当前编排挂起关系。恢复主 Agent 时必须继续使用原 frame，不能从消息重新构造一个“看似等价”的新 frame，否则迭代预算、事件序号、已经产生的正文和 PendingAtom action scope 都会分叉。
 
@@ -98,7 +98,7 @@ main Agent emits CALL
 | Profile route 或读取失败 | 对应 `mtp.system.*` | `mtp.call.profile_load_failed` 或底层稳定 key |
 | Profile 引用的模型不可用 | `mtp.system.service_unavailable` | `mtp.call_response.model_unavailable` |
 
-CALL 的 `tool_call` 与 `tool_result` 使用同一个最终 success/error 状态；内部 cause 只进入日志，不回填给 Agent。
+CALL 的 `tool_call` 与 `tool_result` 使用同一个最终 success/error/cancelled 状态；内部 cause 只进入日志，不回填给 Agent。
 
 Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARCH：相关图纸可以在 memory context 中以 Agent Profile 菜单出现，主 Agent 随后用 alias 发起 CALL。Alice 当前不维护硬编码 team，也不会根据模糊需求动态创建 Profile。
 
@@ -127,7 +127,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 - 由 persona、裁剪后的 MTP 教学、shared context 和 task 组成的全新消息历史；
 - 继承父 frame 的 `Identity`。
 
-子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。它自然停止后，Orchestrator 只取 `text_segments` 形成 reply，并把运行期间产生的 pending aliases 放入 CALL artifacts。
+子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，Orchestrator 才取 `text_segments` 形成 reply，并把运行期间产生的 pending aliases 放入 CALL artifacts。取消、失败、预算耗尽或意外挂起的子帧不会收割 reply/artifact，其 frame 内尚未结算的 PendingAtom 会被取消。
 
 这种黑盒隔离避免主 Agent 与 Perception 被子任务细节淹没，但它并不等于子任务没有证据。子帧流事件仍可被 UI 观察，CALL 在主 frame 中有结构化 tool_call/tool_result，PendingAtom 又保存写入意图；只是这些事实目前没有被组合成持久化子任务 artifact。
 
@@ -148,14 +148,14 @@ main(depth=0)
 
 ## 6. 结果收割与回填
 
-子帧结束后，Orchestrator 从两个来源建立 artifact alias 列表：
+子帧成功结束后，Orchestrator 从两个来源建立 artifact alias 列表：
 
 1. 按 `frame_id` 查询共享 PendingAtomRuntime，取得子帧 WRITE/UPDATE 产生的 pending alias；
 2. 对 UPDATE tool event 进行兼容 fallback，补入尚未登记为 pending 的 target alias。
 
 自然语言 reply 与 alias 列表组成 `MTPCallResponse`。成功响应加入主 frame working history，并形成与原 CALL action_id 对应的 `tool_result`；主 Agent 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
 
-CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：Orchestrator 仍应检查子帧究竟是完成、取消、预算耗尽还是意外再次挂起；当前实现尚未完整执行这项检查，见第 10 节。
+CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：Orchestrator 检查 `FrameExecutionResult`，仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 和意外 `SUSPENDED` 映射为带稳定 error code 的 error。
 
 父子帧共享 run_id，因此最终物化任务不依赖这份 IPC harvest：run 结束时 PendingAtomRuntime 会按 run_id 收集父子帧全部 PENDING 原子。IPC aliases 服务于主 Agent 当前认知，materialize task 服务于 Alice -> Patchouli 的数据交接，两者不能混为一份真相。
 
@@ -165,7 +165,7 @@ CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生
 
 - `sub_agent_start`：目标 alias、task、父迭代、depth 与 scope；
 - 子帧自身的 token/MTP 事件：`scope=sub`，并带 depth/frame_id；
-- `sub_agent_end`：success/error、reply、目标 alias 与 frame id。
+- `sub_agent_end`：最终 success/error/cancelled、子帧 `terminal_status`、目标 alias 与 frame id；success 携带 reply，error 携带稳定 `error_code`。
 
 这些事件服务实时 UI 与调试，不是业务结果来源。最终 `done.AgentRunResult.turn_events` 才是交给 Patchouli 的结构化一轮事实；RuntimeEvent 则只记录主 `agent.run.*` 生命周期。
 
@@ -173,6 +173,7 @@ CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生
 
 - 主 frame 的模型或执行异常直接向 AliceRuntime 抛出，整个 agent run 失败；
 - 子 Agent Profile 解析、共享上下文、模型调用或执行异常会被捕获并形成 error `MTPCallResponse`，主 Agent 得到错误后可以调整方案；
+- 子帧预算耗尽和意外再次挂起分别使用 `mtp.call_response.budget_exhausted` 和 `mtp.call_response.unexpected_suspend`；子帧取消则保持 cancelled 终态；
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
 - run 取消 token 会传给主/子 AgentRuntime；最终主结果为 cancelled，并取消本 run 尚未结算的 PendingAtom，不交出 materialize tasks；
 - 流生成器提前关闭时，AliceRuntime 设置调用方 cancel token 并发出 cancelled 观测事件；
@@ -196,7 +197,6 @@ CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生
 - AgentProfile cache 已按 Identity + alias 隔离、上限固定为 32，但没有 TTL、版本检查或管理事件失效；Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
 - `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 Identity。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 Identity 证明真实 CALL 目标；
 - FrameScheduler 的 `_frame_stack` 是 AliceRuntime 级共享列表，不是 task-local。并发 run 的 CALL 可以交错 push/pop，当前代码又不核对 resume 返回的 frame；
-- 子 frame 的 `FrameExecutionResult` 当前没有被检查：若子帧取消、耗尽循环或意外返回 SUSPENDED，Orchestrator 仍可能组装 success CALL response；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；
 - 当前只能串行单层 CALL，没有 parallel fan-out、动态 DAG、review loop 或 Alice 自主规划。

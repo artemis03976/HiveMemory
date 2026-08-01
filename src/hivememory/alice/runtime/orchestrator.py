@@ -29,7 +29,9 @@ from hivememory.core.mtp import MTPCallResponse, MTPFormatter, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
     MTPError,
+    SubAgentBudgetExhaustedError,
     SubAgentExecutionError,
+    SubAgentUnexpectedSuspendError,
 )
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.engines.memory_compiler import (
@@ -95,6 +97,7 @@ class AgentOrchestrator:
             identity=identity,
         )
         self._record_initial_user_event(main_frame, messages)
+        engine_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         while True:
             engine_result = await self._agent_runtime.run_frame(
                 frame=main_frame,
@@ -110,7 +113,11 @@ class AgentOrchestrator:
                 )
                 continue
             break
-        return self._assemble_agent_run_result(main_frame, cancel_event=cancel_event)
+        return self._assemble_agent_run_result(
+            main_frame,
+            engine_result=engine_result,
+            cancel_event=cancel_event,
+        )
 
     async def run_agent_stream(
         self,
@@ -143,6 +150,12 @@ class AgentOrchestrator:
                 cancel_event=cancel_event,
             )
 
+        terminal_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+
+        async def on_terminal(engine_result: FrameExecutionResult) -> None:
+            nonlocal terminal_result
+            terminal_result = engine_result
+
         async def _runner() -> None:
             try:
                 async for event in self._agent_runtime.run_frame_stream(
@@ -150,9 +163,19 @@ class AgentOrchestrator:
                     generation_options=generation_options,
                     cancel_event=cancel_event,
                     on_suspend=on_suspend,
+                    on_terminal=on_terminal,
                 ):
                     await queue.put(event)
-                await queue.put({"event": "done", "data": self._assemble_agent_run_result(main_frame, cancel_event=cancel_event).model_dump()})
+                await queue.put(
+                    {
+                        "event": "done",
+                        "data": self._assemble_agent_run_result(
+                            main_frame,
+                            engine_result=terminal_result,
+                            cancel_event=cancel_event,
+                        ).model_dump(),
+                    }
+                )
             finally:
                 await queue.put(None)
 
@@ -232,24 +255,29 @@ class AgentOrchestrator:
 
         logger.info(f"CALL suspend: target={cr.target_alias}, task='{cr.task[:80]}'")
 
-        main_frame.working_history.append(
-            {"role": "assistant", "content": suspend_text}
-        )
+        main_frame.working_history.append({"role": "assistant", "content": suspend_text})
 
         if emit is not None:
-            await emit({"event": "sub_agent_start", "data": {
-                "agent_id": cr.target_alias,
-                "task": cr.task,
-                "iteration": main_frame.progress.iteration,
-                "scope": "sub",
-                "depth": main_frame.runtime_scope.depth + 1,
-                "frame_id": None,
-            }})
+            await emit(
+                {
+                    "event": "sub_agent_start",
+                    "data": {
+                        "agent_id": cr.target_alias,
+                        "task": cr.task,
+                        "iteration": main_frame.progress.iteration,
+                        "scope": "sub",
+                        "depth": main_frame.runtime_scope.depth + 1,
+                        "frame_id": None,
+                    },
+                }
+            )
 
         self._frame_scheduler.suspend_frame(main_frame)
         sub_result_text = ""
         sub_frame = None
         sub_profile = None
+        sub_execution_result: FrameExecutionResult | None = None
+        call_response: MTPCallResponse | None = None
         try:
             sub_profile = await self._agent_profile_resolver.resolve(
                 cr.target_alias,
@@ -268,70 +296,37 @@ class AgentOrchestrator:
             )
 
             if emit is None:
-                await self._agent_runtime.run_frame(
+                sub_execution_result = await self._agent_runtime.run_frame(
                     frame=sub_frame,
                     generation_options=generation_options,
                     cancel_event=cancel_event,
                 )
             else:
+
                 async def _sub_emit(sub_event: dict[str, Any]) -> None:
                     await emit(sub_event)
 
-                await self._agent_runtime.run_frame_emitting(
+                sub_execution_result = await self._agent_runtime.run_frame_emitting(
                     frame=sub_frame,
                     generation_options=generation_options,
                     stream_emitter=_sub_emit,
                     cancel_event=cancel_event,
                 )
 
-            self._frame_scheduler.resume_frame()
-            sub_result_text = "".join(sub_frame.progress.text_segments)
-
-            self._harvest_sub_frame_aliases(sub_frame)
-
-            for alias in sub_frame.harvested_aliases:
-                if alias not in main_frame.harvested_aliases:
-                    main_frame.harvested_aliases.append(alias)
-
-            call_response = MTPCallResponse(
-                status=MTPResponseStatus.SUCCESS,
-                agent_alias=cr.target_alias,
-                reply=sub_result_text,
-                artifact_aliases=sub_frame.harvested_aliases,
+            call_response = self._call_response_for_sub_frame(
+                call_request=cr,
+                execution_result=sub_execution_result,
             )
-
-            if emit is not None:
-                await emit({"event": "sub_agent_end", "data": {
-                    "status": "success",
-                    "final_text": sub_result_text,
-                    "iteration": main_frame.progress.iteration,
-                    "scope": "sub",
-                    "depth": main_frame.runtime_scope.depth + 1,
-                    "frame_id": sub_frame.runtime_scope.frame_id,
-                    "agent_id": cr.target_alias,
-                }})
 
         except MTPError as e:
             logger.warning("CALL rejected for %r: %s", cr.target_alias, e.code)
-            self._frame_scheduler.resume_frame()
             call_response = MTPCallResponse(
                 status=MTPResponseStatus.ERROR,
                 agent_alias=cr.target_alias,
                 error=e.to_error_info(),
             )
-            if emit is not None:
-                await emit({"event": "sub_agent_end", "data": {
-                    "status": "error",
-                    "iteration": main_frame.progress.iteration,
-                    "scope": "sub",
-                    "depth": main_frame.runtime_scope.depth + 1,
-                    "frame_id": None,
-                    "agent_id": cr.target_alias,
-                    "error_code": e.code,
-                }})
         except Exception as e:
             logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
-            self._frame_scheduler.resume_frame()
             from hivememory.system.model_registry import ModelNotFoundError
 
             if isinstance(e, ModelNotFoundError):
@@ -355,16 +350,79 @@ class AgentOrchestrator:
                 agent_alias=cr.target_alias,
                 error=error,
             )
-            if emit is not None:
-                await emit({"event": "sub_agent_end", "data": {
-                    "status": "error",
-                    "iteration": main_frame.progress.iteration,
-                    "scope": "sub",
-                    "depth": main_frame.runtime_scope.depth + 1,
-                    "frame_id": None,
-                    "agent_id": cr.target_alias,
-                    "error_code": error.code,
-                }})
+        finally:
+            self._frame_scheduler.resume_frame()
+
+        if call_response is None:
+            call_response = MTPCallResponse(
+                status=MTPResponseStatus.ERROR,
+                agent_alias=cr.target_alias,
+                error=SubAgentExecutionError(
+                    params={"agent_alias": cr.target_alias},
+                ).to_error_info(),
+            )
+
+        if (
+            sub_frame is not None
+            and sub_execution_result is not None
+            and sub_execution_result.status == FrameExecutionStatus.COMPLETED
+            and call_response.status == MTPResponseStatus.SUCCESS
+        ):
+            try:
+                sub_result_text = "".join(sub_frame.progress.text_segments)
+                self._harvest_sub_frame_aliases(sub_frame)
+                for alias in sub_frame.harvested_aliases:
+                    if alias not in main_frame.harvested_aliases:
+                        main_frame.harvested_aliases.append(alias)
+                call_response = call_response.model_copy(
+                    update={
+                        "reply": sub_result_text,
+                        "artifact_aliases": sub_frame.harvested_aliases,
+                    }
+                )
+            except Exception as e:
+                logger.error("Failed to harvest sub-agent result: %s", e, exc_info=True)
+                call_response = MTPCallResponse(
+                    status=MTPResponseStatus.ERROR,
+                    agent_alias=cr.target_alias,
+                    error=SubAgentExecutionError(
+                        params={"agent_alias": cr.target_alias},
+                        cause=e,
+                    ).to_error_info(),
+                )
+                sub_execution_result = FrameExecutionResult(
+                    status=FrameExecutionStatus.FAILED,
+                    error=e,
+                )
+                cancel_by_frame = getattr(
+                    self._agent_runtime,
+                    "cancel_tasks_by_frame",
+                    None,
+                )
+                if callable(cancel_by_frame):
+                    cancel_by_frame(sub_frame.runtime_scope.frame_id)
+        elif sub_frame is not None:
+            cancel_by_frame = getattr(self._agent_runtime, "cancel_tasks_by_frame", None)
+            if callable(cancel_by_frame):
+                cancel_by_frame(sub_frame.runtime_scope.frame_id)
+
+        if emit is not None:
+            end_data = {
+                "status": call_response.status.value,
+                "final_text": (
+                    sub_result_text if call_response.status == MTPResponseStatus.SUCCESS else ""
+                ),
+                "iteration": main_frame.progress.iteration,
+                "scope": "sub",
+                "depth": main_frame.runtime_scope.depth + 1,
+                "frame_id": sub_frame.runtime_scope.frame_id if sub_frame is not None else None,
+                "agent_id": cr.target_alias,
+            }
+            if sub_execution_result is not None:
+                end_data["terminal_status"] = sub_execution_result.status.value
+            if call_response.error is not None:
+                end_data["error_code"] = call_response.error.code
+            await emit({"event": "sub_agent_end", "data": end_data})
 
         formatted_call_response = self._mtp_formatter.format_call_response(
             call_response,
@@ -372,31 +430,84 @@ class AgentOrchestrator:
         )
 
         # iv. append CALL response + tool_result TurnEvent
-        main_frame.working_history.append({
-            "role": "user",
-            "content": formatted_call_response,
-        })
+        main_frame.working_history.append(
+            {
+                "role": "user",
+                "content": formatted_call_response,
+            }
+        )
 
         # 找到对应的 tool_call 事件并同步最终 CALL 状态。
+        matched_action = False
         for index, ev in enumerate(main_frame.progress.turn_events):
             if ev.kind == "tool_call" and ev.action_id == action_id:
                 main_frame.progress.turn_events[index] = ev.model_copy(
                     update={"status": call_response.status.value}
                 )
+                matched_action = True
                 break
+        if action_id is not None and not matched_action:
+            raise RuntimeError(
+                f"CALL result has no matching tool_call event: action_id={action_id}"
+            )
 
-        main_frame.progress.turn_events.append(TurnEvent(
-            kind="tool_result",
-            sequence=main_frame.progress.sequence,
-            role="user",
-            content=formatted_call_response,
-            action_id=action_id,
-            tool_kind="CALL",
-            tool_name=cr.target_alias,
-            status=call_response.status.value,
-            render_as="system_call_response",
-        ))
+        main_frame.progress.turn_events.append(
+            TurnEvent(
+                kind="tool_result",
+                sequence=main_frame.progress.sequence,
+                role="user",
+                content=formatted_call_response,
+                action_id=action_id,
+                tool_kind="CALL",
+                tool_name=cr.target_alias,
+                status=call_response.status.value,
+                render_as="system_call_response",
+            )
+        )
         main_frame.progress.sequence += 1
+
+    def _call_response_for_sub_frame(
+        self,
+        *,
+        call_request,
+        execution_result: FrameExecutionResult,
+    ) -> MTPCallResponse:
+        """Map a child frame terminal signal to the parent-facing CALL result."""
+        if execution_result.status == FrameExecutionStatus.COMPLETED:
+            return MTPCallResponse(
+                status=MTPResponseStatus.SUCCESS,
+                agent_alias=call_request.target_alias,
+            )
+        if execution_result.status == FrameExecutionStatus.CANCELLED:
+            return MTPCallResponse(
+                status=MTPResponseStatus.CANCELLED,
+                agent_alias=call_request.target_alias,
+            )
+        if execution_result.status == FrameExecutionStatus.BUDGET_EXHAUSTED:
+            return MTPCallResponse(
+                status=MTPResponseStatus.ERROR,
+                agent_alias=call_request.target_alias,
+                error=SubAgentBudgetExhaustedError(
+                    params={"agent_alias": call_request.target_alias},
+                ).to_error_info(),
+            )
+        if execution_result.status == FrameExecutionStatus.SUSPENDED:
+            return MTPCallResponse(
+                status=MTPResponseStatus.ERROR,
+                agent_alias=call_request.target_alias,
+                error=SubAgentUnexpectedSuspendError(
+                    params={"agent_alias": call_request.target_alias},
+                    cause=execution_result.error,
+                ).to_error_info(),
+            )
+        return MTPCallResponse(
+            status=MTPResponseStatus.ERROR,
+            agent_alias=call_request.target_alias,
+            error=SubAgentExecutionError(
+                params={"agent_alias": call_request.target_alias},
+                cause=execution_result.error,
+            ).to_error_info(),
+        )
 
     # ------------------------------------------------------------------
     # 内部：辅助方法（从 loop_executor 迁入）
@@ -441,6 +552,7 @@ class AgentOrchestrator:
         UPDATE fallback：从 tool_call TurnEvent.target 补充尚未注册为 pending 的 alias。
         """
         from hivememory.core.mtp.models import MTPVerb
+
         harvested = set(sub_frame.harvested_aliases)
 
         # WRITE/UPDATE aliases from PendingAtomRuntime（主要路径）
@@ -461,21 +573,27 @@ class AgentOrchestrator:
     def _assemble_agent_run_result(
         self,
         frame: ExecutionFrame,
+        engine_result: FrameExecutionResult,
         cancel_event=None,
     ) -> AgentRunResult:
         p = frame.progress
-        cancelled = cancel_event is not None and cancel_event.is_set()
-        if cancelled:
+        cancelled = engine_result.status == FrameExecutionStatus.CANCELLED or (
+            cancel_event is not None and cancel_event.is_set()
+        )
+        completed = engine_result.status == FrameExecutionStatus.COMPLETED and not cancelled
+        if not completed:
             self._agent_runtime.cancel_tasks_by_run(frame.runtime_scope.run_id)
             tasks = []
         else:
             tasks = self._agent_runtime.collect_tasks_by_run(frame.runtime_scope.run_id)
+        if cancelled:
+            run_status = AgentRunStatus.CANCELLED
+        elif completed:
+            run_status = AgentRunStatus.COMPLETED
+        else:
+            run_status = AgentRunStatus.FAILED
         return AgentRunResult(
-            status=(
-                AgentRunStatus.CANCELLED
-                if cancelled
-                else AgentRunStatus.COMPLETED
-            ),
+            status=run_status,
             final_text="".join(p.text_segments),
             mtp_iterations=max(0, p.iteration - 1),
             total_iterations=p.iteration,

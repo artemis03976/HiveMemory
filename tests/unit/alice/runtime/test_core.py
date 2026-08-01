@@ -13,7 +13,12 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     PayloadLayer,
 )
-from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, RetrievalResponse
+from hivememory.core.protocol.models import (
+    AgentRunContext,
+    AgentRunResult,
+    AgentRunStatus,
+    RetrievalResponse,
+)
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
@@ -77,6 +82,24 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
 
 
 @pytest.mark.asyncio
+async def test_run_agent_failed_result_emits_failed_runtime_event():
+    recorder = RecordingRuntimeEventSink()
+    runtime = _build_runtime(runtime_events=recorder)
+    memory = _build_memory_atom()
+    context = _build_agent_run_context(memory)
+    runtime._orchestrator.run_agent = AsyncMock(
+        return_value=AgentRunResult(status=AgentRunStatus.FAILED),
+    )
+
+    result = await runtime.run_agent(context)
+
+    assert result.status == AgentRunStatus.FAILED.value
+    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
+    assert recorder.events[-1].status == AgentRunStatus.FAILED.value
+    assert recorder.events[-1].severity == "error"
+
+
+@pytest.mark.asyncio
 async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution():
     runtime = _build_runtime()
     memory = _build_memory_atom()
@@ -91,9 +114,7 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
 
     cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
     assert cached is memory
-    assert events == [
-        {"event": "done", "data": AgentRunResult(final_text="done").model_dump()}
-    ]
+    assert events == [{"event": "done", "data": AgentRunResult(final_text="done").model_dump()}]
 
 
 @pytest.mark.asyncio

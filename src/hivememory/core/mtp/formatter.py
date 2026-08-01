@@ -51,9 +51,7 @@ class MTPFormatter:
         if response.execution_time_ms > 0:
             time_attr = f' time="{response.execution_time_ms:.0f}ms"'
 
-        parts: list[str] = [
-            f'<mtp_response status="{response.status.value}"{time_attr}>'
-        ]
+        parts: list[str] = [f'<mtp_response status="{response.status.value}"{time_attr}>']
         if response.content:
             parts.append(response.content)
         if response.error is not None:
@@ -91,18 +89,20 @@ class MTPFormatter:
         call_response: MTPCallResponse,
         language: str | Language | None = None,
     ) -> str:
-        lines = [
-            f'<mtp_response status="{call_response.status.value}" type="call_response">'
-        ]
+        lines = [f'<mtp_response status="{call_response.status.value}" type="call_response">']
         if call_response.status == MTPResponseStatus.ERROR:
             if call_response.error is not None:
                 lines.append(MTPFormatter._format_error_info(call_response.error, language))
+        elif call_response.status == MTPResponseStatus.CANCELLED:
+            lines.append(get_mtp_info_text("mtp.call_response.cancelled", language=language))
         else:
             lines.append(get_mtp_info_text("mtp.call_response.reply_label", language=language))
             lines.append(call_response.reply or "")
             if call_response.artifact_aliases:
                 lines.append("")
-                lines.append(get_mtp_info_text("mtp.call_response.artifacts_label", language=language))
+                lines.append(
+                    get_mtp_info_text("mtp.call_response.artifacts_label", language=language)
+                )
                 state = get_mtp_info_text("mtp.call_response.artifact_state", language=language)
                 for alias in call_response.artifact_aliases:
                     lines.append(f"- {alias} {state}")

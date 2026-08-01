@@ -124,9 +124,11 @@ class StreamChunk:
 class FrameExecutionStatus(str, Enum):
     """引擎单次执行的停机原因。"""
 
-    COMPLETED = "completed"   # 自然收敛
-    SUSPENDED = "suspended"   # 命中 CALL，等待编排派生子 agent
-    CANCELLED = "cancelled"   # 收到取消信号，提前退出
+    COMPLETED = "completed"  # 自然收敛
+    SUSPENDED = "suspended"  # 命中 CALL，等待编排派生子 agent
+    CANCELLED = "cancelled"  # 收到取消信号，提前退出
+    FAILED = "failed"  # 本帧无法形成有效终态
+    BUDGET_EXHAUSTED = "budget_exhausted"  # 达到循环预算但没有自然收敛
 
 
 @dataclass
@@ -138,9 +140,10 @@ class FrameExecutionResult:
     "为什么停下来"，以及挂起时编排派生子帧所需的最小信息。
 
     引擎语义：``execute_frame(frame)`` 读写传入的 ``frame``，跑到自然收敛返回
-    ``COMPLETED``，命中 CALL 返回 ``SUSPENDED`` 并把控制权交还编排，自己不 fork、
-    不 resume、不组 CALL response。``AgentRunResult`` 不再由引擎产出，改由编排在 ``COMPLETED``
-    时从 ``frame.progress`` 聚合。
+    ``COMPLETED``，命中 CALL 返回 ``SUSPENDED`` 并把控制权交还编排，取消、失败和
+    循环预算耗尽分别返回对应终态。引擎自己不 fork、不 resume、不组 CALL response。
+    ``AgentRunResult`` 不再由引擎产出，改由编排在 frame 终态确定后从 ``frame.progress``
+    聚合。
     """
 
     status: FrameExecutionStatus
@@ -152,6 +155,8 @@ class FrameExecutionResult:
     suspend_assistant_text: Optional[str] = None
     # 供编排回填 tool_result TurnEvent 的 action_id。
     suspend_action_id: Optional[str] = None
+    # FAILED 时保留受控的内部异常，编排层只把稳定错误信息回填给 Agent。
+    error: Exception | None = None
 
 
 __all__ = [

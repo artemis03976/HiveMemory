@@ -13,7 +13,7 @@ code_paths:
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-01
 ---
 
 # 跨边界错误模型
@@ -103,6 +103,8 @@ cause        内部原因，只供调试，序列化时排除
 | `mtp.syscall.timeout` | syscall 超时 |
 | `mtp.syscall.unavailable` | syscall 依赖不可用 |
 | `mtp.call_response.sub_agent_error` | CALL 子 Agent 失败 |
+| `mtp.call_response.budget_exhausted` | CALL 子 Agent 耗尽执行迭代预算 |
+| `mtp.call_response.unexpected_suspend` | CALL 子 Agent 意外再次返回挂起终态 |
 
 新增具体场景通常应复用稳定 code 并使用更具体的 `message_key + params`；只有机器处理类别确实变化时才新增 code。
 

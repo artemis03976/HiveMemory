@@ -66,44 +66,53 @@ class MTPError(Exception):
             cause=str(self.cause) if self.cause else None,
         )
 
+
 class AgentFault(MTPError):
     """Agent 侧可修复问题（允许修正后重试）。"""
+
     code = "mtp.agent_fault"
     severity = MTPErrorSeverity.AGENT_FAULT
 
 
 class MTPParseError(AgentFault):
     """协议语法错误（定界符、分隔符、动词拼写等）。"""
+
     code = "mtp.parse.syntax_error"
 
 
 class AliasNotFoundError(AgentFault):
     """别名在缓存与存储中都未找到。"""
+
     code = "mtp.alias.not_found"
 
 
 class MemoryNotFoundError(AgentFault):
     """UUID/别名可解析但目标记忆不存在（已归档或删除）。"""
+
     code = "mtp.memory.not_found"
 
 
 class MemoryTypeMismatchError(AgentFault):
     """记忆类型与操作不匹配（如对 FACT 执行 RUN）。"""
+
     code = "mtp.memory.type_mismatch"
 
 
 class InvalidArgumentError(AgentFault):
     """参数缺失或格式错误。"""
+
     code = "mtp.argument.invalid"
 
 
 class PermissionDeniedError(AgentFault):
     """越权拦截（角色蓝图或权限边界限制）。"""
+
     code = "mtp.permission.denied"
 
 
 class SystemFault(MTPError):
     """系统级故障（禁止同参数重试）。"""
+
     code = "mtp.system.fault"
     default_message_key = "mtp.system.unexpected_error"
     severity = MTPErrorSeverity.SYSTEM_FAULT
@@ -111,57 +120,81 @@ class SystemFault(MTPError):
 
 class StorageOfflineError(SystemFault):
     """存储层离线（连接超时、拒绝连接等）。"""
+
     code = "mtp.system.storage_offline"
     default_message_key = "mtp.system.storage_offline"
 
 
 class StorageReadError(SystemFault):
     """存储层读操作异常。"""
+
     code = "mtp.system.storage_error"
     default_message_key = "mtp.system.storage_error"
 
 
 class BusRouteUnavailableError(SystemFault):
     """内部总线路由缺失。"""
+
     code = "mtp.system.service_unavailable"
     default_message_key = "mtp.system.service_unavailable"
 
 
 class SyscallInternalError(SystemFault):
     """工具执行内部错误（沙箱/依赖异常）。"""
+
     code = "mtp.system.tool_error"
     default_message_key = "mtp.system.tool_error"
 
 
 class SyscallInvalidArgumentError(InvalidArgumentError):
     """syscall 参数缺失或格式错误。"""
+
     code = "mtp.syscall.invalid_argument"
 
 
 class SyscallPermissionDeniedError(PermissionDeniedError):
     """syscall 权限边界拦截。"""
+
     code = "mtp.syscall.permission_denied"
 
 
 class SyscallExecutionError(SyscallInternalError):
     """syscall 执行失败。"""
+
     code = "mtp.syscall.execution_error"
 
 
 class SyscallTimeoutError(SyscallInternalError):
     """syscall 执行超时。"""
+
     code = "mtp.syscall.timeout"
 
 
 class SyscallUnavailableError(SystemFault):
     """syscall 依赖或服务不可用。"""
+
     code = "mtp.syscall.unavailable"
 
 
 class SubAgentExecutionError(SystemFault):
     """CALL 子代理执行异常。"""
+
     code = "mtp.call_response.sub_agent_error"
     default_message_key = "mtp.call_response.sub_agent_error"
+
+
+class SubAgentBudgetExhaustedError(SystemFault):
+    """CALL 子代理耗尽循环预算但未自然收敛。"""
+
+    code = "mtp.call_response.budget_exhausted"
+    default_message_key = "mtp.call_response.budget_exhausted"
+
+
+class SubAgentUnexpectedSuspendError(SystemFault):
+    """CALL 子代理违反单层拓扑约束并再次挂起。"""
+
+    code = "mtp.call_response.unexpected_suspend"
+    default_message_key = "mtp.call_response.unexpected_suspend"
 
 
 class AgentModelUnavailableError(SystemFault):
@@ -191,5 +224,7 @@ __all__ = [
     "SyscallTimeoutError",
     "SyscallUnavailableError",
     "SubAgentExecutionError",
+    "SubAgentBudgetExhaustedError",
+    "SubAgentUnexpectedSuspendError",
     "AgentModelUnavailableError",
 ]

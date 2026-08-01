@@ -47,7 +47,9 @@ def _natural_result(text: str) -> GenerationResult:
 
 
 def _mtp_result(prefix: str, mtp_text: str) -> GenerationResult:
-    text = mtp_text if mtp_text.endswith(MTP_RIGHT_DELIMITER) else f"{mtp_text} {MTP_RIGHT_DELIMITER}"
+    text = (
+        mtp_text if mtp_text.endswith(MTP_RIGHT_DELIMITER) else f"{mtp_text} {MTP_RIGHT_DELIMITER}"
+    )
     return GenerationResult(
         text=text,
         was_mtp_interrupted=True,
@@ -172,6 +174,30 @@ async def test_natural_stop_produces_one_assistant_message_event():
 
 
 @pytest.mark.asyncio
+async def test_iteration_limit_returns_budget_exhausted():
+    frame = _make_frame()
+    executor, _kernel = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
+
+    engine_result = await executor.execute_frame(frame, max_iterations=1)
+
+    assert engine_result.status == FrameExecutionStatus.BUDGET_EXHAUSTED
+    assert frame.progress.iteration == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_mtp_result_returns_failed():
+    frame = _make_frame()
+    executor, _kernel = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
+
+    engine_result = await executor.execute_frame(frame, max_iterations=2)
+
+    assert engine_result.status == FrameExecutionStatus.FAILED
+    assert isinstance(engine_result.error, RuntimeError)
+    assert frame.progress.turn_events[-1].status == "failed"
+
+
+@pytest.mark.asyncio
 async def test_natural_stop_no_prefix_no_extra_events():
     """没有 MTP 的情况下，turn_events 只有一个事件"""
     frame = _make_frame()
@@ -192,9 +218,7 @@ async def test_single_mtp_produces_four_events():
         _natural_result("找到了"),
     ]
     executor, _kernel = _build_executor(gen_results)
-    executor._mtp_executor.intercept_and_execute = AsyncMock(
-        return_value=_mtp_exec_result("READ")
-    )
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     await executor.execute_frame(frame, max_iterations=5)
 
@@ -232,9 +256,7 @@ async def test_mtp_execution_receives_frame_context():
     frame = _make_frame(depth=1)
     gen_results = [_mtp_result("", "READ alias_x"), _natural_result("done")]
     executor, _kernel = _build_executor(gen_results)
-    executor._mtp_executor.intercept_and_execute = AsyncMock(
-        return_value=_mtp_exec_result("READ")
-    )
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     await executor.execute_frame(frame, max_iterations=5)
 
@@ -299,10 +321,12 @@ async def test_sequence_is_monotonically_increasing_across_iterations():
         _natural_result("done"),
     ]
     executor, _kernel = _build_executor(gen_results)
-    executor._mtp_executor.intercept_and_execute = AsyncMock(side_effect=[
-        _mtp_exec_result("SEARCH"),
-        _mtp_exec_result("READ"),
-    ])
+    executor._mtp_executor.intercept_and_execute = AsyncMock(
+        side_effect=[
+            _mtp_exec_result("SEARCH"),
+            _mtp_exec_result("READ"),
+        ]
+    )
 
     await executor.execute_frame(frame, max_iterations=10)
 
@@ -320,9 +344,7 @@ async def test_empty_prefix_text_not_recorded():
         _natural_result("done"),
     ]
     executor, _kernel = _build_executor(gen_results)
-    executor._mtp_executor.intercept_and_execute = AsyncMock(
-        return_value=_mtp_exec_result("READ")
-    )
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     await executor.execute_frame(frame, max_iterations=5)
 
@@ -361,9 +383,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=gen_async_side)
     executor.worker_agent = worker_agent
-    executor._mtp_executor.intercept_and_execute = AsyncMock(
-        return_value=_call_mtp_exec_result()
-    )
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_call_mtp_exec_result())
 
     frame_scheduler = MagicMock()
     frame_scheduler.suspend_frame = MagicMock()
@@ -391,8 +411,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     )
 
     call_events = [
-        ev for ev in result.turn_events
-        if ev.kind == "tool_result" and ev.tool_kind == "CALL"
+        ev for ev in result.turn_events if ev.kind == "tool_result" and ev.tool_kind == "CALL"
     ]
     assert len(call_events) == 1, f"应有 1 个 CALL tool_result 事件，实际: {result.turn_events}"
     call_ev = call_events[0]
@@ -493,15 +512,12 @@ async def test_run_command_event_carries_execution_status_for_reducer():
         _natural_result("done"),
     ]
     executor, _kernel = _build_executor(gen_results)
-    executor._mtp_executor.intercept_and_execute = AsyncMock(
-        return_value=_mtp_exec_result("RUN")
-    )
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("RUN"))
 
     await executor.execute_frame(frame, max_iterations=5)
 
     run_commands = [
-        ev for ev in frame.progress.turn_events
-        if ev.kind == "tool_call" and ev.tool_kind == "RUN"
+        ev for ev in frame.progress.turn_events if ev.kind == "tool_call" and ev.tool_kind == "RUN"
     ]
     assert len(run_commands) == 1
     assert run_commands[0].status == "success"

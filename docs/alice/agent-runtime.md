@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-01
 ---
 
 # Agent Runtime
@@ -127,7 +127,7 @@ WorkerAgent 只识别 MTP 左定界符，并在 stop sequence 截断了右定界
 
 自然语言正文和工具事实同时投影为 `TurnEvent`。每个 MTP action 使用 `action_{iteration}_{sequence}` 关联 `tool_call` 与 `tool_result`，Perception 后续可以从事件归约 action/trace，而不需要解析已经格式化的响应字符串。
 
-CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame、不解析 Profile、不组装 IPC；这些动作属于 Alice 编排层。取消返回 `FrameExecutionStatus.CANCELLED`，自然停止或循环退出返回 `COMPLETED`。
+CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame、不解析 Profile、不组装 IPC；这些动作属于 Alice 编排层。自然停止返回 `COMPLETED`，取消返回 `CANCELLED`，无法形成有效结果返回 `FAILED`，达到 `max_loop_iterations` 且尚未自然收敛返回 `BUDGET_EXHAUSTED`。只有 `COMPLETED` 表示本帧成功完成。
 
 ## 6. 流式执行
 
@@ -184,7 +184,7 @@ AliceRuntime 为主 run 产生 `agent.run.started/completed/cancelled/failed` �
 ## 10. 当前限制
 
 - frame、执行进度和消息历史只在内存中，进程重启、worker 崩溃或请求迁移后不能恢复；
-- 达到 `max_loop_iterations` 时，当前执行器返回 `COMPLETED`，没有独立的 budget-exhausted 状态；最终文本可能停在工具回填之后而没有自然语言收束；
+- `BUDGET_EXHAUSTED` 能区分循环预算耗尽，但当前没有动态扩容、自动任务分解或 checkpoint 恢复策略；
 - 主 run 的失败以异常向上抛出，`AgentRunStatus.FAILED` 主要作为公共枚举保留，并不是 AliceService 的常规返回终态；
 - `AgentRunResult.turn_events` 在公共模型中仍声明为 `list[Any]`，类型边界没有完全收紧到 `TurnEvent`；
 - 未使用 ModelRegistry 时 `model_used` 可能为空，即使 WorkerAgent 实际已经使用了调用方提供的模型；

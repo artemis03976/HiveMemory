@@ -11,7 +11,7 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-01
 ---
 
 # Memory Tool Protocol (MTP)
@@ -151,7 +151,8 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
 - Alice Orchestrator 挂起父 frame、解析共享上下文、运行子 frame，再以 `MTPCallResponse` 回填；
 - CALL 只允许根深度，`depth >= 1` 时拒绝，防止递归爆炸；
-- 子 Agent 产生的 PendingAtom alias 可以作为 CALL response artifact 返回。
+- 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；
+- `CANCELLED` 保持 cancelled 终态，`FAILED`、`BUDGET_EXHAUSTED` 和意外 `SUSPENDED` 会转换为结构化 error CALL response。
 
 `suspend` 是控制流，不是“成功但没有正文”的普通工具结果。父 frame 必须停在一个可恢复位置，等待调度器建立子 frame、传递受控上下文并返回结构化响应；若直接把空结果写回模型，父 Agent 会在子任务尚未完成时继续生成，委派关系也无法被可靠观测和取消。
 
@@ -190,6 +191,8 @@ Localized message
 ```
 
 Warning 放在 `<warnings><warning>...</warning></warnings>` 中。`pending_alias`、`call_request` 和内部 cause 不序列化到普通 Agent 响应正文，由运行时结构化消费。
+
+CALL 取消使用 `<mtp_response status="cancelled">` 回填本地化的取消文案，不伪装为空 success，也不需要构造 error code。
 
 当前 formatter 会把业务 `content`、reply 和 warning 文本直接嵌入 XML 容器，尚未对所有内容执行统一 XML escaping。若文本自身包含 `<`、`>` 或 `&`，Agent 可见结果可能不是严格可解析 XML；调用方当前应把它视为结构化文本信封，而不是承诺任意 payload 都能通过 XML parser。补齐 escaping 时必须同时验证代码片段与既有 prompt 行为。
 

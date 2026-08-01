@@ -79,6 +79,7 @@ class AgentRuntime:
         generation_options: Optional[Dict[str, Any]] = None,
         cancel_event=None,
         on_suspend: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
+        on_terminal: Optional[Callable[["FrameExecutionResult"], Awaitable[None]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """跑一个 frame 并逐 token 流式输出；命中 CALL 时回调 on_suspend。"""
         generation_options = self._resolve_model_for_frame(frame, generation_options)
@@ -88,6 +89,7 @@ class AgentRuntime:
             generation_options=generation_options,
             cancel_event=cancel_event,
             on_suspend=on_suspend,
+            on_terminal=on_terminal,
         )
 
     async def run_frame_emitting(
@@ -196,6 +198,10 @@ class AgentRuntime:
         """取消本 run 仍在飞行中的 pending atom。"""
         return self._pending_runtime.cancel_run(run_id)
 
+    def cancel_tasks_by_frame(self, frame_id: str) -> list[str]:
+        """取消单个失败/取消 frame 仍在飞行中的 pending atom。"""
+        return self._pending_runtime.cancel_frame(frame_id)
+
     def aliases_by_frame(self, frame_id: str) -> List[str]:
         """返回属于指定 frame 的全部 pending alias（不做状态过滤，供 harvest 使用）。"""
         return [
@@ -211,8 +217,7 @@ class AgentRuntime:
         aliases = [
             atom.pending_alias
             for atom in self._pending_runtime.all_atoms()
-            if atom.runtime_scope.run_id == run_id
-            and atom.status == PendingAtomStatus.PENDING
+            if atom.runtime_scope.run_id == run_id and atom.status == PendingAtomStatus.PENDING
         ]
         tasks = self._pending_runtime.claim_for_materialization(aliases)
         self._pending_runtime.evict_by_run(run_id)

@@ -102,9 +102,7 @@ class AliceRuntime:
     def register_preretrieval_aliases(self, memories: list[MemoryAtom]) -> None:
         self._atom_cache.ingest_atoms(memories)
         if memories:
-            logger.debug(
-                f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma"
-            )
+            logger.debug(f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma")
 
     async def _on_pending_atom_settled(self, *, settlement) -> None:
         """Handle settlement event from Patchouli generation pipeline."""
@@ -140,8 +138,7 @@ class AliceRuntime:
             )
         except Exception as exc:
             logger.warning(
-                f"Failed to refresh L1 cache for settled atom "
-                f"'{canonical_alias}': {exc}"
+                f"Failed to refresh L1 cache for settled atom " f"'{canonical_alias}': {exc}"
             )
             return
 
@@ -414,16 +411,18 @@ class AliceRuntime:
         agent_run_id: str,
         result: AgentRunResult,
     ) -> None:
-        event_type = (
-            RuntimeEventType.AGENT_RUN_CANCELLED
-            if result.status == AgentRunStatus.CANCELLED.value
-            else RuntimeEventType.AGENT_RUN_COMPLETED
-        )
+        if result.status == AgentRunStatus.CANCELLED.value:
+            event_type = RuntimeEventType.AGENT_RUN_CANCELLED
+        elif result.status == AgentRunStatus.FAILED.value:
+            event_type = RuntimeEventType.AGENT_RUN_FAILED
+        else:
+            event_type = RuntimeEventType.AGENT_RUN_COMPLETED
         self._emit_agent_event(
             event_type,
             agent_run_context,
             agent_run_id=agent_run_id,
             status=str(result.status),
+            severity=("error" if result.status == AgentRunStatus.FAILED.value else "info"),
             data={
                 "mtp_iterations": result.mtp_iterations,
                 "total_iterations": result.total_iterations,
