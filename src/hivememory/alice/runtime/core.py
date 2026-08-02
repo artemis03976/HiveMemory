@@ -17,6 +17,7 @@ from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
+from hivememory.alice.runtime.route_bindings import build_alice_route_bindings
 from hivememory.core.models import MemoryAtom
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -25,11 +26,9 @@ from hivememory.core.protocol.models import (
 )
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig, SharedConfig
-from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.model_registry import ModelRegistry
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
@@ -51,18 +50,15 @@ class AliceRuntime:
         alice_config: AliceConfig,
         shared_config: SharedConfig,
         memory_compiler_config: MemoryCompilerConfig,
-        global_bus: GlobalSystemBus | None = None,
         runtime_events: RuntimeEventSink | None = None,
         model_registry: ModelRegistry | None = None,
     ) -> None:
         self._alice_config = alice_config
         self._shared_config = shared_config
         self._memory_compiler_config = memory_compiler_config
-        self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._local_bus = AliceBus()
         self._local_routes_registered = False
-        self._global_events_registered = False
 
         # ---- 引擎层 (agent_runtime)：单 Agent 执行能力 ----
         self._pending_runtime = PendingAtomRuntime()
@@ -105,7 +101,7 @@ class AliceRuntime:
         if memories:
             logger.debug(f"预检索记忆缓存完成: {len(memories)} 条记忆已缓存到 Koakuma")
 
-    async def _on_pending_atom_settled(self, *, settlement) -> None:
+    async def on_pending_atom_settled(self, *, settlement) -> None:
         """Handle settlement event from Patchouli generation pipeline."""
         self._pending_runtime.settle(settlement)
         await self._refresh_l1_cache_for_settlement(settlement)
@@ -114,12 +110,12 @@ class AliceRuntime:
             f"{settlement.resolution.value} (canonical={settlement.canonical_alias})"
         )
 
-    async def _on_pending_atom_failed(self, *, pending_alias: str) -> None:
+    async def on_pending_atom_failed(self, *, pending_alias: str) -> None:
         """Handle generation failure event — mark atom as FAILED to unblock lifecycle."""
         self._agent_runtime.mark_task_failed(pending_alias)
         logger.warning(f"PendingAtom marked FAILED: {pending_alias}")
 
-    async def _on_pending_atom_cancelled(self, *, pending_alias: str) -> None:
+    async def on_pending_atom_cancelled(self, *, pending_alias: str) -> None:
         """Handle generation cancellation event — mark atom as CANCELLED."""
         self._agent_runtime.mark_task_cancelled(pending_alias)
         logger.warning(f"PendingAtom marked CANCELLED: {pending_alias}")
@@ -158,47 +154,8 @@ class AliceRuntime:
         if self._local_routes_registered:
             return
 
-        self._local_bus.register(
-            AliceLocalRoutes.RUN_AGENT,
-            self.run_agent,
-        )
-        self._local_bus.register(
-            AliceLocalRoutes.RUN_AGENT_STREAM,
-            self.run_agent_stream,
-        )
-
-        if self._global_bus is not None:
-            self._local_bus.register(
-                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
-                self._request_patchouli_memory_retrieve,
-            )
-            self._local_bus.register(
-                GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-                self._request_patchouli_memory_retrieve_by_aliases,
-            )
-            self._local_bus.register(
-                GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
-                self._request_patchouli_get_agent_profile,
-            )
-            self._local_bus.register(
-                GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
-                self._request_patchouli_record_memory_citation,
-            )
-            if not self._global_events_registered:
-                self._global_bus.subscribe(
-                    GlobalEvents.PENDING_ATOM_SETTLED,
-                    self._on_pending_atom_settled,
-                )
-                self._global_bus.subscribe(
-                    GlobalEvents.PENDING_ATOM_FAILED,
-                    self._on_pending_atom_failed,
-                )
-                self._global_bus.subscribe(
-                    GlobalEvents.PENDING_ATOM_CANCELLED,
-                    self._on_pending_atom_cancelled,
-                )
-                self._global_events_registered = True
-
+        for route, handler in build_alice_route_bindings(self):
+            self._local_bus.register(route, handler)
         self._local_routes_registered = True
 
     def unmount_local_routes(self) -> None:
@@ -207,74 +164,7 @@ class AliceRuntime:
 
         for route in AliceLocalRoutes.ALL:
             self._local_bus.unregister(route)
-        if self._global_bus is not None:
-            self._local_bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE)
-            self._local_bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
-            self._local_bus.unregister(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
-            self._local_bus.unregister(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
-            if self._global_events_registered:
-                self._global_bus.unsubscribe(
-                    GlobalEvents.PENDING_ATOM_SETTLED,
-                    self._on_pending_atom_settled,
-                )
-                self._global_bus.unsubscribe(
-                    GlobalEvents.PENDING_ATOM_FAILED,
-                    self._on_pending_atom_failed,
-                )
-                self._global_bus.unsubscribe(
-                    GlobalEvents.PENDING_ATOM_CANCELLED,
-                    self._on_pending_atom_cancelled,
-                )
-                self._global_events_registered = False
         self._local_routes_registered = False
-
-    async def _request_patchouli_memory_retrieve(self, *args: Any, **kwargs: Any) -> Any:
-        if self._global_bus is None:
-            raise KeyError(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE)
-        return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
-            *args,
-            **kwargs,
-        )
-
-    async def _request_patchouli_memory_retrieve_by_aliases(
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        if self._global_bus is None:
-            raise KeyError(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
-        return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-            *args,
-            **kwargs,
-        )
-
-    async def _request_patchouli_get_agent_profile(
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        if self._global_bus is None:
-            raise KeyError(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
-        return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
-            *args,
-            **kwargs,
-        )
-
-    async def _request_patchouli_record_memory_citation(
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        if self._global_bus is None:
-            raise KeyError(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
-        return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
-            *args,
-            **kwargs,
-        )
 
     def health(self) -> dict[str, Any]:
         return {

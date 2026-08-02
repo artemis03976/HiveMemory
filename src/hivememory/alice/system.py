@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from hivememory.alice.contracts.public_routes import AliceRoutes
+from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.service import AliceService
 from hivememory.system.config import HiveMemoryConfig
@@ -40,21 +40,24 @@ class AliceSystem(SubsystemProtocol):
         model_registry: Optional[ModelRegistry] = None,
     ) -> None:
         self._config = config
-        self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
 
         self._runtime = AliceRuntime(
             alice_config=config.alice,
             shared_config=config.shared,
             memory_compiler_config=config.memory_compiler,
-            global_bus=global_bus,
             runtime_events=self._runtime_events,
             model_registry=model_registry,
         )
-        
+
         self._service = AliceService(runtime=self._runtime)
 
-        self._public_routes_registered = False
+        self._bridge = AliceBridge(
+            local_bus=self._runtime.local_bus,
+            runtime=self._runtime,
+            public_api=AlicePublicApi(agent=self._service),
+            global_bus=global_bus,
+        )
 
         logger.info("AliceSystem 初始化完成")
 
@@ -72,14 +75,10 @@ class AliceSystem(SubsystemProtocol):
 
     async def start(self) -> None:
         self._runtime.mount_local_routes()
-        if self._global_bus and not self._public_routes_registered:
-            self._register_public_routes()
-            self._public_routes_registered = True
+        self._bridge.mount()
 
     async def stop(self) -> None:
-        if self._global_bus and self._public_routes_registered:
-            self._unregister_public_routes()
-            self._public_routes_registered = False
+        self._bridge.unmount()
         self._runtime.unmount_local_routes()
 
     async def health(self) -> dict[str, Any]:
@@ -87,21 +86,3 @@ class AliceSystem(SubsystemProtocol):
             "status": "ok",
             "runtime": self._runtime.health(),
         }
-
-    def _register_public_routes(self) -> None:
-        self._global_bus.register(
-            AliceRoutes.RUN_AGENT,
-            self._service.run_agent,
-        )
-        self._global_bus.register(
-            AliceRoutes.RUN_AGENT_STREAM,
-            self._run_agent_stream_route,
-        )
-
-    def _unregister_public_routes(self) -> None:
-        self._global_bus.unregister(AliceRoutes.RUN_AGENT)
-        self._global_bus.unregister(AliceRoutes.RUN_AGENT_STREAM)
-
-    async def _run_agent_stream_route(self, *args: Any, **kwargs: Any) -> Any:
-        """为 AsyncSystemBus 适配流式 handler，返回 async generator 对象。"""
-        return self._service.run_agent_stream(*args, **kwargs)
