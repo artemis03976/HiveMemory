@@ -9,7 +9,17 @@ import pytest
 from hivememory.agent_runtime.events import QueueFrameEventSink
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.alice.runtime.agent.run_driver import RunDriver
+from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
+
+
+def _session_with(frame, *, cancel_event: asyncio.Event | None = None) -> RunSession:
+    session = RunSession(
+        agent_run_id=frame.runtime_scope.run_id,
+        cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
+    )
+    session.register_frame(frame)
+    return session
 
 
 @pytest.mark.asyncio
@@ -48,11 +58,13 @@ async def test_run_driver_reenters_suspended_frame_with_continuous_stream_sequen
         await event_sink.emit({"event": "sub_agent_end", "data": {"status": "success"}})
         return MTPCallResponse(status=MTPResponseStatus.SUCCESS, agent_alias="helper")
 
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    session = _session_with(frame)
     driver = RunDriver(
         SimpleNamespace(run_frame=run_frame, apply_call_response=MagicMock()),
-        SimpleNamespace(resolve_call=resolve_call),
+        session=session,
+        call_coordinator=SimpleNamespace(resolve_call=resolve_call),
     )
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     events = [
         event
         async for event in driver.run_stream(
@@ -79,8 +91,12 @@ async def test_run_driver_cancels_runner_when_stream_consumer_closes():
         finally:
             runner_cancelled.set()
 
-    driver = RunDriver(SimpleNamespace(run_frame=run_frame))
-    stream = driver.run_stream(object())
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    driver = RunDriver(
+        SimpleNamespace(run_frame=run_frame),
+        session=_session_with(frame),
+    )
+    stream = driver.run_stream(frame)
 
     first_event = await anext(stream)
     await stream.aclose()
@@ -114,14 +130,17 @@ async def test_run_driver_applies_each_call_record_once():
             (frame, suspension, response)
         ),
     )
-    driver = RunDriver(runtime, SimpleNamespace(resolve_call=resolve_call))
-
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(frame_id=""))
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    driver = RunDriver(
+        runtime,
+        session=_session_with(frame),
+        call_coordinator=SimpleNamespace(resolve_call=resolve_call),
+    )
     result = await driver.run(frame)
 
     assert result.status == FrameExecutionStatus.COMPLETED
     assert len(applied) == 1
-    assert driver.call_records[("", "act-1")].status.value == "applied"
+    assert driver.call_records[("frame-1", "act-1")].status.value == "applied"
 
 
 @pytest.mark.asyncio
@@ -146,14 +165,18 @@ async def test_run_driver_drops_late_call_response_after_cancel():
         run_frame=run_frame,
         apply_call_response=lambda *args: applied.append(args),
     )
-    driver = RunDriver(runtime, SimpleNamespace(resolve_call=resolve_call))
-
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(frame_id=""))
-    result = await driver.run(frame, cancel_event=cancel_event)
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    session = _session_with(frame, cancel_event=cancel_event)
+    driver = RunDriver(
+        runtime,
+        session=session,
+        call_coordinator=SimpleNamespace(resolve_call=resolve_call),
+    )
+    result = await driver.run(frame)
 
     assert result.status == FrameExecutionStatus.CANCELLED
     assert applied == []
-    assert driver.call_records[("", "act-1")].status.value == "cancelled"
+    assert driver.call_records[("frame-1", "act-1")].status.value == "cancelled"
 
 
 @pytest.mark.asyncio
@@ -164,10 +187,20 @@ async def test_run_driver_finalizes_root_run_exactly_once():
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
     runtime = SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run)
-    driver = RunDriver(runtime)
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    driver = RunDriver(runtime, session=_session_with(frame))
 
     result = await driver.run(frame)
 
     assert result.status == FrameExecutionStatus.COMPLETED
     finalize_run.assert_called_once_with("run-1", result)
+
+
+@pytest.mark.asyncio
+async def test_run_driver_rejects_unregistered_frame():
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    session = RunSession(agent_run_id="run-1")
+    driver = RunDriver(SimpleNamespace(run_frame=MagicMock()), session=session)
+
+    with pytest.raises(ValueError, match="not registered"):
+        await driver.run(frame)

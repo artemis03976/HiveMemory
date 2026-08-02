@@ -27,9 +27,20 @@ class RunSession:
                 "Frame run_id does not match its RunSession: "
                 f"{frame.runtime_scope.run_id!r} != {self.agent_run_id!r}"
             )
+        existing = self.frames.get(frame_id)
+        if existing is not None and existing is not frame:
+            raise RuntimeError(f"Frame id already exists in this RunSession: {frame_id!r}")
         self.frames[frame_id] = frame
 
+    def require_frame(self, frame: ExecutionFrame) -> None:
+        frame_id = frame.runtime_scope.frame_id
+        if self.frames.get(frame_id) is not frame:
+            raise ValueError(
+                f"Frame {frame_id!r} is not registered in RunSession {self.agent_run_id!r}."
+            )
+
     def register_call(self, frame: ExecutionFrame, action_id: str) -> CallRecord:
+        self.require_frame(frame)
         key = (frame.runtime_scope.frame_id, action_id)
         if key in self.call_records:
             raise RuntimeError(f"CALL record already exists: {key!r}")

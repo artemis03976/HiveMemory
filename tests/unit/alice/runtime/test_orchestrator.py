@@ -11,6 +11,7 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory
+from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope, TurnEvent
 from hivememory.core.protocol.models import AgentRunStatus
@@ -49,6 +50,14 @@ def _orchestrator(frame: ExecutionFrame, runtime=None) -> AgentOrchestrator:
     )
 
 
+def _session(*, cancel_event: asyncio.Event | None = None) -> RunSession:
+    return RunSession(
+        agent_run_id="run-1",
+        generation_id="generation-1",
+        cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_run_agent_assembles_result_from_completed_frame():
     frame = _frame()
@@ -71,12 +80,13 @@ async def test_run_agent_assembles_result_from_completed_frame():
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
+    session = _session()
 
     result = await orchestrator.run_agent(
         messages=[{"role": "user", "content": "hello"}],
         identity=frame.identity,
         topic_id="topic-1",
-        agent_run_id="run-1",
+        session=session,
     )
 
     assert result.final_text == "hello world"
@@ -86,6 +96,7 @@ async def test_run_agent_assembles_result_from_completed_frame():
     runtime.finalize_run.assert_called_once()
     assert runtime.finalize_run.call_args.args[0] == "run-1"
     assert runtime.finalize_run.call_args.args[1].status == FrameExecutionStatus.COMPLETED
+    assert session.frames == {"frame-main": frame}
 
 
 @pytest.mark.asyncio
@@ -102,13 +113,13 @@ async def test_run_agent_cancelled_does_not_materialize_runtime_products():
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
+    session = _session(cancel_event=cancel_event)
 
     result = await orchestrator.run_agent(
         messages=[{"role": "user", "content": "hello"}],
         identity=frame.identity,
         topic_id="topic-1",
-        agent_run_id="run-1",
-        cancel_event=cancel_event,
+        session=session,
     )
 
     assert result.status == AgentRunStatus.CANCELLED.value
@@ -128,12 +139,13 @@ async def test_run_agent_budget_exhaustion_maps_to_failed_run():
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
+    session = _session()
 
     result = await orchestrator.run_agent(
         messages=[{"role": "user", "content": "hello"}],
         identity=frame.identity,
         topic_id="topic-1",
-        agent_run_id="run-1",
+        session=session,
     )
 
     assert result.status == AgentRunStatus.FAILED.value
@@ -153,6 +165,7 @@ async def test_run_agent_stream_done_preserves_failed_terminal_status():
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
+    session = _session()
 
     events = [
         event
@@ -160,7 +173,7 @@ async def test_run_agent_stream_done_preserves_failed_terminal_status():
             messages=[{"role": "user", "content": "stream"}],
             identity=frame.identity,
             topic_id="topic-1",
-            agent_run_id="run-1",
+            session=session,
         )
     ]
 
@@ -182,6 +195,7 @@ async def test_run_agent_records_latest_user_message_once():
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     orchestrator = _orchestrator(frame, runtime=runtime)
+    session = _session()
 
     result = await orchestrator.run_agent(
         messages=[
@@ -192,7 +206,7 @@ async def test_run_agent_records_latest_user_message_once():
         ],
         identity=frame.identity,
         topic_id="topic-1",
-        agent_run_id="run-1",
+        session=session,
     )
 
     assert [event.kind for event in result.turn_events] == ["user_message"]

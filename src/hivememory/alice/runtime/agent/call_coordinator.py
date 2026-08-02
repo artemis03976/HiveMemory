@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -63,14 +62,14 @@ class CallCoordinator:
         caller_frame: ExecutionFrame,
         suspension: FrameExecutionResult,
         *,
+        session: RunSession,
         generation_options: dict[str, Any] | None = None,
-        cancel_event: asyncio.Event | None = None,
         event_sink: FrameEventSink | None = None,
-        session: RunSession | None = None,
     ) -> MTPCallResponse:
         call_request = suspension.call_request
         if suspension.status != FrameExecutionStatus.SUSPENDED or call_request is None:
             raise ValueError("CALL coordinator requires a suspended frame result.")
+        session.require_frame(caller_frame)
 
         action_id = suspension.suspend_action_id
         logger.info(
@@ -114,8 +113,7 @@ class CallCoordinator:
                     execution_policy=policy,
                 )
             )
-            if session is not None and getattr(sub_frame.runtime_scope, "run_id", None) is not None:
-                session.register_frame(sub_frame)
+            session.register_frame(sub_frame)
             if event_sink is not None:
                 await event_sink.emit(
                     {
@@ -142,13 +140,13 @@ class CallCoordinator:
                 frame=sub_frame,
                 generation_options=generation_options,
                 event_sink=sub_sink,
-                cancel_event=cancel_event,
+                cancel_event=session.cancel_event,
             )
 
             call_response = self._call_response_for_frame(
                 call_request,
                 sub_result,
-                cancelled=cancel_event is not None and cancel_event.is_set(),
+                cancelled=session.cancel_event.is_set(),
             )
         except MTPError as error:
             logger.warning("CALL rejected for %r: %s", call_request.target_alias, error.code)

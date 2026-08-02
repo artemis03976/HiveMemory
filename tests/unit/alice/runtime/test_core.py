@@ -90,11 +90,21 @@ async def test_run_agent_correlates_runtime_scope_and_generation_id():
         return_value=AgentRunResult(final_text="done"),
     )
 
-    await runtime.run_agent(context, generation_id="generation-1")
+    cancel_event = asyncio.Event()
+    await runtime.run_agent(
+        context,
+        cancel_event=cancel_event,
+        generation_id="generation-1",
+    )
 
     kwargs = runtime._orchestrator.run_agent.await_args.kwargs
-    assert kwargs["generation_id"] == "generation-1"
-    assert kwargs["agent_run_id"] == recorder.events[0].agent_run_id
+    session = kwargs["session"]
+    assert session.generation_id == "generation-1"
+    assert session.agent_run_id == recorder.events[0].agent_run_id
+    assert session.cancel_event is cancel_event
+    assert "generation_id" not in kwargs
+    assert "agent_run_id" not in kwargs
+    assert "cancel_event" not in kwargs
 
 
 @pytest.mark.asyncio
@@ -140,7 +150,10 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
 
+    received_sessions = []
+
     async def _stream(**kwargs):
+        received_sessions.append(kwargs["session"])
         yield {"event": "token", "data": {"content": "hi"}}
         await asyncio.Event().wait()
 
@@ -156,6 +169,8 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     assert RuntimeEventType.AGENT_RUN_CANCELLED in runtime_event_types
     assert recorder.events[-1].status == "cancelled"
     assert recorder.events[-1].data["close_reason"] == "stream_closed"
+    assert len(received_sessions) == 1
+    assert received_sessions[0].cancel_event.is_set()
 
 
 @pytest.mark.asyncio

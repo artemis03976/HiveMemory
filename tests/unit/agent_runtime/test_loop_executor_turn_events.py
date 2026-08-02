@@ -25,6 +25,7 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.resolver import ResolveResult
 from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory
+from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.models import (
@@ -399,6 +400,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         messages=[{"role": "user", "content": "hello"}],
         identity=Identity(user_id="u1"),
         topic_id="t1",
+        session=RunSession(agent_run_id="run_test_1"),
     )
 
     call_events = [

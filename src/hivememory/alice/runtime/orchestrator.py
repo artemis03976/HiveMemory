@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
@@ -65,27 +63,27 @@ class AgentOrchestrator:
         messages: list[dict[str, str]],
         identity: Identity,
         topic_id: str,
+        *,
+        session: RunSession,
         generation_options: dict[str, Any] | None = None,
         agent_profile: AgentProfile | None = None,
-        cancel_event=None,
-        agent_run_id: str | None = None,
-        generation_id: str | None = None,
     ) -> AgentRunResult:
-        session, frame = self._create_root_session(
+        frame = self._create_root_frame(
             messages=messages,
             identity=identity,
             topic_id=topic_id,
             agent_profile=agent_profile,
-            cancel_event=cancel_event,
-            agent_run_id=agent_run_id,
-            generation_id=generation_id,
+            session=session,
         )
         self._record_initial_user_event(frame, messages)
-        driver = RunDriver(self._agent_runtime, self._call_coordinator, session)
+        driver = RunDriver(
+            agent_runtime=self._agent_runtime,
+            session=session,
+            call_coordinator=self._call_coordinator,
+        )
         result = await driver.run(
             frame,
             generation_options=generation_options,
-            cancel_event=session.cancel_event,
         )
         return self._assemble_agent_run_result(
             frame,
@@ -98,29 +96,29 @@ class AgentOrchestrator:
         messages: list[dict[str, str]],
         identity: Identity,
         topic_id: str,
+        *,
+        session: RunSession,
         generation_options: dict[str, Any] | None = None,
         agent_profile: AgentProfile | None = None,
-        cancel_event=None,
-        agent_run_id: str | None = None,
-        generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        session, frame = self._create_root_session(
+        frame = self._create_root_frame(
             messages=messages,
             identity=identity,
             topic_id=topic_id,
             agent_profile=agent_profile,
-            cancel_event=cancel_event,
-            agent_run_id=agent_run_id,
-            generation_id=generation_id,
+            session=session,
         )
         self._record_initial_user_event(frame, messages)
-        driver = RunDriver(self._agent_runtime, self._call_coordinator, session)
+        driver = RunDriver(
+            agent_runtime=self._agent_runtime,
+            session=session,
+            call_coordinator=self._call_coordinator,
+        )
         event_metadata = self._event_metadata_for_frame(frame)
 
         async for event in driver.run_stream(
             frame,
             generation_options=generation_options,
-            cancel_event=session.cancel_event,
             event_metadata=event_metadata,
         ):
             yield event
@@ -142,26 +140,23 @@ class AgentOrchestrator:
             },
         }
 
-    def _create_root_session(
+    def _create_root_frame(
         self,
         *,
         messages: list[dict[str, str]],
         identity: Identity,
         topic_id: str,
         agent_profile: AgentProfile | None,
-        cancel_event,
-        agent_run_id: str | None,
-        generation_id: str | None,
-    ) -> tuple[RunSession, ExecutionFrame]:
+        session: RunSession,
+    ) -> ExecutionFrame:
         profile = agent_profile or OMNI_DOLL_PROFILE
-        run_id = agent_run_id or f"agent_run_{uuid.uuid4().hex}"
         policy = FrameExecutionPolicy.from_profile(
             profile,
             max_iterations=getattr(self._agent_runtime, "max_iterations", None),
         )
         frame = self._frame_factory.create(
             FrameSpec(
-                runtime_scope=self._frame_factory.scope(run_id=run_id),
+                runtime_scope=self._frame_factory.scope(run_id=session.agent_run_id),
                 profile=profile,
                 identity=identity,
                 messages=messages,
@@ -169,13 +164,8 @@ class AgentOrchestrator:
                 execution_policy=policy,
             )
         )
-        session = RunSession(
-            agent_run_id=run_id,
-            generation_id=generation_id,
-            cancel_event=cancel_event or asyncio.Event(),
-        )
         session.register_frame(frame)
-        return session, frame
+        return frame
 
     @staticmethod
     def _record_initial_user_event(

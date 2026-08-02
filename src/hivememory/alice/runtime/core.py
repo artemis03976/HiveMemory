@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -14,6 +15,7 @@ from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory
 from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
@@ -190,14 +192,17 @@ class AliceRuntime:
         self,
         agent_run_context: AgentRunContext,
         generation_options: dict[str, Any] | None = None,
-        cancel_event=None,
+        cancel_event: asyncio.Event | None = None,
         generation_id: str | None = None,
     ) -> AgentRunResult:
-        agent_run_id = f"agent_run_{uuid.uuid4().hex}"
+        session = self._create_run_session(
+            generation_id=generation_id,
+            cancel_event=cancel_event,
+        )
         self._emit_agent_event(
             RuntimeEventType.AGENT_RUN_STARTED,
             agent_run_context,
-            agent_run_id=agent_run_id,
+            agent_run_id=session.agent_run_id,
             status="started",
         )
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
@@ -207,19 +212,17 @@ class AliceRuntime:
                 messages=messages,
                 identity=agent_run_context.identity,
                 topic_id=agent_run_context.topic_id,
+                session=session,
                 generation_options=generation_options,
                 agent_profile=agent_run_context.agent_profile,
-                cancel_event=cancel_event,
-                agent_run_id=agent_run_id,
-                generation_id=generation_id,
             )
-            self._emit_agent_terminal(agent_run_context, agent_run_id, result)
+            self._emit_agent_terminal(agent_run_context, session.agent_run_id, result)
             return result
         except Exception:
             self._emit_agent_event(
                 RuntimeEventType.AGENT_RUN_FAILED,
                 agent_run_context,
-                agent_run_id=agent_run_id,
+                agent_run_id=session.agent_run_id,
                 status="failed",
                 severity="error",
                 message="Agent run failed.",
@@ -230,14 +233,17 @@ class AliceRuntime:
         self,
         agent_run_context: AgentRunContext,
         generation_options: dict[str, Any] | None = None,
-        cancel_event=None,
+        cancel_event: asyncio.Event | None = None,
         generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        agent_run_id = f"agent_run_{uuid.uuid4().hex}"
+        session = self._create_run_session(
+            generation_id=generation_id,
+            cancel_event=cancel_event,
+        )
         self._emit_agent_event(
             RuntimeEventType.AGENT_RUN_STARTED,
             agent_run_context,
-            agent_run_id=agent_run_id,
+            agent_run_id=session.agent_run_id,
             status="started",
         )
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
@@ -248,16 +254,14 @@ class AliceRuntime:
                 messages=messages,
                 identity=agent_run_context.identity,
                 topic_id=agent_run_context.topic_id,
+                session=session,
                 generation_options=generation_options,
                 agent_profile=agent_run_context.agent_profile,
-                cancel_event=cancel_event,
-                agent_run_id=agent_run_id,
-                generation_id=generation_id,
             ):
                 if event.get("event") == "done":
                     self._emit_agent_terminal(
                         agent_run_context,
-                        agent_run_id,
+                        session.agent_run_id,
                         AgentRunResult(**event["data"]),
                     )
                     exit_reason = StreamExitReason.TERMINAL
@@ -267,7 +271,7 @@ class AliceRuntime:
                 self._emit_agent_event(
                     RuntimeEventType.AGENT_RUN_FAILED,
                     agent_run_context,
-                    agent_run_id=agent_run_id,
+                    agent_run_id=session.agent_run_id,
                     status="failed",
                     severity="error",
                     message="Agent stream ended without done event.",
@@ -282,7 +286,7 @@ class AliceRuntime:
                 self._emit_agent_event(
                     RuntimeEventType.AGENT_RUN_FAILED,
                     agent_run_context,
-                    agent_run_id=agent_run_id,
+                    agent_run_id=session.agent_run_id,
                     status="failed",
                     severity="error",
                     message="Agent stream run failed.",
@@ -291,16 +295,27 @@ class AliceRuntime:
         finally:
             if exit_reason == StreamExitReason.RUNNING:
                 exit_reason = StreamExitReason.CLOSED
-                if cancel_event is not None:
-                    cancel_event.set()
+                session.cancel_event.set()
                 self._emit_agent_event(
                     RuntimeEventType.AGENT_RUN_CANCELLED,
                     agent_run_context,
-                    agent_run_id=agent_run_id,
+                    agent_run_id=session.agent_run_id,
                     status="cancelled",
                     message="Agent stream closed before terminal event.",
                     data={"close_reason": "stream_closed"},
                 )
+
+    @staticmethod
+    def _create_run_session(
+        *,
+        generation_id: str | None,
+        cancel_event: asyncio.Event | None,
+    ) -> RunSession:
+        return RunSession(
+            agent_run_id=f"agent_run_{uuid.uuid4().hex}",
+            generation_id=generation_id,
+            cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
+        )
 
     def _emit_agent_terminal(
         self,

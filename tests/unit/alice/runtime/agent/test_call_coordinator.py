@@ -12,6 +12,7 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.agent.call_record import CallRecord, CallRecordStatus
+from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
@@ -65,6 +66,15 @@ def _coordinator(runtime, child: ExecutionFrame) -> CallCoordinator:
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )
+
+
+def _session(caller: ExecutionFrame, *, cancel_event: asyncio.Event | None = None) -> RunSession:
+    session = RunSession(
+        agent_run_id=caller.runtime_scope.run_id,
+        cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
+    )
+    session.register_frame(caller)
+    return session
 
 
 def test_apply_call_response_is_exactly_once_and_updates_call_pair():
@@ -153,14 +163,16 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
         finalize_run=MagicMock(),
     )
     coordinator = _coordinator(runtime, child)
+    session = _session(caller)
 
-    response = await coordinator.resolve_call(caller, _suspension())
+    response = await coordinator.resolve_call(caller, _suspension(), session=session)
 
     assert response.status == MTPResponseStatus.SUCCESS
     assert response.reply == "done"
     assert response.artifact_aliases == ["draft-child"]
     runtime.finalize_frame.assert_called_once_with(child, child_result)
     runtime.finalize_run.assert_not_called()
+    assert session.frames["frame-child"] is child
 
 
 @pytest.mark.asyncio
@@ -178,11 +190,12 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
         finalize_run=MagicMock(),
     )
     coordinator = _coordinator(runtime, child)
+    session = _session(caller, cancel_event=cancel_event)
 
     response = await coordinator.resolve_call(
         caller,
         _suspension(),
-        cancel_event=cancel_event,
+        session=session,
     )
 
     assert response.status == MTPResponseStatus.CANCELLED
@@ -190,3 +203,21 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
     assert runtime.finalize_frame.call_args.args[0] is child
     assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.CANCELLED
     runtime.finalize_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_call_coordinator_rejects_unregistered_caller():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    runtime = SimpleNamespace(run_frame=AsyncMock())
+    coordinator = _coordinator(runtime, child)
+
+    with pytest.raises(ValueError, match="not registered"):
+        await coordinator.resolve_call(
+            caller,
+            _suspension(),
+            session=RunSession(agent_run_id="run-1"),
+        )
+
+    runtime.run_frame.assert_not_awaited()

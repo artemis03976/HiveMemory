@@ -36,6 +36,22 @@ def test_frame_factory_is_stateless_and_session_owns_registry() -> None:
     assert FrameFactory().scope(run_id="run-a").frame_id != frame.runtime_scope.frame_id
 
 
+def test_session_rejects_frame_id_collision_and_unregistered_call() -> None:
+    session = RunSession(agent_run_id="run-a")
+    registered = _frame("run-a", "frame-a", FrameExecutionPolicy())
+    collision = _frame("run-a", "frame-a", FrameExecutionPolicy())
+    unregistered = _frame("run-a", "frame-b", FrameExecutionPolicy())
+    session.register_frame(registered)
+
+    with pytest.raises(RuntimeError, match="already exists"):
+        session.register_frame(collision)
+    with pytest.raises(ValueError, match="not registered"):
+        session.register_call(unregistered, "action-b")
+
+    session.register_frame(registered)
+    assert session.frames == {"frame-a": registered}
+
+
 def test_callee_policy_removes_call_without_reading_frame_depth() -> None:
     policy = FrameExecutionPolicy.from_profile(
         OMNI_DOLL_PROFILE,
