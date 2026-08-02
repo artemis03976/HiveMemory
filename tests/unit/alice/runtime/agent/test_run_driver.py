@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -180,11 +181,20 @@ async def test_run_driver_drops_late_call_response_after_cancel():
 
 
 @pytest.mark.asyncio
-async def test_run_driver_finalizes_root_run_exactly_once():
+@pytest.mark.parametrize(
+    "status",
+    [
+        FrameExecutionStatus.COMPLETED,
+        FrameExecutionStatus.CANCELLED,
+        FrameExecutionStatus.FAILED,
+        FrameExecutionStatus.BUDGET_EXHAUSTED,
+    ],
+)
+async def test_run_driver_finalizes_each_terminal_status_exactly_once(status):
     finalize_run = MagicMock()
 
     async def run_frame(_frame, **_kwargs):
-        return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+        return FrameExecutionResult(status=status)
 
     runtime = SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run)
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
@@ -192,8 +202,25 @@ async def test_run_driver_finalizes_root_run_exactly_once():
 
     result = await driver.run(frame)
 
-    assert result.status == FrameExecutionStatus.COMPLETED
+    assert result.status == status
     finalize_run.assert_called_once_with("run-1", result)
+
+
+@pytest.mark.asyncio
+async def test_run_driver_rejects_unsupported_frame_status():
+    async def run_frame(_frame, **_kwargs):
+        return FrameExecutionResult(
+            status=cast(FrameExecutionStatus, "waiting_input"),
+        )
+
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    driver = RunDriver(
+        SimpleNamespace(run_frame=run_frame),
+        session=_session_with(frame),
+    )
+
+    with pytest.raises(RuntimeError, match="unsupported frame status: 'waiting_input'"):
+        await driver.run(frame)
 
 
 @pytest.mark.asyncio

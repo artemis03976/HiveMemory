@@ -59,7 +59,7 @@ class RunDriver:
             generation_options=generation_options,
             event_sink=NullFrameEventSink(),
         )
-    
+
     def run_stream(
         self,
         frame: ExecutionFrame,
@@ -127,30 +127,68 @@ class RunDriver:
                 event_sink=event_sink,
                 cancel_event=self._session.cancel_event,
             )
-            if result.status != FrameExecutionStatus.SUSPENDED:
-                result = self._normalize_terminal_result(result, self._session.cancel_event)
-                return self._finish(result)
-            if self._call_coordinator is None:
-                result = FrameExecutionResult(
-                    status=FrameExecutionStatus.FAILED,
-                    error=RuntimeError("Frame suspended without an orchestration callback."),
-                )
-                return self._finish(result)
-            record = self._register_call(frame, result)
-            record.begin_resolution()
-            response = await self._call_coordinator.resolve_call(
-                frame,
-                result,
-                session=self._session,
-                generation_options=generation_options,
-                event_sink=event_sink,
+
+            match result.status:
+                case FrameExecutionStatus.SUSPENDED:
+                    terminal_result = await self._resolve_suspension(
+                        frame,
+                        result,
+                        generation_options=generation_options,
+                        event_sink=event_sink,
+                    )
+                    if terminal_result is not None:
+                        return self._finish(terminal_result)
+                    continue
+
+                case (
+                    FrameExecutionStatus.COMPLETED
+                    | FrameExecutionStatus.CANCELLED
+                    | FrameExecutionStatus.FAILED
+                    | FrameExecutionStatus.BUDGET_EXHAUSTED
+                ):
+                    result = self._normalize_terminal_result(
+                        result,
+                        self._session.cancel_event,
+                    )
+                    return self._finish(result)
+
+                case unexpected_status:
+                    raise RuntimeError(
+                        f"RunDriver received an unsupported frame status: {unexpected_status!r}"
+                    )
+
+    async def _resolve_suspension(
+        self,
+        frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        *,
+        generation_options: dict[str, Any] | None,
+        event_sink: FrameEventSink,
+    ) -> FrameExecutionResult | None:
+        """Resolve one suspended CALL and return a terminal failure when it cannot run."""
+        if self._call_coordinator is None:
+            return FrameExecutionResult(
+                status=FrameExecutionStatus.FAILED,
+                error=RuntimeError("Frame suspended without an orchestration callback."),
             )
-            record.mark_resolved()
-            if self._session.cancel_event.is_set():
-                record.cancel()
-                continue
-            self._agent_runtime.apply_call_response(frame, result, response)
-            record.mark_applied()
+
+        record = self._register_call(frame, suspension)
+        record.begin_resolution()
+        response = await self._call_coordinator.resolve_call(
+            frame,
+            suspension,
+            session=self._session,
+            generation_options=generation_options,
+            event_sink=event_sink,
+        )
+        record.mark_resolved()
+        if self._session.cancel_event.is_set():
+            record.cancel()
+            return None
+
+        self._agent_runtime.apply_call_response(frame, suspension, response)
+        record.mark_applied()
+        return None
 
     def _finish(self, result: FrameExecutionResult) -> FrameExecutionResult:
         if self.terminal_result is not None:
