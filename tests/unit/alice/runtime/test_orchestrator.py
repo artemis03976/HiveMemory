@@ -9,21 +9,28 @@ from hivememory.agent_runtime.models import (
     FrameExecutionResult,
     FrameExecutionStatus,
 )
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
-from hivememory.alice.runtime.agent.frame_factory import FrameFactory
+from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope, TurnEvent
 from hivememory.core.protocol.models import AgentRunStatus
 
 
-def _frame(frame_id: str = "frame-main") -> ExecutionFrame:
-    return ExecutionFrame(
-        runtime_scope=RuntimeScope(run_id="run-1", frame_id=frame_id),
-        agent_profile=OMNI_DOLL_PROFILE,
-        working_history=[{"role": "user", "content": "hello"}],
-        topic_id="topic-1",
-        identity=Identity(user_id="u1", agent_id="omni_doll"),
+def _frame(
+    frame_id: str = "frame-main",
+    messages: list[dict[str, str]] | None = None,
+) -> ExecutionFrame:
+    return FrameFactory().create(
+        FrameSpec(
+            runtime_scope=RuntimeScope(run_id="run-1", frame_id=frame_id),
+            profile=OMNI_DOLL_PROFILE,
+            messages=(messages if messages is not None else [{"role": "user", "content": "hello"}]),
+            topic_id="topic-1",
+            identity=Identity(user_id="u1", agent_id="omni_doll"),
+            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+        )
     )
 
 
@@ -66,11 +73,12 @@ async def test_run_agent_assembles_result_from_completed_frame():
     frame.progress.turn_events.append(
         TurnEvent(
             kind="assistant_message",
-            sequence=0,
+            sequence=frame.progress.sequence,
             role="assistant",
             content="hello world",
         )
     )
+    frame.progress.sequence += 1
     runtime = SimpleNamespace(
         max_iterations=5,
         run_frame=AsyncMock(
@@ -184,8 +192,14 @@ async def test_run_agent_stream_done_preserves_failed_terminal_status():
 
 
 @pytest.mark.asyncio
-async def test_run_agent_records_latest_user_message_once():
-    frame = _frame()
+async def test_run_agent_preserves_factory_initialized_turn_events():
+    messages = [
+        {"role": "system", "content": "constraints"},
+        {"role": "user", "content": "previous"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "current"},
+    ]
+    frame = _frame(messages=messages)
     runtime = SimpleNamespace(
         max_iterations=5,
         run_frame=AsyncMock(
@@ -198,12 +212,7 @@ async def test_run_agent_records_latest_user_message_once():
     session = _session()
 
     result = await orchestrator.run_agent(
-        messages=[
-            {"role": "system", "content": "constraints"},
-            {"role": "user", "content": "previous"},
-            {"role": "assistant", "content": "old answer"},
-            {"role": "user", "content": "current"},
-        ],
+        messages=messages,
         identity=frame.identity,
         topic_id="topic-1",
         session=session,

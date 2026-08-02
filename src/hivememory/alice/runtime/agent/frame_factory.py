@@ -4,9 +4,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import uuid4
 
-from hivememory.agent_runtime.models import ExecutionFrame
+from hivememory.agent_runtime.models import ExecutionFrame, ExecutionProgress
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.core.models import AgentProfile, Identity, RuntimeScope
+from hivememory.core.models import AgentProfile, Identity, RuntimeScope, TurnEvent
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,30 @@ class FrameFactory:
             topic_id=spec.topic_id,
             identity=spec.identity,
             execution_policy=spec.execution_policy,
+            progress=self._initial_progress(spec.messages),
         )
+
+    @staticmethod
+    def _initial_progress(messages: Sequence[dict[str, str]]) -> ExecutionProgress:
+        """Seed a new frame journal with its latest user input."""
+        for message in reversed(messages):
+            if message.get("role") != "user":
+                continue
+            content = str(message.get("content") or "")
+            if not content:
+                return ExecutionProgress()
+            return ExecutionProgress(
+                turn_events=[
+                    TurnEvent(
+                        kind="user_message",
+                        sequence=0,
+                        role="user",
+                        content=content,
+                    )
+                ],
+                sequence=1,
+            )
+        return ExecutionProgress()
 
     @staticmethod
     def scope(*, run_id: str, frame_id: str | None = None) -> RuntimeScope:

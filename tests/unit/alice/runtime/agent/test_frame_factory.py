@@ -24,6 +24,8 @@ def test_frame_factory_creates_root_frame_from_spec() -> None:
     assert frame.runtime_scope.frame_id == "frame-1"
     assert frame.topic_id == "topic-1"
     assert frame.working_history == [{"role": "system", "content": "hello"}]
+    assert frame.progress.turn_events == []
+    assert frame.progress.sequence == 0
 
 
 def test_frame_factory_creates_transient_frame_with_same_run_id() -> None:
@@ -46,6 +48,57 @@ def test_frame_factory_creates_transient_frame_with_same_run_id() -> None:
     assert frame.runtime_scope.run_id == "run-1"
     assert frame.execution_policy.allows("READ")
     assert not frame.execution_policy.allows("CALL")
+    assert [event.kind for event in frame.progress.turn_events] == ["user_message"]
+    assert frame.progress.turn_events[0].content == "task"
+    assert frame.progress.turn_events[0].sequence == 0
+    assert frame.progress.sequence == 1
+
+
+def test_frame_factory_records_only_latest_user_message() -> None:
+    factory = FrameFactory()
+    messages = [
+        {"role": "system", "content": "constraints"},
+        {"role": "user", "content": "previous"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "current"},
+    ]
+
+    frame = factory.create(
+        FrameSpec(
+            runtime_scope=factory.scope(run_id="run-1", frame_id="frame-3"),
+            profile=OMNI_DOLL_PROFILE,
+            identity=Identity(user_id="u1"),
+            messages=messages,
+            topic_id="topic-1",
+            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+        )
+    )
+
+    assert frame.working_history == messages
+    assert len(frame.progress.turn_events) == 1
+    assert frame.progress.turn_events[0].content == "current"
+    assert frame.progress.turn_events[0].sequence == 0
+    assert frame.progress.sequence == 1
+
+
+def test_frame_factory_does_not_record_empty_latest_user_message() -> None:
+    factory = FrameFactory()
+    frame = factory.create(
+        FrameSpec(
+            runtime_scope=factory.scope(run_id="run-1", frame_id="frame-4"),
+            profile=OMNI_DOLL_PROFILE,
+            identity=Identity(user_id="u1"),
+            messages=[
+                {"role": "user", "content": "previous"},
+                {"role": "user", "content": ""},
+            ],
+            topic_id="topic-1",
+            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+        )
+    )
+
+    assert frame.progress.turn_events == []
+    assert frame.progress.sequence == 0
 
 
 def test_sub_agent_prompt_disables_call() -> None:

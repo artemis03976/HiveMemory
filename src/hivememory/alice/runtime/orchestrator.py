@@ -17,7 +17,7 @@ from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.runtime.agent.run_driver import RunDriver
 from hivememory.alice.runtime.agent.run_session import RunSession
-from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
+from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 
 if TYPE_CHECKING:
@@ -75,7 +75,6 @@ class AgentOrchestrator:
             agent_profile=agent_profile,
             session=session,
         )
-        self._record_initial_user_event(frame, messages)
         driver = RunDriver(
             agent_runtime=self._agent_runtime,
             session=session,
@@ -85,6 +84,7 @@ class AgentOrchestrator:
             frame,
             generation_options=generation_options,
         )
+
         return self._assemble_agent_run_result(
             frame,
             result,
@@ -108,7 +108,6 @@ class AgentOrchestrator:
             agent_profile=agent_profile,
             session=session,
         )
-        self._record_initial_user_event(frame, messages)
         driver = RunDriver(
             agent_runtime=self._agent_runtime,
             session=session,
@@ -131,6 +130,7 @@ class AgentOrchestrator:
             terminal_result,
             driver.runtime_products or RuntimeProducts(),
         )
+
         yield {
             "event": "done",
             "data": {
@@ -166,34 +166,6 @@ class AgentOrchestrator:
         )
         session.register_frame(frame)
         return frame
-
-    @staticmethod
-    def _record_initial_user_event(
-        frame: ExecutionFrame,
-        messages: list[dict[str, str]],
-    ) -> None:
-        content = AgentOrchestrator._current_user_message(messages)
-        if not content or any(event.kind == "user_message" for event in frame.progress.turn_events):
-            return
-        frame.progress.turn_events = [
-            event.model_copy(update={"sequence": event.sequence + 1})
-            for event in frame.progress.turn_events
-        ]
-        frame.progress.turn_events.insert(
-            0,
-            TurnEvent(kind="user_message", sequence=0, role="user", content=content),
-        )
-        frame.progress.sequence = max(
-            frame.progress.sequence + 1,
-            max((event.sequence for event in frame.progress.turn_events), default=-1) + 1,
-        )
-
-    @staticmethod
-    def _current_user_message(messages: list[dict[str, str]]) -> str:
-        for message in reversed(messages):
-            if message.get("role") == "user":
-                return str(message.get("content") or "")
-        return ""
 
     @staticmethod
     def _assemble_agent_run_result(
