@@ -164,7 +164,7 @@ class AgentOrchestrator:
                 execution_policy=policy,
             )
         )
-        session.register_frame(frame)
+        session.register_root_frame(frame)
         return frame
 
     @staticmethod

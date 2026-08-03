@@ -19,6 +19,7 @@ class CallRecord:
     caller_frame_id: str
     action_id: str
     status: CallRecordStatus = CallRecordStatus.SUSPENDED
+    callee_frame_id: str | None = None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -28,6 +29,20 @@ class CallRecord:
         if self.status != CallRecordStatus.SUSPENDED:
             raise RuntimeError(f"Cannot resolve CALL in state {self.status.value}.")
         self.status = CallRecordStatus.RESOLVING
+
+    def bind_callee(self, callee_frame_id: str) -> None:
+        """在解析阶段把 CALL 与唯一的 callee frame 绑定。"""
+        if self.status != CallRecordStatus.RESOLVING:
+            raise RuntimeError(f"Cannot bind callee in CALL state {self.status.value}.")
+        if not callee_frame_id:
+            raise ValueError("A callee frame id cannot be empty.")
+        if callee_frame_id == self.caller_frame_id:
+            raise ValueError("Caller and callee frame ids must be different.")
+        if self.callee_frame_id is not None:
+            raise RuntimeError(
+                "CALL record already has a callee frame: " f"{self.callee_frame_id!r}"
+            )
+        self.callee_frame_id = callee_frame_id
 
     def mark_resolved(self) -> None:
         if self.status != CallRecordStatus.RESOLVING:
@@ -42,6 +57,8 @@ class CallRecord:
     def cancel(self) -> None:
         if self.status == CallRecordStatus.APPLIED:
             raise RuntimeError("An applied CALL cannot be cancelled.")
+        if self.status == CallRecordStatus.CANCELLED:
+            return
         self.status = CallRecordStatus.CANCELLED
 
 

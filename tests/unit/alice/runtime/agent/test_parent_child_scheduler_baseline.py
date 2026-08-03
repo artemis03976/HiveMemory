@@ -49,6 +49,17 @@ def _session(frame: ExecutionFrame, *, cancel_event: asyncio.Event | None = None
     return session
 
 
+def _call_session(
+    frame: ExecutionFrame,
+    *,
+    cancel_event: asyncio.Event | None = None,
+) -> RunSession:
+    session = _session(frame, cancel_event=cancel_event)
+    record = session.register_call(frame, "action-1")
+    record.begin_resolution()
+    return session
+
+
 def _coordinator(runtime, child: ExecutionFrame, *, profile_resolver=None) -> CallCoordinator:
     return CallCoordinator(
         runtime,
@@ -136,7 +147,7 @@ async def test_call_preparation_error_is_returned_without_dispatching_child():
     response = await coordinator.resolve_call(
         caller,
         _suspension(),
-        session=_session(caller),
+        session=_call_session(caller),
         event_sink=sink,
     )
 
@@ -164,7 +175,7 @@ async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_chi
     response = await coordinator.resolve_call(
         caller,
         _suspension(),
-        session=_session(caller),
+        session=_call_session(caller),
     )
 
     assert response.status == MTPResponseStatus.ERROR
@@ -199,7 +210,7 @@ async def test_cancelled_session_reaches_child_with_same_cancel_event_before_dis
     response = await coordinator.resolve_call(
         caller,
         _suspension(),
-        session=_session(caller, cancel_event=cancel_event),
+        session=_call_session(caller, cancel_event=cancel_event),
     )
 
     assert response.status == MTPResponseStatus.CANCELLED

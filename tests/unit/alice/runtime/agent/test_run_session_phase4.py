@@ -7,7 +7,10 @@ import pytest
 from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
-from hivememory.alice.runtime.agent.run_session import RunSession
+from hivememory.alice.runtime.agent.run_session import (
+    FrameSchedulingStatus,
+    RunSession,
+)
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 
 
@@ -85,3 +88,84 @@ async def test_interleaved_sessions_keep_cancel_and_records_isolated() -> None:
     assert not session_b.cancel_event.is_set()
     assert session_a.call_records == {}
     assert session_b.call_records[("frame-b", "action-b")] is record
+
+
+def test_session_registers_root_and_callee_with_explicit_run_local_relationship() -> None:
+    session = RunSession(agent_run_id="run-a")
+    root = _frame("run-a", "frame-root", FrameExecutionPolicy())
+    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy())
+
+    session.register_root_frame(root)
+    record = session.register_call(root, "action-a")
+    record.begin_resolution()
+    session.register_callee_frame(callee, record)
+
+    assert session.root_frame_id == "frame-root"
+    assert record.callee_frame_id == "frame-callee"
+    assert session.call_for_callee("frame-callee") is record
+    assert session.frame_statuses == {
+        "frame-root": FrameSchedulingStatus.PENDING,
+        "frame-callee": FrameSchedulingStatus.PENDING,
+    }
+
+
+def test_session_enforces_single_active_frame_and_legal_transitions() -> None:
+    session = RunSession(agent_run_id="run-a")
+    root = _frame("run-a", "frame-root", FrameExecutionPolicy())
+    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy())
+    session.register_root_frame(root)
+    session.register_frame(callee)
+
+    session.transition_frame("frame-root", FrameSchedulingStatus.RUNNABLE)
+    session.transition_frame("frame-callee", FrameSchedulingStatus.RUNNABLE)
+    session.transition_frame("frame-root", FrameSchedulingStatus.RUNNING)
+    with pytest.raises(RuntimeError, match="active frame"):
+        session.transition_frame("frame-callee", FrameSchedulingStatus.RUNNING)
+
+    session.transition_frame("frame-root", FrameSchedulingStatus.WAITING)
+    session.transition_frame("frame-callee", FrameSchedulingStatus.RUNNING)
+    session.transition_frame("frame-callee", FrameSchedulingStatus.TERMINATED)
+
+    assert session.active_frame_id is None
+    with pytest.raises(RuntimeError, match="Cannot transition"):
+        session.transition_frame("frame-callee", FrameSchedulingStatus.RUNNABLE)
+
+
+def test_session_rejects_duplicate_root_callee_binding_and_cross_run_frame() -> None:
+    session = RunSession(agent_run_id="run-a")
+    root = _frame("run-a", "frame-root", FrameExecutionPolicy())
+    other_root = _frame("run-a", "frame-other", FrameExecutionPolicy())
+    cross_run = _frame("run-b", "frame-cross", FrameExecutionPolicy())
+    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy())
+    session.register_root_frame(root)
+
+    with pytest.raises(RuntimeError, match="already has a root"):
+        session.register_root_frame(other_root)
+    with pytest.raises(ValueError, match="run_id does not match"):
+        session.register_frame(cross_run)
+
+    record = session.register_call(root, "action-a")
+    record.begin_resolution()
+    session.register_callee_frame(callee, record)
+    with pytest.raises(RuntimeError, match="already exists"):
+        session.register_callee_frame(callee, record)
+
+
+def test_call_record_callee_binding_requires_resolving_and_is_exactly_once() -> None:
+    session = RunSession(agent_run_id="run-a")
+    root = _frame("run-a", "frame-root", FrameExecutionPolicy())
+    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy())
+    session.register_root_frame(root)
+    record = session.register_call(root, "action-a")
+
+    with pytest.raises(RuntimeError, match="Cannot bind callee"):
+        session.register_callee_frame(callee, record)
+
+    record.begin_resolution()
+    session.register_callee_frame(callee, record)
+    with pytest.raises(RuntimeError):
+        record.bind_callee("frame-other")
+
+    record.cancel()
+    record.cancel()
+    assert record.status.value == "cancelled"

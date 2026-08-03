@@ -74,6 +74,8 @@ def _session(caller: ExecutionFrame, *, cancel_event: asyncio.Event | None = Non
         cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
     )
     session.register_frame(caller)
+    record = session.register_call(caller, "act-1")
+    record.begin_resolution()
     return session
 
 

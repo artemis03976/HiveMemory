@@ -113,7 +113,8 @@ class CallCoordinator:
                     execution_policy=policy,
                 )
             )
-            session.register_frame(sub_frame)
+            record = session.require_call(caller_frame, action_id)
+            session.register_callee_frame(sub_frame, record)
             if event_sink is not None:
                 await event_sink.emit(
                     {
