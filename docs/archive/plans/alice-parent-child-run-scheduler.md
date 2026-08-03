@@ -1,12 +1,12 @@
 ---
 title: Alice 父子 Agent 进程调度流程收口
-status: planned
+status: completed
 owner: alice
 scope: run-local-parent-child-frame-scheduling
+archived_at: 2026-08-03
 code_paths:
   - src/hivememory/alice/runtime/core.py
-  - src/hivememory/alice/runtime/orchestrator.py
-  - src/hivememory/alice/runtime/agent/run_driver.py
+  - src/hivememory/alice/runtime/agent/run_scheduler.py
   - src/hivememory/alice/runtime/agent/run_session.py
   - src/hivememory/alice/runtime/agent/call_coordinator.py
   - src/hivememory/alice/runtime/agent/call_record.py
@@ -24,13 +24,29 @@ related_docs:
 last_reviewed: 2026-08-03
 ---
 
-# Alice 父子 Agent 进程调度流程收口计划
+# Alice 父子 Agent 进程调度流程收口计划（已完成）
+
+## 实施完成记录
+
+本计划已按 R0--R6 完成。R0--R5 的独立提交依次为 `2f3b7be`、`2c7a8b8`、`97a67af`、`7af1836`、`19c2c8b` 与 `5c98496`；R6 完成聚焦回归、完整默认测试、静态与架构审查后归档本文。
+
+最终实现由每次 run 独立创建的 `RunSession` 保存 frame registry、调度状态、CALL ledger、取消事件和流序号，由唯一 `RunScheduler._drive()` 推进 root 与 callee。`CallCoordinator` 只负责 CALL begin/complete，`AliceRuntime` 负责 root bootstrap、结果投影与流式 `done`；旧 Orchestrator 和 Driver 兼容层均已删除。当前事实以 `docs/alice/` 与 `docs/contracts/` 为准。
+
+### R6 最终审查结果
+
+- 第 12.1 节状态机矩阵已覆盖 root 四类终态、CALL 准备/恢复、callee 五类 outcome、非法 CallRecord/frame 状态、caller 进度连续性，以及 frame/run exactly-once finalization；
+- 第 12.2 节取消与并发矩阵已覆盖 dispatch 前、preparation await、callee 执行中、apply 前和 stream close，并验证交错 run 的 frame、CALL、取消与流序号隔离；
+- 第 12.3 节流与事件矩阵已覆盖容量 256 的 queue 背压、root/callee scoped metadata、start/end/done 次数与单调 stream sequence；
+- 第 12.4 节 PendingAtom 矩阵已覆盖成功 aliases、非成功清理、harvest failure、root success/cancel/failure 与 callee 禁止 finalize_run；
+- 第 12.5 节架构门禁确认 Agent Runtime 不反向依赖 Alice，RuntimeScope 无 parent/depth，只有 RunScheduler 调用 `run_frame()`，CallCoordinator 不调用 `run_frame()`/`finalize_run()`，且未恢复共享 frame/cancel 状态；
+- 第 15 节十项完成标准全部满足；没有引入 DAG、并行 callee、递归 CALL、ready queue、workflow、持久化 checkpoint 或 XML escaping 改动；
+- R6 聚焦回归结果为 `487 passed, 35 deselected`；完整默认非 live_llm/non-e2e/non-slow 门禁为 `1826 passed, 2 skipped, 140 deselected`，另有一条既存 AsyncMock 未 await 告警；R0--R5 涉及的 16 个现存 Python 文件均通过 Ruff 与 Black check。
 
 ## 1. 文档定位
 
 本文规划 Alice 当前单层串行 CALL 的下一阶段控制流收口：将分散在 `RunDriver` 与 `CallCoordinator` 中的 frame 调度责任集中为一个 run-local `RunScheduler`，使 root frame 与 callee frame 都由同一调度循环推进，同时继续保持 `AgentRuntime` 对主/子拓扑无感知。
 
-本计划是已完成的 [Alice Agent Runtime 控制流重构](../archive/plans/alice-agent-runtime-control-flow-refactor.md) 的后续完善，不是恢复旧 `FrameScheduler`，也不是否定前序重构。前序工作已经建立了 `RunSession`、`FrameExecutionResult`、`CallRecord`、`FrameFactory`、`FrameExecutionPolicy`、逐次 cancel event、统一事件 sink、`finalize_frame()/finalize_run()` 与 CALL exactly-once 回填等基础；本计划在这些边界之上补齐真正统一的父子 frame 调度流程。
+本计划是已完成的 [Alice Agent Runtime 控制流重构](./alice-agent-runtime-control-flow-refactor.md) 的后续完善，不是恢复旧 `FrameScheduler`，也不是否定前序重构。前序工作已经建立了 `RunSession`、`FrameExecutionResult`、`CallRecord`、`FrameFactory`、`FrameExecutionPolicy`、逐次 cancel event、统一事件 sink、`finalize_frame()/finalize_run()` 与 CALL exactly-once 回填等基础；本计划在这些边界之上补齐真正统一的父子 frame 调度流程。
 
 本文只解决当前父 Agent 派生一个受控 callee、等待其结束并恢复 caller 的进程流程。DAG、fan-out、fan-in、并行 specialist、递归 CALL、review loop、计划编译、动态工作流、持久化 checkpoint 与跨进程 worker 均不纳入本次实现。
 

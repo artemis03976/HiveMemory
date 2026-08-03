@@ -17,7 +17,6 @@ last_reviewed: 2026-08-03
 - [运行时状态持久化与故障恢复](./runtime-state-durability-and-recovery.md)：统一 Memory、Artifact、PendingAtom、Agent frame、工作项和恢复语义的耐久性分级；不替代 Local Work Queue 的机械设计。
 - [跨子系统幂等性与重试语义](./cross-subsystem-idempotency-and-retry.md)：统一 interaction、generation、Artifact、MemoryLibrary、PendingAtom 与生命周期操作的稳定身份、重复结果和模糊失败边界。
 - [身份隔离与执行安全](./identity-isolation-and-execution-safety.md)：收紧 Identity propagation、cache/frame 隔离、Profile fail-open 和 MTP RUN 的执行安全边界。
-- [Alice 父子 Agent 进程调度流程收口](./alice-parent-child-run-scheduler.md)：以 run-local RunScheduler 统一推进 root/callee frame，拆除 CallCoordinator 内嵌执行；不包含 DAG、并行、递归 CALL 或真实多智能体规划。
 - [复合意图分解](./composite-intent-decomposition.md)：未排期；先建立样本门禁与 composite envelope，再讨论多分支执行。
 - [v0.6.1 Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md)：以多 lane 的本地工作队列收敛 interaction submission、memory generation 与未来 runtime job 的机械生命周期。
 
