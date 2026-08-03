@@ -15,6 +15,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.products import RuntimeProducts
+from hivememory.alice.runtime.agent.call_coordinator import CallNextAction
 from hivememory.alice.runtime.agent.call_record import CallRecord
 from hivememory.alice.runtime.agent.run_session import RunSession
 
@@ -172,23 +173,21 @@ class RunDriver:
                 error=RuntimeError("Frame suspended without an orchestration callback."),
             )
 
-        record = self._register_call(frame, suspension)
-        record.begin_resolution()
-        response = await self._call_coordinator.resolve_call(
+        transition = await self._call_coordinator.resolve_call(
             frame,
             suspension,
             session=self._session,
             generation_options=generation_options,
             event_sink=event_sink,
         )
-        record.mark_resolved()
-        if self._session.cancel_event.is_set():
-            record.cancel()
+        if transition.action == CallNextAction.RESUME_CALLER:
             return None
-
-        self._agent_runtime.apply_call_response(frame, suspension, response)
-        record.mark_applied()
-        return None
+        if transition.action == CallNextAction.CANCEL_RUN:
+            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
+        raise RuntimeError(
+            "RunDriver compatibility path received an unfinished CALL transition: "
+            f"{transition.action.value!r}"
+        )
 
     def _finish(self, result: FrameExecutionResult) -> FrameExecutionResult:
         if self.terminal_result is not None:
@@ -212,16 +211,6 @@ class RunDriver:
         if cancel_event.is_set() and result.status != FrameExecutionStatus.CANCELLED:
             return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
         return result
-
-    def _register_call(
-        self,
-        frame: ExecutionFrame,
-        suspension: FrameExecutionResult,
-    ) -> CallRecord:
-        action_id = suspension.suspend_action_id
-        if not action_id:
-            raise ValueError("Suspended frame is missing a CALL action id.")
-        return self._session.register_call(frame, action_id)
 
 
 __all__ = ["RunDriver"]

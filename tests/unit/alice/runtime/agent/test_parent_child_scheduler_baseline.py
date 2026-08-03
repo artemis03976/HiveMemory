@@ -14,7 +14,10 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.products import FrameProducts
-from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
+from hivememory.alice.runtime.agent.call_coordinator import (
+    CallCoordinator,
+    CallNextAction,
+)
 from hivememory.alice.runtime.agent.run_driver import RunDriver
 from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
@@ -49,18 +52,9 @@ def _session(frame: ExecutionFrame, *, cancel_event: asyncio.Event | None = None
     return session
 
 
-def _call_session(
-    frame: ExecutionFrame,
-    *,
-    cancel_event: asyncio.Event | None = None,
-) -> RunSession:
-    session = _session(frame, cancel_event=cancel_event)
-    record = session.register_call(frame, "action-1")
-    record.begin_resolution()
-    return session
-
-
 def _coordinator(runtime, child: ExecutionFrame, *, profile_resolver=None) -> CallCoordinator:
+    if not hasattr(runtime, "apply_call_response"):
+        runtime.apply_call_response = MagicMock()
     return CallCoordinator(
         runtime,
         profile_resolver or SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
@@ -144,13 +138,15 @@ async def test_call_preparation_error_is_returned_without_dispatching_child():
     coordinator = _coordinator(runtime, child, profile_resolver=profile_resolver)
     sink = _RecordingSink()
 
-    response = await coordinator.resolve_call(
+    transition = await coordinator.resolve_call(
         caller,
         _suspension(),
-        session=_call_session(caller),
+        session=_session(caller),
         event_sink=sink,
     )
+    response = runtime.apply_call_response.call_args.args[2]
 
+    assert transition.action == CallNextAction.RESUME_CALLER
     assert response.status == MTPResponseStatus.ERROR
     assert response.error is not None
     assert response.error.code == "mtp.permission.denied"
@@ -172,12 +168,14 @@ async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_chi
     )
     coordinator = _coordinator(runtime, child)
 
-    response = await coordinator.resolve_call(
+    transition = await coordinator.resolve_call(
         caller,
         _suspension(),
-        session=_call_session(caller),
+        session=_session(caller),
     )
+    response = runtime.apply_call_response.call_args.args[2]
 
+    assert transition.action == CallNextAction.RESUME_CALLER
     assert response.status == MTPResponseStatus.ERROR
     assert response.error is not None
     assert response.error.code == "mtp.call_response.sub_agent_error"
@@ -207,13 +205,14 @@ async def test_cancelled_session_reaches_child_with_same_cancel_event_before_dis
     )
     coordinator = _coordinator(runtime, child)
 
-    response = await coordinator.resolve_call(
+    transition = await coordinator.resolve_call(
         caller,
         _suspension(),
-        session=_call_session(caller, cancel_event=cancel_event),
+        session=_session(caller, cancel_event=cancel_event),
     )
 
-    assert response.status == MTPResponseStatus.CANCELLED
+    assert transition.action == CallNextAction.CANCEL_RUN
+    runtime.apply_call_response.assert_not_called()
     runtime.run_frame.assert_awaited_once()
     runtime.finalize_frame.assert_called_once()
 

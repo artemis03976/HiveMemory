@@ -9,9 +9,13 @@ import pytest
 
 from hivememory.agent_runtime.events import QueueFrameEventSink
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.alice.runtime.agent.call_coordinator import (
+    CallNextAction,
+    CallTransition,
+)
 from hivememory.alice.runtime.agent.run_driver import RunDriver
 from hivememory.alice.runtime.agent.run_session import RunSession
-from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
+from hivememory.core.mtp import MTPCallRequest
 
 
 def _session_with(frame, *, cancel_event: asyncio.Event | None = None) -> RunSession:
@@ -57,7 +61,7 @@ async def test_run_driver_reenters_suspended_frame_with_continuous_stream_sequen
 
     async def resolve_call(_frame, _result, *, event_sink, **_kwargs):
         await event_sink.emit({"event": "sub_agent_end", "data": {"status": "success"}})
-        return MTPCallResponse(status=MTPResponseStatus.SUCCESS, agent_alias="helper")
+        return CallTransition(CallNextAction.RESUME_CALLER, _frame)
 
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     session = _session_with(frame)
@@ -107,9 +111,8 @@ async def test_run_driver_cancels_runner_when_stream_consumer_closes():
 
 
 @pytest.mark.asyncio
-async def test_run_driver_applies_each_call_record_once():
+async def test_run_driver_accepts_resumed_call_without_applying_response():
     calls = 0
-    applied = []
 
     async def run_frame(_frame, **_kwargs):
         nonlocal calls
@@ -123,13 +126,11 @@ async def test_run_driver_applies_each_call_record_once():
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
     async def resolve_call(_frame, _suspension, **_kwargs):
-        return MTPCallResponse(status=MTPResponseStatus.SUCCESS, agent_alias="helper")
+        return CallTransition(CallNextAction.RESUME_CALLER, _frame)
 
     runtime = SimpleNamespace(
         run_frame=run_frame,
-        apply_call_response=lambda frame, suspension, response: applied.append(
-            (frame, suspension, response)
-        ),
+        apply_call_response=MagicMock(),
     )
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     driver = RunDriver(
@@ -140,8 +141,7 @@ async def test_run_driver_applies_each_call_record_once():
     result = await driver.run(frame)
 
     assert result.status == FrameExecutionStatus.COMPLETED
-    assert len(applied) == 1
-    assert driver.call_records[("frame-1", "act-1")].status.value == "applied"
+    runtime.apply_call_response.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -160,7 +160,7 @@ async def test_run_driver_drops_late_call_response_after_cancel():
 
     async def resolve_call(_frame, _suspension, **_kwargs):
         cancel_event.set()
-        return MTPCallResponse(status=MTPResponseStatus.SUCCESS, agent_alias="helper")
+        return CallTransition(CallNextAction.CANCEL_RUN)
 
     runtime = SimpleNamespace(
         run_frame=run_frame,
@@ -177,7 +177,6 @@ async def test_run_driver_drops_late_call_response_after_cancel():
 
     assert result.status == FrameExecutionStatus.CANCELLED
     assert applied == []
-    assert driver.call_records[("frame-1", "act-1")].status.value == "cancelled"
 
 
 @pytest.mark.asyncio

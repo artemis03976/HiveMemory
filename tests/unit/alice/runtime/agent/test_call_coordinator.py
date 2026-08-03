@@ -10,7 +10,11 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.products import FrameProducts
-from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
+from hivememory.alice.runtime.agent.call_coordinator import (
+    CallCoordinator,
+    CallNextAction,
+    CallTransition,
+)
 from hivememory.alice.runtime.agent.call_record import CallRecord, CallRecordStatus
 from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
@@ -51,7 +55,9 @@ def _suspension(action_id: str = "act-1") -> FrameExecutionResult:
     )
 
 
-def _coordinator(runtime, child: ExecutionFrame) -> CallCoordinator:
+def _coordinator(runtime, child: ExecutionFrame, *, profile_resolver=None) -> CallCoordinator:
+    if not hasattr(runtime, "apply_call_response"):
+        runtime.apply_call_response = MagicMock()
     frame_factory = SimpleNamespace(
         scope=MagicMock(return_value=child.runtime_scope),
         create=MagicMock(return_value=child),
@@ -61,7 +67,7 @@ def _coordinator(runtime, child: ExecutionFrame) -> CallCoordinator:
     )
     return CallCoordinator(
         runtime,
-        SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
+        profile_resolver or SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
         SimpleNamespace(resolve=AsyncMock()),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
@@ -74,8 +80,6 @@ def _session(caller: ExecutionFrame, *, cancel_event: asyncio.Event | None = Non
         cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
     )
     session.register_frame(caller)
-    record = session.register_call(caller, "act-1")
-    record.begin_resolution()
     return session
 
 
@@ -132,6 +136,64 @@ def test_call_record_cancel_wins_before_apply():
         record.mark_applied()
 
 
+def test_call_transition_requires_a_frame_only_for_dispatch_or_resume():
+    caller = _frame()
+
+    with pytest.raises(ValueError, match="requires a next frame"):
+        CallTransition(CallNextAction.DISPATCH_CALLEE)
+    with pytest.raises(ValueError, match="cannot schedule"):
+        CallTransition(CallNextAction.CANCEL_RUN, caller)
+
+
+@pytest.mark.asyncio
+async def test_begin_and_complete_call_split_execution_from_coordination_phases():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    session = _session(caller)
+
+    async def resolve_profile(*_args, **_kwargs):
+        record = session.call_records[("frame-1", "act-1")]
+        assert record.status == CallRecordStatus.RESOLVING
+        return OMNI_DOLL_PROFILE
+
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        run_frame=AsyncMock(),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+        finalize_run=MagicMock(),
+        apply_call_response=MagicMock(),
+    )
+    coordinator = _coordinator(
+        runtime,
+        child,
+        profile_resolver=SimpleNamespace(resolve=AsyncMock(side_effect=resolve_profile)),
+    )
+    suspension = _suspension()
+
+    begin = await coordinator.begin_call(caller, suspension, session=session)
+
+    assert begin == CallTransition(CallNextAction.DISPATCH_CALLEE, child)
+    runtime.run_frame.assert_not_awaited()
+    record = session.call_for_callee("frame-child")
+    assert record.callee_frame_id == "frame-child"
+    assert record.status == CallRecordStatus.RESOLVING
+
+    complete = await coordinator.complete_call(
+        caller,
+        suspension,
+        child,
+        FrameExecutionResult(status=FrameExecutionStatus.COMPLETED),
+        session=session,
+    )
+
+    assert complete == CallTransition(CallNextAction.RESUME_CALLER, caller)
+    runtime.finalize_frame.assert_called_once()
+    runtime.apply_call_response.assert_called_once()
+    runtime.finalize_run.assert_not_called()
+    assert record.status == CallRecordStatus.APPLIED
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
@@ -167,14 +229,18 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
     coordinator = _coordinator(runtime, child)
     session = _session(caller)
 
-    response = await coordinator.resolve_call(caller, _suspension(), session=session)
+    transition = await coordinator.resolve_call(caller, _suspension(), session=session)
+    response = runtime.apply_call_response.call_args.args[2]
 
+    assert transition.action == CallNextAction.RESUME_CALLER
+    assert transition.next_frame is caller
     assert response.status == MTPResponseStatus.SUCCESS
     assert response.reply == "done"
     assert response.artifact_aliases == ["draft-child"]
     runtime.finalize_frame.assert_called_once_with(child, child_result)
     runtime.finalize_run.assert_not_called()
     assert session.frames["frame-child"] is child
+    assert session.call_for_callee("frame-child").status == CallRecordStatus.APPLIED
 
 
 @pytest.mark.asyncio
@@ -194,17 +260,19 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
     coordinator = _coordinator(runtime, child)
     session = _session(caller, cancel_event=cancel_event)
 
-    response = await coordinator.resolve_call(
+    transition = await coordinator.resolve_call(
         caller,
         _suspension(),
         session=session,
     )
 
-    assert response.status == MTPResponseStatus.CANCELLED
+    assert transition.action == CallNextAction.CANCEL_RUN
+    runtime.apply_call_response.assert_not_called()
     runtime.finalize_frame.assert_called_once()
     assert runtime.finalize_frame.call_args.args[0] is child
     assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.CANCELLED
     runtime.finalize_run.assert_not_called()
+    assert session.call_for_callee("frame-child").status == CallRecordStatus.CANCELLED
 
 
 @pytest.mark.asyncio

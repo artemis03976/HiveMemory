@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.events import FrameEventSink, NullFrameEventSink
@@ -39,8 +41,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class CallNextAction(str, Enum):
+    """一次 CALL 边界处理完成后交给调度器的下一步动作。"""
+
+    DISPATCH_CALLEE = "dispatch_callee"
+    RESUME_CALLER = "resume_caller"
+    CANCEL_RUN = "cancel_run"
+
+
+@dataclass(frozen=True)
+class CallTransition:
+    """CALL 协调阶段返回的窄调度结果。"""
+
+    action: CallNextAction
+    next_frame: ExecutionFrame | None = None
+
+    def __post_init__(self) -> None:
+        requires_frame = self.action in {
+            CallNextAction.DISPATCH_CALLEE,
+            CallNextAction.RESUME_CALLER,
+        }
+        if requires_frame and self.next_frame is None:
+            raise ValueError(f"CALL transition {self.action.value!r} requires a next frame.")
+        if self.action == CallNextAction.CANCEL_RUN and self.next_frame is not None:
+            raise ValueError("A cancelled run cannot schedule another frame.")
+
+
 class CallCoordinator:
-    """Resolve one CALL and return the existing caller-facing response model."""
+    """把 CALL suspension 转换为 callee dispatch 或 caller resume。"""
 
     def __init__(
         self,
@@ -57,7 +85,7 @@ class CallCoordinator:
         self._frame_factory = frame_factory
         self._prompt_assembler = prompt_assembler
 
-    async def resolve_call(
+    async def begin_call(
         self,
         caller_frame: ExecutionFrame,
         suspension: FrameExecutionResult,
@@ -65,23 +93,20 @@ class CallCoordinator:
         session: RunSession,
         generation_options: dict[str, Any] | None = None,
         event_sink: FrameEventSink | None = None,
-    ) -> MTPCallResponse:
-        call_request = suspension.call_request
-        if suspension.status != FrameExecutionStatus.SUSPENDED or call_request is None:
-            raise ValueError("CALL coordinator requires a suspended frame result.")
+    ) -> CallTransition:
+        """同步登记 CALL 后准备 callee；准备失败时直接恢复 caller。"""
+        call_request, action_id = self._require_suspension(suspension)
         session.require_frame(caller_frame)
+        record = session.register_call(caller_frame, action_id)
+        record.begin_resolution()
 
-        action_id = suspension.suspend_action_id
         logger.info(
             "CALL suspend: target=%s, task=%r",
             call_request.target_alias,
             call_request.task[:80],
         )
 
-        sub_frame: ExecutionFrame | None = None
         sub_profile: AgentProfile | None = None
-        sub_result: FrameExecutionResult | None = None
-        call_response: MTPCallResponse | None = None
         try:
             sub_profile = await self._agent_profile_resolver.resolve(
                 call_request.target_alias,
@@ -113,147 +138,332 @@ class CallCoordinator:
                     execution_policy=policy,
                 )
             )
-            record = session.require_call(caller_frame, action_id)
-            session.register_callee_frame(sub_frame, record)
-            if event_sink is not None:
-                await event_sink.emit(
-                    {
-                        "event": "sub_agent_start",
-                        "data": {
-                            "agent_id": call_request.target_alias,
-                            "task": call_request.task,
-                            "iteration": caller_frame.progress.iteration,
-                            "action_id": action_id,
-                            "scope": "sub",
-                            "depth": 1,
-                            "frame_id": sub_frame.runtime_scope.frame_id,
-                        },
-                    }
-                )
-
-            sub_sink: FrameEventSink = NullFrameEventSink()
-            if event_sink is not None:
-                sub_sink = ScopedFrameEventSink(
-                    event_sink,
-                    metadata=self._event_metadata_for_frame(sub_frame, action_id),
-                )
-            sub_result = await self._agent_runtime.run_frame(
-                frame=sub_frame,
-                generation_options=generation_options,
-                event_sink=sub_sink,
-                cancel_event=session.cancel_event,
-            )
-
-            call_response = self._call_response_for_frame(
-                call_request,
-                sub_result,
-                cancelled=session.cancel_event.is_set(),
-            )
         except MTPError as error:
             logger.warning("CALL rejected for %r: %s", call_request.target_alias, error.code)
-            call_response = MTPCallResponse(
+            response = MTPCallResponse(
                 status=MTPResponseStatus.ERROR,
                 agent_alias=call_request.target_alias,
                 error=error.to_error_info(),
             )
+            return await self._complete_preparation(
+                caller_frame,
+                suspension,
+                response,
+                session=session,
+                event_sink=event_sink,
+            )
         except Exception as error:
-            logger.error("Sub-agent execution failed: %s", error, exc_info=True)
+            logger.error("Sub-agent preparation failed: %s", error, exc_info=True)
+            response = self._response_for_exception(
+                call_request.target_alias,
+                error,
+                profile=sub_profile,
+                generation_options=generation_options,
+            )
+            return await self._complete_preparation(
+                caller_frame,
+                suspension,
+                response,
+                session=session,
+                event_sink=event_sink,
+            )
+
+        # Session 绑定失败属于编排不变量，不能伪装成 Agent 可消费的 CALL error。
+        session.register_callee_frame(sub_frame, record)
+        if event_sink is not None:
+            await event_sink.emit(
+                {
+                    "event": "sub_agent_start",
+                    "data": {
+                        "agent_id": call_request.target_alias,
+                        "task": call_request.task,
+                        "iteration": caller_frame.progress.iteration,
+                        "action_id": action_id,
+                        "scope": "sub",
+                        "depth": 1,
+                        "frame_id": sub_frame.runtime_scope.frame_id,
+                    },
+                }
+            )
+        return CallTransition(CallNextAction.DISPATCH_CALLEE, sub_frame)
+
+    async def complete_call(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        callee_frame: ExecutionFrame,
+        callee_result: FrameExecutionResult,
+        *,
+        session: RunSession,
+        generation_options: dict[str, Any] | None = None,
+        event_sink: FrameEventSink | None = None,
+    ) -> CallTransition:
+        """把 callee outcome 收口为 caller 可消费的 CALL response。"""
+        call_request, action_id = self._require_suspension(suspension)
+        session.require_frame(caller_frame)
+        session.require_frame(callee_frame)
+        record = session.call_for_callee(callee_frame.runtime_scope.frame_id)
+        if record.caller_frame_id != caller_frame.runtime_scope.frame_id:
+            raise ValueError("Callee CALL record does not belong to the supplied caller frame.")
+        if record.action_id != action_id:
+            raise ValueError("Callee CALL record action does not match the suspension.")
+
+        response = self._call_response_for_frame(
+            call_request,
+            callee_result,
+            cancelled=session.cancel_event.is_set(),
+        )
+        if callee_result.status == FrameExecutionStatus.FAILED and callee_result.error is not None:
             from hivememory.system.model_registry import ModelNotFoundError
 
-            if isinstance(error, ModelNotFoundError):
-                error_info = AgentModelUnavailableError(
-                    params={
-                        "agent_alias": call_request.target_alias,
-                        "model_name": (
-                            (generation_options or {}).get("model")
-                            or getattr(sub_profile, "model_name", "unknown")
-                        ),
-                    },
-                    cause=error,
-                ).to_error_info()
-            else:
-                error_info = SubAgentExecutionError(
-                    params={"agent_alias": call_request.target_alias},
-                    cause=error,
-                ).to_error_info()
-            call_response = MTPCallResponse(
-                status=MTPResponseStatus.ERROR,
-                agent_alias=call_request.target_alias,
-                error=error_info,
-            )
-        if call_response is None:
-            call_response = MTPCallResponse(
-                status=MTPResponseStatus.ERROR,
-                agent_alias=call_request.target_alias,
-                error=SubAgentExecutionError(
-                    params={"agent_alias": call_request.target_alias},
-                ).to_error_info(),
-            )
+            if isinstance(callee_result.error, ModelNotFoundError):
+                response = self._response_for_exception(
+                    call_request.target_alias,
+                    callee_result.error,
+                    profile=callee_frame.agent_profile,
+                    generation_options=generation_options,
+                )
 
-        frame_products = FrameProducts()
-        if sub_frame is not None:
-            finalization_result = self._frame_result_for_finalization(
-                sub_result,
-                call_response,
-            )
-            try:
-                frame_products = self._agent_runtime.finalize_frame(
-                    sub_frame,
-                    finalization_result,
-                )
-            except Exception as error:
-                logger.error("Failed to finalize sub-agent frame: %s", error, exc_info=True)
-                call_response = MTPCallResponse(
-                    status=MTPResponseStatus.ERROR,
-                    agent_alias=call_request.target_alias,
-                    error=SubAgentExecutionError(
-                        params={"agent_alias": call_request.target_alias},
-                        cause=error,
-                    ).to_error_info(),
-                )
-                sub_result = FrameExecutionResult(
-                    status=FrameExecutionStatus.FAILED,
-                    error=error,
-                )
-                if finalization_result.status == FrameExecutionStatus.COMPLETED:
-                    try:
-                        self._agent_runtime.finalize_frame(sub_frame, sub_result)
-                    except Exception:
-                        logger.exception("Failed to clean up sub-agent frame after harvest error")
-
+        response, effective_result, frame_products = self._finalize_callee(
+            callee_frame,
+            callee_result,
+            response,
+            agent_alias=call_request.target_alias,
+        )
         if (
-            sub_frame is not None
-            and sub_result is not None
-            and sub_result.status == FrameExecutionStatus.COMPLETED
-            and call_response.status == MTPResponseStatus.SUCCESS
+            effective_result.status == FrameExecutionStatus.COMPLETED
+            and response.status == MTPResponseStatus.SUCCESS
         ):
-            call_response = call_response.model_copy(
+            response = response.model_copy(
                 update={
-                    "reply": "".join(sub_frame.progress.text_segments),
+                    "reply": "".join(callee_frame.progress.text_segments),
                     "artifact_aliases": list(frame_products.artifact_aliases),
                 }
             )
 
-        if event_sink is not None:
-            end_data: dict[str, Any] = {
-                "status": call_response.status.value,
-                "final_text": (
-                    call_response.reply if call_response.status == MTPResponseStatus.SUCCESS else ""
-                ),
-                "iteration": caller_frame.progress.iteration,
-                "action_id": action_id,
-                "scope": "sub",
-                "depth": 1,
-                "frame_id": sub_frame.runtime_scope.frame_id if sub_frame is not None else None,
-                "agent_id": call_request.target_alias,
-            }
-            if sub_result is not None:
-                end_data["terminal_status"] = sub_result.status.value
-            if call_response.error is not None:
-                end_data["error_code"] = call_response.error.code
-            await event_sink.emit({"event": "sub_agent_end", "data": end_data})
+        record.mark_resolved()
+        await self._emit_call_end(
+            caller_frame,
+            action_id=action_id,
+            agent_alias=call_request.target_alias,
+            response=response,
+            callee_frame=callee_frame,
+            callee_result=effective_result,
+            event_sink=event_sink,
+        )
+        return self._apply_or_cancel(
+            caller_frame,
+            suspension,
+            response,
+            record=record,
+            session=session,
+        )
 
-        return call_response
+    async def resolve_call(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        *,
+        session: RunSession,
+        generation_options: dict[str, Any] | None = None,
+        event_sink: FrameEventSink | None = None,
+    ) -> CallTransition:
+        """R2 兼容壳：暂时保留旧的嵌套 callee 执行路径。"""
+        transition = await self.begin_call(
+            caller_frame,
+            suspension,
+            session=session,
+            generation_options=generation_options,
+            event_sink=event_sink,
+        )
+        if transition.action != CallNextAction.DISPATCH_CALLEE:
+            return transition
+
+        callee_frame = transition.next_frame
+        if callee_frame is None:
+            raise RuntimeError("CALL dispatch transition is missing its callee frame.")
+        action_id = suspension.suspend_action_id
+        sub_sink: FrameEventSink = NullFrameEventSink()
+        if event_sink is not None:
+            sub_sink = ScopedFrameEventSink(
+                event_sink,
+                metadata=self._event_metadata_for_frame(callee_frame, action_id),
+            )
+        try:
+            callee_result = await self._agent_runtime.run_frame(
+                frame=callee_frame,
+                generation_options=generation_options,
+                event_sink=sub_sink,
+                cancel_event=session.cancel_event,
+            )
+        except Exception as error:
+            callee_result = FrameExecutionResult(
+                status=FrameExecutionStatus.FAILED,
+                error=error,
+            )
+        return await self.complete_call(
+            caller_frame,
+            suspension,
+            callee_frame,
+            callee_result,
+            session=session,
+            generation_options=generation_options,
+            event_sink=event_sink,
+        )
+
+    async def _complete_preparation(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        response: MTPCallResponse,
+        *,
+        session: RunSession,
+        event_sink: FrameEventSink | None,
+    ) -> CallTransition:
+        call_request, action_id = self._require_suspension(suspension)
+        record = session.require_call(caller_frame, action_id)
+        record.mark_resolved()
+        await self._emit_call_end(
+            caller_frame,
+            action_id=action_id,
+            agent_alias=call_request.target_alias,
+            response=response,
+            callee_frame=None,
+            callee_result=None,
+            event_sink=event_sink,
+        )
+        return self._apply_or_cancel(
+            caller_frame,
+            suspension,
+            response,
+            record=record,
+            session=session,
+        )
+
+    def _apply_or_cancel(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        response: MTPCallResponse,
+        *,
+        record,
+        session: RunSession,
+    ) -> CallTransition:
+        if session.cancel_event.is_set():
+            record.cancel()
+            return CallTransition(CallNextAction.CANCEL_RUN)
+        self._agent_runtime.apply_call_response(caller_frame, suspension, response)
+        record.mark_applied()
+        return CallTransition(CallNextAction.RESUME_CALLER, caller_frame)
+
+    def _finalize_callee(
+        self,
+        callee_frame: ExecutionFrame,
+        callee_result: FrameExecutionResult,
+        response: MTPCallResponse,
+        *,
+        agent_alias: str,
+    ) -> tuple[MTPCallResponse, FrameExecutionResult, FrameProducts]:
+        frame_products = FrameProducts()
+        finalization_result = self._frame_result_for_finalization(callee_result, response)
+        try:
+            frame_products = self._agent_runtime.finalize_frame(
+                callee_frame,
+                finalization_result,
+            )
+        except Exception as error:
+            logger.error("Failed to finalize sub-agent frame: %s", error, exc_info=True)
+            response = MTPCallResponse(
+                status=MTPResponseStatus.ERROR,
+                agent_alias=agent_alias,
+                error=SubAgentExecutionError(
+                    params={"agent_alias": agent_alias},
+                    cause=error,
+                ).to_error_info(),
+            )
+            callee_result = FrameExecutionResult(
+                status=FrameExecutionStatus.FAILED,
+                error=error,
+            )
+            if finalization_result.status == FrameExecutionStatus.COMPLETED:
+                try:
+                    self._agent_runtime.finalize_frame(callee_frame, callee_result)
+                except Exception:
+                    logger.exception("Failed to clean up sub-agent frame after harvest error")
+        return response, callee_result, frame_products
+
+    async def _emit_call_end(
+        self,
+        caller_frame: ExecutionFrame,
+        *,
+        action_id: str,
+        agent_alias: str,
+        response: MTPCallResponse,
+        callee_frame: ExecutionFrame | None,
+        callee_result: FrameExecutionResult | None,
+        event_sink: FrameEventSink | None,
+    ) -> None:
+        if event_sink is None:
+            return
+        end_data: dict[str, Any] = {
+            "status": response.status.value,
+            "final_text": response.reply if response.status == MTPResponseStatus.SUCCESS else "",
+            "iteration": caller_frame.progress.iteration,
+            "action_id": action_id,
+            "scope": "sub",
+            "depth": 1,
+            "frame_id": (callee_frame.runtime_scope.frame_id if callee_frame is not None else None),
+            "agent_id": agent_alias,
+        }
+        if callee_result is not None:
+            end_data["terminal_status"] = callee_result.status.value
+        if response.error is not None:
+            end_data["error_code"] = response.error.code
+        await event_sink.emit({"event": "sub_agent_end", "data": end_data})
+
+    @staticmethod
+    def _require_suspension(
+        suspension: FrameExecutionResult,
+    ) -> tuple[Any, str]:
+        call_request = suspension.call_request
+        action_id = suspension.suspend_action_id
+        if suspension.status != FrameExecutionStatus.SUSPENDED or call_request is None:
+            raise ValueError("CALL coordinator requires a suspended frame result.")
+        if not action_id:
+            raise ValueError("CALL suspension is missing its action id.")
+        return call_request, action_id
+
+    @staticmethod
+    def _response_for_exception(
+        agent_alias: str,
+        error: Exception,
+        *,
+        profile: AgentProfile | None,
+        generation_options: dict[str, Any] | None,
+    ) -> MTPCallResponse:
+        from hivememory.system.model_registry import ModelNotFoundError
+
+        if isinstance(error, ModelNotFoundError):
+            error_info = AgentModelUnavailableError(
+                params={
+                    "agent_alias": agent_alias,
+                    "model_name": (
+                        (generation_options or {}).get("model")
+                        or getattr(profile, "model_name", "unknown")
+                    ),
+                },
+                cause=error,
+            ).to_error_info()
+        else:
+            error_info = SubAgentExecutionError(
+                params={"agent_alias": agent_alias},
+                cause=error,
+            ).to_error_info()
+        return MTPCallResponse(
+            status=MTPResponseStatus.ERROR,
+            agent_alias=agent_alias,
+            error=error_info,
+        )
 
     @staticmethod
     def _call_response_for_frame(
@@ -359,4 +569,4 @@ class CallCoordinator:
         }
 
 
-__all__ = ["CallCoordinator"]
+__all__ = ["CallCoordinator", "CallNextAction", "CallTransition"]
