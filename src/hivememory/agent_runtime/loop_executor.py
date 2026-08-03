@@ -71,18 +71,40 @@ class AgentLoopExecutor:
         cancel_event: asyncio.Event | None,
     ) -> GenerationResult | FrameExecutionResult:
         if not sink.wants_token_stream:
-            return await self.worker_agent.generate_async(
-                frame.working_history,
-                cancel_event=cancel_event,
-                **(generation_options or {}),
-            )
+            try:
+                return await self.worker_agent.generate_async(
+                    frame.working_history,
+                    cancel_event=cancel_event,
+                    **(generation_options or {}),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logger.error("Frame generation failed: %s", error, exc_info=True)
+                return FrameExecutionResult(
+                    status=FrameExecutionStatus.FAILED,
+                    error=error,
+                )
 
         result: GenerationResult | None = None
-        async for chunk in self.worker_agent.generate_stream(
+        chunks = self.worker_agent.generate_stream(
             frame.working_history,
             cancel_event=cancel_event,
             **(generation_options or {}),
-        ):
+        ).__aiter__()
+        while True:
+            try:
+                chunk = await anext(chunks)
+            except StopAsyncIteration:
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logger.error("Streaming frame generation failed: %s", error, exc_info=True)
+                return FrameExecutionResult(
+                    status=FrameExecutionStatus.FAILED,
+                    error=error,
+                )
             if chunk.is_final:
                 result = chunk.result
                 break

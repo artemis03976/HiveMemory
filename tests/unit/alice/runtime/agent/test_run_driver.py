@@ -33,6 +33,7 @@ class _CallCoordinatorStub:
         self.emit_end = emit_end
         self.child = None
         self.callee_results = []
+        self.cancel_calls = 0
 
     async def begin_call(self, caller, suspension, *, session, **_kwargs):
         record = session.register_call(caller, suspension.suspend_action_id)
@@ -68,6 +69,11 @@ class _CallCoordinatorStub:
             return CallTransition(CallNextAction.CANCEL_RUN)
         record.mark_applied()
         return CallTransition(CallNextAction.RESUME_CALLER, caller)
+
+    def cancel_call(self, caller, suspension, *, session):
+        self.cancel_calls += 1
+        record = session.require_call(caller, suspension.suspend_action_id)
+        record.cancel()
 
 
 @pytest.mark.asyncio
@@ -185,6 +191,90 @@ async def test_run_driver_cancels_runner_when_stream_consumer_closes():
     await asyncio.wait_for(runner_cancelled.wait(), timeout=1)
 
     assert first_event["event"] == "token"
+
+
+@pytest.mark.asyncio
+async def test_run_scheduler_cleans_active_call_when_stream_consumer_closes():
+    root_calls = 0
+
+    async def run_frame(frame, *, event_sink, **_kwargs):
+        nonlocal root_calls
+        if frame.runtime_scope.frame_id == "frame-child":
+            await event_sink.emit({"event": "token", "data": {"content": "child"}})
+            await asyncio.Event().wait()
+        root_calls += 1
+        await event_sink.emit({"event": "token", "data": {"content": "root"}})
+        return FrameExecutionResult(
+            status=FrameExecutionStatus.SUSPENDED,
+            call_request=MTPCallRequest(target_alias="helper", task="task"),
+            suspend_action_id="act-1",
+        )
+
+    finalize_run = MagicMock()
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    session = _session_with(frame)
+    coordinator = _CallCoordinatorStub()
+    scheduler = RunDriver(
+        SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run),
+        session=session,
+        call_coordinator=coordinator,
+    )
+    stream = scheduler.run_stream(frame)
+
+    assert (await anext(stream))["data"]["content"] == "root"
+    assert (await anext(stream))["data"]["content"] == "child"
+    await stream.aclose()
+
+    assert coordinator.cancel_calls == 1
+    assert session.cancel_event.is_set()
+    assert session.active_frame_id is None
+    assert session.frame_statuses == {
+        "frame-1": FrameSchedulingStatus.TERMINATED,
+        "frame-child": FrameSchedulingStatus.TERMINATED,
+    }
+    assert session.call_records[("frame-1", "act-1")].status.value == "cancelled"
+    finalize_run.assert_called_once()
+    assert finalize_run.call_args.args[1].status == FrameExecutionStatus.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_run_scheduler_cancels_record_during_call_preparation_await():
+    preparation_started = asyncio.Event()
+
+    class BlockingPreparationCoordinator(_CallCoordinatorStub):
+        async def begin_call(self, caller, suspension, *, session, **_kwargs):
+            record = session.register_call(caller, suspension.suspend_action_id)
+            record.begin_resolution()
+            preparation_started.set()
+            await asyncio.Event().wait()
+
+    async def run_frame(_frame, *, event_sink, **_kwargs):
+        await event_sink.emit({"event": "token", "data": {"content": "root"}})
+        return FrameExecutionResult(
+            status=FrameExecutionStatus.SUSPENDED,
+            call_request=MTPCallRequest(target_alias="helper", task="task"),
+            suspend_action_id="act-1",
+        )
+
+    finalize_run = MagicMock()
+    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    session = _session_with(frame)
+    coordinator = BlockingPreparationCoordinator()
+    scheduler = RunDriver(
+        SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run),
+        session=session,
+        call_coordinator=coordinator,
+    )
+    stream = scheduler.run_stream(frame)
+
+    await anext(stream)
+    await asyncio.wait_for(preparation_started.wait(), timeout=1)
+    await stream.aclose()
+
+    assert coordinator.cancel_calls == 1
+    assert session.call_records[("frame-1", "act-1")].status.value == "cancelled"
+    assert session.frame_statuses == {"frame-1": FrameSchedulingStatus.TERMINATED}
+    finalize_run.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -194,6 +194,33 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
     assert record.status == CallRecordStatus.APPLIED
 
 
+@pytest.mark.asyncio
+async def test_cancel_call_finalizes_bound_child_once_without_applying_response():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    session = _session(caller)
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+        apply_call_response=MagicMock(),
+    )
+    coordinator = _coordinator(runtime, child)
+    suspension = _suspension()
+    begin = await coordinator.begin_call(caller, suspension, session=session)
+    assert begin.action == CallNextAction.DISPATCH_CALLEE
+
+    session.cancel_event.set()
+    coordinator.cancel_call(caller, suspension, session=session)
+    coordinator.cancel_call(caller, suspension, session=session)
+
+    runtime.finalize_frame.assert_called_once()
+    assert runtime.finalize_frame.call_args.args[0] is child
+    assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.CANCELLED
+    runtime.apply_call_response.assert_not_called()
+    assert session.call_for_callee("frame-child").status == CallRecordStatus.CANCELLED
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
@@ -260,7 +287,6 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
     child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
     child_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
     cancel_event = asyncio.Event()
-    cancel_event.set()
     runtime = SimpleNamespace(
         max_iterations=8,
         run_frame=AsyncMock(return_value=child_result),
@@ -273,6 +299,7 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
     suspension = _suspension()
     begin = await coordinator.begin_call(caller, suspension, session=session)
     assert begin.action == CallNextAction.DISPATCH_CALLEE
+    cancel_event.set()
     transition = await coordinator.complete_call(
         caller,
         suspension,

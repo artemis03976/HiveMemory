@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.alice.runtime.agent.call_record import CallRecord
+from hivememory.alice.runtime.agent.call_record import CallRecord, CallRecordStatus
 
 
 class FrameSchedulingStatus(str, Enum):
@@ -172,6 +172,12 @@ class RunSession:
                 f"Callee frame has no CALL record in this RunSession: {callee_frame_id!r}"
             )
         return record
+
+    def cancel_unapplied_calls(self) -> None:
+        """协程取消时只终止当前 run 中尚未回填的 CALL。"""
+        for record in self.call_records.values():
+            if record.status not in {CallRecordStatus.APPLIED, CallRecordStatus.CANCELLED}:
+                record.cancel()
 
     def _validate_frame_for_registration(self, frame: ExecutionFrame) -> None:
         frame_id = frame.runtime_scope.frame_id

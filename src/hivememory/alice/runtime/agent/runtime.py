@@ -11,6 +11,7 @@ from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
 from hivememory.agent_runtime.worker_agent import WorkerAgentService
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
+from hivememory.system.model_registry import ModelNotFoundError
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.models import ExecutionFrame
@@ -74,7 +75,14 @@ class AgentRuntime:
         cancel_event=None,
     ) -> FrameExecutionResult:
         """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
-        generation_options = self._resolve_model_for_frame(frame, generation_options)
+        try:
+            generation_options = self._resolve_model_for_frame(frame, generation_options)
+        except ModelNotFoundError as error:
+            logger.error("Frame model resolution failed: %s", error)
+            return FrameExecutionResult(
+                status=FrameExecutionStatus.FAILED,
+                error=error,
+            )
         max_iterations = frame.execution_policy.max_iterations or self._max_iterations
         return await self._loop_executor.execute_frame(
             frame=frame,
@@ -166,7 +174,7 @@ class AgentRuntime:
         设计原则：
         - 注册表未注入（model_registry 为 None）时，由调用方通过 generation_options
           直接传 model；WorkerAgentService 缺 model 时会抛出明确错误。
-        - 注册表解析失败不捕获，让错误向上传播——静默降级到"某个"模型不是用户意图。
+        - 注册表解析失败由 run_frame 稳定投影为 FAILED，不静默降级到其他模型。
         """
         if self._model_registry is None:
             return generation_options or {}
@@ -190,7 +198,7 @@ class AgentRuntime:
 
         max_tokens_override = session_opts.get("max_tokens")
 
-        # 解析失败向上传播（model_name 不在注册表中属于配置错误，应立即暴露）
+        # 解析失败由 run_frame 转为 frame FAILED，由 Scheduler 按 root/callee 关系解释。
         llm_config, display_name = self._model_registry.resolve(
             effective_model_name,
             temperature_override=temperature_override,

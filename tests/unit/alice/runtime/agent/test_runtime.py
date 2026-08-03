@@ -1,5 +1,9 @@
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from hivememory.agent_runtime.events import NullFrameEventSink
 from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -16,6 +20,7 @@ from hivememory.core.models import (
     TurnEvent,
 )
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.model_registry import ModelNotFoundError
 
 
 def _runtime_with_pending(pending_runtime: PendingAtomRuntime) -> AgentRuntime:
@@ -63,6 +68,32 @@ def test_agent_runtime_accepts_injected_loop_executor():
     )
 
     assert runtime._loop_executor is injected
+
+
+@pytest.mark.asyncio
+async def test_run_frame_maps_missing_model_to_failed_outcome():
+    loop_executor = SimpleNamespace(
+        config=SimpleNamespace(max_loop_iterations=8),
+        execute_frame=AsyncMock(),
+    )
+    model_registry = MagicMock()
+    error = ModelNotFoundError("missing")
+    model_registry.resolve.side_effect = error
+    runtime = AgentRuntime(
+        mtp_executor=MagicMock(),
+        alice_config=MagicMock(),
+        loop_executor=loop_executor,
+        model_registry=model_registry,
+    )
+
+    result = await runtime.run_frame(
+        _frame(),
+        event_sink=NullFrameEventSink(),
+    )
+
+    assert result.status == FrameExecutionStatus.FAILED
+    assert result.error is error
+    loop_executor.execute_frame.assert_not_awaited()
 
 
 def test_finalize_completed_frame_projects_pending_and_update_aliases():

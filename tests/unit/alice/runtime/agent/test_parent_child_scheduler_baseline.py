@@ -191,7 +191,7 @@ async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_chi
 
 
 @pytest.mark.asyncio
-async def test_cancelled_session_reaches_child_with_same_cancel_event_before_dispatch():
+async def test_cancelled_session_stops_call_before_dispatch():
     caller = _frame()
     child = _frame("frame-child")
     cancel_event = asyncio.Event()
@@ -218,25 +218,11 @@ async def test_cancelled_session_reaches_child_with_same_cancel_event_before_dis
         suspension,
         session=session,
     )
-    assert begin.action == CallNextAction.DISPATCH_CALLEE
-    child_result = await runtime.run_frame(
-        frame=child,
-        generation_options=None,
-        event_sink=SimpleNamespace(),
-        cancel_event=cancel_event,
-    )
-    transition = await coordinator.complete_call(
-        caller,
-        suspension,
-        child,
-        child_result,
-        session=session,
-    )
-
-    assert transition.action == CallNextAction.CANCEL_RUN
+    assert begin.action == CallNextAction.CANCEL_RUN
     runtime.apply_call_response.assert_not_called()
-    runtime.run_frame.assert_awaited_once()
-    runtime.finalize_frame.assert_called_once()
+    runtime.run_frame.assert_not_awaited()
+    runtime.finalize_frame.assert_not_called()
+    assert session.call_records[("frame-root", "action-1")].status.value == "cancelled"
 
 
 def test_run_scheduler_is_the_only_alice_run_frame_caller():

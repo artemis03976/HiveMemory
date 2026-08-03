@@ -142,12 +142,16 @@ class RunScheduler:
                     event_sink,
                 )
 
-            result = await self._agent_runtime.run_frame(
-                current_frame,
-                generation_options=generation_options,
-                event_sink=current_sink,
-                cancel_event=self._session.cancel_event,
-            )
+            try:
+                result = await self._agent_runtime.run_frame(
+                    current_frame,
+                    generation_options=generation_options,
+                    event_sink=current_sink,
+                    cancel_event=self._session.cancel_event,
+                )
+            except asyncio.CancelledError:
+                self._abort_cancelled_run(root_frame, pending_suspension)
+                raise
 
             if current_frame is root_frame:
                 if result.status == FrameExecutionStatus.SUSPENDED:
@@ -162,12 +166,17 @@ class RunScheduler:
                                 error=RuntimeError("Frame suspended without a CALL coordinator."),
                             )
                         )
-                    transition = await self._begin_call(
-                        root_frame,
-                        result,
-                        generation_options=generation_options,
-                        event_sink=event_sink,
-                    )
+                    pending_suspension = result
+                    try:
+                        transition = await self._begin_call(
+                            root_frame,
+                            result,
+                            generation_options=generation_options,
+                            event_sink=event_sink,
+                        )
+                    except asyncio.CancelledError:
+                        self._abort_cancelled_run(root_frame, pending_suspension)
+                        raise
                     if transition.action == CallNextAction.DISPATCH_CALLEE:
                         next_frame = self._require_transition_frame(transition.next_frame)
                         self._session.transition_frame(
@@ -178,7 +187,6 @@ class RunScheduler:
                             next_frame.runtime_scope.frame_id,
                             FrameSchedulingStatus.RUNNABLE,
                         )
-                        pending_suspension = result
                         current_frame = next_frame
                         continue
                     if transition.action == CallNextAction.RESUME_CALLER:
@@ -186,6 +194,7 @@ class RunScheduler:
                             root_frame_id,
                             FrameSchedulingStatus.RUNNABLE,
                         )
+                        pending_suspension = None
                         continue
                     return self._cancel_root(root_frame_id)
 
@@ -208,14 +217,18 @@ class RunScheduler:
                     f"RunScheduler received an unsupported root status: {result.status!r}"
                 )
 
-            transition = await self._complete_call(
-                root_frame,
-                pending_suspension,
-                current_frame,
-                result,
-                generation_options=generation_options,
-                event_sink=event_sink,
-            )
+            try:
+                transition = await self._complete_call(
+                    root_frame,
+                    pending_suspension,
+                    current_frame,
+                    result,
+                    generation_options=generation_options,
+                    event_sink=event_sink,
+                )
+            except asyncio.CancelledError:
+                self._abort_cancelled_run(root_frame, pending_suspension)
+                raise
             self._session.transition_frame(
                 current_frame_id,
                 FrameSchedulingStatus.TERMINATED,
@@ -282,6 +295,36 @@ class RunScheduler:
                 FrameSchedulingStatus.TERMINATED,
             )
         return self._finish(FrameExecutionResult(status=FrameExecutionStatus.CANCELLED))
+
+    def _abort_cancelled_run(
+        self,
+        root_frame: ExecutionFrame,
+        suspension: FrameExecutionResult | None,
+    ) -> None:
+        """协程取消时只清理当前 Session，并保持 frame/run exactly-once 收尾。"""
+        self._session.cancel_event.set()
+        if suspension is not None and self._call_coordinator is not None:
+            action_id = suspension.suspend_action_id
+            key = (root_frame.runtime_scope.frame_id, action_id)
+            record = self._session.call_records.get(key) if action_id else None
+            if record is not None:
+                self._call_coordinator.cancel_call(
+                    root_frame,
+                    suspension,
+                    session=self._session,
+                )
+                if record.callee_frame_id is not None:
+                    self._terminate_frame_if_needed(record.callee_frame_id)
+
+        self._session.cancel_unapplied_calls()
+        self._terminate_frame_if_needed(root_frame.runtime_scope.frame_id)
+        if self.terminal_result is None:
+            self._finish(FrameExecutionResult(status=FrameExecutionStatus.CANCELLED))
+
+    def _terminate_frame_if_needed(self, frame_id: str) -> None:
+        status = self._session.frame_statuses.get(frame_id)
+        if status is not None and status != FrameSchedulingStatus.TERMINATED:
+            self._session.transition_frame(frame_id, FrameSchedulingStatus.TERMINATED)
 
     def _finish(self, result: FrameExecutionResult) -> FrameExecutionResult:
         if self.terminal_result is not None:

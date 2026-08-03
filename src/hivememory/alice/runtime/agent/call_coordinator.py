@@ -14,6 +14,7 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts
+from hivememory.alice.runtime.agent.call_record import CallRecordStatus
 from hivememory.alice.runtime.agent.event_sink import ScopedFrameEventSink
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
 from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
@@ -100,6 +101,15 @@ class CallCoordinator:
         record = session.register_call(caller_frame, action_id)
         record.begin_resolution()
 
+        if session.cancel_event.is_set():
+            return await self._complete_preparation(
+                caller_frame,
+                suspension,
+                self._cancelled_response(call_request.target_alias),
+                session=session,
+                event_sink=event_sink,
+            )
+
         logger.info(
             "CALL suspend: target=%s, task=%r",
             call_request.target_alias,
@@ -112,11 +122,27 @@ class CallCoordinator:
                 call_request.target_alias,
                 identity=caller_frame.identity,
             )
+            if session.cancel_event.is_set():
+                return await self._complete_preparation(
+                    caller_frame,
+                    suspension,
+                    self._cancelled_response(call_request.target_alias),
+                    session=session,
+                    event_sink=event_sink,
+                )
             shared_context = await self._fetch_context_refs_content(
                 aliases=call_request.context_refs,
                 identity=caller_frame.identity,
                 language=getattr(caller_frame.agent_profile, "language", None),
             )
+            if session.cancel_event.is_set():
+                return await self._complete_preparation(
+                    caller_frame,
+                    suspension,
+                    self._cancelled_response(call_request.target_alias),
+                    session=session,
+                    event_sink=event_sink,
+                )
             policy = FrameExecutionPolicy.from_profile(
                 sub_profile,
                 max_iterations=getattr(self._agent_runtime, "max_iterations", None),
@@ -271,6 +297,31 @@ class CallCoordinator:
             metadata=self._event_metadata_for_frame(callee_frame, action_id),
         )
 
+    def cancel_call(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        *,
+        session: RunSession,
+    ) -> None:
+        """协程取消时收尾未 apply 的 CALL，不发布事件也不回填 caller。"""
+        _, action_id = self._require_suspension(suspension)
+        record = session.require_call(caller_frame, action_id)
+        if record.status in {CallRecordStatus.APPLIED, CallRecordStatus.CANCELLED}:
+            return
+
+        # RESOLVED 表示 callee 已完成逻辑收尾；只在仍为 RESOLVING 时清理 frame。
+        if record.status == CallRecordStatus.RESOLVING and record.callee_frame_id is not None:
+            callee_frame = session.frames[record.callee_frame_id]
+            try:
+                self._agent_runtime.finalize_frame(
+                    callee_frame,
+                    FrameExecutionResult(status=FrameExecutionStatus.CANCELLED),
+                )
+            except Exception:
+                logger.exception("Failed to finalize cancelled sub-agent frame")
+        record.cancel()
+
     async def _complete_preparation(
         self,
         caller_frame: ExecutionFrame,
@@ -423,6 +474,13 @@ class CallCoordinator:
             status=MTPResponseStatus.ERROR,
             agent_alias=agent_alias,
             error=error_info,
+        )
+
+    @staticmethod
+    def _cancelled_response(agent_alias: str) -> MTPCallResponse:
+        return MTPCallResponse(
+            status=MTPResponseStatus.CANCELLED,
+            agent_alias=agent_alias,
         )
 
     @staticmethod

@@ -202,6 +202,58 @@ async def test_missing_mtp_result_returns_failed():
 
 
 @pytest.mark.asyncio
+async def test_generation_failure_returns_failed_frame_outcome():
+    frame = _make_frame()
+    executor, _kernel = _build_executor([])
+    error = RuntimeError("provider unavailable")
+    executor.worker_agent.generate_async = AsyncMock(side_effect=error)
+
+    result = await executor.execute_frame(frame, max_iterations=2)
+
+    assert result.status == FrameExecutionStatus.FAILED
+    assert result.error is error
+
+
+@pytest.mark.asyncio
+async def test_stream_generation_failure_returns_failed_frame_outcome():
+    frame = _make_frame()
+    executor, _kernel = _build_executor([])
+    error = RuntimeError("stream unavailable")
+
+    async def fail_stream(*_args, **_kwargs):
+        if False:
+            yield None
+        raise error
+
+    class StreamingSink:
+        wants_token_stream = True
+
+        async def emit(self, _event):
+            return None
+
+    executor.worker_agent.generate_stream = fail_stream
+
+    result = await executor.execute_frame(
+        frame,
+        max_iterations=2,
+        event_sink=StreamingSink(),
+    )
+
+    assert result.status == FrameExecutionStatus.FAILED
+    assert result.error is error
+
+
+@pytest.mark.asyncio
+async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
+    frame = _make_frame()
+    executor, _kernel = _build_executor([])
+    executor.worker_agent.generate_async = AsyncMock(side_effect=asyncio.CancelledError())
+
+    with pytest.raises(asyncio.CancelledError):
+        await executor.execute_frame(frame, max_iterations=2)
+
+
+@pytest.mark.asyncio
 async def test_natural_stop_no_prefix_no_extra_events():
     """没有 MTP 的情况下，turn_events 只有一个事件"""
     frame = _make_frame()
