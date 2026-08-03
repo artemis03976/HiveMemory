@@ -319,6 +319,7 @@ class CallCoordinator:
         session: RunSession,
         run_output: AgentRunOutput,
     ) -> CallTransition:
+        """CALL 准备失败/取消的收尾路径：结算 record 并回填错误或取消响应。"""
         call_request, action_id = self._require_suspension(suspension)
         record = session.require_call(caller_frame, action_id)
         record.mark_resolved()
@@ -348,6 +349,7 @@ class CallCoordinator:
         record,
         session: RunSession,
     ) -> CallTransition:
+        """根据取消状态决定：取消整个 run，或 exactly-once 回填 caller。"""
         if session.cancel_event.is_set():
             record.cancel()
             return CallTransition(CallNextAction.CANCEL_RUN)
@@ -530,6 +532,11 @@ class CallCoordinator:
         identity: Identity,
         language: str | None = None,
     ) -> str:
+        """逐项解析 context_refs 并用 MemoryCompiler 编译为子 Agent 共享上下文。
+
+        单个 ref 解析失败仅记录 warning 并跳过；全部失败时返回空串，子 Agent
+        仍只带 task 运行（见 docs/alice/orchestration.md §3.2）。
+        """
         if not aliases:
             return ""
         compiler = MemoryCompiler()

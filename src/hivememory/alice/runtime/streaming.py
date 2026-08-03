@@ -24,6 +24,8 @@ from hivememory.alice.orchestration.run_session import RunSession
 
 
 class _BoundFrameOutputSink:
+    """为单个 frame 绑定固定元数据的 FrameOutputSink 适配。"""
+
     def __init__(
         self,
         output: QueueAgentRunOutput,
@@ -196,6 +198,7 @@ class AgentRunStreamAdapter:
 
 
 def _project_frame_output(output: FrameOutput) -> tuple[str, dict[str, Any]]:
+    """把强类型 frame 输出投影为兼容的交互事件名与数据。"""
     if isinstance(output, TokenDelta):
         return "token", {"content": output.content}
     if isinstance(output, MTPStarted):

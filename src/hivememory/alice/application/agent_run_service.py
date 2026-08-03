@@ -1,3 +1,11 @@
+"""Alice 对外 Agent run 用例。
+
+AgentRunService 是 Alice 的公开 run 用例入口：创建 root frame、为每次 run
+构造 run-local RunScheduler、组装 ``AgentRunResult``，并在流式终态后发出
+唯一 done（见 docs/alice/orchestration.md §1）。queue / runner task /
+stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 
 class StreamExitReason(str, Enum):
+    """流式 run 的结束原因，决定终态事件发布与收尾路径。"""
+
     RUNNING = "running"
     TERMINAL = "terminal"
     FAILED = "failed"

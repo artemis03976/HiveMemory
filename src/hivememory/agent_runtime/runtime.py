@@ -97,7 +97,7 @@ class AgentRuntime:
         suspension: FrameExecutionResult,
         response: MTPCallResponse,
     ) -> None:
-        """Apply one resolved CALL response to the suspended frame exactly once."""
+        """把一次已结算的 CALL response 恰好一次地回填到挂起的 caller frame。"""
         if suspension.status != FrameExecutionStatus.SUSPENDED:
             raise ValueError("CALL response requires a suspended frame result.")
         call_request = suspension.call_request
@@ -242,7 +242,7 @@ class AgentRuntime:
         frame: ExecutionFrame,
         result: FrameExecutionResult,
     ) -> FrameProducts:
-        """Project successful frame artifacts or clean up an unsuccessful frame."""
+        """收割成功子帧的产物 alias；失败/取消的子帧则清理其 PendingAtom。"""
         frame_id = frame.runtime_scope.frame_id
         if result.status != FrameExecutionStatus.COMPLETED:
             self._pending_runtime.cancel_frame(frame_id)
@@ -268,7 +268,7 @@ class AgentRuntime:
         run_id: str,
         result: FrameExecutionResult,
     ) -> RuntimeProducts:
-        """Finalize one root run without interpreting frame topology."""
+        """收尾一个根 run：认领物化任务，或取消未结算的 PendingAtom。"""
         if result.status != FrameExecutionStatus.COMPLETED:
             self._pending_runtime.cancel_run(run_id)
             return RuntimeProducts()
@@ -279,6 +279,7 @@ class AgentRuntime:
         return RuntimeProducts(materialize_tasks=tuple(tasks))
 
     def health(self) -> dict[str, Any]:
+        """返回运行时的静态健康状态（依赖的活跃性由业务层探测）。"""
         return {"loop_executor": "ok", "worker_agent": "ok"}
 
 

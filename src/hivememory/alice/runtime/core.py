@@ -90,6 +90,7 @@ class AliceRuntime:
         logger.warning("PendingAtom marked CANCELLED: %s", pending_alias)
 
     async def _refresh_l1_cache_for_settlement(self, settlement) -> None:
+        """结算后按 canonical 别名刷新 L1 热缓存，避免后续 READ 读到旧内容。"""
         canonical_alias = settlement.canonical_alias
         if not canonical_alias:
             return

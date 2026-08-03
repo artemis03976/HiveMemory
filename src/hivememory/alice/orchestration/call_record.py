@@ -5,6 +5,8 @@ from enum import Enum
 
 
 class CallRecordStatus(str, Enum):
+    """CALL 记账生命周期：挂起 → 解析中 → 已结算 → 已回填 / 已取消。"""
+
     SUSPENDED = "suspended"
     RESOLVING = "resolving"
     RESOLVED = "resolved"
@@ -14,7 +16,7 @@ class CallRecordStatus(str, Enum):
 
 @dataclass
 class CallRecord:
-    """Run-local state for one caller frame/action pair."""
+    """一个 caller frame/action 对在 run 内的 CALL 记账状态。"""
 
     caller_frame_id: str
     action_id: str

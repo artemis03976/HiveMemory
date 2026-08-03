@@ -109,7 +109,7 @@ class RuntimeAliasResolver:
         alias: str,
         context: Optional["MTPExecutionContext"] = None,
     ) -> ResolveResult:
-        """Resolve an L0 pending entry, including settled redirect states."""
+        """解析 L0 pending 命中，包括已结算后的 redirect 状态。"""
         settlement = pending.settlement
 
         if pending.status.is_in_flight:

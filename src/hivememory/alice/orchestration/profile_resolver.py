@@ -30,6 +30,7 @@ class AgentProfileCache:
 
     @staticmethod
     def key(alias: str, identity: Identity) -> tuple[str, str, str | None, str]:
+        """构造 cache key：(user, agent, team, alias) 四维。"""
         return (identity.user_id, identity.agent_id, identity.team_id, alias)
 
     def get(self, alias: str, identity: Identity) -> AgentProfile | None:
@@ -52,7 +53,7 @@ class AgentProfileCache:
 
 
 class AgentProfileResolver:
-    """Resolve AgentProfile by alias with identity-scoped caching."""
+    """把可读 agent alias 解析为人偶图纸，并按 Identity 作用域缓存。"""
 
     def __init__(self, local_bus: AliceBus) -> None:
         self._local_bus = local_bus
@@ -79,8 +80,8 @@ class AgentProfileResolver:
         if cached is not None:
             return cached
 
-        # Cache misses are serialized so concurrent requests cannot race an authorization
-        # result into another request's cache entry. The cache key itself is identity-scoped.
+        # 并发 cache miss 通过锁串行复查，避免一个身份的授权结果污染另一个请求的
+        # 缓存条目；cache key 本身已按 Identity 作用域隔离。
         async with self._load_lock:
             cached = self._cache.get(normalized_alias, identity)
             if cached is not None:

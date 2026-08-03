@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class MTPExecutor(ABC):
-    """Narrow port used by AgentRuntime to execute MTP commands."""
+    """AgentRuntime 消费的最窄 MTP 执行端口。"""
 
     @abstractmethod
     async def intercept_and_execute(
@@ -27,7 +27,7 @@ class MTPExecutor(ABC):
 
 
 class KoakumaMTPExecutor(MTPExecutor):
-    """MTPExecutor adapter backed by KoakumaRuntime."""
+    """由 KoakumaRuntime 支撑的 MTPExecutor 适配器。"""
 
     def __init__(self, koakuma: KoakumaRuntime) -> None:
         self._koakuma = koakuma

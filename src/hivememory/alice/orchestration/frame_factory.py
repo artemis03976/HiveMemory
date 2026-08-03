@@ -11,6 +11,8 @@ from hivememory.core.models import AgentProfile, Identity, RuntimeScope, TurnEve
 
 @dataclass(frozen=True)
 class FrameSpec:
+    """创建 ExecutionFrame 的不可变规格。"""
+
     runtime_scope: RuntimeScope
     profile: AgentProfile
     identity: Identity
@@ -20,7 +22,11 @@ class FrameSpec:
 
 
 class FrameFactory:
-    """Stateless constructor for ordinary execution frames."""
+    """无状态创建普通 ExecutionFrame 的工厂。
+
+    不表达主/子拓扑：父子关系只记录在 RunSession 的 frame registry 与
+    CallRecord 中（见 docs/alice/orchestration.md §2）。
+    """
 
     def create(self, spec: FrameSpec) -> ExecutionFrame:
         return ExecutionFrame(
@@ -35,7 +41,7 @@ class FrameFactory:
 
     @staticmethod
     def _initial_progress(messages: Sequence[dict[str, str]]) -> ExecutionProgress:
-        """Seed a new frame journal with its latest user input."""
+        """把最新一条 user 消息作为 TurnEvent 写入新帧日志首位。"""
         for message in reversed(messages):
             if message.get("role") != "user":
                 continue
@@ -57,6 +63,7 @@ class FrameFactory:
 
     @staticmethod
     def scope(*, run_id: str, frame_id: str | None = None) -> RuntimeScope:
+        """生成唯一且无拓扑含义的 run/frame 坐标（无 parent_frame_id / depth）。"""
         return RuntimeScope(run_id=run_id, frame_id=frame_id or f"frame_{uuid4().hex}")
 
 

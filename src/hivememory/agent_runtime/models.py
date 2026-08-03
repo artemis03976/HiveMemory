@@ -1,8 +1,8 @@
-"""Runtime data models for Alice agent execution.
+"""Alice 单 Agent 执行层的运行时数据模型。
 
 PendingAtom / PendingAtomStatus / RuntimeScope 已上移到 ``core/models/pending.py``
 （见 docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2），新代码请从 ``hivememory.core.models``
-导入。本模块保留 alice runtime 自己的执行壳：
+导入。本模块保留 agent_runtime 自己的执行壳：
 ``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``，
 以及引擎↔编排解耦所需的执行信号 ``FrameExecutionResult`` / ``ExecutionProgress``
 （见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1 / §3.1bis）。
@@ -40,10 +40,12 @@ class ExecutionProgress:
 @dataclass
 class ExecutionFrame:
     """
-    Runtime frame for one agent generation loop.
+    一次单 Agent 执行的可恢复进程控制块（PCB）。
 
-    An ExecutionFrame carries the isolated state needed to run one agent
-    without storing per-frame identity and permissions on the shared runtime.
+    ExecutionFrame 携带运行一个 Agent 所需的隔离状态，使共享 runtime 无需
+    保存 per-frame 的 identity 与权限。执行进度（正文、事件、迭代与序号）
+    全部放在 ``progress`` 上，CALL 挂起后重入同一 frame 可自然续接
+    （见 docs/alice/agent-runtime.md §2）。
     """
 
     runtime_scope: RuntimeScope
@@ -61,11 +63,11 @@ class ExecutionFrame:
     progress: ExecutionProgress = field(default_factory=ExecutionProgress)
 
     def is_transient(self) -> bool:
-        """Return True when this frame is not mounted to a topic."""
+        """判断本帧是否未挂载话题（子帧为瞬态帧，topic_id 为 None）。"""
         return self.topic_id is None
 
     def add_harvested_alias(self, alias: str) -> None:
-        """Record a WRITE/UPDATE alias once."""
+        """去重登记一次 WRITE/UPDATE 产生的 alias（供 finalize_frame 收割）。"""
         if alias and alias not in self.harvested_aliases:
             self.harvested_aliases.append(alias)
 
@@ -80,7 +82,7 @@ class ExecutionFrame:
 
 @dataclass(frozen=True)
 class MTPExecutionContext:
-    """Identity and permission context for a single MTP command execution."""
+    """单条 MTP 指令执行时的身份、权限与运行坐标上下文。"""
 
     identity: Identity = field(default_factory=Identity)
     agent_profile: Any = None
@@ -91,7 +93,7 @@ class MTPExecutionContext:
 
 @dataclass
 class GenerationResult:
-    """Structured result for one LLM generation."""
+    """一次 LLM 生成的结构化结果。"""
 
     text: str = ""
     finish_reason: str = "stop"
@@ -105,7 +107,7 @@ class GenerationResult:
 
 @dataclass
 class StreamChunk:
-    """Single chunk emitted by streaming generation."""
+    """流式生成发出的单个 chunk。"""
 
     delta: str = ""
     full_text: str = ""
@@ -144,7 +146,7 @@ class FrameExecutionResult:
     # ---- status == SUSPENDED 时填充 ----
     # 触发 CALL 的派生请求（target_alias / task / context_refs）。
     call_request: MTPCallRequest | None = None
-    # WorkerAgent already normalizes the suspended MTP text with a right delimiter.
+    # WorkerAgent 已为被 stop sequence 截断的挂起文本补全右定界符。
     suspend_assistant_text: str | None = None
     # 供编排回填 tool_result TurnEvent 的 action_id。
     suspend_action_id: str | None = None

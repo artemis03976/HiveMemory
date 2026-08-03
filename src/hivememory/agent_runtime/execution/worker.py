@@ -107,7 +107,7 @@ class WorkerAgentService:
 
     @staticmethod
     def _normalize_mtp_interrupted_text(text: str, last_open: int) -> str:
-        """Normalize stop-sequence-truncated MTP text before downstream parsing."""
+        """为被 stop sequence 截断的 MTP 文本补全右定界符，供下游解析。"""
         if last_open == -1:
             return text
         mtp_fragment = text[last_open:]
@@ -190,6 +190,7 @@ class WorkerAgentService:
         cancel_event: asyncio.Event | None,
         completion_kwargs: dict[str, Any],
     ) -> Any:
+        """让 LLM 请求与 cancel_event 竞争；取消命中时主动取消 completion task。"""
         completion_task = asyncio.create_task(litellm.acompletion(**completion_kwargs))
         if cancel_event is None:
             return await completion_task

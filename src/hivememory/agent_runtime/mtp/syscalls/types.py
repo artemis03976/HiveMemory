@@ -1,4 +1,4 @@
-"""syscall common type definitions."""
+"""syscall 公共类型定义。"""
 
 from dataclasses import dataclass
 from typing import Callable

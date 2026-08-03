@@ -18,6 +18,8 @@ class FrameSchedulingStatus(str, Enum):
     TERMINATED = "terminated"
 
 
+# 单 frame 调度状态机：TERMINATED 无后继；任一时刻最多一个 RUNNING frame。
+# 典型轨迹见 docs/alice/orchestration.md §2。
 _ALLOWED_FRAME_TRANSITIONS: dict[
     FrameSchedulingStatus,
     frozenset[FrameSchedulingStatus],
@@ -44,7 +46,11 @@ _ALLOWED_FRAME_TRANSITIONS: dict[
 
 @dataclass
 class RunSession:
-    """Mutable state owned by exactly one Alice run."""
+    """一次 Alice run 独占的可变状态（run-local 控制面）。
+
+    保存帧注册表、CALL 记账与取消信号；不存在进程级挂起栈，也不保存
+    传输层 stream sequence（见 docs/alice/orchestration.md §1 / §2）。
+    """
 
     agent_run_id: str
     generation_id: str | None = None

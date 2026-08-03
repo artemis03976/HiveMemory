@@ -445,7 +445,7 @@ class KoakumaRuntime:
             self._filter_parser.parse(filter_str) if filter_str else (None, [])
         )
 
-        # Let StorageOfflineError / StorageReadError propagate to _route_and_execute
+        # 让 StorageOfflineError / StorageReadError 继续向上传播到 _route_and_execute 统一处理
         result = await self._bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request=RetrievalRequest(
@@ -831,7 +831,7 @@ class KoakumaRuntime:
                     params={"verb": "CALL"},
                 )
 
-        # 1. Validate target and task after the frame policy check above.
+        # 1. 在 frame policy 检查之后校验 target 与 task。
         target_alias = command.target.single_alias
         if not target_alias:
             raise InvalidArgumentError(message_key="mtp.call.missing_single_target")

@@ -1,4 +1,8 @@
-"""Alice cross-system bus bridge."""
+"""Alice 跨系统总线桥接。
+
+负责把 Alice 本地能力桥接到系统级总线：注册公开路由、在本地总线上代理
+Patchouli 公开能力、订阅 PendingAtom 结算事件（见 docs/alice/orchestration.md §1）。
+"""
 
 from __future__ import annotations
 
@@ -18,13 +22,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class AlicePublicApi:
-    """Public Alice API surface mounted by AliceBridge."""
+    """由 AliceBridge 挂载的 Alice 公开 API 面。"""
 
     agent: AgentRunService
 
 
 class AliceBridge:
-    """Bridge Alice local capabilities to system-level buses.
+    """把 Alice 本地能力桥接到系统级总线。
 
     职责：
         - 公开路由：将 Alice 的 run_agent / run_agent_stream 挂载到全局总线

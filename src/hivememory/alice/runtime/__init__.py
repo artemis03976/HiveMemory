@@ -1,4 +1,4 @@
-"""Alice runtime exports."""
+"""Alice 进程级运行时导出。"""
 
 from hivememory.alice.runtime.core import AliceRuntime
 

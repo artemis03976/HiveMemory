@@ -73,6 +73,7 @@ class AgentLoopExecutor:
         sink: FrameOutputSink,
         cancel_event: asyncio.Event | None,
     ) -> GenerationResult | FrameExecutionResult:
+        """执行一轮 LLM 生成：按 sink 是否输出 token 选择完整 / 流式路径。"""
         if not sink.streams_tokens:
             try:
                 return await self.worker_agent.generate_async(
@@ -347,7 +348,7 @@ class AgentLoopExecutor:
         return FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
 
     def _extract_command_info(self, command, raw_hint):
-        """从 MTP 命令中提取信息"""
+        """从解析出的 MTP 命令中提取 verb 提示、target 与 args，用于事件投影。"""
         if command.target.is_wildcard:
             target_hint = "*"
         elif command.target.aliases:

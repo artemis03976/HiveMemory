@@ -12,11 +12,15 @@ from typing import Any, Protocol
 
 @dataclass(frozen=True, slots=True)
 class TokenDelta:
+    """模型生成的自然语言增量（尚未检测到 MTP 左定界符）。"""
+
     content: str
 
 
 @dataclass(frozen=True, slots=True)
 class MTPStarted:
+    """Runtime 已识别并准备执行一条 MTP 指令。"""
+
     verb: str
     target: str
     args: dict[str, Any]
@@ -27,6 +31,8 @@ class MTPStarted:
 
 @dataclass(frozen=True, slots=True)
 class MTPFinished:
+    """一条 MTP 指令执行完成后的结构化终态。"""
+
     verb: str
     target: str
     args: dict[str, Any]

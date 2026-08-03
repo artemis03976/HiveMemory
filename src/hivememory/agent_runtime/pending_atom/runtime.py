@@ -56,7 +56,7 @@ class PendingAtomRuntime:
         self._store = _PendingAtomStore()
 
     def _set_status(self, atom: PendingAtom, target: PendingAtomStatus) -> None:
-        """Apply one legal PendingAtom lifecycle transition."""
+        """执行一次合法的 PendingAtom 生命周期迁移，非法迁移抛出异常。"""
         if not is_legal_transition(atom.status, target):
             raise InvalidStateTransition(
                 f"PendingAtom '{atom.pending_alias}': "
@@ -148,7 +148,7 @@ class PendingAtomRuntime:
         self._set_status(atom, PendingAtomStatus.FAILED)
 
     def cancel(self, pending_alias: str, reason: str | None = None) -> None:
-        """Move an in-flight atom to CANCELLED."""
+        """把 in-flight 状态的 atom 迁移到 CANCELLED。"""
         atom = self._store.get(pending_alias)
         if atom is None:
             logger.warning(f"cancel() skipped: alias={pending_alias}, status=not found")
@@ -162,7 +162,7 @@ class PendingAtomRuntime:
         self._set_status(atom, PendingAtomStatus.CANCELLED)
 
     def cancel_run(self, run_id: str, reason: str | None = None) -> list[str]:
-        """Cancel all in-flight pending atoms produced by one runtime run."""
+        """取消一个 run 产生的全部 in-flight PendingAtom。"""
         cancelled: list[str] = []
         for atom in self._store.all_atoms():
             if atom.runtime_scope.run_id != run_id:
@@ -177,7 +177,7 @@ class PendingAtomRuntime:
         return cancelled
 
     def cancel_frame(self, frame_id: str, reason: str | None = None) -> list[str]:
-        """Cancel all in-flight pending atoms produced by one execution frame."""
+        """取消一个执行 frame 产生的全部 in-flight PendingAtom。"""
         cancelled: list[str] = []
         for atom in self._store.all_atoms():
             if atom.runtime_scope.frame_id != frame_id:
@@ -192,7 +192,7 @@ class PendingAtomRuntime:
         return cancelled
 
     def expire(self, pending_alias: str) -> None:
-        """Move one PENDING atom to EXPIRED."""
+        """把 PENDING 状态的 atom 迁移到 EXPIRED。"""
         atom = self._store.get(pending_alias)
         if atom is None:
             logger.warning(f"expire() skipped: alias={pending_alias}, status=not found")
@@ -200,7 +200,7 @@ class PendingAtomRuntime:
         self._set_status(atom, PendingAtomStatus.EXPIRED)
 
     def start_materializing(self, pending_alias: str) -> None:
-        """Move one atom from PENDING to MATERIALIZING."""
+        """把 PENDING 状态的 atom 迁移到 MATERIALIZING。"""
         atom = self._store.get(pending_alias)
         if atom is None:
             logger.warning(
@@ -221,11 +221,13 @@ class PendingAtomRuntime:
         return tasks
 
     def settle(self, settlement: PendingAtomSettlement) -> None:
-        """
-        Apply a settlement from the generation pipeline to update pending atom state.
+        """应用来自生成管线的一次 settlement，更新 pending atom 状态。
+
+        settlement 的 intent 必须与原 PendingAtom 匹配（见 docs/alice/pending-atom.md §8），
+        匹配失败只记录 warning 并跳过，不破坏既有状态。
 
         Args:
-            settlement: PendingAtomSettlement instance
+            settlement: PendingAtomSettlement 结算视图
         """
         pending_alias = settlement.pending_alias
         atom = self._store.get(pending_alias)
@@ -300,7 +302,7 @@ class PendingAtomRuntime:
         return self._store.all_atoms()
 
     def aliases_by_frame(self, frame_id: str) -> list[str]:
-        """Return aliases produced by one execution frame."""
+        """返回一个执行 frame 产生的 pending alias 列表。"""
         return [
             atom.pending_alias
             for atom in self._store.all_atoms()
@@ -308,7 +310,7 @@ class PendingAtomRuntime:
         ]
 
     def pending_aliases_by_run(self, run_id: str) -> list[str]:
-        """Return materializable aliases produced by one run."""
+        """返回一个 run 内仍为 PENDING 的可物化 alias 列表。"""
         return [
             atom.pending_alias
             for atom in self._store.all_atoms()
