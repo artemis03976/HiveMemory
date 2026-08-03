@@ -17,7 +17,7 @@ related_docs:
   - docs/alice/mtp-runtime.md
   - docs/alice/orchestration.md
   - docs/todo/frontend-identity-ownership.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-03
 ---
 
 # 身份隔离与执行安全计划
@@ -33,7 +33,7 @@ HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profil
 | Memory visibility | MemoryAtom 有 user/team/session/visibility，Patchouli 是可见性所有者 | 某些别名 L0/L1 cache 命中不会再次按调用 Identity 校验 |
 | PendingAtom | atom 保存 identity，Alice 通过 alias/intent 解析 | 进程级 cache/store 与并发 run 共享，跨用户隔离尚未完全成立 |
 | Agent Profile | Profile 作为 MemoryAtom，通过 retrieval/alias 发现 | alias cache 进程级、失效不完整；显式 Profile 加载失败与未指定 Profile 的 Omni-Doll fallback 语义混淆 |
-| Agent run/frame | `ExecutionFrame`、`RunSession` 与 frame policy | frame registry、CALL record、取消信号和流序号已按 run 隔离；跨用户身份与缓存隔离仍待验证 |
+| Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy 与 `AgentRunStreamAdapter` | frame registry、CALL record、取消信号、输出队列和流序号已按 run 隔离；跨用户身份与缓存隔离仍待验证 |
 | MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证，部分身份/权限重新校验仍需收紧 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
 | Frontend identity | 前端已有默认 user id 和待办的 identity store 方向 | UI 字段不是认证/授权边界，多个请求可能使用不同默认身份；切换时 cache/stream 清理不完整 |
@@ -114,7 +114,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ### Phase S2：Run-local 执行隔离（基础已完成）
 
-1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 cancel token、frame registry、CALL record、流序号和运行预算收敛为 run-local 状态；
+1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 cancel token、frame registry 和 CALL record 收敛为 run-local 状态；流式输出队列与流序号由每次 run 独占的 `AgentRunStreamAdapter/QueueAgentRunOutput` 持有，运行预算由 frame policy 持有；
 2. 继续验证并发 Agent run 的 CALL、READ、WRITE、citation、PendingAtom 和 cancel 不会跨用户或 workspace 交叉；
 3. 已完成：被调用 frame 继承 caller Identity，CALL 权限由 `FrameExecutionPolicy` 和 Profile capability 硬检查，不再以 depth 作为控制依据；
 4. 明确恢复/重试时不能复用已经失效的授权快照。

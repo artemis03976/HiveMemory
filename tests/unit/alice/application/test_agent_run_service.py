@@ -4,12 +4,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
 from hivememory.alice.runtime.core import AliceRuntime
+from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
+from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Identity,
@@ -23,7 +26,8 @@ from hivememory.core.protocol.models import AgentRunContext, AgentRunStatus, Ret
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
+from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
+from hivememory.system.runtime.publisher import RuntimeEventPublisher
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -78,7 +82,10 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
         atom_cache=runtime.atom_cache,
-        runtime_events=runtime_events,
+        stream_adapter=AgentRunStreamAdapter(),
+        agent_run_events=AgentRunEventEmitter(
+            RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
+        ),
     )
     return runtime, service
 
@@ -133,6 +140,7 @@ async def test_run_agent_correlates_runtime_scope_and_generation_id():
     session = created_sessions[0]
     assert session.generation_id == "generation-1"
     assert session.agent_run_id == recorder.events[0].agent_run_id
+    assert recorder.events[0].generation_id == "generation-1"
     assert session.cancel_event is cancel_event
     assert runtime._agent_runtime.run_frame.await_args.kwargs["cancel_event"] is cancel_event
 
@@ -175,9 +183,9 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     context = _build_agent_run_context(_build_memory_atom())
     received_cancel_events = []
 
-    async def _run_frame(_frame, *, event_sink, cancel_event, **_kwargs):
+    async def _run_frame(_frame, *, output_sink, cancel_event, **_kwargs):
         received_cancel_events.append(cancel_event)
-        await event_sink.emit({"event": "token", "data": {"content": "hi"}})
+        await output_sink.send(TokenDelta(content="hi"))
         await asyncio.Event().wait()
 
     runtime._agent_runtime.run_frame = _run_frame
@@ -221,11 +229,10 @@ async def test_run_agent_stream_without_scheduler_terminal_fails_cleanly():
     context = _build_agent_run_context(_build_memory_atom())
     cancel_event = asyncio.Event()
 
-    async def _stream(*_args, **_kwargs):
-        yield {"event": "token", "data": {"content": "hi"}}
-
     scheduler = MagicMock()
-    scheduler.run_stream = _stream
+    scheduler.run = AsyncMock(
+        return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+    )
     scheduler.terminal_result = None
     with patch(
         "hivememory.alice.application.agent_run_service.RunScheduler",

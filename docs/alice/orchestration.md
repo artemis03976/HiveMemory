@@ -10,6 +10,9 @@ code_paths:
   - src/hivememory/alice/orchestration/call_coordinator.py
   - src/hivememory/alice/orchestration/frame_factory.py
   - src/hivememory/alice/orchestration/profile_resolver.py
+  - src/hivememory/alice/orchestration/run_output.py
+  - src/hivememory/alice/runtime/streaming.py
+  - src/hivememory/alice/runtime/runtime_events.py
   - src/hivememory/prompts/assembler.py
 related_contracts:
   - docs/contracts/mtp.md
@@ -28,13 +31,18 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 
 ```text
 AgentRunService
-  ├─ root frame bootstrap / AgentRunResult / stream done
+  ├─ public run API / root frame bootstrap / AgentRunResult / stream done
   ├─ RunSession
   │    ├─ frame registry / scheduling status / CallRecord ledger
   │    ├─ cancel event
-  │    └─ stream sequence
   ├─ RunScheduler
   │    └─ one active-frame loop for root and callee + run finalization
+  ├─ AgentRunOutput
+  │    └─ frame output binding + CALL boundary output
+  ├─ AgentRunStreamAdapter
+  │    └─ bounded queue / runner task / stream sequence / disconnect cancellation
+  ├─ AgentRunEventEmitter
+  │    └─ global best-effort agent.run.* observability
   ├─ CallCoordinator
   │    └─ begin/complete CALL, profile/context resolution, response apply
   ├─ FrameFactory
@@ -47,10 +55,12 @@ AgentRunService
        └─ run one frame to completed / suspended / cancelled / failed / budget_exhausted
 ```
 
-- AgentRunService 是 Alice 的公开 run 用例入口，负责创建 root frame、为每次 run 构造 Scheduler、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；
+- AgentRunService 是 Alice 的公开 run 用例入口，负责创建 root frame、为每次 run 构造 Scheduler、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
 - AliceSystem 是子系统装配根；AliceRuntime 只持有进程级执行资源和 PendingAtom 运行时投影，不参与单次 run 的控制链；
-- RunSession 拥有一次 run 的 frame registry、CALL record、取消信号和流序号，不存在进程级挂起栈；
+- RunSession 拥有一次 run 的 frame registry、CALL record 和取消信号，不存在进程级挂起栈，也不保存传输层 stream sequence；
 - RunScheduler 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件，同时推进 root 与 callee，也是唯一调用 `finalize_run()` 的位置；
+- AgentRunOutput 是调度与当前请求交互输出之间的窄端口；非流式使用 null 实现，流式使用 Alice runtime 的 queue-backed 实现；
+- AgentRunStreamAdapter 只负责流式传输适配，AgentRunEventEmitter 只负责全局观测投影，两者不进入 Scheduler 状态机；
 - CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：准备 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不运行 frame，也不收尾整个 run；
 - FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
 - ProfileResolver 负责把可读 agent alias 解析为运行图纸；
@@ -180,7 +190,9 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - 子帧自身的 token/MTP 事件：`scope=sub`，并带 depth/frame_id；
 - `sub_agent_end`：最终 success/error/cancelled、子帧 `terminal_status`、目标 alias 与 frame id；success 携带 reply，error 携带稳定 `error_code`。
 
-这些事件服务实时 UI 与调试，不是业务结果来源。每次流式 run 使用容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；sink 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最终 `done.AgentRunResult.turn_events` 才是交给 Patchouli 的结构化一轮事实；RuntimeEvent 则只记录主 `agent.run.*` 生命周期。
+这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。`AgentRunStreamAdapter` 为每次流式 run 创建容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；`QueueAgentRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最终 `done.AgentRunResult.turn_events` 才是交给 Patchouli 的结构化一轮事实。
+
+交互输出不会自动转发到 RuntimeEventBus。后者只通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压与断流取消语义。即使二者包含相同的 `agent_run_id/generation_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
 
 ## 8. 失败、取消与降级
 
@@ -190,7 +202,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - 子帧预算耗尽和意外再次挂起分别使用 `mtp.call_response.budget_exhausted` 和 `mtp.call_response.unexpected_suspend`；子帧取消则保持 cancelled 终态；
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
 - run 取消 token 会传给主/子 AgentRuntime；最终主结果为 cancelled，并取消本 run 尚未结算的 PendingAtom，不交出 materialize tasks；
-- 流生成器提前关闭时，AgentRunService 只设置当前 RunSession 的 cancel token，并显式关闭 Scheduler stream；Scheduler 取消本 run 尚未 apply 的 CALL，收尾已创建 callee 与 root，且不再向关闭的 consumer 阻塞发送事件；
+- 流生成器提前关闭时，AgentRunService 设置当前 RunSession 的 cancel token，并关闭 AgentRunStream；适配器取消 runner task，Scheduler 随协程取消清理本 run 尚未 apply 的 CALL，收尾已创建 callee 与 root，且不再向关闭的 consumer 阻塞发送事件；
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 
 将子 Agent 失败包装成 CALL error 是局部容错，不代表子任务成功；主 Agent 是否还能完成用户请求由后续生成决定。相反，主 frame 基础设施失败没有可用的上层 Agent 继续纠正，因此必须结束本次 run。
@@ -210,7 +222,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 
 - AgentProfile cache 已按 Identity + alias 隔离、上限固定为 32，但没有 TTL、版本检查或管理事件失效；Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
 - `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 Identity。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 Identity 证明真实 CALL 目标；
-- frame registry、CallRecord、cancel event 与 stream sequence 已由每次 run 新建的 `RunSession` 持有；当前没有共享 frame stack；
+- frame registry、CallRecord 与 cancel event 由每次 run 新建的 `RunSession` 持有；stream sequence 由每次流式 run 独占的 `QueueAgentRunOutput` 持有，当前没有共享 frame stack 或共享输出队列；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；
 - 当前只能串行单层 CALL，没有 parallel fan-out、动态 DAG、review loop 或 Alice 自主规划。

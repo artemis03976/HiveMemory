@@ -20,6 +20,8 @@ from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_scheduler import RunScheduler
 from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter, BoundAgentRunEvents
+from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, Identity, MemoryAtom
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -27,8 +29,6 @@ from hivememory.core.protocol.models import (
     AgentRunStatus,
 )
 from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
 
@@ -52,14 +52,16 @@ class AgentRunService:
         frame_factory: FrameFactory,
         prompt_assembler: AgentPromptAssembler,
         atom_cache: KoakumaAtomCache,
-        runtime_events: RuntimeEventSink | None = None,
+        stream_adapter: AgentRunStreamAdapter,
+        agent_run_events: AgentRunEventEmitter,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._call_coordinator = call_coordinator
         self._frame_factory = frame_factory
         self._prompt_assembler = prompt_assembler
         self._atom_cache = atom_cache
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        self._stream_adapter = stream_adapter
+        self._agent_run_events = agent_run_events
 
     async def run_agent(
         self,
@@ -72,15 +74,13 @@ class AgentRunService:
             generation_id=generation_id,
             cancel_event=cancel_event,
         )
-        self._emit_agent_event(
-            RuntimeEventType.AGENT_RUN_STARTED,
-            agent_run_context,
-            agent_run_id=session.agent_run_id,
-            status="started",
-        )
-        self._register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
-        messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
+
+        run_events = self._events_for_run(session, agent_run_context)
+        run_events.started()
+
         try:
+            self._register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
+            messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
             frame = self._create_root_frame(
                 messages=messages,
                 identity=agent_run_context.identity,
@@ -102,15 +102,10 @@ class AgentRunService:
                 engine_result,
                 scheduler.runtime_products or RuntimeProducts(),
             )
-            self._emit_agent_terminal(agent_run_context, session.agent_run_id, result)
+            self._publish_terminal(run_events, result)
             return result
         except Exception:
-            self._emit_agent_event(
-                RuntimeEventType.AGENT_RUN_FAILED,
-                agent_run_context,
-                agent_run_id=session.agent_run_id,
-                status="failed",
-                severity="error",
+            run_events.failed(
                 message="Agent run failed.",
             )
             raise
@@ -126,17 +121,17 @@ class AgentRunService:
             generation_id=generation_id,
             cancel_event=cancel_event,
         )
-        self._emit_agent_event(
-            RuntimeEventType.AGENT_RUN_STARTED,
-            agent_run_context,
-            agent_run_id=session.agent_run_id,
-            status="started",
-        )
-        self._register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
-        messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
+
+        run_events = self._events_for_run(session, agent_run_context)
+        run_events.started()
+
         exit_reason = StreamExitReason.RUNNING
         scheduler_stream: AsyncGenerator[dict[str, Any], None] | None = None
+
         try:
+            self._register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
+            messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
+            agent_stream = self._stream_adapter.create(session)
             frame = self._create_root_frame(
                 messages=messages,
                 identity=agent_run_context.identity,
@@ -150,10 +145,12 @@ class AgentRunService:
                 call_coordinator=self._call_coordinator,
             )
             event_metadata = self._event_metadata_for_frame(frame)
-            scheduler_stream = scheduler.run_stream(
-                frame,
-                generation_options=generation_options,
-                event_metadata=event_metadata,
+            scheduler_stream = agent_stream.events(
+                scheduler.run(
+                    frame,
+                    generation_options=generation_options,
+                    run_output=agent_stream.output,
+                )
             )
             async for event in scheduler_stream:
                 yield event
@@ -161,12 +158,7 @@ class AgentRunService:
             terminal_result = scheduler.terminal_result
             if terminal_result is None:
                 exit_reason = StreamExitReason.MISSING_DONE
-                self._emit_agent_event(
-                    RuntimeEventType.AGENT_RUN_FAILED,
-                    agent_run_context,
-                    agent_run_id=session.agent_run_id,
-                    status="failed",
-                    severity="error",
+                run_events.failed(
                     message="Agent stream ended without done event.",
                 )
                 raise RuntimeError("Agent stream ended without done event")
@@ -175,14 +167,14 @@ class AgentRunService:
                 terminal_result,
                 scheduler.runtime_products or RuntimeProducts(),
             )
-            self._emit_agent_terminal(agent_run_context, session.agent_run_id, result)
+            self._publish_terminal(run_events, result)
             exit_reason = StreamExitReason.TERMINAL
             yield {
                 "event": "done",
                 "data": {
                     **result.model_dump(),
                     **event_metadata,
-                    "stream_sequence": scheduler.next_stream_sequence,
+                    "stream_sequence": agent_stream.next_sequence,
                 },
             }
         except Exception:
@@ -191,25 +183,16 @@ class AgentRunService:
                 StreamExitReason.MISSING_DONE,
             ):
                 exit_reason = StreamExitReason.FAILED
-                self._emit_agent_event(
-                    RuntimeEventType.AGENT_RUN_FAILED,
-                    agent_run_context,
-                    agent_run_id=session.agent_run_id,
-                    status="failed",
-                    severity="error",
+                run_events.failed(
                     message="Agent stream run failed.",
                 )
             raise
         finally:
             if exit_reason == StreamExitReason.RUNNING:
                 session.cancel_event.set()
-                self._emit_agent_event(
-                    RuntimeEventType.AGENT_RUN_CANCELLED,
-                    agent_run_context,
-                    agent_run_id=session.agent_run_id,
-                    status="cancelled",
+                run_events.cancelled(
                     message="Agent stream closed before terminal event.",
-                    data={"close_reason": "stream_closed"},
+                    close_reason="stream_closed",
                 )
             if scheduler_stream is not None:
                 await scheduler_stream.aclose()
@@ -295,54 +278,28 @@ class AgentRunService:
             cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
         )
 
-    def _emit_agent_terminal(
-        self,
-        agent_run_context: AgentRunContext,
-        agent_run_id: str,
+    @staticmethod
+    def _publish_terminal(
+        run_events: BoundAgentRunEvents,
         result: AgentRunResult,
     ) -> None:
         if result.status == AgentRunStatus.CANCELLED.value:
-            event_type = RuntimeEventType.AGENT_RUN_CANCELLED
+            run_events.cancelled(result)
         elif result.status == AgentRunStatus.FAILED.value:
-            event_type = RuntimeEventType.AGENT_RUN_FAILED
+            run_events.failed(result)
         else:
-            event_type = RuntimeEventType.AGENT_RUN_COMPLETED
-        self._emit_agent_event(
-            event_type,
-            agent_run_context,
-            agent_run_id=agent_run_id,
-            status=str(result.status),
-            severity=("error" if result.status == AgentRunStatus.FAILED.value else "info"),
-            data={
-                "mtp_iterations": result.mtp_iterations,
-                "total_iterations": result.total_iterations,
-                "materialize_task_count": len(result.materialize_tasks),
-            },
-        )
+            run_events.completed(result)
 
-    def _emit_agent_event(
+    def _events_for_run(
         self,
-        event_type: RuntimeEventType,
+        session: RunSession,
         agent_run_context: AgentRunContext,
-        *,
-        agent_run_id: str,
-        status: str,
-        severity: str = "info",
-        message: str | None = None,
-        data: dict[str, Any] | None = None,
-    ) -> None:
-        self._runtime_events.emit(
-            RuntimeEvent(
-                event_type=event_type,
-                task_type="foreground",
-                agent_run_id=agent_run_id,
-                topic_id=agent_run_context.topic_id,
-                agent_id=agent_run_context.identity.agent_id,
-                status=status,
-                severity=severity,  # type: ignore[arg-type]
-                message=message,
-                data=data or {},
-            )
+    ) -> BoundAgentRunEvents:
+        return self._agent_run_events.for_run(
+            agent_run_id=session.agent_run_id,
+            generation_id=session.generation_id,
+            topic_id=agent_run_context.topic_id,
+            agent_id=agent_run_context.identity.agent_id,
         )
 
 

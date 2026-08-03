@@ -3,13 +3,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.events import NullFrameEventSink
 from hivememory.agent_runtime.execution import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
 )
+from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.core.models import (
@@ -88,7 +88,7 @@ async def test_run_frame_maps_missing_model_to_failed_outcome():
 
     result = await runtime.run_frame(
         _frame(),
-        event_sink=NullFrameEventSink(),
+        output_sink=NullFrameOutputSink(),
     )
 
     assert result.status == FrameExecutionStatus.FAILED

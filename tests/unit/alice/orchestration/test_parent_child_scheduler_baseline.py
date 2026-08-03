@@ -13,13 +13,16 @@ from hivememory.agent_runtime.models import (
     FrameExecutionResult,
     FrameExecutionStatus,
 )
+from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.orchestration.call_coordinator import (
     CallCoordinator,
     CallNextAction,
 )
+from hivememory.alice.orchestration.run_output import CallOutputFinished
 from hivememory.alice.orchestration.run_scheduler import RunScheduler
 from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.runtime.streaming import AgentRunStream
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 from hivememory.core.mtp import MTPCallRequest, MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError
@@ -69,16 +72,19 @@ def _coordinator(runtime, child: ExecutionFrame, *, profile_resolver=None) -> Ca
     )
 
 
-class _RecordingSink:
+class _RecordingRunOutput:
     def __init__(self) -> None:
-        self.events: list[dict] = []
+        self.call_finished_outputs: list[CallOutputFinished] = []
+        self._frame_output = NullFrameOutputSink()
 
-    @property
-    def wants_token_stream(self) -> bool:
-        return False
+    def for_frame(self, *_args, **_kwargs):
+        return self._frame_output
 
-    async def emit(self, event: dict) -> None:
-        self.events.append(event)
+    async def call_started(self, _output) -> None:
+        return None
+
+    async def call_finished(self, output: CallOutputFinished) -> None:
+        self.call_finished_outputs.append(output)
 
 
 @pytest.mark.asyncio
@@ -112,8 +118,15 @@ async def test_root_terminal_outcomes_match_between_streaming_and_non_streaming(
         run_frame=AsyncMock(return_value=FrameExecutionResult(status=status)),
         finalize_run=stream_finalize,
     )
-    stream_scheduler = RunScheduler(stream_runtime, session=_session(stream_frame))
-    events = [event async for event in stream_scheduler.run_stream(stream_frame)]
+    stream_session = _session(stream_frame)
+    stream_scheduler = RunScheduler(stream_runtime, session=stream_session)
+    agent_stream = AgentRunStream(stream_session)
+    events = [
+        event
+        async for event in agent_stream.events(
+            stream_scheduler.run(stream_frame, run_output=agent_stream.output)
+        )
+    ]
 
     assert non_stream_result.status == status
     assert stream_scheduler.terminal_result is not None
@@ -136,13 +149,13 @@ async def test_call_preparation_error_is_returned_without_dispatching_child():
         resolve=AsyncMock(side_effect=PermissionDeniedError("denied"))
     )
     coordinator = _coordinator(runtime, child, profile_resolver=profile_resolver)
-    sink = _RecordingSink()
+    output = _RecordingRunOutput()
 
     transition = await coordinator.begin_call(
         caller,
         _suspension(),
         session=_session(caller),
-        event_sink=sink,
+        run_output=output,
     )
     response = runtime.apply_call_response.call_args.args[2]
 
@@ -152,8 +165,8 @@ async def test_call_preparation_error_is_returned_without_dispatching_child():
     assert response.error.code == "mtp.permission.denied"
     runtime.run_frame.assert_not_awaited()
     runtime.finalize_frame.assert_not_called()
-    assert [event["event"] for event in sink.events] == ["sub_agent_end"]
-    assert sink.events[0]["data"]["frame_id"] is None
+    assert len(output.call_finished_outputs) == 1
+    assert output.call_finished_outputs[0].frame_id is None
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.aliases import ResolveResult
 from hivememory.agent_runtime.execution.loop import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -22,7 +23,6 @@ from hivememory.agent_runtime.models import (
     MTPExecutionContext,
     RuntimeScope,
 )
-from hivememory.agent_runtime.aliases import ResolveResult
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory
@@ -226,9 +226,9 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
         raise error
 
     class StreamingSink:
-        wants_token_stream = True
+        streams_tokens = True
 
-        async def emit(self, _event):
+        async def send(self, _output):
             return None
 
     executor.worker_agent.generate_stream = fail_stream
@@ -236,7 +236,7 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
     result = await executor.execute_frame(
         frame,
         max_iterations=2,
-        event_sink=StreamingSink(),
+        output_sink=StreamingSink(),
     )
 
     assert result.status == FrameExecutionStatus.FAILED

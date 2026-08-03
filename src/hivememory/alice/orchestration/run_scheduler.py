@@ -1,14 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.events import (
-    FrameEventSink,
-    NullFrameEventSink,
-    QueueFrameEventSink,
-)
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -17,6 +11,7 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.alice.orchestration.call_coordinator import CallNextAction
 from hivememory.alice.orchestration.call_record import CallRecord
+from hivememory.alice.orchestration.run_output import AgentRunOutput, NullAgentRunOutput
 from hivememory.alice.orchestration.run_session import (
     FrameSchedulingStatus,
     RunSession,
@@ -47,83 +42,31 @@ class RunScheduler:
     def call_records(self) -> dict[tuple[str, str], CallRecord]:
         return self._session.call_records
 
-    @property
-    def next_stream_sequence(self) -> int:
-        return self._session.stream_sequence
-
     async def run(
         self,
         frame: ExecutionFrame,
         *,
         generation_options: dict[str, Any] | None = None,
+        run_output: AgentRunOutput | None = None,
     ) -> FrameExecutionResult:
         self._require_root(frame)
         return await self._drive(
             frame,
             generation_options=generation_options,
-            event_sink=NullFrameEventSink(),
+            run_output=run_output or NullAgentRunOutput(),
         )
-
-    def run_stream(
-        self,
-        frame: ExecutionFrame,
-        *,
-        generation_options: dict[str, Any] | None = None,
-        event_metadata: dict[str, Any] | None = None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        async def _stream() -> AsyncGenerator[dict[str, Any], None]:
-            self._require_root(frame)
-            queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=256)
-            sink = QueueFrameEventSink(
-                queue,
-                metadata=event_metadata,
-                sequence_start=self._session.stream_sequence,
-            )
-
-            async def _runner() -> None:
-                cancelled = False
-                try:
-                    await self._drive(
-                        frame,
-                        generation_options=generation_options,
-                        event_sink=sink,
-                    )
-                except asyncio.CancelledError:
-                    cancelled = True
-                    self._session.cancel_event.set()
-                    if self.terminal_result is None:
-                        self._finish(FrameExecutionResult(status=FrameExecutionStatus.CANCELLED))
-                    raise
-                finally:
-                    self._session.stream_sequence = sink.next_sequence
-                    if not cancelled:
-                        await queue.put(None)
-
-            task = asyncio.create_task(_runner())
-            try:
-                while True:
-                    event = await queue.get()
-                    if event is None:
-                        break
-                    yield event
-            finally:
-                if not task.done():
-                    task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-        return _stream()
 
     async def _drive(
         self,
         root_frame: ExecutionFrame,
         *,
         generation_options: dict[str, Any] | None,
-        event_sink: FrameEventSink,
+        run_output: AgentRunOutput,
     ) -> FrameExecutionResult:
-        """用同一循环推进 root 与当前唯一的 callee。"""
+        """
+        用同一循环推进 root 与当前唯一的 callee。
+        """
+
         root_frame_id = root_frame.runtime_scope.frame_id
         self._session.transition_frame(root_frame_id, FrameSchedulingStatus.RUNNABLE)
         current_frame = root_frame
@@ -132,21 +75,31 @@ class RunScheduler:
         while True:
             current_frame_id = current_frame.runtime_scope.frame_id
             self._session.transition_frame(current_frame_id, FrameSchedulingStatus.RUNNING)
-            current_sink = event_sink
-            if current_frame is not root_frame:
+
+            # 为当前 frame 注册可观测事件 scope
+            if current_frame is root_frame:
+                frame_output = run_output.for_frame(
+                    current_frame,
+                    action_id=None,
+                    scope="main",
+                    depth=0,
+                )
+            else:
                 if pending_suspension is None or self._call_coordinator is None:
                     raise RuntimeError("Callee frame is missing its pending CALL suspension.")
-                current_sink = self._call_coordinator.event_sink_for_callee(
+                frame_output = run_output.for_frame(
                     current_frame,
-                    pending_suspension.suspend_action_id,
-                    event_sink,
+                    action_id=pending_suspension.suspend_action_id,
+                    scope="sub",
+                    depth=1,
                 )
 
+            # 运行当前 frame
             try:
                 result = await self._agent_runtime.run_frame(
                     current_frame,
                     generation_options=generation_options,
-                    event_sink=current_sink,
+                    output_sink=frame_output,
                     cancel_event=self._session.cancel_event,
                 )
             except asyncio.CancelledError:
@@ -172,7 +125,7 @@ class RunScheduler:
                             root_frame,
                             result,
                             generation_options=generation_options,
-                            event_sink=event_sink,
+                            run_output=run_output,
                         )
                     except asyncio.CancelledError:
                         self._abort_cancelled_run(root_frame, pending_suspension)
@@ -224,15 +177,17 @@ class RunScheduler:
                     current_frame,
                     result,
                     generation_options=generation_options,
-                    event_sink=event_sink,
+                    run_output=run_output,
                 )
             except asyncio.CancelledError:
                 self._abort_cancelled_run(root_frame, pending_suspension)
                 raise
+
             self._session.transition_frame(
                 current_frame_id,
                 FrameSchedulingStatus.TERMINATED,
             )
+
             if transition.action == CallNextAction.RESUME_CALLER:
                 self._session.transition_frame(
                     root_frame_id,
@@ -253,7 +208,7 @@ class RunScheduler:
         suspension: FrameExecutionResult,
         *,
         generation_options: dict[str, Any] | None,
-        event_sink: FrameEventSink,
+        run_output: AgentRunOutput,
     ):
         if self._call_coordinator is None:
             raise RuntimeError("CALL coordinator is unavailable.")
@@ -262,7 +217,7 @@ class RunScheduler:
             suspension,
             session=self._session,
             generation_options=generation_options,
-            event_sink=event_sink,
+            run_output=run_output,
         )
 
     async def _complete_call(
@@ -273,7 +228,7 @@ class RunScheduler:
         result: FrameExecutionResult,
         *,
         generation_options: dict[str, Any] | None,
-        event_sink: FrameEventSink,
+        run_output: AgentRunOutput,
     ):
         if suspension is None or self._call_coordinator is None:
             raise RuntimeError("Callee completion is missing its CALL coordination context.")
@@ -284,7 +239,7 @@ class RunScheduler:
             result,
             session=self._session,
             generation_options=generation_options,
-            event_sink=event_sink,
+            run_output=run_output,
         )
 
     def _cancel_root(self, root_frame_id: str) -> FrameExecutionResult:

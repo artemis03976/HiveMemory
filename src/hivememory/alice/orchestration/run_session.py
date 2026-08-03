@@ -55,7 +55,6 @@ class RunSession:
     frame_statuses: dict[str, FrameSchedulingStatus] = field(default_factory=dict)
     call_records: dict[tuple[str, str], CallRecord] = field(default_factory=dict)
     call_records_by_callee: dict[str, CallRecord] = field(default_factory=dict)
-    stream_sequence: int = 0
 
     def register_frame(self, frame: ExecutionFrame) -> None:
         """兼容登记普通 frame；拓扑明确时应使用 root/callee 专用入口。"""

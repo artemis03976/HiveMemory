@@ -1,9 +1,7 @@
-import asyncio
 from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.events import QueueFrameEventSink
 from hivememory.agent_runtime.execution.loop import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -11,6 +9,7 @@ from hivememory.agent_runtime.models import (
     GenerationResult,
     StreamChunk,
 )
+from hivememory.agent_runtime.output import FrameOutput, TokenDelta
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 
 
@@ -24,8 +23,18 @@ def _frame() -> ExecutionFrame:
     )
 
 
+class RecordingFrameOutputSink:
+    streams_tokens = True
+
+    def __init__(self) -> None:
+        self.outputs: list[FrameOutput] = []
+
+    async def send(self, output: FrameOutput) -> None:
+        self.outputs.append(output)
+
+
 @pytest.mark.asyncio
-async def test_stream_sink_receives_tokens_with_ordered_metadata() -> None:
+async def test_stream_sink_receives_typed_token_outputs_in_order() -> None:
     async def generate_stream(_messages, **_kwargs):
         yield StreamChunk(delta="partial", full_text="partial")
         yield StreamChunk(
@@ -39,30 +48,12 @@ async def test_stream_sink_receives_tokens_with_ordered_metadata() -> None:
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )
-    queue: asyncio.Queue[dict | None] = asyncio.Queue(maxsize=2)
-    sink = QueueFrameEventSink(
-        queue,
-        metadata={
-            "agent_run_id": "run-1",
-            "frame_id": "frame-1",
-            "action_id": None,
-        },
-    )
+    sink = RecordingFrameOutputSink()
 
-    result = await executor.execute_frame(_frame(), max_iterations=2, event_sink=sink)
+    result = await executor.execute_frame(_frame(), max_iterations=2, output_sink=sink)
 
     assert result.status == FrameExecutionStatus.COMPLETED
-    assert queue.get_nowait() == {
-        "event": "token",
-        "data": {
-            "content": "partial",
-            "agent_run_id": "run-1",
-            "frame_id": "frame-1",
-            "action_id": None,
-            "stream_sequence": 0,
-        },
-    }
-    assert sink.next_sequence == 1
+    assert sink.outputs == [TokenDelta(content="partial")]
 
 
 @pytest.mark.asyncio
@@ -76,12 +67,10 @@ async def test_streaming_without_final_chunk_returns_failed_frame_result() -> No
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )
-    queue: asyncio.Queue[dict | None] = asyncio.Queue(maxsize=2)
-
     result = await executor.execute_frame(
         _frame(),
         max_iterations=2,
-        event_sink=QueueFrameEventSink(queue),
+        output_sink=RecordingFrameOutputSink(),
     )
 
     assert result.status == FrameExecutionStatus.FAILED

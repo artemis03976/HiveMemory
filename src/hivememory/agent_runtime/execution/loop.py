@@ -20,16 +20,19 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.events import (
-    FrameEventSink,
-    NullFrameEventSink,
-)
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
     GenerationResult,
     MTPExecutionContext,
+)
+from hivememory.agent_runtime.output import (
+    FrameOutputSink,
+    MTPFinished,
+    MTPStarted,
+    NullFrameOutputSink,
+    TokenDelta,
 )
 from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
@@ -67,10 +70,10 @@ class AgentLoopExecutor:
         self,
         frame: ExecutionFrame,
         generation_options: dict[str, Any] | None,
-        sink: FrameEventSink,
+        sink: FrameOutputSink,
         cancel_event: asyncio.Event | None,
     ) -> GenerationResult | FrameExecutionResult:
-        if not sink.wants_token_stream:
+        if not sink.streams_tokens:
             try:
                 return await self.worker_agent.generate_async(
                     frame.working_history,
@@ -109,7 +112,7 @@ class AgentLoopExecutor:
                 result = chunk.result
                 break
             if not chunk.mtp_detected and chunk.delta:
-                await sink.emit({"event": "token", "data": {"content": chunk.delta}})
+                await sink.send(TokenDelta(content=chunk.delta))
         if result is not None:
             return result
         if cancel_event is not None and cancel_event.is_set():
@@ -124,7 +127,7 @@ class AgentLoopExecutor:
         frame: ExecutionFrame,
         max_iterations: int,
         generation_options: dict[str, Any] | None = None,
-        event_sink: FrameEventSink | None = None,
+        output_sink: FrameOutputSink | None = None,
         cancel_event: asyncio.Event | None = None,
     ) -> FrameExecutionResult:
         """
@@ -137,7 +140,7 @@ class AgentLoopExecutor:
             FrameExecutionResult: 帧停止原因；只有自然收敛返回 COMPLETED。
         """
         p = frame.progress  # PCB 累积器，重入时续接
-        sink = event_sink or NullFrameEventSink()
+        sink = output_sink or NullFrameOutputSink()
 
         while p.iteration < max_iterations:
             if cancel_event is not None and cancel_event.is_set():
@@ -233,16 +236,16 @@ class AgentLoopExecutor:
             p.turn_events.append(command_event)
             p.sequence += 1
 
-            if event_sink is not None:
-                mtp_start_data = {
-                    "verb": verb_hint,
-                    "target": target_hint,
-                    "args": args_hint,
-                    "raw_text": raw_hint,
-                    "iteration": p.iteration,
-                    "action_id": action_id,
-                }
-                await sink.emit({"event": "mtp_start", "data": mtp_start_data})
+            await sink.send(
+                MTPStarted(
+                    verb=verb_hint,
+                    target=target_hint,
+                    args=args_hint,
+                    raw_text=raw_hint,
+                    iteration=p.iteration,
+                    action_id=action_id,
+                )
+            )
 
             if mtp_result is None:
                 p.text_segments.append(result.mtp_fragment)
@@ -260,17 +263,17 @@ class AgentLoopExecutor:
                     )
                 )
                 p.sequence += 1
-                if event_sink is not None:
-                    mtp_failed_data = {
-                        "verb": verb_hint,
-                        "target": target_hint,
-                        "args": args_hint,
-                        "raw_text": raw_hint,
-                        "status": "failed",
-                        "iteration": p.iteration,
-                        "action_id": action_id,
-                    }
-                    await sink.emit({"event": "mtp_result", "data": mtp_failed_data})
+                await sink.send(
+                    MTPFinished(
+                        verb=verb_hint,
+                        target=target_hint,
+                        args=args_hint,
+                        raw_text=raw_hint,
+                        status="failed",
+                        iteration=p.iteration,
+                        action_id=action_id,
+                    )
+                )
                 return FrameExecutionResult(
                     status=FrameExecutionStatus.FAILED,
                     error=RuntimeError("MTP execution returned no result."),
@@ -280,17 +283,17 @@ class AgentLoopExecutor:
                 # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 CALL response。
                 # 编排负责：append 已归一化的 CALL 文本 → fork子帧 → 跑子帧
                 # → resume → harvest → 组 CALL response → append 回填 → 重入本帧。
-                if event_sink is not None:
-                    mtp_suspend_data = {
-                        "verb": verb_hint,
-                        "target": target_hint,
-                        "args": args_hint,
-                        "raw_text": raw_hint,
-                        "status": mtp_result.response_status,
-                        "iteration": p.iteration,
-                        "action_id": action_id,
-                    }
-                    await sink.emit({"event": "mtp_result", "data": mtp_suspend_data})
+                await sink.send(
+                    MTPFinished(
+                        verb=verb_hint,
+                        target=target_hint,
+                        args=args_hint,
+                        raw_text=raw_hint,
+                        status=mtp_result.response_status,
+                        iteration=p.iteration,
+                        action_id=action_id,
+                    )
+                )
 
                 if mtp_result.call_request is None:
                     raise RuntimeError("CALL suspend response missing call_request.")
@@ -304,17 +307,17 @@ class AgentLoopExecutor:
             p.turn_events[-1] = command_event.model_copy(
                 update={"status": mtp_result.response_status}
             )
-            if event_sink is not None:
-                mtp_result_data = {
-                    "verb": verb_hint,
-                    "target": target_hint,
-                    "args": args_hint,
-                    "raw_text": raw_hint,
-                    "status": mtp_result.response_status,
-                    "iteration": p.iteration,
-                    "action_id": action_id,
-                }
-                await sink.emit({"event": "mtp_result", "data": mtp_result_data})
+            await sink.send(
+                MTPFinished(
+                    verb=verb_hint,
+                    target=target_hint,
+                    args=args_hint,
+                    raw_text=raw_hint,
+                    status=mtp_result.response_status,
+                    iteration=p.iteration,
+                    action_id=action_id,
+                )
+            )
 
             frame.working_history.append({"role": "assistant", "content": result.text})
             frame.working_history.append(

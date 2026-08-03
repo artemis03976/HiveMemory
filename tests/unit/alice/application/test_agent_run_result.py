@@ -14,8 +14,12 @@ from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
+from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope, TurnEvent
 from hivememory.core.protocol.models import AgentRunContext, AgentRunStatus, RetrievalResponse
+from hivememory.system.runtime.events import NullRuntimeEventSink
+from hivememory.system.runtime.publisher import RuntimeEventPublisher
 
 
 def _frame(
@@ -72,6 +76,8 @@ def _runtime_for_frame(
             build_main_agent_messages=MagicMock(return_value=frame.working_history)
         ),
         atom_cache=MagicMock(),
+        stream_adapter=AgentRunStreamAdapter(),
+        agent_run_events=AgentRunEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink())),
     )
     run_session = session or RunSession(agent_run_id="run-1", generation_id="generation-1")
     service._create_run_session = MagicMock(return_value=run_session)

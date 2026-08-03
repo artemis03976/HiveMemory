@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.events import FrameEventSink
 from hivememory.agent_runtime.execution import AgentLoopExecutor, WorkerAgentService
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.output import FrameOutputSink
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
 from hivememory.core.models import TurnEvent
@@ -70,7 +70,7 @@ class AgentRuntime:
         frame: ExecutionFrame,
         *,
         generation_options: dict[str, Any] | None = None,
-        event_sink: FrameEventSink,
+        output_sink: FrameOutputSink,
         cancel_event=None,
     ) -> FrameExecutionResult:
         """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
@@ -87,7 +87,7 @@ class AgentRuntime:
             frame=frame,
             max_iterations=max_iterations,
             generation_options=generation_options,
-            event_sink=event_sink,
+            output_sink=output_sink,
             cancel_event=cancel_event,
         )
 

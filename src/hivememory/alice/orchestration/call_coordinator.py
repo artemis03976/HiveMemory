@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.events import FrameEventSink
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -15,8 +14,13 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.orchestration.call_record import CallRecordStatus
-from hivememory.alice.orchestration.event_sink import ScopedFrameEventSink
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.run_output import (
+    AgentRunOutput,
+    CallOutputFinished,
+    CallOutputStarted,
+    NullAgentRunOutput,
+)
 from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
@@ -93,9 +97,10 @@ class CallCoordinator:
         *,
         session: RunSession,
         generation_options: dict[str, Any] | None = None,
-        event_sink: FrameEventSink | None = None,
+        run_output: AgentRunOutput | None = None,
     ) -> CallTransition:
         """同步登记 CALL 后准备 callee；准备失败时直接恢复 caller。"""
+        output = run_output or NullAgentRunOutput()
         call_request, action_id = self._require_suspension(suspension)
         session.require_frame(caller_frame)
         record = session.register_call(caller_frame, action_id)
@@ -107,7 +112,7 @@ class CallCoordinator:
                 suspension,
                 self._cancelled_response(call_request.target_alias),
                 session=session,
-                event_sink=event_sink,
+                run_output=output,
             )
 
         logger.info(
@@ -128,7 +133,7 @@ class CallCoordinator:
                     suspension,
                     self._cancelled_response(call_request.target_alias),
                     session=session,
-                    event_sink=event_sink,
+                    run_output=output,
                 )
             shared_context = await self._fetch_context_refs_content(
                 aliases=call_request.context_refs,
@@ -141,7 +146,7 @@ class CallCoordinator:
                     suspension,
                     self._cancelled_response(call_request.target_alias),
                     session=session,
-                    event_sink=event_sink,
+                    run_output=output,
                 )
             policy = FrameExecutionPolicy.from_profile(
                 sub_profile,
@@ -176,7 +181,7 @@ class CallCoordinator:
                 suspension,
                 response,
                 session=session,
-                event_sink=event_sink,
+                run_output=output,
             )
         except Exception as error:
             logger.error("Sub-agent preparation failed: %s", error, exc_info=True)
@@ -191,26 +196,20 @@ class CallCoordinator:
                 suspension,
                 response,
                 session=session,
-                event_sink=event_sink,
+                run_output=output,
             )
 
         # Session 绑定失败属于编排不变量，不能伪装成 Agent 可消费的 CALL error。
         session.register_callee_frame(sub_frame, record)
-        if event_sink is not None:
-            await event_sink.emit(
-                {
-                    "event": "sub_agent_start",
-                    "data": {
-                        "agent_id": call_request.target_alias,
-                        "task": call_request.task,
-                        "iteration": caller_frame.progress.iteration,
-                        "action_id": action_id,
-                        "scope": "sub",
-                        "depth": 1,
-                        "frame_id": sub_frame.runtime_scope.frame_id,
-                    },
-                }
+        await output.call_started(
+            CallOutputStarted(
+                agent_id=call_request.target_alias,
+                task=call_request.task,
+                iteration=caller_frame.progress.iteration,
+                action_id=action_id,
+                frame_id=sub_frame.runtime_scope.frame_id,
             )
+        )
         return CallTransition(CallNextAction.DISPATCH_CALLEE, sub_frame)
 
     async def complete_call(
@@ -222,9 +221,10 @@ class CallCoordinator:
         *,
         session: RunSession,
         generation_options: dict[str, Any] | None = None,
-        event_sink: FrameEventSink | None = None,
+        run_output: AgentRunOutput | None = None,
     ) -> CallTransition:
         """把 callee outcome 收口为 caller 可消费的 CALL response。"""
+        output = run_output or NullAgentRunOutput()
         call_request, action_id = self._require_suspension(suspension)
         session.require_frame(caller_frame)
         session.require_frame(callee_frame)
@@ -275,7 +275,7 @@ class CallCoordinator:
             response=response,
             callee_frame=callee_frame,
             callee_result=effective_result,
-            event_sink=event_sink,
+            run_output=output,
         )
         return self._apply_or_cancel(
             caller_frame,
@@ -283,18 +283,6 @@ class CallCoordinator:
             response,
             record=record,
             session=session,
-        )
-
-    def event_sink_for_callee(
-        self,
-        callee_frame: ExecutionFrame,
-        action_id: str | None,
-        event_sink: FrameEventSink,
-    ) -> FrameEventSink:
-        """给 callee 事件补充 frame/action 作用域，不创建第二条事件队列。"""
-        return ScopedFrameEventSink(
-            event_sink,
-            metadata=self._event_metadata_for_frame(callee_frame, action_id),
         )
 
     def cancel_call(
@@ -329,7 +317,7 @@ class CallCoordinator:
         response: MTPCallResponse,
         *,
         session: RunSession,
-        event_sink: FrameEventSink | None,
+        run_output: AgentRunOutput,
     ) -> CallTransition:
         call_request, action_id = self._require_suspension(suspension)
         record = session.require_call(caller_frame, action_id)
@@ -341,7 +329,7 @@ class CallCoordinator:
             response=response,
             callee_frame=None,
             callee_result=None,
-            event_sink=event_sink,
+            run_output=run_output,
         )
         return self._apply_or_cancel(
             caller_frame,
@@ -412,25 +400,22 @@ class CallCoordinator:
         response: MTPCallResponse,
         callee_frame: ExecutionFrame | None,
         callee_result: FrameExecutionResult | None,
-        event_sink: FrameEventSink | None,
+        run_output: AgentRunOutput,
     ) -> None:
-        if event_sink is None:
-            return
-        end_data: dict[str, Any] = {
-            "status": response.status.value,
-            "final_text": response.reply if response.status == MTPResponseStatus.SUCCESS else "",
-            "iteration": caller_frame.progress.iteration,
-            "action_id": action_id,
-            "scope": "sub",
-            "depth": 1,
-            "frame_id": (callee_frame.runtime_scope.frame_id if callee_frame is not None else None),
-            "agent_id": agent_alias,
-        }
-        if callee_result is not None:
-            end_data["terminal_status"] = callee_result.status.value
-        if response.error is not None:
-            end_data["error_code"] = response.error.code
-        await event_sink.emit({"event": "sub_agent_end", "data": end_data})
+        await run_output.call_finished(
+            CallOutputFinished(
+                status=response.status.value,
+                final_text=(response.reply if response.status == MTPResponseStatus.SUCCESS else ""),
+                iteration=caller_frame.progress.iteration,
+                action_id=action_id,
+                frame_id=(
+                    callee_frame.runtime_scope.frame_id if callee_frame is not None else None
+                ),
+                agent_id=agent_alias,
+                terminal_status=(callee_result.status.value if callee_result is not None else None),
+                error_code=(response.error.code if response.error is not None else None),
+            )
+        )
 
     @staticmethod
     def _require_suspension(
@@ -570,21 +555,6 @@ class CallCoordinator:
             MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
             MemoryCompileOptions(language=language),
         ).text
-
-    @staticmethod
-    def _event_metadata_for_frame(
-        frame: ExecutionFrame,
-        action_id: str | None,
-    ) -> dict[str, Any]:
-        agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
-        return {
-            "agent_run_id": frame.runtime_scope.run_id,
-            "action_id": action_id,
-            "scope": "sub",
-            "depth": 1,
-            "agent_id": agent_id,
-            "frame_id": frame.runtime_scope.frame_id,
-        }
 
 
 __all__ = ["CallCoordinator", "CallNextAction", "CallTransition"]

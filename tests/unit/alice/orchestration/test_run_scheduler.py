@@ -7,14 +7,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.events import QueueFrameEventSink
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.output import TokenDelta
 from hivememory.alice.orchestration.call_coordinator import (
     CallNextAction,
     CallTransition,
 )
+from hivememory.alice.orchestration.run_output import CallOutputFinished
 from hivememory.alice.orchestration.run_scheduler import RunScheduler
 from hivememory.alice.orchestration.run_session import FrameSchedulingStatus, RunSession
+from hivememory.alice.runtime.streaming import AgentRunStream, QueueAgentRunOutput
 from hivememory.core.mtp import MTPCallRequest
 
 
@@ -25,6 +27,14 @@ def _session_with(frame, *, cancel_event: asyncio.Event | None = None) -> RunSes
     )
     session.register_root_frame(frame)
     return session
+
+
+def _frame_stub(frame_id: str, *, run_id: str = "run-1"):
+    return SimpleNamespace(
+        runtime_scope=SimpleNamespace(run_id=run_id, frame_id=frame_id),
+        agent_profile=SimpleNamespace(alias="helper" if frame_id != "frame-1" else "main"),
+        identity=SimpleNamespace(agent_id="owner"),
+    )
 
 
 class _CallCoordinatorStub:
@@ -38,14 +48,9 @@ class _CallCoordinatorStub:
     async def begin_call(self, caller, suspension, *, session, **_kwargs):
         record = session.register_call(caller, suspension.suspend_action_id)
         record.begin_resolution()
-        self.child = SimpleNamespace(
-            runtime_scope=SimpleNamespace(run_id=session.agent_run_id, frame_id="frame-child")
-        )
+        self.child = _frame_stub("frame-child", run_id=session.agent_run_id)
         session.register_callee_frame(self.child, record)
         return CallTransition(CallNextAction.DISPATCH_CALLEE, self.child)
-
-    def event_sink_for_callee(self, _frame, _action_id, event_sink):
-        return event_sink
 
     async def complete_call(
         self,
@@ -55,14 +60,24 @@ class _CallCoordinatorStub:
         _result,
         *,
         session,
-        event_sink,
+        run_output,
         **_kwargs,
     ):
         self.callee_results.append(_result)
         record = session.call_for_callee(callee.runtime_scope.frame_id)
         record.mark_resolved()
         if self.emit_end:
-            await event_sink.emit({"event": "sub_agent_end", "data": {"status": "success"}})
+            await run_output.call_finished(
+                CallOutputFinished(
+                    status="success",
+                    final_text="",
+                    iteration=1,
+                    action_id="act-1",
+                    frame_id=callee.runtime_scope.frame_id,
+                    agent_id="helper",
+                    terminal_status="completed",
+                )
+            )
         if self.cancel_on_complete:
             session.cancel_event.set()
             record.cancel()
@@ -78,28 +93,27 @@ class _CallCoordinatorStub:
 
 @pytest.mark.asyncio
 async def test_queue_sink_applies_backpressure_at_capacity():
-    queue: asyncio.Queue[dict | None] = asyncio.Queue(maxsize=1)
-    sink = QueueFrameEventSink(queue)
+    output = QueueAgentRunOutput("run-1", maxsize=1)
 
-    await sink.emit({"event": "token", "data": {"content": "first"}})
-    second_emit = asyncio.create_task(sink.emit({"event": "token", "data": {"content": "second"}}))
+    await output.send_event("token", {"content": "first"})
+    second_emit = asyncio.create_task(output.send_event("token", {"content": "second"}))
     await asyncio.sleep(0)
 
     assert not second_emit.done()
-    assert (await queue.get())["data"]["stream_sequence"] == 0
+    assert (await output.receive())["data"]["stream_sequence"] == 0
 
     await second_emit
-    assert (await queue.get())["data"]["stream_sequence"] == 1
+    assert (await output.receive())["data"]["stream_sequence"] == 1
 
 
 @pytest.mark.asyncio
 async def test_run_scheduler_reenters_suspended_frame_with_continuous_stream_sequence():
     calls = 0
 
-    async def run_frame(_frame, *, event_sink, **_kwargs):
+    async def run_frame(_frame, *, output_sink, **_kwargs):
         nonlocal calls
         calls += 1
-        await event_sink.emit({"event": "token", "data": {"content": str(calls)}})
+        await output_sink.send(TokenDelta(content=str(calls)))
         if calls == 1:
             return FrameExecutionResult(
                 status=FrameExecutionStatus.SUSPENDED,
@@ -108,7 +122,7 @@ async def test_run_scheduler_reenters_suspended_frame_with_continuous_stream_seq
             )
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     session = _session_with(frame)
     coordinator = _CallCoordinatorStub(emit_end=True)
     scheduler = RunScheduler(
@@ -116,17 +130,15 @@ async def test_run_scheduler_reenters_suspended_frame_with_continuous_stream_seq
         session=session,
         call_coordinator=coordinator,
     )
+    agent_stream = AgentRunStream(session)
     events = [
         event
-        async for event in scheduler.run_stream(
-            frame,
-            event_metadata={"agent_run_id": "run-1", "frame_id": "frame-1"},
-        )
+        async for event in agent_stream.events(scheduler.run(frame, run_output=agent_stream.output))
     ]
 
     assert [event["data"]["stream_sequence"] for event in events] == [0, 1, 2, 3]
     assert [event["data"]["agent_run_id"] for event in events] == ["run-1"] * 4
-    assert scheduler.next_stream_sequence == 4
+    assert agent_stream.next_sequence == 4
     assert scheduler.terminal_result is not None
     assert scheduler.terminal_result.status == FrameExecutionStatus.COMPLETED
     assert session.frame_statuses == {
@@ -152,7 +164,7 @@ async def test_run_scheduler_routes_unexpected_callee_suspension_to_call_complet
             )
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     session = _session_with(frame)
     coordinator = _CallCoordinatorStub()
     scheduler = RunScheduler(
@@ -172,19 +184,21 @@ async def test_run_scheduler_routes_unexpected_callee_suspension_to_call_complet
 async def test_run_scheduler_cancels_runner_when_stream_consumer_closes():
     runner_cancelled = asyncio.Event()
 
-    async def run_frame(_frame, *, event_sink, **_kwargs):
+    async def run_frame(_frame, *, output_sink, **_kwargs):
         try:
-            await event_sink.emit({"event": "token", "data": {"content": "started"}})
+            await output_sink.send(TokenDelta(content="started"))
             await asyncio.Event().wait()
         finally:
             runner_cancelled.set()
 
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
+    session = _session_with(frame)
     scheduler = RunScheduler(
         SimpleNamespace(run_frame=run_frame),
-        session=_session_with(frame),
+        session=session,
     )
-    stream = scheduler.run_stream(frame)
+    agent_stream = AgentRunStream(session)
+    stream = agent_stream.events(scheduler.run(frame, run_output=agent_stream.output))
 
     first_event = await anext(stream)
     await stream.aclose()
@@ -197,13 +211,13 @@ async def test_run_scheduler_cancels_runner_when_stream_consumer_closes():
 async def test_run_scheduler_cleans_active_call_when_stream_consumer_closes():
     root_calls = 0
 
-    async def run_frame(frame, *, event_sink, **_kwargs):
+    async def run_frame(frame, *, output_sink, **_kwargs):
         nonlocal root_calls
         if frame.runtime_scope.frame_id == "frame-child":
-            await event_sink.emit({"event": "token", "data": {"content": "child"}})
+            await output_sink.send(TokenDelta(content="child"))
             await asyncio.Event().wait()
         root_calls += 1
-        await event_sink.emit({"event": "token", "data": {"content": "root"}})
+        await output_sink.send(TokenDelta(content="root"))
         return FrameExecutionResult(
             status=FrameExecutionStatus.SUSPENDED,
             call_request=MTPCallRequest(target_alias="helper", task="task"),
@@ -211,7 +225,7 @@ async def test_run_scheduler_cleans_active_call_when_stream_consumer_closes():
         )
 
     finalize_run = MagicMock()
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     session = _session_with(frame)
     coordinator = _CallCoordinatorStub()
     scheduler = RunScheduler(
@@ -219,7 +233,8 @@ async def test_run_scheduler_cleans_active_call_when_stream_consumer_closes():
         session=session,
         call_coordinator=coordinator,
     )
-    stream = scheduler.run_stream(frame)
+    agent_stream = AgentRunStream(session)
+    stream = agent_stream.events(scheduler.run(frame, run_output=agent_stream.output))
 
     assert (await anext(stream))["data"]["content"] == "root"
     assert (await anext(stream))["data"]["content"] == "child"
@@ -248,8 +263,8 @@ async def test_run_scheduler_cancels_record_during_call_preparation_await():
             preparation_started.set()
             await asyncio.Event().wait()
 
-    async def run_frame(_frame, *, event_sink, **_kwargs):
-        await event_sink.emit({"event": "token", "data": {"content": "root"}})
+    async def run_frame(_frame, *, output_sink, **_kwargs):
+        await output_sink.send(TokenDelta(content="root"))
         return FrameExecutionResult(
             status=FrameExecutionStatus.SUSPENDED,
             call_request=MTPCallRequest(target_alias="helper", task="task"),
@@ -257,7 +272,7 @@ async def test_run_scheduler_cancels_record_during_call_preparation_await():
         )
 
     finalize_run = MagicMock()
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     session = _session_with(frame)
     coordinator = BlockingPreparationCoordinator()
     scheduler = RunScheduler(
@@ -265,7 +280,8 @@ async def test_run_scheduler_cancels_record_during_call_preparation_await():
         session=session,
         call_coordinator=coordinator,
     )
-    stream = scheduler.run_stream(frame)
+    agent_stream = AgentRunStream(session)
+    stream = agent_stream.events(scheduler.run(frame, run_output=agent_stream.output))
 
     await anext(stream)
     await asyncio.wait_for(preparation_started.wait(), timeout=1)
@@ -296,7 +312,7 @@ async def test_run_scheduler_accepts_resumed_call_without_applying_response():
         run_frame=run_frame,
         apply_call_response=MagicMock(),
     )
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     scheduler = RunScheduler(
         runtime,
         session=_session_with(frame),
@@ -326,7 +342,7 @@ async def test_run_scheduler_drops_late_call_response_after_cancel():
         run_frame=run_frame,
         apply_call_response=lambda *args: applied.append(args),
     )
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     session = _session_with(frame, cancel_event=cancel_event)
     scheduler = RunScheduler(
         runtime,
@@ -356,7 +372,7 @@ async def test_run_scheduler_finalizes_each_terminal_status_exactly_once(status)
         return FrameExecutionResult(status=status)
 
     runtime = SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run)
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     scheduler = RunScheduler(runtime, session=_session_with(frame))
 
     result = await scheduler.run(frame)
@@ -372,7 +388,7 @@ async def test_run_scheduler_rejects_unsupported_frame_status():
             status=cast(FrameExecutionStatus, "waiting_input"),
         )
 
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     scheduler = RunScheduler(
         SimpleNamespace(run_frame=run_frame),
         session=_session_with(frame),
@@ -384,7 +400,7 @@ async def test_run_scheduler_rejects_unsupported_frame_status():
 
 @pytest.mark.asyncio
 async def test_run_scheduler_rejects_unregistered_frame():
-    frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
+    frame = _frame_stub("frame-1")
     session = RunSession(agent_run_id="run-1")
     scheduler = RunScheduler(SimpleNamespace(run_frame=MagicMock()), session=session)
 

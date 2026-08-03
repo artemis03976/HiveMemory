@@ -5,6 +5,7 @@ owner: alice
 scope: single-agent-frame-execution
 code_paths:
   - src/hivememory/agent_runtime/
+  - src/hivememory/alice/runtime/streaming.py
   - src/hivememory/prompts/
   - src/hivememory/core/protocol/models.py
 related_contracts:
@@ -42,7 +43,7 @@ AgentRunService
 
 `AgentRuntime` 门面与 frame 级稳定契约保留在 `agent_runtime/` 根部；`execution/` 收拢 loop 与 WorkerAgent，`aliases/` 收拢热缓存和三级解析，`mtp/`、`pending_atom/` 分别保存协议执行与写缓冲能力。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunScheduler；执行层不再位于 Alice 编排目录中。
 
-当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, event_sink, cancel_event)`。非流式与流式调用分别注入 null sink 和 queue-backed sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。
+当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink, cancel_event)`。非流式与流式调用分别注入 `NullFrameOutputSink` 和支持 token 的 frame output sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。Agent Runtime 不接收额外的 generation mode，而是只读取 `output_sink.streams_tokens`：为 `false` 时调用完整生成，为 `true` 时调用 token stream。
 
 ## 2. ExecutionFrame：可恢复的运行 PCB
 
@@ -131,9 +132,9 @@ WorkerAgent 只识别 MTP 左定界符，并在 stop sequence 截断了右定界
 
 CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame、不解析 Profile、不组装 IPC；这些动作属于 Alice 编排层。自然停止返回 `COMPLETED`，取消返回 `CANCELLED`，无法形成有效结果返回 `FAILED`，达到 `max_loop_iterations` 且尚未自然收敛返回 `BUDGET_EXHAUSTED`。只有 `COMPLETED` 表示本帧成功完成。
 
-## 6. 流式执行
+## 6. 交互输出与流式执行
 
-流式路径与非流式路径共享同一个 `execute_frame()` 语义，只把生成过程中的可见部分投影为事件：
+Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的全局观测设施。`agent_runtime/output.py` 定义窄 `FrameOutputSink`，单帧循环只会发送 `TokenDelta`、`MTPStarted` 和 `MTPFinished` 三类强类型输出。Alice 的 `AgentRunOutput` 再把 frame 输出与 CALL 边界合并，`alice/runtime/streaming.py` 才负责投影为兼容的交互事件：
 
 - `token`：尚未检测到 MTP 左定界符的自然语言增量；
 - `mtp_start`：Runtime 已识别并准备执行一条指令；
@@ -141,7 +142,11 @@ CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame
 - 被调用 frame 事件仍使用相同类型，通过 `scope/frame_id/action_id/agent_id` 命名空间区分；为兼容既有 SSE 客户端，Alice 仍可提供 `depth` 展示字段，但它不再参与 Runtime 控制流；
 - `done` 由 AgentRunService 在 Scheduler 完成主 run 收尾后组装，而不是由 WorkerAgent 直接发出。
 
-检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化事件。CALL 时，`RunScheduler` 直接取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()` 准备 callee；同一个 `_drive()` 循环运行 callee 后再调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。
+每次流式 run 由 `AgentRunStreamAdapter` 创建容量为 256 的有界 FIFO queue、runner task 与 run-local `stream_sequence`。`QueueAgentRunOutput` 使用 `await put()` 保留背压，不丢弃 token 或控制事件；消费者提前关闭时，适配器设置当前 `RunSession.cancel_event` 并取消当前 runner，不影响其他 run。RunScheduler 本身没有 `run_stream()`、queue 或 sequence，它只调用统一的 `run(..., run_output=...)`。
+
+检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化输出。CALL 时，`RunScheduler` 直接取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()` 准备 callee；同一个 `_drive()` 循环运行 callee 后再调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。
+
+交互输出流与 RuntimeEvent 是两条严格独立的数据面。前者面向当前调用方，参与背压和断流取消，不能丢弃，并保留 `token/mtp_start/mtp_result/sub_agent_start/sub_agent_end/done` 兼容事件名；后者是全局 best-effort 观测旁路，可以缓冲、回放和丢弃慢订阅者数据，只记录 `agent.run.*` 等生命周期摘要。FrameOutput 不会自动桥接到 RuntimeEventBus，RuntimeEvent 也不驱动 frame、CALL 或 run 状态。
 
 非流式 LiteLLM 请求会与 `cancel_event.wait()` 竞争，取消时主动 cancel completion task。流式请求在每个 chunk 边界检查 cancel_event；MTP handler 又在执行前后检查，但同步 syscall 运行期间不能被这些 checkpoint 强制打断。
 
@@ -174,7 +179,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 
 当前执行层配置位于 `AliceConfig.runtime.max_loop_iterations`；模型、密钥与采样默认值由 ModelRegistry 和 shared config 管理，单次请求可以覆盖。Koakuma 与 prompt 配置见 [MTP Runtime](./mtp-runtime.md)。
 
-AgentRunService 为主 run 产生 `agent.run.started/completed/cancelled/failed` 观测事件，包含 agent_run_id、topic、agent、status、迭代与 materialize task 数量。frame 内部过程则通过 SSE 事件和结构化 TurnEvent 暴露。
+`AgentRunEventEmitter` 为主 run 产生 `agent.run.started/completed/cancelled/failed` 观测事件，包含 generation、agent run、topic、agent、status、迭代与 materialize task 数量；`RuntimeEventPublisher` 统一补充 scope/context、payload 安全转换和 best-effort 异常隔离。AgentRunService 只在明确的业务分支调用这些语义方法。frame 内部过程则通过交互输出事件和结构化 TurnEvent 暴露，不进入 RuntimeEventBus。
 
 主要验证入口：
 
@@ -184,6 +189,7 @@ AgentRunService 为主 run 产生 `agent.run.started/completed/cancelled/failed`
 - `tests/unit/agent_runtime/test_runtime.py`；
 - `tests/unit/alice/application/test_agent_run_service.py`；
 - `tests/unit/alice/orchestration/test_run_scheduler.py`；
+- `tests/unit/alice/runtime/test_streaming.py`、`test_runtime_events.py`；
 - `tests/e2e/pipeline/test_kernel_loop_e2e.py`、`test_active_mode_e2e.py`。
 
 ## 10. 当前限制

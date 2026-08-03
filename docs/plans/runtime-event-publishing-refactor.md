@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/system/observability.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-03
 ---
 
 # RuntimeEvent 生产端发布抽象重构
@@ -49,7 +49,7 @@ last_reviewed: 2026-07-29
 
 - `ChatApplicationService._emit_chat_event()`
 - `GatewayWorkflow._emit()`
-- `AliceRuntime._emit_agent_event()`
+- `AgentRunService._emit_agent_event()`
 - `MemoryGenerationTaskController._emit_memory_task_event()`
 - `GlobalMaintenanceScheduler._emit_task_event()`
 - `HiveMemorySystem._emit_lifecycle_event()`
@@ -619,7 +619,7 @@ src/hivememory/
     events.py                 # GatewayWorkflowEventEmitter、payload models
 
   alice/runtime/
-    events.py                 # AgentRunEventEmitter、payload models
+    runtime_events.py         # AgentRunEventEmitter、payload models
 
   patchouli/runtime/
     events.py                 # MemoryTaskEventEmitter、payload models
@@ -668,6 +668,13 @@ src/hivememory/
 3. 删除生产点重复的发布异常隔离代码。
 4. 消除 severity 相关 `type: ignore`。
 5. 审计所有直接 `RuntimeEvent(...)` 的生产点，只保留 Bus 内部事件等基础设施场景。
+
+### 当前实施进度（2026-08-03）
+
+- Phase 1 的 `RuntimeEventPublisher`、`RuntimeEventContext`、`scoped()/bind()/emit()`、payload 安全转换和 best-effort 单元测试已经落地；SystemAssembler 已创建唯一 root publisher。
+- Phase 3 中 Alice `agent.run.*` 的迁移已经落地：`AgentRunEventEmitter` 位于 `alice/runtime/runtime_events.py`，AgentRunService 只保留 `started/completed/cancelled/failed` 语义调用，并补齐 `generation_id`。
+- Chat、Gateway、Memory Task、Scheduler、System Lifecycle 与 Passive Ingress 尚未按本计划完成迁移；计划总体状态仍为 `planned`，不能因 Alice 接入而标记完成。
+- Alice 的 token/MTP/CALL/`done` 交互输出已经与 RuntimeEvent 明确分流：前者由 `FrameOutputSink -> AgentRunOutput -> AgentRunStreamAdapter` 承载，后者继续进入全局 RuntimeEventBus。两条通道不自动桥接，RuntimeEvent 不驱动 Agent run 业务状态。
 
 ---
 

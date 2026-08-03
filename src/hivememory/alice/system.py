@@ -15,12 +15,15 @@ from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
 from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.runtime.core import AliceRuntime
+from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
+from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+from hivememory.system.runtime.events import NullRuntimeEventSink
+from hivememory.system.runtime.publisher import RuntimeEventPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +43,11 @@ class AliceSystem(SubsystemProtocol):
         self,
         config: HiveMemoryConfig,
         global_bus: GlobalSystemBus | None = None,
-        runtime_events: RuntimeEventSink | None = None,
+        event_publisher: RuntimeEventPublisher | None = None,
         model_registry: ModelRegistry | None = None,
     ) -> None:
         self._config = config
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        publisher = event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
 
         self._runtime = AliceRuntime(
             alice_config=config.alice,
@@ -68,7 +71,8 @@ class AliceSystem(SubsystemProtocol):
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
             atom_cache=self._runtime.atom_cache,
-            runtime_events=self._runtime_events,
+            stream_adapter=AgentRunStreamAdapter(),
+            agent_run_events=AgentRunEventEmitter(publisher.scoped(component="agent_run_service")),
         )
 
         self._bridge = AliceBridge(
