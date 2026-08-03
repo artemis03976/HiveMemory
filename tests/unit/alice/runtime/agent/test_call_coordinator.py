@@ -229,7 +229,16 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
     coordinator = _coordinator(runtime, child)
     session = _session(caller)
 
-    transition = await coordinator.resolve_call(caller, _suspension(), session=session)
+    suspension = _suspension()
+    begin = await coordinator.begin_call(caller, suspension, session=session)
+    assert begin.action == CallNextAction.DISPATCH_CALLEE
+    transition = await coordinator.complete_call(
+        caller,
+        suspension,
+        child,
+        child_result,
+        session=session,
+    )
     response = runtime.apply_call_response.call_args.args[2]
 
     assert transition.action == CallNextAction.RESUME_CALLER
@@ -239,6 +248,7 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
     assert response.artifact_aliases == ["draft-child"]
     runtime.finalize_frame.assert_called_once_with(child, child_result)
     runtime.finalize_run.assert_not_called()
+    runtime.run_frame.assert_not_awaited()
     assert session.frames["frame-child"] is child
     assert session.call_for_callee("frame-child").status == CallRecordStatus.APPLIED
 
@@ -260,9 +270,14 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
     coordinator = _coordinator(runtime, child)
     session = _session(caller, cancel_event=cancel_event)
 
-    transition = await coordinator.resolve_call(
+    suspension = _suspension()
+    begin = await coordinator.begin_call(caller, suspension, session=session)
+    assert begin.action == CallNextAction.DISPATCH_CALLEE
+    transition = await coordinator.complete_call(
         caller,
-        _suspension(),
+        suspension,
+        child,
+        child_result,
         session=session,
     )
 
@@ -272,6 +287,7 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
     assert runtime.finalize_frame.call_args.args[0] is child
     assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.CANCELLED
     runtime.finalize_run.assert_not_called()
+    runtime.run_frame.assert_not_awaited()
     assert session.call_for_callee("frame-child").status == CallRecordStatus.CANCELLED
 
 
@@ -284,7 +300,7 @@ async def test_call_coordinator_rejects_unregistered_caller():
     coordinator = _coordinator(runtime, child)
 
     with pytest.raises(ValueError, match="not registered"):
-        await coordinator.resolve_call(
+        await coordinator.begin_call(
             caller,
             _suspension(),
             session=RunSession(agent_run_id="run-1"),

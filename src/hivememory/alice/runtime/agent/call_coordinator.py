@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.events import FrameEventSink, NullFrameEventSink
+from hivememory.agent_runtime.events import FrameEventSink
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -259,56 +259,16 @@ class CallCoordinator:
             session=session,
         )
 
-    async def resolve_call(
+    def event_sink_for_callee(
         self,
-        caller_frame: ExecutionFrame,
-        suspension: FrameExecutionResult,
-        *,
-        session: RunSession,
-        generation_options: dict[str, Any] | None = None,
-        event_sink: FrameEventSink | None = None,
-    ) -> CallTransition:
-        """R2 兼容壳：暂时保留旧的嵌套 callee 执行路径。"""
-        transition = await self.begin_call(
-            caller_frame,
-            suspension,
-            session=session,
-            generation_options=generation_options,
-            event_sink=event_sink,
-        )
-        if transition.action != CallNextAction.DISPATCH_CALLEE:
-            return transition
-
-        callee_frame = transition.next_frame
-        if callee_frame is None:
-            raise RuntimeError("CALL dispatch transition is missing its callee frame.")
-        action_id = suspension.suspend_action_id
-        sub_sink: FrameEventSink = NullFrameEventSink()
-        if event_sink is not None:
-            sub_sink = ScopedFrameEventSink(
-                event_sink,
-                metadata=self._event_metadata_for_frame(callee_frame, action_id),
-            )
-        try:
-            callee_result = await self._agent_runtime.run_frame(
-                frame=callee_frame,
-                generation_options=generation_options,
-                event_sink=sub_sink,
-                cancel_event=session.cancel_event,
-            )
-        except Exception as error:
-            callee_result = FrameExecutionResult(
-                status=FrameExecutionStatus.FAILED,
-                error=error,
-            )
-        return await self.complete_call(
-            caller_frame,
-            suspension,
-            callee_frame,
-            callee_result,
-            session=session,
-            generation_options=generation_options,
-            event_sink=event_sink,
+        callee_frame: ExecutionFrame,
+        action_id: str | None,
+        event_sink: FrameEventSink,
+    ) -> FrameEventSink:
+        """给 callee 事件补充 frame/action 作用域，不创建第二条事件队列。"""
+        return ScopedFrameEventSink(
+            event_sink,
+            metadata=self._event_metadata_for_frame(callee_frame, action_id),
         )
 
     async def _complete_preparation(

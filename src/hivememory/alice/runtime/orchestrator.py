@@ -15,7 +15,7 @@ from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
-from hivememory.alice.runtime.agent.run_driver import RunDriver
+from hivememory.alice.runtime.agent.run_scheduler import RunScheduler
 from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
@@ -75,12 +75,12 @@ class AgentOrchestrator:
             agent_profile=agent_profile,
             session=session,
         )
-        driver = RunDriver(
+        scheduler = RunScheduler(
             agent_runtime=self._agent_runtime,
             session=session,
             call_coordinator=self._call_coordinator,
         )
-        result = await driver.run(
+        result = await scheduler.run(
             frame,
             generation_options=generation_options,
         )
@@ -88,7 +88,7 @@ class AgentOrchestrator:
         return self._assemble_agent_run_result(
             frame,
             result,
-            driver.runtime_products or RuntimeProducts(),
+            scheduler.runtime_products or RuntimeProducts(),
         )
 
     async def run_agent_stream(
@@ -108,27 +108,27 @@ class AgentOrchestrator:
             agent_profile=agent_profile,
             session=session,
         )
-        driver = RunDriver(
+        scheduler = RunScheduler(
             agent_runtime=self._agent_runtime,
             session=session,
             call_coordinator=self._call_coordinator,
         )
         event_metadata = self._event_metadata_for_frame(frame)
 
-        async for event in driver.run_stream(
+        async for event in scheduler.run_stream(
             frame,
             generation_options=generation_options,
             event_metadata=event_metadata,
         ):
             yield event
 
-        terminal_result = driver.terminal_result
+        terminal_result = scheduler.terminal_result
         if terminal_result is None:
-            raise RuntimeError("Run driver ended without a terminal result.")
+            raise RuntimeError("Run scheduler ended without a terminal result.")
         result = self._assemble_agent_run_result(
             frame,
             terminal_result,
-            driver.runtime_products or RuntimeProducts(),
+            scheduler.runtime_products or RuntimeProducts(),
         )
 
         yield {
@@ -136,7 +136,7 @@ class AgentOrchestrator:
             "data": {
                 **result.model_dump(),
                 **event_metadata,
-                "stream_sequence": driver.next_stream_sequence,
+                "stream_sequence": scheduler.next_stream_sequence,
             },
         }
 

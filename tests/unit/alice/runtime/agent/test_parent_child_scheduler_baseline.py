@@ -48,7 +48,7 @@ def _session(frame: ExecutionFrame, *, cancel_event: asyncio.Event | None = None
         agent_run_id=frame.runtime_scope.run_id,
         cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
     )
-    session.register_frame(frame)
+    session.register_root_frame(frame)
     return session
 
 
@@ -138,7 +138,7 @@ async def test_call_preparation_error_is_returned_without_dispatching_child():
     coordinator = _coordinator(runtime, child, profile_resolver=profile_resolver)
     sink = _RecordingSink()
 
-    transition = await coordinator.resolve_call(
+    transition = await coordinator.begin_call(
         caller,
         _suspension(),
         session=_session(caller),
@@ -168,10 +168,16 @@ async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_chi
     )
     coordinator = _coordinator(runtime, child)
 
-    transition = await coordinator.resolve_call(
+    suspension = _suspension()
+    session = _session(caller)
+    begin = await coordinator.begin_call(caller, suspension, session=session)
+    assert begin.action == CallNextAction.DISPATCH_CALLEE
+    transition = await coordinator.complete_call(
         caller,
-        _suspension(),
-        session=_session(caller),
+        suspension,
+        child,
+        child_result,
+        session=session,
     )
     response = runtime.apply_call_response.call_args.args[2]
 
@@ -205,10 +211,26 @@ async def test_cancelled_session_reaches_child_with_same_cancel_event_before_dis
     )
     coordinator = _coordinator(runtime, child)
 
-    transition = await coordinator.resolve_call(
+    suspension = _suspension()
+    session = _session(caller, cancel_event=cancel_event)
+    begin = await coordinator.begin_call(
         caller,
-        _suspension(),
-        session=_session(caller, cancel_event=cancel_event),
+        suspension,
+        session=session,
+    )
+    assert begin.action == CallNextAction.DISPATCH_CALLEE
+    child_result = await runtime.run_frame(
+        frame=child,
+        generation_options=None,
+        event_sink=SimpleNamespace(),
+        cancel_event=cancel_event,
+    )
+    transition = await coordinator.complete_call(
+        caller,
+        suspension,
+        child,
+        child_result,
+        session=session,
     )
 
     assert transition.action == CallNextAction.CANCEL_RUN
@@ -217,8 +239,8 @@ async def test_cancelled_session_reaches_child_with_same_cancel_event_before_dis
     runtime.finalize_frame.assert_called_once()
 
 
-def test_current_run_frame_callers_are_explicit_until_scheduler_cutover():
-    """R0 临时门禁：R3 前仅 Driver 与 Coordinator 可以推进 frame。"""
+def test_run_scheduler_is_the_only_alice_run_frame_caller():
+    """R3 永久门禁：Alice 编排层仅 RunScheduler 可以推进 frame。"""
     repo_root = Path(__file__).resolve().parents[5]
     alice_root = repo_root / "src" / "hivememory" / "alice"
     callers: set[str] = set()
@@ -233,4 +255,4 @@ def test_current_run_frame_callers_are_explicit_until_scheduler_cutover():
         ):
             callers.add(source_path.name)
 
-    assert callers == {"call_coordinator.py", "run_driver.py"}
+    assert callers == {"run_scheduler.py"}
