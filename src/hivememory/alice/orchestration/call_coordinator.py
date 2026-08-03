@@ -14,9 +14,9 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts
-from hivememory.alice.runtime.agent.call_record import CallRecordStatus
-from hivememory.alice.runtime.agent.event_sink import ScopedFrameEventSink
-from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.call_record import CallRecordStatus
+from hivememory.alice.orchestration.event_sink import ScopedFrameEventSink
+from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
@@ -33,9 +33,9 @@ from hivememory.engines.memory_compiler import (
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.resolver import RuntimeAliasResolver
-    from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
-    from hivememory.alice.runtime.agent.run_session import RunSession
-    from hivememory.alice.runtime.agent.runtime import AgentRuntime
+    from hivememory.agent_runtime.runtime import AgentRuntime
+    from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
+    from hivememory.alice.orchestration.run_session import RunSession
     from hivememory.core.models import AgentProfile, Identity
     from hivememory.prompts.assembler import AgentPromptAssembler
 

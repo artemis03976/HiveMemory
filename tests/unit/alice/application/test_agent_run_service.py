@@ -5,6 +5,10 @@ import pytest
 
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.products import RuntimeProducts
+from hivememory.alice.application.agent_run_service import AgentRunService
+from hivememory.alice.orchestration.call_coordinator import CallCoordinator
+from hivememory.alice.orchestration.frame_factory import FrameFactory
+from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -16,6 +20,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.protocol.models import AgentRunContext, AgentRunStatus, RetrievalResponse
+from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
@@ -52,14 +57,30 @@ def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
     )
 
 
-def _build_runtime(*, runtime_events=None) -> AliceRuntime:
+def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunService]:
     config = HiveMemoryConfig()
-    return AliceRuntime(
+    runtime = AliceRuntime(
         alice_config=config.alice,
-        shared_config=config.shared,
         memory_compiler_config=config.memory_compiler,
+    )
+    frame_factory = FrameFactory()
+    prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
+    coordinator = CallCoordinator(
+        runtime.agent_runtime,
+        AgentProfileResolver(local_bus=runtime.local_bus),
+        runtime.alias_resolver,
+        frame_factory=frame_factory,
+        prompt_assembler=prompt_assembler,
+    )
+    service = AgentRunService(
+        agent_runtime=runtime.agent_runtime,
+        call_coordinator=coordinator,
+        frame_factory=frame_factory,
+        prompt_assembler=prompt_assembler,
+        atom_cache=runtime.atom_cache,
         runtime_events=runtime_events,
     )
+    return runtime, service
 
 
 def _stub_terminal_execution(
@@ -74,12 +95,12 @@ def _stub_terminal_execution(
 
 @pytest.mark.asyncio
 async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
-    runtime = _build_runtime()
+    runtime, service = _build_service()
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
     _stub_terminal_execution(runtime)
 
-    await runtime.run_agent(context)
+    await service.run_agent(context)
 
     cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
     assert cached is memory
@@ -89,21 +110,21 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
 @pytest.mark.asyncio
 async def test_run_agent_correlates_runtime_scope_and_generation_id():
     recorder = RecordingRuntimeEventSink()
-    runtime = _build_runtime(runtime_events=recorder)
+    runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
     _stub_terminal_execution(runtime)
     created_sessions = []
-    create_run_session = runtime._create_run_session
+    create_run_session = service._create_run_session
 
     def _capture_session(**kwargs):
         session = create_run_session(**kwargs)
         created_sessions.append(session)
         return session
 
-    runtime._create_run_session = _capture_session
+    service._create_run_session = _capture_session
     cancel_event = asyncio.Event()
 
-    await runtime.run_agent(
+    await service.run_agent(
         context,
         cancel_event=cancel_event,
         generation_id="generation-1",
@@ -119,11 +140,11 @@ async def test_run_agent_correlates_runtime_scope_and_generation_id():
 @pytest.mark.asyncio
 async def test_run_agent_failed_result_emits_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
-    runtime = _build_runtime(runtime_events=recorder)
+    runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
     _stub_terminal_execution(runtime, FrameExecutionStatus.FAILED)
 
-    result = await runtime.run_agent(context)
+    result = await service.run_agent(context)
 
     assert result.status == AgentRunStatus.FAILED.value
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
@@ -133,12 +154,12 @@ async def test_run_agent_failed_result_emits_failed_runtime_event():
 
 @pytest.mark.asyncio
 async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution():
-    runtime = _build_runtime()
+    runtime, service = _build_service()
     memory = _build_memory_atom()
     context = _build_agent_run_context(memory)
     _stub_terminal_execution(runtime)
 
-    events = [event async for event in runtime.run_agent_stream(context)]
+    events = [event async for event in service.run_agent_stream(context)]
 
     cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
     assert cached is memory
@@ -150,7 +171,7 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
 @pytest.mark.asyncio
 async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     recorder = RecordingRuntimeEventSink()
-    runtime = _build_runtime(runtime_events=recorder)
+    runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
     received_cancel_events = []
 
@@ -161,7 +182,7 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
 
     runtime._agent_runtime.run_frame = _run_frame
     runtime._agent_runtime.finalize_run = MagicMock(return_value=RuntimeProducts())
-    stream = runtime.run_agent_stream(context)
+    stream = service.run_agent_stream(context)
 
     assert (await anext(stream))["event"] == "token"
     await stream.aclose()
@@ -179,13 +200,13 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
 @pytest.mark.asyncio
 async def test_run_agent_stream_error_does_not_set_cancel_event():
     recorder = RecordingRuntimeEventSink()
-    runtime = _build_runtime(runtime_events=recorder)
+    runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
     cancel_event = asyncio.Event()
     runtime._agent_runtime.run_frame = AsyncMock(side_effect=RuntimeError("network unavailable"))
 
     with pytest.raises(RuntimeError, match="network unavailable"):
-        async for _ in runtime.run_agent_stream(context, cancel_event=cancel_event):
+        async for _ in service.run_agent_stream(context, cancel_event=cancel_event):
             pass
 
     assert cancel_event.is_set() is False
@@ -196,7 +217,7 @@ async def test_run_agent_stream_error_does_not_set_cancel_event():
 @pytest.mark.asyncio
 async def test_run_agent_stream_without_scheduler_terminal_fails_cleanly():
     recorder = RecordingRuntimeEventSink()
-    runtime = _build_runtime(runtime_events=recorder)
+    _runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
     cancel_event = asyncio.Event()
 
@@ -206,9 +227,12 @@ async def test_run_agent_stream_without_scheduler_terminal_fails_cleanly():
     scheduler = MagicMock()
     scheduler.run_stream = _stream
     scheduler.terminal_result = None
-    with patch("hivememory.alice.runtime.core.RunScheduler", return_value=scheduler):
+    with patch(
+        "hivememory.alice.application.agent_run_service.RunScheduler",
+        return_value=scheduler,
+    ):
         with pytest.raises(RuntimeError, match="ended without done"):
-            async for _ in runtime.run_agent_stream(context, cancel_event=cancel_event):
+            async for _ in service.run_agent_stream(context, cancel_event=cancel_event):
                 pass
 
     assert cancel_event.is_set() is False

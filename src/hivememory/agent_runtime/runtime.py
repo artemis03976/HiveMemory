@@ -16,7 +16,7 @@ from hivememory.system.model_registry import ModelNotFoundError
 if TYPE_CHECKING:
     from hivememory.agent_runtime.models import ExecutionFrame
     from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
-    from hivememory.system.config import AliceConfig
+    from hivememory.system.config import AgentRuntimeConfig
     from hivememory.system.model_registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class AgentRuntime:
         self,
         *,
         mtp_executor: MTPExecutor,
-        alice_config: AliceConfig,
+        runtime_config: AgentRuntimeConfig,
         pending_runtime: PendingAtomRuntime | None = None,
         loop_executor: AgentLoopExecutor | None = None,
         model_registry: ModelRegistry | None = None,
@@ -55,7 +55,7 @@ class AgentRuntime:
             self._loop_executor = AgentLoopExecutor(
                 worker_agent=worker_agent,
                 mtp_executor=mtp_executor,
-                config=alice_config.runtime,
+                config=runtime_config,
             )
 
     @property

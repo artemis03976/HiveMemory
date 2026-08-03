@@ -9,12 +9,12 @@ import pytest
 
 from hivememory.agent_runtime.events import QueueFrameEventSink
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
-from hivememory.alice.runtime.agent.call_coordinator import (
+from hivememory.alice.orchestration.call_coordinator import (
     CallNextAction,
     CallTransition,
 )
-from hivememory.alice.runtime.agent.run_scheduler import RunScheduler
-from hivememory.alice.runtime.agent.run_session import FrameSchedulingStatus, RunSession
+from hivememory.alice.orchestration.run_scheduler import RunScheduler
+from hivememory.alice.orchestration.run_session import FrameSchedulingStatus, RunSession
 from hivememory.core.mtp import MTPCallRequest
 
 

@@ -26,9 +26,7 @@ class AgentProfileCache:
 
     def __init__(self, max_size: int = 32):
         self._max_size = max_size
-        self._cache: OrderedDict[
-            tuple[str, str, str | None, str], AgentProfile
-        ] = OrderedDict()
+        self._cache: OrderedDict[tuple[str, str, str | None, str], AgentProfile] = OrderedDict()
 
     @staticmethod
     def key(alias: str, identity: Identity) -> tuple[str, str, str | None, str]:
@@ -134,4 +132,3 @@ class AgentProfileResolver:
 
 
 __all__ = ["AgentProfileResolver"]
-

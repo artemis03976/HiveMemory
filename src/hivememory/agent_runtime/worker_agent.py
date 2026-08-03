@@ -18,16 +18,17 @@ Worker Agent Service - 无状态 LLM 文本生成服务
     │   ├── AgentRuntime
     │   │   ├── AgentLoopExecutor
     │   │   └── WorkerAgentService (LLM Engine)  ← 本模块
-    └── AliceService
+    └── AgentRunService
 
 对应设计文档: MemoryToolProtocol.md Section 3.1 & 6.4
 """
 
-import logging
-from contextlib import suppress
-from typing import Any, AsyncGenerator, Dict, List, Optional
-
 import asyncio
+import logging
+from collections.abc import AsyncGenerator
+from contextlib import suppress
+from typing import Any
+
 import litellm
 
 from hivememory.agent_runtime.models import GenerationResult, StreamChunk
@@ -68,7 +69,7 @@ class WorkerAgentService:
     def __init__(self) -> None:
         logger.info("WorkerAgentService 初始化完成（无状态）")
 
-    def _extract_runtime_params(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_runtime_params(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """从 generation_options（kwargs）中提取本次 LLM 调用的运行时参数。
 
         设计原则：
@@ -94,7 +95,7 @@ class WorkerAgentService:
         api_base = kwargs.pop("api_base", None)
 
         # temperature / max_tokens / top_p 回落到项目级默认常量
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "model": model,
             "temperature": DEFAULT_TEMPERATURE if temperature is None else temperature,
             "max_tokens": DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
@@ -116,8 +117,8 @@ class WorkerAgentService:
 
     async def generate_async(
         self,
-        messages: List[Dict[str, str]],
-        cancel_event: Optional[asyncio.Event] = None,
+        messages: list[dict[str, str]],
+        cancel_event: asyncio.Event | None = None,
         **kwargs,
     ) -> GenerationResult:
         runtime_params = self._extract_runtime_params(kwargs)
@@ -186,8 +187,8 @@ class WorkerAgentService:
     async def _completion_with_cancel(
         self,
         *,
-        cancel_event: Optional[asyncio.Event],
-        completion_kwargs: Dict[str, Any],
+        cancel_event: asyncio.Event | None,
+        completion_kwargs: dict[str, Any],
     ) -> Any:
         completion_task = asyncio.create_task(litellm.acompletion(**completion_kwargs))
         if cancel_event is None:
@@ -212,8 +213,8 @@ class WorkerAgentService:
 
     async def generate_stream(
         self,
-        messages: List[Dict[str, str]],
-        cancel_event: Optional[asyncio.Event] = None,
+        messages: list[dict[str, str]],
+        cancel_event: asyncio.Event | None = None,
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
         """

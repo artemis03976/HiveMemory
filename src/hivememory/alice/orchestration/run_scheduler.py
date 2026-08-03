@@ -15,16 +15,16 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.products import RuntimeProducts
-from hivememory.alice.runtime.agent.call_coordinator import CallNextAction
-from hivememory.alice.runtime.agent.call_record import CallRecord
-from hivememory.alice.runtime.agent.run_session import (
+from hivememory.alice.orchestration.call_coordinator import CallNextAction
+from hivememory.alice.orchestration.call_record import CallRecord
+from hivememory.alice.orchestration.run_session import (
     FrameSchedulingStatus,
     RunSession,
 )
 
 if TYPE_CHECKING:
-    from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
-    from hivememory.alice.runtime.agent.runtime import AgentRuntime
+    from hivememory.agent_runtime.runtime import AgentRuntime
+    from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 
 
 class RunScheduler:

@@ -5,7 +5,6 @@ owner: alice
 scope: single-agent-frame-execution
 code_paths:
   - src/hivememory/agent_runtime/
-  - src/hivememory/alice/runtime/agent/runtime.py
   - src/hivememory/prompts/
   - src/hivememory/core/protocol/models.py
 related_contracts:
@@ -24,7 +23,7 @@ Agent Runtime 负责把一个 Agent 的一帧运行到自然收敛、取消或�
 ## 1. 层级与依赖方向
 
 ```text
-AliceRuntime
+AgentRunService
   -> RunScheduler
        -> AgentRuntime facade
        -> AgentLoopExecutor
@@ -41,7 +40,7 @@ AliceRuntime
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
 - 持久化记忆、Profile 读取与 citation 均通过 Alice 装配的 local bus 间接访问 Patchouli。
 
-当前 `AgentRuntime` 聚合门面仍位于 `alice/runtime/agent/runtime.py`，而 loop、WorkerAgent、MTP adapter、cache、resolver 与 PendingAtom 已迁至顶层执行层。逻辑边界已经成立，物理聚合根仍保留一部分演进痕迹。
+`AgentRuntime` 聚合门面、loop、WorkerAgent、MTP adapter、cache、resolver 与 PendingAtom 均位于顶层 `agent_runtime/`。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunScheduler；执行层不再位于 Alice 编排目录中。
 
 当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, event_sink, cancel_event)`。非流式与流式调用分别注入 null sink 和 queue-backed sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。
 
@@ -140,7 +139,7 @@ CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame
 - `mtp_start`：Runtime 已识别并准备执行一条指令；
 - `mtp_result`：指令的 success/error/ack/suspend 等状态；
 - 被调用 frame 事件仍使用相同类型，通过 `scope/frame_id/action_id/agent_id` 命名空间区分；为兼容既有 SSE 客户端，Alice 仍可提供 `depth` 展示字段，但它不再参与 Runtime 控制流；
-- `done` 由 AliceRuntime 在 Scheduler 完成主 run 收尾后组装，而不是由 WorkerAgent 直接发出。
+- `done` 由 AgentRunService 在 Scheduler 完成主 run 收尾后组装，而不是由 WorkerAgent 直接发出。
 
 检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化事件。CALL 时，`RunScheduler` 直接取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()` 准备 callee；同一个 `_drive()` 循环运行 callee 后再调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。
 
@@ -148,7 +147,7 @@ CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame
 
 ## 7. AgentRunResult 的组装边界
 
-Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统的 `AgentRunResult` 必须由 AliceRuntime 组装：
+Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统的 `AgentRunResult` 必须由 AgentRunService 组装：
 
 - `final_text` 来自主 frame 累积正文；
 - `turn_events` 是当前用户消息、assistant 输出和工具事件的有序事实；
@@ -157,7 +156,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 - `status` 由取消状态与运行终态确定；
 - `model_used` 来自主 frame 模型解析。
 
-执行层不应为了组装最终响应重新维护 write focus、pending alias 或子 Agent 结果副本。PendingAtomRuntime 已拥有写缓冲真相，AliceRuntime 只在 run 边界投影稳定公共结果。
+执行层不应为了组装最终响应重新维护 write focus、pending alias 或子 Agent 结果副本。PendingAtomRuntime 已拥有写缓冲真相，AgentRunService 只在 run 边界投影稳定公共结果。
 
 当前收尾由两个显式产品模型分开：`finalize_frame()` 产生只供当前 CALL 使用的 `FrameProducts.artifact_aliases`，`finalize_run()` 产生交给 Patchouli 的 `RuntimeProducts.materialize_tasks`。前者可由 `CallCoordinator` 调用，后者只由 `RunScheduler` 在根 run 终态调用一次；编排层不再遍历 PendingAtom store 的内部集合。
 
@@ -175,15 +174,16 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 
 当前执行层配置位于 `AliceConfig.runtime.max_loop_iterations`；模型、密钥与采样默认值由 ModelRegistry 和 shared config 管理，单次请求可以覆盖。Koakuma 与 prompt 配置见 [MTP Runtime](./mtp-runtime.md)。
 
-AliceRuntime 为主 run 产生 `agent.run.started/completed/cancelled/failed` 观测事件，包含 agent_run_id、topic、agent、status、迭代与 materialize task 数量。frame 内部过程则通过 SSE 事件和结构化 TurnEvent 暴露。
+AgentRunService 为主 run 产生 `agent.run.started/completed/cancelled/failed` 观测事件，包含 agent_run_id、topic、agent、status、迭代与 materialize task 数量。frame 内部过程则通过 SSE 事件和结构化 TurnEvent 暴露。
 
 主要验证入口：
 
 - `tests/unit/agent_runtime/test_loop_executor_turn_events.py`；
 - `tests/unit/agent_runtime/test_loop_executor_stream.py`；
 - `tests/unit/agent_runtime/test_worker_agent.py`；
-- `tests/unit/alice/runtime/agent/test_runtime.py`；
-- `tests/unit/alice/runtime/test_core.py`；
+- `tests/unit/agent_runtime/test_runtime.py`；
+- `tests/unit/alice/application/test_agent_run_service.py`；
+- `tests/unit/alice/orchestration/test_run_scheduler.py`；
 - `tests/e2e/pipeline/test_kernel_loop_e2e.py`、`test_active_mode_e2e.py`。
 
 ## 10. 当前限制
@@ -193,7 +193,7 @@ AliceRuntime 为主 run 产生 `agent.run.started/completed/cancelled/failed` �
 - 主 run 的失败和预算耗尽都由 Alice 组装为 `AgentRunStatus.FAILED`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
 - `AgentRunResult.turn_events` 在公共模型中仍声明为 `list[Any]`，类型边界没有完全收紧到 `TurnEvent`；
 - 未使用 ModelRegistry 时 `model_used` 可能为空，即使 WorkerAgent 实际已经使用了调用方提供的模型；
-- `AgentRuntime` 聚合门面仍位于 Alice 物理目录，AliceRuntime 也直接持有 PendingAtom settlement/cache 刷新逻辑；执行层聚合根尚未完全独立结晶；
+- AliceRuntime 仍直接持有 PendingAtom settlement/cache 刷新逻辑；这部分属于进程级运行时投影，但尚未进一步提取为窄事件处理器；
 - 流式取消只能在 LiteLLM chunk 或 MTP checkpoint 处生效，不能保证立即中断同步 syscall；
 - 执行层没有每 run 的资源配额、token budget、并发限流、持久化 checkpoint 或回放能力；
 - `health()` 只返回 loop/worker 固定 `ok`，不验证模型端点、正在运行的 frame 或迭代耗尽率。

@@ -107,8 +107,8 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AliceService.run_agent` | `AgentRunContext`、generation options、cancel event | `AgentRunResult` |
-| `alice.public.run_agent_stream` | `AliceService.run_agent_stream` 适配器 | 同上 | async generator 对象 |
+| `alice.public.run_agent` | `AgentRunService.run_agent` | `AgentRunContext`、generation options、cancel event | `AgentRunResult` |
+| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | 同上 | async generator 对象 |
 
 ## 3. 全局业务事件
 

@@ -4,12 +4,12 @@ status: current
 owner: alice
 scope: call-frame-scheduling-and-sub-agent-return
 code_paths:
-  - src/hivememory/alice/runtime/core.py
-  - src/hivememory/alice/runtime/agent/run_scheduler.py
-  - src/hivememory/alice/runtime/agent/run_session.py
-  - src/hivememory/alice/runtime/agent/call_coordinator.py
-  - src/hivememory/alice/runtime/agent/frame_factory.py
-  - src/hivememory/alice/runtime/agent/profile_resolver.py
+  - src/hivememory/alice/application/agent_run_service.py
+  - src/hivememory/alice/orchestration/run_scheduler.py
+  - src/hivememory/alice/orchestration/run_session.py
+  - src/hivememory/alice/orchestration/call_coordinator.py
+  - src/hivememory/alice/orchestration/frame_factory.py
+  - src/hivememory/alice/orchestration/profile_resolver.py
   - src/hivememory/prompts/assembler.py
 related_contracts:
   - docs/contracts/mtp.md
@@ -27,7 +27,7 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 ## 1. 编排层组件
 
 ```text
-AliceRuntime
+AgentRunService
   ├─ root frame bootstrap / AgentRunResult / stream done
   ├─ RunSession
   │    ├─ frame registry / scheduling status / CallRecord ledger
@@ -47,7 +47,8 @@ AliceRuntime
        └─ run one frame to completed / suspended / cancelled / failed / budget_exhausted
 ```
 
-- AliceRuntime 是组合根与公开输入输出适配层，负责创建 root frame、为每次 run 构造 Scheduler、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；
+- AgentRunService 是 Alice 的公开 run 用例入口，负责创建 root frame、为每次 run 构造 Scheduler、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；
+- AliceSystem 是子系统装配根；AliceRuntime 只持有进程级执行资源和 PendingAtom 运行时投影，不参与单次 run 的控制链；
 - RunSession 拥有一次 run 的 frame registry、CALL record、取消信号和流序号，不存在进程级挂起栈；
 - RunScheduler 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件，同时推进 root 与 callee，也是唯一调用 `finalize_run()` 的位置；
 - CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：准备 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不运行 frame，也不收尾整个 run；
@@ -189,7 +190,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - 子帧预算耗尽和意外再次挂起分别使用 `mtp.call_response.budget_exhausted` 和 `mtp.call_response.unexpected_suspend`；子帧取消则保持 cancelled 终态；
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
 - run 取消 token 会传给主/子 AgentRuntime；最终主结果为 cancelled，并取消本 run 尚未结算的 PendingAtom，不交出 materialize tasks；
-- 流生成器提前关闭时，AliceRuntime 只设置当前 RunSession 的 cancel token，并显式关闭 Scheduler stream；Scheduler 取消本 run 尚未 apply 的 CALL，收尾已创建 callee 与 root，且不再向关闭的 consumer 阻塞发送事件；
+- 流生成器提前关闭时，AgentRunService 只设置当前 RunSession 的 cancel token，并显式关闭 Scheduler stream；Scheduler 取消本 run 尚未 apply 的 CALL，收尾已创建 callee 与 root，且不再向关闭的 consumer 阻塞发送事件；
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 
 将子 Agent 失败包装成 CALL error 是局部容错，不代表子任务成功；主 Agent 是否还能完成用户请求由后续生成决定。相反，主 frame 基础设施失败没有可用的上层 Agent 继续纠正，因此必须结束本次 run。

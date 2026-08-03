@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
 from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, Identity
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
@@ -157,4 +157,3 @@ async def test_concurrent_same_identity_resolve_loads_once():
 
     assert first is second
     bus.request.assert_awaited_once()
-

@@ -8,9 +8,11 @@ from types import SimpleNamespace
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
-from hivememory.alice.runtime.agent.run_session import RunSession
-from hivememory.alice.runtime.agent.runtime import AgentRuntime
+from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.alice.application import AgentRunService
+from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
 
 
@@ -57,6 +59,19 @@ def test_agent_runtime_has_no_child_specific_public_api() -> None:
     }
 
     assert not any("child" in name or "sub_frame" in name for name in public_methods)
+
+
+def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
+    runtime_public_methods = {
+        name
+        for name, member in inspect.getmembers(AliceRuntime, predicate=inspect.isfunction)
+        if not name.startswith("_")
+    }
+
+    assert "run_agent" not in runtime_public_methods
+    assert "run_agent_stream" not in runtime_public_methods
+    assert inspect.iscoroutinefunction(AgentRunService.run_agent)
+    assert inspect.isasyncgenfunction(AgentRunService.run_agent_stream)
 
 
 def test_frame_factory_creates_ordinary_frames_without_topology_metadata() -> None:

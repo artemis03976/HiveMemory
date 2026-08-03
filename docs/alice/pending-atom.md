@@ -8,7 +8,9 @@ code_paths:
   - src/hivememory/agent_runtime/resolver.py
   - src/hivememory/core/models/pending.py
   - src/hivememory/alice/runtime/core.py
-  - src/hivememory/alice/runtime/agent/runtime.py
+  - src/hivememory/agent_runtime/runtime.py
+  - src/hivememory/alice/orchestration/run_scheduler.py
+  - src/hivememory/alice/orchestration/call_coordinator.py
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
@@ -202,7 +204,7 @@ PendingAtom 当前没有墙钟 TTL。回收发生在成功根 run 的 `finalize_
 | 生命周期命令与查询 | `src/hivememory/agent_runtime/pending_atom/runtime.py` |
 | alias / intent / canonical 索引 | `src/hivememory/agent_runtime/pending_atom/store.py` |
 | L0/L1/L2 统一解析 | `src/hivememory/agent_runtime/resolver.py` |
-| frame/run 收尾认领与取消 | `src/hivememory/alice/runtime/agent/runtime.py`、`run_scheduler.py`、`call_coordinator.py` |
+| frame/run 收尾认领与取消 | `src/hivememory/agent_runtime/runtime.py`、`src/hivememory/alice/orchestration/run_scheduler.py`、`call_coordinator.py` |
 | settlement 事件回填 | `src/hivememory/alice/runtime/core.py` |
 | 状态机与回收测试 | `tests/unit/agent_runtime/pending_atom/` |
 | WRITE/UPDATE/READ/RUN 链路 | `tests/unit/agent_runtime/mtp/test_*_chain.py` |

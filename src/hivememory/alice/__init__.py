@@ -1,4 +1,4 @@
-from hivememory.alice.service import AliceService
+from hivememory.alice.application import AgentRunService
 from hivememory.alice.system import AliceSystem
 
-__all__ = ["AliceSystem", "AliceService"]
+__all__ = ["AgentRunService", "AliceSystem"]

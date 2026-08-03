@@ -23,11 +23,11 @@ from hivememory.agent_runtime.models import (
     RuntimeScope,
 )
 from hivememory.agent_runtime.resolver import ResolveResult
-from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
-from hivememory.alice.runtime.agent.frame_factory import FrameFactory
-from hivememory.alice.runtime.agent.run_scheduler import RunScheduler
-from hivememory.alice.runtime.agent.run_session import RunSession
-from hivememory.alice.runtime.agent.runtime import AgentRuntime
+from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.alice.orchestration.call_coordinator import CallCoordinator
+from hivememory.alice.orchestration.frame_factory import FrameFactory
+from hivememory.alice.orchestration.run_scheduler import RunScheduler
+from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Identity,
@@ -415,7 +415,7 @@ async def test_empty_prefix_text_not_recorded():
 @pytest.mark.asyncio
 async def test_call_path_produces_mtp_result_event_with_call_verb():
     """CALL 路径: 编排侧产出 kind=tool_result, tool_kind=CALL, role=user"""
-    from hivememory.alice.runtime.agent.runtime import AgentRuntime
+    from hivememory.agent_runtime.runtime import AgentRuntime
 
     call_counter = {"n": 0}
 
@@ -436,7 +436,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     alias_resolver = MagicMock()
 
     agent_runtime = AgentRuntime(
-        mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
+        mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=executor
     )
     frame_factory = FrameFactory()
     prompt_assembler = MagicMock()
@@ -490,7 +490,7 @@ async def test_context_refs_fetch_uses_runtime_alias_resolver():
     alias_resolver.resolve = AsyncMock(return_value=resolved)
 
     coordinator = CallCoordinator(
-        AgentRuntime(mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor),
+        AgentRuntime(mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=executor),
         MagicMock(),
         alias_resolver,
         frame_factory=FrameFactory(),
@@ -526,7 +526,7 @@ async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
     alias_resolver.resolve = AsyncMock(return_value=resolved)
 
     coordinator = CallCoordinator(
-        AgentRuntime(mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor),
+        AgentRuntime(mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=executor),
         MagicMock(),
         alias_resolver,
         frame_factory=FrameFactory(),

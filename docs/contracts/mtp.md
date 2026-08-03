@@ -6,8 +6,8 @@ scope: mtp
 code_paths:
   - src/hivememory/core/mtp/
   - src/hivememory/agent_runtime/mtp/runtime.py
-  - src/hivememory/alice/runtime/agent/run_scheduler.py
-  - src/hivememory/alice/runtime/agent/call_coordinator.py
+  - src/hivememory/alice/orchestration/run_scheduler.py
+  - src/hivememory/alice/orchestration/call_coordinator.py
   - src/hivememory/core/models/agent.py
 related_contracts:
   - docs/contracts/error-model.md

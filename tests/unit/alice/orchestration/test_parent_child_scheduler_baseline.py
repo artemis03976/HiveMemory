@@ -14,12 +14,12 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.products import FrameProducts
-from hivememory.alice.runtime.agent.call_coordinator import (
+from hivememory.alice.orchestration.call_coordinator import (
     CallCoordinator,
     CallNextAction,
 )
-from hivememory.alice.runtime.agent.run_scheduler import RunScheduler
-from hivememory.alice.runtime.agent.run_session import RunSession
+from hivememory.alice.orchestration.run_scheduler import RunScheduler
+from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 from hivememory.core.mtp import MTPCallRequest, MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError
@@ -227,7 +227,7 @@ async def test_cancelled_session_stops_call_before_dispatch():
 
 def test_run_scheduler_is_the_only_alice_run_frame_caller():
     """R3 永久门禁：Alice 编排层仅 RunScheduler 可以推进 frame。"""
-    repo_root = Path(__file__).resolve().parents[5]
+    repo_root = Path(__file__).resolve().parents[4]
     alice_root = repo_root / "src" / "hivememory" / "alice"
     callers: set[str] = set()
 

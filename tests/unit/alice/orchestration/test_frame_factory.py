@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import KoakumaConfig

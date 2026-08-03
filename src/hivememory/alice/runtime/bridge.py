@@ -12,15 +12,15 @@ from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 if TYPE_CHECKING:
+    from hivememory.alice.application import AgentRunService
     from hivememory.alice.runtime.core import AliceRuntime
-    from hivememory.alice.service import AliceService
 
 
 @dataclass(frozen=True)
 class AlicePublicApi:
     """Public Alice API surface mounted by AliceBridge."""
 
-    agent: "AliceService"
+    agent: AgentRunService
 
 
 class AliceBridge:
@@ -44,7 +44,7 @@ class AliceBridge:
         self,
         *,
         local_bus: AliceBus | None = None,
-        runtime: "AliceRuntime",
+        runtime: AliceRuntime,
         public_api: AlicePublicApi,
         global_bus: GlobalSystemBus | None = None,
     ) -> None:

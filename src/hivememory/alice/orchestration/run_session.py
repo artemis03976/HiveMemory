@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.alice.runtime.agent.call_record import CallRecord, CallRecordStatus
+from hivememory.alice.orchestration.call_record import CallRecord, CallRecordStatus
 
 
 class FrameSchedulingStatus(str, Enum):

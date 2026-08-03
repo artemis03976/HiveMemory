@@ -1,17 +1,21 @@
 """
 AliceSystem - 多智能体编排与计算子系统
 
-SubsystemProtocol 实现，持有 AliceRuntime 和 AliceService。
+SubsystemProtocol 实现，装配 AliceRuntime、AgentRunService 与 AliceBridge。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
+from hivememory.alice.application import AgentRunService
+from hivememory.alice.orchestration.call_coordinator import CallCoordinator
+from hivememory.alice.orchestration.frame_factory import FrameFactory
+from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
 from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.runtime.core import AliceRuntime
-from hivememory.alice.service import AliceService
+from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.model_registry import ModelRegistry
@@ -26,8 +30,8 @@ class AliceSystem(SubsystemProtocol):
     Alice 子系统 - 多智能体编排与计算子系统宿主
 
     职责：
-    - 持有 AliceRuntime
-    - 提供 AliceService (run_agent / run_agent_stream)
+    - 装配 AliceRuntime 与 AgentRunService
+    - 提供稳定的 run_agent / run_agent_stream 用例入口
     - 将公开路由注册到全局总线
     - 实现 SubsystemProtocol 生命周期
     """
@@ -35,22 +39,37 @@ class AliceSystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
-        global_bus: Optional[GlobalSystemBus] = None,
+        global_bus: GlobalSystemBus | None = None,
         runtime_events: RuntimeEventSink | None = None,
-        model_registry: Optional[ModelRegistry] = None,
+        model_registry: ModelRegistry | None = None,
     ) -> None:
         self._config = config
         self._runtime_events = runtime_events or NullRuntimeEventSink()
 
         self._runtime = AliceRuntime(
             alice_config=config.alice,
-            shared_config=config.shared,
             memory_compiler_config=config.memory_compiler,
-            runtime_events=self._runtime_events,
             model_registry=model_registry,
         )
 
-        self._service = AliceService(runtime=self._runtime)
+        frame_factory = FrameFactory()
+        prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
+        profile_resolver = AgentProfileResolver(local_bus=self._runtime.local_bus)
+        call_coordinator = CallCoordinator(
+            self._runtime.agent_runtime,
+            profile_resolver,
+            self._runtime.alias_resolver,
+            frame_factory=frame_factory,
+            prompt_assembler=prompt_assembler,
+        )
+        self._service = AgentRunService(
+            agent_runtime=self._runtime.agent_runtime,
+            call_coordinator=call_coordinator,
+            frame_factory=frame_factory,
+            prompt_assembler=prompt_assembler,
+            atom_cache=self._runtime.atom_cache,
+            runtime_events=self._runtime_events,
+        )
 
         self._bridge = AliceBridge(
             local_bus=self._runtime.local_bus,
@@ -66,7 +85,7 @@ class AliceSystem(SubsystemProtocol):
         return "alice"
 
     @property
-    def service(self) -> AliceService:
+    def service(self) -> AgentRunService:
         return self._service
 
     @property
@@ -74,12 +93,10 @@ class AliceSystem(SubsystemProtocol):
         return self._runtime
 
     async def start(self) -> None:
-        self._runtime.mount_local_routes()
         self._bridge.mount()
 
     async def stop(self) -> None:
         self._bridge.unmount()
-        self._runtime.unmount_local_routes()
 
     async def health(self) -> dict[str, Any]:
         return {

@@ -10,14 +10,14 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.products import FrameProducts
-from hivememory.alice.runtime.agent.call_coordinator import (
+from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.alice.orchestration.call_coordinator import (
     CallCoordinator,
     CallNextAction,
     CallTransition,
 )
-from hivememory.alice.runtime.agent.call_record import CallRecord, CallRecordStatus
-from hivememory.alice.runtime.agent.run_session import RunSession
-from hivememory.alice.runtime.agent.runtime import AgentRuntime
+from hivememory.alice.orchestration.call_record import CallRecord, CallRecordStatus
+from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 
@@ -86,7 +86,7 @@ def _session(caller: ExecutionFrame, *, cancel_event: asyncio.Event | None = Non
 def test_apply_call_response_is_exactly_once_and_updates_call_pair():
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
-        alice_config=MagicMock(),
+        runtime_config=MagicMock(),
         loop_executor=MagicMock(),
     )
     frame = _frame()
@@ -113,7 +113,7 @@ def test_apply_call_response_is_exactly_once_and_updates_call_pair():
 def test_apply_call_response_rejects_wrong_or_missing_action(action_id):
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
-        alice_config=MagicMock(),
+        runtime_config=MagicMock(),
         loop_executor=MagicMock(),
     )
     frame = _frame()

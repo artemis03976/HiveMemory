@@ -6,8 +6,8 @@ import pytest
 
 from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
-from hivememory.alice.runtime.agent.run_session import (
+from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.run_session import (
     FrameSchedulingStatus,
     RunSession,
 )

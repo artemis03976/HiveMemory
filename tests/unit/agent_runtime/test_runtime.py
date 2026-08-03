@@ -11,7 +11,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-from hivememory.alice.runtime.agent.runtime import AgentRuntime
+from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Identity,
@@ -26,7 +26,7 @@ from hivememory.system.model_registry import ModelNotFoundError
 def _runtime_with_pending(pending_runtime: PendingAtomRuntime) -> AgentRuntime:
     return AgentRuntime(
         mtp_executor=MagicMock(),
-        alice_config=MagicMock(),
+        runtime_config=MagicMock(),
         loop_executor=MagicMock(),
         pending_runtime=pending_runtime,
     )
@@ -49,7 +49,7 @@ def test_agent_runtime_builds_engine_facade():
 
     runtime = AgentRuntime(
         mtp_executor=mtp_executor,
-        alice_config=config.alice,
+        runtime_config=config.alice.runtime,
     )
 
     assert isinstance(runtime._loop_executor, AgentLoopExecutor)
@@ -63,7 +63,7 @@ def test_agent_runtime_accepts_injected_loop_executor():
 
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
-        alice_config=MagicMock(),
+        runtime_config=MagicMock(),
         loop_executor=injected,
     )
 
@@ -81,7 +81,7 @@ async def test_run_frame_maps_missing_model_to_failed_outcome():
     model_registry.resolve.side_effect = error
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
-        alice_config=MagicMock(),
+        runtime_config=MagicMock(),
         loop_executor=loop_executor,
         model_registry=model_registry,
     )

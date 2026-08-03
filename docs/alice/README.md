@@ -60,15 +60,13 @@ System 应用层拥有完整 chat 顺序和取消控制；Gateway 拥有入口�
 
 ```text
 AliceSystem
-  -> AliceService                     public run / run_stream
-  -> AliceRuntime                     composition + events + local routes
-       -> RunScheduler + RunSession   run-local active-frame control plane
-            -> CallCoordinator + FrameFactory
-            -> AgentRuntime facade
-                 -> AgentLoopExecutor single-frame loop
-                 -> WorkerAgentService
-                 -> Koakuma MTP port
-                 -> PendingAtomRuntime
+  ├─ AgentRunService                  public run / run_stream use case
+  │    -> RunScheduler + RunSession   run-local active-frame control plane
+  │         -> CallCoordinator + FrameFactory
+  │         -> AgentRuntime facade
+  ├─ AliceRuntime                     process-local execution resources
+  │    -> Koakuma + PendingAtomRuntime + alias cache
+  └─ AliceBridge                      public routes + Patchouli proxies/events
 ```
 
 - `agent_runtime/` 是“CPU”：只关心把一个 `ExecutionFrame` 运行到自然收敛、取消或 CALL trap，不决定下一步该调度谁；
@@ -104,7 +102,7 @@ Patchouli AgentRunContext
   -> RunScheduler -> AgentRuntime.run_frame()
        -> LLM generate
        -> natural stop | MTP execute | CALL suspend | cancel
-  -> AliceRuntime assembles AgentRunResult
+  -> AgentRunService assembles AgentRunResult
   -> System decides whether Patchouli finalize may run
 ```
 
@@ -141,7 +139,7 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 ## 6. 启停、公开能力与观测
 
-`AliceSystem.start()` 挂载 Alice local routes，再向 `GlobalSystemBus` 注册 `alice.public.run_agent` 与 `alice.public.run_agent_stream`；停止时按相反顺序卸载。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 System 应用层持有的控制状态处理。
+`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册 `alice.public.run_agent` 与 `alice.public.run_agent_stream`，并在 AliceBus 上挂载访问 Patchouli 公开能力的代理；停止时按相反顺序卸载。Alice 不再为 run workflow 维护一套无人消费的 local route。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 System 应用层持有的控制状态处理。
 
 AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/cancelled 业务事件。事件只更新 Alice 的运行时投影；正式记忆是否落库仍以 Patchouli 为准。
 
@@ -160,13 +158,14 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 
 | 责任 | 当前入口 |
 |:---|:---|
-| 子系统容器与公开服务 | `src/hivememory/alice/system.py`、`service.py` |
-| Alice 组合根与 local bus | `src/hivememory/alice/runtime/core.py`、`bus.py` |
-| 多 Agent 编排 | `src/hivememory/alice/runtime/core.py`、`runtime/agent/run_scheduler.py`、`runtime/agent/call_coordinator.py` |
-| 单 Agent 执行层 | `src/hivememory/agent_runtime/` |
+| 子系统装配与生命周期 | `src/hivememory/alice/system.py` |
+| Agent run 应用用例 | `src/hivememory/alice/application/agent_run_service.py` |
+| Alice 进程级资源与 local bus | `src/hivememory/alice/runtime/core.py`、`bus.py` |
+| 多 Agent 编排 | `src/hivememory/alice/orchestration/run_scheduler.py`、`call_coordinator.py`、`run_session.py` |
+| 单 Agent 执行层 | `src/hivememory/agent_runtime/`、`agent_runtime/runtime.py` |
 | Prompt 与历史视图 | `src/hivememory/prompts/`、`engines/perception/context_converter.py` |
 | 公共运行模型 | `src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
-| Alice 单元测试 | `tests/unit/alice/` |
+| Alice 应用与编排测试 | `tests/unit/alice/application/`、`tests/unit/alice/orchestration/` |
 | 执行、PendingAtom 与 MTP 测试 | `tests/unit/agent_runtime/` |
 | 主动与 CALL 流程 | `tests/e2e/pipeline/test_active_mode_e2e.py`、`test_sub_agent_call_e2e.py` |
 
@@ -180,6 +179,6 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 - Agent frame、PendingAtom、alias cache 与 Profile cache 均不持久化，进程重启后不能恢复；统一恢复边界见[运行时状态持久化与故障恢复计划](../plans/runtime-state-durability-and-recovery.md)；
 - Alice 当前只有单层 CALL，不具备持久化 DAG、并行 specialist、review loop、配额或 backpressure；
 - Koakuma 的若干配置字段和同步 syscall 仍有实现缺口，RUN 也不是不受信任代码的安全边界，详见 [MTP Runtime](./mtp-runtime.md)；
-- `health()` 目前主要报告装配状态与固定 `ok`，不探测模型、syscall、缓存隔离或正在运行的 frame。
+- `health()` 目前主要报告 AgentRuntime 与 Koakuma 的固定 `ok`，不探测模型、syscall、缓存隔离或正在运行的 frame。
 
 这些缺口限定了 Alice 当前能够声称的是“单进程、有限 CALL、具备运行时记忆工具的 Agent 执行系统”，而不是一个可恢复、可横向扩展或强隔离的通用多 Agent 平台。未来高级编排只有在形成 Plan 并落地后，才能改写本目录中的当前能力描述。
