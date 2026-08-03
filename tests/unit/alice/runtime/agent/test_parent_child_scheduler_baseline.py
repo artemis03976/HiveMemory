@@ -18,7 +18,7 @@ from hivememory.alice.runtime.agent.call_coordinator import (
     CallCoordinator,
     CallNextAction,
 )
-from hivememory.alice.runtime.agent.run_driver import RunDriver
+from hivememory.alice.runtime.agent.run_scheduler import RunScheduler
 from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 from hivememory.core.mtp import MTPCallRequest, MTPResponseStatus
@@ -99,12 +99,12 @@ async def test_root_terminal_outcomes_match_between_streaming_and_non_streaming(
         run_frame=AsyncMock(return_value=FrameExecutionResult(status=status)),
         finalize_run=non_stream_finalize,
     )
-    non_stream_driver = RunDriver(
+    non_stream_scheduler = RunScheduler(
         non_stream_runtime,
         session=_session(non_stream_frame),
     )
 
-    non_stream_result = await non_stream_driver.run(non_stream_frame)
+    non_stream_result = await non_stream_scheduler.run(non_stream_frame)
 
     stream_frame = _frame("frame-stream")
     stream_finalize = MagicMock()
@@ -112,12 +112,12 @@ async def test_root_terminal_outcomes_match_between_streaming_and_non_streaming(
         run_frame=AsyncMock(return_value=FrameExecutionResult(status=status)),
         finalize_run=stream_finalize,
     )
-    stream_driver = RunDriver(stream_runtime, session=_session(stream_frame))
-    events = [event async for event in stream_driver.run_stream(stream_frame)]
+    stream_scheduler = RunScheduler(stream_runtime, session=_session(stream_frame))
+    events = [event async for event in stream_scheduler.run_stream(stream_frame)]
 
     assert non_stream_result.status == status
-    assert stream_driver.terminal_result is not None
-    assert stream_driver.terminal_result.status == status
+    assert stream_scheduler.terminal_result is not None
+    assert stream_scheduler.terminal_result.status == status
     assert events == []
     non_stream_finalize.assert_called_once()
     stream_finalize.assert_called_once()

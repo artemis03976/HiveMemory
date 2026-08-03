@@ -7,12 +7,12 @@ related_docs:
   - docs/alice/orchestration.md
   - docs/alice/agent-runtime.md
   - docs/plans/identity-isolation-and-execution-safety.md
-last_reviewed: 2026-08-01
+last_reviewed: 2026-08-03
 ---
 
 ## 已完成实现事实（Phase 4/6）
 
-共享的 `FrameScheduler._frame_stack` 已从活动执行路径中完全删除，scheduler 模块与兼容 facade 均不再保留。每次 Alice run 都新建一个 `RunSession`，其中持有 frame registry、CALL records、取消事件和 stream sequence；frame 构造由无状态 `FrameFactory` 完成。MTP 动词权限和迭代上限由 `FrameExecutionPolicy` 承载，CALL 权限不再依赖共享的 frame depth。
+旧共享 `FrameScheduler._frame_stack` 已从活动执行路径中完全删除。当前每次 Alice run 都新建一个 `RunSession`，其中持有 frame registry、调度状态、CALL records、取消事件和 stream sequence；同时新建一个只服务该 session 的 `RunScheduler`，用唯一 `_drive()` 循环推进 root 与当前 callee。这个 RunScheduler 是 run-local active-frame 状态机，不是旧共享栈 FrameScheduler 的恢复。frame 构造由无状态 `FrameFactory` 完成，MTP 动词权限和迭代上限由 `FrameExecutionPolicy` 承载，CALL 权限不再依赖共享 frame depth。
 
 # Alice FrameScheduler 与取消状态的运行隔离
 
@@ -29,6 +29,8 @@ last_reviewed: 2026-08-01
 ## 已完成条件
 
 - frame stack 与 resume frame API 已删除；cancel token、运行预算、frame registry 和 CALL record 均有明确的 run-local owner；
+- `PENDING/RUNNABLE/RUNNING/WAITING/TERMINATED` 状态只保存在 RunSession，任一 session 最多一个 RUNNING frame；
+- Alice 编排层只有 RunScheduler 调用 `AgentRuntime.run_frame()`，CallCoordinator 不再内嵌执行 callee；
 - CALL 回填通过 `(caller_frame_id, action_id)` 的 `CallRecord` 与 `AgentRuntime.apply_call_response()` 校验，不再依赖 parent frame id；
 - 两个及以上并发 run、交错 CALL、分别取消和异常恢复已有回归测试；
 - 当前仍保持串行单层 CALL，不引入 fan-out、DAG 或递归 CALL；

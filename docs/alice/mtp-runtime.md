@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/alice/pending-atom.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-03
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -50,7 +50,7 @@ WorkerAgentService.generate(stop = MTP right delimiter)
 
 如果文本中没有 MTP 左定界符，Koakuma 返回 `None`，Agent loop 把本次生成当作自然语言收敛。解析错误不会抛回模型适配层，而会形成结构化 `MTPErrorInfo` 并格式化回填，让 Agent 有机会修正语法或参数。
 
-CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只产生 `suspend + MTPCallRequest`；AgentLoopExecutor 把 frame 状态交还 Alice 的 `RunDriver`，由 `CallCoordinator` 解析目标、创建并运行普通 callee frame，再通过 `AgentRuntime.apply_call_response()` 恢复 caller。把 CALL 留成 trap，保证单 Agent 执行器不偷偷取得多 Agent 调度权。
+CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只产生 `suspend + MTPCallRequest`；AgentLoopExecutor 把 frame 状态交还 Alice 的 `RunScheduler`，由 `CallCoordinator.begin_call()` 解析目标并创建普通 callee frame，Scheduler 用同一个活动 frame 循环运行 callee，再由 `complete_call()` 通过 `AgentRuntime.apply_call_response()` 恢复 caller。把 CALL 留成 trap，保证单 Agent 执行器不偷偷取得多 Agent 调度权。
 
 ## 2. MTPExecutionContext
 

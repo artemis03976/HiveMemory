@@ -25,9 +25,9 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.resolver import ResolveResult
 from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.agent.frame_factory import FrameFactory
+from hivememory.alice.runtime.agent.run_scheduler import RunScheduler
 from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
-from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Identity,
@@ -435,30 +435,41 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
     alias_resolver = MagicMock()
 
-    orchestrator = AgentOrchestrator(
-        agent_runtime=AgentRuntime(
-            mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
-        ),
-        agent_profile_resolver=profile_resolver,
-        alias_resolver=alias_resolver,
-        frame_factory=FrameFactory(),
-        prompt_assembler=MagicMock(),
+    agent_runtime = AgentRuntime(
+        mtp_executor=MagicMock(), alice_config=MagicMock(), loop_executor=executor
     )
-    orchestrator._prompt_assembler.build_sub_agent_messages.return_value = [
+    frame_factory = FrameFactory()
+    prompt_assembler = MagicMock()
+    prompt_assembler.build_sub_agent_messages.return_value = [
         {"role": "user", "content": "sub task"}
     ]
-
-    result = await orchestrator.run_agent(
-        messages=[{"role": "user", "content": "hello"}],
-        identity=Identity(user_id="u1"),
-        topic_id="t1",
-        session=RunSession(agent_run_id="run_test_1"),
+    coordinator = CallCoordinator(
+        agent_runtime,
+        profile_resolver,
+        alias_resolver,
+        frame_factory=frame_factory,
+        prompt_assembler=prompt_assembler,
+    )
+    frame = _make_frame()
+    session = RunSession(agent_run_id="run_test_1")
+    session.register_root_frame(frame)
+    scheduler = RunScheduler(
+        agent_runtime,
+        session=session,
+        call_coordinator=coordinator,
     )
 
+    scheduler_result = await scheduler.run(frame)
+
     call_events = [
-        ev for ev in result.turn_events if ev.kind == "tool_result" and ev.tool_kind == "CALL"
+        ev
+        for ev in frame.progress.turn_events
+        if ev.kind == "tool_result" and ev.tool_kind == "CALL"
     ]
-    assert len(call_events) == 1, f"应有 1 个 CALL tool_result 事件，实际: {result.turn_events}"
+    assert scheduler_result.status == FrameExecutionStatus.COMPLETED
+    assert (
+        len(call_events) == 1
+    ), f"应有 1 个 CALL tool_result 事件，实际: {frame.progress.turn_events}"
     call_ev = call_events[0]
     assert call_ev.role == "user"
     assert call_ev.status == "success"

@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-08-01
+last_reviewed: 2026-08-03
 ---
 
 # Alice
@@ -62,8 +62,7 @@ System 应用层拥有完整 chat 顺序和取消控制；Gateway 拥有入口�
 AliceSystem
   -> AliceService                     public run / run_stream
   -> AliceRuntime                     composition + events + local routes
-       -> AgentOrchestrator           multi-agent control plane
-            -> RunDriver + RunSession
+       -> RunScheduler + RunSession   run-local active-frame control plane
             -> CallCoordinator + FrameFactory
             -> AgentRuntime facade
                  -> AgentLoopExecutor single-frame loop
@@ -102,10 +101,10 @@ Patchouli AgentRunContext
   -> warm pre-retrieval MemoryAtoms into alias cache
   -> assemble MTP + persona + memory + topic messages
   -> create root ExecutionFrame(topic_id=...)
-  -> RunDriver -> AgentRuntime.run_frame()
+  -> RunScheduler -> AgentRuntime.run_frame()
        -> LLM generate
        -> natural stop | MTP execute | CALL suspend | cancel
-  -> AgentOrchestrator assembles AgentRunResult
+  -> AliceRuntime assembles AgentRunResult
   -> System decides whether Patchouli finalize may run
 ```
 
@@ -118,14 +117,14 @@ Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重�
 ```text
 root frame emits CALL
   -> Koakuma returns SUSPEND + MTPCallRequest
-  -> RunDriver 建立 CallRecord 并交给 CallCoordinator
+  -> RunScheduler 让 CallCoordinator 建立 CallRecord 并准备 callee
   -> resolve target Agent Profile
   -> resolve context_refs + compile shared context
   -> FrameFactory 创建普通 callee frame
-  -> AgentRuntime.run_frame(callee frame)
+  -> RunScheduler 用同一循环运行 callee frame
   -> finalize_frame 投影 pending aliases + natural-language reply
   -> MTPCallResponse -> AgentRuntime.apply_call_response()
-  -> RunDriver 恢复同一个 caller frame 并继续生成
+  -> RunScheduler 恢复同一个 caller frame 并继续生成
 ```
 
 子 Agent 的完整试错轨迹留在自己的 frame 中，主话题只接收 CALL、结构化返回与最终主 Agent 输出。这种黑盒隔离不是为了隐藏事实，而是为了避免一次专项执行的迭代细节污染主上下文；需要共享的记忆由 `context_refs` 显式解析并通过 MemoryCompiler 注入。
@@ -151,7 +150,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 ## 7. 当前设计文档
 
 - [Agent Runtime](./agent-runtime.md)：单 Agent 执行层、ExecutionFrame、prompt、模型解析、循环与流式输出；
-- [多 Agent 编排](./orchestration.md)：RunDriver、CallCoordinator、CALL trap、Profile 解析、共享上下文、结果回流与星型拓扑；
+- [多 Agent 编排](./orchestration.md)：RunScheduler、CallCoordinator、CALL trap、Profile 解析、共享上下文、结果回流与星型拓扑；
 - [PendingAtom](./pending-atom.md)：运行时写缓冲、状态机、物化任务、settlement、redirect 与回收；
 - [MTP Runtime](./mtp-runtime.md)：Koakuma、权限、verb 分发、syscall、错误、取消和真实安全边界。
 
@@ -163,7 +162,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 |:---|:---|
 | 子系统容器与公开服务 | `src/hivememory/alice/system.py`、`service.py` |
 | Alice 组合根与 local bus | `src/hivememory/alice/runtime/core.py`、`bus.py` |
-| 多 Agent 编排 | `src/hivememory/alice/runtime/orchestrator.py`、`runtime/agent/` |
+| 多 Agent 编排 | `src/hivememory/alice/runtime/core.py`、`runtime/agent/run_scheduler.py`、`runtime/agent/call_coordinator.py` |
 | 单 Agent 执行层 | `src/hivememory/agent_runtime/` |
 | Prompt 与历史视图 | `src/hivememory/prompts/`、`engines/perception/context_converter.py` |
 | 公共运行模型 | `src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
@@ -176,7 +175,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 - AgentProfile cache 是进程内、按 Identity + alias 隔离的 32 项 LRU，但仍没有 TTL、更新事件或显式失效入口；Profile 修改可能在进程内长期不可见；
 - `ExecutionFrame.identity` 在子帧中继承父帧，`AgentProfile` 又不携带解析 alias；因此部分子帧流事件和 PendingAtom provenance 会记录父 Agent，而不是实际 CALL 目标；
 - KoakumaAtomCache 与 PendingAtomRuntime 都由 AliceRuntime 进程级共享。L0/L1 alias 命中当前不会再次校验调用 Identity，尚未满足跨用户并发运行所需的隔离；
-- 每次 run 的 frame registry、CallRecord、cancel event 和 stream sequence 均由独立 `RunSession` 持有，不共享 frame stack 或 cancel event；
+- 每次 run 的 frame registry、调度状态、CallRecord、cancel event 和 stream sequence 均由独立 `RunSession` 持有；`RunScheduler` 是 run-local 单活动 frame 状态机，不是旧共享 frame stack 的恢复；
 - 子 Agent 异常会被包装为 CALL error 交给主 Agent 继续处理；取消、预算耗尽和意外挂起分别保持 cancelled 或稳定 error，不会被视作成功返回；
 - Agent frame、PendingAtom、alias cache 与 Profile cache 均不持久化，进程重启后不能恢复；统一恢复边界见[运行时状态持久化与故障恢复计划](../plans/runtime-state-durability-and-recovery.md)；
 - Alice 当前只有单层 CALL，不具备持久化 DAG、并行 specialist、review loop、配额或 backpressure；

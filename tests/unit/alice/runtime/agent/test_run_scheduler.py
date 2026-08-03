@@ -13,7 +13,7 @@ from hivememory.alice.runtime.agent.call_coordinator import (
     CallNextAction,
     CallTransition,
 )
-from hivememory.alice.runtime.agent.run_driver import RunDriver
+from hivememory.alice.runtime.agent.run_scheduler import RunScheduler
 from hivememory.alice.runtime.agent.run_session import FrameSchedulingStatus, RunSession
 from hivememory.core.mtp import MTPCallRequest
 
@@ -93,7 +93,7 @@ async def test_queue_sink_applies_backpressure_at_capacity():
 
 
 @pytest.mark.asyncio
-async def test_run_driver_reenters_suspended_frame_with_continuous_stream_sequence():
+async def test_run_scheduler_reenters_suspended_frame_with_continuous_stream_sequence():
     calls = 0
 
     async def run_frame(_frame, *, event_sink, **_kwargs):
@@ -111,14 +111,14 @@ async def test_run_driver_reenters_suspended_frame_with_continuous_stream_sequen
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     session = _session_with(frame)
     coordinator = _CallCoordinatorStub(emit_end=True)
-    driver = RunDriver(
+    scheduler = RunScheduler(
         SimpleNamespace(run_frame=run_frame, apply_call_response=MagicMock()),
         session=session,
         call_coordinator=coordinator,
     )
     events = [
         event
-        async for event in driver.run_stream(
+        async for event in scheduler.run_stream(
             frame,
             event_metadata={"agent_run_id": "run-1", "frame_id": "frame-1"},
         )
@@ -126,9 +126,9 @@ async def test_run_driver_reenters_suspended_frame_with_continuous_stream_sequen
 
     assert [event["data"]["stream_sequence"] for event in events] == [0, 1, 2, 3]
     assert [event["data"]["agent_run_id"] for event in events] == ["run-1"] * 4
-    assert driver.next_stream_sequence == 4
-    assert driver.terminal_result is not None
-    assert driver.terminal_result.status == FrameExecutionStatus.COMPLETED
+    assert scheduler.next_stream_sequence == 4
+    assert scheduler.terminal_result is not None
+    assert scheduler.terminal_result.status == FrameExecutionStatus.COMPLETED
     assert session.frame_statuses == {
         "frame-1": FrameSchedulingStatus.TERMINATED,
         "frame-child": FrameSchedulingStatus.TERMINATED,
@@ -155,7 +155,7 @@ async def test_run_scheduler_routes_unexpected_callee_suspension_to_call_complet
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     session = _session_with(frame)
     coordinator = _CallCoordinatorStub()
-    scheduler = RunDriver(
+    scheduler = RunScheduler(
         SimpleNamespace(run_frame=run_frame),
         session=session,
         call_coordinator=coordinator,
@@ -169,7 +169,7 @@ async def test_run_scheduler_routes_unexpected_callee_suspension_to_call_complet
 
 
 @pytest.mark.asyncio
-async def test_run_driver_cancels_runner_when_stream_consumer_closes():
+async def test_run_scheduler_cancels_runner_when_stream_consumer_closes():
     runner_cancelled = asyncio.Event()
 
     async def run_frame(_frame, *, event_sink, **_kwargs):
@@ -180,11 +180,11 @@ async def test_run_driver_cancels_runner_when_stream_consumer_closes():
             runner_cancelled.set()
 
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
-    driver = RunDriver(
+    scheduler = RunScheduler(
         SimpleNamespace(run_frame=run_frame),
         session=_session_with(frame),
     )
-    stream = driver.run_stream(frame)
+    stream = scheduler.run_stream(frame)
 
     first_event = await anext(stream)
     await stream.aclose()
@@ -214,7 +214,7 @@ async def test_run_scheduler_cleans_active_call_when_stream_consumer_closes():
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     session = _session_with(frame)
     coordinator = _CallCoordinatorStub()
-    scheduler = RunDriver(
+    scheduler = RunScheduler(
         SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run),
         session=session,
         call_coordinator=coordinator,
@@ -260,7 +260,7 @@ async def test_run_scheduler_cancels_record_during_call_preparation_await():
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     session = _session_with(frame)
     coordinator = BlockingPreparationCoordinator()
-    scheduler = RunDriver(
+    scheduler = RunScheduler(
         SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run),
         session=session,
         call_coordinator=coordinator,
@@ -278,7 +278,7 @@ async def test_run_scheduler_cancels_record_during_call_preparation_await():
 
 
 @pytest.mark.asyncio
-async def test_run_driver_accepts_resumed_call_without_applying_response():
+async def test_run_scheduler_accepts_resumed_call_without_applying_response():
     calls = 0
 
     async def run_frame(_frame, **_kwargs):
@@ -297,19 +297,19 @@ async def test_run_driver_accepts_resumed_call_without_applying_response():
         apply_call_response=MagicMock(),
     )
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
-    driver = RunDriver(
+    scheduler = RunScheduler(
         runtime,
         session=_session_with(frame),
         call_coordinator=_CallCoordinatorStub(),
     )
-    result = await driver.run(frame)
+    result = await scheduler.run(frame)
 
     assert result.status == FrameExecutionStatus.COMPLETED
     runtime.apply_call_response.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_run_driver_drops_late_call_response_after_cancel():
+async def test_run_scheduler_drops_late_call_response_after_cancel():
     cancel_event = asyncio.Event()
     applied = []
 
@@ -328,12 +328,12 @@ async def test_run_driver_drops_late_call_response_after_cancel():
     )
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     session = _session_with(frame, cancel_event=cancel_event)
-    driver = RunDriver(
+    scheduler = RunScheduler(
         runtime,
         session=session,
         call_coordinator=_CallCoordinatorStub(cancel_on_complete=True),
     )
-    result = await driver.run(frame)
+    result = await scheduler.run(frame)
 
     assert result.status == FrameExecutionStatus.CANCELLED
     assert applied == []
@@ -349,7 +349,7 @@ async def test_run_driver_drops_late_call_response_after_cancel():
         FrameExecutionStatus.BUDGET_EXHAUSTED,
     ],
 )
-async def test_run_driver_finalizes_each_terminal_status_exactly_once(status):
+async def test_run_scheduler_finalizes_each_terminal_status_exactly_once(status):
     finalize_run = MagicMock()
 
     async def run_frame(_frame, **_kwargs):
@@ -357,36 +357,36 @@ async def test_run_driver_finalizes_each_terminal_status_exactly_once(status):
 
     runtime = SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run)
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
-    driver = RunDriver(runtime, session=_session_with(frame))
+    scheduler = RunScheduler(runtime, session=_session_with(frame))
 
-    result = await driver.run(frame)
+    result = await scheduler.run(frame)
 
     assert result.status == status
     finalize_run.assert_called_once_with("run-1", result)
 
 
 @pytest.mark.asyncio
-async def test_run_driver_rejects_unsupported_frame_status():
+async def test_run_scheduler_rejects_unsupported_frame_status():
     async def run_frame(_frame, **_kwargs):
         return FrameExecutionResult(
             status=cast(FrameExecutionStatus, "waiting_input"),
         )
 
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
-    driver = RunDriver(
+    scheduler = RunScheduler(
         SimpleNamespace(run_frame=run_frame),
         session=_session_with(frame),
     )
 
     with pytest.raises(RuntimeError, match="unsupported root status: 'waiting_input'"):
-        await driver.run(frame)
+        await scheduler.run(frame)
 
 
 @pytest.mark.asyncio
-async def test_run_driver_rejects_unregistered_frame():
+async def test_run_scheduler_rejects_unregistered_frame():
     frame = SimpleNamespace(runtime_scope=SimpleNamespace(run_id="run-1", frame_id="frame-1"))
     session = RunSession(agent_run_id="run-1")
-    driver = RunDriver(SimpleNamespace(run_frame=MagicMock()), session=session)
+    scheduler = RunScheduler(SimpleNamespace(run_frame=MagicMock()), session=session)
 
     with pytest.raises(ValueError, match="not registered"):
-        await driver.run(frame)
+        await scheduler.run(frame)

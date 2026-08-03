@@ -4,8 +4,8 @@ status: current
 owner: alice
 scope: call-frame-scheduling-and-sub-agent-return
 code_paths:
-  - src/hivememory/alice/runtime/orchestrator.py
-  - src/hivememory/alice/runtime/agent/run_driver.py
+  - src/hivememory/alice/runtime/core.py
+  - src/hivememory/alice/runtime/agent/run_scheduler.py
   - src/hivememory/alice/runtime/agent/run_session.py
   - src/hivememory/alice/runtime/agent/call_coordinator.py
   - src/hivememory/alice/runtime/agent/frame_factory.py
@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-01
+last_reviewed: 2026-08-03
 ---
 
 # 多 Agent 编排
@@ -27,15 +27,16 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 ## 1. 编排层组件
 
 ```text
-AgentOrchestrator
+AliceRuntime
+  ├─ root frame bootstrap / AgentRunResult / stream done
   ├─ RunSession
-  │    ├─ frame registry / CallRecord ledger
+  │    ├─ frame registry / scheduling status / CallRecord ledger
   │    ├─ cancel event
   │    └─ stream sequence
-  ├─ RunDriver
-  │    └─ root frame outcome loop and run finalization
+  ├─ RunScheduler
+  │    └─ one active-frame loop for root and callee + run finalization
   ├─ CallCoordinator
-  │    └─ resolve profile/context, create and run callee, map MTPCallResponse
+  │    └─ begin/complete CALL, profile/context resolution, response apply
   ├─ FrameFactory
   │    └─ create ordinary ExecutionFrame from FrameSpec
   ├─ AgentProfileResolver
@@ -46,16 +47,16 @@ AgentOrchestrator
        └─ run one frame to completed / suspended / cancelled / failed / budget_exhausted
 ```
 
-- Orchestrator 是 public facade，负责创建 root `RunSession`、调用 `RunDriver` 并组装最终 `AgentRunResult`；
+- AliceRuntime 是组合根与公开输入输出适配层，负责创建 root frame、为每次 run 构造 Scheduler、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；
 - RunSession 拥有一次 run 的 frame registry、CALL record、取消信号和流序号，不存在进程级挂起栈；
-- RunDriver 是唯一的根 frame 推进状态机，也是唯一调用 `finalize_run()` 的位置；
-- CallCoordinator 只负责解析和运行被调用 frame，再返回既有 `MTPCallResponse`，不修改 caller history；
+- RunScheduler 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件，同时推进 root 与 callee，也是唯一调用 `finalize_run()` 的位置；
+- CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：准备 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不运行 frame，也不收尾整个 run；
 - FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
 - ProfileResolver 负责把可读 agent alias 解析为运行图纸；
 - RuntimeAliasResolver 让 context refs 复用与 READ 相同的运行时寻址；
 - AgentRuntime 只运行给定 frame，不接触多 Agent 拓扑。
 
-如果 AgentRuntime 开始创建被调用 frame，或 CallCoordinator 开始修改 caller history，说明这组责任重新混合。
+`RunScheduler` 是每次 run 独立创建的 active-frame 状态机，不是旧共享栈 `FrameScheduler` 的恢复或改名。它没有 ready queue、后台 task 集合或跨 run 的 current frame；如果 AgentRuntime 开始创建 callee，或 CallCoordinator 再次调用 `run_frame()` / `finalize_run()`，说明这组责任重新混合。
 
 ## 2. 主帧与运行作用域
 
@@ -68,9 +69,11 @@ AgentOrchestrator
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 已由 PromptAssembler 组装。
 
-Orchestrator 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunDriver` 重复调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务，`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 映射为主 run 的最终终态。
+FrameFactory 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunScheduler` 在同一个 `_drive()` 循环中选择当前唯一活动 frame 并调用 `AgentRuntime.run_frame(frame)`：root 的 `SUSPENDED` 进入 CALL 事务，root 的 `COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 映射为主 run 的最终终态；callee 的所有 outcome 则交给 `complete_call()`。
 
 frame 是实际可恢复状态。恢复 caller 时必须继续使用原 frame，不能从消息重新构造一个“看似等价”的新 frame，否则迭代预算、事件序号、已经产生的正文和 PendingAtom action scope 都会分叉。父子、caller action 等调用关系只记录在 Alice 的 `CallRecord` 与事件元数据中，不进入 `RuntimeScope`。
+
+RunSession 为每个已登记 frame 保存 `PENDING/RUNNABLE/RUNNING/WAITING/TERMINATED`。任一时刻最多只有一个 `RUNNING` frame；root 的典型轨迹是 `PENDING -> RUNNABLE -> RUNNING -> WAITING -> RUNNABLE -> ... -> TERMINATED`，callee 是 `PENDING -> RUNNABLE -> RUNNING -> TERMINATED`。`TERMINATED` 不可恢复，非法迁移、重复 root/callee、跨 run 绑定和多个 RUNNING frame 都作为编排不变量抛出。
 
 ## 3. CALL trap 与重入
 
@@ -80,16 +83,17 @@ CALL 的稳定语法和参数见 [MTP 契约](../contracts/mtp.md)。在编排�
 current frame emits CALL
   -> Koakuma validates profile + FrameExecutionPolicy and returns SUSPEND
   -> AgentLoopExecutor records tool_call and returns FrameExecutionResult
-  -> RunDriver creates CallRecord(caller_frame_id, action_id)
-  -> CallCoordinator resolves target profile/context_refs
-  -> FrameFactory creates and AgentRuntime runs a normal callee frame
-  -> finalize_frame projects callee artifacts
-  -> CallCoordinator maps the result to MTPCallResponse
+  -> RunScheduler calls CallCoordinator.begin_call()
+  -> register CallRecord before the first await
+  -> resolve target profile/context_refs and create a normal callee frame
+  -> root WAITING; callee RUNNABLE
+  -> RunScheduler calls AgentRuntime.run_frame(callee)
+  -> CallCoordinator.complete_call() finalizes and maps MTPCallResponse
   -> AgentRuntime.apply_call_response() updates caller once
-  -> re-enter the same caller frame
+  -> callee TERMINATED; root RUNNABLE; re-enter the same caller frame
 ```
 
-`suspend` 不能被当作一条正文为空的成功响应。如果执行循环直接继续，Agent 会在被调用任务尚未执行时向下生成，CALL 的任务身份、结果和取消边界都会丢失。RunDriver 必须先补齐被调用任务，再以同一 action_id 通过 `AgentRuntime.apply_call_response()` 回填 tool result。
+`suspend` 不能被当作一条正文为空的成功响应。如果执行循环直接继续，Agent 会在被调用任务尚未执行时向下生成，CALL 的任务身份、结果和取消边界都会丢失。RunScheduler 必须先完成被调用任务，再以同一 action_id 通过 `AgentRuntime.apply_call_response()` 回填 tool result。
 
 ### 3.1 Profile 解析
 
@@ -113,7 +117,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 
 ### 3.2 共享上下文
 
-`context_refs` 不是直接复制父 frame 的全部 history。Orchestrator 逐个使用 RuntimeAliasResolver 解析：
+`context_refs` 不是直接复制父 frame 的全部 history。CallCoordinator 逐个使用 RuntimeAliasResolver 解析：
 
 - pending：共享尚未物化的本轮写意图；
 - redirect：共享已经结算后的 canonical atom；
@@ -135,7 +139,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 - 由 persona、裁剪后的 MTP 教学、shared context 和 task 组成的全新消息历史；
 - 继承父 frame 的 `Identity`。
 
-子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，Orchestrator 才取 `text_segments` 形成 reply，并把运行期间产生的 pending aliases 放入 CALL artifacts。取消、失败、预算耗尽或意外挂起的子帧不会收割 reply/artifact，其 frame 内尚未结算的 PendingAtom 会被取消。
+子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间产生的 pending aliases 放入 CALL artifacts。取消、失败、预算耗尽或意外挂起的子帧不会收割 reply/artifact，其 frame 内尚未结算的 PendingAtom 会被取消。
 
 这种黑盒隔离避免主 Agent 与 Perception 被子任务细节淹没，但它并不等于子任务没有证据。子帧流事件仍可被 UI 观察，CALL 在主 frame 中有结构化 tool_call/tool_result，PendingAtom 又保存写入意图；只是这些事实目前没有被组合成持久化子任务 artifact。
 
@@ -161,11 +165,11 @@ root frame
 1. `FrameProducts` 投影该 frame 已登记的 PendingAtom alias；
 2. Runtime 对 UPDATE tool event 执行兼容补全，加入尚未登记为 pending 的 target alias。
 
-自然语言 reply 与 alias 列表组成 `MTPCallResponse`。CallCoordinator 不写 caller history；成功响应由 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并形成与原 CALL action_id 对应的 `tool_result`。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
+自然语言 reply 与 alias 列表组成 `MTPCallResponse`。CallCoordinator 不直接操作 history 容器，而把成功响应交给 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并形成与原 CALL action_id 对应的 `tool_result`。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
 
-CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：Orchestrator 检查 `FrameExecutionResult`，仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 和意外 `SUSPENDED` 映射为带稳定 error code 的 error。
+CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：CallCoordinator 检查 `FrameExecutionResult`，仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 和意外 `SUSPENDED` 映射为带稳定 error code 的 error。
 
-caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC harvest：根 frame 终态后，RunDriver 只调用一次 `AgentRuntime.finalize_run(run_id, result)`。IPC aliases 服务于 caller 当前认知，`RuntimeProducts.materialize_tasks` 服务于 Alice -> Patchouli 的数据交接，两者不能混为一份真相。
+caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC harvest：根 frame 终态后，RunScheduler 只调用一次 `AgentRuntime.finalize_run(run_id, result)`。IPC aliases 服务于 caller 当前认知，`RuntimeProducts.materialize_tasks` 服务于 Alice -> Patchouli 的数据交接，两者不能混为一份真相。
 
 ## 7. 流式事件
 
@@ -179,12 +183,13 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 
 ## 8. 失败、取消与降级
 
-- 主 frame 的模型或执行异常直接向 AliceRuntime 抛出，整个 agent run 失败；
+- 模型解析、generation/provider 等可归一化故障在最窄边界形成 `FrameExecutionResult.FAILED`；root 对外映射为失败 run，callee 对外映射为 CALL error；
+- frame 注册、状态迁移、action/target、重复 apply、callee 关联与重复 finalize 等编排不变量继续抛出，不被 Scheduler 外层宽泛吞掉；
 - 子 Agent Profile 解析、共享上下文、模型调用或执行异常会被捕获并形成 error `MTPCallResponse`，主 Agent 得到错误后可以调整方案；
 - 子帧预算耗尽和意外再次挂起分别使用 `mtp.call_response.budget_exhausted` 和 `mtp.call_response.unexpected_suspend`；子帧取消则保持 cancelled 终态；
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
 - run 取消 token 会传给主/子 AgentRuntime；最终主结果为 cancelled，并取消本 run 尚未结算的 PendingAtom，不交出 materialize tasks；
-- 流生成器提前关闭时，AliceRuntime 设置调用方 cancel token 并发出 cancelled 观测事件；
+- 流生成器提前关闭时，AliceRuntime 只设置当前 RunSession 的 cancel token，并显式关闭 Scheduler stream；Scheduler 取消本 run 尚未 apply 的 CALL，收尾已创建 callee 与 root，且不再向关闭的 consumer 阻塞发送事件；
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 
 将子 Agent 失败包装成 CALL error 是局部容错，不代表子任务成功；主 Agent 是否还能完成用户请求由后续生成决定。相反，主 frame 基础设施失败没有可用的上层 Agent 继续纠正，因此必须结束本次 run。

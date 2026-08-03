@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-01
+last_reviewed: 2026-08-03
 ---
 
 # Agent Runtime
@@ -24,8 +24,9 @@ Agent Runtime 负责把一个 Agent 的一帧运行到自然收敛、取消或�
 ## 1. 层级与依赖方向
 
 ```text
-Alice AgentOrchestrator
-  -> AgentRuntime facade
+AliceRuntime
+  -> RunScheduler
+       -> AgentRuntime facade
        -> AgentLoopExecutor
        -> WorkerAgentService
        -> MTPExecutor port -> KoakumaRuntime
@@ -36,7 +37,7 @@ Alice AgentOrchestrator
 
 - 不实现 `SubsystemProtocol`，不注册 `GlobalSystemBus` route；
 - 不拥有 start/stop/health 生命周期；
-- 不直接 import Alice 的 Orchestrator、RunDriver、CallCoordinator 或 ProfileResolver；
+- 不直接 import Alice 的 RunScheduler、CallCoordinator 或 ProfileResolver；
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
 - 持久化记忆、Profile 读取与 citation 均通过 Alice 装配的 local bus 间接访问 Patchouli。
 
@@ -99,7 +100,7 @@ session generation_options
 - 会话 `model` 与 Profile `model_name` 都被解释为注册表 ID；
 - api key/base 来自注册表解析结果，也可由 LiteLLM 使用环境变量；
 - session 可以覆盖 temperature、top_p 和 max_tokens；
-- 注册表解析失败直接向上抛出，不静默换成另一个模型；
+- 注册表解析失败在 `run_frame()` 边界形成 `FAILED`，不静默换成另一个模型；
 - 未注入 ModelRegistry 时，调用方必须在 generation options 中直接提供可执行 model，否则 WorkerAgent 抛出 `ValueError`。
 
 模型注册表启用时，frame 记录的是展示名，供 `AgentRunResult.model_used` 与话题 UI 使用。未启用注册表的兼容路径可以正常生成，但当前不会把 WorkerAgent 返回的底层 model 名重新写入 frame，因此 `model_used` 可能为空。
@@ -139,15 +140,15 @@ CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame
 - `mtp_start`：Runtime 已识别并准备执行一条指令；
 - `mtp_result`：指令的 success/error/ack/suspend 等状态；
 - 被调用 frame 事件仍使用相同类型，通过 `scope/frame_id/action_id/agent_id` 命名空间区分；为兼容既有 SSE 客户端，Alice 仍可提供 `depth` 展示字段，但它不再参与 Runtime 控制流；
-- `done` 由 Alice Orchestrator 在主帧退出后组装，而不是由 WorkerAgent 直接发出。
+- `done` 由 AliceRuntime 在 Scheduler 完成主 run 收尾后组装，而不是由 WorkerAgent 直接发出。
 
-检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化事件。CALL 时，`RunDriver` 直接取得 `SUSPENDED` 结果，调用 `CallCoordinator`，再通过 `AgentRuntime.apply_call_response()` 重入同一个 frame；不再通过 Runtime 到 Orchestrator 的 `on_suspend` 回调反转控制权。
+检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化事件。CALL 时，`RunScheduler` 直接取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()` 准备 callee；同一个 `_drive()` 循环运行 callee 后再调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。
 
 非流式 LiteLLM 请求会与 `cancel_event.wait()` 竞争，取消时主动 cancel completion task。流式请求在每个 chunk 边界检查 cancel_event；MTP handler 又在执行前后检查，但同步 syscall 运行期间不能被这些 checkpoint 强制打断。
 
 ## 7. AgentRunResult 的组装边界
 
-Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统的 `AgentRunResult` 必须由 Alice Orchestrator 组装：
+Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统的 `AgentRunResult` 必须由 AliceRuntime 组装：
 
 - `final_text` 来自主 frame 累积正文；
 - `turn_events` 是当前用户消息、assistant 输出和工具事件的有序事实；
@@ -156,9 +157,9 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 - `status` 由取消状态与运行终态确定；
 - `model_used` 来自主 frame 模型解析。
 
-执行层不应为了组装最终响应重新维护 write focus、pending alias 或子 Agent 结果副本。PendingAtomRuntime 已拥有写缓冲真相，Orchestrator 只在 run 边界投影任务。
+执行层不应为了组装最终响应重新维护 write focus、pending alias 或子 Agent 结果副本。PendingAtomRuntime 已拥有写缓冲真相，AliceRuntime 只在 run 边界投影稳定公共结果。
 
-当前收尾由两个显式产品模型分开：`finalize_frame()` 产生只供当前 CALL 使用的 `FrameProducts.artifact_aliases`，`finalize_run()` 产生交给 Patchouli 的 `RuntimeProducts.materialize_tasks`。前者可由 `CallCoordinator` 调用，后者只由根 `RunDriver` 调用一次；编排层不再遍历 PendingAtom store 的内部集合。
+当前收尾由两个显式产品模型分开：`finalize_frame()` 产生只供当前 CALL 使用的 `FrameProducts.artifact_aliases`，`finalize_run()` 产生交给 Patchouli 的 `RuntimeProducts.materialize_tasks`。前者可由 `CallCoordinator` 调用，后者只由 `RunScheduler` 在根 run 终态调用一次；编排层不再遍历 PendingAtom store 的内部集合。
 
 ## 8. 关键不变量与矛盾检查
 
@@ -166,7 +167,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 - `ExecutionFrame` 是重入状态的唯一载体，不能在另一个 service 中并行维护 iteration、sequence 或 text accumulator；
 - WorkerAgent 只负责模型生成与 MTP 定界符检测，不执行权限或记忆语义；
 - AgentRunContext 是本轮只读快照，Alice 不在执行中取得话题或长期记忆的可变所有权；
-- 模型解析失败必须暴露，不能为了可用性静默运行错误模型；
+- 模型解析和 generation/provider 故障必须稳定形成 `FAILED`，不能为了可用性静默运行错误模型；
 - 取消不能被包装成普通 success，流式路径也必须以 `done` 或异常明确结束；
 - 引擎事件必须保持 sequence 单调、tool_call/tool_result action_id 对齐，不能只保留用户可见正文。
 

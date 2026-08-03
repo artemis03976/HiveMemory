@@ -8,19 +8,27 @@ from enum import Enum
 from typing import Any
 
 from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.models import (
+    ExecutionFrame,
+    FrameExecutionResult,
+    FrameExecutionStatus,
+)
 from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.alice.contracts.local_routes import AliceLocalRoutes
-from hivememory.alice.runtime.agent.frame_factory import FrameFactory
+from hivememory.alice.runtime.agent.call_coordinator import CallCoordinator
+from hivememory.alice.runtime.agent.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.runtime.agent.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.agent.run_scheduler import RunScheduler
 from hivememory.alice.runtime.agent.run_session import RunSession
 from hivememory.alice.runtime.agent.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.orchestrator import AgentOrchestrator
 from hivememory.alice.runtime.route_bindings import build_alice_route_bindings
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, Identity, MemoryAtom
 from hivememory.core.protocol.models import (
     AgentRunContext,
     AgentRunResult,
@@ -84,15 +92,17 @@ class AliceRuntime:
             model_registry=model_registry,  # 传入注册表，用于逐帧模型解析
         )
 
-        # ---- 编排层 (alice)：多 Agent 编排，拿门面跑单 Agent ----
+        # ---- 编排层 (alice)：每个 run 独立构造 root frame 与调度状态机 ----
         self._prompt_assembler = AgentPromptAssembler(
             alice_config.koakuma,
         )
-        self._orchestrator = AgentOrchestrator(
-            agent_runtime=self._agent_runtime,
-            agent_profile_resolver=AgentProfileResolver(local_bus=self._local_bus),
-            alias_resolver=self._alias_resolver,
-            frame_factory=FrameFactory(),
+        self._frame_factory = FrameFactory()
+        self._agent_profile_resolver = AgentProfileResolver(local_bus=self._local_bus)
+        self._call_coordinator = CallCoordinator(
+            self._agent_runtime,
+            self._agent_profile_resolver,
+            self._alias_resolver,
+            frame_factory=self._frame_factory,
             prompt_assembler=self._prompt_assembler,
         )
 
@@ -208,13 +218,26 @@ class AliceRuntime:
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
         try:
-            result = await self._orchestrator.run_agent(
+            frame = self._create_root_frame(
                 messages=messages,
                 identity=agent_run_context.identity,
                 topic_id=agent_run_context.topic_id,
                 session=session,
-                generation_options=generation_options,
                 agent_profile=agent_run_context.agent_profile,
+            )
+            scheduler = RunScheduler(
+                agent_runtime=self._agent_runtime,
+                session=session,
+                call_coordinator=self._call_coordinator,
+            )
+            engine_result = await scheduler.run(
+                frame,
+                generation_options=generation_options,
+            )
+            result = self._assemble_agent_run_result(
+                frame,
+                engine_result,
+                scheduler.runtime_products or RuntimeProducts(),
             )
             self._emit_agent_terminal(agent_run_context, session.agent_run_id, result)
             return result
@@ -249,24 +272,31 @@ class AliceRuntime:
         self.register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
         messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
         exit_reason = StreamExitReason.RUNNING
+        scheduler_stream: AsyncGenerator[dict[str, Any], None] | None = None
         try:
-            async for event in self._orchestrator.run_agent_stream(
+            frame = self._create_root_frame(
                 messages=messages,
                 identity=agent_run_context.identity,
                 topic_id=agent_run_context.topic_id,
                 session=session,
-                generation_options=generation_options,
                 agent_profile=agent_run_context.agent_profile,
-            ):
-                if event.get("event") == "done":
-                    self._emit_agent_terminal(
-                        agent_run_context,
-                        session.agent_run_id,
-                        AgentRunResult(**event["data"]),
-                    )
-                    exit_reason = StreamExitReason.TERMINAL
+            )
+            scheduler = RunScheduler(
+                agent_runtime=self._agent_runtime,
+                session=session,
+                call_coordinator=self._call_coordinator,
+            )
+            event_metadata = self._event_metadata_for_frame(frame)
+            scheduler_stream = scheduler.run_stream(
+                frame,
+                generation_options=generation_options,
+                event_metadata=event_metadata,
+            )
+            async for event in scheduler_stream:
                 yield event
-            if exit_reason != StreamExitReason.TERMINAL:
+
+            terminal_result = scheduler.terminal_result
+            if terminal_result is None:
                 exit_reason = StreamExitReason.MISSING_DONE
                 self._emit_agent_event(
                     RuntimeEventType.AGENT_RUN_FAILED,
@@ -277,6 +307,21 @@ class AliceRuntime:
                     message="Agent stream ended without done event.",
                 )
                 raise RuntimeError("Agent stream ended without done event")
+            result = self._assemble_agent_run_result(
+                frame,
+                terminal_result,
+                scheduler.runtime_products or RuntimeProducts(),
+            )
+            self._emit_agent_terminal(agent_run_context, session.agent_run_id, result)
+            exit_reason = StreamExitReason.TERMINAL
+            yield {
+                "event": "done",
+                "data": {
+                    **result.model_dump(),
+                    **event_metadata,
+                    "stream_sequence": scheduler.next_stream_sequence,
+                },
+            }
         except Exception:
             if exit_reason not in (
                 StreamExitReason.TERMINAL,
@@ -304,6 +349,72 @@ class AliceRuntime:
                     message="Agent stream closed before terminal event.",
                     data={"close_reason": "stream_closed"},
                 )
+            if scheduler_stream is not None:
+                await scheduler_stream.aclose()
+
+    def _create_root_frame(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        identity: Identity,
+        topic_id: str,
+        agent_profile: AgentProfile | None,
+        session: RunSession,
+    ) -> ExecutionFrame:
+        """为当前 run 创建并登记唯一 root frame。"""
+        profile = agent_profile or OMNI_DOLL_PROFILE
+        policy = FrameExecutionPolicy.from_profile(
+            profile,
+            max_iterations=getattr(self._agent_runtime, "max_iterations", None),
+        )
+        frame = self._frame_factory.create(
+            FrameSpec(
+                runtime_scope=self._frame_factory.scope(run_id=session.agent_run_id),
+                profile=profile,
+                identity=identity,
+                messages=messages,
+                topic_id=topic_id or "",
+                execution_policy=policy,
+            )
+        )
+        session.register_root_frame(frame)
+        return frame
+
+    @staticmethod
+    def _assemble_agent_run_result(
+        frame: ExecutionFrame,
+        engine_result: FrameExecutionResult,
+        runtime_products: RuntimeProducts,
+    ) -> AgentRunResult:
+        """把执行层终态与产品投影为稳定的 Alice 公共结果。"""
+        if engine_result.status == FrameExecutionStatus.CANCELLED:
+            run_status = AgentRunStatus.CANCELLED
+        elif engine_result.status == FrameExecutionStatus.COMPLETED:
+            run_status = AgentRunStatus.COMPLETED
+        else:
+            run_status = AgentRunStatus.FAILED
+        progress = frame.progress
+        return AgentRunResult(
+            status=run_status,
+            final_text="".join(progress.text_segments),
+            mtp_iterations=max(0, progress.iteration - 1),
+            total_iterations=progress.iteration,
+            turn_events=progress.turn_events,
+            materialize_tasks=list(runtime_products.materialize_tasks),
+            model_used=progress.model_used,
+        )
+
+    @staticmethod
+    def _event_metadata_for_frame(frame: ExecutionFrame) -> dict[str, Any]:
+        agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
+        return {
+            "agent_run_id": frame.runtime_scope.run_id,
+            "action_id": None,
+            "scope": "main",
+            "depth": 0,
+            "agent_id": agent_id,
+            "frame_id": frame.runtime_scope.frame_id,
+        }
 
     @staticmethod
     def _create_run_session(

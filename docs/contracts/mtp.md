@@ -6,12 +6,13 @@ scope: mtp
 code_paths:
   - src/hivememory/core/mtp/
   - src/hivememory/agent_runtime/mtp/runtime.py
-  - src/hivememory/alice/runtime/orchestrator.py
+  - src/hivememory/alice/runtime/agent/run_scheduler.py
+  - src/hivememory/alice/runtime/agent/call_coordinator.py
   - src/hivememory/core/models/agent.py
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-01
+last_reviewed: 2026-08-03
 ---
 
 # Memory Tool Protocol (MTP)
@@ -53,7 +54,7 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 `KoakumaRuntime` 负责 parse、权限检查、verb 分发、结果计时和格式化。它属于 Alice，使用 Alice local bus 映射的 Patchouli 公开路由访问记忆能力。
 
-Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunDriver`/`CallCoordinator` 消费，不直接回填为空结果；完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
+Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunScheduler`/`CallCoordinator` 消费，不直接回填为空结果；完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
 ## 3. 动词契约
 
@@ -149,8 +150,8 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 
 - TARGET 和 `task` 必填；`context_refs` 可选；
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
-- Alice Orchestrator 挂起父 frame、解析共享上下文、运行子 frame，再以 `MTPCallResponse` 回填；
-- CALL 只允许根深度，`depth >= 1` 时拒绝，防止递归爆炸；
+- Alice RunScheduler 挂起 caller frame、解析共享上下文、运行 callee frame，再以 `MTPCallResponse` 回填；
+- CALL 只允许 root frame 发起；callee 的 `FrameExecutionPolicy` 显式移除 CALL，防止递归爆炸；
 - 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；
 - `CANCELLED` 保持 cancelled 终态，`FAILED`、`BUDGET_EXHAUSTED` 和意外 `SUSPENDED` 会转换为结构化 error CALL response。
 
@@ -229,6 +230,6 @@ CALL 取消使用 `<mtp_response status="cancelled">` 回填本地化的取消�
 - parser / filter：`tests/unit/core/mtp/`；
 - verb 链路：`tests/unit/agent_runtime/mtp/test_*_chain.py`；
 - alias / PendingAtom：`tests/unit/agent_runtime/mtp/test_alias_generation.py`、`test_read_chain.py`；
-- CALL：`tests/unit/core/mtp/test_call_response_formatting.py`、Alice orchestrator 测试；
+- CALL：`tests/unit/core/mtp/test_call_response_formatting.py`、Alice RunScheduler/CallCoordinator 测试；
 - syscall：`tests/unit/agent_runtime/mtp/syscalls/`；
 - i18n formatter：MTP formatter 和 i18n runtime 测试。

@@ -28,7 +28,7 @@ class AgentRuntime:
     封装执行引擎（loop_executor + worker_agent + mtp_executor）与
     PendingAtomRuntime，对外提供 "跑一个 frame" 和 "收割 Task" 的 API。
     类比 patchouli 的 LibrarianCore——把底层引擎组件收拢成一个聚合，
-    编排层（AgentOrchestrator）只拿这个门面操作，不直接接触引擎细节。
+    编排层（AliceRuntime / RunScheduler）只拿这个门面操作，不直接接触引擎细节。
 
     迭代上限由门面内部从 config.agent_runtime 消化，编排不再传 max_iterations。
     """
