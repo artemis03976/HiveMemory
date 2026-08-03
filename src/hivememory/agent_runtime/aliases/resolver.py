@@ -32,9 +32,9 @@ from hivememory.core.mtp.exceptions import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
-    from hivememory.agent_runtime.cache import KoakumaAtomCache
+    from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
     from hivememory.agent_runtime.models import MTPExecutionContext
+    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 logger = logging.getLogger(__name__)
 

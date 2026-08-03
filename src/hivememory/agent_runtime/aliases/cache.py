@@ -1,5 +1,5 @@
 """
-Agent Runtime 记忆原子缓存实现。
+Agent Runtime alias 记忆原子缓存实现。
 
 提供：
 - 完整 MemoryAtom 对象缓存

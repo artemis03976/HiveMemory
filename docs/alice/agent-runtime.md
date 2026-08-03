@@ -40,7 +40,7 @@ AgentRunService
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
 - 持久化记忆、Profile 读取与 citation 均通过 Alice 装配的 local bus 间接访问 Patchouli。
 
-`AgentRuntime` 聚合门面、loop、WorkerAgent、MTP adapter、cache、resolver 与 PendingAtom 均位于顶层 `agent_runtime/`。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunScheduler；执行层不再位于 Alice 编排目录中。
+`AgentRuntime` 门面与 frame 级稳定契约保留在 `agent_runtime/` 根部；`execution/` 收拢 loop 与 WorkerAgent，`aliases/` 收拢热缓存和三级解析，`mtp/`、`pending_atom/` 分别保存协议执行与写缓冲能力。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunScheduler；执行层不再位于 Alice 编排目录中。
 
 当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, event_sink, cancel_event)`。非流式与流式调用分别注入 null sink 和 queue-backed sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。
 
@@ -178,9 +178,9 @@ AgentRunService 为主 run 产生 `agent.run.started/completed/cancelled/failed`
 
 主要验证入口：
 
-- `tests/unit/agent_runtime/test_loop_executor_turn_events.py`；
-- `tests/unit/agent_runtime/test_loop_executor_stream.py`；
-- `tests/unit/agent_runtime/test_worker_agent.py`；
+- `tests/unit/agent_runtime/execution/test_loop_turn_events.py`；
+- `tests/unit/agent_runtime/execution/test_loop_stream.py`；
+- `tests/unit/agent_runtime/execution/test_worker.py`；
 - `tests/unit/agent_runtime/test_runtime.py`；
 - `tests/unit/alice/application/test_agent_run_service.py`；
 - `tests/unit/alice/orchestration/test_run_scheduler.py`；

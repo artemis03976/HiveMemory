@@ -4,7 +4,7 @@ KoakumaAtomCache 单元测试
 
 import pytest
 from uuid import uuid4
-from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 
 

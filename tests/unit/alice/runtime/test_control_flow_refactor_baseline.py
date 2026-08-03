@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
-from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
+from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.application import AgentRunService

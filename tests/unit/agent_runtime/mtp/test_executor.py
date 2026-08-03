@@ -3,7 +3,7 @@
 import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
+from hivememory.agent_runtime.mtp.executor import KoakumaMTPExecutor
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 from hivememory.core.protocol.models import MTPExecutionResult
 

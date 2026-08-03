@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.agent_runtime.events import NullFrameEventSink
-from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
+from hivememory.agent_runtime.execution import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,

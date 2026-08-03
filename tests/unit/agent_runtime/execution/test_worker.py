@@ -11,7 +11,7 @@ import pytest
 import asyncio
 from unittest.mock import Mock, patch
 
-from hivememory.agent_runtime.worker_agent import WorkerAgentService
+from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER, MTP_STOP_SEQUENCE
 
 
@@ -36,7 +36,7 @@ class TestWorkerAgentGenerateAsync:
     def setup_method(self):
         self.service = WorkerAgentService()
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_normal_completion(self, mock_completion):
         """正常完成，无 MTP 中断"""
         mock_completion.return_value = _make_response("普通回复", "stop")
@@ -52,7 +52,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.prefix_text == "普通回复"
         assert result.mtp_fragment == ""
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_mtp_interrupted(self, mock_completion):
         """finish_reason=stop 且文本含 ⟪ 时检测为 MTP 中断"""
         text = f"前面的文本{MTP_LEFT_DELIMITER}READ|mem_doc"
@@ -68,7 +68,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == f"前面的文本{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
         assert result.mtp_fragment == f"{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_length_limited_not_mtp(self, mock_completion):
         """finish_reason=length 时即使含 ⟪ 也不标记为 MTP"""
         text = f"文本{MTP_LEFT_DELIMITER}something"
@@ -83,7 +83,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.prefix_text == text
         assert result.mtp_fragment == ""
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_empty_text_response(self, mock_completion):
         """LLM 返回空文本"""
         mock_completion.return_value = _make_response("", "stop")
@@ -96,7 +96,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == ""
         assert result.was_mtp_interrupted is False
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_mtp_delimiter_at_start(self, mock_completion):
         """⟪ 在位置 0，prefix_text 为空"""
         text = f"{MTP_LEFT_DELIMITER}SEARCH|query=\"test\""
@@ -112,7 +112,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == f"{text} {MTP_RIGHT_DELIMITER}"
         assert result.mtp_fragment == f"{text} {MTP_RIGHT_DELIMITER}"
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_mtp_already_complete_not_completed_twice(self, mock_completion):
         """已完整的 MTP 文本不会重复补右定界符。"""
         text = f"{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
@@ -127,7 +127,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == text
         assert result.mtp_fragment == text
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_multiple_delimiters_uses_last(self, mock_completion):
         """多个 ⟪ 使用 rfind 取最后一个"""
         text = f"a{MTP_LEFT_DELIMITER}first{MTP_LEFT_DELIMITER}second"
@@ -144,7 +144,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == f"{text} {MTP_RIGHT_DELIMITER}"
         assert result.mtp_fragment == f"{text[last_pos:]} {MTP_RIGHT_DELIMITER}"
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_llm_exception_propagated(self, mock_completion):
         """litellm.acompletion 抛异常时向上传播"""
         mock_completion.side_effect = RuntimeError("API error")
@@ -155,7 +155,7 @@ class TestWorkerAgentGenerateAsync:
                 model="test-model", api_key="test-key",
             )
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_stop_sequence_injected(self, mock_completion):
         """验证 stop=[MTP_STOP_SEQUENCE] 被传入"""
         mock_completion.return_value = _make_response("ok", "stop")
@@ -165,7 +165,7 @@ class TestWorkerAgentGenerateAsync:
         call_kwargs = mock_completion.call_args
         assert call_kwargs[1]["stop"] == [MTP_STOP_SEQUENCE]
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_kwargs_passed_through(self, mock_completion):
         """额外 kwargs 正确传递给 litellm"""
         mock_completion.return_value = _make_response("ok", "stop")
@@ -181,7 +181,7 @@ class TestWorkerAgentGenerateAsync:
         assert call_kwargs["top_p"] == 0.9
         assert call_kwargs["presence_penalty"] == 0.5
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_cancel_event_cancels_completion(self, mock_completion):
         """非流式 LLM 调用期间 cancel_event 触发时返回 cancelled。"""
         started = asyncio.Event()
@@ -236,7 +236,7 @@ class TestWorkerAgentGenerateStream:
     def setup_method(self):
         self.service = WorkerAgentService()
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_stream_no_duplicate_before_mtp(self, mock_completion):
         left = MTP_LEFT_DELIMITER
         chunks = [
@@ -258,7 +258,7 @@ class TestWorkerAgentGenerateStream:
         assert stream_chunks[-1].result is not None
         assert stream_chunks[-1].result.was_mtp_interrupted is True
 
-    @patch("hivememory.agent_runtime.worker_agent.litellm.acompletion")
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_stream_flushes_pending_tail_without_mtp(self, mock_completion):
         chunks = [
             _make_stream_chunk("A"),

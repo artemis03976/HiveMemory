@@ -35,8 +35,8 @@ from hivememory.core.models import TurnEvent
 from hivememory.system.config import AgentRuntimeConfig
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
-    from hivememory.agent_runtime.worker_agent import WorkerAgentService
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.mtp.executor import MTPExecutor
 
 logger = logging.getLogger(__name__)
 

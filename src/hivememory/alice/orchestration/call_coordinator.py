@@ -32,7 +32,7 @@ from hivememory.engines.memory_compiler import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.resolver import RuntimeAliasResolver
+    from hivememory.agent_runtime.aliases import RuntimeAliasResolver
     from hivememory.agent_runtime.runtime import AgentRuntime
     from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
     from hivememory.alice.orchestration.run_session import RunSession

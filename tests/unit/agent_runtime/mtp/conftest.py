@@ -15,9 +15,8 @@ import pytest
 
 from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 
 

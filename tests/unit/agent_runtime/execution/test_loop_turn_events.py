@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
+from hivememory.agent_runtime.execution.loop import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionStatus,
@@ -22,7 +22,7 @@ from hivememory.agent_runtime.models import (
     MTPExecutionContext,
     RuntimeScope,
 )
-from hivememory.agent_runtime.resolver import ResolveResult
+from hivememory.agent_runtime.aliases import ResolveResult
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory

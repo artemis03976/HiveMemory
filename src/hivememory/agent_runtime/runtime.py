@@ -4,18 +4,17 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.events import FrameEventSink
-from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
+from hivememory.agent_runtime.execution import AgentLoopExecutor, WorkerAgentService
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
-from hivememory.agent_runtime.worker_agent import WorkerAgentService
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 from hivememory.system.model_registry import ModelNotFoundError
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.models import ExecutionFrame
-    from hivememory.agent_runtime.mtp.mtp_executor import MTPExecutor
+    from hivememory.agent_runtime.mtp import MTPExecutor
     from hivememory.system.config import AgentRuntimeConfig
     from hivememory.system.model_registry import ModelRegistry
 

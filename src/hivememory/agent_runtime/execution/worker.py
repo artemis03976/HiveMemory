@@ -1,7 +1,7 @@
 """
-Worker Agent Service - 无状态 LLM 文本生成服务
+Worker Agent Service - Agent Runtime 的无状态 LLM 文本生成服务
 
-定位：Alice 子系统的生成引擎，纯粹的文本生成器。
+定位：单 frame 执行引擎的模型生成适配器，纯粹的文本生成器。
 职责：
     - 封装 LLM API 调用 (via litellm)
     - 使用 MTP Stop Sequence (⟫) 实现生成中断

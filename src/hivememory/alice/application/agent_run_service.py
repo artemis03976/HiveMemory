@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator
 from enum import Enum
 from typing import Any
 
-from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,

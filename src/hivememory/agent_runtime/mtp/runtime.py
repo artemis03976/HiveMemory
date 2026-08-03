@@ -31,10 +31,9 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.cache import KoakumaAtomCache
+from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.core.models import MemoryType
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,

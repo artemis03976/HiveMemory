@@ -5,7 +5,7 @@ owner: alice
 scope: mtp-parser-execution-permissions-and-syscalls
 code_paths:
   - src/hivememory/agent_runtime/mtp/
-  - src/hivememory/agent_runtime/resolver.py
+  - src/hivememory/agent_runtime/aliases/
   - src/hivememory/core/mtp/
   - src/hivememory/prompts/mtp.py
   - src/hivememory/system/config/alice.py
@@ -170,8 +170,8 @@ Alice 配置当前分为两组：
 |:---|:---|
 | parser、formatter 与协议模型 | `src/hivememory/core/mtp/` |
 | Koakuma 分发与六个 handler | `src/hivememory/agent_runtime/mtp/runtime.py` |
-| Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/mtp_executor.py` |
-| alias 解析与热缓存 | `src/hivememory/agent_runtime/resolver.py`、`cache.py` |
+| Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/executor.py` |
+| alias 解析与热缓存 | `src/hivememory/agent_runtime/aliases/resolver.py`、`cache.py` |
 | syscall 注册与实现 | `src/hivememory/agent_runtime/mtp/syscalls/` |
 | MTP prompt | `src/hivememory/prompts/mtp.py`、`i18n/prompts.py` |
 | Alice 配置 | `src/hivememory/system/config/alice.py` |

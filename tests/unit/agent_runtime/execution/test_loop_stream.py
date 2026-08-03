@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from hivememory.agent_runtime.events import QueueFrameEventSink
-from hivememory.agent_runtime.loop_executor import AgentLoopExecutor
+from hivememory.agent_runtime.execution.loop import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionStatus,

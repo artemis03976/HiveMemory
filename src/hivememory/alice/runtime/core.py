@@ -3,11 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hivememory.agent_runtime.cache import KoakumaAtomCache
-from hivememory.agent_runtime.mtp.mtp_executor import KoakumaMTPExecutor
+from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
+from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-from hivememory.agent_runtime.resolver import RuntimeAliasResolver
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig

@@ -1,3 +1,5 @@
+"""MTP 执行端口及 Koakuma 适配器。"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
