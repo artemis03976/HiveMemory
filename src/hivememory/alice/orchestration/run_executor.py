@@ -113,6 +113,7 @@ class RunExecutor:
             match result.status:
                 # 进入 Agent Run Subagent CALL 执行
                 case FrameExecutionStatus.SUSPENDED:
+                    self._require_call_suspension(result)
                     if self._call_coordinator is None:
                         return FrameExecutionResult(
                             status=FrameExecutionStatus.FAILED,
@@ -170,7 +171,7 @@ class RunExecutor:
             )
             match outcome:
                 case DispatchCallee(frame=callee_frame):
-                    action_id = self._require_suspension_action_id(suspension)
+                    action_id = suspension.suspend_action_id
 
                     callee_result = await self._execute_frame(
                         callee_frame,
@@ -255,11 +256,12 @@ class RunExecutor:
         return self._call_coordinator
 
     @staticmethod
-    def _require_suspension_action_id(suspension: FrameExecutionResult) -> str:
+    def _require_call_suspension(suspension: FrameExecutionResult) -> None:
+        if suspension.call_request is None:
+            raise RuntimeError("CALL suspension is missing its request.")
         action_id = suspension.suspend_action_id
         if not action_id:
             raise RuntimeError("CALL suspension is missing its action id.")
-        return action_id
 
     @staticmethod
     def _normalize_terminal_result(

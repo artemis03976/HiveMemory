@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -476,6 +476,27 @@ async def test_run_executor_rejects_unsupported_frame_status():
 
     with pytest.raises(RuntimeError, match="unsupported frame status: 'waiting_input'"):
         await executor.run(frame)
+
+
+@pytest.mark.asyncio
+async def test_run_executor_rejects_malformed_call_before_entering_coordinator():
+    coordinator = SimpleNamespace(begin_call=MagicMock())
+    runtime = SimpleNamespace(
+        run_frame=AsyncMock(
+            return_value=FrameExecutionResult(status=FrameExecutionStatus.SUSPENDED)
+        )
+    )
+    frame = _frame_stub("frame-1")
+    executor = RunExecutor(
+        runtime,
+        session=_session_with(frame),
+        call_coordinator=coordinator,
+    )
+
+    with pytest.raises(RuntimeError, match="missing its request"):
+        await executor.run(frame)
+
+    coordinator.begin_call.assert_not_called()
 
 
 @pytest.mark.asyncio

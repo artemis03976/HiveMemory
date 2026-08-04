@@ -84,7 +84,8 @@ class CallCoordinator:
     ) -> CallStartResult:
         """同步登记 CALL 后准备 callee；准备失败时直接恢复 caller。"""
         output = run_output or NullAgentRunOutput()
-        call_request, action_id = self._require_suspension(suspension)
+        call_request = suspension.call_request
+        action_id = suspension.suspend_action_id
         session.require_frame(caller_frame)
         record = session.register_call(caller_frame, action_id)
         record.begin_resolution()
@@ -186,7 +187,8 @@ class CallCoordinator:
     ) -> CallCompletionResult:
         """把 callee outcome 收口为 caller 可消费的 CALL response。"""
         output = run_output or NullAgentRunOutput()
-        call_request, action_id = self._require_suspension(suspension)
+        call_request = suspension.call_request
+        action_id = suspension.suspend_action_id
 
         session.require_frame(caller_frame)
         session.require_frame(callee_frame)
@@ -250,7 +252,8 @@ class CallCoordinator:
         session: RunSession,
     ) -> None:
         """协程取消时收尾未 apply 的 CALL，并回填 cancelled response。"""
-        call_request, action_id = self._require_suspension(suspension)
+        call_request = suspension.call_request
+        action_id = suspension.suspend_action_id
         record = session.require_call(caller_frame, action_id)
         if record.status in {CallRecordStatus.APPLIED, CallRecordStatus.CANCELLED}:
             return
@@ -287,7 +290,8 @@ class CallCoordinator:
         run_output: AgentRunOutput,
     ) -> CallCompletionResult:
         """CALL 准备失败/取消的收尾路径：结算 record 并回填错误或取消响应。"""
-        call_request, action_id = self._require_suspension(suspension)
+        call_request = suspension.call_request
+        action_id = suspension.suspend_action_id
         record = session.require_call(caller_frame, action_id)
         cancel_run = session.cancel_event.is_set() or response.status == MTPResponseStatus.CANCELLED
         if cancel_run:
@@ -377,18 +381,6 @@ class CallCoordinator:
                 error_code=(response.error.code if response.error is not None else None),
             )
         )
-
-    @staticmethod
-    def _require_suspension(
-        suspension: FrameExecutionResult,
-    ) -> tuple[Any, str]:
-        call_request = suspension.call_request
-        action_id = suspension.suspend_action_id
-        if suspension.status != FrameExecutionStatus.SUSPENDED or call_request is None:
-            raise ValueError("CALL coordinator requires a suspended frame result.")
-        if not action_id:
-            raise ValueError("CALL suspension is missing its action id.")
-        return call_request, action_id
 
 
 __all__ = [
