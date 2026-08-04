@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -28,7 +29,7 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
 from hivememory.alice.runtime.streaming import AgentRunStream
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 from hivememory.core.mtp import MTPCallRequest, MTPResponseStatus
-from hivememory.core.mtp.exceptions import PermissionDeniedError
+from hivememory.core.mtp.exceptions import PermissionDeniedError, SystemFault
 
 
 def _frame(frame_id: str = "frame-root") -> ExecutionFrame:
@@ -142,7 +143,27 @@ async def test_root_terminal_outcomes_match_between_streaming_and_non_streaming(
 
 
 @pytest.mark.asyncio
-async def test_call_preparation_error_is_returned_without_dispatching_child():
+@pytest.mark.parametrize(
+    ("error", "expected_level", "expected_log"),
+    [
+        (
+            PermissionDeniedError("denied"),
+            logging.WARNING,
+            "CALL target resolution rejected",
+        ),
+        (
+            SystemFault("profile route unavailable"),
+            logging.ERROR,
+            "CALL context preparation failed",
+        ),
+    ],
+)
+async def test_call_context_error_is_returned_without_dispatching_child(
+    error,
+    expected_level,
+    expected_log,
+    caplog,
+):
     caller = _frame()
     child = _frame("frame-child")
     runtime = SimpleNamespace(
@@ -150,28 +171,32 @@ async def test_call_preparation_error_is_returned_without_dispatching_child():
         run_frame=AsyncMock(),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
-    context_provider = SimpleNamespace(
-        provide=AsyncMock(side_effect=PermissionDeniedError("denied"))
-    )
+    context_provider = SimpleNamespace(provide=AsyncMock(side_effect=error))
     coordinator = _coordinator(runtime, child, context_provider=context_provider)
     output = _RecordingRunOutput()
 
-    transition = await coordinator.begin_call(
-        caller,
-        _suspension(),
-        session=_session(caller),
-        run_output=output,
-    )
+    with caplog.at_level(logging.DEBUG):
+        transition = await coordinator.begin_call(
+            caller,
+            _suspension(),
+            session=_session(caller),
+            run_output=output,
+        )
     response = runtime.apply_call_response.call_args.args[2]
 
     assert transition == ResumeCaller()
     assert response.status == MTPResponseStatus.ERROR
     assert response.error is not None
-    assert response.error.code == "mtp.permission.denied"
+    assert response.error.code == error.code
     runtime.run_frame.assert_not_awaited()
     runtime.finalize_frame.assert_not_called()
     assert len(output.call_finished_outputs) == 1
     assert output.call_finished_outputs[0].frame_id is None
+    assert expected_log in caplog.text
+    assert any(
+        record.levelno == expected_level and expected_log in record.getMessage()
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio

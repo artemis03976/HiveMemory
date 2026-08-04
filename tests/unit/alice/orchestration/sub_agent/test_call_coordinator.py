@@ -306,6 +306,36 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
 
 
 @pytest.mark.asyncio
+async def test_cancelled_callee_resumes_caller_when_run_is_not_cancelled():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    child_result = FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+        apply_call_response=MagicMock(),
+    )
+    coordinator = _coordinator(runtime, child)
+    session = _session(caller)
+    suspension = _suspension()
+
+    await coordinator.begin_call(caller, suspension, session=session)
+    transition = await coordinator.complete_call(
+        caller,
+        suspension,
+        child,
+        child_result,
+        session=session,
+    )
+
+    response = runtime.apply_call_response.call_args.args[2]
+    assert transition == ResumeCaller()
+    assert response.status == MTPResponseStatus.CANCELLED
+    assert session.call_for_callee("frame-child").status == CallRecordStatus.APPLIED
+
+
+@pytest.mark.asyncio
 async def test_call_response_is_committed_before_finished_output_await():
     caller = _frame()
     child = _frame()
@@ -334,6 +364,43 @@ async def test_call_response_is_committed_before_finished_output_await():
             suspension,
             child,
             child_result,
+            session=session,
+            run_output=output,
+        )
+
+    session.cancel_event.set()
+    coordinator.cancel_call(caller, suspension, session=session)
+    runtime.apply_call_response.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_preparation_error_is_committed_before_finished_output_await():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+        apply_call_response=MagicMock(),
+    )
+    context_provider = SimpleNamespace(
+        provide=AsyncMock(side_effect=RuntimeError("profile unavailable"))
+    )
+    coordinator = _coordinator(runtime, child, context_provider=context_provider)
+    session = _session(caller)
+    suspension = _suspension()
+
+    async def cancel_during_output(_output):
+        runtime.apply_call_response.assert_called_once()
+        record = session.require_call(caller, "act-1")
+        assert record.status == CallRecordStatus.APPLIED
+        raise asyncio.CancelledError
+
+    output = SimpleNamespace(call_finished=AsyncMock(side_effect=cancel_during_output))
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator.begin_call(
+            caller,
+            suspension,
             session=session,
             run_output=output,
         )

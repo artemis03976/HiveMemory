@@ -25,8 +25,8 @@ from hivememory.alice.orchestration.sub_agent.call_response import (
     preparation_error_response,
     response_for_frame_result,
 )
-from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
-from hivememory.core.mtp.exceptions import MTPError
+from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
+from hivememory.core.mtp.exceptions import MTPError, SystemFault
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.runtime import AgentRuntime
@@ -56,6 +56,7 @@ class CancelRun:
 
 type CallStartResult = DispatchCallee | ResumeCaller | CancelRun
 type CallCompletionResult = ResumeCaller | CancelRun
+type _PreparationResult = ExecutionFrame | MTPCallResponse
 
 
 class CallCoordinator:
@@ -83,21 +84,16 @@ class CallCoordinator:
         run_output: AgentRunOutput | None = None,
     ) -> CallStartResult:
         """同步登记 CALL 后准备 callee；准备失败时直接恢复 caller。"""
+
         output = run_output or NullAgentRunOutput()
+
         call_request = suspension.call_request
         action_id = suspension.suspend_action_id
+
         session.require_frame(caller_frame)
+
         record = session.register_call(caller_frame, action_id)
         record.begin_resolution()
-
-        if session.cancel_event.is_set():
-            return await self._complete_preparation(
-                caller_frame,
-                suspension,
-                cancelled_response(call_request.target_alias),
-                session=session,
-                run_output=output,
-            )
 
         logger.info(
             "CALL suspend: target=%s, task=%r",
@@ -105,19 +101,77 @@ class CallCoordinator:
             call_request.task[:80],
         )
 
+        prepared = (
+            cancelled_response(call_request.target_alias)
+            if session.cancel_event.is_set()
+            else await self._prepare_callee(caller_frame, call_request)
+        )
+        if session.cancel_event.is_set():
+            prepared = cancelled_response(call_request.target_alias)
+
+        match prepared:
+            case ExecutionFrame() as callee_frame:
+                # Session binding failures are orchestration invariant violations.
+                session.register_callee_frame(callee_frame, record)
+                await output.call_started(
+                    CallOutputStarted(
+                        agent_id=call_request.target_alias,
+                        task=call_request.task,
+                        iteration=caller_frame.progress.iteration,
+                        action_id=action_id,
+                        frame_id=callee_frame.runtime_scope.frame_id,
+                    )
+                )
+                return DispatchCallee(callee_frame)
+            case MTPCallResponse() as response:
+                return await self._commit_response(
+                    caller_frame,
+                    suspension,
+                    response,
+                    record=record,
+                    cancel_run=session.cancel_event.is_set(),
+                    callee_frame=None,
+                    callee_result=None,
+                    run_output=output,
+                )
+            case _:
+                raise AssertionError(f"Unhandled CALL preparation result: {prepared!r}")
+
+    async def _prepare_callee(
+        self,
+        caller_frame: ExecutionFrame,
+        call_request: MTPCallRequest,
+    ) -> _PreparationResult:
         try:
             call_context = await self._call_context_provider.provide(
                 caller_frame,
                 call_request,
             )
-            if session.cancel_event.is_set():
-                return await self._complete_preparation(
-                    caller_frame,
-                    suspension,
-                    cancelled_response(call_request.target_alias),
-                    session=session,
-                    run_output=output,
+        except MTPError as error:
+            if isinstance(error, SystemFault):
+                logger.error(
+                    "CALL context preparation failed for %r: %s",
+                    call_request.target_alias,
+                    error.code,
+                    exc_info=True,
                 )
+            else:
+                logger.warning(
+                    "CALL target resolution rejected for %r: %s",
+                    call_request.target_alias,
+                    error.code,
+                )
+            return preparation_error_response(call_request.target_alias, error)
+        except Exception as error:
+            logger.error(
+                "CALL context preparation failed for %r: %s",
+                call_request.target_alias,
+                error,
+                exc_info=True,
+            )
+            return preparation_error_response(call_request.target_alias, error)
+
+        try:
             sub_profile: AgentProfile = call_context.agent_profile
             policy = FrameExecutionPolicy.from_profile(
                 sub_profile,
@@ -130,7 +184,7 @@ class CallCoordinator:
                 shared_context=call_context.shared_context,
             )
             scope = self._frame_factory.scope(run_id=caller_frame.runtime_scope.run_id)
-            sub_frame = self._frame_factory.create(
+            return self._frame_factory.create(
                 FrameSpec(
                     runtime_scope=scope,
                     profile=sub_profile,
@@ -140,39 +194,14 @@ class CallCoordinator:
                     execution_policy=policy,
                 )
             )
-        except MTPError as error:
-            logger.warning("CALL rejected for %r: %s", call_request.target_alias, error.code)
-            response = preparation_error_response(call_request.target_alias, error)
-            return await self._complete_preparation(
-                caller_frame,
-                suspension,
-                response,
-                session=session,
-                run_output=output,
-            )
         except Exception as error:
-            logger.error("Sub-agent preparation failed: %s", error, exc_info=True)
-            response = preparation_error_response(call_request.target_alias, error)
-            return await self._complete_preparation(
-                caller_frame,
-                suspension,
-                response,
-                session=session,
-                run_output=output,
+            logger.error(
+                "Sub-agent frame preparation failed for %r: %s",
+                call_request.target_alias,
+                error,
+                exc_info=True,
             )
-
-        # Session 绑定失败属于编排不变量，不能伪装成 Agent 可消费的 CALL error。
-        session.register_callee_frame(sub_frame, record)
-        await output.call_started(
-            CallOutputStarted(
-                agent_id=call_request.target_alias,
-                task=call_request.task,
-                iteration=caller_frame.progress.iteration,
-                action_id=action_id,
-                frame_id=sub_frame.runtime_scope.frame_id,
-            )
-        )
-        return DispatchCallee(sub_frame)
+            return preparation_error_response(call_request.target_alias, error)
 
     async def complete_call(
         self,
@@ -225,24 +254,16 @@ class CallCoordinator:
             )
         )
 
-        record.mark_resolved()
-        transition = self._apply_response(
+        return await self._commit_response(
             caller_frame,
             suspension,
             response,
             record=record,
             cancel_run=cancel_run,
-        )
-        await self._emit_call_end(
-            caller_frame,
-            action_id=action_id,
-            agent_alias=call_request.target_alias,
-            response=response,
             callee_frame=callee_frame,
             callee_result=effective_result,
             run_output=output,
         )
-        return transition
 
     def cancel_call(
         self,
@@ -280,42 +301,7 @@ class CallCoordinator:
         )
         record.mark_applied()
 
-    async def _complete_preparation(
-        self,
-        caller_frame: ExecutionFrame,
-        suspension: FrameExecutionResult,
-        response: MTPCallResponse,
-        *,
-        session: RunSession,
-        run_output: AgentRunOutput,
-    ) -> CallCompletionResult:
-        """CALL 准备失败/取消的收尾路径：结算 record 并回填错误或取消响应。"""
-        call_request = suspension.call_request
-        action_id = suspension.suspend_action_id
-        record = session.require_call(caller_frame, action_id)
-        cancel_run = session.cancel_event.is_set() or response.status == MTPResponseStatus.CANCELLED
-        if cancel_run:
-            response = cancelled_response(call_request.target_alias)
-        record.mark_resolved()
-        transition = self._apply_response(
-            caller_frame,
-            suspension,
-            response,
-            record=record,
-            cancel_run=cancel_run,
-        )
-        await self._emit_call_end(
-            caller_frame,
-            action_id=action_id,
-            agent_alias=call_request.target_alias,
-            response=response,
-            callee_frame=None,
-            callee_result=None,
-            run_output=run_output,
-        )
-        return transition
-
-    def _apply_response(
+    async def _commit_response(
         self,
         caller_frame: ExecutionFrame,
         suspension: FrameExecutionResult,
@@ -323,10 +309,28 @@ class CallCoordinator:
         *,
         record: CallRecord,
         cancel_run: bool,
+        callee_frame: ExecutionFrame | None,
+        callee_result: FrameExecutionResult | None,
+        run_output: AgentRunOutput,
     ) -> CallCompletionResult:
-        """同步提交 response；提交后取消不再改变该 CALL 的结果。"""
+        """Commit a caller-consumable response before publishing completion output."""
+        call_request = suspension.call_request
+        action_id = suspension.suspend_action_id
+
+        record.mark_resolved()
+        
         self._agent_runtime.apply_call_response(caller_frame, suspension, response)
         record.mark_applied()
+
+        await self._emit_call_end(
+            caller_frame,
+            action_id=action_id,
+            agent_alias=call_request.target_alias,
+            response=response,
+            callee_frame=callee_frame,
+            callee_result=callee_result,
+            run_output=run_output,
+        )
         return CancelRun() if cancel_run else ResumeCaller()
 
     def _finalize_callee(
