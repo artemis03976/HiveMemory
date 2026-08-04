@@ -19,15 +19,14 @@ from hivememory.alice.orchestration.run_output import (
     NullAgentRunOutput,
 )
 from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContextProvider
-from hivememory.alice.orchestration.sub_agent.call_record import CallRecordStatus
-from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
-from hivememory.core.mtp.exceptions import (
-    AgentModelUnavailableError,
-    MTPError,
-    SubAgentBudgetExhaustedError,
-    SubAgentExecutionError,
-    SubAgentUnexpectedSuspendError,
+from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
+from hivememory.alice.orchestration.sub_agent.call_response import (
+    cancelled_response,
+    preparation_error_response,
+    response_for_frame_result,
 )
+from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
+from hivememory.core.mtp.exceptions import MTPError
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.runtime import AgentRuntime
@@ -81,7 +80,6 @@ class CallCoordinator:
         suspension: FrameExecutionResult,
         *,
         session: RunSession,
-        generation_options: dict[str, Any] | None = None,
         run_output: AgentRunOutput | None = None,
     ) -> CallStartResult:
         """同步登记 CALL 后准备 callee；准备失败时直接恢复 caller。"""
@@ -95,7 +93,7 @@ class CallCoordinator:
             return await self._complete_preparation(
                 caller_frame,
                 suspension,
-                self._cancelled_response(call_request.target_alias),
+                cancelled_response(call_request.target_alias),
                 session=session,
                 run_output=output,
             )
@@ -106,7 +104,6 @@ class CallCoordinator:
             call_request.task[:80],
         )
 
-        sub_profile: AgentProfile | None = None
         try:
             call_context = await self._call_context_provider.provide(
                 caller_frame,
@@ -116,11 +113,11 @@ class CallCoordinator:
                 return await self._complete_preparation(
                     caller_frame,
                     suspension,
-                    self._cancelled_response(call_request.target_alias),
+                    cancelled_response(call_request.target_alias),
                     session=session,
                     run_output=output,
                 )
-            sub_profile = call_context.agent_profile
+            sub_profile: AgentProfile = call_context.agent_profile
             policy = FrameExecutionPolicy.from_profile(
                 sub_profile,
                 max_iterations=getattr(self._agent_runtime, "max_iterations", None),
@@ -144,11 +141,7 @@ class CallCoordinator:
             )
         except MTPError as error:
             logger.warning("CALL rejected for %r: %s", call_request.target_alias, error.code)
-            response = MTPCallResponse(
-                status=MTPResponseStatus.ERROR,
-                agent_alias=call_request.target_alias,
-                error=error.to_error_info(),
-            )
+            response = preparation_error_response(call_request.target_alias, error)
             return await self._complete_preparation(
                 caller_frame,
                 suspension,
@@ -158,12 +151,7 @@ class CallCoordinator:
             )
         except Exception as error:
             logger.error("Sub-agent preparation failed: %s", error, exc_info=True)
-            response = self._response_for_exception(
-                call_request.target_alias,
-                error,
-                profile=sub_profile,
-                generation_options=generation_options,
-            )
+            response = preparation_error_response(call_request.target_alias, error)
             return await self._complete_preparation(
                 caller_frame,
                 suspension,
@@ -199,48 +187,50 @@ class CallCoordinator:
         """把 callee outcome 收口为 caller 可消费的 CALL response。"""
         output = run_output or NullAgentRunOutput()
         call_request, action_id = self._require_suspension(suspension)
+
         session.require_frame(caller_frame)
         session.require_frame(callee_frame)
+
         record = session.call_for_callee(callee_frame.runtime_scope.frame_id)
+
         if record.caller_frame_id != caller_frame.runtime_scope.frame_id:
             raise ValueError("Callee CALL record does not belong to the supplied caller frame.")
         if record.action_id != action_id:
             raise ValueError("Callee CALL record action does not match the suspension.")
+        if callee_result.status == FrameExecutionStatus.SUSPENDED:
+            raise ValueError("CallCoordinator.complete_call requires a terminal callee result.")
 
-        response = self._call_response_for_frame(
-            call_request,
-            callee_result,
-            cancelled=session.cancel_event.is_set(),
+        cancel_run = session.cancel_event.is_set()
+        result_for_finalization = (
+            FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
+            if cancel_run
+            else callee_result
         )
-        if callee_result.status == FrameExecutionStatus.FAILED and callee_result.error is not None:
-            from hivememory.system.model_registry import ModelNotFoundError
-
-            if isinstance(callee_result.error, ModelNotFoundError):
-                response = self._response_for_exception(
-                    call_request.target_alias,
-                    callee_result.error,
-                    profile=callee_frame.agent_profile,
-                    generation_options=generation_options,
-                )
-
-        response, effective_result, frame_products = self._finalize_callee(
+        effective_result, frame_products = self._finalize_callee(
             callee_frame,
-            callee_result,
-            response,
-            agent_alias=call_request.target_alias,
+            result_for_finalization,
         )
-        if (
-            effective_result.status == FrameExecutionStatus.COMPLETED
-            and response.status == MTPResponseStatus.SUCCESS
-        ):
-            response = response.model_copy(
-                update={
-                    "reply": "".join(callee_frame.progress.text_segments),
-                    "artifact_aliases": list(frame_products.artifact_aliases),
-                }
+        response = (
+            cancelled_response(call_request.target_alias)
+            if cancel_run
+            else response_for_frame_result(
+                call_request.target_alias,
+                effective_result,
+                reply="".join(callee_frame.progress.text_segments),
+                artifact_aliases=frame_products.artifact_aliases,
+                profile=callee_frame.agent_profile,
+                generation_options=generation_options,
             )
+        )
 
         record.mark_resolved()
+        transition = self._apply_response(
+            caller_frame,
+            suspension,
+            response,
+            record=record,
+            cancel_run=cancel_run,
+        )
         await self._emit_call_end(
             caller_frame,
             action_id=action_id,
@@ -250,13 +240,7 @@ class CallCoordinator:
             callee_result=effective_result,
             run_output=output,
         )
-        return self._apply_or_cancel(
-            caller_frame,
-            suspension,
-            response,
-            record=record,
-            session=session,
-        )
+        return transition
 
     def cancel_call(
         self,
@@ -265,13 +249,16 @@ class CallCoordinator:
         *,
         session: RunSession,
     ) -> None:
-        """协程取消时收尾未 apply 的 CALL，不发布事件也不回填 caller。"""
-        _, action_id = self._require_suspension(suspension)
+        """协程取消时收尾未 apply 的 CALL，并回填 cancelled response。"""
+        call_request, action_id = self._require_suspension(suspension)
         record = session.require_call(caller_frame, action_id)
         if record.status in {CallRecordStatus.APPLIED, CallRecordStatus.CANCELLED}:
             return
 
         # RESOLVED 表示 callee 已完成逻辑收尾；只在仍为 RESOLVING 时清理 frame。
+        if record.status == CallRecordStatus.SUSPENDED:
+            record.begin_resolution()
+
         if record.status == CallRecordStatus.RESOLVING and record.callee_frame_id is not None:
             callee_frame = session.frames[record.callee_frame_id]
             try:
@@ -281,7 +268,14 @@ class CallCoordinator:
                 )
             except Exception:
                 logger.exception("Failed to finalize cancelled sub-agent frame")
-        record.cancel()
+        if record.status == CallRecordStatus.RESOLVING:
+            record.mark_resolved()
+        self._agent_runtime.apply_call_response(
+            caller_frame,
+            suspension,
+            cancelled_response(call_request.target_alias),
+        )
+        record.mark_applied()
 
     async def _complete_preparation(
         self,
@@ -295,7 +289,17 @@ class CallCoordinator:
         """CALL 准备失败/取消的收尾路径：结算 record 并回填错误或取消响应。"""
         call_request, action_id = self._require_suspension(suspension)
         record = session.require_call(caller_frame, action_id)
+        cancel_run = session.cancel_event.is_set() or response.status == MTPResponseStatus.CANCELLED
+        if cancel_run:
+            response = cancelled_response(call_request.target_alias)
         record.mark_resolved()
+        transition = self._apply_response(
+            caller_frame,
+            suspension,
+            response,
+            record=record,
+            cancel_run=cancel_run,
+        )
         await self._emit_call_end(
             caller_frame,
             action_id=action_id,
@@ -305,66 +309,48 @@ class CallCoordinator:
             callee_result=None,
             run_output=run_output,
         )
-        return self._apply_or_cancel(
-            caller_frame,
-            suspension,
-            response,
-            record=record,
-            session=session,
-        )
+        return transition
 
-    def _apply_or_cancel(
+    def _apply_response(
         self,
         caller_frame: ExecutionFrame,
         suspension: FrameExecutionResult,
         response: MTPCallResponse,
         *,
-        record,
-        session: RunSession,
+        record: CallRecord,
+        cancel_run: bool,
     ) -> CallCompletionResult:
-        """根据取消状态决定：取消整个 run，或 exactly-once 回填 caller。"""
-        if session.cancel_event.is_set():
-            record.cancel()
-            return CancelRun()
+        """同步提交 response；提交后取消不再改变该 CALL 的结果。"""
         self._agent_runtime.apply_call_response(caller_frame, suspension, response)
         record.mark_applied()
-        return ResumeCaller()
+        return CancelRun() if cancel_run else ResumeCaller()
 
     def _finalize_callee(
         self,
         callee_frame: ExecutionFrame,
         callee_result: FrameExecutionResult,
-        response: MTPCallResponse,
-        *,
-        agent_alias: str,
-    ) -> tuple[MTPCallResponse, FrameExecutionResult, FrameProducts]:
-        frame_products = FrameProducts()
-        finalization_result = self._frame_result_for_finalization(callee_result, response)
+    ) -> tuple[FrameExecutionResult, FrameProducts]:
         try:
             frame_products = self._agent_runtime.finalize_frame(
                 callee_frame,
-                finalization_result,
+                callee_result,
             )
+            return callee_result, frame_products
         except Exception as error:
             logger.error("Failed to finalize sub-agent frame: %s", error, exc_info=True)
-            response = MTPCallResponse(
-                status=MTPResponseStatus.ERROR,
-                agent_alias=agent_alias,
-                error=SubAgentExecutionError(
-                    params={"agent_alias": agent_alias},
-                    cause=error,
-                ).to_error_info(),
-            )
-            callee_result = FrameExecutionResult(
+            if callee_result.status == FrameExecutionStatus.CANCELLED:
+                return callee_result, FrameProducts()
+
+            failed_result = FrameExecutionResult(
                 status=FrameExecutionStatus.FAILED,
                 error=error,
             )
-            if finalization_result.status == FrameExecutionStatus.COMPLETED:
+            if callee_result.status == FrameExecutionStatus.COMPLETED:
                 try:
-                    self._agent_runtime.finalize_frame(callee_frame, callee_result)
+                    self._agent_runtime.finalize_frame(callee_frame, failed_result)
                 except Exception:
                     logger.exception("Failed to clean up sub-agent frame after harvest error")
-        return response, callee_result, frame_products
+            return failed_result, FrameProducts()
 
     async def _emit_call_end(
         self,
@@ -403,101 +389,6 @@ class CallCoordinator:
         if not action_id:
             raise ValueError("CALL suspension is missing its action id.")
         return call_request, action_id
-
-    @staticmethod
-    def _response_for_exception(
-        agent_alias: str,
-        error: Exception,
-        *,
-        profile: AgentProfile | None,
-        generation_options: dict[str, Any] | None,
-    ) -> MTPCallResponse:
-        from hivememory.system.model_registry import ModelNotFoundError
-
-        if isinstance(error, ModelNotFoundError):
-            error_info = AgentModelUnavailableError(
-                params={
-                    "agent_alias": agent_alias,
-                    "model_name": (
-                        (generation_options or {}).get("model")
-                        or getattr(profile, "model_name", "unknown")
-                    ),
-                },
-                cause=error,
-            ).to_error_info()
-        else:
-            error_info = SubAgentExecutionError(
-                params={"agent_alias": agent_alias},
-                cause=error,
-            ).to_error_info()
-        return MTPCallResponse(
-            status=MTPResponseStatus.ERROR,
-            agent_alias=agent_alias,
-            error=error_info,
-        )
-
-    @staticmethod
-    def _cancelled_response(agent_alias: str) -> MTPCallResponse:
-        return MTPCallResponse(
-            status=MTPResponseStatus.CANCELLED,
-            agent_alias=agent_alias,
-        )
-
-    @staticmethod
-    def _call_response_for_frame(
-        call_request,
-        result: FrameExecutionResult,
-        *,
-        cancelled: bool = False,
-    ) -> MTPCallResponse:
-        if cancelled or result.status == FrameExecutionStatus.CANCELLED:
-            return MTPCallResponse(
-                status=MTPResponseStatus.CANCELLED,
-                agent_alias=call_request.target_alias,
-            )
-        if result.status == FrameExecutionStatus.COMPLETED:
-            return MTPCallResponse(
-                status=MTPResponseStatus.SUCCESS,
-                agent_alias=call_request.target_alias,
-            )
-        if result.status == FrameExecutionStatus.BUDGET_EXHAUSTED:
-            return MTPCallResponse(
-                status=MTPResponseStatus.ERROR,
-                agent_alias=call_request.target_alias,
-                error=SubAgentBudgetExhaustedError(
-                    params={"agent_alias": call_request.target_alias},
-                ).to_error_info(),
-            )
-        if result.status == FrameExecutionStatus.SUSPENDED:
-            return MTPCallResponse(
-                status=MTPResponseStatus.ERROR,
-                agent_alias=call_request.target_alias,
-                error=SubAgentUnexpectedSuspendError(
-                    params={"agent_alias": call_request.target_alias},
-                    cause=result.error,
-                ).to_error_info(),
-            )
-        return MTPCallResponse(
-            status=MTPResponseStatus.ERROR,
-            agent_alias=call_request.target_alias,
-            error=SubAgentExecutionError(
-                params={"agent_alias": call_request.target_alias},
-                cause=result.error,
-            ).to_error_info(),
-        )
-
-    @staticmethod
-    def _frame_result_for_finalization(
-        result: FrameExecutionResult | None,
-        response: MTPCallResponse,
-    ) -> FrameExecutionResult:
-        if response.status == MTPResponseStatus.SUCCESS and result is not None:
-            return result
-        if response.status == MTPResponseStatus.CANCELLED:
-            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-        if result is not None and result.status != FrameExecutionStatus.COMPLETED:
-            return result
-        return FrameExecutionResult(status=FrameExecutionStatus.FAILED)
 
 
 __all__ = [

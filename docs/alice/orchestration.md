@@ -100,9 +100,11 @@ current frame emits CALL
   -> CallCoordinator creates a normal callee frame from CallContext
   -> return DispatchCallee(callee)
   -> RunExecutor awaits _execute_frame(callee)
-  -> CallCoordinator.complete_call() finalizes and maps MTPCallResponse
-  -> AgentRuntime.apply_call_response() updates caller once
-  -> return ResumeCaller; re-enter the same caller frame
+  -> CallCoordinator.complete_call() finalizes the callee frame
+  -> call_response maps the finalized result to one MTPCallResponse
+  -> AgentRuntime.apply_call_response() commits the response once
+  -> emit sub_agent_end
+  -> return ResumeCaller, or CancelRun after a cancelled response
 ```
 
 `suspend` 不能被当作一条正文为空的成功响应。如果执行循环直接继续，Agent 会在被调用任务尚未执行时向下生成，CALL 的任务身份、结果和取消边界都会丢失。RunExecutor 必须先等待被调用任务完成，再以同一 action_id 通过 `AgentRuntime.apply_call_response()` 回填 tool result。
@@ -151,7 +153,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 - 由 persona、裁剪后的 MTP 教学、shared context 和 task 组成的全新消息历史；
 - 继承父 frame 的 `Identity`。
 
-子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间产生的 pending aliases 放入 CALL artifacts。取消、失败、预算耗尽或意外挂起的子帧不会收割 reply/artifact，其 frame 内尚未结算的 PendingAtom 会被取消。
+子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间产生的 pending aliases 放入 CALL artifacts。取消、失败或预算耗尽的子帧不会收割 reply/artifact，其 frame 内尚未结算的 PendingAtom 会被取消。`SUSPENDED` 是 RunExecutor 必须继续递归消费的非终态 trap；若它进入 `complete_call()`，属于编排不变量违约，不构造 CALL response。
 
 这种黑盒隔离避免主 Agent 与 Perception 被子任务细节淹没，但它并不等于子任务没有证据。子帧流事件仍可被 UI 观察，CALL 在主 frame 中有结构化 tool_call/tool_result，PendingAtom 又保存写入意图；只是这些事实目前没有被组合成持久化子任务 artifact。
 
@@ -177,9 +179,9 @@ root frame
 1. `FrameProducts` 投影该 frame 已登记的 PendingAtom alias；
 2. Runtime 对 UPDATE tool event 执行兼容补全，加入尚未登记为 pending 的 target alias。
 
-自然语言 reply 与 alias 列表组成 `MTPCallResponse`。CallCoordinator 不直接操作 history 容器，而把成功响应交给 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并形成与原 CALL action_id 对应的 `tool_result`。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
+自然语言 reply 与 alias 列表组成 success `MTPCallResponse`。CallCoordinator 不直接操作 history 容器，而把 success/error/cancelled 终态响应交给 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并形成与原 CALL action_id 对应的 `tool_result`。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
 
-CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：CallCoordinator 检查 `FrameExecutionResult`，仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 和意外 `SUSPENDED` 映射为带稳定 error code 的 error。
+CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：`call_response.py` 仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 映射为带稳定 error code 的 error；`SUSPENDED` 不属于可映射终态。
 
 caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC harvest：入口 frame 终态后，RunExecutor 只调用一次 `AgentRuntime.finalize_run(run_id, result)`。IPC aliases 服务于 caller 当前认知，`RuntimeProducts.materialize_tasks` 服务于 Alice -> Patchouli 的数据交接，两者不能混为一份真相。
 
@@ -202,8 +204,8 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - CallContextProvider 的 Profile/共享上下文解析错误，以及后续模型调用或执行异常，会在 CALL 边界形成 error `MTPCallResponse`，主 Agent 得到错误后可以调整方案；
 - 子帧预算耗尽映射为 `mtp.call_response.budget_exhausted`，子帧取消保持 cancelled 终态；生产 policy 会在 Agent loop 内拒绝被调用 frame 的 CALL，因此不会形成第二层 suspension；若未来开放该权限，RunExecutor 会直接递归执行，而不需要增加 root/callee 状态分支；
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
-- run 取消 token 会传给主/子 AgentRuntime；最终主结果为 cancelled，并取消本 run 尚未结算的 PendingAtom，不交出 materialize tasks；
-- 流生成器提前关闭时，AgentRunService 设置当前 RunSession 的 cancel token，并关闭 AgentRunStream；适配器取消 runner task，CancelledError 沿递归协程栈展开，各层清理尚未 apply 的 CALL，最外层只收尾整个 run 一次，且不再向关闭的 consumer 阻塞发送事件；
+- run 取消 token 会传给主/子 AgentRuntime；活动 CALL 先 exactly-once 回填 cancelled response 并把 record 标记为 applied，再以 `CancelRun` 终止递归执行，不重入 caller 继续生成；最终主结果为 cancelled，并取消本 run 尚未结算的 PendingAtom，不交出 materialize tasks；
+- 流生成器提前关闭时，AgentRunService 设置当前 RunSession 的 cancel token，并关闭 AgentRunStream；适配器取消 runner task，CancelledError 沿递归协程栈展开，各层清理尚未 apply 的 CALL 并回填 cancelled response，最外层只收尾整个 run 一次，且不再向关闭的 consumer 阻塞发送事件；
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 
 将子 Agent 失败包装成 CALL error 是局部容错，不代表子任务成功；主 Agent 是否还能完成用户请求由后续生成决定。相反，主 frame 基础设施失败没有可用的上层 Agent 继续纠正，因此必须结束本次 run。

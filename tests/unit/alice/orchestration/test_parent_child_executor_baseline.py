@@ -237,10 +237,12 @@ async def test_cancelled_session_stops_call_before_dispatch():
         session=session,
     )
     assert begin == CancelRun()
-    runtime.apply_call_response.assert_not_called()
+    runtime.apply_call_response.assert_called_once()
+    response = runtime.apply_call_response.call_args.args[2]
+    assert response.status == MTPResponseStatus.CANCELLED
     runtime.run_frame.assert_not_awaited()
     runtime.finalize_frame.assert_not_called()
-    assert session.call_records[("frame-root", "action-1")].status.value == "cancelled"
+    assert session.call_records[("frame-root", "action-1")].status.value == "applied"
 
 
 def test_run_executor_is_the_only_alice_run_frame_caller():

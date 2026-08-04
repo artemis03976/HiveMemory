@@ -166,7 +166,6 @@ class RunExecutor:
                 caller_frame,
                 suspension,
                 session=self._session,
-                generation_options=generation_options,
                 run_output=run_output,
             )
             match outcome:

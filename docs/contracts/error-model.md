@@ -126,7 +126,7 @@ warning 的核心语义是“主要成果仍然成立”。例如 READ 多个 al
 
 `MTPResponse.content` 只承载成功业务内容；error 和 warning 分别使用结构化字段，不能先拼进 content 再要求调用方解析。KoakumaRuntime 的 `_route_and_execute()` 是普通 verb handler 异常转换为 `MTPErrorInfo` 的集中边界，取消和 CALL suspend 等控制流继续按专用语义处理。
 
-`MTPFormatter` 是普通 Agent-facing MTP 回填文本的唯一构造点：它根据 language 渲染 code/severity/message/warnings，并排除内部 cause。`response_content` 只是业务 payload，不等于完整回填；需要写回模型历史时应使用运行结果的 `formatted_response`。CALL 不经过旧的通用 IPC 文本拼接，而由 `RunExecutor`/`CallCoordinator` 消费 `MTPCallRequest`；`CallContextProvider` 在编排边界解析 Profile 和共享上下文。Executor 递归等待被调用 frame，完成后以结构化 `MTPCallResponse` 交给 `AgentRuntime.apply_call_response()` 恢复 caller frame。
+`MTPFormatter` 是普通 Agent-facing MTP 回填文本的唯一构造点：它根据 language 渲染 code/severity/message/warnings，并排除内部 cause。`response_content` 只是业务 payload，不等于完整回填；需要写回模型历史时应使用运行结果的 `formatted_response`。CALL 不经过旧的通用 IPC 文本拼接，而由 `RunExecutor`/`CallCoordinator` 消费 `MTPCallRequest`；`CallContextProvider` 在编排边界解析 Profile 和共享上下文。Executor 递归等待被调用 frame，CallCoordinator 先 finalize callee，再由 `call_response.py` 把最终 `FrameExecutionResult` 单向映射为一个 `MTPCallResponse`，最后交给 `AgentRuntime.apply_call_response()` 恢复 caller frame。response 提交早于可等待的结束事件发送；取消 response 同样 exactly-once 回填，随后由 `CancelRun` 终止 run。`SUSPENDED` 是非终态控制流，不参与错误映射。
 
 当前 formatter 尚未为所有业务 content/reply/warning 提供统一 XML escaping，因此错误结构稳定不等于任意 payload 都是严格合法 XML。这个限制应在 formatter 层修复，不能由各 verb handler 各自发明转义规则。
 

@@ -198,7 +198,7 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
 
 
 @pytest.mark.asyncio
-async def test_cancel_call_finalizes_bound_child_once_without_applying_response():
+async def test_cancel_call_finalizes_bound_child_and_applies_cancelled_response_once():
     caller = _frame()
     child = _frame()
     child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
@@ -220,27 +220,10 @@ async def test_cancel_call_finalizes_bound_child_once_without_applying_response(
     runtime.finalize_frame.assert_called_once()
     assert runtime.finalize_frame.call_args.args[0] is child
     assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.CANCELLED
-    runtime.apply_call_response.assert_not_called()
-    assert session.call_for_callee("frame-child").status == CallRecordStatus.CANCELLED
-
-
-@pytest.mark.parametrize(
-    ("status", "expected"),
-    [
-        (FrameExecutionStatus.COMPLETED, MTPResponseStatus.SUCCESS),
-        (FrameExecutionStatus.CANCELLED, MTPResponseStatus.CANCELLED),
-        (FrameExecutionStatus.FAILED, MTPResponseStatus.ERROR),
-        (FrameExecutionStatus.BUDGET_EXHAUSTED, MTPResponseStatus.ERROR),
-        (FrameExecutionStatus.SUSPENDED, MTPResponseStatus.ERROR),
-    ],
-)
-def test_call_coordinator_preserves_terminal_mapping(status, expected):
-    response = CallCoordinator._call_response_for_frame(
-        _suspension().call_request,
-        FrameExecutionResult(status=status),
-    )
-
-    assert response.status == expected
+    runtime.apply_call_response.assert_called_once()
+    response = runtime.apply_call_response.call_args.args[2]
+    assert response.status == MTPResponseStatus.CANCELLED
+    assert session.call_for_callee("frame-child").status == CallRecordStatus.APPLIED
 
 
 @pytest.mark.asyncio
@@ -311,13 +294,81 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
     )
 
     assert transition == CancelRun()
-    runtime.apply_call_response.assert_not_called()
+    runtime.apply_call_response.assert_called_once()
+    response = runtime.apply_call_response.call_args.args[2]
+    assert response.status == MTPResponseStatus.CANCELLED
     runtime.finalize_frame.assert_called_once()
     assert runtime.finalize_frame.call_args.args[0] is child
     assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.CANCELLED
     runtime.finalize_run.assert_not_called()
     runtime.run_frame.assert_not_awaited()
-    assert session.call_for_callee("frame-child").status == CallRecordStatus.CANCELLED
+    assert session.call_for_callee("frame-child").status == CallRecordStatus.APPLIED
+
+
+@pytest.mark.asyncio
+async def test_call_response_is_committed_before_finished_output_await():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    child_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+        apply_call_response=MagicMock(),
+    )
+    coordinator = _coordinator(runtime, child)
+    session = _session(caller)
+    suspension = _suspension()
+    await coordinator.begin_call(caller, suspension, session=session)
+    record = session.call_for_callee("frame-child")
+
+    async def cancel_during_output(_output):
+        runtime.apply_call_response.assert_called_once()
+        assert record.status == CallRecordStatus.APPLIED
+        raise asyncio.CancelledError
+
+    output = SimpleNamespace(call_finished=AsyncMock(side_effect=cancel_during_output))
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator.complete_call(
+            caller,
+            suspension,
+            child,
+            child_result,
+            session=session,
+            run_output=output,
+        )
+
+    session.cancel_event.set()
+    coordinator.cancel_call(caller, suspension, session=session)
+    runtime.apply_call_response.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_complete_call_rejects_a_nonterminal_callee_result():
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+        apply_call_response=MagicMock(),
+    )
+    coordinator = _coordinator(runtime, child)
+    session = _session(caller)
+    suspension = _suspension()
+    await coordinator.begin_call(caller, suspension, session=session)
+
+    with pytest.raises(ValueError, match="terminal callee result"):
+        await coordinator.complete_call(
+            caller,
+            suspension,
+            child,
+            FrameExecutionResult(status=FrameExecutionStatus.SUSPENDED),
+            session=session,
+        )
+
+    runtime.finalize_frame.assert_not_called()
+    runtime.apply_call_response.assert_not_called()
 
 
 @pytest.mark.asyncio
